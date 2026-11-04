@@ -581,6 +581,46 @@ export function removePolicy(
   }));
 }
 
+/** Set several rows' status in a layer at once, keeping each row's other constraints. */
+export function setStatuses(
+  doc: HomeLayout,
+  layer: LayerKey,
+  section: LayoutSection,
+  rows: string[],
+  status: RowStatus,
+): HomeLayout {
+  const targets = new Set(rows);
+  return updatePage(doc, layer, section, (page) => {
+    const next = page.rows.map((r) =>
+      targets.has(r.row)
+        ? tidyPolicy({ ...r, status, slot: status === "off" ? undefined : r.slot })
+        : r,
+    );
+    const have = new Set(page.rows.map((r) => r.row));
+    for (const row of targets) if (!have.has(row)) next.push({ row, status });
+    return { ...page, rows: next };
+  });
+}
+
+/** Remove several rows' policies from a layer at once. */
+export function removePolicies(
+  doc: HomeLayout,
+  layer: LayerKey,
+  section: LayoutSection,
+  rows: string[],
+): HomeLayout {
+  const targets = new Set(rows);
+  return updatePage(doc, layer, section, (page) => ({
+    ...page,
+    rows: page.rows.filter((r) => !targets.has(r.row)),
+  }));
+}
+
+/** Whether a layout row is a pattern (glob) rather than one row. */
+export function isPattern(row: string): boolean {
+  return /[*?[]/.test(row);
+}
+
 /** Set or clear (undefined) a page length, for all devices (device null) or one. */
 export function setPageLength(
   doc: HomeLayout,
