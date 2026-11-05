@@ -11,12 +11,15 @@ namespace=$1 node=$2 verifier=$3 output=$4
 [[ "$node" =~ ^ether035-ha-worker[0-9]*$ ]] || exit 64
 [[ -x "$verifier" ]] || { echo 'real playback verifier required' >&2; exit 64; }
 kubectl=${KUBECTL:-kubectl}
-cluster=$(docker inspect --format '{{index .Config.Labels "io.x-k8s.kind.cluster"}}' "$node")
-[[ "$cluster" == ether035-ha ]] || { echo 'container is not in the authorized lab' >&2; exit 64; }
-container_id=$(docker inspect --format '{{.Id}}' "$node")
+# Capture ID and authorization labels in one response for the same object.
+# Every later Docker operation uses that immutable ID, even if its name is reused.
+read -r container_id cluster kind_role <<< "$(docker inspect --format '{{.Id}} {{index .Config.Labels "io.x-k8s.kind.cluster"}} {{index .Config.Labels "io.x-k8s.kind.role"}}' "$node")"
+[[ "$container_id" =~ ^[a-f0-9]{64}$ && "$cluster" == ether035-ha && "$kind_role" == worker ]] || {
+  echo 'container is not an authorized lab worker' >&2; exit 64;
+}
 mkdir -p "$output"
 printf '%s\n' "$container_id" > "$output/lost-container-id.txt"
-$kubectl -n "$namespace" get pods -o wide > "$output/before-loss.txt"
+"$kubectl" -n "$namespace" get pods -o wide > "$output/before-loss.txt"
 "$verifier" before-loss "$namespace" "$node" "$output"
 verifier_pid=
 restore_node=false
@@ -43,7 +46,7 @@ verifier_pid=
 "$verifier" after-loss "$namespace" "$node" "$output"
 docker start "$container_id" > /dev/null
 restore_node=false
-$kubectl wait --for=condition=Ready "node/$node" --timeout=300s
+"$kubectl" wait --for=condition=Ready "node/$node" --timeout=300s
 "$verifier" after-recovery "$namespace" "$node" "$output"
-$kubectl -n "$namespace" get pods,pvc -o wide > "$output/after-recovery.txt"
+"$kubectl" -n "$namespace" get pods,pvc -o wide > "$output/after-recovery.txt"
 echo 'node process loss and real workload verifier passed'

@@ -169,8 +169,11 @@ or free uncertain durable capacity; ownership remains uncertain until authority
 and fencing evidence resolve it. Increase the grace period for your workload,
 but do not treat any deadline as a retirement proof.
 
-After successful drain the helper deletes only that pod, waits for a new UID and
-Ready, and leaves its PVC intact. Verify playback and authority before proceeding
+After successful drain the helper sends a Kubernetes DeleteOptions request with
+an atomic UID precondition for the original pod. If a replacement races the
+request, the API conflict aborts the helper; it does not retry deletion by name.
+The helper preserves the normal pod grace period, waits for a new UID and Ready,
+and leaves its PVC intact. Verify playback and authority before proceeding
 to the next ordinal. If a candidate image fails, run `helm rollback ether REV -n
 ether`, inspect the rendered old image/config, and use the same sequential drain
 procedure. An already drained pod cannot receive new admissions until restart;
@@ -260,8 +263,9 @@ packaging/kubernetes/hard-loss.sh ether035-ha ether035-ha-worker \
   /path/to/real-playback-verifier /tmp/ether035-hard-loss-evidence
 ```
 
-It verifies the kind cluster label, records the exact container ID, stops only
-that worker, checks Docker reports `running=false` and `pid=0`, and restores it
+It captures the kind cluster/worker labels and exact container ID together in
+one inspection, then uses only that immutable ID for subsequent Docker operations.
+It stops only that worker, checks Docker reports `running=false` and `pid=0`, and restores it
 on exit. Its verifier stages (`before-loss`, `during-loss`, `after-loss`,
 `after-recovery`) must demonstrate ongoing playback, authority/fencing and
 retirement evidence while the node is actually stopped. Place redundant public
@@ -269,3 +273,8 @@ and worker capacity on other nodes before running it. A single-worker GPU pool
 cannot maintain a hardware transcode when its sole device is lost. Do not
 substitute a readiness-only or fabricated response verifier. A failed verifier
 means acceptance failed, even if the node restarts.
+
+`python3 packaging/kubernetes/check-rollout.py` runs offline command stubs for
+drain failure, a replacement racing the UID-preconditioned delete, successful
+replacement, and container-name reuse safety. These checks run in chart CI and
+do not count as playback or hard-loss acceptance.
