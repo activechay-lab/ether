@@ -604,7 +604,7 @@ pieces resume through `Programme.Offset`, as clock-interrupted programmes do.
 The broadcast guide coalesces resumed pieces and pod spans into the programme.
 Pod boundaries preserve the unconditional 40 ms PCM anti-click ramp. This is
 not a creative crossfade. `Moment.crossfade` requests a creative transition;
-the W11 switcher integration owns visual and longer audio crossfades.
+the continuous switcher owns visual and longer audio crossfades.
 
 
 **Owner decision (2026-11-05).** Every virtual channel, and every IPTV channel with a can't-play screen enabled, plays as **one continuous stream** carrying every show, break, interstitial, ident and screen. There is no discontinuity, new playlist or MPD, retune or spinner at programme boundaries, on HLS, DASH and Plex for Mac's HTTP stream. This replaces the per-programme tracks, the three-track cap, clip tracks on the slate path and the per-session ident prefix described in earlier drafts.
