@@ -981,7 +981,7 @@ func containerExt(c string) string {
 
 // videoResolution is PMS's videoResolution value.
 func videoResolution(w, h int) string {
-	if w > 0 && w < 960 && h > 0 && h < 400 {
+	if w > 0 && w < 800 && h > 0 && h < 480 {
 		return "sd"
 	}
 	switch tier := core.ResolutionTier(w, h); tier {
