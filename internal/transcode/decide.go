@@ -615,6 +615,13 @@ func Decide(info core.MediaInfo, caps core.ClientCaps, opts core.DecideOptions, 
 			caps: caps, heightCap: heightCap, bitrateCap: bitrateCap, burn: burn, audioFilters: d.AudioFilters,
 		})
 	}
+	// A nonseekable Matroska header cannot acquire AAC AudioSpecificConfig
+	// from later ADTS packets, even with aac_adtstoasc. Convert that track
+	// so the encoder supplies the header before streamed output starts
+	// (Rex findings, Plex Desktop/ADTS AAC, 2026-10-27).
+	if a != nil && a.Codec == "aac" && (info.Container == "mpegts" || info.Container == "hls") && outputContainer(caps, opts, "h264", "aac") == ContainerMatroska {
+		audioIssues = append(audioIssues, "ADTS AAC requires conversion for streamed Matroska")
+	}
 
 	var why []string
 	if hdr10Base {
