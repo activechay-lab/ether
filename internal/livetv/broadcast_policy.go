@@ -62,15 +62,24 @@ func (s *Service) broadcastPolicyContext(ctx context.Context, ss *session, u *co
 	cache := &ss.broadcastPolicy
 	if cache.decisions == nil || cache.epoch != epoch || cache.revision != revision || cache.raw != raw || !reflect.DeepEqual(cache.user, *u) {
 		c := ss.info.Channel
-		if cache.decisions != nil && cache.epoch != epoch {
-			var data []byte
-			if err = s.o.DB.QueryRowContext(ctx, `SELECT data FROM livetv_channels WHERE id=?`, c.ID).Scan(&data); err != nil {
-				return ctx, err
-			}
-			if err = json.Unmarshal(data, &c); err != nil {
-				return ctx, err
-			}
+
+		// Channel saves/background refresh publish decoded records. An external
+		// edit waits for that refresh instead of decoding a recipe on this request.
+		s.chanSnap.mu.Lock()
+		if s.chanSnap.generation != epoch {
+			s.chanSnap.mu.Unlock()
+			s.wakeVirtualGuide()
+			return ctx, core.ErrNotAvailable
 		}
+		at, exists := s.chanSnap.byID[c.ID]
+		if exists {
+			c = s.chanSnap.list[at]
+		}
+		s.chanSnap.mu.Unlock()
+		if !exists {
+			return ctx, core.ErrNotFound
+		}
+
 		var pol Policy
 		if err = json.Unmarshal([]byte(raw), &pol); err != nil {
 			return ctx, err
