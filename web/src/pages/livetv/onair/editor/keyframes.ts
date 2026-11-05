@@ -1,7 +1,7 @@
 import { evaluate, type Layer, type Value, type SceneBindings } from "../scene-renderer";
 export type Ease = "linear" | "in" | "out" | "inOut" | "back" | "elastic" | "spring";
 export const isAnimated = (v: unknown): v is { keys: [number, Value, string?][] } =>
-  !!v && typeof v === "object" && "keys" in v;
+  !!v && typeof v === "object" && "keys" in v && Array.isArray(v.keys);
 export function valueAt(
   value: Value | undefined,
   time: number,

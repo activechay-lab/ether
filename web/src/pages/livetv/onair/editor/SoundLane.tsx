@@ -10,6 +10,7 @@ export function SoundLane({
   muted,
   onMute,
   onSolo,
+  solo,
 }: {
   sound: SceneSound;
   duration: number;
@@ -18,6 +19,7 @@ export function SoundLane({
   muted: boolean;
   onMute(): void;
   onSolo(): void;
+  solo: boolean;
 }) {
   const [peaks, setPeaks] = useState<number[]>([]),
     [length, setLength] = useState(duration);
@@ -148,7 +150,9 @@ export function SoundLane({
         <Button onClick={onMute} aria-pressed={muted}>
           {t("Mute")}
         </Button>
-        <Button onClick={onSolo}>{t("Solo")}</Button>
+        <Button onClick={onSolo} aria-pressed={solo}>
+          {t("Solo")}
+        </Button>
         <Button onClick={onRemove}>{t("Remove sound")}</Button>
       </div>
     </section>
