@@ -71,7 +71,7 @@ test("same look, bindings and time produce identical drawing commands", async ()
     },
   );
   const { renderDocument, styleBindings } = await import("./scene-renderer");
-  const renderLook = (
+  const renderStyleScene = (
     ctx: CanvasRenderingContext2D,
     look: import("./model").Look,
     moment: string,
@@ -82,13 +82,13 @@ test("same look, bindings and time produce identical drawing commands", async ()
     if (sc) renderDocument(ctx, sc.document, styleBindings(look, b), t);
   };
   const bindings = { next: { title: "Arrival" }, viewer: { name: "Alex" } };
-  renderLook(context().ctx, referenceLooks[0]!, "ident", bindings, 3);
+  renderStyleScene(context().ctx, referenceLooks[0]!, "ident", bindings, 3);
   for (const look of referenceLooks)
     for (const moment of MOMENTS) {
       const a = context(),
         b = context();
-      renderLook(a.ctx, look, moment, bindings, 3);
-      renderLook(b.ctx, look, moment, bindings, 3);
+      renderStyleScene(a.ctx, look, moment, bindings, 3);
+      renderStyleScene(b.ctx, look, moment, bindings, 3);
       expect(JSON.stringify(a.calls)).toEqual(JSON.stringify(b.calls));
     }
   const documents = import.meta.glob<Scene>(
@@ -195,7 +195,7 @@ test("a tile paints immediately while its worker starts, and releases its worker
     },
   );
   const { renderDocument, styleBindings, releaseRenderer } = await import("./scene-renderer");
-  const renderLook = (
+  const renderStyleScene = (
     ctx: CanvasRenderingContext2D,
     look: import("./model").Look,
     _moment: string,
@@ -204,11 +204,11 @@ test("a tile paints immediately while its worker starts, and releases its worker
   ) => renderDocument(ctx, look.scenes[0]!.document, styleBindings(look, b), t);
   const look = { ...referenceLooks[1]!, family: "clean" };
   const a = context();
-  renderLook(a.ctx, look, "ident", {}, 5.5);
+  renderStyleScene(a.ctx, look, "ident", {}, 5.5);
   expect(sent).toHaveLength(1);
   expect(a.calls.length).toBeGreaterThan(5);
   const first = a.calls.length;
-  renderLook(a.ctx, look, "ident", {}, 5.5);
+  renderStyleScene(a.ctx, look, "ident", {}, 5.5);
   expect(a.calls).toHaveLength(first);
   releaseRenderer(a.ctx);
   expect(terminate).toHaveBeenCalledOnce();

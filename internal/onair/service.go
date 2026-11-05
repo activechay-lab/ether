@@ -432,6 +432,28 @@ func (s *Service) queueLook(l Look, requests []core.ClipRequest) {
 			}
 		}
 	}
+
+	// Render progress covers every enabled scene, including roles whose live slots
+	// will be populated only when a schedule request arrives.
+	channels := map[string]core.ClipRequest{}
+	seen := map[string]bool{}
+	for _, r := range requests {
+		channels[r.ChannelID] = r
+		seen[r.ChannelID+"\x00"+r.Moment] = true
+	}
+	for channel, base := range channels {
+		for _, sc := range l.Scenes {
+			key := channel + "\x00" + sc.Role
+			if sc.Enabled && !seen[key] {
+				r := base
+				r.Moment = sc.Role
+				r.AssetDigest = ""
+				r.Art = nil
+				requests = append(requests, r)
+				seen[key] = true
+			}
+		}
+	}
 	jobs := []renderJob{}
 	hashes := []string{}
 	for _, r := range requests {

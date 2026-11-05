@@ -20,7 +20,7 @@ type VideoInput struct {
 // MixFilter builds a bounded, timestamp-reset mix alongside the generated bed.
 // Sound input indexes begin at firstInput; base names the existing audio stream.
 func MixFilter(base string, sounds []SoundInput, firstInput int, duration float64) string {
-	filters := []string{fmt.Sprintf("[%s]atrim=duration=%g,asetpts=PTS-STARTPTS[bed]", base, duration)}
+	filters := []string{fmt.Sprintf("[%s]apad=whole_dur=%g,atrim=duration=%g,asetpts=PTS-STARTPTS[bed]", base, duration, duration)}
 	labels := "[bed]"
 	for i, s := range sounds {
 		trim := fmt.Sprintf("atrim=start=%g", s.Start)

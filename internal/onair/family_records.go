@@ -55,8 +55,9 @@ func familyLook(id, name string) Look {
 		bake = func(v any) any {
 			switch x := v.(type) {
 			case string:
+				x = strings.ReplaceAll(x, "{type.mono}", "{type.body}")
 				for k, t := range b.Tokens {
-					if strings.HasPrefix(k, "words.") {
+					if strings.HasPrefix(k, "words.") || k == "moon" || k == "fog" {
 						x = strings.ReplaceAll(x, "{"+k+"}", fmt.Sprint(t))
 					}
 				}
