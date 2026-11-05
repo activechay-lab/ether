@@ -1,9 +1,14 @@
 package plex
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -11,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	_ "golang.org/x/image/webp"
 
 	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/core"
@@ -177,14 +183,21 @@ func (s *Server) writeRemoteImage(w http.ResponseWriter, r *http.Request, u stri
 	if err != nil {
 		return err
 	}
+	data, ct, err := androidPhotoFormat(r, img.Data, img.ContentType)
+	if err != nil {
+		return err
+	}
 	h := w.Header()
-	setArtworkHeaders(h, img.ContentType)
+	setArtworkHeaders(h, ct)
+	if plexAndroidClient(FromContext(r.Context())) {
+		h.Add("Vary", "X-Plex-Product")
+	}
 	h.Set("Cache-Control", "max-age=604800, private")
 	h.Add("Vary", "X-Plex-Token")
-	h.Set("Content-Length", strconv.Itoa(len(img.Data)))
+	h.Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
-		_, _ = w.Write(img.Data)
+		_, _ = w.Write(data)
 	}
 	return nil
 }
@@ -317,7 +330,12 @@ func (s *Server) handlePhotoTranscode(w http.ResponseWriter, r *http.Request) {
 		s.serveRemoteImage(w, r, resizeTMDBURL(u.String(), width))
 		return
 	}
-	if !u.IsAbs() || s.isSelfHost(r, u.Host) {
+	// Android may wrap an artwork URL from a previous local/remote/relay
+	// connection. Resolve only known server artwork routes under the OUTER
+	// viewer; never dial that hostname or use credentials from the nested URL.
+	androidLocal := plexAndroidClient(FromContext(r.Context())) && (u.Scheme == "http" || u.Scheme == "https") &&
+		(metadataImageRe.MatchString(u.Path) || discoveryImageRe.MatchString(u.Path) || personImageRe.MatchString(u.Path) || playlistImageRe.MatchString(u.Path))
+	if !u.IsAbs() || s.isSelfHost(r, u.Host) || androidLocal {
 		path := u.Path
 		if m := discoveryImageRe.FindStringSubmatch(path); m != nil {
 			key, err := core.ParseRatingKey(m[1])
@@ -411,4 +429,45 @@ func photoQueryValue(q url.Values, name string) string {
 		return ""
 	}
 	return vs[len(vs)-1]
+}
+
+// Honor Android's explicit raster output request without changing the shared
+// upstream cache or other clients. Decode bounds before allocating pixels.
+func androidPhotoFormat(r *http.Request, data []byte, ct string) ([]byte, string, error) {
+	format := androidPhotoOutputFormat(r)
+	if format == "" || ct == "image/"+format {
+		return data, ct, nil
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > 16000000 {
+		return nil, "", fmt.Errorf("artwork dimensions exceed raster limit")
+	}
+	decoded, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", err
+	}
+	var out bytes.Buffer
+	if format == "png" {
+		err = png.Encode(&out, decoded)
+	} else {
+		err = jpeg.Encode(&out, decoded, &jpeg.Options{Quality: 90})
+	}
+	return out.Bytes(), "image/" + format, err
+}
+
+func androidPhotoOutputFormat(r *http.Request) string {
+	if !plexAndroidClient(FromContext(r.Context())) || r.URL.Path != "/photo/:/transcode" {
+		return ""
+	}
+	format := strings.ToLower(photoQueryValue(r.URL.Query(), "format"))
+	if format == "jpg" {
+		format = "jpeg"
+	}
+	if format == "jpeg" || format == "png" {
+		return format
+	}
+	return ""
 }
