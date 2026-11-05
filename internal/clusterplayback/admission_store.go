@@ -148,9 +148,17 @@ func (r *Runtime) insertAdmission(ctx context.Context, a admissionRecord, raw st
 		return err
 	}
 	// Acquire a real SQLite write lock before reads even for deferred test DBs.
-	if _, err = tx.ExecContext(ctx, `UPDATE clusterplayback_admissions SET generation=generation WHERE session=''`); err != nil {
-		return err
+	// Constant false avoids scanning retained history; PostgreSQL already has
+	// the component advisory lock and needs no synthetic write at all.
+	if store.DialectOf(r.o.DB) == store.SQLite {
+		if _, err = tx.ExecContext(ctx, `UPDATE clusterplayback_admissions SET generation=generation WHERE 1=0`); err != nil {
+			return err
+		}
 	}
+	// This is a historical route observation, not a PostgreSQL row lock shared
+	// with putRoute. Replacement can race this insert, leaving an inert old row.
+	// Immutable generation keys prohibit overwrite; persistAdmission rechecks
+	// placement and route after readback before permitting any Start bytes.
 	var routeRaw string
 	if err = tx.QueryRowContext(ctx, `SELECT route FROM clusterplayback_routes WHERE session=? AND generation=?`, a.Route.Fence.Session, a.Route.Fence.Generation).Scan(&routeRaw); err != nil {
 		return err
@@ -170,8 +178,11 @@ func (r *Runtime) insertAdmission(ctx context.Context, a admissionRecord, raw st
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	// The index's cluster prefix bounds retained history across all controller
+	// boots, including retired generations. Restart cannot replenish capacity.
+	// Exact retries above remain readable even at exhaustion. No eviction exists.
 	var count int
-	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM clusterplayback_admissions WHERE cluster=? AND controller=? AND controller_boot=?`, a.Route.Source.Cluster, a.Route.Fence.Controller.ID, a.Route.Fence.Controller.Boot).Scan(&count); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM clusterplayback_admissions WHERE cluster=?`, a.Route.Source.Cluster).Scan(&count); err != nil {
 		return err
 	}
 	if count >= r.o.HistoryCapacity {

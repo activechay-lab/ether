@@ -275,9 +275,18 @@ The outbound Start comes only from installed Session.start bytes. Nil preserves
 default adapter behavior. SQL errors are unknown outcomes; only an independent
 identical read permits sending. Conflicts, timeout without exact reconciliation,
 and full history retain source, placement and owned-token responsibilities.
-Records are bounded to 256 KiB and HistoryCapacity per controller boot, including
-retired generations; no expiry deletion or compaction is provided. Historical
-route JSON stays unchanged. Explicit fields retain complete keyframes and slate
+Records are bounded to 256 KiB and a durable cluster-wide HistoryCapacity,
+including every controller boot and retired generation. All coordinators must
+configure the same quota. Restart never replenishes it; exhaustion fails closed
+for new records while exact retries remain possible. No expiry deletion,
+eviction or compaction is provided. Historical
+route JSON stays unchanged. The transaction's PostgreSQL route read is not
+row-locked with route replacement: a racing replacement may leave an inert old
+historical row. Immutable generation keys prevent overwrite, and fresh placement
+and route checks after exact write readback gate sending. Worker authorization
+still independently fences every execution; a historical row is never authority.
+The synthetic write lock is SQLite-only and constant-false, with no history scan.
+Explicit fields retain complete keyframes and slate
 text omitted by ordinary request JSON. Raw grants, URLs, headers and InputLease
 actors never persist. The reservation operation is retained only as a hash.
 

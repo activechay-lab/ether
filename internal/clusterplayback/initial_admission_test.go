@@ -356,6 +356,27 @@ func TestDurableAdmissionAcrossCoordinatorRestart(t *testing.T) {
 	if err := front.insertAdmission(ctx, scratch, scratchRaw); !errors.Is(err, ErrPending) {
 		t.Fatal("history quota admitted another record", err)
 	}
+	// A new controller boot shares the same durable cluster quota; its empty
+	// execution map and fresh boot identity cannot replenish retained history.
+	newBoot := scratch
+	newBoot.Route.Fence.Session, newBoot.Request.SessionID = "admission-newboot", "admission-newboot"
+	newBoot.Route.Fence.Controller.Boot = replacement.Boot
+	newBoot.Identity = remoteIdentity(newBoot.Route)
+	if err := restarted.putRoute(ctx, newBoot.Route); err != nil {
+		t.Fatal(err)
+	}
+	newBootRaw, _ := newBoot.encode()
+	restarted.o.HistoryCapacity = 1
+	if err := restarted.insertAdmission(ctx, newBoot, newBootRaw); !errors.Is(err, ErrPending) {
+		t.Fatal("new controller boot bypassed cluster history quota", err)
+	}
+	if err := restarted.insertAdmission(ctx, rawAdmission, encodedAdmission); err != nil {
+		t.Fatal("quota exhaustion blocked exact historical retry", err)
+	}
+	var retainedRows int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM clusterplayback_admissions WHERE cluster=?`, controller.Cluster).Scan(&retainedRows); err != nil || retainedRows != 1 {
+		t.Fatal("quota rejection changed retained history", retainedRows, err)
+	}
 	front.o.HistoryCapacity = savedCapacity
 	if err := front.insertAdmission(ctx, scratch, scratchRaw); err != nil {
 		t.Fatal(err)
