@@ -2,7 +2,6 @@ package clusterplayback
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 	"io"
@@ -32,7 +31,7 @@ func (r *Runtime) BindDelivery(handler func(http.ResponseWriter, *http.Request, 
 }
 func (r *Runtime) deliveryHTTP(w http.ResponseWriter, q *http.Request) {
 	peer, e := r.o.Guard.Request(q)
-	if e != nil || r.o.MemberRole(q.Context(), peer, config.RoleDelivery) != nil {
+	if e != nil || !r.mediaPeer(q.Context(), peer) {
 		http.Error(w, "denied", 401)
 		return
 	}

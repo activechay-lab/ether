@@ -9,7 +9,7 @@ import (
 
 // NewPublicDelivery constructs the delivery-only public representation sender.
 // AuthorizePlex must perform the same live valid-token/receipt checks as the
-// owning Plex frontend. Grant-only Plex forwarding is deliberately unavailable.
+// owning Plex frontend. Grant-only media uses the separate canonical envelope and owner authentication.
 // Neutral grant authentication and current viewer/media policy run at owner.
 func (r *Runtime) NewPublicDelivery(authorizePlex func(context.Context, *http.Request, string) error) (http.Handler, error) {
 	if authorizePlex == nil || r.o.Roles.Has(config.RoleServer) || !r.o.Roles.Has(config.RoleDelivery) {
@@ -24,13 +24,22 @@ func (r *Runtime) NewPublicDelivery(authorizePlex func(context.Context, *http.Re
 			http.NotFound(w, q)
 			return
 		}
-		if id, ok := neutralMediaSession(q.URL.Path); ok {
-			if !r.ForwardMedia(w, q, id, "") {
+		if path, id, protocol, ok := neutralDeliveryRoute(q.URL.Path); ok {
+			clone := q.Clone(q.Context())
+			clone.URL.Path = path
+			clone.RequestURI = clone.URL.RequestURI()
+			if !r.ForwardMedia(w, clone, id, protocol) {
 				http.NotFound(w, q)
 			}
 			return
 		}
 		if id, ok := plexMediaSession(q.URL); ok {
+			if plexGrantEnvelope(q) {
+				if !r.ForwardPlexGrantMedia(w, q, id) {
+					http.NotFound(w, q)
+				}
+				return
+			}
 			if authorizePlex(q.Context(), q, id) != nil {
 				http.Error(w, "unauthorized", 401)
 				return
@@ -70,4 +79,18 @@ func neutralMediaSession(path string) (string, bool) {
 		}
 	}
 	return parts[0], true
+}
+
+func neutralDeliveryRoute(path string) (canonical, id, protocol string, ok bool) {
+	canonical = path
+	switch {
+	case strings.HasPrefix(path, "/jellyfin/sessions/media/"):
+		canonical = strings.TrimPrefix(path, "/jellyfin")
+		protocol = "jellyfin"
+	case strings.HasPrefix(path, "/emby/sessions/media/"):
+		canonical = strings.TrimPrefix(path, "/emby")
+		protocol = "emby"
+	}
+	id, ok = neutralMediaSession(canonical)
+	return
 }

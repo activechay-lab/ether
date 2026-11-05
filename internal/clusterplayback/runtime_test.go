@@ -41,33 +41,52 @@ func (fixtureResolver) Resolve(_ context.Context, q core.ResolveRequest) (*core.
 	return &core.Resolution{Title: q.Title.Key, Release: core.Release{ID: "fixture", Name: "fixture.mkv"}, NZB: []byte("offline")}, nil
 }
 
-type fixtureEngine struct{ core.Engine }
+type fixtureEngine struct {
+	core.Engine
+	body string
+}
 
-func (fixtureEngine) Open(context.Context, string, []byte) (core.MediaSource, error) {
-	return fixtureBytes{}, nil
+func (f fixtureEngine) Open(context.Context, string, []byte) (core.MediaSource, error) {
+	return fixtureBytes{body: f.body}, nil
 }
 func (fixtureEngine) Prefetch(context.Context, string, []byte, int64, int64) error { return nil }
 
-type fixtureBytes struct{}
+type fixtureBytes struct{ body string }
 
-func (fixtureBytes) Size() int64       { return 10 }
+func (f fixtureBytes) Size() int64 {
+	if f.body != "" {
+		return int64(len(f.body))
+	}
+	return 10
+}
 func (fixtureBytes) Name() string      { return "fixture.mkv" }
 func (fixtureBytes) ReleaseID() string { return "fixture" }
 func (fixtureBytes) Close() error      { return nil }
-func (fixtureBytes) ReadAt(b []byte, off int64) (int, error) {
-	return strings.NewReader("0123456789").ReadAt(b, off)
+func (f fixtureBytes) ReadAt(b []byte, off int64) (int, error) {
+	body := f.body
+	if body == "" {
+		body = "0123456789"
+	}
+	return strings.NewReader(body).ReadAt(b, off)
 }
 func (f fixtureBytes) ReadAtContext(_ context.Context, b []byte, off int64) (int, error) {
 	return f.ReadAt(b, off)
 }
 
 type fixtureEncoder struct {
+	mu                  sync.Mutex
+	body                string
+	keyframes, received []core.KeyframePoint
 	core.Transcoder
 	session *fixtureSession
 }
 
-func (*fixtureEncoder) Probe(context.Context, string) (*core.MediaInfo, error) {
-	return &core.MediaInfo{Size: 10, Container: "mkv", Duration: time.Minute, Streams: []core.StreamInfo{{Type: "video", Codec: "h264", Height: 720}}}, nil
+func (f *fixtureEncoder) Probe(context.Context, string) (*core.MediaInfo, error) {
+	size := int64(10)
+	if f.body != "" {
+		size = int64(len(f.body))
+	}
+	return &core.MediaInfo{Size: size, Keyframes: append([]core.KeyframePoint(nil), f.keyframes...), Container: "mkv", Duration: time.Minute, Streams: []core.StreamInfo{{Type: "video", Codec: "h264", Height: 720}}}, nil
 }
 func (f *fixtureEncoder) StartHLSOwned(ctx context.Context, q core.HLSRequest) (core.HLSSession, core.EncoderRetirement, error) {
 	if e := q.InputLease.ClaimInput(func(error) {}); e != nil {
@@ -87,9 +106,16 @@ func (f *fixtureEncoder) StartHLSOwned(ctx context.Context, q core.HLSRequest) (
 	}
 	defer response.Body.Close()
 	b, e := io.ReadAll(response.Body)
-	if e != nil || string(b) != "0123456789" {
+	expected := f.body
+	if expected == "" {
+		expected = "0123456789"
+	}
+	if e != nil || string(b) != expected {
 		return nil, nil, ErrDenied
 	}
+	f.mu.Lock()
+	f.received = append([]core.KeyframePoint(nil), q.Info.Keyframes...)
+	f.mu.Unlock()
 	s := &fixtureSession{id: q.SessionID, input: q.InputLease, done: make(chan struct{})}
 	f.session = s
 	return s, s, nil
@@ -168,7 +194,8 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	frontendID := nodewire.Identity{Cluster: "offline", NodeID: "frontend", Boot: "frontend-boot"}
 	brokerID := nodewire.Identity{Cluster: "offline", NodeID: "broker", Boot: "broker-boot"}
 	deliveryID := nodewire.Identity{Cluster: "offline", NodeID: "delivery", Boot: "delivery-boot"}
-	guards := fixtureGuards(t, sourceID, workerID, frontendID, brokerID, deliveryID)
+	takeoverID := nodewire.Identity{Cluster: "offline", NodeID: "takeover", Boot: "takeover-boot"}
+	guards := fixtureGuards(t, sourceID, workerID, frontendID, brokerID, deliveryID, takeoverID)
 	endpoints := map[nodewire.Identity]string{}
 	endpoint := func(_ context.Context, id nodewire.Identity) (string, error) {
 		s, ok := endpoints[id]
@@ -515,6 +542,7 @@ mismatchRetired:
 			if rec.Operation != reserve.Operation || len(worker.encoderTokens) != 3 {
 				t.Fatal("reconciliation changed operation or started another encoder")
 			}
+			testTerminalTakeover(t, ctx, base, guards[5], takeoverID, sourceID, front, source, worker, endpoints)
 			return
 		}
 		time.Sleep(time.Millisecond)
@@ -759,4 +787,72 @@ func testPreparationFailures(t *testing.T, ctx context.Context, front, source *R
 		}
 	}
 	t.Fatal("lost-result operation did not retire")
+}
+
+func testTerminalTakeover(t *testing.T, ctx context.Context, base Options, guard *nodewire.Guard, self, sourceID nodewire.Identity, oldController, source, worker *Runtime, endpoints map[nodewire.Identity]string) {
+	t.Helper()
+	verifier := NewVerifier()
+	ledger, err := placement.New(base.DB, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := base
+	o.Guard = guard
+	o.Self = self
+	o.Placement = ledger
+	o.Roles = config.NodeRoles{config.RoleServer}
+	takeover, err := NewRuntime(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer takeover.Close()
+	if err = verifier.Bind(takeover); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := oldController.PrepareSource(ctx, sourceID, PrepareRequest{Operation: "prepare-expired-controller", Viewer: 9, Key: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "expired-controller-client"}, Protocol: "hls"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := core.HLSRequest{SessionID: "expired-controller-session", Info: prepared.Info, Decision: core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, SubtitleStream: -1}}
+	if _, err = oldController.StartPreparedHLS(ctx, 9, prepared, request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = takeover.ReconcileExpired(ctx, request.SessionID); err == nil {
+		t.Fatal("active old fence admitted terminal takeover")
+	}
+	if _, err = base.DB.ExecContext(ctx, `UPDATE placement_sessions SET deadline=0 WHERE session=?`, request.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	token, err := takeover.ReconcileExpired(ctx, request.SessionID)
+	if err != nil || token == nil {
+		t.Fatal("expired takeover not retained", err)
+	}
+	if token.EncoderErr() == nil {
+		t.Fatal("expiry alone supplied terminal proof")
+	}
+	workerURL := endpoints[worker.o.Self]
+	delete(endpoints, worker.o.Self)
+	_ = takeover.Tick(ctx)
+	endpoints[worker.o.Self] = workerURL
+	record, err := ledger.Lookup(ctx, request.SessionID)
+	if err != nil || record.Retired || token.EncoderErr() == nil {
+		t.Fatal("transport loss released responsibility", err)
+	}
+	if _, err = takeover.StartPreparedHLS(ctx, 9, prepared, request); err == nil {
+		t.Fatal("uncertain terminal takeover allowed second encoder")
+	}
+	for i := 0; i < 50; i++ {
+		_ = takeover.Tick(ctx)
+		worker.Cleanup()
+		source.Cleanup()
+		record, err = ledger.Lookup(ctx, request.SessionID)
+		if err == nil && record.Retired {
+			if token.EncoderErr() != nil {
+				t.Fatal("retired ledger token remains pending")
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("independent exact terminal proofs did not retire expired controller fence")
 }

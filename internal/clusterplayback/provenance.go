@@ -1,7 +1,10 @@
 package clusterplayback
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/nodewire"
 	"net"
 	"net/http"
 	"net/netip"
@@ -110,4 +113,8 @@ func restoreOrigin(q *http.Request, u *url.URL, rawURI string) (*http.Request, e
 	clone.Header.Del(deliveryURI)
 	clone.Header.Del(deliveryProtocol)
 	return clone, nil
+}
+
+func (r *Runtime) mediaPeer(ctx context.Context, id nodewire.Identity) bool {
+	return r.o.MemberRole(ctx, id, config.RoleDelivery) == nil || r.o.MemberRole(ctx, id, config.RoleServer) == nil
 }

@@ -15,6 +15,7 @@ import (
 )
 
 type execution struct {
+	foreign                       bool
 	done                          chan struct{}
 	busy, reservePending, retired bool
 	route                         Route
@@ -428,6 +429,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	return result
 }
 func (r *Runtime) retire(ctx context.Context, x *execution) error {
+	if x.foreign {
+		return r.retireForeign(ctx, x)
+	}
 	if x.session != nil {
 		_ = x.session.RetireEncoder()
 		_ = x.session.Reconcile(ctx)
@@ -451,8 +455,12 @@ func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
 		return ErrPending
 	}
 	s := x.session
+	foreign := x.foreign
 	rt := x.route
 	r.mu.Unlock()
+	if foreign {
+		return r.verifyForeign(ctx, rt)
+	}
 	if s != nil && s.EncoderErr() != nil {
 		return ErrPending
 	}

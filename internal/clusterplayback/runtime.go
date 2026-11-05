@@ -120,6 +120,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 		r.mux.Handle(WorkerPath, w)
 	}
 	r.mux.HandleFunc(DeliveryPath, r.deliveryHTTP)
+	r.mux.HandleFunc(TerminalPath, r.terminalHTTP)
 	r.mux.HandleFunc(PlexDeliveryPath, r.plexDeliveryHTTP)
 	return r, nil
 }
