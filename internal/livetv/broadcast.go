@@ -618,6 +618,7 @@ func (b *broadcast) step(now time.Time) {
 		case f, ok := <-b.current.frames:
 			if ok && validRawFrame(b.format, f) {
 				frame = f
+				frame.PolicyTags = []any{b.current.plan.policy}
 				if introActive && b.intro.fill {
 					if !b.introShownAt.IsZero() && now.Sub(b.introShownAt) >= time.Second {
 						b.finishIntro(now)
@@ -735,6 +736,7 @@ func newBroadcastInput(parent context.Context, plan broadcastPlan, d transcode.D
 	ctx, cancel := context.WithCancel(parent)
 	input := &broadcastInput{ctx: ctx, cancel: cancel, decoder: d, release: release, plan: plan, frames: make(chan transcode.RawFrame, 8), errs: make(chan error, 1), activate: make(chan struct{})}
 	if decoder, ok := d.(*overlayDecoder); ok {
+		input.plan.policy = decoder.policy
 		input.overlays = decoder.overlays
 		input.wallStart = decoder.wallStart
 		input.fpsNum = decoder.format.FPSNum

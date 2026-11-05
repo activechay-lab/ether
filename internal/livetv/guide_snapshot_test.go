@@ -21,7 +21,9 @@ func TestGuideSnapshotEquivalenceAndCost(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/%d", mode, size), func(t *testing.T) {
 				ctx := context.Background()
 				now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
-				s := testService(t, Options{Now: func() time.Time { return now }, Picker: personalTestPicker{}})
+				s := testService(t, Options{Now: func() time.Time { return now }, Picker: costPersonalPicker{size}})
+				s.o.DB.Exec(`CREATE TABLE resolver_availability (rating_key INTEGER PRIMARY KEY)`)
+				s.o.Availability = sqlAvailability{s}
 				c := testChannel()
 				c.Items = nil
 				c.Mode = mode
@@ -70,6 +72,18 @@ func TestGuideSnapshotEquivalenceAndCost(t *testing.T) {
 						t.Fatalf("%s snapshot changed programme bytes\ngot %s\nwant %s", view, a, b)
 					}
 				}
+				measuredBefore, beforeStats := store.WithQueryStats(ctx)
+				beforeStart := time.Now()
+				beforeCtx, _, _ := s.withPolicy(measuredBefore, u)
+				beforeChannel, _ := s.Channel(beforeCtx, c.ID)
+				if mode == "personal" {
+					_, _ = s.readPersonal(beforeCtx, personalKey{u.ID, c.ID})
+				} else {
+					for _, p := range s.broadcastGuide(s.guideChannel(beforeCtx, beforeChannel), now, until) {
+						_ = s.allowed(beforeCtx, u, beforeChannel, &p)
+					}
+				}
+				t.Logf("legacy guide titles=%d queries=%d elapsed=%s", size, beforeStats.Queries(), time.Since(beforeStart))
 				for _, kind := range []string{"guide", "on now"} {
 					measured, stats := store.WithQueryStats(ctx)
 					start := time.Now()
@@ -115,4 +129,14 @@ func TestGuideSnapshotEquivalenceAndCost(t *testing.T) {
 			})
 		}
 	}
+}
+
+type costPersonalPicker struct{ size int }
+
+func (p costPersonalPicker) Picks(context.Context, *core.User, map[string]float64, int) ([]core.PersonalPick, error) {
+	out := make([]core.PersonalPick, p.size)
+	for i := range out {
+		out[i] = core.PersonalPick{Title: &core.Title{Key: core.MovieKey(int64(i + 1)), Type: core.TypeMovie, Title: fmt.Sprint(i), Runtime: 5 * time.Minute, ContentRating: "G"}, Kind: "picked", Score: 1}
+	}
+	return out, nil
 }

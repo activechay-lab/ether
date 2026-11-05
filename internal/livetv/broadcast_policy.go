@@ -12,6 +12,7 @@ import (
 // Immutable local facts captured by the planner, never a request-side catalogue
 // lookup. The pointer is the policy identity carried through the encoder.
 type broadcastPolicyTag struct {
+	deny      bool
 	programme Programme
 	title     *core.Title
 	catalog   bool
@@ -107,6 +108,9 @@ func (s *Service) broadcastTagsAllowed(ctx context.Context, ss *session, tags []
 			}
 			continue
 		} // channel-only screen
+		if tag.deny {
+			return false
+		}
 		allowed, found := cache.decisions[tag]
 		if !found {
 			var lookup func(context.Context, core.RatingKey) (*core.Title, error)
@@ -131,4 +135,20 @@ func (s *Service) broadcastSegmentAllowed(ctx context.Context, ss *session, seg 
 		return false
 	}
 	return s.broadcastTagsAllowed(ctx, ss, seg.PolicyTags)
+}
+
+// Audience admission is independent of the programme's rating. Checking a
+// channel's empty rating first would incorrectly hide a permitted programme.
+func (s *Service) audienceAllowed(ctx context.Context, u *core.User, c Channel) bool {
+	if u == nil || !c.Enabled || (!u.IsOwner && s.sweepState(c) == "unavailable") {
+		return false
+	}
+	_, pol, err := s.withPolicy(ctx, u)
+	if err != nil {
+		return false
+	}
+	if c.Personal != nil && (s.o.Picker == nil || (pol.Personal != nil && pol.Personal.Enabled != nil && !*pol.Personal.Enabled)) {
+		return false
+	}
+	return u.IsOwner || pol.Permits(c.ID, c.Private)
 }

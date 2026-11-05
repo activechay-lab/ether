@@ -63,9 +63,16 @@ func (s *Service) refreshVirtualGuide(ctx context.Context) error {
 	if err := s.o.DB.QueryRowContext(ctx, `SELECT generation FROM livetv_channel_epoch WHERE id=1`).Scan(&epoch); err != nil {
 		return err
 	}
-	cs, err := channels(ctx, s.o.DB)
+	cs, _, err := s.channelSnapshot(ctx)
 	if err != nil {
 		return err
+	}
+	var users []core.User
+	if s.o.Users != nil && s.o.Picker != nil {
+		users, err = s.o.Users.Users(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	now := s.o.Now()
 	s.virtualGuide.mu.RLock()
@@ -77,6 +84,14 @@ func (s *Service) refreshVirtualGuide(ctx context.Context) error {
 			continue
 		}
 		if c.Personal != nil {
+			for i := range users {
+				user := &users[i]
+				if s.allowed(ctx, user, c, nil) {
+					if err := s.buildPersonal(ctx, s.personalChannel(ctx, c, user), user); err != nil {
+						return err
+					}
+				}
+			}
 			entries[c.ID] = &virtualGuideSnapshot{channel: c}
 			continue
 		}
@@ -84,7 +99,7 @@ func (s *Service) refreshVirtualGuide(ctx context.Context) error {
 		s.virtualGuide.mu.RLock()
 		prior := s.virtualGuide.entries[c.ID]
 		s.virtualGuide.mu.RUnlock()
-		if prior != nil && prior.recipe == string(recipe) && prior.revision == revision && now.Sub(prior.built) < 30*time.Second {
+		if prior != nil && prior.recipe == string(recipe) && prior.revision == revision && !now.Before(prior.built) && now.Sub(prior.built) < 30*time.Second {
 			entries[c.ID] = prior
 			continue
 		}
@@ -134,15 +149,6 @@ func (s *Service) refreshVirtualGuide(ctx context.Context) error {
 	s.virtualGuide.mu.Lock()
 	s.virtualGuide.epoch, s.virtualGuide.entries = epoch, entries
 	s.virtualGuide.mu.Unlock()
-	s.chanSnap.mu.Lock()
-	s.chanSnap.generation, s.chanSnap.list = epoch, cs
-	s.chanSnap.byID = make(map[string]int, len(cs))
-	s.chanSnap.bySource = map[string][]int{}
-	for i, c := range cs {
-		s.chanSnap.byID[c.ID] = i
-		s.chanSnap.bySource[c.SourceID] = append(s.chanSnap.bySource[c.SourceID], i)
-	}
-	s.chanSnap.mu.Unlock()
 	return nil
 }
 
@@ -188,7 +194,10 @@ func (s *Service) withVirtualGuide(ctx context.Context, cs []Channel) (context.C
 	if _, ok := ctx.Value(virtualGuideContextKey{}).(bool); ok {
 		return ctx, nil
 	}
-	needed := false
+	s.virtualGuide.mu.RLock()
+	hasVirtual := len(s.virtualGuide.entries) > 0
+	s.virtualGuide.mu.RUnlock()
+	needed := len(cs) == 0 && hasVirtual
 	for _, c := range cs {
 		if c.Kind == "virtual" && c.Enabled {
 			needed = true
