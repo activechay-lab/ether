@@ -259,7 +259,7 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 			rel = probedRelease
 		}
 		if rel != "" && pin.autoAligned != rel && vs[0].Auto && vs[0].Release.ID != rel {
-			vctx, cancel := context.WithTimeout(ctx, variantRenderBudget)
+			vctx, cancel := detailVariantContext(ctx, pr)
 			resolved, err := s.d.Variants.Variants(vctx, core.ResolveRequest{Title: t, Client: s.clientCaps(pr), User: pr.User, PlayedRelease: rel}, core.MaxVariants)
 			cancel()
 			var auto *core.ReleaseVariant
@@ -271,7 +271,7 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 		}
 	} else {
 		caps := s.clientCaps(pr)
-		vctx, cancel := context.WithTimeout(ctx, variantRenderBudget)
+		vctx, cancel := detailVariantContext(ctx, pr)
 		resolved, err := s.d.Variants.Variants(vctx, core.ResolveRequest{Title: t, Client: caps, User: pr.User, PlayedRelease: probedRelease}, core.MaxVariants)
 		cancel()
 		if err != nil {
@@ -840,7 +840,7 @@ func (s *Server) watchVariants(pr *Request, t *core.Title) {
 				return
 			case <-timer.C:
 			}
-			if retryAdmission {
+			if retryAdmission && s.detailSearchAllowed(pr) {
 				if refiller, ok := s.d.Variants.(core.SearchCacheRefiller); ok {
 					retryAdmission = refiller.RefillSearchCache(&title) == nil
 				}
@@ -854,4 +854,14 @@ func (s *Server) watchVariants(pr *Request, t *core.Title) {
 			}
 		}
 	}()
+}
+
+// Foreground version discovery shares the TV detail probe's wait allowance.
+// A slow probe must not be followed by another three-second discovery wait.
+func detailVariantContext(ctx context.Context, pr *Request) (context.Context, context.CancelFunc) {
+	budget := variantRenderBudget
+	if pr != nil && !pr.detailWaitUntil.IsZero() {
+		budget = min(budget, time.Until(pr.detailWaitUntil))
+	}
+	return context.WithTimeout(ctx, budget)
 }
