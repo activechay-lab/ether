@@ -22,6 +22,9 @@ import (
 func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 	w, _, start := fixture(t)
 	w.opts.ValidateRenewal = receipt
+	caps := Supported()
+	caps.ABR, caps.DASH, caps.HTTP = true, true, true
+	w.opts.Capabilities = caps
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -50,10 +53,12 @@ func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 		}
 		return nil
 	}}}}
-	a, err := NewAdapter(AdapterOptions{Endpoint: server.URL, Client: client, RecheckServer: func(_ context.Context, s tls.ConnectionState) error {
+	a, err := NewAdapter(AdapterOptions{Capabilities: caps, Endpoint: server.URL, Client: client, RecheckServer: func(_ context.Context, s tls.ConnectionState) error {
 		return client.Transport.(*http.Transport).TLSClientConfig.VerifyConnection(s)
-	}, Capacity: 4, Assign: func(context.Context, core.HLSRequest) (Assignment, error) {
-		return Assignment{Identity: start.Identity, Grant: start.Grant, Expires: start.Expires}, nil
+	}, Capacity: 4, Assign: func(_ context.Context, req core.HLSRequest) (Assignment, error) {
+		id := start.Identity
+		id.Session = req.SessionID
+		return Assignment{Identity: id, Grant: start.Grant, Expires: start.Expires}, nil
 	}, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return start.Decision }})
 	if err != nil {
 		t.Fatal(err)
@@ -78,6 +83,16 @@ func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 	lease, err = remote.Renew(context.Background(), n)
 	if err != nil || !lease.Deadline.Equal(n.Deadline) {
 		t.Fatal("retry extended lease", err)
+	}
+	for _, protocol := range []string{core.ProtocolHLS, core.ProtocolDASH, core.ProtocolHTTP} {
+		next, _, err := a.StartHLSOwned(context.Background(), core.HLSRequest{SessionID: "protocol-" + protocol, Protocol: protocol, Decision: start.Decision})
+		if err != nil {
+			t.Fatal(err)
+		}
+		checkRepresentations(t, next, protocol)
+		if err := next.Close(); err != core.ErrEncoderPending {
+			t.Fatalf("lost retirement charge: %v", err)
+		}
 	}
 	server.Close()
 	if err := hs.Close(); !errors.Is(err, ErrUncertain) {

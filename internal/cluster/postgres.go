@@ -218,7 +218,7 @@ func NewPostgres(o Options) (*Postgres, error) {
 		ID: o.Local.Identity.NodeID, Name: o.Local.Identity.Name, Version: o.Local.Version,
 		StartedAt: o.Now(), Live: true,
 		Caps: p.local.caps(), InternalAddress: p.local.InternalAddress,
-		ProtocolVersion: p.local.ProtocolVersion, Incarnation: p.inc,
+		ProtocolVersion: p.local.protocol(), Incarnation: p.inc,
 	}
 	return p, nil
 }
@@ -232,6 +232,7 @@ func (p *Postgres) Self() Node {
 	n.Addrs = slices.Clone(n.Addrs)
 	n.Caps.Roles = slices.Clone(n.Caps.Roles)
 	p.mu.Unlock()
+	n.ProtocolVersion = p.local.protocol()
 	n.Leader = p.IsLeader()
 	return n
 }
@@ -519,6 +520,7 @@ func (p *Postgres) beatClaim(ctx context.Context, claim *nodeClaim) error {
 	if addrs == nil || !p.local.serverEligible() {
 		addrs = []string{}
 	}
+	protocol := p.local.protocol()
 	caps, load, draining := p.local.caps(), p.local.load(), p.local.draining()
 	addrsJSON, _ := json.Marshal(addrs)
 	capsJSON, _ := json.Marshal(caps)
@@ -546,7 +548,7 @@ func (p *Postgres) beatClaim(ctx context.Context, claim *nodeClaim) error {
 draining=?, migrations=?, internal_address=?, protocol_version=?
 WHERE id=? AND incarnation=?`,
 			p.local.Identity.Name, p.local.Version, string(addrsJSON), string(capsJSON), load,
-			started.UnixMilli(), now.UnixMilli(), drainFlag, migJSON, p.local.InternalAddress, p.local.ProtocolVersion, id, p.inc)
+			started.UnixMilli(), now.UnixMilli(), drainFlag, migJSON, p.local.InternalAddress, protocol, id, p.inc)
 		if err != nil {
 			return err
 		}
@@ -569,7 +571,7 @@ WHERE id=? AND incarnation=?`,
 		query := `INSERT INTO cluster_nodes(id,name,version,addrs,caps,active_sessions,started_at,last_seen,incarnation,draining,migrations,internal_address,protocol_version)
 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO NOTHING`
-		args := []any{id, p.local.Identity.Name, p.local.Version, string(addrsJSON), string(capsJSON), load, started.UnixMilli(), now.UnixMilli(), p.inc, drainFlag, migJSON, p.local.InternalAddress, p.local.ProtocolVersion}
+		args := []any{id, p.local.Identity.Name, p.local.Version, string(addrsJSON), string(capsJSON), load, started.UnixMilli(), now.UnixMilli(), p.inc, drainFlag, migJSON, p.local.InternalAddress, protocol}
 		if claim != nil && claim.exists {
 			query = `INSERT INTO cluster_nodes(id,name,version,addrs,caps,active_sessions,started_at,last_seen,incarnation,draining,migrations,internal_address,protocol_version)
 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)

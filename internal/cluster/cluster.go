@@ -156,11 +156,14 @@ type Local struct {
 	Roles           config.NodeRoles
 	InternalAddress string
 	ProtocolVersion uint32
-	Identity        Identity
-	Version         string
-	Addrs           func(ctx context.Context) []string
-	Caps            func() Caps
-	Load            func() int
+	// Protocol reports currently usable private services; called outside runtime locks.
+	// Nil preserves the fixed ProtocolVersion behavior.
+	Protocol func() uint32
+	Identity Identity
+	Version  string
+	Addrs    func(ctx context.Context) []string
+	Caps     func() Caps
+	Load     func() int
 	// Draining reports whether the node is draining for an update; a
 	// draining node also hands leadership to another live node.
 	Draining func() bool
@@ -168,6 +171,13 @@ type Local struct {
 	// (store.KnownMigrations), heartbeated for the schema compatibility
 	// check.
 	Migrations map[string]int
+}
+
+func (l Local) protocol() uint32 {
+	if l.Protocol != nil {
+		return l.Protocol()
+	}
+	return l.ProtocolVersion
 }
 
 func (l Local) draining() bool { return l.Draining != nil && l.Draining() }

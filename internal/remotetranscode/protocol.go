@@ -26,6 +26,18 @@ var ErrUncertain = errors.New("remotetranscode: execution responsibility require
 // probe, subtitles, DASH, HTTP Matroska, ABR and optional session controls are not supported.
 type Capabilities struct{ HLS, SegmentSeek, DASH, HTTP, Probe, SourceSwap, Subtitles, ABR bool }
 
+// NormalizeCapabilities preserves fixed HLS for zero options and rejects promises
+// for operations that have no concrete private implementation.
+func NormalizeCapabilities(c Capabilities) (Capabilities, error) {
+	if c == (Capabilities{}) {
+		return Supported(), nil
+	}
+	if !c.HLS || !c.SegmentSeek || c.Probe || c.SourceSwap || c.Subtitles {
+		return Capabilities{}, ErrUnsupported
+	}
+	return c, nil
+}
+
 func Supported() Capabilities { return Capabilities{HLS: true, SegmentSeek: true} }
 
 // Identity is assigned by trusted placement, never by a public request decoder.
@@ -37,6 +49,7 @@ type Identity struct {
 	Generation uint64
 }
 type Start struct {
+	Protocol         string `json:",omitempty"`
 	ReleaseID        string
 	Identity         Identity
 	Grant            string
@@ -84,15 +97,18 @@ type LeaseState struct {
 }
 
 type message struct {
-	Version  int
-	Head     bool `json:",omitempty"`
-	Op       string
-	Identity Identity
-	Renewal  *Renewal `json:",omitempty"`
-	Start    *Start   `json:",omitempty"`
-	Segment  int      `json:",omitempty"`
+	Version        int
+	Head           bool `json:",omitempty"`
+	Op             string
+	Identity       Identity
+	Renewal        *Renewal `json:",omitempty"`
+	Start          *Start   `json:",omitempty"`
+	Segment        int      `json:",omitempty"`
+	Rung           string   `json:",omitempty"`
+	Representation int      `json:",omitempty"`
 }
 type status struct {
+	Rungs    []core.HLSRung `json:",omitempty"`
 	Stopped  bool
 	Lease    LeaseState
 	State    string
@@ -160,8 +176,16 @@ func gatewayURL(raw string) bool {
 	ip, e := netip.ParseAddr(u.Hostname())
 	return e == nil && ip.IsLoopback() && !ip.Is4In6() && !strings.Contains(u.Host, "%")
 }
-func supported(r core.HLSRequest) bool {
-	if r.Protocol != "" && r.Protocol != core.ProtocolHLS {
+func supported(r core.HLSRequest) bool { return SupportsRequest(r, Supported()) }
+
+// SupportsRequest is side-effect-free and shared with placement preflight.
+func SupportsRequest(r core.HLSRequest, c Capabilities) bool {
+	var err error
+	c, err = NormalizeCapabilities(c)
+	if err != nil {
+		return false
+	}
+	if (r.Protocol == core.ProtocolDASH && !c.DASH) || (r.Protocol == core.ProtocolHTTP && !c.HTTP) || (r.Protocol != "" && r.Protocol != core.ProtocolHLS && r.Protocol != core.ProtocolDASH && r.Protocol != core.ProtocolHTTP) {
 		return false
 	}
 	if len(r.ReleaseID) > 512 {

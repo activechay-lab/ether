@@ -20,6 +20,9 @@ import (
 )
 
 const clusterUsage = `usage:
+  ether cluster drain [--data-dir DIR] [--wait 120s]
+      Stop deployment admissions and wait for exact local runtime retirement.
+      Timeout returns nonzero and retains unresolved ownership.
   ether cluster init  [--data-dir DIR] [--database-url URL]
       Make this (stopped) standalone server the first node of a cluster:
       copy its SQLite data into an empty PostgreSQL database and share its
@@ -45,6 +48,8 @@ func runCluster(args []string, defaultDataDir string, stdout, stderr io.Writer) 
 	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
 	dbURL := fs.String("database-url", "", "PostgreSQL URL (postgres://...)")
 	force := fs.Bool("force", false, "join: move an existing configured server aside")
+	wait := fs.Duration("wait", 2*time.Minute, "drain: maximum wait for quiescence")
+	fs.DurationVar(wait, "timeout", 2*time.Minute, "drain: alias for --wait")
 	ttl := fs.Duration("ttl", clusterconfig.DefaultJoinTokenTTL, "token: validity")
 	positional := []string{}
 	rest := args[1:]
@@ -64,6 +69,17 @@ func runCluster(args []string, defaultDataDir string, stdout, stderr io.Writer) 
 
 	var err error
 	switch cmd {
+	case "drain":
+		if *wait <= 0 || *wait > time.Hour {
+			err = errors.New("drain wait must be positive and at most 1h")
+			break
+		}
+		dctx, cancel := context.WithTimeout(ctx, *wait)
+		defer cancel()
+		err = clusterconfig.RequestDrain(dctx, *dataDir)
+		if err == nil {
+			fmt.Fprintln(stdout, "Node drained; no unresolved local runtime ownership.")
+		}
 	case "init":
 		url := *dbURL
 		if url == "" {

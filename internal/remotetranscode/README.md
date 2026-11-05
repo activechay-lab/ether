@@ -1,9 +1,14 @@
-# Private HLS execution foundation
+# Private encoder execution transport
 
 Opt-in package only: no routes are registered, no existing path is changed, and
-this is not the complete GPU-offload feature. `Supported()` advertises HLS and
-ordinary segment seeks (including the local fMP4 init sentinel -1). All other
-capabilities are absent. Placement must consult this before admitting work.
+this is not the complete GPU-offload feature. `Supported()` and zero options retain
+HLS and ordinary segment seeks (including the local fMP4 init sentinel -1).
+Explicit matching `WorkerOptions.Capabilities` and `AdapterOptions.Capabilities`
+may enable ABR, DASH and HTTP only when trusted composition supplies the real
+backend contracts. These are host-negotiated promises, not peer discovery. Placement
+must call `Adapter.SupportsRequest` before reservation. The same side-effect-free
+`SupportsRequest(request, capabilities)` predicate is available to broker selectors.
+Probe, source swaps and subtitles cannot be enabled.
 
 ## Integration dependencies
 
@@ -65,27 +70,39 @@ unresolved ownership. Durable fenced retention/compaction is a subsequent increm
 
 ## Explicit unsupported contracts
 
-Starts reject DASH/HTTP Matroska, live/slate inputs, input headers and caller leases,
+Without explicit opt-in starts reject DASH/HTTP Matroska. All starts reject
+live/slate inputs, input headers and caller leases,
 soft/burned/selected subtitles, external subtitle URLs, audio filter expressions,
 enhancement, and nonserialized keyframe indexes before assignment. Remote `Probe`
 and `SwapInput` return `ErrUnsupported`; source-change/release failover is unsupported.
 Segment seeks delegate to the existing backend and may restart that exact encoder;
 start-offset changes require retirement and a new authorized generation.
 
-The session deliberately does not implement optional local contracts: DASHSession,
-HTTPSession, SubtitleExtractor, ProbeLive/ProbeLiveWithHeaders, cached/streamed/soft
-subtitles, Rungs/ServeRungPlaylist/ServeRungSegment, PrepareSwap/CheckSwap,
-SwapInputBuffered/SwapWouldCopyVideo, CurrentSwapInput/WaitForReplacementOutput,
-RecoveryBuffer, PlaybackState/Touch, IndependentSegments, Info/Decision/EncoderStatus,
-Progress/GoodputKbps, HWAccelerated, SegmentDuration/RequestedPosition/Container/Protocol,
-or manager-specific policy/capability/download/enhancement introspection. Consumers
-must not silently substitute missing values or select workflows needing these.
+Session implements concrete HLSLadderSession (bounded backend Rungs snapshot,
+ServeRungPlaylist/ServeRungSegment), DASHSession (manifest, per-representation init
+and media), and HTTPSession (progressive Matroska with downstream flushing).
+These methods reject operations outside the configured capability and execution
+protocol. Start.Protocol is immutable and included in generation idempotence.
+The worker verifies the returned backend interfaces and retires on any mismatch;
+a misconfigured promise is a failed owned start, never a local fallback.
+Representation RPCs retain per-operation mTLS authorization, exact fences,
+HEAD/range/cache forwarding, streaming backpressure and cancellation. HLS rung IDs
+must be advertised; indexes and DTOs are bounded. No media is buffered or retried.
+An HTTP backend must implement OwnedEncoderSession in addition to HTTPSession;
+blocking Close is not an acceptable retirement implementation.
+
+Still absent: SubtitleExtractor, ProbeLive/ProbeLiveWithHeaders, cached/streamed/soft
+subtitles, PrepareSwap/CheckSwap, SwapInputBuffered/SwapWouldCopyVideo,
+CurrentSwapInput/WaitForReplacementOutput, RecoveryBuffer, PlaybackState/Touch,
+IndependentSegments, Info/Decision/EncoderStatus, Progress/GoodputKbps,
+HWAccelerated, SegmentDuration/RequestedPosition/Container/Protocol,
+and manager-specific policy/capability/download/enhancement introspection.
+Consumers must not substitute missing values or select workflows needing these.
 `RequireIndependentProof` is sent unchanged to the backend, which owns playlist
 independence claims. No Plex wire equivalence is claimed for unsupported workflows.
 
 Next increment: durable placement/source-grant integration and fenced
-retention, then explicit optional session contracts and source swaps, followed by
-DASH/HTTP/subtitles/ABR, before application wiring or compatibility acceptance.
+retention, then additional optional session contracts, source swaps and subtitles, before application wiring or compatibility acceptance.
 
 ## Explicit lease renewal
 
