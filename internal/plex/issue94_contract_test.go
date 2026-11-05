@@ -147,7 +147,7 @@ func TestIssue94PlezySequence(t *testing.T) {
 								t.Fatalf("expected 720 source and HLS: start=%d release=%s decision=%d %s", start.Code, release, response.MediaContainer.GeneralCode, response.MediaContainer.GeneralText)
 							}
 						} else {
-							if start.Code != 503 || release != "none" || response.MediaContainer.GeneralCode != 2000 || !strings.Contains(response.MediaContainer.GeneralText, "no playable release") {
+							if start.Code != 404 || release != "none" || response.MediaContainer.GeneralCode != 2000 || !strings.Contains(response.MediaContainer.GeneralText, "no playable release") {
 								t.Fatalf("expected unavailable: start=%d release=%s decision=%d %s", start.Code, release, response.MediaContainer.GeneralCode, response.MediaContainer.GeneralText)
 							}
 						}
