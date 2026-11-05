@@ -93,6 +93,7 @@ export function Timeline(p: {
         <div key={l.id}>
           <div className="flex items-center gap-2 py-1">
             <Button
+              aria-label={t("Expand animation tracks")}
               aria-expanded={expanded.includes(l.id)}
               onClick={() =>
                 setExpanded(
@@ -115,6 +116,24 @@ export function Timeline(p: {
             <div data-track className="relative h-8 grow bg-current/5">
               <div
                 className="absolute h-8 rounded bg-blue-500/40 flex justify-between"
+                role="slider"
+                tabIndex={0}
+                aria-label={t("Layer timing")}
+                aria-valuemin={0}
+                aria-valuemax={p.duration}
+                aria-valuenow={start}
+                onKeyDown={(e) => {
+                  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+                  e.preventDefault();
+                  const next = Math.max(
+                    0,
+                    Math.min(
+                      p.duration - (end - start),
+                      start + (e.key === "ArrowLeft" ? -0.1 : 0.1),
+                    ),
+                  );
+                  edit(l.id, (old) => ({ ...old, start: next, end: next + end - start }));
+                }}
                 style={{
                   left: `${(start / p.duration) * 100}%`,
                   width: `${((end - start) / p.duration) * 100}%`,
@@ -131,6 +150,18 @@ export function Timeline(p: {
               >
                 <button
                   aria-label={t("Trim layer start")}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                      e.stopPropagation();
+                      edit(l.id, (old) => ({
+                        ...old,
+                        start: Math.max(
+                          0,
+                          Math.min(end - 0.01, start + (e.key === "ArrowLeft" ? -0.1 : 0.1)),
+                        ),
+                      }));
+                    }
+                  }}
                   onPointerDown={(e) =>
                     drag(e, start, (v) =>
                       edit(l.id, (old) => ({ ...old, start: Math.min(v, end - 0.01) })),
@@ -141,6 +172,18 @@ export function Timeline(p: {
                 </button>
                 <button
                   aria-label={t("Trim layer end")}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                      e.stopPropagation();
+                      edit(l.id, (old) => ({
+                        ...old,
+                        end: Math.max(
+                          start + 0.01,
+                          Math.min(p.duration, end + (e.key === "ArrowLeft" ? -0.1 : 0.1)),
+                        ),
+                      }));
+                    }
+                  }}
                   onPointerDown={(e) =>
                     drag(e, end, (v) =>
                       edit(l.id, (old) => ({ ...old, end: Math.max(start + 0.01, v) })),
@@ -158,7 +201,7 @@ export function Timeline(p: {
                 .filter(([, v]) => isAnimated(v))
                 .map(([key, v]) => (
                   <div key={key} className="flex h-9 items-center">
-                    <span className="w-32">{key}</span>
+                    <span className="w-32">{propertyName(key)}</span>
                     <div className="relative grow h-8">
                       {isAnimated(v) &&
                         v.keys.map((k) => (
@@ -207,7 +250,9 @@ export function Timeline(p: {
                       }
                     >
                       {["linear", "in", "out", "inOut", "back", "elastic", "spring"].map((e) => (
-                        <option key={e}>{e}</option>
+                        <option key={e} value={e}>
+                          {propertyName(e)}
+                        </option>
                       ))}
                     </Select>
                   </div>
@@ -215,10 +260,21 @@ export function Timeline(p: {
               {l.behave?.map((b, i) =>
                 Object.entries(b).map(([kind, params]) => (
                   <div key={i} className="flex flex-wrap gap-2 rounded border p-2">
-                    <span>{kind}</span>
+                    <span>{propertyName(kind)}</span>
+                    <Button
+                      variant="ghost"
+                      onClick={() =>
+                        edit(l.id, (old) => ({
+                          ...old,
+                          behave: old.behave?.filter((_, index) => index !== i),
+                        }))
+                      }
+                    >
+                      {t("Remove animation")}
+                    </Button>
                     {(["start", "amplitude", "speed"] as const).map((field) => (
                       <label key={field}>
-                        {field}
+                        {propertyName(field)}
                         <Input
                           type="number"
                           value={params[field] ?? 0}
@@ -308,6 +364,7 @@ export function Timeline(p: {
             {presets.map((id) => (
               <Button
                 key={id}
+                variant="outline"
                 disabled={!p.selected.length}
                 className="flex flex-col h-auto p-2"
                 onClick={() => {
@@ -353,24 +410,32 @@ export function Timeline(p: {
             "src",
             "tint",
           ].map((v) => (
-            <option key={v}>{v}</option>
+            <option key={v} value={v}>
+              {propertyName(v)}
+            </option>
           ))}
         </Select>
         <Button
           disabled={!p.selected.length}
-          onClick={() =>
-            p.selected.forEach((id) =>
-              edit(id, (l) =>
-                setKeyframe(
-                  l,
-                  prop,
-                  p.time,
-                  valueAt(l[prop] as Value, p.time) ??
-                    (prop === "opacity" || prop === "scale" ? 1 : 0),
-                ),
-              ),
-            )
-          }
+          onClick={() => {
+            const visit = (layers: Layer[]): Layer[] =>
+              layers.map((l) => ({
+                ...(p.selected.includes(l.id)
+                  ? setKeyframe(
+                      l,
+                      prop,
+                      p.time,
+                      valueAt(l[prop] as Value, p.time) ??
+                        (prop === "opacity" || prop === "scale" ? 1 : 0),
+                    )
+                  : l),
+                layers: l.layers ? visit(l.layers) : undefined,
+              }));
+            p.onChange({
+              ...p.scene,
+              document: { ...p.scene.document, layers: visit(p.scene.document.layers) },
+            });
+          }}
         >
           {t("Add keyframe")}
         </Button>
@@ -507,5 +572,51 @@ function PresetPreview({ preset }: { preset: AnimationPreset }) {
       className="w-full rounded bg-black/10"
       aria-hidden="true"
     />
+  );
+}
+
+function propertyName(key: string): string {
+  return (
+    (
+      {
+        x: t("X position"),
+        y: t("Y position"),
+        w: t("Width"),
+        h: t("Height"),
+        scale: t("Scale"),
+        scaleX: t("Horizontal scale"),
+        scaleY: t("Vertical scale"),
+        rotate: t("Rotation"),
+        opacity: t("Opacity"),
+        fill: t("Fill"),
+        stroke: t("Stroke"),
+        strokeWidth: t("Stroke width"),
+        text: t("Text"),
+        font: t("Font"),
+        size: t("Font size"),
+        track: t("Tracking"),
+        src: t("Source"),
+        tint: t("Tint"),
+        start: t("Start"),
+        amplitude: t("Amplitude"),
+        speed: t("Speed"),
+        linear: t("Linear"),
+        in: t("Ease in"),
+        out: t("Ease out"),
+        inOut: t("Ease in and out"),
+        back: t("Back"),
+        elastic: t("Elastic"),
+        spring: t("Spring"),
+        typewriter: t("Typewriter"),
+        flicker: t("Flicker"),
+        wiggle: t("Wiggle"),
+        bounce: t("Bounce"),
+        glint: t("Glint"),
+        chroma: t("Chroma"),
+        drift: t("Drift"),
+        pop: t("Pop"),
+        squash: t("Squash"),
+      } as Record<string, string>
+    )[key] ?? key
   );
 }

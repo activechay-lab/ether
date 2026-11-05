@@ -10,6 +10,7 @@ export function usePreviewAudio(
   const state = useRef<{
     context: AudioContext;
     buffers: Map<string, AudioBuffer>;
+    pending: Map<string, Promise<AudioBuffer>>;
     sources: AudioBufferSourceNode[];
     last: number;
     wall: number;
@@ -29,6 +30,7 @@ export function usePreviewAudio(
       state.current = {
         context: new AudioContext(),
         buffers: new Map(),
+        pending: new Map(),
         sources: [],
         last: time,
         wall: performance.now(),
@@ -70,8 +72,15 @@ export function usePreviewAudio(
       scene.sounds.map(async (sound) => {
         let buffer = s.buffers.get(sound.assetDigest);
         if (!buffer) {
-          const blob = await apiBlob(`/ether/api/onair/assets/${sound.assetDigest}`);
-          buffer = await s.context.decodeAudioData(await blob.arrayBuffer());
+          let pending = s.pending.get(sound.assetDigest);
+          if (!pending) {
+            pending = apiBlob(`/ether/api/onair/assets/${sound.assetDigest}`)
+              .then((blob) => blob.arrayBuffer())
+              .then((bytes) => s.context.decodeAudioData(bytes));
+            s.pending.set(sound.assetDigest, pending);
+            pending.catch(() => s.pending.delete(sound.assetDigest));
+          }
+          buffer = await pending;
           s.buffers.set(sound.assetDigest, buffer);
         }
         if (cancelled) return;
