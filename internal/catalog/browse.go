@@ -160,7 +160,9 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	query := `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t WHERE ` + pageWhere + ` ORDER BY ` + order + `, t.key ASC LIMIT ? OFFSET ?`
 	if q.Filter.LocalOnly && q.NoTotal && !computedAdded && q.Filter.Type != "" {
 		hint := ""
-		if store.DialectOf(c.db) != store.Postgres && !consoleHasSparseCandidates(q.Filter) {
+		if store.DialectOf(c.db) != store.Postgres && consolePositiveEvidence(q.Filter) {
+			hint = " INDEXED BY catalog_titles_console_candidate_page"
+		} else if store.DialectOf(c.db) != store.Postgres && !consoleHasSparseCandidates(q.Filter) {
 			if len(q.Filter.Languages) == 1 && q.Filter.MinVotes > 0 {
 				hint = " INDEXED BY catalog_titles_console_language_votes_page"
 			} else if q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 {
