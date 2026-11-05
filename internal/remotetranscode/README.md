@@ -208,3 +208,38 @@ implementations remain trusted dependencies responsible for exact identity,
 listener origin/path binding, no redirects and no input substitution. `nodeinput`
 is the concrete verified-Go-Reader implementation; its README specifies lifecycle,
 renewal evidence and the separate remote source retirement requirement.
+
+## Explicit dynamic observations
+
+`Capabilities.Observations` enables one authenticated `inspect` operation.
+`Session.Observe(ctx)` returns `(*ObservedSession, error)` with a five-second
+operation bound and a strict 64 KiB DTO cap. It never changes `Adapter.Session`
+map presence, wraps a Start, retries, falls back, or supplies retirement evidence.
+Missing backend contracts, stopped/expired executions, incomplete/oversized JSON,
+external source URLs, and transport errors return an error without a sample.
+The concrete backend must implement the entire supported observation bundle;
+HLS/DASH Manager Sessions do, while current HTTP sessions do not.
+
+ObservedSession is a detached immutable sample, not a live HLSSession. It exposes
+exact local signatures: Info, Decision, EncoderStatus, `transcode.Progress`,
+GoodputKbps, RecoveryBuffer, RequestedPosition, SegmentDuration, Container,
+Protocol and HWAccelerated. `Contracts()` explicitly identifies these supported
+sample contracts. An actual nil backend EncoderStatus means no active run; it is
+not replaced with an invented run. Nested slices/pointers are copied on getters.
+No corresponding no-error getter is added to live Session.
+
+`Identity()` binds controller boot, worker boot, public session and generation.
+`SampledAt()` is worker wall time; `RequestStarted()` and `ReceivedAt()` are
+controller-local times retaining monotonic readings. The bundle is sampled
+sequentially through existing synchronized backend methods, not atomically
+across fields. Recovery integration must explicitly request a fresh observation,
+check exact identity and age (including request RTT, local elapsed time and
+conservative inter-host clock skew), and fail closed on errors or stale data.
+Do not reuse an observation across seeks or recovery decisions. An inspection
+error never establishes session absence, source failure or encoder retirement.
+
+RecoveryBuffer and GoodputKbps preserve the backend's measured values. With the
+private transport, backend HTTP completion/goodput describe worker-to-controller
+output, not final controller-to-viewer delivery. In particular DeliveredUntil
+must not be treated as proof of final viewer delivery. Final-hop delivery evidence
+requires separate broker integration; no observation invents it here.

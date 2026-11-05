@@ -145,7 +145,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "invalid request", 400)
 		return
 	}
-	if m.Op != "renew" && m.Op != "start" && m.Op != "stop" && m.Op != "status" && m.Op != "touch" && m.Op != "playback-state" && !mediaOperation(m.Op) {
+	if m.Op != "renew" && m.Op != "start" && m.Op != "stop" && m.Op != "status" && m.Op != "touch" && m.Op != "playback-state" && m.Op != "inspect" && !mediaOperation(m.Op) {
 		http.Error(out, "unsupported operation", 422)
 		return
 	}
@@ -217,6 +217,10 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.mu.Unlock()
+	if m.Op == "inspect" {
+		w.inspect(out, r, e, s)
+		return
+	}
 	// Only these request headers reach the local session, never caller credentials.
 	request := r.Clone(r.Context())
 	request.Method = "GET"

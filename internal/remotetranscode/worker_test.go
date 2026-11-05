@@ -35,6 +35,7 @@ func (l *fakeLease) InputErr() error {
 }
 
 type fakeSession struct {
+	observed observation
 	soft     *int
 	touched  bool
 	playback string

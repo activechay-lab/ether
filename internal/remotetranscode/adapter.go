@@ -190,7 +190,7 @@ func (a *Adapter) call(ctx context.Context, m message, headers http.Header) (*ht
 	}
 	if !mediaOperation(m.Op) && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
 		resp.Body.Close()
-		if m.Op == "renew" && resp.StatusCode == http.StatusUnprocessableEntity {
+		if (m.Op == "renew" || m.Op == "inspect") && resp.StatusCode == http.StatusUnprocessableEntity {
 			return nil, ErrUnsupported
 		}
 		return nil, ErrUncertain

@@ -24,7 +24,7 @@ var ErrUncertain = errors.New("remotetranscode: execution responsibility require
 // Capabilities must be consulted by placement before choosing this adapter.
 // Segment seeks use the backend's ordinary ServeSegment behavior. Source swaps,
 // probe, subtitles, DASH, HTTP Matroska, ABR and optional session controls are not supported.
-type Capabilities struct{ HLS, SegmentSeek, DASH, HTTP, Probe, SourceSwap, Subtitles, ABR, SoftSubtitles, Controls bool }
+type Capabilities struct{ HLS, SegmentSeek, DASH, HTTP, Probe, SourceSwap, Subtitles, ABR, SoftSubtitles, Controls, Observations bool }
 
 // NormalizeCapabilities preserves fixed HLS for zero options and rejects promises
 // for operations that have no concrete private implementation.
