@@ -30,41 +30,7 @@ func (a *App) buildPlayback(ctx context.Context, cfg config.Config) error {
 		tc = got
 	}
 
-	a.trackprefs = trackprefs.New(a.db, trackprefs.Options{
-		ShowName: func(ctx context.Context, id int64) string {
-			if title, err := a.catalog.CachedTitle(ctx, core.ShowKey(id)); err == nil {
-				return title.Title
-			}
-			return ""
-		},
-		SyncLanguages: a.syncLanguages,
-		ServerLanguage: func() string {
-			if a.cfg == nil {
-				return ""
-			}
-			return a.cfg.Get().Catalog.Language
-		},
-		PlexLayer: func(_ context.Context, user int64) (trackprefs.PlexLayer, bool) {
-			if a.users == nil {
-				return trackprefs.PlexLayer{}, false
-			}
-			d, ok := a.users.PlexDefaults(user)
-			if !ok || !d.HasProfile {
-				return trackprefs.PlexLayer{}, false
-			}
-			return trackprefs.PlexLayer{
-				AudioLanguage:    d.AudioLanguage,
-				AutoSelectAudio:  d.AutoSelectAudio,
-				SubtitleLanguage: d.SubtitleLanguage,
-				SubtitleMode:     d.EtherMode(),
-			}, true
-		},
-	})
-	a.markers = markers.New(markers.Options{DB: a.db, Logger: log.With("component", "markers"), Config: func() markers.Lookup {
-		c := a.cfg.Get().Markers
-		return markers.Lookup{Enabled: c.TheIntroDB, APIKey: c.APIKey, IntroOff: !c.OfferIntro(), CreditsOff: !c.OfferCredits(), SourceOrder: c.SourceOrder}
-	}, Aligner: a.subtitles.TimelineAligner(), Dialogue: a.markerDialogue})
-	a.buildAdoption()
+	a.buildPlaybackPresentation()
 	// Playback and prefetch.
 	a.playback, err = playback.New(playback.Deps{
 		AugmentMedia: a.enrichSubtitles,
@@ -124,6 +90,45 @@ func (a *App) buildPlayback(ctx context.Context, cfg config.Config) error {
 	return nil
 }
 
+func (a *App) buildPlaybackPresentation() {
+	log := a.log
+	a.trackprefs = trackprefs.New(a.db, trackprefs.Options{
+		ShowName: func(ctx context.Context, id int64) string {
+			if title, err := a.catalog.CachedTitle(ctx, core.ShowKey(id)); err == nil {
+				return title.Title
+			}
+			return ""
+		},
+		SyncLanguages: a.syncLanguages,
+		ServerLanguage: func() string {
+			if a.cfg == nil {
+				return ""
+			}
+			return a.cfg.Get().Catalog.Language
+		},
+		PlexLayer: func(_ context.Context, user int64) (trackprefs.PlexLayer, bool) {
+			if a.users == nil {
+				return trackprefs.PlexLayer{}, false
+			}
+			d, ok := a.users.PlexDefaults(user)
+			if !ok || !d.HasProfile {
+				return trackprefs.PlexLayer{}, false
+			}
+			return trackprefs.PlexLayer{
+				AudioLanguage:    d.AudioLanguage,
+				AutoSelectAudio:  d.AutoSelectAudio,
+				SubtitleLanguage: d.SubtitleLanguage,
+				SubtitleMode:     d.EtherMode(),
+			}, true
+		},
+	})
+	a.markers = markers.New(markers.Options{DB: a.db, Logger: log.With("component", "markers"), Config: func() markers.Lookup {
+		c := a.cfg.Get().Markers
+		return markers.Lookup{Enabled: c.TheIntroDB, APIKey: c.APIKey, IntroOff: !c.OfferIntro(), CreditsOff: !c.OfferCredits(), SourceOrder: c.SourceOrder}
+	}, Aligner: a.subtitles.TimelineAligner(), Dialogue: a.markerDialogue})
+	a.buildAdoption()
+}
+
 // buildEncoder constructs only local encoding, without catalogue, providers or playback.
 func (a *App) buildEncoder(ctx context.Context, cfg config.Config) error {
 	log := a.log
@@ -175,6 +180,9 @@ func (a *App) buildEncoder(ctx context.Context, cfg config.Config) error {
 }
 
 func (a *App) activeTranscoder() core.Transcoder {
+	if a.brokerTranscoder != nil {
+		return a.brokerTranscoder
+	}
 	if a.opts.FixtureTranscoder != nil {
 		return a.opts.FixtureTranscoder
 	}

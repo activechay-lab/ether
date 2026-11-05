@@ -62,6 +62,9 @@ func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
 			return errors.New("transcode role requires owned encoder lifecycle")
 		}
 	}
+	if o.Decide == nil {
+		o.Decide = directOnly{}.Decide
+	}
 	runtime, err := clusterplayback.NewRuntime(o)
 	if err != nil {
 		return err

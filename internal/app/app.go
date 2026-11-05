@@ -133,21 +133,23 @@ type Options struct {
 
 // App is a running Ether server.
 type App struct {
-	deployment    *deploymentRuntime
-	perf          *perfObserver // per-request database cost, budgets and trace
-	availability  *availability.Service
-	opts          Options
-	log           *slog.Logger
-	logs          *admin.LogBuffer
-	support       *diagnostics.Recorder
-	cfg           *config.Store
-	proxyMu       sync.Mutex
-	prowlarrMu    sync.Mutex
-	prowlarrState string
-	prowlarrKept  bool
-	proxyGen      uint64
-	proxyReady    bool
-	proxyPrefixes []netip.Prefix
+	deployment       *deploymentRuntime
+	brokerPlayback   core.Playback
+	brokerTranscoder core.Transcoder
+	perf             *perfObserver // per-request database cost, budgets and trace
+	availability     *availability.Service
+	opts             Options
+	log              *slog.Logger
+	logs             *admin.LogBuffer
+	support          *diagnostics.Recorder
+	cfg              *config.Store
+	proxyMu          sync.Mutex
+	prowlarrMu       sync.Mutex
+	prowlarrState    string
+	prowlarrKept     bool
+	proxyGen         uint64
+	proxyReady       bool
+	proxyPrefixes    []netip.Prefix
 	// seenFamilies records a client family policy once per process. Playback
 	// does not take a write lock to refresh last_seen.
 	seenFamilies sync.Map

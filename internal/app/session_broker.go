@@ -36,6 +36,9 @@ func (a *App) newSessionBroker(events *sessions.EventBus) (*sessions.Broker, err
 	visibility.SectionFor = brokerSectionFor(visibility.SectionFor)
 
 	playback := core.Playback(a.playback)
+	if a.brokerPlayback != nil {
+		playback = a.brokerPlayback
+	}
 	if a.spikeLibrary != nil {
 		// Spike is the library, not a side path. The broker has to see the
 		// same sessions the Plex adapter prepares.
