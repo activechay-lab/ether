@@ -205,7 +205,10 @@ func TestBroadcastRegistrySharesViewersAndStopsAfterGrace(t *testing.T) {
 		b.close()
 		time.Sleep(59 * time.Second)
 		synctest.Wait()
-		if _, err := b.output(); err != nil {
+		b.broadcast.mu.Lock()
+		closed := b.broadcast.closed
+		b.broadcast.mu.Unlock()
+		if closed {
 			t.Fatal("idle grace cut short")
 		}
 		time.Sleep(2 * time.Second)

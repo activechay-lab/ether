@@ -94,6 +94,8 @@ type broadcastPrepared struct {
 	plan  broadcastPlan
 }
 type broadcast struct {
+	intro         broadcastPlan
+	introUntil    time.Time
 	dvr           time.Duration
 	black         []byte
 	viewers       int
@@ -132,6 +134,13 @@ func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planne
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), retryRequests: make(chan struct{}, 1), lastViewer: time.Now()}
+	if planner, ok := planner.(interface {
+		introPlan(time.Time) (broadcastPlan, time.Duration)
+	}); ok {
+		intro, d := planner.introPlan(b.origin)
+		b.intro = intro
+		b.introUntil = b.origin.Add(d)
+	}
 	return b, nil
 }
 func (b *broadcast) start() { b.wg.Add(1); go func() { defer b.wg.Done(); b.run() }() }
@@ -290,6 +299,9 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 			delete(b.opening, result.plan.id)
 			if result.err != nil {
 				b.noteFailure(result.plan, result.err, now)
+				if result.plan.id == b.intro.id {
+					b.introUntil = now
+				}
 				continue
 			}
 			input := result.input
@@ -377,6 +389,10 @@ func (b *broadcast) step(now time.Time) {
 	if planner, ok := b.planner.(interface{ screen(time.Time) broadcastPlan }); ok {
 		b.screenPlan = planner.screen(now)
 	}
+	introActive := b.intro.id != "" && now.Before(b.introUntil)
+	if introActive {
+		b.screenPlan = b.intro
+	}
 	select {
 	case <-b.retryRequests:
 		if b.current != nil {
@@ -411,7 +427,7 @@ func (b *broadcast) step(now time.Time) {
 	samples := tickSamples(b.format, b.tick)
 	frame := transcode.RawFrame{}
 	mode := "screen"
-	if b.current != nil {
+	if b.current != nil && !introActive {
 		select {
 		case f, ok := <-b.current.frames:
 			if ok && validRawFrame(b.format, f) {
@@ -431,12 +447,12 @@ func (b *broadcast) step(now time.Time) {
 			}
 		}
 	}
-	if frame.Video == nil && b.current != nil && now.Sub(b.current.started) >= broadcastStall && (b.freshAt.IsZero() || now.Sub(b.freshAt) >= broadcastStall) {
+	if frame.Video == nil && !introActive && b.current != nil && now.Sub(b.current.started) >= broadcastStall && (b.freshAt.IsZero() || now.Sub(b.freshAt) >= broadcastStall) {
 		b.noteFailure(current, fmt.Errorf("decoder stalled"), now)
 		b.current.close()
 		b.current = nil
 	}
-	if frame.Video == nil && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
+	if frame.Video == nil && !introActive && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
 		frame = b.lastFrame
 		mode = "hold"
 	}

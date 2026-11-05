@@ -94,7 +94,7 @@ func (p *providerBroadcastPlanner) screen(time.Time) broadcastPlan {
 }
 func (s *Service) screenPlan(c Channel, runner transcode.ContinuousRunner, format transcode.RawFormat) broadcastPlan {
 	request := s.screenRequest(c, "reconnecting")
-	return broadcastPlan{id: "screen-" + c.ID, open: func(ctx context.Context) (transcode.Decoder, func(), error) {
+	return broadcastPlan{id: "screen-" + c.ID, failed: func(error) time.Time { return s.o.Now().Add(time.Second) }, open: func(ctx context.Context) (transcode.Decoder, func(), error) {
 		return s.openGraphicsDecoder(ctx, runner, request, format, true)
 	}}
 }
@@ -195,4 +195,20 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 	ss.info.MediaInfo = &info
 	ss.mu.Unlock()
 	return nil
+}
+
+func (p *scheduleBroadcastPlanner) introPlan(now time.Time) (broadcastPlan, time.Duration) {
+	c := p.channel
+	if c.Look == nil || !c.Look.Ident || p.s.o.Graphics == nil {
+		return broadcastPlan{}, 0
+	}
+	request := p.s.clipRequest(c, Programme{ChannelID: c.ID, Item: Item{Slate: "ident"}})
+	clip, ok := p.s.o.Graphics.Clip(context.Background(), request)
+	if !ok || clip.Duration <= 0 || clip.Duration%segmentDuration != 0 {
+		return broadcastPlan{}, 0
+	}
+	p.joinAt = now.Add(clip.Duration)
+	return broadcastPlan{id: "intro-" + c.ID, open: func(ctx context.Context) (transcode.Decoder, func(), error) {
+		return p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, false)
+	}}, clip.Duration
 }

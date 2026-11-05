@@ -32,6 +32,7 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 }
 
 type Service struct {
+	graphicsSkips      map[string]time.Time
 	broadcasts         broadcastRegistry
 	broadcastProviders map[string]map[string]string
 	chanSnap           channelSnapshot // decoded lineup shared by request paths (channel_cache.go)
@@ -1254,7 +1255,7 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 			var ps []Programme
 			var err error
 			if c.Kind == "virtual" {
-				ps = guideSchedule(s.guideChannel(ctx, c), from, until)
+				ps = s.broadcastGuide(s.guideChannel(ctx, c), from, until)
 			} else {
 				ps, err = s.programmes(ctx, c, from, until)
 			}
@@ -1276,7 +1277,7 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 		}
 		orderIndex[c.ID] = len(orderIndex)
 		if c.Kind == "virtual" {
-			for _, p := range guideSchedule(s.guideChannel(ctx, c), from, until) {
+			for _, p := range s.broadcastGuide(s.guideChannel(ctx, c), from, until) {
 				if s.allowed(ctx, u, c, &p) {
 					out = append(out, p)
 				}

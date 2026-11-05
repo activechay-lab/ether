@@ -13,6 +13,7 @@ import (
 // scheduleBroadcastPlanner snapshots the channel recipe. An edited recipe gets
 // a new planner when P4 replaces the channel output after lineup invalidation.
 type scheduleBroadcastPlanner struct {
+	joinAt  time.Time
 	caps    core.ClientCaps
 	s       *Service
 	channel Channel
@@ -33,7 +34,7 @@ func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 	}
 	p.at = now
 	c := p.s.graphicsChannel(p.channel)
-	ps := Schedule(c, now, now.Add(broadcastPrewarm+time.Second))
+	ps := p.s.broadcastSchedule(context.Background(), c, now, now.Add(broadcastPrewarm+time.Second), true)
 	p.current = broadcastPlan{id: "screen-" + c.ID}
 	p.next = nil
 	for _, programme := range ps {
@@ -56,14 +57,28 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 		}
 		if programme.Item.Slate != "" {
 			request := p.s.screenRequest(c, programme.Item.Slate)
+			if programme.Item.Slate == offAirSlate {
+				for _, next := range Schedule(p.s.graphicsChannel(c), programme.End, programme.End.Add(24*time.Hour)) {
+					if next.Item.Key != 0 {
+						request.Bind["screen.back"] = next.Start.In(zoneOf(c.Timezone)).Format("3:04 PM")
+						break
+					}
+				}
+			}
 			loop := programme.Item.Slate == offAirSlate
 			if c.Look != nil && (interstitial(programme.Item) || (loop && c.Look.OffAir)) {
 				request = p.s.clipRequest(c, programme)
+				if programme.graphicsRequest != nil {
+					request = *programme.graphicsRequest
+				}
 			}
 			return p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, loop)
 		}
 
 		now := p.s.o.Now()
+		if p.joinAt.After(now) {
+			now = p.joinAt
+		}
 		candidates := p.s.virtualCandidates(c, programme)
 		var last error = core.ErrNotAvailable
 		for attempt, candidate := range candidates {
@@ -89,6 +104,10 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 			if err != nil {
 				last = err
 				continue
+			}
+			now = p.s.o.Now()
+			if p.joinAt.After(now) {
+				now = p.joinAt
 			}
 			offset := time.Duration(0)
 			if candidate.ID == programme.ID && now.After(programme.Start) {

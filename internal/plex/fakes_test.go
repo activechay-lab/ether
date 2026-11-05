@@ -20,8 +20,10 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/livetv/livetvtest"
 	"github.com/braedonsaunders/ether/internal/resolver"
 	"github.com/braedonsaunders/ether/internal/sessions"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 var fixedNow = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
@@ -1423,4 +1425,11 @@ type discardProgress struct{}
 
 func (discardProgress) Progress(context.Context, int64, core.RatingKey, time.Duration, time.Duration, string) error {
 	return nil
+}
+
+func (t *fakeTranscoder) StartEncoder(_ context.Context, r transcode.EncoderRequest) (transcode.ContinuousEncoder, error) {
+	return &livetvtest.Encoder{Index: livetvtest.Index{Payload: "shared-ts-", Height: r.Decision.MaxHeight}}, nil
+}
+func (t *fakeTranscoder) StartDecoder(context.Context, transcode.DecoderRequest) (transcode.Decoder, error) {
+	return &livetvtest.Decoder{}, nil
 }

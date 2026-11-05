@@ -91,7 +91,11 @@ func (s *Service) serveBroadcastPlaylist(w http.ResponseWriter, r *http.Request,
 	var b strings.Builder
 	fmt.Fprintf(&b, "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:%d\n#EXT-X-MEDIA-SEQUENCE:%d\n", target, segments[0].Seq)
 	for _, seg := range segments {
-		uri := withAuth(fmt.Sprintf("/livetv/sessions/%s/0/relay/%d.ts", ss.info.ID, seg.Seq), ss.streamGrant)
+		uri := fmt.Sprintf("relay/%d.ts", seg.Seq)
+		if !strings.Contains(r.URL.Path, "/livetv/sessions/") {
+			uri = fmt.Sprintf("/livetv/sessions/%s/0/relay/%d.ts", ss.info.ID, seg.Seq)
+		}
+		uri = withAuth(uri, ss.streamGrant)
 		fmt.Fprintf(&b, "#EXT-X-PROGRAM-DATE-TIME:%s\n#EXTINF:%.6f,\n%s\n", seg.Start.UTC().Format(time.RFC3339Nano), seg.Duration.Seconds(), uri)
 	}
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")

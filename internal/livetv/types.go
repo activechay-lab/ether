@@ -260,11 +260,12 @@ type SourceGroup struct {
 	Excluded bool `json:"excluded,omitempty"`
 }
 type Programme struct {
-	ID        string    `json:"id"`
-	ChannelID string    `json:"channelId"`
-	Start     time.Time `json:"start"`
-	End       time.Time `json:"end"`
-	Item      Item      `json:"item"`
+	graphicsRequest *core.ClipRequest
+	ID              string    `json:"id"`
+	ChannelID       string    `json:"channelId"`
+	Start           time.Time `json:"start"`
+	End             time.Time `json:"end"`
+	Item            Item      `json:"item"`
 }
 
 func (p Programme) Offset(at time.Time) time.Duration {
