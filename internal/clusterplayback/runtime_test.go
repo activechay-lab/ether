@@ -449,6 +449,29 @@ func testRemoteNeutralBroker(t *testing.T, ctx context.Context, base Options, gu
 		t.Fatal("remote neutral open", err)
 	}
 	access := frontend.SessionAccess{Viewer: viewer, Device: device, Protocol: "jellyfin"}
+	localSources := remote.Sessions()
+	if len(localSources) != 1 {
+		t.Fatal("missing local remote-source metadata")
+	}
+	captured, ok := remote.prepared(localSources[0].ID)
+	if !ok {
+		t.Fatal("missing exact prepared owner")
+	}
+	ownedSource, ok := source.o.Playback.Session(captured.PlayID)
+	if !ok || ownedSource.PreparedOnly {
+		t.Fatal("broker open did not activate source owner")
+	}
+	if err = broker.Report(ctx, access, opened.ID, frontend.Timeline{State: "paused", Position: time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	if err = runtime.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ownedSource, ok = source.o.Playback.Session(captured.PlayID)
+	if !ok || ownedSource.ViewerState != "paused" {
+		t.Fatal("paused activity did not reach exact source owner")
+	}
+
 	path, err := broker.StartStream(ctx, access, opened.ID, frontend.StreamRequest{Format: frontend.StreamDirect})
 	if err != nil {
 		t.Fatal("remote neutral direct", err)

@@ -464,6 +464,9 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 		http.NotFound(w, r)
 		return
 	}
+	if remote, ok := b.deps.Playback.(interface{ Touch(string) }); ok {
+		remote.Touch(s.playID)
+	}
 	if s.sourcePinned {
 		ps, ok := b.deps.Playback.Session(s.playID)
 		if !ok || ps == nil || sourceRevision(ps) != s.sourceETag {

@@ -26,6 +26,10 @@ type RemotePlayback struct {
 	entries map[string]*remotePreparation
 }
 type remotePreparation struct {
+	activity, sentActivity       time.Time
+	position                     time.Duration
+	state                        string
+	mode, sentMode               uint64
 	operation                    string
 	owner                        nodewire.Identity
 	request                      PrepareRequest
@@ -229,6 +233,11 @@ func (p *RemotePlayback) MarkSurfaceOpened(id string) bool {
 		return false
 	}
 	e.snapshot.PreparedOnly = false
+	e.mode++
+	e.activity = time.Now()
+	if e.state == "" {
+		e.state = "playing"
+	}
 	return true
 }
 func (p *RemotePlayback) MarkSurfacePrepared(id string) bool {
@@ -239,6 +248,7 @@ func (p *RemotePlayback) MarkSurfacePrepared(id string) bool {
 		return false
 	}
 	e.snapshot.PreparedOnly = true
+	e.mode++
 	return true
 }
 func (p *RemotePlayback) prepared(id string) (PreparedSource, bool) {
@@ -295,7 +305,7 @@ func (p *RemotePlayback) tick(c context.Context) error {
 		}
 	}
 	p.mu.Unlock()
-	var result error
+	result := p.tickActivity(c)
 	for _, e := range list {
 
 		retired, err := p.r.RetirePreparedSource(c, e.owner, e.operation)

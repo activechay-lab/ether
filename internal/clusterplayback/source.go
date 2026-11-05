@@ -30,13 +30,15 @@ type ownedSource struct {
 	binding, issuing, issued bool
 }
 type sourceRequest struct {
-	Prepare *PrepareRequest
-	Version int
-	Op      string
-	Route   Route
-	Stable  string
-	Expires time.Time
-	Old     nodesource.Grant
+	Position time.Duration
+	State    string
+	Prepare  *PrepareRequest
+	Version  int
+	Op       string
+	Route    Route
+	Stable   string
+	Expires  time.Time
+	Old      nodesource.Grant
 }
 type sourceResponse struct {
 	Phase    string
@@ -74,6 +76,9 @@ func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
 }
 func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m sourceRequest) (sourceResponse, error) {
 	deny := func() (sourceResponse, error) { return sourceResponse{}, ErrDenied }
+	if m.Op == "prepare-open" || m.Op == "prepare-hidden" || m.Op == "prepare-activity" {
+		return r.sourceActivity(ctx, peer, m)
+	}
 	if m.Op == "operation-status" {
 		if m.Prepare == nil {
 			return deny()

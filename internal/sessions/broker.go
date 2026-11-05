@@ -816,6 +816,13 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 		}
 		return frontend.Session{}, core.ErrNotAvailable
 	}
+	if remote, ok := b.deps.Playback.(interface {
+		OpenRemoteSource(context.Context, string) error
+	}); ok {
+		if err := remote.OpenRemoteSource(ctx, p.source.ID); err != nil {
+			return frontend.Session{}, err
+		}
+	}
 	id, err := sessionID(req.Protocol)
 	if err != nil {
 		return frontend.Session{}, err
