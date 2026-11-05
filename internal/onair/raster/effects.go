@@ -217,7 +217,7 @@ func (r *render) post(dst *image.RGBA, effects []scene.Effect) {
 				offset := 0.0
 				switch e.Type {
 				case "grain":
-					offset = (random(seed, x+y*r.w+frame*100003) - .5) * amount * 255
+					offset = (random(seed, x+y*r.w+frame*100003) - .5) * min(amount, 1) * 24
 				case "scanlines":
 					if y%3 == 0 {
 						v = 1 - amount

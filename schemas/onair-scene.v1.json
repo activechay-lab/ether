@@ -234,12 +234,6 @@
         "type"
       ],
       "properties": {
-        "grainSize": {
-          "type": "integer"
-        },
-        "noiseFps": {
-          "type": "integer"
-        },
         "id": {
           "type": "string"
         },

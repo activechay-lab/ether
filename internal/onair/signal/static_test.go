@@ -6,40 +6,7 @@ import (
 	"testing"
 )
 
-func BenchmarkStatic1080p30(b *testing.B) {
-	video := make([]byte, 1920*1080*3/2)
-	audio := make([]int16, 3200)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		StaticVideo(video, 1920, 1080, 7, int64(n))
-		StaticAudio(audio, int64(n), 1600, 7)
-	}
-}
-
-func TestStaticContinuity(t *testing.T) {
-	a, b := make([]byte, 320*180*3/2), make([]byte, 320*180*3/2)
-	StaticVideo(a, 320, 180, 7, 0)
-	StaticVideo(b, 320, 180, 7, 0)
-	for i := range a {
-		if a[i] != b[i] {
-			t.Fatal("non-deterministic video")
-		}
-		if a[i] < 16 || a[i] > 235 {
-			t.Fatal("invalid studio-range sample")
-		}
-	}
-	StaticVideo(b, 320, 180, 7, 120)
-	equal := true
-	for i := range a {
-		if a[i] != b[i] {
-			equal = false
-			break
-		}
-	}
-	if equal {
-		t.Fatal("four-second static repeat")
-	}
+func TestStaticAudio(t *testing.T) {
 	pcm := make([]int16, 3200)
 	sum := 0.0
 	for tick := int64(0); tick < 30; tick++ {
@@ -56,7 +23,7 @@ func TestStaticContinuity(t *testing.T) {
 }
 
 func BenchmarkLiveWarm1080p30(b *testing.B) {
-	e := NewStatic(1920, 1080, "classic", 7)
+	e := NewStatic(1920, 1080, 7)
 	video := make([]byte, 1920*1080*3/2)
 	pcm := make([]int16, 3200)
 	b.ReportAllocs()
@@ -79,49 +46,37 @@ func BenchmarkLivePlate1080p30(b *testing.B) {
 }
 
 func TestLiveEngineTicks(t *testing.T) {
-	for _, variant := range []string{"shimmer", "classic", "ghost"} {
-		a, b := NewStatic(320, 180, variant, 7), NewStatic(320, 180, variant, 7)
-		av, bv := make([]byte, 320*180*3/2), make([]byte, 320*180*3/2)
-		ap, bp := make([]int16, 3200), make([]int16, 3200)
-		var first uint64
-		for tick := int64(0); tick < 121; tick++ {
-			a.Render(av, ap, tick)
-			b.Render(bv, bp, tick)
-			hash := uint64(0)
-			sum := 0
-			for i, v := range av {
-				if v != bv[i] {
-					t.Fatal("non-deterministic engine")
-				}
-				if i < 320*180 {
-					sum += int(v)
-					hash = hash*131 + uint64(v)
-				}
+	a, b := NewStatic(320, 180, 7), NewStatic(320, 180, 7)
+	av, bv := make([]byte, 320*180*3/2), make([]byte, 320*180*3/2)
+	ap, bp := make([]int16, 3200), make([]int16, 3200)
+	var first uint64
+	for tick := int64(0); tick < 121; tick++ {
+		a.Render(av, ap, tick)
+		b.Render(bv, bp, tick)
+		hash := uint64(0)
+		sum := 0
+		for i, v := range av {
+			if v != bv[i] {
+				t.Fatal("non-deterministic engine")
 			}
-			for i, v := range ap {
-				if v != bp[i] {
-					t.Fatal("non-deterministic audio")
-				}
-			}
-			if sum/(320*180) < 32 {
-				t.Fatal("black live engine")
-			}
-			if tick == 0 {
-				first = hash
-			}
-			if tick == 120 && hash == first {
-				t.Fatal("four-second repeat")
+			if i < 320*180 {
+				sum += int(v)
+				hash = hash*131 + uint64(v)
 			}
 		}
-	}
-}
-func BenchmarkLiveGhost1080p30(b *testing.B) {
-	e := NewStatic(1920, 1080, "ghost", 7)
-	video := make([]byte, 1920*1080*3/2)
-	pcm := make([]int16, 3200)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		e.Render(video, pcm, int64(n))
+		for i, v := range ap {
+			if v != bp[i] {
+				t.Fatal("non-deterministic audio")
+			}
+		}
+		if sum/(320*180) < 32 {
+			t.Fatal("black live engine")
+		}
+		if tick == 0 {
+			first = hash
+		}
+		if tick == 120 && hash == first {
+			t.Fatal("four-second repeat")
+		}
 	}
 }

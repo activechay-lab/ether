@@ -593,7 +593,7 @@ Migrations:
   1. **Gaps first.** With `Align` (hour or half hour), `fillGap` already makes dead air. Interstitials take that gap before filler or slate, so the guide doesn't move at all.
   2. **Inserted.** Without alignment, an interstitial adds a slot. Later programmes shift by its length. This happens only when the owner saves the channel. The save toast says "Guide times shift by up to 12 s per programme."
 - **Guide coalescing.** `Guide()`, XMLTV and the Plex grid fold every interstitial into the preceding real programme's end time. Viewers never see 8-second programmes, and real programme IDs stay `<ch>-<startMs>` of the real start. Playout uses the uncoalesced list. Inserted mode changes guide times only, never by more than the interstitial's own length.
-- **Off-air** keeps today's guide entry; playout now plays the `offair` clip, looped.
+- **Off-air** keeps today's guide entry. Designed `offair` clips loop; analogue-static scenes composite a prepared foreground over the continuously running warm Signal engine (§4.9).
 - **Tune-in ident** is not a schedule entry. It is a session prefix (§4.5), so the guide is unaffected.
 
 ### 4.5 Playout: one continuous stream per channel
@@ -712,13 +712,11 @@ The CPU figures include decode. Decode is the variable part: a 1080p H.264 relea
 ### 4.9 Signal screens
 
 **What renders the screens**
-- **Clips.** Each style is a built-in moment of the "Signal" family: `screen.card`, `screen.static`, `screen.bars`, `screen.brb`, `screen.testcard`. Each is rendered by `internal/onair` into a 4 s master MP4 loop and played through the slate path (`ClipPath`, `ClipLoop: true`). That gives the same stream-contract matching as v0.3.4's slate, on HLS and DASH.
-- **Audio.** Audio is synthesized in pure Go as PCM and muxed in the same ffmpeg pass:
-  - static: band-limited noise at about −30 dBFS RMS, plus a 60 Hz hum at about −42 dBFS;
-  - bars: a 1 kHz sine at −24 dBFS (line-up level is −20; this is gentler for living rooms);
-  - loops are cut at zero crossings, so there's no click at the seam.
-- **Bitrate.** Static is generated at a third of the output resolution with 2×2 grain at 15 noise frames a second, then scaled. It is encoded under the session's negotiated bitrate ceiling, so snow never demands more bandwidth than the programme did.
-- **Cache.** Clips are cached per style, copy and stream contract, like any clip. Copy depends on the reason: "Back at …", "Reconnecting…" or "Waiting for a free connection".
+- **Live Signal engine.** Analogue static is the approved warm, soft phosphor generator (`internal/onair/signal`), rendered at the full negotiated output size at 30 Hz. Its temporally integrated, Gaussian-bloomed 320×180 field is deliberate bandwidth limiting, sampled smoothly into native 1080p; it is not a low-resolution encoded clip. The continuous channel tick drives the rolling bar, tracking, hiss and hum. There is no video or audio loop.
+- **One static.** Signal screens, cold-tune fill, and scene `noise` backgrounds use this same generator. Nocturne's off-air card composites its prepared foreground over live static in the switcher. Scene masters and console previews use the same warm phosphor model; designed cards retain only subtle native-resolution film grain.
+- **Other screens.** Modern card, bars, BRB and test card use prepared native-resolution plates with live phosphor effects. All are silent. Typography is prepared away from the frame clock.
+- **Bitrate.** The existing shared encoder enforces the session's negotiated ceiling. Softness controls entropy; no coarse snow is substituted to meet the budget.
+- **Cache.** The renderer version participates in the content hash, invalidating old grey-snow masters. Live static never reads a looping master from that cache.
 
 **Settings.** `config.LiveTV.Screens{OffAir, NoSignal string; StationID bool}` holds the owner default. `Channel.Screens{OffAir, NoSignal string}` is the per-channel override, where `""` follows the default. The style IDs are `card`, `static`, `bars`, `brb` and `testcard`.
 
@@ -733,7 +731,7 @@ The CPU figures include decode. Decode is the variable part: a 1080p H.264 relea
 ```
 provider ─▶ ffmpeg decoder ──raw frames + PCM──▶ ┌───────────────┐      ┌──────────────────────┐
              (restartable)                       │  Go switcher  │─────▶│ ffmpeg encoder       │─▶ HLS / DASH / HTTP
-generated screen frames + PCM (cached, looped) ▶ │ (frame sync)  │ raw  │ (one per session,    │   (the same output
+live Signal frames + PCM (non-repeating) ▶ │ (frame sync)  │ raw  │ (one per session,    │   (the same output
                                                  └───────────────┘      │  never restarted)    │    the whole time)
                                                                         └──────────────────────┘
 ```
@@ -745,7 +743,7 @@ generated screen frames + PCM (cached, looped) ▶ │ (frame sync)  │ raw  �
   - **Stall detection.** If no decoded frame arrives for 1.5 s, or the decoder exits, or the provider closes or errors, the switcher repeats the last frame until the 1.5 s threshold, then switches to the screen. Audio crossfades over 40 ms. The output never gaps.
   - **Recovery.** A background retry (cooldown, tune gap, per-hour cap and provider-slot rules exactly as above) starts a new decoder. The first decoded frame is always a keyframe, because the decoder starts there. The switcher cuts back on the next tick, re-timed onto the continuous clock, with a 40 ms audio crossfade.
   - **Starting down.** A tune whose source is down from the start begins on the screen at the channel's last known contract (the cached probe from its last session or health sweep, otherwise 1080p30 H.264 / AAC stereo). It becomes the real feed later with the same continuity. If the feed arrives at a different size or rate, it is scaled into the fixed contract for the rest of the session.
-- **The screens** are cached master clips (the Signal family) decoded once into a looping in-memory frame and PCM ring, so filling costs no extra decoder.
+- **The screens** come directly from the live Signal engine; prepared foreground plates are composited over the non-repeating generator, so filling costs no extra decoder.
 
 **HLS, DASH and HTTP.**
 - The encoder writes the session's output (HLS segments; fMP4 for Plex Web's DASH; a continuous Matroska/TS byte stream for Plex for Mac's HTTP path) from one uninterrupted stream.
