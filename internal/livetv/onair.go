@@ -179,6 +179,19 @@ func (s *Service) clipRequest(c Channel, p Programme) core.ClipRequest {
 	return r
 }
 func (s *Service) graphicsChannel(c Channel) Channel {
+	if c.Kind == "virtual" && s.o.DefaultStyle != nil {
+		id := s.o.DefaultStyle()
+		if id != "" && (c.Look == nil || c.Look.LookID == "") {
+			if c.Look == nil {
+				c.Look = &ChannelLook{Ident: true, UpNext: true, OffAir: true}
+			} else {
+				cp := *c.Look
+				c.Look = &cp
+			}
+			c.Look.LookID = id
+		}
+	}
+
 	if s.o.Graphics != nil {
 		c.clipDuration = s.o.Graphics.Duration
 		if meta, ok := s.o.Graphics.(core.ChannelSegmentMetadata); ok {

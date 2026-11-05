@@ -215,7 +215,9 @@ export function ChannelScreens({
 }) {
   const config = useAsync(() => api.getConfig(), []);
   const looks = useAsync(() => onair.looks(), []);
-  const look = looks.data?.find((v) => v.id === channel.look?.lookId);
+  const look = looks.data?.find(
+    (v) => v.id === (channel.look?.lookId || config.data?.liveTV?.defaultStyleId),
+  );
   const names: Record<string, string> = {
     card: t("Modern card"),
     static: t("Analogue static"),
@@ -227,7 +229,7 @@ export function ChannelScreens({
   return (
     <section className="space-y-5">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
-        {t("Screens")}
+        {t("Screens for {name}", { name: channel.name })}
       </h3>
       <ScreenPicker
         label={t("When a channel is off air")}
@@ -235,8 +237,10 @@ export function ChannelScreens({
         onChange={(offAir) => onChange({ screens: { ...channel.screens, offAir } })}
         station={channel.name}
         look={look}
-        fallback={config.data?.liveTV?.screens?.offAir || "card"}
-        defaultLabel={names[config.data?.liveTV?.screens?.offAir || "card"]}
+        fallback={look?.screens?.offAir || config.data?.liveTV?.screens?.offAir || "card"}
+        defaultLabel={
+          names[look?.screens?.offAir || config.data?.liveTV?.screens?.offAir || "card"]
+        }
       />
       <ScreenPicker
         label={t("When a channel can't play")}
@@ -244,8 +248,10 @@ export function ChannelScreens({
         onChange={(noSignal) => onChange({ screens: { ...channel.screens, noSignal } })}
         station={channel.name}
         look={look}
-        fallback={config.data?.liveTV?.screens?.noSignal || "card"}
-        defaultLabel={names[config.data?.liveTV?.screens?.noSignal || "card"]}
+        fallback={look?.screens?.noSignal || config.data?.liveTV?.screens?.noSignal || "card"}
+        defaultLabel={
+          names[look?.screens?.noSignal || config.data?.liveTV?.screens?.noSignal || "card"]
+        }
       />
     </section>
   );

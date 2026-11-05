@@ -1,12 +1,17 @@
-import { Button, Input, Tooltip, toast } from "@braedonsaunders/appkit-ui";
-import { Info, Shuffle, RotateCcw, Play, Upload, PenTool } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Button, Input, Select, Tooltip, toast } from "@braedonsaunders/appkit-ui";
+import { Info, Shuffle, RotateCcw, Upload, PenTool } from "lucide-react";
 import { Field, ChipGroup } from "../../../components/fields";
 import { ColorPicker } from "../../../components/ColorPicker";
 import { t } from "../../../i18n";
 import { referenceLooks } from "./fixtures";
 import { normalizeFont } from "./scene-renderer";
-import { MOMENTS, onair, type Look, type BrandTokens } from "./model";
+import { MOMENTS, onair, type Look, type OnAirAsset, type BrandTokens } from "./model";
 export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look) => void }) {
+  const [assets, setAssets] = useState<OnAirAsset[]>([]);
+  useEffect(() => {
+    void onair.assets().then(setAssets);
+  }, []);
   const b = look.brand;
   const set = (p: Partial<BrandTokens>) => onChange({ ...look, brand: { ...b, ...p } });
   const section = (title: string, children: React.ReactNode) => (
@@ -41,8 +46,9 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
               <Upload size={14} />
               {t("Logo")}
               <input
-                className="hidden"
+                className="sr-only"
                 type="file"
+                aria-label={t("Logo")}
                 accept="image/*"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -157,6 +163,32 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
           ))}
         </div>,
       )}
+      {assets.some((a) => a.kind === "font") ? (
+        <div className="space-y-3">
+          {(["display", "body"] as const).map((role) => (
+            <Field key={role} label={t(role === "display" ? "Display font" : "Body font")}>
+              <Select
+                aria-label={t(role === "display" ? "Display font" : "Body font")}
+                value={b.type[role]}
+                onChange={(e) => set({ type: { ...b.type, [role]: e.currentTarget.value } })}
+              >
+                {[...new Set(referenceLooks.map((l) => l.brand.type[role]))].map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+                {assets
+                  .filter((a) => a.kind === "font")
+                  .map((a) => (
+                    <option key={a.digest} value={a.digest}>
+                      {a.name}
+                    </option>
+                  ))}
+              </Select>
+            </Field>
+          ))}
+        </div>
+      ) : null}
       {section(
         t("Motion"),
         <>
@@ -178,7 +210,7 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
           </Field>
           <Field label={t("Texture")}>
             <ChipGroup
-              options={["Grain", "Flicker", "Scanlines", "Vignette", "Chroma"].map((x) => ({
+              options={["Grain"].map((x) => ({
                 value: x,
                 label: t(x),
               }))}
@@ -193,49 +225,40 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
       {section(
         t("Sound"),
         <>
-          <div className="flex gap-2">
-            <select
-              className="w-full rounded-md border border-border bg-surface p-2 text-sm"
+          <Field label={t("Sting")}>
+            <Select
               aria-label={t("Sting")}
               value={b.sting}
-              onChange={(e) => set({ sting: e.target.value })}
+              onChange={(e) => set({ sting: e.currentTarget.value })}
             >
-              {["Soft chime", "Film projector", "Synth hit", "Bubble pop", "None"].map((s) => (
-                <option key={s}>{t(s)}</option>
-              ))}
-            </select>
-            <Button
-              variant="outline"
+              <option value="">{t("None")}</option>
+              {assets
+                .filter((a) => a.kind === "audio")
+                .map((a) => (
+                  <option key={a.digest} value={a.digest}>
+                    {a.name}
+                  </option>
+                ))}
+            </Select>
+          </Field>
+          {assets.find((a) => a.digest === b.sting)?.url ? (
+            <audio
+              controls
+              src={assets.find((a) => a.digest === b.sting)?.url}
               aria-label={t("Play sting")}
-              onClick={() => {
-                const a = new AudioContext();
-                const o = a.createOscillator(),
-                  g = a.createGain();
-                o.type = "sine";
-                o.frequency.setValueAtTime(660, a.currentTime);
-                o.frequency.exponentialRampToValueAtTime(330, a.currentTime + 0.5);
-                g.gain.setValueAtTime(b.volume * 0.15, a.currentTime);
-                g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + 0.6);
-                o.connect(g);
-                g.connect(a.destination);
-                o.start();
-                o.stop(a.currentTime + 0.6);
-                o.onended = () => void a.close();
-              }}
-            >
-              <Play size={14} />
-            </Button>
-          </div>
-          <input
-            aria-label={t("Volume")}
-            type="range"
-            className="w-full accent-primary"
-            min="0"
-            max="1"
-            step=".01"
-            value={b.volume}
-            onChange={(e) => set({ volume: +e.target.value })}
-          />
+            />
+          ) : null}
+          <Field label={t("Volume")}>
+            <input
+              aria-label={t("Volume")}
+              type="range"
+              min="0"
+              max="1"
+              step=".01"
+              value={b.volume}
+              onChange={(e) => set({ volume: Number(e.currentTarget.value) })}
+            />
+          </Field>
         </>,
       )}
       <details className="space-y-3">
@@ -244,16 +267,6 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
           <RotateCcw size={14} />
           {t("New shapes")}
         </Button>
-        <Field label={t("Language")}>
-          <select
-            value={b.language}
-            onChange={(e) => set({ language: e.target.value })}
-            className="w-full rounded-md border border-border bg-surface p-2"
-          >
-            <option value="en">{t("English")}</option>
-            <option value="fr">{t("French")}</option>
-          </select>
-        </Field>
         {MOMENTS.map((m) => (
           <Field key={m} label={t(m)}>
             <div className="flex gap-2">

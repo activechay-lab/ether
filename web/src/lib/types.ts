@@ -394,6 +394,7 @@ export interface EtherConfig {
     sourceOrder?: string[];
   };
   liveTV?: {
+    defaultStyleId?: string;
     logoIndexUrl?: string;
     healthSweepMinutes?: number;
     screens?: {

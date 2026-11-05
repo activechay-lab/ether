@@ -780,6 +780,29 @@ export function loadOnAirFonts() {
     );
   })());
 }
+const customFonts = new Map<string, Promise<void>>();
+export async function loadStyleFonts(look: Look) {
+  await loadOnAirFonts();
+  await Promise.all(
+    Object.values(look.brand.type)
+      .filter((id) => /^[a-f0-9]{64}$/.test(id))
+      .map((id) => {
+        if (!customFonts.has(id))
+          customFonts.set(
+            id,
+            (async () => {
+              const url = `/ether/api/onair/assets/${id}`;
+              const response = await fetch(url, { headers: resourceHeaders(url) });
+              if (!response.ok) throw new Error("Font unavailable");
+              const face = new FontFace(`onair-${id}`, await response.arrayBuffer());
+              await face.load();
+              document.fonts.add(face);
+            })(),
+          );
+        return customFonts.get(id);
+      }),
+  );
+}
 export function documentFor(family: string, moment: string) {
   return catalog[
     `${family === "lateNight" ? "late-night" : family}-${moment === "offair" && family === "personal" ? "welcome" : moment}`
@@ -1035,7 +1058,12 @@ export function renderLook(
     }
   }
 
-  if (synchronous || !workerFrame(ctx, document, bound, t)) renderScene(ctx, document, bound, t);
+  if (
+    Object.values(look.brand.type).some((id) => /^[a-f0-9]{64}$/.test(id)) ||
+    synchronous ||
+    !workerFrame(ctx, document, bound, t)
+  )
+    renderScene(ctx, document, bound, t);
 }
 
 if (import.meta.hot)

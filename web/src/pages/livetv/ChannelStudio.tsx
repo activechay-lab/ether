@@ -287,14 +287,14 @@ export function ChannelStudio({
     ? [
         { key: "programming", label: c.personal ? t("Recipe") : t("Programming") },
         { key: "schedule", label: t("Schedule"), count: c.blocks?.length || undefined },
-        { key: "look", label: t("Look") },
+        { key: "look", label: t("Style") },
         { key: "viewers", label: t("Viewers") },
         { key: "details", label: t("Details") },
       ]
     : [
         { key: "stream", label: t("Stream") },
         { key: "guide", label: t("Guide") },
-        { key: "look", label: t("Look") },
+        { key: "look", label: t("Style") },
         { key: "viewers", label: t("Viewers") },
         { key: "details", label: t("Details") },
       ];

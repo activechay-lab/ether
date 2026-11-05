@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, cn } from "@braedonsaunders/appkit-ui";
 import { Play, Pause, Repeat } from "lucide-react";
 import { t } from "../../../i18n";
-import { renderLook, loadOnAirFonts, releaseRenderer, documentFor } from "./scene-renderer";
+import { renderLook, loadStyleFonts, releaseRenderer, documentFor } from "./scene-renderer";
 import { MOMENTS, type Look, type Moment, type Bindings } from "./model";
 const EMPTY_BINDINGS: Bindings = {};
 let activeTile: HTMLCanvasElement | null = null;
@@ -30,7 +30,7 @@ export function LookTile({
     let frame = 0,
       mounted = true;
     const start = performance.now();
-    const still = documentFor(look.family, moment)?.poster ?? look.moments[moment]?.poster ?? 5.5;
+    const still = look.moments[moment]?.poster ?? documentFor(look.family, moment)?.poster ?? 5.5;
     const draw = () => {
       renderLook(
         ctx,
@@ -50,7 +50,7 @@ export function LookTile({
       if (hover && activeTile === c) frame = requestAnimationFrame(draw);
     };
     draw();
-    void loadOnAirFonts().then(() => {
+    void loadStyleFonts(look).then(() => {
       if (mounted && !hover) draw();
     });
     return () => {
@@ -121,18 +121,13 @@ export function LookStage({
   useEffect(() => setSelected(moment), [moment]);
   useEffect(() => {
     if (!sound) return;
-    const audio = new AudioContext();
-    const o = audio.createOscillator(),
-      g = audio.createGain();
-    o.frequency.value = look.brand.sting === "Synth hit" ? 220 : 660;
-    g.gain.setValueAtTime(look.brand.volume * 0.12, audio.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.6);
-    o.connect(g);
-    g.connect(audio.destination);
-    o.start();
-    o.stop(audio.currentTime + 0.6);
+    if (!look.brand.sting || look.brand.sting.includes(" ")) return;
+    const audio = new Audio(`/ether/api/onair/assets/${encodeURIComponent(look.brand.sting)}`);
+    audio.volume = look.brand.volume;
+    void audio.play().catch(() => {});
     return () => {
-      void audio.close();
+      audio.pause();
+      audio.removeAttribute("src");
     };
   }, [sound, selected, look.brand.sting, look.brand.volume]);
   useEffect(() => {
@@ -179,7 +174,7 @@ export function LookStage({
       frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
-    void loadOnAirFonts().then(() => {
+    void loadStyleFonts(look).then(() => {
       lastDrawTime = -1;
     });
     return () => {

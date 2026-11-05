@@ -28,6 +28,18 @@ func (s *Service) screenDefaults() config.LiveTVScreens {
 }
 func (s *Service) screenStyle(c Channel, offair bool) string {
 	defaults := s.screenDefaults()
+	id := ""
+	if s.o.DefaultStyle != nil {
+		id = s.o.DefaultStyle()
+	}
+	if c.Look != nil && c.Look.LookID != "" {
+		id = c.Look.LookID
+	}
+	if s.o.StyleScreens != nil {
+		if v := s.o.StyleScreens(id); v != nil {
+			defaults = *v
+		}
+	}
 	style := defaults.NoSignal
 	if offair {
 		style = defaults.OffAir
@@ -65,11 +77,24 @@ func (s *Service) screenRequest(c Channel, reason string) core.ClipRequest {
 		reason = "reconnecting"
 	}
 	station := "0"
-	if s.screenDefaults().StationID {
+	stationID := s.screenDefaults().StationID
+	id := ""
+	if s.o.DefaultStyle != nil {
+		id = s.o.DefaultStyle()
+	}
+	if c.Look != nil && c.Look.LookID != "" {
+		id = c.Look.LookID
+	}
+	if s.o.StyleScreens != nil {
+		if v := s.o.StyleScreens(id); v != nil {
+			stationID = v.StationID
+		}
+	}
+	if stationID {
 		station = "1"
 	}
-	lookID := ""
-	if c.Look != nil {
+	lookID := id
+	if c.Look != nil && c.Look.LookID != "" {
 		lookID = c.Look.LookID
 	}
 	return core.ClipRequest{LookID: lookID, Moment: "screen." + style, ChannelID: c.ID, Bind: map[string]string{"screen.reason": reason, "screen.back": "", "channel.name": c.Name, "channel.number": c.Number, "screen.stationId": station}}

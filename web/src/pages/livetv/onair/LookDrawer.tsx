@@ -12,12 +12,13 @@ import { LookStage } from "./Stage";
 import { DesignPanel } from "./DesignPanel";
 import { DescribeLook } from "./DescribeLook";
 import { LayersPanel, Timeline } from "./LayersPanel";
+import { StyleScreensEditor } from "./StyleScreens";
 import { AssetsPanel } from "./AssetsPanel";
 export function LookDrawer({
   look,
   onClose,
   onSaved,
-  initialTab = "design",
+  initialTab = "describe",
   stacked,
 }: {
   look: Look;
@@ -110,7 +111,7 @@ export function LookDrawer({
       !dirty ||
       (await confirmDialog({
         title: t("Discard unsaved changes?"),
-        message: t("Your changes to this look haven’t been saved."),
+        message: t("Your changes to this style haven’t been saved."),
         confirmLabel: t("Discard"),
         tone: "danger",
       }))
@@ -126,7 +127,7 @@ export function LookDrawer({
       setRender(0);
       onSaved(result);
     } catch {
-      toast.error(t("Couldn’t save look"));
+      toast.error(t("Couldn’t save style"));
     } finally {
       setSaving(false);
     }
@@ -151,7 +152,7 @@ export function LookDrawer({
       panelClassName="max-sm:[&>header]:flex-wrap max-sm:[&>header]:gap-2 max-sm:[&>header>div:first-child]:w-full max-sm:[&>header>div:last-child]:w-full max-sm:[&>header>div:last-child]:justify-end"
       title={
         <Input
-          aria-label={t("Look name")}
+          aria-label={t("Style name")}
           className="w-full sm:max-w-48 border-transparent bg-transparent font-semibold"
           value={draft.name}
           onChange={(e) => change({ ...draft, name: e.target.value })}
@@ -166,7 +167,7 @@ export function LookDrawer({
             {t("Discard")}
           </Button>
           <Button size="sm" disabled={saving} onClick={() => void save()}>
-            {t("Save look")}
+            {t("Save style")}
           </Button>
           <Popover
             open={menu}
@@ -177,7 +178,7 @@ export function LookDrawer({
               <Button
                 variant="ghost"
                 size="sm"
-                aria-label={t("Look actions")}
+                aria-label={t("Style actions")}
                 onClick={() => setMenu(!menu)}
               >
                 <MoreHorizontal size={16} />
@@ -200,7 +201,7 @@ export function LookDrawer({
                   if (
                     await confirmDialog({
                       title: t("Delete {name}?", { name: draft.name }),
-                      message: t("Channels using this look will lose their on-air graphics."),
+                      message: t("Channels using this style will lose their on-air graphics."),
                       confirmLabel: t("Delete"),
                       tone: "danger",
                     })
@@ -221,13 +222,17 @@ export function LookDrawer({
             <SubtabNav
               active={tab}
               onSelect={setTab}
-              ariaLabel={t("Look inspector")}
-              tabs={["describe", "design", "layers", "assets"].map((key) => ({
+              ariaLabel={t("Style inspector")}
+              tabs={["describe", "design", "layers", "screens", "assets"].map((key) => ({
                 key,
                 label: t(
-                  { describe: "Describe", design: "Design", layers: "Layers", assets: "Assets" }[
-                    key
-                  ]!,
+                  {
+                    describe: "Describe",
+                    design: "Design",
+                    layers: "Layers",
+                    screens: "Screens",
+                    assets: "Assets",
+                  }[key]!,
                 ),
               }))}
             />
@@ -238,7 +243,15 @@ export function LookDrawer({
             ) : tab === "describe" ? (
               <DescribeLook look={draft} onChange={change} />
             ) : tab === "layers" ? (
-              <LayersPanel selected={layer} onSelect={setLayer} look={draft} onChange={change} />
+              <LayersPanel
+                moment={moment}
+                selected={layer}
+                onSelect={setLayer}
+                look={draft}
+                onChange={change}
+              />
+            ) : tab === "screens" ? (
+              <StyleScreensEditor look={draft} onChange={change} />
             ) : (
               <AssetsPanel />
             )}
@@ -301,6 +314,7 @@ export function LookDrawer({
               </Button>
             </div>
           </div>
+          <p className="mb-3 text-sm text-fg-muted">{t("Style · {name}", { name: draft.name })}</p>
           <LookStage
             look={draft}
             compact={tab === "layers"}
@@ -312,7 +326,9 @@ export function LookDrawer({
               setTab("layers");
             }}
           />
-          {tab === "layers" ? <Timeline selected={layer} onSelect={setLayer} /> : null}
+          {tab === "layers" ? (
+            <Timeline look={draft} moment={moment} selected={layer} onSelect={setLayer} />
+          ) : null}
         </section>
       </div>
       {useOpen ? (
@@ -332,10 +348,10 @@ export function LookDrawer({
                   });
                 }
                 setUseOpen(false);
-                toast.success(t("Look applied"));
+                toast.success(t("Style applied"));
               }}
             >
-              {t("Apply look")}
+              {t("Apply style")}
             </Button>
           }
         >

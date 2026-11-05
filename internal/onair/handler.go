@@ -38,6 +38,17 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 	for _, mount := range resources {
 		mount(r)
 	}
+	r.Post("/template", func(w http.ResponseWriter, r *http.Request) {
+		var v struct {
+			Prompt string `json:"prompt"`
+			Base   Look   `json:"base"`
+		}
+		if !body(w, r, &v) {
+			return
+		}
+		l, e := s.Template(r.Context(), v.Prompt, v.Base)
+		result(w, l, e)
+	})
 	r.Get("/looks", func(w http.ResponseWriter, r *http.Request) { v, e := s.Looks(r.Context()); result(w, v, e) })
 	r.Post("/looks", func(w http.ResponseWriter, r *http.Request) {
 		var l Look

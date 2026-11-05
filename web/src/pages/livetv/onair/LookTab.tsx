@@ -8,6 +8,7 @@ import { ToolbarPicker } from "../../../components/ToolbarPicker";
 import { Field, NumberInput, Segmented } from "../../../components/fields";
 import { ErrorPanel } from "../../../components/feedback";
 import { useAsync } from "../../../lib/hooks";
+import { api } from "../../../lib/api";
 import { t } from "../../../i18n";
 import type { Channel } from "../model";
 import { onair, type ChannelLook, type Moment } from "./model";
@@ -25,6 +26,7 @@ export function LookTab({
   onChange: (patch: Partial<Channel>) => void;
   viewerName?: string;
 }) {
+  const config = useAsync(() => api.getConfig(), []);
   const segments = useRegistry<{ duration: number }>("onairSegment");
   const looks = useAsync(() => onair.looks(), []);
   const bindings = useAsync(
@@ -49,7 +51,9 @@ export function LookTab({
     breakSeconds: 60,
   };
   const set = (patch: Partial<ChannelLook>) => onChange({ look: { ...settings, ...patch } });
-  const look = looks.data?.find((v) => v.id === settings.lookId);
+  const look = looks.data?.find(
+    (v) => v.id === (settings.lookId || config.data?.liveTV?.defaultStyleId),
+  );
   const navigateLook = (id: string) =>
     setParams((p) => {
       p.set("look", id);
@@ -58,6 +62,11 @@ export function LookTab({
   if (channel.kind === "iptv") return <ChannelScreens channel={channel} onChange={onChange} />;
   return (
     <div className="space-y-6">
+      <h3 className="text-sm font-semibold">
+        {settings.lookId
+          ? t("Override for {name}", { name: channel.name })
+          : t("Default style · {name}", { name: look?.name ?? t("No style") })}
+      </h3>
       {looks.error ? <ErrorPanel error={looks.error} onRetry={() => void looks.reload()} /> : null}
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
         {look ? (
@@ -73,12 +82,12 @@ export function LookTab({
           />
         ) : (
           <div className="grid aspect-video place-items-center rounded-lg border border-dashed border-border bg-surface text-sm text-fg-muted">
-            {t("Choose a look")}
+            {t("Choose a style")}
           </div>
         )}
         <div className="flex min-w-0 flex-col items-start gap-3">
           <ToolbarPicker
-            ariaLabel={t("Look")}
+            ariaLabel={t("Style")}
             value={settings.lookId}
             onChange={(id) => (id === "new" ? navigateLook("new") : set({ lookId: id }))}
             className="w-full"
@@ -92,7 +101,7 @@ export function LookTab({
               </>
             }
             options={[
-              { value: "", label: t("None") },
+              { value: "", label: t("Use default style") },
               ...(looks.data ?? []).map((v) => ({
                 value: v.id,
                 label: v.name,
@@ -105,12 +114,12 @@ export function LookTab({
                   />
                 ),
               })),
-              { value: "new", label: t("New look…") },
+              { value: "new", label: t("New style…") },
             ]}
           />
           {look ? (
             <Button variant="outline" onClick={() => navigateLook(look.id)}>
-              {t("Edit look")}
+              {t("Edit style")}
             </Button>
           ) : null}
         </div>
@@ -202,7 +211,7 @@ export function LookTab({
                     set({ breakContent: e.currentTarget.value as ChannelLook["breakContent"] })
                   }
                 >
-                  <option value="look">{t("Look's break screen")}</option>
+                  <option value="look">{t("Style's break screen")}</option>
                   <option value="reel">{t("Clips from a reel")}</option>
                   <option value="segments">{t("Plugin segments")}</option>
                 </Select>

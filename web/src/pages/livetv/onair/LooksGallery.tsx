@@ -1,6 +1,7 @@
+import { stylesName } from "./naming";
 import { useEffect, useState } from "react";
 import { Badge, Button, EmptyState } from "@braedonsaunders/appkit-ui";
-import { Plus, Sparkles, Copy, Clapperboard, Palette } from "lucide-react";
+import { Plus, Sparkles, Copy, Palette } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Drawer } from "../../../components/Drawer";
 import { t, tn } from "../../../i18n";
@@ -8,6 +9,7 @@ import { onair, type Look, type Reel, type Family } from "./model";
 import { LookTile } from "./Stage";
 import { LookDrawer } from "./LookDrawer";
 import { ReelDrawer } from "./ReelDrawer";
+import { AssetsPanel } from "./AssetsPanel";
 import { ScreensDefaults } from "./ScreensDefaults";
 export function useLooks() {
   const [looks, setLooks] = useState<Look[]>([]),
@@ -21,7 +23,6 @@ export function useLooks() {
 }
 export function LooksAside({
   looks,
-  reels,
   query,
   onSelect,
 }: {
@@ -53,26 +54,6 @@ export function LooksAside({
             </div>
           </button>
         ))}
-      <div className="border-t border-border pt-4">
-        <h3 className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-fg-muted">
-          {t("Reels")}
-        </h3>
-        {reels.map((r) => (
-          <button
-            key={r.id}
-            className="flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left hover:bg-surface-hover"
-            onClick={() => onSelect("reel", r.id)}
-          >
-            <Clapperboard size={20} className="shrink-0 text-fg-muted" />
-            <span className="min-w-0 flex-1 text-sm">
-              <span className="block truncate">{r.name}</span>
-              <span className="block text-xs text-fg-subtle">
-                {tn(r.clips.length, "{count} clip", "{count} clips")}
-              </span>
-            </span>
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
@@ -103,19 +84,18 @@ export function LooksGallery({
   }, []);
   return (
     <div className="space-y-6 p-4 sm:p-6">
-      <ScreensDefaults />
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">{t("Looks")}</h2>
+        <h2 className="text-lg font-semibold">{stylesName()}</h2>
         <span className="text-xs text-fg-muted">
-          {tn(looks.length, "{count} look", "{count} looks")}
+          {tn(looks.length, "{count} style", "{count} styles")}
         </span>
       </div>
       {!looks.length ? (
         <EmptyState
           icon={<Palette />}
-          title={t("Give your channels a look")}
+          title={t("Give your channels a style")}
           description={t("Choose a family to get started.")}
-          action={<Button onClick={onNew}>{t("New look")}</Button>}
+          action={<Button onClick={onNew}>{t("New style")}</Button>}
         />
       ) : null}
       {!looks.length ? (
@@ -127,7 +107,7 @@ export function LooksGallery({
               onClick={async () => {
                 const saved = await onair.saveLook({
                   ...f.look,
-                  name: t("Untitled look"),
+                  name: t("Untitled style"),
                   channelIds: [],
                 });
                 onSelect(saved.id);
@@ -165,9 +145,14 @@ export function LooksGallery({
           className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-surface/50 text-fg-muted hover:border-primary hover:text-primary"
         >
           <Plus size={26} />
-          <span className="text-sm font-medium">{t("New look")}</span>
+          <span className="text-sm font-medium">{t("New style")}</span>
         </button>
       </div>
+      <ScreensDefaults />
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold">{t("Assets")}</h2>
+        <AssetsPanel />
+      </section>
     </div>
   );
 }
@@ -175,7 +160,7 @@ export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => v
   const [params, setParams] = useSearchParams();
   const [families, setFamilies] = useState<Family[]>([]),
     [creating, setCreating] = useState<Look | null>(null),
-    [initialTab, setInitialTab] = useState("design");
+    [initialTab, setInitialTab] = useState("describe");
   useEffect(() => {
     void onair.families().then(setFamilies);
   }, []);
@@ -192,7 +177,7 @@ export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => v
     setCreating({
       ...structuredClone(l),
       id: "",
-      name: t("Untitled look"),
+      name: t("Untitled style"),
       pack: undefined,
       channelIds: [],
     });
@@ -205,7 +190,7 @@ export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => v
           open
           stacked={params.has("channel")}
           size="lg"
-          title={t("New look")}
+          title={t("New style")}
           onClose={close}
         >
           <div className="space-y-6">
@@ -234,7 +219,7 @@ export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => v
             <section className="space-y-3">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <Copy size={15} />
-                {t("Duplicate a look")}
+                {t("Duplicate a style")}
               </h3>
               <div className="flex flex-wrap gap-2">
                 {looks.map((l) => (

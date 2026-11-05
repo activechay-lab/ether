@@ -512,7 +512,8 @@ type LiveTVScreens struct {
 }
 
 type LiveTV struct {
-	Screens LiveTVScreens `json:"screens"`
+	DefaultStyleID string        `json:"defaultStyleId,omitempty"`
+	Screens        LiveTVScreens `json:"screens"`
 	// LogoIndexURL is an owner-enabled channel logo index (an
 	// iptv-org-style JSON list). Ether ships no list; empty disables
 	// logo matching.

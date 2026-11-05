@@ -1,3 +1,4 @@
+import { stylesName } from "./onair/naming";
 import { useLooks, LooksAside, LooksGallery, LookSurfaces } from "./onair/LooksGallery";
 import { SubtabNav } from "../../components/layout";
 import {
@@ -749,14 +750,14 @@ export default function LiveTV() {
             onChange={(e) => setQ(e.currentTarget.value)}
             placeholder={
               leftTab === "looks"
-                ? t("Search looks…")
+                ? t("Search styles…")
                 : leftTab === "sources"
                   ? t("Find a channel, group or source…")
                   : leftTab === "guide"
                     ? t("Find a channel or guide…")
                     : t("Find a channel or group…")
             }
-            aria-label={leftTab === "looks" ? t("Search looks") : t("Search channels")}
+            aria-label={leftTab === "looks" ? t("Search styles") : t("Search channels")}
             className="h-8 pl-7 text-sm"
           />
         </div>
@@ -790,7 +791,7 @@ export default function LiveTV() {
             label: t("Sources"),
           },
           { key: "guide", label: t("Guide") },
-          { key: "looks", label: t("Looks") },
+          { key: "looks", label: stylesName() },
         ]}
       />
     </PanelHead>
@@ -1394,7 +1395,7 @@ function AddMenu({
               t("A channel made for each viewer"),
               onPersonal,
             )}
-            {item(Palette, t("Look"), t("Design your channel’s on-air graphics"), () =>
+            {item(Palette, t("Style"), t("Design your channel’s on-air graphics"), () =>
               navigate("/livetv/looks?look=new"),
             )}
             {item(ListVideo, t("Break reel"), t("Clips to play between programmes"), () =>

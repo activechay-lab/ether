@@ -45,6 +45,14 @@ func normalizeFont(s string) string {
 	return strings.ToLower(strings.NewReplacer(" ", "", "-", "", "_", "").Replace(s))
 }
 func (s *Service) validateLook(ctx context.Context, l Look) error {
+	if l.Screens != nil {
+		for _, v := range []string{l.Screens.OffAir, l.Screens.NoSignal} {
+			if !strings.Contains(" card static bars brb testcard error ", " "+v+" ") {
+				return fmt.Errorf("unknown screen style %q", v)
+			}
+		}
+	}
+
 	if strings.TrimSpace(l.Name) == "" || utf8.RuneCountInString(l.Name) > 120 || utf8.RuneCountInString(l.Brand.Tagline) > 40 {
 		return fmt.Errorf("name required (120 characters maximum); tagline maximum 40 characters")
 	}

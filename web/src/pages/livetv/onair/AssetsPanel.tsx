@@ -1,15 +1,30 @@
 import { useEffect, useState } from "react";
-import { Button, Select, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
-import { Upload, FileType, Image, AudioLines, Film, Trash2 } from "lucide-react";
-import { t } from "../../../i18n";
-import { onair, type OnAirAsset } from "./model";
-export function AssetsPanel() {
+import { Button, Input, Select, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
+import { Upload, FileType, Image, AudioLines, Trash2 } from "lucide-react";
+import type { ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
+import { t, tn } from "../../../i18n";
+import { onair, type OnAirAsset, type Reel, type Look } from "./model";
+// Import and pod slots accept W16 components without adding a top-level tab.
+export function AssetsPanel({
+  importSlot,
+  podsSlot,
+}: {
+  importSlot?: ReactNode;
+  podsSlot?: ReactNode;
+}) {
+  const [, setParams] = useSearchParams();
+  const [reels, setReels] = useState<Reel[]>([]);
+  const [kind, setKind] = useState("");
+  const [query, setQuery] = useState("");
+
   const [assets, setAssets] = useState<OnAirAsset[]>([]);
   const [pending, setPending] = useState<
     { id: string; file: File; license: string; busy: boolean }[]
   >([]);
   useEffect(() => {
     void onair.assets().then(setAssets);
+    void onair.reels().then(setReels);
   }, []);
   const upload = async (files: FileList | null, kind: string) => {
     if (!files) return;
@@ -28,12 +43,78 @@ export function AssetsPanel() {
   };
   return (
     <div className="space-y-5">
+      <div className="flex flex-wrap gap-2">
+        <Input
+          aria-label={t("Search assets")}
+          placeholder={t("Search assets")}
+          value={query}
+          onChange={(e) => setQuery(e.currentTarget.value)}
+        />
+        <Select
+          aria-label={t("Asset kind")}
+          value={kind}
+          onChange={(e) => setKind(e.currentTarget.value)}
+        >
+          {[
+            ["", "All kinds"],
+            ["image", "Images and logos"],
+            ["font", "Fonts"],
+            ["audio", "Audio"],
+            ["clips", "Clips"],
+            ["collections", "Collections"],
+          ].map(([v, l]) => (
+            <option key={v} value={v}>
+              {t(l!)}
+            </option>
+          ))}
+        </Select>
+        {importSlot}
+      </div>
+      {!kind || kind === "collections" || kind === "clips" ? (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">{t("Clip collections")}</h3>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                setParams((p) => {
+                  p.set("reel", "new");
+                  return p;
+                })
+              }
+            >
+              {t("New collection")}
+            </Button>
+          </div>
+          {reels
+            .filter((r) => r.name.toLowerCase().includes(query.toLowerCase()))
+            .map((r) => (
+              <button
+                key={r.id}
+                className="flex w-full items-center justify-between rounded-lg border border-border p-3 text-left"
+                onClick={() =>
+                  setParams((p) => {
+                    p.set("reel", r.id);
+                    return p;
+                  })
+                }
+              >
+                <span className="text-sm font-medium">{r.name}</span>
+                <span className="text-xs text-fg-muted">
+                  {tn(r.clips.length, "{count} clip", "{count} clips")}
+                </span>
+              </button>
+            ))}
+        </section>
+      ) : null}
+      {podsSlot}
+
       <div className="grid grid-cols-2 gap-2">
         {[
           { kind: "font", label: t("Fonts"), Icon: FileType, accept: ".ttf,.otf,.woff2" },
           { kind: "image", label: t("Images"), Icon: Image, accept: "image/*" },
           { kind: "audio", label: t("Audio"), Icon: AudioLines, accept: "audio/*" },
-          { kind: "video", label: t("Video loops"), Icon: Film, accept: "video/*" },
         ].map(({ kind, label, Icon, accept }) => (
           <label
             key={kind}
@@ -48,8 +129,9 @@ export function AssetsPanel() {
             {label}
             <Upload size={12} />
             <input
-              className="hidden"
+              className="sr-only"
               type="file"
+              aria-label={label}
               multiple
               accept={accept}
               onChange={(e) => void upload(e.target.files, kind)}
@@ -105,55 +187,59 @@ export function AssetsPanel() {
             </Button>
           </div>
         ))}
-        {assets.map((a) => (
-          <div key={a.digest} className="rounded-lg border border-border bg-surface p-3">
-            <div className="flex items-center gap-3">
-              {a.kind === "audio" ? (
-                <AudioLines size={24} className="text-primary" />
-              ) : (
-                <FileType size={24} className="text-fg-muted" />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{a.name}</p>
-                <p className="text-xs text-fg-muted">
-                  {t("{size} KB", { size: Math.round(a.size / 1024) })}
-                </p>
+        {assets
+          .filter(
+            (a) => (!kind || a.kind === kind) && a.name.toLowerCase().includes(query.toLowerCase()),
+          )
+          .map((a) => (
+            <div key={a.digest} className="rounded-lg border border-border bg-surface p-3">
+              <div className="flex items-center gap-3">
+                {a.kind === "audio" ? (
+                  <AudioLines size={24} className="text-primary" />
+                ) : (
+                  <FileType size={24} className="text-fg-muted" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{a.name}</p>
+                  <p className="text-xs text-fg-muted">
+                    {t("{size} KB", { size: Math.round(a.size / 1024) })}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={t("Remove asset")}
+                  onClick={async () => {
+                    if (
+                      await confirmDialog({
+                        title: t("Remove {name}?", { name: a.name }),
+                        message: a.usedBy.length
+                          ? t("Used by: {layers}", { layers: a.usedBy.join(", ") })
+                          : t("This asset will be removed from the library."),
+                        confirmLabel: t("Remove"),
+                        tone: "danger",
+                      })
+                    ) {
+                      await onair.deleteAsset(a.digest);
+                      setAssets((s) => s.filter((x) => x.digest !== a.digest));
+                    }
+                  }}
+                >
+                  <Trash2 size={13} />
+                </Button>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label={t("Remove asset")}
-                onClick={async () => {
-                  if (
-                    await confirmDialog({
-                      title: t("Remove {name}?", { name: a.name }),
-                      message: a.usedBy.length
-                        ? t("Used by: {layers}", { layers: a.usedBy.join(", ") })
-                        : t("This asset will be removed from the look."),
-                      confirmLabel: t("Remove"),
-                      tone: "danger",
-                    })
-                  ) {
-                    await onair.deleteAsset(a.digest);
-                    setAssets((s) => s.filter((x) => x.digest !== a.digest));
-                  }
-                }}
-              >
-                <Trash2 size={13} />
-              </Button>
-            </div>
-            <p className="mt-2 text-xs text-fg-subtle">
-              {a.usedBy.length
-                ? t("Used by {layers}", { layers: a.usedBy.join(", ") })
-                : t("Not used yet")}
-            </p>
-            {a.kind === "font" && a.license ? (
               <p className="mt-2 text-xs text-fg-subtle">
-                {t("Font licence")}: {a.license}
+                {a.usedBy.length
+                  ? t("Used by {layers}", { layers: a.usedBy.join(", ") })
+                  : t("Not used yet")}
               </p>
-            ) : null}
-          </div>
-        ))}
+              {a.kind === "font" && a.license ? (
+                <p className="mt-2 text-xs text-fg-subtle">
+                  {t("Font licence")}: {a.license}
+                </p>
+              ) : null}
+            </div>
+          ))}
       </div>
     </div>
   );

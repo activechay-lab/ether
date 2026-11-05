@@ -317,14 +317,16 @@ type Policy struct {
 	channelSet map[string]struct{} // Channels as a set for long lists; see indexChannels
 }
 type Options struct {
-	GuideAI   GuideAIClient
-	Reels     func(context.Context, string) (ReelSnapshot, error)
-	InputUser func(context.Context) (*core.User, error)
-	Screens   func() config.LiveTVScreens
-	Watchlist interface{ Generation() uint64 }
-	Picker    core.PersonalPicker
-	State     core.State
-	Users     interface {
+	GuideAI      GuideAIClient
+	Reels        func(context.Context, string) (ReelSnapshot, error)
+	InputUser    func(context.Context) (*core.User, error)
+	DefaultStyle func() string
+	StyleScreens func(string) *config.LiveTVScreens
+	Screens      func() config.LiveTVScreens
+	Watchlist    interface{ Generation() uint64 }
+	Picker       core.PersonalPicker
+	State        core.State
+	Users        interface {
 		Users(context.Context) ([]core.User, error)
 	}
 	PersonalChanged func(int64)
