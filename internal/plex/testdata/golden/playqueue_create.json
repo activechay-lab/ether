@@ -74,12 +74,12 @@
                   {
                     "id": 1746772100,
                     "streamType": 1,
-                    "codedHeight": 1088,
                     "codec": "h264",
                     "index": 0,
                     "bitrate": 7000,
                     "bitDepth": 8,
                     "chromaSubsampling": "4:2:0",
+                    "codedHeight": 1088,
                     "frameRate": 23.976,
                     "height": 1080,
                     "profile": "high",
@@ -113,12 +113,12 @@
                     "index": 2,
                     "channels": 2,
                     "bitrate": 128,
-                    "language": "français",
+                    "language": "Français",
                     "languageTag": "fr",
                     "languageCode": "fra",
                     "samplingRate": 48000,
-                    "displayTitle": "français (AAC Stereo)",
-                    "extendedDisplayTitle": "français (AAC Stereo)"
+                    "displayTitle": "Français (AAC Stereo)",
+                    "extendedDisplayTitle": "Français (AAC Stereo)"
                   },
                   {
                     "id": 1203151990,
@@ -138,12 +138,12 @@
                     "canAutoSync": false,
                     "codec": "srt",
                     "key": "/library/streams/1527190746",
-                    "language": "español",
+                    "language": "Español",
                     "languageTag": "es",
                     "languageCode": "spa",
                     "format": "srt",
-                    "displayTitle": "español",
-                    "extendedDisplayTitle": "español (SRT External)",
+                    "displayTitle": "Español",
+                    "extendedDisplayTitle": "Español (SRT External)",
                     "external": true,
                     "transient": 0
                   }
@@ -229,12 +229,12 @@
                   {
                     "id": 1601671331,
                     "streamType": 1,
-                    "codedHeight": 1088,
                     "codec": "h264",
                     "index": 0,
                     "bitrate": 7000,
                     "bitDepth": 8,
                     "chromaSubsampling": "4:2:0",
+                    "codedHeight": 1088,
                     "frameRate": 23.976,
                     "height": 1080,
                     "profile": "high",
@@ -268,12 +268,12 @@
                     "index": 2,
                     "channels": 2,
                     "bitrate": 128,
-                    "language": "français",
+                    "language": "Français",
                     "languageTag": "fr",
                     "languageCode": "fra",
                     "samplingRate": 48000,
-                    "displayTitle": "français (AAC Stereo)",
-                    "extendedDisplayTitle": "français (AAC Stereo)"
+                    "displayTitle": "Français (AAC Stereo)",
+                    "extendedDisplayTitle": "Français (AAC Stereo)"
                   },
                   {
                     "id": 738561531,
@@ -293,12 +293,12 @@
                     "canAutoSync": false,
                     "codec": "srt",
                     "key": "/library/streams/123233147",
-                    "language": "español",
+                    "language": "Español",
                     "languageTag": "es",
                     "languageCode": "spa",
                     "format": "srt",
-                    "displayTitle": "español",
-                    "extendedDisplayTitle": "español (SRT External)",
+                    "displayTitle": "Español",
+                    "extendedDisplayTitle": "Español (SRT External)",
                     "external": true,
                     "transient": 0
                   }
