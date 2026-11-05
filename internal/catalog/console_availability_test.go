@@ -47,4 +47,21 @@ func TestConsoleAvailabilityEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	run(core.Filter{Playable: "unknown", DebridCached: "unknown"}, 3)
+	if err := c.PruneConsoleReleaseEvidence(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := c.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM catalog_release_evidence").Scan(&count); err != nil || count != 0 {
+		t.Fatalf("prune count%d err%v", count, err)
+	}
+	r.InfoHash = "hash-one"
+	if err := c.RecordConsoleReleaseEvidence(ctx, core.MovieKey(3), r, "feed", policy, now+3600, now+3600, 1); err != nil {
+		t.Fatal(err)
+	}
+	r.InfoHash = "hash-two"
+	if err := c.RecordConsoleReleaseEvidence(ctx, core.MovieKey(3), r, "feed", policy, now+3600, 0, -1); err != nil {
+		t.Fatal(err)
+	}
+	run(core.Filter{DebridCached: "yes"}, 0)
+	run(core.Filter{DebridCached: "unknown"}, 3)
 }

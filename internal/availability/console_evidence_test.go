@@ -38,6 +38,11 @@ func TestConsoleProjectionUsesCheckedEvidenceNotAddonHints(t *testing.T) {
 	if c.writes == 0 || c.until != x.now.Unix()+21600 || c.cached != -1 {
 		t.Fatalf("projection %+v", c)
 	}
+	c.writes = 0
+	x.s.backfillConsoleEvidence(ctx)
+	if c.writes != 1 || c.until != x.now.Unix()+21600 {
+		t.Fatalf("backfill %+v", c)
+	}
 	x.s.Invalidate(ctx, "r")
 	if len(c.invalidated) != 1 || c.invalidated[0] != "r" {
 		t.Fatalf("invalidation %v", c.invalidated)

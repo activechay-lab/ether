@@ -237,6 +237,7 @@ func settingsUsable(c config.Config, protocol string) bool {
 	return false
 }
 func (s *Service) Run(ctx context.Context) {
+	s.backfillConsoleEvidence(ctx)
 	// Answer the first browse from evidence judged before the restart,
 	// not from a full evaluation inside the request.
 	s.warmHidden()

@@ -55,3 +55,59 @@ func (s *Service) invalidateConsoleEvidence(ctx context.Context, id string) {
 		c.InvalidateConsoleReleaseEvidence(ctx, release)
 	}
 }
+
+// Backfill is a bounded startup task over the retained release queue (capped at
+// 30k records), decoding at most 500 descriptors at a time, never on HTTP reads.
+func (s *Service) backfillConsoleEvidence(ctx context.Context) {
+	if _, ok := s.d.Catalog.(consoleEvidenceCatalog); !ok {
+		return
+	}
+	type observation struct {
+		id, source, generation, raw string
+		key                         core.RatingKey
+	}
+	generations := map[string]string{}
+	for _, feed := range s.d.Feeds.FeedSources() {
+		generations[feed.ID] = feed.Generation
+	}
+	lastID, lastSource := "", ""
+	var lastKey int64
+	for scanned := 0; scanned < 30000 && ctx.Err() == nil; scanned += 500 {
+		rows, err := s.db.QueryContext(ctx, `SELECT id,rating_key,source_id,generation,payload FROM availability_releases WHERE (id,rating_key,source_id)>(?,?,?) AND state='verified' AND policy=? AND verified_at>? ORDER BY id,rating_key,source_id LIMIT 500`, lastID, lastKey, lastSource, s.policy(), s.now().Unix()-21600)
+		if err != nil {
+			return
+		}
+		batch := []observation{}
+		for rows.Next() {
+			var o observation
+			if rows.Scan(&o.id, &o.key, &o.source, &o.generation, &o.raw) != nil {
+				rows.Close()
+				return
+			}
+			batch = append(batch, o)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil || len(batch) == 0 {
+			return
+		}
+		for _, o := range batch {
+			if ctx.Err() != nil {
+				return
+			}
+			lastID, lastKey, lastSource = o.id, int64(o.key), o.source
+			if generations[o.source] != o.generation {
+				continue
+			}
+			r, err := s.decode(o.raw)
+			if err != nil {
+				continue
+			}
+			r.ID = o.id
+			s.publishConsoleEvidence(ctx, o.key, r, o.source, s.policy(), -1)
+		}
+		if len(batch) < 500 {
+			return
+		}
+	}
+}

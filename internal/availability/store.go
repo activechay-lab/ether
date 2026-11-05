@@ -141,6 +141,13 @@ func (s *Service) remember(ctx context.Context, f core.ReleaseFeed, t core.Title
 	return err
 }
 func (s *Service) prune(ctx context.Context) error {
+	if c, ok := s.d.Catalog.(interface {
+		PruneConsoleReleaseEvidence(context.Context, int64) error
+	}); ok {
+		if err := c.PruneConsoleReleaseEvidence(ctx, s.now().Unix()); err != nil {
+			s.log.Debug("prune catalogue release evidence", "error", err)
+		}
+	}
 	cutoff := s.retentionCutoff().Unix()
 	var hasExpiredFeedItems bool
 	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM availability_feed_items WHERE seen_at<?)`, cutoff).Scan(&hasExpiredFeedItems); err != nil {

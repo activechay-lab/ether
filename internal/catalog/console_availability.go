@@ -12,7 +12,7 @@ func init() {
 	store.Register("catalog", 37, `
 CREATE TABLE catalog_release_evidence (
  rating_key INTEGER NOT NULL, release_id TEXT NOT NULL, source_id TEXT NOT NULL,
- policy TEXT NOT NULL, verified_until INTEGER NOT NULL DEFAULT 0,
+ info_hash TEXT NOT NULL DEFAULT '', policy TEXT NOT NULL, verified_until INTEGER NOT NULL DEFAULT 0,
  cache_until INTEGER NOT NULL DEFAULT 0, cached INTEGER NOT NULL DEFAULT -1,
  height INTEGER NOT NULL DEFAULT 0, hdr INTEGER NOT NULL DEFAULT 0,
  dv INTEGER NOT NULL DEFAULT 0, atmos INTEGER NOT NULL DEFAULT 0,
@@ -20,6 +20,7 @@ CREATE TABLE catalog_release_evidence (
 );
 CREATE INDEX catalog_release_evidence_playable ON catalog_release_evidence(policy,verified_until,rating_key);
 CREATE INDEX catalog_release_evidence_cache ON catalog_release_evidence(policy,cached,cache_until,rating_key);
+CREATE INDEX catalog_release_evidence_expired ON catalog_release_evidence(verified_until,cache_until,rating_key,release_id,source_id);
 CREATE INDEX catalog_release_evidence_title ON catalog_release_evidence(rating_key,policy,verified_until,height,hdr,dv,atmos);
 `)
 }
@@ -53,7 +54,7 @@ func (c *Catalog) RecordConsoleReleaseEvidence(ctx context.Context, key core.Rat
 	if r.Info.Atmos {
 		atmos = 1
 	}
-	_, err := c.db.ExecContext(ctx, `INSERT INTO catalog_release_evidence(rating_key,release_id,source_id,policy,verified_until,cache_until,cached,height,hdr,dv,atmos) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(rating_key,release_id,source_id) DO UPDATE SET policy=excluded.policy,verified_until=excluded.verified_until,cache_until=CASE WHEN excluded.cached<0 AND catalog_release_evidence.policy=excluded.policy THEN catalog_release_evidence.cache_until ELSE excluded.cache_until END,cached=CASE WHEN excluded.cached<0 AND catalog_release_evidence.policy=excluded.policy THEN catalog_release_evidence.cached ELSE excluded.cached END,height=excluded.height,hdr=excluded.hdr,dv=excluded.dv,atmos=excluded.atmos`, int64(key), r.ID, source, policy, verifiedUntil, cacheUntil, cached, r.Info.Height, hdr, dv, atmos)
+	_, err := c.db.ExecContext(ctx, `INSERT INTO catalog_release_evidence(rating_key,release_id,source_id,info_hash,policy,verified_until,cache_until,cached,height,hdr,dv,atmos) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(rating_key,release_id,source_id) DO UPDATE SET info_hash=excluded.info_hash,policy=excluded.policy,verified_until=excluded.verified_until,cache_until=CASE WHEN excluded.cached<0 AND catalog_release_evidence.policy=excluded.policy AND catalog_release_evidence.info_hash=excluded.info_hash THEN catalog_release_evidence.cache_until ELSE excluded.cache_until END,cached=CASE WHEN excluded.cached<0 AND catalog_release_evidence.policy=excluded.policy AND catalog_release_evidence.info_hash=excluded.info_hash THEN catalog_release_evidence.cached ELSE excluded.cached END,height=excluded.height,hdr=excluded.hdr,dv=excluded.dv,atmos=excluded.atmos`, int64(key), r.ID, source, r.InfoHash, policy, verifiedUntil, cacheUntil, cached, r.Info.Height, hdr, dv, atmos)
 	if err == nil {
 		c.writeGen.Add(1)
 	}
@@ -110,4 +111,16 @@ func (c *Catalog) consoleAvailabilityConditions(f core.Filter) ([]string, []any)
 		args = append(args, policy, now)
 	}
 	return conds, args
+}
+
+// PruneConsoleReleaseEvidence drops at most one fixed-size expired chunk per
+// monitor cycle. It never scans the title library or blocks a browse request.
+func (c *Catalog) PruneConsoleReleaseEvidence(ctx context.Context, now int64) error {
+	result, err := c.db.ExecContext(ctx, `DELETE FROM catalog_release_evidence WHERE (rating_key,release_id,source_id) IN (SELECT rating_key,release_id,source_id FROM catalog_release_evidence WHERE verified_until<=? AND cache_until<=? ORDER BY verified_until,rating_key,release_id,source_id LIMIT 500)`, now, now)
+	if err == nil {
+		if n, _ := result.RowsAffected(); n > 0 {
+			c.writeGen.Add(1)
+		}
+	}
+	return err
 }
