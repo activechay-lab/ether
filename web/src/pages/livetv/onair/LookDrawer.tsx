@@ -1,0 +1,328 @@
+import { useUnsavedGuard } from "../../../components/SaveBar";
+import { useEffect, useRef, useState } from "react";
+import { Badge, Button, Input, Popover, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
+import { MoreHorizontal, Undo2, Redo2 } from "lucide-react";
+import { Drawer } from "../../../components/Drawer";
+import { SubtabNav } from "../../../components/layout";
+import { ToolbarPicker } from "../../../components/ToolbarPicker";
+import { t } from "../../../i18n";
+import { tv, type ChannelSummary } from "../model";
+import { onair, type Look, type Bindings, type Moment } from "./model";
+import { LookStage } from "./Stage";
+import { DesignPanel } from "./DesignPanel";
+import { DescribeLook } from "./DescribeLook";
+import { LayersPanel, Timeline } from "./LayersPanel";
+import { AssetsPanel } from "./AssetsPanel";
+export function LookDrawer({
+  look,
+  onClose,
+  onSaved,
+  initialTab = "design",
+}: {
+  look: Look;
+  onClose: () => void;
+  onSaved: (l?: Look) => void;
+  initialTab?: string;
+}) {
+  const [draft, setDraft] = useState(look),
+    [saved, setSaved] = useState(look),
+    [tab, setTab] = useState(initialTab),
+    [menu, setMenu] = useState(false),
+    [moment, setMoment] = useState<Moment>("ident"),
+    [layer, setLayer] = useState("Title"),
+    [channel, setChannel] = useState("v-movie-night"),
+    [at, setAt] = useState("now"),
+    [custom, setCustom] = useState("2026-11-05T20:00"),
+    [viewer, setViewer] = useState("1"),
+    [channels, setChannels] = useState<ChannelSummary[]>([]),
+    [bindings, setBindings] = useState<Bindings>({}),
+    [render, setRender] = useState(7),
+    [saving, setSaving] = useState(false);
+  const history = useRef<Look[]>([]),
+    future = useRef<Look[]>([]);
+  const current = useRef(draft);
+  current.current = draft;
+  const change = (next: Look) => {
+    history.current.push(current.current);
+    future.current = [];
+    current.current = next;
+    setDraft(next);
+  };
+  const undo = () => {
+    const next = history.current.pop();
+    if (next) {
+      future.current.push(current.current);
+      current.current = next;
+      setDraft(next);
+    }
+  };
+  const redo = () => {
+    const next = future.current.pop();
+    if (next) {
+      history.current.push(current.current);
+      current.current = next;
+      setDraft(next);
+    }
+  };
+  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  useUnsavedGuard(dirty);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+  useEffect(() => {
+    void tv
+      .channelSummaries()
+      .then(setChannels)
+      .catch(() => {});
+  }, []);
+  const previewAt =
+    at === "custom"
+      ? new Date(custom).toISOString()
+      : at === "tonight"
+        ? new Date(new Date().setHours(20, 0, 0, 0)).toISOString()
+        : at === "morning"
+          ? new Date(new Date().setHours(32, 0, 0, 0)).toISOString()
+          : new Date().toISOString();
+  useEffect(() => {
+    void onair.bindings({ channel, at: previewAt, viewer, moment }).then(setBindings);
+  }, [channel, at, custom, viewer, moment]);
+  useEffect(() => {
+    if (render >= 7) return;
+    const id = setInterval(() => {
+      void onair.look(draft.id).then((l) => setRender(l.render?.done ?? 7));
+    }, 650);
+    return () => clearInterval(id);
+  }, [render, draft.id]);
+  const close = async () => {
+    if (
+      !dirty ||
+      (await confirmDialog({
+        title: t("Discard unsaved changes?"),
+        message: t("Your changes to this look haven’t been saved."),
+        confirmLabel: t("Discard"),
+        tone: "danger",
+      }))
+    )
+      onClose();
+  };
+  const save = async () => {
+    setSaving(true);
+    try {
+      const result = await onair.saveLook(draft);
+      setDraft(result);
+      setSaved(result);
+      setRender(0);
+      onSaved(result);
+    } catch {
+      toast.error(t("Couldn’t save look"));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const action = (label: string, fn: () => void) => (
+    <button
+      className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-surface-hover"
+      onClick={() => {
+        setMenu(false);
+        fn();
+      }}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <Drawer
+      open
+      onClose={() => void close()}
+      size="full"
+      title={
+        <Input
+          aria-label={t("Look name")}
+          className="max-w-48 border-transparent bg-transparent font-semibold"
+          value={draft.name}
+          onChange={(e) => change({ ...draft, name: e.target.value })}
+        />
+      }
+      bodyClassName="flex min-h-0 flex-1 flex-col overflow-y-auto p-0 lg:overflow-hidden"
+      headerActions={
+        <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+          {dirty ? <Badge>{t("Unsaved")}</Badge> : null}
+          {render < 7 ? <Badge>{t("Rendering {done} of 7", { done: render })}</Badge> : null}
+          <Button variant="ghost" size="sm" onClick={() => setDraft(saved)}>
+            {t("Discard")}
+          </Button>
+          <Button size="sm" disabled={saving} onClick={() => void save()}>
+            {t("Save look")}
+          </Button>
+          <Popover
+            open={menu}
+            onOpenChange={setMenu}
+            align="end"
+            className="w-52 p-1"
+            trigger={
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={t("Look actions")}
+                onClick={() => setMenu(!menu)}
+              >
+                <MoreHorizontal size={16} />
+              </Button>
+            }
+          >
+            {action(t("Use on channels…"), () =>
+              toast.info(t("Choose this look in a channel’s Look tab")),
+            )}
+            {action(
+              t("Duplicate"),
+              () =>
+                void onair.duplicateLook(saved.id).then((l) => {
+                  onSaved(l);
+                  onClose();
+                }),
+            )}
+            {action(t("Export as pack…"), () =>
+              toast.info(t("Channel packs arrive in a later build")),
+            )}
+            {draft.pack
+              ? action(
+                  t("Make it mine"),
+                  () =>
+                    void onair.detachLook(saved.id).then((l) => {
+                      setDraft(l);
+                      setSaved(l);
+                      onSaved(l);
+                    }),
+                )
+              : null}
+            {action(
+              t("Delete"),
+              () =>
+                void (async () => {
+                  if (
+                    await confirmDialog({
+                      title: t("Delete {name}?", { name: draft.name }),
+                      message: t("Channels using this look will lose their on-air graphics."),
+                      confirmLabel: t("Delete"),
+                      tone: "danger",
+                    })
+                  ) {
+                    await onair.deleteLook(saved.id);
+                    onSaved();
+                    onClose();
+                  }
+                })(),
+            )}
+          </Popover>
+        </div>
+      }
+    >
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-3">
+        <aside className="order-2 min-w-0 border-t border-border bg-surface lg:order-1 lg:overflow-y-auto lg:border-r lg:border-t-0">
+          <div className="sticky top-0 z-10 bg-surface px-5 pt-3">
+            <SubtabNav
+              active={tab}
+              onSelect={setTab}
+              ariaLabel={t("Look inspector")}
+              tabs={["describe", "design", "layers", "assets"].map((key) => ({
+                key,
+                label: t(
+                  { describe: "Describe", design: "Design", layers: "Layers", assets: "Assets" }[
+                    key
+                  ]!,
+                ),
+              }))}
+            />
+          </div>
+          <div className="p-5">
+            {tab === "design" ? (
+              <DesignPanel look={draft} onChange={change} />
+            ) : tab === "describe" ? (
+              <DescribeLook look={draft} onChange={change} />
+            ) : tab === "layers" ? (
+              <LayersPanel selected={layer} onSelect={setLayer} look={draft} onChange={change} />
+            ) : (
+              <AssetsPanel />
+            )}
+          </div>
+        </aside>
+        <section className="order-1 min-w-0 bg-bg-subtle p-3 sm:p-6 lg:order-2 lg:col-span-2 lg:overflow-y-auto">
+          <div className="mb-5 flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+            <span>{t("Preview on")}</span>
+            <ToolbarPicker
+              ariaLabel={t("Preview on")}
+              value={channel}
+              onChange={setChannel}
+              options={
+                channels.length
+                  ? channels.map((c) => ({ value: c.id, label: c.name }))
+                  : [{ value: "v-movie-night", label: t("Movie Night") }]
+              }
+            />
+            <span>{t("at")}</span>
+            <ToolbarPicker
+              ariaLabel={t("Preview time")}
+              value={at}
+              onChange={setAt}
+              options={[
+                { value: "now", label: t("Now") },
+                { value: "tonight", label: t("Tonight") },
+                { value: "morning", label: t("Tomorrow morning") },
+                { value: "custom", label: t("Custom") },
+              ]}
+            />
+            {at === "custom" ? (
+              <Input
+                type="datetime-local"
+                aria-label={t("Custom time")}
+                value={custom}
+                onChange={(e) => setCustom(e.target.value)}
+              />
+            ) : null}
+            {draft.family === "personal" ? (
+              <>
+                <span>{t("Preview as")}</span>
+                <ToolbarPicker
+                  ariaLabel={t("Preview as")}
+                  value={viewer}
+                  onChange={setViewer}
+                  options={[
+                    { value: "1", label: "Braedon" },
+                    { value: "2", label: "Alex" },
+                  ]}
+                />
+              </>
+            ) : null}
+            <div className="ml-auto flex">
+              <Button variant="ghost" size="sm" aria-label={t("Undo")} onClick={undo}>
+                <Undo2 size={14} />
+              </Button>
+              <Button variant="ghost" size="sm" aria-label={t("Redo")} onClick={redo}>
+                <Redo2 size={14} />
+              </Button>
+            </div>
+          </div>
+          <LookStage
+            look={draft}
+            moment={moment}
+            bindings={bindings}
+            onMomentChange={setMoment}
+            onSelectLayer={(s) => {
+              setLayer(s);
+              setTab("layers");
+            }}
+          />
+          {tab === "layers" ? <Timeline selected={layer} onSelect={setLayer} /> : null}
+        </section>
+      </div>
+    </Drawer>
+  );
+}
