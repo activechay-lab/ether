@@ -19,8 +19,8 @@ describe("schedule layout", () => {
     expect(labelDetail(200)).toBe("subtitle");
     const small = layoutElements(data.elements, range, 400, 6),
       wide = layoutElements(data.elements, range, 1400, 6);
-    expect(wide[0].width).toBeGreaterThan(small[0].width);
-    expect(wide[0].detail).not.toBe(small[0].detail);
+    expect(wide[0]!.width).toBeGreaterThan(small[0]!.width);
+    expect(wide[0]!.detail).not.toBe(small[0]!.detail);
   });
   it("contains complete timezone, episode, placement and pod details", () => {
     const episode = data.elements.find((e) => e.subtitle?.includes("S01"))!;
@@ -29,10 +29,8 @@ describe("schedule layout", () => {
     expect(text).toContain("America/Toronto");
     expect(text).toContain(episode.rule);
     const pod = data.elements.find((e) => e.kind === "pod")!,
-      spots = data.elements.filter(
-        (e) => e.kind === "spot" && e.start >= pod.start && e.end <= pod.end,
-      );
-    expect(tooltipContent(pod, data.timezone, spots)).toContain(spots[0].title);
+      spots = pod.children!;
+    expect(tooltipContent(pod, data.timezone, spots)).toContain(spots[0]!.title);
   });
   it("uses channel weekdays and preserves overnight dayparts", () => {
     const bands = daypartBands(
@@ -40,7 +38,7 @@ describe("schedule layout", () => {
       { from: Date.UTC(2026, 10, 5, 3), to: Date.UTC(2026, 10, 5, 8) },
     );
     expect(bands).toHaveLength(1);
-    expect(bands[0].start).toBe(Date.UTC(2026, 10, 5, 4));
-    expect(bands[0].end).toBe(Date.UTC(2026, 10, 5, 7));
+    expect(bands[0]!.start).toBe(Date.UTC(2026, 10, 5, 4));
+    expect(bands[0]!.end).toBe(Date.UTC(2026, 10, 5, 7));
   });
 });

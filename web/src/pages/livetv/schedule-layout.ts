@@ -79,7 +79,7 @@ export function tooltipContent(
     el.rule,
     ...children.map(
       (s) =>
-        `${s.title} · ${timeLabel(s.start, timezone, locale)} – ${timeLabel(s.end, timezone, locale)} · ${s.rule}`,
+        `${s.title} · ${kindLabel(s.kind)} · ${timeLabel(s.start, timezone, locale)} – ${timeLabel(s.end, timezone, locale)} · ${s.rule}`,
     ),
   ]
     .filter(Boolean)
@@ -104,8 +104,8 @@ export function layoutElements(
     elements
       .filter(
         (e) =>
-          e.kind === "spot" &&
-          pods.some((p) => e.start >= p.start && e.end <= p.end && (p.end - p.start) * scale < 48),
+          !["programme", "special", "pod", "gap", "offair"].includes(e.kind) &&
+          pods.some((p) => e.start >= p.start && e.end <= p.end && (p.end - p.start) * scale < 24),
       )
       .map((e) => e.id),
   );
@@ -147,7 +147,7 @@ export function daypartBands(data: TimelineResponse, range: TimelineRange) {
         ? minute >= band.start || minute < band.end
         : minute >= band.start && minute < band.end;
       const ownerDay = overnight && minute < band.end ? (day + 6) % 7 : day;
-      if (!match || (band.days.length && !band.days.includes(ownerDay))) continue;
+      if (!match || (band.days?.length && !band.days.includes(ownerDay))) continue;
       const last = result[result.length - 1];
       if (last?.id === band.id && last.end === at) last.end = Math.min(range.to, at + 60000);
       else

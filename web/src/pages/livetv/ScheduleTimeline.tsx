@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { Minus, Plus, Pin } from "lucide-react";
-import { apiFetch } from "../../lib/api";
+import { ApiError, apiFetch } from "../../lib/api";
 import { t, getLocale } from "../../i18n";
 import {
   HOUR,
@@ -11,6 +11,7 @@ import {
   kindLabel,
   layoutElements,
   tooltipContent,
+  timeLabel,
   type TimelineElement,
   type TimelineRange,
   type TimelineResponse,
@@ -54,7 +55,7 @@ export function ScheduleTimeline({
     scroll = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(1),
     [left, setLeft] = useState(0),
-    [hours, setHours] = useState(6);
+    [hours, setHours] = useState(2);
   const [data, setData] = useState<TimelineResponse>(),
     [error, setError] = useState("");
   const [active, setActive] = useState<string>(),
@@ -75,17 +76,26 @@ export function ScheduleTimeline({
     let live = true;
     setData(undefined);
     setError("");
-    apiFetch<TimelineResponse>(
-      `/livetv/channels/${encodeURIComponent(channelId)}/timeline?from=${range.from}&to=${range.to}`,
-    )
-      .then((d) => {
-        if (live) setData(d);
-      })
-      .catch(() => {
-        if (live) setError(t("Unable to load schedule"));
-      });
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const load = () =>
+      apiFetch<TimelineResponse>(
+        `/livetv/channels/${encodeURIComponent(channelId)}/timeline?from=${range.from}&to=${range.to}`,
+        { signal: controller.signal },
+      )
+        .then((d) => {
+          if (live) setData(d);
+        })
+        .catch((error) => {
+          if (!live) return;
+          if (error instanceof ApiError && error.status === 503) timer = setTimeout(load, 2000);
+          else setError(t("Unable to load schedule"));
+        });
+    void load();
     return () => {
       live = false;
+      controller.abort();
+      clearTimeout(timer);
     };
   }, [channelId, range.from, range.to]);
   const scale = width / (hours * HOUR),
@@ -159,13 +169,20 @@ export function ScheduleTimeline({
   const ticks = [];
   const tickHours = Math.max(1, Math.ceil((hours * 70) / width));
   for (
-    let at = Math.ceil((range.from + left / scale) / (tickHours * HOUR)) * tickHours * HOUR;
+    let at = Math.ceil((range.from + left / scale) / HOUR) * HOUR;
     at < Math.min(range.to, range.from + (left + width + 100) / scale);
-    at += tickHours * HOUR
+    at += HOUR
   )
     ticks.push(at);
+  const preview =
+    tip?.el ??
+    items.find((i) => i.el.id === (active ?? selectedId))?.el ??
+    visible.find((i) => i.lane === 0)?.el;
   const locale = getLocale(),
     timezone = data?.timezone ?? "UTC";
+  const dayFormat = new Intl.DateTimeFormat(locale,{timeZone:timezone,weekday:'short',day:'numeric',month:'short'});
+  const hourFormat = new Intl.DateTimeFormat(locale,{timeZone:timezone,hour:'numeric',minute:'2-digit'});
+  const midnightFormat = new Intl.DateTimeFormat('en-US',{timeZone:timezone,hour:'numeric',hourCycle:'h23'});
   return (
     <div
       ref={root}
@@ -236,6 +253,16 @@ export function ScheduleTimeline({
           )}
         </div>
       </div>
+      {preview && (
+        <div className="min-w-0 rounded-lg border border-border bg-surface px-3 py-2">
+          <p className="text-sm font-medium text-fg">{preview.title}</p>
+          <p className="text-xs text-fg-muted">{preview.subtitle || kindLabel(preview.kind)}</p>
+          <p className="text-xs tabular-nums text-fg-subtle">
+            {timeLabel(preview.start, timezone, locale)} –{" "}
+            {timeLabel(preview.end, timezone, locale)}
+          </p>
+        </div>
+      )}
       <div
         ref={scroll}
         className="schedule-scroll rounded-xl border border-border bg-bg-subtle"
@@ -296,21 +323,20 @@ export function ScheduleTimeline({
               </div>
             ))}
           {ticks.map((at) => (
-            <div key={at} className="schedule-grid" style={{ left: (at - range.from) * scale }}>
-              <span>
-                {new Intl.DateTimeFormat(locale, {
-                  timeZone: timezone,
-                  weekday: "short",
-                  day: "numeric",
-                  month: "short",
-                }).format(at)}
+            <div key={at} className={`schedule-grid ${midnightFormat.format(at)==="00"?"schedule-day":""}`} style={{ left: (at - range.from) * scale }}>
+              <span
+                style={{
+                  visibility: (new Date(at).getUTCHours() % tickHours === 0 || midnightFormat.format(at)==="00") ? "visible" : "hidden",
+                }}
+              >
+                {dayFormat.format(at)}
               </span>
-              <small>
-                {new Intl.DateTimeFormat(locale, {
-                  timeZone: timezone,
-                  hour: "numeric",
-                  minute: "2-digit",
-                }).format(at)}
+              <small
+                style={{
+                  visibility: (new Date(at).getUTCHours() % tickHours === 0 || midnightFormat.format(at)==="00") ? "visible" : "hidden",
+                }}
+              >
+                {hourFormat.format(at)}
               </small>
             </div>
           ))}
@@ -348,7 +374,7 @@ export function ScheduleTimeline({
                 }}
               >
                 {el.pinned && <Pin size={12} className="inline" />}
-                {detail === "compact" ? <span aria-hidden>◆</span> : el.title}
+                {el.title}
                 {detail === "subtitle" && <small>{el.subtitle || kindLabel(el.kind)}</small>}
               </span>
               {el.breakPoints?.map((b, i) => (
@@ -413,7 +439,7 @@ export function ScheduleTimeline({
               tip.el,
               timezone,
               flattenElements(data?.elements ?? []).filter(
-                (e) => e.kind === "spot" && e.start >= tip.el.start && e.end <= tip.el.end,
+                (e) => e.id !== tip.el.id && e.start >= tip.el.start && e.end <= tip.el.end,
               ) ?? [],
               locale,
             )}
