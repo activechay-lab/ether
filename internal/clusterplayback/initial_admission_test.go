@@ -406,3 +406,224 @@ func TestDurableAdmissionAcrossCoordinatorRestart(t *testing.T) {
 		t.Fatal("uncertain start optimistically released placement", err)
 	}
 }
+
+// TestOperationGateDurableInvariant extends the real admission DB fixture with
+// storage bookkeeping only. No fake acceptance handle or execution is minted.
+func TestOperationGateDurableInvariant(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	db := store.OpenTest(t)
+	ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: time.Minute, LockTimeout: time.Second}, NewVerifier())
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := nodewire.Identity{Cluster: "operation-gate", NodeID: "controller", Boot: "original-boot"}
+	replacement := controller
+	replacement.Boot = "new-boot"
+	worker := nodewire.Identity{Cluster: controller.Cluster, NodeID: "worker", Boot: "worker-boot"}
+	guards := fixtureGuards(t, controller, replacement)
+	makeRuntime := func(id nodewire.Identity, guard *nodewire.Guard) *Runtime {
+		t.Helper()
+		allow := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
+		r, e := NewRuntime(Options{DB: db, Placement: ledger, Self: id, Guard: guard, Capacity: 1, HistoryCapacity: 16, ClockBoundKnown: true, Eligible: allow, MemberRole: allow, Endpoint: func(context.Context, nodewire.Identity) (string, error) { return "", ErrDenied }})
+		if e != nil {
+			t.Fatal(e)
+		}
+		t.Cleanup(func() { _ = r.Close() })
+		return r
+	}
+	original := makeRuntime(controller, guards[0])
+	restarted := makeRuntime(replacement, guards[1])
+	admission := func(session string, generation int64, boot string) admissionRecord {
+		route := Route{Fence: placement.Fence{Session: session, Generation: generation, Controller: placement.Controller{ID: controller.NodeID, Boot: boot}, Target: placement.Target{NodeID: worker.NodeID, Boot: worker.Boot}}, Source: nodewire.Identity{Cluster: controller.Cluster, NodeID: "source", Boot: "source-boot"}, Viewer: 9, PlayID: "original-play", Revision: "original-revision"}
+		return admissionRecord{Version: 1, Route: route, Operation: sha256.Sum256([]byte(session)), Request: core.HLSRequest{SessionID: session}, Identity: remoteIdentity(route), StartHash: sha256.Sum256([]byte("start:" + session)), Keyframes: []core.KeyframePoint{{Offset: 7}}, SlateText: []string{"original-slate"}}
+	}
+	reserve := func(a admissionRecord) operationBinding {
+		t.Helper()
+		raw, e := a.encode()
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = original.putRoute(ctx, a.Route); e != nil {
+			t.Fatal(e)
+		}
+		if e = original.insertAdmission(ctx, a, raw); e != nil {
+			t.Fatal(e)
+		}
+		b := admissionBinding(a, raw)
+		h, e := restarted.readOperationGate(ctx, b.key())
+		if e != nil || h.State != gateUnclaimed || h.Gate.Binding != b {
+			t.Fatal("admission/gate not atomically retained", h, e)
+		}
+		return b
+	}
+	attempt := func(b operationBinding) acceptedAttempt {
+		return acceptedAttempt{Nonce: sha256.Sum256([]byte(b.Route.Fence.Session)), Worker: worker, Identity: b.Identity, StartHash: b.StartHash}
+	}
+	seal := operationSeal{Actor: replacement, Reason: sealAuthorityLoss}
+	// Claim and arm win first; discard the committed seal acknowledgement, then
+	// feed an ambiguous outcome through the same independent reconciliation path
+	// used by production storage. The second Runtime has no original execution.
+	first := admission("ordered", 1, controller.Boot)
+	b := reserve(first)
+	a := attempt(b)
+	if h, e := original.recordAcceptedAttempt(ctx, b, a); e != nil || h.State != gateClaimed {
+		t.Fatal(h, e)
+	}
+	arm := armAssociation{ID: sha256.Sum256([]byte("arm")), BindingDigest: sha256.Sum256([]byte("binding")), Payload: make([]byte, maxArmBytes)}
+	if _, e := original.recordArmAssociation(ctx, b, arm); e != nil {
+		t.Fatal(e)
+	}
+	mutation := gateMutation{Seal: &seal}
+	if e := original.writeOperationGate(ctx, b, mutation); e != nil {
+		t.Fatal(e)
+	}
+	h, e := restarted.reconcileOperationGate(ctx, b, mutation, &placement.UnknownOutcome{Err: context.DeadlineExceeded})
+	if e != nil || h.State != gateSealedClaimed || *h.Gate.Accepted != a || !sameArm(h.Gate.Arm, &arm) {
+		t.Fatal("lost acknowledgement lost exact history", h, e)
+	}
+	if h, e = restarted.recordAcceptedAttempt(ctx, b, a); e != nil || h.State != gateSealedClaimed {
+		t.Fatal("sealed retry was not historical", h, e)
+	}
+	if h, e = restarted.recordArmAssociation(ctx, b, arm); e != nil || h.State != gateSealedClaimed {
+		t.Fatal("sealed arm retry lost history", h, e)
+	}
+	conflicting := a
+	conflicting.Nonce[0] ^= 1
+	if _, e = restarted.recordAcceptedAttempt(ctx, b, conflicting); !errors.Is(e, ErrDenied) {
+		t.Fatal("replaced immutable nonce", e)
+	}
+	conflicting = a
+	conflicting.Worker.Boot = "new-worker-boot"
+	if _, e = restarted.recordAcceptedAttempt(ctx, b, conflicting); !errors.Is(e, ErrDenied) {
+		t.Fatal("reconstructed attempt after restart", e)
+	}
+	changedArm := arm
+	changedArm.Payload = []byte("different")
+	if _, e = restarted.recordArmAssociation(ctx, b, changedArm); !errors.Is(e, ErrDenied) {
+		t.Fatal("replaced arm", e)
+	}
+	changedSeal := seal
+	changedSeal.Reason = sealCancellation
+	if _, e = restarted.recordOperationSeal(ctx, b, changedSeal); !errors.Is(e, ErrDenied) {
+		t.Fatal("replaced seal", e)
+	}
+	changedBinding := b
+	changedBinding.AdmissionDigest[0] ^= 1
+	if _, e = restarted.recordOperationSeal(ctx, changedBinding, seal); !errors.Is(e, ErrDenied) {
+		t.Fatal("changed immutable admission", e)
+	}
+	changedAdmission := first
+	changedAdmission.SlateText = []string{"changed"}
+	changedRaw, _ := changedAdmission.encode()
+	if e = original.insertAdmission(ctx, changedAdmission, changedRaw); !errors.Is(e, ErrDenied) {
+		t.Fatal("changed original slate", e)
+	}
+	// Force the other order, then race both writers on independent connections.
+	for i := 0; i < 13; i++ {
+		next := admission("concurrent-"+string(rune('a'+i)), 1, controller.Boot)
+		binding := reserve(next)
+		accepted := attempt(binding)
+		if i == 0 {
+			if _, e = restarted.recordOperationSeal(ctx, binding, seal); e != nil {
+				t.Fatal(e)
+			}
+			if h, e = original.recordAcceptedAttempt(ctx, binding, accepted); !errors.Is(e, ErrDenied) || h.State != gateSealedUnclaimed {
+				t.Fatal("seal-first admitted claim", h, e)
+			}
+			continue
+		}
+		start := make(chan struct{})
+		claimResult := make(chan error, 1)
+		sealResult := make(chan error, 1)
+		go func() { <-start; _, e := original.recordAcceptedAttempt(ctx, binding, accepted); claimResult <- e }()
+		go func() { <-start; _, e := restarted.recordOperationSeal(ctx, binding, seal); sealResult <- e }()
+		close(start)
+		claimErr, sealErr := <-claimResult, <-sealResult
+		if sealErr != nil {
+			t.Fatal("concurrent seal failed", sealErr)
+		}
+		h, e = restarted.readOperationGate(ctx, binding.key())
+		if e != nil {
+			t.Fatal(e)
+		}
+		if claimErr == nil {
+			if h.State != gateSealedClaimed || *h.Gate.Accepted != accepted {
+				t.Fatal("claim winner lost charged history", h)
+			}
+		} else if !errors.Is(claimErr, ErrDenied) || h.State != gateSealedUnclaimed {
+			t.Fatal("claim/seal did not serialize", h, claimErr)
+		}
+	}
+	// Pre-v4 admission, with no gate: replay must neither backfill nor classify
+	// it as unclaimed. It still consumes the SAME cluster-wide durable quota.
+	legacy := admission("legacy", 1, controller.Boot)
+	legacyRaw, _ := legacy.encode()
+	if e = original.putRoute(ctx, legacy.Route); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.ExecContext(ctx, `INSERT INTO clusterplayback_admissions(cluster,session,generation,controller,controller_boot,admission) VALUES(?,?,?,?,?,?)`, controller.Cluster, legacy.Route.Fence.Session, 1, controller.NodeID, controller.Boot, legacyRaw); e != nil {
+		t.Fatal(e)
+	}
+	lb := admissionBinding(legacy, legacyRaw)
+	if e = restarted.insertAdmission(ctx, legacy, legacyRaw); e != nil {
+		t.Fatal(e)
+	}
+	if h, e = restarted.readOperationGate(ctx, lb.key()); !isAdmissionUnknown(e) || h.State != gateAbsentUnsupported {
+		t.Fatal("legacy absence became unclaimed", h, e)
+	}
+	if h, e = restarted.recordOperationSeal(ctx, lb, seal); !isAdmissionUnknown(e) || h.State != gateAbsentUnsupported {
+		t.Fatal("legacy row gained gate", h, e)
+	}
+	// A replacement generation remains alongside its old sealed generation and
+	// every old controller boot. Capacity is 16: 14 originals + legacy + this.
+	next := first
+	next.Route.Fence.Generation++
+	next.Route.Fence.Controller.Boot = replacement.Boot
+	next.Identity = remoteIdentity(next.Route)
+	last := reserve(next)
+	tooMany := admission("over-quota", 1, replacement.Boot)
+	tooManyRaw, _ := tooMany.encode()
+	if e = restarted.putRoute(ctx, tooMany.Route); e != nil {
+		t.Fatal(e)
+	}
+	if e = restarted.insertAdmission(ctx, tooMany, tooManyRaw); !errors.Is(e, ErrPending) {
+		t.Fatal("fresh Runtime boot replenished quota", e)
+	}
+	if h, e = restarted.readOperationGate(ctx, admissionBinding(tooMany, tooManyRaw).key()); !isAdmissionUnknown(e) || h.State != gateAbsentUnsupported {
+		t.Fatal("quota partially reserved gate", h, e)
+	}
+	nextRaw, _ := next.encode()
+	if e = restarted.insertAdmission(ctx, next, nextRaw); e != nil {
+		t.Fatal("exact retry unavailable at capacity", e)
+	}
+	// Bounds reject before mutation; original immutable slots stay usable at cap.
+	oversized := arm
+	oversized.Payload = make([]byte, maxArmBytes+1)
+	if _, e = restarted.recordAcceptedAttempt(ctx, last, attempt(last)); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = restarted.recordArmAssociation(ctx, last, oversized); !errors.Is(e, ErrDenied) {
+		t.Fatal("unbounded arm", e)
+	}
+	badSeal := seal
+	badSeal.Actor.NodeID = strings.Repeat("a", 257)
+	if _, e = restarted.recordOperationSeal(ctx, last, badSeal); !errors.Is(e, ErrDenied) {
+		t.Fatal("unbounded actor", e)
+	}
+	if h, e = restarted.recordOperationSeal(ctx, last, seal); e != nil || h.State != gateSealedClaimed {
+		t.Fatal("seal unavailable at capacity", h, e)
+	}
+	cancelled, stop := context.WithCancel(ctx)
+	stop()
+	if h, e = restarted.recordOperationSeal(cancelled, last, seal); !isAdmissionUnknown(e) || h.State != gateUnknown {
+		t.Fatal("cancellation became certainty", h, e)
+	}
+	var admissions, gates int
+	if e = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM clusterplayback_admissions WHERE cluster=?`, controller.Cluster).Scan(&admissions); e != nil {
+		t.Fatal(e)
+	}
+	if e = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM clusterplayback_operation_gates WHERE cluster=?`, controller.Cluster).Scan(&gates); e != nil || admissions != 16 || gates != 15 {
+		t.Fatal("quota/history changed", admissions, gates, e)
+	}
+}
