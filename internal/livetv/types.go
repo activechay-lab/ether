@@ -95,7 +95,15 @@ type ChannelLook struct {
 	Accent               string   `json:"accent,omitempty"`
 }
 
+// ChannelScreens overrides the server defaults. Empty values follow them.
+type ChannelScreens struct {
+	OffAir   string `json:"offAir,omitempty"`
+	NoSignal string `json:"noSignal,omitempty"`
+}
+
 type Channel struct {
+	Screens *ChannelScreens `json:"screens,omitempty"`
+
 	Look *ChannelLook `json:"look,omitempty"`
 	// clipDuration is supplied on a channel copy; scheduling performs no I/O.
 	clipDuration func(string, string) (time.Duration, bool)
