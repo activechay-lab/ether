@@ -37,7 +37,9 @@ const (
 	memBlocksPerFile    = 24 // in-memory blocks per open file (12 MiB)
 	defaultHedgeDelay   = 400 * time.Millisecond
 	idleFileTTL         = 15 * time.Minute
-	tailPrefetchBytes   = 2 << 20 // container index (MKV Cues / MP4 moov) at the end
+	pinnedHeadBytes     = 4 << 20
+	pinnedTailBytes     = 32 << 20 // includes large Android MKV Cues windows (#326)
+	tailPrefetchBytes   = 2 << 20  // container index (MKV Cues / MP4 moov) at the end
 	maxRangeAttempts    = 4
 	maxLinkFailures     = 3
 	readAtDefaultBudget = 2 * time.Minute
@@ -511,6 +513,7 @@ type remoteFile struct {
 	bmu     sync.Mutex
 	flights map[int64]*blockFlight
 	mem     *lru.Cache[int64, []byte]
+	edges   map[int64][]byte // bounded head/tail, retained independently of streaming LRU
 	stored  map[int64]bool
 	tput    float64 // bytes/s EWMA
 
@@ -666,21 +669,37 @@ func (f *remoteFile) blockLen(idx int64) int64 {
 }
 
 func (f *remoteFile) memGetLocked(idx int64) []byte {
+	if data := f.edges[idx]; data != nil {
+		return data
+	}
 	data, _ := f.mem.Get(idx)
 	return data
 }
 
-func (f *remoteFile) memPutLocked(idx int64, data []byte) { f.mem.Add(idx, data) }
+func (f *remoteFile) memPutLocked(idx int64, data []byte) {
+	// Cache only completed blocks. Failed/cancelled flights never publish here.
+	// The remoteFile key and tag bind these bytes to one release and file.
+	start := idx * f.e.block
+	if start < pinnedHeadBytes || start >= max(pinnedHeadBytes, f.size-pinnedTailBytes) {
+		if f.edges == nil {
+			f.edges = make(map[int64][]byte)
+		}
+		f.edges[idx] = data
+		return
+	}
+	f.mem.Add(idx, data)
+}
 
 func (f *remoteFile) dropMemory() {
 	f.bmu.Lock()
 	f.mem.Clear()
+	f.edges = nil
 	f.bmu.Unlock()
 }
 
 // present reports whether a block needs no fetch.
 func (f *remoteFile) presentLocked(idx int64) bool {
-	if f.mem.Contains(idx) {
+	if f.edges[idx] != nil || f.mem.Contains(idx) {
 		return true
 	}
 	if _, ok := f.flights[idx]; ok {
