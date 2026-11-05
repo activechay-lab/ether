@@ -85,20 +85,23 @@ func (a *Adapter) StartHLS(ctx context.Context, r core.HLSRequest) (core.HLSSess
 	return s, e
 }
 func (a *Adapter) StartHLSOwned(ctx context.Context, r core.HLSRequest) (core.HLSSession, core.EncoderRetirement, error) {
+	r.RecoveryStart = core.CloneRecoveryStart(r.RecoveryStart)
 	if !a.SupportsRequest(r) || !token(r.SessionID) {
 		return nil, nil, ErrUnsupported
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	assignment, err := a.opts.Assign(ctx, r)
+	assignmentRequest := r
+	assignmentRequest.RecoveryStart = core.CloneRecoveryStart(r.RecoveryStart)
+	assignment, err := a.opts.Assign(ctx, assignmentRequest)
 	if err != nil {
 		return nil, nil, err
 	}
 	if !validIdentity(assignment.Identity) || assignment.Identity.Session != r.SessionID || len(assignment.Grant) == 0 || len(assignment.Grant) > 4096 || !assignment.Expires.After(time.Now()) {
 		return nil, nil, errors.New("remotetranscode: invalid assignment")
 	}
-	start := Start{Keyframes: append([]core.KeyframePoint(nil), r.Info.Keyframes...), SoftSubtitleStream: r.SoftSubtitleStream, Protocol: r.Protocol, ReleaseID: r.ReleaseID, Identity: assignment.Identity, Grant: assignment.Grant, Expires: assignment.Expires, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof}
+	start := Start{RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: append([]core.KeyframePoint(nil), r.Info.Keyframes...), SoftSubtitleStream: r.SoftSubtitleStream, Protocol: r.Protocol, ReleaseID: r.ReleaseID, Identity: assignment.Identity, Grant: assignment.Grant, Expires: assignment.Expires, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof}
 	b, err := json.Marshal(start)
 	if err != nil || len(b) > MaxMessage-1024 {
 		return nil, nil, ErrUnsupported

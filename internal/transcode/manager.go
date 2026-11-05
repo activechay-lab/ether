@@ -551,6 +551,7 @@ func (m *Manager) encodingLocked(except string) int {
 // StartHLS implements core.Transcoder. A replacement cannot begin until the
 // prior exact session has completed its process and directory cleanup.
 func (m *Manager) StartHLS(ctx context.Context, req core.HLSRequest) (core.HLSSession, error) {
+	req.RecoveryStart = core.CloneRecoveryStart(req.RecoveryStart)
 	life, err := m.reserveEncoder()
 	if err != nil {
 		return nil, err
@@ -567,6 +568,11 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	}()
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	// No trusted immutable AAC index/provider is wired yet. Reject before any
+	// source preflight or encoder invocation; never infer an AU cursor.
+	if req.RecoveryStart != nil {
+		return nil, ErrRecoveryUnsupported
 	}
 	var slateData []byte
 	if len(req.SlateText) > 0 {
