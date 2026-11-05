@@ -27,23 +27,6 @@ type continuousEncoder struct {
 	stream  *continuousFanout
 }
 
-// AcquireTranscodeSlot reserves one encoder against the same admission budget
-// as VOD transcodes. The returned release is idempotent.
-func (m *Manager) AcquireTranscodeSlot() (func(), error) {
-	m.mu.Lock()
-	closed := m.closed
-	m.mu.Unlock()
-	if closed {
-		return nil, errors.New("transcode: manager closed")
-	}
-	release, e := m.acquireTranscodeSlot()
-	if e != nil {
-		return nil, e
-	}
-	var once sync.Once
-	return func() { once.Do(release) }, nil
-}
-
 // StartEncoder starts a fixed rendition. Scaling stays in ffmpeg (one scale per
 // rendition); callers send the same largest working frame to every rendition.
 func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (ContinuousEncoder, error) {
@@ -62,7 +45,7 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 	if r.Decision.AudioCodec != "" && r.Decision.AudioCodec != "aac" {
 		return nil, errors.New("transcode: continuous output requires AAC")
 	}
-	release, e := m.AcquireTranscodeSlot()
+	ctx, release, e := m.AcquireTranscodeSlot(ctx, SlotViewer)
 	if e != nil {
 		return nil, e
 	}
