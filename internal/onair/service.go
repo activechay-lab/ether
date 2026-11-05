@@ -22,16 +22,18 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 type Options struct {
-	DB       *sql.DB
-	Chat     Chatter
-	Dir      string
-	FFmpeg   func() string
-	Probe    func(context.Context, string) (*core.MediaInfo, error)
-	Acquire  func(context.Context) (context.Context, func(), error)
-	Bindings func(context.Context, string, string, time.Time) (any, error)
+	StaticRequests func(context.Context, string) []core.ClipRequest
+	DB             *sql.DB
+	Chat           Chatter
+	Dir            string
+	FFmpeg         func() string
+	Probe          func(context.Context, string) (*core.MediaInfo, error)
+	Acquire        func(context.Context) (context.Context, func(), error)
+	Bindings       func(context.Context, string, string, time.Time) (any, error)
 	// Upcoming supplies requests for the next three hours of watched channels.
 	Upcoming    func(context.Context) []core.ClipRequest
 	Logger      *slog.Logger
@@ -53,24 +55,26 @@ type renderJob struct {
 	Doc     scene.Document
 	Bind    raster.Bindings
 	Request core.ClipRequest
+	prepare func(context.Context) error
 	convert func(context.Context) error
 }
 type Service struct {
-	o        Options
-	db       *sql.DB
-	mu       sync.Mutex
-	assetMu  sync.Mutex
-	looks    map[string]Look
-	cache    map[string]entry
-	pins     map[string]time.Time
-	pending  map[string]bool
-	progress map[string]*Progress
-	lookJobs map[string][]string
-	jobs     chan renderJob
-	clipJobs chan renderJob
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
+	o         Options
+	db        *sql.DB
+	mu        sync.Mutex
+	assetMu   sync.Mutex
+	looks     map[string]Look
+	cache     map[string]entry
+	pins      map[string]time.Time
+	pending   map[string]bool
+	progress  map[string]*Progress
+	lookJobs  map[string][]string
+	jobs      chan renderJob
+	clipJobs  chan renderJob
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	startOnce sync.Once
 }
 
 var _ core.ChannelGraphics = (*Service)(nil)
@@ -103,13 +107,22 @@ func New(o Options) (*Service, error) {
 		s.looks[l.ID] = l
 	}
 	s.loadCache()
-	s.wg.Add(1)
-	go s.run()
+
 	s.resumeConversions()
 	for _, l := range ls {
 		s.enqueueLook(l)
 	}
 	return s, nil
+}
+
+// Start begins workers after application dependencies have been constructed.
+func (s *Service) Start() {
+	s.startOnce.Do(func() {
+		if s.ctx.Err() == nil {
+			s.wg.Add(1)
+			go s.run()
+		}
+	})
 }
 func (s *Service) Close() { s.cancel(); s.wg.Wait() }
 func (s *Service) Duration(id, m string) (time.Duration, bool) {
@@ -167,25 +180,33 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		b.Tokens["accent"] = l.Brand.Palette.Accent
 		b.Tokens["text"] = l.Brand.Palette.Text
 		b.Tokens["glow"] = l.Brand.Palette.Glow
+		b.Tokens["fog"] = l.Brand.Palette.Glow
+		b.Tokens["words.break"] = "Back in a moment"
+		if f == "cinema" {
+			b.Tokens["words.break"] = "INTERMISSION"
+		}
 		b.Tokens["logo"] = l.Brand.Logo
 		b.Slots["brand.logo"] = l.Brand.Logo
 		for _, v := range []string{"grain", "flicker", "scanlines", "vignette"} {
 			b.Tokens["textures."+v] = 0.0
 			for _, t := range l.Brand.Textures {
 				if strings.EqualFold(t, v) {
-					b.Tokens["textures."+v] = .15
+					b.Tokens["textures."+v] = .07
 				}
 			}
 		}
 		b.Tokens["type.display"] = normalizeFont(l.Brand.Type.Display)
 		b.Tokens["type.mono"] = normalizeFont(l.Brand.Type.Body)
 		b.Tokens["type.body"] = normalizeFont(l.Brand.Type.Body)
-		b.Tokens["energy"] = l.Brand.Energy
+		b.Tokens["energy"] = l.Brand.Energy * 2
 		b.Tokens["seed"] = l.Brand.Seed
 		b.Tokens["volume"] = l.Brand.Volume
 		b.Tokens["sting"] = l.Brand.Sting
 		b.Tokens["words.tagline"] = l.Brand.Tagline
 		for k, v := range l.Brand.Words {
+			if k == "upnext" {
+				k = "upNext"
+			}
 			b.Tokens["words."+k] = v
 		}
 	}
@@ -212,6 +233,14 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		b.Tokens["words.tagline"] = v
 	}
 	applyLayers(d.Layers, l.Layers)
+	if f != "signal" && l.Brand.Logo != "" {
+		if utf8.RuneCountInString(l.Brand.Logo) <= 3 {
+			d.Layers = append(d.Layers, scene.Layer{ID: "owner-logo", Type: "text", Text: l.Brand.Logo, X: 95.0, Y: 130.0, Font: normalizeFont(l.Brand.Type.Display), Size: 72.0, Fill: l.Brand.Palette.Accent})
+		} else {
+			d.Layers = append(d.Layers, scene.Layer{ID: "owner-logo", Type: "image", Src: "{brand.logo}", X: 95.0, Y: 70.0, W: 120.0, H: 120.0, Fit: "contain"})
+		}
+	}
+
 	h := encode.Hash(raster.Version, d, struct {
 		Brand  Brand
 		Layers map[string]map[string]any
@@ -274,22 +303,34 @@ func (s *Service) enqueue(j renderJob) bool {
 	}
 }
 func (s *Service) enqueueLook(l Look) {
-	ids := l.ChannelIDs
-	if len(ids) == 0 {
-		ids = []string{""}
+	if s.o.StaticRequests != nil {
+		s.enqueue(renderJob{Hash: "plan-" + l.ID + "-" + newID(), prepare: func(ctx context.Context) error { s.queueLook(l, s.o.StaticRequests(ctx, l.ID)); return nil }})
+		return
+	}
+	s.queueLook(l, nil)
+}
+func (s *Service) queueLook(l Look, requests []core.ClipRequest) {
+	if len(requests) == 0 {
+		ids := l.ChannelIDs
+		if len(ids) == 0 {
+			ids = []string{""}
+		}
+		moments := []string{"ident", "offair", "break"}
+		if l.Family == "personal" {
+			moments = append(moments, "welcome")
+		}
+		for _, id := range ids {
+			for _, m := range moments {
+				requests = append(requests, core.ClipRequest{LookID: l.ID, Moment: m, ChannelID: id, Bind: map[string]string{"channel.name": l.Name}})
+			}
+		}
 	}
 	jobs := []renderJob{}
 	hashes := []string{}
-	moments := []string{"ident", "offair", "break"}
-	if l.Family == "personal" {
-		moments = append(moments, "welcome")
-	}
-	for _, id := range ids {
-		for _, m := range moments {
-			if j, ok := s.plan(core.ClipRequest{LookID: l.ID, Moment: m, ChannelID: id, Bind: map[string]string{"channel.name": l.Name}}); ok {
-				jobs = append(jobs, j)
-				hashes = append(hashes, j.Hash)
-			}
+	for _, r := range requests {
+		if j, ok := s.plan(r); ok {
+			jobs = append(jobs, j)
+			hashes = append(hashes, j.Hash)
 		}
 	}
 	s.mu.Lock()
@@ -343,6 +384,7 @@ func (s *Service) run() {
 					if ok {
 						s.mu.Lock()
 						v := s.cache[j.Hash]
+						s.pins[j.Hash] = time.Now().Add(3 * time.Hour)
 						v.Pin = s.pins[j.Hash]
 						if v.Ref.Hash != "" {
 							s.cache[j.Hash] = v
@@ -374,6 +416,9 @@ func (s *Service) process(j renderJob) {
 }
 
 func (s *Service) execute(j renderJob) (err error) {
+	if j.prepare != nil {
+		return j.prepare(s.ctx)
+	}
 	ctx, cancel := context.WithTimeout(s.ctx, 15*time.Minute)
 	defer cancel()
 	if s.o.Acquire != nil {
@@ -465,6 +510,11 @@ func (s *Service) loadCache() {
 	}
 }
 func (s *Service) evict() {
+	for h, until := range s.pins {
+		if until.Before(time.Now()) {
+			delete(s.pins, h)
+		}
+	}
 	var total int64
 	keys := []string{}
 	for k, v := range s.cache {
@@ -491,6 +541,14 @@ func applyLayers(ls []scene.Layer, patches map[string]map[string]any) {
 	for i := range ls {
 		l := &ls[i]
 		p := patches[l.ID]
+		if p == nil {
+			switch l.ID {
+			case "brand", "title":
+				p = patches["Title"]
+			case "tag":
+				p = patches["Tagline"]
+			}
+		}
 		if p == nil {
 			for key, v := range patches {
 				if strings.EqualFold(key, l.ID) {

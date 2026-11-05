@@ -22,6 +22,18 @@ import (
 // ResourceRoutes mounts W6's font and family resource handlers on this router.
 func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 	r := chi.NewRouter()
+	r.Get("/fonts/{id}", func(w http.ResponseWriter, r *http.Request) {
+		r.SetPathValue("id", chi.URLParam(r, "id"))
+		ServeFont(w, r)
+	})
+	r.Get("/families", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("documents") == "1" {
+			ServeFamilies(w, r)
+			return
+		}
+		v, e := s.FamilyRecords(r.Context())
+		result(w, v, e)
+	})
 	for _, mount := range resources {
 		mount(r)
 	}

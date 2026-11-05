@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/llm"
 	"github.com/braedonsaunders/ether/internal/onair/encode"
 	"github.com/braedonsaunders/ether/internal/onair/families"
 	"github.com/braedonsaunders/ether/internal/onair/raster"
@@ -30,6 +32,7 @@ func testService(t *testing.T, o Options) *Service {
 	if e != nil {
 		t.Fatal(e)
 	}
+	s.Start()
 	t.Cleanup(s.Close)
 	return s
 }
@@ -122,5 +125,45 @@ func TestEnsureQueuesOnly(t *testing.T) {
 	}
 	if _, e = s.UploadAsset(context.Background(), "bad.ttf", "font", "", bytes.NewBufferString(strings.Repeat("x", 20))); e == nil {
 		t.Fatal("font without licence accepted")
+	}
+}
+
+type draftModel struct {
+	replies []string
+	calls   int
+}
+
+func (m *draftModel) Enabled() bool { return true }
+func (m *draftModel) Chat(_ context.Context, _ []llm.Message, _ bool) (string, error) {
+	v := m.replies[min(m.calls, len(m.replies)-1)]
+	m.calls++
+	return v, nil
+}
+
+// A model correction may change the draft, but never writes owner records.
+func TestDraftValidationNeverSaves(t *testing.T) {
+	model := &draftModel{}
+	s := testService(t, Options{Chat: model})
+	base, e := s.Look(context.Background(), "nocturne")
+	if e != nil {
+		t.Fatal(e)
+	}
+	draft := base
+	draft.Name = "Generated draft"
+	draft.Brand.Tagline = strings.Repeat("x", 41)
+	bad, _ := json.Marshal(draft)
+	draft.Brand.Tagline = "A quieter evening"
+	good, _ := json.Marshal(draft)
+	model.replies = []string{string(bad), string(good)}
+	got, e := s.Generate(context.Background(), "Make the motion calmer", "", base)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if model.calls != 2 || got.Brand.Tagline != draft.Brand.Tagline {
+		t.Fatal("validation retry did not correct the draft")
+	}
+	saved, e := s.Look(context.Background(), base.ID)
+	if e != nil || saved.Name != base.Name {
+		t.Fatal("draft mutated the saved look", e)
 	}
 }

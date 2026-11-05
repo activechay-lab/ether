@@ -39,11 +39,7 @@ func (s *Service) Generate(ctx context.Context, prompt, summary string, base Loo
 		return Look{}, fmt.Errorf("prompt must be between 1 and 2000 characters")
 	}
 	if base.Family == "" {
-		l, e := s.Look(ctx, "nocturne")
-		if e != nil {
-			return Look{}, e
-		}
-		base = l
+		base = familyLook("clean", "New look")
 		base.ID = ""
 		base.Name = "New look"
 	}

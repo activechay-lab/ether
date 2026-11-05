@@ -35,6 +35,7 @@ func (a *App) buildLiveTV() error {
 		return err
 	}
 	a.livetv = svc
+	a.onair.Start()
 	a.closers = append(a.closers, func() { svc.Close() })
 	return nil
 }

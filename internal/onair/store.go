@@ -167,6 +167,7 @@ func (s *Service) SaveLook(ctx context.Context, l Look) (Look, error) {
 		l.ChannelIDs = []string{}
 	}
 	l.Render = nil
+	l.Pack = nil
 	b, e := json.Marshal(l)
 	if e != nil {
 		return l, e
@@ -206,6 +207,8 @@ func (s *Service) DeleteLook(ctx context.Context, id string) error {
 	if e == nil {
 		s.mu.Lock()
 		delete(s.looks, id)
+		delete(s.progress, id)
+		delete(s.lookJobs, id)
 		s.mu.Unlock()
 	}
 	return e

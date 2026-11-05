@@ -124,6 +124,10 @@ func (s *Service) SaveReel(ctx context.Context, r Reel) (Reel, error) {
 	return s.Reel(ctx, r.ID)
 }
 func (s *Service) DeleteReel(ctx context.Context, id string) error {
+	r, e := s.Reel(ctx, id)
+	if e != nil {
+		return e
+	}
 	tx, e := s.db.BeginTx(ctx, nil)
 	if e != nil {
 		return e
@@ -135,7 +139,13 @@ func (s *Service) DeleteReel(ctx context.Context, id string) error {
 	if _, e = tx.ExecContext(ctx, "DELETE FROM onair_reels WHERE id=?", id); e != nil {
 		return e
 	}
-	return tx.Commit()
+	e = tx.Commit()
+	if e == nil {
+		for _, c := range r.Clips {
+			os.Remove(filepath.Join(s.o.Dir, "reel-"+c.ID+".mp4"))
+		}
+	}
+	return e
 }
 func (s *Service) setClip(ctx context.Context, reel string, c ReelClip) error {
 	b, e := json.Marshal(c)
@@ -198,12 +208,12 @@ func (s *Service) convertClip(ctx context.Context, reel string, c ReelClip) (err
 		if err != nil && ctx.Err() == nil {
 			c.Status = "error"
 			c.Error = err.Error()
-			s.setClip(s.ctx, reel, c)
+			s.clipProgress(s.ctx, reel, c)
 		}
 	}()
 	c.Status = "converting"
 	c.Progress = 0
-	s.setClip(ctx, reel, c)
+	s.clipProgress(ctx, reel, c)
 	if s.o.Probe == nil || s.o.FFmpeg == nil {
 		return fmt.Errorf("media conversion unavailable")
 	}

@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/llm"
@@ -10,6 +11,7 @@ import (
 	"image"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,6 +20,8 @@ func (a *App) buildOnAir() error {
 	chat := llm.NewClient(llm.ClientOptions{Config: a.cfg.Read().LLM, Logger: a.log.With("component", "onair-llm")})
 	a.cfg.Subscribe(func(c config.Config) { chat.UpdateConfig(c.LLM) })
 	o.Chat = chat
+	o.StaticRequests = func(ctx context.Context, id string) []core.ClipRequest { return a.livetv.GraphicsRequests(ctx, id) }
+	o.Upcoming = func(ctx context.Context) []core.ClipRequest { return a.livetv.GraphicsRequests(ctx, "") }
 	if a.images != nil {
 		o.Artwork = func(ctx context.Context, ref string) (image.Image, error) {
 			b, _, e := a.images.Get(ctx, ref, 1920)
@@ -48,7 +52,10 @@ func (a *App) buildOnAir() error {
 	return nil
 }
 func (a *App) onairBindings(ctx context.Context, channel, viewer string, at time.Time) (any, error) {
-	out := map[string]any{}
+	empty := func() map[string]string {
+		return map[string]string{"title": "", "time": "", "reason": "", "meta": "", "logline": "", "backdrop": ""}
+	}
+	out := map[string]any{"channel": map[string]string{"name": ""}, "viewer": map[string]string{"name": "", "greeting": ""}, "now": empty(), "next": empty(), "list": []map[string]string{empty(), empty(), empty(), empty()}, "offair": map[string]string{"message": "Off air"}}
 	if a.livetv == nil {
 		return out, nil
 	}
@@ -84,7 +91,13 @@ func (a *App) onairBindings(ctx context.Context, channel, viewer string, at time
 	if name == "" {
 		name = u.Username
 	}
-	out["viewer"] = map[string]string{"name": name}
+	greeting := "Good evening"
+	if at.Hour() < 12 {
+		greeting = "Good morning"
+	} else if at.Hour() < 18 {
+		greeting = "Good afternoon"
+	}
+	out["viewer"] = map[string]string{"name": name, "greeting": greeting}
 	out["channel"] = map[string]string{"name": c.Name}
 	ps, e := a.livetv.GuideForChannels(ctx, u, at, at.Add(24*time.Hour), []string{channel})
 	if e != nil {
@@ -95,11 +108,19 @@ func (a *App) onairBindings(ctx context.Context, channel, viewer string, at time
 		if p.Item.Key == 0 || p.Item.Slate != "" {
 			continue
 		}
-		v := map[string]string{"title": p.Item.Title, "time": p.Start.Format("15:04")}
+		v := empty()
+		v["title"] = p.Item.Title
+		v["time"] = p.Start.Format("15:04")
+		v["meta"] = fmt.Sprintf("%d min", p.Item.DurationMS/60000)
+		v["logline"] = strings.SplitN(p.Item.Summary, ". ", 2)[0]
+		v["backdrop"] = p.Item.Art
 		list = append(list, v)
 		if len(list) == 4 {
 			break
 		}
+	}
+	for len(list) < 4 {
+		list = append(list, empty())
 	}
 	out["list"] = list
 	if len(list) > 0 {
