@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/onair/families"
 	"github.com/braedonsaunders/ether/internal/onair/raster"
-	"image/png"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,6 +14,22 @@ import (
 )
 
 func TestGoldenAndDeterminism(t *testing.T) {
+	entries, err := os.ReadDir("testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var total int64
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += info.Size()
+	}
+	if total >= 1_000_000 {
+		t.Fatalf("raster fixtures exceed 1 MB budget: %d bytes", total)
+	}
+
 	if os.Getenv("UPDATE_GOLDEN") == "1" {
 		type entry struct {
 			Family   string `json:"family"`
@@ -62,39 +76,30 @@ func TestGoldenAndDeterminism(t *testing.T) {
 					if !bytes.Equal(im.Pix, other.Pix) {
 						t.Fatal("non-deterministic")
 					}
-					name := filepath.Join("testdata", fmt.Sprintf("%s-%s-%.1f.png", family, moment, at))
+					name := filepath.Join("testdata", fmt.Sprintf("%s-%s-%.1f.json", family, moment, at))
+					got := compact(im)
 					if os.Getenv("UPDATE_GOLDEN") == "1" {
-						os.MkdirAll("testdata", 0755)
-						f, e := os.Create(name)
-						if e != nil {
-							t.Fatal(e)
+						data, err := json.Marshal(got)
+						if err != nil {
+							t.Fatal(err)
 						}
-						e = png.Encode(f, im)
-						f.Close()
-						if e != nil {
-							t.Fatal(e)
+						if err := os.WriteFile(name, data, 0644); err != nil {
+							t.Fatal(err)
 						}
 					}
-					f, e := os.Open(name)
-					if e != nil {
-						t.Fatal(e)
+					data, err := os.ReadFile(name)
+					if err != nil {
+						t.Fatal(err)
 					}
-					gold, e := png.Decode(f)
-					f.Close()
-					if e != nil {
-						t.Fatal(e)
+					var gold compactGolden
+					if err := json.Unmarshal(data, &gold); err != nil {
+						t.Fatal(err)
 					}
-					sum := 0.0
-					for y := 0; y < 270; y++ {
-						for x := 0; x < 480; x++ {
-							a, b, c, _ := im.At(x, y).RGBA()
-							aa, bb, cc, _ := gold.At(x, y).RGBA()
-							delta := .2126*math.Abs(float64(a)-float64(aa)) + .7152*math.Abs(float64(b)-float64(bb)) + .0722*math.Abs(float64(c)-float64(cc))
-							sum += delta / 65535
+					if err := compareGolden(got, gold); err != nil {
+						if os.Getenv("ONAIR_GOLDEN_DEBUG") == "1" {
+							dumpGolden(t, im, gold)
 						}
-					}
-					if sum/(480*270) > .005 {
-						t.Fatalf("perceptual mean error %.6f", sum/(480*270))
+						t.Fatal(err)
 					}
 				})
 			}
