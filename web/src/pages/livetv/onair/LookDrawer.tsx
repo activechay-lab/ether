@@ -17,7 +17,6 @@ import { DesignPanel } from "./DesignPanel";
 import { DescribeLook } from "./DescribeLook";
 import { LayersPanel } from "./LayersPanel";
 import { StyleScreensEditor } from "./StyleScreens";
-import { AssetsPanel } from "./AssetsPanel";
 export function LookDrawer({
   look,
   onClose,
@@ -284,9 +283,7 @@ export function LookDrawer({
               />
             ) : tab === "screens" ? (
               <StyleScreensEditor look={draft} onChange={change} />
-            ) : (
-              <AssetsPanel />
-            )}
+            ) : null}
           </div>
         </aside>
         <section className="order-1 min-w-0 bg-bg-subtle p-3 sm:p-6 lg:order-2 lg:col-span-2 lg:overflow-y-auto">

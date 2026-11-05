@@ -1,3 +1,4 @@
+import { libraryMock } from "./onair-library";
 import type { Programme } from "../pages/livetv/model";
 import clipPreview from "./clip-preview.mp4?url";
 import { referenceLooks, families } from "../pages/livetv/onair/fixtures";
@@ -118,6 +119,8 @@ export function createOnAirMock(
       q: URLSearchParams,
       body: unknown,
     ): { body: unknown; status?: number } | null {
+      const library = libraryMock(method, seg, body);
+      if (library) return library;
       if (seg[0] === "onair" && seg[1] === "template" && method === "POST") {
         const { prompt, base } = body as { prompt: string; base: Look };
         const family = /night|cosy|cozy|horror/i.test(prompt)

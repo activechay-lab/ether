@@ -116,28 +116,32 @@ export default function LiveTV() {
   // The Guide tab's selected guide source; none means All guides.
   const guideSourceId = params.get("gsrc");
   const [leftTab, setLeftTab] = useState(
-    tab === "library" ? "library" : tab === "looks"
-      ? "looks"
-      : tab === "guide-data"
-        ? "guide"
-        : tab === "sources" || selection.kind === "source"
-          ? "sources"
-          : "channels",
+    tab === "library"
+      ? "library"
+      : tab === "looks"
+        ? "looks"
+        : tab === "guide-data"
+          ? "guide"
+          : tab === "sources" || selection.kind === "source"
+            ? "sources"
+            : "channels",
   );
 
   useEffect(() => {
     // The Guide tab has no route of its own: leaving Looks for Guide lands on
     // /livetv, which must keep the Guide tab rather than fall back to Channels.
     setLeftTab((prev) =>
-      tab === "library" ? "library" : tab === "looks"
-        ? "looks"
-        : tab === "guide-data"
-          ? "guide"
-          : tab === "sources"
-            ? "sources"
-            : prev === "guide"
-              ? "guide"
-              : "channels",
+      tab === "library"
+        ? "library"
+        : tab === "looks"
+          ? "looks"
+          : tab === "guide-data"
+            ? "guide"
+            : tab === "sources"
+              ? "sources"
+              : prev === "guide"
+                ? "guide"
+                : "channels",
     );
   }, [tab]);
   useEffect(() => {
@@ -785,7 +789,8 @@ export default function LiveTV() {
           setLeftTab(next);
           if (next === "library") navigate("/livetv/library");
           else if (next === "looks") navigate("/livetv/looks");
-          else if (tab === "looks" || tab === "library") navigate(next === "sources" ? "/livetv/sources" : "/livetv");
+          else if (tab === "looks" || tab === "library")
+            navigate(next === "sources" ? "/livetv/sources" : "/livetv");
         }}
         tabs={[
           { key: "channels", label: t("Channels") },
@@ -816,7 +821,7 @@ export default function LiveTV() {
     <>
       {panelHead}
       <div className="app-scroll min-h-0 flex-1 lg:overflow-y-auto">
-        {leftTab === "looks" ? (
+        {leftTab === "library" ? null : leftTab === "looks" ? (
           <LooksAside
             looks={looks}
             reels={reels}
@@ -951,7 +956,9 @@ export default function LiveTV() {
   const guideSource = guideSourceId ? sources.find((x) => x.id === guideSourceId) : undefined;
   const mainClassName = "";
   const main =
-    leftTab === "library" ? <Library /> : leftTab === "looks" ? (
+    leftTab === "library" ? (
+      <Library />
+    ) : leftTab === "looks" ? (
       <LooksGallery
         looks={looks}
         onNew={() => setParams(new URLSearchParams({ look: "new" }))}

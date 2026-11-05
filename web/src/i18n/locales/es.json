@@ -354,7 +354,6 @@
   "m_01a985b7b0eceb": "Siguiente en una secuencia de visionado del hogar",
   "m_01a9d534a0c80c": "Ningún lanzamiento es aceptable para este perfil.",
   "m_01aac44b990a0a": "Revisa las sugerencias de la IA. La confianza es una estimación.",
-  "m_01ac360d3f80b5": "Usado por: {layers}",
   "m_01adfbaf6437be": "Desde la hora",
   "m_01af9435193543": {
     "one": "Una vez cada hora por espectador",
@@ -1137,11 +1136,6 @@
   "m_04cbdf0c66f6ba": "Objetivo {value}",
   "m_04cd42a7c63eeb": "Volver a la primera página",
   "m_04ceaa68e29440": "El diálogo de un subtítulo descargado evita saltar una escena dentro de los créditos.",
-  "m_04cebc82cacd72": {
-    "one": "{count} clip",
-    "many": "{count} clips",
-    "other": "{count} clips"
-  },
   "m_04cf3af89153c2": "Protocolo",
   "m_04cf67ade502fd": "Anclar aquí",
   "m_04cfc3767af270": "{percent} de {length}",
@@ -2383,7 +2377,6 @@
   "m_0a1ed215e9aca5": "Aún no se ha enviado ningún informe semanal.",
   "m_0a1f6a6e22044c": "Ajustar sincronización",
   "m_0a208f79755b03": "Servicios y transmisiones de desbridado",
-  "m_0a20982880cbd5": "Eliminar recurso",
   "m_0a20dd9140b781": "HDR desactivado",
   "m_0a220beea2f81b": {
     "many": "El código caduca a las {time}. Espera al menos {count} segundos entre comprobaciones.",
@@ -2621,7 +2614,6 @@
   "m_0b0ad99d2fd15d": "Recorrer vista previa",
   "m_0b0bcf39ca3df1": "Segundos mínimos",
   "m_0b0e70ffc776fa": "Proveedor añadido",
-  "m_0b0e78669cab3a": "Este recurso se eliminará de la biblioteca.",
   "m_0b10fbf01b5ef5": {
     "many": "Se eliminarán {count} reglas de dispositivo que lo usan.",
     "one": "Se eliminará la regla de dispositivo que lo usa.",
@@ -4237,7 +4229,6 @@
   "m_11d61d4f3e9fd5": "Crear una fila de inicio desde un catálogo de Stremio",
   "m_11d7a3f8437639": "años",
   "m_11d7e31cd286eb": "Precalentar páginas de detalle",
-  "m_11d92042d2fd61": "Buscar recursos",
   "m_11da71d0a7cb55": "Datos de versión en caché",
   "m_11db42a9d77b45": "Último error",
   "m_11db493ffadcf1": "introdb intro créditos marcadores saltar",
@@ -6430,7 +6421,6 @@
   },
   "m_1b281d356ec8aa": "Casi todo familiar",
   "m_1b28eae133b224": "Torrentio encuentra lanzamientos; añade una cuenta debrid o de Usenet para reproducirlos.",
-  "m_1b299ce438a7d6": "Tipo de recurso",
   "m_1b2a34dc6f05da": "Asignación de canales",
   "m_1b2b48bb51f0c1": "Transcodificación",
   "m_1b2bec1672c5f4": "Nuevo addon de Stremio",
@@ -6775,7 +6765,6 @@
   "m_1cc22461d8cb1e": "API {time}",
   "m_1cc23a3583b150": "Cuenta",
   "m_1cc2674d3a7c96": "Identidad local verificada",
-  "m_1cc2e90eb75ec7": "Clips",
   "m_1cc3099ac6762f": "{name} · {plugin} · {minutes} min",
   "m_1cc47d8d7c06fe": "De plugins",
   "m_1cc65dce53ce8e": "No se han podido cargar los tipos de fuente.",
@@ -7288,7 +7277,6 @@
   "m_1ee0878f3a251c": "Los canales mantienen los números y el orden de tu proveedor, que suele poner primero los eventos en directo.",
   "m_1ee5e30d239fd4": "Invitado del salón",
   "m_1ee6088a38be1d": "Líder",
-  "m_1ee73ed59b328c": "Colecciones de clips",
   "m_1ee7eb9267ce60": "Introduce una contraseña de copia de seguridad para descargar",
   "m_1ee836b0304ceb": "Excepción coincidente",
   "m_1eea59aeacb74c": "Ajusta tu caché",

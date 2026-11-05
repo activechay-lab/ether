@@ -347,7 +347,6 @@
   "m_01a985b7b0eceb": "Volgende in een kijkreeks van het huishouden",
   "m_01a9d534a0c80c": "Geen enkele release is acceptabel voor dit profiel.",
   "m_01aac44b990a0a": "Controleer de AI-suggesties. Het vertrouwen is een schatting.",
-  "m_01ac360d3f80b5": "Gebruikt door: {layers}",
   "m_01adfbaf6437be": "Vanaf uur",
   "m_01af9435193543": {
     "one": "Eén keer per uur per kijker",
@@ -1106,10 +1105,6 @@
   "m_04cbdf0c66f6ba": "Doel {value}",
   "m_04cd42a7c63eeb": "Terug naar eerste pagina",
   "m_04ceaa68e29440": "Dialoog in een gedownloade ondertitel voorkomt dat een scène in de aftiteling wordt overgeslagen.",
-  "m_04cebc82cacd72": {
-    "one": "{count} clip",
-    "other": "{count} clips"
-  },
   "m_04cf3af89153c2": "Protocol",
   "m_04cf67ade502fd": "Hier vastzetten",
   "m_04cfc3767af270": "{percent} van {length}",
@@ -2319,7 +2314,6 @@
   "m_0a1ed215e9aca5": "Nog geen wekelijkse rapporten verstuurd.",
   "m_0a1f6a6e22044c": "Timing aanpassen",
   "m_0a208f79755b03": "Debrid-diensten en streams",
-  "m_0a20982880cbd5": "Bestand verwijderen",
   "m_0a20dd9140b781": "HDR uit",
   "m_0a220beea2f81b": {
     "one": "De code verloopt om {time}. Wacht tussen controles minstens {count} seconde.",
@@ -2549,7 +2543,6 @@
   "m_0b0ad99d2fd15d": "Door voorbeeld spoelen",
   "m_0b0bcf39ca3df1": "Minimumseconden",
   "m_0b0e70ffc776fa": "Provider toegevoegd",
-  "m_0b0e78669cab3a": "Dit bestand wordt uit de bibliotheek verwijderd.",
   "m_0b10fbf01b5ef5": {
     "one": "De apparaatregel die het gebruikt, wordt verwijderd.",
     "other": "{count} apparaatregels die het gebruiken, worden verwijderd."
@@ -4122,7 +4115,6 @@
   "m_11d61d4f3e9fd5": "Een startrij maken van een Stremio-catalogus",
   "m_11d7a3f8437639": "jaren",
   "m_11d7e31cd286eb": "Detailpagina's opwarmen",
-  "m_11d92042d2fd61": "Media zoeken",
   "m_11da71d0a7cb55": "Gecachte releasegegevens",
   "m_11db42a9d77b45": "Laatste fout",
   "m_11db493ffadcf1": "introdb intro aftiteling markeringen overslaan",
@@ -6254,7 +6246,6 @@
   },
   "m_1b281d356ec8aa": "Vooral vertrouwd",
   "m_1b28eae133b224": "Torrentio vindt releases; voeg een debrid- of Usenet-account toe om ze af te spelen.",
-  "m_1b299ce438a7d6": "Mediatype",
   "m_1b2a34dc6f05da": "Kanaalkoppeling",
   "m_1b2b48bb51f0c1": "Transcoderen",
   "m_1b2bec1672c5f4": "Nieuwe Stremio-add-on",
@@ -6592,7 +6583,6 @@
   "m_1cc22461d8cb1e": "API {time}",
   "m_1cc23a3583b150": "Account",
   "m_1cc2674d3a7c96": "Lokale identiteit bevestigd",
-  "m_1cc2e90eb75ec7": "Clips",
   "m_1cc3099ac6762f": "{name} · {plugin} · {minutes} min",
   "m_1cc47d8d7c06fe": "Uit plugins",
   "m_1cc65dce53ce8e": "Brontypen konden niet worden geladen.",
@@ -7093,7 +7083,6 @@
   "m_1ee0878f3a251c": "Kanalen houden de nummers en volgorde van je aanbieder, die live-evenementen meestal bovenaan zet.",
   "m_1ee5e30d239fd4": "Woonkamergast",
   "m_1ee6088a38be1d": "Leider",
-  "m_1ee73ed59b328c": "Clipverzamelingen",
   "m_1ee7eb9267ce60": "Voer een back-upwachtwoord in om te downloaden",
   "m_1ee836b0304ceb": "Uitzondering komt overeen",
   "m_1eea59aeacb74c": "Je cache verfijnen",
