@@ -65,7 +65,7 @@ type transcodeEntry struct {
 	updatedAt   time.Time
 	// A failed decision for this binding (failKey, failErr at failedAt):
 	// the start request that follows it answers with the same error at
-	// once instead of resolving again. One-shot and short-lived.
+	// once instead of resolving again, including media loader retries.
 	failKey  core.RatingKey
 	failErr  error
 	failedAt time.Time
@@ -104,10 +104,17 @@ func (t *transcodeTable) get(id string) (*transcodeEntry, bool) {
 	return plexBinding(b), true
 }
 func (t *transcodeTable) fail(id string, userID int64, clientID string, key core.RatingKey, err error, now time.Time) {
-	t.table.Fail(id, userID, clientID, key, err, now)
+	// awaitSource fails before gated admission has claimed a binding.
+	if t.table.Claim(id, userID, clientID, now) {
+		t.table.Fail(id, userID, clientID, key, err, now)
+	}
 }
 func (t *transcodeTable) takeFailure(id string, userID int64, key core.RatingKey, now time.Time) (error, bool) {
-	return t.table.TakeFailure(id, userID, key, now)
+	e, ok := t.table.Get(id)
+	if !ok || e.UserID != userID || e.FailKey != key || e.FailErr == nil || now.Sub(e.FailedAt) >= decisionFailureTTL {
+		return nil, false
+	}
+	return e.FailErr, true
 }
 func (t *transcodeTable) touch(id string, now time.Time) { t.table.Touch(id, now) }
 func (t *transcodeTable) remove(id string)               { t.table.Remove(id) }
