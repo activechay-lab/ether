@@ -2,6 +2,7 @@ package livetv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -160,6 +161,9 @@ type broadcast struct {
 	retryRequests  chan struct{}
 	mode           string
 	tick           int64
+	// yieldIdle asks the registry to close outputs nobody is watching when
+	// this output hits the stream limit (see broadcastRegistry.yieldIdle).
+	yieldIdle func(except *broadcast) bool
 }
 
 func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planner broadcastPlanner, format transcode.RawFormat) (*broadcast, error) {
@@ -418,7 +422,20 @@ func (b *broadcast) noteFailure(p broadcastPlan, err error, now time.Time) {
 	if p.failed != nil {
 		retry = p.failed(err)
 	}
+	// Channels left in their idle grace still hold stream slots. A viewer who
+	// switches channels must not wait out that grace on a limited server.
+	if errors.Is(err, core.ErrStreamLimit) && b.yieldIdle != nil && b.yieldIdle(b) {
+		if soon := now.Add(time.Second); soon.Before(retry) {
+			retry = soon
+		}
+	}
 	b.retry[p.id] = retry
+}
+func (b *broadcast) unwatched(now time.Time) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	// A brand-new output has no viewer until acquire attaches its rendition.
+	return b.viewers == 0 && !b.closed && now.Sub(b.origin) >= 2*time.Second
 }
 func (b *broadcast) run() {
 	defer func() {
