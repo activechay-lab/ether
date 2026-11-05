@@ -289,7 +289,9 @@ const del = (path: string) => apiFetch<null>(base + path, { method: "DELETE" });
 
 export const releaseConsole = {
   profiles: (media?: string) =>
-    apiFetch<ConsoleProfiles>(`${base}/profiles${media ? `?media=${encodeURIComponent(media)}` : ""}`),
+    apiFetch<ConsoleProfiles>(
+      `${base}/profiles${media ? `?media=${encodeURIComponent(media)}` : ""}`,
+    ),
   search: (key: string, opts: { profile?: string; fresh?: boolean } = {}, signal?: AbortSignal) =>
     apiFetch<ConsoleSearch>(
       `${base}/search${qs({ key, profile: opts.profile, fresh: opts.fresh ? 1 : undefined })}`,

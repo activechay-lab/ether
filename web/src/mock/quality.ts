@@ -87,8 +87,7 @@ export function createQualityMock() {
     const quality = config.quality;
     const profiles = quality.profiles ?? [];
     const byName = new Map(profiles.map((p) => [p.name, p]));
-    const media =
-      q.mediaType === "movie" || q.mediaType === "tv" ? (q.mediaType as string) : "";
+    const media = q.mediaType === "movie" || q.mediaType === "tv" ? (q.mediaType as string) : "";
     const applies = (scope: string | undefined) => !media || !scope || scope === media;
     const pick = (name: string | undefined) => {
       const found = name ? byName.get(name) : undefined;
