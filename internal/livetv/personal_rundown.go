@@ -236,6 +236,7 @@ func (s *Service) buildPersonal(ctx context.Context, c Channel, u *core.User) er
 	if err != nil {
 		return err
 	}
+	records := s.personalIndexRecords(ctx, ps)
 	tx, err := s.o.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -251,7 +252,7 @@ func (s *Service) buildPersonal(ctx context.Context, c Channel, u *core.User) er
 	if err != nil {
 		return err
 	}
-	if err = s.indexPersonal(ctx, tx, u.ID, c.ID, day, ps); err != nil {
+	if err = s.indexPersonal(ctx, tx, u.ID, c.ID, day, records); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err != nil {
@@ -281,6 +282,9 @@ func (s *Service) buildPersonal(ctx context.Context, c Channel, u *core.User) er
 }
 
 func (s *Service) personalProgrammes(ctx context.Context, c Channel, u *core.User, from, until time.Time) ([]Programme, error) {
+	return s.personalProgrammesLimit(ctx, c, u, from, until, 0)
+}
+func (s *Service) personalProgrammesLimit(ctx context.Context, c Channel, u *core.User, from, until time.Time, limit int) ([]Programme, error) {
 	out := []Programme{}
 	if u == nil || u.ID <= 0 || s.o.Picker == nil {
 		return out, nil
@@ -289,7 +293,7 @@ func (s *Service) personalProgrammes(ctx context.Context, c Channel, u *core.Use
 	var day string
 	err := s.o.DB.QueryRowContext(ctx, `SELECT day,cursor_ms FROM livetv_personal WHERE viewer_id=? AND channel_id=? ORDER BY built_at DESC LIMIT 1`, u.ID, c.ID).Scan(&day, &cursorMS)
 	if errors.Is(err, sql.ErrNoRows) {
-		return out, nil
+		return nil, core.ErrNotAvailable
 	}
 	if err != nil {
 		return nil, err
@@ -310,7 +314,13 @@ func (s *Service) personalProgrammes(ctx context.Context, c Channel, u *core.Use
 
 	// Seek the latest start at/before the requested window, then scan only
 	// overlapping/future rows. The primary key bounds work by returned output.
-	rows, err := s.o.DB.QueryContext(ctx, `SELECT data FROM livetv_personal_programmes WHERE viewer_id=? AND channel_id=? AND day=? AND start_ms>=COALESCE((SELECT MAX(start_ms) FROM livetv_personal_programmes WHERE viewer_id=? AND channel_id=? AND day=? AND start_ms<=?),?) AND start_ms<? AND end_ms>? ORDER BY start_ms`, u.ID, c.ID, day, u.ID, c.ID, day, from.Add(-shift).UnixMilli(), from.Add(-shift).UnixMilli(), until.Add(-shift).UnixMilli(), from.Add(-shift).UnixMilli())
+	query := `SELECT data FROM livetv_personal_programmes WHERE viewer_id=? AND channel_id=? AND day=? AND start_ms>=COALESCE((SELECT MAX(start_ms) FROM livetv_personal_programmes WHERE viewer_id=? AND channel_id=? AND day=? AND start_ms<=?),?) AND start_ms<? AND end_ms>? ORDER BY start_ms`
+	args := []any{u.ID, c.ID, day, u.ID, c.ID, day, from.Add(-shift).UnixMilli(), from.Add(-shift).UnixMilli(), until.Add(-shift).UnixMilli(), from.Add(-shift).UnixMilli()}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := s.o.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

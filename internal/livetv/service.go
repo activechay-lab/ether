@@ -786,6 +786,9 @@ func (s *Service) DeleteChannel(ctx context.Context, id string) error {
 	_, err := s.o.DB.ExecContext(ctx, `DELETE FROM livetv_channels WHERE id=?`, id)
 	if err == nil {
 		s.invalidate(id, "")
+		if err = s.refreshVirtualGuide(ctx); err != nil {
+			return err
+		}
 		s.bumpLineup()
 	}
 	return err
@@ -990,6 +993,11 @@ func (s *Service) AllowedChannelCached(ctx context.Context, u *core.User, id str
 	return nil
 }
 func (s *Service) AllowedChannels(ctx context.Context, u *core.User) ([]Channel, error) {
+	readyCtx, readinessErr := s.withVirtualGuide(ctx, nil)
+	if readinessErr != nil {
+		return nil, readinessErr
+	}
+	ctx = readyCtx
 	ctx, pol, err := s.withPolicy(ctx, u)
 	if err != nil {
 		return nil, err
@@ -1025,6 +1033,9 @@ func (s *Service) AllowedChannels(ctx context.Context, u *core.User) ([]Channel,
 	}
 	out := []Channel{}
 	for i, c := range cs {
+		if !s.audienceAllowed(ctx, u, c) {
+			continue
+		}
 		var current *Programme
 		switch {
 		case c.Kind == "virtual":
@@ -1420,6 +1431,11 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 		return nil, fmt.Errorf("guide window must be positive and at most 7 days")
 	}
 	var err error
+	readyCtx, readinessErr := s.withVirtualGuide(ctx, nil)
+	if readinessErr != nil {
+		return nil, readinessErr
+	}
+	ctx = readyCtx
 	ctx, _, err = s.withPolicy(ctx, u)
 	if err != nil {
 		return nil, err
@@ -1493,7 +1509,7 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 			return nil, err
 		}
 		for i, c := range cs {
-			if !c.Enabled {
+			if !s.audienceAllowed(ctx, u, c) {
 				continue
 			}
 			if at[i] >= 0 {
@@ -1522,7 +1538,7 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 		return out, nil
 	}
 	for _, c := range cs {
-		if !c.Enabled {
+		if !s.audienceAllowed(ctx, u, c) {
 			continue
 		}
 		orderIndex[c.ID] = len(orderIndex)
@@ -1633,6 +1649,11 @@ func (s *Service) onNow(ctx context.Context, u *core.User, now, until time.Time,
 	if u == nil || !until.After(now) {
 		return nil, nil, fmt.Errorf("invalid on-now window")
 	}
+	readyCtx, readinessErr := s.withVirtualGuide(ctx, nil)
+	if readinessErr != nil {
+		return nil, nil, readinessErr
+	}
+	ctx = readyCtx
 	ctx, _, err := s.withPolicy(ctx, u)
 	if err != nil {
 		return nil, nil, err
@@ -1678,7 +1699,7 @@ func (s *Service) programmesLimit(ctx context.Context, c Channel, from, until ti
 		if v, ok := ctx.Value(loadedPolicyKey{}).(loadedPolicy); ok {
 			c = s.personalChannel(ctx, c, v.user)
 		}
-		ps, err := s.personalProgrammes(ctx, c, c.personalViewer, from, until)
+		ps, err := s.personalProgrammesLimit(ctx, c, c.personalViewer, from, until, limit)
 		if limit > 0 && len(ps) > limit {
 			ps = ps[:limit]
 		}

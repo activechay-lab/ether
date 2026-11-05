@@ -10,7 +10,7 @@ import (
 )
 
 func init() {
-	store.Register("livetv", 10, `CREATE TABLE livetv_personal_programmes(viewer_id BIGINT NOT NULL,channel_id TEXT NOT NULL,day TEXT NOT NULL,start_ms BIGINT NOT NULL,end_ms BIGINT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(viewer_id,channel_id,day,start_ms));`)
+	store.Register("livetv", 10, `CREATE TABLE livetv_personal_programmes(viewer_id BIGINT NOT NULL,channel_id TEXT NOT NULL,day TEXT NOT NULL,start_ms BIGINT NOT NULL,end_ms BIGINT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(viewer_id,channel_id,day,start_ms)); CREATE INDEX livetv_personal_latest ON livetv_personal(viewer_id,channel_id,built_at DESC);`)
 	store.RegisterViewerTable("livetv", "livetv_personal_programmes", "viewer_id", store.ViewerMergeMove, "channel_id", "day", "start_ms")
 }
 
@@ -20,18 +20,13 @@ type personalProgrammeRecord struct {
 	Catalog   bool
 }
 
-func (s *Service) indexPersonal(ctx context.Context, tx *sql.Tx, viewer int64, channel, day string, ps []Programme) error {
+func (s *Service) indexPersonal(ctx context.Context, tx *sql.Tx, viewer int64, channel, day string, records []personalProgrammeRecord) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM livetv_personal_programmes WHERE viewer_id=? AND channel_id=? AND day=?`, viewer, channel, day); err != nil {
 		return err
 	}
-	facts := map[core.RatingKey]*core.Title{}
-	for _, p := range ps {
-		if p.Item.Key != 0 && s.o.Catalog != nil {
-			if _, ok := facts[p.Item.Key]; !ok {
-				facts[p.Item.Key], _ = s.o.Catalog.Get(ctx, p.Item.Key)
-			}
-		}
-		b, err := json.Marshal(personalProgrammeRecord{Programme: p, Title: facts[p.Item.Key], Catalog: s.o.Catalog != nil})
+	for _, record := range records {
+		p := record.Programme
+		b, err := json.Marshal(record)
 		if err != nil {
 			return err
 		}
@@ -40,6 +35,21 @@ func (s *Service) indexPersonal(ctx context.Context, tx *sql.Tx, viewer int64, c
 		}
 	}
 	return nil
+}
+
+func (s *Service) personalIndexRecords(ctx context.Context, ps []Programme) []personalProgrammeRecord {
+	facts := map[core.RatingKey]*core.Title{}
+	records := make([]personalProgrammeRecord, 0, len(ps))
+	for _, p := range ps {
+		if p.Item.Key != 0 && s.o.Catalog != nil {
+			if _, ok := facts[p.Item.Key]; !ok {
+				facts[p.Item.Key], _ = s.o.Catalog.Get(ctx, p.Item.Key)
+			}
+		}
+
+		records = append(records, personalProgrammeRecord{Programme: p, Title: facts[p.Item.Key], Catalog: s.o.Catalog != nil})
+	}
+	return records
 }
 
 // Existing saved rundowns are indexed by the startup/background worker, never
@@ -73,11 +83,12 @@ func (s *Service) backfillPersonalIndex(ctx context.Context) error {
 		if err = json.Unmarshal(p.data, &ps); err != nil {
 			return err
 		}
+		records := s.personalIndexRecords(ctx, ps)
 		tx, err := s.o.DB.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
-		err = s.indexPersonal(ctx, tx, p.viewer, p.channel, p.day, ps)
+		err = s.indexPersonal(ctx, tx, p.viewer, p.channel, p.day, records)
 		if err != nil {
 			tx.Rollback()
 			return err
