@@ -70,12 +70,12 @@ export function LookTile({
       ref={ref}
       width={640}
       height={360}
-      className={cn("aspect-video w-full rounded-lg bg-bg-subtle", size)}
+      className={cn("block aspect-video min-w-0 w-full max-w-full rounded-lg bg-bg-subtle", size)}
       onMouseEnter={begin}
       onMouseLeave={() => setHover(false)}
       onFocus={begin}
       onBlur={() => setHover(false)}
-      tabIndex={0}
+      tabIndex={playOnHover ? 0 : undefined}
       aria-label={t("{name} preview", { name: look.name })}
     />
   );

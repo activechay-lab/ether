@@ -63,9 +63,9 @@ export function LooksAside({
             className="flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left hover:bg-surface-hover"
             onClick={() => onSelect("reel", r.id)}
           >
-            <Clapperboard size={20} className="text-fg-muted" />
-            <span className="flex-1 text-sm">
-              {r.name}
+            <Clapperboard size={20} className="shrink-0 text-fg-muted" />
+            <span className="min-w-0 flex-1 text-sm">
+              <span className="block truncate">{r.name}</span>
               <span className="block text-xs text-fg-subtle">
                 {tn(r.clips.length, "{count} clip", "{count} clips")}
               </span>
@@ -148,11 +148,13 @@ export function LooksGallery({
           >
             <LookTile look={l} />
             <div className="flex items-center justify-between gap-3 p-4">
-              <div>
-                <h3 className="font-semibold tracking-tight">{l.name}</h3>
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate font-semibold tracking-tight" title={l.name}>
+                  {l.name}
+                </h3>
                 <p className="mt-1 text-xs text-fg-muted">{t(familyName(l.family))}</p>
               </div>
-              <span className="text-xs text-fg-subtle">
+              <span className="shrink-0 text-xs text-fg-subtle">
                 {tn(l.channelIds.length, "Used by {count} channel", "Used by {count} channels")}
               </span>
             </div>
@@ -236,8 +238,14 @@ export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => v
               </h3>
               <div className="flex flex-wrap gap-2">
                 {looks.map((l) => (
-                  <Button key={l.id} variant="outline" size="sm" onClick={() => choose(l)}>
-                    {l.name}
+                  <Button
+                    key={l.id}
+                    variant="outline"
+                    size="sm"
+                    className="max-w-full"
+                    onClick={() => choose(l)}
+                  >
+                    <span className="truncate">{l.name}</span>
                   </Button>
                 ))}
               </div>

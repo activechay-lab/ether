@@ -24,6 +24,10 @@ export function ColorPicker({
   swatches?: string[];
 }) {
   const [open, setOpen] = useState(false);
+  const [placement, setPlacement] = useState<{ align: "start" | "end"; side: "top" | "bottom" }>({
+    align: "start",
+    side: "bottom",
+  });
   const [hue, setHue] = useState(270);
   const [hex, setHex] = useState(value);
   const change = (v: string) => {
@@ -34,11 +38,21 @@ export function ColorPicker({
     <Popover
       open={open}
       onOpenChange={setOpen}
-      className="w-64 space-y-3 p-3"
+      align={placement.align}
+      side={placement.side}
+      className="max-h-[calc(100dvh-2rem)] w-64 max-w-[calc(100vw-1rem)] space-y-3 overflow-y-auto p-3"
       trigger={
         <button
           className="flex flex-1 flex-col items-center gap-2 rounded-lg border border-border bg-surface p-2 hover:bg-surface-hover"
-          onClick={() => setOpen(!open)}
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const below = window.innerHeight - rect.bottom;
+            setPlacement({
+              align: rect.left + 256 > window.innerWidth - 8 ? "end" : "start",
+              side: below < 400 && rect.top > below ? "top" : "bottom",
+            });
+            setOpen(!open);
+          }}
           aria-label={label}
         >
           <span

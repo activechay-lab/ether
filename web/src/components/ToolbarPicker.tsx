@@ -1,6 +1,6 @@
 import { Input, Popover, cn } from "@braedonsaunders/appkit-ui";
 import { Check, ChevronDown, Search } from "lucide-react";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { t } from "../i18n";
 
 export interface ToolbarOption<T extends string> {
@@ -57,9 +57,34 @@ export function ToolbarPicker<T extends string>({
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const [placement, setPlacement] = useState<{
+    align: "start" | "end";
+    side: "top" | "bottom";
+    height: number;
+  }>({ align: "start", side: side ?? "bottom", height: 352 });
   // The menu is portalled to <body>, so a full-width trigger hands its width
   // over as a custom property the menu's width class reads.
   const measure = () => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const width = matchWidth ? rect.width : Math.min(288, window.innerWidth - 16);
+      const above = rect.top - 12;
+      const below = window.innerHeight - rect.bottom - 12;
+      const expected = Math.min(352, options.length * 44 + (showSearch ? 44 : 0));
+      const nextSide = side ?? (below < expected && above > below ? "top" : "bottom");
+      const next = {
+        align: rect.left + width > window.innerWidth - 8 ? ("end" as const) : ("start" as const),
+        side: nextSide,
+        height: Math.max(48, Math.min(352, nextSide === "top" ? above : below)),
+      };
+      setPlacement((previous) =>
+        previous.align === next.align &&
+        previous.side === next.side &&
+        previous.height === next.height
+          ? previous
+          : next,
+      );
+    }
     if (matchWidth && triggerRef.current) {
       document.documentElement.style.setProperty(
         "--toolbar-picker-width",
@@ -69,6 +94,15 @@ export function ToolbarPicker<T extends string>({
   };
   const current = options.find((o) => o.value === value);
   const showSearch = searchable ?? options.length > 8;
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [open, side, matchWidth, options.length, showSearch]);
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return options;
@@ -90,9 +124,13 @@ export function ToolbarPicker<T extends string>({
         setOpen(o);
         if (!o) setQ("");
       }}
-      align="start"
-      side={side}
-      className={cn(matchWidth ? "w-[var(--toolbar-picker-width)] p-1" : "w-72 p-1", menuClassName)}
+      align={placement.align}
+      side={placement.side}
+      className={cn(
+        "max-w-[calc(100vw-1rem)]",
+        matchWidth ? "w-[var(--toolbar-picker-width)] p-1" : "w-72 p-1",
+        menuClassName,
+      )}
       trigger={
         <button
           ref={triggerRef}
@@ -125,7 +163,12 @@ export function ToolbarPicker<T extends string>({
         </button>
       }
     >
-      <div role="menu" aria-label={ariaLabel} className="max-h-[22rem] overflow-y-auto">
+      <div
+        role="menu"
+        aria-label={ariaLabel}
+        className="max-h-[22rem] overflow-y-auto"
+        style={{ maxHeight: placement.height }}
+      >
         {showSearch ? (
           <div className="sticky top-0 z-10 bg-elevated p-1">
             <div className="relative">

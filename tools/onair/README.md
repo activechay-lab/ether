@@ -67,3 +67,13 @@ The overlay source used for review is Blender's 1920×1080 Big Buck Bunny traile
 (https://download.blender.org/peach/trailer/trailer_1080p.ogg), held outside the
 repository solely as test-programme input. Signal uses live plates rather than
 pre-rendered MP4 samples, per the owner's revised requirement.
+
+## Layout acceptance
+
+With mock Vite on 5193, use `node tools/onair/layout-sweep.mjs /absolute/screens before`
+(or `after`) for empty/one/many/long fixtures at 1440×900 and 390×844 in both themes.
+`node tools/onair/layout-details.mjs /absolute/screens after` exercises nested colour,
+collection, rename and viewer-name controls. Both use host `playwright-cli`, retain
+`captions.json` and geometry/error JSON, and close their browser. Fixture reloads
+suppress the reload-only unsaved prompt; navigation-guard behaviour remains covered
+by the existing console tests. The scripts wait for fonts and painted canvases.
