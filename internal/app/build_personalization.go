@@ -99,6 +99,24 @@ func (a *App) buildPersonalization(ctx context.Context, cfg config.Config) error
 	})
 	// Per-viewer Homes, built in the background and served to Plex.
 	if a.personalize, err = personalize.New(personalize.Options{
+		PersonalWatchlist: func(ctx context.Context, u *core.User) ([]core.Title, error) {
+			if a.watchlist == nil {
+				return nil, nil
+			}
+			items, err := a.watchlist.Items(ctx, u)
+			titles := make([]core.Title, 0, len(items))
+			for _, item := range items {
+				titles = append(titles, item.Title)
+			}
+			return titles, err
+		},
+		PersonalCollections: func(ctx context.Context, u *core.User, key core.RatingKey) ([]core.Title, error) {
+			if a.collections == nil {
+				return nil, nil
+			}
+			page, err := a.collections.Items(ctx, u, key, 0, 500)
+			return page.Items, err
+		},
 		Now:          parityClock(),
 		RefreshEvery: parityRefreshEvery(),
 		Ranker:       parityRankerOptions(),

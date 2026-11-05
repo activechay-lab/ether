@@ -27,3 +27,16 @@ type ChannelGraphics interface {
 	Clip(context.Context, ClipRequest) (ClipRef, bool)
 	Ensure(context.Context, ClipRequest)
 }
+
+// PersonalPick is a viewer-safe programming candidate with its explanation.
+type PersonalPick struct {
+	Title  *Title
+	Reason string
+	Kind   string
+	Score  float64
+}
+
+// PersonalPicker supplies background personal-channel rundown builders.
+type PersonalPicker interface {
+	Picks(context.Context, *User, map[string]float64, int) ([]PersonalPick, error)
+}

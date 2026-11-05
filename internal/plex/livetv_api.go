@@ -202,7 +202,7 @@ func (s *Server) handleLiveDVRs(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, r, err)
 		return
 	}
-	s.write(w, r, &liveContainer{Size: 1, Identifier: livetv.Provider, DVR: []liveDVR{{EPGIdentifier: livetv.Provider, Key: "1", Language: "eng", Lineup: "lineup://" + livetv.Provider + "/dvr", UUID: s.identity().MachineIdentifier + "-livetv", RefreshedAt: s.liveLineupRefreshedAt(), Device: devices}}})
+	s.write(w, r, &liveContainer{Size: 1, Identifier: livetv.Provider, DVR: []liveDVR{{EPGIdentifier: livetv.Provider, Key: "1", Language: "eng", Lineup: "lineup://" + livetv.Provider + "/dvr", UUID: s.identity().MachineIdentifier + "-livetv", RefreshedAt: s.liveLineupRefreshedAtFor(FromContext(r.Context()).User), Device: devices}}})
 }
 
 // liveLineupRefreshedAt is the clock Apple TV compares to drop a cached lineup.
@@ -215,10 +215,24 @@ func (s *Server) liveLineupRefreshedAt() int64 {
 	return s.now().Unix()
 }
 
+func (s *Server) liveLineupRefreshedAtFor(u *core.User) int64 {
+	if s.d.LiveTV != nil {
+		if at := s.d.LiveTV.LineupChangedFor(u); !at.IsZero() {
+			return at.Unix()
+		}
+	}
+	return s.now().Unix()
+}
+
 // NotifyLiveLineup tells connected Plex clients to reload the DVR lineup and
 // guide. Channel create and delete call it through LiveTV.SetOnChange.
 func (s *Server) NotifyLiveLineup() {
-	now := s.liveLineupRefreshedAt()
+	s.NotifyLiveLineupFor(0)
+}
+
+// NotifyLiveLineupFor confines personal guide invalidation to its viewer.
+func (s *Server) NotifyLiveLineupFor(viewer int64) {
+	now := s.liveLineupRefreshedAtFor(&core.User{ID: viewer})
 	s.publishNotification(model.NotificationContainer{
 		Type: "activity",
 		Size: 1,
@@ -232,7 +246,7 @@ func (s *Server) NotifyLiveLineup() {
 				Progress: 100,
 			},
 		}},
-	}, 0)
+	}, viewer)
 	s.publishNotification(model.NotificationContainer{
 		Type: "timeline",
 		Size: 1,
@@ -245,7 +259,7 @@ func (s *Server) NotifyLiveLineup() {
 			State:      5,
 			UpdatedAt:  now,
 		}},
-	}, 0)
+	}, viewer)
 }
 func (s *Server) handleLiveGrabbers(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, &liveContainer{Size: 1, Identifier: livetv.Provider, MediaGrabber: []liveGrabber{{Title: "Ether owner channels", Identifier: "tv.plex.grabbers.ether", Protocol: "livetv"}}})

@@ -169,6 +169,7 @@ func (s *Service) startOwnedHLS(request context.Context, ss *session, req core.H
 }
 
 func (ss *session) close(s *Service) {
+	defer s.endPersonal(ss.info.Channel, ss.info.UserID)
 	if ss.startupCancel != nil {
 		ss.startupCancel()
 	}
@@ -254,6 +255,7 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	if err != nil {
 		return SessionInfo{}, err
 	}
+	c = s.personalChannel(ctx, c, u)
 	ps, err := s.programmes(ctx, c, s.o.Now(), s.o.Now().Add(time.Second))
 	if err != nil {
 		return SessionInfo{}, err
@@ -362,6 +364,7 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	s.sessions[ss.info.ID] = ss
 	s.noteWatchedLocked(c.ID)
 	s.mu.Unlock()
+	s.beginPersonal(c, u)
 	if limiter, ok := s.o.Playback.(channelLimiter); ok {
 		if err = limiter.BeginChannel(u, caps, ss.info.ID); err != nil {
 			s.Stop(ctx, ss.info.ID, u)
@@ -424,6 +427,7 @@ func (s *Service) getSession(ctx context.Context, id string, u *core.User) (*ses
 	if err != nil {
 		return nil, err
 	}
+	c = s.personalChannel(ctx, c, u)
 	ps, err := s.programmes(ctx, c, s.o.Now(), s.o.Now().Add(time.Second))
 	if err != nil {
 		return nil, err
