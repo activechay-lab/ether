@@ -114,7 +114,8 @@ func localizeDecisionResponse(r *http.Request, value any) any {
 	if !ok {
 		return value
 	}
-	translated, ok := decisionTranslations[decisionLanguage(r)]
+	lang := decisionLanguage(r)
+	translated, ok := decisionTranslations[lang]
 	if !ok {
 		return value
 	}
@@ -133,6 +134,10 @@ func localizeDecisionResponse(r *http.Request, value any) any {
 			copyContainer.Extra[i].Value = translated[1]
 		case textDirectPlayDisable:
 			copyContainer.Extra[i].Value = translated[2]
+		default:
+			if text, ok := attr.Value.(string); ok {
+				copyContainer.Extra[i].Value = localizeDecisionDiagnostic(lang, text)
+			}
 		}
 	}
 	return &copyContainer
