@@ -157,3 +157,9 @@ func traditionalChinese(tag string) bool {
 	tag = strings.ToLower(strings.ReplaceAll(tag, "_", "-"))
 	return strings.HasPrefix(tag, "zh-hant") || tag == "zh-tw" || tag == "zh-hk" || tag == "zh-mo"
 }
+
+// Ether's catalog has no PMS scanner, agent or butler job behind these writes.
+// Refuse them rather than acknowledging a task that will never produce events.
+func (s *Server) handleUnsupportedManagement(w http.ResponseWriter, r *http.Request) {
+	writeHTTPError(w, http.StatusNotFound)
+}
