@@ -42,6 +42,7 @@ func TestActivityRegistryLifecycleAndVisibility(t *testing.T) {
 	if decodeJSON(t, rec)["Activity"].([]any)[0].(map[string]any)["progress"] != float64(50) {
 		t.Fatal(rec.Body)
 	}
+	a.Progress = 100
 	publish("ended")
 	rec = f.request(t, "GET", "/activities", map[string]string{"Accept": "application/json"})
 	if decodeJSON(t, rec)["size"] != float64(0) {
@@ -140,14 +141,69 @@ func TestActivitySocketLanguageIsBoundToHandshake(t *testing.T) {
 		if err != nil {
 			t.Fatalf("dial: %v (%v)", err, response)
 		}
+		deadline := time.Now().Add(time.Second)
+		for {
+			f.srv.notifier.mu.Lock()
+			ready := len(f.srv.notifier.subs) > 0
+			f.srv.notifier.mu.Unlock()
+			if ready {
+				break
+			}
+			if time.Now().After(deadline) {
+				conn.CloseNow()
+				t.Fatal("socket subscription not ready")
+			}
+			time.Sleep(time.Millisecond)
+		}
 		f.srv.publishNotification(model.NotificationContainer{Type: "activity", Size: 1, ActivityNotification: []model.ActivityNotification{{Event: "started", UUID: "socket-task", Activity: &model.Activity{UUID: "socket-task", Type: "subtitle.download", UserID: ownerUser.ID, Title: "Downloading subtitles"}}}}, ownerUser.ID)
 		_, data, err := conn.Read(ctx)
 		conn.CloseNow()
+		deadline = time.Now().Add(time.Second)
+		for {
+			f.srv.notifier.mu.Lock()
+			reaped := len(f.srv.notifier.subs) == 0
+			f.srv.notifier.mu.Unlock()
+			if reaped {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("socket subscription not reaped")
+			}
+			time.Sleep(time.Millisecond)
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(string(data), test.want) {
 			t.Fatalf("%s %s: %s", test.header, test.value, data)
 		}
+	}
+}
+
+func TestUnsupportedManagementRefusals(t *testing.T) {
+	f := newFixture(func(d *Deps) { d.DisableEnrichment = true })
+	defer f.srv.Close()
+	sub, _ := f.srv.notifier.subscribe(nil, &ownerUser)
+	defer f.srv.notifier.unsubscribe(sub)
+	for _, req := range []struct{ method, path string }{
+		{"POST", "/butler"}, {"DELETE", "/butler"}, {"PUT", "/butler/OptimizeDatabase"}, {"DELETE", "/butler/OptimizeDatabase"},
+		{"PUT", "/library/sections/1/refresh"}, {"POST", "/library/sections/1/refresh"},
+		{"PUT", "/library/metadata/1/refresh"}, {"PUT", "/library/metadata/1/analyze"}, {"PUT", "/library/metadata/1/unmatch"},
+	} {
+		rec := f.request(t, req.method, req.path, nil)
+		if rec.Code != 404 {
+			t.Errorf("%s %s: %d", req.method, req.path, rec.Code)
+		}
+		if req.path == "/library/sections/1/refresh" {
+			rec = f.request(t, req.method, req.path, map[string]string{"X-Plex-Token": friendToken})
+			if rec.Code != 403 {
+				t.Errorf("shared %s %s: %d", req.method, req.path, rec.Code)
+			}
+		}
+	}
+	select {
+	case event := <-sub.ch:
+		t.Fatalf("refusal published fake activity: %s", event.data)
+	default:
 	}
 }
