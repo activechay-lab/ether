@@ -2098,6 +2098,18 @@ export function createFakeServer(opts: FakeOptions = {}) {
         : undefined;
     return {
       mockConsole: {
+        // Explicit synthetic diagnostic evidence, independent of heartbeat liveness.
+        health: Object.fromEntries(
+          nodes.map((n) => [
+            n.id,
+            {
+              nodeId: n.id,
+              boot: n.incarnation!,
+              sampledAt: new Date().toISOString(),
+              level: n.id === "n-garage" ? ("error" as const) : ("ok" as const),
+            },
+          ]),
+        ),
         metrics: Object.fromEntries(
           nodes.map((n, i) => [
             n.id,

@@ -19,7 +19,6 @@ import {
 } from "@braedonsaunders/appkit-ui";
 import { Copy, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { MoreOptions } from "../../components/ConfigSection";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
@@ -28,7 +27,7 @@ import { ClusterSetup } from "./ClusterSetup";
 import { Section } from "../../components/layout";
 import { SettingsRow } from "../../components/SettingsRow";
 import { pagedTableLabels } from "../../i18n/appkit-labels";
-import { localized, t, tn, tx } from "../../i18n";
+import { localized, t, tn } from "../../i18n";
 import { api, errorMessage } from "../../lib/api";
 import { formatDateTime, parseTime, relativeTime } from "../../lib/format";
 import { useAsync, useInterval, type AsyncState } from "../../lib/hooks";
@@ -329,19 +328,36 @@ export function ClusterOverview() {
   );
 }
 
+/** Mock observations are opt-in at the mock-build boundary, never peer runtime evidence. */
+export function clusterNodeHealth(
+  s: ClusterStatus,
+  n: ClusterNode,
+  cached: boolean,
+  mockHealth?: NonNullable<ClusterStatus["mockConsole"]>["health"],
+) {
+  if (cached) return "unknown";
+  const observation = mockHealth?.[n.id];
+  if (
+    observation?.nodeId === n.id &&
+    !!n.incarnation &&
+    observation.boot === n.incarnation &&
+    runtimeFresh(observation.sampledAt)
+  )
+    return observation.level;
+  const runtime = nodeRuntime(s, n);
+  return runtime && runtimeFresh(runtime.runtimeSampledAt)
+    ? runtime.readyExisting
+      ? "ok"
+      : "error"
+    : "unknown";
+}
+
 function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: boolean }) {
   const [panel, setPanel] = useState("nodes");
   const nodes = sortNodes(s.nodes ?? []);
-  const healthOf = (n: ClusterNode) => {
-    const r = nodeRuntime(s, n);
-    return !cached && r && runtimeFresh(r.runtimeSampledAt)
-      ? r.readyExisting
-        ? "ok"
-        : "error"
-      : "unknown";
-  };
   const fresh = !cached && runtimeFresh(s.health?.lastHeartbeat ?? "");
   const preview = import.meta.env.MODE === "mock" ? s.mockConsole : undefined;
+  const healthOf = (n: ClusterNode) => clusterNodeHealth(s, n, cached, preview?.health);
   const items: HealthItem[] = [
     {
       id: "database",
@@ -432,14 +448,31 @@ function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: b
             </div>
             <div className="space-y-2">
               {nodes.map((n) => (
-                <article key={n.id} className="rounded-lg border border-border p-3">
+                <article key={n.id} className="rounded-lg border border-border px-3 py-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <strong>{nodeName(n)}</strong>
+                    <strong className="text-sm">{nodeName(n)}</strong>
+                    <span className="ml-auto">
+                      <Badge
+                        variant={
+                          healthOf(n) === "error"
+                            ? "destructive"
+                            : healthOf(n) === "ok"
+                              ? "success"
+                              : "outline"
+                        }
+                      >
+                        {healthOf(n) === "error"
+                          ? t("Failing")
+                          : healthOf(n) === "ok"
+                            ? t("Healthy")
+                            : t("Unknown")}
+                      </Badge>
+                    </span>
                     <Badge variant={n.draining ? "warning" : "outline"}>
                       {n.draining ? t("Draining") : nodeRoles(n).join(" · ")}
                     </Badge>
                   </div>
-                  <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                  <dl className="mt-2 grid grid-cols-4 gap-2 text-[11px] sm:text-xs">
                     {[
                       [t("Streams"), !cached && nodeStatusFresh(n) ? n.load : t("Unknown")],
                       [
@@ -461,7 +494,7 @@ function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: b
                     ].map(([label, value]) => (
                       <div key={label}>
                         <dt className="text-fg-muted">{label}</dt>
-                        <dd className="mt-1 font-medium tabular-nums">{value}</dd>
+                        <dd className="font-medium tabular-nums">{value}</dd>
                       </div>
                     ))}
                   </dl>
@@ -575,15 +608,11 @@ function Nodes({
 }) {
   const [manage, setManage] = useState<ClusterNode | null>(null);
   const nodes = sortNodes(status.nodes ?? []);
-  const live = nodes.filter((n) => n.live).length;
   return (
     <Section
       title={t("Nodes")}
-      description={tn(
-        nodes.length,
-        "{live} of {count} node online. Open a node’s manager to change its local settings.",
-        "{live} of {count} nodes online. Open a node’s manager to change its local settings.",
-        { live },
+      description={t(
+        "Manage nodes here. Remote weight changes require node support; other controls may be unavailable.",
       )}
       actions={
         <div className="flex flex-wrap gap-2">
@@ -1195,15 +1224,8 @@ function SharedSettings({ status, settings }: { status: ClusterStatus; settings:
       </MoreOptions>
       <SettingsRow
         title={t("Settings each node keeps")}
-        description={tx(
-          "Port, listen address, log level, cache, transcoding hardware, the public port for its port forward and the node's weight are set on each node, on that node's own {general} page.",
-          {
-            general: (
-              <Link to="/server" className="underline">
-                {t("General")}
-              </Link>
-            ),
-          },
+        description={t(
+          "Weight can be changed from Nodes when supported. Port, cache and hardware settings remain in each node’s manager.",
         )}
       />
       {settings.error ? (

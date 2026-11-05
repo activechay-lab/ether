@@ -757,6 +757,10 @@ export interface ClusterSelfRuntime {
 export interface ClusterStatus {
   /** Gallery fixture only; never consumed outside the mock build. Not a live API contract. */
   mockConsole?: {
+    health: Record<
+      string,
+      { nodeId: string; boot: string; sampledAt: string; level: "ok" | "error" }
+    >;
     metrics: Record<string, { transcodes: number; capacity: number; load: number }>;
     events: { node: string; kind: "join" | "drain" | "failover"; at: string }[];
     transition: { node: string; role: string; phase: "drain" | "restart" };

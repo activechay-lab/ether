@@ -17,6 +17,7 @@ import {
   nodeRuntime,
   runtimeFresh,
   controlFresh,
+  clusterNodeHealth,
 } from "../pages/settings/Cluster";
 import { calls, renderApp } from "./harness";
 
@@ -345,6 +346,29 @@ describe("cluster helpers", () => {
       new Date(now.getTime() - 20_001).toISOString(),
     ])
       expect(runtimeFresh(at, now.getTime())).toBe(false);
+  });
+
+  it("keeps synthetic peer health separate from live runtime and heartbeat", () => {
+    const peer = { ...base.self, id: "peer", incarnation: "peer-boot", live: false };
+    const health = {
+      peer: {
+        nodeId: "peer",
+        boot: "peer-boot",
+        sampledAt: new Date().toISOString(),
+        level: "error" as const,
+      },
+    };
+    expect(clusterNodeHealth(base, peer, false)).toBe("unknown");
+    expect(clusterNodeHealth(base, peer, false, health)).toBe("error");
+    expect(clusterNodeHealth(base, peer, true, health)).toBe("unknown");
+    expect(clusterNodeHealth(base, { ...peer, incarnation: "replacement" }, false, health)).toBe(
+      "unknown",
+    );
+    expect(
+      clusterNodeHealth(base, peer, false, {
+        peer: { ...health.peer, sampledAt: "2000-01-01T00:00:00Z" },
+      }),
+    ).toBe("unknown");
   });
 
   it("rejects mismatched or stale remote observations", () => {
