@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Play, Pause, RotateCcw, Volume2, VolumeX, X } from "lucide-react";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { t } from "../../../../i18n";
 import { onair, type Bindings, type Reel } from "../model";
@@ -97,7 +98,16 @@ export function SequencePreview({
     ? (chapter?.scene?.video?.assetDigest ??
       (chapter && "reel" in chapter ? (chapter.reel?.sourceDigest ?? "") : ""))
     : "";
-  const videoSource = useMediaURL(videoDigest ? studio.media(videoDigest) : "");
+  const videoSource = useMediaURL(
+    open
+      ? videoDigest
+        ? studio.media(videoDigest)
+        : chapter && "reel" in chapter
+          ? (chapter.reel?.preview ?? "")
+          : ""
+      : "",
+  );
+  const programmeSource = useMediaURL(bindings.next?.backdrop ?? "", open);
   useEffect(() => {
     const v = video.current;
     if (!v) return;
@@ -145,10 +155,15 @@ export function SequencePreview({
             }
           }}
         >
-          <div className="flex justify-between p-3">
-            <p>
-              {bindings.channel?.name} · {chapter?.label}
-            </p>
+          <div className="flex items-center justify-between gap-4 border-b border-white/10 bg-neutral-950 px-4 py-4 sm:px-8">
+            <div>
+              <p className="text-xs uppercase tracking-widest text-white/50">
+                {t("Sequence preview")}
+              </p>
+              <p className="mt-1 text-sm font-medium">
+                {bindings.channel?.name} · {chapter?.label}
+              </p>
+            </div>
             <Button
               variant="secondary"
               onClick={() => {
@@ -156,6 +171,7 @@ export function SequencePreview({
                 setPlaying(false);
               }}
             >
+              <X size={16} />
               {t("Close")}
             </Button>
           </div>
@@ -186,7 +202,7 @@ export function SequencePreview({
               <video
                 key={chapter.reel?.id}
                 ref={video}
-                src={videoSource || chapter.reel?.preview}
+                src={videoSource}
                 autoPlay={playing}
                 muted={muted}
                 controls
@@ -194,35 +210,59 @@ export function SequencePreview({
                 className="h-full w-full object-contain"
               />
             ) : (
-              <div className="relative flex h-full w-full items-end bg-neutral-950 p-10">
-                {bindings.next?.backdrop ? (
+              <div className="relative flex h-full w-full items-end bg-neutral-950 p-6 sm:p-12">
+                {programmeSource ? (
                   <img
                     alt=""
-                    src={bindings.next.backdrop}
+                    src={programmeSource}
                     className="absolute inset-0 h-full w-full object-cover"
                   />
                 ) : null}
-                <div className="relative rounded-lg bg-black/70 p-5">
+                <div className="relative rounded-xl bg-black/70 p-6 backdrop-blur-md">
                   <p className="text-sm">{t("Programme preview")}</p>
                   <p className="text-3xl">{bindings.next?.title}</p>
                 </div>
               </div>
             )}
           </div>
-          <nav aria-label={t("Sequence chapters")} className="flex gap-2 overflow-x-auto p-3">
-            {chapters.map((c, i) => (
-              <Button
-                key={i}
-                variant={index === i ? "secondary" : "outline"}
-                aria-current={index === i ? "step" : undefined}
-                onClick={() => setTime(chapters.slice(0, i).reduce((n, x) => n + x.duration, 0))}
-              >
-                {c.label}
-              </Button>
-            ))}
+          <nav
+            aria-label={t("Sequence chapters")}
+            className="flex gap-2 overflow-x-auto border-t border-white/10 bg-neutral-950 p-4 sm:px-8"
+          >
+            {chapters.map((c, i) => {
+              const active = index === i;
+              return (
+                <button
+                  key={i}
+                  aria-current={active ? "step" : undefined}
+                  className={`relative min-w-32 flex-1 overflow-hidden rounded-xl border px-4 py-3 text-left transition-colors ${active ? "border-white/60 bg-white/10" : "border-white/10 hover:border-white/40"}`}
+                  onClick={() => setTime(chapters.slice(0, i).reduce((n, x) => n + x.duration, 0))}
+                >
+                  <span className="flex items-center justify-between gap-4 text-xs text-white/50">
+                    <span>{String(i + 1).padStart(2, "0")}</span>
+                    <span>{formatTime(c.duration)}</span>
+                  </span>
+                  <span className="mt-2 block truncate text-sm font-medium">{c.label}</span>
+                  {c.scene ? (
+                    <span className="mt-1 block truncate text-xs text-white/50">
+                      {c.scene.name}
+                    </span>
+                  ) : null}
+                  <span className="absolute inset-x-0 bottom-0 h-0.5 bg-white/10">
+                    <span
+                      className="block h-full bg-white"
+                      style={{
+                        width: `${i < index ? 100 : active ? Math.min(100, (local / c.duration) * 100) : 0}%`,
+                      }}
+                    />
+                  </span>
+                </button>
+              );
+            })}
           </nav>
-          <div className="flex gap-2 p-3">
+          <div className="flex flex-wrap items-center gap-3 bg-neutral-950 px-4 pb-6 sm:px-8">
             <Button variant="secondary" onClick={() => setPlaying(!playing)}>
+              {playing ? <Pause size={16} /> : <Play size={16} />}
               {playing ? t("Pause") : t("Play")}
             </Button>
             <Button
@@ -232,9 +272,11 @@ export function SequencePreview({
                 setPlaying(true);
               }}
             >
+              <RotateCcw size={16} />
               {t("Replay")}
             </Button>
             <Button variant="secondary" onClick={() => setMuted(!muted)} aria-pressed={muted}>
+              {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
               {muted ? t("Unmute") : t("Mute")}
             </Button>
             <input
@@ -244,12 +286,21 @@ export function SequencePreview({
               max={total}
               step={0.1}
               value={time}
-              className="min-w-0 flex-1"
+              className="min-w-24 flex-1 accent-white"
               onChange={(e) => setTime(+e.target.value)}
             />
+            <span className="text-xs tabular-nums text-white/60">
+              {formatTime(time)} / {formatTime(total)}
+            </span>
           </div>
         </dialog>
       ) : null}
     </>
   );
+}
+
+function formatTime(seconds: number) {
+  return `${Math.floor(seconds / 60)}:${Math.floor(seconds % 60)
+    .toString()
+    .padStart(2, "0")}`;
 }

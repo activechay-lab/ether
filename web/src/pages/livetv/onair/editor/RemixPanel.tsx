@@ -1,5 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Input } from "@braedonsaunders/appkit-ui";
+import { Button, Input, Popover, Switch } from "@braedonsaunders/appkit-ui";
+import {
+  Check,
+  ChevronDown,
+  Upload,
+  Shuffle,
+  Sparkles,
+  Layers,
+  Radio,
+  ScanLine,
+  CircleDashed,
+  Rainbow,
+} from "lucide-react";
+import { Drawer } from "../../../../components/Drawer";
+import { apiBlob, errorMessage } from "../../../../lib/api";
+import { useMediaURL } from "../useMediaURL";
+import type { Layer } from "../scene-renderer";
 import { ColorPicker } from "../../../../components/ColorPicker";
 import { t } from "../../../../i18n";
 import {
@@ -106,6 +122,20 @@ export function StyleThumbnail({
     />
   );
 }
+const fontNames: Record<string, string> = {
+  inter: "Inter",
+  playfairdisplay: "Playfair Display",
+  specialelite: "Special Elite",
+  fraunces: "Fraunces",
+  bungee: "Bungee",
+  fredoka: "Fredoka",
+  orbitron: "Orbitron",
+  vt323: "VT323",
+  spacegrotesk: "Space Grotesk",
+  ibmplexmono: "IBM Plex Mono",
+  archivoblack: "Archivo Black",
+  notosans: "Noto Sans",
+};
 const fonts = [
   "inter",
   "playfairdisplay",
@@ -195,13 +225,16 @@ export function RemixPanel(p: {
               ...scene,
               document: {
                 ...scene.document,
-                post: patch.textures!.map(
-                  (type) =>
-                    scene.document.post?.find((effect) => effect.type === type) ?? {
-                      type,
-                      amount: `{textures.${type}}`,
-                    },
-                ),
+                layers: textureLayers(scene.document.layers, patch.textures!),
+                post: patch
+                  .textures!.filter((type) => type !== "chroma")
+                  .map(
+                    (type) =>
+                      scene.document.post?.find((effect) => effect.type === type) ?? {
+                        type,
+                        amount: `{textures.${type}}`,
+                      },
+                  ),
               },
             })),
           }
@@ -211,17 +244,25 @@ export function RemixPanel(p: {
     (Math.max(luminance(s.brand.palette.text), luminance(s.brand.palette.background)) + 0.05) /
     (Math.min(luminance(s.brand.palette.text), luminance(s.brand.palette.background)) + 0.05);
   return (
-    <div className="space-y-6">
-      <fieldset className="space-y-3">
+    <div className="space-y-8">
+      <fieldset className="space-y-4 rounded-xl border border-border bg-surface p-4">
         <legend className="font-semibold">{t("Brand kit")}</legend>
-        <label className="block text-sm">
-          {t("Monogram")}
-          <Input
-            value={s.brand.logo?.length === 64 ? "" : (s.brand.logo ?? "")}
-            maxLength={3}
-            onChange={(e) => brand({ logo: e.target.value })}
-          />
-        </label>
+        <div className="flex items-center gap-4">
+          <LogoPreview logo={s.brand.logo ?? ""} />
+          <div className="min-w-0 flex-1">
+            <label className="block space-y-2 text-sm">
+              {t("Monogram")}
+              <Input
+                value={s.brand.logo?.length === 64 ? "" : (s.brand.logo ?? "")}
+                maxLength={3}
+                onChange={(e) => brand({ logo: e.target.value })}
+              />
+            </label>
+            <p className="mt-2 text-xs text-fg-muted">
+              {t("Up to 3 letters, used when there’s no logo.")}
+            </p>
+          </div>
+        </div>
         <Button variant="outline" onClick={() => setPicker(true)}>
           {t("Choose logo from Library")}
         </Button>
@@ -250,59 +291,57 @@ export function RemixPanel(p: {
           {t("Text contrast: {ratio}:1", { ratio: contrast.toFixed(2) })}{" "}
           {contrast >= 4.5 ? t("Good readability") : t("Increase text contrast")}
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid gap-2 sm:grid-cols-3">
           {[
             { label: t("Complementary"), angles: [180] },
             { label: t("Analogous"), angles: [-30, 30] },
             { label: t("Triad"), angles: [120, 240] },
-          ].map((h) => (
-            <Button
-              key={h.label}
-              variant="outline"
-              onClick={() =>
-                brand({
-                  palette: {
-                    ...s.brand.palette,
-                    glow: harmony(s.brand.palette.accent, h.angles[0]!),
-                    ...(h.angles.length > 1
-                      ? { background: harmony(s.brand.palette.accent, h.angles[1]!) }
-                      : {}),
-                  },
-                })
-              }
-            >
-              {h.label}
-              <span
-                className="h-4 w-4 rounded-full"
-                style={{ background: harmony(s.brand.palette.accent, h.angles[0]!) }}
-              />
-            </Button>
+          ].map((h) => {
+            const palette = {
+              ...s.brand.palette,
+              glow: harmony(s.brand.palette.accent, h.angles[0]!),
+              ...(h.angles.length > 1
+                ? { background: harmony(s.brand.palette.accent, h.angles[1]!) }
+                : {}),
+            };
+            return (
+              <button
+                key={h.label}
+                className="space-y-2 rounded-lg border border-border p-3 text-left hover:border-primary focus-visible:ring-2 focus-visible:ring-primary"
+                onClick={() => brand({ palette })}
+              >
+                <span className="flex overflow-hidden rounded">
+                  {Object.values(palette).map((colour, i) => (
+                    <span key={i} className="h-6 flex-1" style={{ background: colour }} />
+                  ))}
+                </span>
+                <span className="text-xs font-medium">{h.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <Button
+          variant="outline"
+          className="min-h-10"
+          onClick={() => {
+            const accent = harmony(s.brand.palette.accent, 30 + Math.random() * 300);
+            brand({ palette: { ...s.brand.palette, accent, glow: harmony(accent, 150) } });
+          }}
+        >
+          <Shuffle size={16} />
+          {t("Shuffle palette")}
+        </Button>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(["display", "body"] as const).map((key) => (
+            <FontPicker
+              key={key}
+              label={key === "display" ? t("Display font") : t("Body font")}
+              value={s.brand.type[key]}
+              assets={assets}
+              onChange={(value) => brand({ type: { ...s.brand.type, [key]: value } })}
+            />
           ))}
         </div>
-        {(["display", "body"] as const).map((key) => (
-          <label key={key} className="block text-sm">
-            {key === "display" ? t("Display font") : t("Body font")}
-            <select
-              className="block w-full rounded border border-border bg-surface p-2"
-              value={s.brand.type[key]}
-              onChange={(e) => brand({ type: { ...s.brand.type, [key]: e.target.value } })}
-            >
-              {[...fonts, ...assets.filter((a) => a.kind === "font").map((a) => a.digest)].map(
-                (f) => (
-                  <option key={f} value={f}>
-                    {assets.find((a) => a.digest === f)?.name ?? f}
-                  </option>
-                ),
-              )}
-            </select>
-            <span
-              className="block py-2 text-2xl"
-              style={{ fontFamily: `onair-${s.brand.type[key]}` }}
-            >
-              {t("Your next favourite channel")}
-            </span>
-          </label>
-        ))}
         <label className="block text-sm">
           {t("Tagline")}
           <Input value={s.brand.tagline} onChange={(e) => brand({ tagline: e.target.value })} />
@@ -320,10 +359,11 @@ export function RemixPanel(p: {
           />
         </label>
         <div className="flex flex-wrap gap-2">
-          {["grain", "flicker", "scanlines", "vignette"].map((x) => (
+          {Object.entries(textureChoices()).map(([x, choice]) => (
             <Button
               key={x}
-              variant={s.brand.textures.includes(x) ? "secondary" : "outline"}
+              variant={s.brand.textures.includes(x) ? "default" : "outline"}
+              className="min-h-10 gap-2"
               aria-pressed={s.brand.textures.includes(x)}
               onClick={() =>
                 brand({
@@ -333,13 +373,14 @@ export function RemixPanel(p: {
                 })
               }
             >
-              {t(x)}
+              {s.brand.textures.includes(x) ? <Check size={16} /> : choice.icon}
+              {choice.label}
             </Button>
           ))}
         </div>
       </fieldset>
       {Array.from(new Set(s.controls.map((c) => c.group ?? t("Controls")))).map((group) => (
-        <fieldset key={group} className="space-y-3">
+        <fieldset key={group} className="space-y-4 rounded-xl border border-border bg-surface p-4">
           <legend className="font-semibold">{t(group)}</legend>
           {s.controls
             .filter((c) => (c.group ?? t("Controls")) === group)
@@ -419,41 +460,249 @@ function RemixControl({
     );
   if (c.kind === "font")
     return (
-      <label className="block text-sm">
-        {t(c.label)}
-        <select
-          className="block w-full rounded border border-border bg-surface p-2"
-          value={String(c.value)}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          {[...fonts, ...assets.filter((a) => a.kind === "font").map((a) => a.digest)].map((f) => (
-            <option key={f} value={f}>
-              {assets.find((a) => a.digest === f)?.name ?? f}
-            </option>
-          ))}
-        </select>
+      <FontPicker label={t(c.label)} value={String(c.value)} assets={assets} onChange={onChange} />
+    );
+  if (c.kind === "number")
+    return (
+      <label className="block space-y-3 text-sm">
+        <span className="flex justify-between gap-4">
+          <span>{t(c.label)}</span>
+          <output className="tabular-nums text-fg-muted">
+            {Number(c.value).toLocaleString(undefined, { maximumFractionDigits: 3 })}
+          </output>
+        </span>
+        <input
+          className="w-full accent-primary"
+          type="range"
+          min={c.min ?? 0}
+          max={c.max ?? 100}
+          step={c.step ?? 1}
+          value={Number(c.value)}
+          onChange={(e) => onChange(+e.target.value)}
+        />
       </label>
     );
+  if (c.kind === "toggle")
+    return (
+      <label className="flex min-h-10 items-center justify-between gap-4 text-sm">
+        <span>{t(c.label)}</span>
+        <Switch checked={Boolean(c.value)} onChange={(e) => onChange(e.currentTarget.checked)} />
+      </label>
+    );
+
   return (
     <label className="block text-sm">
       {t(c.label)}
       <Input
-        type={c.kind === "toggle" ? "checkbox" : c.kind === "number" ? "number" : "text"}
-        checked={c.kind === "toggle" ? Boolean(c.value) : undefined}
-        value={c.kind === "toggle" ? undefined : String(c.value)}
+        type="text"
+
+        value={String(c.value)}
         min={c.min}
         max={c.max}
         step={c.step}
-        onChange={(e) =>
-          onChange(
-            c.kind === "toggle"
-              ? e.target.checked
-              : c.kind === "number"
-                ? +e.target.value
-                : e.target.value,
-          )
-        }
+        onChange={(e) => onChange(e.target.value)}
       />
     </label>
+  );
+}
+
+function textureChoices() {
+  return {
+    grain: { label: t("Grain"), icon: <Layers size={16} /> },
+    flicker: { label: t("Flicker"), icon: <Radio size={16} /> },
+    scanlines: { label: t("Scanlines"), icon: <ScanLine size={16} /> },
+    vignette: { label: t("Vignette"), icon: <CircleDashed size={16} /> },
+    chroma: { label: t("Chroma"), icon: <Rainbow size={16} /> },
+  };
+}
+function textureLayers(layers: Layer[], textures: string[]): Layer[] {
+  return layers.map((layer) => ({
+    ...layer,
+    ...(layer.type === "text"
+      ? {
+          behave: [
+            ...(layer.behave ?? []).filter((b) => !b.chroma),
+            ...(textures.includes("chroma") ? [{ chroma: { amplitude: 3, speed: 1 } }] : []),
+          ],
+        }
+      : {}),
+    ...(layer.layers ? { layers: textureLayers(layer.layers, textures) } : {}),
+  }));
+}
+function LogoPreview({ logo }: { logo: string }) {
+  const asset = /^[a-f0-9]{64}$/.test(logo);
+  const src = useMediaURL(asset ? studio.thumb(logo) : "");
+  return (
+    <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-bg-subtle p-2">
+      {asset && src ? (
+        <img src={src} alt={t("Current logo")} className="max-h-full max-w-full object-contain" />
+      ) : (
+        <span className="text-2xl font-semibold tracking-wide" aria-label={t("Monogram preview")}>
+          {logo || <Sparkles size={24} className="text-fg-subtle" />}
+        </span>
+      )}
+    </div>
+  );
+}
+function FontPicker({
+  label,
+  value,
+  assets,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  assets: LibraryAsset[];
+  onChange(value: string): void;
+}) {
+  const [open, setOpen] = useState(false),
+    [upload, setUpload] = useState(false),
+    [license, setLicense] = useState(""),
+    [selectedFile, setSelectedFile] = useState<File | null>(null),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false),
+    [added, setAdded] = useState<{ id: string; name: string }[]>([]);
+  const library = assets
+    .filter((a) => a.kind === "font")
+    .map((a) => ({ id: a.digest, name: a.name }));
+  const choices = [
+    ...fonts.map((id) => ({ id, name: fontNames[id]! })),
+    ...library,
+    ...added.filter((a) => !library.some((x) => x.id === a.id)),
+  ];
+  useEffect(() => {
+    let live = true;
+    const faces: FontFace[] = [];
+    for (const font of [...library, ...added]) {
+      void apiBlob(studio.media(font.id))
+        .then(async (blob) => {
+          const face = new FontFace(`onair-${font.id}`, await blob.arrayBuffer());
+          await face.load();
+          if (live) {
+            document.fonts.add(face);
+            faces.push(face);
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      live = false;
+      faces.forEach((face) => document.fonts.delete(face));
+    };
+  }, [JSON.stringify(library), JSON.stringify(added)]);
+  const name = choices.find((f) => f.id === value)?.name ?? value;
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">{label}</p>
+      <Popover
+        open={open}
+        onOpenChange={setOpen}
+        className="w-80 max-w-[calc(100vw-2rem)] p-2"
+        trigger={
+          <Button
+            variant="outline"
+            className="h-auto min-h-20 w-full justify-between p-3 text-left"
+            onClick={() => setOpen(!open)}
+          >
+            <span className="space-y-2">
+              <span className="block text-xs text-fg-muted">{name}</span>
+              <span className="block text-2xl font-normal" style={{ fontFamily: `onair-${value}` }}>
+                {t("On air tonight")}
+              </span>
+            </span>
+            <ChevronDown size={16} />
+          </Button>
+        }
+      >
+        <div role="listbox" aria-label={label} className="max-h-80 overflow-y-auto">
+          {choices.map((font) => (
+            <button
+              key={font.id}
+              role="option"
+              aria-selected={value === font.id}
+              className={`flex min-h-20 w-full items-center justify-between rounded-lg p-3 text-left hover:bg-surface-hover ${value === font.id ? "bg-primary-subtle" : ""}`}
+              onClick={() => {
+                onChange(font.id);
+                setOpen(false);
+              }}
+            >
+              <span>
+                <span className="block text-xs text-fg-muted">{font.name}</span>
+                <span className="mt-1 block text-2xl" style={{ fontFamily: `onair-${font.id}` }}>
+                  {t("On air tonight")}
+                </span>
+              </span>
+              {value === font.id ? <Check size={16} /> : null}
+            </button>
+          ))}
+        </div>
+        <Button
+          variant="ghost"
+          className="mt-2 min-h-10 w-full justify-start border-t border-border"
+          onClick={() => {
+            setOpen(false);
+            setUpload(true);
+          }}
+        >
+          <Upload size={16} />
+          {t("Upload font")}
+        </Button>
+      </Popover>
+      <Drawer open={upload} size="sm" title={t("Upload font")} onClose={() => setUpload(false)}>
+        <form
+          className="space-y-4"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!selectedFile) return;
+            setBusy(true);
+            setError("");
+            try {
+              const asset = await onair.uploadAsset(selectedFile, "font", license);
+              setAdded((v) => [...v, { id: asset.digest, name: asset.name }]);
+              onChange(asset.digest);
+              setUpload(false);
+              setSelectedFile(null);
+            } catch (err) {
+              setError(errorMessage(err));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <label className="block space-y-2 text-sm">
+            {t("Font file")}
+            <Input
+              type="file"
+              accept=".ttf,.otf"
+              required
+              onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <label className="block space-y-2 text-sm">
+            {t("Licence")}
+            <Input
+              required
+              value={license}
+              onChange={(e) => setLicense(e.target.value)}
+              placeholder={t("For example, OFL-1.1")}
+            />
+          </label>
+          <p className="text-xs leading-relaxed text-fg-muted">
+            {t(
+              "The licence stays with this font in your Library and determines whether it can be shared in a pack.",
+            )}
+          </p>
+          {error ? (
+            <p role="alert" className="text-danger">
+              {error}
+            </p>
+          ) : null}
+          <Button type="submit" disabled={busy || !selectedFile || !license.trim()}>
+            <Upload size={16} />
+            {busy ? t("Uploading…") : t("Upload font")}
+          </Button>
+        </form>
+      </Drawer>
+    </div>
   );
 }

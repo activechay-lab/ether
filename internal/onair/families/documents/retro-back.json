@@ -88,12 +88,12 @@
     },
     {
       "id": "Title-group",
-      "name": "Chrome title",
+      "name": "Channel title",
       "type": "group",
       "layers": [
         {
           "id": "Title-treatment",
-          "name": "Title lettering",
+          "name": "Chrome title",
           "type": "group",
           "layers": [
             {
@@ -125,7 +125,7 @@
                   ]
                 ]
               },
-              "name": "Title edge 1"
+              "name": "Chrome layer 1"
             },
             {
               "id": "Title-weight1",
@@ -156,7 +156,7 @@
                   ]
                 ]
               },
-              "name": "Title edge 2"
+              "name": "Chrome layer 2"
             },
             {
               "id": "Title-weight2",
@@ -187,7 +187,7 @@
                   ]
                 ]
               },
-              "name": "Title edge 3"
+              "name": "Chrome layer 3"
             },
             {
               "id": "Title-weight3",
@@ -218,7 +218,7 @@
                   ]
                 ]
               },
-              "name": "Title edge 4"
+              "name": "Chrome layer 4"
             },
             {
               "id": "Title",
@@ -249,7 +249,7 @@
                   ]
                 ]
               },
-              "name": "Channel title"
+              "name": "Chrome layer 5"
             }
           ]
         }
@@ -288,12 +288,12 @@
     },
     {
       "id": "play-group",
-      "name": "Chrome title",
+      "name": "Play",
       "type": "group",
       "layers": [
         {
           "id": "play-treatment",
-          "name": "Play lettering",
+          "name": "Chrome play",
           "type": "group",
           "layers": [
             {
@@ -307,7 +307,7 @@
               "fill": "{glow}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "Play edge 1"
+              "name": "Chrome layer 1"
             },
             {
               "id": "play-weight1",
@@ -320,7 +320,7 @@
               "fill": "{glow}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "Play edge 2"
+              "name": "Chrome layer 2"
             },
             {
               "id": "play-weight2",
@@ -333,7 +333,7 @@
               "fill": "{glow}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "Play edge 3"
+              "name": "Chrome layer 3"
             },
             {
               "id": "play-weight3",
@@ -346,7 +346,7 @@
               "fill": "{glow}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "Play edge 4"
+              "name": "Chrome layer 4"
             },
             {
               "id": "play",
@@ -359,7 +359,7 @@
               "fill": "{glow}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "Play"
+              "name": "Chrome layer 5"
             }
           ]
         }
@@ -367,12 +367,12 @@
     },
     {
       "id": "timecode-group",
-      "name": "Chrome title",
+      "name": "Timecode",
       "type": "group",
       "layers": [
         {
           "id": "timecode-treatment",
-          "name": "Timecode lettering",
+          "name": "Chrome timecode",
           "type": "group",
           "layers": [
             {
@@ -387,7 +387,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "right",
-              "name": "Timecode edge 1"
+              "name": "Chrome layer 1"
             },
             {
               "id": "timecode-weight1",
@@ -401,7 +401,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "right",
-              "name": "Timecode edge 2"
+              "name": "Chrome layer 2"
             },
             {
               "id": "timecode-weight2",
@@ -415,7 +415,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "right",
-              "name": "Timecode edge 3"
+              "name": "Chrome layer 3"
             },
             {
               "id": "timecode-weight3",
@@ -429,7 +429,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "right",
-              "name": "Timecode edge 4"
+              "name": "Chrome layer 4"
             },
             {
               "id": "timecode",
@@ -443,7 +443,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "right",
-              "name": "Timecode"
+              "name": "Chrome layer 5"
             }
           ]
         }

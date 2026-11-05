@@ -743,7 +743,7 @@ export default function LiveTV() {
 
   const panelHead = (
     <PanelHead className="@container flex h-[104px]! flex-col items-stretch! justify-between space-y-0! pt-3! pb-0! border-b! [&>div:last-child]:mb-0">
-      {leftTab !== "library" && (
+      {leftTab !== "library" && leftTab !== "looks" && (
         <div className="flex items-center gap-1.5">
           <div className="relative min-w-0 flex-1">
             <Search
@@ -1094,12 +1094,12 @@ export default function LiveTV() {
         aside={aside}
         main={main}
       >
-        {leftTab === "library" ? (
+        {leftTab === "library" || leftTab === "looks" ? (
           <div className="app-scroll min-h-0 flex-1 overflow-y-auto">
             {panelHead}
-            <main className="p-4 sm:p-6">{main}</main>
+            <main className={leftTab === "looks" ? "" : "p-4 sm:p-6"}>{main}</main>
           </div>
-        ) : leftTab === "looks" ? undefined : (
+        ) : (
           (state ?? (leftTab === "channels" ? lineupGuide : undefined))
         )}
       </Workspace>

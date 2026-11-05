@@ -100,12 +100,12 @@
     },
     {
       "id": "vhs-group",
-      "name": "Chrome title",
+      "name": "Vhs",
       "type": "group",
       "layers": [
         {
           "id": "vhs-treatment",
-          "name": "Vhs lettering",
+          "name": "Chrome vhs",
           "type": "group",
           "layers": [
             {
@@ -119,7 +119,7 @@
               "fill": "{glow}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "VHS edge 1"
+              "name": "Chrome layer 1"
             },
             {
               "id": "vhs-weight1",
@@ -132,7 +132,7 @@
               "fill": "{glow}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "VHS edge 2"
+              "name": "Chrome layer 2"
             },
             {
               "id": "vhs-weight2",
@@ -145,7 +145,7 @@
               "fill": "{glow}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "VHS edge 3"
+              "name": "Chrome layer 3"
             },
             {
               "id": "vhs-weight3",
@@ -158,7 +158,7 @@
               "fill": "{glow}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "VHS edge 4"
+              "name": "Chrome layer 4"
             },
             {
               "id": "vhs",
@@ -171,7 +171,7 @@
               "fill": "{glow}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "VHS"
+              "name": "Chrome layer 5"
             }
           ]
         }
@@ -179,12 +179,12 @@
     },
     {
       "id": "Title2-group",
-      "name": "Chrome title",
+      "name": "Title2",
       "type": "group",
       "layers": [
         {
           "id": "Title2-treatment",
-          "name": "Title2 lettering",
+          "name": "Chrome title2",
           "type": "group",
           "layers": [
             {
@@ -199,7 +199,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title 3 edge 1"
+              "name": "Chrome layer 1"
             },
             {
               "id": "Title2-weight1",
@@ -213,7 +213,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title 3 edge 2"
+              "name": "Chrome layer 2"
             },
             {
               "id": "Title2-weight2",
@@ -227,7 +227,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title 3 edge 3"
+              "name": "Chrome layer 3"
             },
             {
               "id": "Title2-weight3",
@@ -241,7 +241,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title 3 edge 4"
+              "name": "Chrome layer 4"
             },
             {
               "id": "Title2",
@@ -255,7 +255,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title 3"
+              "name": "Chrome layer 5"
             }
           ]
         }

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Badge, Button } from "@braedonsaunders/appkit-ui";
+import { useEffect, useRef, useState } from "react";
+import { Badge, Button, Popover } from "@braedonsaunders/appkit-ui";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { Drawer } from "../../../components/Drawer";
 import { t, tn } from "../../../i18n";
@@ -9,7 +9,8 @@ import { StyleThumbnail } from "./editor/RemixPanel";
 import { LookDrawer } from "./LookDrawer";
 import { ReelDrawer } from "./ReelDrawer";
 import { ScreensDefaults } from "./ScreensDefaults";
-import { errorMessage } from "../../../lib/api";
+import { MoreHorizontal, Copy, Download, Trash2, Upload, Play, ArrowUpRight } from "lucide-react";
+import { apiBlob, errorMessage } from "../../../lib/api";
 export function useLooks() {
   const location = useLocation(),
     [params] = useSearchParams();
@@ -119,9 +120,14 @@ export function LooksGallery({
   const templates = useTemplates(),
     slots = useSlots(),
     [working, setWorking] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [deleted, setDeleted] = useState<string[]>([]),
+    [deleting, setDeleting] = useState<Style | null>(null),
+    [menu, setMenu] = useState<string | null>(null),
+    file = useRef<HTMLInputElement>(null);
   const create = async (style: Style) => {
     setWorking(true);
+    setError("");
     try {
       const saved = await studio.createStyle({ ...structuredClone(style), id: "", channelIds: [] });
       onSelect(saved.id);
@@ -131,73 +137,286 @@ export function LooksGallery({
       setWorking(false);
     }
   };
+  const exportPack = async (style: Style) => {
+    setMenu(null);
+    try {
+      const blob = await apiBlob(studio.exportPack(style.id));
+      const url = URL.createObjectURL(blob),
+        a = document.createElement("a");
+      a.href = url;
+      a.download = style.name + ".etherpkg";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
   return (
-    <div className="space-y-8 p-4 sm:p-6">
+    <div className="mx-auto max-w-[1600px] space-y-12 p-4 sm:p-8">
       {error ? (
-        <p role="alert" className="text-danger">
+        <p role="alert" className="rounded-lg bg-danger-subtle p-4 text-danger">
           {error}
         </p>
       ) : null}
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold">{t("Your styles")}</h2>
-        <div className="grid gap-5 sm:grid-cols-2">
-          {looks.map((l) => (
-            <button
-              key={l.id}
-              className="overflow-hidden rounded-xl border border-border bg-surface text-left hover:border-primary"
-              onClick={() => onSelect(l.id)}
-            >
-              <StyleThumbnail style={l} slots={slots} />
-              <div className="p-4">
-                <h3 className="font-semibold">{l.name}</h3>
-                <p className="text-xs text-fg-muted">
-                  {tn(
-                    l.channelCount ?? l.channelIds.length,
-                    "Used by {count} channel",
-                    "Used by {count} channels",
-                  )}
-                </p>
-                {l.pack ? <Badge>{t("From {pack}", { pack: l.pack.name })}</Badge> : null}
-              </div>
-            </button>
-          ))}
+      <section className="space-y-6">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">{t("Your styles")}</h2>
+          <p className="mt-2 text-sm text-fg-muted">
+            {t("Your channel identities, ready for their next moment on air.")}
+          </p>
+        </div>
+        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+          {looks
+            .filter((l) => !deleted.includes(l.id))
+            .map((l) => (
+              <article
+                key={l.id}
+                className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm"
+              >
+                <button className="block w-full text-left" onClick={() => onSelect(l.id)}>
+                  <StyleThumbnail style={l} slots={slots} />
+                </button>
+                <div className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <button
+                      className="min-w-0 text-left font-semibold hover:text-primary"
+                      onClick={() => onSelect(l.id)}
+                    >
+                      {l.name}
+                    </button>
+                    <Popover
+                      open={menu === l.id}
+                      onOpenChange={(open) => setMenu(open ? l.id : null)}
+                      align="end"
+                      trigger={
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={t("Actions for {name}", { name: l.name })}
+                          onClick={() => setMenu(menu === l.id ? null : l.id)}
+                        >
+                          <MoreHorizontal size={18} />
+                        </Button>
+                      }
+                      className="w-48 space-y-1 p-2"
+                    >
+                      <Button
+                        variant="ghost"
+                        className="w-full justify-start"
+                        disabled={working}
+                        onClick={() => {
+                          setMenu(null);
+                          void create({ ...l, name: t("{name} copy", { name: l.name }) });
+                        }}
+                      >
+                        <Copy size={16} />
+                        {t("Duplicate")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        className="w-full justify-start"
+                        onClick={() => void exportPack(l)}
+                      >
+                        <Download size={16} />
+                        {t("Export pack")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        className="w-full justify-start text-danger"
+                        onClick={() => {
+                          setMenu(null);
+                          setDeleting(l);
+                        }}
+                      >
+                        <Trash2 size={16} />
+                        {t("Delete")}
+                      </Button>
+                    </Popover>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-fg-muted">
+                      {tn(
+                        l.channelCount ?? l.channelIds.length,
+                        "Used by {count} channel",
+                        "Used by {count} channels",
+                      )}
+                    </span>
+                    {(l.channelCount ?? l.channelIds.length) > 0 ? (
+                      <Badge>
+                        <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-success" />
+                        {t("On air")}
+                      </Badge>
+                    ) : null}
+                    {l.pack ? <Badge>{t("From {pack}", { pack: l.pack.name })}</Badge> : null}
+                  </div>
+                </div>
+              </article>
+            ))}
         </div>
       </section>
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">{t("Make it yours")}</h2>
-          <Button disabled={working} onClick={() => void create(blankStyle())}>
-            {t("Start from blank")}
-          </Button>
+      <section className="space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight">{t("Make it yours")}</h2>
+            <p className="mt-2 text-sm text-fg-muted">
+              {t("Choose an era. Set the mood. Make every frame your own.")}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" disabled={working} onClick={() => file.current?.click()}>
+              <Upload size={16} />
+              {t("Import pack")}
+            </Button>
+            <Button disabled={working} onClick={() => void create(blankStyle())}>
+              {t("Start from blank")}
+            </Button>
+          </div>
         </div>
-        <p className="text-sm text-fg-muted">
-          {t("Choose a starting point. Every colour, layer and movement is yours to change.")}
-        </p>
-        <div className="grid gap-5 sm:grid-cols-2">
+        <input
+          ref={file}
+          hidden
+          type="file"
+          accept=".etherpkg"
+          onChange={async (e) => {
+            const selected = e.target.files?.[0];
+            e.target.value = "";
+            if (!selected) return;
+            setWorking(true);
+            try {
+              const saved = await studio.importPack(selected);
+              onSelect(saved.id);
+            } catch (err) {
+              setError(errorMessage(err));
+            } finally {
+              setWorking(false);
+            }
+          }}
+        />
+        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
           {templates.map((template) => (
-            <button
+            <article
               key={template.id}
-              disabled={working}
-              className="overflow-hidden rounded-xl border border-border bg-surface text-left hover:border-primary"
-              onClick={() => void create(template.style)}
+              className="group overflow-hidden rounded-2xl border border-border bg-surface"
             >
-              <StyleThumbnail style={template.style} slots={slots} />
-              <div className="space-y-2 p-4">
-                <h3 className="font-semibold">{template.name}</h3>
-                <p className="text-sm text-fg-muted">{template.blurb}</p>
-                <div className="flex flex-wrap gap-1">
-                  {template.tags.map((tag) => (
+              <div className="relative">
+                <StyleThumbnail style={template.style} slots={slots} />
+                <span className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
+                  <Play size={12} />
+                  {t("Hover to play")}
+                </span>
+              </div>
+              <div className="space-y-4 p-5">
+                <div className="flex flex-wrap gap-2">
+                  {templateTags(template.id, template.tags).map((tag) => (
                     <Badge key={tag}>{t(tag)}</Badge>
                   ))}
                 </div>
+                <div>
+                  <h3 className="text-lg font-semibold">{template.name}</h3>
+                  <p className="mt-2 min-h-12 text-sm leading-relaxed text-fg-muted">
+                    {templateBlurb(template.id, template.blurb)}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  className="w-full justify-between"
+                  disabled={working}
+                  onClick={() =>
+                    void create({
+                      ...template.style,
+                      brand: {
+                        ...template.style.brand,
+                        tagline: template.style.brand.tagline || templateTagline(template.id),
+                      },
+                    })
+                  }
+                >
+                  {t("Use template")}
+                  <ArrowUpRight size={16} />
+                </Button>
               </div>
-            </button>
+            </article>
           ))}
         </div>
       </section>
       <ScreensDefaults />
+      <Drawer
+        open={!!deleting}
+        size="sm"
+        title={t("Delete style")}
+        onClose={() => setDeleting(null)}
+      >
+        <div className="space-y-4">
+          <p>
+            {t("Delete {name}? Channels using this style must be reassigned first.", {
+              name: deleting?.name ?? "",
+            })}
+          </p>
+          <Button
+            variant="destructive"
+            disabled={working}
+            onClick={async () => {
+              if (!deleting) return;
+              setWorking(true);
+              try {
+                await onair.deleteLook(deleting.id);
+                setDeleted((v) => [...v, deleting.id]);
+                setDeleting(null);
+              } catch (e) {
+                setError(errorMessage(e));
+              } finally {
+                setWorking(false);
+              }
+            }}
+          >
+            {t("Delete style")}
+          </Button>
+        </div>
+      </Drawer>
     </div>
   );
+}
+function templateTagline(id: string) {
+  const lines: Record<string, string> = {
+    clean: t("A little more to discover"),
+    kids: t("Totally gooey TV"),
+    "late-night": t("Stay a little longer"),
+    cinema: t("Every evening, a premiere"),
+    retro: t("Stay tuned to the future"),
+    grunge: t("Turn it up"),
+    aqua: t("A brighter kind of television"),
+    flat: t("Right here. Right now."),
+    personal: t("This channel is made for you."),
+  };
+  return lines[id] ?? "";
+}
+function templateTags(id: string, other: string[]) {
+  const tags: Record<string, string[]> = {
+    clean: [t("Minimal"), t("Calm")],
+    kids: [t("Playful"), t("Colourful")],
+    "late-night": [t("After dark"), t("Atmospheric")],
+    cinema: [t("Cinematic"), t("Elegant")],
+    retro: [t("80s"), t("Synthwave")],
+    grunge: [t("90s"), t("Rebellious")],
+    aqua: [t("00s"), t("Optimistic")],
+    flat: [t("10s"), t("Graphic")],
+    personal: [t("Personal"), t("Welcoming")],
+  };
+  return tags[id] ?? other;
+}
+export function templateBlurb(id: string, other: string) {
+  const blurbs: Record<string, string> = {
+    clean: t("Crisp type, quiet motion and room for the programmes to shine."),
+    kids: t("Bouncy lettering, gooey shapes and big colours for little adventures."),
+    "late-night": t("Moonlit hills, drifting fog and a station that stays up with you."),
+    cinema: t("Golden light, velvet shadows and a premiere every evening."),
+    retro: t("Chrome type, a synthwave sun and a neon grid: Saturday-night 1984."),
+    grunge: t("Torn edges, acid colours and restless type straight from the 90s."),
+    aqua: t("Glassy panels, cool blue light and the bright promise of the 2000s."),
+    flat: t("Bold colour blocks, sharp geometry and the confident rhythm of the 2010s."),
+    personal: t("Aurora skies, a familiar greeting and a channel that feels like home."),
+  };
+  return blurbs[id] ?? other;
 }
 export function LookSurfaces({ looks, reload }: { looks: Style[]; reload(): void }) {
   const [params, setParams] = useSearchParams();

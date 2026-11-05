@@ -133,12 +133,12 @@
     },
     {
       "id": "Title-group",
-      "name": "Title",
+      "name": "Channel title",
       "type": "group",
       "layers": [
         {
           "id": "Title-treatment",
-          "name": "Title lettering",
+          "name": "Channel title effect",
           "type": "group",
           "layers": [
             {
@@ -152,7 +152,7 @@
               "fill": "{text}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "Title edge 1"
+              "name": "Lettering layer 1"
             },
             {
               "id": "Title-weight1",
@@ -165,7 +165,7 @@
               "fill": "{text}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "Title edge 2"
+              "name": "Lettering layer 2"
             },
             {
               "id": "Title-weight2",
@@ -178,7 +178,7 @@
               "fill": "{text}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "Title edge 3"
+              "name": "Lettering layer 3"
             },
             {
               "id": "Title-weight3",
@@ -191,7 +191,7 @@
               "fill": "{text}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "Title edge 4"
+              "name": "Lettering layer 4"
             },
             {
               "id": "Title",
@@ -204,7 +204,7 @@
               "fill": "{text}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "Channel title"
+              "name": "Lettering layer 5"
             }
           ]
         }
@@ -325,7 +325,7 @@
       "layers": [
         {
           "id": "promo-treatment",
-          "name": "Promo lettering",
+          "name": "Promo effect",
           "type": "group",
           "layers": [
             {
@@ -340,7 +340,7 @@
               "maxWidth": 520,
               "fit": "wrap",
               "maxLines": 3,
-              "name": "Promo edge 1"
+              "name": "Lettering layer 1"
             },
             {
               "id": "promo-weight1",
@@ -354,7 +354,7 @@
               "maxWidth": 520,
               "fit": "wrap",
               "maxLines": 3,
-              "name": "Promo edge 2"
+              "name": "Lettering layer 2"
             },
             {
               "id": "promo-weight2",
@@ -368,7 +368,7 @@
               "maxWidth": 520,
               "fit": "wrap",
               "maxLines": 3,
-              "name": "Promo edge 3"
+              "name": "Lettering layer 3"
             },
             {
               "id": "promo-weight3",
@@ -382,7 +382,7 @@
               "maxWidth": 520,
               "fit": "wrap",
               "maxLines": 3,
-              "name": "Promo edge 4"
+              "name": "Lettering layer 4"
             },
             {
               "id": "promo",
@@ -396,7 +396,7 @@
               "maxWidth": 520,
               "fit": "wrap",
               "maxLines": 3,
-              "name": "Promo"
+              "name": "Lettering layer 5"
             }
           ]
         }

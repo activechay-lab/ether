@@ -16,12 +16,12 @@
     },
     {
       "id": "osd-group",
-      "name": "Chrome title",
+      "name": "Osd",
       "type": "group",
       "layers": [
         {
           "id": "osd-treatment",
-          "name": "Osd lettering",
+          "name": "Chrome osd",
           "type": "group",
           "layers": [
             {
@@ -35,7 +35,7 @@
               "fill": "{text}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "On-screen display edge 1"
+              "name": "Chrome layer 1"
             },
             {
               "id": "osd-weight1",
@@ -48,7 +48,7 @@
               "fill": "{text}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "On-screen display edge 2"
+              "name": "Chrome layer 2"
             },
             {
               "id": "osd-weight2",
@@ -61,7 +61,7 @@
               "fill": "{text}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "On-screen display edge 3"
+              "name": "Chrome layer 3"
             },
             {
               "id": "osd-weight3",
@@ -74,7 +74,7 @@
               "fill": "{text}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "On-screen display edge 4"
+              "name": "Chrome layer 4"
             },
             {
               "id": "osd",
@@ -87,7 +87,7 @@
               "fill": "{text}",
               "maxWidth": 1600,
               "fit": "shrink",
-              "name": "On-screen display"
+              "name": "Chrome layer 5"
             }
           ]
         }
@@ -95,12 +95,12 @@
     },
     {
       "id": "Title-group",
-      "name": "Chrome title",
+      "name": "Channel title",
       "type": "group",
       "layers": [
         {
           "id": "Title-treatment",
-          "name": "Title lettering",
+          "name": "Chrome title",
           "type": "group",
           "layers": [
             {
@@ -115,7 +115,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title edge 1"
+              "name": "Chrome layer 1"
             },
             {
               "id": "Title-weight1",
@@ -129,7 +129,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title edge 2"
+              "name": "Chrome layer 2"
             },
             {
               "id": "Title-weight2",
@@ -143,7 +143,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title edge 3"
+              "name": "Chrome layer 3"
             },
             {
               "id": "Title-weight3",
@@ -157,7 +157,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title edge 4"
+              "name": "Chrome layer 4"
             },
             {
               "id": "Title",
@@ -171,7 +171,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Channel title"
+              "name": "Chrome layer 5"
             }
           ]
         }

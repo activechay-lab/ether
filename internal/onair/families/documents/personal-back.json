@@ -133,12 +133,12 @@
     },
     {
       "id": "Title-group",
-      "name": "Title",
+      "name": "Channel title",
       "type": "group",
       "layers": [
         {
           "id": "Title-treatment",
-          "name": "Title lettering",
+          "name": "Channel title effect",
           "type": "group",
           "layers": [
             {
@@ -153,7 +153,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title edge 1"
+              "name": "Lettering layer 1"
             },
             {
               "id": "Title-weight1",
@@ -167,7 +167,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title edge 2"
+              "name": "Lettering layer 2"
             },
             {
               "id": "Title-weight2",
@@ -181,7 +181,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title edge 3"
+              "name": "Lettering layer 3"
             },
             {
               "id": "Title-weight3",
@@ -195,7 +195,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Title edge 4"
+              "name": "Lettering layer 4"
             },
             {
               "id": "Title",
@@ -209,7 +209,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Channel title"
+              "name": "Lettering layer 5"
             }
           ]
         }
@@ -222,7 +222,7 @@
       "layers": [
         {
           "id": "programme-treatment",
-          "name": "Programme lettering",
+          "name": "Programme effect",
           "type": "group",
           "layers": [
             {
@@ -237,7 +237,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Programme edge 1"
+              "name": "Lettering layer 1"
             },
             {
               "id": "programme-weight1",
@@ -251,7 +251,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Programme edge 2"
+              "name": "Lettering layer 2"
             },
             {
               "id": "programme-weight2",
@@ -265,7 +265,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Programme edge 3"
+              "name": "Lettering layer 3"
             },
             {
               "id": "programme-weight3",
@@ -279,7 +279,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Programme edge 4"
+              "name": "Lettering layer 4"
             },
             {
               "id": "programme",
@@ -293,7 +293,7 @@
               "maxWidth": 1600,
               "fit": "shrink",
               "align": "center",
-              "name": "Programme"
+              "name": "Lettering layer 5"
             }
           ]
         }

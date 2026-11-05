@@ -150,19 +150,20 @@ func Controls(id string) ([]byte, error) {
 }
 func Description(id string) (string, string, []string) {
 	data := map[string][3]string{
-		"clean":      {"Clean", "Room to breathe. Space to discover.", "Clean"},
-		"kids":       {"Kids", "Big colours for little adventures.", "Kids"},
-		"late-night": {"Late night", "Stay a little longer after dark.", "Late night"},
-		"cinema":     {"Cinema", "Every evening deserves a premiere.", "Cinema"},
-		"retro":      {"Retro 80", "Neon dreams on a midnight dial.", "80s"},
-		"grunge":     {"Grunge 90", "Turn it up. Tear the edges.", "90s"},
-		"aqua":       {"Aqua 00", "A bright new world behind glass.", "00s"},
-		"flat":       {"Flat 10", "Bold blocks. Perfect timing.", "10s"},
-		"personal":   {"Personal", "Your own corner of the airwaves.", "Personal"},
+		"clean":      {"Clean", "Crisp type, quiet motion and room for the programmes to shine.", "Clean"},
+		"kids":       {"Kids", "Bouncy lettering, gooey shapes and big colours for little adventures.", "Kids"},
+		"late-night": {"Late night", "Moonlit hills, drifting fog and a station that stays up with you.", "Late night"},
+		"cinema":     {"Cinema", "Golden light, velvet shadows and a premiere every evening.", "Cinema"},
+		"retro":      {"Retro 80", "Chrome type, a synthwave sun and a neon grid: Saturday-night 1984.", "80s"},
+		"grunge":     {"Grunge 90", "Torn edges, acid colours and restless type straight from the 90s.", "90s"},
+		"aqua":       {"Aqua 00", "Glassy panels, cool blue light and the bright promise of the 2000s.", "00s"},
+		"flat":       {"Flat 10", "Bold colour blocks, sharp geometry and the confident rhythm of the 2010s.", "10s"},
+		"personal":   {"Personal", "Aurora skies, a familiar greeting and a channel that feels like home.", "Personal"},
 	}
 	v, ok := data[id]
 	if !ok {
 		return id, "Make these airwaves your own.", []string{"Retro"}
 	}
-	return v[0], v[1], []string{v[2]}
+	moods := map[string]string{"clean": "Minimal", "kids": "Playful", "late-night": "After dark", "cinema": "Cinematic", "retro": "Synthwave", "grunge": "Rebellious", "aqua": "Optimistic", "flat": "Graphic", "personal": "Made for you"}
+	return v[0], v[1], []string{v[2], moods[id]}
 }

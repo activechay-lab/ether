@@ -185,12 +185,12 @@
         },
         {
           "id": "tv-group",
-          "name": "TV",
+          "name": "Tv",
           "type": "group",
           "layers": [
             {
               "id": "tv-treatment",
-              "name": "Tv lettering",
+              "name": "Tv effect",
               "type": "group",
               "layers": [
                 {
@@ -222,7 +222,7 @@
                       ]
                     ]
                   },
-                  "name": "TV edge 1"
+                  "name": "Lettering layer 1"
                 },
                 {
                   "id": "tv-weight1",
@@ -253,7 +253,7 @@
                       ]
                     ]
                   },
-                  "name": "TV edge 2"
+                  "name": "Lettering layer 2"
                 },
                 {
                   "id": "tv-weight2",
@@ -284,7 +284,7 @@
                       ]
                     ]
                   },
-                  "name": "TV edge 3"
+                  "name": "Lettering layer 3"
                 },
                 {
                   "id": "tv-weight3",
@@ -315,7 +315,7 @@
                       ]
                     ]
                   },
-                  "name": "TV edge 4"
+                  "name": "Lettering layer 4"
                 },
                 {
                   "id": "tv",
@@ -346,7 +346,7 @@
                       ]
                     ]
                   },
-                  "name": "TV"
+                  "name": "Lettering layer 5"
                 }
               ]
             }
@@ -354,12 +354,12 @@
         },
         {
           "id": "Title-group",
-          "name": "Title",
+          "name": "Channel title",
           "type": "group",
           "layers": [
             {
               "id": "Title-treatment",
-              "name": "Title lettering",
+              "name": "Channel title effect",
               "type": "group",
               "layers": [
                 {
@@ -391,7 +391,7 @@
                       ]
                     ]
                   },
-                  "name": "Title edge 1"
+                  "name": "Lettering layer 1"
                 },
                 {
                   "id": "Title-weight1",
@@ -422,7 +422,7 @@
                       ]
                     ]
                   },
-                  "name": "Title edge 2"
+                  "name": "Lettering layer 2"
                 },
                 {
                   "id": "Title-weight2",
@@ -453,7 +453,7 @@
                       ]
                     ]
                   },
-                  "name": "Title edge 3"
+                  "name": "Lettering layer 3"
                 },
                 {
                   "id": "Title-weight3",
@@ -484,7 +484,7 @@
                       ]
                     ]
                   },
-                  "name": "Title edge 4"
+                  "name": "Lettering layer 4"
                 },
                 {
                   "id": "Title",
@@ -515,7 +515,7 @@
                       ]
                     ]
                   },
-                  "name": "Channel title"
+                  "name": "Lettering layer 5"
                 }
               ]
             }
@@ -528,7 +528,7 @@
           "layers": [
             {
               "id": "Greeting-treatment",
-              "name": "Greeting lettering",
+              "name": "Greeting effect",
               "type": "group",
               "layers": [
                 {
@@ -559,7 +559,7 @@
                       ]
                     ]
                   },
-                  "name": "Greeting edge 1"
+                  "name": "Lettering layer 1"
                 },
                 {
                   "id": "Greeting-weight1",
@@ -589,7 +589,7 @@
                       ]
                     ]
                   },
-                  "name": "Greeting edge 2"
+                  "name": "Lettering layer 2"
                 },
                 {
                   "id": "Greeting-weight2",
@@ -619,7 +619,7 @@
                       ]
                     ]
                   },
-                  "name": "Greeting edge 3"
+                  "name": "Lettering layer 3"
                 },
                 {
                   "id": "Greeting-weight3",
@@ -649,7 +649,7 @@
                       ]
                     ]
                   },
-                  "name": "Greeting edge 4"
+                  "name": "Lettering layer 4"
                 },
                 {
                   "id": "Greeting",
@@ -679,7 +679,7 @@
                       ]
                     ]
                   },
-                  "name": "Greeting"
+                  "name": "Lettering layer 5"
                 }
               ]
             }

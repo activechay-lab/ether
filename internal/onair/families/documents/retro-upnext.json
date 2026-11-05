@@ -225,12 +225,12 @@
     },
     {
       "id": "Title-group",
-      "name": "Chrome title",
+      "name": "Channel title",
       "type": "group",
       "layers": [
         {
           "id": "Title-treatment",
-          "name": "Title lettering",
+          "name": "Chrome title",
           "type": "group",
           "layers": [
             {
@@ -262,7 +262,7 @@
                   ]
                 ]
               },
-              "name": "Title edge 1"
+              "name": "Chrome layer 1"
             },
             {
               "id": "Title-weight1",
@@ -293,7 +293,7 @@
                   ]
                 ]
               },
-              "name": "Title edge 2"
+              "name": "Chrome layer 2"
             },
             {
               "id": "Title-weight2",
@@ -324,7 +324,7 @@
                   ]
                 ]
               },
-              "name": "Title edge 3"
+              "name": "Chrome layer 3"
             },
             {
               "id": "Title-weight3",
@@ -355,7 +355,7 @@
                   ]
                 ]
               },
-              "name": "Title edge 4"
+              "name": "Chrome layer 4"
             },
             {
               "id": "Title",
@@ -386,7 +386,7 @@
                   ]
                 ]
               },
-              "name": "Channel title"
+              "name": "Chrome layer 5"
             }
           ]
         }
