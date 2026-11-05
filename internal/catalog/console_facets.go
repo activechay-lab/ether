@@ -34,6 +34,11 @@ func (c *Catalog) ConsoleFacets(ctx context.Context, typ core.MediaType, facet s
 }
 
 func init() {
+	store.Register("catalog", 35, `
+CREATE INDEX catalog_titles_console_pop_page ON catalog_titles(type,browsable,adult,popularity DESC,key,year,rating,runtime_sec,language,vote_count,release_known,released_ts);
+CREATE INDEX catalog_titles_console_year_title_page ON catalog_titles(type,browsable,adult,year DESC,sort_title ASC,key,rating,runtime_sec,popularity,language,vote_count,release_known,released_ts);
+`)
+
 	// Identical B-tree/expression syntax on SQLite and PostgreSQL. These cover
 	// selective numeric ranges and keyword matching without per-title probes.
 	store.Register("catalog", 34, `

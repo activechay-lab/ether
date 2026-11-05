@@ -81,3 +81,39 @@ func TestConsoleWatchlistAndRatedFilters(t *testing.T) {
 		t.Fatal("watchlist must not use stale page cache")
 	}
 }
+
+func TestConsoleNarrowPagingMatchesBrowse(t *testing.T) {
+	c := largeCatalogue(t, 400)
+	ctx := context.Background()
+	if _, err := c.db.ExecContext(ctx, `UPDATE catalog_titles SET year=1980+(tmdb_id%40),rating=(tmdb_id%100)/10.0,runtime_sec=3600+(tmdb_id%100)*60`); err != nil {
+		t.Fatal(err)
+	}
+	for _, order := range []core.BrowseQuery{
+		{Sort: core.SortPopularity, Desc: true}, {Sort: core.SortYear, Desc: true, SecondarySorts: []core.SortSpec{{Sort: core.SortTitle}}}, {Sort: core.SortTitle},
+	} {
+		for _, typ := range []core.MediaType{core.TypeMovie, ""} {
+			q := order
+			q.Filter = core.Filter{Type: typ, YearFrom: 1990, MinRating: 5, MaxRuntime: 2 * time.Hour}
+			q.NoTotal = true
+			q.Limit = 17
+			q.Offset = 13
+			regular, err := c.Browse(ctx, q)
+			if err != nil {
+				t.Fatal(err)
+			}
+			q.Filter.LocalOnly = true
+			console, err := c.Browse(ctx, q)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(console.Items) != len(regular.Items) {
+				t.Fatalf("size %d vs %d", len(console.Items), len(regular.Items))
+			}
+			for i := range console.Items {
+				if console.Items[i].Key != regular.Items[i].Key {
+					t.Fatalf("sort %s type %s item %d differs", q.Sort, typ, i)
+				}
+			}
+		}
+	}
+}

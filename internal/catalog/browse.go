@@ -143,6 +143,20 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	// order from the (type, browsable, released_ts) index instead of a
 	// computed expression sorted over the whole library.
 	query := `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t WHERE ` + pageWhere + ` ORDER BY ` + order + `, t.key ASC LIMIT ? OFFSET ?`
+	if q.Filter.LocalOnly && q.NoTotal && !computedAdded && q.Filter.Type != "" {
+		hint := ""
+		if store.DialectOf(c.db) != store.Postgres {
+			if q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 {
+				hint = " INDEXED BY catalog_titles_console_pop_page"
+			}
+			if q.Sort == core.SortYear && q.Desc && len(q.SecondarySorts) == 1 && q.SecondarySorts[0].Sort == core.SortTitle && !q.SecondarySorts[0].Desc {
+				hint = " INDEXED BY catalog_titles_console_year_title_page"
+			}
+		}
+		// Sort/filter only narrow covering-index keys, then hydrate the page.
+		// This avoids reading large title payloads while rejecting candidates.
+		query = `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t JOIN (SELECT t.key AS page_key FROM catalog_titles t` + hint + ` WHERE ` + pageWhere + ` ORDER BY ` + order + `, t.key ASC LIMIT ? OFFSET ?) p ON t.key=p.page_key ORDER BY ` + order + `,t.key ASC`
+	}
 	if computedAdded {
 		// The computed date added has no index, so the whole filtered set is
 		// sorted. Sort narrow (key, date) rows from the covering index and
@@ -1064,7 +1078,11 @@ func (c *Catalog) mergedTypeKeys(ctx context.Context, where string, args []any, 
 	desc := dir == "DESC"
 	var all []sortedKey
 	for _, typ := range []core.MediaType{core.TypeMovie, core.TypeShow} {
-		rows, err := c.db.QueryContext(ctx, `SELECT t.key, `+col+` FROM catalog_titles t WHERE `+where+` AND t.type=? ORDER BY `+order+`, t.key ASC LIMIT ?`, append(append([]any{}, args...), string(typ), offset+limit)...)
+		hint := ""
+		if q.Filter.LocalOnly && q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 && store.DialectOf(c.db) != store.Postgres {
+			hint = " INDEXED BY catalog_titles_console_pop_page"
+		}
+		rows, err := c.db.QueryContext(ctx, `SELECT t.key, `+col+` FROM catalog_titles t`+hint+` WHERE `+where+` AND t.type=? ORDER BY `+order+`, t.key ASC LIMIT ?`, append(append([]any{}, args...), string(typ), offset+limit)...)
 		if err != nil {
 			return nil, err
 		}

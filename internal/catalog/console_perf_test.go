@@ -47,6 +47,7 @@ func TestConsole600K(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			tc.q.Filter.LocalOnly = true
 			times := make([]time.Duration, 31)
 			for i := range times {
 				c.cacheMu.Lock()
