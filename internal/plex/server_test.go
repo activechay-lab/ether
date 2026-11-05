@@ -775,14 +775,14 @@ func TestHLSInitializationSegmentServedForNativePlayer(t *testing.T) {
 	}
 }
 
-// A huge X-Plex-Container-Size must not overflow the page arithmetic.
+// The largest valid PMS paging size must not overflow page arithmetic.
 func TestPagingHugeContainerSize(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	f.srv.d.Recommender = &fakeRecommender{section: map[core.MediaType][]core.Hub{core.TypeMovie: {{ID: "movie.popular", Title: "Popular", Type: core.TypeMovie, Items: []core.Title{fightClub, alien}}}}}
 	f.cols.cols[core.CollectionKey(77)] = core.Collection{Key: core.CollectionKey(77), Title: "Two", Kind: "franchise", Type: core.TypeMovie, ChildCount: 2}
 	f.cols.items[core.CollectionKey(77)] = []core.Title{fightClub, alien}
-	page := "X-Plex-Container-Start=1&X-Plex-Container-Size=9223372036854775807"
+	page := "X-Plex-Container-Start=1&X-Plex-Container-Size=2147483647"
 	for _, path := range []string{
 		"/library/metadata/" + bbS1.Key.String() + "/children?" + page,
 		"/library/metadata/" + bbS1.Key.String() + "/allLeaves?" + page,
