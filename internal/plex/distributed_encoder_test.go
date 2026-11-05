@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -12,6 +13,8 @@ import (
 
 type recordedPlexEncoder struct {
 	expectedRelease                  string
+	forwardHandler                   http.Handler
+	forwardID                        string
 	sessions                         map[string]core.HLSSession
 	starts, stops, lookups, forwards int
 	viewer                           int64
@@ -49,8 +52,16 @@ func (e *recordedPlexEncoder) StopPlexHLS(id string) bool {
 	delete(e.sessions, id)
 	return true
 }
-func (e *recordedPlexEncoder) ForwardPlexMedia(http.ResponseWriter, *http.Request, string) bool {
+func (e *recordedPlexEncoder) ForwardPlexMedia(w http.ResponseWriter, r *http.Request, id string) bool {
 	e.forwards++
+	if e.forwardHandler != nil && id == e.forwardID {
+		// Simulate a fresh private receiver invoking the complete public handler:
+		// no sender user/context/acceptance assertion is transferred.
+		request := httptest.NewRequest(r.Method, r.URL.RequestURI(), nil)
+		request.Header = r.Header.Clone()
+		e.forwardHandler.ServeHTTP(w, request)
+		return true
+	}
 	return false
 }
 
@@ -159,5 +170,68 @@ func TestPlexEncoderDASHAndHTTPStartsUseSameSeam(t *testing.T) {
 				t.Fatalf("%s start contract changed: %d %s", tc.protocol, out.Code, out.Body.String())
 			}
 		})
+	}
+}
+
+func TestPlexTokenMissingEntryTransfersOnlyToOwnerAuthorization(t *testing.T) {
+	remote := &recordedPlexEncoder{sessions: map[string]core.HLSSession{}}
+	owner := newFixture(func(d *Deps) { d.PlexEncoder = remote })
+	defer owner.srv.Close()
+	owner.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts"}
+	start := owner.get(t, "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=owner-transfer")
+	if start.Code != 200 {
+		t.Fatal(start.Code, start.Body.String())
+	}
+	delegate := &recordedPlexEncoder{sessions: map[string]core.HLSSession{}, forwardHandler: owner.srv, forwardID: "owner-transfer"}
+	sender := newFixture(func(d *Deps) { d.PlexEncoder = delegate })
+	defer sender.srv.Close()
+	path := "/video/:/transcode/universal/session/owner-transfer/base/00042.ts"
+	for _, tc := range []struct {
+		token   string
+		want    int
+		forward bool
+	}{{ownerToken, 200, true}, {friendToken, 403, true}, {"invalid", 401, false}, {"", 401, false}} {
+		before := delegate.forwards
+		out := sender.request(t, "GET", path, map[string]string{"X-Plex-Token": tc.token})
+		if out.Code != tc.want || (delegate.forwards > before) != tc.forward {
+			t.Fatalf("owner authorization transfer got %d want %d", out.Code, tc.want)
+		}
+	}
+	if _, ok := sender.srv.transcodes.get("owner-transfer"); ok || len(sender.trans.sessions) != 0 {
+		t.Fatal("terminal transfer fabricated local playback state")
+	}
+	// Sender acceptance cannot override owner revocation or missing ownership.
+	delete(owner.srv.d.Auth.(*fakeAuth).users, ownerToken)
+	out := sender.request(t, "GET", path, map[string]string{"X-Plex-Token": ownerToken})
+	if out.Code != 401 {
+		t.Fatal("sender token decision overrode owner revocation")
+	}
+	for _, tc := range []struct{ method, path string }{{"POST", path}, {"GET", "/video/:/transcode/universal/session/unknown/base/00042.ts"}, {"GET", "/video/:/transcode/universal/session/owner-transfer/x/decision"}, {"GET", "/video/:/transcode/universal/session/owner-transfer/x/../00042.ts"}} {
+		before := delegate.forwards
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		if _, ok := missingPlexMediaID(req); ok && strings.Contains(tc.path, "unknown") { // A recognized unknown owner must keep legacy absence behavior.
+			out := sender.request(t, tc.method, tc.path, map[string]string{"X-Plex-Token": ownerToken})
+			if out.Code != 404 {
+				t.Fatal("unknown owner bypassed absence")
+			}
+			continue
+		}
+		if _, ok := missingPlexMediaID(req); ok {
+			t.Fatal("control/ambiguous route eligible for owner transfer")
+		}
+		if delegate.forwards != before {
+			t.Fatal("invalid route forwarded")
+		}
+	}
+	req := httptest.NewRequest("GET", path, nil)
+	req.Header.Set("X-Ether-Delivery-Hop", "1")
+	if _, ok := missingPlexMediaID(req); ok {
+		t.Fatal("forwarding loop eligible")
+	}
+	// A nil seam retains the old authenticated missing-entry status.
+	sender.srv.UsePlexEncoder(nil)
+	out = sender.request(t, "GET", path, map[string]string{"X-Plex-Token": ownerToken})
+	if out.Code != 404 {
+		t.Fatal("nil seam changed missing-entry behavior")
 	}
 }

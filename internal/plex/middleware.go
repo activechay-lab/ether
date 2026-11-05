@@ -255,6 +255,22 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				if id := transcodeSessionID(r.URL.Path); id != "" {
 					e, ok := s.transcodes.get(id)
 					if !ok {
+						// A valid local token is not permission for this stream. Only a
+						// bounded terminal transfer to its exact owner may decide access;
+						// the original public owner handler reauthenticates all credentials.
+						if remoteID, eligible := missingPlexMediaID(r); eligible && remoteID == id && s.currentPlexEncoder() != nil {
+							checked := r
+							if receipt.Valid() {
+								checked = r.WithContext(withAcceptance(r.Context(), receipt))
+							}
+							if !s.acceptanceCurrent(checked) {
+								writeHTTPError(w, http.StatusUnauthorized)
+								return
+							}
+							if s.forwardPlexMedia(w, checked, id) {
+								return
+							}
+						}
 						writeHTTPError(w, http.StatusNotFound)
 						return
 					}

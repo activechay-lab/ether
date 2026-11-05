@@ -3,6 +3,7 @@ package plex
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -72,4 +73,33 @@ func (s *Server) forwardPlexMedia(w http.ResponseWriter, r *http.Request, id str
 		return forward.ForwardPlexMedia(w, r, id)
 	}
 	return false
+}
+
+// missingPlexMediaID is deliberately narrower than general Plex routing. It is
+// eligible only for terminal owner transfer, never local authentication success.
+func missingPlexMediaID(r *http.Request) (string, bool) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return "", false
+	}
+	if r.URL == nil || !capabilityPathOK(r) || len(r.URL.RequestURI()) > 16384 || r.Header.Get("X-Ether-Delivery-Hop") != "" {
+		return "", false
+	}
+	const prefix = "/video/:/transcode/universal/session/"
+	if !strings.HasPrefix(r.URL.Path, prefix) {
+		return "", false
+	}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, prefix), "/")
+	if len(parts) != 3 {
+		return "", false
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || len(part) > 128 || sanitizeSessionID(part) != part {
+			return "", false
+		}
+	}
+	file := parts[2]
+	if file != "index.m3u8" && file != "init.mp4" && file != "header" && !strings.HasSuffix(file, ".ts") && !strings.HasSuffix(file, ".m4s") && !strings.HasSuffix(file, ".mkv") {
+		return "", false
+	}
+	return parts[0], true
 }
