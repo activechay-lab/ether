@@ -104,8 +104,17 @@ func (s *Service) ensureGraphics() {
 	now := s.o.Now()
 	recent := s.recentlyWatched()
 	for _, c := range cs {
-		if c.Look == nil || !c.Enabled || !recent[c.ID] {
+		if !c.Enabled || !recent[c.ID] {
 			continue
+		}
+		for _, reason := range []string{offAirSlate, "reconnecting", "busy"} {
+			s.o.Graphics.Ensure(s.ctx, s.screenRequest(c, reason))
+		}
+		if c.Look == nil {
+			continue
+		}
+		if c.Look.Ident {
+			s.o.Graphics.Ensure(s.ctx, s.clipRequest(c, Programme{Item: Item{Slate: "ident"}}))
 		}
 		c = s.graphicsChannel(c)
 		for _, p := range Schedule(c, now, now.Add(3*time.Hour)) {

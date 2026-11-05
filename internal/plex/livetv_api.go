@@ -179,17 +179,7 @@ func (s *Server) registerLiveTVRoutes(r chi.Router) {
 	get("/livetv/sessions/{session}/{consumer}/resource/{resource}", func(w http.ResponseWriter, r *http.Request) {
 		s.d.LiveTV.ServeResource(w, r, chi.URLParam(r, "session"), chi.URLParam(r, "resource"), FromContext(r.Context()).User)
 	})
-	get("/livetv/sessions/{session}/{consumer}/program/{start}/{segment}", func(w http.ResponseWriter, r *http.Request) {
-		start, e := strconv.ParseInt(chi.URLParam(r, "start"), 10, 64)
-		n, e2 := strconv.Atoi(strings.TrimSuffix(chi.URLParam(r, "segment"), ".ts"))
-		if e != nil || e2 != nil {
-			writeHTTPError(w, 404)
-			return
-		}
-		cw := s.newCountWriter(w, r)
-		s.d.LiveTV.ServeSegment(cw, r, chi.URLParam(r, "session"), start, n, FromContext(r.Context()).User)
-		cw.finish()
-	})
+
 }
 func (s *Server) liveDevices(r *http.Request) ([]liveDevice, error) {
 	cs, err := s.d.LiveTV.AllowedChannels(r.Context(), FromContext(r.Context()).User)

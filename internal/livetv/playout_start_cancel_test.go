@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 type cancelStartTranscoder struct {
@@ -51,9 +52,7 @@ func TestStopCancelsBlockedHLSStart(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("StartHLS did not observe Stop")
 	}
-	if len(pb.stopped) != 1 {
-		t.Fatalf("playback stops: %v", pb.stopped)
-	}
+
 }
 
 type lifetimeTranscoder struct {
@@ -88,9 +87,14 @@ func TestHLSLifetimeOutlivesTuneRequest(t *testing.T) {
 	if err := s.Stop(context.Background(), info.ID, u); err != nil {
 		t.Fatal(err)
 	}
-	if lifetime.Err() == nil {
-		t.Fatal("Stop did not cancel encoder lifetime")
+	if lifetime.Err() != nil {
+		t.Fatal("viewer stop ended the shared output before idle grace")
 	}
+	s.broadcasts.close()
+	if lifetime.Err() == nil {
+		t.Fatal("shared output shutdown did not cancel encoder")
+	}
+
 }
 
 func TestIPTVStopCancelsBlockedHLSStart(t *testing.T) {
@@ -130,4 +134,14 @@ type cancelIPTVTranscoder struct{ cancelStartTranscoder }
 func (f *cancelIPTVTranscoder) Probe(context.Context, string) (*core.MediaInfo, error) {
 	info := stagedIPTVInfo()
 	return &info, nil
+}
+
+func (f *cancelStartTranscoder) StartEncoder(ctx context.Context, _ transcode.EncoderRequest) (transcode.ContinuousEncoder, error) {
+	close(f.entered)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+func (f *lifetimeTranscoder) StartEncoder(ctx context.Context, r transcode.EncoderRequest) (transcode.ContinuousEncoder, error) {
+	f.started <- ctx
+	return f.fakeTranscoder.StartEncoder(ctx, r)
 }

@@ -102,7 +102,8 @@ type ChannelScreens struct {
 }
 
 type Channel struct {
-	Screens *ChannelScreens `json:"screens,omitempty"`
+	DVRMinutes int             `json:"dvrMinutes,omitempty"`
+	Screens    *ChannelScreens `json:"screens,omitempty"`
 
 	Look *ChannelLook `json:"look,omitempty"`
 	// clipDuration is supplied on a channel copy; scheduling performs no I/O.
@@ -259,11 +260,12 @@ type SourceGroup struct {
 	Excluded bool `json:"excluded,omitempty"`
 }
 type Programme struct {
-	ID        string    `json:"id"`
-	ChannelID string    `json:"channelId"`
-	Start     time.Time `json:"start"`
-	End       time.Time `json:"end"`
-	Item      Item      `json:"item"`
+	graphicsRequest *core.ClipRequest
+	ID              string    `json:"id"`
+	ChannelID       string    `json:"channelId"`
+	Start           time.Time `json:"start"`
+	End             time.Time `json:"end"`
+	Item            Item      `json:"item"`
 }
 
 func (p Programme) Offset(at time.Time) time.Duration {
@@ -294,6 +296,8 @@ type Policy struct {
 	channelSet map[string]struct{} // Channels as a set for long lists; see indexChannels
 }
 type Options struct {
+	InputUser      func(context.Context) (*core.User, error)
+	Screens        func() config.LiveTVScreens
 	Graphics       core.ChannelGraphics
 	PlexGuideToken func() string
 	PlexGuideURL   string // test endpoint

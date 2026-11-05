@@ -22,7 +22,6 @@ type broadcastPlan struct {
 	start, end time.Time
 	open       func(context.Context) (transcode.Decoder, func(), error)
 	failed     func(error) time.Time
-	ring       *frameRing
 }
 type broadcastPlanner interface {
 	plans(time.Time) (broadcastPlan, *broadcastPlan)
@@ -95,6 +94,8 @@ type broadcastPrepared struct {
 	plan  broadcastPlan
 }
 type broadcast struct {
+	intro         broadcastPlan
+	introUntil    time.Time
 	dvr           time.Duration
 	black         []byte
 	viewers       int
@@ -117,12 +118,14 @@ type broadcast struct {
 	lastFrame     transcode.RawFrame
 	freshAt       time.Time
 	fade          pcmFade
-	screen        *frameRing
+	fallback      *broadcastInput
+	screenPlan    broadcastPlan
+	retryRequests chan struct{}
 	mode          string
 	tick          int64
 }
 
-func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planner broadcastPlanner, format transcode.RawFormat, screen *frameRing) (*broadcast, error) {
+func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planner broadcastPlanner, format transcode.RawFormat) (*broadcast, error) {
 	if err := validateRawFormat(format); err != nil {
 		return nil, err
 	}
@@ -130,7 +133,14 @@ func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planne
 		return nil, fmt.Errorf("broadcast requires runners and a planner")
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), screen: screen, lastViewer: time.Now()}
+	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), retryRequests: make(chan struct{}, 1), lastViewer: time.Now()}
+	if planner, ok := planner.(interface {
+		introPlan(time.Time) (broadcastPlan, time.Duration)
+	}); ok {
+		intro, d := planner.introPlan(b.origin)
+		b.intro = intro
+		b.introUntil = b.origin.Add(d)
+	}
 	return b, nil
 }
 func (b *broadcast) start() { b.wg.Add(1); go func() { defer b.wg.Done(); b.run() }() }
@@ -163,6 +173,10 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 		b.lastViewer = time.Now()
 		b.mu.Unlock()
 		return r.encoder.Segments(), nil
+	}
+	if len(b.renditions) >= 2 {
+		b.mu.Unlock()
+		return nil, fmt.Errorf("channel rendition limit reached")
 	}
 	b.mu.Unlock()
 	lifetime, cancel := context.WithCancel(b.ctx)
@@ -285,6 +299,9 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 			delete(b.opening, result.plan.id)
 			if result.err != nil {
 				b.noteFailure(result.plan, result.err, now)
+				if result.plan.id == b.intro.id {
+					b.introUntil = now
+				}
 				continue
 			}
 			input := result.input
@@ -293,6 +310,11 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 				b.current = input
 				input.started = now
 				input.activateNow()
+			} else if result.plan.id == b.screenPlan.id {
+				b.fallback.close()
+				b.fallback = input
+				input.activateNow()
+				input.started = now
 			} else if next != nil && result.plan.id == next.id {
 				b.next.close()
 				b.next = input
@@ -322,6 +344,7 @@ func (b *broadcast) run() {
 		b.mu.Unlock()
 		b.current.close()
 		b.next.close()
+		b.fallback.close()
 		b.mu.Lock()
 		for _, r := range b.renditions {
 			r.cancel()
@@ -363,6 +386,22 @@ func (b *broadcast) run() {
 func (b *broadcast) step(now time.Time) {
 	previousPCM := b.lastFrame.PCM
 	current, next := b.planner.plans(now)
+	if planner, ok := b.planner.(interface{ screen(time.Time) broadcastPlan }); ok {
+		b.screenPlan = planner.screen(now)
+	}
+	introActive := b.intro.id != "" && now.Before(b.introUntil)
+	if introActive {
+		b.screenPlan = b.intro
+	}
+	select {
+	case <-b.retryRequests:
+		if b.current != nil {
+			b.current.close()
+			b.current = nil
+		}
+		delete(b.retry, current.id)
+	default:
+	}
 	b.accept(now, current, next)
 	if b.current != nil && b.current.plan.id != current.id {
 		b.current.close()
@@ -379,19 +418,16 @@ func (b *broadcast) step(now time.Time) {
 		b.next.close()
 		b.next = nil
 	}
-	if b.current == nil && current.ring == nil {
+	if b.current == nil {
 		b.open(current, now)
 	}
-	if next != nil && next.start.Sub(now) <= broadcastPrewarm && b.next == nil && next.ring == nil {
+	if next != nil && next.start.Sub(now) <= broadcastPrewarm && b.next == nil {
 		b.open(*next, now)
 	}
 	samples := tickSamples(b.format, b.tick)
 	frame := transcode.RawFrame{}
 	mode := "screen"
-	if current.ring != nil {
-		frame = current.ring.next(samples, b.format.Channels)
-		mode = current.id
-	} else if b.current != nil {
+	if b.current != nil && !introActive {
 		select {
 		case f, ok := <-b.current.frames:
 			if ok && validRawFrame(b.format, f) {
@@ -411,21 +447,41 @@ func (b *broadcast) step(now time.Time) {
 			}
 		}
 	}
-	if frame.Video == nil && b.current != nil && now.Sub(b.current.started) >= broadcastStall && (b.freshAt.IsZero() || now.Sub(b.freshAt) >= broadcastStall) {
+	if frame.Video == nil && !introActive && b.current != nil && now.Sub(b.current.started) >= broadcastStall && (b.freshAt.IsZero() || now.Sub(b.freshAt) >= broadcastStall) {
 		b.noteFailure(current, fmt.Errorf("decoder stalled"), now)
 		b.current.close()
 		b.current = nil
 	}
-	if frame.Video == nil && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
+	if frame.Video == nil && !introActive && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
 		frame = b.lastFrame
 		mode = "hold"
 	}
 	if frame.Video == nil {
-		if b.screen != nil {
-			frame = b.screen.next(samples, b.format.Channels)
+		if b.fallback == nil {
+			b.open(b.screenPlan, now)
 		} else {
+			select {
+			case f, ok := <-b.fallback.frames:
+				if ok && validRawFrame(b.format, f) {
+					frame = f
+				}
+			default:
+			}
+			select {
+			case err := <-b.fallback.errs:
+				b.noteFailure(b.screenPlan, err, now)
+				b.fallback.close()
+				b.fallback = nil
+			default:
+			}
+		}
+		if frame.Video == nil {
 			frame = transcode.RawFrame{Video: b.black}
 		}
+	}
+	if mode != "screen" && b.fallback != nil {
+		b.fallback.close()
+		b.fallback = nil
 	}
 	// PCM follows the output tick, including fractional frame rates. Never let a
 	// malformed decoder chunk shift every subsequent audio timestamp.
@@ -453,4 +509,11 @@ func (b *broadcast) step(now time.Time) {
 func newBroadcastInput(parent context.Context, plan broadcastPlan, d transcode.Decoder, release func()) *broadcastInput {
 	ctx, cancel := context.WithCancel(parent)
 	return &broadcastInput{ctx: ctx, cancel: cancel, decoder: d, release: release, plan: plan, frames: make(chan transcode.RawFrame, 1), errs: make(chan error, 1), activate: make(chan struct{})}
+}
+
+func (b *broadcast) requestRetry() {
+	select {
+	case b.retryRequests <- struct{}{}:
+	default:
+	}
 }

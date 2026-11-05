@@ -54,6 +54,13 @@ func (s *Service) startIPTVRelay(ctx context.Context, ss *session, info core.Med
 		caps.AudioCodecs = []string{"aac"}
 	}
 	dec := s.o.Transcoder.Decide(info, caps, core.DecideOptions{DirectStream: !ss.info.Channel.Transcode, AudioStream: -1, SubtitleStream: -1})
+	if s.screenStyle(ss.info.Channel, false) != "error" && (!dec.VideoCopy || !dec.AudioCopy) {
+		s.revokeInput(ss)
+		c := ss.info.Channel
+		c.Transcode = true
+		ss.info.Channel = c
+		return s.startBroadcast(ctx, ss)
+	}
 	dec.Container = "mpegts"
 	input, err := s.relayInput(ss)
 	if err != nil {

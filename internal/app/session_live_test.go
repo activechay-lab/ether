@@ -23,9 +23,11 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontends/mediabrowser"
 	"github.com/braedonsaunders/ether/internal/frontends/silo"
 	"github.com/braedonsaunders/ether/internal/livetv"
+	"github.com/braedonsaunders/ether/internal/livetv/livetvtest"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/state"
 	"github.com/braedonsaunders/ether/internal/store"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 func TestLivePlaylistPathsUseScopedGrant(t *testing.T) {
@@ -399,7 +401,7 @@ func TestSwiftfinLiveTVSequenceIPTVAndVirtual(t *testing.T) {
 			hasMaster bool
 		}{
 			{ch: iptvCh, wantCodec: "h264", wantAudio: "aac", wantWidth: 1920, wantSeg: "iptv-ts-segment-0", hasMaster: true},
-			{ch: virtualCh, wantCodec: "hevc", wantAudio: "ac3", wantWidth: 1280, wantSeg: "virtual-ts-segment-", hasMaster: false},
+			{ch: virtualCh, wantCodec: "h264", wantAudio: "aac", wantWidth: 1280, wantSeg: "virtual-ts-segment-", hasMaster: false},
 		} {
 			channelGUID, err := ids.StringGUID(ids.Channel, tcChan.ch.ID)
 			if err != nil {
@@ -833,4 +835,11 @@ func TestSiloLiveTVSequenceIPTVVirtualAndReplan(t *testing.T) {
 			t.Fatalf("%s replan 2 expected adaptation_unavailable, got: %s", tcChan.ch.Kind, replan2W.Body.String())
 		}
 	}
+}
+
+func (t *liveTestTranscoder) StartEncoder(_ context.Context, r transcode.EncoderRequest) (transcode.ContinuousEncoder, error) {
+	return &livetvtest.Encoder{Index: livetvtest.Index{Payload: "virtual-ts-segment-", Height: r.Decision.MaxHeight}}, nil
+}
+func (t *liveTestTranscoder) StartDecoder(context.Context, transcode.DecoderRequest) (transcode.Decoder, error) {
+	return &livetvtest.Decoder{}, nil
 }

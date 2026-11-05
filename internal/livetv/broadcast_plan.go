@@ -13,13 +13,13 @@ import (
 // scheduleBroadcastPlanner snapshots the channel recipe. An edited recipe gets
 // a new planner when P4 replaces the channel output after lineup invalidation.
 type scheduleBroadcastPlanner struct {
+	joinAt  time.Time
 	caps    core.ClientCaps
 	s       *Service
 	channel Channel
 	user    core.User
 	format  transcode.RawFormat
 	runner  transcode.ContinuousRunner
-	rings   *broadcastRingCache
 	mu      sync.Mutex
 	at      time.Time
 	current broadcastPlan
@@ -34,7 +34,7 @@ func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 	}
 	p.at = now
 	c := p.s.graphicsChannel(p.channel)
-	ps := Schedule(c, now, now.Add(broadcastPrewarm+time.Second))
+	ps := p.s.broadcastSchedule(context.Background(), c, now, now.Add(broadcastPrewarm+time.Second), true)
 	p.current = broadcastPlan{id: "screen-" + c.ID}
 	p.next = nil
 	for _, programme := range ps {
@@ -56,22 +56,29 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 			return nil, nil, core.ErrNotAvailable
 		}
 		if programme.Item.Slate != "" {
-			if c.Look == nil || p.s.o.Graphics == nil {
-				return nil, nil, core.ErrNotAvailable
+			request := p.s.screenRequest(c, programme.Item.Slate)
+			if programme.Item.Slate == offAirSlate {
+				for _, next := range Schedule(p.s.graphicsChannel(c), programme.End, programme.End.Add(24*time.Hour)) {
+					if next.Item.Key != 0 {
+						request.Bind["screen.back"] = next.Start.In(zoneOf(c.Timezone)).Format("3:04 PM")
+						break
+					}
+				}
 			}
-			request := p.s.clipRequest(c, programme)
-			clip, ok := p.s.o.Graphics.Clip(ctx, request)
-			if !ok {
-				p.s.o.Graphics.Ensure(ctx, request)
-				return nil, nil, core.ErrNotAvailable
+			loop := programme.Item.Slate == offAirSlate
+			if c.Look != nil && (interstitial(programme.Item) || (loop && c.Look.OffAir)) {
+				request = p.s.clipRequest(c, programme)
+				if programme.graphicsRequest != nil {
+					request = *programme.graphicsRequest
+				}
 			}
-			ring, err := p.rings.load(ctx, p.runner, clip.Path, p.format)
-			if err != nil {
-				return nil, nil, err
-			}
-			return &ringDecoder{ring: ring, format: p.format, closed: make(chan struct{})}, nil, nil
+			return p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, loop)
 		}
+
 		now := p.s.o.Now()
+		if p.joinAt.After(now) {
+			now = p.joinAt
+		}
 		candidates := p.s.virtualCandidates(c, programme)
 		var last error = core.ErrNotAvailable
 		for attempt, candidate := range candidates {
@@ -97,6 +104,10 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 			if err != nil {
 				last = err
 				continue
+			}
+			now = p.s.o.Now()
+			if p.joinAt.After(now) {
+				now = p.joinAt
 			}
 			offset := time.Duration(0)
 			if candidate.ID == programme.ID && now.After(programme.Start) {
@@ -131,7 +142,7 @@ func (s *Service) reserveBroadcastProvider(account, channel, id string, limit in
 	}
 	channels := map[string]bool{}
 	for _, ss := range s.sessions {
-		if ss.broadcast != nil {
+		if ss.broadcast != nil || s.useBroadcast(ss.info.Channel) || !ss.ready {
 			continue
 		}
 		source := ss.info.Channel.SourceID
