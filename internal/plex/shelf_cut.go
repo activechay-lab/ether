@@ -39,13 +39,15 @@ type shelfCut struct {
 	revision   string
 }
 type shelfGeneration struct {
-	scope   string
-	path    string
-	keys    []core.RatingKey
-	expires int64
-	items   []core.Title
-	bytes   int
-	serial  uint64
+	scope       string
+	path        string
+	keys        []core.RatingKey
+	expires     int64
+	items       []core.Title
+	bytes       int
+	serial      uint64
+	persisted   bool
+	lastPersist time.Time
 }
 
 func (s *Server) shelfScope(ctx context.Context, pr *Request) (string, string, bool) {
@@ -147,24 +149,16 @@ func (s *Server) shelfSnapshot(ctx context.Context, pr *Request, h core.Hub, hc 
 		}
 	}
 	g := s.shelfGenerations[generation]
-	g.expires = now.Add(shelfRetention).Unix()
-	s.shelfGenerations[generation] = g
-	sweep := now.Sub(s.shelfSweepAt) >= time.Hour || s.shelfSweepAt.IsZero()
-	if sweep {
-		s.shelfSweepAt = now
-	}
-	if s.d.DB != nil {
-		_, err := s.d.DB.ExecContext(ctx, `INSERT INTO plex_shelf_generations(generation,scope,path,keys_json,expires_at) VALUES(?,?,?,?,?) ON CONFLICT(generation) DO UPDATE SET expires_at=excluded.expires_at`, generation, g.scope, g.path, string(data), now.Add(shelfRetention).Unix())
-		if err != nil {
-			s.log.Warn("retain shelf generation", "err", err)
-		}
-		if sweep {
-			if _, err := s.d.DB.ExecContext(ctx, `DELETE FROM plex_shelf_generations WHERE expires_at < ?`, now.Unix()); err != nil {
-				s.log.Warn("expire shelf generations", "err", err)
-			}
-		}
+	persist := s.d.DB != nil && (!g.persisted || (g.expires-now.Unix() < int64((24*time.Hour)/time.Second) && now.Sub(g.lastPersist) >= time.Hour))
+	if persist && g.persisted {
+		g.lastPersist = now
+		s.shelfGenerations[generation] = g
 	}
 	s.shelfMu.Unlock()
+	if persist {
+		s.stageShelf(ctx, shelfWrite{generation: generation, scope: g.scope, path: g.path, keys: g.keys, expires: now.Add(shelfRetention).Unix()})
+	}
+
 	return g.items, generation
 }
 

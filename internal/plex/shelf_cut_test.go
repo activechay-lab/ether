@@ -302,6 +302,9 @@ func TestShelfGenerationAcrossNodesAndRestart(t *testing.T) {
 			if len(initial) != 2 {
 				t.Fatal("missing shelves")
 			}
+			// Shared durability is asynchronous; after publication, recovery must
+			// preserve the old order across nodes and restart.
+			waitShelfWrites(t, a.srv)
 			// Rebuilds now have the opposite order; a recovering node must not use them.
 			for typ, rows := range rec.section {
 				items := append([]core.Title(nil), mixed...)

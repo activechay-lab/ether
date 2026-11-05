@@ -189,7 +189,7 @@ type Server struct {
 	shelfGenerations map[string]shelfGeneration
 	shelfBytes       int
 	shelfSerial      uint64
-	shelfSweepAt     time.Time
+	shelfWriter      *shelfPersistence
 	homeSharedMu     sync.Mutex
 	homeShared       map[string]*homeSharedEntry
 	home             *homeCache
@@ -296,6 +296,9 @@ func NewServer(d Deps) *Server {
 	if d.ArtworkImages != nil {
 		s.images = d.ArtworkImages
 	}
+	s.shelfWriter = &shelfPersistence{pending: map[string]shelfWrite{}, active: map[string]bool{}, wake: make(chan struct{}, 1)}
+	s.wg.Add(1)
+	go s.writeShelves()
 	s.sections = s.buildSections()
 	s.queues.now = d.Now
 	if d.Cluster != nil && d.DB != nil {

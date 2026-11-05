@@ -708,7 +708,9 @@ func (s *Server) handleSectionHubs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) buildSectionHubs(r *http.Request, sec Section) homeBuild {
-	ctx := withStoredPolicy(r.Context())
+	batch := &shelfBatch{}
+	ctx := withStoredPolicy(context.WithValue(r.Context(), shelfBatchKey{}, batch))
+	defer func() { s.enqueueShelves(batch.records) }()
 	pr := FromContext(ctx)
 	visibleCount := countParam(r, 12)
 	count := 200

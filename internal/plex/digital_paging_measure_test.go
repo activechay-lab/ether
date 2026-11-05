@@ -138,6 +138,7 @@ func TestDigitalLargeCatalogueLatency(t *testing.T) {
 	if rowKey == "" {
 		t.Fatal("measure row missing")
 	}
+	waitShelfWrites(t, f.srv)
 	measure("row paging (50 items)", func(i int) {
 		u, _ := url.Parse(rowKey)
 		q := u.Query()
