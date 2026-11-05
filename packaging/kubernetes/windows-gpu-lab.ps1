@@ -32,7 +32,8 @@ foreach ($PrivateDirectory in @($Secrets,$Data)) {
     $Acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule('SYSTEM','FullControl','ContainerInherit,ObjectInherit','None','Allow')))
     Set-Acl $PrivateDirectory $Acl
 }
-$FFmpeg = Join-Path $LabRoot 'ffmpeg.exe'
+$FFmpegDirectory = Join-Path $LabRoot 'ffmpeg-8.1.3-1'
+$FFmpeg = Join-Path $FFmpegDirectory 'ffmpeg.exe'
 $Ether = Join-Path $LabRoot 'ether.exe'
 $Launcher = Join-Path $LabRoot 'ether-lab-launcher.exe'
 & nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
@@ -74,6 +75,7 @@ $DeploymentPath = Join-Path $LabRoot 'deployment.json'
 $env:ETHER_DEPLOYMENT_FILE = $DeploymentPath
 $env:ETHER_DATA_DIR = $Data
 $env:XDG_CACHE_HOME = $Cache
+$env:PATH = $FFmpegDirectory + [IO.Path]::PathSeparator + $env:PATH
 # No secrets on the command line. This is an owned foreground-service process,
 # not a Windows Service. Keep its exact PID and stop/drain only that process.
 if (-not (Test-Path $Launcher)) { throw 'Stage reviewed owned job launcher before Start' }
@@ -81,6 +83,7 @@ $Process = $null
 try {
     $Process = Start-Process -FilePath $Launcher -WorkingDirectory $LabRoot -PassThru `
         -RedirectStandardOutput (Join-Path $Logs 'ether.stdout.log') -RedirectStandardError (Join-Path $Logs 'ether.stderr.log')
+    $OwnedHandle = $Process.Handle # Retain the exact native object before status/exit inspection.
     $Process.PriorityClass = 'BelowNormal'
     [IO.File]::WriteAllText((Join-Path $LabRoot 'specialist.pid'),[string]$Process.Id)
 }

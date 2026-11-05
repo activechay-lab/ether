@@ -105,3 +105,39 @@ PID-record write failure: the launcher must kill its still-suspended child befor
 any code executes. A separate real FFmpeg descendant containment test remains
 required when the native FFmpeg bundle is approved/staged. Do not start the
 specialist on the strength of only the generic self-test.
+
+## Native evidence recorded by the coordinator
+
+On 2026-11-05 the coordinator verified the pinned Windows archive SHA256
+`3691f8b2d4c39c511b5faff1c8c4687bd782dac823e63ba69f0755f7ce1af9ce` and ran
+48 actual `h264_nvenc` frames on the RTX4080. A retained .NET Process handle
+reported exit0 and zero stderr bytes (PID14776, exited). An earlier
+Start-Process wrapper lost its ExitCode; that harness result was discarded.
+
+The coordinator also verified launcher binary SHA256
+`94abd125a635337b72dce060af032e3ea20ae841767edc79ee8b0130349a1bd1` and captured
+exact self-test ancestry launcher3644 → assigned child2448 → leaf6396. Killing
+the exact launcher made both retained child/leaf Process handles exit; handles
+were disposed and owned PID files removed. No native process remained. These
+are native encoder and generic job-containment proofs, not distributed GPU or
+node-loss acceptance.
+
+The added fixed `--self-test-ffmpeg` mode creates an assigned suspended branch
+copy of the launcher, which starts only
+`C:\ether-gpu-lab\ffmpeg-8.1.3-1\ffmpeg.exe`. Its arguments are fixed: realtime
+640x360/24fps lavfi test video, 30 seconds/720 frames maximum, `h264_nvenc`, null
+output, and progress on stdout. A separate 40-second deadline and three-second
+pipe wait bound failure cleanup. No arbitrary command, provider, file input,
+listener or Secret is used. `specialist.child.pid` identifies the branch;
+`probe.ffmpeg.pid` identifies the actual encoder descendant. Use a fresh copied
+binary only after verifying the new supplied SHA256.
+
+For the FFmpeg containment test, retain .NET Process objects **and open their
+Handle properties immediately** for launcher, branch and FFmpeg. Verify exact
+creation times, parent relationships and fixed FFmpeg executable path, then wait
+for nonzero frame progress before killing the exact launcher Process object.
+Confirm both captured descendant handles exit within a bounded interval and
+dispose all handles. Do not trust an absent ExitCode from a detached
+Start-Process wrapper, PID-only lookup after reuse, encoder listings, or a
+compile-only result. Do not start the specialist before this test is reviewed
+and passes.

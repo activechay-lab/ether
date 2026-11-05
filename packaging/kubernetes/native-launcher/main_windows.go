@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -50,6 +51,12 @@ func run() error {
 	if len(os.Args) == 2 && os.Args[1] == "--self-test" {
 		ether = executable
 		childCommand = `"` + ether + `" --probe-child`
+	} else if len(os.Args) == 2 && os.Args[1] == "--self-test-ffmpeg" {
+		if _, err := os.Stat(filepath.Join(root, "ffmpeg-8.1.3-1", "ffmpeg.exe")); err != nil {
+			return fmt.Errorf("stage pinned lab FFmpeg 8.1.3-1 first")
+		}
+		ether = executable
+		childCommand = `"` + ether + `" --probe-ffmpeg`
 	} else if _, err := os.Stat(ether); err != nil {
 		return fmt.Errorf("stage reviewed ether.exe first")
 	}
@@ -124,7 +131,7 @@ func run() error {
 	return nil
 }
 
-// Test modes start only copies of this owned binary, never arbitrary commands.
+// Test modes start only copies of this binary or the fixed pinned lab FFmpeg.
 // They allow native job-tree verification before Ether or credentials are staged.
 func probe() error {
 	executable, err := os.Executable()
@@ -143,6 +150,28 @@ func probe() error {
 			time.Sleep(time.Second)
 		}
 	}
+	if os.Args[1] == "--probe-ffmpeg" {
+		// A real NVENC child with a fixed synthetic source and null sink. The
+		// realtime input gives the owner time to inspect/kill the exact tree;
+		// both media length and an independent wall deadline bound this test.
+		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+		defer cancel()
+		child := exec.CommandContext(ctx, filepath.Join(root, "ffmpeg-8.1.3-1", "ffmpeg.exe"),
+			"-hide_banner", "-nostdin", "-v", "error", "-re", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24",
+			"-t", "30", "-frames:v", "720", "-c:v", "h264_nvenc", "-progress", "pipe:1", "-stats_period", "1", "-f", "null", "-")
+		child.Stdout, child.Stderr = os.Stdout, os.Stderr
+		child.WaitDelay = 3 * time.Second
+		if err := child.Start(); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(root, "probe.ffmpeg.pid"), []byte(fmt.Sprint(child.Process.Pid)), 0600); err != nil {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+			return err
+		}
+		fmt.Printf("owned pinned NVENC descendant PID=%d; branch PID=%d\n", child.Process.Pid, os.Getpid())
+		return child.Wait()
+	}
 	child := exec.Command(executable, "--probe-leaf")
 	child.Stdout, child.Stderr = os.Stdout, os.Stderr
 	if err := child.Start(); err != nil {
@@ -153,7 +182,7 @@ func probe() error {
 
 func main() {
 	var err error
-	if len(os.Args) == 2 && (os.Args[1] == "--probe-child" || os.Args[1] == "--probe-leaf") {
+	if len(os.Args) == 2 && (os.Args[1] == "--probe-child" || os.Args[1] == "--probe-leaf" || os.Args[1] == "--probe-ffmpeg") {
 		err = probe()
 	} else {
 		err = run()
