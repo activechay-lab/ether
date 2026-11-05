@@ -34,6 +34,9 @@ type scheduleBroadcastPlanner struct {
 	mu           sync.Mutex
 }
 
+func (p *scheduleBroadcastPlanner) startupLead() time.Duration { return 12 * time.Second }
+func (p *providerBroadcastPlanner) startupLead() time.Duration { return 12 * time.Second }
+
 func (p *scheduleBroadcastPlanner) startPlanner(parent context.Context) {
 	p.workerCtx, p.workerCancel = context.WithCancel(parent)
 	p.requests = make(chan time.Time, 1)
@@ -84,7 +87,7 @@ func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 		if current.id != "screen-"+p.channel.ID && programme.Start.Before(current.end) {
 			continue
 		}
-		plan := p.programme(programme)
+		plan := p.programme(programme, now)
 		if !now.Before(programme.Start) && now.Before(programme.End) {
 			current = plan
 		} else if programme.Start.After(now) {
@@ -111,7 +114,7 @@ func (p *scheduleBroadcastPlanner) prewarmPlans(now time.Time) []broadcastPlan {
 	return plans
 }
 
-func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan {
+func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...time.Time) broadcastPlan {
 	plan := broadcastPlan{policy: programme.policyTag, programme: programme.Item.Key != 0, id: programme.ID, start: programme.Start, end: programme.End}
 	if interstitial(programme.Item) {
 		plan.failed = func(err error) time.Time {
@@ -171,6 +174,9 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 		}
 
 		now := p.s.o.Now()
+		if len(plannedAt) > 0 && plannedAt[0].After(now) {
+			now = plannedAt[0]
+		}
 		if p.joinAt.After(now) {
 			now = p.joinAt
 		}
@@ -204,6 +210,9 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 				continue
 			}
 			now = p.s.o.Now()
+			if len(plannedAt) > 0 && plannedAt[0].After(now) {
+				now = plannedAt[0]
+			}
 			if p.joinAt.After(now) {
 				now = p.joinAt
 			}

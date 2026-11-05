@@ -545,6 +545,7 @@ schedule (wall clock) ─▶ input plan: programme · clip · screen · reel cli
   - **Timeshift:** segments are kept on node-local disk for a DVR window, 30 minutes by default and set per channel under More options. A paused or rewound Plex client resumes within the window.
 - **Lifecycle.**
   - The output starts on a channel's first viewer. The first frame is the channel's ident or screen, served from the ring immediately, while the programme decoder prepares. The first segment is ready within one segment duration (4 s); the target is first frame ≤ 1 s for a channel already running and ≤ 4 s cold.
+  - Cold startup publishes the first completed segment immediately. File-backed inputs make a bounded catch-up burst (at most 20 s) toward a 12 s cushion at the published edge, then retain the lead actually produced. Raw input ahead of the encoder does not count as buffered media. `PROGRAM-DATE-TIME` stays on the schedule clock; faster delivery does not change programme offsets. Live HLS inputs start from the provider's last three segments. A host without enough margin keeps the partial lead and uses the same repeat-picture pressure response while preserving PCM.
   - The output stops after a **60 s idle grace** once the last viewer leaves.
   - `maintain()` prewarms releases as today for channels watched in the last 2 h.
 - **Personal channels** are per viewer by nature. Each viewer's personal channel is its own output (its own switcher and encoder, one rendition), driven by that viewer's rundown (§4.7).
