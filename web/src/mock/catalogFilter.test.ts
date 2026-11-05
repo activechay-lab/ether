@@ -3,6 +3,24 @@ import { buildCatalog } from "./data";
 import { matchesCatalogFilter } from "./catalogFilter";
 
 describe("mock catalogue filtering contract", () => {
+  it("finds a real demo title for the full owner slicing task", () => {
+    const result = buildCatalog().filter((title) =>
+      matchesCatalogFilter(title, {
+        yearFrom: 1990,
+        yearTo: 1999,
+        genres: ["Thriller"],
+        minRating: 7,
+        maxRuntime: 120 * 60e9,
+        playable: "yes",
+        qualities: ["4k"],
+        group: { unwatched: true, userId: 1 },
+      }),
+    );
+    expect(result.some((title) => title.title === "Midnight Verdict")).toBe(true);
+    expect(
+      result.every((title) => title.evidence?.verified && title.evidence.qualities.includes("4k")),
+    ).toBe(true);
+  });
   const titles = buildCatalog();
   const title = titles[0]!;
   it("applies numeric ranges and nested AND/OR to actual results", () => {

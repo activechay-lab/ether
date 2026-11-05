@@ -278,6 +278,29 @@ export function buildCatalog(count = 180, now = new Date("2026-10-19T12:00:00Z")
       providers: PROVIDERS.filter(() => r() < 0.35).map((p) => p.id),
     });
   }
+  // A stable realistic slicing task, independent of random catalogue density.
+  const sample = out.find(
+    (title) => title.type === "movie" && Number(title.key.slice(-2)) % 3 !== 0,
+  );
+  if (sample) {
+    Object.assign(sample, {
+      title: "Midnight Verdict",
+      year: 1995,
+      released: "1995-10-06",
+      genres: ["Thriller", "Crime"],
+      rating: 8.2,
+      runtimeMinutes: 112,
+      summary: "A court reporter uncovers a conspiracy during one rain-soaked night.",
+      evidence: {
+        verified: true,
+        cached: true,
+        qualities: ["4k", "hdr", "atmos"],
+        gate: "admitted",
+      },
+    });
+    sample.poster = posterFor(sample.key, sample.title, sample.year!);
+    sample.backdrop = backdropFor(sample.key, sample.title);
+  }
   return out;
 }
 
