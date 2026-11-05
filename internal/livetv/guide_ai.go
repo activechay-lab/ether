@@ -24,7 +24,7 @@ type GuideAIClient interface {
 }
 
 func init() {
-	store.Register("livetv", 7, `CREATE TABLE livetv_guide_ai (fingerprint TEXT PRIMARY KEY, decision TEXT NOT NULL);`)
+	store.Register("livetv", 8, `CREATE TABLE livetv_guide_ai (fingerprint TEXT PRIMARY KEY, decision TEXT NOT NULL);`)
 }
 
 const aiBatch = 8

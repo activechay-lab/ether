@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@braedonsaunders/appkit-ui";
 import { t } from "../../i18n";
@@ -22,6 +23,7 @@ export function Timeline({
   label: string;
   className?: string;
 }) {
+  const [hover, setHover] = useState<{ text: string; x: number; y: number } | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const [availableWidth, setAvailableWidth] = useState(600);
   useLayoutEffect(() => {
@@ -54,6 +56,18 @@ export function Timeline({
       role="img"
       aria-label={label}
     >
+      {hover
+        ? createPortal(
+            <div
+              role="tooltip"
+              className="fixed z-[100] max-w-72 rounded-lg border border-border bg-elevated px-3 py-2 text-xs text-fg shadow-lg"
+              style={{ left: hover.x, top: hover.y }}
+            >
+              {hover.text}
+            </div>,
+            document.body,
+          )
+        : null}
       <div className="space-y-1.5" style={minWidth ? { minWidth } : undefined}>
         <div className="relative h-14 overflow-hidden rounded-xl border border-border bg-bg-subtle">
           {programmes.map((p) => {
@@ -64,29 +78,58 @@ export function Timeline({
             const width = pct(e) - left;
             const hue = hueOf(p.item.title || p.id);
             const past = e <= now;
+            const interstitial = p.slate?.kind;
             return (
               <div
                 key={p.id}
+                tabIndex={0}
+                onMouseEnter={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setHover({
+                    text: [p.item.title, p.reason, `${clock(p.start)} – ${clock(p.end)}`]
+                      .filter(Boolean)
+                      .join(" · "),
+                    x: Math.min(rect.left, window.innerWidth - 300),
+                    y: rect.bottom + 6,
+                  });
+                }}
+                onMouseLeave={() => setHover(null)}
+                onFocus={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setHover({
+                    text: [p.item.title, p.reason].filter(Boolean).join(" · "),
+                    x: Math.min(rect.left, window.innerWidth - 300),
+                    y: rect.bottom + 6,
+                  });
+                }}
+                onBlur={() => setHover(null)}
+                aria-label={[p.item.title, p.reason].filter(Boolean).join(" · ")}
                 title={`${p.item.title}\n${clock(p.start)} – ${clock(p.end)}`}
                 className={cn(
                   "absolute inset-y-0 overflow-hidden border-r border-bg/80 px-2 py-1.5",
                   past && "opacity-45",
+                  interstitial && "!px-0",
                 )}
                 style={{
                   left: `${left}%`,
-                  width: `${width}%`,
-                  background: `linear-gradient(180deg, hsl(${hue} 55% 50% / 0.22), hsl(${hue} 55% 45% / 0.12))`,
+                  width: interstitial ? `max(2px, ${width}%)` : `${width}%`,
+                  zIndex: interstitial ? 2 : undefined,
+                  background: interstitial
+                    ? "repeating-linear-gradient(135deg, rgb(var(--ch-fg) / .3) 0 2px, rgb(var(--ch-surface)) 2px 5px)"
+                    : `linear-gradient(180deg, hsl(${hue} 55% 50% / 0.22), hsl(${hue} 55% 45% / 0.12))`,
                   boxShadow: `inset 0 2px 0 hsl(${hue} 60% 50%)`,
                 }}
               >
-                {width > 7 ? (
-                  <>
-                    <p className="truncate text-xs font-medium text-fg">{p.item.title}</p>
-                    <p className="truncate text-[10.5px] tabular-nums text-fg-muted">
-                      {clock(p.start)}
-                    </p>
-                  </>
-                ) : null}
+                <div className="h-full w-full">
+                  {width > 7 ? (
+                    <>
+                      <p className="truncate text-xs font-medium text-fg">{p.item.title}</p>
+                      <p className="truncate text-[10.5px] tabular-nums text-fg-muted">
+                        {clock(p.start)}
+                      </p>
+                    </>
+                  ) : null}
+                </div>
               </div>
             );
           })}

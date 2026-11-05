@@ -690,9 +690,39 @@
       "groups": [
         {
           "description": {
-            "source": "A release whose name contains one of these words, or whose release group matches, is never played."
+            "source": "Blocked terms match whole tokens. sub matches SUB, not Subtitles or SUBPACK. Subtitle language tags alone do not prove burned-in subtitles."
           },
           "fields": [
+            {
+              "help": {
+                "source": "Video checks run after playback starts. A newly discovered verdict applies to later selections."
+              },
+              "key": "hardSubtitles",
+              "kind": "select",
+              "label": {
+                "source": "Burned-in subtitles"
+              },
+              "options": [
+                {
+                  "value": "",
+                  "label": {
+                    "source": "Prefer clean releases"
+                  }
+                },
+                {
+                  "value": "exclude",
+                  "label": {
+                    "source": "Exclude known hardsubs"
+                  }
+                },
+                {
+                  "value": "allow",
+                  "label": {
+                    "source": "Allow"
+                  }
+                }
+              ]
+            },
             {
               "key": "blockedGroups",
               "kind": "list",

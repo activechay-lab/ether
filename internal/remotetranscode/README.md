@@ -80,7 +80,7 @@ unresolved ownership. Durable fenced retention/compaction is a subsequent increm
 Without explicit opt-in starts reject DASH/HTTP Matroska. All starts reject
 live/slate inputs, input headers and caller leases,
 burned/selected subtitles without the exact soft-output opt-in, external subtitle URLs, audio filter expressions,
-enhancement, and nonserialized keyframe indexes before assignment. Remote `Probe`
+enhancement, and indexed sources without the explicit complete-index capability before assignment. Remote `Probe`
 and `SwapInput` return `ErrUnsupported`; source-change/release failover is unsupported.
 Segment seeks delegate to the existing backend and may restart that exact encoder;
 start-offset changes require retirement and a new authorized generation.
@@ -243,3 +243,123 @@ private transport, backend HTTP completion/goodput describe worker-to-controller
 output, not final controller-to-viewer delivery. In particular DeliveredUntil
 must not be treated as proof of final viewer delivery. Final-hop delivery evidence
 requires separate broker integration; no observation invents it here.
+
+## Concrete backend preflight
+
+When the injected encoder implements `SupportsDistributedRequest(core.HLSRequest)
+bool`, Worker repeats this side-effect-free check on new exact executions before
+source resolution or admission. Existing immutable duplicate-start replay is
+resolved first. The check runs outside the worker mutex. Missing optional methods
+on custom injected backends retain the explicit trusted host capability contract;
+they do not establish real Manager compatibility by themselves.
+
+`transcode.Manager.SupportsDistributedRequest` validates the actual normalized
+command dependencies against startup-probed encoder/filter/hardware inventories
+and additive muxer/demuxer/decoder/BSF/input-protocol inventories. It checks HTTP
+AAC and DASH normalization, configured ladder decisions, subtitle output, HDR
+conversion plans, implicit muxer BSFs and seek-only dependencies without opening
+sources or spawning processes. Unknown inventories and unsupported combinations
+deny distributed admission. It does not substitute codecs to make a plan pass.
+
+The extra inventories are optional startup queries with a 15-second overall cap,
+3-second per-query bound and 1 MiB combined output cap. Probe failure leaves that
+inventory unknown and changes no standalone FFmpeg feature fallback behavior.
+Preflight and execution must use the same dedicated Manager with fixed policy:
+FastStart/SpikeGovernor/RTX and source mutation disabled; ABR ladders only when
+explicitly configured and supported end-to-end. Protocol capability admission,
+current source/placement authorization and actual worker capacity remain separate
+mandatory checks. Feature support never guarantees successful process/device
+startup or reserves future capacity.
+
+## Trusted terminal reconciliation
+
+`Worker.Terminal(ctx, Identity, requestStop)` is host-only; no route is installed
+and normal transport Security callbacks are unchanged. The composing Runtime must
+independently authenticate current peer membership and freshly authorize the exact
+OLD durable fence, intended worker boot and lost/revoked authority before calling.
+The method returns a copied TerminalSnapshot containing only full Identity,
+TerminalState and Stopped. The closed typed states are TerminalUnknown,
+TerminalPending, TerminalRunning, TerminalRetired and TerminalUnverified; String
+is available for transport rendering. Only TerminalRetired is successful local
+encoder plus local input retirement. It says nothing about remote source-owner
+or durable placement retirement, which require independent proof.
+
+Status-only absence returns ErrUncertain and does not allocate. Stop-before-start
+absence creates a permanent stopped tombstone AND monotonic highest-generation
+floor before local retirement can be returned; the unique never-compacted worker
+boot is essential to that proof. Closed workers or exhausted capacity cannot
+create that fence and return ErrUncertain. Known exact records remain readable
+including after Close. Stops reach only retained exact OwnedEncoderSession and
+input objects; stale/absent-old stops never target a replacement's public ID.
+Late starts and delayed input/encoder producers remain pending; nonnil terminal
+errors remain unverified. No source resolve/start/renew/media work, generic
+Encoder.Stop, old-controller impersonation or authority extension is performed.
+
+## Lossless bounded source indexes and inert enhancement status
+
+`Capabilities.Keyframes` explicitly enables complete `Start.Keyframes` transport
+using the actual `core.KeyframePoint` Offset/Time types. `MaxKeyframes` is 1024;
+`ValidateKeyframes(MediaInfo)` is the shared pure validator used by composition.
+Points must have nonnegative, nondecreasing offsets/timestamps. The COMPLETE
+index must also fit the existing full 64 KiB DTO budget (with assignment reserve
+in preflight). Nothing sorts, truncates, downsamples or drops genuine metadata to
+make a request fit. Oversized indexes remain unsupported before assignment.
+
+The full point slice participates in immutable start hashing/replay. Worker
+restores exact Info.Keyframes only from the explicit validated field for backend
+and concrete Manager preflight, using independent copies. Observation carries an
+explicit complete index too; Info getters restore it after JSON roundtrips and
+return separate point ownership. Segment seeks and RequireIndependentProof still
+reach the existing backend unchanged. Runtime source/preparation/reopen snapshots
+and capability-request DTOs MUST preserve this same explicit field end-to-end
+before any composing host enables indexed-source selection; transport-only tests
+do not establish that integration. Ordinary MediaInfo JSON still excludes indexes.
+
+`transcode.SupportsDistributedEnhancement` accepts only the existing zero status
+or observational State=`off` with Width/Height/Quality all zero, Backend at most
+128 bytes and Reason at most 1024 bytes. Genuine default-CPU Manager decisions
+include this disabled-by-owner status; it is preserved unchanged on wire/backend.
+No status is stripped or rewritten. All operational/unknown enhancement states,
+nonzero action fields and oversized metadata remain unsupported. This permits
+inert displayed status only, not actual enhancement work.
+
+## Stronger receipt evidence (host-only)
+
+`Worker.TerminalEvidence(ctx, Identity)` is read-only: it cannot stop, expire,
+create tombstones, compact, issue credentials, release claims or publish History.
+Runtime first obtains separately authorized exact terminal stopping, then freshly
+verifies the exact old durable fence/current worker peer and independent source
+retirement before consuming this stronger summary.
+
+Every real record constructor now stores explicit AcceptedStart or StopBeforeStart
+origin. Backend invocation is registered before entering OwnedTranscoder. Renewal
+validation callbacks register before invocation and remain joined through every
+callback/CAS exit via deferred cleanup; network serialization happens after this
+accounting releases. Stopped records cannot register a later validation callback.
+Evidence refuses callbacks still capable of extending source authority, even when
+the older Terminal snapshot already says local resources retired.
+
+AcceptedStart evidence requires the actual retained OwnedEncoderSession, returned
+Start retirement token AND session-owned token all present, both encoder tokens
+Done+nil Err, every retained ordinary/gateway input Done+nil Err, stopped admission
+and all late starts/callbacks joined. Proof getters run outside the worker mutex;
+exact record/version/seal/history are rechecked afterwards. Pending, cancellation
+or nonnil terminal errors produce no evidence. Accepted starts that failed before
+backend invocation or never returned an OwnedSession remain unsupported and retain
+history; they are never relabeled NeverStarted.
+
+Negative evidence requires an explicitly recorded permanent stop-before-start
+barrier and generation floor, not absence/hash-zero/TerminalRetired inference.
+It carries NegativeBarrier proof kinds instead of pretending nil object tokens
+exist. Request hash, lease and accepted renewal are empty in this case.
+
+TerminalEvidenceSummary v1 is bounded and detached: exact boot-scoped Identity,
+closed origin/proof kinds, original retained StartHash/InitialDeadline, accepted
+lease/CAS history, independently joined encoder/input facts and explicit negative
+barrier generation. AcceptedRenewal is copied. No raw Start/grant/source URL,
+credential, callback error or source proof appears. Digest/EncoderDigest/InputDigest
+use distinct versioned SHA-256 domains over the validated <=4 KiB summary. These
+are commitments to independently authenticated observations, not standalone
+cryptographic authenticity or permission to publish/compact. Source-owner proof,
+full cluster/stable-node fence binding and atomic durable History publication are
+separate trusted Runtime/provider responsibilities.

@@ -77,6 +77,20 @@ export function settingsIndex(): SettingHit[] {
   const away = t("Away from home");
   return [
     {
+      key: "looks",
+      title: t("Looks"),
+      where: t("Live TV"),
+      href: "/livetv/looks",
+      keywords: "on air graphics brand reels",
+    },
+    {
+      key: "personal-channel",
+      title: t("Personal channel"),
+      where: t("Live TV"),
+      href: "/livetv",
+      keywords: "recipe viewer personal",
+    },
+    {
       key: "poster-source",
       title: t("Poster source"),
       where: t("Artwork"),

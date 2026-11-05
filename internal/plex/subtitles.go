@@ -720,7 +720,7 @@ func (s *Server) serveSessionASS(w http.ResponseWriter, r *http.Request, session
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		if session, ok := s.d.Transcoder.Session(sessionID); ok {
+		if session, ok := s.plexHLSSession(sessionID); ok {
 			if ass, ok := session.(interface {
 				ServeSoftSubtitle(http.ResponseWriter, *http.Request, int) bool
 			}); ok && ass.ServeSoftSubtitle(w, r, index) {

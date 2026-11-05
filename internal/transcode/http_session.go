@@ -58,6 +58,9 @@ func (m *Manager) startHTTP(ctx context.Context, req core.HLSRequest, life *enco
 		return nil, errors.New("transcode: manager closed")
 	}
 	if encoding && m.cfg.MaxTranscodes > 0 {
+		if m.encodingLocked("") >= m.cfg.MaxTranscodes {
+			m.preemptBackgroundLocked()
+		}
 		if n := m.encodingLocked(""); n >= m.cfg.MaxTranscodes {
 			m.mu.Unlock()
 			return nil, fmt.Errorf("%w (%d running)", ErrTooManyTranscodes, n)

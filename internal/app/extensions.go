@@ -30,10 +30,18 @@ func (a *App) extensionHandlers() map[string]http.Handler {
 		}
 		return false
 	}})
-	m["cache"] = a.cacheHandler()
-	m["availability"] = a.availability.Handler()
-	m["stats"] = a.stats.Handler()
-	m["experience"] = a.stats.ExperienceHandler()
+	if a.cache != nil {
+		m["cache"] = a.cacheHandler()
+	}
+	if a.availability != nil {
+		m["availability"] = a.availability.Handler()
+	}
+	if a.stats != nil {
+		m["stats"] = a.stats.Handler()
+	}
+	if a.stats != nil {
+		m["experience"] = a.stats.ExperienceHandler()
+	}
 	m["indexer-usage"] = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if a.indexers == nil {
 			http.NotFound(w, r)
@@ -41,16 +49,28 @@ func (a *App) extensionHandlers() map[string]http.Handler {
 		}
 		a.indexers.UsageHandler().ServeHTTP(w, r)
 	})
-	m["notifications"] = a.notifications.Handler()
-	m["livetv"] = a.livetv.Handler()
-	m["calendar"] = a.calendar.Handler()
+	if a.notifications != nil {
+		m["notifications"] = a.notifications.Handler()
+	}
+	if a.livetv != nil {
+		m["livetv"] = a.livetv.Handler()
+	}
+	if a.onair != nil {
+		m["onair"] = a.onair.Handler()
+	}
+	if a.calendar != nil {
+		m["calendar"] = a.calendar.Handler()
+	}
 	m["safety/diagnostics"] = a.diagnosticsHandler()
 	m["playback"] = a.playbackPolicyHandler()
 	m["quality"] = a.qualityHandler()
-	m["indexer-sites"] = a.sites.Handler(cardigann.HandlerDeps{
-		Indexers: func() []config.Indexer { return a.cfg.Get().Indexers },
-		Unredact: func(ix config.Indexer) config.Indexer { return admin.UnredactIndexer(ix, a.cfg.Get()) },
-	})
+	if a.sites != nil {
+		m["indexer-sites"] = a.sites.Handler(cardigann.HandlerDeps{
+			Indexers: func() []config.Indexer { return a.cfg.Get().Indexers },
+			Unredact: func(ix config.Indexer) config.Indexer { return admin.UnredactIndexer(ix, a.cfg.Get()) },
+		})
+	}
+
 	m["stream-preferences"] = a.trackprefs.Handler()
 	m["markers"] = a.markers.Handler()
 	m["subtitle-sync"] = a.subtitleSyncHandler()
@@ -58,20 +78,23 @@ func (a *App) extensionHandlers() map[string]http.Handler {
 	m["updates"] = a.updatesHandler()
 	m["server/restart"] = a.restartHandler()
 	m["cluster"] = a.clusterHandler()
-	ua := "Ether/" + a.opts.Version + " (+https://github.com/braedonsaunders/ether)"
-	m["releases"] = a.resolver.ConsoleHandler(resolver.ConsoleDeps{
-		Catalog: a.catalog,
-		Invalidate: func(key core.RatingKey) {
-			if a.playback != nil {
-				// Every node drops its warm entries for the title.
-				a.playback.InvalidateTitleEverywhere(key)
-			}
-		},
-		Logger:      a.log.With("component", "release-console"),
-		Guides:      resolver.NewTrashGuides(resolver.TrashOptions{UserAgent: ua}),
-		Dictionarry: resolver.NewDictionarry(resolver.DictionarryOptions{UserAgent: ua}),
-		SaveConfig:  a.saveValidated,
-	})
+	if a.resolver != nil {
+		ua := "Ether/" + a.opts.Version + " (+https://github.com/braedonsaunders/ether)"
+		m["releases"] = a.resolver.ConsoleHandler(resolver.ConsoleDeps{
+			Catalog: a.catalog,
+			Invalidate: func(key core.RatingKey) {
+				if a.playback != nil {
+					// Every node drops its warm entries for the title.
+					a.playback.InvalidateTitleEverywhere(key)
+				}
+			},
+			Logger:      a.log.With("component", "release-console"),
+			Guides:      resolver.NewTrashGuides(resolver.TrashOptions{UserAgent: ua}),
+			Dictionarry: resolver.NewDictionarry(resolver.DictionarryOptions{UserAgent: ua}),
+			SaveConfig:  a.saveValidated,
+		})
+	}
+
 	a.discoveryHandlers(m)
 	adoptionHandlers(a, m)
 	a.extensibilityHandlers(m)

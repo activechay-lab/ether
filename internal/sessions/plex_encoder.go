@@ -1,0 +1,110 @@
+package sessions
+
+import (
+	"context"
+	"github.com/braedonsaunders/ether/internal/core"
+	"net/http"
+)
+
+// StartPlexHLS is the opt-in universal encoder seam after the Plex adapter has
+// performed its existing acceptance, policy, selection and grant checks. Errors
+// never authorize caller fallback or a second encoder.
+func (b *Broker) StartPlexHLS(ctx context.Context, viewer *core.User, playID, publicID string, q core.HLSRequest) (core.HLSSession, error) {
+	if q.SessionID != publicID || playID == "" || !validPlexTranscodeID(publicID) {
+		return nil, core.ErrUnauthorized
+	}
+	v, err := b.viewer(ctx, viewer)
+	if err != nil {
+		return nil, err
+	}
+	b.mu.Lock()
+	entry := b.sessions[publicID]
+	if entry == nil || entry.public.Protocol != "plex" || entry.public.ViewerID != v.ID || entry.playID != playID || b.closed {
+		b.mu.Unlock()
+		return nil, core.ErrUnauthorized
+	}
+	copy := *entry
+	b.mu.Unlock()
+	if !b.currentMediaPolicy(ctx, v, &copy) {
+		return nil, core.ErrUnauthorized
+	}
+	ps, ok := b.deps.Playback.Session(playID)
+	if !ok || ps == nil || ps.UserID != v.ID || ps.Key != copy.public.Item || q.ReleaseID != ps.SourceReleaseID() {
+		return nil, core.ErrNotAvailable
+	}
+	if copy.allowTranscoding != nil && !*copy.allowTranscoding && decisionEncodes(q.Decision, ps.Info) {
+		return nil, core.ErrUnauthorized
+	}
+	if remote, ok := b.deps.Playback.(interface {
+		RevalidateSession(context.Context, string) error
+	}); ok {
+		if err = remote.RevalidateSession(ctx, playID); err != nil {
+			return nil, err
+		}
+	}
+	remote := b.deps.DistributedHLS
+	if remote != nil {
+		if remote.Supports(q) {
+			revision := sourceRevision(ps)
+			if revision == "" {
+				return nil, core.ErrSourceChanged
+			}
+			return remote.StartDistributedHLS(ctx, v.ID, playID, revision, q)
+		}
+		if remote.Allocated(publicID) {
+			return nil, core.ErrNotAvailable
+		}
+	}
+	if b.deps.Transcoder == nil {
+		return nil, core.ErrNotAvailable
+	}
+	return b.deps.Transcoder.StartHLS(ctx, q)
+}
+
+// PlexHLSSession reports ownership independently of current availability. A nil
+// session with true means retained remote responsibility, never local fallback.
+func (b *Broker) PlexHLSSession(id string) (core.HLSSession, bool) {
+	if remote := b.deps.DistributedHLS; remote != nil && remote.Allocated(id) {
+		session, _ := remote.Session(id)
+		return session, true
+	}
+	if b.deps.Transcoder == nil {
+		return nil, false
+	}
+	return b.deps.Transcoder.Session(id)
+}
+
+// StopPlexHLS returns true when the remote coordinator owns the exact execution,
+// including uncertain start/stop phases. It never claims retirement completion.
+func (b *Broker) StopPlexHLS(id string) bool {
+	if remote := b.deps.DistributedHLS; remote != nil && remote.Allocated(id) {
+		remote.Stop(id)
+		return true
+	}
+	return false
+}
+
+// BindPlexDelivery preserves the original authenticated Plex handler at owner.
+func (b *Broker) BindPlexDelivery(handler http.Handler) error {
+	if remote, ok := b.deps.DistributedHLS.(interface{ BindPlexDelivery(http.Handler) error }); ok {
+		return remote.BindPlexDelivery(handler)
+	}
+	return core.ErrNotAvailable
+}
+func (b *Broker) ForwardPlexMedia(w http.ResponseWriter, r *http.Request, id string) bool {
+	if remote, ok := b.deps.DistributedHLS.(interface {
+		ForwardPlexMedia(http.ResponseWriter, *http.Request, string) bool
+	}); ok {
+		return remote.ForwardPlexMedia(w, r, id)
+	}
+	return false
+}
+
+func (b *Broker) ForwardPlexGrantMedia(w http.ResponseWriter, r *http.Request, id string) bool {
+	if remote, ok := b.deps.DistributedHLS.(interface {
+		ForwardPlexGrantMedia(http.ResponseWriter, *http.Request, string) bool
+	}); ok {
+		return remote.ForwardPlexGrantMedia(w, r, id)
+	}
+	return false
+}

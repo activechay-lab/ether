@@ -41,6 +41,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/newznab"
 	"github.com/braedonsaunders/ether/internal/notify"
 	"github.com/braedonsaunders/ether/internal/notinterested"
+	"github.com/braedonsaunders/ether/internal/onair"
 	"github.com/braedonsaunders/ether/internal/overlays"
 	"github.com/braedonsaunders/ether/internal/personalize"
 	"github.com/braedonsaunders/ether/internal/playback"
@@ -133,20 +134,23 @@ type Options struct {
 
 // App is a running Ether server.
 type App struct {
-	perf          *perfObserver // per-request database cost, budgets and trace
-	availability  *availability.Service
-	opts          Options
-	log           *slog.Logger
-	logs          *admin.LogBuffer
-	support       *diagnostics.Recorder
-	cfg           *config.Store
-	proxyMu       sync.Mutex
-	prowlarrMu    sync.Mutex
-	prowlarrState string
-	prowlarrKept  bool
-	proxyGen      uint64
-	proxyReady    bool
-	proxyPrefixes []netip.Prefix
+	deployment       *deploymentRuntime
+	brokerPlayback   core.Playback
+	brokerTranscoder core.Transcoder
+	perf             *perfObserver // per-request database cost, budgets and trace
+	availability     *availability.Service
+	opts             Options
+	log              *slog.Logger
+	logs             *admin.LogBuffer
+	support          *diagnostics.Recorder
+	cfg              *config.Store
+	proxyMu          sync.Mutex
+	prowlarrMu       sync.Mutex
+	prowlarrState    string
+	prowlarrKept     bool
+	proxyGen         uint64
+	proxyReady       bool
+	proxyPrefixes    []netip.Prefix
 	// seenFamilies records a client family policy once per process. Playback
 	// does not take a write lock to refresh last_seen.
 	seenFamilies sync.Map
@@ -202,6 +206,7 @@ type App struct {
 	sources             *debrid.Indexer // core.Indexer over indexers
 	resolver            *resolver.Service
 	transcoder          *transcode.Manager
+	sourceProber        *transcode.SourceProber
 	trickplay           *trickplay.Owner
 	load                *sysload.Sampler // machine load for the Overview
 	playback            *playback.Manager
@@ -235,6 +240,8 @@ type App struct {
 	markers           *markers.Service
 	extras            *extras.Service
 	prerolls          *prerolls.Service
+	pluginContent     *onair.PluginContentCache
+	onair             *onair.Service
 	backups           *backup.Service
 	migration         *migrate.Service
 	safety            *safety.Service
@@ -314,8 +321,11 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 	if err := a.confirmUpdateStartup(); err != nil {
 		return nil, err
 	}
+	if err := a.prepareDeployment(ctx); err != nil {
+		return nil, err
+	}
 	a.tracker = startup.NewTracker(opts.Version, time.Now)
-	if opts.front != nil {
+	if opts.front != nil && (a.deployment == nil || a.deployment.settings.Roles.FullServer()) {
 		a.tracker = opts.front.tracker
 		a.tracker.Begin()
 		if err := a.openFrontDoor(); err != nil {
@@ -328,6 +338,8 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		return nil, err
 	}
 
+	ctx = store.WithWorkProgress(ctx, a.upgradeProgress)
+	a.tracker.Work("settings", 0, 0)
 	// Opening the config may rewrite it for this version, so capture the
 	// files as they are now: a pre-migrate database snapshot stores them, so
 	// the snapshot can be restored together with its matching settings.
@@ -367,7 +379,10 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		cfg = a.cfg.Get()
 	}
 	dbCfg := cfg.Database.Effective(os.Getenv)
-	if err := validateNodeSettings(cfg.Server, dbCfg); err != nil {
+	if a.deployment != nil {
+		dbCfg = cfg.Database
+	}
+	if err := a.validateRuntimeSettings(cfg.Server, dbCfg); err != nil {
 		return nil, startFail(startup.FailConfig, fmt.Errorf("node settings: %w", err))
 	}
 	dirs := []string{cfg.Transcode.TempDir}
@@ -460,10 +475,47 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 	cfg = a.cfg.Get()
 	// Recheck after the shared settings overlay and override migration, before
 	// constructing services. Role/address settings remain node-local.
-	if err := validateNodeSettings(cfg.Server, dbCfg); err != nil {
+	if err := a.validateRuntimeSettings(cfg.Server, dbCfg); err != nil {
 		return nil, startFail(startup.FailConfig, fmt.Errorf("node settings: %w", err))
 	}
 	a.tracker.Set(startup.PhaseStartingServices)
+	if a.deployment != nil && !cfg.Server.NodeRoles.FullServer() {
+		if cfg.Server.NodeRoles.Has(config.RoleServer) {
+			if err := a.buildServerRole(ctx, cfg); err != nil {
+				return nil, err
+			}
+			a.connectServerHooks()
+			a.initUpdates()
+			a.syncOwnerRecovery(ctx)
+			started = true
+			return a, nil
+		}
+		if cfg.Server.NodeRoles.Has(config.RoleDelivery) {
+			if err := a.buildDeliveryRole(ctx, cfg); err != nil {
+				return nil, err
+			}
+			started = true
+			return a, nil
+		}
+		if cfg.Server.NodeRoles.Has(config.RoleTranscode) {
+			if err := a.buildPrivateEncoder(cfg); err != nil {
+				return nil, err
+			}
+		}
+		if cfg.Server.NodeRoles.Has(config.RoleSource) {
+			if err := a.buildSourceRole(ctx, cfg); err != nil {
+				return nil, err
+			}
+		}
+		if err := a.buildPrivateCredentials(); err != nil {
+			return nil, err
+		}
+		if err := a.buildClusterPlayback(ctx, cfg); err != nil {
+			return nil, err
+		}
+		started = true
+		return a, nil
+	}
 	cfg = a.adoptMountedCache(cfg)
 	if err := a.build(ctx, cfg); err != nil {
 		a.Close()
@@ -478,6 +530,9 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 }
 
 func (a *App) build(ctx context.Context, cfg config.Config) error {
+	if err := a.buildPrivateCredentials(); err != nil {
+		return err
+	}
 	a.support = diagnostics.New(a.supportDeps())
 	cfg.Cache = cfg.EffectiveCache()
 	var err error
@@ -492,7 +547,7 @@ func (a *App) build(ctx context.Context, cfg config.Config) error {
 			a.safety.SetCatalogPolicy(a.catalog.VisibleForViewer, a.catalog.DiscoveryVisibleForViewer)
 			return nil
 		}, a.buildIdentity, a.buildSessionEvents, a.buildPersonalization,
-		a.buildSources, a.buildPlayback, a.buildPrefetch, a.buildIntegrations,
+		a.buildSources, a.buildPlayback, a.buildClusterPlayback, a.buildPrefetch, a.buildIntegrations,
 	} {
 		if err := build(ctx, cfg); err != nil {
 			return err
@@ -607,6 +662,7 @@ func (a *App) settleBeforeListen(ctx context.Context) {
 		}
 	}
 	if a.db != nil && store.DialectOf(a.db) == store.SQLite {
+		a.upgradeProgress("checkpoint", 0, 0)
 		if _, err := a.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 			a.log.Warn("startup checkpoint", "err", err)
 		}
@@ -618,6 +674,13 @@ func (a *App) Config() *config.Store { return a.cfg }
 
 // Run serves until ctx is cancelled.
 func (a *App) Run(ctx context.Context) error {
+	ctx = store.WithWorkProgress(ctx, a.upgradeProgress)
+	if a.deployment != nil && !a.cfg.Get().Server.NodeRoles.FullServer() {
+		if roles := a.cfg.Get().Server.NodeRoles; roles.Has(config.RoleServer) || roles.Has(config.RoleDelivery) {
+			return a.runPublicRole(ctx)
+		}
+		return a.runSpecialist(ctx)
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	a.bindRestart(ctx, cancel)
@@ -632,6 +695,11 @@ func (a *App) Run(ctx context.Context) error {
 		}
 		return err
 	}
+	stopPrivate, err := a.startPrivate(ctx)
+	if err != nil {
+		return err
+	}
+	defer stopPrivate()
 	if err := a.migrateCredentials(ctx); err != nil {
 		return fmt.Errorf("convert stored credentials: %w", err)
 	}
@@ -747,6 +815,7 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 	front.gate.Open(a.handler)
+	a.markPublicReady()
 	uiURL := fmt.Sprintf("http://localhost:%d/ether/", cfg.Server.Port)
 	a.log.Info("Ether listening", "addr", addr.String(), "ui", uiURL,
 		"version", a.opts.Version, "spike", cfg.Spike.Enabled)
@@ -785,7 +854,11 @@ func (a *App) Run(ctx context.Context) error {
 			return err
 		}
 	case runErr = <-watchdogErr:
+	case runErr = <-a.privateErrors():
 	case runErr = <-a.clusterFatal: // nil channel (never ready) when standalone
+	}
+	if a.deployment != nil {
+		a.drainPrivate()
 	}
 	if runErr == nil {
 		a.notifyLifecycle("server.stopping", "Ether is stopping", "The server is shutting down or restarting.")

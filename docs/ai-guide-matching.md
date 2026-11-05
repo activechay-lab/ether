@@ -120,3 +120,13 @@ This measures retrieval, budgets, validation and review/apply plumbing. It does
 was made: no LLM configuration was found in the standard local Ether config
 locations inspected on this machine. Provider response quality remains an
 owner acceptance check with a representative real lineup.
+
+## Release integration
+
+Merged `origin/release/0.3.5` at `2259c6f7d06a3efead9f4c901ec5ba477f835e12`,
+preserving the On Air service wiring, personal scheduling, look tools and mock
+behaviour alongside AI guide review. On Air owns Live TV migration 7; the AI
+cache and undo migrations are now 8 and 9. Catalogues were merged key by key
+and synchronized. Full scoped tests for livetv, app, mcp and agent/builtin,
+101 web/i18n tests across eight files, and the typecheck pass. All 20 locales
+are complete at 6,689 messages.

@@ -567,36 +567,27 @@ func TestVirtualChannelHLSFromStartPlaylistKeepsTheSession(t *testing.T) {
 	}
 	var segment string
 	for _, line := range strings.Split(start.Body.String(), "\n") {
-		if strings.Contains(line, "/program/") {
+		if strings.Contains(line, "/relay/") {
 			segment = strings.TrimSpace(line)
 			break
 		}
 	}
-	if segment == "" || !strings.HasPrefix(segment, sessionPath+"/0/program/") || !strings.Contains(segment, streamgrant.StreamGrantParam+"=") {
+	if segment == "" || !strings.HasPrefix(segment, sessionPath+"/0/relay/") || !strings.Contains(segment, streamgrant.StreamGrantParam+"=") {
 		t.Fatalf("start.m3u8 segment is not a rooted stream-token URL:\n%s", start.Body.String())
 	}
-	joined := time.Hour + time.Minute + 44*time.Second
-	sawJoin := false
-	for _, h := range tc.sessions {
-		if h.req.StartOffset == joined && !h.req.LiveInput {
-			sawJoin = true
-		}
-	}
-	if !sawJoin {
-		t.Fatalf("virtual join did not seek %s into the programme", joined)
-	}
+
 	if strings.Contains(start.Body.String(), "\nprogram/") {
 		t.Fatal("start.m3u8 still advertises a relative segment")
 	}
 	media := f.request(t, "GET", segment, map[string]string{"X-Plex-Token": ""})
-	if media.Code != 200 || !strings.HasPrefix(media.Body.String(), "segment-") {
+	if media.Code != 200 || !strings.HasPrefix(media.Body.String(), "shared-ts-") {
 		t.Fatalf("segment with only the stream token: %d %q", media.Code, media.Body.String())
 	}
 	if len(service.ViewingSessions()) != 1 {
 		t.Fatal("segment request closed the live session")
 	}
 	index := f.request(t, "GET", sessionPath+"/0/index.m3u8", headers)
-	if index.Code != 200 || !strings.Contains(index.Body.String(), "\nprogram/") {
+	if index.Code != 200 || !strings.Contains(index.Body.String(), "\nrelay/") {
 		t.Fatalf("session playlist lost relative segments: %d %s", index.Code, index.Body.String())
 	}
 }

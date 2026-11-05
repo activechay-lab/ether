@@ -32,8 +32,9 @@ byte stream. Live TV owns viewer playlists, MPDs and any Matroska remux. The
 index publishes only the prefix complete in both file formats. Its init contains
 both tracks; `Format` reads their actual RFC 6381 codec identifiers from that
 init. Sequence numbers begin at zero; wall-clock starts are anchored to the
-first admitted tick. Durations are 4 seconds at 25/30 fps and 4.004 seconds at
-30000/1001 (120 frames). A zero DVR window retains six segments; positive windows
+first admitted tick. Opening durations are 1,1,2 seconds, followed by 4-second steady segments
+at25/30fps. At30000/1001 they are1.001,1.001,2.002, then4.004seconds.
+Short openings reduce tune time without disabling quality features. A zero DVR window retains six segments; positive windows
 retain enough whole segments to cover the requested duration. Evicted files
 return HTTP 404, and evicted index waits return `core.ErrNotFound`.
 

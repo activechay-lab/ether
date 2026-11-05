@@ -32,6 +32,9 @@ export interface StartupStatus {
   phase: StartupPhase;
   ready: boolean;
   message: string;
+  task?: string;
+  completed?: number;
+  total?: number;
   step?: number;
   steps?: number;
   /** When this start began (a new process or an in-process restart). */

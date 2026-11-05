@@ -241,3 +241,39 @@ func TestAdapterAdmissionAndUncertainProof(t *testing.T) {
 		t.Fatal("retirement proof")
 	}
 }
+
+type checkingEncoder struct {
+	*fakeEncoder
+	allowed bool
+	checks  int
+}
+
+func (f *checkingEncoder) SupportsDistributedRequest(core.HLSRequest) bool {
+	f.checks++
+	return f.allowed
+}
+func TestBackendPreflightPrecedesSourceAndPreservesReplay(t *testing.T) {
+	w, f, start := fixture(t)
+	checker := &checkingEncoder{fakeEncoder: f}
+	w.opts.Encoder = checker
+	original := w.opts.Resolve
+	resolves := 0
+	w.opts.Resolve = func(ctx context.Context, peer string, s Start) (Source, error) {
+		resolves++
+		return original(ctx, peer, s)
+	}
+	if got := rpc(w, "start", start, true); got.Code != 422 {
+		t.Fatalf("unsupported plan status %d", got.Code)
+	}
+	if resolves != 0 || f.calls != 0 || len(w.records) != 0 {
+		t.Fatal("rejected preflight had source/admission side effects")
+	}
+	checker.allowed = true
+	if state(t, rpc(w, "start", start, true)) != "running" {
+		t.Fatal("supported plan failed")
+	}
+	checker.allowed = false
+	if state(t, rpc(w, "start", start, true)) != "running" || checker.checks != 2 || resolves != 1 || f.calls != 1 {
+		t.Fatal("policy recheck changed immutable start replay")
+	}
+}

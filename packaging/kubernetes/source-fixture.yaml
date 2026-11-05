@@ -1,0 +1,67 @@
+# Lab-only. Load ether035-ha:a73b5c7a7 into the named kind cluster first.
+# Create configmap ether035-ha-source-code from source-fixture.py separately.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ether035-ha-source
+spec:
+  selector: {app: ether035-ha-source}
+  ports:
+    - {name: newznab, port: 8080, targetPort: 8080}
+    - {name: nntp, port: 1190, targetPort: 1190}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ether035-ha-source
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ether035-ha-source}
+  template:
+    metadata:
+      labels: {app: ether035-ha-source}
+    spec:
+      automountServiceAccountToken: false
+      # Keep fixture authority away from worker-node process-loss experiments.
+      nodeSelector: {kubernetes.io/hostname: ether035-ha-control-plane}
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      initContainers:
+        - name: generate
+          image: ether035-ha:a73b5c7a7
+          imagePullPolicy: Never
+          command: [/usr/bin/nice, '-n', '10', /usr/lib/ether/ffmpeg]
+          args: [-hide_banner, -nostdin, -f, lavfi, -i, 'testsrc2=size=640x360:rate=24', -f, lavfi, -i, 'sine=frequency=440:sample_rate=48000', '-t', '180', '-c:v', mpeg4, '-q:v', '7', '-threads', '1', '-c:a', aac, '-b:a', 64k, -movflags, '+faststart', /media/fixture.mp4]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: '1', memory: 512Mi}
+          volumeMounts: [{name: media, mountPath: /media}]
+      containers:
+        - name: source
+          image: python:3.12.12-slim-bookworm
+          command: [python3, -B, /code/source-fixture.py]
+          args: [--media, /media/fixture.mp4, --origin, 'http://ether035-ha-source.ether035-ha.svc.cluster.local:8080']
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {cpu: '1', memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          ports: [{name: newznab, containerPort: 8080}, {name: nntp, containerPort: 1190}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: newznab}
+          volumeMounts:
+            - {name: media, mountPath: /media, readOnly: true}
+            - {name: code, mountPath: /code, readOnly: true}
+      volumes:
+        - name: media
+          emptyDir: {sizeLimit: 100Mi}
+        - name: code
+          configMap: {name: ether035-ha-source-code}

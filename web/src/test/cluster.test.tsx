@@ -14,6 +14,8 @@ import {
   tokenState,
   transcodeLabel,
   managerURL,
+  nodeRuntime,
+  runtimeFresh,
 } from "../pages/settings/Cluster";
 import { calls, renderApp } from "./harness";
 
@@ -167,6 +169,47 @@ describe("Server › Cluster", () => {
     expect(screen.getByText("3f9c2a71d04be6a8")).toBeInTheDocument();
   });
 
+  it("shows independent local serving/admission observations and leaves peers unknown", async () => {
+    renderApp("/cluster", { cluster: true }, (fake) => {
+      const fetch = fake.fetch;
+      fake.fetch = async (...args) => {
+        const response = await fetch(...args);
+        if (!String(args[0]).endsWith("/cluster/")) return response;
+        const status = (await response.json()) as ClusterStatus;
+        status.self.incarnation = "current";
+        status.nodes![0]!.incarnation = "current";
+        status.selfRuntime = {
+          nodeId: status.self.id,
+          boot: "current",
+          runtimeSampledAt: new Date().toISOString(),
+          protocol: 1,
+          started: true,
+          readyExisting: true,
+          acceptingNew: false,
+          draining: true,
+        };
+        return new Response(JSON.stringify(status));
+      };
+    });
+    const nodes = await screen.findByRole("region", { name: "Nodes" }, WAIT);
+    const local = rowOf(nodes, "den");
+    expect(within(local).getByText("Serving existing work").nextElementSibling).toHaveTextContent(
+      "Yes",
+    );
+    expect(within(local).getByText("Accepting new work").nextElementSibling).toHaveTextContent(
+      "No",
+    );
+    const peer = rowOf(nodes, "attic");
+    expect(within(peer).getByText("Serving existing work").nextElementSibling).toHaveTextContent(
+      "Unknown",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Manage this node" }));
+    const drawer = await screen.findByRole("dialog", { name: "Manage this node" });
+    expect(within(drawer).getByText("Accepting new work").nextElementSibling).toHaveTextContent(
+      "No",
+    );
+  });
+
   it("lists join tokens with their state", async () => {
     renderApp("/cluster", { cluster: true });
     const tokens = await screen.findByRole("region", { name: "Join tokens" }, WAIT);
@@ -258,6 +301,42 @@ describe("cluster helpers", () => {
     epoch: 1,
     nodes: [],
   };
+
+  it("binds runtime only to the captured local boot and ages it independently of heartbeat", () => {
+    const self = { ...base.self, incarnation: "boot-a" };
+    const runtime = {
+      nodeId: self.id,
+      boot: "boot-a",
+      runtimeSampledAt: now.toISOString(),
+      protocol: 1,
+      started: true,
+      readyExisting: true,
+      acceptingNew: false,
+      draining: true,
+    };
+    const status = { ...base, self, selfRuntime: runtime };
+    expect(nodeRuntime(status, self)).toBe(runtime);
+    for (const node of [
+      { ...self, id: "peer" },
+      { ...self, incarnation: "old" },
+      { ...self, incarnation: undefined },
+    ])
+      expect(nodeRuntime(status, node)).toBeUndefined();
+    expect(nodeRuntime({ ...status, self: { ...self, incarnation: "new" } }, self)).toBeUndefined();
+    expect(nodeRuntime({ ...status, selfRuntime: undefined }, self)).toBeUndefined();
+    expect(
+      nodeRuntime({ ...status, selfRuntime: { ...runtime, nodeId: "peer" } }, self),
+    ).toBeUndefined();
+    expect(runtimeFresh(runtime.runtimeSampledAt, now.getTime())).toBe(true);
+    for (const at of [
+      "",
+      "invalid",
+      "0001-01-01T00:00:00Z",
+      new Date(now.getTime() + 1).toISOString(),
+      new Date(now.getTime() - 20_001).toISOString(),
+    ])
+      expect(runtimeFresh(at, now.getTime())).toBe(false);
+  });
 
   it("warns when this node loses the database, the event channel or clock sync", () => {
     const healthy = {

@@ -87,7 +87,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	failedProgressive := false
 	for _, id := range tids {
 		if s.d.Transcoder != nil {
-			if session, ok := s.d.Transcoder.Session(id); ok {
+			if session, ok := s.plexHLSSession(id); ok {
 				if failed, ok := session.(interface{ ProgressiveFailed() bool }); ok && failed.ProgressiveFailed() {
 					failedProgressive = true
 				}
@@ -150,6 +150,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		state = "stopped"
 	}
 	if state == "stopped" {
+		s.endVersionFlow(ctx, s.playIdentityFor(pr, key))
 		if e, ok := s.sessions.remove(tid); ok {
 			e.offset = offset
 			s.notifyPlaying(e, "stopped")
@@ -168,13 +169,18 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 			}
 			if e, ok := s.transcodes.get(id); ok && e.userID == user.ID && e.clientID == pr.ClientID && e.key == key {
 				if s.d.Transcoder != nil {
-					s.d.Transcoder.Stop(id)
+					s.stopPlexHLS(id)
 				}
 				s.dropTranscode(id)
 			}
 			unlock()
 		}
 	} else {
+		if s.versionFlows != nil {
+			if _, err := s.versionFlows.call(ctx, s.playIdentityFor(pr, key), nil, versionTouch, s.now(), 0); err != nil {
+				s.log.Warn("refresh version flow", "err", err)
+			}
+		}
 		client := *pr
 		client.User = nil
 		fresh := !s.sessions.has(tid)

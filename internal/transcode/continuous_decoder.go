@@ -9,7 +9,10 @@ import (
 	"net/url"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 type continuousDecoder struct {
@@ -18,6 +21,9 @@ type continuousDecoder struct {
 	readDone chan struct{}
 	readErr  error
 	workers  sync.WaitGroup
+	reads    [2]atomic.Int64
+	ptsStop  chan struct{}
+	ptsOnce  sync.Once
 }
 
 func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, error) {
@@ -65,16 +71,57 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		}
 	}()
 	f := r.Format
-	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-threads", "2", "-filter_threads", "1"}
+	if r.Seeked && (r.Live || r.Loop) {
+		return nil, errors.New("transcode: indexed input must be non-live and non-looping")
+	}
+	args := []string{"-hide_banner", "-loglevel", "warning", "-nostdin", "-threads", "2", "-filter_threads", "1"}
 	args = append(args, inputSafetyArgs(r.InputURL, r.Live)...)
-	if !r.Live && r.Offset > 0 {
-		args = append(args, "-ss", strconv.FormatFloat(r.Offset.Seconds(), 'f', 6, 64), "-noaccurate_seek")
+	if r.Live {
+		args = append(args, "-copyts")
+		if strings.HasSuffix(strings.ToLower(u.Path), ".m3u8") {
+			args = append(args, "-live_start_index", "-1")
+		}
+	}
+	if !r.Live && !r.Seeked && r.Offset > 0 {
+		args = append(args, "-ss", strconv.FormatFloat(r.Offset.Seconds(), 'f', 6, 64))
 	}
 	if r.Loop {
 		args = append(args, "-stream_loop", "-1")
 	}
-	args = append(args, "-i", r.InputURL, "-map", "0:v:0", "-vf", fmt.Sprintf("scale=%d:%d,fps=%d/%d,setsar=1,setpts=N*%d/(%d*TB)", f.Width, f.Height, f.FPSNum, f.FPSDen, f.FPSDen, f.FPSNum), "-pix_fmt", "yuv420p", "-c:v", "rawvideo", "-threads:v", "1", "-f", "rawvideo", sockets[0].url(), "-map", "0:a:0", "-af", "aresample=48000:async=1:first_pts=0", "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-f", "s16le", sockets[1].url())
-	p, e := m.startContinuous(ctx, args, "", true, sockets, nil, nil)
+	if r.Seeked {
+		args = append(args, "-probesize", "262144", "-analyzeduration", "500000")
+	}
+	videoFilter := fmt.Sprintf("scale=%d:%d,fps=%d/%d,setsar=1,", f.Width, f.Height, f.FPSNum, f.FPSDen)
+	audioFilter := "aresample=48000:async=1:first_pts=0"
+	if r.Seeked && r.Offset > 0 {
+		trim := strconv.FormatFloat(r.Offset.Seconds(), 'f', 6, 64)
+		videoFilter = "trim=start=" + trim + "," + videoFilter
+		audioFilter = "atrim=start=" + trim + ",asetpts=PTS-STARTPTS," + audioFilter
+	}
+	pts := make(chan time.Duration, 16)
+	ptsStop := make(chan struct{})
+	if r.Live {
+		args = append(args, "-loglevel", "info")
+		videoFilter += "showinfo=checksum=0,"
+		audioFilter = "asetpts=PTS-STARTPTS," + audioFilter
+	}
+	videoFilter += fmt.Sprintf("setpts=N*%d/(%d*TB)", f.FPSDen, f.FPSNum)
+	args = append(args, "-i", r.InputURL, "-map", "0:v:0", "-vf", videoFilter, "-pix_fmt", "yuv420p", "-c:v", "rawvideo", "-threads:v", "1", "-f", "rawvideo", sockets[0].url(), "-map", "0:a:0", "-af", audioFilter, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-f", "s16le", sockets[1].url())
+	p, e := m.startContinuous(ctx, args, "", true, sockets, nil, nil, func(line string) {
+		if !r.Live {
+			return
+		}
+		stamp, ok := liveFramePTS(line)
+		if !ok {
+			return
+		}
+		select {
+		case pts <- stamp:
+		case <-ptsStop:
+		case <-ctx.Done():
+		case <-m.stop:
+		}
+	})
 	if e != nil {
 		return nil, e
 	}
@@ -82,7 +129,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	if r.Live {
 		capacity = 0
 	}
-	d := &continuousDecoder{continuousProcess: p, frames: make(chan RawFrame, capacity), readDone: make(chan struct{})}
+	d := &continuousDecoder{continuousProcess: p, frames: make(chan RawFrame, capacity), readDone: make(chan struct{}), ptsStop: ptsStop}
 	// Read both sockets independently: muxer scheduling may deliver many audio
 	// blocks before the next picture. Bounded queues propagate prewarm pressure.
 	vq := make(chan []byte)
@@ -105,6 +152,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 				if _, e := io.ReadFull(c, b); e != nil {
 					return
 				}
+				d.reads[i].Add(1)
 				select {
 				case ch <- b:
 				case <-p.ctx.Done():
@@ -131,6 +179,15 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 				d.readErr = p.result()
 				return
 			}
+			stamp := time.Duration(0)
+			if r.Live {
+				select {
+				case stamp = <-pts:
+				case <-p.ctx.Done():
+					d.readErr = p.result()
+					return
+				}
+			}
 			select {
 			case a, open = <-aq:
 				if !open {
@@ -142,7 +199,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 				return
 			}
 			select {
-			case d.frames <- RawFrame{Video: v, PCM: a}:
+			case d.frames <- RawFrame{Video: v, PCM: a, SourcePTS: stamp, SourcePTSValid: r.Live && stamp >= 0}:
 			case <-p.ctx.Done():
 				d.readErr = p.result()
 				return
@@ -172,4 +229,33 @@ func (d *continuousDecoder) Next(ctx context.Context) (RawFrame, error) {
 		return f, nil
 	}
 }
-func (d *continuousDecoder) Close() error { d.continuousProcess.close(); d.workers.Wait(); return nil }
+func (d *continuousDecoder) Close() error {
+	d.ptsOnce.Do(func() { close(d.ptsStop) })
+	d.continuousProcess.close()
+	d.workers.Wait()
+	return nil
+}
+
+// Diagnostics reports bounded decoder progress without exposing the input URL.
+func (d *continuousDecoder) Diagnostics() string {
+	return fmt.Sprintf("videoFrames=%d audioTicks=%d queued=%d stderr=%s", d.reads[0].Load(), d.reads[1].Load(), len(d.frames), d.stderr.String())
+}
+
+func liveFramePTS(line string) (time.Duration, bool) {
+	if !strings.Contains(line, "showinfo") || !strings.Contains(line, " n:") {
+		return 0, false
+	}
+	_, tail, ok := strings.Cut(line, " pts_time:")
+	if !ok {
+		return 0, false
+	}
+	fields := strings.Fields(tail)
+	if len(fields) == 0 {
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil || value < 0 || value > 1e12 {
+		return -1, true
+	}
+	return time.Duration(value * float64(time.Second)), true
+}

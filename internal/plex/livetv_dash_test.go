@@ -55,29 +55,10 @@ func TestVirtualChannelDASHPlaysThroughPlexWeb(t *testing.T) {
 		t.Fatalf("dash %d %s", mpd.Code, mpd.Body.String())
 	}
 	manifest := mpd.Body.String()
-	for _, want := range []string{`minimumUpdatePeriod="PT2S"`, `timeShiftBufferDepth="PT120S"`, `avc1.640028`, `mp4a.40.2`, `width="1280"`} {
+	for _, want := range []string{`minimumUpdatePeriod="PT2S"`, `timeShiftBufferDepth="PT1800S"`, `avc1.640028`, `mp4a.40.2`, `width="1280"`} {
 		if !strings.Contains(manifest, want) {
 			t.Errorf("manifest missing %s\n%s", want, manifest)
 		}
-	}
-	var joined, next *core.HLSRequest
-	for i := range tc.requests {
-		r := &tc.requests[i]
-		if r.Protocol != core.ProtocolDASH || r.LiveInput {
-			if r.Protocol == core.ProtocolDASH && r.LiveInput {
-				t.Fatal("virtual DASH used a live playlist input")
-			}
-			continue
-		}
-		switch r.StartOffset {
-		case 4 * time.Second:
-			joined = r
-		case 0:
-			next = r
-		}
-	}
-	if joined == nil || joined.Info.Duration != 12*time.Second || next == nil {
-		t.Fatalf("programme sources: joined=%+v next=%+v", joined, next)
 	}
 
 	attr := strings.Split(manifest, `media="`)
@@ -116,44 +97,6 @@ func TestVirtualChannelDASHPlaysThroughPlexWeb(t *testing.T) {
 	}
 	if len(service.ViewingSessions()) != 0 {
 		t.Fatal("live session leaked")
-	}
-}
-
-func TestVirtualDASHFailureIsAPlexDecision(t *testing.T) {
-	f := newFixture()
-	t.Cleanup(func() { f.srv.Close() })
-	db, err := store.OpenMemory(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	pb := newFakePlayback(core.MediaInfo{Duration: time.Hour})
-	tc := &hlsOnlyPlexTranscoder{fakeTranscoder: newFakeTranscoder(core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true})}
-	service, err := livetv.New(livetv.Options{Transcoder: tc, Playback: pb, DB: db, Now: func() time.Time { return time.Unix(7, 0).UTC() }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { service.Close() })
-	if _, err = service.SaveChannel(context.Background(), livetv.Channel{Name: "Catalogue", Number: "4", Kind: "virtual", Enabled: true, Epoch: time.Unix(0, 0).UTC(), Items: []livetv.Item{{Key: core.MovieKey(1), Title: "First", DurationMS: 12000}}}); err != nil {
-		t.Fatal(err)
-	}
-	f.srv.d.LiveTV = service
-	f.srv.d.Identity.MyPlexSubscription = true
-	tune := f.request(t, "POST", "/livetv/dvrs/1/channels/4/tune", map[string]string{"Accept": "application/json"})
-	if tune.Code != 200 {
-		t.Fatalf("tune %d %s", tune.Code, tune.Body.String())
-	}
-	sessionPath := decodeJSON(t, tune)["Metadata"].([]any)[0].(map[string]any)["key"].(string)
-	got := f.request(t, "GET", "/video/:/transcode/universal/start.mpd?path="+url.QueryEscape(sessionPath), map[string]string{"Accept": "application/json", "X-Plex-Product": "Plex Web"})
-	if got.Code != 200 || got.Code == http.StatusServiceUnavailable {
-		t.Fatalf("status %d %s", got.Code, got.Body.String())
-	}
-	if strings.Contains(got.Body.String(), "Service Unavailable") || !strings.Contains(got.Body.String(), "cannot be played as DASH") {
-		t.Fatalf("expected a Plex decision, got %s", got.Body.String())
-	}
-	body := decodeJSON(t, got)
-	if body["generalDecisionCode"].(float64) != 2000 || body["transcodeDecisionCode"].(float64) != 4000 {
-		t.Fatalf("decision codes: %s", got.Body.String())
 	}
 }
 

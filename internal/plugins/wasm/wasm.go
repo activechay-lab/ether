@@ -58,6 +58,8 @@ type Outcome struct {
 
 // Request is the HTTP-shaped plugin request (SPEC 5.1.2 / 5.2).
 type Request struct {
+	Op      string              `json:"op,omitempty"`
+	ID      string              `json:"id,omitempty"`
 	Method  string              `json:"method"`
 	Path    string              `json:"path"`
 	Query   map[string][]string `json:"query,omitempty"`

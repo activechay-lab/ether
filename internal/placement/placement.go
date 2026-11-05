@@ -26,13 +26,14 @@ type Error string
 func (e Error) Error() string { return string(e) }
 
 const (
-	ErrInvalid    Error = "placement: invalid request"
-	ErrFenced     Error = "placement: stale fence or generation"
-	ErrConflict   Error = "placement: operation payload conflict"
-	ErrCapacity   Error = "placement: capacity exhausted"
-	ErrPolicy     Error = "placement: missing or ineligible target/scope policy"
-	ErrRetirement Error = "placement: retirement proof required"
-	ErrQuota      Error = "placement: session ledger quota exhausted"
+	ErrInvalid     Error = "placement: invalid request"
+	ErrFenced      Error = "placement: stale fence or generation"
+	ErrConflict    Error = "placement: operation payload conflict"
+	ErrCapacity    Error = "placement: capacity exhausted"
+	ErrPolicy      Error = "placement: missing or ineligible target/scope policy"
+	ErrRetirement  Error = "placement: retirement proof required"
+	ErrQuotaPolicy Error = "placement: fleet ledger quota differs; coordinate deployment policy"
+	ErrQuota       Error = "placement: session ledger quota exhausted"
 )
 
 // UnknownOutcome means a database operation did not produce a confirmed result.
@@ -296,6 +297,9 @@ func (s *Service) Reserve(ctx context.Context, request Request) (Record, error) 
 			out.Authority = !old.Retired && out.Deadline.UnixMilli() > now
 			return nil
 		}
+		if e := s.checkLedgerQuota(ctx, tx); e != nil {
+			return e
+		}
 		if (!exists && r.ExpectedGeneration != 0) || (exists && old.Generation != r.ExpectedGeneration) {
 			return ErrFenced
 		}
@@ -434,15 +438,22 @@ func (s *Service) Retire(ctx context.Context, f Fence, evidence string) error {
 		if r.Fence != f {
 			return ErrFenced
 		}
-		if r.Retired {
-			return nil
-		}
-		if _, err = tx.ExecContext(ctx, `DELETE FROM placement_claims WHERE session=?`, f.Session); err != nil {
-			return err
-		}
-		_, err = tx.ExecContext(ctx, `UPDATE placement_sessions SET retired=1 WHERE session=?`, f.Session)
-		return err
+		return retireRecord(ctx, tx, r)
 	})
+}
+
+// retireRecord is called only after trusted verification outside the transaction
+// and a full-fence recheck under placement:all. Receipt publication uses the same
+// release operation; ordinary Retire retains its existing verifier semantics.
+func retireRecord(ctx context.Context, tx *sql.Tx, r Record) error {
+	if r.Retired {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM placement_claims WHERE session=?`, r.Session); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE placement_sessions SET retired=1 WHERE session=?`, r.Session)
+	return err
 }
 
 // LedgerUsage exposes quota pressure. Retired rows ARE compact tombstones: claims

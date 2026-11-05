@@ -908,6 +908,8 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 	if pq.playlistID != 0 {
 		mc.Extra = append(mc.Extra, model.A("playQueuePlaylistID", pq.playlistID.String()), model.A("playQueuePlaylistTitle", pq.playlistTitle))
 	}
+	pr.versionFlowKey = selItem.key
+	pr.versionItemKey = selItem.key
 	for _, it := range slice {
 		if it.key.Kind() == core.KindExtra {
 			if md, ok := s.extraMetadataByKey(ctx, pr, it.key); ok {

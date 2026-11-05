@@ -10,6 +10,7 @@ Every supported global value is listed below. Kubernetes-native objects accept t
 | `image.pullPolicy` | `"IfNotPresent"` | Always, IfNotPresent or Never. |
 | `imagePullSecrets` | `[]` | Existing registry Secret references. |
 | `clusterDomain` | `"cluster.local"` | Cluster DNS suffix. |
+| `runtime.ledgerCapacity` | `1000000` | Fleet-wide persisted cluster-lifetime ledger quota, 4096–10000000; all replicas must agree. Distinct from simultaneous capacity and boot history. |
 | `runtime.capacity` | `1` | Default runtime capacity, 1–4096; pool capacity overrides it. |
 | `runtime.clockBoundKnown` | `false` | Must be true only after verifying the clock error bound. |
 | `runtime.clockSkewMillis` | `1000` | Verified maximum clock error, 0–60000 ms. |
@@ -49,10 +50,11 @@ Every supported global value is listed below. Kubernetes-native objects accept t
 | `probes.liveness.timeoutSeconds` | `2` | Positive integer kubelet probe setting; routes/port are fixed by the runtime contract. |
 | `disruptionBudget.enabled` | `true` | Create one PDB per active role. |
 | `disruptionBudget.maxUnavailable` | `1` | Integer or percentage unavailable during voluntary evictions. |
-| `service.type` | `"ClusterIP"` | ClusterIP, LoadBalancer or NodePort. |
+| `service.type` | `"ClusterIP"` | ClusterIP, LoadBalancer or NodePort for full-only public pools; mixed server/delivery pools require ClusterIP behind Ingress. |
 | `service.port` | `32400` | Public service port; target always 32400. |
 | `service.annotations` | `{}` | Controller/provider annotations. |
-| `ingress.enabled` | `false` | Expose the public Service through Ingress. |
+| `ingress.canonicalHLSLabOnly` | `false` | Temporary explicit acknowledgement for isolated canonical-HLS mixed-role staging. Required when server/delivery pools are enabled. Writer-derived URL/auth fixtures, real same-origin controller and protocol capability acceptance remain required; this is not final mixed-client parity. |
+| `ingress.enabled` | `false` | Expose one shared public origin; required for server/delivery pools, with fixed API/media Prefix routing. |
 | `ingress.className` | `""` | Ingress controller class. |
 | `ingress.annotations` | `{}` | Controller-specific annotations. |
 | `ingress.hosts` | `[]` | DNS hostname list, required when ingress enabled. |

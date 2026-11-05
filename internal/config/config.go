@@ -342,6 +342,8 @@ type Catalog struct {
 }
 
 type Resolver struct {
+	// HardSubtitles is empty (prefer clean), exclude, or allow.
+	HardSubtitles        string              `json:"hardSubtitles,omitempty"`
 	HealthRace           int                 `json:"healthRace"`      // 0 = ranked checks; >0 = first healthy of bounded concurrent candidates
 	OptimisticStart      bool                `json:"optimisticStart"` // return top NZB before background health check
 	CustomFormats        []core.CustomFormat `json:"customFormats,omitempty"`
@@ -500,7 +502,17 @@ type Subtitles struct {
 }
 
 // LiveTV holds owner Live TV options.
+// LiveTVScreens selects the server's cached Signal screens.
+// Empty ApplyTo follows the converted-stream default; "all" opts into encoding.
+type LiveTVScreens struct {
+	OffAir    string `json:"offAir,omitempty"`
+	NoSignal  string `json:"noSignal,omitempty"`
+	StationID bool   `json:"stationId"`
+	ApplyTo   string `json:"applyTo,omitempty"`
+}
+
 type LiveTV struct {
+	Screens LiveTVScreens `json:"screens"`
 	// LogoIndexURL is an owner-enabled channel logo index (an
 	// iptv-org-style JSON list). Ether ships no list; empty disables
 	// logo matching.

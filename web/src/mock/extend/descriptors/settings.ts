@@ -742,9 +742,23 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
             },
             description: {
               source:
-                "A release whose name contains one of these words, or whose release group matches, is never played.",
+                "Blocked terms match whole tokens. sub matches SUB, not Subtitles or SUBPACK. Subtitle language tags alone do not prove burned-in subtitles.",
             },
             fields: [
+              {
+                key: "hardSubtitles",
+                label: { source: "Burned-in subtitles" },
+                kind: "select",
+                help: {
+                  source:
+                    "Video checks run after playback starts. A newly discovered verdict applies to later selections.",
+                },
+                options: [
+                  { value: "", label: { source: "Prefer clean releases" } },
+                  { value: "exclude", label: { source: "Exclude known hardsubs" } },
+                  { value: "allow", label: { source: "Allow" } },
+                ],
+              },
               {
                 key: "blockedGroups",
                 label: {

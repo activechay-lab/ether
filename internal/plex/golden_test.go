@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -62,6 +63,9 @@ func checkGolden(t *testing.T, name string, rec *httptest.ResponseRecorder) {
 		t.Fatalf("%s: status %d: %s", name, rec.Code, rec.Body.String())
 	}
 	body := rec.Body.Bytes()
+	// Generation keys are opaque hashes of the retained row and request scope.
+	// Compare their presence and placement, not the content-dependent digest.
+	body = regexp.MustCompile(`etherShelf=[a-f0-9]{64}`).ReplaceAll(body, []byte("etherShelf=GENERATION"))
 	ext := ".xml"
 	if strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") {
 		ext = ".json"

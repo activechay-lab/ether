@@ -23,7 +23,7 @@ func TestContinuousPlayout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 75*time.Second)
 	defer cancel()
 	format := RawFormat{Width: 320, Height: 180, FPSNum: 30, FPSDen: 1, SampleRate: 48000, Channels: 2, PixelFormat: "yuv420p"}
-	runner, err := e.m.StartEncoder(ctx, EncoderRequest{Source: format, Decision: core.Decision{VideoCodec: "h264", AudioCodec: "aac", BitrateKbps: 500}})
+	runner, err := e.m.StartEncoder(ctx, EncoderRequest{Source: format, DVRWindow: time.Minute, Decision: core.Decision{VideoCodec: "h264", AudioCodec: "aac", BitrateKbps: 500}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,11 +93,12 @@ func TestContinuousPlayout(t *testing.T) {
 		t.Fatalf("fMP4 decode: %v %s", err, out)
 	}
 	segments := runner.Segments().Since(-1, 100)
-	if len(segments) != 5 {
+	if len(segments) != 7 {
 		t.Fatalf("finished segments: %v", segments)
 	}
 	for i, seg := range segments {
-		if seg.Seq != int64(i) || seg.Duration != 4*time.Second || !seg.Start.Equal(segments[0].Start.Add(time.Duration(i)*4*time.Second)) {
+		start, frames := continuousSegmentFrames(format, int64(i))
+		if seg.Seq != int64(i) || seg.Duration != continuousFrameTime(format, frames) || !seg.Start.Equal(segments[0].Start.Add(continuousFrameTime(format, start))) {
 			t.Fatalf("segment clock: %v", segments)
 		}
 	}
@@ -160,7 +161,8 @@ func TestContinuousPlayout(t *testing.T) {
 				end = pts
 			}
 		}
-		if math.Abs(end-first+1.0/30-4) > 0.001 {
+		_, frames := continuousSegmentFrames(format, int64(n))
+		if math.Abs(end-first+1.0/30-float64(frames)/30) > 0.001 {
 			t.Fatalf("segment duration %f", end-first+1.0/30)
 		}
 	}
@@ -205,7 +207,7 @@ func TestContinuousSegmentIndex(t *testing.T) {
 	e.index = index
 	start := time.Unix(1000, 0)
 	index.setStart(start)
-	for n := int64(0); n < 4; n++ {
+	for n := int64(0); n < 6; n++ {
 		for _, path := range []string{index.ts(n), index.mp4(n)} {
 			if err := os.WriteFile(path, []byte("finished"), 0600); err != nil {
 				t.Fatal(err)
@@ -214,11 +216,11 @@ func TestContinuousSegmentIndex(t *testing.T) {
 		index.refresh()
 	}
 	segments := index.Since(-1, 10)
-	if len(segments) != 2 || segments[0].Seq != 2 || segments[1].Seq != 3 {
+	if len(segments) != 2 || segments[0].Seq != 4 || segments[1].Seq != 5 {
 		t.Fatal(segments)
 	}
 	for _, seg := range segments {
-		if seg.Duration != 4004*time.Millisecond || !seg.Start.Equal(start.Add(time.Duration(seg.Seq)*4004*time.Millisecond)) {
+		if seg.Duration != 4004*time.Millisecond || !seg.Start.Equal(start.Add(time.Duration(seg.Seq-2)*4004*time.Millisecond)) {
 			t.Fatal(seg)
 		}
 	}
@@ -231,16 +233,16 @@ func TestContinuousSegmentIndex(t *testing.T) {
 	if _, err := index.open(0, true); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("evicted fMP4: %v", err)
 	}
-	got, err := index.Wait(ctx, 2)
-	if err != nil || got.Seq != 3 {
+	got, err := index.Wait(ctx, 4)
+	if err != nil || got.Seq != 5 {
 		t.Fatalf("wait: %v %v", got, err)
 	}
-	if window := index.Window(segments[0].Start.Add(time.Millisecond), segments[1].Start); len(window) != 1 || window[0].Seq != 2 {
+	if window := index.Window(segments[0].Start.Add(time.Millisecond), segments[1].Start); len(window) != 1 || window[0].Seq != 4 {
 		t.Fatal(window)
 	}
 	blocked, cancelWait := context.WithCancel(ctx)
 	cancelWait()
-	if _, err := index.Wait(blocked, 3); !errors.Is(err, context.Canceled) {
+	if _, err := index.Wait(blocked, 5); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 }

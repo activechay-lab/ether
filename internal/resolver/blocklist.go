@@ -110,6 +110,22 @@ func (s *Service) Block(ctx context.Context, req BlockRequest, reason string) (B
 			s.rememberTitleFor(rel, req.TitleKey)
 		}
 	}
+	if req.TitleKey == 0 {
+		s.con.mu.Lock()
+		recent := s.con.recent[req.ReleaseID]
+		s.con.mu.Unlock()
+		req.TitleKey = recent.titleKey
+	}
+	if req.TitleKey != 0 {
+		rel, ok := s.LookupRelease(req.ReleaseID)
+		if !ok {
+			rel = core.Release{ID: req.ReleaseID, Name: req.Name, Indexer: req.Indexer}
+		}
+		if err := s.RejectRelease(ctx, req.TitleKey, rel); err != nil {
+			return BlockEntry{}, err
+		}
+	}
+
 	s.mu.Lock()
 	s.bad[req.ReleaseID] = badMark{reason: reason, at: s.now(), manual: true}
 	s.mu.Unlock()
@@ -154,6 +170,9 @@ func (s *Service) blockEntry(ctx context.Context, id string) (BlockEntry, error)
 // the title's availability cool-off is cleared too. It returns the
 // removed entry, or core.ErrNotFound.
 func (s *Service) Unblock(ctx context.Context, releaseID string) (BlockEntry, error) {
+	if err := s.forgetRejection(ctx, releaseID); err != nil {
+		return BlockEntry{}, err
+	}
 	s.mu.Lock()
 	mark, had := s.bad[releaseID]
 	reason := mark.reason

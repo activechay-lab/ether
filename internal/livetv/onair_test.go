@@ -93,3 +93,38 @@ func TestGapLookKeepsEpochCalendar(t *testing.T) {
 		t.Fatal("gap look changed the epoch calendar")
 	}
 }
+
+func TestMissingBroadcastClipFallsBackAndCorrectsInsertGuide(t *testing.T) {
+	for _, placement := range []string{"gap", "insert"} {
+		t.Run(placement, func(t *testing.T) {
+			now := time.Date(2026, 11, 2, 0, 0, 25, 0, time.UTC)
+			s := testService(t, Options{Graphics: testGraphics{}, Now: func() time.Time { return now }})
+			c := Channel{ID: "missing", Kind: "virtual", Mode: "order", Items: []Item{{Key: 1, Title: "Programme", DurationMS: 20000}}, Look: &ChannelLook{LookID: "look", UpNext: true, Placement: placement}}
+			if placement == "gap" {
+				c.Align = "half"
+			}
+			ps := s.broadcastSchedule(context.Background(), c, now, now.Add(24*time.Second), true)
+			if len(ps) == 0 {
+				t.Fatal("empty fallback")
+			}
+			for _, p := range ps {
+				if interstitial(p.Item) {
+					t.Fatal("uncached clip aired")
+				}
+			}
+			if placement == "gap" {
+				if ps[0].Item.Slate != offAirSlate {
+					t.Fatal("gap did not restore off-air")
+				}
+			} else {
+				if !ps[0].Start.Equal(now.Add(-5 * time.Second)) {
+					t.Fatal("programme did not advance", ps[0])
+				}
+				guide := s.broadcastGuide(s.graphicsChannel(c), now, now.Add(time.Second))
+				if len(guide) == 0 || guide[0].ID != ps[0].ID {
+					t.Fatal("guide did not follow inserted skip", guide)
+				}
+			}
+		})
+	}
+}

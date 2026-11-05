@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	store.Register("livetv", 8, `CREATE TABLE livetv_guide_undo(token TEXT PRIMARY KEY, expires_ms BIGINT NOT NULL, data TEXT NOT NULL);`)
+	store.Register("livetv", 9, `CREATE TABLE livetv_guide_undo(token TEXT PRIMARY KEY, expires_ms BIGINT NOT NULL, data TEXT NOT NULL);`)
 }
 
 // Only mapping fields are written or retained in an undo receipt. Names, stream

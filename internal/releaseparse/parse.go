@@ -144,6 +144,7 @@ func Parse(name string) core.ReleaseInfo {
 		info.DolbyVision = true
 	}
 	info.Edition = ParseEdition(name)
+	info.HardSubbed = HardSubbed(name)
 	info.Proper = strings.Contains(upper, " PROPER ")
 	info.Repack = strings.Contains(upper, " REPACK ")
 	// Words of the title itself ("The.French.Dispatch.2021", "The Danish

@@ -35,6 +35,11 @@ func DescriptorsFor(man Manifest) []extend.Descriptor {
 		}
 		out = append(out, d)
 	}
+	if man.HasCapability(CapOnAirContent) {
+		for _, seg := range c.OnAirSegments {
+			add(extend.KindOnAirSegment, seg.ID, textOf(id, seg.Name), map[string]any{"duration": seg.Duration, "rating": seg.Rating, "feeds": seg.Feeds})
+		}
+	}
 	for _, p := range c.Pages {
 		meta := map[string]any{"route": p.Route, "pluginRoute": "/api/plugins/" + id + "/views/" + p.Key, "icon": p.Icon}
 		if p.Group != "" {
@@ -142,6 +147,11 @@ func ToolName(plugin, name string) string {
 // syncDescriptors replaces a plugin's registry descriptors and tools to
 // match its record: none while disabled.
 func (m *Manager) syncDescriptors(ctx context.Context, r Record) {
+	if !r.Enabled {
+		m.deps.OnAirContent.RemovePlugin(r.ID)
+	} else {
+		m.deps.OnAirContent.EnablePlugin(r.ID)
+	}
 	m.indexEventSubscriptions(r)
 	m.syncNotificationKind(r)
 	m.mu.Lock()

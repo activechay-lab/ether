@@ -72,6 +72,13 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 	if err != nil || !b.currentMediaPolicy(ctx, viewer, s) {
 		return "", core.ErrUnauthorized
 	}
+	if remote, ok := b.deps.Playback.(interface {
+		RevalidateSession(context.Context, string) error
+	}); ok {
+		if err := remote.RevalidateSession(ctx, s.playID); err != nil {
+			return "", err
+		}
+	}
 	if s.sourcePinned {
 		ps, ok := b.deps.Playback.Session(s.playID)
 		if !ok || ps == nil || sourceRevision(ps) != s.sourceETag {
@@ -97,7 +104,7 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 			return "", core.ErrNotAvailable
 		}
 		if b.deps.Transcoder != nil {
-			b.deps.Transcoder.Stop(id)
+			b.transcodeStop(id)
 		}
 		if entry, ok := b.bindings.Get(id); ok {
 			entry.Started = false
@@ -130,7 +137,7 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 		return "", core.ErrNotAvailable
 	}
 	if s.format == req.Format && s.streamPosition == req.Position && s.segmentDuration == req.SegmentDuration {
-		if hs, ok := b.deps.Transcoder.Session(id); ok && hs != nil {
+		if hs, ok := b.transcodeSession(id); ok && hs != nil {
 			if entry, ok := b.bindings.Get(id); ok && entry.Started {
 				b.recordPlaybackDecision(s.playID, entry.Decision)
 			}
@@ -172,12 +179,25 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 	if dec.Kind == core.DecisionRemux && !s.opts.DirectStream {
 		return "", core.ErrNotAvailable
 	}
-	b.deps.Transcoder.Stop(id)
-	lease, leaseErr := b.mintEncoderInput(ctx, s.playID)
-	if leaseErr != nil {
-		return "", leaseErr
+	b.transcodeStop(id)
+	request := core.HLSRequest{RequireIndependentProof: s.public.Protocol == "emby" || s.public.Protocol == "jellyfin", SessionID: id, ReleaseID: ps.SourceReleaseID(), InputURL: b.deps.Playback.InputURL(s.playID), Info: ps.Info, Decision: dec, StartOffset: req.Position, SegmentDuration: req.SegmentDuration, Protocol: proto}
+	var hs core.HLSSession
+	var lease core.EncoderInputLease
+	if remote := b.deps.DistributedHLS; remote != nil && remote.Supports(request) {
+		hs, err = remote.StartDistributedHLS(context.WithoutCancel(ctx), viewer.ID, s.playID, sourceRevision(ps), request)
+	} else {
+		if remote := b.deps.DistributedHLS; remote != nil && remote.Allocated(id) {
+			return "", core.ErrNotAvailable
+		}
+		var leaseErr error
+		lease, leaseErr = b.mintEncoderInput(ctx, s.playID)
+		if leaseErr != nil {
+			return "", leaseErr
+		}
+		request.InputLease = lease
+		hs, err = b.deps.Transcoder.StartHLS(context.WithoutCancel(ctx), request)
 	}
-	hs, err := b.deps.Transcoder.StartHLS(context.WithoutCancel(ctx), core.HLSRequest{RequireIndependentProof: s.public.Protocol == "emby" || s.public.Protocol == "jellyfin", SessionID: id, ReleaseID: ps.SourceReleaseID(), InputURL: b.deps.Playback.InputURL(s.playID), InputLease: lease, Info: ps.Info, Decision: dec, StartOffset: req.Position, SegmentDuration: req.SegmentDuration, Protocol: proto})
+
 	if err != nil || hs == nil {
 		if lease != nil {
 			lease.SealInput()
@@ -185,7 +205,7 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 		if err != nil {
 			return "", capacityError(err)
 		}
-		b.deps.Transcoder.Stop(id)
+		b.transcodeStop(id)
 		return "", core.ErrNotAvailable
 	}
 	// StartHLS owns a detached lifetime, but a request canceled during startup
@@ -195,7 +215,7 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 	closed := b.closed
 	b.mu.Unlock()
 	if err := ctx.Err(); err != nil || closed {
-		b.deps.Transcoder.Stop(id)
+		b.transcodeStop(id)
 		if err != nil {
 			return "", err
 		}
@@ -203,7 +223,7 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 	}
 	if req.Format == frontend.StreamDASH {
 		if _, ok := hs.(core.DASHSession); !ok {
-			b.deps.Transcoder.Stop(id)
+			b.transcodeStop(id)
 			return "", core.ErrNotAvailable
 		}
 	}
@@ -225,7 +245,7 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 	b.recordPlaybackDecision(s.playID, dec)
 	b.ensureTrickplay(ctx, s, req.Position)
 	if err := b.bindDeliveryAuthority(ctx, s, ps); err != nil {
-		b.deps.Transcoder.Stop(id)
+		b.transcodeStop(id)
 		return "", err
 	}
 	if req.Format == frontend.StreamDASH {
@@ -395,6 +415,13 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 	}
 	b.mu.Unlock()
 	if !ok {
+		if access == nil {
+			if d, yes := b.deps.DistributedHLS.(interface {
+				ForwardMedia(http.ResponseWriter, *http.Request, string, string) bool
+			}); yes && d.ForwardMedia(w, r, parts[0], string(protocol)) {
+				return
+			}
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -437,6 +464,9 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 		http.NotFound(w, r)
 		return
 	}
+	if remote, ok := b.deps.Playback.(interface{ Touch(string) }); ok {
+		remote.Touch(s.playID)
+	}
 	if s.sourcePinned {
 		ps, ok := b.deps.Playback.Session(s.playID)
 		if !ok || ps == nil || sourceRevision(ps) != s.sourceETag {
@@ -469,7 +499,7 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 		http.NotFound(w, r)
 		return
 	}
-	hs, ok := b.deps.Transcoder.Session(s.public.ID)
+	hs, ok := b.transcodeSession(s.public.ID)
 	if !ok || hs == nil {
 		http.NotFound(w, r)
 		return

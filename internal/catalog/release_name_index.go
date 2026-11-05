@@ -26,20 +26,26 @@ func migrateReleaseNames(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, `CREATE INDEX catalog_release_names_key ON catalog_release_names(key)`); err != nil {
 		return err
 	}
+	var total int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles`).Scan(&total); err != nil {
+		return err
+	}
+	done := 0
+	store.WorkProgress(ctx, "release_names", done, total)
 	last := int64(math.MinInt64)
 	for {
-		rows, err := tx.QueryContext(ctx, `SELECT key,title,original_title FROM catalog_titles WHERE key>? AND type IN ('movie','show') ORDER BY key LIMIT 500`, last)
+		rows, err := tx.QueryContext(ctx, `SELECT key,type,title,original_title FROM catalog_titles WHERE key>? ORDER BY key LIMIT 500`, last)
 		if err != nil {
 			return err
 		}
 		type row struct {
-			key             int64
-			title, original string
+			key                  int64
+			typ, title, original string
 		}
 		var batch []row
 		for rows.Next() {
 			var r row
-			if err = rows.Scan(&r.key, &r.title, &r.original); err != nil {
+			if err = rows.Scan(&r.key, &r.typ, &r.title, &r.original); err != nil {
 				rows.Close()
 				return err
 			}
@@ -51,13 +57,21 @@ func migrateReleaseNames(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 		if len(batch) == 0 {
+			store.WorkProgress(ctx, "release_names", done, total)
 			return nil
 		}
 		// One multi-row insert per batch: a large catalogue backfills in
 		// thousands of statements, not one per name.
 		var args []any
 		var values strings.Builder
+		// Keep the range query on the primary key. A type predicate can
+		// select an unselective type index and re-sort the entire library
+		// for every batch after older schema upgrades.
 		for _, r := range batch {
+			last = r.key
+			if r.typ != "movie" && r.typ != "show" {
+				continue
+			}
 			for _, name := range []string{r.title, r.original} {
 				if name = releaseparse.NormalizeTitle(name); name == "" {
 					continue
@@ -68,13 +82,14 @@ func migrateReleaseNames(ctx context.Context, tx *sql.Tx) error {
 				values.WriteString("(?,?)")
 				args = append(args, name, r.key)
 			}
-			last = r.key
 		}
 		if len(args) > 0 {
 			if _, err = tx.ExecContext(ctx, `INSERT INTO catalog_release_names(name,key) VALUES `+values.String()+` ON CONFLICT(name,key) DO NOTHING`, args...); err != nil {
 				return err
 			}
 		}
+		done += len(batch)
+		store.WorkProgress(ctx, "release_names", done, total)
 	}
 }
 

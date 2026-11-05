@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // Source secrets are sealed inside the stored source JSON
@@ -214,9 +215,12 @@ func (s *Service) MigrateSecrets(ctx context.Context) (int, error) {
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
+	batch := store.NewUpgradeBatch(s.o.DB)
+	defer batch.Close()
 	n, failed := 0, 0
 	var firstErr error
-	for _, r := range all {
+	for i, r := range all {
+		store.WorkProgress(ctx, "sources", i, len(all))
 		src, legacy, err := s.decodeSource(r.raw)
 		if err != nil {
 			failed++
@@ -241,7 +245,7 @@ func (s *Service) MigrateSecrets(ctx context.Context) (int, error) {
 		}
 		// Import stores data as bytes (a BLOB on SQLite), status updates
 		// as text: compare as text.
-		res, err := s.o.DB.ExecContext(ctx, `UPDATE livetv_sources SET data=? WHERE id=? AND CAST(data AS TEXT)=?`, b, r.id, string(r.raw))
+		res, err := batch.ExecContext(ctx, `UPDATE livetv_sources SET data=? WHERE id=? AND CAST(data AS TEXT)=?`, b, r.id, string(r.raw))
 		if err != nil {
 			return n, err
 		}
@@ -249,6 +253,10 @@ func (s *Service) MigrateSecrets(ctx context.Context) (int, error) {
 			n++
 		}
 	}
+	if err := batch.Flush(); err != nil {
+		return n, err
+	}
+	store.WorkProgress(ctx, "sources", len(all), len(all))
 	if failed > 0 {
 		return n, fmt.Errorf("livetv: %d stored source(s) could not be opened and were left unchanged: %w", failed, firstErr)
 	}

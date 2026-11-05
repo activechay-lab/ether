@@ -83,6 +83,7 @@ func consolePages() []consolePage {
 				section("channels", T("Channels"), T("virtual channel")),
 				section("sources", T("IPTV sources"), T("m3u xmltv playlist")),
 				section("guide", T("Guide"), T("epg schedule")),
+				section("looks", T("Looks"), T("on air graphics brand reels")),
 			},
 		}},
 		{id: "calendar", label: T("Calendar"), icon: "CalendarDays", order: 50, meta: extend.PageMeta{

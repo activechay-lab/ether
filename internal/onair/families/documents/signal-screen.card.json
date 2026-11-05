@@ -2,71 +2,163 @@
   "v": 1,
   "moment": "screen.card",
   "duration": 4,
-  "poster": 1.5,
-  "slots": [
-    "channel.name",
-    "screen.line1",
-    "screen.line2",
-    "station.id"
-  ],
+  "poster": 2,
   "layers": [
     {
-      "id": "bg",
+      "id": "background",
       "type": "rect",
       "x": 0,
       "y": 0,
       "w": 1920,
       "h": 1080,
-      "fill": "#0b1320"
+      "fill": {
+        "linear": [
+          0,
+          0,
+          0,
+          1080
+        ],
+        "stops": [
+          [
+            0,
+            "#1b2926"
+          ],
+          [
+            1,
+            "#101a1a"
+          ]
+        ]
+      }
     },
     {
-      "id": "rule",
-      "type": "rect",
-      "x": 860,
-      "y": 350,
-      "w": 200,
-      "h": 4,
-      "fill": "#78b9e8"
+      "id": "lamp",
+      "type": "ellipse",
+      "x": 1230,
+      "y": 30,
+      "w": 800,
+      "h": 800,
+      "fill": {
+        "radial": [
+          400,
+          400,
+          0,
+          400
+        ],
+        "stops": [
+          [
+            0,
+            "#e3bd7b@0.14"
+          ],
+          [
+            1,
+            "#e3bd7b@0"
+          ]
+        ]
+      },
+      "blend": "screen"
     },
     {
-      "id": "channel",
+      "id": "accent",
+      "type": "path",
+      "path": "M 240 215 L 345 215",
+      "stroke": "#d0b984",
+      "strokeWidth": 3,
+      "cap": "round"
+    },
+    {
+      "id": "station",
       "type": "text",
-      "text": "{channel.name}",
-      "x": 960,
-      "y": 490,
-      "size": 100,
-      "font": "inter",
-      "fill": "#f2f5fa",
-      "align": "center",
+      "text": "{station.id}",
+      "x": 240,
+      "y": 295,
+      "size": 35,
+      "font": "spacegrotesk",
+      "fill": "#d6c5a0",
+      "align": "left",
       "fit": "shrink",
-      "maxWidth": 1600
+      "maxWidth": 1600,
+      "track": 6
     },
     {
       "id": "line1",
       "type": "text",
       "text": "{screen.line1}",
-      "x": 960,
-      "y": 625,
-      "size": 52,
-      "font": "inter",
-      "fill": "#f2f5fa",
-      "align": "center",
+      "x": 235,
+      "y": 550,
+      "size": 104,
+      "font": "spacegrotesk",
+      "fill": "#f2ead8",
+      "align": "left",
       "fit": "wrap",
-      "maxWidth": 1500,
+      "maxWidth": 1450,
       "maxLines": 2
     },
     {
       "id": "line2",
       "type": "text",
       "text": "{screen.line2}",
-      "x": 960,
-      "y": 790,
-      "size": 32,
+      "x": 240,
+      "y": 770,
+      "size": 34,
       "font": "inter",
-      "fill": "#a8b9c8",
-      "align": "center",
+      "fill": "#b5bcb0",
+      "align": "left",
+      "fit": "wrap",
+      "maxWidth": 1230,
+      "maxLines": 2
+    },
+    {
+      "id": "baseline",
+      "type": "rect",
+      "x": 240,
+      "y": 900,
+      "w": 1440,
+      "h": 1,
+      "fill": "#d5c8ac@0.18"
+    },
+    {
+      "id": "channel",
+      "type": "text",
+      "text": "{channel.name}",
+      "x": 240,
+      "y": 963,
+      "size": 25,
+      "font": "inter",
+      "fill": "#a9b5a8",
+      "align": "left",
       "fit": "shrink",
-      "maxWidth": 1500
+      "maxWidth": 1200
+    },
+    {
+      "id": "status-dot",
+      "type": "ellipse",
+      "x": 1658,
+      "y": 940,
+      "w": 14,
+      "h": 14,
+      "fill": "#d0b984",
+      "glow": 6
     }
-  ]
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": 0.006,
+      "seed": 5
+    },
+    {
+      "type": "vignette",
+      "amount": 0.12
+    }
+  ],
+  "slots": [
+    "channel.name",
+    "screen.line1",
+    "screen.line2",
+    "station.id"
+  ],
+  "audio": {
+    "generator": "bed",
+    "seed": 7
+  }
 }

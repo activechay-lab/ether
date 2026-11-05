@@ -28,6 +28,7 @@ import (
 func (a *App) registerBuiltinTools(c *tools.Catalogue) error {
 	startedAt := time.Now()
 	deps := builtin.Deps{
+		OnAir:       a.onair,
 		Status:      &appStatusService{a: a, startedAt: startedAt},
 		Playback:    a.state,
 		Resolver:    &appResolverService{a: a},
@@ -65,6 +66,14 @@ func (a *App) registerBuiltinTools(c *tools.Catalogue) error {
 // literal extend.T("...") calls so web/scripts/i18n.mjs extracts every title.
 func builtinToolLabel(name, fallback string) extend.Text {
 	switch name {
+	case "look_draft", "livetv_look_draft":
+		return extend.T("Draft a look")
+	case "channel_summary":
+		return extend.T("Channel programming summary")
+	case "livetv_look_save":
+		return extend.T("Save a channel look")
+	case "livetv_channel_look":
+		return extend.T("Apply a channel look")
 	case "server_status":
 		return extend.T("Server status")
 	case "health_details":

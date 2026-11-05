@@ -107,3 +107,105 @@ without stopping the runtime. Kubernetes terminationGracePeriod may ultimately
 kill the process; that does not retire its durable reservations. Planned upgrades
 must require a successful explicit drain before deletion. Set the external grace
 period above the intended drain window, allowing control and shutdown overhead.
+
+The supported deployment topology uses full servers as frontend/source/delivery
+coordinators and transcode-only nodes as remote execution targets. Full servers
+keep their historical local encoder but are EXCLUDED from private transcode
+placement: local legacy sessions do not yet participate in the durable placement
+budget, so admitting private encodes there could double-book hardware. This does
+not disable their existing local capabilities. Transcode-only nodes use a
+separate fixed-plan encoder manager with adaptive ladders/governor/enhancement and
+automatic source mutation disabled. Unified local+private physical accounting is
+required before full servers can become remote encoding targets.
+
+`ledgerCapacity` is distinct from concurrent encoder `capacity` and boot-local
+history retention. It defaults to 1000000, accepts 4096..10000000, and must cover
+concurrent/history capacity. Every deployment replica must use the SAME value.
+Placement migration 2 stores that fleet ceiling. Initial startup seeds or verifies
+it under the serialized placement lock. Every new-generation Reserve checks policy
+in the SAME transaction as allocation; conflicting coordinator settings fail
+closed. Existing assignment replay/renewal/retirement remain available on a stale
+coordinator so correcting policy never destroys ownership. Drain old pre-policy
+candidate binaries before introducing this policy; they predate this enforcement.
+
+Changing JSON alone cannot silently raise the ceiling. The trusted operator runs
+`ether cluster ledger-quota --data-dir /config --expect 1000000 --capacity 2000000`,
+then rolls matching `ledgerCapacity:2000000` settings across the fleet. This is an
+explicit monotonic compare-and-swap, never a decrease or table cleanup. Stale
+coordinators stop NEW allocations until their configured ceiling matches the new
+policy. `/admissionz` includes a `ledger` object with capacity/used/retired/exhausted/
+matches; exhaustion returns 503 for new admissions and logs the quota transition,
+while `/readyz` and existing work remain available. A larger ceiling is bounded
+operational mitigation, not safe history compaction or unlimited admission. Retired
+generation floors remain permanent; never delete them to manufacture capacity.
+
+## Role boundary and public routing
+
+The staged isolated graphs construct these concrete dependencies. Source, server
+and delivery singleton activation remains a separate acceptance guard; construction
+checks alone do not establish shipping playback or replacement continuity.
+
+| Graph | Local services | Public responsibilities |
+| --- | --- | --- |
+| Historical full server | Existing providers, source manager, frontends and local encoder | Existing public APIs and representations |
+| Source singleton | Providers, resolver, cache, native/ffprobe metadata probing and source manager | None; authenticated private source operations only |
+| Transcode singleton | Dedicated fixed-plan encoder and private input gateway | None; authenticated private encoding only |
+| Server singleton | Catalogue, identity, owner console, protocol frontends and remote playback adapters | Browse/control and existing protocol routes that combine admission or authentication with response bytes |
+| Delivery singleton | Identity/policy readers and indexed authenticated representation forwarding | Bounded GET/HEAD representation routes only |
+
+Server isolation excludes local provider connections, source/cache ownership and
+encoder construction. It does not promise that the server sends no response bytes.
+Existing Plex `start`/`start.mkv`, direct `/library/parts` and query subtitle routes
+retain their URLs and control semantics, including track-selection PUT requests.
+Their authenticated proxy responses are legitimate frontend work. Silo's
+viewer/device-authenticated playback routes likewise stay on the API frontend
+until an explicit equivalent authenticated delivery seam exists.
+
+Mixed-role deployments need same-origin routing to API (full/server) and media
+(full/delivery) Services. Route only the supported GET/HEAD pure representation
+namespaces to media: canonical `/sessions/media/` and the typed Plex
+`/video/:/transcode/universal/session/{id}/{rung-or-representation}/{resource}`.
+The latter supports bounded playlists, headers, init and TS/M4S/MKV segments;
+ASS and query subtitle routes remain API. Never route the broad universal or
+`/library/parts` prefix to delivery. Jellyfin/Emby `/jellyfin/sessions/media/` and
+`/emby/sessions/media/` require the explicit protocol-bound alias adapter, preserving
+grant, query and original request policy. A generic prefix rewrite without that
+owner-side surface check is not equivalent. Full-only routing stays unchanged.
+
+Independent source selection prefers currently eligible source-only peers before
+full-server peers. Once preparation has an operation identity, an uncertain result
+retains that exact owner and operation until proof; it never retries on another
+source merely because a connection failed.
+
+The existing owner-authenticated `GET /ether/api/cluster/` optionally includes
+`selfRuntime` for a deployment process only. `nodeId` and `boot` match the same
+response's captured `self`; `runtimeSampledAt` timestamps its local cached atomic
+state (`protocol`, `started`, `readyExisting`, `acceptingNew`, `draining`).
+`quota.sampledAt` retains the last successful quota observation time and
+`quota.status` its measured ledger status. A failed current quota read closes
+admission without refreshing the retained observation. Optional `resources`
+retains each metric's own `at` and `state`; these are resource sample times, not
+response times. Missing runtime/quota/resources are unknown, not measured zero.
+This is local process diagnostics, not fleet readiness, placement or retirement
+proof. Drain can leave `readyExisting:true` with `acceptingNew:false`.
+
+The frozen real Plex writer inventory (`internal/plex/representation_paths.md`)
+confirms that public DASH uses the API `start.mpd` response plus typed session
+`{numeric-representation}/header` and `{number}.m4s` URLs. ASS uses the existing
+API query subtitle routes. Encoder filesystem `manifest.mpd` and subtitle ASS
+names are not authored session-namespace URLs. Do not expand the delivery grammar
+from those filenames. A canonical-HLS-only lab restriction records unproven mixed
+role playback/capability acceptance, not a demonstrated authored ASS/MPD URL gap.
+
+Source-only nodes require the existing bundled/configured `ffprobe` for genuine
+native-incomplete formats (for example MPEG-4 Visual `mp4v` in MP4). The source
+manager retains native probing first and uses a probe-only fallback without an
+encoder, hardware inventory or transcode session manager. It accepts only the
+source manager's literal-loopback HTTP capability, preserves actual parsed facts,
+and admits at most two concurrent probes with a 20-second cancellation deadline
+including queue time and a shared 2 MiB output bound. Caller cancellation and
+shutdown stop the probe; its slot and service remain owned until the runner's
+child and output readers join. Close requests cancellation and joins, never
+substitutes elapsed time for completion. Errors omit capability URLs and raw
+ffprobe stderr. Genuine failed probes remain estimated and are still rejected by
+remote encoder preflight; no estimate or capability gate is relaxed.

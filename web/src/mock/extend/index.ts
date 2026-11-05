@@ -1,3 +1,4 @@
+import { mockOnAirSegments } from "../onair";
 /**
  * Mock backend for the extensibility work (docs/extend/SPEC.md): the
  * descriptor registry, plugins, Ask Ether and the console stream. Each area
@@ -51,7 +52,7 @@ export function createExtendMock(): ExtendHandler {
   return (method, seg, q, body) => {
     if (method === "GET" && seg[0] === "extend" && seg[1] === "registry") {
       const kinds = (q.get("kinds") ?? "").split(",").filter(Boolean);
-      const all = [...builtinDescriptors(), ...plugins.descriptors()];
+      const all = [...builtinDescriptors(), ...plugins.descriptors(), ...mockOnAirSegments];
       const descriptors = kinds.length ? all.filter((d) => kinds.includes(d.kind)) : all;
       return json({ version: plugins.version(), descriptors });
     }

@@ -120,7 +120,11 @@ func newContinuousSegmentIndex(e *continuousEncoder) *continuousSegmentIndex {
 	if d.VideoCodec == "" {
 		d.VideoCodec = "h264"
 	}
-	return &continuousSegmentIndex{enc: e, duration: time.Second * time.Duration(g*f.FPSDen) / time.Duration(f.FPSNum), changed: make(chan struct{}), width: w, height: h, bandwidth: (videoBitrate(core.MediaInfo{}, d) + max(e.req.Decision.AudioBitrateKbps, 128)) * 1000}
+	bandwidth := d.BitrateKbps
+	if bandwidth <= 0 {
+		bandwidth = videoBitrate(core.MediaInfo{}, d) + max(d.AudioBitrateKbps, 128)
+	}
+	return &continuousSegmentIndex{enc: e, duration: time.Second * time.Duration(g*f.FPSDen) / time.Duration(f.FPSNum), changed: make(chan struct{}), width: w, height: h, bandwidth: bandwidth * 1000}
 }
 func (s *continuousSegmentIndex) setStart(at time.Time) { s.mu.Lock(); s.start = at; s.mu.Unlock() }
 func (s *continuousSegmentIndex) ts(seq int64) string {
@@ -185,10 +189,18 @@ func (s *continuousSegmentIndex) refresh() {
 		}
 		// Both muxers use atomic temp-file publication. Only their shared finished
 		// prefix is visible, so a viewer can change delivery format at any boundary.
-		s.segments = append(s.segments, Segment{Seq: s.next, Start: s.start.Add(time.Duration(s.next) * s.duration), Duration: s.duration})
+		s.segments = append(s.segments, s.segment(s.next))
 		s.next++
-		keep := continuousWindow(s.enc.req.DVRWindow, s.duration)
-		for len(s.segments) > keep {
+		for len(s.segments) > 1 {
+			evict := len(s.segments) > 6
+			if s.enc.req.DVRWindow > 0 {
+				latest := s.segments[len(s.segments)-1]
+				first := s.segments[0]
+				evict = latest.Start.Add(latest.Duration).Sub(first.Start.Add(first.Duration)) >= s.enc.req.DVRWindow
+			}
+			if !evict {
+				break
+			}
 			old := s.segments[0]
 			s.segments = s.segments[1:]
 			_ = os.Remove(s.ts(old.Seq))

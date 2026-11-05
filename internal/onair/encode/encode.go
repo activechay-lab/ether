@@ -41,6 +41,7 @@ type Options struct {
 	Workers, Width, Height int
 	MaxRate, BufferSize    string
 	Audio                  *scene.Audio
+	AudioVolume            *float64
 }
 
 // WithWorkers is also used by the reproducible four-worker Phase 0 measurement.
@@ -115,6 +116,13 @@ func WithOptions(ctx context.Context, ffmpegPath string, frames func(int) *image
 			return fmt.Errorf("bitrate ceiling too low")
 		}
 		args = append(args[:len(args)-1], "-maxrate", strconv.Itoa(video), "-bufsize", strconv.Itoa(buffer), "-x264-params", "vbv-init=0.1", path)
+	}
+	if opts.AudioVolume != nil {
+		v := *opts.AudioVolume
+		if v < 0 || v > 1 {
+			return fmt.Errorf("invalid audio volume")
+		}
+		args = append(args[:len(args)-1], "-af", fmt.Sprintf("volume=%f", v), path)
 	}
 	var cmd *exec.Cmd
 	// nice execs ffmpeg, so CommandContext owns the encoder PID directly.

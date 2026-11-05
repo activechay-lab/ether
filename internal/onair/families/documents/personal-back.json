@@ -1,0 +1,293 @@
+{
+  "v": 1,
+  "moment": "back",
+  "duration": 8,
+  "poster": 5.5,
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": "{bg}"
+    },
+    {
+      "id": "aurora0",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            -700
+          ],
+          [
+            8,
+            -300
+          ]
+        ]
+      },
+      "y": -350,
+      "w": 1500,
+      "h": 1500,
+      "fill": {
+        "radial": [
+          750,
+          750,
+          0,
+          750
+        ],
+        "stops": [
+          [
+            0,
+            "{accent}@0.45"
+          ],
+          [
+            1,
+            "{bg}@0"
+          ]
+        ]
+      },
+      "blend": "screen"
+    },
+    {
+      "id": "aurora1",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            -50
+          ],
+          [
+            8,
+            300
+          ]
+        ]
+      },
+      "y": -130,
+      "w": 1500,
+      "h": 1500,
+      "fill": {
+        "radial": [
+          750,
+          750,
+          0,
+          750
+        ],
+        "stops": [
+          [
+            0,
+            "{glow}@0.45"
+          ],
+          [
+            1,
+            "{bg}@0"
+          ]
+        ]
+      },
+      "blend": "screen"
+    },
+    {
+      "id": "aurora2",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            600
+          ],
+          [
+            8,
+            900
+          ]
+        ]
+      },
+      "y": 90,
+      "w": 1500,
+      "h": 1500,
+      "fill": {
+        "radial": [
+          750,
+          750,
+          0,
+          750
+        ],
+        "stops": [
+          [
+            0,
+            "{accent}@0.45"
+          ],
+          [
+            1,
+            "{bg}@0"
+          ]
+        ]
+      },
+      "blend": "screen"
+    },
+    {
+      "id": "Title-weight0",
+      "type": "text",
+      "text": "Back to your night",
+      "x": 958.2,
+      "y": 430,
+      "size": 90,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "Title-weight1",
+      "type": "text",
+      "text": "Back to your night",
+      "x": 961.8,
+      "y": 430,
+      "size": 90,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "Title-weight2",
+      "type": "text",
+      "text": "Back to your night",
+      "x": 960,
+      "y": 428.2,
+      "size": 90,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "Title-weight3",
+      "type": "text",
+      "text": "Back to your night",
+      "x": 960,
+      "y": 431.8,
+      "size": 90,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "Title",
+      "type": "text",
+      "text": "Back to your night",
+      "x": 960,
+      "y": 430,
+      "size": 90,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "programme-weight0",
+      "type": "text",
+      "text": "{now.title}",
+      "x": 958.2,
+      "y": 590,
+      "size": 130,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "programme-weight1",
+      "type": "text",
+      "text": "{now.title}",
+      "x": 961.8,
+      "y": 590,
+      "size": 130,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "programme-weight2",
+      "type": "text",
+      "text": "{now.title}",
+      "x": 960,
+      "y": 588.2,
+      "size": 130,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "programme-weight3",
+      "type": "text",
+      "text": "{now.title}",
+      "x": 960,
+      "y": 591.8,
+      "size": 130,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "programme",
+      "type": "text",
+      "text": "{now.title}",
+      "x": 960,
+      "y": 590,
+      "size": 130,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "line",
+      "type": "rect",
+      "x": 660,
+      "y": 670,
+      "w": 600,
+      "h": 5,
+      "fill": "{accent}"
+    },
+    {
+      "id": "reason",
+      "type": "text",
+      "text": "{next.reason}",
+      "x": 960,
+      "y": 780,
+      "size": 38,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": "{textures.grain}"
+    }
+  ],
+  "slots": [
+    "next.reason",
+    "now.title"
+  ]
+}

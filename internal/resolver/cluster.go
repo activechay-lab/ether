@@ -47,6 +47,8 @@ func (s *Service) notifyPin(key core.RatingKey) { s.notify("pin:" + strconv.Form
 func (s *Service) applyRemote(ctx context.Context, hints []string, all bool) {
 	if all {
 		s.mu.Lock()
+		s.subVerdicts = nil
+		s.subMiss = nil
 		s.bad = map[string]badMark{}
 		s.reps = map[string]reputation{}
 		s.avail = map[int64]availEntry{}
@@ -60,6 +62,13 @@ func (s *Service) applyRemote(ctx context.Context, hints []string, all bool) {
 	for _, h := range hints {
 		kind, arg, _ := strings.Cut(h, ":")
 		switch kind {
+		case "sub":
+			s.mu.Lock()
+			delete(s.subVerdicts, arg)
+			delete(s.subMiss, arg)
+			s.mu.Unlock()
+		case "rejections":
+			s.loadRejections(ctx)
 		case "bad":
 			s.reloadBad(ctx, arg)
 		case "avail":

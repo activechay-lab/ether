@@ -17,6 +17,8 @@ export function installMockBackend(): void {
   setMockAgentPace(Number(params.get("agentPace") ?? 70));
   const fake = createFakeServer({
     latencyMs: 120,
+    liveTVEmpty: params.get("livetv") === "empty",
+    onAirLayout: params.get("onair") ?? undefined,
     householdAudio: true,
     cluster,
     startup: params.get("startup") ?? undefined,

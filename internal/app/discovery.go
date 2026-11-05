@@ -20,7 +20,19 @@ import (
 
 func (a *App) buildDiscovery() {
 	a.ratings = ratings.New(a.db, ratings.Options{Sealer: a.cfg, Certification: a.catalog.ApplyProviderCertification, Unrated: a.catalog.UnratedTitles})
-	a.watchlist = watchlist.New(a.db, watchlist.Options{Logger: a.log.With("component", "watchlist"), Catalog: a.catalog, Resolver: a.resolver, Engine: a.media, Cache: a.cache, Trakt: a.trakt, Users: a.users.Users, Allowed: a.safety.Allowed, Notifier: a.notifications, Tokens: a.discoveryToken, ClientIdentifier: plexguid.ClientIdentifier(a.cfg.Get().Plex.ClientIdentifier, a.cfg.Get().Server.MachineIdentifier), PrewarmBytes: a.cfg.Get().Cache.PrefetchBytes, ResumeSchedule: a.clustered(), OnAvailable: func(ctx context.Context, userID int64, key core.RatingKey) {
+	var sourceResolver core.Resolver
+	var sourceEngine core.Engine
+	var sourceCache core.CacheProvenanceRecorder
+	if a.resolver != nil {
+		sourceResolver = a.resolver
+	}
+	if a.media != nil {
+		sourceEngine = a.media
+	}
+	if a.cache != nil {
+		sourceCache = a.cache
+	}
+	a.watchlist = watchlist.New(a.db, watchlist.Options{Logger: a.log.With("component", "watchlist"), Catalog: a.catalog, Resolver: sourceResolver, Engine: sourceEngine, Cache: sourceCache, Trakt: a.trakt, Users: a.users.Users, Allowed: a.safety.Allowed, Notifier: a.notifications, Tokens: a.discoveryToken, ClientIdentifier: plexguid.ClientIdentifier(a.cfg.Get().Plex.ClientIdentifier, a.cfg.Get().Server.MachineIdentifier), PrewarmBytes: a.cfg.Get().Cache.PrefetchBytes, ResumeSchedule: a.clustered(), OnAvailable: func(ctx context.Context, userID int64, key core.RatingKey) {
 		if a.sessionEvents == nil {
 			return
 		}
@@ -95,8 +107,19 @@ func (a *App) overlayFacts(ctx context.Context, u *core.User, t *core.Title, sta
 	// poster. Historical probes survive a restart and are bound to the current
 	// resume release by the playback package; no resolving/probing happens here.
 	if quality && u != nil {
-		if observed, err := a.playback.ObservedMediaInfo(ctx, u.ID, t.Key); err == nil && observed != nil {
-			applyOverlayQuality(&f, observed.Info)
+		if a.playback != nil {
+			if observed, err := a.playback.ObservedMediaInfo(ctx, u.ID, t.Key); err == nil && observed != nil {
+				applyOverlayQuality(&f, observed.Info)
+			}
+		} else if a.brokerPlayback != nil {
+			// Remote preparation snapshots contain exact owner-probed metadata for an
+			// immutable pinned revision. Do not resolve/probe/network during artwork.
+			for _, session := range a.brokerPlayback.Sessions() {
+				if session != nil && session.UserID == u.ID && session.Key == t.Key && !session.Info.Estimated {
+					applyOverlayQuality(&f, session.Info)
+					break
+				}
+			}
 		}
 	}
 	return f

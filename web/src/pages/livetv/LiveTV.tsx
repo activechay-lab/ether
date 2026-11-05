@@ -1,3 +1,4 @@
+import { useLooks, LooksAside, LooksGallery, LookSurfaces } from "./onair/LooksGallery";
 import { SubtabNav } from "../../components/layout";
 import {
   Badge,
@@ -17,9 +18,11 @@ import {
   Search,
   Sparkles,
   Tv,
+  UserRound,
+  Palette,
   Undo2,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AddAddonDrawer } from "../../components/addons/AddAddonDrawer";
 import type { AddonSummary } from "../../components/addons/addons";
@@ -30,7 +33,7 @@ import { PanelHead, Workspace } from "../../components/workspace";
 import { api, errorMessage } from "../../lib/api";
 import { localized, t, tn } from "../../i18n";
 import { formatNumber } from "../../lib/format";
-import { useDebouncedValue, useInterval } from "../../lib/hooks";
+import { useDebouncedValue, useInterval, useMediaQuery } from "../../lib/hooks";
 import type { EtherUser } from "../../lib/types";
 import {
   ChannelStudio,
@@ -103,19 +106,33 @@ function selectionFrom(params: URLSearchParams): Selection {
  */
 export default function LiveTV() {
   const { tab } = useParams();
+  const { looks, reels, reload: reloadLooks } = useLooks();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const selection = selectionFrom(params);
   // The Guide tab's selected guide source; none means All guides.
   const guideSourceId = params.get("gsrc");
   const [leftTab, setLeftTab] = useState(
-    tab === "guide-data"
-      ? "guide"
-      : tab === "sources" || selection.kind === "source"
-        ? "sources"
-        : "channels",
+    tab === "looks"
+      ? "looks"
+      : tab === "guide-data"
+        ? "guide"
+        : tab === "sources" || selection.kind === "source"
+          ? "sources"
+          : "channels",
   );
 
+  useEffect(() => {
+    setLeftTab(
+      tab === "looks"
+        ? "looks"
+        : tab === "guide-data"
+          ? "guide"
+          : tab === "sources"
+            ? "sources"
+            : "channels",
+    );
+  }, [tab]);
   useEffect(() => {
     if (selection.kind === "map") setLeftTab("guide");
   }, [selection.kind]);
@@ -497,6 +514,7 @@ export default function LiveTV() {
       if (gsrc && next.kind !== "channel" && next.kind !== "new") p.set("gsrc", gsrc);
       if (tab === "guide-data") navigate(`/livetv${p.size ? `?${p}` : ""}`);
       else setParams(p);
+      return true;
     },
     [dirty, draft, navigate, params, setParams, tab],
   );
@@ -681,6 +699,11 @@ export default function LiveTV() {
   const actions = (
     <AddMenu
       onChannel={() => void go({ kind: "new" })}
+      onPersonal={() =>
+        void (async () => {
+          if (await go({ kind: "new" })) await startNew("personal");
+        })()
+      }
       onSource={(k) => {
         // The menu is the one place to add a guide: it opens on the Guide tab.
         if (k === "guide") {
@@ -721,13 +744,15 @@ export default function LiveTV() {
             value={q}
             onChange={(e) => setQ(e.currentTarget.value)}
             placeholder={
-              leftTab === "sources"
-                ? t("Find a channel, group or source…")
-                : leftTab === "guide"
-                  ? t("Find a channel or guide…")
-                  : t("Find a channel or group…")
+              leftTab === "looks"
+                ? t("Search looks…")
+                : leftTab === "sources"
+                  ? t("Find a channel, group or source…")
+                  : leftTab === "guide"
+                    ? t("Find a channel or guide…")
+                    : t("Find a channel or group…")
             }
-            aria-label={t("Search channels")}
+            aria-label={leftTab === "looks" ? t("Search looks") : t("Search channels")}
             className="h-8 pl-7 text-sm"
           />
         </div>
@@ -747,9 +772,13 @@ export default function LiveTV() {
       </div>
       <SubtabNav
         ariaLabel={t("Lineup")}
-        className="grid grid-cols-3 gap-0 overflow-visible [&>button]:min-w-0 [&>button]:justify-center [&>button]:px-0.5 [&>button]:text-xs @min-[280px]:[&>button]:text-sm [&>button>span]:block [&>button>span]:min-w-0 [&>button>span]:break-words"
+        className="grid grid-cols-4 gap-0 overflow-visible [&>button]:min-w-0 [&>button]:justify-center [&>button]:px-0.5 [&>button]:text-xs @min-[280px]:[&>button]:text-sm [&>button>span]:block [&>button>span]:min-w-0 [&>button>span]:break-words"
         active={leftTab}
-        onSelect={setLeftTab}
+        onSelect={(next) => {
+          setLeftTab(next);
+          if (next === "looks") navigate("/livetv/looks");
+          else if (tab === "looks") navigate(next === "sources" ? "/livetv/sources" : "/livetv");
+        }}
         tabs={[
           { key: "channels", label: t("Channels") },
           {
@@ -757,6 +786,7 @@ export default function LiveTV() {
             label: t("Sources"),
           },
           { key: "guide", label: t("Guide") },
+          { key: "looks", label: t("Looks") },
         ]}
       />
     </PanelHead>
@@ -764,7 +794,8 @@ export default function LiveTV() {
   const lineupEmpty = channels?.length ? (
     <p className="text-xs text-fg-muted">{t("No channels match.")}</p>
   ) : (
-    <div className="space-y-3">
+    <div className="mx-auto w-full max-w-sm space-y-3 text-center">
+      <Tv size={28} className="mx-auto text-primary/70" aria-hidden />
       <p className="text-sm font-medium text-fg">{t("No channels yet")}</p>
       <p className="text-xs text-fg-muted">
         {t("Build a virtual channel from your catalogue, or bring in IPTV from an M3U playlist.")}
@@ -781,7 +812,14 @@ export default function LiveTV() {
     <>
       {panelHead}
       <div className="app-scroll min-h-0 flex-1 lg:overflow-y-auto">
-        {leftTab === "channels" ? null : leftTab === "sources" ? (
+        {leftTab === "looks" ? (
+          <LooksAside
+            looks={looks}
+            reels={reels}
+            query={q}
+            onSelect={(kind, id) => setParams(new URLSearchParams({ [kind]: id }))}
+          />
+        ) : leftTab === "channels" ? null : leftTab === "sources" ? (
           <SourceList
             sources={sources}
             selected={selection}
@@ -909,7 +947,13 @@ export default function LiveTV() {
   const guideSource = guideSourceId ? sources.find((x) => x.id === guideSourceId) : undefined;
   const mainClassName = "";
   const main =
-    leftTab === "guide" ? (
+    leftTab === "looks" ? (
+      <LooksGallery
+        looks={looks}
+        onNew={() => setParams(new URLSearchParams({ look: "new" }))}
+        onSelect={(id) => setParams(new URLSearchParams({ look: id }))}
+      />
+    ) : leftTab === "guide" ? (
       <GuideWorkbench
         channels={sorted}
         query={query}
@@ -978,6 +1022,7 @@ export default function LiveTV() {
         head={panelHead}
         covered={covered}
         onToggleFavorite={toggleFavorite}
+        onAddChannel={() => void go({ kind: "new" })}
         emptyHint={
           channels === null ? (
             <p className="text-xs text-fg-muted">{t("Loading channels…")}</p>
@@ -1037,7 +1082,9 @@ export default function LiveTV() {
         aside={aside}
         main={main}
       >
-        {state ?? (leftTab === "channels" ? lineupGuide : undefined)}
+        {leftTab === "looks"
+          ? undefined
+          : (state ?? (leftTab === "channels" ? lineupGuide : undefined))}
       </Workspace>
       <Drawer
         open={guideOpen}
@@ -1211,6 +1258,7 @@ export default function LiveTV() {
           />
         )}
       </Drawer>
+      <LookSurfaces looks={looks} reload={reloadLooks} />
       <AddAddonDrawer
         open={addingAddon}
         role="livetv_channels"
@@ -1221,74 +1269,153 @@ export default function LiveTV() {
   );
 }
 
+// AppKit-style sections; upstream labelled grouping and arrow navigation.
 function AddMenu({
   onChannel,
+  onPersonal,
   onSource,
   onAddon,
 }: {
   onChannel: () => void;
+  onPersonal: () => void;
   onSource: (k: SourceKind) => void;
   onAddon: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const item = (icon: React.ReactNode, title: string, hint: string, fn: () => void) => (
+  const phone = useMediaQuery("(max-width: 639px)");
+  const navigate = useNavigate();
+  const id = useId();
+  const menu = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() =>
+      menu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus(),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+  const item = (Icon: typeof Sparkles, title: string, hint: string, fn: () => void) => (
     <button
       type="button"
       role="menuitem"
+      tabIndex={-1}
       onClick={() => {
         setOpen(false);
         fn();
       }}
-      className="flex w-full items-start gap-3 rounded-md px-2.5 py-2 text-left hover:bg-surface-hover"
+      className="flex w-full items-start gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
     >
-      <span className="mt-0.5 text-primary">{icon}</span>
+      <Icon size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden />
       <span>
         <span className="block text-sm font-medium text-fg">{title}</span>
         <span className="block text-xs text-fg-muted">{hint}</span>
       </span>
     </button>
   );
+  const section = (key: string, label: string, children: React.ReactNode) => (
+    <div role="group" aria-labelledby={`${id}-${key}`} className="py-1">
+      <p id={`${id}-${key}`} className="px-2.5 py-1.5 text-xs font-medium text-fg-subtle">
+        {label}
+      </p>
+      {children}
+    </div>
+  );
   return (
     <Popover
       open={open}
       onOpenChange={setOpen}
-      align="end"
-      className="w-72 p-1"
+      align={phone ? "start" : "end"}
+      className="w-80 max-w-[calc(100vw-1.5rem)] p-1"
       trigger={
         <Button
+          ref={trigger}
           size="sm"
           onClick={() => setOpen((o) => !o)}
           aria-haspopup="menu"
           aria-expanded={open}
+          aria-controls={`${id}-menu`}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              e.preventDefault();
+              setOpen(true);
+            }
+          }}
         >
-          <Plus size={14} /> {t("Add")}
+          <Plus size={14} />
+          {t("Add")}
         </Button>
       }
     >
-      <div role="menu" aria-label={t("Add to Live TV")}>
-        {item(
-          <Sparkles size={16} />,
-          t("Virtual channel"),
-          t("Programme your own from the catalogue"),
-          onChannel,
+      <div
+        ref={menu}
+        id={`${id}-menu`}
+        role="menu"
+        aria-label={t("Add to Live TV")}
+        className="app-scroll max-h-[calc(100dvh-10rem)] overflow-y-auto"
+        onKeyDown={(e) => {
+          const items = [
+            ...(menu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []),
+          ];
+          const current = items.indexOf(document.activeElement as HTMLButtonElement);
+          let next: number | undefined;
+          if (e.key === "ArrowDown") next = (current + 1) % items.length;
+          if (e.key === "ArrowUp") next = (current - 1 + items.length) % items.length;
+          if (e.key === "Home") next = 0;
+          if (e.key === "End") next = items.length - 1;
+          if (next !== undefined) {
+            e.preventDefault();
+            items[next]?.focus();
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            setOpen(false);
+            trigger.current?.focus();
+          }
+          if (e.key === "Tab") setOpen(false);
+        }}
+      >
+        {section(
+          "yours",
+          t("Your channels"),
+          <>
+            {item(
+              Sparkles,
+              t("Virtual channel"),
+              t("Programme your own from the catalogue"),
+              onChannel,
+            )}
+            {item(
+              UserRound,
+              t("Personal channel"),
+              t("A channel made for each viewer"),
+              onPersonal,
+            )}
+            {item(Palette, t("Look"), t("Design your channel’s on-air graphics"), () =>
+              navigate("/livetv/looks?look=new"),
+            )}
+            {item(ListVideo, t("Break reel"), t("Clips to play between programmes"), () =>
+              navigate("/livetv/looks?reel=new"),
+            )}
+          </>,
         )}
-        {item(
-          <ListVideo size={16} />,
-          t("IPTV source"),
-          t("An M3U playlist, optionally with a guide"),
-          () => onSource("playlist"),
+        <div role="separator" className="mx-2 border-t border-border" />
+        {section(
+          "bring",
+          t("Bring in channels"),
+          <>
+            {item(Tv, t("IPTV source"), t("Channels from M3U or Xtream"), () =>
+              onSource("playlist"),
+            )}
+            {item(Puzzle, t("Stremio plugin"), t("Live channels from a Stremio plugin"), onAddon)}
+          </>,
         )}
-        {item(
-          <Puzzle size={16} />,
-          t("Stremio plugin"),
-          t("Live channels from a Stremio plugin"),
-          onAddon,
-        )}
-        {item(
-          <CalendarRange size={16} />,
-          t("Guide source"),
-          t("XMLTV listings for any channel"),
-          () => onSource("guide"),
+        <div role="separator" className="mx-2 border-t border-border" />
+        {section(
+          "guide",
+          t("Program guide"),
+          item(CalendarRange, t("Guide source"), t("XMLTV listings for any channel"), () =>
+            onSource("guide"),
+          ),
         )}
       </div>
     </Popover>

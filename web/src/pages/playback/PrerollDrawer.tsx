@@ -680,7 +680,7 @@ function Dropzone({ onFile, onCancel }: { onFile: (f: File) => void; onCancel?: 
  * send, so the preview is fetched with it on demand (clips are at most three
  * minutes) and played from a blob that is released on close.
  */
-function PreviewPlayer({ preroll }: { preroll: Preroll }) {
+export function PreviewPlayer({ preroll }: { preroll: Pick<Preroll, "name" | "video"> }) {
   const url = mediaUrl(preroll.video.previewUrl);
   const [src, setSrc] = useState<string | null>(null);
   const [phase, setPhase] = useState<"idle" | "loading" | "error">("idle");

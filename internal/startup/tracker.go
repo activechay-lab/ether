@@ -72,8 +72,11 @@ type Status struct {
 	// the console words its own from Phase and the fields below).
 	Message string `json:"message"`
 	// Step of Steps, while a phase has countable work (migrations).
-	Step  int `json:"step,omitempty"`
-	Steps int `json:"steps,omitempty"`
+	Task      string `json:"task,omitempty"`
+	Completed int    `json:"completed,omitempty"`
+	Total     int    `json:"total,omitempty"`
+	Step      int    `json:"step,omitempty"`
+	Steps     int    `json:"steps,omitempty"`
 	// Started is when this start began; Since when the phase did.
 	Started time.Time `json:"started"`
 	Since   time.Time `json:"since"`
@@ -137,10 +140,21 @@ func (t *Tracker) Set(phase Phase) {
 			s.Since = t.now().UTC()
 		}
 		s.Phase, s.Message, s.Ready = phase, messages[phase], phase == PhaseReady
+		s.Task, s.Completed, s.Total = "", 0, 0
 		s.Step, s.Steps, s.Attempt, s.RetryAt, s.Failure = 0, 0, 0, nil, nil
 		if phase != PhaseRestoring {
 			s.Restoring = ""
 		}
+	})
+}
+
+// Work records a real operation independently of the migration ordinal.
+func (t *Tracker) Work(name string, done, total int) {
+	t.update(func(s *Status) {
+		if s.Task != name || done < s.Completed {
+			s.Since = t.now().UTC()
+		}
+		s.Task, s.Completed, s.Total = name, done, total
 	})
 }
 
@@ -170,6 +184,7 @@ func (t *Tracker) Waiting(phase Phase, attempt int, retry time.Duration, err err
 			s.Since = t.now().UTC()
 		}
 		s.Phase, s.Message, s.Ready = phase, messages[phase], false
+		s.Task, s.Completed, s.Total = "", 0, 0
 		s.Step, s.Steps, s.Failure = 0, 0, nil
 		if phase != PhaseRestoring {
 			s.Restoring = ""

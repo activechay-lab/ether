@@ -353,6 +353,7 @@ export interface EtherConfig {
     offerHigherVersions?: boolean;
     blockedGroups: string[] | null;
     blockedTerms: string[] | null;
+    hardSubtitles?: "" | "exclude" | "allow";
     optimisticStart?: boolean;
     healthRace?: number;
     sourcePreference?: string;
@@ -392,7 +393,16 @@ export interface EtherConfig {
     skipCredits?: boolean;
     sourceOrder?: string[];
   };
-  liveTV?: { logoIndexUrl?: string; healthSweepMinutes?: number };
+  liveTV?: {
+    logoIndexUrl?: string;
+    healthSweepMinutes?: number;
+    screens?: {
+      offAir: import("../pages/livetv/onair/ScreenPicker").ScreenStyle;
+      noSignal: import("../pages/livetv/onair/ScreenPicker").ScreenStyle;
+      stationId: boolean;
+      applyTo?: "converted" | "all";
+    };
+  };
   subtitles?: {
     providers?: { id: string; kind: string; name?: string; enabled: boolean }[];
   };
@@ -701,6 +711,8 @@ export interface SourceStartup {
 
 /** One Ether node (internal/cluster.Node). */
 export interface ClusterNode {
+  /** Exact process boot; absent on older servers. */
+  incarnation?: string;
   id: string;
   name: string;
   version: string;
@@ -730,9 +742,22 @@ interface ClusterHealth {
   clockSkewNs: number;
 }
 
+/** Local process observation only. Quota/resources are deliberately not consumed here. */
+export interface ClusterSelfRuntime {
+  nodeId: string;
+  boot: string;
+  runtimeSampledAt: string;
+  protocol: number;
+  started: boolean;
+  readyExisting: boolean;
+  acceptingNew: boolean;
+  draining: boolean;
+}
+
 export interface ClusterStatus {
   mode: "solo" | "postgres";
   self: ClusterNode;
+  selfRuntime?: ClusterSelfRuntime;
   leader?: string;
   epoch: number;
   nodes: ClusterNode[] | null;

@@ -54,6 +54,10 @@ type Request struct {
 	// session-scoped credential, not a user token. Only transcode
 	// session/segment handlers may serve a capability-scoped request.
 	Capability bool
+
+	versionItemKey core.RatingKey // single detail or selected queue item
+	versionFlowKey core.RatingKey // selected pre-play/queue item only
+	versionErr     error
 }
 
 type ctxKey struct{}

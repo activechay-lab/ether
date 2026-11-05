@@ -409,9 +409,22 @@ export const RELEASE_BLOCKS: FieldGroup[] = localized(() => [
   {
     title: t("Words and groups"),
     description: t(
-      "A release whose name contains one of these words, or whose release group matches, is never played.",
+      "Blocked terms match whole tokens. sub matches SUB, not Subtitles or SUBPACK. Subtitle language tags alone do not prove burned-in subtitles.",
     ),
     fields: [
+      {
+        key: "hardSubtitles",
+        label: t("Burned-in subtitles"),
+        kind: "select",
+        help: t(
+          "Video checks run after playback starts. A newly discovered verdict applies to later selections.",
+        ),
+        options: [
+          { value: "", label: t("Prefer clean releases") },
+          { value: "exclude", label: t("Exclude known hardsubs") },
+          { value: "allow", label: t("Allow") },
+        ],
+      },
       {
         key: "blockedGroups",
         label: t("Blocked release groups"),

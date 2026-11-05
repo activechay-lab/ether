@@ -38,6 +38,7 @@ type ObservationContracts struct {
 }
 
 type observation struct {
+	Keyframes                          []core.KeyframePoint `json:",omitempty"`
 	Identity                           Identity
 	SampledAt                          time.Time
 	Info                               core.MediaInfo
@@ -88,6 +89,7 @@ func cloneObservation(o observation) observation {
 	b, _ := json.Marshal(o)
 	var copy observation
 	_ = json.Unmarshal(b, &copy)
+	copy.Info.Keyframes = append([]core.KeyframePoint(nil), copy.Keyframes...)
 	return copy
 }
 
@@ -118,7 +120,11 @@ func (s *Session) Observe(ctx context.Context) (*ObservedSession, error) {
 		return nil, ErrUncertain
 	}
 	var sample observation
-	if json.Unmarshal(b, &sample) != nil || !validObservation(sample, s.id) {
+	if json.Unmarshal(b, &sample) != nil {
+		return nil, ErrUncertain
+	}
+	sample.Info.Keyframes = append([]core.KeyframePoint(nil), sample.Keyframes...)
+	if (len(sample.Keyframes) > 0 && !s.adapter.Capabilities().Keyframes) || !validObservation(sample, s.id) {
 		return nil, ErrUncertain
 	}
 	s.mu.Lock()
@@ -131,7 +137,7 @@ func (s *Session) Observe(ctx context.Context) (*ObservedSession, error) {
 }
 
 func validObservation(o observation, id Identity) bool {
-	if o.Identity != id || o.SampledAt.IsZero() || len(o.Info.Keyframes) > 0 || len(o.Info.Streams) > 64 || len(o.Info.Chapters) > 128 {
+	if o.Identity != id || o.SampledAt.IsZero() || !ValidateKeyframes(o.Info) || len(o.Info.Streams) > 64 || len(o.Info.Chapters) > 128 {
 		return false
 	}
 	for _, stream := range o.Info.Streams {
@@ -158,6 +164,11 @@ func (w *Worker) inspect(out http.ResponseWriter, r *http.Request, e *execution,
 	// synchronization; it is NOT an atomic multi-field encoder snapshot. See README.
 	sample := observation{Identity: e.id, Info: backend.Info(), Decision: backend.Decision(), EncoderStatus: backend.EncoderStatus(), Progress: backend.Progress(), GoodputKbps: backend.GoodputKbps(), RecoveryBuffer: backend.RecoveryBuffer(), RequestedPosition: backend.RequestedPosition(), SegmentDuration: backend.SegmentDuration(), Container: backend.Container(), Protocol: backend.Protocol(), HWAccelerated: backend.HWAccelerated()}
 	sample.SampledAt = time.Now().UTC()
+	sample.Keyframes = append([]core.KeyframePoint(nil), sample.Info.Keyframes...)
+	if len(sample.Keyframes) > 0 && !w.opts.Capabilities.Keyframes {
+		http.Error(out, "indexed inspection unsupported", 422)
+		return
+	}
 	b, err := json.Marshal(sample)
 	if err != nil || len(b) > MaxMessage || !validObservation(sample, e.id) {
 		http.Error(out, "inspection unavailable", 422)

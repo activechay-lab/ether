@@ -24,6 +24,11 @@ type WorkerOptions struct {
 	Encoder         core.OwnedTranscoder
 }
 type execution struct {
+	origin                    EvidenceOrigin
+	negativeBarrierGeneration uint64
+	backendInvoked            bool
+	validatingRenewals        uint32
+	responsibilityVersion     uint8
 	start                     Start // Immutable original grant and expiry, separate from current lease.
 	lease                     LeaseState
 	id                        Identity
@@ -150,7 +155,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if m.Op == "start" {
-		if m.Start == nil || len(m.Start.ReleaseID) > 512 || m.Start.Identity != m.Identity || len(m.Start.Grant) == 0 || len(m.Start.Grant) > 4096 || !SupportsRequest(core.HLSRequest{SoftSubtitleStream: m.Start.SoftSubtitleStream, Protocol: m.Start.Protocol, ReleaseID: m.Start.ReleaseID, Info: m.Start.Info, Decision: m.Start.Decision, StartOffset: m.Start.Offset, SegmentDuration: m.Start.SegmentDuration}, w.opts.Capabilities) {
+		if m.Start == nil || len(m.Start.ReleaseID) > 512 || m.Start.Identity != m.Identity || len(m.Start.Grant) == 0 || len(m.Start.Grant) > 4096 || !SupportsRequest(core.HLSRequest{SoftSubtitleStream: m.Start.SoftSubtitleStream, Protocol: m.Start.Protocol, ReleaseID: m.Start.ReleaseID, Info: startInfo(*m.Start), Decision: m.Start.Decision, StartOffset: m.Start.Offset, SegmentDuration: m.Start.SegmentDuration}, w.opts.Capabilities) {
 			http.Error(out, "unsupported start", 422)
 			return
 		}
@@ -180,6 +185,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if m.Op == "start" {
+
 		w.start(out, r, peer, *m.Start)
 		return
 	}
@@ -187,7 +193,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 	e := w.records[m.Identity]
 	if e == nil && m.Op == "stop" && len(w.records) < w.opts.Capacity && !w.closed {
 		// Stop-before-start is a permanent tombstone for this generation.
-		e = &execution{id: m.Identity, stopped: true}
+		e = &execution{id: m.Identity, stopped: true, origin: EvidenceStopBeforeStart, negativeBarrierGeneration: m.Identity.Generation}
 		w.records[m.Identity] = e
 		key := m.Identity.Controller + "/" + m.Identity.Session
 		if m.Identity.Generation > w.highest[key] {
@@ -279,6 +285,24 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 		replyStatus(out, snapshot)
 		return
 	}
+	// Preserve immutable duplicate replay before rechecking current backend policy.
+	// The checker runs without the worker mutex and before source/admission work.
+	w.mu.Unlock()
+	if backend, ok := w.opts.Encoder.(interface{ SupportsDistributedRequest(core.HLSRequest) bool }); ok {
+		var planStart Start
+		_ = json.Unmarshal(encoded, &planStart)
+		plan := core.HLSRequest{ReleaseID: planStart.ReleaseID, Info: startInfo(planStart), Decision: planStart.Decision, StartOffset: planStart.Offset, SegmentDuration: planStart.SegmentDuration, Protocol: planStart.Protocol, SoftSubtitleStream: planStart.SoftSubtitleStream, RequireIndependentProof: planStart.IndependentProof}
+		if !backend.SupportsDistributedRequest(plan) {
+			http.Error(out, "backend plan unsupported", 422)
+			return
+		}
+	}
+	w.mu.Lock()
+	if w.records[s.Identity] != nil {
+		w.mu.Unlock()
+		w.start(out, r, peer, s)
+		return
+	}
 	key := s.Identity.Controller + "/" + s.Identity.Session
 	if w.closed || len(w.records) >= w.opts.Capacity || s.Identity.Generation <= w.highest[key] || !s.Expires.After(time.Now()) || time.Until(s.Expires) > w.opts.MaxLease {
 		w.mu.Unlock()
@@ -294,7 +318,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 		}
 	}
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
-	e := &execution{start: s, lease: LeaseState{Deadline: s.Expires.UTC(), Renewable: w.opts.ValidateRenewal != nil}, id: s.Identity, hash: hash, starting: true, cancel: cancel}
+	e := &execution{origin: EvidenceAcceptedStart, start: s, lease: LeaseState{Deadline: s.Expires.UTC(), Renewable: w.opts.ValidateRenewal != nil}, id: s.Identity, hash: hash, starting: true, cancel: cancel}
 	w.records[s.Identity] = e
 	w.highest[key] = s.Identity.Generation
 	w.setMonotonicDeadline(e)
@@ -326,6 +350,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	w.mu.Lock()
 	e.input = source.Lease
 	e.gatewayInput = gatewayLease
+	e.responsibilityVersion++
 	input := source.Lease
 	if source.Gateway != nil {
 		input = gatewayLease
@@ -337,12 +362,15 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 		err = context.Canceled
 	}
 	if err == nil {
+		w.mu.Lock()
+		e.backendInvoked = true
+		w.mu.Unlock()
 		invoked = true
 		var backendStart Start
 		_ = json.Unmarshal(encoded, &backendStart)
 		// Backend receives separate nested slices/pointers; source renewal and duplicate
 		// starts continue comparing the original immutable payload.
-		backendInfo, backendDecision, backendSoft := backendStart.Info, backendStart.Decision, backendStart.SoftSubtitleStream
+		backendInfo, backendDecision, backendSoft := startInfo(backendStart), backendStart.Decision, backendStart.SoftSubtitleStream
 		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), ManifestSessionID: s.Identity.Session, InputURL: source.URL, InputLease: input, Info: backendInfo, Decision: backendDecision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, SoftSubtitleStream: backendSoft, Protocol: s.Protocol})
 	}
 	if err == nil && session != nil {
@@ -399,6 +427,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	e.independent = independent
 	e.starting = false
 	e.retirement = retirement
+	e.responsibilityVersion++
 	if session != nil {
 		e.session, _ = session.(core.OwnedEncoderSession)
 		if e.session == nil {
@@ -517,33 +546,48 @@ func (w *Worker) renew(out http.ResponseWriter, r *http.Request, peer string, n 
 	var original Start
 	originalBytes, _ := json.Marshal(e.start)
 	_ = json.Unmarshal(originalBytes, &original)
-	w.mu.Unlock()
-	receipt, err := w.opts.ValidateRenewal(r.Context(), peer, original, n)
-	if err != nil || !sameRenewal(receipt.Renewal, n) || receipt.PlacementUntil.Before(n.Deadline) || receipt.SourceUntil.Before(n.Deadline) {
-		http.Error(out, "renewal authority denied", 403)
+	if e.validatingRenewals == ^uint32(0) {
+		w.mu.Unlock()
+		http.Error(out, "renewal capacity", 409)
 		return
 	}
+	e.validatingRenewals++
+	w.mu.Unlock()
+	snapshot, code := w.validateAndCommitRenewal(r.Context(), peer, e, original, n)
+	if code != 0 {
+		message := "lease conflict"
+		if code == 403 {
+			message = "renewal authority denied"
+		}
+		http.Error(out, message, code)
+		return
+	}
+	replyStatus(out, snapshot)
+}
+
+// The registered validator remains joined through every callback and CAS exit.
+// Serialization/network output happens only after deferred accounting releases.
+func (w *Worker) validateAndCommitRenewal(ctx context.Context, peer string, e *execution, original Start, n Renewal) (status, int) {
+	defer func() { w.mu.Lock(); e.validatingRenewals--; w.mu.Unlock() }()
+	receipt, err := w.opts.ValidateRenewal(ctx, peer, original, n)
+	if err != nil || !sameRenewal(receipt.Renewal, n) || receipt.PlacementUntil.Before(n.Deadline) || receipt.SourceUntil.Before(n.Deadline) {
+		return status{}, 403
+	}
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.expire(e)
 	// Concurrent duplicate validation may complete after this operation committed.
 	if e.lease.Accepted != nil && sameRenewal(*e.lease.Accepted, n) {
-		snapshot := w.snapshot(e)
-		w.mu.Unlock()
-		replyStatus(out, snapshot)
-		return
+		return w.snapshot(e), 0
 	}
-	if r.Context().Err() != nil || !w.canRenew(e, n) {
-		w.mu.Unlock()
-		http.Error(out, "lease conflict", 409)
-		return
+	if ctx.Err() != nil || !w.canRenew(e, n) {
+		return status{}, 409
 	}
 	accepted := n
 	e.lease.Deadline, e.lease.Version, e.lease.Accepted = n.Deadline.UTC(), n.Operation, &accepted
 	w.setMonotonicDeadline(e)
 	w.arm(e)
-	snapshot := w.snapshot(e)
-	w.mu.Unlock()
-	replyStatus(out, snapshot)
+	return w.snapshot(e), 0
 }
 func (w *Worker) canRenew(e *execution, n Renewal) bool {
 	now := time.Now()

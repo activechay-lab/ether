@@ -44,6 +44,7 @@ func (a *App) buildCluster(dialect store.Dialect) error {
 		Roles: slices.Clone(server.NodeRoles), InternalAddress: server.InternalAddress,
 		// ProtocolVersion stays zero until a compatible private service is
 		// registered and usable; an address alone is not remote capability.
+		Protocol: a.privateProtocol,
 		Draining: a.nodeDraining, Migrations: store.KnownMigrations()}
 	log := a.log.With("component", "cluster")
 	a.peers = &peerSet{}
@@ -171,6 +172,10 @@ func (a *App) nodeCaps() cluster.Caps {
 	if a.transcoder != nil {
 		caps.Transcode, caps.HWAccel = true, a.transcoder.HWAccel().Name
 	}
+	if a.deployment != nil && a.deployment.encoder != nil {
+		caps.Transcode = true
+		caps.HWAccel = a.deployment.encoder.HWAccel().Name
+	}
 	return caps
 }
 
@@ -281,13 +286,14 @@ func (a *App) sampleHealth(ctx context.Context) {
 
 // clusterStatus is GET /ether/api/cluster/.
 type clusterStatus struct {
-	Mode   string          `json:"mode"`
-	Self   cluster.Node    `json:"self"`
-	Leader string          `json:"leader,omitempty"` // leader node ID, when known
-	Epoch  int64           `json:"epoch"`            // this node's leader epoch (0 unless leading)
-	Nodes  []cluster.Node  `json:"nodes"`            // every recorded node, with liveness
-	Health *cluster.Health `json:"health,omitempty"`
-	Error  string          `json:"error,omitempty"`
+	SelfRuntime *selfRuntimeStatus `json:"selfRuntime,omitempty"`
+	Mode        string             `json:"mode"`
+	Self        cluster.Node       `json:"self"`
+	Leader      string             `json:"leader,omitempty"` // leader node ID, when known
+	Epoch       int64              `json:"epoch"`            // this node's leader epoch (0 unless leading)
+	Nodes       []cluster.Node     `json:"nodes"`            // every recorded node, with liveness
+	Health      *cluster.Health    `json:"health,omitempty"`
+	Error       string             `json:"error,omitempty"`
 	// Warnings are cluster conditions the owner should act on.
 	Warnings []string `json:"warnings,omitempty"`
 	// Database is this node's shared-database connectivity (clustered
@@ -300,6 +306,7 @@ func (a *App) clusterHandler() http.Handler {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		st := clusterStatus{Mode: a.cluster.Mode(), Self: a.cluster.Self(), Epoch: a.cluster.Epoch()}
 		st.Self.Draining = a.nodeDraining()
+		st.SelfRuntime = a.selfRuntimeSnapshot(st.Self)
 		if a.cfg != nil {
 			st.Self.Caps.Weight = a.cfg.Get().Server.ClusterWeight
 		}

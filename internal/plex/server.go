@@ -82,6 +82,9 @@ type SessionToucher interface {
 // Deps are the server's dependencies. Catalog, State, Auth and Playback are
 // required; the rest degrade gracefully when nil.
 type Deps struct {
+	// PlexEncoder optionally dispatches authenticated universal playback through
+	// the shared broker; nil preserves the existing local encoder path.
+	PlexEncoder         PlexEncoder
 	ArtworkImages       *artworkservice.RemoteCache
 	ArtworkPalettes     *artworkservice.PaletteCache
 	SessionCoordination *sessions.Coordination
@@ -149,8 +152,9 @@ type Deps struct {
 	DirectHTTP *http.Client
 	// ImageCacheBytes bounds the in-memory artwork cache (default 128 MiB).
 	ImageCacheBytes int64
-	// DB persists derived artwork data (UltraBlurColors) in plex_* tables.
-	// Optional: without it, colours are kept in memory only.
+	// DB persists artwork data and ordered shelf-generation keys. Clustered
+	// nodes share this store so continuations survive failover and restarts.
+	// Optional: without it, these caches remain process-local.
 	DB *sql.DB
 	// DisableEnrichment turns off the background title-detail and
 	// UltraBlurColors work (the spike test library has nothing to fetch).
@@ -183,11 +187,17 @@ type Deps struct {
 // Server is the PMS API handler. It is an http.Handler; call Close on
 // shutdown to stop background work and notification streams.
 type Server struct {
-	shelfMu      sync.Mutex
-	shelfCuts    map[string]shelfCut
-	homeSharedMu sync.Mutex
-	homeShared   map[string]*homeSharedEntry
-	home         *homeCache
+	shelfMu          sync.Mutex
+	shelfCuts        map[string]shelfCut
+	shelfGenerations map[string]shelfGeneration
+	shelfBytes       int
+	shelfSerial      uint64
+	shelfWriter      *shelfPersistence
+	plexEncoderMu    sync.RWMutex
+	plexEncoder      PlexEncoder
+	homeSharedMu     sync.Mutex
+	homeShared       map[string]*homeSharedEntry
+	home             *homeCache
 
 	d      Deps
 	log    *slog.Logger
@@ -200,6 +210,7 @@ type Server struct {
 	boundStreams      sessions.PlexStreamAPI
 	variantIDs        *variantIDRegistry
 	playIDs           *playIdentities
+	versionFlows      *versionFlowStore
 	variantWatch      variantWatches
 	downloads         *downloadStore
 	queues            *playQueueStore
@@ -268,6 +279,7 @@ func NewServer(d Deps) *Server {
 		coord = sessions.NewCoordination()
 	}
 	s := &Server{
+		plexEncoder:       d.PlexEncoder,
 		d:                 d,
 		log:               d.Logger.With("component", "plex"),
 		images:            artworkservice.NewRemoteCache(d.ImageCacheBytes, d.HTTPClient),
@@ -291,10 +303,14 @@ func NewServer(d Deps) *Server {
 	if d.ArtworkImages != nil {
 		s.images = d.ArtworkImages
 	}
+	s.shelfWriter = &shelfPersistence{pending: map[string]shelfWrite{}, active: map[string]bool{}, wake: make(chan struct{}, 1)}
+	s.wg.Add(1)
+	go s.writeShelves()
 	s.sections = s.buildSections()
 	s.queues.now = d.Now
 	if d.Cluster != nil && d.DB != nil {
 		s.cl = newClusterState(s, d.DB, d.Cluster)
+		s.versionFlows = newVersionFlowStore(s, d.DB)
 		s.queues.cl = s.cl
 	}
 	if !d.DisableEnrichment && d.Catalog != nil {
@@ -586,7 +602,7 @@ func (s *Server) releaseMountedPlayback() {
 	}
 	for _, id := range ids {
 		if s.d.Transcoder != nil {
-			s.d.Transcoder.Stop(id)
+			s.stopPlexHLS(id)
 		}
 		s.dropTranscode(id)
 	}
