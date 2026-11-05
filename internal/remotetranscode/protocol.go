@@ -47,15 +47,54 @@ type Start struct {
 	SegmentDuration  time.Duration
 	IndependentProof bool
 }
+
+// Renewal is a compare-and-swap of the execution lease, never a new Start.
+// Operation is the next version, scoped to Identity; zero is the initial lease.
+// Deadlines on the wire must use UTC. Equality compares canonical instants.
+type Renewal struct {
+	Identity         Identity
+	Operation        uint64
+	PreviousVersion  uint64
+	PreviousDeadline time.Time
+	Deadline         time.Time
+}
+
+// RenewalReceipt is returned only by a trusted injected validator, never decoded
+// from the caller. It attests durable placement AND continued access using the
+// SAME source authority handle, gateway URL and input lease through Deadline.
+// Start.Grant stays immutable; internal source bearers may rotate while preserving
+// exact source scope/revision/size. The validator must actually
+// extend/revalidate that source authority; an expired bearer alone is not proof.
+// No source replacement or encoder invocation is permitted in this callback.
+// It must account for DB/worker clock skew conservatively and fail on uncertainty.
+type RenewalReceipt struct {
+	Renewal        Renewal
+	PlacementUntil time.Time
+	SourceUntil    time.Time
+}
+type ValidateRenewal func(context.Context, string, Start, Renewal) (RenewalReceipt, error)
+
+// LeaseState distinguishes accepted lease history from current execution state.
+// Accepted is the latest operation only; older retries reconcile this snapshot.
+type LeaseState struct {
+	Deadline  time.Time
+	Version   uint64
+	Accepted  *Renewal `json:",omitempty"`
+	Renewable bool
+}
+
 type message struct {
 	Version  int
 	Head     bool `json:",omitempty"`
 	Op       string
 	Identity Identity
-	Start    *Start `json:",omitempty"`
-	Segment  int    `json:",omitempty"`
+	Renewal  *Renewal `json:",omitempty"`
+	Start    *Start   `json:",omitempty"`
+	Segment  int      `json:",omitempty"`
 }
 type status struct {
+	Stopped  bool
+	Lease    LeaseState
 	State    string
 	Identity Identity
 }
@@ -63,6 +102,8 @@ type status struct {
 // Security authenticates mTLS peer identity and authorizes the complete operation.
 // Authorize must check current placement/source authority, generation and expiry;
 // an authenticated certificate alone does not authorize work. Called for reads too.
+// For renew, Start is nil and ValidateRenewal separately validates its full DTO.
+// Permit exact scoped stop/status after expiry; neither grants execution authority.
 type Security struct {
 	Authenticate func(*http.Request) (string, error)
 	Authorize    func(context.Context, string, string, Identity, *Start) error
@@ -132,4 +173,13 @@ func validPlan(info core.MediaInfo, d core.Decision, offset, segment time.Durati
 		}
 	}
 	return true
+}
+
+func sameRenewal(a, b Renewal) bool {
+	return a.Identity == b.Identity && a.Operation == b.Operation && a.PreviousVersion == b.PreviousVersion && a.PreviousDeadline.Equal(b.PreviousDeadline) && a.Deadline.Equal(b.Deadline)
+}
+func validRenewal(r Renewal) bool {
+	_, oldOffset := r.PreviousDeadline.Zone()
+	_, newOffset := r.Deadline.Zone()
+	return validIdentity(r.Identity) && r.Operation != 0 && r.PreviousVersion != ^uint64(0) && r.Operation == r.PreviousVersion+1 && !r.PreviousDeadline.IsZero() && oldOffset == 0 && newOffset == 0 && r.Deadline.After(r.PreviousDeadline)
 }
