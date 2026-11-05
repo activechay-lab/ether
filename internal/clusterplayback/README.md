@@ -310,3 +310,34 @@ encoder. This adds no public observation API, output observation, successful
 splice, client-buffer evidence or recovery enablement. Later receipt consumers
 still need reviewed actual source-index, complete packaged-picture/sample ends,
 final transformed bytes, current authority and fencing contracts.
+
+## Private exact-operation gate storage prerequisite
+
+Migration v4 reserves one private operation gate atomically with each NEW
+immutable admission, under the same cluster-wide durable HistoryCapacity.
+Every original boot and retired/replaced generation remains charged. There is
+one accepted-attempt nonce/worker-boot slot, one arm association (at most 16 KiB),
+and one irreversible seal with closed reasons and bounded actor identity.
+Admission digest v1 covers the exact sanitized original record, including the
+explicit keyframes/slate, entire Route, operation hash and exact Start identity
+and hash. No independent attempt history, expiry, eviction or compaction exists.
+Exact historical retries, reads and sealing remain usable at capacity.
+
+Package-private storage methods serialize reservation, claim, seal and arm on the
+same component-owned transaction lock on SQLite and PostgreSQL. Ambiguous writes
+require independent exact readback. Typed historical results distinguish unknown,
+absent/unsupported, unclaimed, claimed and both sealed states. A missing gate on a
+legacy admission is unsupported/unknown; retries never backfill one or declare
+that operation never started. A matching sealed retry returns history only.
+Conflicts deny replacement of immutable bindings, slots or seal metadata.
+
+These helpers provide bookkeeping only. They neither authenticate Worker-owned
+accepted handles nor authorize an actor to seal, acknowledge live arming, issue
+execution permits, or prove retirement. No mutation method is wired into actual
+Start, replay, renewal or ongoing authorization. Those behaviors remain unchanged.
+A separate reviewed slice must join actual Worker-owned handle authentication,
+provisional acceptance, trusted seal authorization and observer-owned live arming
+before any gate can become an execution veto or participate in host evidence.
+An arm payload/digest cannot authenticate itself, restore lost kernel handles or
+release placement/source obligations. There is no exported gate API, generic
+proof callback, host-proof consumer or production recovery enablement here.

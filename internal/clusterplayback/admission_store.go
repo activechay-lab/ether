@@ -144,16 +144,8 @@ func (r *Runtime) insertAdmission(ctx context.Context, a admissionRecord, raw st
 		return err
 	}
 	defer tx.Rollback()
-	if err = store.LockKey(ctx, store.DialectOf(r.o.DB), tx, "clusterplayback:admissions"); err != nil {
+	if err = r.lockAdmissionHistory(ctx, tx); err != nil {
 		return err
-	}
-	// Acquire a real SQLite write lock before reads even for deferred test DBs.
-	// Constant false avoids scanning retained history; PostgreSQL already has
-	// the component advisory lock and needs no synthetic write at all.
-	if store.DialectOf(r.o.DB) == store.SQLite {
-		if _, err = tx.ExecContext(ctx, `UPDATE clusterplayback_admissions SET generation=generation WHERE 1=0`); err != nil {
-			return err
-		}
 	}
 	// This is a historical route observation, not a PostgreSQL row lock shared
 	// with putRoute. Replacement can race this insert, leaving an inert old row.
@@ -189,6 +181,13 @@ func (r *Runtime) insertAdmission(ctx context.Context, a admissionRecord, raw st
 		return ErrPending
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO clusterplayback_admissions(cluster,session,generation,controller,controller_boot,admission) VALUES(?,?,?,?,?,?)`, a.Route.Source.Cluster, a.Route.Fence.Session, a.Route.Fence.Generation, a.Route.Fence.Controller.ID, a.Route.Fence.Controller.Boot, raw); err != nil {
+		return err
+	}
+	gateRaw, err := (operationGate{Binding: admissionBinding(a, raw)}).encode()
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO clusterplayback_operation_gates(cluster,session,generation,gate) VALUES(?,?,?,?)`, a.Route.Source.Cluster, a.Route.Fence.Session, a.Route.Fence.Generation, gateRaw); err != nil {
 		return err
 	}
 	return tx.Commit()
