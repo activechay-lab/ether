@@ -15,7 +15,8 @@ type structuralProjectionKey struct{}
 // cards. Membership and paging have already been selected by the shelf engine.
 func (s *Server) applyHubDetailOptions(ctx context.Context, mc *model.MediaContainer, q url.Values) {
 	children, onDeck, related, extras := metadataOptionOn(q.Get("includeChildren")), metadataOptionOn(q.Get("includeOnDeck")), metadataOptionOn(q.Get("includeRelated")), metadataOptionOn(q.Get("includeExtras"))
-	if !children && !onDeck && !related && !extras {
+	preferences := q.Get("includePreferences") == "1"
+	if !children && !onDeck && !related && !extras && !preferences {
 		return
 	}
 	ctx = context.WithValue(ctx, structuralProjectionKey{}, true)
@@ -33,6 +34,9 @@ func (s *Server) applyHubDetailOptions(ctx context.Context, mc *model.MediaConta
 			}
 			full := s.detail(ctx, pr, title, children, onDeck, related, extras, q.Get("extraTypes"))
 			row.Children, row.OnDeck, row.Related, row.Extras = full.Children, full.OnDeck, full.Related, full.Extras
+			if preferences {
+				row.Preferences = s.itemTrackPreferences(ctx, pr, title)
+			}
 			if extras {
 				row.PrimaryExtraKey = full.PrimaryExtraKey
 			}

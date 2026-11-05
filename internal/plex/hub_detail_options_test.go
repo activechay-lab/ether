@@ -29,8 +29,8 @@ func TestHomeHubStructuralOptionsAndInlineOnDeckExclusions(t *testing.T) {
 	if _, ok := plain["OnDeck"]; ok {
 		t.Fatal("unrequested inline state block")
 	}
-	full := row("/hubs?includeChildren=1&includeOnDeck=1&includeExtras=1&includeRelated=1")
-	for _, name := range []string{"Children", "OnDeck", "Extras", "Related"} {
+	full := row("/hubs?includeChildren=1&includeOnDeck=1&includeExtras=1&includeRelated=1&includePreferences=1")
+	for _, name := range []string{"Children", "OnDeck", "Extras", "Related", "Preferences"} {
 		if _, ok := full[name]; !ok {
 			t.Fatalf("requested %s absent: %+v", name, full)
 		}
