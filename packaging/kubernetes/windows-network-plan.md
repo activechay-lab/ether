@@ -86,3 +86,22 @@ processes. Drain successfully before planned shutdown. For abrupt native encoder
 loss, capture actual process termination and durable fencing/capacity evidence;
 PID disappearance is relevant only to that exact owned encoder process tree,
 not proof of unrelated source retirement. Preserve unresolved claims on failure.
+
+The reviewed cleanup design uses `native-launcher/main_windows.go`, compiled to
+`C:\ether-gpu-lab\ether-lab-launcher.exe`; no PowerShell upgrade is required. The
+launcher creates Ether suspended, assigns its exact handle to a fresh unnamed
+kill-on-close job with a noninheritable job handle and no breakaway flags, records
+the child PID, then resumes it. Killing the exact owned launcher on bookkeeping
+failure closes the job and terminates all job descendants. This must be tested
+natively; compilation alone establishes no runtime safety claim.
+
+For a credential-free native containment test, invoke the staged launcher with
+`--self-test`. It starts only copies of itself: one assigned suspended child and
+one descendant leaf. The files `specialist.child.pid` and `probe.leaf.pid` record
+their exact PIDs. Inspect actual job membership and creation times, then kill the
+exact captured launcher Process object; verify both recorded children terminate.
+No Ether binary, listener or Secret is needed for that test. Also test forced
+PID-record write failure: the launcher must kill its still-suspended child before
+any code executes. A separate real FFmpeg descendant containment test remains
+required when the native FFmpeg bundle is approved/staged. Do not start the
+specialist on the strength of only the generic self-test.

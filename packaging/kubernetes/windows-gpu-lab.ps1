@@ -34,6 +34,7 @@ foreach ($PrivateDirectory in @($Secrets,$Data)) {
 }
 $FFmpeg = Join-Path $LabRoot 'ffmpeg.exe'
 $Ether = Join-Path $LabRoot 'ether.exe'
+$Launcher = Join-Path $LabRoot 'ether-lab-launcher.exe'
 & nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
 if ($LASTEXITCODE -ne 0) { throw 'Native NVIDIA inventory failed' }
 Get-NetIPAddress -AddressFamily IPv4 | Select-Object InterfaceAlias,IPAddress | ConvertTo-Json -Compress
@@ -75,22 +76,21 @@ $env:ETHER_DATA_DIR = $Data
 $env:XDG_CACHE_HOME = $Cache
 # No secrets on the command line. This is an owned foreground-service process,
 # not a Windows Service. Keep its exact PID and stop/drain only that process.
-if ($null -eq [Diagnostics.Process].GetMethod('Kill',[Type[]]@([bool]))) {
-    throw 'Start requires PowerShell 7/.NET process-tree cleanup support; no specialist started'
-}
+if (-not (Test-Path $Launcher)) { throw 'Stage reviewed owned job launcher before Start' }
 $Process = $null
 try {
-    $Process = Start-Process -FilePath $Ether -WorkingDirectory $LabRoot -PassThru `
+    $Process = Start-Process -FilePath $Launcher -WorkingDirectory $LabRoot -PassThru `
         -RedirectStandardOutput (Join-Path $Logs 'ether.stdout.log') -RedirectStandardError (Join-Path $Logs 'ether.stderr.log')
     $Process.PriorityClass = 'BelowNormal'
     [IO.File]::WriteAllText((Join-Path $LabRoot 'specialist.pid'),[string]$Process.Id)
 }
 catch {
-    # This exact Process object was created above; never stop by image/name.
+    # This exact launcher Process object was created above; never stop by name.
+    # Closing its noninheritable job handle kills Ether and all descendants.
     if ($null -ne $Process) {
         try {
             $Process.Refresh()
-            if (-not $Process.HasExited) { $Process.Kill($true); $Process.WaitForExit() }
+            if (-not $Process.HasExited) { $Process.Kill(); [void]$Process.WaitForExit(10000) }
         }
         catch {
             # Retain exact PID for owner recovery when cleanup itself fails.
