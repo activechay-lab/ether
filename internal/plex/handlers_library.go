@@ -1544,9 +1544,14 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 			pendingVisible = pending.HasPendingWatch(pr.User.ID)
 		}
 	}
+	customOrder := false
+	if s.d.EpisodeOrder != nil {
+		custom, err := s.d.EpisodeOrder.Customized(ctx, pr.User)
+		customOrder = custom || err != nil
+	}
 	if paged, ok := s.d.Catalog.(interface {
 		PlexOnDeckPage(context.Context, int64, int, int, core.Filter, bool) (core.WatchPage, error)
-	}); ok && pr.User != nil && !pendingVisible {
+	}); ok && pr.User != nil && !pendingVisible && !customOrder {
 		_, size := pr.pageOf(0)
 		filter := core.Filter{MaxContentRating: pr.User.MaxContentRating, SaferPlexRating: s.plexMetaOn()}
 		movieAllowed, episodeAllowed := false, false
