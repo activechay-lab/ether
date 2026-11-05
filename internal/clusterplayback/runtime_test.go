@@ -10,9 +10,11 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
+	"github.com/braedonsaunders/ether/internal/playbackcontinuity"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -20,6 +22,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync"
 	"testing"
@@ -38,33 +41,52 @@ func (fixtureResolver) Resolve(_ context.Context, q core.ResolveRequest) (*core.
 	return &core.Resolution{Title: q.Title.Key, Release: core.Release{ID: "fixture", Name: "fixture.mkv"}, NZB: []byte("offline")}, nil
 }
 
-type fixtureEngine struct{ core.Engine }
+type fixtureEngine struct {
+	core.Engine
+	body string
+}
 
-func (fixtureEngine) Open(context.Context, string, []byte) (core.MediaSource, error) {
-	return fixtureBytes{}, nil
+func (f fixtureEngine) Open(context.Context, string, []byte) (core.MediaSource, error) {
+	return fixtureBytes{body: f.body}, nil
 }
 func (fixtureEngine) Prefetch(context.Context, string, []byte, int64, int64) error { return nil }
 
-type fixtureBytes struct{}
+type fixtureBytes struct{ body string }
 
-func (fixtureBytes) Size() int64       { return 10 }
+func (f fixtureBytes) Size() int64 {
+	if f.body != "" {
+		return int64(len(f.body))
+	}
+	return 10
+}
 func (fixtureBytes) Name() string      { return "fixture.mkv" }
 func (fixtureBytes) ReleaseID() string { return "fixture" }
 func (fixtureBytes) Close() error      { return nil }
-func (fixtureBytes) ReadAt(b []byte, off int64) (int, error) {
-	return strings.NewReader("0123456789").ReadAt(b, off)
+func (f fixtureBytes) ReadAt(b []byte, off int64) (int, error) {
+	body := f.body
+	if body == "" {
+		body = "0123456789"
+	}
+	return strings.NewReader(body).ReadAt(b, off)
 }
 func (f fixtureBytes) ReadAtContext(_ context.Context, b []byte, off int64) (int, error) {
 	return f.ReadAt(b, off)
 }
 
 type fixtureEncoder struct {
+	mu                  sync.Mutex
+	body                string
+	keyframes, received []core.KeyframePoint
 	core.Transcoder
 	session *fixtureSession
 }
 
-func (*fixtureEncoder) Probe(context.Context, string) (*core.MediaInfo, error) {
-	return &core.MediaInfo{Size: 10, Container: "mkv", Duration: time.Minute, Streams: []core.StreamInfo{{Type: "video", Codec: "h264", Height: 720}}}, nil
+func (f *fixtureEncoder) Probe(context.Context, string) (*core.MediaInfo, error) {
+	size := int64(10)
+	if f.body != "" {
+		size = int64(len(f.body))
+	}
+	return &core.MediaInfo{Size: size, Keyframes: append([]core.KeyframePoint(nil), f.keyframes...), Container: "mkv", Duration: time.Minute, Streams: []core.StreamInfo{{Type: "video", Codec: "h264", Height: 720}}}, nil
 }
 func (f *fixtureEncoder) StartHLSOwned(ctx context.Context, q core.HLSRequest) (core.HLSSession, core.EncoderRetirement, error) {
 	if e := q.InputLease.ClaimInput(func(error) {}); e != nil {
@@ -84,9 +106,16 @@ func (f *fixtureEncoder) StartHLSOwned(ctx context.Context, q core.HLSRequest) (
 	}
 	defer response.Body.Close()
 	b, e := io.ReadAll(response.Body)
-	if e != nil || string(b) != "0123456789" {
+	expected := f.body
+	if expected == "" {
+		expected = "0123456789"
+	}
+	if e != nil || string(b) != expected {
 		return nil, nil, ErrDenied
 	}
+	f.mu.Lock()
+	f.received = append([]core.KeyframePoint(nil), q.Info.Keyframes...)
+	f.mu.Unlock()
 	s := &fixtureSession{id: q.SessionID, input: q.InputLease, done: make(chan struct{})}
 	f.session = s
 	return s, s, nil
@@ -164,7 +193,9 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	workerID := nodewire.Identity{Cluster: "offline", NodeID: "worker", Boot: "worker-boot"}
 	frontendID := nodewire.Identity{Cluster: "offline", NodeID: "frontend", Boot: "frontend-boot"}
 	brokerID := nodewire.Identity{Cluster: "offline", NodeID: "broker", Boot: "broker-boot"}
-	guards := fixtureGuards(t, sourceID, workerID, frontendID, brokerID)
+	deliveryID := nodewire.Identity{Cluster: "offline", NodeID: "delivery", Boot: "delivery-boot"}
+	takeoverID := nodewire.Identity{Cluster: "offline", NodeID: "takeover", Boot: "takeover-boot"}
+	guards := fixtureGuards(t, sourceID, workerID, frontendID, brokerID, deliveryID, takeoverID)
 	endpoints := map[nodewire.Identity]string{}
 	endpoint := func(_ context.Context, id nodewire.Identity) (string, error) {
 		s, ok := endpoints[id]
@@ -291,9 +322,21 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	// Plex representation forwarding is a separate typed media scope; the
 	// original owner handler still validates its public token/grant.
 	if err = front.BindPlexDelivery(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
-		if q.Header.Get("X-Plex-Token") != "offline-plex-token" {
+		token := q.Header.Get("X-Plex-Token")
+		if token != "offline-plex-token" && token != "offline-restricted-plex-token" {
 			http.Error(w, "denied", 401)
 			return
+		}
+		if q.Host != "public" || q.URL.Scheme != "https" {
+			http.Error(w, "origin changed", 400)
+			return
+		}
+		if token == "offline-restricted-plex-token" {
+			_, lan := identity.ClientNet(q, netip.MustParsePrefix("10.1.0.0/16"))
+			if !lan {
+				http.Error(w, "remote restricted", 403)
+				return
+			}
 		}
 		h.ServeSegment(w, q, 0)
 	})); err != nil {
@@ -312,6 +355,53 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	}
 	if worker.ForwardPlexMedia(httptest.NewRecorder(), httptest.NewRequest("GET", "https://public/video/:/transcode/universal/start.m3u8?session=public-session", nil), request.SessionID) {
 		t.Fatal("control URI admitted to media scope")
+	}
+	for _, test := range []struct {
+		name, remote, xff string
+		status            int
+	}{{"directWAN", "203.0.113.7:1234", "", 403}, {"directLAN", "192.168.1.7:1234", "", 200}, {"trustedproxyWAN", "10.1.0.2:1234", "203.0.113.7", 403}, {"trustedproxyLAN", "10.1.0.2:1234", "192.168.1.7", 200}, {"untrustedproxyspoof", "203.0.113.7:1234", "192.168.1.7", 403}} {
+		req := httptest.NewRequest("GET", "https://public/video/:/transcode/universal/session/public-session/base/0.ts", nil)
+		req.RemoteAddr = test.remote
+		req.Header.Set("X-Plex-Token", "offline-restricted-plex-token")
+		if test.xff != "" {
+			req.Header.Set("X-Forwarded-For", test.xff)
+		}
+		req.Header.Set(deliveryOrigin, `{"RemoteAddr":"127.0.0.1:1","Host":"private","Scheme":"http"}`)
+		response := httptest.NewRecorder()
+		if !worker.ForwardPlexMedia(response, req, request.SessionID) || response.Code != test.status {
+			t.Fatalf("provenance %s %d %q", test.name, response.Code, response.Body.String())
+		}
+	}
+	deliveryOptions := base
+	deliveryOptions.Self = deliveryID
+	deliveryOptions.Guard = guards[4]
+	deliveryOptions.Roles = config.NodeRoles{config.RoleDelivery}
+	delivery, err := NewRuntime(deliveryOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer delivery.Close()
+	if delivery.Ready() {
+		t.Fatal("delivery-only ready before actual public handler")
+	}
+	public, err := delivery.NewPublicDelivery(func(_ context.Context, q *http.Request, _ string) error {
+		if q.Header.Get("X-Plex-Token") != "offline-plex-token" {
+			return ErrDenied
+		}
+		return nil
+	})
+	if err != nil || !delivery.Ready() {
+		t.Fatal("delivery-only sender not ready", err)
+	}
+	publicResponse := httptest.NewRecorder()
+	public.ServeHTTP(publicResponse, httptest.NewRequest("HEAD", "https://public/sessions/media/public-session/grant/segment", nil))
+	if publicResponse.Code != 200 || publicResponse.Body.Len() != 0 {
+		t.Fatalf("delivery-only HEAD %d %q", publicResponse.Code, publicResponse.Body.String())
+	}
+	publicResponse = httptest.NewRecorder()
+	public.ServeHTTP(publicResponse, httptest.NewRequest("GET", "https://public/video/:/transcode/universal/session/public-session/base/0.ts", nil))
+	if publicResponse.Code != 401 {
+		t.Fatal("delivery-only Plex sender skipped valid-token receipt policy")
 	}
 	// Durable capacity and exact identity survive a duplicate start.
 	if _, e = front.StartPreparedHLS(ctx, 9, prepared, request); e == nil {
@@ -351,6 +441,87 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	if err != nil || !record.Retired {
 		t.Fatal("exact retirement did not release placement")
 	}
+	// Same-owner reopen requires both old retirements and fresh exact revision
+	// and size; its attestation then binds a currently authorized new fence.
+	oldBinding := playbackcontinuity.SourceBinding{Owner: placement.Target{NodeID: sourceID.NodeID, Boot: sourceID.Boot}, PlayID: prepared.PlayID, Revision: prepared.Revision, Fence: record.Fence}
+	source.mu.Lock()
+	var originalPreparation *preparation
+	for _, entry := range source.preparations {
+		if entry.result.PlayID == prepared.PlayID && entry.result.Revision == prepared.Revision {
+			originalPreparation = entry
+			break
+		}
+	}
+	if originalPreparation == nil {
+		source.mu.Unlock()
+		t.Fatal("missing authorized original preparation")
+	}
+	originalSize := originalPreparation.result.Info.Size
+	originalPreparation.result.Info.Size = originalSize + 1
+	source.mu.Unlock()
+	mismatched, reopenErr := front.ReopenSource(ctx, oldBinding, "mismatched-size-reopen")
+	source.mu.Lock()
+	originalPreparation.result.Info.Size = originalSize
+	source.mu.Unlock()
+	if reopenErr == nil || mismatched.Responsibility == nil {
+		t.Fatal("reopen mismatch dropped owned lifetime")
+	}
+	select {
+	case <-mismatched.Responsibility.Done():
+		t.Fatal("reopen error alone proved retirement")
+	default:
+	}
+	for i := 0; i < 50; i++ {
+		_ = front.Tick(ctx)
+		source.Cleanup()
+		select {
+		case <-mismatched.Responsibility.Done():
+			goto mismatchRetired
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	t.Fatal("reopen mismatch lifetime did not retire exact operation")
+mismatchRetired:
+	reopened, err := front.ReopenSource(ctx, oldBinding, "same-owner-reopen")
+	if err != nil || reopened.Proof == "" || reopened.Prepared.Revision != oldBinding.Revision || reopened.Prepared.Info.Size != prepared.Info.Size {
+		t.Fatal("same-owner reopen", err)
+	}
+	restarted, err := front.StartPreparedHLS(ctx, 9, reopened.Prepared, request)
+	if err != nil {
+		t.Fatal("reopened generation", err)
+	}
+	nextRecord, err := p.Lookup(ctx, request.SessionID)
+	if err != nil || nextRecord.Generation <= record.Generation {
+		t.Fatal("missing new fence", err)
+	}
+	nextBinding := playbackcontinuity.SourceBinding{Owner: oldBinding.Owner, PlayID: reopened.Prepared.PlayID, Revision: reopened.Prepared.Revision, Fence: nextRecord.Fence}
+	if err = front.VerifyReopen(ctx, oldBinding, nextBinding, reopened.Proof); err != nil {
+		t.Fatal("reopen attestation", err)
+	}
+	changed := nextBinding
+	changed.Revision = "changed"
+	if err = front.VerifyReopen(ctx, oldBinding, changed, reopened.Proof); err == nil {
+		t.Fatal("changed revision accepted")
+	}
+	_ = restarted
+	front.Stop(request.SessionID)
+	for i := 0; i < 50; i++ {
+		worker.Cleanup()
+		source.Cleanup()
+		_ = front.Tick(ctx)
+		nextRecord, err = p.Lookup(ctx, request.SessionID)
+		if err == nil && nextRecord.Retired {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !nextRecord.Retired {
+		t.Fatal("reopened execution did not retire")
+	}
+	if err = front.VerifyReopen(ctx, oldBinding, nextBinding, reopened.Proof); err == nil {
+		t.Fatal("historical reopen proof revived retired authority")
+	}
 	// Reconcile a committed reservation whose response was lost. No encoder
 	// was contacted; retry must use the identical immutable operation.
 	prepared2, err := front.PrepareSource(ctx, sourceID, PrepareRequest{Operation: "prepare-uncertain", Viewer: 9, Key: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "uncertain-client"}, Protocol: "hls"})
@@ -368,9 +539,10 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 		source.Cleanup()
 		rec, e := p.Lookup(ctx, reserve.Session)
 		if e == nil && rec.Retired {
-			if rec.Operation != reserve.Operation || len(worker.encoderTokens) != 2 {
+			if rec.Operation != reserve.Operation || len(worker.encoderTokens) != 3 {
 				t.Fatal("reconciliation changed operation or started another encoder")
 			}
+			testTerminalTakeover(t, ctx, base, guards[5], takeoverID, sourceID, front, source, worker, endpoints)
 			return
 		}
 		time.Sleep(time.Millisecond)
@@ -615,4 +787,72 @@ func testPreparationFailures(t *testing.T, ctx context.Context, front, source *R
 		}
 	}
 	t.Fatal("lost-result operation did not retire")
+}
+
+func testTerminalTakeover(t *testing.T, ctx context.Context, base Options, guard *nodewire.Guard, self, sourceID nodewire.Identity, oldController, source, worker *Runtime, endpoints map[nodewire.Identity]string) {
+	t.Helper()
+	verifier := NewVerifier()
+	ledger, err := placement.New(base.DB, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := base
+	o.Guard = guard
+	o.Self = self
+	o.Placement = ledger
+	o.Roles = config.NodeRoles{config.RoleServer}
+	takeover, err := NewRuntime(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer takeover.Close()
+	if err = verifier.Bind(takeover); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := oldController.PrepareSource(ctx, sourceID, PrepareRequest{Operation: "prepare-expired-controller", Viewer: 9, Key: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "expired-controller-client"}, Protocol: "hls"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := core.HLSRequest{SessionID: "expired-controller-session", Info: prepared.Info, Decision: core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, SubtitleStream: -1}}
+	if _, err = oldController.StartPreparedHLS(ctx, 9, prepared, request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = takeover.ReconcileExpired(ctx, request.SessionID); err == nil {
+		t.Fatal("active old fence admitted terminal takeover")
+	}
+	if _, err = base.DB.ExecContext(ctx, `UPDATE placement_sessions SET deadline=0 WHERE session=?`, request.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	token, err := takeover.ReconcileExpired(ctx, request.SessionID)
+	if err != nil || token == nil {
+		t.Fatal("expired takeover not retained", err)
+	}
+	if token.EncoderErr() == nil {
+		t.Fatal("expiry alone supplied terminal proof")
+	}
+	workerURL := endpoints[worker.o.Self]
+	delete(endpoints, worker.o.Self)
+	_ = takeover.Tick(ctx)
+	endpoints[worker.o.Self] = workerURL
+	record, err := ledger.Lookup(ctx, request.SessionID)
+	if err != nil || record.Retired || token.EncoderErr() == nil {
+		t.Fatal("transport loss released responsibility", err)
+	}
+	if _, err = takeover.StartPreparedHLS(ctx, 9, prepared, request); err == nil {
+		t.Fatal("uncertain terminal takeover allowed second encoder")
+	}
+	for i := 0; i < 50; i++ {
+		_ = takeover.Tick(ctx)
+		worker.Cleanup()
+		source.Cleanup()
+		record, err = ledger.Lookup(ctx, request.SessionID)
+		if err == nil && record.Retired {
+			if token.EncoderErr() != nil {
+				t.Fatal("retired ledger token remains pending")
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("independent exact terminal proofs did not retire expired controller fence")
 }

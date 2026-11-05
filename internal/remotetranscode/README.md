@@ -80,7 +80,7 @@ unresolved ownership. Durable fenced retention/compaction is a subsequent increm
 Without explicit opt-in starts reject DASH/HTTP Matroska. All starts reject
 live/slate inputs, input headers and caller leases,
 burned/selected subtitles without the exact soft-output opt-in, external subtitle URLs, audio filter expressions,
-enhancement, and nonserialized keyframe indexes before assignment. Remote `Probe`
+enhancement, and indexed sources without the explicit complete-index capability before assignment. Remote `Probe`
 and `SwapInput` return `ErrUnsupported`; source-change/release failover is unsupported.
 Segment seeks delegate to the existing backend and may restart that exact encoder;
 start-offset changes require retirement and a new authorized generation.
@@ -294,3 +294,31 @@ input objects; stale/absent-old stops never target a replacement's public ID.
 Late starts and delayed input/encoder producers remain pending; nonnil terminal
 errors remain unverified. No source resolve/start/renew/media work, generic
 Encoder.Stop, old-controller impersonation or authority extension is performed.
+
+## Lossless bounded source indexes and inert enhancement status
+
+`Capabilities.Keyframes` explicitly enables complete `Start.Keyframes` transport
+using the actual `core.KeyframePoint` Offset/Time types. `MaxKeyframes` is 1024;
+`ValidateKeyframes(MediaInfo)` is the shared pure validator used by composition.
+Points must have nonnegative, nondecreasing offsets/timestamps. The COMPLETE
+index must also fit the existing full 64 KiB DTO budget (with assignment reserve
+in preflight). Nothing sorts, truncates, downsamples or drops genuine metadata to
+make a request fit. Oversized indexes remain unsupported before assignment.
+
+The full point slice participates in immutable start hashing/replay. Worker
+restores exact Info.Keyframes only from the explicit validated field for backend
+and concrete Manager preflight, using independent copies. Observation carries an
+explicit complete index too; Info getters restore it after JSON roundtrips and
+return separate point ownership. Segment seeks and RequireIndependentProof still
+reach the existing backend unchanged. Runtime source/preparation/reopen snapshots
+and capability-request DTOs MUST preserve this same explicit field end-to-end
+before any composing host enables indexed-source selection; transport-only tests
+do not establish that integration. Ordinary MediaInfo JSON still excludes indexes.
+
+`transcode.SupportsDistributedEnhancement` accepts only the existing zero status
+or observational State=`off` with Width/Height/Quality all zero, Backend at most
+128 bytes and Reason at most 1024 bytes. Genuine default-CPU Manager decisions
+include this disabled-by-owner status; it is preserved unchanged on wire/backend.
+No status is stripped or rewritten. All operational/unknown enhancement states,
+nonzero action fields and oversized metadata remain unsupported. This permits
+inert displayed status only, not actual enhancement work.

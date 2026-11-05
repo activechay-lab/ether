@@ -1,0 +1,320 @@
+package clusterplayback
+
+import (
+	"context"
+	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/nodewire"
+	"github.com/braedonsaunders/ether/internal/placement"
+	"github.com/braedonsaunders/ether/internal/playback"
+	"github.com/braedonsaunders/ether/internal/plex"
+	"github.com/braedonsaunders/ether/internal/sessions"
+	"github.com/braedonsaunders/ether/internal/store"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+type composedAuth struct {
+	mu      sync.RWMutex
+	revoked bool
+}
+
+func (a *composedAuth) Authenticate(_ context.Context, token string) (*core.User, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if token != "offline-account" || a.revoked {
+		return nil, core.ErrUnauthorized
+	}
+	return &core.User{ID: 9, Username: "offline", IsOwner: true}, nil
+}
+func (a *composedAuth) ActiveUser(ctx context.Context, id int64) (*core.User, error) {
+	if id != 9 {
+		return nil, core.ErrUnauthorized
+	}
+	return a.Authenticate(ctx, "offline-account")
+}
+func (a *composedAuth) Users(ctx context.Context) ([]core.User, error) {
+	u, e := a.Authenticate(ctx, "offline-account")
+	if e != nil {
+		return nil, nil
+	}
+	return []core.User{*u}, nil
+}
+func (a *composedAuth) UpdateUser(context.Context, core.User) error { return nil }
+func (a *composedAuth) Owner(ctx context.Context) (*core.User, error) {
+	return a.Authenticate(ctx, "offline-account")
+}
+
+type composedState struct{ core.State }
+
+func (composedState) Get(context.Context, int64, core.RatingKey) (core.WatchStatus, error) {
+	return core.WatchStatus{}, nil
+}
+func (composedState) GetMany(context.Context, int64, []core.RatingKey) (map[core.RatingKey]core.WatchStatus, error) {
+	return map[core.RatingKey]core.WatchStatus{}, nil
+}
+func (composedState) Progress(context.Context, int64, core.RatingKey, time.Duration, time.Duration, string) error {
+	return nil
+}
+
+type composedPolicy struct{ wan, hidden atomic.Bool }
+
+func (p *composedPolicy) Allowed(*core.User, *core.Title) bool { return !p.hidden.Load() }
+func (p *composedPolicy) CanPlay(_ *core.User, remote bool, _ time.Time) bool {
+	return !remote || !p.wan.Load()
+}
+
+type forwardOnlyEncoder struct{ r *Runtime }
+
+func (e forwardOnlyEncoder) StartPlexHLS(context.Context, *core.User, string, string, core.HLSRequest) (core.HLSSession, error) {
+	return nil, ErrDenied
+}
+func (e forwardOnlyEncoder) PlexHLSSession(string) (core.HLSSession, bool) { return nil, false }
+func (e forwardOnlyEncoder) StopPlexHLS(string) bool                       { return false }
+func (e forwardOnlyEncoder) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, id string) bool {
+	return e.r.ForwardPlexMedia(w, q, id)
+}
+func (e forwardOnlyEncoder) ForwardPlexGrantMedia(w http.ResponseWriter, q *http.Request, id string) bool {
+	return e.r.ForwardPlexGrantMedia(w, q, id)
+}
+
+func TestRealPlexRuntimeOwnerAuthorizationAndProvenance(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	sourceID := nodewire.Identity{Cluster: "plex-composition", NodeID: "source", Boot: "source-boot"}
+	workerID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "worker", Boot: "worker-boot"}
+	ownerID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "owner", Boot: "owner-boot"}
+	senderID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "sender", Boot: "sender-boot"}
+	guards := fixtureGuards(t, sourceID, workerID, ownerID, senderID)
+	db := store.OpenTest(t)
+	verifier := NewVerifier()
+	ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoder := &fixtureEncoder{}
+	manager, err := playback.New(playback.Deps{Catalog: fixtureCatalog{}, Resolver: fixtureResolver{}, Engine: fixtureEngine{}, Transcoder: encoder, SelectProfile: func(core.ClientCaps, *core.User) core.QualityProfile { return core.QualityProfile{} }}, config.Defaults(t.TempDir()), playback.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	access, err := playback.NewSourceAccess(manager, 32, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoints := map[nodewire.Identity]string{}
+	endpoint := func(_ context.Context, id nodewire.Identity) (string, error) {
+		ep, ok := endpoints[id]
+		if !ok {
+			return "", ErrDenied
+		}
+		return ep, nil
+	}
+	eligible := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
+	auth := &composedAuth{}
+	policy := &composedPolicy{}
+	base := Options{DB: db, Placement: ledger, Endpoint: endpoint, Eligible: eligible, MemberRole: eligible, Capacity: 32, ClockBoundKnown: true, ClockSkew: time.Millisecond, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision {
+		return core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts", AudioStream: -1, SubtitleStream: -1}
+	}}
+	sourceOpts := base
+	sourceOpts.Self = sourceID
+	sourceOpts.Guard = guards[0]
+	sourceOpts.Roles = config.NodeRoles{config.RoleSource}
+	sourceOpts.Playback = manager
+	sourceOpts.SourceAccess = access
+	sourceOpts.ActiveViewer = auth.ActiveUser
+	sourceOpts.SourcePolicy = func(context.Context, *core.User, *core.PlaySession) error { return nil }
+	source, err := NewRuntime(sourceOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	workerOpts := base
+	workerOpts.Self = workerID
+	workerOpts.Guard = guards[1]
+	workerOpts.Roles = config.NodeRoles{config.RoleTranscode}
+	workerOpts.Encoder = encoder
+	worker, err := NewRuntime(workerOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer worker.Close()
+	ownerOpts := base
+	ownerOpts.Self = ownerID
+	ownerOpts.Guard = guards[2]
+	ownerOpts.Roles = config.NodeRoles{config.RoleServer, config.RoleDelivery}
+	owner, err := NewRuntime(ownerOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	if err = verifier.Bind(owner); err != nil {
+		t.Fatal(err)
+	}
+	senderOpts := base
+	senderOpts.Self = senderID
+	senderOpts.Guard = guards[3]
+	senderOpts.Roles = config.NodeRoles{config.RoleServer, config.RoleDelivery}
+	sender, err := NewRuntime(senderOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sender.Close()
+	for i, r := range []*Runtime{source, worker, owner, sender} {
+		server := httptest.NewUnstartedServer(r.Handler())
+		server.TLS = guards[i].ServerTLS()
+		server.StartTLS()
+		defer server.Close()
+		endpoints[r.o.Self] = server.URL
+	}
+	if err = ledger.SetPool(ctx, "plex-worker", config.RoleTranscode, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err = ledger.SetTarget(ctx, placement.Target{NodeID: workerID.NodeID, Boot: workerID.Boot}, config.NodeRoles{config.RoleTranscode}, map[config.NodeRole][]string{config.RoleTranscode: {"plex-worker"}}); err != nil {
+		t.Fatal(err)
+	}
+	remote, err := NewRemotePlayback(owner, RemotePlaybackOptions{Estimate: func(context.Context, *core.Title, core.ClientCaps) core.MediaInfo { return core.MediaInfo{} }, SelectSource: func(context.Context) (nodewire.Identity, error) { return sourceID, nil }, Capacity: 32})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := owner.DecisionTranscoder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := sessions.NewEventBus(nil, auth.ActiveUser)
+	defer events.Close()
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
+		return fixtureCatalog{}.Get(c, k)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close(ctx)
+	cfg := config.Defaults(t.TempDir())
+	cfg.Plex.Claimed = true
+	cfg.Server.MachineIdentifier = "offline-machine"
+	cfg.Server.TrustedProxyCIDRs = []string{"10.1.0.0/16"}
+	deps := plex.Deps{Catalog: fixtureCatalog{}, State: composedState{}, Auth: auth, AccessPolicy: policy, Playback: remote, Transcoder: decision, PlexEncoder: broker, DisableEnrichment: true, Config: func() config.Config { return cfg }}
+	publicOwner := plex.NewServer(deps)
+	defer publicOwner.Close()
+	publicOwner.UsePlaybackBroker(broker)
+	if err = owner.BindPlexDelivery(publicOwner); err != nil {
+		t.Fatal(err)
+	}
+	deps.PlexEncoder = forwardOnlyEncoder{r: sender}
+	publicSender := plex.NewServer(deps)
+	defer publicSender.Close()
+	startURI := "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F" + core.MovieKey(1).String() + "&session=real-composed-plex&directPlay=0&directStream=1"
+	start := httptest.NewRequest("GET", "https://public"+startURI, nil)
+	start.RemoteAddr = "192.168.1.9:1234"
+	start.Header.Set("X-Plex-Token", "offline-account")
+	start.Header.Set("X-Plex-Client-Identifier", "composed-client")
+	master := httptest.NewRecorder()
+	publicOwner.ServeHTTP(master, start)
+	if master.Code != 200 {
+		t.Fatalf("real Plex start status %d", master.Code)
+	}
+	var media string
+	for _, line := range strings.Split(master.Body.String(), "\n") {
+		if line != "" && !strings.HasPrefix(line, "#") {
+			media = strings.TrimSpace(line)
+			break
+		}
+	}
+	baseURL, _ := url.Parse("https://public" + startURI)
+	part, e := url.Parse(media)
+	if e != nil || media == "" {
+		t.Fatal("real Plex master omitted media")
+	}
+	uri := baseURL.ResolveReference(part)
+	if !strings.Contains(uri.RawQuery, "X-Ether-Stream-Token=") || !strings.Contains(uri.RawQuery, "X-Ether-Read-Token=") {
+		t.Fatal("master omitted genuine dual grant envelope")
+	}
+	uri.Path = strings.TrimSuffix(uri.Path, "index.m3u8") + "0.ts"
+	request := func(method, peer, xff string) *httptest.ResponseRecorder {
+		q := httptest.NewRequest(method, "https://public"+uri.RequestURI(), nil)
+		q.RemoteAddr = peer
+		if xff != "" {
+			q.Header.Set("X-Forwarded-For", xff)
+		}
+		q.Header.Set("Range", "bytes=1-3")
+		q.Header.Set(deliveryOrigin, `{"RemoteAddr":"127.0.0.1:1","Host":"private","Scheme":"http"}`)
+		out := httptest.NewRecorder()
+		publicSender.ServeHTTP(out, q)
+		return out
+	}
+	for _, method := range []string{"GET", "HEAD"} {
+		out := request(method, "192.168.1.9:1234", "")
+		if out.Code != 206 || out.Header().Get("Content-Range") != "bytes 1-3/7" || method == "GET" && out.Body.String() != "egm" || method == "HEAD" && out.Body.Len() != 0 {
+			t.Fatalf("composed Plex %s status %d bytes %d", method, out.Code, out.Body.Len())
+		}
+	}
+
+	fallbackURI := *uri
+	query := fallbackURI.Query()
+	query.Set("X-Ether-Stream-Token", "wrong")
+	fallbackURI.RawQuery = query.Encode()
+	for _, test := range []struct {
+		device string
+		status int
+	}{{"composed-client", 206}, {"other-client", 401}, {"", 401}} {
+		q := httptest.NewRequest("GET", "https://public"+fallbackURI.RequestURI(), nil)
+		q.RemoteAddr = "192.168.1.9:1234"
+		q.Header.Set("Range", "bytes=1-3")
+		if test.device != "" {
+			q.Header.Set("X-Plex-Client-Identifier", test.device)
+		}
+		out := httptest.NewRecorder()
+		publicSender.ServeHTTP(out, q)
+		if out.Code != test.status {
+			t.Fatalf("real Plex readcap fallback status %d expected %d", out.Code, test.status)
+		}
+	}
+	policy.wan.Store(true)
+	for _, test := range []struct {
+		peer, xff string
+		allowed   bool
+	}{{"203.0.113.8:1234", "", false}, {"10.1.0.2:1234", "203.0.113.8", false}, {"10.1.0.2:1234", "192.168.1.9", true}, {"203.0.113.8:1234", "192.168.1.9", false}} {
+		out := request("GET", test.peer, test.xff)
+		if test.allowed && out.Code != 206 || !test.allowed && out.Code != 401 && out.Code != 403 {
+			t.Fatalf("composed original network policy status %d", out.Code)
+		}
+	}
+	policy.wan.Store(false)
+	policy.hidden.Store(true)
+	if out := request("GET", "192.168.1.9:1234", ""); out.Code != 403 {
+		t.Fatalf("current hidden title status %d", out.Code)
+	}
+	policy.hidden.Store(false)
+	auth.mu.Lock()
+	auth.revoked = true
+	auth.mu.Unlock()
+	if out := request("GET", "192.168.1.9:1234", ""); out.Code != 401 {
+		t.Fatalf("current revoked viewer status %d", out.Code)
+	}
+	auth.mu.Lock()
+	auth.revoked = false
+	auth.mu.Unlock()
+	if len(sender.executions) != 0 {
+		t.Fatal("sender synthesized an encoder")
+	}
+	owner.Stop("real-composed-plex")
+	remote.Stop(remote.Sessions()[0].ID)
+	for i := 0; i < 50; i++ {
+		_ = owner.Tick(ctx)
+		worker.Cleanup()
+		source.Cleanup()
+		record, e := ledger.Lookup(ctx, "real-composed-plex")
+		if e == nil && record.Retired {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("composed Plex retirement stayed pending")
+}

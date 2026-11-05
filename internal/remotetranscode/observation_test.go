@@ -38,6 +38,7 @@ func checkObservation(t *testing.T, w *Worker, f *fakeEncoder, s *Session) {
 		GoodputKbps:   3210, RecoveryBuffer: core.RecoveryBuffer{Position: 12 * time.Second, ReadyUntil: 40 * time.Second, DeliveredUntil: 20 * time.Second, SeekAt: now.Add(-time.Second)},
 		RequestedPosition: 12 * time.Second, SegmentDuration: 4 * time.Second, Container: "fmp4", Protocol: core.ProtocolHLS, HWAccelerated: true,
 	}
+	f.session.observed.Info.Keyframes = []core.KeyframePoint{{Offset: 123, Time: 0}, {Offset: 9000, Time: 4 * time.Second}}
 	sample, err := s.Observe(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -48,13 +49,17 @@ func checkObservation(t *testing.T, w *Worker, f *fakeEncoder, s *Session) {
 	if sample.Info().Duration != time.Hour || sample.Decision().Kind != core.DecisionTranscode || sample.EncoderStatus().Speed != 0.8 || sample.Progress().Frame != 1234 || sample.GoodputKbps() != 3210 || sample.RecoveryBuffer() != f.session.observed.RecoveryBuffer || sample.RequestedPosition() != 12*time.Second || sample.SegmentDuration() != 4*time.Second || sample.Container() != "fmp4" || sample.Protocol() != core.ProtocolHLS || !sample.HWAccelerated() {
 		t.Fatal("backend observation values changed")
 	}
+	if len(sample.Info().Keyframes) != 2 || sample.Info().Keyframes[1].Offset != 9000 {
+		t.Fatal("observation lost real keyframe index")
+	}
 	info := sample.Info()
+	info.Keyframes[0].Offset = 999
 	info.Streams[0].Codec = "mutation"
 	decision := sample.Decision()
 	decision.AudioFilters[0] = "mutation"
 	status := sample.EncoderStatus()
 	*status.PlayerPosition = 0
-	if sample.Info().Streams[0].Codec != "h264" || sample.Decision().AudioFilters[0] != "sampled-filter" || *sample.EncoderStatus().PlayerPosition != 12*time.Second {
+	if sample.Info().Keyframes[0].Offset != 123 || sample.Info().Streams[0].Codec != "h264" || sample.Decision().AudioFilters[0] != "sampled-filter" || *sample.EncoderStatus().PlayerPosition != 12*time.Second {
 		t.Fatal("snapshot getters expose mutable ownership")
 	}
 	f.session.observed.GoodputKbps = 9999

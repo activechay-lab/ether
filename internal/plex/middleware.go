@@ -255,6 +255,22 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				if id := transcodeSessionID(r.URL.Path); id != "" {
 					e, ok := s.transcodes.get(id)
 					if !ok {
+						// A valid local token is not permission for this stream. Only a
+						// bounded terminal transfer to its exact owner may decide access;
+						// the original public owner handler reauthenticates all credentials.
+						if remoteID, eligible := missingPlexMediaID(r); eligible && remoteID == id && s.currentPlexEncoder() != nil {
+							checked := r
+							if receipt.Valid() {
+								checked = r.WithContext(withAcceptance(r.Context(), receipt))
+							}
+							if !s.acceptanceCurrent(checked) {
+								writeHTTPError(w, http.StatusUnauthorized)
+								return
+							}
+							if s.forwardPlexMedia(w, checked, id) {
+								return
+							}
+						}
 						writeHTTPError(w, http.StatusNotFound)
 						return
 					}
@@ -269,6 +285,10 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				}
 				if !s.acceptanceCurrent(r) {
 					writeHTTPError(w, http.StatusUnauthorized)
+					return
+				}
+				if !s.forwardedOwnerPolicy(r, pr) {
+					writeHTTPError(w, http.StatusForbidden)
 					return
 				}
 				if s.d.Hooks.OnClientSeen != nil {
@@ -295,7 +315,14 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				writeHTTPError(w, http.StatusUnauthorized)
 				return
 			}
+			if !s.forwardedOwnerPolicy(r, pr) {
+				writeHTTPError(w, http.StatusForbidden)
+				return
+			}
 			next.ServeHTTP(w, r)
+			return
+		}
+		if s.forwardMissingPlexGrant(w, r, pr) {
 			return
 		}
 		writeHTTPError(w, http.StatusUnauthorized)

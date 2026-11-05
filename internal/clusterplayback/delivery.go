@@ -2,7 +2,6 @@ package clusterplayback
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 	"io"
@@ -32,7 +31,7 @@ func (r *Runtime) BindDelivery(handler func(http.ResponseWriter, *http.Request, 
 }
 func (r *Runtime) deliveryHTTP(w http.ResponseWriter, q *http.Request) {
 	peer, e := r.o.Guard.Request(q)
-	if e != nil || r.o.MemberRole(q.Context(), peer, config.RoleDelivery) != nil {
+	if e != nil || !r.mediaPeer(q.Context(), peer) {
 		http.Error(w, "denied", 401)
 		return
 	}
@@ -71,9 +70,11 @@ func (r *Runtime) deliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "unavailable", 503)
 		return
 	}
-	clone := q.Clone(q.Context())
-	clone.URL = u
-	clone.RequestURI = raw
+	clone, e := restoreOrigin(q, u, raw)
+	if e != nil {
+		http.Error(w, "scope", 400)
+		return
+	}
 	handler(w, clone, q.Header.Get(deliveryProtocol))
 }
 
@@ -111,6 +112,12 @@ func (r *Runtime) ForwardMedia(w http.ResponseWriter, q *http.Request, id, proto
 	for _, h := range []string{"Range", "If-Range", "If-None-Match", "If-Modified-Since"} {
 		request.Header[h] = append([]string(nil), q.Header.Values(h)...)
 	}
+	origin, e := captureOrigin(q)
+	if e != nil {
+		http.Error(w, "invalid request origin", 400)
+		return true
+	}
+	request.Header.Set(deliveryOrigin, origin)
 	request.Header.Set(deliveryHop, "1")
 	request.Header.Set(deliveryURI, q.URL.RequestURI())
 	request.Header.Set(deliveryProtocol, protocol)
