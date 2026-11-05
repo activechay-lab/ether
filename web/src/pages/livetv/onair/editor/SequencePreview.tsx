@@ -1,50 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { t } from "../../../../i18n";
 import { onair, type Bindings, type Reel } from "../model";
-import { studio, type Style, type StyleScene } from "../studio-model";
+import { type Style } from "../studio-model";
 import { StyleThumbnail } from "./RemixPanel";
-// Local mixer until S3's shared hook is merged; all Audio nodes are disposed.
-function usePreviewAudio(
-  scene: StyleScene | undefined,
-  time: number,
-  playing: boolean,
-  muted: boolean,
-) {
-  useEffect(() => {
-    if (!scene || muted) return;
-    const nodes = scene.sounds.map((sound) => {
-      const audio = new Audio(studio.media(sound.assetDigest));
-      const local = time - sound.at,
-        end = sound.end ?? Infinity;
-      audio.volume = Math.max(
-        0,
-        Math.min(
-          1,
-          sound.volume *
-            (sound.fadeIn ? Math.max(0, Math.min(1, local / sound.fadeIn)) : 1) *
-            (sound.fadeOut && Number.isFinite(end)
-              ? Math.max(0, Math.min(1, (end - sound.start - local) / sound.fadeOut))
-              : 1),
-        ),
-      );
-      const start = () => {
-        if (local >= 0 && sound.start + local < end) {
-          audio.currentTime = sound.start + local;
-          if (playing) void audio.play().catch(() => {});
-        }
-      };
-      audio.addEventListener("loadedmetadata", start, { once: true });
-      return audio;
-    });
-    return () =>
-      nodes.forEach((a) => {
-        a.pause();
-        a.removeAttribute("src");
-        a.load();
-      });
-  }, [scene, playing, muted, Math.floor(time * 4)]);
-}
+import { useAssetAudio } from "../useAssetAudio";
+import { usePreviewAudio } from "./preview-audio";
 export function SequencePreview({
   style,
   channelId,
@@ -54,12 +15,16 @@ export function SequencePreview({
   channelId: string;
   at: string;
 }) {
+  const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false),
     [playing, setPlaying] = useState(false),
     [muted, setMuted] = useState(false),
     [time, setTime] = useState(0),
     [bindings, setBindings] = useState<Bindings>({}),
     [reels, setReels] = useState<Reel[]>([]);
+  useEffect(() => {
+    if (open) dialog.current?.showModal();
+  }, [open]);
   useEffect(() => {
     void onair.bindings({ channel: channelId, at }).then(setBindings);
     void onair.reels().then(setReels);
@@ -73,7 +38,17 @@ export function SequencePreview({
       { label: t("Ident"), scene: scene("ident") },
       { label: t("Programme"), programme: true },
       { label: t("Break"), scene: scene("break") },
-      ...(reel ? [{ label: reel.name, reel }] : []),
+      ...(reel
+        ? [
+            {
+              label: reel.name,
+              reel: {
+                ...reel,
+                preview: `/ether/api/onair/reels/${reels.find((r) => r.clips.some((c) => c.id === reel.id))!.id}/clips/${reel.id}/preview`,
+              },
+            },
+          ]
+        : []),
       { label: t("Back"), scene: scene("back") },
       { label: t("Up next"), scene: scene("upnext") },
     ]
@@ -117,10 +92,28 @@ export function SequencePreview({
     return () => cancelAnimationFrame(frame);
   }, [open, playing, total]);
   usePreviewAudio(chapter?.scene, local, open && playing, muted);
+  const video = useRef<HTMLVideoElement>(null);
+  const videoSource = useAssetAudio(
+    open
+      ? (chapter?.scene?.video?.assetDigest ??
+          (chapter && "reel" in chapter ? (chapter.reel?.sourceDigest ?? "") : ""))
+      : "",
+  );
+  useEffect(() => {
+    const v = video.current;
+    if (!v) return;
+    const target = local + (chapter?.scene?.video?.start ?? 0);
+    if (Math.abs(v.currentTime - target) > 0.25) v.currentTime = target;
+    if (open && playing) void v.play().catch(() => {});
+    else v.pause();
+  }, [open, playing, local, videoSource]);
+
   const slots = {
     "channel.name": bindings.channel?.name ?? "",
     "next.title": bindings.next?.title ?? "",
     "next.time": bindings.next?.time ?? "",
+    "next.poster": bindings.next?.backdrop ?? "",
+    "next.backdrop": bindings.next?.backdrop ?? "",
     "now.title": bindings.now?.title ?? "",
   };
   return (
@@ -135,11 +128,17 @@ export function SequencePreview({
         {t("Play the sequence")}
       </Button>
       {open ? (
-        <div
+        <dialog
+          ref={dialog}
+          onCancel={(e) => {
+            e.preventDefault();
+            setOpen(false);
+            setPlaying(false);
+          }}
           role="dialog"
           aria-modal="true"
           aria-label={t("Sequence preview")}
-          className="fixed inset-0 z-50 flex flex-col bg-black text-white"
+          className="fixed inset-0 z-50 m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-black p-0 text-white"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setOpen(false);
@@ -161,13 +160,34 @@ export function SequencePreview({
               {t("Close")}
             </Button>
           </div>
-          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
             {chapter?.scene ? (
-              <StyleThumbnail style={style} scene={chapter.scene} slots={slots} time={local} />
+              <>
+                {chapter.scene.video && videoSource ? (
+                  <video
+                    ref={video}
+                    src={videoSource}
+                    muted={muted}
+                    playsInline
+                    className="absolute inset-0 h-full w-full object-contain"
+                  />
+                ) : null}
+                {chapter.scene.video?.mode !== "replace" ? (
+                  <div className="relative w-full">
+                    <StyleThumbnail
+                      style={style}
+                      scene={chapter.scene}
+                      slots={slots}
+                      time={local}
+                    />
+                  </div>
+                ) : null}
+              </>
             ) : chapter && "reel" in chapter ? (
               <video
                 key={chapter.reel?.id}
-                src={chapter.reel?.preview}
+                ref={video}
+                src={videoSource || chapter.reel?.preview}
                 autoPlay={playing}
                 muted={muted}
                 controls
@@ -229,7 +249,7 @@ export function SequencePreview({
               onChange={(e) => setTime(+e.target.value)}
             />
           </div>
-        </div>
+        </dialog>
       ) : null}
     </>
   );

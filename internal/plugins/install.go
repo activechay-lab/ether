@@ -524,6 +524,14 @@ func (m *Manager) Install(ctx context.Context, p *Preview, opts InstallOptions) 
 			return Record{}, &PermissionIncreaseError{Added: added}
 		}
 	}
+	if man.Ether != nil && man.Ether.Runtime.Kind == "data" {
+		if m.deps.ImportStylePack == nil {
+			return Record{}, fmt.Errorf("plugins: style import is unavailable")
+		}
+		if err := m.deps.ImportStylePack(ctx, man.ID, p.files); err != nil {
+			return Record{}, err
+		}
+	}
 	if err := m.store.putFiles(ctx, man.ID, man.Version, p.files); err != nil {
 		return Record{}, err
 	}

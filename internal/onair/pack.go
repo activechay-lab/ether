@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 const packLimit = 128 << 20
@@ -73,7 +74,7 @@ func (s *Service) ExportStylePack(ctx context.Context, id string) ([]byte, []str
 			return nil, nil, fmt.Errorf("referenced Library asset %s is unavailable: %w", digest, e)
 		}
 		if a.Kind == "font" && !redistributable(a.License) {
-			warnings = append(warnings, fmt.Sprintf("Font %s excluded: its licence does not permit redistribution. Select a bundled font before sharing.", a.Name))
+			warnings = append(warnings, fmt.Sprintf("Font %s excluded: its licence does not permit redistribution. Replaced with bundled Inter in this pack.", a.Name))
 			b = bytes.ReplaceAll(b, []byte(digest), []byte("inter"))
 			continue
 		}
@@ -85,7 +86,7 @@ func (s *Service) ExportStylePack(ctx context.Context, id string) ([]byte, []str
 	files["looks/style.json"] = b
 	files["assets.json"], _ = json.Marshal(assets)
 	files["warnings.json"], _ = json.Marshal(warnings)
-	manifest := map[string]any{"id": "ether.style." + id, "name": l.Name, "version": "1.0.0", "description": "Channel style pack", "ether": map[string]any{"protocol": 1, "kind": "extension", "runtime": map[string]string{"kind": "data"}, "capabilities": []string{"livetv_pack"}, "contributes": map[string]any{"looks": []map[string]string{{"id": "style", "file": "looks/style.json"}}}}}
+	manifest := map[string]any{"id": "ether.style." + id, "name": l.Name, "version": "1.0.0", "description": "Channel style pack", "ether": map[string]any{"protocol": 1, "kind": "extension", "summary": "Adds a channel style and its licensed artwork", "runtime": map[string]string{"kind": "data"}, "capabilities": []string{"livetv_pack"}, "contributes": map[string]any{"looks": []map[string]string{{"id": "style", "file": "looks/style.json"}}}}}
 	files["manifest.json"], _ = json.Marshal(manifest)
 	files["digest"] = []byte(pkgdigest.Sum(files))
 	var buf bytes.Buffer
@@ -115,6 +116,9 @@ func (s *Service) ExportStylePack(ctx context.Context, id string) ([]byte, []str
 	return buf.Bytes(), warnings, nil
 }
 func (s *Service) ImportStylePack(ctx context.Context, raw []byte) (Look, error) {
+	return s.importStylePack(ctx, raw, "")
+}
+func (s *Service) importStylePack(ctx context.Context, raw []byte, packID string) (Look, error) {
 	z, e := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
 	if e != nil {
 		return Look{}, e
@@ -195,7 +199,38 @@ func (s *Service) ImportStylePack(ctx context.Context, raw []byte) (Look, error)
 		}
 		_, _ = s.db.ExecContext(ctx, "UPDATE onair_assets SET source=?,attribution=? WHERE digest=?", a.Source, a.Attribution, a.Digest)
 	}
-	return s.SaveLook(ctx, l)
+	if packID != "" {
+		existing, err := s.Looks(ctx)
+		if err != nil {
+			return Look{}, err
+		}
+		for _, old := range existing {
+			if old.Pack != nil && old.Pack.ID == packID {
+				l.ID = old.ID
+				l.ChannelIDs = old.ChannelIDs
+				break
+			}
+		}
+	}
+	saved, err := s.SaveLook(ctx, l)
+	if err != nil {
+		return Look{}, err
+	}
+	if packID != "" {
+		saved.Pack = &Pack{ID: packID, Name: saved.Name}
+		b, err := json.Marshal(saved)
+		if err != nil {
+			return Look{}, err
+		}
+		if _, err = s.db.ExecContext(ctx, "UPDATE onair_looks SET data=?,pack_id=? WHERE id=?", string(b), packID, saved.ID); err != nil {
+			return Look{}, err
+		}
+		s.mu.Lock()
+		s.looks[saved.ID] = saved
+		s.mu.Unlock()
+	}
+	return saved, nil
+
 }
 func (s *Service) StudioRoutes(r chi.Router) {
 	r.Post("/draft", func(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +242,17 @@ func (s *Service) StudioRoutes(r chi.Router) {
 		if !body(w, r, &v) {
 			return
 		}
-		l, e := s.GenerateScene(r.Context(), v.Prompt, "", v.Style, v.SceneID)
+		summary := ""
+		if len(v.Style.ChannelIDs) > 0 && s.o.Bindings != nil {
+			bindings, err := s.o.Bindings(r.Context(), v.Style.ChannelIDs[0], "", time.Now())
+			if err != nil {
+				result(w, nil, err)
+				return
+			}
+			b, _ := json.Marshal(bindings)
+			summary = string(b)
+		}
+		l, e := s.GenerateScene(r.Context(), v.Prompt, summary, v.Style, v.SceneID)
 		result(w, map[string]any{"style": l, "summary": "Your proposed scene design is ready to preview."}, e)
 	})
 	r.Get("/looks/{id}/pack", func(w http.ResponseWriter, r *http.Request) {
@@ -244,4 +289,23 @@ func (s *Service) StudioRoutes(r chi.Router) {
 		l, e := s.ImportStylePack(r.Context(), b)
 		result(w, l, e)
 	})
+}
+
+// ImportStyleFiles is the plugin install bridge for upload, URL and Marketplace.
+func (s *Service) ImportStyleFiles(ctx context.Context, packID string, files map[string][]byte) (Look, error) {
+	var buf bytes.Buffer
+	z := zip.NewWriter(&buf)
+	for name, b := range files {
+		w, e := z.Create(name)
+		if e != nil {
+			return Look{}, e
+		}
+		if _, e = w.Write(b); e != nil {
+			return Look{}, e
+		}
+	}
+	if e := z.Close(); e != nil {
+		return Look{}, e
+	}
+	return s.importStylePack(ctx, buf.Bytes(), packID)
 }
