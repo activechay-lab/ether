@@ -49,6 +49,7 @@ type broadcastRendition struct {
 	viewers    int
 }
 type broadcastInput struct {
+	policy                  *broadcastPolicyTag
 	logger                  *slog.Logger
 	openedAt, outputOrigin  time.Time
 	wallStart               time.Time
@@ -654,6 +655,9 @@ func (b *broadcast) step(now time.Time) bool {
 			if ok && validRawFrame(b.format, f) {
 				b.burstReady = true
 				frame = f
+				if b.current.policy != nil {
+					frame.PolicyTags = []any{b.current.policy}
+				}
 				if introActive && b.intro.fill {
 					if !b.introShownAt.IsZero() && now.Sub(b.introShownAt) >= time.Second {
 						b.finishIntro(now)
@@ -804,6 +808,7 @@ func newBroadcastInput(parent context.Context, plan broadcastPlan, d transcode.D
 	}
 	input := &broadcastInput{ctx: ctx, cancel: cancel, decoder: d, release: release, plan: plan, frames: make(chan transcode.RawFrame, capacity), errs: make(chan error, 1), activate: make(chan struct{})}
 	if decoder, ok := d.(*overlayDecoder); ok {
+		input.policy = decoder.policy
 		input.overlays = decoder.overlays
 		input.wallStart = decoder.wallStart
 		input.fpsNum = decoder.format.FPSNum

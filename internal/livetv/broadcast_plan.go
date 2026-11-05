@@ -41,6 +41,12 @@ func (p *scheduleBroadcastPlanner) startPlanner(parent context.Context) {
 	p.workerCtx, p.workerCancel = context.WithCancel(parent)
 	p.requests = make(chan time.Time, 1)
 	p.workerDone = make(chan struct{})
+	// Seed audience/rating identity before the first neutral startup frame.
+	// These are already materialized time slices; no schedule or availability
+	// expansion runs during a tune, even for a large/personal recipe.
+	now := time.Now()
+	c := p.s.personalChannel(p.workerCtx, p.channel, &p.user)
+	p.window, _ = p.s.programmes(p.workerCtx, c, now, now.Add(2*time.Minute))
 	go p.planWorker()
 }
 func (p *scheduleBroadcastPlanner) closePlanner() { p.workerCancel(); <-p.workerDone }
@@ -60,7 +66,7 @@ func (p *scheduleBroadcastPlanner) planWorker() {
 					ps = append([]Programme{welcome}, ps...)
 				}
 			} else {
-				ps = p.s.broadcastSchedule(p.workerCtx, p.s.guideChannel(p.workerCtx, c), now, now.Add(2*time.Minute), true)
+				ps = p.s.broadcastSchedule(p.workerCtx, p.s.plannedChannel(c), now, now.Add(2*time.Minute), true)
 			}
 			for i := range ps {
 				ps[i].policyTag = p.s.programmePolicy(p.workerCtx, ps[i])
@@ -253,7 +259,7 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 				last = err
 				continue
 			}
-			return &overlayDecoder{Decoder: decoder, wallStart: sourceWall, format: p.format, overlays: p.prepareProgrammeOverlays(ctx, programme, ps.Info.Chapters)}, func() { p.s.o.Playback.Stop(ps.ID) }, nil
+			return &overlayDecoder{policy: p.s.programmePolicy(ctx, candidate), Decoder: decoder, wallStart: sourceWall, format: p.format, overlays: p.prepareProgrammeOverlays(ctx, programme, ps.Info.Chapters)}, func() { p.s.o.Playback.Stop(ps.ID) }, nil
 		}
 		return nil, nil, last
 	}
@@ -302,17 +308,39 @@ func (s *Service) reserveBroadcastProvider(account, channel, id string, limit in
 }
 
 type providerBroadcastPlanner struct {
-	s         *Service
-	channel   Channel
-	format    transcode.RawFormat
-	runner    transcode.ContinuousRunner
-	mu        sync.Mutex
-	selected  StreamSource
-	lastAired map[string]time.Duration
+	guideCancel           context.CancelFunc
+	guideDone             chan struct{}
+	guideFrom, guideUntil time.Time
+	guide                 []Programme
+	s                     *Service
+	channel               Channel
+	format                transcode.RawFormat
+	runner                transcode.ContinuousRunner
+	mu                    sync.Mutex
+	selected              StreamSource
+	lastAired             map[string]time.Duration
 }
 
-func (p *providerBroadcastPlanner) plans(time.Time) (broadcastPlan, *broadcastPlan) {
-	return broadcastPlan{element: "programme", programme: true, id: "provider-" + p.channel.ID, open: p.open, failed: p.failed}, nil
+func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadcastPlan) {
+	p.mu.Lock()
+	ready := !now.Before(p.guideFrom) && now.Before(p.guideUntil)
+	var tag *broadcastPolicyTag
+	if ready {
+		for _, programme := range p.guide {
+			if !now.Before(programme.Start) && now.Before(programme.End) {
+				tag = programme.policyTag
+				break
+			}
+		}
+	}
+	p.mu.Unlock()
+	if !ready {
+		// Hold on a neutral signal screen until the background EPG snapshot is
+		// ready. A placeholder denial must never poison a published screen segment.
+		// Changing identity also retires an active source if its policy expires.
+		return broadcastPlan{id: "provider-policy-wait-" + p.channel.ID}, nil
+	}
+	return broadcastPlan{element: "programme", policy: tag, programme: true, id: "provider-" + p.channel.ID, open: p.open, failed: p.failed}, nil
 }
 func (p *providerBroadcastPlanner) failed(err error) time.Time {
 	p.mu.Lock()
@@ -458,3 +486,35 @@ func (d *providerBroadcastDecoder) Diagnostics() string {
 	}
 	return fmt.Sprintf("lastAiredSourcePTS=%s %s", floor, details)
 }
+
+// IPTV outputs retain EPG policy at exact frame-clock boundaries as well.
+// Fetching/hydrating the bounded upcoming window is background work.
+func (p *providerBroadcastPlanner) startPlanner(parent context.Context) {
+	ctx, cancel := context.WithCancel(parent)
+	p.guideCancel = cancel
+	p.guideDone = make(chan struct{})
+	go func() {
+		defer close(p.guideDone)
+		tick := time.NewTicker(30 * time.Second)
+		defer tick.Stop()
+		for {
+			now := p.s.o.Now()
+			until := now.Add(2 * time.Minute)
+			ps, err := p.s.programmes(ctx, p.channel, now, until)
+			if err == nil {
+				for i := range ps {
+					ps[i].policyTag = p.s.programmePolicy(ctx, ps[i])
+				}
+				p.mu.Lock()
+				p.guideFrom, p.guideUntil, p.guide = now, until, ps
+				p.mu.Unlock()
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
+		}
+	}()
+}
+func (p *providerBroadcastPlanner) closePlanner() { p.guideCancel(); <-p.guideDone }
