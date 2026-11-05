@@ -304,11 +304,11 @@ func TestDirectPlayRange(t *testing.T) {
 	}
 	// Not available.
 	f.playback.failures[alien.Key] = core.ErrNotAvailable
-	if rec := f.get(t, "/library/parts/1000000000000348/1/file.mkv"); rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+	if rec := f.get(t, "/library/parts/1000000000000348/1/file.mkv"); rec.Code != http.StatusNotFound || rec.Header().Get("Retry-After") != "" {
 		t.Fatalf("unavailable part: %d retry-after=%q", rec.Code, rec.Header().Get("Retry-After"))
 	}
 	f.playback.failures[alien.Key] = core.ErrStreamLimit
-	if rec := f.get(t, "/library/parts/1000000000000348/1/file.mkv"); rec.Code != http.StatusServiceUnavailable {
+	if rec := f.get(t, "/library/parts/1000000000000348/1/file.mkv"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("stream limit part: %d", rec.Code)
 	}
 }
