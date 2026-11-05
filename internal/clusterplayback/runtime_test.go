@@ -477,3 +477,5 @@ func testRemoteNeutralBroker(t *testing.T, ctx context.Context, base Options, gu
 	}
 	t.Fatal("remote plan lifetime did not retire")
 }
+
+func (*fixtureEncoder) SupportsDistributedRequest(core.HLSRequest) bool { return true }

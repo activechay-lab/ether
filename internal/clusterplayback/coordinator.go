@@ -28,20 +28,9 @@ type execution struct {
 
 // Supports is a side-effect-free admission gate. Unsupported requests must use
 // the existing local backend before any distributed ownership is allocated.
-func Supports(q core.HLSRequest) bool {
-	if q.Protocol != "" && q.Protocol != core.ProtocolHLS || q.InputLease != nil || len(q.InputHeaders) > 0 || q.LiveInput || q.CopyTimestamps || len(q.SlateText) > 0 || q.SoftSubtitleStream != nil || len(q.Info.Keyframes) > 0 || q.StartOffset < 0 || q.SegmentDuration < 0 || q.SegmentDuration > time.Minute || q.Info.Duration < 0 || len(q.Info.Streams) > 64 || len(q.Info.Chapters) > 128 || len(q.ReleaseID) > 512 {
-		return false
-	}
-	d := q.Decision
-	if d.Kind != core.DecisionRemux && d.Kind != core.DecisionTranscode || d.BurnSubtitles || d.SubtitleStream >= 0 || len(d.AudioFilters) > 0 || d.Enhancement != (core.VideoEnhancement{}) {
-		return false
-	}
-	for _, s := range q.Info.Streams {
-		if s.External || s.ExternalURL != "" {
-			return false
-		}
-	}
-	if len(q.SessionID) == 0 || len(q.SessionID) > 128 {
+func Supports(q core.HLSRequest) bool { return supportedRequest(q, remotetranscode.Supported()) }
+func supportedRequest(q core.HLSRequest, caps remotetranscode.Capabilities) bool {
+	if !remotetranscode.SupportsRequest(q, caps) || len(q.SessionID) == 0 || len(q.SessionID) > 128 {
 		return false
 	}
 	for _, c := range q.SessionID {
@@ -49,8 +38,7 @@ func Supports(q core.HLSRequest) bool {
 			return false
 		}
 	}
-	b, e := json.Marshal(q)
-	return e == nil && len(b) < remotetranscode.MaxMessage-8192
+	return true
 }
 
 // StartDistributedHLS starts from the exact source already prepared by the
@@ -77,7 +65,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil || r.o.Eligible(ctx, prepared.Owner, config.RoleSource) != nil {
 		return nil, ErrDenied
 	}
-	if !Supports(q) {
+	if !r.Supports(q) {
 		return nil, remotetranscode.ErrUnsupported
 	}
 	if r.o.Decide == nil || viewer <= 0 || revision == "" {
@@ -121,7 +109,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if e == nil {
 		expected = old.Generation
 	}
-	target, claims, e := r.selectTarget(ctx)
+	target, claims, capabilities, e := r.selectTarget(ctx, q)
 	if e != nil {
 		return nil, e
 	}
@@ -163,7 +151,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if e != nil {
 		return nil, e
 	}
-	adapter, e := remotetranscode.NewAdapter(remotetranscode.AdapterOptions{Endpoint: endpoint, Client: &http.Client{Transport: &http.Transport{TLSClientConfig: tc}, Timeout: 0}, RecheckServer: check, Assign: func(context.Context, core.HLSRequest) (remotetranscode.Assignment, error) {
+	adapter, e := remotetranscode.NewAdapter(remotetranscode.AdapterOptions{Capabilities: capabilities, Endpoint: endpoint, Client: &http.Client{Transport: &http.Transport{TLSClientConfig: tc}, Timeout: 0}, RecheckServer: check, Assign: func(context.Context, core.HLSRequest) (remotetranscode.Assignment, error) {
 		return remotetranscode.Assignment{Identity: remoteIdentity(rt), Grant: bound.Stable, Expires: deadline}, nil
 	}, Decide: r.o.Decide, Hardware: r.o.Hardware, Capacity: 1})
 	if e != nil {
@@ -199,18 +187,31 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	}
 	return hs, nil
 }
-func (r *Runtime) selectTarget(ctx context.Context) (placement.Target, []placement.Claim, error) {
+func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
 	rows, e := r.o.DB.QueryContext(ctx, `SELECT node,boot,roles,scopes FROM placement_targets ORDER BY node LIMIT 4096`)
 	if e != nil {
-		return placement.Target{}, nil, e
+		return placement.Target{}, nil, remotetranscode.Capabilities{}, e
 	}
-	defer rows.Close()
+	type candidate struct {
+		target                placement.Target
+		rolesJSON, scopesJSON string
+	}
+	var candidates []candidate
 	for rows.Next() {
-		var target placement.Target
-		var rolesJSON, scopesJSON string
-		if e = rows.Scan(&target.NodeID, &target.Boot, &rolesJSON, &scopesJSON); e != nil {
-			return target, nil, e
+		var c candidate
+		if e = rows.Scan(&c.target.NodeID, &c.target.Boot, &c.rolesJSON, &c.scopesJSON); e != nil {
+			rows.Close()
+			return placement.Target{}, nil, remotetranscode.Capabilities{}, e
 		}
+		candidates = append(candidates, c)
+	}
+	err := rows.Err()
+	rows.Close()
+	if err != nil {
+		return placement.Target{}, nil, remotetranscode.Capabilities{}, err
+	}
+	for _, candidate := range candidates {
+		target, rolesJSON, scopesJSON := candidate.target, candidate.rolesJSON, candidate.scopesJSON
 		var roles config.NodeRoles
 		var scopes map[config.NodeRole][]string
 		if json.Unmarshal([]byte(rolesJSON), &roles) != nil || !roles.Has(config.RoleTranscode) || json.Unmarshal([]byte(scopesJSON), &scopes) != nil {
@@ -224,12 +225,27 @@ func (r *Runtime) selectTarget(ctx context.Context) (placement.Target, []placeme
 			continue
 		}
 		claims := make([]placement.Claim, len(names))
+		available := true
 		for i, name := range names {
+			var remaining int64
+			err := r.o.DB.QueryRowContext(ctx, `SELECT p.capacity-COALESCE(SUM(c.units),0) FROM placement_pools p LEFT JOIN placement_claims c ON c.scope=p.scope WHERE p.scope=? AND p.role=? GROUP BY p.scope,p.capacity`, name, string(config.RoleTranscode)).Scan(&remaining)
+			if err != nil || remaining < 1 {
+				available = false
+				break
+			}
 			claims[i] = placement.Claim{Scope: name, Units: 1}
 		}
-		return target, claims, nil
+		// This read is advisory only; Reserve remains the atomic admission authority.
+		if !available {
+			continue
+		}
+		caps, e := r.workerCapabilities(ctx, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: target.NodeID, Boot: target.Boot}, q)
+		if e != nil || !supportedRequest(q, caps) {
+			continue
+		}
+		return target, claims, caps, nil
 	}
-	return placement.Target{}, nil, placement.ErrCapacity
+	return placement.Target{}, nil, remotetranscode.Capabilities{}, placement.ErrCapacity
 }
 
 func (r *Runtime) Session(id string) (core.HLSSession, bool) {
@@ -447,7 +463,9 @@ func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
 	return nil
 }
 
-func (r *Runtime) Supports(q core.HLSRequest) bool { return Supports(q) }
+func (r *Runtime) Supports(q core.HLSRequest) bool {
+	return supportedRequest(q, r.o.RemoteCapabilities)
+}
 func (r *Runtime) Allocated(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()

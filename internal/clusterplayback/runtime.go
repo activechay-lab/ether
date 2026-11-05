@@ -24,6 +24,7 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
+	WorkerCapabilities, RemoteCapabilities remotetranscode.Capabilities
 	// HistoryCapacity bounds boot-retained authority tombstones (default4096),
 	// independently of concurrent placement resource capacity.
 	HistoryCapacity int
@@ -68,6 +69,15 @@ type Runtime struct {
 }
 
 func NewRuntime(o Options) (*Runtime, error) {
+	var capErr error
+	o.WorkerCapabilities, capErr = remotetranscode.NormalizeCapabilities(o.WorkerCapabilities)
+	if capErr != nil {
+		return nil, capErr
+	}
+	o.RemoteCapabilities, capErr = remotetranscode.NormalizeCapabilities(o.RemoteCapabilities)
+	if capErr != nil {
+		return nil, capErr
+	}
 	if o.HistoryCapacity == 0 {
 		o.HistoryCapacity = 4096
 	}
@@ -97,10 +107,11 @@ func NewRuntime(o Options) (*Runtime, error) {
 		r.mux.HandleFunc(SourcePath, r.sourceHTTP)
 	}
 	if o.Encoder != nil {
-		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: o.Guard.RemoteAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
+		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Capabilities: o.WorkerCapabilities, Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: o.Guard.RemoteAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
 		if e != nil {
 			return nil, e
 		}
+		r.mux.HandleFunc(CapabilitiesPath, r.capabilitiesHTTP)
 		r.worker = w
 		r.mux.Handle(WorkerPath, w)
 	}

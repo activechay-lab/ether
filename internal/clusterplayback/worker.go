@@ -3,6 +3,7 @@ package clusterplayback
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodeinput"
 	"github.com/braedonsaunders/ether/internal/nodesource"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
@@ -34,6 +35,9 @@ func (r *Runtime) authorizeWorker(ctx context.Context, peer, op string, id remot
 	// Exact stop/status remains available after expiry and role removal.
 	if op == "stop" || op == "status" {
 		return nil
+	}
+	if op == "start" && start != nil && !r.supportsBackend(core.HLSRequest{SessionID: id.Session, Info: start.Info, Decision: start.Decision, Protocol: start.Protocol, StartOffset: start.Offset, SegmentDuration: start.SegmentDuration, SoftSubtitleStream: start.SoftSubtitleStream}) {
+		return ErrDenied
 	}
 	if op == "start" && r.o.Eligible(ctx, r.o.Self, config.RoleTranscode) != nil {
 		return ErrDenied
