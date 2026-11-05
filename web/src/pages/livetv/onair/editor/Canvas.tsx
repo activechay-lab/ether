@@ -10,6 +10,7 @@ import {
   type Layer,
   type Value,
 } from "../scene-renderer";
+import { Handles, pathNodes } from "./Handles";
 import { isAnimated, setKeyframe } from "./keyframes";
 import { layerBounds } from "./scene-bounds";
 import {
@@ -33,12 +34,15 @@ export type CanvasProps = {
   zoom?: number;
   pen?: boolean;
   onPenDone?(): void;
+  onGestureStart?(): void;
+  onGestureEnd?(): void;
+  video?: React.ReactNode;
 };
 // Preserve animation tracks when an ordinary editor gesture changes an animated value.
 export function editValue(
   layer: Layer,
   key: keyof Layer,
-  value: number,
+  value: Value,
   time: number,
 ): Partial<Layer> {
   return isAnimated(layer[key])
@@ -56,6 +60,7 @@ export function Canvas(p: CanvasProps) {
     () => layerBounds(p.document, p.bindings, p.time),
     [p.document, p.bindings, p.selected.length ? p.time : 0],
   );
+  const [penPreview, setPenPreview] = useState("");
   const penPoints = useRef<{ x: number; y: number; cx?: number; cy?: number }[]>([]);
   const gesture = useRef<
     { x: number; y: number; doc: Scene; ids: string[]; mode: string } | undefined
@@ -63,10 +68,14 @@ export function Canvas(p: CanvasProps) {
   useEffect(() => {
     const ctx = canvas.current?.getContext("2d");
     if (ctx) renderDocument(ctx, p.document, p.bindings, p.time);
-    return () => {
-      if (ctx) releaseRenderer(ctx);
-    };
   }, [p.document, p.bindings, p.time]);
+  useEffect(
+    () => () => {
+      const ctx = canvas.current?.getContext("2d");
+      if (ctx) releaseRenderer(ctx);
+    },
+    [],
+  );
   const point = (e: { clientX: number; clientY: number }) => {
     const r = host.current!.getBoundingClientRect();
     return {
@@ -92,6 +101,7 @@ export function Canvas(p: CanvasProps) {
       if (last) {
         last.cx = q.x;
         last.cy = q.y;
+        setPenPreview(penPoints.current.map((p, i) => `${i ? "L" : "M"}${p.x} ${p.y}`).join(" "));
       }
       return;
     }
@@ -122,11 +132,26 @@ export function Canvas(p: CanvasProps) {
       const n = (key: keyof Layer, f = 0) =>
         Number(evaluate(l[key] as Value, p.bindings, p.time) ?? f);
       let patch: Partial<Layer> = {};
+      if (g.mode.startsWith("node:")) {
+        const [, xi, yi, ox, oy] = g.mode.split(":").map(Number);
+        const bounds = geometry.find((b) => b.id === id);
+        if (bounds) {
+          const at = new DOMMatrix(bounds.matrix).inverse().transformPoint(q);
+          const nodes = pathNodes(l.path ?? "");
+          nodes.tokens[xi!] = String(at.x - ox!);
+          nodes.tokens[yi!] = String(at.y - oy!);
+          doc = updateLayer(doc, id, { path: nodes.tokens.join(" ") });
+        }
+        continue;
+      }
       if (g.mode === "rotate")
         patch = editValue(
           l,
           "rotate",
-          Math.atan2(q.y - n("y"), q.x - n("x")) + Math.PI / 2,
+          e.shiftKey
+            ? Math.round((Math.atan2(q.y - n("y"), q.x - n("x")) + Math.PI / 2) / (Math.PI / 12)) *
+                (Math.PI / 12)
+            : Math.atan2(q.y - n("y"), q.x - n("x")) + Math.PI / 2,
           p.time,
         );
       else if (g.mode === "resize") {
@@ -189,6 +214,11 @@ export function Canvas(p: CanvasProps) {
   };
   return (
     <div className="overflow-auto p-4">
+      {p.pen && (
+        <p className="mb-2 text-sm text-fg-muted">
+          {t("Click to add corners, drag to curve, and double-click to close the path.")}
+        </p>
+      )}
       <div
         ref={host}
         className="relative mx-auto aspect-video touch-none bg-black shadow-xl outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -200,6 +230,7 @@ export function Canvas(p: CanvasProps) {
         onPointerLeave={() => setHover(undefined)}
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest("input")) return;
+          p.onGestureStart?.();
           const q = point(e);
           if (p.pen) {
             penPoints.current.push(q);
@@ -227,6 +258,7 @@ export function Canvas(p: CanvasProps) {
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerUp={() => {
+          p.onGestureEnd?.();
           if (p.pen) {
             gesture.current = undefined;
             return;
@@ -278,6 +310,7 @@ export function Canvas(p: CanvasProps) {
               p.onSelect([id]);
             }
             penPoints.current = [];
+            setPenPreview("");
             p.onPenDone?.();
             return;
           }
@@ -317,12 +350,14 @@ export function Canvas(p: CanvasProps) {
           p.onChange(doc);
         }}
       >
+        {p.video}
         <canvas ref={canvas} width={960} height={540} className="h-full w-full" />
         <svg
           viewBox="0 0 1920 1080"
           className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
           aria-hidden="true"
         >
+          {penPreview && <path d={penPreview} fill="none" stroke="#76a9ff" strokeWidth="3" />}
           {p.safe && (
             <g fill="none" stroke="#ffffff88" strokeWidth="2" strokeDasharray="12 8">
               <rect x="96" y="54" width="1728" height="972" />
@@ -363,6 +398,15 @@ export function Canvas(p: CanvasProps) {
                   </>
                 )}
               </g>
+            ))}
+          {geometry
+            .filter((b) => p.selected.includes(b.id))
+            .map((b) => (
+              <Handles
+                key={`nodes-${b.id}`}
+                layer={findLayer(p.document, b.id)!}
+                matrix={b.matrix}
+              />
             ))}
           {marquee && <rect {...marquee} fill="#76a9ff33" stroke="#76a9ff" />}
           {guides.x !== undefined && (
