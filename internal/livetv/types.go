@@ -155,6 +155,7 @@ type PinnedSlot struct {
 
 type Channel struct {
 	Pins                 []PinnedSlot `json:"pins,omitempty"`
+	programmingFill      bool
 	programmingNotBefore time.Time
 	programmingReels     map[string]*ReelSnapshot
 	programmingBlockID   string

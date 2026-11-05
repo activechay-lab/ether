@@ -159,6 +159,8 @@ func weeklySchedule(c Channel, from, until time.Time) []Programme {
 				seg.mode = "sources"
 				seg.shuffle = false
 				seg.marathon = 0
+				seg.align = b.Align
+				seg.fit = b.Fit
 				seg.repeat = b.RepeatDays
 				if len(b.Sources) == 1 && b.Sources[0].Strip {
 					seg.align = "half"
@@ -211,6 +213,7 @@ type segment struct {
 }
 
 func emitSegment(out *[]Programme, c Channel, seg segment, day time.Time, startMin, endMin int, from, until time.Time, loc *time.Location, salt int64, recent map[core.RatingKey]time.Time) {
+	c.programmingFill = seg.mode == "sources"
 	anchor := atMinute(day, startMin, loc)
 	if c.programmingNotBefore.After(anchor) {
 		anchor = c.programmingNotBefore
@@ -341,7 +344,7 @@ func emitWalk(out *[]Programme, c Channel, items []Item, seg segment, anchor, en
 				cursor = finish
 			}
 		}
-		if alignStep == 0 && len(seg.filler) > 0 && cursor.Before(end) {
+		if alignStep == 0 && seg.mode != "sources" && len(seg.filler) > 0 && cursor.Before(end) {
 			bump := seg.filler[int(step)%len(seg.filler)]
 			bd := time.Duration(bump.DurationMS) * time.Millisecond
 			if bd > 0 {
@@ -438,7 +441,7 @@ func earliestReady(units [][]Item, recent map[core.RatingKey]time.Time, gap time
 
 func fillGap(out *[]Programme, c Channel, filler []Item, fromCursor, end, winFrom, winUntil time.Time) {
 	cursor := fromCursor
-	if c.Look != nil && c.Look.Placement != "insert" {
+	if c.Look != nil && (c.Look.Placement != "insert" || c.programmingFill) {
 		for _, item := range c.momentsWithin(fromCursor, end.Sub(fromCursor)) {
 			finish := cursor.Add(time.Duration(item.DurationMS) * time.Millisecond)
 			if finish.After(end) {
