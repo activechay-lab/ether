@@ -115,6 +115,7 @@ func (s *Server) handleStartHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	hs, err := s.startPlexHLS(context.WithoutCancel(ctx), pr.User, ps.ID, p.sessionID, core.HLSRequest{
 		SessionID:      p.sessionID,
+		ReleaseID:      ps.SourceReleaseID(),
 		InputURL:       s.d.Playback.InputURL(ps.ID),
 		Info:           ps.Info,
 		Decision:       dec,

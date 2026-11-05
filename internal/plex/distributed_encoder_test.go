@@ -11,6 +11,7 @@ import (
 )
 
 type recordedPlexEncoder struct {
+	expectedRelease                  string
 	sessions                         map[string]core.HLSSession
 	starts, stops, lookups, forwards int
 	viewer                           int64
@@ -23,6 +24,9 @@ func (e *recordedPlexEncoder) StartPlexHLS(_ context.Context, u *core.User, play
 	e.starts++
 	if u == nil || playID == "" || id == "" || q.SessionID != id {
 		return nil, core.ErrUnauthorized
+	}
+	if e.expectedRelease != "" && q.ReleaseID != e.expectedRelease {
+		return nil, core.ErrSourceChanged
 	}
 	e.viewer, e.playID, e.publicID, e.request = u.ID, playID, id, q
 	if e.startErr != nil {
@@ -143,9 +147,15 @@ func TestPlexEncoderDASHAndHTTPStartsUseSameSeam(t *testing.T) {
 			remote := &recordedPlexEncoder{sessions: map[string]core.HLSSession{}}
 			f := newFixture(func(d *Deps) { d.PlexEncoder = remote })
 			defer f.srv.Close()
+			ps, err := f.playback.Prepare(context.Background(), &ownerUser, fightClub.Key, core.ClientCaps{ClientID: "client-1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ps.Resolution = &core.Resolution{Release: core.Release{ID: "sourced-release-" + tc.protocol}}
+			remote.expectedRelease = ps.SourceReleaseID()
 			f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "fmp4"}
 			out := f.get(t, "/video/:/transcode/universal/"+tc.format+"?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=remote-"+tc.protocol+"&protocol="+tc.protocol)
-			if out.Code != 200 || remote.starts != 1 || remote.request.Protocol != tc.protocol || out.Header().Get("Content-Type") != tc.content || len(f.trans.sessions) != 0 {
+			if out.Code != 200 || remote.starts != 1 || remote.request.Protocol != tc.protocol || remote.request.ReleaseID == "" || remote.request.ReleaseID != ps.SourceReleaseID() || out.Header().Get("Content-Type") != tc.content || len(f.trans.sessions) != 0 {
 				t.Fatalf("%s start contract changed: %d %s", tc.protocol, out.Code, out.Body.String())
 			}
 		})
