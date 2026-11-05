@@ -1,3 +1,4 @@
+import { styleCopy } from "./onair/naming";
 import { rundownPreview } from "./onair/rundown";
 import { ClockRows } from "./onair/ClockRows";
 import { LookTab } from "./onair/LookTab";
@@ -287,14 +288,14 @@ export function ChannelStudio({
     ? [
         { key: "programming", label: c.personal ? t("Recipe") : t("Programming") },
         { key: "schedule", label: t("Schedule"), count: c.blocks?.length || undefined },
-        { key: "look", label: t("Look") },
+        { key: "look", label: styleCopy("Style") },
         { key: "viewers", label: t("Viewers") },
         { key: "details", label: t("Details") },
       ]
     : [
         { key: "stream", label: t("Stream") },
         { key: "guide", label: t("Guide") },
-        { key: "look", label: t("Look") },
+        { key: "look", label: styleCopy("Style") },
         { key: "viewers", label: t("Viewers") },
         { key: "details", label: t("Details") },
       ];

@@ -1,3 +1,7 @@
+import { api } from "../../../lib/api";
+import type { EtherUser } from "../../../lib/types";
+import { styleCopy } from "./naming";
+import { MomentVideoPicker } from "./MomentVideoPicker";
 import { useUnsavedGuard } from "../../../components/SaveBar";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Input, Popover, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
@@ -11,13 +15,14 @@ import { onair, type Look, type Bindings, type Moment } from "./model";
 import { LookStage } from "./Stage";
 import { DesignPanel } from "./DesignPanel";
 import { DescribeLook } from "./DescribeLook";
-import { LayersPanel, Timeline } from "./LayersPanel";
+import { LayersPanel } from "./LayersPanel";
+import { StyleScreensEditor } from "./StyleScreens";
 import { AssetsPanel } from "./AssetsPanel";
 export function LookDrawer({
   look,
   onClose,
   onSaved,
-  initialTab = "design",
+  initialTab = "describe",
   stacked,
 }: {
   look: Look;
@@ -32,14 +37,26 @@ export function LookDrawer({
     [menu, setMenu] = useState(false),
     [moment, setMoment] = useState<Moment>("ident"),
     [layer, setLayer] = useState("Title"),
-    [channel, setChannel] = useState("v-movie-night"),
+    [channel, setChannel] = useState(look.channelIds[0] || ""),
     [at, setAt] = useState("now"),
-    [custom, setCustom] = useState("2026-11-05T20:00"),
-    [viewer, setViewer] = useState("1"),
+    [custom, setCustom] = useState(() =>
+      new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16),
+    ),
+    [viewer, setViewer] = useState(""),
     [channels, setChannels] = useState<ChannelSummary[]>([]),
     [bindings, setBindings] = useState<Bindings>({}),
     [render, setRender] = useState(look.render?.done ?? 7),
     [saving, setSaving] = useState(false);
+  const [viewers, setViewers] = useState<EtherUser[]>([]);
+  useEffect(() => {
+    void api
+      .users()
+      .then((users) => {
+        setViewers(users);
+        setViewer(String(users.find((u) => u.isOwner)?.id ?? users[0]?.id ?? ""));
+      })
+      .catch(() => {});
+  }, []);
   const [useOpen, setUseOpen] = useState(false);
   const [useChannels, setUseChannels] = useState<string[]>(look.channelIds);
   const history = useRef<Look[]>([]),
@@ -72,6 +89,7 @@ export function LookDrawer({
   useUnsavedGuard(dirty);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (saving) return;
       if ((e.metaKey || e.ctrlKey) && e.key === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -80,16 +98,25 @@ export function LookDrawer({
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, []);
+  }, [saving]);
   useEffect(() => {
     void tv
       .channelSummaries()
-      .then(setChannels)
+      .then((rows) => {
+        setChannels(rows);
+        setChannel((id) =>
+          rows.some((c) => c.id === id)
+            ? id
+            : (rows.find((c) => c.kind === "virtual")?.id ?? rows[0]?.id ?? ""),
+        );
+      })
       .catch(() => {});
   }, []);
   const previewAt =
     at === "custom"
-      ? new Date(custom).toISOString()
+      ? Number.isNaN(Date.parse(custom))
+        ? new Date().toISOString()
+        : new Date(custom).toISOString()
       : at === "tonight"
         ? new Date(new Date().setHours(20, 0, 0, 0)).toISOString()
         : at === "morning"
@@ -110,7 +137,7 @@ export function LookDrawer({
       !dirty ||
       (await confirmDialog({
         title: t("Discard unsaved changes?"),
-        message: t("Your changes to this look haven’t been saved."),
+        message: styleCopy("Your changes to this style haven’t been saved."),
         confirmLabel: t("Discard"),
         tone: "danger",
       }))
@@ -126,14 +153,15 @@ export function LookDrawer({
       setRender(0);
       onSaved(result);
     } catch {
-      toast.error(t("Couldn’t save look"));
+      toast.error(styleCopy("Couldn’t save style"));
     } finally {
       setSaving(false);
     }
   };
   const action = (label: string, fn: () => void) => (
     <button
-      className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-surface-hover"
+      disabled={!saved.id}
+      className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-surface-hover disabled:opacity-50"
       onClick={() => {
         setMenu(false);
         fn();
@@ -151,7 +179,7 @@ export function LookDrawer({
       panelClassName="max-sm:[&>header]:flex-wrap max-sm:[&>header]:gap-2 max-sm:[&>header>div:first-child]:w-full max-sm:[&>header>div:last-child]:w-full max-sm:[&>header>div:last-child]:justify-end"
       title={
         <Input
-          aria-label={t("Look name")}
+          aria-label={styleCopy("Style name")}
           className="w-full sm:max-w-48 border-transparent bg-transparent font-semibold"
           value={draft.name}
           onChange={(e) => change({ ...draft, name: e.target.value })}
@@ -166,7 +194,7 @@ export function LookDrawer({
             {t("Discard")}
           </Button>
           <Button size="sm" disabled={saving} onClick={() => void save()}>
-            {t("Save look")}
+            {styleCopy("Save style")}
           </Button>
           <Popover
             open={menu}
@@ -177,7 +205,7 @@ export function LookDrawer({
               <Button
                 variant="ghost"
                 size="sm"
-                aria-label={t("Look actions")}
+                aria-label={styleCopy("Style actions")}
                 onClick={() => setMenu(!menu)}
               >
                 <MoreHorizontal size={16} />
@@ -200,7 +228,9 @@ export function LookDrawer({
                   if (
                     await confirmDialog({
                       title: t("Delete {name}?", { name: draft.name }),
-                      message: t("Channels using this look will lose their on-air graphics."),
+                      message: styleCopy(
+                        "Channels using this style will lose their on-air graphics.",
+                      ),
                       confirmLabel: t("Delete"),
                       tone: "danger",
                     })
@@ -215,30 +245,45 @@ export function LookDrawer({
         </div>
       }
     >
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-3">
+      <div inert={saving} className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-3">
         <aside className="order-2 min-w-0 border-t border-border bg-surface lg:order-1 lg:overflow-y-auto lg:border-r lg:border-t-0">
           <div className="sticky top-0 z-10 bg-surface px-5 pt-3">
             <SubtabNav
               active={tab}
               onSelect={setTab}
-              ariaLabel={t("Look inspector")}
-              tabs={["describe", "design", "layers", "assets"].map((key) => ({
+              ariaLabel={styleCopy("Style inspector")}
+              tabs={["describe", "design", "layers", "screens", "assets"].map((key) => ({
                 key,
                 label: t(
-                  { describe: "Describe", design: "Design", layers: "Layers", assets: "Assets" }[
-                    key
-                  ]!,
+                  {
+                    describe: "Describe",
+                    design: "Design",
+                    layers: "Layers",
+                    screens: "Screens",
+                    assets: "Assets",
+                  }[key]!,
                 ),
               }))}
             />
           </div>
           <div className="p-5">
             {tab === "design" ? (
-              <DesignPanel look={draft} onChange={change} />
+              <div className="space-y-5">
+                <DesignPanel look={draft} onChange={change} />
+                <MomentVideoPicker look={draft} moment={moment} onChange={change} />
+              </div>
             ) : tab === "describe" ? (
               <DescribeLook look={draft} onChange={change} />
             ) : tab === "layers" ? (
-              <LayersPanel selected={layer} onSelect={setLayer} look={draft} onChange={change} />
+              <LayersPanel
+                moment={moment}
+                selected={layer}
+                onSelect={setLayer}
+                look={draft}
+                onChange={change}
+              />
+            ) : tab === "screens" ? (
+              <StyleScreensEditor look={draft} onChange={change} />
             ) : (
               <AssetsPanel />
             )}
@@ -285,10 +330,10 @@ export function LookDrawer({
                   ariaLabel={t("Preview as")}
                   value={viewer}
                   onChange={setViewer}
-                  options={[
-                    { value: "1", label: "Braedon" },
-                    { value: "2", label: "Alex" },
-                  ]}
+                  options={viewers.map((v) => ({
+                    value: String(v.id),
+                    label: v.title || v.username,
+                  }))}
                 />
               </>
             ) : null}
@@ -301,6 +346,9 @@ export function LookDrawer({
               </Button>
             </div>
           </div>
+          <p className="mb-3 text-sm text-fg-muted">
+            {styleCopy("Style · {name}", { name: draft.name })}
+          </p>
           <LookStage
             look={draft}
             compact={tab === "layers"}
@@ -312,7 +360,6 @@ export function LookDrawer({
               setTab("layers");
             }}
           />
-          {tab === "layers" ? <Timeline selected={layer} onSelect={setLayer} /> : null}
         </section>
       </div>
       {useOpen ? (
@@ -324,18 +371,22 @@ export function LookDrawer({
           footer={
             <Button
               onClick={async () => {
-                for (const id of useChannels) {
+                for (const id of new Set([...saved.channelIds, ...useChannels])) {
                   const c = await tv.channel(id);
                   await tv.saveChannel({
                     ...c,
-                    look: { ...c.look, lookId: saved.id, ident: true, upNext: true, offAir: true },
+                    look: useChannels.includes(id)
+                      ? { ...c.look, lookId: saved.id, ident: true, upNext: true, offAir: true }
+                      : c.look?.lookId === saved.id
+                        ? undefined
+                        : c.look,
                   });
                 }
                 setUseOpen(false);
-                toast.success(t("Look applied"));
+                toast.success(styleCopy("Style applied"));
               }}
             >
-              {t("Apply look")}
+              {styleCopy("Apply style")}
             </Button>
           }
         >

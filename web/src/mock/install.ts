@@ -1,6 +1,6 @@
 import { routeApiImagesThroughFetch } from "../lib/api";
 import { fetchUpload, setUploadTransport } from "../pages/playback/prerolls-api";
-import { setMockAgentPace } from "./extend/agent";
+import { setMockAgentEnabled, setMockAgentPace } from "./extend/agent";
 import { createFakeServer } from "./server";
 
 /** Route same-origin /ether/api requests to the in-browser fake (mock mode only). */
@@ -14,6 +14,7 @@ export function installMockBackend(): void {
   // `?damaged` reports a damaged database; `?restore=restored|failed|pending`
   // seeds the Backups page's restore report.
   // `?agentPace=` sets milliseconds between streamed agent words (default 70).
+  setMockAgentEnabled(params.get("model") !== "off");
   setMockAgentPace(Number(params.get("agentPace") ?? 70));
   const fake = createFakeServer({
     latencyMs: 120,

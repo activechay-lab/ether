@@ -55,14 +55,14 @@ export function createOnAirMock(
       name: "Station wordmark.svg",
       kind: "image",
       size: 18400,
-      usedBy: ["Corner logo"],
+      usedBy: ["nocturne", "meridian"],
     },
     {
       digest: "sting",
       name: "Midnight sting.wav",
       kind: "audio",
       size: 284000,
-      usedBy: ["Ident", "Back from break"],
+      usedBy: ["nocturne"],
     },
   ];
   // Deterministic layout states for the On Air visual acceptance sweep.
@@ -118,6 +118,32 @@ export function createOnAirMock(
       q: URLSearchParams,
       body: unknown,
     ): { body: unknown; status?: number } | null {
+      if (seg[0] === "onair" && seg[1] === "template" && method === "POST") {
+        const { prompt, base } = body as { prompt: string; base: Look };
+        const family = /night|cosy|cozy|horror/i.test(prompt)
+          ? "lateNight"
+          : /neon|retro|80|vhs/i.test(prompt)
+            ? "retro"
+            : /kids|cartoon/i.test(prompt)
+              ? "kids"
+              : /movie|cinema/i.test(prompt)
+                ? "cinema"
+                : "clean";
+        const next = structuredClone(families.find((f) => f.id === family)!.look);
+        return {
+          body: {
+            ...next,
+            id: base.id,
+            name: prompt.slice(0, 80),
+            screens: { offAir: "card", noSignal: "card", stationId: true },
+            channelIds: base.channelIds,
+            brand: {
+              ...next.brand,
+              energy: /calm|cosy|cozy/i.test(prompt) ? 0.2 : next.brand.energy,
+            },
+          },
+        };
+      }
       if (seg[0] === "livetv" && seg[3] === "rundown") {
         const result = tv.handle(method, seg, q, body);
         if (!result || !Array.isArray(result.body)) return result;

@@ -1,5 +1,6 @@
+import { styleCopy } from "./naming";
 import { AgentPanel } from "@braedonsaunders/appkit-ai/react";
-import { Alert, AlertDescription } from "@braedonsaunders/appkit-ui";
+import { Alert, AlertDescription, Button, Textarea } from "@braedonsaunders/appkit-ui";
 import { Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -11,9 +12,10 @@ import {
   fetchAgentStatus,
 } from "../../../components/agent/agentApi";
 import { readAgentStream } from "../../plugins/LiveStage";
-import type { Look } from "./model";
+import { onair, type Look } from "./model";
 
 export function DescribeLook({ look, onChange }: { look: Look; onChange: (l: Look) => void }) {
+  const [description, setDescription] = useState("");
   const [enabled, setEnabled] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
@@ -74,7 +76,16 @@ export function DescribeLook({ look, onChange }: { look: Look; onChange: (l: Loo
         const draft = c.output?.look as Look | undefined;
         if (draft?.brand && draft.moments) {
           const before = structuredClone(current.current);
-          const next = { ...draft, id: before.id, channelIds: before.channelIds };
+          const next = {
+            ...draft,
+            screens: draft.screens ?? {
+              offAir: "card" as const,
+              noSignal: "card" as const,
+              stationId: true,
+            },
+            id: before.id,
+            channelIds: before.channelIds,
+          };
           setSteps((s) => [
             ...s,
             {
@@ -107,7 +118,7 @@ export function DescribeLook({ look, onChange }: { look: Look; onChange: (l: Loo
       {!enabled ? (
         <Alert>
           <AlertDescription>
-            {t("Connect a language model to describe a look.")}{" "}
+            {t("No model connected. Use a template from your description.")}{" "}
             <Link className="text-primary underline" to="/services/overview#llm">
               {t("Integrations › Language model")}
             </Link>
@@ -138,24 +149,63 @@ export function DescribeLook({ look, onChange }: { look: Look; onChange: (l: Loo
           ))}
         </div>
       ) : null}
-      <AgentPanel
-        enabled={enabled}
-        working={working}
-        labels={{
-          ...agentPanelLabels(),
-          title: t("Build with Ether"),
-          welcomeTitle: t("What does your channel feel like?"),
-          welcomeDescription: t("Describe the colours, mood and motion."),
-          disabledTitle: t("Connect a model"),
+      <form
+        className={enabled ? "order-2 space-y-3" : "space-y-3"}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setWorking(true);
+          setError("");
+          try {
+            const next = await onair.template(description, current.current);
+            setSteps((s) => [
+              ...s,
+              { label: t("Template applied"), before: structuredClone(current.current) },
+            ]);
+            change.current(next);
+          } catch (e) {
+            setError(errorMessage(e));
+          } finally {
+            setWorking(false);
+          }
         }}
-        suggestions={[
-          t("A late-night look for {name}", { name: look.name }),
-          t("Match the look to this channel’s programming"),
-          t("Make it feel like a 90s kids network"),
-          t("Give it a calmer motion"),
-        ]}
-        send={send}
-      />
+      >
+        <label className="block text-sm font-medium" htmlFor="style-description">
+          {styleCopy("Describe your style")}
+        </label>
+        <Textarea
+          id="style-description"
+          value={description}
+          maxLength={2000}
+          onChange={(e) => setDescription(e.currentTarget.value)}
+          placeholder={t("A cosy late-night movie channel")}
+        />
+        <Button type="submit" disabled={working || !description.trim()}>
+          {t("Use description template")}
+        </Button>
+        <p className="text-xs text-fg-muted">
+          {styleCopy("Matches mood keywords to a complete built-in style. No AI required.")}
+        </p>
+      </form>
+      {enabled ? (
+        <AgentPanel
+          enabled={enabled}
+          working={working}
+          labels={{
+            ...agentPanelLabels(),
+            title: t("Build with Ether"),
+            welcomeTitle: t("What does your channel feel like?"),
+            welcomeDescription: t("Describe the colours, mood and motion."),
+            disabledTitle: t("Connect a model"),
+          }}
+          suggestions={[
+            styleCopy("A late-night style for {name}", { name: look.name }),
+            styleCopy("Match the style to this channel’s programming"),
+            t("Make it feel like a 90s kids network"),
+            t("Give it a calmer motion"),
+          ]}
+          send={send}
+        />
+      ) : null}
     </div>
   );
 }

@@ -48,6 +48,14 @@ func normalizeFont(s string) string {
 	return strings.ToLower(strings.NewReplacer(" ", "", "-", "", "_", "").Replace(s))
 }
 func (s *Service) validateLook(ctx context.Context, l Look) error {
+	if l.Screens != nil {
+		for _, v := range []string{l.Screens.OffAir, l.Screens.NoSignal} {
+			if !strings.Contains(" card static bars brb testcard error ", " "+v+" ") {
+				return fmt.Errorf("unknown screen style %q", v)
+			}
+		}
+	}
+
 	if e := l.Bug.Validate(); e != nil {
 		return e
 	}
