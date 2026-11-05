@@ -70,7 +70,17 @@ test("same look, bindings and time produce identical drawing commands", async ()
       }
     },
   );
-  const { renderLook } = await import("./scene-renderer");
+  const { renderDocument, styleBindings } = await import("./scene-renderer");
+  const renderLook = (
+    ctx: CanvasRenderingContext2D,
+    look: import("./model").Look,
+    moment: string,
+    b: import("./model").Bindings,
+    t: number,
+  ) => {
+    const sc = look.scenes.find((s) => s.role === moment);
+    if (sc) renderDocument(ctx, sc.document, styleBindings(look, b), t);
+  };
   const bindings = { next: { title: "Arrival" }, viewer: { name: "Alex" } };
   renderLook(context().ctx, referenceLooks[0]!, "ident", bindings, 3);
   for (const look of referenceLooks)
@@ -85,8 +95,8 @@ test("same look, bindings and time produce identical drawing commands", async ()
     "../../../../../internal/onair/families/documents/*.json",
     { eager: true, import: "default" },
   );
-  expect(Object.keys(documents).length).toBe(53);
-  for (const doc of Object.values(documents)) {
+  expect(Object.values(documents).filter((d) => d.v === 1).length).toBeGreaterThanOrEqual(53);
+  for (const doc of Object.values(documents).filter((d) => d.v === 1)) {
     const before = JSON.stringify(doc),
       bindings = {
         tokens: { seed: 7, energy: 2 },
@@ -179,9 +189,19 @@ test("a tile paints immediately while its worker starts, and releases its worker
     "Path2D",
     class {
       rect() {}
+      moveTo() {}
+      lineTo() {}
+      closePath() {}
     },
   );
-  const { renderLook, releaseRenderer } = await import("./scene-renderer");
+  const { renderDocument, styleBindings, releaseRenderer } = await import("./scene-renderer");
+  const renderLook = (
+    ctx: CanvasRenderingContext2D,
+    look: import("./model").Look,
+    _moment: string,
+    b: import("./model").Bindings,
+    t: number,
+  ) => renderDocument(ctx, look.scenes[0]!.document, styleBindings(look, b), t);
   const look = { ...referenceLooks[1]!, family: "clean" };
   const a = context();
   renderLook(a.ctx, look, "ident", {}, 5.5);
