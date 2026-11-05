@@ -44,7 +44,7 @@ print((Path(os.environ['FIXTURES'])/(name+'.json')).read_text())
 ''')
     stub.chmod(0o755)
     scenarios=['valid','no-allocation','source-fallback','wrong-boot','wrong-fence','stale-member',
-               'duplicate-name','wrong-image','wrong-delivery-endpoint']
+               'duplicate-name','wrong-image','wrong-image-id','wrong-delivery-endpoint']
     for scenario in scenarios:
         p,ps,es=copy.deepcopy((proof,pods,endpoints))
         if scenario=='no-allocation':p['placement']=p['route']=None
@@ -54,12 +54,14 @@ print((Path(os.environ['FIXTURES'])/(name+'.json')).read_text())
         elif scenario=='stale-member':p['members'][2]['last_seen']-=60000
         elif scenario=='duplicate-name':p['members'].append(dict(p['members'][3],id='other-delivery'))
         elif scenario=='wrong-image':ps['items'][3]['spec']['containers'][0]['image']='ether035-ha:wrong'
+        elif scenario=='wrong-image-id':ps['items'][3]['status']['containerStatuses'][0]['imageID']='sha256:wrong'
         elif scenario=='wrong-delivery-endpoint':es['items'][0]['endpoints'][0]['targetRef']['uid']='full-fallback'
         for name,data in [('proof',p),('pods',ps),('endpoints',es)]:
             (work/(name+'.json')).write_text(json.dumps(data))
         result=subprocess.run([sys.executable,str(root/'placement-proof.py'),'--session','fixture',
             '--source-name','source','--encoder-name','encoder','--controller-name','controller',
             '--delivery-name','delivery','--delivery-service','fixture-media','--expected-image',image,
+            '--expected-image-id','sha256:fixture',
             '--strict-role-pools','--kubectl',str(stub),'--output',str(work/'output.json')],
             env={**os.environ,'FIXTURES':str(work)},capture_output=True,text=True,timeout=30)
         assert result.returncode==(0 if scenario=='valid' else 1),(scenario,result.stderr)

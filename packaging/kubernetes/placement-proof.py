@@ -17,13 +17,14 @@ def main():
     p.add_argument('--delivery-name')
     p.add_argument('--delivery-service')
     p.add_argument('--expected-image')
+    p.add_argument('--expected-image-id',help='Independently verified Kubernetes runtime imageID/config digest')
     p.add_argument('--strict-role-pools',action='store_true',help='Require four distinct dedicated role identities, matching pods/image and singleton media endpoint')
     p.add_argument('--kubectl',default='kubectl')
     p.add_argument('--output',required=True,type=Path)
     a=p.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}',a.session): p.error('invalid session identifier')
-    if a.strict_role_pools and not all([a.controller_name,a.delivery_name,a.delivery_service,a.expected_image]):
-        p.error('strict role pools require controller/delivery names, delivery service and exact expected image')
+    if a.strict_role_pools and not all([a.controller_name,a.delivery_name,a.delivery_service,a.expected_image,a.expected_image_id]):
+        p.error('strict role pools require controller/delivery names, delivery service, exact image and imageID')
     k=[a.kubectl,'--context','kind-ether035-ha','--request-timeout=15s','-n','ether035-ha']
     sql=f'''BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SELECT json_build_object(
@@ -79,6 +80,7 @@ COMMIT;
                 and member['protocol_version']>0 and -1000<=age<=30000
                 and pod['metadata']['labels'].get('ether.plex/role')==role
                 and container['image']==a.expected_image and state.get('ready') is True
+                and state.get('imageID')==a.expected_image_id
                 and 'running' in state.get('state',{}))
             role_proofs[axis]=dict(name=name,nodeID=member['id'],boot=member['incarnation'],role=role,
                 podUID=pod['metadata']['uid'],image=container['image'] if container else None,
