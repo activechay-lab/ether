@@ -2,7 +2,6 @@ package transcode
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -69,9 +68,9 @@ type EncoderRequest struct {
 
 // ContinuousEncoder never restarts and never changes output parameters.
 // Its timestamps come from the tick counter (monotonic, no discontinuities).
-// Write takes exactly one tick and must not block longer than about one tick
-// under normal load; sustained backpressure returns ErrEncoderBehind so P3
-// can drop the rendition rather than stall the switcher.
+// Write takes exactly one tick and may block during encoder scheduling dips.
+// Callers buffer ticks independently of the output clock, preserving PCM while
+// repeating pictures under pressure. Context cancellation interrupts a write.
 // Segments exposes finished media for Live TV to build viewer responses.
 type ContinuousEncoder interface {
 	Write(ctx context.Context, f RawFrame) error
@@ -107,5 +106,3 @@ type ContinuousRunner interface {
 	StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, error)
 	StartEncoder(ctx context.Context, r EncoderRequest) (ContinuousEncoder, error)
 }
-
-var ErrEncoderBehind = errors.New("continuous encoder is behind real time")
