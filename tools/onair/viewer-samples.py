@@ -17,7 +17,7 @@ for family in args.families.split(','):
      if not data.get('pipeline') and dest.exists():dest.rename(src);meta.rename(src.with_suffix('.json'));break
     if time.monotonic()>deadline:raise RuntimeError('Master not ready: '+name)
     time.sleep(2)
-   if meta.exists() and dest.exists() and json.loads(meta.read_text()).get('pipeline'):
+   if meta.exists() and dest.exists() and json.loads(meta.read_text()).get('pipeline') and json.loads(meta.read_text())['peak_1s_kbps'] <= (5000 if width==1920 else 2000):
     print('ALREADY',name,flush=True);continue
    limit=5000 if width==1920 else 2000;budget=3000 if width==1920 else 1100
    for attempt in range(4):

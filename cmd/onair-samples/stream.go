@@ -60,11 +60,18 @@ func streamSample(ctx context.Context, input, output string, width, seconds, bud
 				writing <- e
 				return
 			}
+			if i == 0 {
+				start = time.Now()
+			}
 			if e = encoder.Write(runctx, frame); e != nil {
 				writing <- e
 				return
 			}
 			delay := time.Until(start.Add(time.Duration(i+1) * time.Second / 30))
+			if delay <= 0 {
+				start = time.Now().Add(-time.Duration(i) * time.Second / 30)
+				delay = time.Second / 30
+			}
 			if delay > 0 {
 				timer := time.NewTimer(delay)
 				select {
@@ -85,8 +92,17 @@ func streamSample(ctx context.Context, input, output string, width, seconds, bud
 	index := encoder.Segments()
 	for sequence := int64(0); sequence < int64(seconds/4); sequence++ {
 		waitctx, stop := context.WithTimeout(runctx, 30*time.Second)
-		_, err = index.Wait(waitctx, sequence-1)
+		waited := make(chan error, 1)
+		go func() { _, e := index.Wait(waitctx, sequence-1); waited <- e }()
+		select {
+		case err = <-waited:
+		case e := <-writing:
+			stop()
+			file.Close()
+			return fmt.Errorf("stream writer before segment %d: %w", sequence, e)
+		}
 		stop()
+		fmt.Printf("SEGMENT %s %d/%d\n", filepath.Base(output), sequence+1, seconds/4)
 		if err != nil {
 			file.Close()
 			cancel()
