@@ -199,7 +199,7 @@ func TestCachedSidecarListedBeforePlayback(t *testing.T) {
 
 	rec := f.get(t, "/library/metadata/"+fightClub.Key.String())
 	subs := subtitleTags(rec.Body.String())
-	want := fmt.Sprintf(`<Stream id="%d" streamType="3" canAutoSync="0" codec="srt" key="/library/streams/%d" language="English" languageTag="en" languageCode="eng" format="srt" displayTitle="English (SRT External)" extendedDisplayTitle="English (SRT External)" external="1" />`, id, id)
+	want := fmt.Sprintf(`<Stream id="%d" streamType="3" canAutoSync="0" codec="srt" key="/library/streams/%d" language="English" languageTag="en" languageCode="eng" format="srt" displayTitle="English" extendedDisplayTitle="English (SRT External)" external="1" transient="0" />`, id, id)
 	if len(subs) != 1 || subs[0] != want {
 		t.Fatalf("detail subtitle streams:\n got %q\nwant %q", subs, want)
 	}
