@@ -85,7 +85,7 @@ func (s *Service) ExportStylePack(ctx context.Context, id string) ([]byte, []str
 	files["looks/style.json"] = b
 	files["assets.json"], _ = json.Marshal(assets)
 	files["warnings.json"], _ = json.Marshal(warnings)
-	manifest := map[string]any{"id": "ether.style." + id, "name": l.Name, "version": "1.0.0", "description": "Channel style pack", "ether": map[string]any{"protocol": 1, "kind": "extension", "runtime": map[string]string{"kind": "data"}, "capabilities": []string{"livetv_pack"}, "contributes": map[string]any{"looks": []map[string]string{{"id": "style", "file": "looks/style.json"}}}}}
+	manifest := map[string]any{"id": "ether.style." + id, "name": l.Name, "version": "1.0.0", "description": "Channel style pack", "ether": map[string]any{"protocol": 1, "kind": "extension", "summary": "Adds a channel style and its licensed artwork", "runtime": map[string]string{"kind": "data"}, "capabilities": []string{"livetv_pack"}, "contributes": map[string]any{"looks": []map[string]string{{"id": "style", "file": "looks/style.json"}}}}}
 	files["manifest.json"], _ = json.Marshal(manifest)
 	files["digest"] = []byte(pkgdigest.Sum(files))
 	var buf bytes.Buffer
@@ -115,6 +115,9 @@ func (s *Service) ExportStylePack(ctx context.Context, id string) ([]byte, []str
 	return buf.Bytes(), warnings, nil
 }
 func (s *Service) ImportStylePack(ctx context.Context, raw []byte) (Look, error) {
+	return s.importStylePack(ctx, raw, "")
+}
+func (s *Service) importStylePack(ctx context.Context, raw []byte, packID string) (Look, error) {
 	z, e := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
 	if e != nil {
 		return Look{}, e
@@ -195,6 +198,20 @@ func (s *Service) ImportStylePack(ctx context.Context, raw []byte) (Look, error)
 		}
 		_, _ = s.db.ExecContext(ctx, "UPDATE onair_assets SET source=?,attribution=? WHERE digest=?", a.Source, a.Attribution, a.Digest)
 	}
+	if packID != "" {
+		existing, err := s.Looks(ctx)
+		if err != nil {
+			return Look{}, err
+		}
+		for _, old := range existing {
+			if old.Pack != nil && old.Pack.ID == packID {
+				l.ID = old.ID
+				l.ChannelIDs = old.ChannelIDs
+				break
+			}
+		}
+		l.Pack = &Pack{ID: packID, Name: l.Name}
+	}
 	return s.SaveLook(ctx, l)
 }
 func (s *Service) StudioRoutes(r chi.Router) {
@@ -244,4 +261,23 @@ func (s *Service) StudioRoutes(r chi.Router) {
 		l, e := s.ImportStylePack(r.Context(), b)
 		result(w, l, e)
 	})
+}
+
+// ImportStyleFiles is the plugin install bridge for upload, URL and Marketplace.
+func (s *Service) ImportStyleFiles(ctx context.Context, packID string, files map[string][]byte) (Look, error) {
+	var buf bytes.Buffer
+	z := zip.NewWriter(&buf)
+	for name, b := range files {
+		w, e := z.Create(name)
+		if e != nil {
+			return Look{}, e
+		}
+		if _, e = w.Write(b); e != nil {
+			return Look{}, e
+		}
+	}
+	if e := z.Close(); e != nil {
+		return Look{}, e
+	}
+	return s.importStylePack(ctx, buf.Bytes(), packID)
 }

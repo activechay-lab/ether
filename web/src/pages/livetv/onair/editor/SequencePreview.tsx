@@ -2,49 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { t } from "../../../../i18n";
 import { onair, type Bindings, type Reel } from "../model";
-import { studio, type Style, type StyleScene } from "../studio-model";
+import { type Style } from "../studio-model";
 import { StyleThumbnail } from "./RemixPanel";
-// Local mixer until S3's shared hook is merged; all Audio nodes are disposed.
-function usePreviewAudio(
-  scene: StyleScene | undefined,
-  time: number,
-  playing: boolean,
-  muted: boolean,
-) {
-  useEffect(() => {
-    if (!scene || muted) return;
-    const nodes = scene.sounds.map((sound) => {
-      const audio = new Audio(studio.media(sound.assetDigest));
-      const local = time - sound.at,
-        end = sound.end ?? Infinity;
-      audio.volume = Math.max(
-        0,
-        Math.min(
-          1,
-          sound.volume *
-            (sound.fadeIn ? Math.max(0, Math.min(1, local / sound.fadeIn)) : 1) *
-            (sound.fadeOut && Number.isFinite(end)
-              ? Math.max(0, Math.min(1, (end - sound.start - local) / sound.fadeOut))
-              : 1),
-        ),
-      );
-      const start = () => {
-        if (local >= 0 && sound.start + local < end) {
-          audio.currentTime = sound.start + local;
-          if (playing) void audio.play().catch(() => {});
-        }
-      };
-      audio.addEventListener("loadedmetadata", start, { once: true });
-      return audio;
-    });
-    return () =>
-      nodes.forEach((a) => {
-        a.pause();
-        a.removeAttribute("src");
-        a.load();
-      });
-  }, [scene, playing, muted, Math.floor(time * 4)]);
-}
+import { usePreviewAudio } from "./preview-audio";
 export function SequencePreview({
   style,
   channelId,

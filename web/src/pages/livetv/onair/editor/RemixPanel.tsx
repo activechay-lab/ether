@@ -11,6 +11,7 @@ import {
   type StyleControl,
 } from "../studio-model";
 import {
+  styleBindings as engineBindings,
   renderDocument,
   releaseRenderer,
   loadSceneAssets,
@@ -21,24 +22,8 @@ import { DescribeLook } from "../DescribeLook";
 import { LibraryPicker } from "../../library/LibraryPicker";
 
 export function styleBindings(style: Style, slots: Record<string, string> = {}): SceneBindings {
-  const b = style.brand;
-  return {
-    tokens: {
-      bg: b.palette.background,
-      accent: b.palette.accent,
-      text: b.palette.text,
-      glow: b.palette.glow,
-      "type.display": b.type.display,
-      "type.body": b.type.body,
-      "type.mono": b.type.body,
-      energy: b.energy,
-      "brand.logo": b.logo,
-      "words.tagline": b.tagline,
-      ...Object.fromEntries(b.textures.map((x) => ["textures." + x, 0.15])),
-      ...Object.fromEntries(style.controls.map((x) => ["control." + x.id, x.value])),
-    },
-    slots,
-  };
+  const bindings = engineBindings(style);
+  return { ...bindings, slots: { ...bindings.slots, ...slots } };
 }
 export function StyleThumbnail({
   style,
@@ -73,11 +58,15 @@ export function StyleThumbnail({
             ? ((performance.now() - start) / 1000) % scene.document.duration
             : scene.document.poster),
       );
-      if (time === undefined && (playing || hover)) frame = requestAnimationFrame(draw);
     };
     void loadStyleFonts(style).then(() => {
       if (live) draw();
     });
+    const animate = () => {
+      draw();
+      frame = requestAnimationFrame(animate);
+    };
+    if (time === undefined && (playing || hover)) frame = requestAnimationFrame(animate);
     draw();
     void loadSceneAssets(scene.document, bindings).then((b) => {
       bindings = b;
@@ -96,6 +85,9 @@ export function StyleThumbnail({
       height={360}
       className="aspect-video w-full rounded-lg bg-black"
       aria-label={t("{name} preview", { name: scene?.name ?? style.name })}
+      tabIndex={0}
+      onFocus={() => setHover(!matchMedia("(prefers-reduced-motion: reduce)").matches)}
+      onBlur={() => setHover(false)}
       onMouseEnter={() => setHover(!matchMedia("(prefers-reduced-motion: reduce)").matches)}
       onMouseLeave={() => setHover(false)}
     />
