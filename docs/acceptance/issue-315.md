@@ -62,16 +62,8 @@ package is `internal/conform` (import alias `pmsconform`). Its decision recordin
 cover successful Web/iOS/Apple TV cases, not unavailable-file or failed-transcoder
 responses. We did not invent failure captures or claim an exact recorded match.
 
-Additional measured facts were inspected in the owner's Rex reference:
-`docs/protocol-traps.md` (decision refusals around lines 407 and 1573; owner-kill
-termination 2006/part 503 around line 227),
-`tests/fixtures/decisions/shield_android_tv_decision.json`, decision cells, and
-`tests/fixtures/transcode/session_gate_s1422.json` / `subtitles_s1422.json`.
-The Shield capture confirms the legacy decision/HLS request family, including
-mediaIndex/partIndex and directPlay/directStream. It is a 2026 Shield request,
-not the reporter's Fire Cube version. Session gate recordings establish 404 for
-unknown sessions, not unavailable-source behavior. Owner-kill 503 is a different
-case and its handlers remain unchanged. No Rex code or fixtures were copied.
+Additional recorded PMS decision-refusal and session-gate facts were checked.
+case and its handlers remain unchanged.
 
 [Plex's published PMS API](https://developer.plex.tv/pms/) documents 1xxx–4xxx
 decision classes and start.* failures 400/403/404. Its examples do not establish

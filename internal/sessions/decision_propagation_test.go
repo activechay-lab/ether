@@ -2,6 +2,8 @@ package sessions
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -136,5 +138,49 @@ func TestNotePlexEncoderRecordsDecisionOnPlayback(t *testing.T) {
 	}
 	if dec.Kind != want.Kind || dec.VideoCopy != want.VideoCopy || dec.AudioCopy != want.AudioCopy {
 		t.Fatalf("recorded decision = %+v, want %+v", dec, want)
+	}
+}
+
+// Part-only Plex clients omit decision quality limits. Admission must clamp
+// the plan before Open's policy recheck, while changed policy still refuses it.
+func TestPlexPartAdmissionClampsPolicy(t *testing.T) {
+	for _, remote := range []bool{false, true} {
+		t.Run(fmt.Sprint(remote), func(t *testing.T) {
+			ctx := t.Context()
+			b, p := newDecisionBroker(t)
+			defer b.Close(context.Background())
+			ceiling := 2000
+			if remote {
+				b.deps.RemoteBitrateLimit = func() int { return ceiling }
+			} else {
+				b.deps.BitrateLimit = func(*core.Viewer) int { return ceiling }
+			}
+			viewer := &core.Viewer{ID: 2}
+			caps := core.ClientCaps{ClientID: "plezy", Remote: remote}
+			ps, err := p.Prepare(ctx, viewer, core.MovieKey(1), caps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx = WithPlexAdmission(ctx, func(context.Context) (PlexAdmission, error) {
+				return PlexAdmission{Source: ps, Caps: caps, Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}, nil
+			})
+			req := frontend.PlanRequest{Viewer: viewer, Device: core.Device{ID: "plezy"}, Protocol: "plex", Item: ps.Key, Caps: caps, Intent: frontend.PlayIntent{ClientSessionID: "plezy-session"}}
+			plan, err := b.Plan(ctx, req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = b.Open(ctx, frontend.OpenRequest{Viewer: viewer, Device: req.Device, Protocol: "plex", PlanID: plan.ID}); err != nil {
+				t.Fatal(err)
+			}
+
+			plan, err = b.Plan(ctx, req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ceiling = 1000
+			if _, err = b.Open(ctx, frontend.OpenRequest{Viewer: viewer, Device: req.Device, Protocol: "plex", PlanID: plan.ID}); !errors.Is(err, core.ErrUnauthorized) {
+				t.Fatalf("changed policy accepted: %v", err)
+			}
+		})
 	}
 }

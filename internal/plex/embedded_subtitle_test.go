@@ -106,7 +106,7 @@ func TestDirectPlayEmbeddedTextFollowsPMS(t *testing.T) {
 	meta := f.get(t, "/library/metadata/"+key.String())
 	tags := subtitleTags(meta.Body.String())
 	srtID := subtitleChoice(tags, "eng", false)
-	assID := subtitleChoice(tags, "fre", false)
+	assID := subtitleChoice(tags, "fra", false)
 	pgsID := ""
 	for _, tag := range tags {
 		if strings.Contains(tag, `codec="pgs"`) {
@@ -168,7 +168,7 @@ func TestDirectPlayEmbeddedTextFollowsPMS(t *testing.T) {
 }
 
 // TestDirectStreamCarriesSelectedTextSubtitle is Plex for Android TV's
-// own request (rex shield_android_tv_decision.json: directPlay=1,
+// own request (recorded Shield decision request: directPlay=1,
 // directStream=1, hasMDE=1, subtitles=none, a Matroska HLS target) ending
 // in a Direct Stream (#191). subtitles=none means the player draws the
 // track; on a remux it reads it from the Matroska segments, so the run
@@ -198,7 +198,7 @@ func TestDirectStreamCarriesSelectedTextSubtitle(t *testing.T) {
 	for _, c := range []struct {
 		lang, codec string
 		index       int
-	}{{"eng", "srt", 2}, {"fre", "ass", 3}} {
+	}{{"eng", "srt", 2}, {"fra", "ass", 3}} {
 		putSubtitle(t, f, key, subtitleChoice(tags, c.lang, false))
 		for _, container := range []string{transcode.ContainerMatroska, transcode.ContainerMPEGTS} {
 			f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCodec: "eac3", Container: container}

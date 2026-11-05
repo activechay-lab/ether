@@ -180,9 +180,10 @@ type Pivot struct {
 // items, <Directory> for containers and <Playlist> for playlists; in JSON
 // all are under "Metadata".
 type Metadata struct {
-	element string
-	alpha   bool
-	onDeck  bool
+	Preferences *TrackPreferences `plex:"Preferences"`
+	element     string
+	alpha       bool
+	onDeck      bool
 
 	// On Deck items lead with their sync flag and section (PMS).
 	AllowSync             *bool   `plex:"allowSync"`
@@ -452,6 +453,7 @@ type Part struct {
 
 // Stream is a video (1), audio (2) or subtitle (3) track.
 type Stream struct {
+	lead                 []string
 	alpha                bool
 	ID                   int64  `plex:"id"`
 	StreamType           int    `plex:"streamType"`
@@ -460,6 +462,15 @@ type Stream struct {
 	Selected             *bool  `plex:"selected"`
 	Default              *bool  `plex:"default"`
 	Forced               *bool  `plex:"forced"`
+	HearingImpaired      *bool  `plex:"hearingImpaired"`
+	VisualImpaired       *bool  `plex:"visualImpaired"`
+	Original             *bool  `plex:"original"`
+	Dub                  *bool  `plex:"dub"`
+	Comment              *bool  `plex:"comment"`
+	Anamorphic           *bool  `plex:"anamorphic"`
+	PixelAspectRatio     string `plex:"pixelAspectRatio,omitempty"`
+	StreamIdentifier     string `plex:"streamIdentifier,omitempty"`
+	CodecID              string `plex:"codecID,omitempty"`
 	Codec                string `plex:"codec,omitempty"`
 	Index                *int   `plex:"index"`
 	Key                  string `plex:"key,omitempty"`
@@ -471,7 +482,10 @@ type Stream struct {
 	// From here PMS lists the technical attributes alphabetically.
 	AudioChannelLayout   string  `plex:"audioChannelLayout,omitempty"`
 	BitDepth             int     `plex:"bitDepth,omitempty"`
+	ChromaLocation       string  `plex:"chromaLocation,omitempty"`
 	ChromaSubsampling    string  `plex:"chromaSubsampling,omitempty"`
+	CodedHeight          int     `plex:"codedHeight,omitempty"`
+	CodedWidth           int     `plex:"codedWidth,omitempty"`
 	ColorPrimaries       string  `plex:"colorPrimaries,omitempty"`
 	ColorRange           string  `plex:"colorRange,omitempty"`
 	ColorSpace           string  `plex:"colorSpace,omitempty"`
@@ -499,6 +513,7 @@ type Stream struct {
 	Decision             string  `plex:"decision,omitempty"`
 	Location             string  `plex:"location,omitempty"`
 	External             *bool   `plex:"external"`
+	Transient            *int    `plex:"transient"`
 	// Extra carries endpoint-specific attributes (subtitle search results).
 	Extra []Attr `plex:",attrs"`
 }
@@ -804,12 +819,21 @@ type MyPlex struct {
 func (MyPlex) XMLElementName() string { return "MyPlex" }
 
 // Notification containers for websockets/eventsource.
+type LogSentNotification struct {
+	Level   int    `plex:"level"`
+	Thread  string `plex:"thread"`
+	Time    string `plex:"time"`
+	Message string `plex:"message"`
+}
+
 type NotificationContainer struct {
+	LogSentNotification          []LogSentNotification          `plex:"LogSentNotification"`
 	Type                         string                         `plex:"type"`
 	Size                         int                            `plex:"size"`
 	PlaySessionStateNotification []PlaySessionStateNotification `plex:"PlaySessionStateNotification"`
 	TimelineEntry                []TimelineEntry                `plex:"TimelineEntry"`
 	ActivityNotification         []ActivityNotification         `plex:"ActivityNotification"`
+	AutoUpdateNotification       []AutoUpdateNotification       `plex:"AutoUpdateNotification"`
 	StatusNotification           []StatusNotification           `plex:"StatusNotification"`
 	TranscodeSession             []TranscodeSess                `plex:"TranscodeSession"`
 }
@@ -857,3 +881,9 @@ type StatusNotification struct {
 
 // A builds an Attr.
 func A(name string, value any) Attr { return Attr{Name: name, Value: value} }
+
+// AutoUpdateNotification reports the result of the native updater check.
+type AutoUpdateNotification struct {
+	State      string `plex:"state"`
+	CanInstall bool   `plex:"canInstall"`
+}

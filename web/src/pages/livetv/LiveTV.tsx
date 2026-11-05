@@ -123,14 +123,18 @@ export default function LiveTV() {
   );
 
   useEffect(() => {
-    setLeftTab(
+    // The Guide tab has no route of its own: leaving Looks for Guide lands on
+    // /livetv, which must keep the Guide tab rather than fall back to Channels.
+    setLeftTab((prev) =>
       tab === "looks"
         ? "looks"
         : tab === "guide-data"
           ? "guide"
           : tab === "sources"
             ? "sources"
-            : "channels",
+            : prev === "guide"
+              ? "guide"
+              : "channels",
     );
   }, [tab]);
   useEffect(() => {
@@ -800,11 +804,6 @@ export default function LiveTV() {
       <p className="text-xs text-fg-muted">
         {t("Build a virtual channel from your catalogue, or bring in IPTV from an M3U playlist.")}
       </p>
-      <div className="flex justify-center gap-2">
-        <Button size="sm" onClick={() => void go({ kind: "new" })}>
-          <Sparkles size={13} /> {t("New channel")}
-        </Button>
-      </div>
     </div>
   );
 
@@ -1022,7 +1021,6 @@ export default function LiveTV() {
         head={panelHead}
         covered={covered}
         onToggleFavorite={toggleFavorite}
-        onAddChannel={() => void go({ kind: "new" })}
         emptyHint={
           channels === null ? (
             <p className="text-xs text-fg-muted">{t("Loading channels…")}</p>

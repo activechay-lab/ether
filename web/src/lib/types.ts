@@ -755,6 +755,16 @@ export interface ClusterSelfRuntime {
 }
 
 export interface ClusterStatus {
+  /** Gallery fixture only; never consumed outside the mock build. Not a live API contract. */
+  mockConsole?: {
+    health: Record<
+      string,
+      { nodeId: string; boot: string; sampledAt: string; level: "ok" | "error" }
+    >;
+    metrics: Record<string, { transcodes: number; capacity: number; load: number }>;
+    events: { node: string; kind: "join" | "drain" | "failover"; at: string }[];
+    transition: { node: string; role: string; phase: "drain" | "restart" };
+  };
   mode: "solo" | "postgres";
   self: ClusterNode;
   selfRuntime?: ClusterSelfRuntime;
@@ -953,4 +963,49 @@ export interface QualityAnswer {
   bitrateKbps: number;
   blocked: boolean;
   layers: QualityLayer[];
+}
+
+/** Authoritative nodecontrol observation. Publication is never an acknowledgement. */
+export interface ClusterControl {
+  nodeId: string;
+  boot: string;
+  requestedVersion: number;
+  appliedVersion: number;
+  state: "idle" | "pending" | "applied" | "failed";
+  requestId?: string;
+  errorCode?: string;
+  updatedAt: string;
+  observed: { weight: number; draining: boolean };
+  capabilities: { key: string; scope: "node" | "fleet"; supported: boolean; reason: string }[];
+}
+export interface ClusterControlRequest {
+  requestId: string;
+  boot: string;
+  expectedVersion: number;
+  patch: { weight?: number; draining?: boolean };
+}
+
+/** Read-only refusal evidence; there is no role mutation executor. */
+export interface ClusterRolePreflight {
+  nodeId: string;
+  boot: string;
+  observedAt: string;
+  membershipSampledAt: string;
+  eligible: false;
+  executor: "none";
+  reasons: string[];
+  safety: {
+    membership: "observed";
+    ownershipRetirement: "unknown";
+    activeSessions: "unknown";
+    restart: "unsupported";
+  };
+  guidance: {
+    scope: "deployment_pool";
+    deploymentOwnership: "unknown";
+    verifiedAgainst: string[];
+    exampleValues: string;
+    impact: string;
+    execution: string;
+  };
 }

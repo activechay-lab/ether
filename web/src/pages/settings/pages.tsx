@@ -189,13 +189,5 @@ function BackupsSettings() {
 }
 
 export function ClusterPage() {
-  return (
-    <DomainPage
-      title={t("Cluster")}
-      description={t("Servers that share one database.")}
-      base="/cluster"
-    >
-      <ClusterOverview />
-    </DomainPage>
-  );
+  return <ClusterOverview />;
 }
