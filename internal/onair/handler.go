@@ -127,7 +127,8 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 		v, e := s.o.Bindings(r.Context(), r.URL.Query().Get("channel"), r.URL.Query().Get("viewer"), at)
 		result(w, v, e)
 	})
-	r.Get("/assets", func(w http.ResponseWriter, r *http.Request) { v, e := s.Assets(r.Context()); result(w, v, e) })
+	s.LibraryRoutes(r)
+	r.Get("/assets", func(w http.ResponseWriter, r *http.Request) { v, e := s.Library(r.Context()); result(w, v, e) })
 	r.Post("/assets", func(w http.ResponseWriter, r *http.Request) {
 		if !multipart(w, r, assetLimit) {
 			return
@@ -150,6 +151,7 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 			result(w, nil, ErrNotFound)
 			return
 		}
+		w.Header().Set("ETag", `"`+chi.URLParam(r, "id")+`"`)
 		w.Header().Set("Content-Type", mime)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
