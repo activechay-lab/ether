@@ -29,6 +29,7 @@ type RawFrame struct {
 	// ignore this metadata. It detects stale media across provider reconnects.
 	SourcePTS      time.Duration
 	SourcePTSValid bool
+	RepeatVideo    bool   // encoder may repeat this picture at a lower input cadence
 	Video          []byte // len = W*H*3/2
 	PCM            []byte // len = samples*Channels*2
 }
