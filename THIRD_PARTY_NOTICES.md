@@ -289,3 +289,15 @@ reviewed sources, so Ether does not vendor them. Fetch current Jellyfin 12.4 and
 pinned Emby.SDK snapshots with `internal/conform/specs/fetch.sh` when needed.
 Silo reference route names/shapes in the conformance notes are independently
 recorded observations, not copied AGPL source.
+
+## On Air embedded Google Fonts
+
+Sources: https://github.com/google/fonts (pinned revision in
+`internal/onair/fonts/data/revision.txt`). Fonts are instantiated and subset
+with `tools/subset-onair-fonts.py`; they retain their original notices.
+Inter, Space Grotesk, Fraunces, Playfair Display, Bungee, Fredoka, Monoton,
+Orbitron, VT323, Archivo Black, IBM Plex Mono and Noto Sans are licensed under
+SIL Open Font License 1.1. The complete copyright and licence text for each
+face is embedded alongside its TTF in `internal/onair/fonts/data/*-OFL.txt`.
+Special Elite is licensed under Apache License 2.0, with its complete licence
+in `internal/onair/fonts/data/specialelite-LICENSE.txt`.
