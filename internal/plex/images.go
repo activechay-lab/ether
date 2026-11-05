@@ -265,16 +265,35 @@ var discoveryImageRe = regexp.MustCompile(`^/library/metadata/(\d+)/discoveryPos
 // variant closest to the requested width.
 func (s *Server) handlePhotoTranscode(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	raw := q.Get("url")
-	if raw == "" {
+	// PMS validates dimensions and binary options before resolving the image.
+	for _, name := range []string{"width", "height"} {
+		if q.Has(name) {
+			if _, err := strconv.Atoi(photoQueryValue(q, name)); err != nil {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
+		}
+	}
+	for _, name := range []string{"minSize", "upscale"} {
+		if q.Has(name) && !photoBinaryValue(photoQueryValue(q, name)) {
+			writeHTTPError(w, http.StatusBadRequest)
+			return
+		}
+	}
+	raw := photoQueryValue(q, "url")
+	if !q.Has("url") {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	width, _ := strconv.Atoi(q.Get("width"))
-	height, _ := strconv.Atoi(q.Get("height"))
+	if raw == "" {
+		writeHTTPError(w, http.StatusNotFound)
+		return
+	}
+	width, _ := strconv.Atoi(photoQueryValue(q, "width"))
+	height, _ := strconv.Atoi(photoQueryValue(q, "height"))
 	if width <= 0 && height > 0 {
 		width = height * 2 / 3 // poster aspect
-	} else if q.Get("minSize") == "1" && height > 0 && height*2/3 > width {
+	} else if strings.HasSuffix(photoQueryValue(q, "minSize"), "1") && height > 0 && height*2/3 > width {
 		width = height * 2 / 3
 	}
 	u, err := url.Parse(raw)
@@ -374,4 +393,25 @@ func (s *Server) allowedImageHost(host string) bool {
 		return false
 	}
 	return strings.EqualFold(ref.Host, host)
+}
+
+// photoQueryValue follows PMS duplicate-parameter semantics, including an empty
+// final value.
+func photoQueryValue(q url.Values, name string) string {
+	vs := q[name]
+	if len(vs) == 0 {
+		return ""
+	}
+	return vs[len(vs)-1]
+}
+
+// photoBinaryValue accepts an optional plus and zero padding around a binary
+// integer, without accepting whitespace or textual booleans.
+func photoBinaryValue(v string) bool {
+	v = strings.TrimPrefix(v, "+")
+	if v == "" {
+		return false
+	}
+	v = strings.TrimLeft(v, "0")
+	return v == "" || v == "1"
 }
