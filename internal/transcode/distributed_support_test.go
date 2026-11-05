@@ -12,7 +12,7 @@ import (
 )
 
 func distributedFixture() (*Manager, core.HLSRequest) {
-	f := features{encoders: map[string]bool{"libx264": true, "libx265": true, "aac": true, "ass": true}, filters: map[string]bool{"scale": true, "format": true, "setsar": true}, muxers: map[string]bool{"hls": true, "mpegts": true, "mp4": true, "dash": true, "matroska": true, "ssegment": true, "ass": true}, demuxers: map[string]bool{"matroska": true}, decoders: map[string]bool{"h264": true, "aac": true, "subrip": true}, bsfs: map[string]bool{"noise": true, "dump_extra": true, "h264_mp4toannexb": true}, inputProtocols: map[string]bool{"http": true, "https": true, "tcp": true, "tls": true}}
+	f := features{encoders: map[string]bool{"libx264": true, "libx265": true, "aac": true, "ass": true}, filters: map[string]bool{"scale": true, "format": true, "setsar": true, "aresample": true}, muxers: map[string]bool{"hls": true, "mpegts": true, "mp4": true, "dash": true, "matroska": true, "ssegment": true, "ass": true}, demuxers: map[string]bool{"matroska": true}, decoders: map[string]bool{"h264": true, "aac": true, "subrip": true}, bsfs: map[string]bool{"noise": true, "dump_extra": true, "h264_mp4toannexb": true}, inputProtocols: map[string]bool{"http": true, "https": true, "tcp": true, "tls": true}}
 	m := &Manager{feat: f, cfg: config.Transcode{}}
 	req := core.HLSRequest{Info: core.MediaInfo{Container: "mkv", Streams: []core.StreamInfo{{Index: 0, Type: "video", Codec: "h264", Width: 1920, Height: 1080}, {Index: 1, Type: "audio", Codec: "aac", Channels: 2}}}, Decision: core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, AudioStream: 1, SubtitleStream: -1}}
 	return m, req
@@ -32,6 +32,12 @@ func TestDistributedRequestUsesExactProbedPlan(t *testing.T) {
 		})
 	}
 	m, req := distributedFixture()
+	req.Protocol = core.ProtocolHTTP
+	delete(m.feat.filters, "aresample")
+	if m.SupportsDistributedRequest(req) {
+		t.Fatal("implicit audio conversion without resampler admitted")
+	}
+	m, req = distributedFixture()
 	req.Protocol = core.ProtocolHTTP
 	delete(m.feat.encoders, "aac")
 	if m.SupportsDistributedRequest(req) {

@@ -116,7 +116,7 @@ func (m *Manager) SupportsDistributedRequest(req core.HLSRequest) bool {
 		}
 		if !decision.VideoCopy {
 			v := req.Info.Video()
-			if v == nil || !distributedDecoder(f, v.Codec) {
+			if v == nil || !distributedDecoder(f, v.Codec) || !f.hasFilter("scale") {
 				return false
 			}
 			codec := decision.VideoCodec
@@ -131,7 +131,7 @@ func (m *Manager) SupportsDistributedRequest(req core.HLSRequest) bool {
 				return false
 			}
 		}
-		if a := findStream(req.Info, decision.AudioStream, "audio"); a != nil && !decision.AudioCopy && !distributedDecoder(f, a.Codec) {
+		if a := findStream(req.Info, decision.AudioStream, "audio"); a != nil && !decision.AudioCopy && (!distributedDecoder(f, a.Codec) || !f.hasFilter("aresample")) {
 			return false
 		}
 		spec := runSpec{Info: req.Info, Decision: decision, Protocol: proto, Start: req.StartOffset, SegDur: req.SegmentDuration, Accel: m.hw, Features: f, Dir: "distributed-plan", Playlist: "index.m3u8", InitName: "init.mp4"}
