@@ -1976,6 +1976,9 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 	}
 	err = tx.Commit()
 	if err == nil {
+		if err = s.refreshVirtualGuide(ctx); err != nil {
+			return src, err
+		}
 		s.bumpLineup()
 		if fetched.AddonInputs {
 			var newChannels []string
@@ -2233,6 +2236,9 @@ func (s *Service) DeleteSource(ctx context.Context, id string) error {
 	err = tx.Commit()
 	if err == nil {
 		s.invalidate("", id)
+		if err = s.refreshVirtualGuide(ctx); err != nil {
+			return err
+		}
 		s.bumpLineup()
 	}
 	return err

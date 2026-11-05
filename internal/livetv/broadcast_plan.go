@@ -38,6 +38,12 @@ func (p *scheduleBroadcastPlanner) startPlanner(parent context.Context) {
 	p.workerCtx, p.workerCancel = context.WithCancel(parent)
 	p.requests = make(chan time.Time, 1)
 	p.workerDone = make(chan struct{})
+	// Seed audience/rating identity before the first neutral startup frame.
+	// These are already materialized time slices; no schedule or availability
+	// expansion runs during a tune, even for a large/personal recipe.
+	now := time.Now()
+	c := p.s.personalChannel(p.workerCtx, p.channel, &p.user)
+	p.window, _ = p.s.programmes(p.workerCtx, c, now, now.Add(2*time.Minute))
 	go p.planWorker()
 }
 func (p *scheduleBroadcastPlanner) closePlanner() { p.workerCancel(); <-p.workerDone }
@@ -57,7 +63,7 @@ func (p *scheduleBroadcastPlanner) planWorker() {
 					ps = append([]Programme{welcome}, ps...)
 				}
 			} else {
-				ps = p.s.broadcastSchedule(p.workerCtx, p.s.guideChannel(p.workerCtx, c), now, now.Add(2*time.Minute), true)
+				ps = p.s.broadcastSchedule(p.workerCtx, p.s.plannedChannel(c), now, now.Add(2*time.Minute), true)
 			}
 			for i := range ps {
 				ps[i].policyTag = p.s.programmePolicy(p.workerCtx, ps[i])
