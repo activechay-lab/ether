@@ -55,7 +55,7 @@ func newEngine(w, h int, style string, seed int64) *Engine {
 // NewPlate accepts straight/premultiplied image.Image plates (PNG decoding
 // handles either) and a transparent text overlay. Text is composited only here,
 // so replace the Engine when copy changes rather than rerasterizing per tick.
-// style is bars, testcard, brb, or card; bars/testcard use a -30 dBFS tone.
+// style is bars, testcard, brb, or card. Every style is silent.
 func NewPlate(width, height int, style string, plate, overlay image.Image, seed int64) *Engine {
 	e := newEngine(width, height, style, seed)
 	if plate == nil {
@@ -127,18 +127,8 @@ func (e *Engine) Render(video []byte, pcm []int16, tick int64) {
 			row[x] = byte(16 + (int(lut[v])-16)*int(e.vignette[y*w+x])/256)
 		}
 	}
-	if e.style == "bars" || e.style == "testcard" {
-		amplitude := 32767 * math.Sqrt2 * math.Pow(10, -30.0/20)
-		for i := 0; i < 1600; i++ {
-			q := int16(math.Sin(2*math.Pi*1000*float64(tick*1600+int64(i))/48000) * amplitude)
-			pcm[i*2] = q
-			pcm[i*2+1] = q
-		}
-	} else {
-		for i := range pcm {
-			pcm[i] = 0
-		}
-	}
+	// Every signal screen is silent (owner decision: no bars or test-card tone).
+	clear(pcm)
 }
 func (e *Engine) upscale(dst []byte) {
 	w, h := e.width, e.height

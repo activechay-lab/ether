@@ -282,9 +282,9 @@ retune), instead of an error.
 | --- | --- | --- |
 | **Modern card** (default) | A clean card in the channel's look; without a look, the v0.3.4 slate card. Says "Back at 6:00 PM", "Reconnecting…" or "Waiting for a free connection". | Silent |
 | **Analogue static** | Old-TV snow, a slow rolling bar, slight horizontal tear. | Hiss with a low mains hum |
-| **Colour bars** | Classic SMPTE-style bars, optional station ID (channel number and name). | 1 kHz tone |
+| **Colour bars** | Classic SMPTE-style bars, optional station ID (channel number and name). | Silent (owner decision: no tone) |
 | **We'll be right back** | A card in the channel's look. | A soft generated bed |
-| **Test card** | An original geometric test card with the channel name. | Silent, or a 1 kHz tone |
+| **Test card** | An original geometric test card with the channel name. | Silent |
 
 The set is open: more styles are scene documents in a built-in "Signal" family (§5), so packs and later releases can add them.
 
@@ -1041,7 +1041,7 @@ Everything else is verified once by hand and recorded in the acceptance doc.
 9a. **Where the switcher runs:** **Streams Ether already converts** by default (near-zero cost), with **Every stream** as an opt-in that adds about 0.5–0.7 core per 720p viewer in software, or about 0.2 with hardware encode. (Recommended.)
 9b. **Virtual channels on the switcher:** decided by the owner on 2026-11-05: in v0.3.5, one continuous shared output per channel (§4.5).
 9c. **Continuous-output defaults:** one rendition sized by hardware availability, a second only on demand, a 30-minute DVR window, a 60 s idle grace, and personal channels at 720p30 in software or 1080p30 with hardware encode. The tune response's media attributes describe the channel rendition. (Recommended.)
-10. **Screen defaults:** Modern card for both situations, with the colour-bars tone at −24 dBFS. (Recommended.)
+10. **Screen defaults:** Modern card for both situations. Colour bars and the test card are silent (owner decision after the lab review; no tone option).
 11. **Release:** v0.3.5 (decided by the release coordinator, 2026-11-05).
 
 ---
