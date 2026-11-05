@@ -124,7 +124,11 @@ export const templates: Template[] = [
         .at(-1)!
         .slice(id.length + 1, -5) as Role;
       const doc = JSON.parse(
-        JSON.stringify(source).replace(/\{words\.([^{}]+)\}/g, (_m, k: string) => words[k] ?? ""),
+        JSON.stringify(source)
+          .replaceAll("{type.mono}", "{type.body}")
+          .replaceAll("{moon}", "#ded9c5")
+          .replaceAll("{fog}", palette[3]!)
+          .replace(/\{words\.([^{}]+)\}/g, (_m, k: string) => words[k] ?? ""),
       ) as Scene;
       doc.duration = 8;
       if (doc.poster >= 8) doc.poster = 4;
@@ -170,12 +174,19 @@ export const templates: Template[] = [
           glow: palette[3]!,
         },
         type: {
-          display: ["clean", "aqua", "flat"].includes(id)
+          display: ["clean", "flat"].includes(id)
             ? "Inter"
             : id === "grunge"
               ? "Archivo Black"
-              : row[7]!,
-          body: row[8]!,
+              : id === "aqua"
+                ? "Space Grotesk"
+                : row[7]!,
+          body:
+            id === "grunge"
+              ? "Special Elite"
+              : ["aqua", "flat", "clean"].includes(id)
+                ? "Inter"
+                : row[8]!,
         },
         energy: 0.5,
         textures: ["grain"],

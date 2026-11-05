@@ -64,7 +64,21 @@ func TestBroadcastBugSamples(t *testing.T) {
 			t.Fatal(e)
 		}
 		look.ID = "sample-" + v[0]
-		look.Family = v[0]
+		templates, err := g.Templates(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		templateID := v[0]
+		if templateID == "lateNight" {
+			templateID = "late-night"
+		}
+		for _, template := range templates {
+			if template.ID == templateID {
+				look = template.Style
+				look.ID = "sample-" + v[0]
+				break
+			}
+		}
 		look.Name = v[2]
 		if v[0] == "clean" {
 			look.Brand.Type.Display = "Inter"

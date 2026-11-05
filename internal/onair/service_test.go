@@ -105,9 +105,12 @@ func TestHashEveryInput(t *testing.T) {
 }
 func TestEnsureQueuesOnly(t *testing.T) {
 	gate := make(chan struct{})
-	entered := make(chan struct{}, 20)
+	entered := make(chan struct{}, 1)
 	s := testService(t, Options{Render: func(ctx context.Context, d scene.Document, b raster.Bindings, out string) error {
-		entered <- struct{}{}
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

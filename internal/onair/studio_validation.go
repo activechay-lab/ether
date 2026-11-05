@@ -182,6 +182,23 @@ func (s *Service) validateScenes(ctx context.Context, l Look) error {
 						}
 					}
 				}
+
+				tokens := map[string]any{"brand.logo": l.Brand.Logo, "type.display": l.Brand.Type.Display, "type.body": l.Brand.Type.Body}
+				for _, control := range l.Controls {
+					tokens["control."+control.ID] = control.Value
+				}
+				own := layer
+				own.Layers = nil
+				refs := map[string]string{}
+				collectSceneAssets([]scene.Layer{own}, scene.Bindings{Tokens: tokens, Slots: map[string]string{}}, refs)
+				for digest := range refs {
+					if digest == l.Brand.Logo && utf8.RuneCountInString(digest) <= 3 {
+						continue
+					}
+					if err := asset(digest, "", at); err != nil {
+						return err
+					}
+				}
 				if err := walk(layer.Layers); err != nil {
 					return err
 				}
