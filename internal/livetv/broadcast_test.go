@@ -543,6 +543,9 @@ func TestBroadcastBoundedStartupLead(t *testing.T) {
 					if len(f.PCM) != 6400 {
 						t.Fatalf("frame %d audio samples lost", n)
 					}
+					if source == "short-file" && n >= 240 && f.Video[0] != 90 {
+						t.Fatalf("frame %d missed the scheduled element cut", n)
+					}
 				}
 			})
 		})
