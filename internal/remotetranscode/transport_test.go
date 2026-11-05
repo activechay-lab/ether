@@ -20,10 +20,11 @@ import (
 )
 
 func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
-	w, _, start := fixture(t)
+	w, f, start := fixture(t)
 	w.opts.ValidateRenewal = receipt
 	caps := Supported()
 	caps.ABR, caps.DASH, caps.HTTP = true, true, true
+	caps.SoftSubtitles, caps.Controls = true, true
 	w.opts.Capabilities = caps
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -85,11 +86,40 @@ func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 		t.Fatal("retry extended lease", err)
 	}
 	for _, protocol := range []string{core.ProtocolHLS, core.ProtocolDASH, core.ProtocolHTTP} {
-		next, _, err := a.StartHLSOwned(context.Background(), core.HLSRequest{SessionID: "protocol-" + protocol, Protocol: protocol, Decision: start.Decision})
+		req := core.HLSRequest{SessionID: "protocol-" + protocol, Protocol: protocol, Decision: start.Decision}
+		if protocol == core.ProtocolHLS {
+			index := 2
+			req.SoftSubtitleStream = &index
+			req.Decision.SubtitleStream = index
+			req.Info.Streams = []core.StreamInfo{{Index: 2, Type: "subtitle", Codec: "subrip"}}
+		}
+		next, _, err := a.StartHLSOwned(context.Background(), req)
 		if err != nil {
 			t.Fatal(err)
 		}
+		if protocol == core.ProtocolDASH && (f.request.ManifestSessionID != req.SessionID || f.request.SessionID == req.SessionID) {
+			t.Fatal("worker did not separate public DASH URLs from exact encoder ownership")
+		}
 		checkRepresentations(t, next, protocol)
+		if protocol == core.ProtocolHLS {
+			out := httptest.NewRecorder()
+			if !next.(*Session).ServeSoftSubtitle(out, httptest.NewRequest("GET", "https://frontend/subtitle", nil), 2) || out.Body.String() != "[Script Info]\n[Events]\n" {
+				t.Fatal("lost embedded ASS output")
+			}
+			if next.(*Session).ServeSoftSubtitle(httptest.NewRecorder(), httptest.NewRequest("GET", "https://frontend/subtitle", nil), 3) {
+				t.Fatal("unselected subtitle admitted")
+			}
+		}
+		next.(*Session).Touch()
+		if !f.session.touched {
+			t.Fatal("touch did not reach worker")
+		}
+		if protocol != core.ProtocolHTTP {
+			next.(*Session).PlaybackState("paused")
+			if f.session.playback != "paused" {
+				t.Fatal("pause did not reach worker")
+			}
+		}
 		if err := next.Close(); err != core.ErrEncoderPending {
 			t.Fatalf("lost retirement charge: %v", err)
 		}

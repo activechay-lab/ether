@@ -24,7 +24,7 @@ var ErrUncertain = errors.New("remotetranscode: execution responsibility require
 // Capabilities must be consulted by placement before choosing this adapter.
 // Segment seeks use the backend's ordinary ServeSegment behavior. Source swaps,
 // probe, subtitles, DASH, HTTP Matroska, ABR and optional session controls are not supported.
-type Capabilities struct{ HLS, SegmentSeek, DASH, HTTP, Probe, SourceSwap, Subtitles, ABR bool }
+type Capabilities struct{ HLS, SegmentSeek, DASH, HTTP, Probe, SourceSwap, Subtitles, ABR, SoftSubtitles, Controls bool }
 
 // NormalizeCapabilities preserves fixed HLS for zero options and rejects promises
 // for operations that have no concrete private implementation.
@@ -49,16 +49,17 @@ type Identity struct {
 	Generation uint64
 }
 type Start struct {
-	Protocol         string `json:",omitempty"`
-	ReleaseID        string
-	Identity         Identity
-	Grant            string
-	Expires          time.Time
-	Info             core.MediaInfo
-	Decision         core.Decision
-	Offset           time.Duration
-	SegmentDuration  time.Duration
-	IndependentProof bool
+	SoftSubtitleStream *int   `json:",omitempty"`
+	Protocol           string `json:",omitempty"`
+	ReleaseID          string
+	Identity           Identity
+	Grant              string
+	Expires            time.Time
+	Info               core.MediaInfo
+	Decision           core.Decision
+	Offset             time.Duration
+	SegmentDuration    time.Duration
+	IndependentProof   bool
 }
 
 // Renewal is a compare-and-swap of the execution lease, never a new Start.
@@ -106,13 +107,16 @@ type message struct {
 	Segment        int      `json:",omitempty"`
 	Rung           string   `json:",omitempty"`
 	Representation int      `json:",omitempty"`
+	State          string   `json:",omitempty"`
+	Subtitle       int      `json:",omitempty"`
 }
 type status struct {
-	Rungs    []core.HLSRung `json:",omitempty"`
-	Stopped  bool
-	Lease    LeaseState
-	State    string
-	Identity Identity
+	IndependentSegments bool           `json:",omitempty"`
+	Rungs               []core.HLSRung `json:",omitempty"`
+	Stopped             bool
+	Lease               LeaseState
+	State               string
+	Identity            Identity
 }
 
 // Security authenticates mTLS peer identity and authorizes the complete operation.
@@ -188,17 +192,29 @@ func SupportsRequest(r core.HLSRequest, c Capabilities) bool {
 	if (r.Protocol == core.ProtocolDASH && !c.DASH) || (r.Protocol == core.ProtocolHTTP && !c.HTTP) || (r.Protocol != "" && r.Protocol != core.ProtocolHLS && r.Protocol != core.ProtocolDASH && r.Protocol != core.ProtocolHTTP) {
 		return false
 	}
-	if len(r.ReleaseID) > 512 {
+	if r.ManifestSessionID != "" || len(r.ReleaseID) > 512 {
 		return false
 	}
-	if r.InputLease != nil || len(r.InputHeaders) > 0 || r.LiveInput || r.CopyTimestamps || len(r.SlateText) > 0 || r.SoftSubtitleStream != nil || len(r.Info.Keyframes) > 0 {
+	if r.InputLease != nil || len(r.InputHeaders) > 0 || r.LiveInput || r.CopyTimestamps || len(r.SlateText) > 0 || len(r.Info.Keyframes) > 0 {
 		return false
+	}
+	if r.SoftSubtitleStream != nil {
+		if !c.SoftSubtitles || r.Protocol == core.ProtocolHTTP || !softSubtitle(r.Info, *r.SoftSubtitleStream) {
+			return false
+		}
 	}
 	b, err := json.Marshal(Start{ReleaseID: r.ReleaseID, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof})
 	if err != nil || len(b) > MaxMessage-8192 {
 		return false
 	}
-	return validPlan(r.Info, r.Decision, r.StartOffset, r.SegmentDuration)
+	decision := r.Decision
+	if decision.SubtitleStream >= 0 {
+		if r.SoftSubtitleStream == nil || *r.SoftSubtitleStream != decision.SubtitleStream {
+			return false
+		}
+		decision.SubtitleStream = -1 // Selection is validated above; retain original DTO on wire/backend.
+	}
+	return validPlan(r.Info, decision, r.StartOffset, r.SegmentDuration)
 }
 func validPlan(info core.MediaInfo, d core.Decision, offset, segment time.Duration) bool {
 	if len(info.Streams) > 64 || len(info.Chapters) > 128 || offset < 0 || segment < 0 || segment > time.Minute || info.Duration < 0 {

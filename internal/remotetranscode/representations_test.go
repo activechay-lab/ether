@@ -90,3 +90,13 @@ func checkRepresentations(t *testing.T, hs core.HLSSession, protocol string) {
 		get("matroska", hs.(core.HTTPSession).ServeHTTP)
 	}
 }
+
+func (s *fakeSession) Touch()                     { s.touched = true }
+func (s *fakeSession) PlaybackState(state string) { s.playback = state }
+func (s *fakeSession) ServeSoftSubtitle(w http.ResponseWriter, r *http.Request, index int) bool {
+	if s.soft == nil || *s.soft != index {
+		return false
+	}
+	fmt.Fprint(w, "[Script Info]\n[Events]\n")
+	return true
+}

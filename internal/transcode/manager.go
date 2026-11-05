@@ -865,7 +865,11 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		}
 	}
 	if proto == core.ProtocolDASH {
-		s.dash = newDASHState(reps, m.opts.dashURLs, id)
+		manifestID := id
+		if req.ManifestSessionID != "" {
+			manifestID = req.ManifestSessionID
+		}
+		s.dash = newDASHState(reps, m.opts.dashURLs, manifestID)
 	}
 	s.Touch()
 	s.log.Info("transcode session starting", "protocol", proto, "kind", d.Kind, "container", d.Container,

@@ -31,6 +31,7 @@ type execution struct {
 	session                   core.OwnedEncoderSession
 	retirement                core.EncoderRetirement
 	rungs                     []core.HLSRung
+	independent               bool
 	input                     core.EncoderInputLease
 	gatewayInput              core.EncoderInputLease
 	starting, stopped, failed bool
@@ -144,12 +145,12 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "invalid request", 400)
 		return
 	}
-	if m.Op != "renew" && m.Op != "start" && m.Op != "stop" && m.Op != "status" && !mediaOperation(m.Op) {
+	if m.Op != "renew" && m.Op != "start" && m.Op != "stop" && m.Op != "status" && m.Op != "touch" && m.Op != "playback-state" && !mediaOperation(m.Op) {
 		http.Error(out, "unsupported operation", 422)
 		return
 	}
 	if m.Op == "start" {
-		if m.Start == nil || len(m.Start.ReleaseID) > 512 || m.Start.Identity != m.Identity || len(m.Start.Grant) == 0 || len(m.Start.Grant) > 4096 || !SupportsRequest(core.HLSRequest{Protocol: m.Start.Protocol, ReleaseID: m.Start.ReleaseID, Info: m.Start.Info, Decision: m.Start.Decision, StartOffset: m.Start.Offset, SegmentDuration: m.Start.SegmentDuration}, w.opts.Capabilities) {
+		if m.Start == nil || len(m.Start.ReleaseID) > 512 || m.Start.Identity != m.Identity || len(m.Start.Grant) == 0 || len(m.Start.Grant) > 4096 || !SupportsRequest(core.HLSRequest{SoftSubtitleStream: m.Start.SoftSubtitleStream, Protocol: m.Start.Protocol, ReleaseID: m.Start.ReleaseID, Info: m.Start.Info, Decision: m.Start.Decision, StartOffset: m.Start.Offset, SegmentDuration: m.Start.SegmentDuration}, w.opts.Capabilities) {
 			http.Error(out, "unsupported start", 422)
 			return
 		}
@@ -166,7 +167,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "invalid request", 400)
 		return
 	}
-	if m.Segment < -1 || m.Segment > 10000000 || m.Representation < 0 || m.Representation > 63 || (m.Rung != "" && !token(m.Rung)) {
+	if (m.Op == "soft-subtitle" && m.Head) || (m.Op == "playback-state" && m.State != "playing" && m.State != "paused" && m.State != "stopped") || m.Subtitle < 0 || m.Subtitle > 100000 || m.Segment < -1 || m.Segment > 10000000 || m.Representation < 0 || m.Representation > 63 || (m.Rung != "" && !token(m.Rung)) {
 		http.Error(out, "invalid segment", 400)
 		return
 	}
@@ -226,6 +227,32 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 	for _, h := range []string{"Range", "If-Range", "If-None-Match", "If-Modified-Since"} {
 		request.Header[h] = r.Header.Values(h)
 	}
+	if m.Op == "touch" || m.Op == "playback-state" {
+		if !w.opts.Capabilities.Controls {
+			http.Error(out, "controls unsupported", 422)
+			return
+		}
+		if m.Op == "touch" {
+			if v, ok := s.(interface{ Touch() }); ok {
+				v.Touch()
+			} else {
+				http.Error(out, "control unsupported", 422)
+				return
+			}
+		} else {
+			if v, ok := s.(interface{ PlaybackState(string) }); ok {
+				v.PlaybackState(m.State)
+			} else {
+				http.Error(out, "control unsupported", 422)
+				return
+			}
+		}
+		w.mu.Lock()
+		snapshot := w.snapshot(e)
+		w.mu.Unlock()
+		replyStatus(out, snapshot)
+		return
+	}
 	w.serveMedia(out, request, m, s, e.start.Protocol, e.rungs)
 }
 func reply(out http.ResponseWriter, state string, id Identity) {
@@ -272,7 +299,9 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	// Request cancellation seals a late start, but never forgets its responsibility.
 	disconnect := context.AfterFunc(r.Context(), func() { w.mu.Lock(); defer w.mu.Unlock(); w.stop(e) })
 	defer disconnect()
-	source, err := w.opts.Resolve(ctx, peer, s)
+	var resolverStart Start
+	_ = json.Unmarshal(encoded, &resolverStart) // Independent copy: trusted resolver cannot mutate immutable start.
+	source, err := w.opts.Resolve(ctx, peer, resolverStart)
 	var session core.HLSSession
 	var retirement core.EncoderRetirement
 	invoked := false
@@ -305,7 +334,35 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	}
 	if err == nil {
 		invoked = true
-		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), InputURL: source.URL, InputLease: input, Info: s.Info, Decision: s.Decision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, Protocol: s.Protocol})
+		var backendStart Start
+		_ = json.Unmarshal(encoded, &backendStart)
+		// Backend receives separate nested slices/pointers; source renewal and duplicate
+		// starts continue comparing the original immutable payload.
+		backendInfo, backendDecision, backendSoft := backendStart.Info, backendStart.Decision, backendStart.SoftSubtitleStream
+		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), ManifestSessionID: s.Identity.Session, InputURL: source.URL, InputLease: input, Info: backendInfo, Decision: backendDecision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, SoftSubtitleStream: backendSoft, Protocol: s.Protocol})
+	}
+	if err == nil && session != nil {
+		if w.opts.Capabilities.Controls {
+			if _, ok := session.(interface{ Touch() }); !ok {
+				err = ErrUnsupported
+			}
+			if s.Protocol != core.ProtocolHTTP {
+				if _, ok := session.(interface{ PlaybackState(string) }); !ok {
+					err = ErrUnsupported
+				}
+			}
+		}
+		if s.SoftSubtitleStream != nil {
+			if _, ok := session.(interface {
+				ServeSoftSubtitle(http.ResponseWriter, *http.Request, int) bool
+			}); !ok {
+				err = ErrUnsupported
+			}
+		}
+	}
+	independent := false
+	if proof, ok := session.(core.HLSIndependentSegments); ok && err == nil {
+		independent = proof.IndependentSegments()
 	}
 	var rungs []core.HLSRung
 	if err == nil && session != nil {
@@ -335,6 +392,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	w.mu.Lock()
 	w.expire(e)
 	e.rungs = append([]core.HLSRung(nil), rungs...)
+	e.independent = independent
 	e.starting = false
 	e.retirement = retirement
 	if session != nil {
@@ -421,7 +479,7 @@ func (w *Worker) snapshot(e *execution) status {
 		accepted := *lease.Accepted
 		lease.Accepted = &accepted
 	}
-	return status{Rungs: append([]core.HLSRung(nil), e.rungs...), State: result(e), Identity: e.id, Lease: lease, Stopped: e.stopped}
+	return status{IndependentSegments: e.independent, Rungs: append([]core.HLSRung(nil), e.rungs...), State: result(e), Identity: e.id, Lease: lease, Stopped: e.stopped}
 }
 func replyStatus(out http.ResponseWriter, s status) {
 	out.Header().Set("Content-Type", "application/json")
@@ -452,7 +510,9 @@ func (w *Worker) renew(out http.ResponseWriter, r *http.Request, peer string, n 
 		http.Error(out, "lease conflict", 409)
 		return
 	}
-	original := e.start
+	var original Start
+	originalBytes, _ := json.Marshal(e.start)
+	_ = json.Unmarshal(originalBytes, &original)
 	w.mu.Unlock()
 	receipt, err := w.opts.ValidateRenewal(r.Context(), peer, original, n)
 	if err != nil || !sameRenewal(receipt.Renewal, n) || receipt.PlacementUntil.Before(n.Deadline) || receipt.SourceUntil.Before(n.Deadline) {
