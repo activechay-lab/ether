@@ -17,6 +17,7 @@ type virtualGuideSnapshot struct {
 	built                time.Time
 	revision             uint64
 	channel              Channel
+	playbackChannel      Channel
 	from, until          time.Time
 	raw, playback, guide []Programme
 }
@@ -105,7 +106,7 @@ func (s *Service) refreshVirtualGuide(ctx context.Context) error {
 		}
 		from, until := now.Add(-24*time.Hour), now.Add(7*24*time.Hour+time.Hour)
 		gated := s.guideChannel(ctx, c)
-		entry := &virtualGuideSnapshot{channel: c, recipe: string(recipe), built: now, from: from, until: until, raw: Schedule(c, from, until), revision: revision}
+		entry := &virtualGuideSnapshot{channel: c, playbackChannel: gated, recipe: string(recipe), built: now, from: from, until: until, raw: Schedule(c, from, until), revision: revision}
 		entry.playback = entry.raw
 		if !reflect.DeepEqual(c, gated) {
 			entry.playback = Schedule(gated, from, until)
@@ -301,4 +302,16 @@ func (s *Service) checkVirtualWindow(c Channel, from, until time.Time) error {
 		return core.ErrNotAvailable
 	}
 	return nil
+}
+
+// The frame planner reuses background availability gating too; polling its
+// upcoming window must not turn a large recipe into a continuous SQL sweep.
+func (s *Service) plannedChannel(c Channel) Channel {
+	s.virtualGuide.mu.RLock()
+	entry := s.virtualGuide.entries[c.ID]
+	s.virtualGuide.mu.RUnlock()
+	if entry != nil && entry.channel.Personal == nil {
+		return entry.playbackChannel
+	}
+	return c
 }

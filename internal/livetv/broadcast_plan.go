@@ -63,7 +63,7 @@ func (p *scheduleBroadcastPlanner) planWorker() {
 					ps = append([]Programme{welcome}, ps...)
 				}
 			} else {
-				ps = p.s.broadcastSchedule(p.workerCtx, p.s.guideChannel(p.workerCtx, c), now, now.Add(2*time.Minute), true)
+				ps = p.s.broadcastSchedule(p.workerCtx, p.s.plannedChannel(c), now, now.Add(2*time.Minute), true)
 			}
 			for i := range ps {
 				ps[i].policyTag = p.s.programmePolicy(p.workerCtx, ps[i])
