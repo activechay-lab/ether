@@ -114,7 +114,8 @@ func (e *Engine) Render(video []byte, pcm []int16, tick int64) {
 	t := float64(tick) / 30
 	breath := .006*math.Sin(t*.21) + .003*math.Sin(t*.083*math.Sqrt2)
 	// A single 256-value lookup per row applies scanline drift and brightness
-	// wander. Plates already include W6's CRT bloom/vignette and typography.
+	// wander plus tube vignette. Decorative bloom is baked into W6 plates;
+	// the typography overlay remains sharp and is never rasterized per tick.
 	for y := 0; y < h; y++ {
 		gain := 1 + breath + .003*math.Sin(float64(y)*math.Pi/3-t*.14)
 		var lut [256]byte

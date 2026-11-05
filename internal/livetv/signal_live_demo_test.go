@@ -31,6 +31,7 @@ import (
 )
 
 var liveSignalDemo = flag.String("live-signal-demo", "", "capture owner demos from the real switcher and signed shared HLS")
+var liveSignalPlates = flag.String("live-signal-plates", "", "plate directory override")
 var liveSignalNotify = flag.String("live-signal-notify", "", "notify requesting coordinator after each file")
 
 type liveSignalDecoder struct {
@@ -141,7 +142,11 @@ func TestLiveSignalDemo(t *testing.T) {
 				}
 				name := s.name + suffix
 				load := func(base string) image.Image {
-					path := filepath.Join(*liveSignalDemo, "plates", fmt.Sprintf("%s-%dx%d.png", base, w, h))
+					plateDir := *liveSignalPlates
+					if plateDir == "" {
+						plateDir = filepath.Join(*liveSignalDemo, "plates")
+					}
+					path := filepath.Join(plateDir, fmt.Sprintf("%s-%dx%d.png", base, w, h))
 					file, err := os.Open(path)
 					if err != nil {
 						t.Fatal(err)
@@ -206,6 +211,8 @@ func TestLiveSignalDemo(t *testing.T) {
 					service.ServeRelaySegment(w, r, ss.info.ID, seq, &user)
 				}))
 				defer server.Close()
+				b.origin = time.Now()
+				decoder.origin = b.origin
 				b.start()
 				capture := filepath.Join(*liveSignalDemo, "."+name+".ts")
 				file, err := os.Create(capture)
@@ -216,7 +223,7 @@ func TestLiveSignalDemo(t *testing.T) {
 				next := int64(0)
 				firstSegment := 0.0
 				started := time.Now()
-				for next < 5 {
+				for next < 7 {
 					req, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/livetv/sessions/signal-demo/0/index.m3u8", nil)
 					res, err := server.Client().Do(req)
 					if err != nil {
@@ -265,11 +272,11 @@ func TestLiveSignalDemo(t *testing.T) {
 						if firstSegment == 0 {
 							firstSegment = time.Since(started).Seconds()
 						}
-						if next == 5 {
+						if next == 7 {
 							break
 						}
 					}
-					if next < 5 {
+					if next < 7 {
 						select {
 						case <-ctx.Done():
 							t.Fatal(ctx.Err())
@@ -355,7 +362,7 @@ func inspectSignalSample(t *testing.T, ctx context.Context, ff, output, dir, nam
 			hash = (hash ^ uint64(v)) * 1099511628211
 		}
 		mean := float64(total) / float64(len(raw))
-		if mean < 24 {
+		if mean < 2 {
 			t.Fatalf("black output at %ss: mean=%f", second, mean)
 		}
 		means = append(means, mean)

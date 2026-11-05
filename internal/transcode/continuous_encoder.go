@@ -216,12 +216,13 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 	if strings.HasSuffix(enc, "_qsv") {
 		pix = "nv12"
 	}
-	args = append(args, "-pix_fmt", pix, "-bf", "0", "-g", strconv.Itoa(g), "-keyint_min", strconv.Itoa(g), "-sc_threshold", "0", "-force_key_frames", fmt.Sprintf("expr:gte(n,n_forced*%d)", g), "-flags", "+global_header+cgop", "-c:a", "aac", "-b:a", fmt.Sprintf("%dk", max(r.Decision.AudioBitrateKbps, 128)), "-ar", "48000", "-ac", "2")
+	args = append(args, "-pix_fmt", pix, "-bf", "0", "-g", strconv.Itoa(g), "-keyint_min", strconv.Itoa(g/4), "-sc_threshold", "0", "-force_key_frames", fmt.Sprintf("expr:if(lt(n,%d),eq(n,0)+eq(n,%d)+eq(n,%d),gte(n,(n_forced-2)*%d))", g, g/4, g/2, g), "-flags", "+global_header+cgop", "-c:a", "aac", "-b:a", fmt.Sprintf("%dk", max(r.Decision.AudioBitrateKbps, 128)), "-ar", "48000", "-ac", "2")
 	// Tee encodes once and muxes the identical packets into all delivery forms.
 	duration := float64(g*f.FPSDen) / float64(f.FPSNum)
 	ds := strconv.FormatFloat(duration, 'f', 6, 64)
-	window := continuousWindow(r.DVRWindow, time.Second*time.Duration(g*f.FPSDen)/time.Duration(f.FPSNum))
-	outputs := []string{fmt.Sprintf("[f=hls:hls_time=%s:hls_list_size=%d:hls_flags=delete_segments+independent_segments+temp_file:hls_segment_filename=%s]%s", ds, window, "seg-%09d.ts", "index.m3u8"), fmt.Sprintf("[f=hls:hls_time=%s:hls_list_size=%d:hls_segment_type=fmp4:hls_fmp4_init_filename=init.mp4:hls_flags=delete_segments+independent_segments+temp_file:hls_segment_filename=fragment-%%09d.m4s]fragments.m3u8", ds, window)}
+	window := continuousWindow(r.DVRWindow, time.Second*time.Duration(g*f.FPSDen)/time.Duration(f.FPSNum)) + 3
+	initial := strconv.FormatFloat(duration/4, 'f', 6, 64)
+	outputs := []string{fmt.Sprintf("[f=hls:hls_time=%s:hls_init_time=%s:hls_list_size=%d:hls_flags=delete_segments+independent_segments+temp_file:hls_segment_filename=%s]%s", ds, initial, window, "seg-%09d.ts", "index.m3u8"), fmt.Sprintf("[f=hls:hls_time=%s:hls_init_time=%s:hls_list_size=%d:hls_segment_type=fmp4:hls_fmp4_init_filename=init.mp4:hls_flags=delete_segments+independent_segments+temp_file:hls_segment_filename=fragment-%%09d.m4s]fragments.m3u8", ds, initial, window)}
 	outputs = append(outputs, "[f=mpegts:mpegts_flags=resend_headers]pipe:1")
 	return append(args, "-f", "tee", strings.Join(outputs, "|"))
 }

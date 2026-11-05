@@ -11,6 +11,7 @@ type WarmGenerator struct {
 	variant               string
 	state                 uint32
 	ema, blur, temp, gain []float32
+	ghostPlate            []float32
 }
 
 func NewWarmGenerator(w, h int, seed int64, variant string) *WarmGenerator {
@@ -19,11 +20,21 @@ func NewWarmGenerator(w, h int, seed int64, variant string) *WarmGenerator {
 	g.blur = make([]float32, len(g.ema))
 	g.temp = make([]float32, len(g.ema))
 	g.gain = make([]float32, w*h)
+	if variant == "ghost" {
+		g.ghostPlate = make([]float32, w*h)
+	}
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			nx, ny := (float64(x)-float64(w)/2)/(float64(w)/2), (float64(y)-float64(h)/2)/(float64(h)/2)
 			r := nx*nx*.56 + ny*ny*.48
 			g.gain[y*w+x] = float32(.40 + .60*math.Pow(max(0, 1-r), .7))
+			if variant == "ghost" {
+				cx, cy := float64(x)-float64(w)/2, float64(y)-float64(h)/2
+				radius := math.Sqrt(cx*cx + cy*cy)
+				ring := math.Exp(-math.Pow((radius-float64(h)*.27)/1.3, 2))
+				cross := math.Exp(-cx*cx/1.5)*math.Exp(-cy*cy/900) + math.Exp(-cy*cy/1.5)*math.Exp(-cx*cx/2200)
+				g.ghostPlate[y*w+x] = float32(ring + cross)
+			}
 		}
 	}
 	return g
@@ -77,6 +88,7 @@ func (g *WarmGenerator) Frame(dst []byte, tick int64) {
 	t := float64(tick) / 30
 	amplitude *= 1 + .12*float32(math.Sin(t*.23))
 	bar := float64(g.h) * (.5 + .33*math.Sin(t*.043) + .06*math.Sin(t*.017*math.Sqrt2))
+	drift := int(2 * math.Sin(t*.09))
 	ghost := 0.0
 	if g.variant == "ghost" {
 		ghost = 5 + 5*math.Sin(t*.11+math.Sin(t*.037))
@@ -100,14 +112,19 @@ func (g *WarmGenerator) Frame(dst []byte, tick int64) {
 			gain := float64(g.gain[y*g.w+x])
 			v := float64(139+n*amplitude)*gain + roll + line
 			if ghost > 0 {
-				cx := float64(x) - float64(g.w)/2 - 2*math.Sin(t*.09)
-				cy := float64(y) - float64(g.h)/2
-				r := math.Sqrt(cx*cx + cy*cy)
-				ring := math.Exp(-math.Pow((r-float64(g.h)*.27)/1.3, 2))
-				cross := math.Exp(-cx*cx/1.5)*math.Exp(-cy*cy/900) + math.Exp(-cy*cy/1.5)*math.Exp(-cx*cx/2200)
-				v += ghost * (ring + cross) * gain
+				xx := max(0, min(g.w-1, x+drift))
+				v += ghost * float64(g.ghostPlate[y*g.w+xx]) * gain
 			}
 			dst[y*g.w+x] = byte(max(24, min(205, int(v+.5))))
+		}
+	}
+	// A rare, low-contrast tracking disturbance lasts only a few ticks.
+	event := hash(g.seed ^ uint64(tick/6)*0x9e3779b97f4a7c15)
+	if event%397 == 0 {
+		line := int(event>>16) % g.h
+		row := dst[line*g.w : (line+1)*g.w]
+		for x, v := range row {
+			row[x] = byte(min(205, int(v)+2+int((event>>32)%3)))
 		}
 	}
 	// Warm cream/amber phosphor, with a very soft chroma falloff at the edges.
