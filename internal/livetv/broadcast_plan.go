@@ -175,6 +175,9 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 			now = p.joinAt
 		}
 		candidates := p.s.virtualCandidates(c, programme)
+		if programme.Item.BreakReleaseID != "" && len(programme.Item.BreakPointsMS) > 0 {
+			candidates = []Programme{programme}
+		}
 		var last error = core.ErrNotAvailable
 		for attempt, candidate := range candidates {
 			if attempt >= virtualMaxAttempts {
