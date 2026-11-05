@@ -503,6 +503,7 @@ func (s *Service) execute(j renderJob) (err error) {
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, 15*time.Minute)
 	defer cancel()
+	started := time.Now()
 	if s.o.Acquire != nil {
 		jobCtx, release, e := s.o.Acquire(ctx)
 		if e != nil {
@@ -519,7 +520,6 @@ func (s *Service) execute(j renderJob) (err error) {
 	if j.convert != nil {
 		return j.convert(ctx)
 	}
-	started := time.Now()
 	defer func() {
 		elapsed := time.Since(started)
 		s.mu.Lock()
