@@ -244,6 +244,11 @@ func (s *Server) homeKey(route string, r *http.Request, pr *Request) string {
 	caps.ClientID, caps.DeviceName = "", ""
 	capsJSON, _ := json.Marshal(caps)
 	h := sha256.New()
+	// Section screens contain client-scoped generation URLs.
+	if strings.HasPrefix(route, "hubs/sections/") {
+		h.Write([]byte(pr.ClientID))
+		h.Write([]byte{0})
+	}
 	for _, part := range []string{route, strconv.FormatInt(pr.User.ID, 10), q.Encode(), strconv.Itoa(int(pr.Format)),
 		strconv.Itoa(pr.Start), strconv.Itoa(pr.Size), strconv.FormatBool(pr.HasPage), strconv.FormatBool(pr.Remote),
 		pr.Product, pr.Version, pr.Platform, pr.PlatformVersion, pr.Device, pr.Model, pr.Language, string(capsJSON)} {
