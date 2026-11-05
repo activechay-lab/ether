@@ -246,7 +246,7 @@ func (s *Server) serveDiscoveryPoster(w http.ResponseWriter, r *http.Request, k 
 			}
 		}
 	}
-	data, ct, e = androidPhotoFormat(r, data, ct)
+	data, ct, e = s.androidPhotoFormat(r, data, ct)
 	if e != nil {
 		writeHTTPError(w, http.StatusBadGateway)
 		return

@@ -34,8 +34,9 @@ server defects, not that the reporter used those precise requests.
   routes under the outer viewer without dialing the nested hostname. Unknown
   routes/remote image hosts retain the proxy restrictions.
 - `format=jpeg` was ignored: a PNG upstream yielded PNG bytes and Content-Type.
-  The Android photo path now converts explicit JPEG/PNG output requests, with
-  a decoded-pixel limit. The upstream cache remains format-neutral. WebP can
+  The artwork service caches explicit JPEG/PNG output variants, with
+  a decoded-pixel limit, inside the existing artwork byte budget. The original
+  fetched bytes remain format-neutral. WebP can
   be decoded; AVIF is not introduced as an output format. There is no recorded
   AVIF request or response in this issue to justify an AVIF-specific change.
 
@@ -72,6 +73,61 @@ server defects, not that the reporter used those precise requests.
   `GOMAXPROCS=2 go test -p 1 ./internal/plex -run 'Test(Android|ShieldSubtitleDeliveryContract|ShieldTroyCaptureFollowup|Photo|.*Subtitle.*|.*Artwork.*|.*ConformsToPMS|ServerMediaURLsOmitAccountToken|DecisionListsAlternateTracksForAndroidOnly|DirectStreamCarriesSelectedTextSubtitle|MetadataListsWarmProbedTracks|MetadataWithVariantsListsWarmProbedTracks|FirstOpenMovieAndShowSeasonWarmProbedTracks)' -count=1 -timeout=180s`.
   This is a selected package gate, not the full Plex suite. No repository-wide
   suite or build was run. Physical Android phone/TV playback remains unverified.
+
+## Review follow-up: conversion cost and format provenance
+
+The PNG response was authored by `TestAndroidPhotoConnectionAndFormat`'s
+httptest upstream. It demonstrates the photo handler ignoring the requested
+output format; it does **not** establish that XRDB/RPDB or a real reporter's
+upstream served PNG. The client asked Ether's photo wrapper for JPEG; Ether
+built/fetched a source URL without passing that format to the CDN. A source
+image need not have the output format of a photo-transcode request.
+`artwork.ResizePoster`, overlay rendering and generated collection posters
+already encode JPEG. No provider/generator default needs changing based on
+this evidence, and ordinary JPEG-to-JPEG requests already bypass conversion.
+
+The initial format helper repeated decode/encode on every mismatched-format
+request. `RemoteCache.RasterFormat` now stores converted bytes in the existing
+artwork LRU, sharing its configured byte budget and TTL with source images.
+SHA-256 of the source bytes identifies both content and the actual sized
+variant; the output format completes the key. Changed source bytes, source
+size and format select a different entry. Concurrent identical conversions
+coalesce. Authorization stays before cache access in all three Plex handlers.
+Warm hits perform a hash and lookup, with no pixel decode or encode; eviction
+or expiration can require conversion again.
+
+Measured through the actual photo HTTP handler, with 50 distinct authored
+300x450 PNG posters, six workers, 20 cold pages and 20 warm pages, explicit
+Android JPEG output, Go 1.27.3 darwin/arm64, `GOMAXPROCS=2`:
+
+| Cache state | CPU/image before | CPU/image after | Page p95 before | Page p95 after |
+| --- | ---: | ---: | ---: | ---: |
+| Cold | 9.1209 ms | 9.3499 ms | 696.395 ms | 856.515 ms |
+| Warm | 8.4706 ms | 0.2071 ms | 562.247 ms | 29.197 ms |
+
+Warm process CPU/image fell 97.6%, with zero upstream fetches in both warm
+runs. Cold conversion still happens once per variant: CPU rose 2.5% in this
+sample, and wall p95 rose 23.0%. This shared Mac was paging and other workloads
+were active, so no cold latency improvement is claimed. These are not isolated
+device/network measurements. CPU includes handler/auth work, GC, loopback
+upstream work and encoding; generation and compilation are excluded. Cold
+clears both caches per page; warm preloads once. p95 is the 19th sorted page
+time of 20. Raw results and setup are in
+`341-android-poster-performance.json`.
+
+Reproduce on `f81515db6` and the follow-up with the same opt-in measurement
+file (it is protocol-only and works with both implementations):
+
+```
+ETHER_ANDROID_POSTER_MEASURE=1 GOMAXPROCS=2 go test -p 1 ./internal/plex -run '^TestAndroidPosterPagePerformance$' -count=1 -v -timeout=180s
+```
+
+New service tests prove encoded-buffer reuse across repeated/concurrent
+requests, source/size/format separation, TTL expiry, shared-budget eviction,
+matching-format passthrough and errors not being cached. The full artwork,
+artwork/service, conform and conform/plex package gates passed again. The
+selected Plex package gate above passed again (3.347s), including the Android
+image, provider, subtitle, outer-viewer authorization and other-client controls.
 
 ## GitHub reply draft
 

@@ -1,14 +1,9 @@
 package plex
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
-	"fmt"
-	"image"
-	"image/jpeg"
-	"image/png"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -16,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	_ "golang.org/x/image/webp"
 
 	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/core"
@@ -183,7 +177,7 @@ func (s *Server) writeRemoteImage(w http.ResponseWriter, r *http.Request, u stri
 	if err != nil {
 		return err
 	}
-	data, ct, err := androidPhotoFormat(r, img.Data, img.ContentType)
+	data, ct, err := s.androidPhotoFormat(r, img.Data, img.ContentType)
 	if err != nil {
 		return err
 	}
@@ -431,31 +425,10 @@ func photoQueryValue(q url.Values, name string) string {
 	return vs[len(vs)-1]
 }
 
-// Honor Android's explicit raster output request without changing the shared
-// upstream cache or other clients. Decode bounds before allocating pixels.
-func androidPhotoFormat(r *http.Request, data []byte, ct string) ([]byte, string, error) {
-	format := androidPhotoOutputFormat(r)
-	if format == "" || ct == "image/"+format {
-		return data, ct, nil
-	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil {
-		return nil, "", err
-	}
-	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > 16000000 {
-		return nil, "", fmt.Errorf("artwork dimensions exceed raster limit")
-	}
-	decoded, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, "", err
-	}
-	var out bytes.Buffer
-	if format == "png" {
-		err = png.Encode(&out, decoded)
-	} else {
-		err = jpeg.Encode(&out, decoded, &jpeg.Options{Quality: 90})
-	}
-	return out.Bytes(), "image/" + format, err
+// Honor explicit Android formats through the shared, byte-bounded variant
+// cache. Authorization remains in the source handler, before cache lookup.
+func (s *Server) androidPhotoFormat(r *http.Request, data []byte, ct string) ([]byte, string, error) {
+	return s.images.RasterFormat(r.Context(), data, ct, androidPhotoOutputFormat(r), s.now())
 }
 
 func androidPhotoOutputFormat(r *http.Request) string {

@@ -34,7 +34,7 @@ func (s *Server) serveCollectionArtwork(w http.ResponseWriter, r *http.Request, 
 	if err != nil || !ok || len(data) == 0 {
 		return false
 	}
-	data, ct, err = androidPhotoFormat(r, data, ct)
+	data, ct, err = s.androidPhotoFormat(r, data, ct)
 	if err != nil {
 		writeHTTPError(w, http.StatusBadGateway)
 		return true
