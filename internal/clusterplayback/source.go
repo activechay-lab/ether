@@ -73,6 +73,13 @@ func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
 }
 func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m sourceRequest) (sourceResponse, error) {
 	deny := func() (sourceResponse, error) { return sourceResponse{}, ErrDenied }
+	if m.Op == "prepare-status" {
+		if m.Prepare == nil {
+			return deny()
+		}
+		result, e := r.preparationCurrent(ctx, peer, m.Prepare.Operation)
+		return sourceResponse{Prepared: result}, e
+	}
 	if m.Op == "prepare-retire" {
 		return r.retirePreparation(ctx, peer, m.Prepare)
 	}

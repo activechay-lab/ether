@@ -9,10 +9,12 @@ import (
 	"encoding/pem"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
+	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/store"
 	"io"
 	"math/big"
@@ -161,7 +163,8 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	sourceID := nodewire.Identity{Cluster: "offline", NodeID: "source", Boot: "source-boot"}
 	workerID := nodewire.Identity{Cluster: "offline", NodeID: "worker", Boot: "worker-boot"}
 	frontendID := nodewire.Identity{Cluster: "offline", NodeID: "frontend", Boot: "frontend-boot"}
-	guards := fixtureGuards(t, sourceID, workerID, frontendID)
+	brokerID := nodewire.Identity{Cluster: "offline", NodeID: "broker", Boot: "broker-boot"}
+	guards := fixtureGuards(t, sourceID, workerID, frontendID, brokerID)
 	endpoints := map[nodewire.Identity]string{}
 	endpoint := func(_ context.Context, id nodewire.Identity) (string, error) {
 		s, ok := endpoints[id]
@@ -216,6 +219,7 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	if err != nil || prepared.Owner != sourceID || prepared.PlayID != ps.ID || prepared.Revision == "" {
 		t.Fatalf("remote prepare: %#v %v", prepared, err)
 	}
+	testRemoteNeutralBroker(t, ctx, base, guards[3], brokerID, sourceID, endpoints, source)
 	// A proven pre-reservation failure must not poison a stable public ID.
 	preflight := core.HLSRequest{SessionID: "public-session", Info: ps.Info, Decision: core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, SubtitleStream: -1}}
 	if _, err := front.StartPreparedHLS(ctx, 9, prepared, preflight); err == nil || front.Allocated(preflight.SessionID) {
@@ -277,6 +281,21 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 		t.Fatal("duplicate admitted")
 	}
 	front.Stop(request.SessionID)
+	token, owned := front.EncoderRetirement(request.SessionID)
+	if !owned || token == nil {
+		t.Fatal("stop discarded remote ownership")
+	}
+	if _, available := front.Session(request.SessionID); available {
+		t.Fatal("stopped execution advertised available")
+	}
+	if token.EncoderErr() == nil {
+		t.Fatal("stop alone proved retirement")
+	}
+	select {
+	case <-token.EncoderDone():
+		t.Fatal("token closed before dual retirement")
+	default:
+	}
 	for i := 0; i < 50; i++ {
 		worker.Cleanup()
 		source.Cleanup()
@@ -351,4 +370,90 @@ func fixtureGuards(t *testing.T, ids ...nodewire.Identity) []*nodewire.Guard {
 		out = append(out, g)
 	}
 	return out
+}
+
+type fixtureProgress struct{}
+
+func (fixtureProgress) Progress(context.Context, int64, core.RatingKey, time.Duration, time.Duration, string) error {
+	return nil
+}
+func testRemoteNeutralBroker(t *testing.T, ctx context.Context, base Options, guard *nodewire.Guard, self, sourceID nodewire.Identity, endpoints map[nodewire.Identity]string, source *Runtime) {
+	t.Helper()
+	o := base
+	o.Self = self
+	o.Guard = guard
+	o.Roles = config.NodeRoles{config.RoleServer, config.RoleDelivery}
+	o.Decide = func(i core.MediaInfo, c core.ClientCaps, d core.DecideOptions) core.Decision {
+		return core.Decision{Kind: core.DecisionDirectPlay, VideoCopy: true, AudioCopy: true, Container: i.Container, AudioStream: -1, SubtitleStream: -1}
+	}
+	runtime, err := NewRuntime(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	remote, err := NewRemotePlayback(runtime, RemotePlaybackOptions{Estimate: func(context.Context, *core.Title, core.ClientCaps) core.MediaInfo { return core.MediaInfo{} }, SelectSource: func(context.Context) (nodewire.Identity, error) { return sourceID, nil }, Capacity: 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := runtime.DecisionTranscoder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
+	events := sessions.NewEventBus(nil, active)
+	defer events.Close()
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{Playback: remote, Transcoder: decision, DistributedHLS: runtime, Events: events, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, Progress: fixtureProgress{}, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+		return &core.Title{Key: k, Type: core.TypeMovie}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.Close(ctx)
+	server := httptest.NewUnstartedServer(runtime.Handler())
+	server.TLS = guard.ServerTLS()
+	server.StartTLS()
+	defer server.Close()
+	endpoints[self] = server.URL
+	viewer := &core.Viewer{ID: 9}
+	device := core.Device{ID: "remote-neutral-device"}
+	plan, err := broker.Plan(ctx, frontend.PlanRequest{Viewer: viewer, Device: device, Protocol: "jellyfin", Item: core.MovieKey(1), Intent: frontend.PlayIntent{Options: core.DecideOptions{DirectPlay: true, DirectStream: true, AudioStream: -1, SubtitleStream: -1}}})
+	if err != nil {
+		t.Fatal("remote neutral plan", err)
+	}
+	if plan.Decision.Kind != core.DecisionDirectPlay || plan.ETag == "" {
+		t.Fatalf("changed direct decision or missing revision: %+v", plan)
+	}
+	opened, err := broker.Open(ctx, frontend.OpenRequest{Viewer: viewer, Device: device, Protocol: "jellyfin", PlanID: plan.ID})
+	if err != nil {
+		t.Fatal("remote neutral open", err)
+	}
+	access := frontend.SessionAccess{Viewer: viewer, Device: device, Protocol: "jellyfin"}
+	path, err := broker.StartStream(ctx, access, opened.ID, frontend.StreamRequest{Format: frontend.StreamDirect})
+	if err != nil {
+		t.Fatal("remote neutral direct", err)
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest("GET", "https://public"+path, nil)
+	request.Header.Set("Range", "bytes=2-5")
+	broker.ServeMedia(response, request)
+	if response.Code != 206 || response.Body.String() != "2345" {
+		t.Fatalf("remote direct bytes %d %q", response.Code, response.Body.String())
+	}
+	forwarded := httptest.NewRecorder()
+	request = httptest.NewRequest("HEAD", "https://public"+path, nil)
+	if !source.ForwardMedia(forwarded, request, opened.ID, "jellyfin") || forwarded.Code != 200 || forwarded.Body.Len() != 0 {
+		t.Fatalf("remote direct indexed HEAD %d %q", forwarded.Code, forwarded.Body.String())
+	}
+	if err = broker.Stop(ctx, access, opened.ID); err != nil {
+		t.Fatal("remote stop", err)
+	}
+	for i := 0; i < 50; i++ {
+		_ = runtime.Tick(ctx)
+		source.Cleanup()
+		if remote.pending() == 0 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("remote plan lifetime did not retire")
 }

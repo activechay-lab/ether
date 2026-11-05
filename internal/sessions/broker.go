@@ -213,13 +213,6 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 			return nil, err
 		}
 	}
-	if d.SourceHistory != nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		b.historyCancel = cancel
-		b.historyQueue = make(chan sourceHistorySample, 256)
-		b.historyDone = make(chan struct{})
-		go func() { defer close(b.historyDone); b.runSourceHistory(ctx) }()
-	}
 	if d, ok := b.deps.DistributedHLS.(interface {
 		BindDelivery(func(http.ResponseWriter, *http.Request, string)) error
 	}); ok {
@@ -227,6 +220,14 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 			return nil, err
 		}
 	}
+	if d.SourceHistory != nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		b.historyCancel = cancel
+		b.historyQueue = make(chan sourceHistorySample, 256)
+		b.historyDone = make(chan struct{})
+		go func() { defer close(b.historyDone); b.runSourceHistory(ctx) }()
+	}
+
 	return b, nil
 }
 func (b *Broker) viewer(ctx context.Context, v *core.Viewer) (*core.Viewer, error) {
@@ -810,6 +811,13 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 	id, err := sessionID(req.Protocol)
 	if err != nil {
 		return frontend.Session{}, err
+	}
+	if binding, ok := b.deps.Playback.(interface {
+		BindClientSession(context.Context, string, string) error
+	}); ok {
+		if err := binding.BindClientSession(ctx, id, ps.ID); err != nil {
+			return frontend.Session{}, err
+		}
 	}
 	if req.Protocol == "plex" && p.external {
 		if !validPlexTranscodeID(p.request.Intent.ClientSessionID) {

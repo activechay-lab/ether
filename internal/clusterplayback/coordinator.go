@@ -15,6 +15,7 @@ import (
 )
 
 type execution struct {
+	done                          chan struct{}
 	busy, reservePending, retired bool
 	route                         Route
 	request                       placement.Request
@@ -55,6 +56,17 @@ func Supports(q core.HLSRequest) bool {
 // StartDistributedHLS starts from the exact source already prepared by the
 // authenticated broker. ErrUnsupported is returned exclusively before side effects.
 func (r *Runtime) StartDistributedHLS(ctx context.Context, viewer int64, playID, revision string, q core.HLSRequest) (core.HLSSession, error) {
+	r.mu.Lock()
+	remote := r.remotePlayback
+	r.mu.Unlock()
+	if remote != nil {
+		if prepared, ok := remote.prepared(playID); ok {
+			if prepared.Revision != revision {
+				return nil, core.ErrSourceChanged
+			}
+			return r.StartPreparedHLS(ctx, viewer, prepared, q)
+		}
+	}
 	return r.StartPreparedHLS(ctx, viewer, PreparedSource{Owner: r.o.Self, PlayID: playID, Revision: revision}, q)
 }
 
@@ -76,7 +88,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		r.mu.Unlock()
 		return nil, ErrPending
 	}
-	x := &execution{busy: true}
+	x := &execution{busy: true, done: make(chan struct{})}
 	r.executions[q.SessionID] = x
 	r.mu.Unlock()
 	running := false
@@ -87,6 +99,10 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 			x.stopping = true
 		}
 		if !x.reserved && !x.reservePending && r.executions[q.SessionID] == x {
+			x.retired = true
+			if x.done != nil {
+				close(x.done)
+			}
 			delete(r.executions, q.SessionID)
 		}
 		r.mu.Unlock()
@@ -215,6 +231,7 @@ func (r *Runtime) selectTarget(ctx context.Context) (placement.Target, []placeme
 	}
 	return placement.Target{}, nil, placement.ErrCapacity
 }
+
 func (r *Runtime) Session(id string) (core.HLSSession, bool) {
 	r.mu.Lock()
 	x := r.executions[id]
@@ -228,6 +245,36 @@ func (r *Runtime) Session(id string) (core.HLSSession, bool) {
 	}
 	return a.Session(id)
 }
+func (r *Runtime) EncoderRetirement(id string) (core.EncoderRetirement, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	x := r.executions[id]
+	if x == nil || x.retired {
+		return nil, false
+	}
+	return executionRetirement{r: r, id: id, x: x}, true
+}
+
+type executionRetirement struct {
+	r  *Runtime
+	id string
+	x  *execution
+}
+
+func (t executionRetirement) EncoderDone() <-chan struct{} {
+	t.r.mu.Lock()
+	defer t.r.mu.Unlock()
+	return t.x.done
+}
+func (t executionRetirement) EncoderErr() error {
+	t.r.mu.Lock()
+	defer t.r.mu.Unlock()
+	if t.x.retired {
+		return nil
+	}
+	return core.ErrEncoderPending
+}
+
 func (r *Runtime) Stop(id string) {
 	r.mu.Lock()
 	x := r.executions[id]
@@ -257,6 +304,12 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	}
 	r.mu.Unlock()
 	var result error
+	r.mu.Lock()
+	remote := r.remotePlayback
+	r.mu.Unlock()
+	if remote != nil {
+		result = remote.tick(ctx)
+	}
 	for _, x := range list {
 		if e := ctx.Err(); e != nil {
 			return e
@@ -278,6 +331,10 @@ func (r *Runtime) Tick(ctx context.Context) error {
 						r.mu.Lock()
 						current := r.executions[x.request.Session]
 						if current != nil && current.request.Operation == x.request.Operation && !current.reserved {
+							current.retired = true
+							if current.done != nil {
+								close(current.done)
+							}
 							delete(r.executions, x.request.Session)
 						}
 						r.mu.Unlock()
@@ -314,7 +371,12 @@ func (r *Runtime) Tick(ctx context.Context) error {
 				r.mu.Lock()
 				current := r.executions[x.route.Fence.Session]
 				if current != nil && current.route == x.route {
-					current.retired = true
+					if !current.retired {
+						current.retired = true
+						if current.done != nil {
+							close(current.done)
+						}
+					}
 				}
 				r.mu.Unlock()
 				if x.adapter != nil {

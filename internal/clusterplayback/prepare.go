@@ -26,6 +26,8 @@ type PreparedSource struct {
 	Info                        core.MediaInfo
 }
 type preparation struct {
+	viewer   int64
+	retiring bool
 	peer     nodewire.Identity
 	hash     [32]byte
 	result   PreparedSource
@@ -74,7 +76,7 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 		r.mu.Unlock()
 		return sourceResponse{}, ErrDenied
 	}
-	entry := &preparation{peer: peer, hash: hash, running: true}
+	entry := &preparation{viewer: q.Viewer, peer: peer, hash: hash, running: true}
 	r.preparations[key] = entry
 	r.mu.Unlock()
 	defer func() { r.mu.Lock(); entry.running = false; r.mu.Unlock() }()
@@ -104,6 +106,9 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 			return sourceResponse{}, ErrDenied
 		}
 	}
+	if e := r.o.Playback.PinSourceRevision(ctx, ps.ID, revision); e != nil {
+		return sourceResponse{}, e
+	}
 	result := PreparedSource{Owner: r.o.Self, PlayID: ps.ID, Revision: revision, ReleaseID: ps.SourceReleaseID(), Info: ps.Info}
 	r.mu.Lock()
 	entry.result = result
@@ -129,6 +134,7 @@ func (r *Runtime) retirePreparation(ctx context.Context, peer nodewire.Identity,
 		r.mu.Unlock()
 		return sourceResponse{}, ErrDenied
 	}
+	entry.retiring = true
 	life, id := entry.life, entry.result.PlayID
 	r.mu.Unlock()
 	if life == nil || id == "" {

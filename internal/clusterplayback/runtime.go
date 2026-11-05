@@ -49,6 +49,7 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
+	remotePlayback *RemotePlayback
 	control        sync.Mutex
 	preparations   map[string]*preparation
 	delivery       func(http.ResponseWriter, *http.Request, string)
@@ -92,6 +93,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 		}
 		r.bytes = h
 		r.mux.Handle(nodesource.Path, h)
+		r.mux.HandleFunc(PreparedBytesPath, r.preparedBytes)
 		r.mux.HandleFunc(SourcePath, r.sourceHTTP)
 	}
 	if o.Encoder != nil {
@@ -184,6 +186,12 @@ func (r *Runtime) Close() error {
 		inputs = append(inputs, x)
 	}
 	r.mu.Unlock()
+	r.mu.Lock()
+	remote := r.remotePlayback
+	r.mu.Unlock()
+	if remote != nil {
+		remote.close()
+	}
 	if r.worker != nil {
 		_ = r.worker.Close()
 	}
@@ -249,7 +257,13 @@ func (r *Runtime) Pending(ctx context.Context) (int, error) {
 		preps = append(preps, *entry)
 	}
 	r.mu.Unlock()
+	r.mu.Lock()
+	remote := r.remotePlayback
+	r.mu.Unlock()
 	n := starting
+	if remote != nil {
+		n += remote.pending()
+	}
 	for _, entry := range preps {
 		if entry.running {
 			n++
