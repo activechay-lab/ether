@@ -7,6 +7,7 @@ import (
 )
 
 type decisionArmWrite struct {
+	disarm          bool
 	user            int64
 	client, session string
 	key             core.RatingKey
@@ -17,6 +18,9 @@ type decisionArmWrite struct {
 // Decisions acknowledge a background batch before returning, so an immediate
 // start on another node observes the arm. Rendering and starts only read it.
 func (s *Server) persistDecisionArm(pr *Request, key core.RatingKey) {
+	s.persistDecisionChange(pr, key, false)
+}
+func (s *Server) persistDecisionChange(pr *Request, key core.RatingKey, disarm bool) {
 	if s.d.DB == nil {
 		return
 	}
@@ -25,7 +29,7 @@ func (s *Server) persistDecisionArm(pr *Request, key core.RatingKey) {
 		s.wg.Add(1)
 		go func() { defer s.wg.Done(); s.writeDecisionArms() }()
 	})
-	cmd := decisionArmWrite{user: pr.User.ID, client: pr.ClientID, session: pr.SessionID, key: key, expires: s.now().Add(3 * time.Minute).UnixMilli(), done: make(chan struct{})}
+	cmd := decisionArmWrite{disarm: disarm, user: pr.User.ID, client: pr.ClientID, session: pr.SessionID, key: key, expires: s.now().Add(3 * time.Minute).UnixMilli(), done: make(chan struct{})}
 	select {
 	case s.decisionWriter <- cmd:
 	case <-s.ctx.Done():
@@ -57,7 +61,14 @@ func (s *Server) writeDecisionArms() {
 			tx, err := s.d.DB.BeginTx(ctx, nil)
 			if err == nil {
 				for _, cmd := range batch {
-					_, err = tx.ExecContext(ctx, `INSERT INTO plex_decision_arms(user_id,client_id,session_id,title_key,expires,node_id) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,client_id,session_id,title_key) DO UPDATE SET expires=CASE WHEN plex_decision_arms.expires>excluded.expires THEN plex_decision_arms.expires ELSE excluded.expires END,node_id=CASE WHEN plex_decision_arms.expires>excluded.expires THEN plex_decision_arms.node_id ELSE excluded.node_id END`, cmd.user, cmd.client, cmd.session, cmd.key, cmd.expires, s.decisionNode())
+					if cmd.disarm {
+						_, err = tx.ExecContext(ctx, `UPDATE plex_decision_arms SET active=0 WHERE user_id=? AND client_id=? AND session_id=? AND title_key=?`, cmd.user, cmd.client, cmd.session, cmd.key)
+						if err != nil {
+							break
+						}
+						continue
+					}
+					_, err = tx.ExecContext(ctx, `INSERT INTO plex_decision_arms(user_id,client_id,session_id,title_key,expires,node_id,active) VALUES(?,?,?,?,?,?,1) ON CONFLICT(user_id,client_id,session_id,title_key) DO UPDATE SET active=1,expires=CASE WHEN plex_decision_arms.expires>excluded.expires THEN plex_decision_arms.expires ELSE excluded.expires END,node_id=CASE WHEN plex_decision_arms.expires>excluded.expires THEN plex_decision_arms.node_id ELSE excluded.node_id END`, cmd.user, cmd.client, cmd.session, cmd.key, cmd.expires, s.decisionNode())
 					if err != nil {
 						break
 					}
@@ -94,8 +105,8 @@ func (s *Server) refreshDecisionArms(now time.Time) {
 		if now.Sub(arm.at) > 3*time.Minute {
 			continue
 		}
-		for key := range arm.items {
-			rows = append(rows, decisionArmWrite{user: arm.user, client: arm.client, session: arm.session, key: key, expires: arm.at.Add(3 * time.Minute).UnixMilli()})
+		for key, active := range arm.items {
+			rows = append(rows, decisionArmWrite{disarm: !active, user: arm.user, client: arm.client, session: arm.session, key: key, expires: arm.at.Add(3 * time.Minute).UnixMilli()})
 		}
 	}
 	s.termMu.Unlock()
@@ -107,7 +118,11 @@ func (s *Server) refreshDecisionArms(now time.Time) {
 	}
 	defer tx.Rollback()
 	for _, row := range rows {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO plex_decision_arms(user_id,client_id,session_id,title_key,expires,node_id) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,client_id,session_id,title_key) DO UPDATE SET expires=CASE WHEN plex_decision_arms.expires>excluded.expires THEN plex_decision_arms.expires ELSE excluded.expires END,node_id=CASE WHEN plex_decision_arms.expires>excluded.expires THEN plex_decision_arms.node_id ELSE excluded.node_id END`, row.user, row.client, row.session, row.key, row.expires, s.decisionNode()); err != nil {
+		active := 1
+		if row.disarm {
+			active = 0
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO plex_decision_arms(user_id,client_id,session_id,title_key,expires,node_id,active) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,client_id,session_id,title_key) DO UPDATE SET expires=CASE WHEN plex_decision_arms.expires>excluded.expires THEN plex_decision_arms.expires ELSE excluded.expires END,node_id=CASE WHEN plex_decision_arms.expires>excluded.expires THEN plex_decision_arms.node_id ELSE excluded.node_id END`, row.user, row.client, row.session, row.key, row.expires, s.decisionNode(), active); err != nil {
 			return
 		}
 	}

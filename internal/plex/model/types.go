@@ -63,6 +63,7 @@ type MediaContainer struct {
 	// play queues) in order, after the common ones above.
 	Extra []Attr `plex:",attrs"`
 
+	Bandwidths          []TimelineBandwidths  `plex:"Bandwidths"`
 	Profile             []ClientProfile       `plex:"Profile"`
 	Meta                *Meta                 `plex:"Meta,object"`
 	Directory           []Directory           `plex:"Directory"`
@@ -875,4 +876,14 @@ type ClientProfile struct {
 type AutoUpdateNotification struct {
 	State      string `plex:"state"`
 	CanInstall bool   `plex:"canInstall"`
+}
+
+// TimelineBandwidths describes the rate and display resolution of one plan.
+type TimelineBandwidths struct {
+	Bandwidth []TimelineBandwidth `plex:"Bandwidth"`
+}
+type TimelineBandwidth struct {
+	Time       int    `plex:"time"`
+	Bandwidth  int    `plex:"bandwidth"`
+	Resolution string `plex:"resolution"`
 }

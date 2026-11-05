@@ -163,11 +163,17 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mc := &model.MediaContainer{}
+	mc.Bandwidths = s.timelineBandwidths(pr, key, tids, ps)
+	mc.TranscodeSess = s.timelineTranscodeSessions(pr, key, tids)
+	mc.Size = len(mc.Bandwidths) + len(mc.TranscodeSess)
 	if reason, killed := s.takeTermination(tid); killed {
 		mc.Extra = []model.Attr{model.A("terminationCode", 2006), model.A("terminationText", reason)}
 		state = "stopped"
 	}
 	if state == "stopped" {
+		if q.Get("state") == "stopped" {
+			s.disarmDecision(pr, key)
+		}
 		s.endVersionFlow(ctx, s.playIdentityFor(pr, key))
 		if e, ok := s.sessions.remove(tid); ok {
 			e.offset = offset
@@ -477,6 +483,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 				md.TranscodeSession = &ts
 			}
 		}
+		md.Session.Bandwidth = s.sessionBandwidth(e, md)
 		sessionClient := e.client
 		sessionClient.User = &e.user
 		if !e.decisionSeen && !s.decisionArmed(&sessionClient, 0) {
