@@ -322,6 +322,66 @@ func TestBroadcastPrewarmsTwentySecondsBeforeCut(t *testing.T) {
 	})
 }
 
+type elementBroadcastPlanner []broadcastPlan
+
+func (p elementBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadcastPlan) {
+	for i, plan := range p {
+		if !now.Before(plan.start) && now.Before(plan.end) {
+			if i+1 < len(p) {
+				return plan, &p[i+1]
+			}
+			return plan, nil
+		}
+	}
+	return broadcastPlan{}, nil
+}
+func (p elementBroadcastPlanner) prewarmPlans(now time.Time) []broadcastPlan {
+	var plans []broadcastPlan
+	for _, plan := range p {
+		if plan.start.After(now) && !plan.start.After(now.Add(broadcastPrewarm)) {
+			plans = append(plans, plan)
+		}
+	}
+	return plans
+}
+
+func TestBroadcastPrewarmsAcrossShortElements(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		format := smallBroadcastFormat()
+		origin := time.Now()
+		opened := map[string]time.Time{}
+		var openedMu sync.Mutex
+		plans := elementBroadcastPlanner{}
+		for n, bounds := range [][2]int{{0, 10}, {10, 14}, {14, 18}, {18, 90}} {
+			id := string(rune('a' + n))
+			plans = append(plans, broadcastPlan{id: id, start: origin.Add(time.Duration(bounds[0]) * time.Second), end: origin.Add(time.Duration(bounds[1]) * time.Second), open: func(context.Context) (transcode.Decoder, func(), error) {
+				openedMu.Lock()
+				opened[id] = time.Now()
+				openedMu.Unlock()
+				return &broadcastFakeDecoder{format: format, closed: make(chan struct{})}, nil, nil
+			}})
+		}
+		b, err := newBroadcast(context.Background(), &broadcastFakeRunner{}, plans, format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer b.close()
+		b.start()
+		time.Sleep(time.Second)
+		synctest.Wait()
+		for _, id := range []string{"b", "c", "d"} {
+			if !opened[id].Equal(origin) {
+				t.Fatalf("element %s prepared at %s", id, opened[id].Sub(origin))
+			}
+		}
+		time.Sleep(18 * time.Second)
+		synctest.Wait()
+		if b.current == nil || b.current.plan.id != "d" || b.current.lastFrameAt.IsZero() {
+			t.Fatal("prewarmed programme did not air at its boundary")
+		}
+	})
+}
+
 func TestProviderBroadcastReservationIsReleasedWhileWaiting(t *testing.T) {
 	s := testService(t, Options{})
 	release, err := s.reserveBroadcastProvider("account", "one", "first", 1)

@@ -21,9 +21,15 @@ export type BrandTokens = {
   volume: number;
   seed: number;
   tagline: string;
-  words: Partial<Record<Moment, string>>;
+  words: Partial<Record<Moment | "now", string>>;
   language: string;
   logo?: string;
+};
+export type StyleScreens = {
+  offAir: import("./ScreenPicker").ScreenStyle;
+  noSignal: import("./ScreenPicker").ScreenStyle;
+  stationId: boolean;
+  applyTo?: "converted" | "all";
 };
 export type BugSettings = {
   position?: "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
@@ -36,6 +42,7 @@ export type BugSettings = {
 };
 export type Look = {
   bug?: BugSettings;
+  screens?: StyleScreens;
   id: string;
   name: string;
   family: string;
@@ -172,6 +179,8 @@ const enc = encodeURIComponent;
 const write = <T>(path: string, method: string, body?: unknown) =>
   apiFetch<T>(path, { method, body: body instanceof FormData ? body : JSON.stringify(body) });
 export const onair = {
+  template: (prompt: string, base: Look) =>
+    write<Look>("/onair/template", "POST", { prompt, base }),
   looks: () => apiFetch<Look[]>("/onair/looks"),
   look: (id: string) => apiFetch<Look>(`/onair/looks/${enc(id)}`),
   saveLook: (look: Look) =>

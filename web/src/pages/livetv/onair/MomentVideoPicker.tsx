@@ -44,7 +44,7 @@ export function MomentVideoPicker({
           >
             <option value="">{t("Scene")}</option>
             {assets
-              .filter((a) => a.kind === "video" && !a.status)
+              .filter((a) => a.kind === "video" && (!a.status || a.status === "ready"))
               .map((a) => (
                 <option key={a.digest} value={a.digest}>
                   {a.name}
@@ -58,6 +58,7 @@ export function MomentVideoPicker({
         control={
           <Switch
             aria-label={t("Crossfade")}
+            disabled={!look.moments[moment]?.assetDigest}
             checked={look.moments[moment]?.crossfade || false}
             onChange={(e) =>
               onChange({

@@ -20,7 +20,7 @@ func TestContinuousProgrammeQuality(t *testing.T) {
 	for _, mode := range []string{"before", "after"} {
 		params := "vbv-init=0.1"
 		if mode == "after" {
-			params += ":rc-lookahead=20:sync-lookahead=0:aq-mode=3:psy-rd=1.0,0.15"
+			params += ":rc-lookahead=20:sync-lookahead=0:aq-mode=2:aq-strength=0.8:psy-rd=1.0,0.15"
 		}
 		path := filepath.Join(e.dir, mode+".mp4")
 		args := []string{"-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=30", "-t", "8", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-maxrate", "4269k", "-bufsize", "474k", "-profile:v", "high", "-pix_fmt", "yuv420p", "-threads", "4", "-bf", "0", "-g", "120", "-keyint_min", "120", "-sc_threshold", "0", "-x264-params", params, path}

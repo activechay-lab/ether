@@ -42,7 +42,7 @@ type broadcastRendition struct {
 	height     int
 	id         string
 	encoder    transcode.ContinuousEncoder
-	queue      chan transcode.RawFrame
+	queue      *broadcastFrameQueue
 	cancel     context.CancelFunc
 	viewers    int
 }
@@ -151,6 +151,8 @@ type broadcast struct {
 	wg             sync.WaitGroup
 	prepared       chan broadcastPrepared
 	current, next  *broadcastInput
+	later          map[string]*broadcastInput
+	future         map[string]broadcastPlan
 	opening        map[string]bool
 	retry          map[string]time.Time
 	lastFrame      transcode.RawFrame
@@ -176,6 +178,8 @@ func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planne
 	ctx, cancel := context.WithCancel(ctx)
 	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), retryRequests: make(chan struct{}, 1), lastViewer: time.Now()}
 	b.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	b.later = map[string]*broadcastInput{}
+	b.future = map[string]broadcastPlan{}
 	if source, ok := planner.(interface{ broadcastLogger() *slog.Logger }); ok {
 		b.logger = source.broadcastLogger()
 	}
@@ -252,7 +256,7 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 		encoder.Close()
 		return nil, context.Canceled
 	}
-	r := &broadcastRendition{originDone: make(chan struct{}), height: decision.MaxHeight, id: id, encoder: encoder, queue: make(chan transcode.RawFrame, 30), cancel: cancel, viewers: 1}
+	r := &broadcastRendition{originDone: make(chan struct{}), height: decision.MaxHeight, id: id, encoder: encoder, queue: newBroadcastFrameQueue((b.format.FPSNum + b.format.FPSDen - 1) / b.format.FPSDen), cancel: cancel, viewers: 1}
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -268,16 +272,21 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 	go func() {
 		defer b.wg.Done()
 		defer encoder.Close()
+		write := encoder.Write
+		if shared, ok := encoder.(interface {
+			WriteShared(context.Context, transcode.RawFrame) error
+		}); ok {
+			write = shared.WriteShared
+		}
 		for {
-			select {
-			case <-lifetime.Done():
+			frame, ok := r.queue.pop(lifetime)
+			if !ok {
 				return
-			case frame := <-r.queue:
-				if err := encoder.Write(lifetime, frame); err != nil {
-					b.logger.Warn("broadcast rendition write stopped", "rendition", id, "reason", err)
-					b.dropRendition(id, r)
-					return
-				}
+			}
+			if err := write(lifetime, frame); err != nil {
+				b.logger.Warn("broadcast rendition write stopped", "rendition", id, "reason", err)
+				b.dropRendition(id, r)
+				return
 			}
 		}
 	}()
@@ -407,6 +416,9 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 			} else if next != nil && result.plan.id == next.id {
 				b.closeInput(b.next)
 				b.next = input
+			} else if _, ok := b.future[result.plan.id]; ok {
+				b.closeInput(b.later[result.plan.id])
+				b.later[result.plan.id] = input
 			} else {
 				b.closeInput(input)
 				continue
@@ -465,6 +477,9 @@ func (b *broadcast) run() {
 		b.mu.Unlock()
 		b.closeInput(b.current)
 		b.closeInput(b.next)
+		for _, input := range b.later {
+			b.closeInput(input)
+		}
 		b.closeInput(b.fallback)
 		b.closeInput(b.introFade)
 		b.mu.Lock()
@@ -510,6 +525,14 @@ func (b *broadcast) step(now time.Time) {
 	fresh := false
 	previousPCM := b.lastFrame.PCM
 	current, next := b.planner.plans(now)
+	clear(b.future)
+	if planner, ok := b.planner.(interface {
+		prewarmPlans(time.Time) []broadcastPlan
+	}); ok {
+		for _, plan := range planner.prewarmPlans(now) {
+			b.future[plan.id] = plan
+		}
+	}
 	if planner, ok := b.planner.(interface{ screen(time.Time) broadcastPlan }); ok {
 		b.screenPlan = planner.screen(now)
 	}
@@ -552,6 +575,25 @@ func (b *broadcast) step(now time.Time) {
 		b.current.started = now
 		b.current.activateNow()
 	}
+	if input := b.later[current.id]; input != nil {
+		b.closeInput(b.current)
+		b.current = input
+		delete(b.later, current.id)
+		input.started = now
+		input.activateNow()
+	}
+	if next != nil && b.next == nil {
+		if input := b.later[next.id]; input != nil {
+			b.next = input
+			delete(b.later, next.id)
+		}
+	}
+	for id, input := range b.later {
+		if _, ok := b.future[id]; !ok {
+			b.closeInput(input)
+			delete(b.later, id)
+		}
+	}
 	if b.next != nil && (next == nil || b.next.plan.id != next.id) {
 		b.closeInput(b.next)
 		b.next = nil
@@ -561,6 +603,11 @@ func (b *broadcast) step(now time.Time) {
 	}
 	if next != nil && next.start.Sub(now) <= broadcastPrewarm && b.next == nil {
 		b.open(*next, now)
+	}
+	for id, plan := range b.future {
+		if (b.next == nil || b.next.plan.id != id) && b.later[id] == nil {
+			b.open(plan, now)
+		}
 	}
 	samples := tickSamples(b.format, b.tick)
 	frame := transcode.RawFrame{}
@@ -667,12 +714,8 @@ func (b *broadcast) step(now time.Time) {
 	b.lastFrame = frame
 	b.mu.Lock()
 	for id, r := range b.renditions {
-		select {
-		case r.queue <- frame:
-		default:
-			b.logger.Warn("broadcast rendition queue full", "rendition", id, "tick", b.tick, "clockLag", time.Since(now))
-			delete(b.renditions, id)
-			r.cancel()
+		if changed, repeating, pending := r.queue.push(frame); changed {
+			b.logger.Info("broadcast encoder video cadence changed", "rendition", id, "repeating", repeating, "pendingTicks", pending, "tick", b.tick)
 		}
 	}
 	b.mu.Unlock()

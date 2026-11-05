@@ -9,44 +9,24 @@ import (
 
 // Engine owns one rendition's live Signal state. Construct off the tick path.
 // Render is allocation-free and its output belongs to the caller. Static uses
-// a temporally integrated low-resolution phosphor field; plate styles keep a
-// precomposited I420 plate and animate only cheap luma effects.
+// the owner-approved hard-edged grain directly in the negotiated output frame.
 type Engine struct {
 	width, height int
 	style         string
-	warm          *WarmGenerator
-	source, plate []byte
+	plate         []byte
 	vignette      []uint16
-	rowA, rowB    []uint16
-	xIndex        []int
-	xWeight       []uint16
-	lastRow       int
 	seed          int64
 }
 
-// NewStatic produces the approved warm phosphor static at the output resolution.
-// The band-limited field is deliberate softness, not a reduced-resolution encode.
+// NewStatic restores the continuity demo's live, neutral, crisp static.
 func NewStatic(width, height int, seed int64) *Engine {
-	e := newEngine(width, height, "static", seed)
-	e.warm = NewWarmGenerator(320, 180, seed)
-	e.source = make([]byte, 320*180*3/2)
-	e.rowA = make([]uint16, width)
-	e.rowB = make([]uint16, width)
-	e.xIndex = make([]int, width)
-	e.xWeight = make([]uint16, width)
-	for x := 0; x < width; x++ {
-		position := float64(x) * 319 / float64(width-1)
-		i := int(position)
-		e.xIndex[x] = min(318, i)
-		e.xWeight[x] = uint16(math.Round((position - float64(e.xIndex[x])) * 256))
-	}
-	return e
+	return newEngine(width, height, "static", seed)
 }
 func newEngine(w, h int, style string, seed int64) *Engine {
 	if w < 2 || h < 2 || w%2 != 0 || h%2 != 0 {
 		panic("signal: invalid size")
 	}
-	return &Engine{width: w, height: h, style: style, seed: seed, lastRow: -1}
+	return &Engine{width: w, height: h, style: style, seed: seed}
 }
 
 // NewPlate accepts straight/premultiplied image.Image plates (PNG decoding
@@ -101,10 +81,9 @@ func (e *Engine) Render(video []byte, pcm []int16, tick int64) {
 	if len(video) < w*h*3/2 || len(pcm) < 3200 {
 		panic("signal: undersized tick buffers")
 	}
-	if e.warm != nil {
-		e.warm.Frame(e.source, tick)
-		e.upscale(video)
-		WarmAudio(pcm, tick, e.seed)
+	if e.style == "static" {
+		StaticVideo(video, w, h, e.seed, tick)
+		StaticAudio(pcm, tick, 1600, e.seed)
 		return
 	}
 	copy(video, e.plate)
@@ -126,37 +105,4 @@ func (e *Engine) Render(video []byte, pcm []int16, tick int64) {
 	}
 	// Every signal screen is silent (owner decision: no bars or test-card tone).
 	clear(pcm)
-}
-func (e *Engine) upscale(dst []byte) {
-	w, h := e.width, e.height
-	e.lastRow = -1
-	for y := 0; y < h; y++ {
-		position := float64(y) * 179 / float64(h-1)
-		sy := min(178, int(position))
-		weight := int(math.Round((position - float64(sy)) * 256))
-		if sy != e.lastRow {
-			for x := 0; x < w; x++ {
-				sx, wx := e.xIndex[x], int(e.xWeight[x])
-				a := int(e.source[sy*320+sx])*(256-wx) + int(e.source[sy*320+sx+1])*wx
-				b := int(e.source[(sy+1)*320+sx])*(256-wx) + int(e.source[(sy+1)*320+sx+1])*wx
-				e.rowA[x] = uint16(a)
-				e.rowB[x] = uint16(b)
-			}
-			e.lastRow = sy
-		}
-		row := dst[y*w : (y+1)*w]
-		for x := 0; x < w; x++ {
-			row[x] = byte((int(e.rowA[x])*(256-weight) + int(e.rowB[x])*weight + 32768) >> 16)
-		}
-	}
-	// Warm phosphor chroma varies only at the low source resolution.
-	for y := 0; y < h/2; y++ {
-		sy := min(89, y*180/h)
-		for x := 0; x < w/2; x++ {
-			sx := min(159, x*320/w)
-			i := y*(w/2) + x
-			dst[w*h+i] = e.source[320*180+sy*160+sx]
-			dst[w*h+w*h/4+i] = e.source[320*180+320*180/4+sy*160+sx]
-		}
-	}
 }

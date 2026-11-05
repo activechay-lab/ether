@@ -1,4 +1,4 @@
-import { warmStatic } from "./warm-static";
+import { crispStatic } from "./crisp-static";
 import { resolveBug } from "./bug";
 import { getToken, SESSION_HEADER } from "../../../lib/api";
 import type { Bindings, Look, Moment } from "./model";
@@ -440,9 +440,14 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
             draw.restore();
           }
         } else if (l.type === "noise") {
-          draw.imageSmoothingEnabled = true;
-          draw.imageSmoothingQuality = "high";
-          draw.drawImage(warmStatic(seed, Math.max(0, Math.floor(t * 30))), 0, 0, w, h);
+          draw.imageSmoothingEnabled = false;
+          draw.drawImage(
+            crispStatic(seed, Math.max(0, Math.floor(t * 30)), width, height),
+            0,
+            0,
+            w,
+            h,
+          );
         } else {
           const path = new Path2D(l.type === "path" ? l.path : undefined);
           if (["rect", "gradient"].includes(l.type)) path.rect(0, 0, w, h);
@@ -742,6 +747,29 @@ export function loadOnAirFonts() {
     );
   })());
 }
+const customFonts = new Map<string, Promise<void>>();
+export async function loadStyleFonts(look: Look) {
+  await loadOnAirFonts();
+  await Promise.all(
+    Object.values(look.brand.type)
+      .filter((id) => /^[a-f0-9]{64}$/.test(id))
+      .map((id) => {
+        if (!customFonts.has(id))
+          customFonts.set(
+            id,
+            (async () => {
+              const url = `/ether/api/onair/assets/${id}`;
+              const response = await fetch(url, { headers: resourceHeaders(url) });
+              if (!response.ok) throw new Error("Font unavailable");
+              const face = new FontFace(`onair-${id}`, await response.arrayBuffer());
+              await face.load();
+              document.fonts.add(face);
+            })(),
+          );
+        return customFonts.get(id);
+      }),
+  );
+}
 export function documentFor(family: string, moment: string) {
   return catalog[
     `${family === "lateNight" ? "late-night" : family}-${moment === "offair" && family === "personal" ? "welcome" : moment}`
@@ -926,6 +954,9 @@ export function renderLook(
         ];
       return {
         ...l,
+        ...(l.id === "tag" && l.type === "text" && ["ident", "offair", "welcome"].includes(moment)
+          ? { text: "{words.tagline}" }
+          : {}),
         ...(patch
           ? {
               ...patch,
@@ -1010,7 +1041,7 @@ export function renderLook(
       ];
     }
   }
-  const document = { ...doc, layers: look.layers ? edit(previewLayers) : previewLayers };
+  const document = { ...doc, layers: edit(previewLayers) };
   if (moment === "ident" && document.layers[0]?.id === "ident-envelope") {
     const duration = look.moments.ident?.duration ?? doc.duration;
     document.duration = duration;
@@ -1065,7 +1096,12 @@ export function renderLook(
     }
   }
 
-  if (synchronous || !workerFrame(ctx, document, bound, t)) renderScene(ctx, document, bound, t);
+  if (
+    Object.values(look.brand.type).some((id) => /^[a-f0-9]{64}$/.test(id)) ||
+    synchronous ||
+    !workerFrame(ctx, document, bound, t)
+  )
+    renderScene(ctx, document, bound, t);
 }
 
 if (import.meta.hot)
