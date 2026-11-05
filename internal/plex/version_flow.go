@@ -20,6 +20,8 @@ CREATE TABLE plex_version_flows (
  PRIMARY KEY(user_id,client_id,title_key)
 );
 CREATE INDEX plex_version_flows_expiry ON plex_version_flows(expires);`)
+	// Version flows are transient per-viewer play state: drop on purge/merge.
+	store.RegisterViewerTable("plex_version_flows", "plex_version_flows", "user_id", store.ViewerMergeDrop)
 }
 
 const versionPreplayTTL = 90 * time.Second
