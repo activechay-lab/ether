@@ -1538,6 +1538,79 @@ func (s *Server) sectionOnDeck(w http.ResponseWriter, r *http.Request, sec Secti
 func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
+	pendingVisible := false
+	if pr.Start == 0 && pr.User != nil {
+		if pending, ok := s.d.State.(interface{ HasPendingWatch(int64) bool }); ok {
+			pendingVisible = pending.HasPendingWatch(pr.User.ID)
+		}
+	}
+	if paged, ok := s.d.Catalog.(interface {
+		PlexOnDeckPage(context.Context, int64, int, int, core.Filter, bool) (core.WatchPage, error)
+	}); ok && pr.User != nil && !pendingVisible {
+		_, size := pr.pageOf(0)
+		filter := core.Filter{MaxContentRating: pr.User.MaxContentRating, SaferPlexRating: s.plexMetaOn()}
+		movieAllowed, episodeAllowed := false, false
+		for _, section := range s.userSections(pr.User) {
+			movieAllowed = movieAllowed || section.Type == core.TypeMovie
+			episodeAllowed = episodeAllowed || section.Type == core.TypeShow
+		}
+		if !movieAllowed && !episodeAllowed {
+			mc := libraryContainer()
+			mc.SetPage(pr.Start, 0)
+			s.write(w, r, mc)
+			return
+		}
+		if !movieAllowed {
+			filter.Type = core.TypeEpisode
+		}
+		if !episodeAllowed {
+			filter.Type = core.TypeMovie
+		}
+		if blocks, ok := s.d.AccessPolicy.(interface {
+			BrowseBlocks(*core.User) ([]string, []string)
+		}); ok {
+			filter.ExcludeGenres, filter.ExcludeKeywords = blocks.BrowseBlocks(pr.User)
+		}
+		child := filter
+		filter.ChildVisibility = &child
+		page, err := paged.PlexOnDeckPage(ctx, pr.User.ID, max(pr.Start, 0), size, filter, r.URL.Path == "/hubs/home/onDeck")
+		if err != nil {
+			s.writeErr(w, r, err)
+			return
+		}
+		state := s.stateFor(ctx, pr, page.Items)
+		for key, anchor := range page.Anchors {
+			status := state[key]
+			if status.LastViewedAt.Before(anchor.LastViewedAt) {
+				status.LastViewedAt = anchor.LastViewedAt
+			}
+			if status.UpdatedAt.Before(anchor.UpdatedAt) {
+				status.UpdatedAt = anchor.UpdatedAt
+			}
+			state[key] = status
+		}
+		mc := libraryContainer()
+		mc.Mixed = model.Ptr(true)
+		mc.Metadata = s.onDeckItems(ctx, pr, page.Items, state)
+		if r.URL.Path == "/hubs/home/onDeck" {
+			for i := range mc.Metadata {
+				if sec, ok := s.sectionFor(page.Items[i].Type); ok {
+					mc.Metadata[i].LibrarySectionKey = "/library/sections/" + strconv.Itoa(sec.ID)
+					mc.Metadata[i].LibrarySectionUUID = ""
+				}
+			}
+		}
+		if r.URL.Query().Get("includeMeta") == "1" {
+			mc.Meta = &model.Meta{}
+			for _, section := range s.userSections(pr.User) {
+				mc.Meta.Type = append(mc.Meta.Type, s.metaType(section, section.Type, ""))
+			}
+		}
+		mc.Size = len(mc.Metadata)
+		mc.SetPage(pr.Start, page.Total)
+		s.write(w, r, mc)
+		return
+	}
 	items, state := s.continueExperience(pr).Row(ctx, pr.User, "", 200)
 	if r.URL.Path == "/hubs/home/onDeck" {
 		episodes := items[:0]
@@ -1655,6 +1728,42 @@ func (s *Server) handleRecentlyAdded(w http.ResponseWriter, r *http.Request) {
 	// release or air date is missing or still in the future.
 	wantType := typeFromParam(rq.Get("type"))
 	wantSection, _ := strconv.Atoi(rq.Get("sectionID"))
+	if paged, ok := s.d.Catalog.(interface {
+		PlexRecentPage(context.Context, core.BrowseQuery, []core.MediaType) (core.Page, error)
+	}); ok && r.URL.Path == "/library/recentlyAdded" {
+		var kinds []core.MediaType
+		for _, sec := range s.userSections(pr.User) {
+			if wantSection > 0 && sec.ID != wantSection || wantType != "" && wantType != sec.Type {
+				continue
+			}
+			kind := sec.Type
+			if kind == core.TypeShow {
+				kind = core.TypeEpisode
+			}
+			kinds = append(kinds, kind)
+		}
+		_, pageSize := pr.pageOf(0)
+		q := core.BrowseQuery{Filter: core.Filter{KnownAddedDate: true, SaferPlexRating: s.plexMetaOn()}, Sort: core.SortAdded, Desc: true, Offset: max(pr.Start, 0), Limit: pageSize}
+		if pr.User != nil {
+			q.Filter.MaxContentRating = pr.User.MaxContentRating
+			if unwatched {
+				q.Filter.Group = &core.FilterGroup{Unwatched: &unwatched, UserID: pr.User.ID}
+			}
+		}
+		page, err := paged.PlexRecentPage(ctx, q, kinds)
+		if err != nil {
+			s.writeErr(w, r, err)
+			return
+		}
+		mc := libraryContainer()
+		mc.Title1 = "Recently Added"
+		mc.Mixed = model.Ptr(true)
+		mc.Metadata = s.renderTitles(ctx, pr, page.Items, renderOpts{media: true})
+		mc.Size = len(mc.Metadata)
+		mc.SetPage(pr.Start, page.Total)
+		s.write(w, r, mc)
+		return
+	}
 	for _, sec := range s.userSections(pr.User) {
 		if wantSection > 0 && sec.ID != wantSection || wantType != "" && wantType != sec.Type {
 			continue

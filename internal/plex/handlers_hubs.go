@@ -69,6 +69,14 @@ func hubItemsKey(h core.Hub, hc hubCtx) string {
 
 func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubCtx) model.Hub {
 	h := hs.Hub
+	if strings.HasPrefix(h.ID, "movie.recentlyviewed.") || strings.HasPrefix(h.ID, "tv.recentlyviewed.") {
+		if sec, ok := s.sectionFromHubID(h.ID); ok {
+			if measured, err := s.recentlyWatchedHub(ctx, pr, sec, max(len(h.Items), 1)); err == nil {
+				hs = measured
+				h = hs.Hub
+			}
+		}
+	}
 	build := func() []core.Title {
 		if loader, ok := s.d.Catalog.(interface {
 			LoadRowFacts(context.Context, []core.Title) []core.Title
@@ -100,7 +108,7 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 			sourceItems = sourceItems[:hc.visible]
 			h.More = true
 		}
-		return s.renderTitles(ctx, pr, sourceItems, renderOpts{detail: related, media: true, state: hs.state, inSection: related, guids: related, detailEpisodes: !hs.plain})
+		return s.renderTitles(ctx, pr, sourceItems, renderOpts{media: true, state: hs.state, inSection: related, guids: related, detailEpisodes: !hs.plain})
 	}
 	var md []model.Metadata
 	generation := ""
@@ -952,6 +960,13 @@ func (s *Server) findHub(ctx context.Context, pr *Request, id string, sections [
 	case strings.HasPrefix(id, "movie.inprogress.") || strings.HasPrefix(id, "tv.inprogress."):
 		if sec, ok := s.sectionFromHubID(id); ok && s.canSeeSection(pr.User, sec.ID) {
 			return s.continueHub(ctx, pr, cwSection, sec, count), true
+		}
+		return hubSpec{}, false
+	case strings.HasPrefix(id, "movie.recentlyviewed.") || strings.HasPrefix(id, "tv.recentlyviewed."):
+		if sec, ok := s.sectionFromHubID(id); ok && s.canSeeSection(pr.User, sec.ID) {
+			if hs, err := s.recentlyWatchedHub(ctx, pr, sec, count); err == nil {
+				return hs, true
+			}
 		}
 		return hubSpec{}, false
 	case strings.HasPrefix(id, "movie.recentlyadded.") || strings.HasPrefix(id, "tv.recentlyadded."):
