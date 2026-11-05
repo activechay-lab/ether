@@ -1032,7 +1032,6 @@
   "m_0466b5b9a300ef": "Studios",
   "m_046871eecddbce": "Connexions sécurisées",
   "m_04689ff1b29440": "Clé API",
-  "m_046abde90f9550": "Zone de sécurité",
   "m_046d8520c1d620": "Explorateur de cache",
   "m_046f9b8189032a": {
     "one": "{count} téléchargement aujourd’hui · aucune limite quotidienne définie",
@@ -1426,7 +1425,6 @@
   "m_060263156c7a23": "Moments",
   "m_0602e88453f640": "Aucun service debrid pour l’instant",
   "m_0603f8c8c14881": "Les épisodes spéciaux placés par l’ordre gardent leur position. Masquer les épisodes spéciaux retire tous les épisodes de la saison 0 des listes de navigation. Les épisodes que l’ordre omet apparaissent sous Autres épisodes.",
-  "m_06048ed34eef18": "Non enregistré",
   "m_0607d4d4be574c": "Reprendre",
   "m_0609d540123cc4": "URL du flux",
   "m_0609fd105ca5cd": "Rendez-vous horaires",
@@ -6495,7 +6493,6 @@
   "m_1bb5fa24d90bf6": "Copier le chemin d’échange",
   "m_1bb6ee1903edda": "Personnes et sociétés",
   "m_1bb801da11773e": "La personnalisation décide si et où l’afficher",
-  "m_1bb929a679a8e1": "Sélectionnez un calque pour le modifier.",
   "m_1bb961e2b8b420": "Compte debrid",
   "m_1bba66d0c53840": "Masquer les titres obscurs",
   "m_1bbb918638464f": "Jumelez une application IA pour qu’elle puisse interroger Ether avec les mêmes outils que Demander à Ether. Toute modification du serveur nécessite toujours votre approbation ici.",

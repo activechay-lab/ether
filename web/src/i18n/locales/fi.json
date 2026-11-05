@@ -1006,7 +1006,6 @@
   "m_0466b5b9a300ef": "Studiot",
   "m_046871eecddbce": "Suojatut yhteydet",
   "m_04689ff1b29440": "API-avain",
-  "m_046abde90f9550": "Turva-alue",
   "m_046d8520c1d620": "Välimuistin selain",
   "m_046f9b8189032a": {
     "one": "{count} lataus tänään · ei päivärajaa",
@@ -1387,7 +1386,6 @@
   "m_060263156c7a23": "Hetket",
   "m_0602e88453f640": "Ei vielä debrid-palveluita",
   "m_0603f8c8c14881": "Järjestyksen sijoittamat erikoisjaksot säilyttävät paikkansa. Erikoisjaksojen piilottaminen poistaa jokaisen tuotantokauden 0 jakson selauslistoista. Järjestyksestä pois jätetyt jaksot näkyvät kohdassa Muut jaksot.",
-  "m_06048ed34eef18": "Tallentamatta",
   "m_0607d4d4be574c": "Jatka",
   "m_0609d540123cc4": "Toiston URL-osoite",
   "m_0609fd105ca5cd": "Kellon mukaan",
@@ -6319,7 +6317,6 @@
   "m_1bb5fa24d90bf6": "Kopioi vaihtopolku",
   "m_1bb6ee1903edda": "Henkilöt ja yhtiöt",
   "m_1bb801da11773e": "Personointi päättää, näytetäänkö ja missä",
-  "m_1bb929a679a8e1": "Valitse muokattava taso.",
   "m_1bb961e2b8b420": "Debrid-tili",
   "m_1bba66d0c53840": "Piilota vähän tunnetut teokset",
   "m_1bbb918638464f": "Yhdistä tekoälysovellus, jotta se voi kysyä Etheriltä samoilla työkaluilla. Palvelimen muutokset vaativat edelleen hyväksyntäsi täällä.",

@@ -1006,7 +1006,6 @@
   "m_0466b5b9a300ef": "Studior",
   "m_046871eecddbce": "Säkra anslutningar",
   "m_04689ff1b29440": "API-nyckel",
-  "m_046abde90f9550": "Säkert område",
   "m_046d8520c1d620": "Cacheutforskare",
   "m_046f9b8189032a": {
     "one": "{count} nedladdning i dag · ingen daglig gräns satt",
@@ -1387,7 +1386,6 @@
   "m_060263156c7a23": "Ögonblick",
   "m_0602e88453f640": "Inga debrid-tjänster ännu",
   "m_0603f8c8c14881": "Specialavsnitt som ordningen placerar behåller sin plats. Om du döljer specialavsnitt tas varje avsnitt i säsong 0 bort från bläddringslistor. Avsnitt som ordningen utelämnar visas under Övriga avsnitt.",
-  "m_06048ed34eef18": "Osparat",
   "m_0607d4d4be574c": "Återuppta",
   "m_0609d540123cc4": "Ström-URL",
   "m_0609fd105ca5cd": "På klockslag",
@@ -6319,7 +6317,6 @@
   "m_1bb5fa24d90bf6": "Kopiera inbytessökväg",
   "m_1bb6ee1903edda": "Personer och bolag",
   "m_1bb801da11773e": "Personalisering avgör om och var",
-  "m_1bb929a679a8e1": "Välj ett lager att redigera.",
   "m_1bb961e2b8b420": "Debrid-konto",
   "m_1bba66d0c53840": "Dölj obskyra titlar",
   "m_1bbb918638464f": "Parkoppla en AI-app så att den kan ställa frågor till Ether med samma verktyg som Fråga Ether. Ändringar på servern kräver fortfarande ditt godkännande här.",
