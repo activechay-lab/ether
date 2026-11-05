@@ -1,5 +1,6 @@
+import { createPortal } from "react-dom";
 import { useLayoutEffect, useRef, useState } from "react";
-import { Tooltip, cn } from "@braedonsaunders/appkit-ui";
+import { cn } from "@braedonsaunders/appkit-ui";
 import { t } from "../../i18n";
 import { MINUTE, clock, hueOf, type Programme } from "./model";
 
@@ -22,6 +23,7 @@ export function Timeline({
   label: string;
   className?: string;
 }) {
+  const [hover, setHover] = useState<{ text: string; x: number; y: number } | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const [availableWidth, setAvailableWidth] = useState(600);
   useLayoutEffect(() => {
@@ -54,6 +56,18 @@ export function Timeline({
       role="img"
       aria-label={label}
     >
+      {hover
+        ? createPortal(
+            <div
+              role="tooltip"
+              className="fixed z-[100] max-w-72 rounded-lg border border-border bg-elevated px-3 py-2 text-xs text-fg shadow-lg"
+              style={{ left: hover.x, top: hover.y }}
+            >
+              {hover.text}
+            </div>,
+            document.body,
+          )
+        : null}
       <div className="space-y-1.5" style={minWidth ? { minWidth } : undefined}>
         <div className="relative h-14 overflow-hidden rounded-xl border border-border bg-bg-subtle">
           {programmes.map((p) => {
@@ -69,11 +83,32 @@ export function Timeline({
               <div
                 key={p.id}
                 tabIndex={0}
+                onMouseEnter={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setHover({
+                    text: [p.item.title, p.reason, `${clock(p.start)} – ${clock(p.end)}`]
+                      .filter(Boolean)
+                      .join(" · "),
+                    x: Math.min(rect.left, window.innerWidth - 300),
+                    y: rect.bottom + 6,
+                  });
+                }}
+                onMouseLeave={() => setHover(null)}
+                onFocus={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setHover({
+                    text: [p.item.title, p.reason].filter(Boolean).join(" · "),
+                    x: Math.min(rect.left, window.innerWidth - 300),
+                    y: rect.bottom + 6,
+                  });
+                }}
+                onBlur={() => setHover(null)}
                 aria-label={[p.item.title, p.reason].filter(Boolean).join(" · ")}
                 title={`${p.item.title}\n${clock(p.start)} – ${clock(p.end)}`}
                 className={cn(
                   "absolute inset-y-0 overflow-hidden border-r border-bg/80 px-2 py-1.5",
                   past && "opacity-45",
+                  interstitial && "!px-0",
                 )}
                 style={{
                   left: `${left}%`,
@@ -85,22 +120,16 @@ export function Timeline({
                   boxShadow: `inset 0 2px 0 hsl(${hue} 60% 50%)`,
                 }}
               >
-                <Tooltip
-                  content={[p.item.title, p.reason, `${clock(p.start)} – ${clock(p.end)}`]
-                    .filter(Boolean)
-                    .join(" · ")}
-                >
-                  <div className="h-full w-full">
-                    {width > 7 ? (
-                      <>
-                        <p className="truncate text-xs font-medium text-fg">{p.item.title}</p>
-                        <p className="truncate text-[10.5px] tabular-nums text-fg-muted">
-                          {clock(p.start)}
-                        </p>
-                      </>
-                    ) : null}
-                  </div>
-                </Tooltip>
+                <div className="h-full w-full">
+                  {width > 7 ? (
+                    <>
+                      <p className="truncate text-xs font-medium text-fg">{p.item.title}</p>
+                      <p className="truncate text-[10.5px] tabular-nums text-fg-muted">
+                        {clock(p.start)}
+                      </p>
+                    </>
+                  ) : null}
+                </div>
               </div>
             );
           })}
