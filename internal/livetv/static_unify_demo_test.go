@@ -111,7 +111,7 @@ func TestStaticUnifyDemo(t *testing.T) {
 			inputCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			b.current = &broadcastInput{ctx: inputCtx, cancel: cancel, plan: plan, decoder: d, frames: make(chan transcode.RawFrame, 1), errs: make(chan error, 1)}
-			q := make(chan transcode.RawFrame, 1)
+			q := newBroadcastFrameQueue(30)
 			b.renditions["evidence"] = &broadcastRendition{queue: q, cancel: func() {}}
 			generation := time.Duration(0)
 			render := func(n int) *image.RGBA {
@@ -123,7 +123,10 @@ func TestStaticUnifyDemo(t *testing.T) {
 				b.current.frames <- raw
 				b.tick = int64(n)
 				b.step(b.origin.Add(time.Duration(n) * time.Second / 30))
-				raw = <-q
+				raw, ok := q.pop(ctx)
+				if !ok {
+					panic("evidence queue closed")
+				}
 				generation += time.Since(start)
 				return evidenceRGBA(raw.Video, f.Width, f.Height)
 			}

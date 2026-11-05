@@ -58,7 +58,7 @@ func TestStaticCrispDemo(t *testing.T) {
 			defer b.cancel()
 			d := &signalInputDecoder{engine: signal.NewStatic(f.Width, f.Height, 35), format: f, audio: make([]int16, 3200), closed: make(chan struct{})}
 			b.current = &broadcastInput{ctx: ctx, cancel: func() {}, plan: plan, decoder: d, frames: make(chan transcode.RawFrame, 1), errs: make(chan error, 1)}
-			q := make(chan transcode.RawFrame, 1)
+			q := newBroadcastFrameQueue(30)
 			b.renditions["evidence"] = &broadcastRendition{queue: q, cancel: func() {}}
 			start := time.Now()
 			for n := 0; n < 660; n++ {
@@ -69,7 +69,11 @@ func TestStaticCrispDemo(t *testing.T) {
 				b.current.frames <- raw
 				b.tick = int64(n)
 				b.step(b.origin.Add(time.Duration(n) * time.Second / 30))
-				if e = enc.Write(ctx, <-q); e != nil {
+				frame, ok := q.pop(ctx)
+				if !ok {
+					t.Fatal("evidence queue closed")
+				}
+				if e = enc.Write(ctx, frame); e != nil {
 					t.Fatal(e)
 				}
 			}
