@@ -188,3 +188,11 @@ retains each metric's own `at` and `state`; these are resource sample times, not
 response times. Missing runtime/quota/resources are unknown, not measured zero.
 This is local process diagnostics, not fleet readiness, placement or retirement
 proof. Drain can leave `readyExisting:true` with `acceptingNew:false`.
+
+The frozen real Plex writer inventory (`internal/plex/representation_paths.md`)
+confirms that public DASH uses the API `start.mpd` response plus typed session
+`{numeric-representation}/header` and `{number}.m4s` URLs. ASS uses the existing
+API query subtitle routes. Encoder filesystem `manifest.mpd` and subtitle ASS
+names are not authored session-namespace URLs. Do not expand the delivery grammar
+from those filenames. A canonical-HLS-only lab restriction records unproven mixed
+role playback/capability acceptance, not a demonstrated authored ASS/MPD URL gap.
