@@ -2,6 +2,7 @@ package plex
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -31,9 +32,16 @@ func (s *Server) projectFileAvailability(r *http.Request, mc *model.MediaContain
 			for k := range md.Media[j].Part {
 				part := &md.Media[j].Part[k]
 				key, release, found := s.partTitle(part.ID)
+				if !found {
+					continue
+				}
 				live := false
 				if found {
-					live, _ = checker.CheckFileAvailability(ctx, pr.User, key, s.clientCaps(pr), release)
+					var err error
+					live, err = checker.CheckFileAvailability(ctx, pr.User, key, s.clientCaps(pr), release)
+					if err != nil && !errors.Is(err, core.ErrNotAvailable) && !errors.Is(err, core.ErrNotFound) {
+						continue
+					}
 				}
 				part.Exists, part.Accessible = model.Ptr(live), model.Ptr(live)
 			}
