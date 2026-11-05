@@ -288,6 +288,7 @@ type WatchStatus struct {
 	ViewOffset      time.Duration `json:"viewOffset"`
 	ViewCount       int           `json:"viewCount"`
 	LastViewedAt    time.Time     `json:"lastViewedAt,omitempty"`
+	LastRatedAt     time.Time     `json:"lastRatedAt,omitempty"`
 	UserRating      float64       `json:"userRating,omitempty"` // 0-10
 	InWatchlist     bool          `json:"inWatchlist,omitempty"`
 	IsFavorite      bool          `json:"isFavorite,omitempty"`      // Derived from the viewer’s favorites set.
@@ -297,10 +298,35 @@ type WatchStatus struct {
 }
 
 type HistoryEntry struct {
+	Snapshot  *Title    `json:"snapshot,omitempty"`
+	ID        int64     `json:"id"`
+	DeviceID  int64     `json:"deviceId"`
+	ViewType  int       `json:"viewType"`
 	UserID    int64     `json:"userId"`
 	Key       RatingKey `json:"key"`
 	ViewedAt  time.Time `json:"viewedAt"`
 	Completed bool      `json:"completed"`
+}
+
+// HistoryQuery selects persisted viewing events before applying a bounded page.
+type HistoryQuery struct {
+	UserID           int64 // zero selects all accounts (owner only at the protocol boundary)
+	Key              RatingKey
+	DeviceID         *int64
+	ViewType         int
+	Since, Until, At *int64 // Unix seconds, inclusive
+	Asc              bool
+	Offset, Limit    int
+}
+type HistoryCount struct {Key RatingKey;Count int;LastAt int64;Users []int64}
+type HistoryTopStore interface {
+ HistoryTop(context.Context,HistoryQuery,KeyKind)([]HistoryCount,error)
+ LifetimeUsers(context.Context,RatingKey,HistoryQuery)([]HistoryCount,error)
+}
+type HistoryStore interface {
+	QueryHistory(context.Context, HistoryQuery) ([]HistoryEntry, error)
+	HistoryByID(context.Context, int64, int64) (HistoryEntry, error)
+	DeleteHistory(context.Context, int64, int64) error
 }
 
 type State interface {

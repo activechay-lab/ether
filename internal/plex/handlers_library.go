@@ -1462,6 +1462,13 @@ func (s *Server) sectionOnDeck(w http.ResponseWriter, r *http.Request, sec Secti
 	pr := FromContext(ctx)
 	_, size := pr.pageOf(0)
 	items, state := s.inProgressTitles(ctx, pr, sec.Type, s.saferFetchCount(pr.User, min(size, 50)))
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := state[items[i].Key].UpdatedAt, state[items[j].Key].UpdatedAt
+		if a.Equal(b) {
+			return items[i].Key < items[j].Key
+		}
+		return a.After(b)
+	})
 	mc := s.sectionContainer(sec)
 	mc.Title2 = "On Deck"
 	mc.Mixed = model.Ptr(true)
@@ -1473,12 +1480,33 @@ func (s *Server) sectionOnDeck(w http.ResponseWriter, r *http.Request, sec Secti
 func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	_, size := pr.pageOf(0)
-	items, state := s.inProgressTitles(ctx, pr, "", s.saferFetchCount(pr.User, min(size, 50)))
+	items, state := s.continueExperience(pr).Row(ctx, pr.User, "", 200)
+	if r.URL.Path == "/hubs/home/onDeck" {
+		episodes := items[:0]
+		for _, item := range items {
+			if item.Type == core.TypeEpisode {
+				episodes = append(episodes, item)
+			}
+		}
+		items = episodes
+	}
 	mc := libraryContainer()
 	mc.Mixed = model.Ptr(true)
 	mc.Metadata = s.onDeckItems(ctx, pr, items, state)
+	if r.URL.Path == "/hubs/home/onDeck" {
+		for i := range mc.Metadata {
+			if sec, ok := s.sectionFor(items[i].Type); ok {
+				mc.Metadata[i].LibrarySectionKey = "/library/sections/" + strconv.Itoa(sec.ID)
+			}
+		}
+	}
+	total := len(mc.Metadata)
+	start := min(max(pr.Start, 0), total)
+	_, size := pr.pageOf(0)
+	end := start + min(max(size, 0), total-start)
+	mc.Metadata = mc.Metadata[start:end]
 	mc.Size = len(mc.Metadata)
+	mc.SetPage(start, total)
 	s.write(w, r, mc)
 }
 
@@ -1488,10 +1516,11 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 func (s *Server) onDeckItems(ctx context.Context, pr *Request, items []core.Title, state map[core.RatingKey]core.WatchStatus) []model.Metadata {
 	// Filter first: renderTitles drops hidden titles, and the loop below
 	// pairs its output with items by index.
-	_, size := pr.pageOf(0)
-	items = s.takeVisible(pr.User, items, min(size, 50))
+	items = s.takeVisible(pr.User, items, len(items))
 	md := s.renderTitles(ctx, pr, items, renderOpts{media: true, detailEpisodes: true, state: state})
 	for i := range md {
+		md[i].SetOnDeckOrder()
+		md[i].LibrarySectionKey = ""
 		md[i].AllowSync = model.Ptr(s.downloadsAllowed(pr.User) && isPlayable(items[i].Type))
 		if sec, ok := s.sectionFor(items[i].Type); ok {
 			md[i].LibrarySectionUUID = sec.UUID
@@ -1507,7 +1536,13 @@ func (s *Server) sectionRecentlyViewed(w http.ResponseWriter, r *http.Request, s
 	mc.Title2 = "Recently Viewed"
 	if s.d.State != nil && pr.User != nil {
 		recent := experience.Recent{Visibility: s.visibility(), Unrestricted: func(u *core.User) bool { return !s.viewerRestricted(u) }}
-		items, err := recent.Viewed(ctx, pr.User, sec.ID, s.d.State.History, s.getTitles, func(t core.MediaType) (int, bool) {
+		history := s.d.State.History
+		if settings, ok := s.d.State.(interface {
+			RecentlyViewedSettings(context.Context, int64, time.Time, int) ([]core.HistoryEntry, error)
+		}); ok {
+			history = settings.RecentlyViewedSettings
+		}
+		items, err := recent.Viewed(ctx, pr.User, sec.ID, history, s.getTitles, func(t core.MediaType) (int, bool) {
 			section, ok := s.sectionFor(t)
 			return section.ID, ok
 		})

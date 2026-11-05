@@ -144,6 +144,8 @@ func (s *Server) routes() chi.Router {
 	any("/actions/removeFromContinueWatching", s.handleRemoveFromContinueWatching)
 	get("/status/sessions", s.handleSessions)
 	get("/status/sessions/history/all", s.handleHistory)
+	get("/status/sessions/history/{history}", s.handleHistoryItem)
+	r.Delete("/status/sessions/history/{history}", s.handleHistoryItem)
 	get("/statistics/bandwidth", s.ownerOnly(s.handleStatisticsBandwidth))
 	get("/statistics/resources", s.ownerOnly(s.handleStatisticsResources))
 	get("/statistics/media", s.ownerOnly(s.handleStatisticsMedia))

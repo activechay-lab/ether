@@ -181,6 +181,7 @@ type Pivot struct {
 type Metadata struct {
 	element string
 	alpha   bool
+	onDeck  bool
 
 	// On Deck items lead with their sync flag and section (PMS).
 	AllowSync             *bool   `plex:"allowSync"`
@@ -501,6 +502,7 @@ type Stream struct {
 // Hub is a row of items.
 type Hub struct {
 	HubKey        string `plex:"hubKey,omitempty"`
+	UpNext        *bool  `plex:"upNext"`
 	Key           string `plex:"key,omitempty"`
 	Title         string `plex:"title"`
 	Type          string `plex:"type"`

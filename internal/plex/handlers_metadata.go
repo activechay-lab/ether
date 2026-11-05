@@ -126,7 +126,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
-			md = s.collectionMetadata(c)
+			md = s.collectionMetadata(c, ctx)
 			if mc == nil {
 				mc = s.itemContainer(c.Type)
 			}
@@ -281,12 +281,23 @@ func (s *Server) detail(ctx context.Context, pr *Request, t *core.Title, childre
 			md.Children = &model.Children{Size: len(rendered), Metadata: rendered}
 		}
 	}
-	if onDeck && t.Type == core.TypeShow {
-		if ep, st := s.showOnDeck(ctx, pr, t.Key, memo); ep != nil {
+	if onDeck && (t.Type == core.TypeShow || t.Type == core.TypeSeason) {
+		show := t.Key
+		if t.Type == core.TypeSeason {
+			show = core.ShowKey(t.Key.TMDB())
+		}
+		if ep, st := s.showOnDeck(ctx, pr, show, memo); ep != nil && (t.Type != core.TypeSeason || ep.Season == t.Season) {
 			// The show page's Play button plays this episode: resolve,
 			// open and probe it so OnDeck and the following Play have its tracks.
 			s.warmDetail(ctx, pr, ep)
 			if items := s.renderTitles(ctx, pr, []core.Title{*ep}, renderOpts{media: true, state: st}); len(items) > 0 {
+				if extras {
+					items[0].Extras = &model.Extras{}
+					for _, e := range s.extrasFor(ctx, pr, ep, extraTypes) {
+						items[0].Extras.Metadata = append(items[0].Extras.Metadata, s.extraMetadata(e, ep, true))
+					}
+					items[0].Extras.Size = len(items[0].Extras.Metadata)
+				}
 				md.OnDeck = &model.OnDeck{Metadata: items[0]}
 			}
 		}
@@ -728,7 +739,7 @@ func (s *Server) scopedCollectionCounts(ctx context.Context, u *core.User, cs []
 	return s.collectionSelection().Counts(ctx, u, cs, collectionDevice(ctx))
 }
 
-func (s *Server) collectionMetadata(c *core.Collection) model.Metadata {
+func (s *Server) collectionMetadata(c *core.Collection, contexts ...context.Context) model.Metadata {
 	rk := c.Key.String()
 	m := model.Metadata{
 		RatingKey: rk,
@@ -767,6 +778,9 @@ func (s *Server) collectionMetadata(c *core.Collection) model.Metadata {
 		m.Image = append(m.Image, model.Image{Alt: c.Title, Type: "background", URL: m.Art})
 	}
 	m.UltraBlurColors = s.ultraBlurFor(c.Key, c.BackdropPath)
+	if len(contexts) > 0 {
+		s.applyListWatch(contexts[0], &m, c.Key)
+	}
 	return m
 }
 
@@ -789,7 +803,7 @@ func (s *Server) sectionCollections(w http.ResponseWriter, r *http.Request, sec 
 	all = filterCollectionTitles(all, r.URL.Query())
 	lo, hi := pr.window(len(all))
 	for i := lo; i < hi; i++ {
-		mc.Metadata = append(mc.Metadata, s.collectionMetadata(&all[i]))
+		mc.Metadata = append(mc.Metadata, s.collectionMetadata(&all[i], ctx))
 	}
 	mc.Size = len(mc.Metadata)
 	mc.SetPage(lo, len(all))
@@ -810,7 +824,7 @@ func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request) {
 			}
 			cs = s.scopedCollectionCounts(ctx, pr.User, cs)
 			for i := range cs {
-				mc.Metadata = append(mc.Metadata, s.collectionMetadata(&cs[i]))
+				mc.Metadata = append(mc.Metadata, s.collectionMetadata(&cs[i], ctx))
 			}
 		}
 	}
@@ -831,7 +845,7 @@ func (s *Server) handleCollection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mc := s.itemContainer(c.Type)
-	mc.Metadata = []model.Metadata{s.collectionMetadata(c)}
+	mc.Metadata = []model.Metadata{s.collectionMetadata(c, ctx)}
 	mc.Size = 1
 	s.write(w, r, mc)
 }

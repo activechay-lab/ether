@@ -33,6 +33,7 @@ func TestPostplayUpNextReloadAndPlayQueue(t *testing.T) {
 				defer f.srv.Close()
 				// The next episode must work without the optional recommender.
 				f.srv.d.Recommender = nil
+				f.state.set(ownerUser.ID, ws(bbE1.Key, 0, 1))
 				headers := map[string]string{"Accept": "application/" + format}
 				for k, v := range client.Headers {
 					headers[k] = v[0]

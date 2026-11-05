@@ -24,7 +24,13 @@ var decisionTrailing = []string{"decision", "selected", "location"}
 func (m *Metadata) SetAlphabetical() { m.alpha = true }
 
 // AttrOrder implements AttrSorter.
-func (m Metadata) AttrOrder() (bool, []string, []string) { return m.alpha, nil, decisionTrailing }
+func (m *Metadata) SetOnDeckOrder() { m.onDeck = true }
+func (m Metadata) AttrOrder() (bool, []string, []string) {
+	if m.onDeck {
+		return true, []string{"allowSync", "librarySectionID", "librarySectionTitle", "librarySectionUUID"}, nil
+	}
+	return m.alpha, nil, decisionTrailing
+}
 
 // SetAlphabetical switches the element to PMS's decision-response ordering.
 func (m *Media) SetAlphabetical() { m.alpha = true }
