@@ -10,6 +10,8 @@ import hashlib
 import json
 from pathlib import Path
 import time
+import subprocess
+import sys
 from urllib.error import HTTPError
 from urllib.parse import urljoin, urlsplit
 from urllib.request import build_opener, HTTPRedirectHandler, Request
@@ -170,7 +172,14 @@ class Probe:
         tail_gap = time.monotonic()-last_progress
         maximum_gap = max(maximum_gap,tail_gap)
         passed = count >= self.c.get('minimumSegments',10) and maximum_gap <= budget and failures == 0 and time.monotonic() >= deadline
-        summary = dict(mediaProgressPassed=passed, segments=count, bytes=total_bytes, mediaSeconds=total_media,
+        packet_verified = False
+        if self.c.get('packetImage') and count:
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name('packet-proof.py')),
+                '--image',self.c['packetImage'],'--media-dir',str(self.output),
+                '--output',str(self.output/'packet-proof.json')],capture_output=True,text=True)
+            packet_verified = result.returncode == 0
+            passed = passed and packet_verified
+        summary = dict(mediaProgressPassed=passed, packetTimingVerified=packet_verified, segments=count, bytes=total_bytes, mediaSeconds=total_media,
                        elapsedSeconds=time.monotonic()-self.started, maximumProgressGapSeconds=maximum_gap,
                        maximumVideoPTSGapSeconds=maximum_pts_gap, requestErrors=failures,
                        placementAndFencingVerified=False)

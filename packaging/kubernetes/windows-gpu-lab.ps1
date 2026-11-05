@@ -75,8 +75,28 @@ $env:ETHER_DATA_DIR = $Data
 $env:XDG_CACHE_HOME = $Cache
 # No secrets on the command line. This is an owned foreground-service process,
 # not a Windows Service. Keep its exact PID and stop/drain only that process.
-$Process = Start-Process -FilePath $Ether -WorkingDirectory $LabRoot -PassThru `
-    -RedirectStandardOutput (Join-Path $Logs 'ether.stdout.log') -RedirectStandardError (Join-Path $Logs 'ether.stderr.log')
-$Process.PriorityClass = 'BelowNormal'
-[IO.File]::WriteAllText((Join-Path $LabRoot 'specialist.pid'),[string]$Process.Id)
+if ($null -eq [Diagnostics.Process].GetMethod('Kill',[Type[]]@([bool]))) {
+    throw 'Start requires PowerShell 7/.NET process-tree cleanup support; no specialist started'
+}
+$Process = $null
+try {
+    $Process = Start-Process -FilePath $Ether -WorkingDirectory $LabRoot -PassThru `
+        -RedirectStandardOutput (Join-Path $Logs 'ether.stdout.log') -RedirectStandardError (Join-Path $Logs 'ether.stderr.log')
+    $Process.PriorityClass = 'BelowNormal'
+    [IO.File]::WriteAllText((Join-Path $LabRoot 'specialist.pid'),[string]$Process.Id)
+}
+catch {
+    # This exact Process object was created above; never stop by image/name.
+    if ($null -ne $Process) {
+        try {
+            $Process.Refresh()
+            if (-not $Process.HasExited) { $Process.Kill($true); $Process.WaitForExit() }
+        }
+        catch {
+            # Retain exact PID for owner recovery when cleanup itself fails.
+            [Console]::Error.WriteLine("Owned native child cleanup failed; inspect exact PID=$($Process.Id)")
+        }
+    }
+    throw
+}
 Write-Output "Native lab specialist started, owned PID=$($Process.Id); startup/media/NVENC execution still require verification"
