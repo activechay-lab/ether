@@ -17,6 +17,10 @@ type Facts struct {
 	Reason   string
 	Tracks   []TrackFacts
 }
+
+// TrackFacts timestamps are the first and maximum observed PES PTS and first/last
+// PES DTS, not every access-unit timestamp. In particular an AAC PES can contain
+// several ADTS frames after LastPTS. No sample-end time is inferred.
 type TrackFacts struct {
 	PID                                  uint16
 	StreamType                           byte

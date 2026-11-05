@@ -34,7 +34,8 @@ invalidates its token. This package has no authority to stop a worker.
 The initial parser supports single-program MPEGTS with one-packet PAT/PMT,
 H.264 Annex B, and ADTS AAC. It validates table CRCs, transport continuity,
 PES lengths, timestamp markers, and supported elementary framing. Each track
-reports raw 33-bit PTS/DTS in 90,000 Hz ticks. Clock wrap, discontinuity, unsupported
+reports raw 33-bit PES PTS/DTS in 90,000 Hz ticks. LastPTS is the maximum
+observed PES timestamp, not the final AAC frame inside that PES or its end time. Clock wrap, discontinuity, unsupported
 tracks, malformed structure and incomplete PES deny verified facts. Zero-length
 video PES is unsupported because packet-aligned truncation is otherwise
 ambiguous; recovery CPU output must use `-omit_video_pes_length 0`, and oversized

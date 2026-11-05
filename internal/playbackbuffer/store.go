@@ -305,7 +305,7 @@ func (s *Store) token(t *FreezeToken) (*session, error) {
 	return ss, nil
 }
 
-// PublishTransition verifies advancing observed sample timestamps and independent
+// PublishTransition verifies advancing observed PES timestamps and independent
 // starts on every track. It does NOT prove a gap-free sample-duration boundary,
 // decodability, delivery, or seamless playback. Old publications remain readable.
 func (s *Store) PublishTransition(t *FreezeToken, keys []Key) error {
