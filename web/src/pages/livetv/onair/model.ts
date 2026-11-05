@@ -40,7 +40,9 @@ export type Look = {
   name: string;
   family: string;
   brand: BrandTokens;
-  moments: Partial<Record<Moment, { duration: number; poster: number }>>;
+  moments: Partial<
+    Record<Moment, { duration: number; poster: number; assetDigest?: string; crossfade?: boolean }>
+  >;
   layers?: Record<
     string,
     {
@@ -65,7 +67,10 @@ export type ReelClip = {
   name: string;
   durationMs: number;
   sourceDigest?: string;
-  status: "ready" | "converting" | "error";
+  status: "ready" | "converting" | "error" | "queued" | "downloading";
+  source?: string;
+  attribution?: string;
+  error?: string;
   progress?: number;
   size?: number;
   preview?: string;
@@ -81,8 +86,24 @@ export type Reel = {
   clips: ReelClip[];
   channelIds: string[];
 };
+export type BreakPattern = {
+  preset: string;
+  seconds: number;
+  minSeconds: number;
+  maxSeconds: number;
+  spots: number;
+  minSpots: number;
+  maxSpots: number;
+  podsPerHalfHour: number;
+  inside: boolean;
+  noRepeatMinutes: number;
+  stationId: boolean;
+  bumperStyle: string;
+  clockAlignment: string;
+};
 export type ChannelLook = {
   bug?: BugSettings;
+  breakPattern?: BreakPattern;
   lookId: string;
   ident: boolean;
   upNext: boolean;
@@ -134,6 +155,11 @@ export type Bindings = {
   greeting?: string;
 };
 export type OnAirAsset = {
+  source?: string;
+  attribution?: string;
+  status?: string;
+  progress?: number;
+  error?: string;
   digest: string;
   name: string;
   kind: string;

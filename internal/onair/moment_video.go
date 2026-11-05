@@ -1,0 +1,57 @@
+package onair
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
+)
+
+func (s *Service) renderMomentVideo(ctx context.Context, j renderJob, out string) error {
+	if s.o.FFmpeg == nil || s.o.Probe == nil {
+		return fmt.Errorf("media conversion unavailable")
+	}
+	var b []byte
+	if e := s.db.QueryRowContext(ctx, "SELECT content FROM onair_assets WHERE digest=? AND kind='video'", j.AssetDigest).Scan(&b); e != nil {
+		return e
+	}
+	f, e := os.CreateTemp(s.o.Dir, ".bumper-*")
+	if e != nil {
+		return e
+	}
+	defer os.Remove(f.Name())
+	_, e = f.Write(b)
+	f.Close()
+	if e != nil {
+		return e
+	}
+	// Supply silence when necessary, keeping authored picture and sound together.
+	info, e := s.o.Probe(ctx, f.Name())
+	if e != nil {
+		return e
+	}
+	hasAudio := false
+	for _, st := range info.Streams {
+		hasAudio = hasAudio || st.Type == "audio"
+	}
+	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", f.Name()}
+	if !hasAudio {
+		args = append(args, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo")
+	}
+	args = append(args, "-map", "0:v:0")
+	if hasAudio {
+		args = append(args, "-map", "0:a:0")
+	} else {
+		args = append(args, "-map", "1:a:0")
+	}
+	args = append(args, "-t", strconv.FormatFloat(j.Doc.Duration, 'f', 6, 64), "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p,tpad=stop_mode=clone:stop_duration=30", "-af", "apad", "-r", "30", "-c:v", "libx264", "-threads", "2", "-preset", "medium", "-crf", "20", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", out)
+	return exec.CommandContext(ctx, s.o.FFmpeg(), args...).Run()
+}
+
+// Crossfade is read from saved look metadata by the background input planner.
+func (s *Service) Crossfade(look, moment string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.looks[look].Moments[moment].Crossfade
+}

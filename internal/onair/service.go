@@ -52,13 +52,14 @@ type entry struct {
 	Pin  time.Time
 }
 type renderJob struct {
-	Hash    string
-	Look    string
-	Doc     scene.Document
-	Bind    raster.Bindings
-	Request core.ClipRequest
-	prepare func(context.Context) error
-	convert func(context.Context) error
+	AssetDigest string
+	Hash        string
+	Look        string
+	Doc         scene.Document
+	Bind        raster.Bindings
+	Request     core.ClipRequest
+	prepare     func(context.Context) error
+	convert     func(context.Context) error
 }
 type Service struct {
 	resources string
@@ -114,6 +115,7 @@ func New(o Options) (*Service, error) {
 	s.loadReels()
 
 	s.resumeConversions()
+	s.resumeImports()
 	for _, l := range ls {
 		s.enqueueLook(l)
 	}
@@ -296,13 +298,14 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	}
 
 	h := encode.Hash(raster.Version+":"+s.resources, d, struct {
-		Brand  Brand
-		Layers map[string]map[string]any
-	}{l.Brand, l.Layers}, struct {
+		Brand       Brand
+		AssetDigest string
+		Layers      map[string]map[string]any
+	}{l.Brand, l.Moments[r.Moment].AssetDigest, l.Layers}, struct {
 		Bindings scene.Bindings
 		Request  core.ClipRequest
 	}{b, r}, r.Art, encode.Profile)
-	return renderJob{Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b, Assets: plugin.Images}, Request: r}, h != ""
+	return renderJob{AssetDigest: l.Moments[r.Moment].AssetDigest, Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b, Assets: plugin.Images}, Request: r}, h != ""
 }
 func (s *Service) Clip(_ context.Context, r core.ClipRequest) (core.ClipRef, bool) {
 	j, ok := s.plan(r)
@@ -519,7 +522,9 @@ func (s *Service) execute(j renderJob) (err error) {
 		}
 		audio = f.Name()
 	}
-	if s.o.Render != nil {
+	if j.AssetDigest != "" {
+		e = s.renderMomentVideo(ctx, j, out)
+	} else if s.o.Render != nil {
 		e = s.o.Render(ctx, j.Doc, j.Bind, out)
 	} else {
 		if s.o.FFmpeg == nil {
