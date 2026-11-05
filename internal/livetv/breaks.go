@@ -40,7 +40,11 @@ func (s *Service) analyzeUpcomingBreaks(retry map[core.RatingKey]time.Time) {
 		return
 	}
 	now := s.o.Now()
-	var pending []Programme
+	type breakTask struct {
+		programme Programme
+		ownerID   int64
+	}
+	var pending []breakTask
 	for _, c := range cs {
 		if !c.Enabled {
 			continue
@@ -49,17 +53,21 @@ func (s *Service) analyzeUpcomingBreaks(retry map[core.RatingKey]time.Time) {
 		if len(eligible) == 0 {
 			continue
 		}
+		s.mu.Lock()
+		ownerID := s.breakOwners[c.ID]
+		s.mu.Unlock()
 		for _, p := range Schedule(c, now, now.Add(2*time.Hour)) {
 			if p.Item.Key == 0 || !eligible[p.Item.Key] || (p.Item.Key.Kind() != core.KindEpisode && p.Item.ShowKey == 0 && p.Item.MediaType != "episode") || !p.Start.After(now.Add(time.Minute)) || now.Before(retry[p.Item.Key]) {
 				continue
 			}
-			pending = append(pending, p)
+			pending = append(pending, breakTask{programme: p, ownerID: ownerID})
 		}
 	}
-	sort.SliceStable(pending, func(i, j int) bool { return pending[i].Start.Before(pending[j].Start) })
+	sort.SliceStable(pending, func(i, j int) bool { return pending[i].programme.Start.Before(pending[j].programme.Start) })
 	done := map[core.RatingKey]bool{}
 	admitted := 0
-	for _, p := range pending {
+	for _, task := range pending {
+		p := task.programme
 		if s.ctx.Err() != nil {
 			return
 		}
@@ -73,7 +81,7 @@ func (s *Service) analyzeUpcomingBreaks(retry map[core.RatingKey]time.Time) {
 		admitted++
 		retry[p.Item.Key] = s.o.Now().Add(15 * time.Minute)
 		ctx, cancel := context.WithTimeout(s.ctx, min(10*time.Minute, p.Start.Sub(s.o.Now())-time.Minute))
-		in, e := s.o.BreakInput(ctx, p.Item.Key)
+		in, e := s.o.BreakInput(ctx, p.Item.Key, task.ownerID)
 		if e != nil {
 			cancel()
 			continue
@@ -90,6 +98,24 @@ func (s *Service) analyzeUpcomingBreaks(retry map[core.RatingKey]time.Time) {
 		retry[p.Item.Key] = s.o.Now().Add(6 * time.Hour)
 		s.publishBreaks(p.Item.Key, points, in.Info.Duration.Milliseconds(), in.ReleaseID, in.Revision)
 	}
+}
+
+// Only InputUser can resolve the setup principal: it requires the admin guard's
+// request admission. Retain just its identity, never the request or its values.
+func (s *Service) captureBreakOwner(ctx context.Context, channelID string) {
+	if s.o.InputUser == nil {
+		return
+	}
+	u, err := s.o.InputUser(ctx)
+	if err != nil || u == nil || !u.IsOwner || u.ID <= 0 {
+		return
+	}
+	s.mu.Lock()
+	if s.breakOwners == nil {
+		s.breakOwners = make(map[string]int64)
+	}
+	s.breakOwners[channelID] = u.ID
+	s.mu.Unlock()
 }
 
 func (s *Service) publishBreaks(key core.RatingKey, points []markers.BreakPoint, duration int64, releaseID, revision string) {
