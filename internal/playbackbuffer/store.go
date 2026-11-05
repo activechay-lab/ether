@@ -52,10 +52,13 @@ type Metadata struct {
 	Facts     Facts
 }
 type Snapshot struct {
-	State   State
-	Frozen  bool
-	Usage   Budget
-	Entries []Metadata
+	// FirstPublishedSequence through State.PublishedFloor is the retained,
+	// contiguous public sequence range; -1 denotes an empty range.
+	FirstPublishedSequence int64
+	State                  State
+	Frozen                 bool
+	Usage                  Budget
+	Entries                []Metadata
 }
 type entry struct {
 	meta    Metadata
@@ -82,7 +85,7 @@ type FreezeToken struct {
 	owner   *Store
 	session string
 	old     State
-	next    uint64
+	next    State
 }
 
 func New(l Limits) (*Store, error) {
@@ -138,7 +141,7 @@ func (s *Store) Retain(ctx context.Context, k Key, f Format, n int64, r io.Reade
 		return errors.New("size overflow")
 	}
 	d.Bytes = 5 * n
-	if ss == nil || k.SeekEpoch != ss.state.SeekEpoch || k.Generation < ss.state.Generation || ss.entries[k] != nil || ss.pending[k] || !fits(s.used, d, s.limits.Global) || !fits(ss.used, d, s.limits.PerSession) {
+	if ss == nil || !ss.accepts(k) || ss.entries[k] != nil || ss.pending[k] || !fits(s.used, d, s.limits.Global) || !fits(ss.used, d, s.limits.PerSession) {
 		s.mu.Unlock()
 		return errors.New("stale, duplicate, or capacity exceeded")
 	}
@@ -191,7 +194,7 @@ func (s *Store) Retain(ctx context.Context, k Key, f Format, n int64, r io.Reade
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if k.SeekEpoch != ss.state.SeekEpoch || k.Generation < ss.state.Generation {
+	if !ss.accepts(k) {
 		return errors.New("generation changed during read")
 	}
 	ss.entries[k] = &entry{meta: Metadata{Key: k, Format: f, Size: n, Facts: facts}, data: b}
@@ -211,9 +214,12 @@ func (s *Store) Snapshot(id string) (Snapshot, error) {
 	if ss == nil {
 		return Snapshot{}, errors.New("unknown session")
 	}
-	v := Snapshot{State: ss.state, Frozen: ss.frozen != nil, Usage: ss.used}
+	v := Snapshot{State: ss.state, Frozen: ss.frozen != nil, Usage: ss.used, FirstPublishedSequence: -1}
 	for _, e := range ss.entries {
 		v.Entries = append(v.Entries, cloneMeta(e.meta))
+		if e.meta.Published && e.meta.Key.Kind == Segment && (v.FirstPublishedSequence < 0 || e.meta.Key.Sequence < v.FirstPublishedSequence) {
+			v.FirstPublishedSequence = e.meta.Key.Sequence
+		}
 	}
 	sort.Slice(v.Entries, func(i, j int) bool {
 		a, b := v.Entries[i].Key, v.Entries[j].Key
@@ -267,11 +273,11 @@ func (s *Store) batch(ss *session, id string, g, epoch uint64, floor int64, keys
 	}
 	return floor, nil
 }
-func (s *Store) FreezeGeneration(id string, expected State, next uint64) (*FreezeToken, error) {
+func (s *Store) FreezeGeneration(id string, expected State, next State) (*FreezeToken, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ss := s.sessions[id]
-	if ss == nil || ss.state != expected || ss.frozen != nil || next <= expected.Generation {
+	if ss == nil || ss.state != expected || ss.frozen != nil || next.Generation <= expected.Generation || next.SeekEpoch < expected.SeekEpoch || next.PublishedFloor <= expected.PublishedFloor {
 		return nil, errors.New("freeze CAS failed")
 	}
 	t := &FreezeToken{owner: s, session: id, old: expected, next: next}
@@ -309,9 +315,12 @@ func (s *Store) PublishTransition(t *FreezeToken, keys []Key) error {
 	if err != nil {
 		return err
 	}
-	floor, err := s.batch(ss, t.session, t.next, t.old.SeekEpoch, t.old.PublishedFloor, keys)
+	floor, err := s.batch(ss, t.session, t.next.Generation, t.next.SeekEpoch, t.old.PublishedFloor, keys)
 	if err != nil {
 		return err
+	}
+	if floor != t.next.PublishedFloor {
+		return errors.New("proposed publication floor mismatch")
 	}
 	old := ss.entries[Key{t.session, t.old.Generation, t.old.SeekEpoch, t.old.PublishedFloor, Segment}]
 	if old == nil || !old.meta.Published {
@@ -336,7 +345,7 @@ func (s *Store) PublishTransition(t *FreezeToken, keys []Key) error {
 	for _, k := range keys {
 		ss.entries[k].meta.Published = true
 	}
-	ss.state = State{t.next, t.old.SeekEpoch, floor}
+	ss.state = t.next
 	ss.frozen = nil
 	return nil
 }
@@ -434,4 +443,11 @@ func (s *Store) CloseSession(id string) error {
 	s.used = sub(s.used, ss.used)
 	delete(s.sessions, id)
 	return nil
+}
+
+func (ss *session) accepts(k Key) bool {
+	if ss.frozen != nil && k.Generation == ss.frozen.next.Generation && k.SeekEpoch == ss.frozen.next.SeekEpoch {
+		return true
+	}
+	return k.SeekEpoch == ss.state.SeekEpoch && k.Generation >= ss.state.Generation
 }

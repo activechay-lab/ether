@@ -115,7 +115,7 @@ func TestPublicationLeasesAndCAS(t *testing.T) {
 	if s.CloseSession("s") == nil || s.Delete(k) == nil {
 		t.Fatal("reader promise lost")
 	}
-	token, e := s.FreezeGeneration("s", State{1, 4, 0}, 2)
+	token, e := s.FreezeGeneration("s", State{1, 4, 0}, State{2, 4, 1})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -177,7 +177,7 @@ func TestActualTSFactsAndTransition(t *testing.T) {
 	shifted := append([]byte(nil), b...)
 	shiftPTS(shifted, 90000)
 	retain(t, s, next, shifted)
-	token, e := s.FreezeGeneration("s", State{1, 4, 0}, 2)
+	token, e := s.FreezeGeneration("s", State{1, 4, 0}, State{2, 4, 1})
 	if e != nil {
 		t.Fatal(e)
 	}
