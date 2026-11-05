@@ -402,7 +402,7 @@ function SessionCard({ s }: { s: NowPlaying }) {
 }
 
 /** Health: anything that needs attention first, each one link from its fix. */
-function HealthPanel({
+export function HealthPanel({
   loading,
   items,
   className,
