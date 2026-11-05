@@ -472,6 +472,10 @@ export const api = {
   // ---- Catalogue helpers ---------------------------------------------------------
   browseCatalog: (
     params: {
+      noTotal?: string;
+      filter?: string;
+      secondarySort?: string;
+      desc?: string;
       ruleVisibility?: string;
       rules?: string;
       ruleFallback?: string;
@@ -485,7 +489,11 @@ export const api = {
       limit?: number;
     },
     signal?: AbortSignal,
-  ) => apiFetch<{ items: TitleCard[]; total: number }>(`/catalog/browse${qs(params)}`, { signal }),
+  ) =>
+    apiFetch<{ items: TitleCard[]; total: number; totalExact?: boolean; hasMore?: boolean }>(
+      `/catalog/browse${qs(params)}`,
+      { signal },
+    ),
   searchCatalog: async (q: string, type?: string, limit = 24, signal?: AbortSignal) =>
     (
       await apiFetch<{ items: TitleCard[] | null }>(`/catalog/search${qs({ q, type, limit })}`, {
