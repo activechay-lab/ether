@@ -2,7 +2,10 @@ package plex
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/plex/model"
+	"net/url"
 	"os"
 	"sort"
 	"testing"
@@ -80,6 +83,7 @@ func TestDigitalLargeCatalogueLatency(t *testing.T) {
 	defer a.Close()
 	wrapped := measureCatalog{c, a}
 	f.srv.d.Catalog = wrapped
+	f.srv.d.DB = db
 	f.srv.d.FilterAvailable = a.FilterDiscovery
 	keys := make([]core.RatingKey, 200)
 	for i := range keys {
@@ -118,6 +122,54 @@ func TestDigitalLargeCatalogueLatency(t *testing.T) {
 		res := f.get(t, fmt.Sprintf("/hubs/sections/1?count=12&measure=%d", i), "Accept", "application/json")
 		if res.Code != 200 {
 			t.Fatalf("hubs: %d %s", res.Code, res.Body.String())
+		}
+	})
+	res := f.get(t, "/hubs/sections/1", "Accept", "application/json")
+	var screen struct{ MediaContainer model.MediaContainer }
+	if err := json.Unmarshal(res.Body.Bytes(), &screen); err != nil {
+		t.Fatal(err)
+	}
+	var rowKey string
+	for _, h := range screen.MediaContainer.Hub {
+		if h.HubIdentifier == "movie.measure" {
+			rowKey = h.Key
+		}
+	}
+	if rowKey == "" {
+		t.Fatal("measure row missing")
+	}
+	waitShelfWrites(t, f.srv)
+	measure("row paging (50 items)", func(i int) {
+		u, _ := url.Parse(rowKey)
+		q := u.Query()
+		q.Set("X-Plex-Container-Start", fmt.Sprint((i%4)*50))
+		q.Set("X-Plex-Container-Size", "50")
+		u.RawQuery = q.Encode()
+		response := f.get(t, u.String(), "Accept", "application/json")
+		var page struct{ MediaContainer model.MediaContainer }
+		if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
+			t.Fatal(err)
+		}
+		if response.Code != 200 || page.MediaContainer.Size != 50 || page.MediaContainer.TotalSize == nil || *page.MediaContainer.TotalSize != 200 {
+			t.Fatalf("row: %d %s", response.Code, response.Body.String())
+		}
+	})
+	measure("row paging (shared-store recovery, 50 items)", func(i int) {
+		f.srv.shelfMu.Lock()
+		f.srv.shelfGenerations = nil
+		f.srv.shelfMu.Unlock()
+		u, _ := url.Parse(rowKey)
+		q := u.Query()
+		q.Set("X-Plex-Container-Start", fmt.Sprint((i%4)*50))
+		q.Set("X-Plex-Container-Size", "50")
+		u.RawQuery = q.Encode()
+		response := f.get(t, u.String(), "Accept", "application/json")
+		var page struct{ MediaContainer model.MediaContainer }
+		if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
+			t.Fatal(err)
+		}
+		if response.Code != 200 || page.MediaContainer.Size != 50 || page.MediaContainer.TotalSize == nil || *page.MediaContainer.TotalSize != 200 {
+			t.Fatalf("row: %d %s", response.Code, response.Body.String())
 		}
 	})
 }

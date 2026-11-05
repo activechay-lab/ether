@@ -14,8 +14,13 @@ func (s *Server) routes() chi.Router {
 
 	// get registers GET and HEAD.
 	get := func(pattern string, h http.HandlerFunc) {
-		r.Get(pattern, h)
-		r.Head(pattern, h)
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			if !s.serveShelfGeneration(w, r) {
+				h(w, r)
+			}
+		}
+		r.Get(pattern, handler)
+		r.Head(pattern, handler)
 	}
 	any := func(pattern string, h http.HandlerFunc) { r.HandleFunc(pattern, h) }
 

@@ -9,6 +9,9 @@ import (
 )
 
 func (s *Server) metadataTitle(ctx context.Context, pr *Request, k core.RatingKey) (*core.Title, error) {
+	if t, ok := shelfMember(ctx, k); ok {
+		return &t, nil
+	}
 	if s.d.EpisodeOrder != nil {
 		return s.d.EpisodeOrder.Get(ctx, pr.User, k)
 	}

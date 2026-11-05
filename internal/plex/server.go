@@ -152,8 +152,9 @@ type Deps struct {
 	DirectHTTP *http.Client
 	// ImageCacheBytes bounds the in-memory artwork cache (default 128 MiB).
 	ImageCacheBytes int64
-	// DB persists derived artwork data (UltraBlurColors) in plex_* tables.
-	// Optional: without it, colours are kept in memory only.
+	// DB persists artwork data and ordered shelf-generation keys. Clustered
+	// nodes share this store so continuations survive failover and restarts.
+	// Optional: without it, these caches remain process-local.
 	DB *sql.DB
 	// DisableEnrichment turns off the background title-detail and
 	// UltraBlurColors work (the spike test library has nothing to fetch).
@@ -186,13 +187,17 @@ type Deps struct {
 // Server is the PMS API handler. It is an http.Handler; call Close on
 // shutdown to stop background work and notification streams.
 type Server struct {
-	shelfMu       sync.Mutex
-	shelfCuts     map[string]shelfCut
-	plexEncoderMu sync.RWMutex
-	plexEncoder   PlexEncoder
-	homeSharedMu  sync.Mutex
-	homeShared    map[string]*homeSharedEntry
-	home          *homeCache
+	shelfMu          sync.Mutex
+	shelfCuts        map[string]shelfCut
+	shelfGenerations map[string]shelfGeneration
+	shelfBytes       int
+	shelfSerial      uint64
+	shelfWriter      *shelfPersistence
+	plexEncoderMu    sync.RWMutex
+	plexEncoder      PlexEncoder
+	homeSharedMu     sync.Mutex
+	homeShared       map[string]*homeSharedEntry
+	home             *homeCache
 
 	d      Deps
 	log    *slog.Logger
@@ -297,6 +302,9 @@ func NewServer(d Deps) *Server {
 	if d.ArtworkImages != nil {
 		s.images = d.ArtworkImages
 	}
+	s.shelfWriter = &shelfPersistence{pending: map[string]shelfWrite{}, active: map[string]bool{}, wake: make(chan struct{}, 1)}
+	s.wg.Add(1)
+	go s.writeShelves()
 	s.sections = s.buildSections()
 	s.queues.now = d.Now
 	if d.Cluster != nil && d.DB != nil {

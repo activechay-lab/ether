@@ -811,19 +811,17 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k core.
 		return
 	}
 	offset, size := pr.pageOf(0)
-	page, err := s.collectionSelection().Page(ctx, pr.User, c, k, collectionDevice(ctx), offset, size)
+	recovering := shelfToken(r.URL.RawQuery) != ""
+	buildOffset, buildSize := offset, size
+	if recovering {
+		buildOffset, buildSize = 0, int(^uint(0)>>1)
+	}
+	page, err := s.collectionSelection().Page(ctx, pr.User, c, k, collectionDevice(ctx), buildOffset, buildSize)
 	if err != nil {
 		s.writeErr(w, r, err)
 		return
 	}
-	mc := s.itemContainer(c.Type)
-	mc.Key = k.String()
-	mc.Title1 = c.Title
-	mc.Title2 = c.Title
-	mc.Summary = c.Summary
-	mc.Thumb = "/library/metadata/" + k.String() + "/thumb/" + collectionStamp(c)
-	mc.ViewGroup = string(c.Type)
-	mc.ViewMode = viewModeList
+	mc := s.collectionItemsContainer(c, k)
 	if !c.Upcoming {
 		mc.Metadata = s.renderTitles(ctx, pr, s.filterAllowed(pr.User, page.Items), renderOpts{media: true})
 	} else {
@@ -836,9 +834,35 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k core.
 			}
 		}
 	}
+	if recovering {
+		seen := map[string]bool{}
+		unique := mc.Metadata[:0]
+		for _, item := range mc.Metadata {
+			if !seen[item.RatingKey] {
+				seen[item.RatingKey] = true
+				unique = append(unique, item)
+			}
+		}
+		page.Total = len(unique)
+		offset = min(offset, page.Total)
+		end := offset + min(size, page.Total-offset)
+		mc.Metadata = unique[offset:end]
+	}
 	mc.Size = len(mc.Metadata)
 	mc.SetPage(offset, page.Total)
 	s.write(w, r, mc)
+}
+
+func (s *Server) collectionItemsContainer(c *core.Collection, k core.RatingKey) *model.MediaContainer {
+	mc := s.itemContainer(c.Type)
+	mc.Key = k.String()
+	mc.Title1 = c.Title
+	mc.Title2 = c.Title
+	mc.Summary = c.Summary
+	mc.Thumb = "/library/metadata/" + k.String() + "/thumb/" + collectionStamp(c)
+	mc.ViewGroup = string(c.Type)
+	mc.ViewMode = viewModeList
+	return mc
 }
 
 func (s *Server) placeholderMetadata(ctx context.Context, pr *Request, t *core.Title, collection core.RatingKey) model.Metadata {

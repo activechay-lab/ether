@@ -42,7 +42,9 @@ func TestRecommendationShelvesHaveDistinctFetchPaths(t *testing.T) {
 func TestShelfFetchReportsPageSizeOffsetAndTotal(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	items := []core.Title{fightClub, fightClub, fightClub}
+	third := fightClub
+	third.Key = core.MovieKey(551)
+	items := []core.Title{fightClub, alien, third}
 	f.srv.d.Recommender = &fakeRecommender{section: map[core.MediaType][]core.Hub{core.TypeMovie: {{ID: "movie.popular", Title: "Popular", Type: core.TypeMovie, Items: items}}}}
 	rec := f.request(t, "GET", "/hubs/items/movie.popular?contentDirectoryID=1&X-Plex-Container-Start=1&X-Plex-Container-Size=1", map[string]string{"Accept": "application/json"})
 	var fetched struct{ MediaContainer model.MediaContainer }
@@ -50,7 +52,7 @@ func TestShelfFetchReportsPageSizeOffsetAndTotal(t *testing.T) {
 		t.Fatal(err)
 	}
 	mc := fetched.MediaContainer
-	if mc.Size != 1 || mc.Offset == nil || *mc.Offset != 1 || mc.TotalSize == nil || *mc.TotalSize != 3 || len(mc.Metadata) != 1 || mc.Metadata[0].RatingKey != fightClub.Key.String() {
+	if mc.Size != 1 || mc.Offset == nil || *mc.Offset != 1 || mc.TotalSize == nil || *mc.TotalSize != 3 || len(mc.Metadata) != 1 || mc.Metadata[0].RatingKey != alien.Key.String() {
 		t.Fatalf("invalid shelf page: %s", rec.Body.String())
 	}
 }
