@@ -4,12 +4,15 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/auth"
 	"github.com/braedonsaunders/ether/internal/clusterplayback"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
+	"github.com/braedonsaunders/ether/internal/identity"
+	"github.com/braedonsaunders/ether/internal/safety"
 )
 
 // buildDeliveryRole constructs only live identity reading, private transport and
@@ -22,7 +25,12 @@ func (a *App) buildDeliveryRole(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 	a.users.SetBus(a.clusterNode())
-	a.closers = append(a.closers, a.users.Close)
+	a.safety, err = safety.New(ctx, a.db)
+	if err != nil {
+		return err
+	}
+	a.safety.SetBus(a.clusterNode())
+	a.closers = append(a.closers, a.users.Close, a.safety.Close)
 	if err = a.buildPrivateCredentials(); err != nil {
 		return err
 	}
@@ -52,6 +60,13 @@ func (a *App) authorizeDeliveryPlex(ctx context.Context, r *http.Request, _ stri
 	}
 	fresh, err := a.users.PolicyUser(ctx, user.ID)
 	if err != nil || fresh == nil || fresh.ID != user.ID {
+		return core.ErrUnauthorized
+	}
+	ip, lan := identity.ClientNet(r, a.trustedProxyPrefixes()...)
+	if !ip.IsValid() || ip.IsUnspecified() || ip.IsMulticast() {
+		return core.ErrUnauthorized
+	}
+	if _, err := a.safety.ConfirmPlayback(ctx, user, !lan, time.Now()); err != nil {
 		return core.ErrUnauthorized
 	}
 	// The owner receives the ORIGINAL credential and repeats the complete public
