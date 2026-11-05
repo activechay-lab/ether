@@ -348,9 +348,9 @@ func encodeXMLElement(w *bufio.Writer, v reflect.Value, name string, root bool) 
 		writeXMLAttr(w, a.Value.(string))
 		w.WriteByte('"')
 	}
-	// PMS self-closes empty children but always writes the root as an
-	// open/close pair.
-	if len(p.children) == 0 && !root {
+	// PMS uses paired tags for Activity rows, including those with no children.
+	// Other empty children remain self-closing; the root is always paired.
+	if len(p.children) == 0 && !root && name != "Activity" {
 		w.WriteString(" />\n")
 		return nil
 	}

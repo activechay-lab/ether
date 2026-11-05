@@ -35,7 +35,7 @@ func TestFirstCharacterJumpbarOffsetsMatchTitleSortEveryLetter(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := t.Context()
-	rel := time.Now().Add(-time.Hour)
+	rel := fixedNow.Add(-time.Hour)
 	var nextID int64 = 1
 	add := func(title, lang string) {
 		id := nextID
