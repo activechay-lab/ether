@@ -73,7 +73,7 @@ func (t Tag) AttrOrder() (bool, []string, []string) { return t.alpha, nil, nil }
 func (s *Stream) SetAlphabetical() { s.alpha = true }
 
 // AttrOrder implements AttrSorter.
-func (s Stream) AttrOrder() (bool, []string, []string) { return s.alpha, nil, streamTrailing }
+func (s Stream) AttrOrder() (bool, []string, []string) { return s.alpha, s.lead, streamTrailing }
 
 // Decision streams sort "selected" with the rest; only decision and
 // location trail.
@@ -119,4 +119,10 @@ func sortAttrs[T any](v reflect.Value, attrs []T, name func(T) string) []T {
 		return name(out[i]) < name(out[j])
 	})
 	return out
+}
+
+// SetSubtitleSearchOrder applies the search-offer attribute order.
+func (s *Stream) SetSubtitleSearchOrder() {
+	s.alpha = true
+	s.lead = []string{"id", "key", "streamType", "codec", "language", "languageCode", "languageTag", "format", "providerTitle", "score", "sourceKey", "title", "transient", "userID"}
 }

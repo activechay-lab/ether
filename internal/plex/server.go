@@ -225,6 +225,7 @@ type Server struct {
 	progressiveStops  progressiveStopGuard
 	readCaps          *readCapabilityStore
 	extraPlay         *extraPlayStore
+	subtitleOffers    subtitleOffers
 	selections        *selectionStore
 	notifier          *notifier
 	facets            *facetCache

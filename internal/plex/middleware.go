@@ -64,6 +64,12 @@ func (s *Server) commonHeaders(next http.Handler) http.Handler {
 			h.Set("Access-Control-Expose-Headers", corsExposeHeaders)
 		}
 		if r.Method == http.MethodOptions {
+			// PMS leaves subtitle-search/upload OPTIONS unimplemented, even
+			// though the rest of the API accepts generic CORS preflights.
+			if strings.HasPrefix(r.URL.Path, "/library/metadata/") && (strings.HasSuffix(r.URL.Path, "/subtitles") || strings.HasSuffix(r.URL.Path, "/tree")) {
+				writeHTTPError(w, http.StatusNotFound)
+				return
+			}
 			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, HEAD, OPTIONS")
 			if req := r.Header.Get("Access-Control-Request-Headers"); req != "" {
 				h.Set("Access-Control-Allow-Headers", req)

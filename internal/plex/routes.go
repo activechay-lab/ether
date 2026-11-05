@@ -69,6 +69,7 @@ func (s *Server) routes() chi.Router {
 	get("/library/search", s.handleLibrarySearch)
 	get("/search", s.handleSearch)
 	get("/library/metadata/{key}", s.handleMetadata)
+	get("/library/metadata/{key}/tree", s.handleMetadataTree)
 	get("/library/metadata/{key}/children", s.handleChildren)
 	get("/library/metadata/{key}/allLeaves", s.handleAllLeaves)
 	get("/library/metadata/{key}/grandchildren", s.handleAllLeaves)
