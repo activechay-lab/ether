@@ -148,6 +148,11 @@ type Filter struct {
 }
 
 type BrowseQuery struct {
+	// PlaylistSource evaluates a saved smart membership before applying this
+	// query's filters and optional episode-to-parent projection.
+	PlaylistSource      *BrowseQuery
+	PlaylistSourceLimit int
+
 	SortLastViewed bool
 	SortViewerID   int64
 	Filter         Filter

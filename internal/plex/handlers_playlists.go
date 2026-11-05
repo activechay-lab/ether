@@ -147,10 +147,10 @@ func (s *Server) smartSectionURI(u *core.User, uri string) (string, error) {
 	return path + "?" + strings.Join(safe, "&"), nil
 }
 
-func (s *Server) smartPlaylistBrowse(ctx context.Context, pr *Request, uri string) ([]core.Title, int, int, error) {
+func (s *Server) smartPlaylistRequest(ctx context.Context, pr *Request, uri string) (browseRequest, error) {
 	p, err := s.smartSectionURI(pr.User, uri)
 	if err != nil {
-		return nil, 0, 0, err
+		return browseRequest{}, err
 	}
 	path, raw, _ := strings.Cut(p, "?")
 	m := reSectionPath.FindStringSubmatch(path)
@@ -182,6 +182,14 @@ func (s *Server) smartPlaylistBrowse(ctx context.Context, pr *Request, uri strin
 			br.lastViewedAfter, br.lastViewedBefore = 0, 0
 		}
 		br.q.Filter = core.Filter{Type: core.TypeEpisode, Group: &core.FilterGroup{ParentOnly: true, Filter: &show}}
+	}
+	return br, nil
+}
+
+func (s *Server) smartPlaylistBrowse(ctx context.Context, pr *Request, uri string) ([]core.Title, int, int, error) {
+	br, err := s.smartPlaylistRequest(ctx, pr, uri)
+	if err != nil {
+		return nil, 0, 0, err
 	}
 	return s.browse(ctx, pr, br)
 }
@@ -575,6 +583,10 @@ func (s *Server) handlePlaylistItems(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(ctx)
 	// Ordinary smart reads keep counting and pagination inside the catalogue.
 	// Parent projections need a bounded membership expansion below.
+	if pl.SmartURI != "" && s.smartPlaylistSQLAvailable() && (q.Get("type") != "" && q.Get("type") != "-1" || playlistHasItemFilters(q)) {
+		s.writeSmartPlaylistItems(w, r, pl)
+		return
+	}
 	if pl.SmartURI != "" && (q.Get("type") == "" || q.Get("type") == "-1") && !playlistHasItemFilters(q) {
 		titles, total, offset, err := s.smartPlaylistBrowse(ctx, pr, pl.SmartURI)
 		if err != nil {

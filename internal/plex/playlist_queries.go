@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -381,4 +382,108 @@ func playlistHasItemFilters(q url.Values) bool {
 		}
 	}
 	return false
+}
+
+func (s *Server) smartPlaylistSQLAvailable() bool {
+	c, ok := s.d.Catalog.(interface{ BrowsePlaylistInSQL() bool })
+	return ok && c.BrowsePlaylistInSQL()
+}
+
+func (s *Server) writeSmartPlaylistItems(w http.ResponseWriter, r *http.Request, pl *core.Playlist) {
+	ctx := r.Context()
+	pr := FromContext(ctx)
+	q := r.URL.Query()
+	source, err := s.smartPlaylistRequest(ctx, pr, pl.SmartURI)
+	if err != nil {
+		s.writeErr(w, r, err)
+		return
+	}
+	if source.invalidSort {
+		writeHTTPError(w, 500)
+		return
+	}
+	if source.none {
+		source.q.Filter.IncludeKeys = []core.RatingKey{}
+	}
+	if source.unwatched != nil || source.inProgress != nil || source.lastViewedAfter > 0 || source.lastViewedBefore > 0 {
+		uid := int64(0)
+		if pr.User != nil && s.d.State != nil {
+			uid = pr.User.ID
+		}
+		state := core.FilterGroup{UserID: uid, Unwatched: source.unwatched, InProgress: source.inProgress, LastViewedAfter: source.lastViewedAfter, LastViewedBefore: source.lastViewedBefore}
+		if source.q.Filter.Group == nil {
+			source.q.Filter.Group = &state
+		} else {
+			source.q.Filter.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*source.q.Filter.Group, state}}
+		}
+	}
+	if source.sortLastViewed {
+		source.q.SortLastViewed = true
+		source.q.Desc = source.lastViewedDesc
+		if pr.User != nil && s.d.State != nil {
+			source.q.SortViewerID = pr.User.ID
+		}
+	}
+
+	if pr.User != nil && source.q.Filter.Type == core.TypeEpisode {
+		policy := core.Filter{MaxContentRating: pr.User.MaxContentRating, SaferPlexRating: s.needPlexRatingFilter(pr.User)}
+		if blocks, ok := s.d.AccessPolicy.(interface {
+			BrowseBlocks(*core.User) ([]string, []string)
+		}); ok {
+			policy.ExcludeGenres, policy.ExcludeKeywords = blocks.BrowseBlocks(pr.User)
+		}
+		if share, ok := s.d.AccessPolicy.(interface {
+			BrowseShareFilter(*core.User, core.MediaType) core.Filter
+		}); ok {
+			policy, _ = experience.MergeShareFilter(policy, share.BrowseShareFilter(pr.User, core.TypeEpisode))
+		}
+		source.q.Filter.ChildVisibility = &policy
+	}
+	typ := source.q.Filter.Type
+	if q.Has("type") && q.Get("type") != "-1" {
+		typ = typeFromParam(q.Get("type"))
+		if typ == "" {
+			s.write(w, r, &model.MediaContainer{})
+			return
+		}
+	}
+	sec, _ := s.sectionFor(typ)
+	filters := url.Values{}
+	for key, val := range q {
+		switch key {
+		case "sort", "limit", "type":
+			continue
+		}
+		filters[key] = val
+	}
+	outer := s.parseBrowse(ctx, sec, typ, pr.User, filters, filters.Encode())
+	outer.q.PlaylistSource = &source.q
+	outer.q.PlaylistSourceLimit = source.limit
+	titles, total, offset, err := s.browse(ctx, pr, outer)
+	if err != nil {
+		s.writeErr(w, r, err)
+		return
+	}
+	storedOnly := typ == core.TypeEpisode
+	sqlAvailability, _ := s.d.Catalog.(interface{ BrowseAvailabilityInSQL() bool })
+	rows := s.renderTitles(ctx, pr, titles, renderOpts{media: true, storedOnly: storedOnly, availabilityInSQL: sqlAvailability != nil && sqlAvailability.BrowseAvailabilityInSQL()})
+	mc := &model.MediaContainer{RatingKey: pl.Key.String(), Title1: pl.Title, PlaylistType: "video", Smart: model.Ptr(true), LeafCount: model.Ptr(total), Metadata: rows, Size: len(rows)}
+	if total > 0 {
+		mc.Composite = "/playlists/" + pl.Key.String() + "/composite/" + strconv.FormatInt(unixOrZero(pl.UpdatedAt), 10)
+	}
+	for _, md := range rows {
+		mc.Duration += md.Duration / 1000
+	}
+	if q.Get("includeMeta") == "1" {
+		types := map[core.MediaType]bool{source.q.Filter.Type: true}
+		if source.q.Filter.Type == core.TypeEpisode {
+			types[core.TypeShow] = true
+			types[core.TypeSeason] = true
+		}
+		mc.Meta = playlistItemsMeta(r, types)
+	}
+	if pr.HasPage {
+		mc.SetPage(offset, total)
+	}
+	s.write(w, r, mc)
 }
