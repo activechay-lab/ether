@@ -447,8 +447,23 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 	// allowSync on library containers follows the viewer's download
 	// permission; containers that don't carry the attribute keep not
 	// carrying it.
-	if mc, ok := v.(*model.MediaContainer); ok && mc.AllowSync != nil {
-		*mc.AllowSync = s.downloadsAllowed(pr.User)
+	if mc, ok := v.(*model.MediaContainer); ok {
+		if mc.AllowSync != nil {
+			*mc.AllowSync = s.downloadsAllowed(pr.User)
+		}
+		// PMS exposes playlist syncing to clients that declare the sync
+		// protocol. Keep Ether's download permission as the authority.
+		if r.Header.Get("X-Plex-Sync-Version") != "" && strings.HasPrefix(r.URL.Path, "/playlists") {
+			allowed := s.downloadsAllowed(pr.User)
+			for i := range mc.Metadata {
+				if mc.Metadata[i].Type == "playlist" {
+					mc.Metadata[i].AllowSync = model.Ptr(allowed)
+				}
+			}
+			if strings.HasSuffix(r.URL.Path, "/items") {
+				mc.AllowSync = model.Ptr(allowed)
+			}
+		}
 	}
 	return model.Marshal(v, pr.Format)
 }
