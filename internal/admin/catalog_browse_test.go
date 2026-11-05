@@ -27,7 +27,7 @@ func TestCatalogBrowse(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
 	helper := &browseHelper{}
 	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), CatalogHelper: helper})
-	path := "/ether/api/catalog/browse?type=movie&q=Seven&genre=Drama&decade=1990&sort=title&offset=48&limit=48"
+	path := "/ether/api/catalog/browse?type=movie&q=Seven&genre=Drama&decade=1990&sort=title&limit=48"
 	if rec := serve(h, req(http.MethodGet, path, "")); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated status %d", rec.Code)
 	}
@@ -39,7 +39,7 @@ func TestCatalogBrowse(t *testing.T) {
 		t.Fatalf("queries: %v", helper.queries)
 	}
 	q := helper.queries[0]
-	if q.Filter.Type != core.TypeMovie || q.Filter.Query != "Seven" || len(q.Filter.Genres) != 1 || q.Filter.Genres[0] != "Drama" || q.Filter.YearFrom != 1990 || q.Filter.YearTo != 1999 || q.Sort != core.SortTitle || q.Desc || q.Offset != 48 || q.Limit != 48 {
+	if q.Filter.Type != core.TypeMovie || q.Filter.Query != "Seven" || len(q.Filter.Genres) != 1 || q.Filter.Genres[0] != "Drama" || q.Filter.YearFrom != 1990 || q.Filter.YearTo != 1999 || q.Sort != core.SortTitle || q.Desc || q.Offset != 0 || q.Limit != 49 || !q.CursorPage || !q.NoTotal {
 		t.Fatalf("wrong query: %+v", q)
 	}
 	var body struct {
@@ -49,10 +49,10 @@ func TestCatalogBrowse(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Total != 107 || len(body.Items) != 1 || body.Items[0].Title != "Seven" || body.Items[0].Poster != admin.ImageURL("/seven.jpg", 342) {
+	if body.Total != 1 || len(body.Items) != 1 || body.Items[0].Title != "Seven" || body.Items[0].Poster != admin.ImageURL("/seven.jpg", 342) {
 		t.Fatalf("wrong response: %+v", body)
 	}
-	for _, query := range []string{"limit=101", "offset=-1", "offset=nope", "limit=0", "decade=1997", "decade=nope", "sort=invalid", "ruleVisibility=invalid", "ruleVisibility=hidden&rules=bad", "ruleVisibility=shown&rules=%5B%5D&ruleFallback=invalid"} {
+	for _, query := range []string{"offset=48", "offset=999999", "cursor=0&offset=1", "limit=101", "offset=-1", "offset=nope", "limit=0", "decade=1997", "decade=nope", "sort=invalid", "ruleVisibility=invalid", "ruleVisibility=hidden&rules=bad", "ruleVisibility=shown&rules=%5B%5D&ruleFallback=invalid"} {
 		t.Run(query, func(t *testing.T) {
 			rec := serve(h, authed(req(http.MethodGet, "/ether/api/catalog/browse?"+query, "")))
 			if rec.Code != http.StatusBadRequest {
@@ -67,7 +67,7 @@ func TestCatalogBrowse(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatal(rec.Code)
 	}
-	if q := helper.queries[1]; q.Limit != 48 || q.Offset != 0 || q.Sort != core.SortPopularity || !q.Desc {
+	if q := helper.queries[1]; q.Limit != 49 || q.Offset != 0 || q.Sort != core.SortPopularity || !q.Desc || !q.CursorPage || !q.NoTotal {
 		t.Fatalf("bad defaults: %+v", q)
 	}
 }

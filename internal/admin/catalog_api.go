@@ -73,7 +73,7 @@ func (h *Handler) handleCatalogBrowse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := r.URL.Query()
-	q := core.BrowseQuery{Limit: 48, Sort: core.SortPopularity, Desc: true}
+	q := core.BrowseQuery{Limit: 48, Sort: core.SortPopularity, Desc: true, CursorPage: true, NoTotal: true}
 	if visibility := p.Get("ruleVisibility"); visibility != "" {
 		if visibility != "shown" && visibility != "hidden" {
 			writeError(w, 400, "invalid_filter", "Invalid visibility")
@@ -97,7 +97,6 @@ func (h *Handler) handleCatalogBrowse(w http.ResponseWriter, r *http.Request) {
 	if p.Has("type") {
 		q.Filter.Type = mediaTypeParam(p.Get("type"))
 	}
-	q.NoTotal = p.Get("noTotal") == "1"
 	q.Filter.LocalOnly = true
 
 	if p.Has("q") {
@@ -171,22 +170,22 @@ func (h *Handler) handleCatalogBrowse(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, map[string]any{"total": total, "pending": pending, "totalExact": !pending})
 			return
 		}
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "Catalog counts are unavailable")
+		return
 	}
-	q.CursorPage = p.Get("cursor") == "1"
-	if q.CursorPage {
-		q.NoTotal = true
-		if q.Offset != 0 {
-			writeError(w, 400, "invalid_cursor", "Cursor pages require zero offset")
+	// Every result request is keyset-paged and count-free, including callers
+	// that omit the modern flags. Never revive a deep OFFSET/full COUNT path.
+	if q.Offset != 0 {
+		writeError(w, 400, "cursor_required", "Use the next cursor to continue browsing")
+		return
+	}
+	if raw := p.Get("after"); raw != "" {
+		key, err := decodeCatalogCursor(raw, q)
+		if err != nil {
+			writeError(w, 400, "invalid_cursor", err.Error())
 			return
 		}
-		if raw := p.Get("after"); raw != "" {
-			key, err := decodeCatalogCursor(raw, q)
-			if err != nil {
-				writeError(w, 400, "invalid_cursor", err.Error())
-				return
-			}
-			q.AfterKey = key
-		}
+		q.AfterKey = key
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
