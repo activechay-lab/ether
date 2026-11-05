@@ -32,6 +32,7 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 }
 
 type Service struct {
+	guideAIMu          sync.Mutex
 	broadcasts         broadcastRegistry
 	broadcastProviders map[string]map[string]string
 	chanSnap           channelSnapshot // decoded lineup shared by request paths (channel_cache.go)

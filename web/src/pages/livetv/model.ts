@@ -277,10 +277,21 @@ export type MatchChange = {
   guideSourceName?: string;
   guideId: string;
   guideName: string;
-  method?: "id" | "name" | "alias";
+  method?: "id" | "name" | "alias" | "ai";
+  confidence?: number;
+  reason?: string;
+  proposalKey?: string;
   reviewRegion?: boolean;
 };
 export type MatchResult = {
+  ai?: {
+    configured: boolean;
+    estimatedCalls: number;
+    inputTokens: number;
+    cached: number;
+    calls: number;
+    deferred: number;
+  };
   matched: number;
   unmatched: number;
   skipped?: number;
@@ -446,8 +457,14 @@ export const tv = {
     ),
   coverage: (signal?: AbortSignal) =>
     apiFetch<Coverage[] | null>("/livetv/guide/coverage", { signal }),
-  match: (body: { channelIds?: string[]; overwrite?: boolean; dryRun?: boolean }) =>
-    apiFetch<MatchResult>("/livetv/guide/match", json("POST", body)),
+  match: (body: {
+    channelIds?: string[];
+    overwrite?: boolean;
+    dryRun?: boolean;
+    ai?: "estimate" | "propose" | "apply";
+    guideSourceId?: string;
+    proposalKeys?: Record<string, string>;
+  }) => apiFetch<MatchResult>("/livetv/guide/match", json("POST", body)),
 };
 
 export const emptyChannel = (): Channel => ({

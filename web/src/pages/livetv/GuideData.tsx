@@ -31,6 +31,7 @@ import {
   type Coverage,
   type GuideChannel,
   type MatchChange,
+  type MatchResult,
   type Programme,
   type Source,
 } from "./model";
@@ -312,6 +313,9 @@ export function GuideWorkbench({
   type Show = "missing" | "all" | "using";
   const [show, setShow] = useState<Show>("missing");
   const [limit, setLimit] = useState(ROW_PAGE);
+  const [aiEstimate, setAIEstimate] = useState<MatchResult["ai"]>();
+  const [aiReview, setAIReview] = useState(false);
+  const [deferredAI, setDeferredAI] = useState(0);
   const [proposals, setProposals] = useState<MatchChange[] | null>(null);
   const [matchCounts, setMatchCounts] = useState({ ambiguous: 0, regionRejected: 0 });
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
@@ -364,14 +368,39 @@ export function GuideWorkbench({
   const pct = live.length ? (live.length - missing.length) / live.length : 1;
   const status = source ? guideSourceStatus(source, using.length, now) : { text: "", warn: false };
 
-  const propose = async () => {
+  const estimateAI = async () => {
     setBusy(true);
     try {
-      const r = await tv.match({ dryRun: true });
+      const r = await tv.match({ ai: "estimate", guideSourceId: sourceId });
+      setAIEstimate(r.ai);
+    } catch (e) {
+      toast.error(t("Couldn't match guide channels"), { description: errorMessage(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const propose = async (ai = false) => {
+    setBusy(true);
+    try {
+      const r = await tv.match({
+        dryRun: true,
+        ...(ai ? { ai: "propose" as const, guideSourceId: sourceId } : {}),
+      });
+      setAIReview(ai);
+      setDeferredAI(r.ai?.deferred ?? 0);
+      setAIEstimate(undefined);
       const changes = (r.changes ?? []).filter((c) => !sourceId || c.guideSourceId === sourceId);
       setProposals(changes);
       setMatchCounts({ ambiguous: r.ambiguous ?? 0, regionRejected: r.regionRejected ?? 0 });
-      setAccepted(new Set(changes.filter((c) => !c.reviewRegion).map((c) => c.channelId)));
+      setAccepted(
+        new Set(
+          changes
+            .filter((c) =>
+              c.method === "ai" ? (c.confidence ?? 0) >= 0.95 && !c.reviewRegion : !c.reviewRegion,
+            )
+            .map((c) => c.channelId),
+        ),
+      );
       if (!changes.length)
         toast.info(t("No new matches found"), {
           description: source
@@ -387,7 +416,20 @@ export function GuideWorkbench({
   const apply = async () => {
     setBusy(true);
     try {
-      const r = await tv.match({ channelIds: [...accepted] });
+      const r = await tv.match({
+        channelIds: [...accepted],
+        ...(aiReview
+          ? {
+              ai: "apply" as const,
+              guideSourceId: sourceId,
+              proposalKeys: Object.fromEntries(
+                (proposals ?? [])
+                  .filter((p) => accepted.has(p.channelId) && p.proposalKey)
+                  .map((p) => [p.channelId, p.proposalKey!]),
+              ),
+            }
+          : {}),
+      });
       toast.success(
         tn(r.matched, "{count} channel matched to a guide", "{count} channels matched to a guide"),
       );
@@ -450,6 +492,13 @@ export function GuideWorkbench({
               <Button onClick={() => void propose()} disabled={busy || coverage === null}>
                 <Wand2 size={14} /> {t("Auto-match")}
               </Button>
+              <Button
+                variant="outline"
+                disabled={busy || coverage === null}
+                onClick={() => void estimateAI()}
+              >
+                {t("Match with AI")}
+              </Button>
             </div>
             {source.lastError ? (
               <p
@@ -491,10 +540,51 @@ export function GuideWorkbench({
             <Button size="sm" onClick={() => void propose()} disabled={busy || coverage === null}>
               <Wand2 size={14} /> {t("Auto-match")}
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || coverage === null}
+              onClick={() => void estimateAI()}
+            >
+              {t("Match with AI")}
+            </Button>
           </div>
         )}
       </section>
 
+      {aiEstimate ? (
+        <section
+          aria-label={t("Match with AI")}
+          className="space-y-3 rounded-2xl border border-primary/30 bg-primary-subtle/40 p-4"
+        >
+          <h2 className="text-sm font-semibold">{t("Match with AI")}</h2>
+          <p className="text-sm text-fg-muted">
+            {aiEstimate.configured
+              ? t(
+                  "Estimated calls: {calls} · about {tokens} input tokens. Provider charges may apply. Cached decisions are reused.",
+                  { calls: aiEstimate.estimatedCalls, tokens: aiEstimate.inputTokens },
+                )
+              : t("Set up AI in Integrations → LLM to match channels.")}
+          </p>
+          <p className="text-xs text-fg-muted">
+            {t(
+              "Only channel names, programme titles and guide candidates are shared. Review every suggestion before applying.",
+            )}
+          </p>
+          {aiEstimate.configured ? (
+            <Button disabled={busy} onClick={() => void propose(true)}>
+              {busy ? t("Matching…") : t("Find suggestions")}
+            </Button>
+          ) : (
+            <a className="text-primary" href="/ether/services">
+              {t("Integrations")}
+            </a>
+          )}
+          <Button variant="ghost" disabled={busy} onClick={() => setAIEstimate(undefined)}>
+            {t("Cancel")}
+          </Button>
+        </section>
+      ) : null}
       {proposals !== null ? (
         <section
           aria-label={t("Suggested matches")}
@@ -506,7 +596,9 @@ export function GuideWorkbench({
               {tn(proposals.length, "{count} suggested match", "{count} suggested matches")}
             </h2>
             <span className="text-xs text-fg-muted">
-              {t("Matched by guide id, then by channel name.")}
+              {aiReview
+                ? t("AI suggestions need your review. Confidence is an estimate.")
+                : t("Matched by guide id, then by channel name.")}
             </span>
             <div className="ml-auto flex gap-2">
               <Button variant="ghost" size="sm" onClick={() => setProposals(null)}>
@@ -522,13 +614,18 @@ export function GuideWorkbench({
             {" · "}
             {t("Region conflicts: {count}", { count: formatNumber(matchCounts.regionRejected) })}
           </p>
+          {deferredAI > 0 ? (
+            <Button variant="outline" disabled={busy} onClick={() => void estimateAI()}>
+              {t("Continue")} <Badge variant="secondary">{formatNumber(deferredAI)}</Badge>
+            </Button>
+          ) : null}
           <ul className="max-h-80 space-y-1 overflow-y-auto">
             {proposals.map((p) => {
               const c = byId.get(p.channelId);
               const on = accepted.has(p.channelId);
               return (
                 <li key={p.channelId}>
-                  <label className="flex cursor-pointer flex-wrap items-center gap-3 rounded-lg bg-surface px-3 py-2 text-sm">
+                  <label className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)] rounded-lg bg-surface px-3 py-2 text-sm">
                     <input
                       type="checkbox"
                       checked={on}
@@ -544,19 +641,29 @@ export function GuideWorkbench({
                         channel: c?.name ?? p.channelId,
                       })}
                     />
-                    <span className="min-w-0 flex-1 truncate text-fg">
+                    <span className="min-w-0 break-words text-fg">
                       {c?.name ?? p.channelName ?? p.channelId}
                     </span>
-                    <ArrowRight size={13} className="shrink-0 text-fg-subtle" />
-                    <span className="min-w-0 flex-1 truncate text-fg-muted">
+                    <ArrowRight size={13} className="hidden shrink-0 text-fg-subtle sm:block" />
+                    <span className="col-start-2 min-w-0 break-words text-fg-muted sm:col-start-auto">
                       {p.guideName}{" "}
                       <span className="text-fg-subtle">
                         · {p.guideSourceName || sourceName(p.guideSourceId)}
                         {p.method === "name" ? ` · ${t("by name")}` : ""}
                       </span>
                     </span>
+                    {p.method === "ai" ? (
+                      <span className="col-start-2 text-xs text-fg-muted sm:col-span-3">
+                        <Badge variant={(p.confidence ?? 0) >= 0.95 ? "success" : "warning"}>
+                          {t("{confidence}% confidence", {
+                            confidence: Math.round((p.confidence ?? 0) * 100),
+                          })}
+                        </Badge>{" "}
+                        <span>{p.reason}</span>
+                      </span>
+                    ) : null}
                     {p.reviewRegion ? (
-                      <span className="basis-full pl-7 text-xs text-fg-muted">
+                      <span className="col-start-2 text-xs text-fg-muted sm:col-span-3">
                         <Badge variant="warning" className="mr-2">
                           {t("Check region")}
                         </Badge>

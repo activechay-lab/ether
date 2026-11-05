@@ -16,18 +16,19 @@ import (
 )
 
 type fakeEnv struct {
-	writes       int
-	blocked      []string
-	pinned       []string
-	createdSpecs []core.CollectionSpec
-	genCalls     int
-	rankings     map[string][]string
-	rules        map[string][]core.ReleaseRule
-	stremioURLs  []string
-	m3uSources   []livetv.Source
-	frontends    map[string]bool
-	plugins      map[string]bool
-	restarted    []bool
+	guideRequests []livetv.GuideMatchRequest
+	writes        int
+	blocked       []string
+	pinned        []string
+	createdSpecs  []core.CollectionSpec
+	genCalls      int
+	rankings      map[string][]string
+	rules         map[string][]core.ReleaseRule
+	stremioURLs   []string
+	m3uSources    []livetv.Source
+	frontends     map[string]bool
+	plugins       map[string]bool
+	restarted     []bool
 }
 
 func newFakeEnv() (*fakeEnv, builtin.Deps) {
@@ -409,8 +410,8 @@ func callTool(t *testing.T, cat *tools.Catalogue, ctx context.Context, p tools.P
 func TestBuiltinCatalogueAndSchemaInvariants(t *testing.T) {
 	_, d := buildDeps()
 	all := builtin.All(d)
-	if len(all) != 29 {
-		t.Fatalf("expected 29 built-in tools, got %d", len(all))
+	if len(all) != 30 {
+		t.Fatalf("expected 30 built-in tools, got %d", len(all))
 	}
 
 	wantRead := []string{
@@ -421,6 +422,7 @@ func TestBuiltinCatalogueAndSchemaInvariants(t *testing.T) {
 		"web_search", "web_fetch",
 	}
 	wantWrite := []string{
+		"livetv_guide_match",
 		"collection_create_from_prompt", "release_blocklist", "release_pin",
 		"ranking_reorder", "rule_add", "source_add_stremio", "source_add_m3u",
 		"frontend_enable", "plugin_enable", "server_restart",
@@ -770,5 +772,37 @@ func TestWebToolsHiddenFromMCP(t *testing.T) {
 		if tl.Visible == nil || tl.Visible(context.Background(), mcp) || !tl.Visible(context.Background(), console) {
 			t.Errorf("%s visibility wrong", tl.Name)
 		}
+	}
+}
+
+func (f *fakeEnv) MatchGuides(ctx context.Context, req livetv.GuideMatchRequest) (livetv.GuideMatchResult, error) {
+	f.guideRequests = append(f.guideRequests, req)
+	return livetv.GuideMatchResult{AI: &livetv.GuideAIStats{Configured: true, EstimatedCalls: 1}, Changes: []livetv.GuideMatchChange{{ChannelID: "c1", ChannelName: "News", GuideName: "News HD", Method: "ai", Confidence: .98, ProposalKey: "key1"}}}, nil
+}
+func TestGuideMatchingApproval(t *testing.T) {
+	f, d := buildDeps()
+	var tl tools.Tool
+	for _, v := range builtin.All(d) {
+		if v.Name == "livetv_guide_match" {
+			tl = v
+		}
+	}
+	ctx := context.Background()
+	r, e := tl.Execute(ctx, tools.Principal{}, map[string]any{"operation": "apply", "channelIds": []string{"c1"}, "proposalKeys": map[string]string{"c1": "key1"}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if r.Proposal == nil || len(r.Proposal.Details) != 1 {
+		t.Fatal("missing concrete approval")
+	}
+	if len(f.guideRequests) != 1 || f.guideRequests[0].AI != "estimate" {
+		t.Fatal("mapping ran before approval")
+	}
+	if _, e = r.Proposal.Apply(ctx); e != nil {
+		t.Fatal(e)
+	}
+	req := f.guideRequests[1]
+	if req.AI != "apply" || !req.Reviewed || req.ProposalKeys["c1"] != "key1" {
+		t.Fatalf("incorrect approved request %+v", req)
 	}
 }

@@ -70,26 +70,33 @@ type GuideChannel struct {
 }
 
 type GuideMatchRequest struct {
-	ChannelIDs []string `json:"channelIds,omitempty"`
-	Overwrite  bool     `json:"overwrite"`
-	DryRun     bool     `json:"dryRun"`
+	GuideSourceID string            `json:"guideSourceId,omitempty"`
+	AI            string            `json:"ai,omitempty"` // estimate, propose, or apply; AI never writes without apply.
+	ProposalKeys  map[string]string `json:"proposalKeys,omitempty"`
+	ChannelIDs    []string          `json:"channelIds,omitempty"`
+	Overwrite     bool              `json:"overwrite"`
+	DryRun        bool              `json:"dryRun"`
 	// Reviewed is set by the owner route for explicitly accepted proposals, never by imports.
 	Reviewed bool `json:"-"`
 }
 type GuideMatchChange struct {
-	ChannelID       string `json:"channelId"`
-	ChannelName     string `json:"channelName"`
-	GuideSourceID   string `json:"guideSourceId"`
-	GuideSourceName string `json:"guideSourceName"`
-	GuideID         string `json:"guideId"`
-	GuideName       string `json:"guideName"`
-	Method          string `json:"method"` // "id", "name" or "alias"
-	ReviewRegion    bool   `json:"reviewRegion,omitempty"`
+	Confidence      float64 `json:"confidence,omitempty"`
+	Reason          string  `json:"reason,omitempty"`
+	ProposalKey     string  `json:"proposalKey,omitempty"`
+	ChannelID       string  `json:"channelId"`
+	ChannelName     string  `json:"channelName"`
+	GuideSourceID   string  `json:"guideSourceId"`
+	GuideSourceName string  `json:"guideSourceName"`
+	GuideID         string  `json:"guideId"`
+	GuideName       string  `json:"guideName"`
+	Method          string  `json:"method"` // "id", "name" or "alias"
+	ReviewRegion    bool    `json:"reviewRegion,omitempty"`
 }
 type GuideMatchResult struct {
-	Matched   int `json:"matched"`
-	Unmatched int `json:"unmatched"`
-	Skipped   int `json:"skipped"` // already had guide data and overwrite was false
+	AI        *GuideAIStats `json:"ai,omitempty"`
+	Matched   int           `json:"matched"`
+	Unmatched int           `json:"unmatched"`
+	Skipped   int           `json:"skipped"` // already had guide data and overwrite was false
 	// Ambiguous and RegionRejected count name matches the matcher refused:
 	// several guide ids or playlist rows share the name, or the declared
 	// regions contradict.
@@ -652,6 +659,7 @@ func guideCandidateRegion(id, name string, names []string) string {
 
 type guideCandidate struct {
 	source, guide, name, region string
+	aliases                     []string
 	window                      int
 	until                       int64
 }
@@ -663,8 +671,17 @@ type guideCandidate struct {
 // Overwrite, channels that already have programmes in the next 24 hours are
 // left alone.
 func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (GuideMatchResult, error) {
+	if req.AI != "" && req.AI != "estimate" && req.AI != "propose" && req.AI != "apply" {
+		return GuideMatchResult{}, fmt.Errorf("invalid AI operation")
+	}
+	if req.AI == "estimate" || req.AI == "propose" {
+		req.DryRun = true
+	}
+	if req.AI == "apply" && (len(req.ChannelIDs) == 0 || !req.Reviewed) {
+		return GuideMatchResult{}, fmt.Errorf("AI apply requires reviewed channel ids")
+	}
 	res := GuideMatchResult{DryRun: req.DryRun, Changes: []GuideMatchChange{}}
-	cs, err := s.Channels(ctx)
+	cs, err := s.allChannels(ctx)
 	if err != nil {
 		return res, err
 	}
@@ -714,6 +731,9 @@ func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (Guide
 			rows.Close()
 			return res, err
 		}
+		if req.AI != "" && req.GuideSourceID != "" && src != req.GuideSourceID {
+			continue
+		}
 		st, ok := stats[guideKey{src, id}]
 		if !ok && !plexSources[src] {
 			continue
@@ -724,6 +744,7 @@ func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (Guide
 		byFold[fold] = append(byFold[fold], cand)
 		var all []string
 		json.Unmarshal([]byte(raw), &all)
+		cand.aliases = all
 		cand.region = guideCandidateRegion(id, name, all)
 		seen := map[string]bool{}
 		for _, n := range append(all, name) {
@@ -765,10 +786,16 @@ func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (Guide
 		want[id] = true
 	}
 	var changed []Channel
+	var unresolved []Channel
 	for _, c := range cs {
 		// Off-air channels are only matched when asked for by id; otherwise a
 		// lineup with retired channels floods the proposals.
 		if c.Kind != "iptv" || len(want) > 0 && !want[c.ID] || len(want) == 0 && !c.Enabled {
+			continue
+		}
+		if req.AI == "apply" && req.ProposalKeys[c.ID] != "" {
+			unresolved = append(unresolved, c)
+			res.Unmatched++
 			continue
 		}
 		if !req.Overwrite && c.GuideID != "" && stats[guideKey{guideSource(c), c.GuideID}].window > 0 {
@@ -828,6 +855,7 @@ func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (Guide
 		}
 		if pick == nil {
 			res.Unmatched++
+			unresolved = append(unresolved, c)
 			continue
 		}
 		res.Matched++
@@ -841,6 +869,17 @@ func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (Guide
 			c.GuideSourceID = ""
 		}
 		changed = append(changed, c)
+	}
+	if req.AI != "" {
+		var candidates []*guideCandidate
+		for _, list := range byID {
+			candidates = append(candidates, list...)
+		}
+		extra, e := s.aiGuideMatches(ctx, req, unresolved, candidates, sourceNames, &res)
+		if e != nil {
+			return res, e
+		}
+		changed = append(changed, extra...)
 	}
 	if req.DryRun || len(changed) == 0 {
 		return res, nil
@@ -856,6 +895,33 @@ func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (Guide
 			return res, err
 		}
 		// Only the mapping changes; active tunes keep playing.
+		if req.AI == "apply" {
+			var raw []byte
+			if err = tx.QueryRowContext(ctx, `SELECT data FROM livetv_channels WHERE id=?`, c.ID).Scan(&raw); err != nil {
+				return res, err
+			}
+			var current Channel
+			if err = json.Unmarshal(raw, &current); err != nil {
+				return res, err
+			}
+			for _, original := range cs {
+				if original.ID == c.ID && aiHash(current) != aiHash(original) {
+					return res, fmt.Errorf("channel changed; review again")
+				}
+			}
+			updated, e := tx.ExecContext(ctx, `UPDATE livetv_channels SET data=? WHERE id=? AND data=?`, b, c.ID, string(raw))
+			if e != nil {
+				return res, e
+			}
+			n, e := updated.RowsAffected()
+			if e != nil {
+				return res, e
+			}
+			if n != 1 {
+				return res, fmt.Errorf("channel changed; review again")
+			}
+			continue
+		}
 		if _, err = tx.ExecContext(ctx, `UPDATE livetv_channels SET data=? WHERE id=?`, b, c.ID); err != nil {
 			return res, err
 		}

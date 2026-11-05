@@ -355,7 +355,33 @@ export function createLiveTVMock(titles: FakeTitle[]) {
     if (seg[0] !== "livetv") return null;
     const route = `${method} /${seg.slice(1).join("/")}`;
     const now = Date.now();
-    if (route === "GET /channels") return { body: channels };
+    if (route === "GET /channels" || route === "GET /channels/summary") return { body: channels };
+    if (route === "GET /usage")
+      return { body: { sessions: 0, viewers: 0, watching: [], sources: [] } };
+    if (route === "GET /channels/page") {
+      const offset = Number(q.get("offset") ?? 0),
+        limit = Number(q.get("limit") ?? 200);
+      return {
+        body: {
+          channels: channels.slice(offset, offset + limit),
+          total: channels.length,
+          counts: {
+            all: channels.length,
+            live: channels.filter((c) => c.enabled).length,
+            virtual: channels.filter((c) => c.kind === "virtual").length,
+            iptv: channels.filter((c) => c.kind === "iptv").length,
+            missing: unlisted.size,
+            off: 0,
+            favorites: 0,
+          },
+          groups: [],
+          coverage: Object.fromEntries(channels.map((c) => [c.id, !unlisted.has(c.id)])),
+          nextNumber: "200",
+        },
+      };
+    }
+    if (method === "GET" && seg[1] === "channels" && seg.length === 3)
+      return { body: channels.find((c) => c.id === seg[2]) };
     if (route === "GET /sources") return { body: sources.map(source) };
     if (route === "GET /guide") {
       const from = Date.parse(q.get("from") ?? "") || now;
@@ -401,7 +427,23 @@ export function createLiveTVMock(titles: FakeTitle[]) {
       };
     }
     if (route === "POST /guide/match") {
-      const b = (body ?? {}) as { channelIds?: string[]; dryRun?: boolean };
+      const b = (body ?? {}) as { channelIds?: string[]; dryRun?: boolean; ai?: string };
+      if (b.ai === "estimate")
+        return {
+          body: {
+            matched: 0,
+            unmatched: unlisted.size,
+            changes: [],
+            ai: {
+              configured: true,
+              estimatedCalls: 1,
+              inputTokens: 2400,
+              cached: 0,
+              calls: 0,
+              deferred: 0,
+            },
+          },
+        };
       const targets = channels.filter(
         (c) =>
           c.kind === "iptv" &&
@@ -409,16 +451,23 @@ export function createLiveTVMock(titles: FakeTitle[]) {
           unlisted.has(c.id) &&
           (!b.channelIds || b.channelIds.includes(c.id)),
       );
-      const changes = targets.map((c) => ({
+      const changes = targets.map((c, i) => ({
         channelId: c.id,
         channelName: c.name,
         guideSourceId: "regional-epg",
         guideSourceName: "Regional listings",
         guideId: `${c.name.replace(/[^A-Za-z0-9]+/g, "")}.regional`,
         guideName: `${c.name} HD`,
-        method: "name",
+        method: b.ai ? "ai" : "name",
+        ...(b.ai
+          ? {
+              confidence: i === 1 ? 0.74 : 0.98,
+              reason: "Station identity, region and current programme agree.",
+              proposalKey: `mock-${c.id}`,
+            }
+          : {}),
       }));
-      if (!b.dryRun)
+      if (!b.dryRun && b.ai !== "propose")
         for (const ch of changes) {
           const c = channels.find((x) => x.id === ch.channelId)!;
           c.guideSourceId = ch.guideSourceId;

@@ -32,6 +32,90 @@ func writeTools(d Deps) []tools.Tool {
 	steps := strings.Join(core.DefaultRankingSteps, ", ")
 	return []tools.Tool{
 		tool(tools.Tool{
+			Name: "livetv_guide_match", Title: "Match with AI", OpenWorld: true,
+			Description: "Estimate or propose AI-assisted EPG channel matches using the owner's configured LLM. Proposals never change mappings. Apply only explicitly reviewed channel ids and proposal keys. XMLTV, Xtream and Plex guides share this flow. Run estimate before propose to show calls and token budget.",
+			InputSchema: schema(map[string]any{
+				"guideSourceId": pString("Optional guide source to match within", 160),
+				"operation":     pEnum("estimate is free; propose may call the provider; apply requires review", "estimate", "propose", "apply"),
+				"channelIds":    map[string]any{"type": "array", "maxItems": 200, "items": pString("Reviewed channel id", 160)},
+				"proposalKeys":  map[string]any{"type": "object", "maxProperties": 200, "additionalProperties": map[string]any{"type": "string", "maxLength": 64}},
+			}, "operation"),
+			Execute: func(ctx context.Context, _ tools.Principal, in map[string]any) (tools.Result, error) {
+				svc, ok := d.LiveTV.(interface {
+					MatchGuides(context.Context, livetv.GuideMatchRequest) (livetv.GuideMatchResult, error)
+				})
+				if !ok {
+					return tools.Result{}, tools.Userf("guide matching unavailable")
+				}
+				op, e := reqStr(in, "operation", 16)
+				if e != nil {
+					return tools.Result{}, e
+				}
+				if op != "estimate" && op != "propose" && op != "apply" {
+					return tools.Result{}, tools.Userf("invalid operation")
+				}
+				b, e := json.Marshal(in)
+				if e != nil {
+					return tools.Result{}, e
+				}
+				var args struct {
+					GuideSourceID string            `json:"guideSourceId"`
+					ChannelIDs    []string          `json:"channelIds"`
+					ProposalKeys  map[string]string `json:"proposalKeys"`
+				}
+				if e = json.Unmarshal(b, &args); e != nil {
+					return tools.Result{}, e
+				}
+				if len(args.ChannelIDs) > 200 || len(args.ProposalKeys) > 200 {
+					return tools.Result{}, tools.Userf("too many channels")
+				}
+				req := livetv.GuideMatchRequest{AI: op, GuideSourceID: args.GuideSourceID, ChannelIDs: args.ChannelIDs, ProposalKeys: args.ProposalKeys, Reviewed: op == "apply", DryRun: op != "apply"}
+				run := func(ctx context.Context) (tools.Result, error) {
+					r, e := svc.MatchGuides(ctx, req)
+					if e != nil {
+						return tools.Result{}, e
+					}
+					b, _ := json.Marshal(r)
+					var data map[string]any
+					_ = json.Unmarshal(b, &data)
+					return tools.Result{Data: data, Links: []tools.Link{{Label: "Live TV", Route: "/livetv"}}}, nil
+				}
+				if op == "estimate" {
+					return run(ctx)
+				}
+				previewReq := req
+				previewReq.AI = "estimate"
+				previewReq.DryRun = true
+				preview, e := svc.MatchGuides(ctx, previewReq)
+				if e != nil {
+					return tools.Result{}, e
+				}
+				var details []tools.ProposalDetail
+				if op == "propose" {
+					if preview.AI == nil || !preview.AI.Configured {
+						return tools.Result{}, tools.Userf("Set up AI in Integrations → LLM to match channels.")
+					}
+					details = append(details, tools.ProposalDetail{Label: "Estimated calls", Value: fmt.Sprint(preview.AI.EstimatedCalls)}, tools.ProposalDetail{Label: "Estimated input tokens", Value: fmt.Sprint(preview.AI.InputTokens)})
+				} else {
+					if len(args.ChannelIDs) == 0 {
+						return tools.Result{}, tools.Userf("select reviewed channels first")
+					}
+					byID := map[string]livetv.GuideMatchChange{}
+					for _, p := range preview.Changes {
+						byID[p.ChannelID] = p
+					}
+					for _, id := range args.ChannelIDs {
+						p, ok := byID[id]
+						if !ok || p.ProposalKey != args.ProposalKeys[id] || p.ProposalKey == "" {
+							return tools.Result{}, tools.Userf("proposal changed; review again")
+						}
+						details = append(details, tools.ProposalDetail{Label: p.ChannelName, Value: fmt.Sprintf("%s · %.0f%% · %s", p.GuideName, p.Confidence*100, p.Reason)})
+					}
+				}
+				return propose("Match with AI", fmt.Sprintf("%s guide matches for %d selected channels", op, len(args.ChannelIDs)), details, in, run), nil
+			},
+		}),
+		tool(tools.Tool{
 			Name: "collection_create_from_prompt", Title: "Create a collection", OpenWorld: true,
 			Description: "Draft a smart collection from a plain-language request and propose creating it. The draft is generated for the approval card; nothing is saved until the owner approves. Needs a language model configured in Ether.",
 			InputSchema: schema(map[string]any{

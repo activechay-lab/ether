@@ -286,6 +286,7 @@ type Policy struct {
 	channelSet map[string]struct{} // Channels as a set for long lists; see indexChannels
 }
 type Options struct {
+	GuideAI        GuideAIClient
 	Graphics       core.ChannelGraphics
 	PlexGuideToken func() string
 	PlexGuideURL   string // test endpoint
