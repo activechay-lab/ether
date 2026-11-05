@@ -38,6 +38,8 @@ export function LookDrawer({
     [bindings, setBindings] = useState<Bindings>({}),
     [render, setRender] = useState(7),
     [saving, setSaving] = useState(false);
+  const [useOpen, setUseOpen] = useState(false);
+  const [useChannels, setUseChannels] = useState<string[]>(look.channelIds);
   const history = useRef<Look[]>([]),
     future = useRef<Look[]>([]);
   const current = useRef(draft);
@@ -178,9 +180,7 @@ export function LookDrawer({
               </Button>
             }
           >
-            {action(t("Use on channels…"), () =>
-              toast.info(t("Choose this look in a channel’s Look tab")),
-            )}
+            {action(t("Use on channels…"), () => setUseOpen(true))}
             {action(
               t("Duplicate"),
               () =>
@@ -323,6 +323,54 @@ export function LookDrawer({
           {tab === "layers" ? <Timeline selected={layer} onSelect={setLayer} /> : null}
         </section>
       </div>
+      {useOpen ? (
+        <Drawer
+          open
+          size="md"
+          title={t("Use on channels")}
+          onClose={() => setUseOpen(false)}
+          footer={
+            <Button
+              onClick={async () => {
+                for (const id of useChannels) {
+                  const c = await tv.channel(id);
+                  await tv.saveChannel({
+                    ...c,
+                    look: { ...c.look, lookId: saved.id, ident: true, upNext: true, offAir: true },
+                  });
+                }
+                setUseOpen(false);
+                toast.success(t("Look applied"));
+              }}
+            >
+              {t("Apply look")}
+            </Button>
+          }
+        >
+          <div className="space-y-3">
+            {channels
+              .filter((c) => c.kind === "virtual")
+              .map((c) => (
+                <label
+                  key={c.id}
+                  className="flex items-center gap-3 rounded-lg border border-border p-3 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    className="accent-primary"
+                    checked={useChannels.includes(c.id)}
+                    onChange={(e) =>
+                      setUseChannels((s) =>
+                        e.target.checked ? [...s, c.id] : s.filter((id) => id !== c.id),
+                      )
+                    }
+                  />
+                  {c.name}
+                </label>
+              ))}
+          </div>
+        </Drawer>
+      ) : null}
     </Drawer>
   );
 }

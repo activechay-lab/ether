@@ -144,12 +144,6 @@ export function LooksGallery({
     </div>
   );
 }
-const MountedReelDrawer = ReelDrawer as React.ComponentType<{
-  open: boolean;
-  reelId?: string;
-  onClose: () => void;
-  onSaved?: () => void;
-}>;
 export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => void }) {
   const [params, setParams] = useSearchParams();
   const [families, setFamilies] = useState<Family[]>([]),
@@ -236,12 +230,7 @@ export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => v
         />
       ) : null}
       {params.has("reel") ? (
-        <MountedReelDrawer
-          open
-          reelId={params.get("reel") || "new"}
-          onClose={close}
-          onSaved={reload}
-        />
+        <ReelDrawer open reelId={params.get("reel") || "new"} onClose={close} onSaved={reload} />
       ) : null}
     </>
   );
