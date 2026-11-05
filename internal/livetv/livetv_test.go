@@ -310,75 +310,6 @@ func (f *fakeTranscoder) StartHLS(_ context.Context, r core.HLSRequest) (core.HL
 func (f *fakeTranscoder) Probe(context.Context, string) (*core.MediaInfo, error) {
 	return &core.MediaInfo{Container: "mpegts"}, nil
 }
-func TestVirtualPlayoutJoinContinuityAndOwnership(t *testing.T) {
-	now := time.Unix(7, 0).UTC()
-	pb := &fakePlayback{}
-	tc := &fakeTranscoder{}
-	s := testService(t, Options{Now: func() time.Time { return now }, Playback: pb, Transcoder: tc})
-	c := testChannel()
-	c.Items = []Item{{Key: core.MovieKey(1), Title: "First", Rating: "G", DurationMS: 12000}, {Key: core.MovieKey(2), Title: "Second", Rating: "PG", DurationMS: 12000}}
-	if _, e := s.SaveChannel(context.Background(), c); e != nil {
-		t.Fatal(e)
-	}
-	u := &core.User{ID: 1, StreamLimit: 1}
-	info, e := s.Tune(context.Background(), u, c.ID, core.ClientCaps{})
-	if e != nil {
-		t.Fatal(e)
-	}
-	if tc.requests[0].LiveInput {
-		t.Fatal("virtual-channel VOD must not permit live playlist input")
-	}
-	if tc.requests[0].StartOffset != 4*time.Second || tc.requests[0].Info.Duration != 12*time.Second {
-		t.Fatalf("join seek wrong %+v", tc.requests[0])
-	}
-	req := httptest.NewRequest("GET", "/livetv/sessions/"+info.ID+"/0/index.m3u8?X-Plex-Token=owner-token", nil)
-	rec := httptest.NewRecorder()
-	s.ServePlaylist(rec, req, info.ID, u)
-	b := rec.Body.String()
-	if rec.Code != 200 || !strings.Contains(b, "#EXT-X-DISCONTINUITY\n") || strings.Contains(b, "#EXT-X-ENDLIST") || strings.Contains(b, "X-Plex-Token=") || !strings.Contains(b, "X-Ether-Stream-Token=") {
-		t.Fatalf("invalid live playlist: %d %s", rec.Code, b)
-	}
-	if len(pb.groups) < 2 || pb.groups[0] != pb.groups[1] {
-		t.Fatal("programmes did not share live stream group")
-	}
-	other := httptest.NewRecorder()
-	s.ServePlaylist(other, req, info.ID, &core.User{ID: 2})
-	if other.Code != 403 {
-		t.Fatal("another user opened session")
-	}
-	seg := httptest.NewRecorder()
-	s.ServeSegment(seg, req, info.ID, 0, 1, u)
-	if seg.Code != 200 || !strings.Contains(seg.Body.String(), ":1") {
-		t.Fatal("join segment unavailable")
-	}
-	hs, ok := s.TranscodeFor(pb.prepared[0].ID)
-	if !ok || hs.ID() != tc.hls[0].id {
-		t.Fatal("failover lookup lost session")
-	}
-	if e = s.Failover(context.Background(), info.ID, u); e != nil || !tc.hls[0].swapped || tc.hls[0].offset != 7*time.Second {
-		t.Fatalf("failover lost programme timestamp: %v", e)
-	}
-	if _, e = s.Tune(context.Background(), u, c.ID, core.ClientCaps{}); e != core.ErrStreamLimit {
-		t.Fatalf("viewer limit bypassed: %v", e)
-	}
-	now = time.Unix(13, 0)
-	u.MaxContentRating = "G"
-	denied := httptest.NewRecorder()
-	s.ServePlaylist(denied, req, info.ID, u)
-	if denied.Code != 403 {
-		t.Fatal("rating restriction not enforced at programme boundary")
-	}
-	u.MaxContentRating = ""
-	if e = s.Stop(context.Background(), info.ID, u); e != nil {
-		t.Fatal(e)
-	}
-	for _, h := range tc.hls {
-		if !h.closed {
-			t.Fatal("transcoder left open")
-		}
-	}
-}
-
 func TestLiveHTTPMatroska(t *testing.T) {
 	now := time.Unix(7, 0).UTC()
 	pb := &fakePlayback{}
@@ -405,8 +336,8 @@ func TestLiveHTTPMatroska(t *testing.T) {
 	for _, r := range tc.requests {
 		if r.Protocol == core.ProtocolHTTP {
 			sawHTTP = true
-			if r.LiveInput {
-				t.Fatal("virtual-channel HTTP must not permit live playlist input")
+			if !r.LiveInput {
+				t.Fatal("broadcast HTTP must read the continuous loopback TS input")
 			}
 		}
 	}

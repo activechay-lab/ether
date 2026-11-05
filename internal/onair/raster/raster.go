@@ -21,7 +21,8 @@ const Version = "onair-raster-1"
 // Bindings keeps decoded artwork outside the document; images are immutable during a job.
 type Bindings struct {
 	scene.Bindings
-	Assets map[string]image.Image `json:"-"`
+	Assets map[string]image.Image    `json:"-"`
+	Fonts  map[string]*opentype.Font `json:"-"`
 }
 type matrix struct{ a, b, c, d, e, f float64 }
 

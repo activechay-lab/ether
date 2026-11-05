@@ -3,6 +3,8 @@ package livetv
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -12,6 +14,10 @@ import (
 
 const broadcastPrewarm = 20 * time.Second
 const broadcastStall = 1500 * time.Millisecond
+
+// Resolving/seek/probe may take several round trips before the first picture.
+// Startup waits on the screen; the 1.5 s deadline applies after input is flowing.
+const broadcastStartup = 45 * time.Second
 const broadcastIdle = 60 * time.Second
 const broadcastDVR = 30 * time.Minute
 
@@ -22,21 +28,25 @@ type broadcastPlan struct {
 	start, end time.Time
 	open       func(context.Context) (transcode.Decoder, func(), error)
 	failed     func(error) time.Time
-	ring       *frameRing
 }
 type broadcastPlanner interface {
 	plans(time.Time) (broadcastPlan, *broadcastPlan)
 }
 type broadcastRendition struct {
-	height  int
-	id      string
-	encoder transcode.ContinuousEncoder
-	queue   chan transcode.RawFrame
-	cancel  context.CancelFunc
-	viewers int
+	origin     time.Time
+	originErr  error
+	originDone chan struct{}
+	height     int
+	id         string
+	encoder    transcode.ContinuousEncoder
+	queue      chan transcode.RawFrame
+	cancel     context.CancelFunc
+	viewers    int
 }
 type broadcastInput struct {
+	overlays                *programmeOverlays
 	started                 time.Time
+	lastFrameAt             time.Time
 	plan                    broadcastPlan
 	decoder                 transcode.Decoder
 	release                 func()
@@ -95,6 +105,9 @@ type broadcastPrepared struct {
 	plan  broadcastPlan
 }
 type broadcast struct {
+	logger        *slog.Logger
+	intro         broadcastPlan
+	introUntil    time.Time
 	dvr           time.Duration
 	black         []byte
 	viewers       int
@@ -117,12 +130,14 @@ type broadcast struct {
 	lastFrame     transcode.RawFrame
 	freshAt       time.Time
 	fade          pcmFade
-	screen        *frameRing
+	fallback      *broadcastInput
+	screenPlan    broadcastPlan
+	retryRequests chan struct{}
 	mode          string
 	tick          int64
 }
 
-func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planner broadcastPlanner, format transcode.RawFormat, screen *frameRing) (*broadcast, error) {
+func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planner broadcastPlanner, format transcode.RawFormat) (*broadcast, error) {
 	if err := validateRawFormat(format); err != nil {
 		return nil, err
 	}
@@ -130,7 +145,21 @@ func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planne
 		return nil, fmt.Errorf("broadcast requires runners and a planner")
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), screen: screen, lastViewer: time.Now()}
+	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), retryRequests: make(chan struct{}, 1), lastViewer: time.Now()}
+	b.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	if source, ok := planner.(interface{ broadcastLogger() *slog.Logger }); ok {
+		b.logger = source.broadcastLogger()
+	}
+	if lifecycle, ok := planner.(interface{ startPlanner(context.Context) }); ok {
+		lifecycle.startPlanner(ctx)
+	}
+	if planner, ok := planner.(interface {
+		introPlan(time.Time) (broadcastPlan, time.Duration)
+	}); ok {
+		intro, d := planner.introPlan(b.origin)
+		b.intro = intro
+		b.introUntil = b.origin.Add(d)
+	}
 	return b, nil
 }
 func (b *broadcast) start() { b.wg.Add(1); go func() { defer b.wg.Done(); b.run() }() }
@@ -164,6 +193,10 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 		b.mu.Unlock()
 		return r.encoder.Segments(), nil
 	}
+	if len(b.renditions) >= 2 {
+		b.mu.Unlock()
+		return nil, fmt.Errorf("channel rendition limit reached")
+	}
 	b.mu.Unlock()
 	lifetime, cancel := context.WithCancel(b.ctx)
 	stop := context.AfterFunc(ctx, cancel)
@@ -178,7 +211,7 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 		encoder.Close()
 		return nil, context.Canceled
 	}
-	r := &broadcastRendition{height: decision.MaxHeight, id: id, encoder: encoder, queue: make(chan transcode.RawFrame, 2), cancel: cancel, viewers: 1}
+	r := &broadcastRendition{originDone: make(chan struct{}), height: decision.MaxHeight, id: id, encoder: encoder, queue: make(chan transcode.RawFrame, 2), cancel: cancel, viewers: 1}
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -189,7 +222,7 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 	b.renditions[id] = r
 	b.viewers++
 	b.lastViewer = time.Now()
-	b.wg.Add(1)
+	b.wg.Add(2)
 	b.mu.Unlock()
 	go func() {
 		defer b.wg.Done()
@@ -200,11 +233,31 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 				return
 			case frame := <-r.queue:
 				if err := encoder.Write(lifetime, frame); err != nil {
+					b.logger.Warn("broadcast rendition write stopped", "rendition", id, "reason", err)
 					b.dropRendition(id, r)
 					return
 				}
 			}
 		}
+	}()
+	go func() {
+		defer b.wg.Done()
+		index := encoder.Segments()
+		var first transcode.Segment
+		var err error
+		if segments := index.Since(-1, 1); len(segments) > 0 {
+			first = segments[0]
+		} else {
+			first, err = index.Wait(lifetime, -1)
+		}
+		if err == nil && first.Seq != 0 {
+			err = fmt.Errorf("continuous encoder did not expose its first segment")
+		}
+		b.mu.Lock()
+		r.origin = first.Start
+		r.originErr = err
+		close(r.originDone)
+		b.mu.Unlock()
 	}()
 	return encoder.Segments(), nil
 }
@@ -243,6 +296,11 @@ func (b *broadcast) open(plan broadcastPlan, now time.Time) {
 		return
 	}
 	b.opening[plan.id] = true
+	age := time.Duration(0)
+	if !plan.start.IsZero() {
+		age = now.Sub(plan.start)
+	}
+	b.logger.Debug("broadcast decoder prepare started", "input", plan.id, "offsetAge", age)
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
@@ -285,6 +343,9 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 			delete(b.opening, result.plan.id)
 			if result.err != nil {
 				b.noteFailure(result.plan, result.err, now)
+				if result.plan.id == b.intro.id {
+					b.introUntil = now
+				}
 				continue
 			}
 			input := result.input
@@ -293,6 +354,11 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 				b.current = input
 				input.started = now
 				input.activateNow()
+			} else if result.plan.id == b.screenPlan.id {
+				b.fallback.close()
+				b.fallback = input
+				input.activateNow()
+				input.started = now
 			} else if next != nil && result.plan.id == next.id {
 				b.next.close()
 				b.next = input
@@ -308,6 +374,17 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 	}
 }
 func (b *broadcast) noteFailure(p broadcastPlan, err error, now time.Time) {
+	details := ""
+	if b.current != nil && b.current.plan.id == p.id {
+		d := b.current.decoder
+		if wrapped, ok := d.(*overlayDecoder); ok {
+			d = wrapped.Decoder
+		}
+		if source, ok := d.(interface{ Diagnostics() string }); ok {
+			details = source.Diagnostics()
+		}
+	}
+	b.logger.Debug("broadcast input abandoned", "input", p.id, "reason", err, "context", context.Cause(b.ctx), "decoder", details)
 	retry := now.Add(15 * time.Second)
 	if p.failed != nil {
 		retry = p.failed(err)
@@ -316,12 +393,17 @@ func (b *broadcast) noteFailure(p broadcastPlan, err error, now time.Time) {
 }
 func (b *broadcast) run() {
 	defer func() {
+		b.logger.Debug("broadcast stopped", "reason", context.Cause(b.ctx))
 		b.cancel()
+		if lifecycle, ok := b.planner.(interface{ closePlanner() }); ok {
+			lifecycle.closePlanner()
+		}
 		b.mu.Lock()
 		b.closed = true
 		b.mu.Unlock()
 		b.current.close()
 		b.next.close()
+		b.fallback.close()
 		b.mu.Lock()
 		for _, r := range b.renditions {
 			r.cancel()
@@ -361,9 +443,36 @@ func (b *broadcast) run() {
 	}
 }
 func (b *broadcast) step(now time.Time) {
+	fresh := false
 	previousPCM := b.lastFrame.PCM
 	current, next := b.planner.plans(now)
+	if planner, ok := b.planner.(interface{ screen(time.Time) broadcastPlan }); ok {
+		b.screenPlan = planner.screen(now)
+	}
+	introActive := b.intro.id != "" && now.Before(b.introUntil)
+	if introActive {
+		b.screenPlan = b.intro
+	}
+	select {
+	case <-b.retryRequests:
+		if b.current != nil {
+			b.current.close()
+			b.current = nil
+		}
+		delete(b.retry, current.id)
+	default:
+	}
+	if b.fallback != nil && b.fallback.plan.id != b.screenPlan.id {
+		b.fallback.close()
+		b.fallback = nil
+	}
 	b.accept(now, current, next)
+	// Keep one bounded screen input prewarmed while programmes play. A stall
+	// then cuts to its first frame at the 1.5 s deadline, without raster/decoder
+	// initialization on the frame clock or an intervening black frame.
+	if b.fallback == nil {
+		b.open(b.screenPlan, now)
+	}
 	if b.current != nil && b.current.plan.id != current.id {
 		b.current.close()
 		b.current = nil
@@ -379,24 +488,29 @@ func (b *broadcast) step(now time.Time) {
 		b.next.close()
 		b.next = nil
 	}
-	if b.current == nil && current.ring == nil {
+	if b.current == nil {
 		b.open(current, now)
 	}
-	if next != nil && next.start.Sub(now) <= broadcastPrewarm && b.next == nil && next.ring == nil {
+	if next != nil && next.start.Sub(now) <= broadcastPrewarm && b.next == nil {
 		b.open(*next, now)
 	}
 	samples := tickSamples(b.format, b.tick)
 	frame := transcode.RawFrame{}
 	mode := "screen"
-	if current.ring != nil {
-		frame = current.ring.next(samples, b.format.Channels)
-		mode = current.id
-	} else if b.current != nil {
+	if b.current != nil && !introActive {
 		select {
 		case f, ok := <-b.current.frames:
 			if ok && validRawFrame(b.format, f) {
 				frame = f
+				if source, ok := b.current.decoder.(interface{ Aired(transcode.RawFrame) }); ok {
+					source.Aired(frame)
+				}
+				if b.current.lastFrameAt.IsZero() {
+					b.logger.Debug("broadcast decoder first frame", "input", current.id, "latency", now.Sub(b.current.started))
+				}
 				b.freshAt = now
+				b.current.lastFrameAt = now
+				fresh = true
 				mode = current.id
 			}
 		default:
@@ -411,20 +525,41 @@ func (b *broadcast) step(now time.Time) {
 			}
 		}
 	}
-	if frame.Video == nil && b.current != nil && now.Sub(b.current.started) >= broadcastStall && (b.freshAt.IsZero() || now.Sub(b.freshAt) >= broadcastStall) {
+	startupExpired := b.current != nil && b.current.lastFrameAt.IsZero() && now.Sub(b.current.started) >= broadcastStartup
+	stalled := b.current != nil && !b.current.lastFrameAt.IsZero() && now.Sub(b.current.lastFrameAt) >= broadcastStall
+	if frame.Video == nil && !introActive && b.current != nil && (startupExpired || stalled) {
 		b.noteFailure(current, fmt.Errorf("decoder stalled"), now)
 		b.current.close()
 		b.current = nil
 	}
-	if frame.Video == nil && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
+	if frame.Video == nil && !introActive && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
 		frame = b.lastFrame
 		mode = "hold"
 	}
 	if frame.Video == nil {
-		if b.screen != nil {
-			frame = b.screen.next(samples, b.format.Channels)
+		if b.fallback == nil {
+			b.open(b.screenPlan, now)
 		} else {
-			frame = transcode.RawFrame{Video: b.black}
+			select {
+			case f, ok := <-b.fallback.frames:
+				if ok && validRawFrame(b.format, f) {
+					frame = f
+				}
+			default:
+			}
+			select {
+			case err := <-b.fallback.errs:
+				b.noteFailure(b.screenPlan, err, now)
+				b.fallback.close()
+				b.fallback = nil
+			default:
+			}
+		}
+		if frame.Video == nil {
+			frame = b.lastFrame
+			if frame.Video == nil {
+				frame = transcode.RawFrame{Video: b.black}
+			}
 		}
 	}
 	// PCM follows the output tick, including fractional frame rates. Never let a
@@ -437,12 +572,19 @@ func (b *broadcast) step(now time.Time) {
 		b.mode = mode
 	}
 	b.fade.apply(frame.PCM, b.format.Channels)
+	// Next transfers an exclusively owned video buffer. Composite a fresh frame
+	// once in place, then publish it immutably to all renditions. A stalled input
+	// holds that exact completed picture; it must not accumulate another blend.
+	if fresh && b.current != nil && b.current.overlays != nil {
+		b.current.overlays.blend(frame.Video, b.format, now, current.start, current.end)
+	}
 	b.lastFrame = frame
 	b.mu.Lock()
 	for id, r := range b.renditions {
 		select {
 		case r.queue <- frame:
 		default:
+			b.logger.Warn("broadcast rendition queue full", "rendition", id, "tick", b.tick, "clockLag", now.Sub(b.origin)-time.Duration(b.tick)*time.Second*time.Duration(b.format.FPSDen)/time.Duration(b.format.FPSNum))
 			delete(b.renditions, id)
 			r.cancel()
 		}
@@ -452,5 +594,16 @@ func (b *broadcast) step(now time.Time) {
 
 func newBroadcastInput(parent context.Context, plan broadcastPlan, d transcode.Decoder, release func()) *broadcastInput {
 	ctx, cancel := context.WithCancel(parent)
-	return &broadcastInput{ctx: ctx, cancel: cancel, decoder: d, release: release, plan: plan, frames: make(chan transcode.RawFrame, 1), errs: make(chan error, 1), activate: make(chan struct{})}
+	input := &broadcastInput{ctx: ctx, cancel: cancel, decoder: d, release: release, plan: plan, frames: make(chan transcode.RawFrame, 1), errs: make(chan error, 1), activate: make(chan struct{})}
+	if decoder, ok := d.(*overlayDecoder); ok {
+		input.overlays = decoder.overlays
+	}
+	return input
+}
+
+func (b *broadcast) requestRetry() {
+	select {
+	case b.retryRequests <- struct{}{}:
+	default:
+	}
 }

@@ -2,7 +2,6 @@ package livetv
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -14,64 +13,10 @@ import (
 // whatever budget remains so a hung "not available yet" still reaches the
 // next item or the channel's fallback.
 var (
-	virtualTuneBudget    = 12 * time.Second
 	virtualAttemptBudget = 6 * time.Second
 )
 
 const virtualMaxAttempts = 4
-
-func (s *Service) tuneVirtual(ctx context.Context, ss *session, current Programme) error {
-	if current.Item.Slate == offAirSlate {
-		ctx, cancel := context.WithTimeout(ctx, virtualTuneBudget)
-		defer cancel()
-		_, err := s.prepareTrack(ctx, ss, current)
-		if err == nil {
-			s.useProgramme(ss, current)
-		}
-		return err
-	}
-	deadline := time.Now().Add(virtualTuneBudget)
-	attempts := 0
-	var last error
-	for _, p := range s.virtualCandidates(ss.info.Channel, current) {
-		if attempts >= virtualMaxAttempts || !time.Now().Before(deadline) {
-			break
-		}
-		if s.knownUnavailable(ctx, p.Item.Key) {
-			continue
-		}
-		slot := virtualAttemptBudget
-		if remain := time.Until(deadline); remain < slot {
-			slot = remain
-		}
-		if slot <= 0 {
-			break
-		}
-		attempts++
-		attempt, cancel := context.WithTimeout(ctx, slot)
-		_, err := s.prepareTrack(attempt, ss, p)
-		cancel()
-		if err == nil {
-			s.useProgramme(ss, p)
-			return nil
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		last = err
-		if !skippableTuneErr(err) {
-			return err
-		}
-	}
-	if last == nil {
-		last = core.ErrNotAvailable
-	}
-	return last
-}
-
-func skippableTuneErr(err error) bool {
-	return errors.Is(err, core.ErrNotAvailable) || errors.Is(err, core.ErrUnreleased) || errors.Is(err, context.DeadlineExceeded)
-}
 
 func (s *Service) knownUnavailable(ctx context.Context, key core.RatingKey) bool {
 	if key == 0 || s.o.Availability == nil {
@@ -79,18 +24,6 @@ func (s *Service) knownUnavailable(ctx context.Context, key core.RatingKey) bool
 	}
 	known, ok := s.o.Availability.Available(ctx, key)
 	return known && !ok
-}
-
-func (s *Service) useProgramme(ss *session, p Programme) {
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-	chosen := p
-	ss.info.Programme = &chosen
-	ss.view.Key = p.Item.Key
-	ss.view.TitleName = p.Item.Title
-	if p.End.After(p.Start) {
-		ss.view.Info.Duration = p.End.Sub(p.Start)
-	}
 }
 
 // virtualCandidates starts with the guide's on-now title, then the rest of
@@ -111,8 +44,11 @@ func (s *Service) virtualCandidates(c Channel, current Programme) []Programme {
 		out = append(out, p)
 	}
 	add(current)
-	for _, p := range Schedule(c, now, now.Add(24*time.Hour)) {
+	for _, p := range s.viewerSchedule(s.ctx, c, now, now.Add(24*time.Hour)) {
 		add(p)
+	}
+	if c.Personal != nil {
+		return out
 	}
 	for _, item := range c.Fallback {
 		add(standIn(c, item, now))

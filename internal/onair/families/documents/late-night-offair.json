@@ -2,14 +2,9 @@
   "v": 1,
   "moment": "offair",
   "duration": 8,
-  "poster": 4.8,
+  "poster": 5.5,
   "slots": [
     "channel.name",
-    "next.title",
-    "next.meta",
-    "next.logline",
-    "next.time",
-    "next.backdrop",
     "offair.message"
   ],
   "layers": [
@@ -72,14 +67,13 @@
     },
     {
       "id": "panel",
-      "type": "rect",
+      "type": "path",
       "x": 520,
       "y": 350,
-      "w": 880,
-      "h": 380,
       "fill": "#000000@0.9",
       "stroke": "{text}@0.5",
-      "strokeWidth": 2
+      "strokeWidth": 2,
+      "path": "M 30 0 H 850 Q 880 0 880 30 V 350 Q 880 380 850 380 H 30 Q 0 380 0 350 V 30 Q 0 0 30 0 Z"
     },
     {
       "id": "brand",

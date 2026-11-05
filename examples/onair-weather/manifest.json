@@ -1,0 +1,51 @@
+{
+  "id": "community.example.weather",
+  "version": "1.0.0",
+  "name": "Weather",
+  "description": "Local forecasts from Open-Meteo.",
+  "ether": {
+    "protocol": 1,
+    "kind": "extension",
+    "summary": "Adds local forecasts to channels",
+    "runtime": { "kind": "hosted", "entry": "index.js" },
+    "capabilities": ["onair_content"],
+    "cluster": "leader",
+    "permissions": { "network": ["api.open-meteo.com"] },
+    "schedule": "15m",
+    "settings": {
+      "fields": [
+        {
+          "key": "latitude",
+          "kind": "number",
+          "label": "Latitude",
+          "default": 43.65
+        },
+        {
+          "key": "longitude",
+          "kind": "number",
+          "label": "Longitude",
+          "default": -79.38
+        }
+      ]
+    },
+    "contributes": {
+      "onairFeeds": [
+        {
+          "id": "now",
+          "maxAge": "1h",
+          "fields": { "temp": "number", "summary": "text" },
+          "sample": { "temp": 18, "summary": "Current temperature" }
+        }
+      ],
+      "onairSegments": [
+        {
+          "id": "forecast",
+          "name": "Local forecast",
+          "duration": 120,
+          "file": "segments/forecast.json",
+          "feeds": ["now"]
+        }
+      ]
+    }
+  }
+}

@@ -71,6 +71,8 @@ type FavoriteSignal struct {
 }
 
 type Options struct {
+	PersonalCollections func(context.Context, *core.User, core.RatingKey) ([]core.Title, error)
+	PersonalWatchlist   func(context.Context, *core.User) ([]core.Title, error)
 	// Favorites is optional; nil or empty leaves existing ranking unchanged.
 	Favorites func(context.Context, *core.User) ([]FavoriteSignal, error)
 	// NotInterested supplies explicit recommendation exclusions for this viewer.

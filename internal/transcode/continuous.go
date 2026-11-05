@@ -25,8 +25,13 @@ type RawFormat struct {
 // floor((n+1)*SR*FPSDen/FPSNum) - floor(n*SR*FPSDen/FPSNum) samples per channel,
 // so audio never drifts (1600 every tick at 48 kHz / 30 fps).
 type RawFrame struct {
-	Video []byte // len = W*H*3/2
-	PCM   []byte // len = samples*Channels*2
+	// SourcePTS is the original live input presentation time, before re-timing
+	// onto the output clock. Live decoders always set SourcePTSValid; encoders
+	// ignore this metadata. It detects stale media across provider reconnects.
+	SourcePTS      time.Duration
+	SourcePTSValid bool
+	Video          []byte // len = W*H*3/2
+	PCM            []byte // len = samples*Channels*2
 }
 
 type DecoderRequest struct {

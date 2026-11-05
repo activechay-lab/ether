@@ -1,4 +1,4 @@
-import { Select, SettingsSection, Spinner, Switch, toast } from "@braedonsaunders/appkit-ui";
+import { Input, Select, SettingsSection, Spinner, Switch, toast } from "@braedonsaunders/appkit-ui";
 import { useState } from "react";
 import { MoreOptions } from "../../../components/ConfigSection";
 import { ErrorPanel } from "../../../components/feedback";
@@ -20,6 +20,7 @@ type Policy = {
   granted?: string[];
   favorites: string[];
   maxRating: string;
+  personal?: { enabled: boolean | null; name: string };
 };
 /** One viewer's Live TV access: channels and extra parental limits (viewer profile › Access). */
 export function ViewerLiveTVAccess({ viewerId }: { viewerId: number }) {
@@ -77,10 +78,45 @@ export function ViewerLiveTVAccess({ viewerId }: { viewerId: number }) {
             />
           }
         />
+        <SettingsRow
+          title={t("Personal channel")}
+          control={
+            <Switch
+              aria-label={t("Personal channel")}
+              disabled={draft.disabled}
+              checked={draft.personal?.enabled ?? !draft.disabled}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  personal: { name: draft.personal?.name || "", enabled: e.currentTarget.checked },
+                })
+              }
+            />
+          }
+        />
         <MoreOptions
           label={t("More options: {title}", { title: t("Live TV") })}
           hasError={Boolean(draft.maxRating)}
         >
+          <SettingsRow
+            title={t("Name")}
+            control={
+              <Input
+                aria-label={t("Personal channel name")}
+                placeholder={t("{viewer} TV")}
+                value={draft.personal?.name || ""}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    personal: {
+                      enabled: draft.personal?.enabled ?? null,
+                      name: e.currentTarget.value,
+                    },
+                  })
+                }
+              />
+            }
+          />
           <SettingsRow
             title={
               <label htmlFor={`livetv-rating-${viewerId}`}>

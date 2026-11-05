@@ -2,74 +2,289 @@
   "v": 1,
   "moment": "screen.brb",
   "duration": 4,
-  "poster": 1.5,
-  "slots": [
-    "channel.name",
-    "screen.line1",
-    "screen.line2",
-    "station.id"
-  ],
+  "poster": 2,
   "layers": [
     {
-      "id": "bg",
+      "id": "paper",
       "type": "rect",
       "x": 0,
       "y": 0,
       "w": 1920,
       "h": 1080,
-      "fill": "#101a29"
-    },
-    {
-      "id": "pulse",
-      "type": "ellipse",
-      "x": 850,
-      "y": 230,
-      "w": 220,
-      "h": 220,
-      "fill": "#78b9e8@0.2",
-      "scale": {
-        "keys": [
+      "fill": {
+        "radial": [
+          960,
+          420,
+          0,
+          1400
+        ],
+        "stops": [
           [
             0,
-            1
+            "#f4e9cd"
           ],
           [
-            2,
-            1.1,
-            "inOut"
-          ],
-          [
-            4,
             1,
-            "inOut"
+            "#cdb88c"
           ]
         ]
       }
     },
     {
-      "id": "brb",
+      "id": "outer-frame",
+      "type": "path",
+      "path": "M 116 65 H 1804 Q 1850 65 1850 111 V 969 Q 1850 1015 1804 1015 H 116 Q 70 1015 70 969 V 111 Q 70 65 116 65 Z",
+      "stroke": "#756247@0.62",
+      "strokeWidth": 3
+    },
+    {
+      "id": "inner-frame",
+      "type": "path",
+      "path": "M 124 85 H 1796 Q 1830 85 1830 119 V 961 Q 1830 995 1796 995 H 124 Q 90 995 90 961 V 119 Q 90 85 124 85 Z",
+      "stroke": "#fff8e8@0.75",
+      "strokeWidth": 2
+    },
+    {
+      "id": "ray0",
+      "type": "path",
+      "path": "M 1060.000 240.000 L 1100.000 240.000",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray1",
+      "type": "path",
+      "path": "M 1052.388 278.268 L 1072.713 286.687",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray2",
+      "type": "path",
+      "path": "M 1030.711 310.711 L 1046.267 326.267",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray3",
+      "type": "path",
+      "path": "M 998.268 332.388 L 1006.687 352.713",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray4",
+      "type": "path",
+      "path": "M 960.000 340.000 L 960.000 380.000",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray5",
+      "type": "path",
+      "path": "M 921.732 332.388 L 913.313 352.713",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray6",
+      "type": "path",
+      "path": "M 889.289 310.711 L 873.733 326.267",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray7",
+      "type": "path",
+      "path": "M 867.612 278.268 L 847.287 286.687",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray8",
+      "type": "path",
+      "path": "M 860.000 240.000 L 820.000 240.000",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray9",
+      "type": "path",
+      "path": "M 867.612 201.732 L 847.287 193.313",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray10",
+      "type": "path",
+      "path": "M 889.289 169.289 L 873.733 153.733",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray11",
+      "type": "path",
+      "path": "M 921.732 147.612 L 913.313 127.287",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray12",
+      "type": "path",
+      "path": "M 960.000 140.000 L 960.000 100.000",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray13",
+      "type": "path",
+      "path": "M 998.268 147.612 L 1006.687 127.287",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray14",
+      "type": "path",
+      "path": "M 1030.711 169.289 L 1046.267 153.733",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "ray15",
+      "type": "path",
+      "path": "M 1052.388 201.732 L 1072.713 193.313",
+      "stroke": "#a16c44",
+      "strokeWidth": 4,
+      "cap": "round"
+    },
+    {
+      "id": "medallion",
+      "type": "ellipse",
+      "x": 884,
+      "y": 164,
+      "w": 152,
+      "h": 152,
+      "fill": "#c98052",
+      "stroke": "#6c5740",
+      "strokeWidth": 3
+    },
+    {
+      "id": "clock-hands",
+      "type": "path",
+      "path": "M 960 190 L 960 240 L 998 264",
+      "stroke": "#f9edcf",
+      "strokeWidth": 7,
+      "cap": "round",
+      "join": "round"
+    },
+    {
+      "id": "kicker",
       "type": "text",
-      "text": "WE\u2019LL BE RIGHT BACK",
+      "text": "STAY TUNED",
+      "x": 960,
+      "y": 410,
+      "size": 26,
+      "font": "ibmplexmono",
+      "fill": "#6b624d",
+      "align": "center",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "track": 8
+    },
+    {
+      "id": "first",
+      "type": "text",
+      "text": "We\u2019ll be",
       "x": 960,
       "y": 580,
-      "size": 92,
-      "font": "spacegrotesk",
-      "fill": "#f2f5fa",
+      "size": 152,
+      "font": "fraunces",
+      "fill": "#354c43",
       "align": "center",
       "fit": "shrink",
       "maxWidth": 1600
     },
     {
-      "id": "channel",
+      "id": "second",
       "type": "text",
-      "text": "{channel.name}",
+      "text": "right back.",
       "x": 960,
-      "y": 730,
-      "size": 44,
+      "y": 750,
+      "size": 152,
+      "font": "fraunces",
+      "fill": "#354c43",
+      "align": "center",
+      "fit": "shrink",
+      "maxWidth": 1600
+    },
+    {
+      "id": "rule",
+      "type": "rect",
+      "x": 760,
+      "y": 817,
+      "w": 400,
+      "h": 2,
+      "fill": "#a16c44@0.6"
+    },
+    {
+      "id": "station",
+      "type": "text",
+      "text": "{station.id}",
+      "x": 960,
+      "y": 900,
+      "size": 30,
+      "font": "ibmplexmono",
+      "fill": "#76583f",
+      "align": "center",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "track": 8
+    },
+    {
+      "id": "return",
+      "type": "text",
+      "text": "Your programme will return shortly.",
+      "x": 960,
+      "y": 955,
+      "size": 28,
       "font": "inter",
-      "fill": "#78b9e8",
-      "align": "center"
+      "fill": "#6d6552",
+      "align": "center",
+      "fit": "shrink",
+      "maxWidth": 1600
     }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": 0.013,
+      "seed": 71
+    },
+    {
+      "type": "vignette",
+      "amount": 0.12
+    }
+  ],
+  "slots": [
+    "channel.name",
+    "screen.line1",
+    "screen.line2",
+    "station.id"
   ],
   "audio": {
     "generator": "bed",

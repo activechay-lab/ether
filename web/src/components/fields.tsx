@@ -255,7 +255,7 @@ export function Segmented<T extends string>({
   className,
   size = "md",
 }: {
-  options: { value: T; label: ReactNode; icon?: ReactNode }[];
+  options: { value: T; label: ReactNode; icon?: ReactNode; disabled?: boolean }[];
   value: T;
   onChange: (v: T) => void;
   ariaLabel: string;
@@ -281,13 +281,18 @@ export function Segmented<T extends string>({
             type="button"
             role="radio"
             aria-checked={on}
-            tabIndex={on ? 0 : -1}
+            disabled={o.disabled}
+            tabIndex={on && !o.disabled ? 0 : -1}
             onClick={() => onChange(o.value)}
             onKeyDown={(e) => {
               if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
               e.preventDefault();
-              const next =
-                options[(i + (e.key === "ArrowRight" ? 1 : options.length - 1)) % options.length];
+              const direction = e.key === "ArrowRight" ? 1 : -1;
+              const next = Array.from(
+                { length: options.length },
+                (_, step) =>
+                  options[(i + direction * (step + 1) + options.length * 2) % options.length],
+              ).find((option) => option && !option.disabled);
               if (next) {
                 onChange(next.value);
                 (
@@ -297,7 +302,7 @@ export function Segmented<T extends string>({
               }
             }}
             className={cn(
-              "inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+              "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40",
               size === "sm" ? "h-7 px-2.5 text-xs" : "h-8 px-3 text-sm",
               on ? "bg-surface text-fg shadow-sm" : "text-fg-muted hover:text-fg",
             )}

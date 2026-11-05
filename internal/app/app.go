@@ -41,6 +41,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/newznab"
 	"github.com/braedonsaunders/ether/internal/notify"
 	"github.com/braedonsaunders/ether/internal/notinterested"
+	"github.com/braedonsaunders/ether/internal/onair"
 	"github.com/braedonsaunders/ether/internal/overlays"
 	"github.com/braedonsaunders/ether/internal/personalize"
 	"github.com/braedonsaunders/ether/internal/playback"
@@ -238,6 +239,8 @@ type App struct {
 	markers           *markers.Service
 	extras            *extras.Service
 	prerolls          *prerolls.Service
+	pluginContent     *onair.PluginContentCache
+	onair             *onair.Service
 	backups           *backup.Service
 	migration         *migrate.Service
 	safety            *safety.Service

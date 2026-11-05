@@ -20,6 +20,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/extend"
 	"github.com/braedonsaunders/ether/internal/logredact"
 	"github.com/braedonsaunders/ether/internal/notify"
+	"github.com/braedonsaunders/ether/internal/onair"
 	"github.com/braedonsaunders/ether/internal/safefetch"
 )
 
@@ -45,6 +46,7 @@ type Backends struct {
 
 // Deps are the plugin host's explicit dependencies.
 type Deps struct {
+	OnAirContent  *onair.PluginContentCache
 	DB            *sql.DB
 	Sealer        config.FieldSealer
 	Registry      *extend.Registry
@@ -81,6 +83,7 @@ type Manager struct {
 	removeHooks []func(context.Context, string)
 	syncHooks   []func(ctx context.Context, r Record)
 	eventSubs   map[string]map[string]Record
+	feedLogs    sync.Map // feed key -> *faillog.Tracker
 	notifyLocks sync.Map // plugin id -> *sync.Mutex
 	// schedule bookkeeping: "plugin|call" -> next run
 	nextRun map[string]time.Time
@@ -116,6 +119,9 @@ func (m *Manager) notificationLock(id string) *sync.Mutex {
 
 // New builds the host and re-registers descriptors for enabled plugins.
 func New(deps Deps) (*Manager, error) {
+	if deps.OnAirContent == nil {
+		deps.OnAirContent = onair.NewPluginContentCache()
+	}
 	if deps.DB == nil {
 		return nil, fmt.Errorf("plugins: a database is required")
 	}

@@ -806,6 +806,7 @@ func (s *storage) purge(ctx context.Context, plugin string) error {
 	for _, q := range []string{
 		`DELETE FROM plugins_installed WHERE id=?`,
 		`DELETE FROM plugins_artifacts WHERE plugin=?`,
+		`DELETE FROM onair_feed_values WHERE plugin=?`,
 		`DELETE FROM plugins_grants WHERE plugin=?`,
 		`DELETE FROM plugins_settings WHERE plugin=?`,
 		`DELETE FROM plugins_kv WHERE plugin=?`,

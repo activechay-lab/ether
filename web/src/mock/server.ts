@@ -1,3 +1,4 @@
+import { createOnAirMock } from "./onair";
 /**
  * In-memory fake of the Ether admin API. Used by `vite --mode mock` and by the
  * tests; never shipped. It evaluates collection rules against a generated
@@ -85,6 +86,8 @@ const MOCK_EQUIVALENTS: Record<string, string[]> = {
 const NOW = () => new Date();
 
 export interface FakeOptions {
+  liveTVEmpty?: boolean;
+  onAirLayout?: string;
   capabilityOverrides?: Array<Record<string, unknown>>;
   bootstrap?: Partial<Bootstrap>;
   /** Artificial latency for realism in the browser; 0 in tests. */
@@ -580,7 +583,8 @@ export function createFakeServer(opts: FakeOptions = {}) {
   const experience = createExperienceMock();
   const sites = createSitesMock();
   const cacheMock = createCacheMock(opts.cacheRestart);
-  const liveTV = createLiveTVMock(catalog);
+  const liveTV = createLiveTVMock(catalog, opts.liveTVEmpty);
+  const onAir = createOnAirMock(liveTV, opts.onAirLayout);
   const calendar = createCalendarMock();
   const qualityMock = createQualityMock();
   const safetyPolicies = new Map<number, Record<string, unknown>>();
@@ -732,6 +736,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
       lastBuiltAt: NOW().toISOString(),
     });
     spec.itemCount = evaluate(spec).total;
+    Object.assign(spec, { ratingKey: String(20000 + seq) });
     state.collections.push(spec);
   }
   state.collections.push({
@@ -2379,6 +2384,8 @@ export function createFakeServer(opts: FakeOptions = {}) {
     const cal = calendar.handle(method, seg, q);
     if (cal) return json(cal.body, cal.status);
 
+    const oar = onAir.handle(method, seg, q, body);
+    if (oar) return json(oar.body, oar.status);
     const tvr = liveTV.handle(method, seg, q, body);
     if (tvr) return json(tvr.body, tvr.status);
 

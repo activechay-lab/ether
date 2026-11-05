@@ -21,6 +21,9 @@ type broadcastRegistry struct {
 	closed  bool
 }
 type broadcastLease struct {
+	mu        sync.Mutex
+	closed    bool
+	height    int
 	registry  *broadcastRegistry
 	broadcast *broadcast
 	rendition string
@@ -60,9 +63,14 @@ func (r *broadcastRegistry) acquire(ctx context.Context, key broadcastKey, id st
 	if _, err := b.addRendition(ctx, id, decision); err != nil {
 		return nil, err
 	}
-	return &broadcastLease{registry: r, broadcast: b, rendition: id}, nil
+	return &broadcastLease{registry: r, broadcast: b, rendition: id, height: decision.MaxHeight}, nil
 }
 func (l *broadcastLease) output() (transcode.SegmentIndex, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return nil, core.ErrNotFound
+	}
 	b := l.broadcast
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -74,6 +82,9 @@ func (l *broadcastLease) output() (transcode.SegmentIndex, error) {
 	}
 	var fallback *broadcastRendition
 	for _, r := range b.renditions {
+		if l.height > 0 && r.height > l.height {
+			continue
+		}
 		if fallback == nil || r.height < fallback.height {
 			fallback = r
 		}
@@ -81,11 +92,13 @@ func (l *broadcastLease) output() (transcode.SegmentIndex, error) {
 	if fallback == nil {
 		return nil, core.ErrNotAvailable
 	}
+	fallback.viewers++
+	l.rendition = fallback.id
 	return fallback.encoder.Segments(), nil
 }
 func (l *broadcastLease) close() {
 	if l != nil {
-		l.once.Do(func() { l.broadcast.releaseRendition(l.rendition) })
+		l.once.Do(func() { l.mu.Lock(); l.closed = true; l.broadcast.releaseRendition(l.rendition); l.mu.Unlock() })
 	}
 }
 func (r *broadcastRegistry) close() {
@@ -111,4 +124,53 @@ func (r *broadcastRegistry) expire(now time.Time) {
 	for _, b := range idle {
 		b.close()
 	}
+}
+
+func (r *broadcastRegistry) invalidate(channelID string, all bool) {
+	r.mu.Lock()
+	var stale []*broadcast
+	for key, b := range r.outputs {
+		if all || key.channelID == channelID {
+			delete(r.outputs, key)
+			stale = append(stale, b)
+		}
+	}
+	r.mu.Unlock()
+	for _, b := range stale {
+		b.close()
+	}
+}
+
+// timelineOrigin is the timestamp of the first finished segment, retained for
+// the rendition's lifetime even after that segment leaves the DVR window.
+// Seq*Duration cannot recover this with variable opening GOPs.
+func (l *broadcastLease) timelineOrigin(ctx context.Context) (time.Time, error) {
+	l.mu.Lock()
+	id := l.rendition
+	closed := l.closed
+	l.mu.Unlock()
+	if closed {
+		return time.Time{}, core.ErrNotFound
+	}
+	b := l.broadcast
+	b.mu.Lock()
+	r := b.renditions[id]
+	if r == nil {
+		b.mu.Unlock()
+		return time.Time{}, core.ErrNotAvailable
+	}
+	done := r.originDone
+	b.mu.Unlock()
+	if done == nil {
+		return time.Time{}, core.ErrNotAvailable
+	}
+	select {
+	case <-ctx.Done():
+		return time.Time{}, ctx.Err()
+	case <-done:
+	}
+	b.mu.Lock()
+	origin, err := r.origin, r.originErr
+	b.mu.Unlock()
+	return origin, err
 }

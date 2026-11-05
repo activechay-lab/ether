@@ -33,6 +33,7 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     port: 5173,
+    fs: { allow: [".."] },
     // Ether answers its own CORS (the add-on settings relay is reached from
     // a sandboxed frame); the dev server must pass preflights through.
     cors: false,

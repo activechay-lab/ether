@@ -183,3 +183,11 @@ type ViewerInvalidator interface{ Invalidate(userID int64) }
 type SourceDeliveryObserver interface {
 	ObserveSourceDelivery(Release, float64)
 }
+
+// ConcurrentRangeReaderAt keeps active demuxer range requests independent.
+// A container reader can overlap header, cue and media ranges while a prior
+// HTTP response unwinds. Request cancellation still retires its urgent work;
+// unrelated seeks must only cancel speculative read-ahead.
+type ConcurrentRangeReaderAt interface {
+	ReadAtConcurrentContext(context.Context, []byte, int64) (int, error)
+}

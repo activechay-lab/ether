@@ -129,6 +129,9 @@ func WithTracePlayback(on bool) Option { return func(o *options) { o.tracePlayba
 
 // Manager runs ffmpeg for Ether. It implements core.Transcoder.
 type Manager struct {
+	slotChanged  chan struct{}
+	slotViewers  int
+	slotHolders  []*transcodeSlot
 	subtitleMu   sync.Mutex
 	continuousWG sync.WaitGroup
 	slateMu      sync.Mutex
@@ -773,6 +776,9 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		return nil, errors.New("transcode: manager closed")
 	}
 	if !d.VideoCopy && m.cfg.MaxTranscodes > 0 {
+		if m.encodingLocked("") >= m.cfg.MaxTranscodes {
+			m.preemptBackgroundLocked()
+		}
 		if n := m.encodingLocked(""); n >= m.cfg.MaxTranscodes {
 			m.mu.Unlock()
 			return nil, fmt.Errorf("%w (%d running)", ErrTooManyTranscodes, n)
@@ -993,23 +999,6 @@ func (m *Manager) reapIdle(now time.Time) {
 	}
 }
 
-func (m *Manager) acquireTranscodeSlot() (func(), error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return nil, errors.New("transcode: manager closed")
-	}
-	if m.cfg.MaxTranscodes > 0 && m.encodingLocked("") >= m.cfg.MaxTranscodes {
-		return nil, fmt.Errorf("%w (%d running)", ErrTooManyTranscodes, m.encodingLocked(""))
-	}
-	m.downloadEncodes++
-	return func() {
-		m.mu.Lock()
-		m.downloadEncodes--
-		m.mu.Unlock()
-	}, nil
-}
-
 // Close stops every session and the reaper.
 func (m *Manager) Close() error {
 	m.mu.Lock()
@@ -1019,6 +1008,11 @@ func (m *Manager) Close() error {
 			m.rtxSetup.cancel()
 		}
 		close(m.stop)
+		for _, holder := range append([]*transcodeSlot(nil), m.slotHolders...) {
+			if holder.priority == SlotBackground {
+				m.releaseSlotLocked(holder)
+			}
+		}
 	}
 	https := make([]*httpSession, 0, len(m.httpSessions))
 	for _, h := range m.httpSessions {

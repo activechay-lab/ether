@@ -2,15 +2,9 @@
   "v": 1,
   "moment": "ident",
   "duration": 8,
-  "poster": 4.8,
+  "poster": 5.5,
   "slots": [
-    "channel.name",
-    "next.title",
-    "next.meta",
-    "next.logline",
-    "next.time",
-    "next.backdrop",
-    "offair.message"
+    "channel.name"
   ],
   "layers": [
     {

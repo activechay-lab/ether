@@ -105,6 +105,11 @@ const PAGES = localized<PageDef[]>(() => [
         keywords: searchTerms(msg("m3u xmltv playlist")),
       },
       { key: "guide", title: t("Guide"), keywords: searchTerms(msg("epg schedule")) },
+      {
+        key: "looks",
+        title: t("Looks"),
+        keywords: searchTerms(msg("on air graphics brand reels")),
+      },
     ],
   },
   {

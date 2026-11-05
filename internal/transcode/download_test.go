@@ -227,7 +227,7 @@ func TestConvertDownloadRespectsMaxTranscodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	release, err := m.acquireTranscodeSlot()
+	_, release, err := m.AcquireTranscodeSlot(context.Background(), SlotViewer)
 	if err != nil {
 		t.Fatal(err)
 	}

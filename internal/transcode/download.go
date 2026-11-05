@@ -436,10 +436,11 @@ func (d *DownloadRemuxer) runDownload(ctx context.Context, req core.DownloadRemu
 		return "", 0, ctx.Err()
 	}
 	if kind == "convert" {
-		slot, err := d.m.acquireTranscodeSlot()
+		jobCtx, slot, err := d.m.acquirePrioritySlot(ctx, SlotBackground, false)
 		if err != nil {
 			return "", 0, err
 		}
+		ctx = jobCtx
 		defer slot()
 	}
 

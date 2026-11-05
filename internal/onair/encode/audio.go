@@ -32,7 +32,7 @@ func PCM(a scene.Audio, seconds int) ([]int16, error) {
 	}
 	switch a.Generator {
 	case "tone":
-		oscillator(1000, math.Pow(10, -24.0/20)*math.Sqrt2)
+		oscillator(1000, math.Pow(10, -30.0/20)*math.Sqrt2)
 	case "bed":
 		for _, hz := range []float64{110, 165, 220, 330} {
 			oscillator(hz, .012)

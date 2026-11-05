@@ -376,6 +376,9 @@ func settingsRef(raw json.RawMessage) string {
 // resolve fills the preview's settings schema and strings from the
 // package files, and validates the resolved schema (SPEC §5.5).
 func (p *Preview) resolve() error {
+	if err := validateSegmentFiles(p.Manifest, p.files); err != nil {
+		return err
+	}
 	man := p.Manifest
 	if man.Ether == nil {
 		return nil

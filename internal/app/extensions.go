@@ -55,6 +55,9 @@ func (a *App) extensionHandlers() map[string]http.Handler {
 	if a.livetv != nil {
 		m["livetv"] = a.livetv.Handler()
 	}
+	if a.onair != nil {
+		m["onair"] = a.onair.Handler()
+	}
 	if a.calendar != nil {
 		m["calendar"] = a.calendar.Handler()
 	}

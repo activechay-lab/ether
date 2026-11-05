@@ -353,7 +353,7 @@ export interface EtherConfig {
     offerHigherVersions?: boolean;
     blockedGroups: string[] | null;
     blockedTerms: string[] | null;
- hardSubtitles?: "" | "exclude" | "allow";
+    hardSubtitles?: "" | "exclude" | "allow";
     optimisticStart?: boolean;
     healthRace?: number;
     sourcePreference?: string;
@@ -393,7 +393,16 @@ export interface EtherConfig {
     skipCredits?: boolean;
     sourceOrder?: string[];
   };
-  liveTV?: { logoIndexUrl?: string; healthSweepMinutes?: number };
+  liveTV?: {
+    logoIndexUrl?: string;
+    healthSweepMinutes?: number;
+    screens?: {
+      offAir: import("../pages/livetv/onair/ScreenPicker").ScreenStyle;
+      noSignal: import("../pages/livetv/onair/ScreenPicker").ScreenStyle;
+      stationId: boolean;
+      applyTo?: "converted" | "all";
+    };
+  };
   subtitles?: {
     providers?: { id: string; kind: string; name?: string; enabled: boolean }[];
   };
