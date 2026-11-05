@@ -128,22 +128,24 @@ export function ungroup(scene: Scene, id: string): Scene {
   return { ...scene, layers: walk(scene.layers) };
 }
 export function duplicateLayers(scene: Scene, ids: string[]): Scene {
-  let result = scene;
+  const used = new Set<string>();
+  const gather = (ls: Layer[]) =>
+    ls.forEach((l) => {
+      used.add(l.id);
+      if (l.layers) gather(l.layers);
+    });
+  gather(scene.layers);
   const clone = (l: Layer): Layer => {
-    const id = newLayerId(result, l.id);
-    result = insertLayer(result, { id, type: "group" });
+    let n = 1;
+    while (used.has(`${l.id}-${n}`)) n++;
+    const id = `${l.id}-${n}`;
+    used.add(id);
     return { ...structuredClone(l), id, layers: l.layers?.map(clone) };
   };
-  for (const l of roots(scene, ids)) {
-    const copy = clone(l);
-    const allocated: string[] = [];
-    const collect = (n: Layer) => {
-      allocated.push(n.id);
-      n.layers?.forEach(collect);
-    };
-    collect(copy);
-    result = removeLayers(result, allocated);
-    result = insertLayer(result, copy);
-  }
-  return result;
+  const selected = new Set(roots(scene, ids).map((l) => l.id));
+  const walk = (ls: Layer[]): Layer[] =>
+    ls.flatMap((l) =>
+      selected.has(l.id) ? [l, clone(l)] : [l.layers ? { ...l, layers: walk(l.layers) } : l],
+    );
+  return { ...scene, layers: walk(scene.layers) };
 }

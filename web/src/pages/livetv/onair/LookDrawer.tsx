@@ -263,7 +263,13 @@ export function LookDrawer({
                   onSelect={setSelected}
                   onChange={(document) => updateScene({ ...scene, document })}
                 />
-                <Inspector style={draft} scene={scene} selected={selected} onChange={change} />
+                <Inspector
+                  time={clock.time}
+                  style={draft}
+                  scene={scene}
+                  selected={selected}
+                  onChange={change}
+                />
                 <VideoPicker scene={scene} onChange={updateScene} />
               </>
             ) : tab === "screens" ? (
@@ -295,6 +301,7 @@ export function LookDrawer({
               options={channels.map((c) => ({ value: c.id, label: c.name }))}
             />
             <Input
+              className="w-52"
               type="datetime-local"
               aria-label={t("Preview time")}
               value={at}
@@ -349,16 +356,21 @@ export function LookDrawer({
           )}
           {scene ? (
             <>
-              <InsertBar
-                onPen={() => {
-                  setPen(true);
-                  setTab("design");
-                }}
-                scene={scene}
-                onChange={updateScene}
-                onSelect={setSelected}
-              />
+              {tab === "design" && (
+                <InsertBar
+                  onPen={() => {
+                    setPen(true);
+                    setTab("design");
+                  }}
+                  scene={scene}
+                  onChange={updateScene}
+                  onSelect={setSelected}
+                />
+              )}
               <LookStage
+                sceneVideo={scene.video}
+                playing={clock.playing}
+                muted={muted}
                 pen={pen}
                 onPenDone={() => setPen(false)}
                 document={scene.document}

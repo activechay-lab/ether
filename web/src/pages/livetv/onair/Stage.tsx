@@ -7,7 +7,8 @@ import {
   loadSceneAssets,
   type SceneBindings,
 } from "./scene-renderer";
-import type { Style, StyleScene } from "./studio-model";
+import { apiBlob } from "../../../lib/api";
+import type { SceneVideo, Style, StyleScene } from "./studio-model";
 import type { Bindings, Moment } from "./model";
 import { Canvas, type CanvasProps } from "./editor/Canvas";
 export function styleBindings(style: Style, bindings: Bindings = {}): SceneBindings {
@@ -99,7 +100,40 @@ export function LookTile(p: {
     </div>
   );
 }
-export function LookStage(p: CanvasProps) {
+export function LookStage(
+  p: CanvasProps & { sceneVideo?: SceneVideo; playing?: boolean; muted?: boolean },
+) {
+  const [videoUrl, setVideoUrl] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const digest = p.sceneVideo?.assetDigest;
+    if (!digest) {
+      setVideoUrl("");
+      return;
+    }
+    const controller = new AbortController();
+    let url = "";
+    void apiBlob(`/ether/api/onair/assets/${digest}`, controller.signal)
+      .then((blob) => {
+        if (!controller.signal.aborted) {
+          url = URL.createObjectURL(blob);
+          setVideoUrl(url);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      controller.abort();
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [p.sceneVideo?.assetDigest]);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const at = p.time + (p.sceneVideo?.start ?? 0);
+    if (Math.abs(video.currentTime - at) > 0.15) video.currentTime = at;
+    if (p.playing) void video.play().catch(() => {});
+    else video.pause();
+  }, [p.time, p.playing, videoUrl, p.sceneVideo?.start]);
   const [bindings, setBindings] = useState(p.bindings);
   useEffect(() => {
     let live = true;
@@ -110,5 +144,23 @@ export function LookStage(p: CanvasProps) {
       live = false;
     };
   }, [p.document, p.bindings]);
-  return <Canvas {...p} bindings={bindings} />;
+  return (
+    <Canvas
+      {...p}
+      bindings={bindings}
+      video={
+        videoUrl ? (
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            muted={p.muted}
+            playsInline
+            className={`absolute inset-0 h-full w-full ${p.sceneVideo?.mode === "replace" ? "z-10" : ""}`}
+            style={{ objectFit: p.sceneVideo?.fit ?? "cover" }}
+            aria-label={t("Scene video")}
+          />
+        ) : undefined
+      }
+    />
+  );
 }

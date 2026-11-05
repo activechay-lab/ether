@@ -10,6 +10,8 @@ import {
   type Role,
 } from "../studio-model";
 import type { SceneBindings } from "../scene-renderer";
+import { Drawer } from "../../../../components/Drawer";
+import { DescribeLook } from "../DescribeLook";
 import { ScenePoster } from "../Stage";
 export function SceneStrip(p: {
   style: Style;
@@ -18,6 +20,7 @@ export function SceneStrip(p: {
   onSelect(id: string): void;
   onChange(style: Style): void;
 }) {
+  const [ai, setAI] = useState("");
   const [templates, setTemplates] = useState<Template[]>([]);
   useEffect(() => {
     void studio.templates().then(setTemplates);
@@ -44,11 +47,17 @@ export function SceneStrip(p: {
     scene.document.duration = p.style.roles[role]?.duration ?? 8;
     p.onChange({ ...p.style, scenes: [...p.style.scenes, scene] });
     p.onSelect(id);
+    return id;
   };
   const change = (scene: StyleScene) =>
     p.onChange({ ...p.style, scenes: p.style.scenes.map((s) => (s.id === scene.id ? scene : s)) });
   return (
     <div className="space-y-4">
+      {ai && (
+        <Drawer open stacked size="lg" title={t("Describe a scene")} onClose={() => setAI("")}>
+          <DescribeLook look={p.style} sceneId={ai} onChange={p.onChange} />
+        </Drawer>
+      )}
       {ROLES.map((role) => (
         <section key={role} className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">
@@ -147,6 +156,9 @@ export function SceneStrip(p: {
             <div className="flex w-44 shrink-0 flex-col justify-center gap-2 rounded-lg border border-dashed border-border p-3">
               <Button size="sm" variant="ghost" onClick={() => add(role)}>
                 {t("Add {role} scene", { role: t(role) })}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setAI(add(role))}>
+                {t("Add with AI")}
               </Button>
               <Select
                 aria-label={t("Copy template scene")}
