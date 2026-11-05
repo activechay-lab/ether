@@ -1,7 +1,6 @@
 import { crispStatic } from "./crisp-static";
-import { resolveBug } from "./bug";
 import { getToken, SESSION_HEADER } from "../../../lib/api";
-import type { Bindings, Look, Moment } from "./model";
+import type { Bindings, Look } from "./model";
 
 let resourceToken = "";
 export function setResourceToken(token: string) {
@@ -30,6 +29,11 @@ export type Params = {
 };
 export type Layer = {
   id: string;
+  name?: string;
+  hidden?: boolean;
+  locked?: boolean;
+  start?: number;
+  end?: number;
   type: string;
   x?: Value;
   y?: Value;
@@ -202,49 +206,10 @@ const blend = (s?: string): GlobalCompositeOperation =>
 // Static scene plates (including text) are reused; deterministic post effects
 // still run at the requested time. No asset copies or animation approximations.
 const staticFrames = new Map<string, ReturnType<typeof surface>>();
-export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t: number) {
-  const width = ctx.canvas.width,
-    height = ctx.canvas.height;
+/** Shared text layout used by drawing and editor geometry. Measurements use loaded fonts. */
+export function measureText(c: Context, l: Layer, bindings: SceneBindings, t: number) {
   const n = (v: Value | undefined, fallback = 0) => number(evaluate(v, bindings, t), fallback);
   const s = (v: Value | undefined) => String(evaluate(v, bindings, t) ?? "");
-  const energy = number(lookup(bindings.tokens, "energy"), 1);
-  const paint = (c: Context, v: Value | undefined): string | CanvasGradient => {
-    const p = evaluate(v, bindings, t);
-    if (p && typeof p === "object" && "stops" in p) {
-      const g = p as { linear?: number[]; radial?: number[]; stops: [number, string][] };
-      const a = (g.linear ?? g.radial)!;
-      const gradient = g.linear
-        ? c.createLinearGradient(a[0]!, a[1]!, a[2]!, a[3]!)
-        : c.createRadialGradient(
-            a[0]!,
-            a[1]!,
-            Math.max(0, a[2]!),
-            a[0]!,
-            a[1]!,
-            Math.max(0, a[3]!),
-          );
-      for (let j = 0; j < g.stops.length - 1; j++) {
-        const [from, first] = g.stops[j]!,
-          [to, last] = g.stops[j + 1]!;
-        const a = rgba(resolve(first, bindings)),
-          b = rgba(resolve(last, bindings));
-        for (let k = 0; k < 32; k++) {
-          const u = k / 32,
-            c = a.map((v, i) => v + (b[i]! - v) * u),
-            alpha = c[3]! / 255;
-          gradient.addColorStop(
-            from + (to - from) * u,
-            `rgba(${alpha ? c[0]! / alpha : 0},${alpha ? c[1]! / alpha : 0},${alpha ? c[2]! / alpha : 0},${alpha})`,
-          );
-        }
-      }
-      const final = g.stops.at(-1)!;
-      gradient.addColorStop(final[0], color(resolve(final[1], bindings)));
-      return gradient;
-    }
-    return color(String(p ?? "#000000@0"));
-  };
-  function text(c: Context, l: Layer) {
     let value = s(l.text),
       size = n(l.size, 60);
     let track = n(l.track);
@@ -292,34 +257,16 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
       while (last.length && measure(last.join("") + "…") > (l.maxWidth ?? Infinity)) last.pop();
       lines[lines.length - 1] = last.join("") + "…";
     }
-    c.textBaseline = "alphabetic";
-    c.textAlign = "left";
-    if (l.maxWidth && l.align !== "center" && l.align !== "right") {
-      c.beginPath();
-      c.rect(0, -size * 2, l.maxWidth, size * (lines.length + 3));
-      c.clip();
-    }
-    lines.forEach((line, i) => {
-      let x = l.align === "center" ? -measure(line) / 2 : l.align === "right" ? -measure(line) : 0;
-      if (!track) c.fillText(line, x, i * size * 1.15);
-      else {
-        const chars = [...line];
-        chars.forEach((ch, j) => {
-          c.fillText(ch, x, i * size * 1.15);
-          const next = chars[j + 1];
-          x +=
-            c.measureText(ch).width +
-            track +
-            (next
-              ? c.measureText(ch + next).width - c.measureText(ch).width - c.measureText(next).width
-              : 0);
-        });
-      }
-    });
-  }
-  function layers(c: Context, ls: Layer[]) {
-    for (const l of ls)
-      for (let rep = 0; rep < Math.max(1, l.repeat ?? 1); rep++) {
+  const widths = lines.map(measure);
+  const w = Math.max(0, ...widths);
+  const metrics = c.measureText("Mg");
+  const ascent = metrics.actualBoundingBoxAscent || size * .8;
+  const descent = metrics.actualBoundingBoxDescent || size * .2;
+  return { lines, widths, size, track, font: c.font, x: l.align === "center" ? -w / 2 : l.align === "right" ? -w : 0, y: -ascent, w, h: ascent + descent + Math.max(0, lines.length - 1) * size * 1.15 };
+}
+export function resolvedTransform(l: Layer, bindings: SceneBindings, t: number) {
+  const n = (v: Value | undefined, fallback = 0) => number(evaluate(v, bindings, t), fallback);
+  const energy = number(lookup(bindings.tokens, "energy"), 1);
         let x = n(l.x),
           y = n(l.y),
           sx = n(l.scale, 1) * n(l.scaleX, 1),
@@ -357,6 +304,106 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
                 break;
             }
           }
+  return { x, y, scaleX: sx, scaleY: sy, rotate: rot, opacity: alpha };
+}
+export type LayerGeometry = { id: string; x: number; y: number; w: number; h: number; rotate: number; scaleX: number; scaleY: number; anchor: { x: number; y: number }; matrix: number[]; text?: ReturnType<typeof measureText> };
+/** Geometry in 1920×1080 document coordinates, with inherited group transforms. */
+export function layerGeometry(doc: Scene, bindings: SceneBindings, t: number): LayerGeometry[] {
+  const out: LayerGeometry[] = [];
+  const c = surface(1, 1).getContext("2d") as Context;
+  const visit = (ls: Layer[], parent: DOMMatrix) => {
+    for (const l of ls) {
+      if (l.hidden || (l.start && t < l.start) || (l.end && t >= l.end)) continue;
+      const r = resolvedTransform(l, bindings, t);
+      const m = parent.translate(r.x, r.y).rotate(r.rotate * 180 / Math.PI).scale(r.scaleX, r.scaleY);
+      const text = l.type === "text" ? measureText(c, l, bindings, t) : undefined;
+      const n = (v: Value | undefined, fallback: number) => number(evaluate(v, bindings, t), fallback);
+      const anchor = { x: m.e, y: m.f };
+      const origin = m.transformPoint({ x: text?.x ?? 0, y: text?.y ?? 0 });
+      out.push({ id: l.id, x: origin.x, y: origin.y, w: text?.w ?? n(l.w, 1920), h: text?.h ?? n(l.h, 1080), rotate: Math.atan2(m.b, m.a), scaleX: Math.hypot(m.a, m.b), scaleY: (m.a * m.d - m.b * m.c) / Math.max(1e-12, Math.hypot(m.a, m.b)), anchor, matrix: [m.a,m.b,m.c,m.d,m.e,m.f], text });
+      if (l.layers) visit(l.layers, m);
+    }
+  };
+  visit(doc.layers, new DOMMatrix());
+  return out;
+}
+
+export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t: number) {
+  const width = ctx.canvas.width,
+    height = ctx.canvas.height;
+  const n = (v: Value | undefined, fallback = 0) => number(evaluate(v, bindings, t), fallback);
+  const s = (v: Value | undefined) => String(evaluate(v, bindings, t) ?? "");
+  const energy = number(lookup(bindings.tokens, "energy"), 1);
+  const paint = (c: Context, v: Value | undefined): string | CanvasGradient => {
+    const p = evaluate(v, bindings, t);
+    if (p && typeof p === "object" && "stops" in p) {
+      const g = p as { linear?: number[]; radial?: number[]; stops: [number, string][] };
+      const a = (g.linear ?? g.radial)!;
+      const gradient = g.linear
+        ? c.createLinearGradient(a[0]!, a[1]!, a[2]!, a[3]!)
+        : c.createRadialGradient(
+            a[0]!,
+            a[1]!,
+            Math.max(0, a[2]!),
+            a[0]!,
+            a[1]!,
+            Math.max(0, a[3]!),
+          );
+      for (let j = 0; j < g.stops.length - 1; j++) {
+        const [from, first] = g.stops[j]!,
+          [to, last] = g.stops[j + 1]!;
+        const a = rgba(resolve(first, bindings)),
+          b = rgba(resolve(last, bindings));
+        for (let k = 0; k < 32; k++) {
+          const u = k / 32,
+            c = a.map((v, i) => v + (b[i]! - v) * u),
+            alpha = c[3]! / 255;
+          gradient.addColorStop(
+            from + (to - from) * u,
+            `rgba(${alpha ? c[0]! / alpha : 0},${alpha ? c[1]! / alpha : 0},${alpha ? c[2]! / alpha : 0},${alpha})`,
+          );
+        }
+      }
+      const final = g.stops.at(-1)!;
+      gradient.addColorStop(final[0], color(resolve(final[1], bindings)));
+      return gradient;
+    }
+    return color(String(p ?? "#000000@0"));
+  };
+  function text(c: Context, l: Layer) {
+    const { lines, widths, size, track, font } = measureText(c, l, bindings, t);
+    c.font = font;
+    const measure = (line: string) => widths[lines.indexOf(line)] ?? 0;
+    c.textBaseline = "alphabetic";
+    c.textAlign = "left";
+    if (l.maxWidth && l.align !== "center" && l.align !== "right") {
+      c.beginPath();
+      c.rect(0, -size * 2, l.maxWidth, size * (lines.length + 3));
+      c.clip();
+    }
+    lines.forEach((line, i) => {
+      let x = l.align === "center" ? -measure(line) / 2 : l.align === "right" ? -measure(line) : 0;
+      if (!track) c.fillText(line, x, i * size * 1.15);
+      else {
+        const chars = [...line];
+        chars.forEach((ch, j) => {
+          c.fillText(ch, x, i * size * 1.15);
+          const next = chars[j + 1];
+          x +=
+            c.measureText(ch).width +
+            track +
+            (next
+              ? c.measureText(ch + next).width - c.measureText(ch).width - c.measureText(next).width
+              : 0);
+        });
+      }
+    });
+  }
+  function layers(c: Context, ls: Layer[]) {
+    for (const l of ls)
+      for (let rep = 0; rep < Math.max(1, l.repeat ?? 1); rep++) {
+        if (l.hidden || (l.start && t < l.start) || (l.end && t >= l.end)) continue;
+        const { x, y, scaleX: sx, scaleY: sy, rotate: rot, opacity: alpha } = resolvedTransform(l, bindings, t);
         if (alpha <= 0 || sx === 0 || sy === 0) continue;
         c.save();
         c.translate(x, y);
@@ -667,14 +714,6 @@ function pixelBehaviours(ctx: Context, l: Layer, t: number, w: number, h: number
   ctx.putImageData(pixels, 0, 0);
 }
 
-// Vite reads the authoritative files only in mock mode. Production uses owner routes.
-const documents =
-  import.meta.env.MODE === "mock" || import.meta.env.MODE === "test"
-    ? import.meta.glob<Scene>("../../../../../internal/onair/families/documents/*.json", {
-        eager: true,
-        import: "default",
-      })
-    : {};
 const fontURLs =
   import.meta.env.MODE === "mock"
     ? import.meta.glob<string>("../../../../../internal/onair/fonts/data/*.ttf", {
@@ -683,36 +722,9 @@ const fontURLs =
         import: "default",
       })
     : {};
-let catalog: Record<string, Scene> = Object.fromEntries(
-  Object.entries(documents).map(([path, doc]) => [
-    path
-      .split("/")
-      .at(-1)!
-      .replace(/\.json$/, ""),
-    doc,
-  ]),
-);
-let defaults: Record<string, SceneBindings> = {};
 let ready: Promise<void> | undefined;
 export function loadOnAirFonts() {
   return (ready ??= (async () => {
-    if (import.meta.env.MODE !== "mock" && import.meta.env.MODE !== "test") {
-      const response = await fetch("/ether/api/onair/families?documents=1", {
-        headers: resourceHeaders("/ether/api/onair/families?documents=1"),
-      });
-      if (!response.ok) throw new Error(`On Air families: ${response.status}`);
-      const entries = (await response.json()) as {
-        id: string;
-        documents: Record<string, Scene>;
-        bindings: SceneBindings;
-      }[];
-      catalog = {};
-      defaults = {};
-      for (const f of entries) {
-        defaults[f.id] = f.bindings;
-        for (const [m, d] of Object.entries(f.documents)) catalog[`${f.id}-${m}`] = d;
-      }
-    }
     if (typeof FontFace === "undefined") return;
     const ids = [
       "inter",
@@ -769,57 +781,18 @@ export async function loadStyleFonts(look: Look) {
       }),
   );
 }
-export function documentFor(family: string, moment: string) {
-  return catalog[
-    `${family === "lateNight" ? "late-night" : family}-${moment === "offair" && family === "personal" ? "welcome" : moment}`
-  ];
-}
-export function lookBindings(look: Look, bindings: Bindings): SceneBindings {
-  const family = look.family === "lateNight" ? "late-night" : look.family;
-  const tokens: Record<string, unknown> = {
-    ...defaults[family]?.tokens,
-    bg: look.brand.palette.background,
-    accent: look.brand.palette.accent,
-    text: look.brand.palette.text,
-    glow: look.brand.palette.glow,
-    moon: "#ded9c5",
-    fog: look.brand.palette.glow,
-    "type.display": normalizeFont(look.brand.type.display),
-    "type.mono": normalizeFont(look.brand.type.body),
-    energy: look.brand.energy * 2,
-    seed: look.brand.seed,
-    "textures.grain": look.brand.textures.includes("Grain") ? 0.07 : 0,
-    "words.tagline": look.brand.tagline,
-    "words.tonight": "TONIGHT",
-    "words.upNext": "UP NEXT",
-    "words.now": "NOW PLAYING",
-    "words.break": family === "cinema" ? "INTERMISSION" : "Back in a moment",
-    "words.back": "NOW RESUMING",
-    "words.offair": "OFF AIR",
-  };
-  for (const [k, v] of Object.entries(look.brand.words))
-    tokens[`words.${k === "upnext" ? "upNext" : k}`] = v;
-  const slots: Record<string, string> = {
-    ...defaults[family]?.slots,
-    "channel.name": bindings.channel?.name ?? look.name,
-    "viewer.name": bindings.viewer?.name ?? "Alex",
-    "viewer.greeting": bindings.viewer?.greeting ?? bindings.greeting ?? "Good evening",
-    "offair.message": bindings.offair?.message ?? "Programming resumes soon",
-  };
-  function flatten(value: unknown, prefix: string) {
-    if (value === undefined || value === null) return;
-    if (typeof value !== "object") {
-      slots[prefix] = String(value);
-      return;
-    }
-    for (const [key, child] of Object.entries(value))
-      flatten(
-        child,
-        Array.isArray(value) ? `${prefix}[${key}]` : prefix ? `${prefix}.${key}` : key,
-      );
-  }
-  flatten(bindings, "");
-  return { tokens, slots };
+/** Resolve the owned style's shared kit and live slots without template lookups. */
+export function styleBindings(look: Look, bindings: Bindings = {}): SceneBindings {
+ const tokens: Record<string,unknown> = {
+ bg:look.brand.palette.background, accent:look.brand.palette.accent, text:look.brand.palette.text, glow:look.brand.palette.glow,
+ "type.display":normalizeFont(look.brand.type.display), "type.body":normalizeFont(look.brand.type.body), "type.mono":normalizeFont(look.brand.type.body),
+ energy:look.brand.energy, "words.tagline":look.brand.tagline, "brand.logo":look.brand.logo ?? "",
+ };
+ for (const name of ["grain","flicker","scanlines","vignette","chroma"]) tokens[`textures.${name}`] = look.brand.textures.some(t=>t.toLowerCase()===name) ? .07 : 0;
+ for (const control of look.controls) tokens[`control.${control.id}`] = control.value;
+ const slots: Record<string,string> = { "channel.name": bindings.channel?.name ?? look.name, "brand.logo": look.brand.logo ?? "" };
+ const flatten=(value:unknown,prefix:string)=> { if(value==null) return; if(typeof value!=="object") { slots[prefix]=String(value); return; } for(const [key,child] of Object.entries(value)) flatten(child,Array.isArray(value) ? `${prefix}[${key}]` : prefix ? `${prefix}.${key}` : key); };
+ flatten(bindings,""); return {tokens,slots};
 }
 type WorkerRequest = {
   id: number;
@@ -933,174 +906,6 @@ function workerFrame(
     return false;
   }
   return true;
-}
-export function renderLook(
-  ctx: Context,
-  look: Look,
-  moment: Moment,
-  bindings: Bindings = {},
-  t = 3,
-  synchronous = false,
-) {
-  const doc = documentFor(look.family, moment);
-  if (!doc) return;
-  const edit = (layers: Layer[]): Layer[] =>
-    layers.map((l) => {
-      const patch =
-        look.layers?.[l.id] ??
-        look.layers?.[
-          l.id === "brand" || l.id === "title" ? "Title" : l.id === "tag" ? "Tagline" : l.id
-        ];
-      return {
-        ...l,
-        ...(l.id === "tag" && l.type === "text" && ["ident", "offair", "welcome"].includes(moment)
-          ? { text: "{words.tagline}" }
-          : {}),
-        ...(patch
-          ? {
-              ...patch,
-              opacity: patch.hidden
-                ? 0
-                : patch.opacity === undefined
-                  ? l.opacity
-                  : patch.opacity / 100,
-              font: l.font,
-            }
-          : {}),
-        layers: l.layers ? edit(l.layers) : undefined,
-      } as Layer;
-    });
-  const bug = resolveBug(look.bug);
-  const scale = bug.size === "small" ? 0.75 : bug.size === "large" ? 1.3 : 1;
-  const logo = bindings.channel?.logo || look.brand.logo;
-  const useLogo = bug.source === "logo" && logo && logo.length > 3;
-  const mark: Layer = useLogo
-    ? {
-        id: "station-logo",
-        type: "image",
-        src: logo,
-        w: 288,
-        h: 100,
-        fit: "contain",
-        glow: 2,
-        ...(bug.style === "monochrome" ? { tint: "#eeeeee", tintBlend: "silhouette" } : {}),
-      }
-    : {
-        id: "Title",
-        type: "text",
-        text: "{channel.name}",
-        y: 64,
-        font: "{type.display}",
-        size: 48,
-        weight: 600,
-        track: 2,
-        fill: bug.style === "original" ? "{accent}" : "#eeeeee",
-        maxWidth: 288,
-        fit: "shrink",
-        glow: 2,
-      };
-  const shadow: Layer = {
-    ...mark,
-    id: "bug-shadow",
-    fill: "#000000",
-    tint: "#000000",
-    glow: 0,
-    blur: 2,
-    y: mark.type === "text" ? 66 : 2,
-  };
-  const bugLayers: Layer[] = [
-    {
-      id: "station-bug",
-      type: "group",
-      x: bug.position.endsWith("Left") ? 192 : 1728 - 288 * scale,
-      y: bug.position.startsWith("top") ? 108 : 972 - 100 * scale,
-      scale,
-      opacity: bug.opacity,
-      layers: [shadow, mark],
-    },
-  ];
-  let previewLayers = moment === "bug" ? bugLayers : doc.layers;
-  if (moment === "bug" || moment === "lowerthird") {
-    const illustration = documentFor(look.family, "upnext")?.layers.find((l) =>
-      l.id.endsWith("-illustration"),
-    );
-    if (illustration?.layers) {
-      const sky = illustration.layers[0]!;
-      const programme: Layer = {
-        ...illustration,
-        x: 0,
-        y: 0,
-        scaleX: 1920 / number(sky.w, 1920),
-        scaleY: 1080 / number(sky.h, 1080),
-      };
-      previewLayers = [
-        programme,
-        ...(moment === "lowerthird" ? bugLayers : []),
-        ...(moment === "bug" ? bugLayers : doc.layers),
-      ];
-    }
-  }
-  const document = { ...doc, layers: edit(previewLayers) };
-  if (moment === "ident" && document.layers[0]?.id === "ident-envelope") {
-    const duration = look.moments.ident?.duration ?? doc.duration;
-    document.duration = duration;
-    document.layers = document.layers.map((layer, i) =>
-      i
-        ? layer
-        : {
-            ...layer,
-            opacity: {
-              keys: [
-                [0, 0],
-                [0.4, 1, "inOut"],
-                [duration - 0.4, 1],
-                [duration, 0, "inOut"],
-              ],
-            },
-          },
-    );
-  }
-  const bound = lookBindings(look, bindings);
-  if (look.brand.logo && moment !== "bug" && moment !== "lowerthird") {
-    const logo = look.brand.logo;
-    if ([...logo].length <= 3)
-      document.layers = [
-        ...document.layers,
-        {
-          id: "owner-logo",
-          type: "text",
-          text: logo,
-          x: 95,
-          y: 130,
-          font: normalizeFont(look.brand.type.display),
-          size: 72,
-          fill: look.brand.palette.accent,
-        },
-      ];
-    else {
-      bound.slots["brand.logo"] = logo;
-      document.layers = [
-        ...document.layers,
-        {
-          id: "owner-logo",
-          type: "image",
-          src: "{brand.logo}",
-          x: 95,
-          y: 70,
-          w: 120,
-          h: 120,
-          fit: "contain",
-        },
-      ];
-    }
-  }
-
-  if (
-    Object.values(look.brand.type).some((id) => /^[a-f0-9]{64}$/.test(id)) ||
-    synchronous ||
-    !workerFrame(ctx, document, bound, t)
-  )
-    renderScene(ctx, document, bound, t);
 }
 
 if (import.meta.hot)

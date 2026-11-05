@@ -29,6 +29,11 @@ type Audio struct {
 }
 
 type Layer struct {
+	Name        string     `json:"name,omitempty"`
+	Hidden      bool       `json:"hidden,omitempty"`
+	Locked      bool       `json:"locked,omitempty"`
+	Start       float64    `json:"start,omitempty"`
+	End         float64    `json:"end,omitempty"`
 	ID          string     `json:"id"`
 	Type        string     `json:"type"`
 	X           Value      `json:"x,omitempty"`
@@ -164,6 +169,9 @@ func (d Document) Validate() error {
 				return fmt.Errorf("missing/duplicate layer id %q", l.ID)
 			}
 			ids[l.ID] = true
+			if math.IsNaN(l.Start) || math.IsNaN(l.End) || l.Start < 0 || l.End < 0 || l.Start > d.Duration || l.End > d.Duration || (l.End > 0 && l.End <= l.Start) {
+				return fmt.Errorf("layer %q: start and end must be within the scene, with end after start", l.ID)
+			}
 			if !one(l.Type, "rect ellipse path text image art logo blob particles gradient noise grid group") {
 				return fmt.Errorf("unknown layer %q", l.Type)
 			}
