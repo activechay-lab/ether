@@ -13,11 +13,11 @@ describe("catalogue owner tags", () => {
     });
     render(<CatalogTags titleKey="1000000000000007" />);
     await screen.findByText("favourites");
-    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Tags" }), {
       target: { value: "Friday, family, Friday" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(tags).toEqual(["Friday", "family"]));
     expect(await screen.findByText("Friday")).toBeInTheDocument();
   });
