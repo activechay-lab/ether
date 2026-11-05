@@ -1,6 +1,11 @@
 # W12 warm static unification
 
 Implementation: `0637cdb81`; integration merged as `5aa236a92` from `8c32f523e`.
+Latest integration `491b7ef71` (release and W13) merged as `54ca9ea9b`; the sole
+conflict combined the warm-static and station-bug imports. Final builds, vet,
+focused Go tests, typecheck, format and scene-renderer Vitest pass after this merge.
+Evidence captures predate that presentation-only merge.
+
 Branch: `feat/035-static`. No lab service was started, stopped or streamed.
 
 ## Shipped behaviour
@@ -120,8 +125,8 @@ explicitly not a final-head pass.
 
 An earlier non-short Live TV run also failed the large-offset remote fixture's
 90-second synthetic generation deadline; a prior continuity failure was resolved
-by the W11 merge as verified above. No lab was used. No internal/core or
-internal/config edits. All own servers and browsers were closed.
+by the W11 merge as verified above. No lab was used. No W12-authored internal/core or
+internal/config edits; integration imports W13's additive bug model. All own servers and browsers were closed.
 
 # Complete scene texture inventory
 

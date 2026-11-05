@@ -539,7 +539,7 @@ Migrations:
   1. **Gaps first.** With `Align` (hour or half hour), `fillGap` already makes dead air. Interstitials take that gap before filler or slate, so the guide doesn't move at all.
   2. **Inserted.** Without alignment, an interstitial adds a slot. Later programmes shift by its length. This happens only when the owner saves the channel. The save toast says "Guide times shift by up to 12 s per programme."
 - **Guide coalescing.** `Guide()`, XMLTV and the Plex grid fold every interstitial into the preceding real programme's end time. Viewers never see 8-second programmes, and real programme IDs stay `<ch>-<startMs>` of the real start. Playout uses the uncoalesced list. Inserted mode changes guide times only, never by more than the interstitial's own length.
-- **Off-air** keeps today's guide entry; playout now plays the `offair` clip, looped.
+- **Off-air** keeps today's guide entry. Designed `offair` clips loop; analogue-static scenes composite a prepared foreground over the continuously running warm Signal engine (§4.9).
 - **Tune-in ident** is not a schedule entry. It is a session prefix (§4.5), so the guide is unaffected.
 
 ### 4.5 Playout: one continuous stream per channel
