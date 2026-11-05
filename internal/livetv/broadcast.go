@@ -714,8 +714,16 @@ func (b *broadcast) step(now time.Time) {
 	b.lastFrame = frame
 	b.mu.Lock()
 	for id, r := range b.renditions {
-		if changed, repeating, pending := r.queue.push(frame); changed {
+		changed, repeating, pending := r.queue.push(frame)
+		if changed {
 			b.logger.Info("broadcast encoder video cadence changed", "rendition", id, "repeating", repeating, "pendingTicks", pending, "tick", b.tick)
+		}
+		if b.tick%300 == 0 {
+			progress := ""
+			if source, ok := r.encoder.(interface{ Diagnostics() string }); ok {
+				progress = source.Diagnostics()
+			}
+			b.logger.Debug("broadcast encoder progress", "rendition", id, "inputTick", b.tick, "pendingTicks", pending, "repeating", repeating, "encoder", progress)
 		}
 	}
 	b.mu.Unlock()

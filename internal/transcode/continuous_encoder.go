@@ -286,7 +286,14 @@ func (e *continuousEncoder) WriteShared(ctx context.Context, f RawFrame) error {
 }
 func (e *continuousEncoder) Segments() SegmentIndex { return e.index }
 func (e *continuousEncoder) Diagnostics() string {
-	return fmt.Sprintf("queued=%d stderr=%s", len(e.frames), e.stderr.String())
+	progress := map[string]string{}
+	for line := range strings.SplitSeq(e.stderr.String(), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if ok {
+			progress[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		}
+	}
+	return fmt.Sprintf("queued=%d frame=%s fps=%s speed=%s outTimeUS=%s", len(e.frames), progress["frame"], progress["fps"], progress["speed"], progress["out_time_us"])
 }
 func (e *continuousEncoder) Close() error {
 	e.continuousProcess.close()
