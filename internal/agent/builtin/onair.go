@@ -100,7 +100,11 @@ func onairTools(d Deps) []tools.Tool {
 	}})
 	alias := draft
 	alias.Name = "livetv_look_draft"
-	return []tools.Tool{draft, alias, tool(tools.Tool{Name: "channel_summary", Title: "Channel programming summary", ReadOnly: true, Description: "Read a bounded local summary of a channel's real programming and current look, without contacting providers.", InputSchema: schema(map[string]any{"channelId": pString("The channel id", 128)}, "channelId"), Execute: func(ctx context.Context, _ tools.Principal, in map[string]any) (tools.Result, error) {
+	// Short names are the console route's internal vocabulary; MCP exposes the
+	// public namespaced draft tool rather than a duplicate or helper summary.
+	consoleOnly := func(_ context.Context, p tools.Principal) bool { return p.Surface != "mcp" }
+	draft.Visible = consoleOnly
+	return []tools.Tool{draft, alias, tool(tools.Tool{Name: "channel_summary", Visible: consoleOnly, Title: "Channel programming summary", ReadOnly: true, Description: "Read a bounded local summary of a channel's real programming and current look, without contacting providers.", InputSchema: schema(map[string]any{"channelId": pString("The channel id", 128)}, "channelId"), Execute: func(ctx context.Context, _ tools.Principal, in map[string]any) (tools.Result, error) {
 		id, e := reqStr(in, "channelId", 128)
 		if e != nil {
 			return tools.Result{}, e
