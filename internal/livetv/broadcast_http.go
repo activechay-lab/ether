@@ -103,7 +103,7 @@ func (s *Service) serveBroadcastHTTP(w http.ResponseWriter, r *http.Request, ss 
 		}
 		if stream := liveHTTP(ss); stream != nil {
 			ss.mu.Unlock()
-			stream.ServeHTTP(w, r)
+			s.serveBroadcastHTTPMedia(w, r, ss, stream)
 			return nil
 		}
 		if wait := ss.httpStart; wait != nil {
@@ -118,6 +118,12 @@ func (s *Service) serveBroadcastHTTP(w http.ResponseWriter, r *http.Request, ss 
 		wait := make(chan struct{})
 		ss.httpStart = wait
 		info := ss.info.MediaInfo
+		if info == nil {
+			ss.httpStart = nil
+			close(wait)
+			ss.mu.Unlock()
+			return core.ErrNotAvailable
+		}
 		ss.mu.Unlock()
 		source, err := s.openBroadcastHTTPSource(ss)
 		var stream core.HTTPSession
@@ -155,7 +161,7 @@ func (s *Service) serveBroadcastHTTP(w http.ResponseWriter, r *http.Request, ss 
 			stream.Close()
 			return core.ErrNotFound
 		}
-		stream.ServeHTTP(w, r)
+		s.serveBroadcastHTTPMedia(w, r, ss, stream)
 		return nil
 	}
 }
@@ -166,3 +172,22 @@ type ownedBroadcastHTTP struct {
 }
 
 func (s *ownedBroadcastHTTP) Close() error { s.cancel(); return s.HTTPSession.Close() }
+
+type broadcastHTTPObservation struct{ *mediaObservation }
+
+func (w *broadcastHTTPObservation) Write(p []byte) (int, error) {
+	n, err := w.mediaObservation.Write(p)
+	if n > 0 && err == nil {
+		w.ss.mu.Lock()
+		w.ss.last = w.s.o.Now()
+		w.ss.firstMediaDelivered = true
+		w.ss.mu.Unlock()
+	}
+	return n, err
+}
+func (s *Service) serveBroadcastHTTPMedia(w http.ResponseWriter, r *http.Request, ss *session, stream core.HTTPSession) {
+	s.touchMedia(ss)
+	observed := s.observeMedia(w, ss)
+	defer observed.done()
+	stream.ServeHTTP(&broadcastHTTPObservation{observed}, r)
+}

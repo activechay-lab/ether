@@ -65,6 +65,26 @@ func TestBroadcastRealContinuity(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("cold first finished segment: %s", time.Since(cold))
+	s := testService(t, Options{Transcoder: manager})
+	channel := testChannel()
+	channel.Items = []Item{{Key: 1, Title: "Long programme", DurationMS: 3600000}}
+	if _, err := s.SaveChannel(ctx, channel); err != nil {
+		t.Fatal(err)
+	}
+	user := core.User{ID: 1, IsOwner: true}
+	ssctx, sscancel := context.WithCancel(ctx)
+	ss := &session{ctx: ssctx, cancel: sscancel, ready: true, user: user, streamGrant: "test-grant", info: SessionInfo{ID: "continuous-test", Channel: channel, UserID: 1, MediaInfo: &core.MediaInfo{Container: "mpegts", Streams: []core.StreamInfo{{Index: 0, Type: "video", Codec: "h264", Width: 320, Height: 180, FrameRate: 30}, {Index: 1, Type: "audio", Codec: "aac", Channels: 2, SampleRate: 48000}}}}, broadcast: &broadcastLease{broadcast: b, rendition: "main"}}
+	s.mu.Lock()
+	s.sessions[ss.info.ID] = ss
+	s.mu.Unlock()
+	httpCtx, httpCancel := context.WithCancel(ctx)
+	defer httpCancel()
+	httpCapture := httptest.NewRecorder()
+	httpDone := make(chan error, 1)
+	go func() {
+		request := httptest.NewRequest("GET", "/start?protocol=http", nil).WithContext(httpCtx)
+		httpDone <- s.ServeHTTP(httpCapture, request, ss.info.ID, &user)
+	}()
 	timeLeft := time.Until(origin.Add(40 * time.Second))
 	if timeLeft > 0 {
 		select {
@@ -85,18 +105,18 @@ func TestBroadcastRealContinuity(t *testing.T) {
 			t.Fatal("wall-clock gap")
 		}
 	}
-	s := testService(t, Options{Transcoder: manager})
-	channel := testChannel()
-	channel.Items = []Item{{Key: 1, Title: "Long programme", DurationMS: 3600000}}
-	if _, err := s.SaveChannel(ctx, channel); err != nil {
-		t.Fatal(err)
+	httpCancel()
+	select {
+	case err := <-httpDone:
+		if err != nil {
+			t.Fatal("Matroska attach", err)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
 	}
-	user := core.User{ID: 1, IsOwner: true}
-	ssctx, sscancel := context.WithCancel(ctx)
-	ss := &session{ctx: ssctx, cancel: sscancel, ready: true, user: user, streamGrant: "test-grant", info: SessionInfo{ID: "continuous-test", Channel: channel, UserID: 1}, broadcast: &broadcastLease{broadcast: b, rendition: "main"}}
-	s.mu.Lock()
-	s.sessions[ss.info.ID] = ss
-	s.mu.Unlock()
+	if httpCapture.Code != 200 || httpCapture.Body.Len() == 0 || httpCapture.Header().Get("Content-Type") != "video/x-matroska" {
+		t.Fatal("Matroska response", httpCapture.Code, httpCapture.Header(), httpCapture.Body.Len())
+	}
 	warm := time.Now()
 	playlist := httptest.NewRecorder()
 	s.ServePlaylist(playlist, httptest.NewRequest("GET", "/index.m3u8", nil), ss.info.ID, &user)
@@ -129,7 +149,7 @@ func TestBroadcastRealContinuity(t *testing.T) {
 		}
 		mp4.Write(rec.Body.Bytes())
 	}
-	for name, data := range map[string][]byte{"captured.ts": ts.Bytes(), "captured.mp4": mp4.Bytes()} {
+	for name, data := range map[string][]byte{"captured.ts": ts.Bytes(), "captured.mp4": mp4.Bytes(), "captured.mkv": httpCapture.Body.Bytes()} {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, data, 0600); err != nil {
 			t.Fatal(err)
