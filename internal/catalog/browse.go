@@ -953,7 +953,14 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		conds = append(conds, "("+clause+")")
 		args = append(args, values...)
 	}
-	return strings.Join(conds, " AND "), args, nil
+	where := strings.Join(conds, " AND ")
+	if f.LocalOnly && store.DialectOf(c.db) != store.Postgres {
+		// SQLite's virtual-column reference prevents a covering index plan.
+		// This is exactly release_known's schema expression, without fetching
+		// the wide title row. Other clients retain their existing SQL.
+		where = strings.ReplaceAll(where, "t.release_known=1", "t.released_ts<>0")
+	}
+	return where, args, nil
 }
 
 func escapeLike(s string) string {
