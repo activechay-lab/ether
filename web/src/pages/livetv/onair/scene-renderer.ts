@@ -1,4 +1,4 @@
-import { warmStatic } from "./warm-static";
+import { crispStatic } from "./crisp-static";
 import { resolveBug } from "./bug";
 import { getToken, SESSION_HEADER } from "../../../lib/api";
 import type { Bindings, Look, Moment } from "./model";
@@ -440,9 +440,14 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
             draw.restore();
           }
         } else if (l.type === "noise") {
-          draw.imageSmoothingEnabled = true;
-          draw.imageSmoothingQuality = "high";
-          draw.drawImage(warmStatic(seed, Math.max(0, Math.floor(t * 30))), 0, 0, w, h);
+          draw.imageSmoothingEnabled = false;
+          draw.drawImage(
+            crispStatic(seed, Math.max(0, Math.floor(t * 30)), width, height),
+            0,
+            0,
+            w,
+            h,
+          );
         } else {
           const path = new Path2D(l.type === "path" ? l.path : undefined);
           if (["rect", "gradient"].includes(l.type)) path.rect(0, 0, w, h);

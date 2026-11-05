@@ -7,7 +7,7 @@ import (
 )
 
 func TestAudio(t *testing.T) {
-	for kind, target := range map[string]float64{"tone": -30, "static": -35.2, "bed": -35.4} {
+	for kind, target := range map[string]float64{"tone": -30, "static": -30, "bed": -35.4} {
 		pcm, e := PCM(scene.Audio{Generator: kind, Seed: 7}, 4)
 		if e != nil {
 			t.Fatal(e)

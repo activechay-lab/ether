@@ -593,7 +593,7 @@ Migrations:
   1. **Gaps first.** With `Align` (hour or half hour), `fillGap` already makes dead air. Interstitials take that gap before filler or slate, so the guide doesn't move at all.
   2. **Inserted.** Without alignment, an interstitial adds a slot. Later programmes shift by its length. This happens only when the owner saves the channel. The save toast says "Guide times shift by up to 12 s per programme."
 - **Guide coalescing.** `Guide()`, XMLTV and the Plex grid fold every interstitial into the preceding real programme's end time. Viewers never see 8-second programmes, and real programme IDs stay `<ch>-<startMs>` of the real start. Playout uses the uncoalesced list. Inserted mode changes guide times only, never by more than the interstitial's own length.
-- **Off-air** keeps today's guide entry. Designed `offair` clips loop; analogue-static scenes composite a prepared foreground over the continuously running warm Signal engine (§4.9).
+- **Off-air** keeps today's guide entry. Designed `offair` clips loop; analogue-static scenes composite a prepared foreground over the continuously running crisp Signal engine (§4.9).
 - **Tune-in ident** is not a schedule entry. It is a session prefix (§4.5), so the guide is unaffected.
 
 ### 4.5 Playout: one continuous stream per channel
@@ -712,11 +712,11 @@ The CPU figures include decode. Decode is the variable part: a 1080p H.264 relea
 ### 4.9 Signal screens
 
 **What renders the screens**
-- **Live Signal engine.** Analogue static is the approved warm, soft phosphor generator (`internal/onair/signal`), rendered at the full negotiated output size at 30 Hz. Its temporally integrated, Gaussian-bloomed 320×180 field is deliberate bandwidth limiting, sampled smoothly into native 1080p; it is not a low-resolution encoded clip. The continuous channel tick drives the rolling bar, tracking, hiss and hum. There is no video or audio loop.
-- **One static.** Signal screens, cold-tune fill, and scene `noise` backgrounds use this same generator. Nocturne's off-air card composites its prepared foreground over live static in the switcher. Scene masters and console previews use the same warm phosphor model; designed cards retain only subtle native-resolution film grain.
+- **Live Signal engine.** Analogue static faithfully restores the owner-approved continuity demo (`cac0121d1`, `internal/onair/signal.StaticVideo`): neutral chroma, sharp 6×6 destination-pixel grains changing at 15 Hz, native 30 Hz rolling bar, scanline modulation and rare tracking tears. Grains are written directly into the full negotiated frame: no low-resolution field, interpolation, Gaussian bloom or temporal EMA. The continuous channel clock drives the non-repeating picture, hiss and hum; there is no clip loop.
+- **One static.** Cold-tune fill, Signal static screens, Nocturne off-air and every scene `noise` background use this generator. Prepared foregrounds composite over live static in the switcher. The console preview uses the same integer hash, grain grid, bar and tracking model at the native scene size. Designed cards retain their subtle film grain.
 - **Other screens.** Modern card, bars, BRB and test card use prepared native-resolution plates with live phosphor effects. All are silent. Typography is prepared away from the frame clock.
-- **Bitrate.** The existing shared encoder enforces the session's negotiated ceiling. Softness controls entropy; no coarse snow is substituted to meet the budget.
-- **Cache.** The renderer version participates in the content hash, invalidating old grey-snow masters. Live static never reads a looping master from that cache.
+- **Bitrate.** The shared encoder retains its negotiated VBV ceiling and 20-frame x264 lookahead. Software grain tuning uses `aq-mode=2:aq-strength=0.8:psy-rd=1.0,0.15`; no blur or substituted texture hides entropy. Offline real-switcher samples record average/one-second peak bitrate and CPU at 1080p/720p.
+- **Cache.** The crisp renderer version participates in the content hash, invalidating soft static masters. Live static never reads a looping master from that cache.
 
 **Settings.** `config.LiveTV.Screens{OffAir, NoSignal string; StationID bool}` holds the owner default. `Channel.Screens{OffAir, NoSignal string}` is the per-channel override, where `""` follows the default. The style IDs are `card`, `static`, `bars`, `brb` and `testcard`.
 
