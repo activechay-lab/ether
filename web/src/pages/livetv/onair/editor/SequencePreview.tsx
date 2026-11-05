@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { t } from "../../../../i18n";
 import { onair, type Bindings, type Reel } from "../model";
 import { type Style } from "../studio-model";
 import { StyleThumbnail } from "./RemixPanel";
+import { useAssetAudio } from "../useAssetAudio";
 import { usePreviewAudio } from "./preview-audio";
 export function SequencePreview({
   style,
@@ -33,7 +34,17 @@ export function SequencePreview({
       { label: t("Ident"), scene: scene("ident") },
       { label: t("Programme"), programme: true },
       { label: t("Break"), scene: scene("break") },
-      ...(reel ? [{ label: reel.name, reel }] : []),
+      ...(reel
+        ? [
+            {
+              label: reel.name,
+              reel: {
+                ...reel,
+                preview: `/ether/api/onair/reels/${reels.find((r) => r.clips.some((c) => c.id === reel.id))!.id}/clips/${reel.id}/preview`,
+              },
+            },
+          ]
+        : []),
       { label: t("Back"), scene: scene("back") },
       { label: t("Up next"), scene: scene("upnext") },
     ]
@@ -77,6 +88,22 @@ export function SequencePreview({
     return () => cancelAnimationFrame(frame);
   }, [open, playing, total]);
   usePreviewAudio(chapter?.scene, local, open && playing, muted);
+  const video = useRef<HTMLVideoElement>(null);
+  const videoSource = useAssetAudio(
+    open
+      ? (chapter?.scene?.video?.assetDigest ??
+          (chapter && "reel" in chapter ? (chapter.reel?.sourceDigest ?? "") : ""))
+      : "",
+  );
+  useEffect(() => {
+    const v = video.current;
+    if (!v) return;
+    const target = local + (chapter?.scene?.video?.start ?? 0);
+    if (Math.abs(v.currentTime - target) > 0.25) v.currentTime = target;
+    if (open && playing) void v.play().catch(() => {});
+    else v.pause();
+  }, [open, playing, local, videoSource]);
+
   const slots = {
     "channel.name": bindings.channel?.name ?? "",
     "next.title": bindings.next?.title ?? "",
@@ -121,13 +148,34 @@ export function SequencePreview({
               {t("Close")}
             </Button>
           </div>
-          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
             {chapter?.scene ? (
-              <StyleThumbnail style={style} scene={chapter.scene} slots={slots} time={local} />
+              <>
+                {chapter.scene.video && videoSource ? (
+                  <video
+                    ref={video}
+                    src={videoSource}
+                    muted={muted}
+                    playsInline
+                    className="absolute inset-0 h-full w-full object-contain"
+                  />
+                ) : null}
+                {chapter.scene.video?.mode !== "replace" ? (
+                  <div className="relative w-full">
+                    <StyleThumbnail
+                      style={style}
+                      scene={chapter.scene}
+                      slots={slots}
+                      time={local}
+                    />
+                  </div>
+                ) : null}
+              </>
             ) : chapter && "reel" in chapter ? (
               <video
                 key={chapter.reel?.id}
-                src={chapter.reel?.preview}
+                ref={video}
+                src={videoSource || chapter.reel?.preview}
                 autoPlay={playing}
                 muted={muted}
                 controls

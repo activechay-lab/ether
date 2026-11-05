@@ -40,15 +40,38 @@ export function StyleThumbnail({
 }) {
   const ref = useRef<HTMLCanvasElement>(null),
     [hover, setHover] = useState(false);
+  const [loaded, setLoaded] = useState<SceneBindings | null>(null);
+  const bindingKey = JSON.stringify(styleBindings(style, slots));
+  const documentKey = JSON.stringify(scene?.document);
+  useEffect(() => {
+    let live = true;
+    setLoaded(null);
+    if (scene)
+      void Promise.all([
+        loadStyleFonts(style),
+        loadSceneAssets(scene.document, JSON.parse(bindingKey) as SceneBindings),
+      ])
+        .then(([, b]) => {
+          if (live) setLoaded(b);
+        })
+        .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [bindingKey, documentKey]);
+  useEffect(() => {
+    const ctx = ref.current?.getContext("2d");
+    return () => {
+      if (ctx) releaseRenderer(ctx);
+    };
+  }, []);
   useEffect(() => {
     const ctx = ref.current?.getContext("2d");
     if (!ctx || !scene) return;
-    let frame = 0,
-      live = true;
+    let frame = 0;
     const start = performance.now();
-    let bindings = styleBindings(style, slots);
-    const draw = () => {
-      if (!live) return;
+    const bindings = loaded ?? (JSON.parse(bindingKey) as SceneBindings);
+    const draw = () =>
       renderDocument(
         ctx,
         scene.document,
@@ -58,26 +81,15 @@ export function StyleThumbnail({
             ? ((performance.now() - start) / 1000) % scene.document.duration
             : scene.document.poster),
       );
-    };
-    void loadStyleFonts(style).then(() => {
-      if (live) draw();
-    });
     const animate = () => {
       draw();
       frame = requestAnimationFrame(animate);
     };
-    if (time === undefined && (playing || hover)) frame = requestAnimationFrame(animate);
     draw();
-    void loadSceneAssets(scene.document, bindings).then((b) => {
-      bindings = b;
-      if (live) draw();
-    });
-    return () => {
-      live = false;
-      cancelAnimationFrame(frame);
-      releaseRenderer(ctx);
-    };
-  }, [style, scene, slots, playing, hover, time]);
+    if (time === undefined && (playing || hover)) frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [loaded, bindingKey, documentKey, playing, hover, time]);
+
   return (
     <canvas
       ref={ref}
@@ -168,7 +180,28 @@ export function RemixPanel(p: {
       .then(setAssets)
       .catch(() => {});
   }, []);
-  const brand = (patch: Partial<Brand>) => p.onChange({ ...s, brand: { ...s.brand, ...patch } });
+  const brand = (patch: Partial<Brand>) =>
+    p.onChange({
+      ...s,
+      brand: { ...s.brand, ...patch },
+      ...(patch.textures
+        ? {
+            scenes: s.scenes.map((scene) => ({
+              ...scene,
+              document: {
+                ...scene.document,
+                post: patch.textures!.map(
+                  (type) =>
+                    scene.document.post?.find((effect) => effect.type === type) ?? {
+                      type,
+                      amount: `{textures.${type}}`,
+                    },
+                ),
+              },
+            })),
+          }
+        : {}),
+    });
   const contrast =
     (Math.max(luminance(s.brand.palette.text), luminance(s.brand.palette.background)) + 0.05) /
     (Math.min(luminance(s.brand.palette.text), luminance(s.brand.palette.background)) + 0.05);

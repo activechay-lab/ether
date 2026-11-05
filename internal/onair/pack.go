@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 const packLimit = 128 << 20
@@ -73,7 +74,7 @@ func (s *Service) ExportStylePack(ctx context.Context, id string) ([]byte, []str
 			return nil, nil, fmt.Errorf("referenced Library asset %s is unavailable: %w", digest, e)
 		}
 		if a.Kind == "font" && !redistributable(a.License) {
-			warnings = append(warnings, fmt.Sprintf("Font %s excluded: its licence does not permit redistribution. Select a bundled font before sharing.", a.Name))
+			warnings = append(warnings, fmt.Sprintf("Font %s excluded: its licence does not permit redistribution. Replaced with bundled Inter in this pack.", a.Name))
 			b = bytes.ReplaceAll(b, []byte(digest), []byte("inter"))
 			continue
 		}
@@ -224,7 +225,17 @@ func (s *Service) StudioRoutes(r chi.Router) {
 		if !body(w, r, &v) {
 			return
 		}
-		l, e := s.GenerateScene(r.Context(), v.Prompt, "", v.Style, v.SceneID)
+		summary := ""
+		if len(v.Style.ChannelIDs) > 0 && s.o.Bindings != nil {
+			bindings, err := s.o.Bindings(r.Context(), v.Style.ChannelIDs[0], "", time.Now())
+			if err != nil {
+				result(w, nil, err)
+				return
+			}
+			b, _ := json.Marshal(bindings)
+			summary = string(b)
+		}
+		l, e := s.GenerateScene(r.Context(), v.Prompt, summary, v.Style, v.SceneID)
 		result(w, map[string]any{"style": l, "summary": "Your proposed scene design is ready to preview."}, e)
 	})
 	r.Get("/looks/{id}/pack", func(w http.ResponseWriter, r *http.Request) {
