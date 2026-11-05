@@ -844,6 +844,13 @@ func (s *Server) renderStreams(key core.RatingKey, info core.MediaInfo, sel sele
 			ps.FrameRate = math.Round(st.FrameRate*1000) / 1000
 			ps.BitDepth, ps.Level = st.BitDepth, st.Level
 			ps.ColorRange = st.ColorRange
+			ps.ChromaLocation, ps.CodedWidth, ps.CodedHeight = st.ChromaLocation, st.CodedWidth, st.CodedHeight
+			if st.FieldOrder != "" && st.FieldOrder != "unknown" {
+				ps.ScanType = "progressive"
+				if st.Interlaced {
+					ps.ScanType = "interlaced"
+				}
+			}
 			ps.Profile = strings.ToLower(st.Profile)
 			ps.ChromaSubsampling = "4:2:0"
 			switch st.ColorTransfer {

@@ -148,7 +148,7 @@ func (s *Server) handleSections(w http.ResponseWriter, r *http.Request) {
 	for _, sec := range s.userSections(u) {
 		agent, scanner := agentFor(sec.Type)
 		mc.Directory = append(mc.Directory, model.Directory{
-			AllowSync:        model.Ptr(s.downloadsAllowed(u)),
+			AllowSync:        model.Ptr(s.downloadsAllowed(u) || u != nil && u.IsOwner && (s.cfg().Plex.Claimed || s.cfg().Plex.Token != "")),
 			Filters:          model.Ptr(true),
 			Refreshing:       model.Ptr(false),
 			Key:              strconv.Itoa(sec.ID),

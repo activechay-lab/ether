@@ -32,6 +32,12 @@ func (s *Server) routes() chi.Router {
 	get("/servers", s.handleServers)
 	get("/clients/profiles", s.handleClientProfiles)
 	get("/clients/profiles/", s.handleClientProfiles)
+	any("/sync", func(w http.ResponseWriter, r *http.Request) {
+		s.write(w, r, &struct {
+			Size    int    `plex:"size"`
+			Content string `plex:"content"`
+		}{0, "plugins"})
+	})
 	get("/clients", func(w http.ResponseWriter, r *http.Request) { s.writeEmpty(w, r) })
 	get("/devices", s.ownerOnly(s.handleDevices))
 	get("/devices/{id}", s.ownerOnly(s.handleDevice))
@@ -153,27 +159,28 @@ func (s *Server) routes() chi.Router {
 	any("/status/sessions/terminate/player", s.ownerOnly(s.handleTerminate))
 
 	// Playback
-	get("/{ttype}/:/transcode/universal/decision", s.handleDecision)
-	get("/video/:/transcode/universal/start.m3u8", s.handleStartHLS)
-	get("/video/:/transcode/universal/start.mpd", s.handleStartDASH)
-	get("/video/:/transcode/universal/start", s.handleStartHTTP)
-	get("/video/:/transcode/universal/start.mkv", s.handleStartHTTP)
-	get("/video/:/transcode/universal/session/{session}/{stream:[0-9]+}/header", s.handleDASHInit)
-	get("/video/:/transcode/universal/session/{session}/{stream:[0-9]+}/{segment}", s.handleDASHSegment)
-	get("/video/:/transcode/universal/session/{session}/*", s.handleTranscodeSession)
-	any("/video/:/transcode/universal/ping", s.handleTranscodePing)
-	any("/video/:/transcode/universal/stop", s.handleTranscodeStop)
-	get("/video/:/transcode/universal/subtitles", s.handleTranscodeSubtitles)
+	get("/{ttype:video|music|audio|subtitles}/:/transcode/universal/decision", s.handleDecision)
+	get("/{ttype:video|music|audio|subtitles}/:/transcode/universal/start.m3u8", s.handleStartHLS)
+	get("/{ttype:video|music|audio|subtitles}/:/transcode/universal/start.mpd", s.handleStartDASH)
+	get("/{ttype:video|music|audio|subtitles}/:/transcode/universal/start", s.handleStartHTTP)
+	get("/{ttype:video|music|audio|subtitles}/:/transcode/universal/start.mkv", s.handleStartHTTP)
+	get("/{ttype:video|music|audio|subtitles}/:/transcode/universal/session/{session}/{stream:[0-9]+}/header", s.handleDASHInit)
+	get("/{ttype:video|music|audio|subtitles}/:/transcode/universal/session/{session}/{stream:[0-9]+}/{segment}", s.handleDASHSegment)
+	get("/{ttype:video|music|audio|subtitles}/:/transcode/universal/session/{session}/*", s.handleTranscodeSession)
+	any("/{ttype:video|music|audio|subtitles}/:/transcode/universal/ping", s.handleTranscodePing)
+	any("/{ttype:video|music|audio|subtitles}/:/transcode/universal/stop", s.handleTranscodeStop)
+	get("/{ttype:video|music|audio|subtitles}/:/transcode/universal/subtitles", s.handleTranscodeSubtitles)
 	get("/subtitles/:/transcode/universal/start", s.handleTranscodeSubtitles)
 	get("/transcode/sessions", s.handleTranscodeSessions)
 	get("/library/parts/{part}/indexes/{index}/{offset}", s.handleIndexFrame)
 	get("/library/parts/{part}/indexes/{index}", s.handleIndexBIF)
-	get("/library/parts/{part}/{changestamp}/{file}", s.handlePart)
+	get("/library/parts/{part}/{changestamp:[0-9]+}/{file}", s.handlePart)
 	// PM4K (Plex for Kodi) drops the "file.<ext>" name before handing the URL
 	// to Kodi, so Kodi doesn't scan the "directory" for subtitles. PMS serves
 	// the part at the bare changestamp path, so Ether does too.
 	get("/library/parts/{part}/{changestamp}/", s.handlePart)
 	get("/library/parts/{part}/{file}", s.handlePart)
+	get("/library/parts/{part}", s.handlePart)
 	r.Put("/library/parts/{part}", s.handlePartSelect)
 	r.Post("/library/parts/{part}", s.handlePartSelect)
 	get("/library/streams/{stream}", s.handleStream)

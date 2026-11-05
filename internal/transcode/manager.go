@@ -343,10 +343,11 @@ func cleanStaleDownloads(dir string) {
 			continue
 		}
 		info, err := e.Info()
-		if err != nil || !info.ModTime().Before(cutoff) {
+		if err != nil || !info.ModTime().Before(cutoff) || retainedDownload(filepath.Join(dir, e.Name()), time.Now()) {
 			continue
 		}
 		_ = os.Remove(filepath.Join(dir, e.Name()))
+		_ = os.Remove(filepath.Join(dir, e.Name()) + ".retain")
 	}
 }
 

@@ -116,3 +116,35 @@ func TestPartAcquisitionErrorStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestVideoProbeFactsReachDecision(t *testing.T) {
+	for _, tc := range []struct {
+		order      string
+		interlaced bool
+		want       string
+	}{{"", false, ""}, {"unknown", false, ""}, {"progressive", false, "progressive"}, {"tt", true, "interlaced"}} {
+		f := newFixture()
+		f.playback.info.Streams = append([]core.StreamInfo(nil), sampleInfo.Streams...)
+		video := &f.playback.info.Streams[0]
+		video.FieldOrder, video.Interlaced = tc.order, tc.interlaced
+		video.ColorRange, video.ChromaLocation, video.CodedWidth, video.CodedHeight = "tv", "left", 1920, 1088
+		r := f.get(t, "/video/:/transcode/universal/decision?path=/library/metadata/1000000000000550&hasMDE=1", jsonAccept...)
+		f.srv.Close()
+		if r.Code != 200 {
+			t.Fatalf("decision %d %s", r.Code, r.Body.String())
+		}
+		mc := decodeJSON(t, r)
+		streams := mc["Metadata"].([]any)[0].(map[string]any)["Media"].([]any)[0].(map[string]any)["Part"].([]any)[0].(map[string]any)["Stream"].([]any)
+		st := streams[0].(map[string]any)
+		if tc.want == "" {
+			if _, ok := st["scanType"]; ok {
+				t.Errorf("unexpected scanType: %v", st)
+			}
+		} else if st["scanType"] != tc.want {
+			t.Errorf("scanType=%v want%s", st["scanType"], tc.want)
+		}
+		if st["colorRange"] != "tv" || st["chromaLocation"] != "left" || st["codedWidth"] != float64(1920) || st["codedHeight"] != float64(1088) {
+			t.Fatalf("probe facts: %v", st)
+		}
+	}
+}

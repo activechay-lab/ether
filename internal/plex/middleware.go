@@ -244,6 +244,11 @@ var publicPaths = map[string]bool{
 // PMS's 401 body.
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The bare read has no representation, even before authentication.
+		if r.URL.Path == "/downloadQueue" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			writeHTTPError(w, http.StatusNotFound)
+			return
+		}
 		if publicPaths[trimSlash(r.URL.Path)] {
 			next.ServeHTTP(w, r)
 			return

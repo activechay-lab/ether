@@ -31,6 +31,7 @@ package plex
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -737,6 +738,11 @@ func (s *Server) preparePlayback(ctx context.Context, pr *Request, p *playReques
 		}
 		s.playIDs.installVersionFlow(ik, snap.variants, snap.until, s.now())
 	}
+	if p.mediaIndex > 0 {
+		if releases, issued := s.playIDs.releases(s.playIdentityFor(pr, p.key), s.now()); !issued || p.mediaIndex >= len(releases) {
+			return nil, errDecisionMediaIndex
+		}
+	}
 	releaseID := s.resolveVariantSelection(ctx, pr, p)
 	p.variantRelease = releaseID
 	ps, err := s.prepareForRelease(ctx, pr.User, p.key, p.caps, releaseID)
@@ -855,3 +861,5 @@ func (s *Server) watchVariants(pr *Request, t *core.Title) {
 		}
 	}()
 }
+
+var errDecisionMediaIndex = errors.New("mediaIndex outside issued media list")

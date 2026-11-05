@@ -307,21 +307,21 @@ func TestMediaIndexSelectsVariant(t *testing.T) {
 	if rec.Code != http.StatusOK || pb.prepared != 1 || len(pb.variantCalls) != 1 {
 		t.Fatalf("auto decision code=%d prepared=%d variantCalls=%v", rec.Code, pb.prepared, pb.variantCalls)
 	}
-	// Out-of-range index falls back to Auto instead of failing.
+	// An out-of-range index refuses rather than silently playing another version.
 	rec = f.get(t, base+"&mediaIndex=9&session=v3")
-	if rec.Code != http.StatusOK || len(pb.variantCalls) != 1 {
+	if rec.Code != http.StatusBadRequest || len(pb.variantCalls) != 1 {
 		t.Fatalf("oob decision code=%d variantCalls=%v", rec.Code, pb.variantCalls)
 	}
 }
 
-func TestMediaIndexWithoutIssuedListUsesAuto(t *testing.T) {
+func TestMediaIndexWithoutIssuedListRefusesUnknownVersion(t *testing.T) {
 	f, pb := newVariantPlaybackFixture(t)
 	// No issued list: a stored position must not select a new candidate.
 	rec := f.get(t, "/video/:/transcode/universal/decision?path=/library/metadata/"+fightClub.Key.String()+"&mediaIndex=2&session=v9")
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
-	if len(pb.variantCalls) != 0 || pb.prepared != 1 {
+	if len(pb.variantCalls) != 0 || pb.prepared != 0 {
 		t.Fatalf("variant calls %v", pb.variantCalls)
 	}
 }

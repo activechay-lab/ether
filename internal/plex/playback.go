@@ -20,6 +20,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/transcode"
@@ -653,6 +654,9 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	pr := FromContext(ctx)
+	if arm, err := s.parsePlayRequest(r); err == nil {
+		s.armDecision(pr, arm.key)
+	}
 	// A slow source search must not hold the owner gates (timeline and stop
 	// share them) or outlast the client's request timeout.
 	if t, err := s.awaitSource(ctx, r, pr); err != nil {
@@ -690,6 +694,10 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 
 	t, ps, dec, err := s.prepare(ctx, pr, &p)
 	if err != nil {
+		if errors.Is(err, errDecisionMediaIndex) {
+			writeHTTPError(w, http.StatusBadRequest)
+			return
+		}
 		if errors.Is(err, core.ErrNotFound) && t == nil {
 			writeHTTPError(w, http.StatusNotFound)
 			return
@@ -1231,6 +1239,10 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		writePlaybackStatus(w, http.StatusBadRequest)
 		return
 	}
+	if !s.decisionArmed(pr, p.key) {
+		writePlaybackStatus(w, http.StatusBadRequest)
+		return
+	}
 	unlockEncoder, lockErr := s.lockEncoder(ctx, p.sessionID)
 	if lockErr != nil {
 		return
@@ -1526,6 +1538,10 @@ func (s *Server) handleTranscodePing(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if e, ok := s.transcodes.get(sanitizeSessionID(r.URL.Query().Get("session"))); !ok || e.userID != FromContext(r.Context()).User.ID {
+		writeHTTPError(w, http.StatusNotFound)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1538,6 +1554,10 @@ func (s *Server) handleTranscodeStop(w http.ResponseWriter, r *http.Request) {
 	}
 	id := sanitizeSessionID(r.URL.Query().Get("session"))
 	pr := FromContext(r.Context())
+	if e, ok := s.transcodes.get(id); !ok || e.userID != pr.User.ID {
+		writeHTTPError(w, http.StatusNotFound)
+		return
+	}
 	if e, ok := s.transcodes.get(id); id != "" && ok && e.userID == pr.User.ID {
 		unlockOwner, err := s.lockPlaybackOwner(r.Context(), e.userID, e.clientID)
 		if err != nil {
@@ -1670,11 +1690,27 @@ func transcodeSessionModel(te *transcodeEntry) model.TranscodeSess {
 // support through Playback.ServeRange. A variant Part id names a specific
 // release of the title ("Play Version" direct play).
 func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
+	// Validate before acquisition; padded binary integers are accepted by PMS.
+	download := false
+	if values, present := r.URL.Query()["download"]; present {
+		raw := values[0]
+		raw = strings.TrimPrefix(raw, "+")
+		raw = strings.TrimLeft(raw, "0")
+		if raw != "" && raw != "1" || values[0] == "" || values[0] == "+" {
+			writeHTTPError(w, http.StatusBadRequest)
+			return
+		}
+		download = raw == "1"
+	}
 	if s.handleExtraPart(w, r) {
 		return
 	}
 	ctx := r.Context()
 	pr := FromContext(ctx)
+	if s.playbackTerminated(pr) {
+		writePlaybackStatus(w, http.StatusServiceUnavailable)
+		return
+	}
 	unlockOwner, locked := s.lockPlaybackRequest(w, r)
 	if !locked {
 		return
@@ -1708,7 +1744,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 				continue // a distinct playback attempt must be allowed to retry
 			}
 			if err, failed := s.transcodes.takeFailure(id, pr.User.ID, key, s.now()); failed && !errors.Is(err, core.ErrPrepareSlow) {
-				s.writeStartErr(w, r, pr, err)
+				s.writePartErr(w, r, pr, err)
 				return
 			}
 		}
@@ -1755,7 +1791,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 		ps, err = s.prepareForRelease(ctx, pr.User, key, caps, releaseID)
 		if err != nil {
 			s.log.Info("direct play failed", "key", key, "reason", playbackMessage(err), "err", err)
-			s.writeStartErr(w, r, pr, err)
+			s.writePartErr(w, r, pr, err)
 			return
 		}
 		// The picked version fell back: the playback kept the session that
@@ -1765,7 +1801,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 			s.observePlaybackDecision(ctx, pr, &playRequest{key: key, caps: caps, partReleaseID: releaseID, requestedPart: id}, ps)
 		}
 	}
-	if !anonymousContinuation && r.Method != http.MethodHead && r.URL.Query().Get("download") != "1" {
+	if !anonymousContinuation && r.Method != http.MethodHead && !download {
 		// A part read is the playing Media for clients that skip the
 		// decision; a decision's admission keeps its selection unless this
 		// read prepared another release.
@@ -1807,7 +1843,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if r.URL.Query().Get("download") == "1" {
+	if download {
 		// Plex Web's Download button is a plain part read; only the viewer
 		// policy (an owner override or plex.tv allowSync=0) refuses it. The
 		// download queue being off is a different feature.
@@ -1815,12 +1851,29 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 			writeHTTPError(w, http.StatusForbidden)
 			return
 		}
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+strings.ReplaceAll(chi.URLParam(r, "file"), "\"", "")+"\"")
+		filename := chi.URLParam(r, "file")
+		if decoded, err := url.PathUnescape(filename); err == nil {
+			filename = decoded
+		}
+		w.Header().Set("Content-Disposition", contentDisposition(filename))
 	}
 	unlockOwner()
 	cw := s.newCountWriter(w, r)
-	s.d.Playback.ServeRange(cw, r, ps.ID)
+	s.d.Playback.ServeRange(cw, playback.PlexPartRequest(r), ps.ID)
 	cw.finish()
+}
+
+// Part acquisition failures distinguish an absent provider file from a failed
+// upstream transport; the conversion start routes retain their own contract.
+func (s *Server) writePartErr(w http.ResponseWriter, r *http.Request, pr *Request, err error) {
+	if errors.Is(err, core.ErrNotFound) || errors.Is(err, core.ErrNotAvailable) || errors.Is(err, core.ErrUnauthorized) || errors.Is(err, core.ErrStreamLimit) || errors.Is(err, core.ErrPrepareSlow) {
+		s.writeStartErr(w, r, pr, err)
+		return
+	}
+	if r.Context().Err() != nil {
+		return
+	}
+	writePlaybackStatus(w, http.StatusBadGateway)
 }
 
 // partSelectsTitle reports whether bindingKey is the title this part select

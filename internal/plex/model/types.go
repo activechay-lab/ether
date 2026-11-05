@@ -468,6 +468,9 @@ type Stream struct {
 	// From here PMS lists the technical attributes alphabetically.
 	AudioChannelLayout   string  `plex:"audioChannelLayout,omitempty"`
 	BitDepth             int     `plex:"bitDepth,omitempty"`
+	ChromaLocation       string  `plex:"chromaLocation,omitempty"`
+	CodedWidth           int     `plex:"codedWidth,omitempty"`
+	CodedHeight          int     `plex:"codedHeight,omitempty"`
 	ChromaSubsampling    string  `plex:"chromaSubsampling,omitempty"`
 	ColorPrimaries       string  `plex:"colorPrimaries,omitempty"`
 	ColorRange           string  `plex:"colorRange,omitempty"`
