@@ -472,11 +472,18 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 	}
 	a.tracker.Set(startup.PhaseStartingServices)
 	if a.deployment != nil && !cfg.Server.NodeRoles.FullServer() {
-		if err := a.buildEncoder(ctx, cfg); err != nil {
-			return nil, err
+		if cfg.Server.NodeRoles.Has(config.RoleTranscode) {
+			if err := a.buildEncoder(ctx, cfg); err != nil {
+				return nil, err
+			}
+			if a.activeTranscoder() == nil {
+				return nil, errors.New("transcode role requires a working encoder")
+			}
 		}
-		if a.activeTranscoder() == nil {
-			return nil, errors.New("transcode role requires a working encoder")
+		if cfg.Server.NodeRoles.Has(config.RoleSource) {
+			if err := a.buildSourceRole(ctx, cfg); err != nil {
+				return nil, err
+			}
 		}
 		if err := a.buildPrivateCredentials(); err != nil {
 			return nil, err

@@ -271,6 +271,15 @@ func (a *App) runSpecialist(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	a.bindRestart(ctx, cancel)
+	var background backgroundGroup
+	defer background.Wait()
+	defer cancel()
+	if a.load != nil {
+		background.start(func() { a.load.Run(ctx) })
+	}
+	if a.cache != nil {
+		background.start(func() { a.cache.Run(ctx) })
+	}
 	if err := a.startCluster(ctx); err != nil {
 		return err
 	}
