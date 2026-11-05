@@ -43,8 +43,6 @@ visually inspected before publishing.
 nice -n 10 go test ./internal/livetv -run '^TestLiveSignalDemo$' -count=1 -v -timeout 12m -args -live-signal-demo <staging-directory> -live-signal-plates <plate-directory>
 ```
 
-The shared encoder retains veryfast,CRF18,mbtree and20-frame lookahead, with
-AQmode3 andpsy-rd1.0:0.15. Continuous-only VBV reserves AAC/container headroom and
-limits startup bursts. Quick1080p30 synthetic programme-pattern SSIM at equal
-budget:0.988152before,0.987731after. This verifies the tuning on a reproducible
-fixture; it does not replace natural-footage/device validation.
+Encoder and segment settings belong to the continuous playout layer. Static
+unification does not change them. Measurements identify their capture commit
+so that later playout changes cannot silently inherit an older performance claim.
