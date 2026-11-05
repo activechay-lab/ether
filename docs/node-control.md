@@ -11,7 +11,9 @@ POST accepts only this bounded document (4096 bytes, unknown fields rejected):
 {"requestId":"owner-generated-unique-id","boot":"membership-incarnation","expectedVersion":0,"patch":{"weight":2}}
 ```
 
-The other allowed patch field is `draining` (boolean). Weight is 1–100.
+Weight is 1–100. The typed `draining` field remains recognized but is unsupported
+on every runtime. The target rejects queued drain patches, including mixed
+weight/drain requests, before any mutation.
 GET returns `nodeId`, `boot`, `requestedVersion`, `appliedVersion`, `state`
 (`idle`, `pending`, `applied`, `failed`), optional `requestId`/`errorCode`,
 `updatedAt`, `observed: {weight, draining}`, and `capabilities` entries with
@@ -41,8 +43,7 @@ history expiry or a fleet event feed.
 | Setting | Actual scope and behavior | Remote increment |
 | --- | --- | --- |
 | Weight | Node-local share of account budgets; live config and heartbeat | Supported |
-| Draining | Admission state, not retirement proof | Ordinary runtime only; rolling update owns its drain |
-| Deployment draining | CLI/shutdown/update ownership needs a serialized interlock | Unsupported, ownership_interlock_required |
+| Draining | Admission state; updater/CLI/shutdown ownership needs a shared atomic interlock | Unsupported on every runtime, ownership_interlock_required |
 | maxStreams/defaultStreamLimit | Shared fleet configuration | Unsupported per-node, fleet_setting |
 | maxTranscodes | Ordinary manager has a hot setter; private manager uses startup deployment capacity | Ordinary not_allowlisted; deployment restart_required |
 | hwAccel | Node-local config; manager hardware detection requires restart | Unsupported, restart_required |

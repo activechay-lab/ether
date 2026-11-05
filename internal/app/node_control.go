@@ -32,7 +32,7 @@ func (t nodeControlTarget) Observe() (nodecontrol.Observed, []nodecontrol.Capabi
 	a := t.a
 	caps := []nodecontrol.Capability{
 		{Key: "weight", Scope: "node", Supported: true, Reason: "live_budget_weight"},
-		{Key: "draining", Scope: "node", Supported: a.deployment == nil, Reason: "admission_only"},
+		{Key: "draining", Scope: "node", Reason: "ownership_interlock_required"},
 		{Key: "maxStreams", Scope: "fleet", Reason: "fleet_setting"},
 		{Key: "defaultStreamLimit", Scope: "fleet", Reason: "fleet_setting"},
 		{Key: "maxTranscodes", Scope: "node", Reason: "not_allowlisted"},
@@ -41,15 +41,7 @@ func (t nodeControlTarget) Observe() (nodecontrol.Observed, []nodecontrol.Capabi
 		{Key: "pause", Scope: "node", Reason: "no_safe_setter"},
 	}
 	if a.deployment != nil {
-		caps[1].Reason = "ownership_interlock_required"
 		caps[4].Reason = "restart_required"
-	}
-	if a.updates != nil && a.updates.mgr != nil {
-		st := a.updates.mgr.Status()
-		if st.Cluster != nil && st.Cluster.Draining {
-			caps[1].Supported = false
-			caps[1].Reason = "rolling_update_owned"
-		}
 	}
 	return nodecontrol.Observed{Weight: a.cfg.Get().Server.ClusterWeight, Draining: a.nodeDraining()}, caps
 }
@@ -58,10 +50,10 @@ func (t nodeControlTarget) Apply(ctx context.Context, p nodecontrol.Patch) strin
 	if ctx.Err() != nil {
 		return "cancelled"
 	}
-	// Recheck actual target capabilities; requester observations are never authority.
-	_, caps := t.Observe()
-	if p.Draining != nil && !caps[1].Supported {
-		return caps[1].Reason
+	// A status snapshot cannot interlock with updater/CLI/shutdown drain owners.
+	// Reject even previously queued or mixed requests before any local mutation.
+	if p.Draining != nil {
+		return "ownership_interlock_required"
 	}
 	if p.Weight != nil {
 		if *p.Weight < 1 || *p.Weight > 100 {
@@ -71,14 +63,11 @@ func (t nodeControlTarget) Apply(ctx context.Context, p nodecontrol.Patch) strin
 			return "save_failed"
 		}
 	}
-	if p.Draining != nil {
-		(&clusterUpdates{a: a}).SetDraining(*p.Draining)
-	}
 	if pg, ok := a.cluster.(*cluster.Postgres); ok {
 		pg.Beat()
 	}
 	obs, _ := t.Observe()
-	if (p.Weight != nil && obs.Weight != *p.Weight) || (p.Draining != nil && obs.Draining != *p.Draining) {
+	if p.Weight != nil && obs.Weight != *p.Weight {
 		return "observation_mismatch"
 	}
 	return ""
