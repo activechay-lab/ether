@@ -152,7 +152,7 @@ func (c *Catalog) trendingList(ctx context.Context, name string, typ core.MediaT
 			ordered = append(ordered, full)
 		}
 	}
-	return limitTitles(c.releasedTitles(ordered), limit), nil
+	return limitTitles(c.releasedTitles(ctx, ordered), limit), nil
 }
 
 // RunTrends has an independent schedule: a slow catalogue crawl cannot delay

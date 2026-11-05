@@ -29,6 +29,7 @@ func sliceBounds(total, offset, limit int) (int, int) {
 
 // Collections filters member visibility before calculating totals and paging.
 func (s *Service) Collections(ctx context.Context, viewer *core.Viewer, _ core.Device, q frontend.CollectionQuery) (frontend.CollectionPage, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return frontend.CollectionPage{}, err
@@ -99,6 +100,7 @@ func (s *Service) notInterested(ctx context.Context, v *core.User) ([]frontend.N
 	return result, nil
 }
 func (s *Service) NotInterested(ctx context.Context, viewer *core.Viewer, _ core.Device, q frontend.PageQuery) (frontend.NotInterestedPage, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return frontend.NotInterestedPage{}, err
@@ -111,6 +113,7 @@ func (s *Service) NotInterested(ctx context.Context, viewer *core.Viewer, _ core
 	return frontend.NotInterestedPage{Items: entries[start:end], Total: len(entries)}, nil
 }
 func (s *Service) NotInterestedItem(ctx context.Context, viewer *core.Viewer, _ core.Device, key core.RatingKey) (frontend.NotInterestedEntry, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return frontend.NotInterestedEntry{}, err

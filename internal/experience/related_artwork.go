@@ -25,6 +25,7 @@ func NewRelatedArtworkService(deps RelatedArtworkDeps) (*RelatedArtworkService, 
 }
 
 func (s *RelatedArtworkService) RelatedArtwork(ctx context.Context, viewer *core.Viewer, device core.Device, key core.RatingKey) (frontend.RelatedArtwork, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	var result frontend.RelatedArtwork
 	active, err := s.deps.Authorize(ctx, viewer, device, key)
 	if err != nil {

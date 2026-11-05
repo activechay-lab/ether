@@ -480,7 +480,10 @@ func (a *App) build(ctx context.Context, cfg config.Config) error {
 	// initialized auth service. Scorer consumers are built inside the model's
 	// dependency phase before its workers start.
 	for _, build := range []func(context.Context, config.Config) error{
-		a.buildCatalogue, func(context.Context, config.Config) error { a.safety.SetCatalogPolicy(a.catalog.Visible); return nil }, a.buildIdentity, a.buildSessionEvents, a.buildPersonalization,
+		a.buildCatalogue, func(context.Context, config.Config) error {
+			a.safety.SetCatalogPolicy(a.catalog.VisibleForViewer, a.catalog.DiscoveryVisibleForViewer)
+			return nil
+		}, a.buildIdentity, a.buildSessionEvents, a.buildPersonalization,
 		a.buildSources, a.buildPlayback, a.buildPrefetch, a.buildIntegrations,
 	} {
 		if err := build(ctx, cfg); err != nil {

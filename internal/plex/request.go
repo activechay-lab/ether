@@ -67,7 +67,7 @@ func FromContext(ctx context.Context) *Request {
 }
 
 func withRequest(ctx context.Context, pr *Request) context.Context {
-	return context.WithValue(ctx, ctxKey{}, pr)
+	return context.WithValue(core.WithCatalogViewer(ctx, pr.User), ctxKey{}, pr)
 }
 
 // plexParam reads an X-Plex-* value from the header or the query string.

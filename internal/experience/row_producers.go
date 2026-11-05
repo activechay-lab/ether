@@ -10,6 +10,7 @@ import (
 // NextUp selects a permitted successor to an episode. Missing successors and
 // lookup failures produce no row, matching the optional nature of next-up.
 func NextUp(ctx context.Context, viewer *core.User, key core.RatingKey, next func(context.Context, core.RatingKey) (*core.Title, error), visibility Visibility) PostPlayRow {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	row := PostPlayRow{Purpose: core.RowPurpose("nextUp")}
 	if key.Kind() != core.KindEpisode {
 		return row
@@ -25,6 +26,7 @@ func NextUp(ctx context.Context, viewer *core.User, key core.RatingKey, next fun
 // leaves the requested row short. The source signals exhaustion by returning
 // fewer candidates than requested. Work is capped at 1000 candidates.
 func LoadPostPlay(ctx context.Context, viewer *core.User, visibility Visibility, count int, seen map[core.RatingKey]bool, load func(context.Context, int) []core.PostPlayPick) PostPlayRow {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	fetch := count
 	for {
 		picks := load(ctx, fetch)

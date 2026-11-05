@@ -226,6 +226,7 @@ type Catalog struct {
 	metadataMu        sync.RWMutex
 	metadataProviders map[string]*metadataRegistration
 	metadataFlights   flight.Group[string, *core.Title]
+	viewerRules       viewerRuleCache
 	visibility        *libraryfilter.Filter // every rule: browsing and discovery
 	searchVis         *libraryfilter.Filter // rules scoped everywhere: explicit search
 	db                *sql.DB
@@ -412,6 +413,9 @@ func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...
 	for _, fn := range opts {
 		fn(c)
 	}
+	if err := c.reloadViewerRules(context.Background()); err != nil {
+		return nil, err
+	}
 	c.ensureSortTitlesFolded(context.Background())
 	return c, nil
 }
@@ -440,6 +444,9 @@ func (c *Catalog) UpdateConfig(cfg config.Catalog) {
 	c.cfgVersion = &configVersion{}
 	c.writeGen.Add(1)
 	c.cfgMu.Unlock()
+	if err := c.reloadViewerRules(context.Background()); err != nil {
+		c.log.Error("catalog: reload viewer rules", "err", err)
+	}
 	c.listMu.Lock()
 	c.listCache = map[string]listEntry{}
 	c.listMu.Unlock()

@@ -428,7 +428,7 @@ func (tmdbListKind) Gather(g *Gather) {
 		n = 100
 	}
 	for _, kind := range g.Kinds {
-		items, err := g.Svc.cat.List(g.Ctx, g.Src.List, coreType(kind), n)
+		items, err := g.Svc.cat.List(core.WithCatalogCandidates(g.Ctx), g.Src.List, coreType(kind), n)
 		if err != nil {
 			g.Warn("TMDB list %s: %v", g.Src.List, err)
 			continue

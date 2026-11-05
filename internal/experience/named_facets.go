@@ -10,6 +10,7 @@ import (
 // NamedFacetIDs maps exact credited genre or studio names on one visible title
 // to the same identifier namespace as library facets.
 func (s *Service) NamedFacetIDs(ctx context.Context, viewer *core.Viewer, _ core.Device, key core.RatingKey, kind string, names []string) (map[string]string, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if kind != "genre" && kind != "studio" {
 		return nil, errors.New("experience: unsupported facet")
 	}

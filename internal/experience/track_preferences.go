@@ -32,6 +32,7 @@ type TrackPreferences struct {
 // Select returns the original selection unchanged if preferences are absent
 // or their lookup fails. A lookup error is returned for the caller to log.
 func (p TrackPreferences) Select(ctx context.Context, viewer *core.User, key core.RatingKey, info core.MediaInfo, original string, selected TrackSelection) (TrackSelection, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if p.Source == nil || viewer == nil {
 		return selected, nil
 	}
@@ -56,6 +57,7 @@ func (p TrackPreferences) Select(ctx context.Context, viewer *core.User, key cor
 // AudioFilters applies the viewer's rules for the selected stream's channel
 // count. Missing preferences return no filters; lookup failures are reported.
 func (p TrackPreferences) AudioFilters(ctx context.Context, viewer *core.User, info core.MediaInfo, selected TrackSelection) ([]string, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if p.Source == nil || viewer == nil {
 		return nil, nil
 	}

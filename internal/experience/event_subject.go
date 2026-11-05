@@ -12,6 +12,7 @@ import (
 // ResolveEventSubject rechecks visibility on delivery rather than trusting the
 // event's subject. Unknown and inaccessible entities return the same error.
 func (s *Service) ResolveEventSubject(ctx context.Context, viewer *core.Viewer, _ core.Device, ref frontend.FavoriteRef) (frontend.ResolvedEventSubject, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return frontend.ResolvedEventSubject{}, core.ErrNotFound

@@ -118,6 +118,7 @@ func (b *builder) genContinue() []*candRow {
 
 // continueItems lists in-progress titles, most recent first.
 func (e *Engine) continueItems(ctx context.Context, user *core.User, limit int) []candItem {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if e.state == nil || user == nil {
 		return nil
 	}

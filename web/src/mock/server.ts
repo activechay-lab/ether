@@ -2113,6 +2113,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
 
   // ---- Router ------------------------------------------------------------------------
 
+  const viewerCatalogRules = new Map<number, unknown>();
   async function handle(method: string, url: URL, body: unknown): Promise<Response> {
     const p = url.pathname.replace(/^\/ether\/api/, "");
     if (method === "GET" && p.startsWith("/viewer-plex-defaults/")) {
@@ -3589,6 +3590,30 @@ export function createFakeServer(opts: FakeOptions = {}) {
       const id = Number(seg[1]);
       const v = [...VIEWERS, ...state.dlnaGuests, ...state.addedViewers].find((x) => x.id === id);
       if (!v || state.removedViewers.has(id)) return err(404, "not_found", "no such viewer");
+      if (seg[2] === "catalog-rules") {
+        if (method === "PUT") viewerCatalogRules.set(id, body);
+        const globalRules = [
+          {
+            name: "French films",
+            action: "hide",
+            mediaType: "movie",
+            match: "all",
+            scope: "discovery",
+            rules: [{ field: "language", op: "is", value: "fr" }],
+          },
+        ];
+        return json({
+          policy: viewerCatalogRules.get(id) ?? {
+            mode: "inherit",
+            exclusions: [],
+            visibilityDefault: "show",
+            exemptions: [],
+          },
+          globalRules,
+          globalDefault: "show",
+          globalIDs: globalRules.map((_, i) => `mock-rule-${i}`),
+        });
+      }
       if (seg[2] === "quickconnect" && method === "POST") {
         const code = String((body as { code?: string } | null)?.code ?? "");
         if (code === "EXPIRED") return err(400, "expired", "code expired");

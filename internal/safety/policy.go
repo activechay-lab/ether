@@ -44,10 +44,11 @@ type Policy struct {
 }
 
 type Service struct {
-	catalogAllowed func(*core.Title) bool // installed once before request serving
-	db             *sql.DB
-	mu             sync.RWMutex
-	policies       map[int64]Policy
+	catalogBrowseAllowed func(*core.User, *core.Title) bool
+	catalogAllowed       func(*core.User, *core.Title) bool // installed once before request serving
+	db                   *sql.DB
+	mu                   sync.RWMutex
+	policies             map[int64]Policy
 
 	invalMu sync.Mutex
 	inval   *clusterbus.Invalidator // nil on a standalone server
@@ -186,11 +187,14 @@ func (s *Service) Put(ctx context.Context, id int64, p Policy) error {
 	return nil
 }
 
-// SetCatalogPolicy installs the global catalogue policy during app construction.
-func (s *Service) SetCatalogPolicy(fn func(*core.Title) bool) { s.catalogAllowed = fn }
+// SetCatalogPolicy installs viewer-aware direct and discovery catalogue policies during construction.
+func (s *Service) SetCatalogPolicy(direct, browse func(*core.User, *core.Title) bool) {
+	s.catalogAllowed = direct
+	s.catalogBrowseAllowed = browse
+}
 
 func (s *Service) Allowed(u *core.User, t *core.Title) bool {
-	if s.catalogAllowed != nil && !s.catalogAllowed(t) {
+	if s.catalogAllowed != nil && !s.catalogAllowed(u, t) {
 		return false
 	}
 	if t == nil || t.Adult {
@@ -401,4 +405,9 @@ func (s *Service) Restricted(u *core.User) bool {
 	share := s.shareFor(u)
 	return u.MaxContentRating != "" || len(u.AllowedSections) > 0 || len(p.BlockedGenres) > 0 || len(p.BlockedKeywords) > 0 ||
 		share.FilterMovies != "" || share.FilterTelevision != ""
+}
+
+// DiscoveryAllowed adds browsing preferences without weakening content safety.
+func (s *Service) DiscoveryAllowed(u *core.User, t *core.Title) bool {
+	return s.Allowed(u, t) && (s.catalogBrowseAllowed == nil || s.catalogBrowseAllowed(u, t))
 }

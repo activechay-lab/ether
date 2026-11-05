@@ -227,6 +227,7 @@ func (s *Service) item(ctx context.Context, v *core.User, key core.RatingKey) (*
 	return t, nil
 }
 func (s *Service) Views(ctx context.Context, viewer *core.Viewer) ([]frontend.View, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return nil, err
@@ -244,6 +245,7 @@ func (s *Service) Views(ctx context.Context, viewer *core.Viewer) ([]frontend.Vi
 // LibraryCount is the indexed size of one library. It does not browse or
 // hydrate titles. A viewer who cannot open the library gets zero.
 func (s *Service) LibraryCount(ctx context.Context, viewer *core.Viewer, viewID string) (int, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s == nil || s.d.CountBrowsable == nil {
 		return 0, errors.New("experience: library count unavailable")
 	}
@@ -270,6 +272,7 @@ func (s *Service) LibraryCount(ctx context.Context, viewer *core.Viewer, viewID 
 
 // LibraryItems scans catalogue pages and filters before applying the requested page.
 func (s *Service) LibraryItems(ctx context.Context, viewer *core.Viewer, device core.Device, viewID string, q frontend.ItemQuery) (core.Page, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if q.StartAt != 0 && q.AdjacentTo != 0 {
 		return core.Page{}, errors.New("experience: incompatible item anchors")
 	}
@@ -861,6 +864,7 @@ func (s *Service) allowTitles(ctx context.Context, v *core.User, titles []core.T
 
 // PageArtworkTitles loads one grid and drops titles this viewer cannot see.
 func (s *Service) PageArtworkTitles(ctx context.Context, viewer *core.Viewer, keys []core.RatingKey) ([]core.Title, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return nil, err
@@ -883,6 +887,7 @@ func (s *Service) PageArtworkTitles(ctx context.Context, viewer *core.Viewer, ke
 }
 
 func (s *Service) AuthorizeArtwork(ctx context.Context, viewer *core.Viewer, device core.Device, key core.RatingKey) (*core.Viewer, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return nil, err
@@ -919,6 +924,7 @@ func (s *Service) AuthorizeArtwork(ctx context.Context, viewer *core.Viewer, dev
 // needs every episode can omit a count instead of inventing one. It does
 // not refresh the show or its seasons.
 func (s *Service) LocalEpisodes(ctx context.Context, viewer *core.Viewer, key core.RatingKey) ([]core.Title, bool, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s == nil || s.d.AiredEpisodes == nil {
 		return nil, false, core.ErrNotFound
 	}
@@ -988,6 +994,7 @@ func (s *Service) airedShowEpisodes(ctx context.Context, show core.RatingKey) (c
 }
 
 func (s *Service) Children(ctx context.Context, viewer *core.Viewer, device core.Device, key core.RatingKey, q frontend.ItemQuery) (core.Page, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if q.StartAt != 0 && q.AdjacentTo != 0 {
 		return core.Page{}, errors.New("experience: incompatible item anchors")
 	}
@@ -1142,6 +1149,7 @@ func (s *Service) rootWindow(ctx context.Context, v *core.User, device core.Devi
 const searchWindowMin = 100
 
 func (s *Service) Search(ctx context.Context, viewer *core.Viewer, device core.Device, query string, q frontend.ItemQuery) (frontend.SearchPage, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return frontend.SearchPage{}, err
@@ -1219,6 +1227,7 @@ func (s *Service) Search(ctx context.Context, viewer *core.Viewer, device core.D
 	return frontend.SearchPage{Page: core.Page{Items: items[start:stop], Total: len(items)}, TotalExact: false, Continuation: continuation}, nil
 }
 func (s *Service) UserData(ctx context.Context, viewer *core.Viewer, keys []core.RatingKey) (map[core.RatingKey]core.WatchStatus, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return nil, err
@@ -1374,6 +1383,7 @@ func (s *Service) fillWatchlist(ctx context.Context, v *core.User, keys []core.R
 var _ frontend.Experience = (*Service)(nil)
 
 func (s *Service) mutate(ctx context.Context, viewer *core.User, key core.RatingKey, fn func(*core.User) error) error {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return err
@@ -1557,6 +1567,7 @@ func (s *Service) sortTitles(ctx context.Context, items []core.Title, q frontend
 
 // Similar applies policy before pagination and marks truncated candidate sets unknown.
 func (s *Service) Similar(ctx context.Context, viewer *core.Viewer, device core.Device, key core.RatingKey, q frontend.ItemQuery) (frontend.SearchPage, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return frontend.SearchPage{}, err
@@ -1607,6 +1618,7 @@ func (s *Service) Similar(ctx context.Context, viewer *core.Viewer, device core.
 // similarCandidates uses the detail recommender when the host wired one, so
 // Jellyfin and Emby see the same policy-filtered related titles as Plex.
 func (s *Service) similarCandidates(ctx context.Context, viewer *core.User, key core.RatingKey) ([]core.Title, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s.d.Related != nil {
 		hubs, err := (DetailRelated{Source: s.d.Related, Visibility: s.d.Visibility, Get: s.d.CachedGet}).Rows(ctx, viewer, key, 1000)
 		if err != nil {
@@ -1633,6 +1645,7 @@ func (s *Service) similarCandidates(ctx context.Context, viewer *core.User, key 
 
 // Ancestors returns only authorized parents, failing closed if a parent is hidden.
 func (s *Service) Ancestors(ctx context.Context, viewer *core.Viewer, device core.Device, key core.RatingKey) ([]core.Title, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return nil, err
@@ -1661,6 +1674,7 @@ func (s *Service) Ancestors(ctx context.Context, viewer *core.Viewer, device cor
 
 // Facets are computed only from titles the viewer may see.
 func (s *Service) Facets(ctx context.Context, viewer *core.Viewer, device core.Device, viewID, name string) ([]core.FacetValue, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	page, err := s.LibraryItems(ctx, viewer, device, viewID, frontend.ItemQuery{})
 	if err != nil {
 		return nil, err
@@ -1787,6 +1801,7 @@ func (s *Service) entityAllowed(ctx context.Context, v *core.User, ref frontend.
 	}
 }
 func (s *Service) SetEntityFavorite(ctx context.Context, viewer *core.Viewer, ref frontend.FavoriteRef, value bool) error {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return err
@@ -1800,6 +1815,7 @@ func (s *Service) SetEntityFavorite(ctx context.Context, viewer *core.Viewer, re
 	return s.d.SetEntityFavoriteSource(ctx, v, ref, value)
 }
 func (s *Service) EntityFavorites(ctx context.Context, viewer *core.Viewer, refs []frontend.FavoriteRef) (map[frontend.FavoriteRef]bool, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return nil, err
@@ -1946,6 +1962,7 @@ func matchesFilter(t core.Title, f core.Filter) bool {
 
 // SetLikes delegates to the state's atomic shared-rating operation.
 func (s *Service) SetLikes(ctx context.Context, viewer *core.Viewer, key core.RatingKey, likes *bool) error {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	ctx = state.WithOrigin(ctx, state.Origin{Surface: s.d.Protocol})
 	return s.mutate(ctx, viewer, key, func(v *core.User) error {
 		state, ok := s.d.State.(core.LikesState)
@@ -1965,6 +1982,7 @@ func facetID(kind, value string) string {
 
 // ResolveFacet only resolves identifiers among the viewer's current visible facets.
 func (s *Service) ResolveFacet(ctx context.Context, viewer *core.Viewer, device core.Device, viewID, kind, id string) (core.FacetValue, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	facets, err := s.Facets(ctx, viewer, device, viewID, kind)
 	if err != nil {
 		return core.FacetValue{}, err

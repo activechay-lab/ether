@@ -63,6 +63,7 @@ func CanonicalTMDBPerson(id string) (int64, bool) {
 // current dependencies. Callers still validate the active viewer. Person
 // credits use the supplied Visibility, including whatever title lookup it has.
 func FavoriteAllowed(ctx context.Context, viewer *core.User, subject FavoriteSubject, visibility Visibility, sources FavoriteSources) bool {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if viewer == nil {
 		return false
 	}
@@ -139,6 +140,7 @@ func FavoriteAllowed(ctx context.Context, viewer *core.User, subject FavoriteSub
 // error is returned and the decision is false, so the caller fails closed. A missing title
 // or a hidden or missing parent is a deny without an error.
 func FavoriteTitlesCached(ctx context.Context, viewer *core.User, keys []core.RatingKey, visibility Visibility, cached func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)) (bool, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if viewer == nil || cached == nil {
 		return false, nil
 	}

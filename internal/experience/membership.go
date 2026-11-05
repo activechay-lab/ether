@@ -8,6 +8,7 @@ import (
 )
 
 func (s *Service) membership(ctx context.Context, viewer *core.Viewer, key core.RatingKey, source func(context.Context, *core.User, core.RatingKey) (frontend.Membership, error)) (frontend.Membership, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return frontend.Membership{}, err
@@ -38,10 +39,12 @@ func (s *Service) membership(ctx context.Context, viewer *core.Viewer, key core.
 }
 
 func (s *Service) FavoriteItem(ctx context.Context, viewer *core.Viewer, _ core.Device, key core.RatingKey) (frontend.Membership, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	return s.membership(ctx, viewer, key, s.d.FavoriteMembership)
 }
 
 func (s *Service) WatchlistItem(ctx context.Context, viewer *core.Viewer, _ core.Device, key core.RatingKey) (frontend.Membership, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	return s.membership(ctx, viewer, key, s.d.WatchlistMembership)
 }
 

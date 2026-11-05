@@ -18,12 +18,14 @@ type PlaylistSelection struct {
 }
 
 func (s PlaylistSelection) Get(ctx context.Context, viewer *core.User, key core.RatingKey) (*core.Playlist, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s.Playlists == nil || viewer == nil {
 		return nil, core.ErrNotFound
 	}
 	return s.Playlists.Get(ctx, viewer.ID, key)
 }
 func (s PlaylistSelection) Expand(ctx context.Context, viewer *core.User, key core.RatingKey) ([]core.RatingKey, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	switch key.Kind() {
 	case core.KindShow, core.KindSeason:
 		load := s.Children

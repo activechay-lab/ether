@@ -62,6 +62,7 @@ func (v Visibility) TitleAllowed(viewer *core.User, title *core.Title) bool {
 
 // Playable checks inherited show policy without requiring discovery evidence.
 func (v Visibility) Playable(ctx context.Context, viewer *core.User, title *core.Title) bool {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if !v.TitleAllowed(viewer, title) {
 		return false
 	}
@@ -77,6 +78,7 @@ func (v Visibility) Playable(ctx context.Context, viewer *core.User, title *core
 
 // Visible includes availability in addition to the playback policy.
 func (v Visibility) Visible(ctx context.Context, viewer *core.User, title *core.Title) bool {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if !v.TitleAllowed(viewer, title) {
 		return false
 	}
@@ -89,10 +91,23 @@ func (v Visibility) Visible(ctx context.Context, viewer *core.User, title *core.
 // Available filters discovery evidence, retaining a viewer's open sources.
 // Callers must separately enforce title policy.
 func (v Visibility) Available(ctx context.Context, viewer *core.User, titles []core.Title) []core.Title {
+	if policy, ok := v.Policy.(interface {
+		DiscoveryAllowed(*core.User, *core.Title) bool
+	}); ok && !core.ExplicitSearch(ctx) {
+		out := make([]core.Title, 0, len(titles))
+		for _, title := range titles {
+			if policy.DiscoveryAllowed(viewer, &title) {
+				out = append(out, title)
+			}
+		}
+		titles = out
+	}
+
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if v.FilterAvailable == nil {
 		return titles
 	}
-	filtered := v.FilterAvailable(ctx, titles)
+	filtered := v.FilterAvailable(core.WithCatalogViewer(ctx, viewer), titles)
 	if len(filtered) == len(titles) || viewer == nil || v.Sessions == nil {
 		return filtered
 	}
@@ -128,6 +143,7 @@ func (v Visibility) CollectionAllowed(viewer *core.User, c *core.Collection) boo
 
 // UpcomingItems retains the existing placeholder discovery rules for a page.
 func (v Visibility) UpcomingItems(ctx context.Context, viewer *core.User, items []core.Title, now func() time.Time) []core.Title {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	out := make([]core.Title, 0, len(items))
 	for _, title := range items {
 		if !v.Playable(ctx, viewer, &title) || title.Released.IsZero() {

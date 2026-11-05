@@ -13,6 +13,7 @@ import (
 // episode uses its own release or air date, and a series or season uses its
 // latest aired episode. The page defaults to 50 and never exceeds 100.
 func ColdHomeRows(ctx context.Context, viewer *core.User, libraries []Library, visibility Visibility, limit int, excluded []core.RatingKey, browse func(context.Context, core.BrowseQuery) (core.Page, error)) ([]frontend.Row, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if viewer == nil || browse == nil {
 		return nil, core.ErrNotAvailable
 	}

@@ -179,6 +179,7 @@ func (e *Engine) intentFeatures(ctx context.Context, t *core.Title) (genres []st
 // RecordDetailOpen implements core.IntentTracker: one single-item detail
 // open. Re-opening the same title refreshes its vote instead of stacking.
 func (e *Engine) RecordDetailOpen(ctx context.Context, user *core.User, t *core.Title) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if user == nil || user.ID == 0 || t == nil || !e.intentEnabled() {
 		return
 	}
