@@ -19,6 +19,11 @@ import (
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 )
 
+// Retained-cache failure support is limited to unconditional full GET requests.
+// Range, HEAD, and conditional requests use the original worker and can fail
+// when that worker is unavailable. This is a remaining recovery gap, not
+// evidence that every client can continue playback through encoder failure.
+//
 // Cache replay requires the current live exact fence and original outer broker
 // authorization. Serving old generations after that authority expires or is
 // replaced needs a separate delivery mapping and is not enabled here.
