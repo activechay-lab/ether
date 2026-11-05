@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { studio, type LibraryAsset } from "../studio-model";
 import { isAnimated, setKeyframe } from "./keyframes";
+import { evaluate } from "../scene-renderer";
+import { styleBindings } from "../Stage";
 import type { Value } from "../scene-renderer";
 import { editValue } from "./Canvas";
 import { Button, Input, Select } from "@braedonsaunders/appkit-ui";
@@ -46,7 +48,11 @@ export function Inspector(p: {
     });
   const field = (key: keyof Layer, label: string, kind: ControlKind = "number") => {
     const value = layer[key];
-    const input = typeof value === "object" ? JSON.stringify(value) : String(value ?? "");
+    const input = isAnimated(value)
+      ? String(evaluate(value, styleBindings(p.style), p.time ?? 0) ?? "")
+      : typeof value === "object"
+        ? JSON.stringify(value)
+        : String(value ?? "");
     return (
       <label key={key} className="block min-w-0 space-y-1 text-xs">
         <span>{label}</span>
@@ -84,7 +90,11 @@ export function Inspector(p: {
         )}
         <Input
           aria-label={label}
-          type={kind === "number" && typeof value !== "object" ? "number" : "text"}
+          type={
+            kind === "number" && (typeof value !== "object" || isAnimated(value))
+              ? "number"
+              : "text"
+          }
           value={input}
           onChange={(e) => {
             const raw = e.target.value;

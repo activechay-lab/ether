@@ -86,7 +86,16 @@ export function Canvas(p: CanvasProps) {
   const hit = (q: { x: number; y: number }) =>
     [...geometry].reverse().find((g) => {
       const l = findLayer(p.document, g.id);
-      if (l?.locked || l?.type === "group") return false;
+      const locked = (layers: Layer[], ancestor = false): boolean => {
+        for (const layer of layers) {
+          const blocked = ancestor || !!layer.locked;
+          if (layer.id === g.id) return blocked;
+          if (layer.layers && findLayer({ ...p.document, layers: layer.layers }, g.id))
+            return locked(layer.layers, blocked);
+        }
+        return false;
+      };
+      if (locked(p.document.layers) || l?.type === "group") return false;
       const m = new DOMMatrix(g.matrix).inverse();
       const pt = m.transformPoint(q);
       return (
@@ -243,7 +252,9 @@ export function Canvas(p: CanvasProps) {
             ? p.selected
             : id
               ? e.shiftKey
-                ? [...new Set([...p.selected, id])]
+                ? p.selected.includes(id)
+                  ? p.selected.filter((s) => s !== id)
+                  : [...p.selected, id]
                 : p.selected.includes(id)
                   ? p.selected
                   : [id]
@@ -322,8 +333,8 @@ export function Canvas(p: CanvasProps) {
           let doc = p.document;
           const cmd = e.metaKey || e.ctrlKey;
           if (e.key === "Delete" || e.key === "Backspace") doc = removeLayers(doc, p.selected);
-          else if (cmd && e.key === "d") doc = duplicateLayers(doc, p.selected);
-          else if (cmd && e.key === "g")
+          else if (cmd && e.key.toLowerCase() === "d") doc = duplicateLayers(doc, p.selected);
+          else if (cmd && e.key.toLowerCase() === "g")
             doc = e.shiftKey
               ? p.selected.reduce((d, id) => ungroup(d, id), doc)
               : groupLayers(doc, p.selected);
