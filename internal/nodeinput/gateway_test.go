@@ -122,6 +122,11 @@ func setup(t *testing.T) *fixture {
 			return errors.New("peer")
 		}
 		return nil
+	}, RecheckServer: func(_ context.Context, s tls.ConnectionState) error {
+		if s.PeerCertificates[0].Subject.CommonName != "source" {
+			return errors.New("peer")
+		}
+		return nil
 	}, Peer: nodesource.Peer{NodeID: "worker", Boot: "wb"}, MaxLifetime: time.Minute, Timeout: time.Second, Now: time.Now})
 	if err != nil {
 		t.Fatal(err)

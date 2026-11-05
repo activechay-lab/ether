@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,25 +18,28 @@ import (
 // ClientOptions is trusted composition, never a public request payload. Endpoint
 // is one fixed HTTPS origin with Path. TLS performs ordinary Go chain/hostname
 // verification BEFORE BindServer. Peer is this client's certificate boot identity.
-// Callers must not mutate TLS credentials/callbacks after construction.
+// RecheckServer is required current per-operation trust, composed with Guard.
+// Each operation uses fresh TLS; rebuild after rotation. Callbacks and opaque
+// signer keys must remain immutable and callbacks must honor their context.
 type ClientOptions struct {
-	Endpoint    string
-	TLS         *tls.Config
-	BindServer  func(tls.ConnectionState) error
-	Peer        Peer
-	MaxLifetime time.Duration
-	Timeout     time.Duration
-	Now         func() time.Time
+	Endpoint      string
+	TLS           *tls.Config
+	BindServer    func(tls.ConnectionState) error
+	RecheckServer func(context.Context, tls.ConnectionState) error
+	Peer          Peer
+	MaxLifetime   time.Duration
+	Timeout       time.Duration
+	Now           func() time.Time
 }
 type Client struct {
 	o         ClientOptions
 	http      *http.Client
-	transport *http.Transport
+	transport *outbound.Transport
 }
 
 func NewClient(o ClientOptions) (*Client, error) {
 	u, e := url.Parse(o.Endpoint)
-	if e != nil || u.Scheme != "https" || u.Host == "" || u.Path != Path || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || u.Opaque != "" || u.ForceQuery || o.TLS == nil || o.TLS.InsecureSkipVerify || o.TLS.RootCAs == nil || (len(o.TLS.Certificates) == 0 && o.TLS.GetClientCertificate == nil) || o.BindServer == nil || o.Now == nil || o.Peer.NodeID == "" || o.Peer.Boot == "" || o.MaxLifetime <= 0 || o.MaxLifetime > time.Hour || o.Timeout <= 0 || o.Timeout > time.Hour {
+	if e != nil || u.Scheme != "https" || u.Host == "" || u.Path != Path || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || u.Opaque != "" || u.ForceQuery || o.TLS == nil || o.TLS.InsecureSkipVerify || o.TLS.RootCAs == nil || (len(o.TLS.Certificates) == 0 && o.TLS.GetClientCertificate == nil) || o.BindServer == nil || o.RecheckServer == nil || o.Now == nil || o.Peer.NodeID == "" || o.Peer.Boot == "" || o.MaxLifetime <= 0 || o.MaxLifetime > time.Hour || o.Timeout <= 0 || o.Timeout > time.Hour {
 		return nil, errors.New("nodesource: invalid client dependencies")
 	}
 	tc := o.TLS.Clone()
@@ -56,7 +59,10 @@ func NewClient(o ClientOptions) (*Client, error) {
 		}
 		return o.BindServer(s)
 	}
-	tr := &http.Transport{TLSClientConfig: tc, Proxy: nil, DialContext: (&net.Dialer{Timeout: o.Timeout}).DialContext, MaxIdleConns: 4, MaxIdleConnsPerHost: 4, MaxConnsPerHost: 16, IdleConnTimeout: 30 * time.Second, ResponseHeaderTimeout: o.Timeout, DisableCompression: true}
+	tr, err := outbound.New(o.Endpoint, tc, o.Timeout, o.RecheckServer)
+	if err != nil {
+		return nil, errors.New("nodesource: invalid transport")
+	}
 	return &Client{o: o, transport: tr, http: &http.Client{Transport: tr, Timeout: o.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 func (c *Client) Close() { c.transport.CloseIdleConnections() }

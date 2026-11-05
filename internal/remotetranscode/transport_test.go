@@ -50,7 +50,9 @@ func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 		}
 		return nil
 	}}}}
-	a, err := NewAdapter(AdapterOptions{Endpoint: server.URL, Client: client, Capacity: 4, Assign: func(context.Context, core.HLSRequest) (Assignment, error) {
+	a, err := NewAdapter(AdapterOptions{Endpoint: server.URL, Client: client, RecheckServer: func(_ context.Context, s tls.ConnectionState) error {
+		return client.Transport.(*http.Transport).TLSClientConfig.VerifyConnection(s)
+	}, Capacity: 4, Assign: func(context.Context, core.HLSRequest) (Assignment, error) {
 		return Assignment{Identity: start.Identity, Grant: start.Grant, Expires: start.Expires}, nil
 	}, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return start.Decision }})
 	if err != nil {
