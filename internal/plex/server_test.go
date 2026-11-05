@@ -213,6 +213,11 @@ func TestTimelineUpdatesState(t *testing.T) {
 	defer f.srv.Close()
 	// Start a session through the decision.
 	f.get(t, "/video/:/transcode/universal/decision?path=/library/metadata/1000000000000550&session=t1")
+	ps, ok := f.playback.SessionFor(ownerUser.ID, "client-1", fightClub.Key)
+	if !ok {
+		t.Fatal("missing prepared playback")
+	}
+	ps.BytesServed = 1000 // the viewer received media before reporting progress
 	rec := f.get(t, "/:/timeline?ratingKey=1000000000000550&key=/library/metadata/1000000000000550&state=playing&time=120000&duration=8340000&playQueueItemID=0")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("timeline: %d", rec.Code)

@@ -16,6 +16,9 @@ type plexTimelineWriter interface {
 }
 
 func (s *Server) timelineWatch(ctx context.Context, pr *Request, key core.RatingKey, offset, duration time.Duration, status string, r *http.Request) (context.Context, *watchstate.PlexTimelineResult, error) {
+	if suppressTimelineWatch(ctx) {
+		return watchstate.WithPlexTimelineStored(ctx), nil, nil
+	}
 	writer, ok := s.d.State.(plexTimelineWriter)
 	if !ok {
 		return ctx, nil, nil

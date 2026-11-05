@@ -38,6 +38,7 @@ func TestTimelineStartsTrickplayForConsumedPlayback(t *testing.T) {
 	provider := &fakeTrickplay{}
 	f.srv.d.Trickplay = provider
 	addIndexSession(f, fightClub.Key)
+	f.playback.sessions["index-session"].BytesServed = 1000 // consumed source, not just prepared
 	rec := f.get(t, "/:/timeline?ratingKey="+fightClub.Key.String()+"&time=30000&duration=8340000&state=playing")
 	if rec.Code != http.StatusOK || provider.ensured != 1 {
 		t.Fatalf("timeline: status=%d Ensure calls=%d", rec.Code, provider.ensured)

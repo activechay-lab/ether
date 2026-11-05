@@ -167,6 +167,27 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		s.log.Debug("ignoring impossible playhead", "key", key, "position", offset, "duration", duration)
 		offset = s.lastKnownOffset(ctx, user.ID, tid, key)
 	}
+	// A failed start cannot write a resume point or consume the completion latch.
+	// Source bytes include ffmpeg read-ahead; conversions require output evidence.
+	stalled := s.checkStartStall(pr, key, state, offset, tids)
+	if failedProgressive || stalled != "" || s.playbackNeverDelivered(ps, tids) {
+		ctx = context.WithValue(ctx, noPlaybackDelivery{}, true)
+		offset = s.lastKnownOffset(ctx, user.ID, tid, key)
+	}
+	if ps != nil {
+		// Client duration can be a stale queue estimate. Only a probed duration is
+		// authoritative for an active source; estimates cannot establish completion.
+		if !ps.Info.Estimated && ps.Info.Duration > 0 {
+			duration = ps.Info.Duration
+		} else {
+			duration = 0
+		}
+		if state == "stopped" {
+			// EOF after a decoder crash is not a played position. The last nonterminal
+			// report is the evidence of where this viewer actually got to.
+			offset = min(offset, s.lastKnownOffset(ctx, user.ID, tid, key))
+		}
+	}
 	ctx, watchResult, watchErr := s.timelineWatch(ctx, pr, key, offset, duration, state, r)
 	if watchErr != nil {
 		s.writeErr(w, r, watchErr)
@@ -175,7 +196,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	if !s.reportBrokerTimeline(ctx, pr, key, offset, duration, state, sanitizeSessionID(q.Get("session"))) {
 		s.log.Warn("timeline report", "key", key, "state", state)
 	}
-	if reason := s.checkStartStall(pr, key, state, offset, tids); reason != "" {
+	if reason := stalled; reason != "" {
 		// The player took the media and never started. End this attempt
 		// with the reason; the stop below closes its encoder and source.
 		s.setTermination(tid, reason)
