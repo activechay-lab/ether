@@ -322,3 +322,44 @@ include this disabled-by-owner status; it is preserved unchanged on wire/backend
 No status is stripped or rewritten. All operational/unknown enhancement states,
 nonzero action fields and oversized metadata remain unsupported. This permits
 inert displayed status only, not actual enhancement work.
+
+## Stronger receipt evidence (host-only)
+
+`Worker.TerminalEvidence(ctx, Identity)` is read-only: it cannot stop, expire,
+create tombstones, compact, issue credentials, release claims or publish History.
+Runtime first obtains separately authorized exact terminal stopping, then freshly
+verifies the exact old durable fence/current worker peer and independent source
+retirement before consuming this stronger summary.
+
+Every real record constructor now stores explicit AcceptedStart or StopBeforeStart
+origin. Backend invocation is registered before entering OwnedTranscoder. Renewal
+validation callbacks register before invocation and remain joined through every
+callback/CAS exit via deferred cleanup; network serialization happens after this
+accounting releases. Stopped records cannot register a later validation callback.
+Evidence refuses callbacks still capable of extending source authority, even when
+the older Terminal snapshot already says local resources retired.
+
+AcceptedStart evidence requires the actual retained OwnedEncoderSession, returned
+Start retirement token AND session-owned token all present, both encoder tokens
+Done+nil Err, every retained ordinary/gateway input Done+nil Err, stopped admission
+and all late starts/callbacks joined. Proof getters run outside the worker mutex;
+exact record/version/seal/history are rechecked afterwards. Pending, cancellation
+or nonnil terminal errors produce no evidence. Accepted starts that failed before
+backend invocation or never returned an OwnedSession remain unsupported and retain
+history; they are never relabeled NeverStarted.
+
+Negative evidence requires an explicitly recorded permanent stop-before-start
+barrier and generation floor, not absence/hash-zero/TerminalRetired inference.
+It carries NegativeBarrier proof kinds instead of pretending nil object tokens
+exist. Request hash, lease and accepted renewal are empty in this case.
+
+TerminalEvidenceSummary v1 is bounded and detached: exact boot-scoped Identity,
+closed origin/proof kinds, original retained StartHash/InitialDeadline, accepted
+lease/CAS history, independently joined encoder/input facts and explicit negative
+barrier generation. AcceptedRenewal is copied. No raw Start/grant/source URL,
+credential, callback error or source proof appears. Digest/EncoderDigest/InputDigest
+use distinct versioned SHA-256 domains over the validated <=4 KiB summary. These
+are commitments to independently authenticated observations, not standalone
+cryptographic authenticity or permission to publish/compact. Source-owner proof,
+full cluster/stable-node fence binding and atomic durable History publication are
+separate trusted Runtime/provider responsibilities.

@@ -20,7 +20,7 @@ func (r *Runtime) NewPublicDelivery(authorizePlex func(context.Context, *http.Re
 			http.Error(w, "method", 405)
 			return
 		}
-		if q.Header.Get(deliveryHop) != "" || q.URL.RawPath != "" {
+		if !IsPublicRepresentation(q) || q.Header.Get(deliveryHop) != "" {
 			http.NotFound(w, q)
 			return
 		}
@@ -93,4 +93,19 @@ func neutralDeliveryRoute(path string) (canonical, id, protocol string, ok bool)
 	}
 	id, ok = neutralMediaSession(canonical)
 	return
+}
+
+// IsPublicRepresentation reports only the supported delivery route shape. It
+// grants no access and says nothing about listener/readiness or backend support.
+func IsPublicRepresentation(q *http.Request) bool {
+	if q == nil || q.URL == nil || (q.Method != "GET" && q.Method != "HEAD") || q.URL.RawPath != "" || q.URL.Fragment != "" || q.URL.Opaque != "" {
+		return false
+	}
+	if _, _, _, ok := neutralDeliveryRoute(q.URL.Path); ok {
+		return len(q.URL.RequestURI()) <= 8192
+	}
+	if _, ok := plexMediaSession(q.URL); ok {
+		return len(q.URL.RequestURI()) <= 16384
+	}
+	return false
 }

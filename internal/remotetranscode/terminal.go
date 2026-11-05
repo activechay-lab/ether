@@ -69,7 +69,7 @@ func (w *Worker) Terminal(ctx context.Context, id Identity, requestStop bool) (T
 		if !requestStop || w.closed || len(w.records) >= w.opts.Capacity {
 			return TerminalSnapshot{}, ErrUncertain
 		}
-		e = &execution{id: id, stopped: true}
+		e = &execution{id: id, stopped: true, origin: EvidenceStopBeforeStart, negativeBarrierGeneration: id.Generation}
 		w.records[id] = e
 		key := id.Controller + "/" + id.Session
 		if id.Generation > w.highest[key] {
