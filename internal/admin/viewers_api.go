@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -9,8 +10,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/core"
 )
+
+// ViewerCatalogRules stores catalogue preferences independently of content safety.
+type ViewerCatalogRules interface {
+	RefreshViewerRules(context.Context) error
+	ViewerRules(int64) catalog.ViewerRules
+	PutViewerRules(context.Context, int64, catalog.ViewerRules) error
+}
 
 // Personalization is the engine behind the viewers, Home Designer and
 // insights endpoints. Implemented by internal/personalize.Engine.
@@ -50,6 +59,8 @@ type invalidFields interface {
 // personalizationRoutes registers the viewers, layout and insights API.
 func (h *Handler) personalizationRoutes(api func(pattern string, fn http.HandlerFunc)) {
 	api("GET /api/viewers", h.handleViewers)
+	api("GET /api/viewers/{id}/catalog-rules", h.handleViewerCatalogRules)
+	api("PUT /api/viewers/{id}/catalog-rules", h.handleViewerCatalogRules)
 	api("GET /api/viewers/{id}", h.handleViewer)
 	api("GET /api/viewers/{id}/taste", h.handleViewerTaste)
 	api("PUT /api/viewers/{id}/taste/overrides", h.handleViewerOverrides)
@@ -445,4 +456,35 @@ func (h *Handler) storedViewers(ctx context.Context) ([]ViewerRecord, error) {
 		out = append(out, ViewerRecord{User: u, Active: true, OwnerEnabled: true, HasPlex: u.PlexID != 0, PlexShared: u.PlexID != 0 && !u.IsOwner})
 	}
 	return out, nil
+}
+
+func (h *Handler) handleViewerCatalogRules(w http.ResponseWriter, r *http.Request) {
+	u, ok := h.viewerByID(w, r)
+	if !ok {
+		return
+	}
+	service := h.deps.ViewerCatalogRules
+	if service == nil {
+		writeError(w, 503, "unavailable", "Catalogue rules unavailable")
+		return
+	}
+	if r.Method == http.MethodPut {
+		var p catalog.ViewerRules
+		d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+		d.DisallowUnknownFields()
+		if err := d.Decode(&p); err != nil {
+			writeError(w, 400, "invalid", "Invalid catalogue rules")
+			return
+		}
+		if err := service.PutViewerRules(r.Context(), u.ID, p); err != nil {
+			writeError(w, 400, "invalid", err.Error())
+			return
+		}
+	}
+	cfg := h.deps.Config.Get().Catalog
+	ids := make([]string, len(cfg.Exclusions))
+	for i, rule := range cfg.Exclusions {
+		ids[i] = catalog.RuleIdentity(rule)
+	}
+	writeJSON(w, 200, map[string]any{"policy": service.ViewerRules(u.ID), "globalRules": append([]core.LibraryExclusion{}, cfg.Exclusions...), "globalDefault": cfg.VisibilityDefault, "globalIDs": ids})
 }

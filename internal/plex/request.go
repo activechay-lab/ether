@@ -67,7 +67,7 @@ func FromContext(ctx context.Context) *Request {
 }
 
 func withRequest(ctx context.Context, pr *Request) context.Context {
-	return context.WithValue(ctx, ctxKey{}, pr)
+	return context.WithValue(core.WithCatalogViewer(ctx, pr.User), ctxKey{}, pr)
 }
 
 // plexParam reads an X-Plex-* value from the header or the query string.
@@ -217,4 +217,21 @@ func (pr *Request) window(n int) (lo, hi int) {
 		return lo, n
 	}
 	return lo, lo + pr.Size
+}
+
+// Browse offsets do not identify a new listing. Keep section, sort and filters,
+// while excluding credentials and transport-only pagination parameters.
+func browseScope(r *http.Request, pr *Request) string {
+	q := r.URL.Query()
+	for key := range q {
+		switch strings.ToLower(key) {
+		case "x-plex-container-start", "x-plex-container-size", "containerstart", "containersize", "start", "offset", "size", "count", "limit":
+			delete(q, key)
+		default:
+			if traceSecretQuery(key) || strings.HasPrefix(strings.ToLower(key), "x-plex-") {
+				delete(q, key)
+			}
+		}
+	}
+	return pr.ClientID + "|" + r.URL.Path + "|" + q.Encode()
 }

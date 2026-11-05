@@ -18,6 +18,7 @@ type ScopedCollection struct {
 }
 
 func (s ScopedCollection) Items(ctx context.Context, viewer *core.User, key core.RatingKey, deviceClass string) ([]core.Title, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	placeholders, ok := s.Collections.(core.CollectionPlaceholder)
 	if !ok || !placeholders.AllowsPlaceholders(ctx, viewer, key, deviceClass) {
 		return nil, core.ErrNotFound
@@ -44,6 +45,7 @@ func (s ScopedCollection) Items(ctx context.Context, viewer *core.User, key core
 
 // Get authorizes a collection and optionally calculates its upcoming count.
 func (s ScopedCollection) Get(ctx context.Context, viewer *core.User, key core.RatingKey, device string, count bool) (*core.Collection, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s.Collections == nil {
 		return nil, core.ErrNotFound
 	}
@@ -65,6 +67,7 @@ func (s ScopedCollection) Get(ctx context.Context, viewer *core.User, key core.R
 }
 
 func (s ScopedCollection) Counts(ctx context.Context, viewer *core.User, collections []core.Collection, device string) []core.Collection {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	out := make([]core.Collection, 0, len(collections))
 	for _, collection := range collections {
 		if collection.Upcoming {
@@ -80,6 +83,7 @@ func (s ScopedCollection) Counts(ctx context.Context, viewer *core.User, collect
 }
 
 func (s ScopedCollection) Page(ctx context.Context, viewer *core.User, collection *core.Collection, key core.RatingKey, device string, offset, size int) (core.Page, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if !collection.Upcoming {
 		return s.Collections.Items(ctx, viewer, key, offset, size)
 	}
@@ -95,6 +99,7 @@ func (s ScopedCollection) Page(ctx context.Context, viewer *core.User, collectio
 // Placeholder resolves a collection-scoped future title and authorizes both
 // the title and its containing library before returning the source record.
 func (s ScopedCollection) Placeholder(ctx context.Context, viewer *core.User, key core.RatingKey, requested *core.RatingKey, device string) (*core.Title, core.RatingKey, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	source, ok := s.Collections.(core.CollectionPlaceholder)
 	if !ok {
 		return nil, 0, core.ErrNotFound

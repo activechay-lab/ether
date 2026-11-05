@@ -78,6 +78,7 @@ type Options struct {
 	// NotInterested supplies explicit recommendation exclusions for this viewer.
 	NotInterested func(context.Context, *core.User) ([]NotInterestedSignal, error)
 	// NotInterestedSnapshot returns signals and their atomically-read shared revision.
+	CatalogRulesRevision  func(*core.User) int64
 	NotInterestedSnapshot func(context.Context, *core.User) ([]NotInterestedSignal, uint64, error)
 	FilterAvailable       func(context.Context, []core.Title) []core.Title
 	// Owner previews use the same effective viewer and title policy as Plex.
@@ -386,11 +387,13 @@ func (e *Engine) serverName() string {
 // HomeHubs implements core.Recommender with a context derived from the
 // clock only (device unknown).
 func (e *Engine) HomeHubs(ctx context.Context, user *core.User, limit int) ([]core.Hub, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	return e.HomeHubsFor(ctx, user, core.NewHubContext(e.now().In(e.loc), "", "", ""), limit)
 }
 
 // SectionHubs implements core.Recommender.
 func (e *Engine) SectionHubs(ctx context.Context, user *core.User, t core.MediaType, limit int) ([]core.Hub, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	return e.SectionHubsFor(ctx, user, t, core.NewHubContext(e.now().In(e.loc), "", "", ""), limit)
 }
 
@@ -399,6 +402,7 @@ func (e *Engine) SectionHubs(ctx context.Context, user *core.User, t core.MediaT
 // Taste, Same Vibe Under 105 Minutes, and high-affinity craft/auteur matches)
 // when the viewer's model is warm.
 func (e *Engine) Related(ctx context.Context, user *core.User, key core.RatingKey, limit int) ([]core.Hub, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	excluded, _, err := e.exclusions(ctx, user)
 	if err != nil {
 		return nil, err
@@ -460,6 +464,7 @@ func (e *Engine) Related(ctx context.Context, user *core.User, key core.RatingKe
 // enrichRelated appends personalized detail shelves from the viewer's warm
 // model without blocking on a rebuild.
 func (e *Engine) enrichRelated(ctx context.Context, user *core.User, key core.RatingKey, limit int, base []core.Hub, excluded excludedTitles) []core.Hub {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if user == nil || user.ID == 0 {
 		return base
 	}
@@ -572,6 +577,7 @@ func (e *Engine) enrichRelated(ctx context.Context, user *core.User, key core.Ra
 // Watching row is returned as a placeholder ("home.continue", no items)
 // marking where the Plex front end should put its own.
 func (e *Engine) HomeHubsFor(ctx context.Context, user *core.User, hc core.HubContext, limit int) ([]core.Hub, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	p := e.home(ctx, user, hc, "", limit, false)
 	p.Rows = arrangeLayout(p.Rows, e.layoutForContext(ctx), userID(user), hc, sectionName(""), e.opts.MaxHomeRows)
 	return toHubs(p.Rows), nil
@@ -581,6 +587,7 @@ func (e *Engine) HomeHubsFor(ctx context.Context, user *core.User, hc core.HubCo
 // section's rows (below the front end's Continue Watching and Recently
 // Added).
 func (e *Engine) SectionHubsFor(ctx context.Context, user *core.User, t core.MediaType, hc core.HubContext, limit int) ([]core.Hub, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	p := e.home(ctx, user, hc, t, limit, false)
 	p.Rows = arrangeLayout(p.Rows, e.layoutForContext(ctx), userID(user), hc, sectionName(t), e.opts.MaxSectionRows)
 	return toHubs(p.Rows), nil
@@ -604,10 +611,12 @@ func toHubs(rows []core.HomeRow) []core.Hub {
 // home is the one code path behind /hubs, /hubs/sections/{id} and the
 // owner's Home preview.
 func (e *Engine) home(ctx context.Context, user *core.User, hc core.HubContext, section core.MediaType, limit int, wait bool) core.HomePreview {
+	ctx = core.WithCatalogViewer(ctx, user)
 	return e.homeWithPolicy(ctx, user, hc, section, limit, wait, nil)
 }
 
 func (e *Engine) homeWithPolicy(ctx context.Context, user *core.User, hc core.HubContext, section core.MediaType, limit int, wait bool, allow func(context.Context, *core.User, *core.Title) bool) core.HomePreview {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if limit <= 0 {
 		limit = 12
 	}
@@ -908,6 +917,7 @@ func (e *Engine) layoutVersion() uint64 {
 // ScoreTitles implements core.PersonalScorer: taste fit blended with
 // quality, roughly -0.7..1 (higher = better fit for this viewer).
 func (e *Engine) ScoreTitles(ctx context.Context, user *core.User, titles []core.Title) (map[core.RatingKey]float64, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	var ts *Taste
 	if user != nil {
 		e.mu.Lock()

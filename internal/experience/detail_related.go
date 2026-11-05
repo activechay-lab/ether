@@ -15,6 +15,7 @@ type DetailRelated struct {
 }
 
 func (s DetailRelated) SourceVisible(ctx context.Context, viewer *core.User, key core.RatingKey) bool {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	switch key.Kind() {
 	case core.KindMovie, core.KindShow, core.KindSeason, core.KindEpisode:
 	default:
@@ -24,6 +25,7 @@ func (s DetailRelated) SourceVisible(ctx context.Context, viewer *core.User, key
 	return err == nil && s.Visibility.Visible(ctx, viewer, title)
 }
 func (s DetailRelated) Rows(ctx context.Context, viewer *core.User, key core.RatingKey, count int) ([]core.Hub, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s.Source == nil {
 		return nil, nil
 	}

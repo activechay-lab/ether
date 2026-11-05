@@ -16,10 +16,17 @@ import (
 	"github.com/braedonsaunders/ether/internal/clusterconfig"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/logredact"
+	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
 const clusterUsage = `usage:
+  ether cluster ledger-quota [--data-dir DIR] --expect N --capacity M
+      Explicitly raise the durable fleet ledger ceiling with compare-and-swap.
+      Then configure ledgerCapacity=M consistently on all replicas.
+  ether cluster drain [--data-dir DIR] [--wait 120s]
+      Stop deployment admissions and wait for exact local runtime retirement.
+      Timeout returns nonzero and retains unresolved ownership.
   ether cluster init  [--data-dir DIR] [--database-url URL]
       Make this (stopped) standalone server the first node of a cluster:
       copy its SQLite data into an empty PostgreSQL database and share its
@@ -45,6 +52,10 @@ func runCluster(args []string, defaultDataDir string, stdout, stderr io.Writer) 
 	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
 	dbURL := fs.String("database-url", "", "PostgreSQL URL (postgres://...)")
 	force := fs.Bool("force", false, "join: move an existing configured server aside")
+	expectedQuota := fs.Int("expect", 0, "ledger-quota: expected current fleet ceiling")
+	newQuota := fs.Int("capacity", 0, "ledger-quota: new fleet ceiling")
+	wait := fs.Duration("wait", 2*time.Minute, "drain: maximum wait for quiescence")
+	fs.DurationVar(wait, "timeout", 2*time.Minute, "drain: alias for --wait")
 	ttl := fs.Duration("ttl", clusterconfig.DefaultJoinTokenTTL, "token: validity")
 	positional := []string{}
 	rest := args[1:]
@@ -64,6 +75,19 @@ func runCluster(args []string, defaultDataDir string, stdout, stderr io.Writer) 
 
 	var err error
 	switch cmd {
+	case "ledger-quota":
+		err = raiseLedgerQuota(ctx, *dataDir, *expectedQuota, *newQuota, log)
+	case "drain":
+		if *wait <= 0 || *wait > time.Hour {
+			err = errors.New("drain wait must be positive and at most 1h")
+			break
+		}
+		dctx, cancel := context.WithTimeout(ctx, *wait)
+		defer cancel()
+		err = clusterconfig.RequestDrain(dctx, *dataDir)
+		if err == nil {
+			fmt.Fprintln(stdout, "Node drained; no unresolved local runtime ownership.")
+		}
 	case "init":
 		url := *dbURL
 		if url == "" {
@@ -126,4 +150,33 @@ func clusterToken(ctx context.Context, stdout io.Writer, dataDir, url string, tt
 	}
 	fmt.Fprintf(stdout, "%s\n\nOn the new node run:\n  ether cluster join <token>\n\nValid until %s, once.\n%s\n", tok.String(), info.ExpiresAt.Local().Format(time.RFC1123), clusterconfig.TokenWarning)
 	return nil
+}
+
+func raiseLedgerQuota(ctx context.Context, dataDir string, expected, capacity int, log *slog.Logger) error {
+	if expected < 1 || capacity <= expected || capacity < 4096 || capacity > 10000000 {
+		return errors.New("ledger-quota requires --expect N and a larger --capacity M in 4096..10000000")
+	}
+	cfg, err := config.Open(dataDir)
+	if err != nil {
+		return errors.New("ledger-quota: cannot read local cluster credentials")
+	}
+	defer cfg.Close()
+	dbCfg := cfg.Get().Database
+	if !dbCfg.IsPostgres() {
+		return errors.New("ledger-quota requires an enrolled PostgreSQL node")
+	}
+	db, _, err := store.OpenWith(ctx, store.Options{Driver: dbCfg.Driver, URL: dbCfg.URL, Logger: log})
+	if err != nil {
+		return errors.New("ledger-quota: cannot open cluster database")
+	}
+	defer db.Close()
+	doc, found, err := clusterconfig.NewShared(db).LoadShared(ctx)
+	if err != nil || !found || doc.KeyFingerprint != cfg.KeyFingerprint() {
+		return errors.New("ledger-quota: cluster identity could not be verified")
+	}
+	service, err := placement.New(db, placement.Options{MaxSessions: capacity, MaxLease: 10 * time.Minute, LockTimeout: 5 * time.Second}, nil)
+	if err != nil {
+		return err
+	}
+	return service.RaiseLedgerQuota(ctx, expected)
 }

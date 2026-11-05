@@ -37,6 +37,7 @@ const (
 
 // PostPlay implements core.PostPlayer.
 func (e *Engine) PostPlay(ctx context.Context, user *core.User, justWatched core.RatingKey, hc core.HubContext, limit int) ([]core.PostPlayPick, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if limit <= 0 {
 		limit = 12
 	}
@@ -83,6 +84,7 @@ func (e *Engine) PostPlay(ctx context.Context, user *core.User, justWatched core
 }
 
 func (e *Engine) rankPostPlay(ctx context.Context, user *core.User, justWatched, tk core.RatingKey, hc core.HubContext, limit int, excluded excludedTitles) ([]core.PostPlayPick, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	src, err := e.catalog.Get(ctx, tk)
 	if err != nil {
 		return nil, fmt.Errorf("postplay: just-watched title: %w", err)
@@ -266,6 +268,7 @@ func postplaySeen(ts *Taste, ws core.WatchStatus, t *core.Title, now time.Time) 
 // postplayWatched is the single-title variant used while walking a
 // franchise in order (before the batch status lookup exists).
 func (e *Engine) postplayWatched(ctx context.Context, user *core.User, ts *Taste, t *core.Title, now time.Time) bool {
+	ctx = core.WithCatalogViewer(ctx, user)
 	var ws core.WatchStatus
 	if e.state != nil {
 		ws, _ = e.state.Get(ctx, user.ID, t.Key)

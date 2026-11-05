@@ -29,6 +29,7 @@ type PeopleRead struct {
 }
 
 func (s *Service) readPeople(ctx context.Context, viewer *core.User, read func(*Service) error) error {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s.d.BeginPeopleRead == nil {
 		return core.ErrNotAvailable
 	}
@@ -68,6 +69,7 @@ func (s *Service) readPeople(ctx context.Context, viewer *core.User, read func(*
 }
 
 func (s *Service) People(ctx context.Context, viewer *core.Viewer, device core.Device, query frontend.PeopleQuery) (result []frontend.PersonDetail, err error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	ctx, cancel := context.WithTimeout(ctx, peopleReadBudget)
 	defer cancel()
 	err = s.readPeople(ctx, viewer, func(snapshot *Service) error {
@@ -81,6 +83,7 @@ func (s *Service) People(ctx context.Context, viewer *core.Viewer, device core.D
 	return result, nil
 }
 func (s *Service) Person(ctx context.Context, viewer *core.Viewer, device core.Device, id string, options frontend.PersonReadOptions) (result frontend.PersonDetail, err error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	ctx, cancel := context.WithTimeout(ctx, peopleReadBudget)
 	defer cancel()
 	err = s.readPeople(ctx, viewer, func(snapshot *Service) error {
@@ -94,6 +97,7 @@ func (s *Service) Person(ctx context.Context, viewer *core.Viewer, device core.D
 	return result, nil
 }
 func (s *Service) PersonCredit(ctx context.Context, viewer *core.Viewer, device core.Device, item core.RatingKey, tmdb int64) (result frontend.PersonDetail, err error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	ctx, cancel := context.WithTimeout(ctx, peopleReadBudget)
 	defer cancel()
 	err = s.readPeople(ctx, viewer, func(snapshot *Service) error {
@@ -171,6 +175,7 @@ func peopleTitleVisible(ctx context.Context, v *core.Viewer, title *core.Title, 
 	return ok && SectionAllowed(v, section) && visibility.Visible(ctx, v, title)
 }
 func (s *Service) peopleTitle(ctx context.Context, viewer *core.Viewer, key core.RatingKey) (*core.Title, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s.d.CachedGetMany == nil {
 		return nil, core.ErrNotAvailable
 	}
@@ -193,6 +198,7 @@ func (s *Service) peopleTitle(ctx context.Context, viewer *core.Viewer, key core
 }
 
 func (s *Service) visitPeople(ctx context.Context, viewer *core.Viewer, device core.Device, scope frontend.PeopleScope, includeSeasons bool, visit func(core.Person, core.RatingKey) error) error {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	types, err := peopleTypes(scope)
 	if err != nil {
 		return err
@@ -342,6 +348,7 @@ func personBefore(a, b frontend.PersonDetail, exact string) bool {
 // Recheck the chosen visible credit before returning metadata; optional facts
 // are read from that same current credit rather than a stale aggregate.
 func (s *Service) currentPerson(ctx context.Context, viewer *core.Viewer, person frontend.PersonDetail) (frontend.PersonDetail, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return frontend.PersonDetail{}, err
@@ -368,6 +375,7 @@ func (s *Service) currentPerson(ctx context.Context, viewer *core.Viewer, person
 }
 
 func (s *Service) people(ctx context.Context, viewer *core.Viewer, device core.Device, q frontend.PeopleQuery) ([]frontend.PersonDetail, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	ctx, cancel := context.WithTimeout(ctx, peopleReadBudget)
 	defer cancel()
 	if utf8.RuneCountInString(q.Query) > 200 || q.Limit < 0 || q.Limit > 100 {
@@ -445,6 +453,7 @@ const (
 // one of its most popular credited titles is visible to the viewer, until
 // the limit is reached.
 func (s *Service) indexedPeople(ctx context.Context, viewer *core.Viewer, q frontend.PeopleQuery, terms []string, exact string) ([]frontend.PersonDetail, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	types, err := peopleTypes(q.Scope)
 	if err != nil {
 		return nil, err
@@ -523,6 +532,7 @@ func (s *Service) indexedPeople(ctx context.Context, viewer *core.Viewer, q fron
 }
 
 func (s *Service) person(ctx context.Context, viewer *core.Viewer, device core.Device, id string, _ frontend.PersonReadOptions) (frontend.PersonDetail, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	ctx, cancel := context.WithTimeout(ctx, peopleReadBudget)
 	defer cancel()
 	if id == "" || len(id) > 128 {
@@ -549,6 +559,7 @@ func (s *Service) person(ctx context.Context, viewer *core.Viewer, device core.D
 // PersonCredit revalidates one cached, title-bound person without playback,
 // provider refresh, or an unfiltered catalogue fallback.
 func (s *Service) personCredit(ctx context.Context, viewer *core.Viewer, _ core.Device, item core.RatingKey, tmdb int64) (frontend.PersonDetail, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	ctx, cancel := context.WithTimeout(ctx, peopleReadBudget)
 	defer cancel()
 	if tmdb <= 0 {
@@ -563,6 +574,7 @@ var _ frontend.PeopleReader = (*Service)(nil)
 // durable policy proof as the exact current credit. The callback must not
 // publish data; its output is valid only after this method returns success.
 func (s *Service) WithPersonCredit(ctx context.Context, viewer *core.Viewer, device core.Device, item core.RatingKey, tmdb int64, read func(*core.User, frontend.PersonDetail, core.Title) error) error {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	ctx, cancel := context.WithTimeout(ctx, peopleReadBudget)
 	defer cancel()
 	if read == nil {

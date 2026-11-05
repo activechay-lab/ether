@@ -211,21 +211,21 @@ export function RulesPanel({
                     onRules(next);
                     setDrag(null);
                   }}
-                  className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2 py-2"
+                  className="grid grid-cols-[minmax(0,1fr)_repeat(4,auto)] items-center gap-1 rounded-lg border border-border bg-surface px-2 py-2 sm:flex sm:gap-2"
                 >
                   <button
                     type="button"
-                    className="cursor-grab px-1 text-fg-muted"
+                    className="hidden cursor-grab px-1 text-fg-muted sm:block"
                     aria-label={t("Drag rule {n}", { n: i + 1 })}
                   >
                     <GripVertical size={16} />
                   </button>
                   <button
                     type="button"
-                    className="min-w-0 flex-1 text-left"
+                    className="col-span-5 min-w-0 flex-1 text-left"
                     onClick={() => setOpen(i)}
                   >
-                    <span className="block truncate text-sm font-medium">{ruleLabel(rule)}</span>
+                    <span className="block text-sm font-medium sm:truncate">{ruleLabel(rule)}</span>
                   </button>
                   {counts ? (
                     <span className="shrink-0 text-xs text-fg-muted">

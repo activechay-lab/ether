@@ -1,0 +1,13 @@
+Ether {{ .Chart.AppVersion }} configuration rendered.
+
+This chart requires the deployment runtime contract; do not use an older image.
+Public Service: {{ include "ether.name" . }}:{{ .Values.service.port }}
+Private identity DNS: POD.{{ include "ether.name" . }}-private.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}
+
+StatefulSets use OnDelete. An upgrade changes the pod template but does not
+replace existing pods. Drain and replace ONE pod at a time using the procedure
+in docs/kubernetes.md. Do not delete PVCs or clone node.json. Secrets are
+managed independently and are not deleted by this release.
+
+Kubernetes readiness for public pods uses /admissionz. Private DNS also resolves
+unready pods; authenticated runtime placement must reject unready/draining nodes.

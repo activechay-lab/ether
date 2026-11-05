@@ -79,6 +79,7 @@ func (a AdditionalRows) Rows(ctx context.Context, req frontend.RowRequest) ([]fr
 }
 
 func (a AdditionalRows) discovery(ctx context.Context, viewer *core.User, limit int, restricted bool, source DiscoveryRowSource) ([]RankedCandidate, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if !restricted {
 		return source.Rows(ctx, viewer, limit)
 	}

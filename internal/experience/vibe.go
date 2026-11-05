@@ -20,6 +20,7 @@ type VibeSearch struct {
 }
 
 func (s VibeSearch) Find(ctx context.Context, viewer *core.User, query string) (*core.Collection, []core.Title, bool, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s.Source == nil {
 		return nil, nil, false, nil
 	}

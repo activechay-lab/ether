@@ -86,6 +86,9 @@ func (a *App) widgetStatus(context.Context) any {
 
 // WatchNotifications is enabled by the executable, never by embedded/test apps.
 func (a *App) WatchNotifications(executable string) (func(bool) error, error) {
+	if a.notifications == nil {
+		return func(bool) error { return nil }, nil
+	}
 	return a.notifications.WatchProcess(executable)
 }
 func (a *App) notifyLifecycle(kind, title, message string) {

@@ -3,9 +3,11 @@ package catalog
 import (
 	"context"
 	"database/sql"
+	"maps"
 	"math"
 	"strings"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/releaseparse"
 	"github.com/braedonsaunders/ether/internal/store"
 )
@@ -89,16 +91,46 @@ func insertReleaseNames(ctx context.Context, tx *sql.Tx, key int64, names ...str
 	return nil
 }
 
-func updateReleaseNames(ctx context.Context, tx *sql.Tx, key int64) error {
-	var typ, title, original string
-	if err := tx.QueryRowContext(ctx, `SELECT type,title,original_title FROM catalog_titles WHERE key=?`, key).Scan(&typ, &title, &original); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_release_names WHERE key=?`, key); err != nil {
-		return err
-	}
-	if typ != "movie" && typ != "show" {
+// updateReleaseNames keeps a movie's or show's release names in step with its
+// stored titles. Seasons and episodes carry no release names, so their writes
+// (most of a catalogue sync) cost nothing here, and an unchanged title is not
+// rewritten.
+func updateReleaseNames(ctx context.Context, tx *sql.Tx, key int64, typ core.MediaType) error {
+	if typ != core.TypeMovie && typ != core.TypeShow {
 		return nil
+	}
+	var title, original string
+	if err := tx.QueryRowContext(ctx, `SELECT title,original_title FROM catalog_titles WHERE key=?`, key).Scan(&title, &original); err != nil {
+		return err
+	}
+	want := map[string]bool{}
+	for _, name := range []string{title, original} {
+		if name = releaseparse.NormalizeTitle(name); name != "" {
+			want[name] = true
+		}
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT name FROM catalog_release_names WHERE key=?`, key)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err = rows.Scan(&name); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	if maps.Equal(have, want) {
+		return nil
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM catalog_release_names WHERE key=?`, key); err != nil {
+		return err
 	}
 	return insertReleaseNames(ctx, tx, key, title, original)
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"strconv"
 
+	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
@@ -39,8 +40,12 @@ COALESCE((SELECT generation FROM viewer_policy_epoch WHERE id=1),0)`, id, id, id
 	if err != nil {
 		return HomeRevision{}, err
 	}
+	rules, err := catalog.ReadViewerRulesRevision(ctx, db, id)
+	if err != nil {
+		return HomeRevision{}, err
+	}
 	b := make([]byte, 0, 96)
-	for i, n := range []int64{watch, playlists, playlistAt, watchlist, watchlistAt, favorites, exclusions} {
+	for i, n := range []int64{watch, playlists, playlistAt, watchlist, watchlistAt, favorites, exclusions, rules} {
 		if i > 0 {
 			b = append(b, '.')
 		}

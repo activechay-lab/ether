@@ -65,11 +65,12 @@ type candRow struct {
 // userModel is everything precomputed for one viewer: the taste model and
 // the candidate rows. Assembly for a request context is pure CPU over it.
 type userModel struct {
-	user    core.User
-	generic bool
-	taste   *Taste
-	rows    []*candRow
-	fatigue map[core.RatingKey]float64 // item key -> 0..1
+	catalogRulesRevision int64
+	user                 core.User
+	generic              bool
+	taste                *Taste
+	rows                 []*candRow
+	fatigue              map[core.RatingKey]float64 // item key -> 0..1
 	// crowd and buzz are the build's crowd graph and trend momentum by
 	// taste key (crowd.go, buzz.go): ranker features and Top 10 freshness.
 	crowd   map[core.RatingKey]crowdFeat

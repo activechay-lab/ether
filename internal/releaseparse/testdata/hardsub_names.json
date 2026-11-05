@@ -1,0 +1,242 @@
+[
+  {
+    "name": "Annabelle.2014.HC.HDRip.XViD.AC3-juggs[ETRG]",
+    "burnedEvidence": true,
+    "label": "explicit burned-in name evidence",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Lucy.2014.HC.HDRip.XViD-juggs[ETRG]",
+    "burnedEvidence": true,
+    "label": "explicit burned-in name evidence",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Annabelle.2014.1080p.PROPER.HC.WEBRip.x264.AAC.2.0-RARBG",
+    "burnedEvidence": true,
+    "label": "explicit burned-in name evidence",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "The Purge: Election Year (2016) HC - 720p HDRiP - 900MB - ShAaNi",
+    "burnedEvidence": true,
+    "label": "explicit burned-in name evidence",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "The Martian 2015 540p HDRip KORSUB x264 AAC2 0-FGT",
+    "burnedEvidence": true,
+    "label": "explicit burned-in name evidence",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Joker(2019) English HC 720p HDRip x264 [ Hindi - Eng Multi Subs] Shadow (HDWebmovies)",
+    "burnedEvidence": true,
+    "label": "explicit burned-in name evidence",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "IP Man And Four Kings 2019 HDRip 1080p x264 AAC Mandarin HC CHS-ENG SUBS Mp4Ba",
+    "burnedEvidence": true,
+    "label": "explicit burned-in name evidence",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "#Yaaram (2019) Hindi 720p DC WEBRip ⭐1.5 GB⭐ (DD- 2.0) HC ESub x264 - Shadow (BonsaiHD)",
+    "burnedEvidence": true,
+    "label": "explicit burned-in name evidence",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Guardians Of The Galaxy 2014 R6 720p HDCAM x264-JYK",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Guardians of the Galaxy (CamRip / 2014)",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Interstellar (2014) CAM ENG x264 AAC-CPG",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "The.X-Files.S01.Retail.DKsubs.720p.BluRay.x264-RAPiDCOWS",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "The.X-Files.S01-S03.DKsubs.1080p.BluRay.HEVC.x265",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "The Bridge (Bron Broen) S01 Season 1 BRRip x264 AAC E-Subs [GWC]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "The.Meg.2018.1080p.HDRip.x264.[ExYu-Subs]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Dragon Ball Super: Broly (2018) CAM-Rip English Subs x264 - KatmovieHD.Pw",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Sacred Games 2018 S01 Complete Season 1 Hindi 720p NetFlix x264 DDP 5.1 ESub - xRG",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Z Nation (2014)S01-01-13 (2014) Full Season.XviD - Italian English.Ac3.Sub.ita.eng.MIRCrew",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "1917 (2019) [BluRay Rip 1080p ITA-ENG AC3 SUBS] [[email protected]]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "The Big Bus - Il fantabus (1976).720p.H264.ita.eng.Ac3.sub.ita.eng-MIRCrew",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "The Hunt (2020) BluRay 1080p.H264 Ita Eng AC3 5.1 Sub Ita Eng MIRCrew",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Diabolique (1996).720p.H264.ita.eng.Ac3-5.1.sub.ita.eng-MIRCrew",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "37°2 le matin - Betty Blue (1986) Director's Cut.720p.H264.ita.fre.sub.Eng-MIRCrew",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Plunderer - 23 (360p)-HorribleSubs[TGx]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Tower of God - 12 (480p)-HorribleSubs[TGx]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Kami no Tou - 12 (720p)(Multiple Subtitle)-Erai-raws[TGx]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Plunderer - 23 (1080p)(HEVC x265 10bit)(Eng-Subs)-Judas[TGx]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Tamayomi - 12 (360p)-HorribleSubs[TGx]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Ahiru no Sora - 36 (480p)-HorribleSubs[TGx]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Shadowverse - 11 (720p)(Multiple Subtitle)-Erai-raws[TGx]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "A3! Season Spring & Summer - 11 (360p)-HorribleSubs[TGx]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Kitsutsuki Tanteidokoro - 10 (720p)(Multiple Subtitle)-Erai-raws[TGx]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Princess Connect! Re-Dive - 11 (720p)(Multiple Subtitle)-Erai-raws[TGx]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Fruits Basket S2 (2019) - 11 (720p)-HorribleSubs[TGx]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "The Walking Dead S05E03 720p HDTV x264-ASAP[ettv]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Hercules (2014) 1080p BrRip H264 - YIFY",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Dawn.of.the.Planet.of.the.Apes.2014.HDRip.XViD-EVO",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "The Big Bang Theory S08E06 HDTV XviD-LOL [eztv]",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "22 Jump Street (2014) 720p BrRip x264 - YIFY",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  },
+  {
+    "name": "Hercules.2014.EXTENDED.1080p.WEB-DL.DD5.1.H264-RARBG",
+    "burnedEvidence": false,
+    "label": "no unambiguous burned-in name evidence; content unknown",
+    "source": "https://github.com/platelminto/parse-torrent-title/blob/4e793868512074e49c78e5b714d072f748ab9dc1/tests/files/input.json"
+  }
+]

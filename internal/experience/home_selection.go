@@ -14,6 +14,7 @@ type HomeSelection struct {
 }
 
 func (s HomeSelection) Rows(ctx context.Context, viewer *core.User, hc core.HubContext, typ core.MediaType, count int) ([]core.Hub, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s.Source == nil {
 		return nil, nil
 	}
@@ -52,6 +53,7 @@ func (s HomeSelection) Rows(ctx context.Context, viewer *core.User, hc core.HubC
 	return s.Filter(ctx, viewer, hubs), nil
 }
 func (s HomeSelection) Filter(ctx context.Context, viewer *core.User, hubs []core.Hub) []core.Hub {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	out := make([]core.Hub, len(hubs))
 	copy(out, hubs)
 	for i := range out {

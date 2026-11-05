@@ -65,6 +65,7 @@ type Service struct {
 	visibilityMu       sync.Mutex
 	visibilityRevision uint64
 	visibilityCache    map[string]visibilityEntry
+	pagingCuts         map[string]pagingCut  // guarded by visibilityMu
 	hiddenSets         map[string]*hiddenSet // by kind; guarded by visibilityMu
 	refreshing         map[string]int        // kind -> 1 refreshing, 2 another pass queued
 	bgCtx              context.Context

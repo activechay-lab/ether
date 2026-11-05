@@ -39,7 +39,12 @@ func (a *App) buildCluster(dialect store.Dialect) error {
 	if err != nil {
 		return err
 	}
+	server := a.cfg.Get().Server
 	local := cluster.Local{Identity: id, Version: a.opts.Version, Addrs: a.nodeAddrs, Caps: a.nodeCaps, Load: a.nodeLoad,
+		Roles: slices.Clone(server.NodeRoles), InternalAddress: server.InternalAddress,
+		// ProtocolVersion stays zero until a compatible private service is
+		// registered and usable; an address alone is not remote capability.
+		Protocol: a.privateProtocol,
 		Draining: a.nodeDraining, Migrations: store.KnownMigrations()}
 	log := a.log.With("component", "cluster")
 	a.peers = &peerSet{}
@@ -166,6 +171,10 @@ func (a *App) nodeCaps() cluster.Caps {
 	caps := cluster.Caps{Weight: a.cfg.Get().Server.ClusterWeight, EgressIP: a.egress.get()}
 	if a.transcoder != nil {
 		caps.Transcode, caps.HWAccel = true, a.transcoder.HWAccel().Name
+	}
+	if a.deployment != nil && a.deployment.encoder != nil {
+		caps.Transcode = true
+		caps.HWAccel = a.deployment.encoder.HWAccel().Name
 	}
 	return caps
 }

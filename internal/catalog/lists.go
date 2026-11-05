@@ -573,12 +573,12 @@ func (c *Catalog) List(ctx context.Context, list string, t core.MediaType, limit
 	if list == "trending_day" || list == "trending_week" {
 		return c.trendingList(ctx, list, t, limit)
 	}
-	cacheKey := list + "|" + string(t) + "|" + strconv.Itoa(limit)
+	cacheKey := fmt.Sprint(core.CatalogCandidates(ctx)) + list + "|" + string(t) + "|" + strconv.Itoa(limit) + fmt.Sprint("|viewer:", core.CatalogViewerID(ctx), "|revision:", c.ViewerRulesRevision(&core.User{ID: core.CatalogViewerID(ctx)}))
 	c.listMu.Lock()
 	if e, ok := c.listCache[cacheKey]; ok && c.now().Before(e.expires) {
 		items := append([]core.Title(nil), e.items...)
 		c.listMu.Unlock()
-		return c.releasedTitles(c.FilterVisibility(ctx, items)), nil
+		return c.releasedTitles(ctx, c.FilterVisibility(ctx, items)), nil
 	}
 	c.listMu.Unlock()
 	if c.tmdb() == nil {
@@ -624,7 +624,7 @@ func (c *Catalog) List(ctx context.Context, list string, t core.MediaType, limit
 			out = append(out, it)
 		}
 	}
-	out = limitTitles(c.releasedTitles(out), limit)
+	out = limitTitles(c.releasedTitles(ctx, out), limit)
 	c.listMu.Lock()
 	c.listCache[cacheKey] = listEntry{items: append([]core.Title(nil), out...), expires: c.now().Add(c.listTTL)}
 	c.listMu.Unlock()
@@ -821,12 +821,12 @@ func (c *Catalog) similar(ctx context.Context, key core.RatingKey, limit int) ([
 	default:
 		return nil, fmt.Errorf("%w: key %s", core.ErrNotFound, key)
 	}
-	out = limitTitles(c.releasedTitles(out), limit)
+	out = limitTitles(c.releasedTitles(ctx, out), limit)
 	if err := c.mirrorListSummaries(ctx, fmt.Sprintf("similar:%d:%d", key, limit), out, false); err != nil {
 		return nil, err
 	}
 	reloaded := c.reloadSummaries(ctx, out)
-	return c.releasedTitles(reloaded), nil
+	return c.releasedTitles(ctx, reloaded), nil
 }
 
 // Collection returns a TMDB franchise and its parts sorted by release date.
@@ -866,7 +866,7 @@ func (c *Catalog) collection(ctx context.Context, tmdbCollection int64) (string,
 				return d.Name, nil, err
 			}
 			out := c.reloadSummaries(ctx, items)
-			return d.Name, c.releasedTitles(out), nil
+			return d.Name, c.releasedTitles(ctx, out), nil
 		} else if isNotFound(err) {
 			return "", nil, err
 		}
@@ -884,7 +884,7 @@ func (c *Catalog) collection(ctx context.Context, tmdbCollection int64) (string,
 	if name == "" && len(items) > 0 {
 		name = items[0].CollectionName
 	}
-	return name, c.releasedTitles(items), nil
+	return name, c.releasedTitles(ctx, items), nil
 }
 
 func isNotFound(err error) bool {
@@ -1030,10 +1030,10 @@ func (c *Catalog) byExternalID(ctx context.Context, source, id string, typ core.
 }
 
 // Apply the same release rule to remote lists and cached responses as SQL reads.
-func (c *Catalog) releasedTitles(items []core.Title) []core.Title {
+func (c *Catalog) releasedTitles(ctx context.Context, items []core.Title) []core.Title {
 	out := make([]core.Title, 0, len(items))
 	for _, t := range items {
-		if !t.Adult && t.IsReleased(c.now()) && c.Visible(&t) {
+		if !t.Adult && t.IsReleased(c.now()) && c.visibleWith(c.visibilityFor(ctx), &t) {
 			out = append(out, t)
 		}
 	}

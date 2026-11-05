@@ -3,16 +3,20 @@ package cluster
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/config"
 )
 
 // Solo is the standalone runtime: the only member, always the leader, with
 // an in-process bus. It starts no goroutines.
 type Solo struct {
-	local   Local
-	started time.Time
-	bus     *localBus
-	lead    *leadership
+	local       Local
+	started     time.Time
+	incarnation string
+	bus         *localBus
+	lead        *leadership
 }
 
 var _ Cluster = (*Solo)(nil)
@@ -23,8 +27,9 @@ func NewSolo(local Local, log *slog.Logger) *Solo {
 		log = slog.Default()
 	}
 	l := newLeadership()
-	l.set(true, 1)
-	return &Solo{local: local, started: time.Now(), bus: newLocalBus(log), lead: l}
+	local.Roles = slices.Clone(local.Roles)
+	l.set(local.serverEligible(), 1)
+	return &Solo{local: local, incarnation: newID(), started: time.Now(), bus: newLocalBus(log), lead: l}
 }
 
 func (s *Solo) Mode() string { return ModeSolo }
@@ -34,9 +39,10 @@ func (s *Solo) Self() Node {
 	n := Node{
 		ID: s.local.Identity.NodeID, Name: s.local.Identity.Name, Version: s.local.Version,
 		Caps: s.local.caps(), Load: s.local.load(), StartedAt: s.started, LastSeen: time.Now(),
-		Leader: true, Live: true, Draining: s.local.draining(), Migrations: s.local.Migrations,
+		InternalAddress: s.local.InternalAddress, ProtocolVersion: s.local.protocol(), Incarnation: s.incarnation,
+		Leader: s.IsLeader(), Live: true, Draining: s.local.draining(), Migrations: s.local.Migrations,
 	}
-	if s.local.Addrs != nil {
+	if s.local.Addrs != nil && s.local.serverEligible() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		n.Addrs = s.local.Addrs(ctx)
 		cancel()
@@ -44,15 +50,19 @@ func (s *Solo) Self() Node {
 	return n
 }
 
-func (s *Solo) IsLeader() bool { return true }
-func (s *Solo) Epoch() int64   { return 1 }
+func (s *Solo) IsLeader() bool { return s.lead.isLeader() }
+func (s *Solo) Epoch() int64   { return s.lead.currentEpoch() }
 
 // OnLeaderChange never fires: a standalone server is always the leader.
 func (s *Solo) OnLeaderChange(fn func(bool)) func() { return s.lead.subscribe(fn) }
 
 // RunAsLeader runs fn(ctx) directly.
 func (s *Solo) RunAsLeader(ctx context.Context, _ string, fn func(context.Context)) {
-	fn(ctx)
+	if s.IsLeader() {
+		fn(ctx)
+	} else {
+		<-ctx.Done()
+	}
 }
 
 // Publish delivers to local subscribers after the same validation the
@@ -69,7 +79,9 @@ func (s *Solo) Subscribe(topic string, fn func([]byte)) func() { return s.bus.su
 
 func (s *Solo) Nodes(context.Context) ([]Node, error)    { return []Node{s.Self()}, nil }
 func (s *Solo) AllNodes(context.Context) ([]Node, error) { return []Node{s.Self()}, nil }
-func (s *Solo) Start(context.Context) error              { return nil }
+func (s *Solo) Start(context.Context) error {
+	return (config.Server{NodeRoles: s.local.Roles, InternalAddress: s.local.InternalAddress}).ValidateNodeSettings(config.Database{})
+}
 
 // StepDown is a no-op: a standalone server always leads.
 func (s *Solo) StepDown(context.Context) {}

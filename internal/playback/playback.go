@@ -220,7 +220,9 @@ func (o *Options) defaults() {
 
 // Manager implements core.Playback.
 type Manager struct {
-	sourceAccounting sourceAccounting
+	subtitleScheduled map[string]bool
+	subtitleRunning   bool
+	sourceAccounting  sourceAccounting
 	// sourceCleanupBudget, when set, is the shutdown wait for in-flight
 	// source cleanup. Production leaves it nil and uses
 	// sourceCleanupShutdownWait. Tests install an already-expired context

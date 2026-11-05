@@ -71,6 +71,29 @@ export function transcodeLabel(n: ClusterNode): string {
   return hw && hw !== "none" ? hw : t("Software");
 }
 
+/** Role metadata describes configured work, independently of detected hardware. */
+export function nodeRoles(n: ClusterNode): string[] {
+  const roles = n.caps?.roles;
+  const labels: Record<string, string> = {
+    server: t("Server"),
+    source: t("Source"),
+    transcode: t("Transcoding"),
+    delivery: t("Delivery"),
+    background: t("Background"),
+  };
+  if (
+    !roles?.length ||
+    (roles.length === 5 && new Set(roles).size === 5 && roles.every((r) => r in labels))
+  )
+    return [t("Full server")];
+  return roles.map((r) => labels[r] ?? t("Unknown"));
+}
+
+export function nodeStatusFresh(n: ClusterNode, now = Date.now()): boolean {
+  const seen = parseTime(n.lastSeen);
+  return n.live && !!seen && Math.abs(now - seen.getTime()) <= HEARTBEAT_STALE_MS;
+}
+
 function translateClusterWarning(w: string): string {
   const m = /^nodes reach providers from different public addresses \(([^)]*)\)/.exec(w);
   if (m) {
@@ -191,7 +214,12 @@ export function ClusterOverview() {
           </AlertDescription>
         </Alert>
       ) : null}
-      <Nodes status={s} onChanged={() => void status.reload()} onAdd={() => setAddingNode(true)} />
+      <Nodes
+        status={s}
+        cached={!!status.error || !!s.error}
+        onChanged={() => void status.reload()}
+        onAdd={() => setAddingNode(true)}
+      />
       <SharedSettings status={s} settings={settings} />
       <JoinTokens settings={settings} />
       {addingNode ? (
@@ -263,8 +291,10 @@ function Nodes({
   status,
   onChanged,
   onAdd,
+  cached,
 }: {
   status: ClusterStatus;
+  cached: boolean;
   onChanged: () => void;
   onAdd: () => void;
 }) {
@@ -281,7 +311,7 @@ function Nodes({
         { live },
       )}
       actions={
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={onAdd}>
             <Plus size={14} /> {t("Add node")}
           </Button>
@@ -291,117 +321,168 @@ function Nodes({
         </div>
       }
     >
-      <PagedTable<ClusterNode>
-        rows={nodes}
-        rowKey={(n) => n.id}
-        pageSize={25}
-        searchable={nodes.length > 8}
-        labels={pagedTableLabels()}
-        empty={
-          <EmptyState
-            title={t("No nodes reported")}
-            description={t("The database couldn't be read. Nodes appear here once it can.")}
-          />
-        }
-        columns={[
-          {
-            key: "name",
-            header: t("Node"),
-            search: (n) => `${nodeName(n)} ${n.version}`,
-            cell: (n) => (
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="font-medium text-fg">{nodeName(n)}</span>
-                  {n.leader ? <Badge variant="info">{t("Leader")}</Badge> : null}
-                  {n.id === status.self?.id ? (
-                    <Badge variant="outline">{t("This node")}</Badge>
-                  ) : null}
+      <div className="max-sm:[&_thead]:hidden max-sm:[&_tr]:grid max-sm:[&_tr]:grid-cols-2 max-sm:[&_td]:whitespace-normal max-sm:[&_td:first-child]:col-span-2 max-sm:[&_td]:text-left">
+        <PagedTable<ClusterNode>
+          rows={nodes}
+          rowKey={(n) => n.id}
+          pageSize={25}
+          searchable={nodes.length > 8}
+          labels={pagedTableLabels()}
+          empty={
+            <EmptyState
+              title={t("No nodes reported")}
+              description={t("The database couldn't be read. Nodes appear here once it can.")}
+            />
+          }
+          columns={[
+            {
+              key: "name",
+              header: t("Node"),
+              search: (n) => `${nodeName(n)} ${n.version}`,
+              cell: (n) => (
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-medium text-fg">{nodeName(n)}</span>
+                    {n.leader ? <Badge variant="info">{t("Leader")}</Badge> : null}
+                    {n.id === status.self?.id ? (
+                      <Badge variant="outline">{t("This node")}</Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1" aria-label={t("Configured roles")}>
+                    {nodeRoles(n).map((role, i) => (
+                      <Badge key={i} variant="outline">
+                        {role}
+                      </Badge>
+                    ))}
+                  </div>
+                  <span className="block text-xs text-fg-muted">
+                    {n.version
+                      ? t("Version {version}", { version: n.version })
+                      : t("Version unknown")}
+                  </span>
                 </div>
-                <span className="block text-xs text-fg-muted">
-                  {n.version
-                    ? t("Version {version}", { version: n.version })
-                    : t("Version unknown")}
-                </span>
-              </div>
-            ),
-          },
-          {
-            key: "status",
-            header: t("Status"),
-            cell: (n) =>
-              n.live && n.draining ? (
-                <Badge variant="warning">{t("Paused")}</Badge>
-              ) : n.live ? (
-                <Badge variant="success">{t("Online")}</Badge>
-              ) : (
-                <span className="flex flex-col items-start gap-0.5">
-                  <Badge variant="secondary">{t("Offline")}</Badge>
+              ),
+            },
+            {
+              key: "status",
+              header: t("Heartbeat"),
+              cell: (n) => (
+                <div className="flex flex-col items-start gap-1">
+                  <span className="text-xs text-fg-muted sm:hidden">{t("Heartbeat")}</span>
+                  <Badge
+                    variant={
+                      cached || (n.live && !nodeStatusFresh(n))
+                        ? "warning"
+                        : n.live
+                          ? "success"
+                          : "secondary"
+                    }
+                  >
+                    {cached || (n.live && !nodeStatusFresh(n))
+                      ? t("Stale status")
+                      : n.live
+                        ? t("Online")
+                        : t("Offline")}
+                  </Badge>
                   <span className="text-xs text-fg-muted" title={formatDateTime(n.lastSeen)}>
                     {t("Last seen {when}", { when: relativeTime(n.lastSeen) })}
                   </span>
+                </div>
+              ),
+            },
+            {
+              key: "admission",
+              header: t("New streams"),
+              cell: (n) => (
+                <div className="space-y-1">
+                  <span className="block text-xs text-fg-muted sm:hidden">{t("New streams")}</span>
+                  <Badge variant={n.draining ? "warning" : "secondary"}>
+                    {cached || !nodeStatusFresh(n)
+                      ? t("Unknown")
+                      : n.draining
+                        ? t("Paused")
+                        : t("Not reported")}
+                  </Badge>
+                  <p className="max-w-48 text-xs text-fg-muted">
+                    {t("Playback readiness is not reported.")}
+                  </p>
+                </div>
+              ),
+            },
+            {
+              key: "load",
+              header: t("Streams"),
+              align: "right",
+              cell: (n) => (
+                <span
+                  className="tabular-nums"
+                  aria-label={t("{node} streams", { node: nodeName(n) })}
+                >
+                  <span className="block text-xs text-fg-muted sm:hidden">{t("Streams")}</span>
+                  {!cached && nodeStatusFresh(n) && Number.isFinite(n.load) ? n.load : t("Unknown")}
                 </span>
               ),
-          },
-          {
-            key: "load",
-            header: t("Streams"),
-            align: "right",
-            cell: (n) => (
-              <span
-                className="tabular-nums"
-                aria-label={t("{node} streams", { node: nodeName(n) })}
-              >
-                {n.live ? n.load : "—"}
-              </span>
-            ),
-          },
-          {
-            key: "transcode",
-            header: t("Transcoding"),
-            cell: (n) => <span className="text-fg-muted">{transcodeLabel(n)}</span>,
-          },
-          {
-            key: "weight",
-            header: t("Weight"),
-            align: "right",
-            cell: (n) => (
-              <span className="tabular-nums" aria-label={t("{node} weight", { node: nodeName(n) })}>
-                {n.caps?.weight || 1}
-              </span>
-            ),
-          },
-          {
-            key: "manage",
-            header: "",
-            cell: (n) =>
-              n.id === status.self.id ? null : managerURL(n) ? (
-                <a
-                  className="text-sm text-primary underline"
-                  href={managerURL(n)!}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={t("Open manager for {node}", { node: nodeName(n) })}
-                >
-                  {t("Open manager")}
-                </a>
-              ) : (
-                <span className="text-xs text-fg-muted">{t("No address reported")}</span>
+            },
+            {
+              key: "transcode",
+              header: t("Transcoding"),
+              cell: (n) => (
+                <span className="text-fg-muted">
+                  <span className="block text-xs sm:hidden">{t("Transcoding")}</span>
+                  {transcodeLabel(n)}
+                </span>
               ),
-          },
-          {
-            key: "ip",
-            header: t("Source address"),
-            cell: (n) => (
-              <code
-                className="text-xs text-fg-muted"
-                title={t("The public address this computer uses for indexers, debrid and Usenet.")}
-              >
-                {n.caps?.egressIp || "—"}
-              </code>
-            ),
-          },
-        ]}
-      />
+            },
+            {
+              key: "weight",
+              header: t("Weight"),
+              align: "right",
+              cell: (n) => (
+                <span
+                  className="tabular-nums"
+                  aria-label={t("{node} weight", { node: nodeName(n) })}
+                >
+                  <span className="block text-xs text-fg-muted sm:hidden">{t("Weight")}</span>
+                  {n.caps?.weight || 1}
+                </span>
+              ),
+            },
+            {
+              key: "manage",
+              header: "",
+              cell: (n) =>
+                n.id === status.self.id ? null : managerURL(n) ? (
+                  <a
+                    className="text-sm text-primary underline"
+                    href={managerURL(n)!}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={t("Open manager for {node}", { node: nodeName(n) })}
+                  >
+                    {t("Open manager")}
+                  </a>
+                ) : (
+                  <span className="text-xs text-fg-muted">{t("No address reported")}</span>
+                ),
+            },
+            {
+              key: "ip",
+              header: t("Source address"),
+              cell: (n) => (
+                <code
+                  className="text-xs text-fg-muted"
+                  title={t(
+                    "The public address this computer uses for indexers, debrid and Usenet.",
+                  )}
+                >
+                  <span className="block text-xs sm:hidden">{t("Source address")}</span>
+                  {n.caps?.egressIp || "—"}
+                </code>
+              ),
+            },
+          ]}
+        />
+      </div>
       {manage ? (
         <NodeDrawer status={status} onClose={() => setManage(false)} onChanged={onChanged} />
       ) : null}
@@ -454,6 +535,14 @@ function NodeDrawer({
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
+        <SettingsSection title={t("Configured roles")}>
+          <SettingsRow
+            title={nodeRoles(status.self).join(", ")}
+            description={t(
+              "Roles come from this node’s startup settings. Change them in its deployment or settings file.",
+            )}
+          />
+        </SettingsSection>
         <Field
           label={t("Node weight")}
           htmlFor="cluster-weight"
@@ -478,7 +567,7 @@ function NodeDrawer({
         </Button>
         <SettingsSection title={t("New streams")}>
           <SettingsRow
-            title={draining ? t("Paused") : t("Accepting streams")}
+            title={draining ? t("Paused") : t("Not reported")}
             description={t(
               "Pausing keeps current streams playing, hands scheduled work to another node and removes this node from published connections. It resumes automatically after a server restart.",
             )}

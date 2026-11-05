@@ -65,6 +65,7 @@ func viewerBrowseFilter(filter core.Filter, v *core.User, ex LibraryPageExclusio
 	filter.ExcludeGenres = append(append([]string{}, ex.ExcludeGenres...), filter.ExcludeGenres...)
 	filter.ExcludeKeywords = append(append([]string{}, ex.ExcludeKeywords...), filter.ExcludeKeywords...)
 	if v != nil {
+		filter.CatalogViewerID = v.ID
 		filter.MaxContentRating = tightenRating(filter.MaxContentRating, v.MaxContentRating)
 	}
 	share := ex.Movie

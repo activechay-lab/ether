@@ -2,6 +2,7 @@ package plex
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"strconv"
@@ -67,7 +68,9 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 		writePlaybackStatus(w, http.StatusForbidden)
 		return
 	}
-	if err, failed := s.transcodes.takeFailure(p.sessionID, pr.User.ID, p.key, s.now()); failed {
+	// A slow decision leaves acquisition running. Join that shared flight
+	// below; only a completed source failure should short-circuit start.
+	if err, failed := s.transcodes.takeFailure(p.sessionID, pr.User.ID, p.key, s.now()); failed && !errors.Is(err, core.ErrPrepareSlow) {
 		s.log.Info("start DASH playback failed", "key", p.key, "reason", playbackMessage(err), "err", err, "decision", "remembered")
 		s.writeStartErr(w, r, pr, err)
 		return
@@ -108,7 +111,7 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 			dec = s.d.Transcoder.Decide(ps.Info, entry.caps, opts)
 		}
 	}
-	if existing, ok := s.d.Transcoder.Session(p.sessionID); ok && existing != nil {
+	if existing, ok := s.plexHLSSession(p.sessionID); ok && existing != nil {
 		// The MPD spans the whole title whatever the offset, so a repeated
 		// start for the same decision keeps the session (and its finished
 		// segments); a new decision request starts afresh.
@@ -119,9 +122,9 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 			s.serveStreamManifest(w, r, p.sessionID, ds.ServeManifest)
 			return
 		}
-		s.d.Transcoder.Stop(p.sessionID)
+		s.stopPlexHLS(p.sessionID)
 	}
-	hs, err := s.d.Transcoder.StartHLS(context.WithoutCancel(ctx), core.HLSRequest{
+	hs, err := s.startPlexHLS(context.WithoutCancel(ctx), pr.User, ps.ID, p.sessionID, core.HLSRequest{
 		SoftSubtitleStream: sessionSoftSubtitle(entry, pr, dec),
 		SessionID:          p.sessionID,
 		ReleaseID:          ps.SourceReleaseID(),
@@ -138,7 +141,7 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 	ds, ok := hs.(core.DASHSession)
 	if !ok {
 		s.log.Error("transcoder returned a non-DASH session", "session", p.sessionID)
-		s.d.Transcoder.Stop(p.sessionID)
+		s.stopPlexHLS(p.sessionID)
 		writePlaybackStatus(w, http.StatusInternalServerError)
 		return
 	}
@@ -156,8 +159,11 @@ func (s *Server) dashSession(w http.ResponseWriter, r *http.Request) (core.DASHS
 		return nil, 0, false
 	}
 	id, idOK := routeSessionID(r)
+	if idOK && s.forwardPlexMedia(w, r, id) {
+		return nil, 0, false
+	}
 	rep, err := strconv.Atoi(chi.URLParam(r, "stream"))
-	hs, ok := s.d.Transcoder.Session(id)
+	hs, ok := s.plexHLSSession(id)
 	if !idOK || err != nil || rep < 0 || !ok || hs == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return nil, 0, false

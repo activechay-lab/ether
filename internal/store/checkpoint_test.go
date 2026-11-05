@@ -99,3 +99,42 @@ func TestCommitStaysBoundedWhileCheckpointRuns(t *testing.T) {
 		return
 	}
 }
+
+// A reader pins old frames even though PASSIVE reports busy=0. Bulk imports
+// must yield, then recover when that reader releases its snapshot.
+func TestWALBudgetYieldsToPinnedReader(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, `CREATE TABLE wal_budget(v BLOB); INSERT INTO wal_budget VALUES (zeroblob(1024))`); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if _, err := reader.ExecContext(ctx, `BEGIN`); err != nil {
+		t.Fatal(err)
+	}
+	defer reader.ExecContext(ctx, `ROLLBACK`)
+	var n int
+	if err := reader.QueryRowContext(ctx, `SELECT COUNT(*) FROM wal_budget`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO wal_budget VALUES (zeroblob(1048576))`); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkWALBudget(ctx, db, 64<<10); err == nil {
+		t.Fatal("bulk writer accepted pinned WAL beyond budget")
+	}
+	if _, err := reader.ExecContext(ctx, `ROLLBACK`); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkWALBudget(ctx, db, 64<<10); err != nil {
+		t.Fatalf("reader released, bulk writer still paused: %v", err)
+	}
+}

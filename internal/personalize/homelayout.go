@@ -479,6 +479,7 @@ type draftLayoutKey struct{}
 // PreviewLayout assembles an unsaved document without changing persisted state,
 // memoized production layouts, impressions, or viewer overrides.
 func (e *Engine) PreviewLayout(ctx context.Context, user *core.User, hc core.HubContext, section string, limit int, d core.HomeLayout) (*core.HomePreview, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	d, err := normalizeHomeLayout(d)
 	if err != nil {
 		return nil, err
@@ -524,6 +525,7 @@ func rowsFromHubs(hubs []core.Hub) []core.HomeRow {
 // FinalizeHome arranges the complete Plex row list after all producers ran.
 // Unknown/custom hubs with no catalogue items are deliberately preserved.
 func (e *Engine) FinalizeHome(ctx context.Context, user *core.User, hc core.HubContext, section string, hubs []core.Hub) ([]core.Hub, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	rows := rowsFromHubs(hubs)
 	rows = e.finalizeHomeRows(ctx, user, hc, section, rows)
 	out := make([]core.Hub, 0, len(rows))
@@ -535,6 +537,7 @@ func (e *Engine) FinalizeHome(ctx context.Context, user *core.User, hc core.HubC
 
 // finalizeHomeRows is shared by both wire-shaped and neutral adapters.
 func (e *Engine) finalizeHomeRows(ctx context.Context, user *core.User, hc core.HubContext, section string, rows []core.HomeRow) []core.HomeRow {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if user == nil {
 		user = &core.User{}
 	}
@@ -582,6 +585,7 @@ func (e *Engine) finalizeHomeRows(ctx context.Context, user *core.User, hc core.
 // HomeRowEnabled checks the owner's inclusion policy without applying slot or
 // page-size constraints to a separately fetched Plex Continue Watching row.
 func (e *Engine) HomeRowEnabled(ctx context.Context, user *core.User, hc core.HubContext, id string) bool {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if user == nil {
 		user = &core.User{}
 	}
@@ -603,6 +607,7 @@ func (e *Engine) HomeRowEnabled(ctx context.Context, user *core.User, hc core.Hu
 }
 
 func (e *Engine) FinalizeNeutralHome(ctx context.Context, user *core.User, situation core.HomeSituation, section string, candidates []core.NeutralHomeRow) ([]core.NeutralHomeRow, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	hc := core.HubContext{Device: situation.Device, Daypart: situation.Daypart, Weekend: situation.Weekend, Now: situation.Now, SectionID: situation.LibraryID, Product: situation.Product, Platform: situation.Platform, SessionID: situation.SessionID, ClientID: situation.ClientID}
 	rows := make([]core.HomeRow, 0, len(candidates))
 	byID := make(map[string]core.NeutralHomeRow, len(candidates))

@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/faillog"
 	"github.com/braedonsaunders/ether/internal/store"
 	"github.com/jackc/pgx/v5"
@@ -167,6 +168,13 @@ func NewPostgres(o Options) (*Postgres, error) {
 	if o.Local.Identity.NodeID == "" {
 		return nil, errors.New("cluster: postgres runtime needs a node ID")
 	}
+	if err := o.Local.Roles.Validate(); err != nil {
+		return nil, err
+	}
+	if err := config.ValidateInternalAddress(o.Local.InternalAddress); err != nil {
+		return nil, err
+	}
+	o.Local.Roles = slices.Clone(o.Local.Roles)
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}
@@ -200,7 +208,7 @@ func NewPostgres(o Options) (*Postgres, error) {
 	}
 	log := o.Logger.With("component", "cluster", "node", shortID(o.Local.Identity.NodeID))
 	p := &Postgres{
-		o: o, db: o.DB, local: o.Local, log: log, inc: newID()[:12],
+		o: o, db: o.DB, local: o.Local, log: log, inc: newID(),
 		bus: newLocalBus(log), lead: newLeadership(),
 		beatWake: make(chan struct{}, 1), stepWake: make(chan struct{}, 1), busReady: make(chan struct{}),
 		beatFail: faillog.New(log, "cluster: heartbeat"),
@@ -209,6 +217,8 @@ func NewPostgres(o Options) (*Postgres, error) {
 	p.self = Node{
 		ID: o.Local.Identity.NodeID, Name: o.Local.Identity.Name, Version: o.Local.Version,
 		StartedAt: o.Now(), Live: true,
+		Caps: p.local.caps(), InternalAddress: p.local.InternalAddress,
+		ProtocolVersion: p.local.protocol(), Incarnation: p.inc,
 	}
 	return p, nil
 }
@@ -220,7 +230,9 @@ func (p *Postgres) Self() Node {
 	p.mu.Lock()
 	n := p.self
 	n.Addrs = slices.Clone(n.Addrs)
+	n.Caps.Roles = slices.Clone(n.Caps.Roles)
 	p.mu.Unlock()
+	n.ProtocolVersion = p.local.protocol()
 	n.Leader = p.IsLeader()
 	return n
 }
@@ -441,7 +453,7 @@ func (p *Postgres) wakeBeat() {
 
 func (p *Postgres) addrLoop(ctx context.Context) {
 	defer p.wg.Done()
-	if p.local.Addrs == nil {
+	if p.local.Addrs == nil || !p.local.serverEligible() {
 		return
 	}
 	t := time.NewTimer(0)
@@ -505,9 +517,10 @@ func (p *Postgres) beatClaim(ctx context.Context, claim *nodeClaim) error {
 	addrs := slices.Clone(p.addrs)
 	started := p.self.StartedAt
 	p.mu.Unlock()
-	if addrs == nil {
+	if addrs == nil || !p.local.serverEligible() {
 		addrs = []string{}
 	}
+	protocol := p.local.protocol()
 	caps, load, draining := p.local.caps(), p.local.load(), p.local.draining()
 	addrsJSON, _ := json.Marshal(addrs)
 	capsJSON, _ := json.Marshal(caps)
@@ -532,10 +545,10 @@ func (p *Postgres) beatClaim(ctx context.Context, claim *nodeClaim) error {
 		// finds another incarnation's row means a second live process
 		// shares our node ID.
 		res, err := p.db.ExecContext(ctx, `UPDATE cluster_nodes SET name=?, version=?, addrs=?, caps=?, active_sessions=?, started_at=?, last_seen=?,
-draining=?, migrations=?
+draining=?, migrations=?, internal_address=?, protocol_version=?
 WHERE id=? AND incarnation=?`,
 			p.local.Identity.Name, p.local.Version, string(addrsJSON), string(capsJSON), load,
-			started.UnixMilli(), now.UnixMilli(), drainFlag, migJSON, id, p.inc)
+			started.UnixMilli(), now.UnixMilli(), drainFlag, migJSON, p.local.InternalAddress, protocol, id, p.inc)
 		if err != nil {
 			return err
 		}
@@ -555,16 +568,16 @@ WHERE id=? AND incarnation=?`,
 		}
 	}
 	if !joined {
-		query := `INSERT INTO cluster_nodes(id,name,version,addrs,caps,active_sessions,started_at,last_seen,incarnation,draining,migrations)
-VALUES(?,?,?,?,?,?,?,?,?,?,?)
+		query := `INSERT INTO cluster_nodes(id,name,version,addrs,caps,active_sessions,started_at,last_seen,incarnation,draining,migrations,internal_address,protocol_version)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO NOTHING`
-		args := []any{id, p.local.Identity.Name, p.local.Version, string(addrsJSON), string(capsJSON), load, started.UnixMilli(), now.UnixMilli(), p.inc, drainFlag, migJSON}
+		args := []any{id, p.local.Identity.Name, p.local.Version, string(addrsJSON), string(capsJSON), load, started.UnixMilli(), now.UnixMilli(), p.inc, drainFlag, migJSON, p.local.InternalAddress, protocol}
 		if claim != nil && claim.exists {
-			query = `INSERT INTO cluster_nodes(id,name,version,addrs,caps,active_sessions,started_at,last_seen,incarnation,draining,migrations)
-VALUES(?,?,?,?,?,?,?,?,?,?,?)
+			query = `INSERT INTO cluster_nodes(id,name,version,addrs,caps,active_sessions,started_at,last_seen,incarnation,draining,migrations,internal_address,protocol_version)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET name=excluded.name, version=excluded.version, addrs=excluded.addrs, caps=excluded.caps,
 active_sessions=excluded.active_sessions, started_at=excluded.started_at, last_seen=excluded.last_seen, incarnation=excluded.incarnation,
-draining=excluded.draining, migrations=excluded.migrations
+draining=excluded.draining, migrations=excluded.migrations, internal_address=excluded.internal_address, protocol_version=excluded.protocol_version
 WHERE cluster_nodes.incarnation=? AND cluster_nodes.last_seen=?`
 			args = append(args, claim.incarnation, claim.lastSeen)
 		}
@@ -713,7 +726,7 @@ func (p *Postgres) AllNodes(ctx context.Context) ([]Node, error) {
 	if err := p.db.QueryRowContext(ctx, `SELECT node_id FROM cluster_leader WHERE id=1`).Scan(&leaderID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	rows, err := p.db.QueryContext(ctx, `SELECT id,name,version,addrs,caps,active_sessions,started_at,last_seen,draining,migrations FROM cluster_nodes ORDER BY name, id`)
+	rows, err := p.db.QueryContext(ctx, `SELECT id,name,version,addrs,caps,active_sessions,started_at,last_seen,draining,migrations,internal_address,protocol_version,incarnation FROM cluster_nodes ORDER BY name, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -728,7 +741,7 @@ func (p *Postgres) AllNodes(ctx context.Context) ([]Node, error) {
 			startedMS, seenMS int64
 			draining          int
 		)
-		if err := rows.Scan(&n.ID, &n.Name, &n.Version, &addrs, &caps, &n.Load, &startedMS, &seenMS, &draining, &migs); err != nil {
+		if err := rows.Scan(&n.ID, &n.Name, &n.Version, &addrs, &caps, &n.Load, &startedMS, &seenMS, &draining, &migs, &n.InternalAddress, &n.ProtocolVersion, &n.Incarnation); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(addrs), &n.Addrs)
@@ -742,7 +755,7 @@ func (p *Postgres) AllNodes(ctx context.Context) ([]Node, error) {
 		if n.ID == p.local.Identity.NodeID {
 			n.Leader = selfLeads
 		} else {
-			n.Leader = !selfLeads && n.Live && n.ID == leaderID
+			n.Leader = !selfLeads && n.Live && n.ID == leaderID && n.ServerEligible()
 		}
 		out = append(out, n)
 	}
@@ -824,7 +837,7 @@ func (p *Postgres) electionStep(ctx context.Context, conn *pgx.Conn) *pgx.Conn {
 	p.mu.Lock()
 	resigned := p.resigned
 	p.mu.Unlock()
-	if resigned {
+	if resigned || !p.local.serverEligible() {
 		if conn != nil || leading {
 			p.stepDown(conn, "stepping down for shutdown", nil)
 		}
@@ -900,10 +913,24 @@ RETURNING epoch`, p.local.Identity.NodeID, p.o.Now().UnixMilli()).Scan(&epoch)
 func (p *Postgres) othersCanLead(ctx context.Context) bool {
 	qctx, cancel := context.WithTimeout(ctx, p.o.ProbeTimeout)
 	defer cancel()
-	var n int
-	err := p.db.QueryRowContext(qctx, `SELECT COUNT(*) FROM cluster_nodes WHERE id<>? AND draining=0 AND last_seen>=?`,
-		p.local.Identity.NodeID, p.o.Now().Add(-p.o.LiveAfter).UnixMilli()).Scan(&n)
-	return err == nil && n > 0
+	rows, err := p.db.QueryContext(qctx, `SELECT caps FROM cluster_nodes WHERE id<>? AND draining=0 AND last_seen>=?`,
+		p.local.Identity.NodeID, p.o.Now().Add(-p.o.LiveAfter).UnixMilli())
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	eligible := false
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return false
+		}
+		var caps Caps
+		if json.Unmarshal([]byte(raw), &caps) == nil && (Node{Caps: caps}).ServerEligible() {
+			eligible = true
+		}
+	}
+	return rows.Err() == nil && eligible
 }
 
 // StepDown gives up leadership for good (until the process restarts) and

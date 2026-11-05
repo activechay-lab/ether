@@ -81,11 +81,15 @@ func Parse(name string) core.ReleaseInfo {
 	info.Group = group
 	info.Container = container
 
+	stem, leadingEpisode := stripLeadingEpisode(stem)
 	spaced := spacify(stem)
 	upper := " " + strings.ToUpper(spaced) + " "
 
 	// Season / episode.
 	markerAt := parseEpisodes(spaced, upper, &info)
+	if markerAt < 0 && leadingEpisode > 0 {
+		info.Episodes = []int{leadingEpisode}
+	}
 	if abs, at := parseAbsoluteEpisode(stem, spaced); abs > 0 && len(info.Seasons) == 0 {
 		// Anime numbers episodes from the series start ("Show - 1071");
 		// such a number is only an absolute episode, never a season's
@@ -140,6 +144,7 @@ func Parse(name string) core.ReleaseInfo {
 		info.DolbyVision = true
 	}
 	info.Edition = ParseEdition(name)
+	info.HardSubbed = HardSubbed(name)
 	info.Proper = strings.Contains(upper, " PROPER ")
 	info.Repack = strings.Contains(upper, " REPACK ")
 	// Words of the title itself ("The.French.Dispatch.2021", "The Danish
@@ -283,6 +288,11 @@ func spacify(s string) string {
 // parseEpisodes fills seasons and episodes and returns the offset of the
 // marker it read them from, or -1.
 func parseEpisodes(spaced, upper string, info *core.ReleaseInfo) int {
+	if containsAny(upper, "СЕЗОН", "СЕРИ") {
+		if at := parseRussianEpisodes(spaced, info); at >= 0 {
+			return at
+		}
+	}
 	hasS := strings.Contains(upper, " S")
 	if hasS {
 		if seasons, episodes, at, ok := parseSEEpisode(spaced); ok {
@@ -921,7 +931,7 @@ func extractTitle(spaced string, yearAt, markerAt, floor int, info *core.Release
 		}
 	}
 	title := spaced[:cut]
-	title = strings.Trim(title, " -")
+	title = strings.Trim(title, " -/")
 	// Hyphens between words in titles are usually separators too, except
 	// keep words joined: turn "Spider-Man" stays, "Title -" trimmed above.
 	fields := strings.Fields(title)
@@ -936,7 +946,7 @@ func extractTitle(spaced string, yearAt, markerAt, floor int, info *core.Release
 	for len(fields) > 0 && fields[0] == "-" {
 		fields = fields[1:]
 	}
-	title = strings.Trim(strings.Join(fields, " "), " -")
+	title = strings.Trim(strings.Join(fields, " "), " -/")
 	return title
 }
 

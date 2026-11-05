@@ -19,6 +19,7 @@ import (
 // in-memory count and page caching so repeated library/recommendation reads
 // return without hitting disk.
 func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, error) {
+	q.Filter = c.viewerPaging(ctx, q.Filter)
 	switch q.Filter.Type {
 	case core.TypeEpisode:
 		return c.BrowseStoredEpisodes(ctx, q)
@@ -451,14 +452,14 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		}
 		conds = append(conds, "("+clause+")")
 		args = append(args, values...)
-	} else if f := c.visibilityFilter(); f != nil {
-		q, a := f.SQLHidden()
+	} else if policy := c.viewerFilter(f.CatalogViewerID, false); !f.CatalogCandidates && policy != nil {
+		q, a := policy.SQLHidden()
 		conds = append(conds, "NOT ("+q+")")
 		args = append(args, a...)
 	}
 	// Rule browsing gates like everything else: its totals must match the
 	// titles queryTitles hands back, which never include ungated movies.
-	if c.config().ReleaseMode == config.ModeDigital {
+	if c.config().ReleaseMode == config.ModeDigital && !(f.DigitalDiscovery && f.HiddenMovieGeneration != "") {
 		gateSQL := homeReleaseSQL("t")
 		if c.config().ShowUpcomingMovies {
 			gateSQL = "(t.type='movie' AND t.release_known=1 AND t.released_ts>? OR (" + gateSQL + "))"
@@ -467,7 +468,7 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		conds = append(conds, gateSQL)
 		args = append(args, homeReleaseCutoff(c.now()), nowTS)
 	}
-	if f.DigitalDiscovery {
+	if f.DigitalDiscovery && f.HiddenMovieGeneration == "" {
 		// FilterDiscovery admits digital-mode movies only when a passed
 		// home date is known. Local and explicitly upcoming movies bypass
 		// that evidence window, as they do in the availability service.
@@ -885,6 +886,7 @@ func (c *Catalog) Facet(ctx context.Context, t core.MediaType, facet string) ([]
 
 // FacetFilter returns value counts over the browsable set matching f.
 func (c *Catalog) FacetFilter(ctx context.Context, f core.Filter, facet string) ([]core.FacetValue, error) {
+	f = c.viewerPaging(ctx, f)
 	if facet == "firstCharacter" {
 		f.FirstCharacter = ""
 	}

@@ -156,13 +156,18 @@ export function CatalogSettings() {
             <Spinner size={20} label={t("Loading settings")} />
           </div>
         ) : section === "rules" ? (
-          <RulesPanel
-            rules={rules}
-            fallback={fallback}
-            region={String(draft.region ?? "")}
-            onRules={(next) => setDraft({ ...draft, exclusions: next })}
-            onFallback={(value) => setDraft({ ...draft, visibilityDefault: value })}
-          />
+          <>
+            <p className="text-sm text-fg-muted">
+              {t("Global rules are the default for every viewer. Set exceptions in Viewers.")}
+            </p>
+            <RulesPanel
+              rules={rules}
+              fallback={fallback}
+              region={String(draft.region ?? "")}
+              onRules={(next) => setDraft({ ...draft, exclusions: next })}
+              onFallback={(value) => setDraft({ ...draft, visibilityDefault: value })}
+            />
+          </>
         ) : (
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
             <div className="space-y-5">
@@ -253,6 +258,9 @@ export function CatalogSettings() {
                   <div className="mt-4">
                     <LevelBadge level={catalogHealth.level} />
                   </div>
+                  {catalogHealth.level === "warn" ? (
+                    <p className="mt-3 break-words text-sm text-warning">{catalogHealth.summary}</p>
+                  ) : null}
                 </section>
               ) : null}
               <CatalogActivity />

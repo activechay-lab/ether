@@ -52,6 +52,10 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 			deps.Transcoder = tc
 		}
 	} else {
+		playback := core.Playback(a.playback)
+		if a.brokerPlayback != nil {
+			playback = a.brokerPlayback
+		}
 		deps = plex.Deps{
 			Catalog:     a.catalog,
 			Collections: a.discoveryPersonal.ReviewCollections(a.collections),
@@ -60,7 +64,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 			State:       a.state,
 			Playlists:   a.playlists,
 			Auth:        a.users,
-			Playback:    a.playback,
+			Playback:    playback,
 			Transcoder:  tc,
 			ImageURL:    a.tmdb.ImageURLFunc(),
 			DB:          a.db, // plex_ultrablur

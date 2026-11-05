@@ -37,15 +37,18 @@ func activityLimit(limit int) int {
 }
 
 func (s *Service) LatestAddedGrouped(ctx context.Context, viewer *core.Viewer, device core.Device, viewID string, limit int, group bool) ([]frontend.LatestItem, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	return s.latestAdded(ctx, viewer, device, viewID, limit, group)
 }
 
 // LatestAdded returns library roots, with TV grouped as series.
 func (s *Service) LatestAdded(ctx context.Context, viewer *core.Viewer, device core.Device, viewID string, limit int) ([]frontend.LatestItem, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	return s.latestAdded(ctx, viewer, device, viewID, limit, true)
 }
 
 func (s *Service) latestAdded(ctx context.Context, viewer *core.Viewer, _ core.Device, viewID string, limit int, group bool) ([]frontend.LatestItem, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return nil, err
@@ -157,6 +160,7 @@ func (s *Service) latestAdded(ctx context.Context, viewer *core.Viewer, _ core.D
 // UnplayedEpisodeCounts is the aired-episode badge for a list of shows and
 // seasons. It does not load those episodes.
 func (s *Service) UnplayedEpisodeCounts(ctx context.Context, viewer *core.Viewer, keys []core.RatingKey) (map[core.RatingKey]int, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s == nil || s.d.CountUnplayedAired == nil {
 		return nil, core.ErrNotAvailable
 	}
@@ -218,6 +222,7 @@ func (s *Service) latestFromRecent(ctx context.Context, v *core.User, library Li
 
 // Resume reads only in-progress state, without next-up or Home Designer data.
 func (s *Service) Resume(ctx context.Context, viewer *core.Viewer, _ core.Device, viewID string, types []core.MediaType, offset, limit int, requireExact bool) (frontend.ActivityPage, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	var page frontend.ActivityPage
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {

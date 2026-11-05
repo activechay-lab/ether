@@ -15,6 +15,7 @@ type DiscoveryCandidate struct {
 
 // FilterDiscovery applies viewer visibility to each row before it is returned.
 func FilterDiscovery(ctx context.Context, viewer *core.User, visibility Visibility, rows []DiscoveryCandidate) []DiscoveryCandidate {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	out := make([]DiscoveryCandidate, 0, len(rows))
 	for _, row := range rows {
 		items := make([]core.Title, 0, len(row.Items))
@@ -34,6 +35,7 @@ func FilterDiscovery(ctx context.Context, viewer *core.User, visibility Visibili
 // LoadDiscovery expands full candidate pages when visibility filtering leaves
 // a row short. Sources with fewer results than requested signal exhaustion.
 func LoadDiscovery(ctx context.Context, viewer *core.User, visibility Visibility, limit int, load func(context.Context, int) []DiscoveryCandidate) []DiscoveryCandidate {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	return loadDiscovery(ctx, viewer, visibility, limit, load, false)
 }
 
@@ -45,10 +47,12 @@ type DiscoverySelection struct {
 }
 
 func (s DiscoverySelection) Load(ctx context.Context, viewer *core.User, limit int, load func(context.Context, int) []DiscoveryCandidate) []DiscoveryCandidate {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	return loadDiscovery(ctx, viewer, s.Visibility, limit, load, s.Unrestricted != nil && s.Unrestricted(viewer))
 }
 
 func loadDiscovery(ctx context.Context, viewer *core.User, visibility Visibility, limit int, load func(context.Context, int) []DiscoveryCandidate, unrestricted bool) []DiscoveryCandidate {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if unrestricted {
 		rows := load(ctx, limit)
 		out := make([]DiscoveryCandidate, 0, len(rows))

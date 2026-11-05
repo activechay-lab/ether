@@ -14,12 +14,17 @@ func (s *Server) continueExperience(pr *Request) experience.Continue {
 		},
 		Unrestricted: func(u *core.User) bool { return !s.viewerRestricted(u) },
 		NextEpisode: func(ctx context.Context, k core.RatingKey) (*core.Title, error) {
-			// Home continue uses the episode already in the catalogue. The
-			// provider lookup stays on post-play, which is one show.
 			if local, ok := s.d.Catalog.(interface {
-				NextStoredEpisode(context.Context, core.RatingKey) (*core.Title, error)
+				ContinueEpisodes(context.Context, []core.RatingKey) (map[core.RatingKey]*core.Title, error)
 			}); ok {
-				return local.NextStoredEpisode(ctx, k)
+				next, err := local.ContinueEpisodes(ctx, []core.RatingKey{k})
+				if err != nil {
+					return nil, err
+				}
+				if t := next[k]; t != nil {
+					return t, nil
+				}
+				return nil, core.ErrNotFound
 			}
 			return s.d.Catalog.NextEpisode(ctx, k)
 		}, Visible: s.visibleTitle,
@@ -36,9 +41,9 @@ func (s *Server) continueExperience(pr *Request) experience.Continue {
 		c.EpisodeOrder = s.d.EpisodeOrder
 	}
 	if local, ok := s.d.Catalog.(interface {
-		NextStoredEpisodes(context.Context, []core.RatingKey) (map[core.RatingKey]*core.Title, error)
+		ContinueEpisodes(context.Context, []core.RatingKey) (map[core.RatingKey]*core.Title, error)
 	}); ok {
-		c.NextEpisodes = local.NextStoredEpisodes
+		c.NextEpisodes = local.ContinueEpisodes
 	}
 	return c
 }

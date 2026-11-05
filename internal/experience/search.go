@@ -48,6 +48,8 @@ func FamiliarFrom(st any) func(context.Context, *core.User, []core.RatingKey) ma
 
 // withViewer attaches the viewer's search affinity to ctx.
 func (s Search) withViewer(ctx context.Context, viewer *core.User) context.Context {
+	ctx = core.WithCatalogViewer(ctx, viewer)
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s.Familiar == nil || viewer == nil {
 		return ctx
 	}
@@ -59,6 +61,7 @@ func (s Search) withViewer(ctx context.Context, viewer *core.User) context.Conte
 // Find is an explicit search: catalogue rules the owner limited to browsing
 // do not apply, so those titles can still be found.
 func (s Search) Find(ctx context.Context, viewer *core.User, query string, types []core.MediaType, limit int) ([]core.Title, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if strings.TrimSpace(query) == "" || len(types) == 0 {
 		return nil, nil
 	}
@@ -137,6 +140,7 @@ const TitleMatchScore = 0.96
 // unless the query is also a title's name: then the keyword results lead
 // and the collection is still offered beside them.
 func (s Search) Resolve(ctx context.Context, viewer *core.User, query string, types []core.MediaType, limit int, collections bool) (SearchResults, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if collections {
 		collection, items, handled, err := s.Vibe.Find(ctx, viewer, query)
 		if err != nil {
@@ -157,6 +161,7 @@ func (s Search) Resolve(ctx context.Context, viewer *core.User, query string, ty
 // Keyword preserves the catalogue's candidate window and applies title policy.
 // Section searches use this fixed window rather than natural search or refill.
 func (s Search) Keyword(ctx context.Context, viewer *core.User, query string, types []core.MediaType, limit int) ([]core.Title, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
 	}

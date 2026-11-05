@@ -86,6 +86,7 @@ func RowViewMembers(ctx context.Context, items RowViewCollectionItems, viewer *c
 // returned unchanged, with a nil entry slice. An empty ref list returns a
 // non-nil empty slice.
 func RowViewHydrateLegacy(ctx context.Context, viewer *core.User, refs []core.NeutralEntryRef, one RowViewEntry, guide RowViewGuide) ([]frontend.RowEntry, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	var liveRows map[string]frontend.RowEntry
 	out := make([]frontend.RowEntry, 0, len(refs))
 	for _, ref := range refs {
@@ -127,6 +128,7 @@ func RowViewHydrateLegacy(ctx context.Context, viewer *core.User, refs []core.Ne
 // leave Handle empty. Visibility is copied per chunk so a parent read cannot
 // leak into the caller's policy or a later chunk.
 func RowViewHydrateEntries(ctx context.Context, viewer *core.User, refs []core.NeutralEntryRef, one RowViewEntry, batch RowViewTitleBatch, read RowViewTitleRead, visibility Visibility, guide RowViewGuide) ([]frontend.RowEntry, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	out := make([]frontend.RowEntry, len(refs))
 	var guideRows []frontend.RowEntry
 	var guideErr error

@@ -79,3 +79,38 @@ func SearchAffinity(ctx context.Context) SearchAffinityFunc {
 	fn, _ := ctx.Value(searchAffinityKey{}).(SearchAffinityFunc)
 	return fn
 }
+
+// Catalogue viewer context is set by trusted experience code, never a client filter.
+type catalogViewerKey struct{}
+
+func WithCatalogViewer(ctx context.Context, u *User) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if u == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, catalogViewerKey{}, u.ID)
+}
+func CatalogViewerID(ctx context.Context) int64 {
+	if ctx == nil {
+		return 0
+	}
+	id, _ := ctx.Value(catalogViewerKey{}).(int64)
+	return id
+}
+
+// WithCatalogCandidates gathers shared collection membership before viewer rules.
+// It is only for background materialization; serving must apply viewer policy.
+type catalogCandidatesKey struct{}
+
+func WithCatalogCandidates(ctx context.Context) context.Context {
+	return context.WithValue(ctx, catalogCandidatesKey{}, true)
+}
+func CatalogCandidates(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(catalogCandidatesKey{}).(bool)
+	return v
+}

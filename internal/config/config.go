@@ -79,6 +79,11 @@ type Frontend struct {
 }
 
 type Server struct {
+	// NodeRoles is node-local; empty retains every full-server responsibility.
+	NodeRoles NodeRoles `json:"nodeRoles,omitempty"`
+	// InternalAddress is the authenticated private transport origin, never a
+	// Plex connection URL. Empty means remote transport is unconfigured.
+	InternalAddress string `json:"internalAddress,omitempty"`
 	// StartupAnimation controls the owner console splash for all administrators.
 	StartupAnimation bool `json:"startupAnimation"`
 	// TrustedProxyCIDRs are proxy peer networks whose forwarding headers are trusted.
@@ -337,6 +342,8 @@ type Catalog struct {
 }
 
 type Resolver struct {
+	// HardSubtitles is empty (prefer clean), exclude, or allow.
+	HardSubtitles        string              `json:"hardSubtitles,omitempty"`
 	HealthRace           int                 `json:"healthRace"`      // 0 = ranked checks; >0 = first healthy of bounded concurrent candidates
 	OptimisticStart      bool                `json:"optimisticStart"` // return top NZB before background health check
 	CustomFormats        []core.CustomFormat `json:"customFormats,omitempty"`

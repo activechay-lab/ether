@@ -1,0 +1,108 @@
+# Runtime image must implement ETHER_DEPLOYMENT_FILE and the four probe routes.
+image:
+  repository: ghcr.io/braedonsaunders/ether
+  tag: "0.3.5"
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+clusterDomain: cluster.local
+runtime:
+  capacity: 1
+  # Set true only after verifying synchronized clocks and the stated bound.
+  clockBoundKnown: false
+  clockSkewMillis: 1000
+# Only full/server pools should seed a new cluster. Disable after first install
+# if you want joins to fail when the shared settings record is missing.
+secrets:
+  database:
+    existingSecret: ""
+    key: database-url
+  cluster:
+    existingSecret: ""
+    key: cluster-key
+  authority:
+    existingSecret: ""
+    certKey: ca.crt
+    privateKey: ca.key
+    rootsKey: roots.pem
+# All role pools use the same Secret references and database. Each ordinal owns
+# its own data PVC. Never restore one node.json into a different ordinal.
+pools:
+  full:
+    replicas: 1
+    bootstrap: true
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {memory: 2Gi}
+  server:
+    replicas: 0
+    bootstrap: false
+  source:
+    replicas: 0
+    bootstrap: false
+  transcode:
+    replicas: 0
+    bootstrap: false
+  delivery:
+    replicas: 0
+    bootstrap: false
+# Pool overrides: resources, nodeSelector, tolerations, affinity,
+# topologySpreadConstraints, runtimeClassName, data/cache/scratch,
+# podAnnotations, disruptionBudget (same shapes as global settings).
+data:
+  size: 1Gi
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+cache:
+  # emptyDir or persistent; persistent cache is also unique per ordinal.
+  type: emptyDir
+  size: 20Gi
+  storageClass: ""
+scratch:
+  sizeLimit: 10Gi
+resources:
+  requests: {cpu: 100m, memory: 256Mi}
+  limits: {memory: 1Gi}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+runtimeClassName: ""
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 999
+  runAsGroup: 999
+  fsGroup: 999
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile: {type: RuntimeDefault}
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: [ALL]}
+terminationGracePeriodSeconds: 180
+probes:
+  startup: {periodSeconds: 5, failureThreshold: 120, timeoutSeconds: 2}
+  readiness: {periodSeconds: 3, failureThreshold: 1, timeoutSeconds: 2}
+  liveness: {periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 2}
+disruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+service:
+  type: ClusterIP
+  port: 32400
+  annotations: {}
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []
+networkPolicy:
+  enabled: false
+  # Supply ingress-controller/client selectors or explicit ipBlocks. Empty
+  # publicIngress isolates public access when enabled.
+  publicIngress: []
+  # Kubelet health probes normally bypass NetworkPolicy; CNI behavior varies.
+  # DNS is allowed explicitly; all other egress must be listed here.
+  egress: []

@@ -205,7 +205,12 @@ func (s *Server) serveDiscoveryPoster(w http.ResponseWriter, r *http.Request, k 
 		writeHTTPError(w, 404)
 		return
 	}
+	backdropWidth, _ := strconv.Atoi(r.URL.Query().Get("width"))
+	highBackdrop := kind == "backdrop" && backdropWidth > 1280 && backdropWidth <= 4000
 	etag := `"` + version + `"`
+	if highBackdrop {
+		etag = fmt.Sprintf("\"%s-w%d\"", version, backdropWidth)
+	}
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.Header().Set("Vary", "X-Plex-Token, X-Plex-Language")
 	w.Header().Set("ETag", etag)
@@ -213,7 +218,18 @@ func (s *Server) serveDiscoveryPoster(w http.ResponseWriter, r *http.Request, k 
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
-	data, ct, e := d.RenderArtwork(ctx, pr.User, t, kind, lang)
+	var data []byte
+	var ct string
+	if highBackdrop {
+		_, path := d.Overlays.Paths(ctx, pr.User, t, lang)
+		image, err := s.images.Get(ctx, s.d.ImageURL(path, tmdbSize(backdropWidth)), s.now())
+		e = err
+		if err == nil {
+			data, ct = image.Data, image.ContentType
+		}
+	} else {
+		data, ct, e = d.RenderArtwork(ctx, pr.User, t, kind, lang)
+	}
 	if e != nil {
 		writeHTTPError(w, 404)
 		return

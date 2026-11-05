@@ -17,6 +17,8 @@ import (
 	"slices"
 	"sort"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/config"
 )
 
 // Modes reported by Cluster.Mode.
@@ -56,6 +58,9 @@ var (
 
 // Caps are a node's capabilities.
 type Caps struct {
+	// Roles describes configured responsibilities. Empty means full server.
+	// Local.Roles is the sole source of truth for locally published roles.
+	Roles config.NodeRoles `json:"roles,omitempty"`
 	// Transcode is true when ffmpeg is available on the node.
 	Transcode bool `json:"transcode"`
 	// HWAccel names the hardware transcoder ("videotoolbox", "nvenc", …);
@@ -71,9 +76,18 @@ type Caps struct {
 
 // Node is one cluster member.
 type Node struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	// InternalAddress is a private authenticated transport origin. Never use
+	// Addrs as a fallback or publish this address to clients.
+	InternalAddress string `json:"internalAddress,omitempty"`
+	// ProtocolVersion is the private wire version. Zero is unknown/disabled;
+	// ordinary membership and leadership do not depend on wire compatibility.
+	ProtocolVersion uint32 `json:"protocolVersion,omitempty"`
+	// Incarnation identifies this process boot, not its persistent identity.
+	// Address changes do not change it. It is not an authorization credential.
+	Incarnation string `json:"incarnation,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
 	// Addrs are the connection URIs this node would publish to plex.tv
 	// (LAN, WAN and custom URLs, as the registrar builds them).
 	Addrs     []string  `json:"addrs"`
@@ -137,6 +151,14 @@ type Cluster interface {
 // Local describes this node to the runtime. Addrs, Caps and Load are
 // optional and read on every heartbeat.
 type Local struct {
+	// Roles is an immutable process snapshot, authoritative for both election
+	// and heartbeated Caps.Roles. Caps callbacks cannot override it.
+	Roles           config.NodeRoles
+	InternalAddress string
+	ProtocolVersion uint32
+	// Protocol reports currently usable private services; called outside runtime locks.
+	// Nil preserves the fixed ProtocolVersion behavior.
+	Protocol func() uint32
 	Identity Identity
 	Version  string
 	Addrs    func(ctx context.Context) []string
@@ -151,13 +173,22 @@ type Local struct {
 	Migrations map[string]int
 }
 
+func (l Local) protocol() uint32 {
+	if l.Protocol != nil {
+		return l.Protocol()
+	}
+	return l.ProtocolVersion
+}
+
 func (l Local) draining() bool { return l.Draining != nil && l.Draining() }
 
 func (l Local) caps() Caps {
-	if l.Caps == nil {
-		return Caps{}
+	var caps Caps
+	if l.Caps != nil {
+		caps = l.Caps()
 	}
-	return l.Caps()
+	caps.Roles = slices.Clone(l.Roles)
+	return caps
 }
 
 func (l Local) load() int {
@@ -175,7 +206,7 @@ func PeerAddrs(nodes []Node, selfID string, now time.Time, grace time.Duration) 
 	for _, n := range nodes {
 		// A draining node is about to restart: clients should reach the
 		// server through the other nodes.
-		if n.ID == selfID || n.Draining || now.Sub(n.LastSeen) > grace {
+		if n.ID == selfID || !n.ServerEligible() || n.Draining || now.Sub(n.LastSeen) > grace {
 			continue
 		}
 		peers = append(peers, n)
@@ -195,4 +226,21 @@ func PeerAddrs(nodes []Node, selfID string, now time.Time, grace time.Duration) 
 		}
 	}
 	return out
+}
+
+// ServerEligible separates coordinator/singleton eligibility from liveness.
+// Invalid roles fail closed; old members with no roles remain full servers.
+func (n Node) ServerEligible() bool {
+	return n.Caps.Roles.Validate() == nil && n.Caps.Roles.Has(config.RoleServer)
+}
+
+// RemoteCompatible only describes explicitly equal nonzero wire versions.
+// Callers must also check authenticated identity, incarnation, role, freshness,
+// drain state and operation-specific capabilities before dispatching any work.
+func (n Node) RemoteCompatible(version uint32) bool {
+	return version != 0 && n.ProtocolVersion == version
+}
+
+func (l Local) serverEligible() bool {
+	return l.Roles.Validate() == nil && l.Roles.Has(config.RoleServer)
 }

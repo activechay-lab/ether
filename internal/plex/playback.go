@@ -1202,7 +1202,9 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		writePlaybackStatus(w, http.StatusForbidden)
 		return
 	}
-	if err, failed := s.transcodes.takeFailure(p.sessionID, pr.User.ID, p.key, s.now()); failed {
+	// A slow decision leaves acquisition running. Join that shared flight
+	// below; only a completed source failure should short-circuit start.
+	if err, failed := s.transcodes.takeFailure(p.sessionID, pr.User.ID, p.key, s.now()); failed && !errors.Is(err, core.ErrPrepareSlow) {
 		s.log.Info("start playback failed", "key", p.key, "reason", playbackMessage(err), "err", err, "decision", "remembered")
 		s.writeStartErr(w, r, pr, err)
 		return
@@ -1248,7 +1250,7 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		}
 		return dec
 	})
-	if existing, ok := s.d.Transcoder.Session(p.sessionID); ok && existing != nil {
+	if existing, ok := s.plexHLSSession(p.sessionID); ok && existing != nil {
 		if entry.started && entry.offset == p.offset {
 			s.notePlexEncoder(p.sessionID, frontend.StreamHLS, dec, p.offset)
 			unlockEncoder()
@@ -1256,9 +1258,9 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 			s.writeMasterPlaylist(w, r, p.sessionID, existing, ps.Info, dec)
 			return
 		}
-		s.d.Transcoder.Stop(p.sessionID)
+		s.stopPlexHLS(p.sessionID)
 	}
-	hs, err := s.d.Transcoder.StartHLS(context.WithoutCancel(ctx), core.HLSRequest{
+	hs, err := s.startPlexHLS(context.WithoutCancel(ctx), pr.User, ps.ID, p.sessionID, core.HLSRequest{
 		SoftSubtitleStream: sessionSoftSubtitle(entry, pr, dec),
 		SessionID:          p.sessionID,
 		ReleaseID:          ps.SourceReleaseID(),
@@ -1358,7 +1360,10 @@ func (s *Server) handleTranscodeSession(w http.ResponseWriter, r *http.Request) 
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	hs, ok := s.d.Transcoder.Session(id)
+	if s.forwardPlexMedia(w, r, id) {
+		return
+	}
+	hs, ok := s.plexHLSSession(id)
 	if !ok || hs == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
@@ -1440,7 +1445,7 @@ func (s *Server) handleTranscodePing(w http.ResponseWriter, r *http.Request) {
 		if e, ok := s.transcodes.get(id); ok && e.userID == FromContext(r.Context()).User.ID {
 			s.transcodes.touch(id, s.now())
 			if s.d.Transcoder != nil {
-				if hs, ok := s.d.Transcoder.Session(id); ok {
+				if hs, ok := s.plexHLSSession(id); ok {
 					if t, ok := hs.(interface{ Touch() }); ok {
 						t.Touch()
 					}
@@ -1481,7 +1486,7 @@ func (s *Server) handleTranscodeStop(w http.ResponseWriter, r *http.Request) {
 		// Preserve the failure and the last client playhead even if stop
 		// removes the encoder before a terminal timeline is delivered.
 		if s.d.Transcoder != nil {
-			if session, ok := s.d.Transcoder.Session(id); ok {
+			if session, ok := s.plexHLSSession(id); ok {
 				if failed, ok := session.(interface{ ProgressiveFailed() bool }); ok && failed.ProgressiveFailed() {
 					s.rememberProgressiveStop(r.Context(), e)
 				}
@@ -1491,7 +1496,7 @@ func (s *Server) handleTranscodeStop(w http.ResponseWriter, r *http.Request) {
 		if s.d.Transcoder != nil && e.playID != "" {
 			for _, other := range s.transcodes.byPlayID(e.playID) {
 				if other != id {
-					if _, active := s.d.Transcoder.Session(other); active {
+					if _, active := s.plexHLSSession(other); active {
 						shared = true
 						break
 					}
@@ -1517,7 +1522,7 @@ func (s *Server) handleTranscodeStop(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if s.d.Transcoder != nil {
-			s.d.Transcoder.Stop(id)
+			s.stopPlexHLS(id)
 		}
 		s.dropTranscode(id)
 	}

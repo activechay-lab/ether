@@ -436,10 +436,12 @@ func saveMovieYearSource(ctx context.Context, tx *sql.Tx, t core.Title, detail i
 	_, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET
  year_source=CASE WHEN ?=0 AND (year_source<>'' OR detail=1) THEN year_source ELSE ? END,
  primary_released_ts=CASE WHEN ?=0 AND (year_source<>'' OR detail=1) THEN primary_released_ts WHEN ?=1 THEN ? WHEN ?<>0 THEN ? ELSE primary_released_ts END
- WHERE key=? AND type='movie'`,
+ WHERE key=? AND type='movie' AND (
+ year_source<>CASE WHEN ?=0 AND (year_source<>'' OR detail=1) THEN year_source ELSE ? END OR
+ primary_released_ts<>CASE WHEN ?=0 AND (year_source<>'' OR detail=1) THEN primary_released_ts WHEN ?=1 THEN ? WHEN ?<>0 THEN ? ELSE primary_released_ts END)`,
 		detail, t.YearSource,
 		detail, detail, primary, primary, primary,
-		int64(t.Key))
+		int64(t.Key), detail, t.YearSource, detail, detail, primary, primary, primary)
 	if err != nil {
 		return fmt.Errorf("catalog: movie year source %d: %w", t.Key, err)
 	}

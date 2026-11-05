@@ -185,13 +185,14 @@ func (a *App) buildAdmin() http.Handler {
 			"updates":  a.updateStatus,
 			"storage":  a.storageStatus,
 		},
-		ResolverTraces:  func(context.Context) (any, error) { return a.resolver.Traces(), nil },
-		Users:           a.users,
-		ViewerDirectory: a.viewerDirectory,
-		Personalization: a.personalize,
-		Collections:     a.collections,
-		CatalogHelper:   a.collections,
-		TitleSchedules:  a.catalog,
+		ResolverTraces:     func(context.Context) (any, error) { return a.resolver.Traces(), nil },
+		Users:              a.users,
+		ViewerDirectory:    a.viewerDirectory,
+		Personalization:    a.personalize,
+		Collections:        a.collections,
+		CatalogHelper:      a.collections,
+		ViewerCatalogRules: a.catalog,
+		TitleSchedules:     a.catalog,
 		WaitingReleaseKeys: func(ctx context.Context) []core.RatingKey {
 			if a.availability == nil {
 				return nil
@@ -206,11 +207,48 @@ func (a *App) buildAdmin() http.Handler {
 		PlexServers: a.plexServersAPI(),
 		Prerolls:    a.prerollAdmin(),
 	}
+	// Optional role-owned dependencies stay absent until a real local or private
+	// service supplies them. This preserves console/auth/config/catalog without
+	// constructing provider transports on a server-only node.
+	if a.fetcher == nil {
+		deps.TestUsenet = nil
+		deps.ProvidersStatus = nil
+	}
+	if a.indexers == nil {
+		deps.TestIndexer = nil
+		deps.IndexersStatus = nil
+	}
+	if a.debrid == nil {
+		deps.TestDebrid = nil
+		delete(deps.ExtraStatus, "debrid")
+	}
+	if a.cache == nil {
+		deps.CacheStatus = nil
+		deps.CacheRestartRequired = nil
+		delete(deps.ExtraStatus, "storage")
+	}
+	if a.engine == nil {
+		delete(deps.ExtraStatus, "stream")
+	}
+	if a.playback == nil {
+		delete(deps.ExtraStatus, "widget")
+	}
+	if a.prefetch == nil {
+		delete(deps.ExtraStatus, "prefetch")
+	}
+	if a.resolver == nil {
+		deps.ResolverTraces = nil
+		delete(deps.ExtraStatus, "sources")
+	}
+	if a.load == nil {
+		deps.SystemLoad = nil
+	}
+	a.remoteSourceAdminDeps(&deps)
 	h := admin.NewHandler(deps)
 	if a.streamRT != nil {
 		a.streamRT.SetDashboard(h.SnapshotDashboard)
 	}
-	return h
+	return sourceOwnerContext(h)
 }
 
 func (a *App) plexWatchAPI() admin.PlexWatch {

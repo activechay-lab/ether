@@ -100,17 +100,18 @@ type StatusFuncE func(ctx context.Context) (any, error)
 // tuning knobs, Logger/Logs, the dashboard status providers, Extensions,
 // ValidateExtra and DiskUsage have defaults or may be left empty.
 type Deps struct {
-	Frontends        FrontendAdmin
-	FavoritesMirror  FavoritesMirror
-	NotInterested    NotInterestedPortal
-	ViewerAlerts     ViewerAlertPreferences
-	ActiveViewer     func(context.Context, int64) (*core.User, error)
-	ViewerPortalURL  func(context.Context, *http.Request) (string, error)
-	StremioPortalURL func(context.Context, *http.Request) (string, error)
-	CreateDLNAGuest  func(context.Context) (*core.Viewer, error)
-	LocalIdentity    *identity.Local
-	IdentityGrants   *identity.Grants
-	IdentityLimiter  *identity.LoginLimiter
+	ViewerCatalogRules ViewerCatalogRules
+	Frontends          FrontendAdmin
+	FavoritesMirror    FavoritesMirror
+	NotInterested      NotInterestedPortal
+	ViewerAlerts       ViewerAlertPreferences
+	ActiveViewer       func(context.Context, int64) (*core.User, error)
+	ViewerPortalURL    func(context.Context, *http.Request) (string, error)
+	StremioPortalURL   func(context.Context, *http.Request) (string, error)
+	CreateDLNAGuest    func(context.Context) (*core.Viewer, error)
+	LocalIdentity      *identity.Local
+	IdentityGrants     *identity.Grants
+	IdentityLimiter    *identity.LoginLimiter
 	// OwnerCredentialChanged runs after an owner local sign-in, setup and
 	// any local password change (the app refreshes the owner's recovery
 	// sign-in from it). Nil does nothing.

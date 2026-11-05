@@ -37,9 +37,12 @@ type features struct {
 	scaleVTFormat bool
 	// Jellyfin patches the segment muxer's origin and first-entry duration.
 	jellyfinSegmentClock bool
-	encoders             map[string]bool
-	hwaccels             map[string]bool
-	filters              map[string]bool
+	// Optional startup-only inventory. Unknown lists deny distributed admission
+	// without changing standalone encoder behavior.
+	muxers, demuxers, decoders, bsfs, inputProtocols map[string]bool
+	encoders                                         map[string]bool
+	hwaccels                                         map[string]bool
+	filters                                          map[string]bool
 	// filtersProbed is true only after -filters parsed at least one filter.
 	// A nil or empty map means those filters are unavailable, never that
 	// every filter exists.
@@ -160,6 +163,7 @@ func probeFeatures(ctx context.Context, r Runner, ffmpeg string) (features, erro
 			f.scaleVTFormat = filterHasOption(help, "format")
 		}
 	}
+	probeDistributedFeatures(ctx, r, ffmpeg, &f)
 	return f, nil
 }
 
