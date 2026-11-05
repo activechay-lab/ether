@@ -42,6 +42,7 @@ func (a *App) newSessionBroker(events *sessions.EventBus) (*sessions.Broker, err
 		playback = a.spikeLibrary.Playback()
 	}
 	return sessions.NewBroker(sessions.BrokerDeps{
+		DistributedHLS:      a.distributedHLS(),
 		Trickplay:           a.trickplay.Borrow(),
 		Coordination:        a.sessionCoordination,
 		OnProfileDiagnostic: scorecardProfileDiagnostic(a),

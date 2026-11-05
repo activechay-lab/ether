@@ -21,47 +21,10 @@ func (a *App) buildPlayback(ctx context.Context, cfg config.Config) error {
 	log := a.log
 	dataDir := a.opts.DataDir
 	var err error
-	// Transcoder. A missing ffmpeg is not fatal: direct play still works.
-	// A fixture transcoder is shared by Plex and every other protocol without
-	// starting ffmpeg.
-	tracePlayback := os.Getenv("ETHER_TRACE_PLAYBACK") == "1"
-	a.tracePlayback = tracePlayback
-	if a.opts.FixtureTranscoder == nil {
-		a.transcoder, err = transcode.New(cfg.Transcode, log, transcode.WithRuntimeDir(filepath.Join(dataDir, "tools")), transcode.WithTracePlayback(tracePlayback), transcode.WithEncoderObserver(func(sessionID string, started bool, excerpt string) {
-			if a.support == nil {
-				return
-			}
-			kind := diagnostics.KindEncoderFailed
-			if started {
-				kind = diagnostics.KindEncoderStarted
-			}
-			a.support.Observe(diagnostics.Event{Kind: kind, SessionKey: sessionID, FFmpegExcerpt: excerpt})
-		}), transcode.WithRunStartHandler(func(input string, from, to time.Duration) {
-			if a.playback != nil {
-				a.playback.WarmInput(input, from, to)
-			}
-		}), transcode.WithInputFailureHandler(func(id, input string, at time.Duration, failure error) {
-			if ctx.Err() != nil {
-				return
-			}
-			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
-			log.Warn("recovering failed encoder input", "session", id, "at", at, "err", failure)
-			var recoverErr error
-			if a.frontends != nil && a.frontends.broker != nil && a.frontends.broker.HasBinding(id) {
-				recoverErr = a.frontends.broker.Recover(rctx, id, input, at)
-			}
-			if recoverErr != nil {
-				log.Warn("encoder recovery exhausted", "session", id, "err", recoverErr)
-			}
-		}))
-		if err != nil {
-			log.Warn("transcoder unavailable; only direct play will work", "err", err)
-			a.transcoder = nil
-		} else {
-			a.closers = append(a.closers, func() { a.transcoder.Close() })
-		}
+	if err := a.buildEncoder(ctx, cfg); err != nil {
+		return err
 	}
+	tracePlayback := a.tracePlayback
 	var tc core.Transcoder = directOnly{}
 	if got := a.activeTranscoder(); got != nil {
 		tc = got
@@ -157,6 +120,56 @@ func (a *App) buildPlayback(ctx context.Context, cfg config.Config) error {
 	}
 	a.closers = append(a.closers, func() { a.playback.Close() })
 	a.cache.Protect(a.protectedReleases)
+
+	return nil
+}
+
+// buildEncoder constructs only local encoding, without catalogue, providers or playback.
+func (a *App) buildEncoder(ctx context.Context, cfg config.Config) error {
+	log := a.log
+	dataDir := a.opts.DataDir
+	var err error
+	// Transcoder. A missing ffmpeg is not fatal: direct play still works.
+	// A fixture transcoder is shared by Plex and every other protocol without
+	// starting ffmpeg.
+	tracePlayback := os.Getenv("ETHER_TRACE_PLAYBACK") == "1"
+	a.tracePlayback = tracePlayback
+	if a.opts.FixtureTranscoder == nil {
+		a.transcoder, err = transcode.New(cfg.Transcode, log, transcode.WithRuntimeDir(filepath.Join(dataDir, "tools")), transcode.WithTracePlayback(tracePlayback), transcode.WithEncoderObserver(func(sessionID string, started bool, excerpt string) {
+			if a.support == nil {
+				return
+			}
+			kind := diagnostics.KindEncoderFailed
+			if started {
+				kind = diagnostics.KindEncoderStarted
+			}
+			a.support.Observe(diagnostics.Event{Kind: kind, SessionKey: sessionID, FFmpegExcerpt: excerpt})
+		}), transcode.WithRunStartHandler(func(input string, from, to time.Duration) {
+			if a.playback != nil {
+				a.playback.WarmInput(input, from, to)
+			}
+		}), transcode.WithInputFailureHandler(func(id, input string, at time.Duration, failure error) {
+			if ctx.Err() != nil {
+				return
+			}
+			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			log.Warn("recovering failed encoder input", "session", id, "at", at, "err", failure)
+			var recoverErr error
+			if a.frontends != nil && a.frontends.broker != nil && a.frontends.broker.HasBinding(id) {
+				recoverErr = a.frontends.broker.Recover(rctx, id, input, at)
+			}
+			if recoverErr != nil {
+				log.Warn("encoder recovery exhausted", "session", id, "err", recoverErr)
+			}
+		}))
+		if err != nil {
+			log.Warn("transcoder unavailable; only direct play will work", "err", err)
+			a.transcoder = nil
+		} else {
+			a.closers = append(a.closers, func() { a.transcoder.Close() })
+		}
+	}
 
 	return nil
 }

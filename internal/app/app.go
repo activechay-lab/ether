@@ -133,6 +133,7 @@ type Options struct {
 
 // App is a running Ether server.
 type App struct {
+	deployment    *deploymentRuntime
 	perf          *perfObserver // per-request database cost, budgets and trace
 	availability  *availability.Service
 	opts          Options
@@ -314,8 +315,11 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 	if err := a.confirmUpdateStartup(); err != nil {
 		return nil, err
 	}
+	if err := a.prepareDeployment(ctx); err != nil {
+		return nil, err
+	}
 	a.tracker = startup.NewTracker(opts.Version, time.Now)
-	if opts.front != nil {
+	if opts.front != nil && (a.deployment == nil || a.deployment.settings.Roles.FullServer()) {
 		a.tracker = opts.front.tracker
 		a.tracker.Begin()
 		if err := a.openFrontDoor(); err != nil {
@@ -367,7 +371,10 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		cfg = a.cfg.Get()
 	}
 	dbCfg := cfg.Database.Effective(os.Getenv)
-	if err := validateNodeSettings(cfg.Server, dbCfg); err != nil {
+	if a.deployment != nil {
+		dbCfg = cfg.Database
+	}
+	if err := a.validateRuntimeSettings(cfg.Server, dbCfg); err != nil {
 		return nil, startFail(startup.FailConfig, fmt.Errorf("node settings: %w", err))
 	}
 	dirs := []string{cfg.Transcode.TempDir}
@@ -460,10 +467,26 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 	cfg = a.cfg.Get()
 	// Recheck after the shared settings overlay and override migration, before
 	// constructing services. Role/address settings remain node-local.
-	if err := validateNodeSettings(cfg.Server, dbCfg); err != nil {
+	if err := a.validateRuntimeSettings(cfg.Server, dbCfg); err != nil {
 		return nil, startFail(startup.FailConfig, fmt.Errorf("node settings: %w", err))
 	}
 	a.tracker.Set(startup.PhaseStartingServices)
+	if a.deployment != nil && !cfg.Server.NodeRoles.FullServer() {
+		if err := a.buildEncoder(ctx, cfg); err != nil {
+			return nil, err
+		}
+		if a.activeTranscoder() == nil {
+			return nil, errors.New("transcode role requires a working encoder")
+		}
+		if err := a.buildPrivateCredentials(); err != nil {
+			return nil, err
+		}
+		if err := a.buildClusterPlayback(ctx, cfg); err != nil {
+			return nil, err
+		}
+		started = true
+		return a, nil
+	}
 	cfg = a.adoptMountedCache(cfg)
 	if err := a.build(ctx, cfg); err != nil {
 		a.Close()
@@ -478,6 +501,9 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 }
 
 func (a *App) build(ctx context.Context, cfg config.Config) error {
+	if err := a.buildPrivateCredentials(); err != nil {
+		return err
+	}
 	a.support = diagnostics.New(a.supportDeps())
 	cfg.Cache = cfg.EffectiveCache()
 	var err error
@@ -489,7 +515,7 @@ func (a *App) build(ctx context.Context, cfg config.Config) error {
 	// dependency phase before its workers start.
 	for _, build := range []func(context.Context, config.Config) error{
 		a.buildCatalogue, func(context.Context, config.Config) error { a.safety.SetCatalogPolicy(a.catalog.Visible); return nil }, a.buildIdentity, a.buildSessionEvents, a.buildPersonalization,
-		a.buildSources, a.buildPlayback, a.buildPrefetch, a.buildIntegrations,
+		a.buildSources, a.buildPlayback, a.buildClusterPlayback, a.buildPrefetch, a.buildIntegrations,
 	} {
 		if err := build(ctx, cfg); err != nil {
 			return err
@@ -615,6 +641,9 @@ func (a *App) Config() *config.Store { return a.cfg }
 
 // Run serves until ctx is cancelled.
 func (a *App) Run(ctx context.Context) error {
+	if a.deployment != nil && !a.cfg.Get().Server.NodeRoles.FullServer() {
+		return a.runSpecialist(ctx)
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	a.bindRestart(ctx, cancel)
@@ -629,6 +658,11 @@ func (a *App) Run(ctx context.Context) error {
 		}
 		return err
 	}
+	stopPrivate, err := a.startPrivate(ctx)
+	if err != nil {
+		return err
+	}
+	defer stopPrivate()
 	if err := a.migrateCredentials(ctx); err != nil {
 		return fmt.Errorf("convert stored credentials: %w", err)
 	}
@@ -782,6 +816,7 @@ func (a *App) Run(ctx context.Context) error {
 			return err
 		}
 	case runErr = <-watchdogErr:
+	case runErr = <-a.privateErrors():
 	case runErr = <-a.clusterFatal: // nil channel (never ready) when standalone
 	}
 	if runErr == nil {

@@ -44,6 +44,7 @@ func (a *App) buildCluster(dialect store.Dialect) error {
 		Roles: slices.Clone(server.NodeRoles), InternalAddress: server.InternalAddress,
 		// ProtocolVersion stays zero until a compatible private service is
 		// registered and usable; an address alone is not remote capability.
+		Protocol: a.privateProtocol,
 		Draining: a.nodeDraining, Migrations: store.KnownMigrations()}
 	log := a.log.With("component", "cluster")
 	a.peers = &peerSet{}
