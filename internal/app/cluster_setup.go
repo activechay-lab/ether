@@ -40,6 +40,12 @@ type clusterSetup struct {
 // offers a restore on a standalone server, and the start is retried with
 // backoff. It works in the foreground and under every OS supervisor.
 func Serve(ctx context.Context, opts Options) error {
+	return serveWithConstructor(ctx, opts, New)
+}
+
+// serveWithConstructor keeps the executable supervisor lifecycle testable with
+// explicit offline runtime dependencies; production always supplies New.
+func serveWithConstructor(ctx context.Context, opts Options, construct func(context.Context, Options) (*App, error)) error {
 	setup := &clusterSetup{state: "idle", stop: make(chan struct{}, 1)}
 	opts.clusterSetup = setup
 	if opts.Version == "" {
@@ -70,7 +76,7 @@ func Serve(ctx context.Context, opts Options) error {
 		if rc.beginAttempt(ctx) != nil {
 			return nil
 		}
-		a, err := New(ctx, opts)
+		a, err := construct(ctx, opts)
 		rc.endAttempt(err == nil)
 		if err != nil {
 			if !front.bound() || ctx.Err() != nil || errors.Is(err, service.ErrRestartRequested) {
@@ -97,7 +103,7 @@ func Serve(ctx context.Context, opts Options) error {
 		rc.clear()
 		failures = 0
 		finish := func(bool) error { return nil }
-		if opts.NotificationExecutable != "" {
+		if opts.NotificationExecutable != "" && a.notifications != nil {
 			watch, watchErr := a.WatchNotifications(opts.NotificationExecutable)
 			if watchErr != nil {
 				a.log.Warn("crash notification watcher unavailable")
