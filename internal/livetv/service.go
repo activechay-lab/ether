@@ -32,6 +32,7 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 }
 
 type Service struct {
+	virtualGuide       virtualGuideCache
 	guideAIMu          sync.Mutex
 	graphicsWake       chan struct{}
 	reelSnapshots      map[string]*ReelSnapshot
@@ -109,6 +110,13 @@ func New(o Options) (*Service, error) {
 		s.wg.Add(1)
 		go s.personalLoop()
 	}
+	s.virtualGuide.wake = make(chan struct{}, 1)
+	if err := s.refreshVirtualGuide(ctx); err != nil {
+		cancel()
+		return nil, err
+	}
+	s.wg.Add(1)
+	go s.virtualGuideLoop()
 	s.wg.Add(3)
 	go s.maintain()
 	go s.refreshLoop()
@@ -325,6 +333,22 @@ func channels(ctx context.Context, db queryer) ([]Channel, error) {
 	return out, nil
 }
 func (s *Service) Channel(ctx context.Context, id string) (Channel, error) {
+	s.virtualGuide.mu.RLock()
+	entry := s.virtualGuide.entries[id]
+	snapshotEpoch := s.virtualGuide.epoch
+	s.virtualGuide.mu.RUnlock()
+	if entry != nil {
+		var epoch int64
+		if err := s.o.DB.QueryRowContext(ctx, `SELECT generation FROM livetv_channel_epoch WHERE id=1`).Scan(&epoch); err != nil {
+			return Channel{}, err
+		}
+		if epoch == snapshotEpoch {
+			return entry.channel, nil
+		}
+		s.wakeVirtualGuide()
+		return Channel{}, core.ErrNotAvailable
+	}
+
 	var b []byte
 	err := s.o.DB.QueryRowContext(ctx, `SELECT data FROM livetv_channels WHERE id=?`, id).Scan(&b)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -694,6 +718,9 @@ func (s *Service) SaveChannel(ctx context.Context, c Channel) (Channel, error) {
 	_, err = s.o.DB.ExecContext(ctx, `INSERT INTO livetv_channels(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, c.ID, b)
 	if err == nil {
 		s.invalidate(c.ID, "")
+		if err = s.refreshVirtualGuide(ctx); err != nil {
+			return c, err
+		}
 		s.bumpLineup()
 	}
 	return c, err
@@ -727,6 +754,7 @@ func (s *Service) LineupChanged() time.Time {
 }
 
 func (s *Service) bumpLineup() {
+	s.wakeVirtualGuide()
 	select {
 	case s.graphicsWake <- struct{}{}:
 	default:
@@ -755,6 +783,9 @@ func (s *Service) SavePolicy(ctx context.Context, p Policy) error {
 	}
 	err := savePolicy(ctx, s.o.DB, p)
 	if err == nil {
+		if err = s.refreshVirtualGuide(ctx); err != nil {
+			return err
+		}
 		// The viewer's channel set changed: clients refresh their lineup.
 		s.bumpLineup()
 	}
@@ -910,6 +941,10 @@ func (s *Service) AllowedChannels(ctx context.Context, u *core.User) ([]Channel,
 	if err != nil {
 		return nil, err
 	}
+	ctx, err = s.withVirtualGuide(ctx, cs)
+	if err != nil {
+		return nil, err
+	}
 	rated := u != nil && (strings.TrimSpace(u.MaxContentRating) != "" || strings.TrimSpace(pol.MaxRating) != "")
 	now := s.o.Now()
 	var airing map[int]Programme
@@ -936,7 +971,7 @@ func (s *Service) AllowedChannels(ctx context.Context, u *core.User) ([]Channel,
 		var current *Programme
 		switch {
 		case c.Kind == "virtual":
-			if ps := s.viewerSchedule(ctx, s.guideChannel(ctx, s.personalChannel(ctx, c, u)), now, now.Add(time.Second)); len(ps) > 0 {
+			if ps := s.viewerSchedule(ctx, s.personalChannel(ctx, c, u), now, now.Add(time.Second)); len(ps) > 0 {
 				current = &ps[0]
 			}
 		default:
@@ -946,7 +981,7 @@ func (s *Service) AllowedChannels(ctx context.Context, u *core.User) ([]Channel,
 				current = &p
 			}
 		}
-		if s.allowed(ctx, u, c, current) {
+		if s.allowedProgramme(ctx, u, c, current) {
 			c.StreamURL = ""
 			c.StreamSources = nil
 			out = append(out, s.personalChannel(ctx, c, u))
@@ -1004,7 +1039,7 @@ func (s *Service) allowedChannelRecord(ctx context.Context, u *core.User, c Chan
 	if ok {
 		current = &p
 	}
-	if !s.allowed(ctx, u, c, current) {
+	if !s.allowedProgramme(ctx, u, c, current) {
 		return Channel{}, core.ErrNotFound
 	}
 	c.StreamURL = ""
@@ -1040,7 +1075,7 @@ func (s *Service) ChannelPermitted(ctx context.Context, u *core.User, id string)
 	if ok {
 		current = &p
 	}
-	allowed := s.allowed(ctx, u, c, current)
+	allowed := s.allowedProgramme(ctx, u, c, current)
 	rememberChannel(ctx, id, allowed)
 	return allowed, nil
 }
@@ -1055,6 +1090,9 @@ func (s *Service) programmeAt(ctx context.Context, c Channel, at time.Time) (Pro
 		}
 	}
 	if c.Kind == "virtual" {
+		if _, err := s.withVirtualGuide(ctx, []Channel{c}); err != nil {
+			return Programme{}, false, err
+		}
 		ps := s.viewerSchedule(ctx, c, at, at.Add(time.Second))
 		if len(ps) == 0 {
 			return Programme{}, false, nil
@@ -1221,7 +1259,13 @@ func (s *Service) programmes(ctx context.Context, c Channel, from, until time.Ti
 		return s.personalProgrammes(ctx, c, c.personalViewer, from, until)
 	}
 	if c.Kind == "virtual" {
-		return Schedule(s.guideChannel(ctx, c), from, until), nil
+		if _, err := s.withVirtualGuide(ctx, []Channel{c}); err != nil {
+			return nil, err
+		}
+		if err := s.checkVirtualWindow(c, from, until); err != nil {
+			return nil, err
+		}
+		return s.virtualProgrammes(c, from, until, "playback"), nil
 	}
 	if until.Sub(from) <= time.Second {
 		p, ok, err := s.programmeAt(ctx, c, from)
@@ -1321,6 +1365,15 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 		}
 	}
 
+	ctx, err = s.withVirtualGuide(ctx, cs)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range cs {
+		if err := s.checkVirtualWindow(c, from, until); err != nil {
+			return nil, err
+		}
+	}
 	orderIndex := make(map[string]int, len(cs))
 	byKey := make(map[guideKey][]Channel)
 	out := []Programme{}
@@ -1344,7 +1397,7 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 				continue
 			}
 			if at[i] >= 0 {
-				if p, ok := airing[at[i]]; ok && s.allowed(ctx, u, c, &p) {
+				if p, ok := airing[at[i]]; ok && s.allowedProgramme(ctx, u, c, &p) {
 					out = append(out, p)
 				}
 				continue
@@ -1360,7 +1413,7 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 				return nil, err
 			}
 			for _, p := range ps {
-				if s.allowed(ctx, u, c, &p) {
+				if s.allowedProgramme(ctx, u, c, &p) {
 					out = append(out, p)
 				}
 			}
@@ -1375,7 +1428,7 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 		orderIndex[c.ID] = len(orderIndex)
 		if c.Kind == "virtual" {
 			for _, p := range s.viewerGuide(ctx, s.personalChannel(ctx, c, u), from, until) {
-				if s.allowed(ctx, u, c, &p) {
+				if s.allowedProgramme(ctx, u, c, &p) {
 					out = append(out, p)
 				}
 			}
@@ -1396,7 +1449,7 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 			for _, p := range ps {
 				p.ChannelID = c.ID
 				p.ID = fmt.Sprintf("%s-%d", c.ID, p.Start.UnixMilli())
-				if s.allowed(ctx, u, c, &p) {
+				if s.allowedProgramme(ctx, u, c, &p) {
 					out = append(out, p)
 				}
 			}
@@ -1488,6 +1541,10 @@ func (s *Service) onNow(ctx context.Context, u *core.User, now, until time.Time,
 	if err != nil {
 		return nil, nil, err
 	}
+	ctx, err = s.withVirtualGuide(ctx, cs)
+	if err != nil {
+		return nil, nil, err
+	}
 	channels := make([]Channel, 0, len(cs))
 	programmes := make([]Programme, 0, len(cs)*2)
 	for _, c := range cs {
@@ -1502,7 +1559,7 @@ func (s *Service) onNow(ctx context.Context, u *core.User, now, until time.Time,
 		if len(ps) > 0 {
 			current = &ps[0]
 		}
-		if !s.allowed(ctx, u, c, current) {
+		if !s.allowedProgramme(ctx, u, c, current) {
 			continue
 		}
 		c.StreamURL = ""
@@ -1531,7 +1588,13 @@ func (s *Service) programmesLimit(ctx context.Context, c Channel, from, until ti
 		return nil, nil
 	}
 	if c.Kind == "virtual" {
-		ps := Schedule(s.guideChannel(ctx, c), from, until)
+		if _, err := s.withVirtualGuide(ctx, []Channel{c}); err != nil {
+			return nil, err
+		}
+		if err := s.checkVirtualWindow(c, from, until); err != nil {
+			return nil, err
+		}
+		ps := s.virtualProgrammes(c, from, until, "playback")
 		if len(ps) > limit {
 			ps = ps[:limit]
 		}
