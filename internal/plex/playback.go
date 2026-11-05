@@ -619,11 +619,7 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(ctx)
 	// A slow source search must not hold the owner gates (timeline and stop
 	// share them) or outlast the client's request timeout.
-	var pending *core.Title
-	candidate, parseErr := s.parsePlayRequest(r)
-	if t, err := s.awaitSource(ctx, r, pr); errors.Is(err, core.ErrPrepareSlow) && parseErr == nil && s.canDeferDecision(pr, candidate) {
-		pending = t
-	} else if err != nil {
+	if t, err := s.awaitSource(ctx, r, pr); err != nil {
 		if ctx.Err() != nil {
 			return
 		}
@@ -656,36 +652,6 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 	}
 	defer unlockEncoder()
 
-	// A concurrent start may have admitted this binding while we waited
-	// for its encoder gate. Keep that real session instead of replacing it
-	// with an estimate captured earlier.
-	if entry, ok := s.transcodes.get(p.sessionID); ok && entry.playID != "" {
-		pending = nil
-	}
-	if pending != nil {
-		if ctx.Err() != nil {
-			return
-		}
-		if !s.transcodes.claim(p.sessionID, pr.User.ID, pr.ClientID, s.now()) {
-			writeHTTPError(w, http.StatusForbidden)
-			return
-		}
-		// A decision negotiates an output; it need not wait for input bytes.
-		// Keep acquisition in its shared flight and let start join it. Never
-		// remember ErrPrepareSlow as a failed start for this client.
-		requested := p
-		p.mediaID = int64(p.key)
-		p.mde, p.opts.DirectPlay = false, false
-		info := s.d.Playback.Estimate(ctx, pending, p.caps)
-		info.Estimated = true
-		dec := s.d.Transcoder.Decide(info, p.caps, p.opts)
-		ps := &core.PlaySession{Info: info, StartedAt: s.now()}
-		s.transcodes.put(&transcodeEntry{id: p.sessionID, userID: pr.User.ID, clientID: pr.ClientID, key: p.key,
-			requested: requested, info: info, decision: dec, caps: p.caps, updatedAt: s.now()})
-		s.write(w, r, s.decisionContainer(ctx, pr, pending, ps, dec, p))
-		return
-	}
-
 	t, ps, dec, err := s.prepare(ctx, pr, &p)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) && t == nil {
@@ -706,51 +672,15 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, s.decisionContainer(ctx, pr, t, ps, dec, p))
 }
 
-func (s *Server) canDeferDecision(pr *Request, p playRequest) bool {
-	return browserClient(pr) && s.d.Transcoder != nil && (p.protocol == core.ProtocolDASH || p.protocol == core.ProtocolHLS)
-}
-
-// applyPendingOutput keeps a slow decision's negotiated codec family when
-// the real probe arrives. A settings change negotiates afresh as usual.
-func applyPendingOutput(p *playRequest, entry *transcodeEntry) bool {
-	if entry == nil || entry.playID != "" || !entry.info.Estimated || !p.sameSettings(entry.requested) {
-		return false
-	}
-	p.mde, p.opts.DirectPlay = false, false
-	video, audio := entry.decision.VideoCodec, entry.decision.AudioCodec
-	if entry.decision.VideoCopy && entry.info.Video() != nil {
-		video = entry.info.Video().Codec
-	}
-	if entry.decision.AudioCopy {
-		for _, st := range entry.info.Streams {
-			if st.Type == "audio" {
-				audio = st.Codec
-				break
-			}
-		}
-	}
-	if video != "" {
-		p.caps.VideoCodecs = []string{video}
-	}
-	if audio != "" {
-		p.caps.AudioCodecs = []string{audio}
-		p.caps.TranscodeAudioCodecs = []string{audio}
-	}
-	return true
-}
-
 // decisionSourceWait bounds how long a decision waits for a source search
-// before answering. This is a server budget, not a measured client timeout.
+// before answering; Plex apps give up on a decision after about 30 s.
 const decisionSourceWait = 12 * time.Second
-
-// Leave the cold first-frame budget to acquisition and encoder startup.
-const webDecisionSourceWait = 750 * time.Millisecond
 
 // awaitSource waits, outside the owner gates, for the source an automatic
 // decision will use. The search is the playback manager's shared flight:
 // the gated admission that follows finds the prepared session at once.
-// Slow searches keep running. Plex Web negotiates streaming from its
-// estimate; other clients retain the existing ErrPrepareSlow response. Explicit
+// When the search outlasts decisionSourceWait it keeps running for the
+// client's retry and the decision answers core.ErrPrepareSlow. Explicit
 // version picks and requests this cannot pre-check go straight on.
 func (s *Server) awaitSource(ctx context.Context, r *http.Request, pr *Request) (*core.Title, error) {
 	pw, ok := s.d.Playback.(core.PlaybackPrepareWithin)
@@ -779,14 +709,10 @@ func (s *Server) awaitSource(ctx context.Context, r *http.Request, pr *Request) 
 	if p.caps.ClientID == "" {
 		p.caps.ClientID = pr.ClientID
 	}
-	// A slow search keeps running after this bounded wait; any
+	// A slow search answers "still finding a source" and keeps running; any
 	// other failure is answered now, so the gated path does not repeat the
 	// whole search (the flight does not remember failures).
-	wait := decisionSourceWait
-	if s.canDeferDecision(pr, p) {
-		wait = webDecisionSourceWait
-	}
-	if _, err := pw.PrepareWithin(ctx, wait, pr.User, p.key, p.caps, "", false); err != nil {
+	if _, err := pw.PrepareWithin(ctx, decisionSourceWait, pr.User, p.key, p.caps, "", false); err != nil {
 		return t, err
 	}
 	return nil, nil
@@ -1276,14 +1202,14 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		writePlaybackStatus(w, http.StatusForbidden)
 		return
 	}
-	if err, failed := s.transcodes.takeFailure(p.sessionID, pr.User.ID, p.key, s.now()); failed {
+	// A slow decision leaves acquisition running. Join that shared flight
+	// below; only a completed source failure should short-circuit start.
+	if err, failed := s.transcodes.takeFailure(p.sessionID, pr.User.ID, p.key, s.now()); failed && !errors.Is(err, core.ErrPrepareSlow) {
 		s.log.Info("start playback failed", "key", p.key, "reason", playbackMessage(err), "err", err, "decision", "remembered")
 		s.writeStartErr(w, r, pr, err)
 		return
 	}
 	entry, ok := s.transcodes.get(p.sessionID)
-	original := p
-	pendingOutput := applyPendingOutput(&p, entry)
 	var ps *core.PlaySession
 	if ok && entry.key == p.key && entry.userID == pr.User.ID {
 		ps, ok = s.d.Playback.Session(entry.playID)
@@ -1301,9 +1227,6 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		entry, _ = s.transcodes.get(p.sessionID)
-		if pendingOutput {
-			entry.requested = original
-		}
 	} else if dec, err := s.publishBrokerPlayback(ctx, pr, replayPlay(p, entry), ps); err != nil {
 		s.writeStartErr(w, r, pr, err)
 		return

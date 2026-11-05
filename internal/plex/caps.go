@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/clientreg"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
@@ -73,17 +72,6 @@ func (pr *Request) ClientCapsWith(remoteMaxKbps int, overrides []core.ClientCapa
 	}
 	if subsChanged {
 		c.SubtitleCodecs = subs
-	}
-	// Roku family defaults do not prove that the attached audio chain can
-	// decode Dolby audio. Request declarations below may add it back.
-	if strings.Contains(strings.ToLower(pr.Product+" "+pr.Platform), "roku") {
-		c.AudioCodecs = slices.DeleteFunc(c.AudioCodecs, func(codec string) bool { return codec == "ac3" || codec == "eac3" })
-		id := clientreg.Identity{Product: pr.Product, Platform: pr.Platform, Device: pr.Device, Model: pr.Model, Version: pr.Version}
-		for _, o := range overrides {
-			if o.AudioCodecs != nil && clientreg.OverrideApplies(o, []string{"roku"}, id) {
-				c.AudioCodecs = slices.Clone(o.AudioCodecs)
-			}
-		}
 	}
 	if pr.ClientCapabilities != "" {
 		applyLegacyCapabilities(&c, pr.ClientCapabilities)
