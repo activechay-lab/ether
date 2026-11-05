@@ -432,7 +432,8 @@ The canonical JSON field names for `Channel.look`, `Channel.clock`, `Channel.per
 | `internal/onair` (new) | Looks and families (CRUD, validation, built-ins); the scene document model; bindings; the asset store; clip planning and cache; the render queue. Implements `core.ChannelGraphics`. |
 | `internal/onair/raster` (new) | The pure-Go 2D renderer: scene document plus bindings plus t → `*image.RGBA`. It has no dependencies outside `x/image`, so it also compiles to WASM for the console (§6.3). |
 | `internal/onair/encode` (new) | Pipes frames to the bundled ffmpeg and writes the master MP4 (and, in Phase 5, alpha overlays). |
-| `internal/livetv` | Interstitials in `Schedule`, guide coalescing, clip tracks on the slate path, the track budget, the tune-in ident, personal rundowns and the on-demand cursor, a viewing log. |
+| `internal/livetv` | Interstitials in `Schedule`, guide coalescing, the switcher and per-channel broadcast outputs (§4.5), personal rundowns and the on-demand cursor, a viewing log. |
+| `internal/transcode` (additions) | The continuous encoder runner and the decoder runner (§4.5). |
 | `internal/personalize` | `PersonalPicker` (picks with reasons, policy-filtered). |
 | `internal/plugins` | The `data` runtime, `looks`/`virtualChannels`/`families`/`reels` contributions, pack export, link tables; the `onair_content` capability with `onairFeeds`/`onairSegments`, the feed fetch schedule and `onair_feed_values`. |
 | `internal/agent`, `internal/agent/builtin` | The `/livetv/look` and `/livetv/describe` routes; the `look_draft`, `channel_draft`, `channel_summary` and write-proposal tools. |
@@ -532,37 +533,80 @@ Migrations:
 - **Off-air** keeps today's guide entry; playout now plays the `offair` clip, looped.
 - **Tune-in ident** is not a schedule entry. It is a session prefix (§4.5), so the guide is unaffected.
 
-### 4.5 Playout
+### 4.5 Playout: one continuous stream per channel
 
-- **Clip tracks reuse the slate path.** A clip interstitial prepares like an off-air slate does today (`playout.go` `prepareTrackOnStage`, `dash_virtual.go` `startProgrammeDASH`): it builds `core.PlaySession{Info: s.slateInfo(previous, caps, span)}` and calls `StartHLS` with the cached master MP4 as the input (`HLSRequest.ClipPath`, a sibling of `SlateText`; looped only for `offair`). The ffmpeg session encodes it to exactly the contract the previous programme negotiated, so clips never change codecs, size or audio layout mid-stream, on HLS or DASH.
-  - There is no `Playback` session, so `stopTrack` stops only the encoder.
-  - `program/<startMs>/<n>.ts` addressing is unchanged: interstitials have their own start ms.
-- **Track budget.** The fixed cap of 3 (`playout.go:662,696`) becomes a cost budget: at most 3 programme tracks, plus clip tracks, which are short and cheap (a clip encode runs faster than real time). A track is never trimmed while any of its segments is still inside the published window.
-- **Instant tune.** `TuneWithSession` publishes a session whose first track is the channel's cached ident (`Graphics.Clip`), when one exists and `Look.Ident` is on.
-  - The programme track then prepares in the background, with its join offset advanced by the ident's length.
-  - `ServePlaylist` can serve as soon as the ident track exists, so the first frame comes from local disk.
-  - If the ident isn't cached, tune behaves exactly as today.
-  - Target: first frame within 1 s of tune on any channel with a look; there is no change on channels without one.
-- **Missing clips never stall playback.** An interstitial whose clip isn't cached by the time it's within 24 s of playback is skipped:
-  - in gap placement, the programme ends early into filler or slate as today;
-  - in inserted placement, the next programme starts early, and the guide is corrected on the next `bumpLineup`.
+**Owner decision (2026-11-05).** Every virtual channel, and every IPTV channel with a can't-play screen enabled, plays as **one continuous stream** carrying every show, break, interstitial, ident and screen. There is no discontinuity, new playlist or MPD, retune or spinner at programme boundaries, on HLS, DASH and Plex for Mac's HTTP stream. This replaces the per-programme tracks, the three-track cap, clip tracks on the slate path and the per-session ident prefix described in earlier drafts.
 
-  Every skip is logged through `faillog`.
-- **DASH (Plex Web).** Clips go through `startProgrammeDASH` on the same slate path, so they match the representation `virtualReps` advertises. The single-Period `$Number$` math continues unchanged.
-- **HTTP/Matroska (Plex for Mac)** has no rollover today. Clips aren't spliced there, and the docs say so.
-- **Off-air.** v0.3.4's slate path stays as the fallback. With a look, `HLSRequest` carries a rendered `offair` clip instead of `SlateText` and loops it the same way.
-- **Personal channels.** Session code passes `ss.user` into every `programmes(...)` call (`getSession`, `Session`, `ServePlaylist`, `virtualDASH.sync`).
-  - Programmes come from the viewer's rundown (§4.7).
-  - Clip requests carry `ViewerID` only for moments whose bindings use viewer data.
-- **Break reels.** A `break` interstitial with a reel expands into deterministic sub-entries: the look's `break` clip, reel clips picked by the seeded order and repeat window until the break length is reached (the last clip may run over; clips are never cut), then `back`.
-  - Each reel clip plays as a clip track on the slate path, from its converted master.
-  - Durations come from `onair_reel_clips.duration_ms`, so `Schedule` stays pure.
-  - A clip that isn't ready on this node is skipped, as in the missing-clip rule.
-  - In gap placement, reels fill dead air before catalogue filler, so a channel with hourly alignment gets natural commercial breaks with no guide change.
-- **Watchlist trailers in breaks.** A `break` interstitial on a personal channel may carry a trailer: `extras.Resolve` gives a URL that becomes the HLS input (the extras playback precedent in `plex/handlers_extras.go`), wrapped by the `break` and `back` clips.
-  - The rating is checked against the parent title for that viewer.
-  - When extras aren't configured, the break uses the generated "From your watchlist" card.
-- **Viewing log.** Tune, stop, and each moment boundary write to `livetv_viewing`. Nothing is read on a request path.
+**The channel output** (`livetv` "broadcast", one per channel × rendition × node):
+
+```
+schedule (wall clock) ─▶ input plan: programme · clip · screen · reel clip · plugin segment
+                              │
+ programme decoders ─────────┐│   (the current one, plus the next one prewarmed before the boundary)
+ clip / screen frame rings ──┤▼
+ reel / segment decoders ────┼─▶ Go switcher (frame sync, PCM, crossfade) ─raw─▶ encoder (rendition A) ─▶ segments ─┬─▶ viewer 1 playlist
+                             │                                           └─raw─▶ encoder (rendition B) ─▶ segments ─┼─▶ viewer 2 playlist
+ (IPTV: provider decoder) ───┘                                                    (only when a client needs it)     └─▶ viewer N …
+```
+
+- **Switcher.** One frame and its audio per output tick, paced to the wall clock. The input at each tick comes from the deterministic schedule: the programme at its offset, an interstitial clip, a reel clip, a plugin segment, or a screen. Programme changes land on the scheduled frame.
+- **Programme decoders.**
+  - A restartable ffmpeg decoder per input reads Ether's own playback input (`Playback.Prepare` / `InputURL`, as playout does today), starts at the programme's offset, and emits raw frames scaled to the channel's working size and frame rate, with PCM resampled to the channel layout.
+  - The **next programme's decoder is prewarmed** from 20 s before the boundary: started, seeked to the programme start, and holding its first frames, so the cut lands on the exact frame.
+  - Clips and screens are decoded once into in-memory frame and PCM rings.
+- **Stalls.**
+  - When the current input stops producing frames (a Usenet stall, a release that fails mid-play, a provider drop), the switcher holds the last frame for up to 1.5 s, then fills with the channel's can't-play screen and retries in the background (§4.9).
+  - At a programme start whose release isn't playable, it uses `virtualCandidates` exactly as `tuneVirtual` does today, and fills with the screen while the next candidate prepares.
+- **Encoders.**
+  - One long-lived ffmpeg encoder per rendition, fed raw frames and PCM over loopback TCP (production is Windows).
+  - Its codec, profile, level, resolution, frame rate, GOP and audio settings never change, and its timestamps are a monotonic frame clock.
+  - Each encoder writes 4 s segments as TS for HLS and fMP4 for DASH, plus a continuous Matroska/TS byte stream when a Plex for Mac viewer is attached.
+  - Hardware encode is used whenever `HWAccel` reports it.
+- **Renditions.**
+  - The channel starts with one rendition: 1080p30 H.264 High with AAC stereo when hardware encode is available, otherwise 720p30.
+  - A second rendition (720p, or 480p when the first is 720p) starts only when a viewer's client needs it: a device ceiling, a bandwidth or remote-quality cap, or a Plex quality choice. The mapping goes through the existing `Decide` path. The rendition stops when its last viewer leaves.
+  - Each extra rendition adds an encoder, not a decoder.
+- **Fan-out.**
+  - Every viewer of a non-personal channel reads the same rendition's segments. A viewer session is only a signed playlist view over the shared segment window (stream grant, access re-checks, stream-limit accounting as today).
+  - Late joiners start at the live edge.
+  - **Timeshift:** segments are kept on node-local disk for a DVR window, 30 minutes by default and set per channel under More options. A paused or rewound Plex client resumes within the window.
+- **Lifecycle.**
+  - The output starts on a channel's first viewer. The first frame is the channel's ident or screen, served from the ring immediately, while the programme decoder prepares. The first segment is ready within one segment duration (4 s); the target is first frame ≤ 1 s for a channel already running and ≤ 4 s cold.
+  - The output stops after a **60 s idle grace** once the last viewer leaves.
+  - `maintain()` prewarms releases as today for channels watched in the last 2 h.
+- **Personal channels** are per viewer by nature. Each viewer's personal channel is its own output (its own switcher and encoder, one rendition), driven by that viewer's rundown (§4.7).
+- **IPTV channels** are linear too. With a screen enabled and switching on, the provider decoder feeds a shared per-channel output, and the existing rule holds: one provider connection per channel, shared by all its viewers.
+- **Cluster.** Outputs are node-local. Viewers on different nodes each attach to a node-local output for the channel. Every node computes the same schedule, so outputs on different nodes air the same programme at the same moment.
+
+**Cost** (estimates; the slice gate measures them on the Mac lab and HYPERV03):
+
+| | CPU | Memory | Disk |
+| --- | --- | --- | --- |
+| Shared channel, software x264 `veryfast`, 720p30 | ≈ 0.7–1.0 core per channel | ≈ 250 MB | DVR: ≈ 0.7 GB per 30 min at 3 Mb/s |
+| Shared channel, software, 1080p30 | ≈ 1.5–2.2 cores per channel | ≈ 400 MB | ≈ 1.3 GB per 30 min at 6 Mb/s |
+| Shared channel, hardware encode, 1080p30 | ≈ 0.3–0.5 core per channel, plus one GPU encode session | ≈ 350 MB | as above |
+| Extra rendition | + the encode only (720p ≈ 0.4–0.6 core in software, ≈ 0.05 with hardware) | + ≈ 80 MB | + its DVR |
+| Each additional viewer of a shared channel | ≈ 0.005 core | ≈ 1 MB | none |
+| Personal channel, per viewer | the "shared channel" row above, per viewer | as above | DVR off by default |
+| Today, for comparison | per-programme remux or encode **per viewer** | | |
+
+The CPU figures include decode. Decode is the variable part: a 1080p H.264 release decodes in ≈ 0.1–0.2 core, but a 4K HEVC HDR release needs ≈ 1.5–3 cores plus tone mapping. Virtual channels therefore ask the resolver for releases at or below the channel's rendition (≤ 1080p SDR), using the existing quality profiles, and decode in hardware where available.
+
+**Defaults.**
+- Virtual channels always use the continuous output (owner decision).
+- Renditions: one, sized by hardware availability; the second only on demand.
+- DVR: 30 minutes. Idle grace: 60 s.
+- Personal channels: 720p30 in software, 1080p30 with hardware encode.
+- IPTV: §4.9 *When it applies*.
+
+**What clients see.**
+- **Plex:** the tune, decision, playlist and MPD keep their current shapes.
+  - Playlists become one continuous sliding window: monotonic media sequence numbers, no discontinuity tags, `#EXT-X-PROGRAM-DATE-TIME` on every segment.
+  - The tune response's media attributes now describe the channel rendition (H.264 / AAC at its size) instead of each programme's remux. That changes values, not shapes; it is a deliberate behaviour change for the owner's approval.
+  - DASH is one Period for the life of the output. Plex for Mac's HTTP stream continues across programmes.
+- **Jellyfin, Emby, M3U and Silo** get the same continuous stream through the sessions broker.
+
+**Guide.** Unchanged from §4.4: interstitials are folded into the preceding programme, and real programme IDs are stable in gap mode.
 
 ### 4.6 Rendering
 
@@ -642,7 +686,7 @@ generated screen frames + PCM (cached, looped) ▶ │ (frame sync)  │ raw  �
 - Without the tag, real decoders (Apple VideoToolbox in particular) corrupt or stall on the SPS change. With it, the owner's requirement fails.
 - Copy-mode splicing would therefore be seamless only in the special case where nothing changes, and that can't be guaranteed or detected in time. It is ruled out.
 
-**Cost per session** (estimates to be measured as the slice gate on the Mac lab and HYPERV03):
+**Cost** (estimates to be measured as the slice gate). IPTV channels are linear, so the switcher output is **shared per channel**, like virtual channels (§4.5). The rows below are per channel, not per viewer, except the first:
 
 | | CPU | Memory | Notes |
 | --- | --- | --- | --- |
@@ -652,14 +696,14 @@ generated screen frames + PCM (cached, looped) ▶ │ (frame sync)  │ raw  �
 | Switcher, hardware encode (NVENC, QSV, VAAPI, VideoToolbox) | ≈ 0.15–0.25 core | ≈ 200 MB | Uses an encoder session on the GPU |
 | Session already transcoding (`Channel.Transcode`, or the client needs it) | ≈ +0.1 core over today | ≈ +60 MB | The encode already exists; only the decoder split and the pump are added |
 
-**When it applies.** Always-on would multiply IPTV CPU by roughly 30–80× with software encoding, so the switcher runs only where a can't-play screen is enabled.
+**When it applies (IPTV).** A shared output makes the cost per channel being watched, not per viewer. Software encoding still costs roughly 0.7–1 core per watched channel against ≈ 0.02 for relay, so IPTV uses the switcher only where a can't-play screen is enabled.
 - The owner default **When a channel can't play** gets one more option, **Apply to**:
   - **Streams Ether already converts**: the default; it costs almost nothing.
   - **Every stream**: adds encoding per viewer. The ⓘ gives the measured cost and how many simultaneous viewers this server can encode (from the transcode benchmark).
 - Hardware encode is used whenever `HWAccel` reports it.
 - Sessions without a screen (owner default **Show an error**, or a relayed stream under **Streams Ether already converts**) keep today's relay path and today's error on failure.
 
-**Virtual channels.** They play each programme as its own track today, with a discontinuity at every programme boundary. The same switcher could drive a virtual channel's whole session: programme decoders, clips and screens as switcher inputs into one encoder. That would remove every discontinuity, the track budget, the DASH codec-flip risk and Plex for Mac's missing rollover, but every virtual viewer would then be encoded (today, programmes remux when compatible). **v0.3.5 scope:** IPTV sessions with a screen enabled, and virtual-channel tune failures that start on a screen (their programme boundaries stay as today). Moving virtual channels onto the switcher is an owner decision (§13).
+**Virtual channels** use the same switcher for their whole stream (§4.5). Their stalls and failed programme starts fill with the can't-play screen the same way.
 
 **What the Plex app sees.** With a screen enabled, a failed or dropped source never produces an error, a retune or a spinner. The picture goes to the screen within about 1.5 s of the source stopping, and back to the real feed about 1 s after the retry reconnects. The guide and Now Playing still show the scheduled programme.
 - **No Plex response shapes change.** The tune response, decision, playlists and MPD are the same shapes as any successful tune today. The one deliberate behaviour change is that a tune that fails today with HTTP 503 now succeeds.
@@ -926,11 +970,20 @@ There's no new viewer route; viewers see results through their apps.
 
 Each phase ships on its own and leaves Ether better than it was.
 
+**Playout slices** (replacing the per-programme track work):
+
+| Slice | Owner | Delivers |
+| --- | --- | --- |
+| P1 | W4 | `Schedule` interstitials (gap and insert), guide coalescing, `core.ChannelGraphics` contract. Kept from W4's first slice; its clip-track, track-budget and ident-prefix code is dropped before merge. |
+| P2 | new worker | `internal/transcode`: the **continuous encoder runner** (raw video + PCM over loopback TCP; fixed contract; HLS TS + fMP4 DASH + continuous byte-stream outputs; renditions; hardware encode; slot accounting) and the **decoder runner** (playback or provider input → raw frames at a size, rate and offset, plus PCM; restartable; prewarm). Interface-first, so P3 builds against fakes. |
+| P3 | W4 | `internal/livetv`: the **switcher** (wall-clock frame sync, schedule-driven input plan, prewarm at boundaries, stall fill, PCM crossfade, clip and screen rings, provider-slot retries) and the **broadcast** (per channel × rendition × node; fan-out to viewer playlists; live edge; DVR window; first-viewer start, idle stop; personal channels per viewer). |
+| P4 | W4 (after P2 and P3) | Wiring into Plex tune / decision / HLS / DASH / HTTP and the sessions broker for Jellyfin, Emby, M3U and Silo. Deletes the per-programme track code. Continuity and real-decoder tests. Measured CPU, memory and disk per channel and per viewer on the Mac lab (and HYPERV03 through the coordinator). |
+
 | Phase | Scope | Exit criteria |
 | --- | --- | --- |
 | **0 · Spike** (1 week) | `raster` with paths, gradients, text, blur and blend; one family as a document; Go render benchmark; WASM build in a throwaway stage. | §6.3/§6.4 gates measured on HYPERV03 and the Mac lab. Go/no-go on WASM ([§13](#13-owner-decisions-needed), decision 4). |
-| **1 · Looks foundation** | `onair` package, built-in Clean family plus the five reel families, look CRUD, render cache, clip tracks on the slate path, **looked off-air clip on the v0.3.4 slate path**, **tune-in ident**, Looks sub-tab plus gallery, look drawer Design tab, channel Look tab (Ident, Off-air). | Looked off-air plays on HLS and DASH. Tune-to-first-frame ≤ 1 s with an ident. Owner screenshot approval. |
-| **2 · Moments** | Interstitials in `Schedule` (gap and inserted), guide coalescing, track budget, `upnext`/`back`/`break`/`tonight`, **break reels** (upload, conversion, reel drawer, break contents in the Look tab), Layers tab, Assets tab, Describe a look, DASH clip encode. | Guide IDs stable in gap mode. 24 h soak on the lab with no stalls. Owner approval of the designer. |
+| **1 · Looks foundation** | `onair` package, built-in Clean family plus the five reel families, look CRUD, render cache, **continuous channel output** (§4.5: switcher, shared encoders, fan-out, renditions, DVR window), ident and off-air as switcher inputs, Looks sub-tab plus gallery, look drawer Design tab, channel Look tab (Ident, Off-air). | Looked off-air plays on HLS and DASH. Tune-to-first-frame ≤ 1 s with an ident. Owner screenshot approval. |
+| **2 · Moments** | Interstitials in `Schedule` (gap and inserted), guide coalescing, `upnext`/`back`/`break`/`tonight`, **break reels** (upload, conversion, reel drawer, break contents in the Look tab), Layers tab, Assets tab, Describe a look, DASH clip encode. | Guide IDs stable in gap mode. 24 h soak on the lab with no stalls. Owner approval of the designer. |
 | **2b · Signal screens** | Signal family (card, static, bars, brb, testcard) with synthesized audio; owner default and per-channel pickers; off-air styles; can't-play screens with a continuous-output switcher (decoder → Go frame sync → one long-lived encoder) so a stalled, failed or recovering source never interrupts the stream on HLS, DASH or HTTP; background retry inside the connection limit. | Provider outage simulated on the lab: Apple TV, Plex Web and Android show the screen with sound and then the real feed, with no discontinuity, spinner or reconnect; continuity and real-decoder tests green; the account limit never exceeded; per-session cost measured on the lab and HYPERV03. Owner approval of the pickers. |
 | **3 · Personal channels** | `PersonalPicker`, recipe tab, rundowns, on-demand cursor, `welcome`, watchlist trailers in breaks, viewer profile row, per-viewer lineup naming. | Tested on two viewers on Apple TV and Plex Web, with policy-filter checks. |
 | **4 · Packs and describe-a-channel** | `data` runtime, contributions, links, export drawer, install preview, Make it mine, `channel_draft` describer. | Export → import round-trip on a second server reproduces the channel and look. |
@@ -950,7 +1003,8 @@ v0.3.4 already ships the plain off-air card, so Phase 1 starts from a working sl
 - **Reel breaks:** the selected clips are the same for overlapping windows, respect the repeat window, and never cut a clip.
 - **Plugin feeds:** malformed or oversized feed output is rejected field by field, and a stale feed past `maxAge` skips its segment without affecting the schedule.
 - **Personal policy:** no pick exceeds the viewer's rating cap or blocked genres, including trailer breaks.
-- **Track budget:** a run of interstitials never trims a track whose segments are still in the window.
+- **Continuity:** a channel output across programme boundaries, interstitials, a stalled input and a recovery produces one continuous segment sequence on HLS and DASH (no discontinuity tags, monotonic PTS/DTS, constant codec parameters, contiguous media sequence), and a real ffmpeg decodes the captured output straight through.
+- **Fan-out:** two viewers attached at different times to one channel output read identical segments for the same media sequence numbers.
 
 Everything else is verified once by hand and recorded in the acceptance doc.
 
@@ -985,7 +1039,8 @@ Everything else is verified once by hand and recorded in the acceptance doc.
 8. **Unrated plugin segments** on channels with a rating cap: hidden unless the owner allows them per channel (recommended), or always allowed?
 9. **Can't-play screens:** tunes that fail today with HTTP 503 succeed, and the stream continues seamlessly on the chosen screen until the source returns (continuous-output switcher, §4.9). Plex response shapes don't change; only the outcome does. (Recommended: approve, keeping **Show an error** as an option.)
 9a. **Where the switcher runs:** **Streams Ether already converts** by default (near-zero cost), with **Every stream** as an opt-in that adds about 0.5–0.7 core per 720p viewer in software, or about 0.2 with hardware encode. (Recommended.)
-9b. **Virtual channels on the switcher:** remove every programme-boundary discontinuity, at the cost of encoding every virtual viewer. (Recommended: a follow-on slice after IPTV proves it, not in v0.3.5's first cut.)
+9b. **Virtual channels on the switcher:** decided by the owner on 2026-11-05: in v0.3.5, one continuous shared output per channel (§4.5).
+9c. **Continuous-output defaults:** one rendition sized by hardware availability, a second only on demand, a 30-minute DVR window, a 60 s idle grace, and personal channels at 720p30 in software or 1080p30 with hardware encode. The tune response's media attributes describe the channel rendition. (Recommended.)
 10. **Screen defaults:** Modern card for both situations, with the colour-bars tone at −24 dBFS. (Recommended.)
 11. **Release:** v0.3.5 (decided by the release coordinator, 2026-11-05).
 
