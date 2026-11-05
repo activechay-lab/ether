@@ -67,3 +67,11 @@ func (s *Server) handlePlaylistArtworkCandidates(w http.ResponseWriter, r *http.
 	}
 	s.write(w, r, mc)
 }
+
+func (s *Server) handlePlaylistExtras(w http.ResponseWriter, r *http.Request) {
+	if k, err := keyParam(r); err == nil && k.Kind() == core.KindPlaylist {
+		s.handlePlaylistMetadataRefusal(w, r)
+		return
+	}
+	s.handleExtras(w, r)
+}

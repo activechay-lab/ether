@@ -970,6 +970,18 @@ func (s *Server) handleMetadataHubs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	k, err := keyParam(r)
+	if err == nil && k.Kind() == core.KindPlaylist {
+		if s.d.Playlists == nil {
+			writeHTTPError(w, http.StatusNotFound)
+			return
+		}
+		if _, err := s.playlist(ctx, pr.User, k); err != nil {
+			writeHTTPError(w, http.StatusNotFound)
+			return
+		}
+		s.write(w, r, &model.MediaContainer{})
+		return
+	}
 	if err != nil || !s.relatedSourceVisible(ctx, pr, k) {
 		writeHTTPError(w, http.StatusNotFound)
 		return

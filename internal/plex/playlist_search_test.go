@@ -44,7 +44,11 @@ func TestPlaylistSearchAndRecentProjection(t *testing.T) {
 		method, path string
 		status       int
 	}{
-		{"GET", "/playQueues", 200}, {"GET", "/playQueues?type=video", 400},
+		{"GET", "/playQueues", 200},
+		{"GET", "/library/metadata/" + a.Key.String() + "/related", 200},
+		{"GET", "/library/metadata/" + a.Key.String() + "/allLeaves", 404},
+		{"GET", "/library/metadata/" + a.Key.String() + "/extras", 400},
+		{"GET", "/library/metadata/" + a.Key.String() + "/match", 400}, {"GET", "/playQueues?type=video", 400},
 		{"POST", "/playlists/upload", 400}, {"POST", "/playlists/upload?path=x&sectionID=1", 500},
 		{"DELETE", "/library/metadata/" + a.Key.String(), 200},
 		{"PUT", "/library/metadata/" + a.Key.String() + "/prefs", 400},
