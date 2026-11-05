@@ -865,6 +865,9 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k core.
 		return
 	}
 	mc := s.collectionItemsContainer(c, k)
+	if strings.HasPrefix(r.URL.Path, "/library/metadata/") {
+		mc.SetSyncProjection(true)
+	}
 	if !c.Upcoming {
 		mc.Metadata = s.renderTitles(ctx, pr, s.filterAllowed(pr.User, page.Items), renderOpts{media: true})
 	} else {

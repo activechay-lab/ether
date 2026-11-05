@@ -15,10 +15,11 @@ func Ptr[T any](v T) *T { return &v }
 
 // MediaContainer is the root of almost every PMS response.
 type MediaContainer struct {
-	decision  bool
-	Size      int  `plex:"size"`
-	TotalSize *int `plex:"totalSize"`
-	Offset    *int `plex:"offset"`
+	syncProjection bool
+	decision       bool
+	Size           int  `plex:"size"`
+	TotalSize      *int `plex:"totalSize"`
+	Offset         *int `plex:"offset"`
 
 	AllowSync           *bool  `plex:"allowSync"`
 	Art                 string `plex:"art,omitempty"`
@@ -421,9 +422,10 @@ type Media struct {
 }
 
 type Part struct {
-	PacketLength          int `plex:"packetLength,omitempty"`
 	alpha                 bool
 	lead                  []string // decision: attributes before the alphabetical rest
+	Accessible            *bool    `plex:"accessible"`
+	Exists                *bool    `plex:"exists"`
 	ID                    int64    `plex:"id"`
 	Key                   string   `plex:"key,omitempty"`
 	Duration              int64    `plex:"duration,omitempty"`
@@ -431,6 +433,7 @@ type Part struct {
 	Size                  int64    `plex:"size,omitempty"`
 	AudioProfile          string   `plex:"audioProfile,omitempty"`
 	Container             string   `plex:"container,omitempty"`
+	PacketLength          int      `plex:"packetLength,omitempty"`
 	Has64bitOffsets       *bool    `plex:"has64bitOffsets"`
 	OptimizedForStreaming *bool    `plex:"optimizedForStreaming"`
 	VideoProfile          string   `plex:"videoProfile,omitempty"`
@@ -441,8 +444,6 @@ type Part struct {
 	Decision              string   `plex:"decision,omitempty"`
 	Protocol              string   `plex:"protocol,omitempty"`
 	Selected              *bool    `plex:"selected"`
-	Exists                *bool    `plex:"exists"`
-	Accessible            *bool    `plex:"accessible"`
 
 	Stream []Stream `plex:"Stream"`
 }
@@ -489,6 +490,8 @@ type Stream struct {
 	Height               int     `plex:"height,omitempty"`
 	Level                int     `plex:"level,omitempty"`
 	Profile              string  `plex:"profile,omitempty"`
+	Anamorphic           *bool   `plex:"anamorphic"`
+	HasScalingMatrix     *bool   `plex:"hasScalingMatrix"`
 	RefFrames            int     `plex:"refFrames,omitempty"`
 	SamplingRate         int     `plex:"samplingRate,omitempty"`
 	ScanType             string  `plex:"scanType,omitempty"`

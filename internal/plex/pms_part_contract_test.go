@@ -148,3 +148,33 @@ func TestVideoProbeFactsReachDecision(t *testing.T) {
 		}
 	}
 }
+
+func TestSyncContextProjection(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	for _, tc := range []struct {
+		path string
+		want any
+	}{
+		{"/hubs", true},
+		{"/hubs/sections/1", true},
+		{"/hubs/continueWatching/items", true},
+		{"/hubs/metadata/1000000000000550/related", true},
+		{"/hubs/metadata/1000000000000550/postplay", false},
+		{"/hubs/search?query=Fjord", nil},
+		{"/library/metadata/" + core.CollectionKey(8091).String() + "/children", true},
+	} {
+		r := f.get(t, tc.path, jsonAccept...)
+		if r.Code != 200 {
+			t.Fatalf("%s status%d %s", tc.path, r.Code, r.Body.String())
+		}
+		got := decodeJSON(t, r)["allowSync"]
+		if got != tc.want {
+			t.Errorf("%s allowSync=%v want %v", tc.path, got, tc.want)
+		}
+	}
+	r := f.get(t, "/hubs", "Accept", "application/json", "X-Plex-Token", friendToken)
+	if r.Code != 200 || decodeJSON(t, r)["allowSync"] != false {
+		t.Fatalf("friend grant: %d %s", r.Code, r.Body.String())
+	}
+}

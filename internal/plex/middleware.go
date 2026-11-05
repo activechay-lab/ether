@@ -459,7 +459,18 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 	// carrying it.
 	if mc, ok := v.(*model.MediaContainer); ok {
 		if mc.AllowSync != nil {
-			*mc.AllowSync = s.downloadsAllowed(pr.User)
+			if mc.HasSyncProjection() {
+				if policy, ok := s.d.AccessPolicy.(core.DownloadAccessPolicy); ok && !policy.AllowDownloads(pr.User) {
+					*mc.AllowSync = false
+				}
+				// A context capability is distinct from permission to fetch a file.
+				// Restricted viewers must still retain their own download grant.
+				if pr.User == nil || !pr.User.IsOwner || !s.cfg().Plex.Claimed {
+					*mc.AllowSync = *mc.AllowSync && s.downloadsAllowed(pr.User)
+				}
+			} else {
+				*mc.AllowSync = s.downloadsAllowed(pr.User)
+			}
 		}
 		// PMS exposes playlist syncing to clients that declare the sync
 		// protocol. Keep Ether's download permission as the authority.
@@ -475,7 +486,7 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 			}
 		}
 	}
-	return model.Marshal(v, pr.Format)
+	return model.Marshal(localizeDecisionResponse(r, v), pr.Format)
 }
 
 // writeBody writes an encoded body, gzip-compressed when the client accepts
@@ -557,7 +568,9 @@ func libraryContainer() *model.MediaContainer {
 
 // hubContainer is the container PMS uses for hub lists.
 func hubContainer() *model.MediaContainer {
-	return &model.MediaContainer{AllowSync: model.Ptr(false), Identifier: model.LibraryIdentifier}
+	mc := &model.MediaContainer{Identifier: model.LibraryIdentifier}
+	mc.SetSyncProjection(true)
+	return mc
 }
 
 // writeEmpty writes an empty MediaContainer.
