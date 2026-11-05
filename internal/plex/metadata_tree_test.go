@@ -60,3 +60,31 @@ func TestMetadataTreeStreamSchemaAndAdmission(t *testing.T) {
 		t.Fatalf("tree XML %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestMetadataTreeEpisodeHasOnlyAncestorChain(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	rec := f.get(t, "/library/metadata/"+bbE1.Key.String()+"/tree", jsonAccept...)
+	if rec.Code != 200 {
+		t.Fatalf("episode tree %d %s", rec.Code, rec.Body.String())
+	}
+	mc := decodeJSON(t, rec)
+	node := mc["MetadataItem"].([]any)
+	for i, want := range []int64{int64(breakingBad.Key), int64(bbS1.Key), int64(bbE1.Key)} {
+		if len(node) != 1 {
+			t.Fatalf("level %d has siblings: %+v", i, node)
+		}
+		row := node[0].(map[string]any)
+		if row["id"] != float64(want) {
+			t.Fatalf("level %d: %+v", i, row)
+		}
+		if i < 2 {
+			node = row["MetadataItem"].([]any)
+		} else {
+			part := row["MediaItem"].([]any)[0].(map[string]any)["MediaPart"].([]any)[0].(map[string]any)
+			if part["metadataType"] != float64(4) {
+				t.Fatalf("episode part %+v", part)
+			}
+		}
+	}
+}
