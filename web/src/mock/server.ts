@@ -3460,12 +3460,19 @@ export function createFakeServer(opts: FakeOptions = {}) {
                   ? b.addedAt.localeCompare(a.addedAt)
                   : b.popularity - a.popularity,
         );
-        const offset = Number(q.get("offset") ?? 0);
+        const after = q.get("after");
+        const offset = after
+          ? Math.max(0, items.findIndex((item) => item.key === after) + 1)
+          : Number(q.get("offset") ?? 0);
+        const limit = Number(q.get("limit") ?? 48);
+        const page = items.slice(offset, offset + limit);
+        const hasMore = offset + limit < items.length;
         return json({
-          items: items.slice(offset, offset + Number(q.get("limit") ?? 48)).map(card),
+          items: page.map(card),
           total: items.length,
           totalExact: true,
-          hasMore: offset + Number(q.get("limit") ?? 48) < items.length,
+          hasMore,
+          nextCursor: hasMore ? page.at(-1)?.key : "",
         });
       }
       case "GET /catalog/search": {

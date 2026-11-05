@@ -42,6 +42,8 @@ describe("Catalog workspace", () => {
                 })),
               ],
           total: query.get("q") ? 1 : 107,
+          hasMore: !query.get("q") && !query.get("after"),
+          nextCursor: query.get("q") || query.get("after") ? "" : "page-two",
         };
       if (path === `/catalog/title/${title.key}`)
         return {
@@ -70,13 +72,13 @@ describe("Catalog workspace", () => {
         calls(fake, "GET", "/catalog/browse")
           .filter((c) => !c.path.includes("countOnly"))
           .at(-1)?.path,
-      ).toContain("offset=48"),
+      ).toContain("after=page-two"),
     );
     expect(
       calls(fake, "GET", "/catalog/browse")
         .filter((c) => !c.path.includes("countOnly"))
         .at(-1)?.path,
-    ).toContain("offset=48");
+    ).toContain("after=page-two");
     fireEvent.click(screen.getByRole("button", { name: "List view" }));
     expect(screen.getByRole("button", { name: "List view" })).toHaveAttribute(
       "aria-pressed",
@@ -88,7 +90,7 @@ describe("Catalog workspace", () => {
       calls(fake, "GET", "/catalog/browse")
         .filter((c) => !c.path.includes("countOnly"))
         .at(-1)?.path,
-    ).toContain("offset=0");
+    ).toContain("cursor=1");
     expect(screen.getByRole("button", { name: "List view" })).toHaveAttribute(
       "aria-pressed",
       "true",

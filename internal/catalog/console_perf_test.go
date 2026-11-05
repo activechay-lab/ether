@@ -58,9 +58,27 @@ func TestConsole600K(t *testing.T) {
 		name string
 		q    core.BrowseQuery
 	}{"wire-all-titles-or-secondary", wireOR})
+	deep := cases[0].q
+	deep.AfterKey = core.MovieKey(540000)
+	cases = append(cases, struct {
+		name string
+		q    core.BrowseQuery
+	}{"deep-keyset-popular-540k", deep})
+	deepOR := wireOR
+	deepOR.AfterKey = core.MovieKey(550000)
+	cases = append(cases, struct {
+		name string
+		q    core.BrowseQuery
+	}{"deep-keyset-or-secondary", deepOR})
+	deepWire := core.BrowseQuery{Filter: wireTypical, Sort: core.SortPopularity, Desc: true, Limit: 49, NoTotal: true, AfterKey: core.MovieKey(540000)}
+	cases = append(cases, struct {
+		name string
+		q    core.BrowseQuery
+	}{"deep-keyset-wire-typical-540k", deepWire})
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.q.Filter.LocalOnly = true
+			tc.q.CursorPage = true
 			times := make([]time.Duration, 31)
 			for i := range times {
 				c.cacheMu.Lock()

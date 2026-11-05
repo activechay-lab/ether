@@ -111,7 +111,15 @@ export function CatalogBrowser({
     ? params.get("sort")!
     : "popularity";
   const rawPage = Number(params.get("page"));
-  const page = Number.isSafeInteger(rawPage) && rawPage > 0 ? Math.min(rawPage, 1000000) : 1;
+  const collectionPageNumber =
+    Number.isSafeInteger(rawPage) && rawPage > 0 ? Math.min(rawPage, 1000000) : 1;
+  const cursorParams = new URLSearchParams(params);
+  ["page", "title", "view"].forEach((key) => cursorParams.delete(key));
+  cursorParams.sort();
+  const cursorIdentity = `${cursorParams}|${JSON.stringify(ruleFilter)}|${JSON.stringify(collection)}`;
+  const [cursorPage, setCursorPage] = useState({ identity: "", after: "", page: 1 });
+  const activeCursor = cursorPage.identity === cursorIdentity ? cursorPage : { after: "", page: 1 };
+  const page = collection ? collectionPageNumber : activeCursor.page;
   const list = params.get("view") === "list";
   const selected = params.get("title");
   const advancedRaw = params.get("filters") || "";
@@ -163,7 +171,8 @@ export function CatalogBrowser({
                 : undefined,
               secondarySort: params.get("secondarySort") || undefined,
               desc: params.get("desc") || undefined,
-              offset: (page - 1) * PAGE_SIZE,
+              cursor: "1",
+              after: activeCursor.after || undefined,
               limit: PAGE_SIZE,
             },
             signal,
@@ -176,6 +185,7 @@ export function CatalogBrowser({
       waiting,
       sort,
       page,
+      activeCursor.after,
       ruleFilter,
       specKey,
       advanced,
@@ -250,7 +260,8 @@ export function CatalogBrowser({
 
   const busy = results.loading || query !== debouncedQuery || advancedRaw !== advanced;
   const currentCount = count.data?.key === countKey ? count.data : null;
-  const total = currentCount?.total ?? results.data?.total ?? 0;
+  const total =
+    currentCount?.total ?? (results.data?.total ?? 0) + (collection ? 0 : (page - 1) * PAGE_SIZE);
   const totalExact = collection || currentCount?.totalExact || browsed.data?.totalExact !== false;
   const items = results.data?.items ?? [];
   const viewers = useAsync(() => api.viewers(), []);
@@ -563,7 +574,14 @@ export function CatalogBrowser({
                     {t("Clear filters")}
                   </Button>
                 ) : page > 1 ? (
-                  <Button variant="outline" onClick={() => update("page", "")}>
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      collection
+                        ? update("page", "")
+                        : setCursorPage({ identity: cursorIdentity, after: "", page: 1 })
+                    }
+                  >
                     {t("Back to first page")}
                   </Button>
                 ) : undefined
@@ -581,7 +599,15 @@ export function CatalogBrowser({
                   : (browsed.data?.hasMore ?? page * PAGE_SIZE < total)
               }
               loading={busy}
-              onLoadMore={() => update("page", String(page + 1))}
+              onLoadMore={() => {
+                if (collection) update("page", String(page + 1));
+                else if (browsed.data?.nextCursor)
+                  setCursorPage({
+                    identity: cursorIdentity,
+                    after: browsed.data.nextCursor,
+                    page: page + 1,
+                  });
+              }}
               onInspect={(key) => update("title", key)}
               renderAction={watchButton}
               onVisibleKeys={setVisibleKeys}

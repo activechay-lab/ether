@@ -172,6 +172,22 @@ func (h *Handler) handleCatalogBrowse(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	q.CursorPage = p.Get("cursor") == "1"
+	if q.CursorPage {
+		q.NoTotal = true
+		if q.Offset != 0 {
+			writeError(w, 400, "invalid_cursor", "Cursor pages require zero offset")
+			return
+		}
+		if raw := p.Get("after"); raw != "" {
+			key, err := decodeCatalogCursor(raw, q)
+			if err != nil {
+				writeError(w, 400, "invalid_cursor", err.Error())
+				return
+			}
+			q.AfterKey = key
+		}
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	requestedLimit := q.Limit
@@ -191,7 +207,11 @@ func (h *Handler) handleCatalogBrowse(w http.ResponseWriter, r *http.Request) {
 		}
 		page.Total = q.Offset + len(page.Items)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": cardsFor(page.Items), "total": page.Total, "totalExact": !q.NoTotal, "hasMore": hasMore})
+	nextCursor := ""
+	if q.CursorPage && hasMore && len(page.Items) > 0 {
+		nextCursor = encodeCatalogCursor(q, page.Items[len(page.Items)-1].Key)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": cardsFor(page.Items), "total": page.Total, "totalExact": !q.NoTotal, "hasMore": hasMore, "nextCursor": nextCursor})
 }
 
 // ImageProxy serves TMDB artwork by path at the TMDB size covering w.
