@@ -19,7 +19,6 @@ import {
 } from "@braedonsaunders/appkit-ui";
 import { Copy, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
-import { MoreOptions } from "../../components/ConfigSection";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
 import { Field, Segmented } from "../../components/fields";
@@ -291,7 +290,7 @@ export function ClusterOverview() {
         tabs={[
           { key: "overview", label: t("Overview") },
           { key: "nodes", label: t("Nodes") },
-          { key: "settings", label: t("Settings") },
+          { key: "tokens", label: t("Join tokens") },
         ]}
       />
       {tab === "overview" ? (
@@ -306,15 +305,7 @@ export function ClusterOverview() {
               onAdd={() => setAddingNode(true)}
             />
           ) : (
-            <>
-              <SharedSettings status={s} settings={settings} />
-              <details className="rounded-xl border border-border p-4">
-                <summary className="cursor-pointer font-medium">{t("Join tokens")}</summary>
-                <div className="pt-4">
-                  <JoinTokens settings={settings} />
-                </div>
-              </details>
-            </>
+            <JoinTokens settings={settings} />
           )}
         </div>
       )}
@@ -1185,58 +1176,6 @@ function RolePlan({ status, node }: { status: ClusterStatus; node: ClusterNode }
 
 type SettingsState = AsyncState<ClusterSettings | null>;
 
-function SharedSettings({ status, settings }: { status: ClusterStatus; settings: SettingsState }) {
-  const st = settings.data;
-  const self = status.self;
-  return (
-    <SettingsSection title={t("Shared settings")}>
-      <SettingsRow
-        title={t("This node")}
-        description={
-          self?.id === status.leader
-            ? t("Leads the cluster: it publishes the server to plex.tv and runs scheduled work.")
-            : t("A cluster member. Scheduled work runs on the leader.")
-        }
-        control={<Badge variant="info">{nodeName(self)}</Badge>}
-      />
-      <MoreOptions
-        setting="shared-settings"
-        label={t("More options: {title}", { title: t("Shared settings") })}
-      >
-        <SettingsRow
-          title={t("Settings version")}
-          description={t(
-            "Settings are stored in the database. A change on any node reaches the others within 30 seconds.",
-          )}
-          control={
-            st?.sharedVersion !== undefined ? (
-              <span className="tabular-nums text-sm text-fg">v{st.sharedVersion}</span>
-            ) : null
-          }
-        />
-        <SettingsRow
-          title={t("Credential key")}
-          description={t(
-            "Fingerprint of the key that encrypts stored credentials. It's the same on every node.",
-          )}
-          control={st?.keyFingerprint ? <code className="text-xs">{st.keyFingerprint}</code> : null}
-        />
-      </MoreOptions>
-      <SettingsRow
-        title={t("Settings each node keeps")}
-        description={t(
-          "Weight can be changed from Nodes when supported. Port, cache and hardware settings remain in each node’s manager.",
-        )}
-      />
-      {settings.error ? (
-        <div className="px-5 pb-4">
-          <ErrorPanel error={settings.error} onRetry={() => void settings.reload()} />
-        </div>
-      ) : null}
-    </SettingsSection>
-  );
-}
-
 const TOKEN_STATE: Record<
   TokenState,
   { label: string; variant: "success" | "secondary" | "warning" }
@@ -1290,7 +1229,9 @@ function JoinTokens({ settings }: { settings: SettingsState }) {
         </Button>
       }
     >
-      {!settings.data && !settings.error ? (
+      {settings.error ? (
+        <ErrorPanel error={settings.error} onRetry={() => void settings.reload()} />
+      ) : !settings.data ? (
         <LoadingRows rows={2} />
       ) : (
         <div className="max-sm:[&_thead]:hidden max-sm:[&_tr]:grid max-sm:[&_tr]:grid-cols-2 max-sm:[&_td]:whitespace-normal max-sm:[&_td]:text-left">

@@ -166,12 +166,15 @@ describe("Server › Cluster", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
     expect(screen.getByText(/different public addresses/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
-    expect(screen.getByRole("heading", { name: "Shared settings" })).toBeInTheDocument();
-    expect(screen.queryByText("v42")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "More options: Shared settings" }));
-    expect(await screen.findByText("v42", {}, WAIT)).toBeInTheDocument();
-    expect(screen.getByText("3f9c2a71d04be6a8")).toBeInTheDocument();
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Overview",
+      "Nodes",
+      "Join tokens",
+    ]);
+    fireEvent.click(screen.getByRole("tab", { name: "Join tokens" }));
+    expect(screen.queryByRole("heading", { name: "Shared settings" })).toBeNull();
+    expect(screen.queryByText("Settings each node keeps")).toBeNull();
+    expect(screen.getByRole("button", { name: "Create join token" })).toBeEnabled();
   });
 
   it("shows independent local serving/admission observations and leaves peers unknown", async () => {
@@ -218,8 +221,7 @@ describe("Server › Cluster", () => {
 
   it("lists join tokens with their state", async () => {
     renderApp("/cluster", { cluster: true });
-    fireEvent.click(await screen.findByRole("tab", { name: "Settings" }, WAIT));
-    fireEvent.click(screen.getByText("Join tokens", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Join tokens" }, WAIT));
     const tokens = await screen.findByRole("region", { name: "Join tokens" }, WAIT);
     await within(tokens).findByText("q9wd", {}, WAIT);
     expect(within(tokens).queryByText("t7k2")).toBeNull();
@@ -231,8 +233,7 @@ describe("Server › Cluster", () => {
 
   it("creates a join token in a drawer and shows it only once", async () => {
     const { fake } = renderApp("/cluster", { cluster: true });
-    fireEvent.click(await screen.findByRole("tab", { name: "Settings" }, WAIT));
-    fireEvent.click(screen.getByText("Join tokens", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Join tokens" }, WAIT));
     const tokens = await screen.findByRole("region", { name: "Join tokens" }, WAIT);
     fireEvent.click(within(tokens).getByRole("button", { name: /Create join token/ }));
     let drawer = await screen.findByRole("dialog", { name: "Create join token" });
@@ -264,8 +265,7 @@ describe("Server › Cluster", () => {
 
   it("revokes an unused token after confirmation", async () => {
     const { fake } = renderApp("/cluster", { cluster: true });
-    fireEvent.click(await screen.findByRole("tab", { name: "Settings" }, WAIT));
-    fireEvent.click(screen.getByText("Join tokens", { selector: "summary" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Join tokens" }, WAIT));
     const tokens = await screen.findByRole("region", { name: "Join tokens" }, WAIT);
     fireEvent.click(await within(tokens).findByRole("button", { name: "Revoke token q9wd" }, WAIT));
     const confirm = await screen.findByRole("dialog", { name: "Revoke join token?" });

@@ -3277,7 +3277,11 @@ export function createFakeServer(opts: FakeOptions = {}) {
                 clustered: true,
                 keyFingerprint: "3f9c2a71d04be6a8",
                 sharedVersion: 42,
-                joinTokens: state.joinTokens,
+                // Match the active-only owner token list; retain historical fixtures
+                // in state so UI filtering can also be exercised independently.
+                joinTokens: state.joinTokens.filter(
+                  (token) => !token.usedAt && Date.parse(token.expiresAt) > Date.now(),
+                ),
               }
             : { clustered: false, keyFingerprint: "3f9c2a71d04be6a8" },
         );
