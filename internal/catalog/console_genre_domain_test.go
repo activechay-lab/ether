@@ -3,7 +3,9 @@ package catalog
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/store"
 	"testing"
+	"time"
 )
 
 func TestConsoleGenreDomainTracksInsertUpdateDelete(t *testing.T) {
@@ -63,5 +65,63 @@ func TestConsoleDomainNeverPrunesAnORAlternative(t *testing.T) {
 		if err != nil || !empty {
 			t.Fatalf("unknown fact not pruned %+v: %v %v", f, empty, err)
 		}
+	}
+}
+
+// Two metadata writers can otherwise each observe only its own uncommitted
+// genre and leave no cross-pair witness after both commit.
+func TestConsoleGenreDomainConcurrentWriters(t *testing.T) {
+	c := largeCatalogue(t, 1)
+	if store.DialectOf(c.db) != store.Postgres {
+		t.Skip("PostgreSQL multi-writer snapshot regression")
+	}
+	c.db.SetMaxOpenConns(4)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	first, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Rollback()
+	second, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Rollback()
+	key := int64(core.MovieKey(1))
+	if _, err := first.ExecContext(ctx, `INSERT INTO catalog_genres(key,genre) VALUES(?,'Comedy')`, key); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := second.ExecContext(ctx, `INSERT INTO catalog_genres(key,genre) VALUES(?,'Thriller')`, key)
+		if err == nil {
+			err = second.Commit()
+		}
+		done <- err
+	}()
+	var secondErr error
+	finished := false
+	select {
+	case secondErr = <-done:
+		finished = true
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := first.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if !finished {
+		select {
+		case secondErr = <-done:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	if secondErr != nil {
+		t.Fatal(secondErr)
+	}
+	var count int
+	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_genre_pairs WHERE a='Comedy' AND b='Thriller'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("committed genres lack witness: %d %v", count, err)
 	}
 }

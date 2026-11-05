@@ -28,8 +28,17 @@ CREATE TRIGGER catalog_genre_pairs_update_after AFTER UPDATE ON catalog_genres B
 	// The migration transaction excludes old-version writers until backfill and
 	// maintenance triggers become visible together.
 	store.RegisterDialect("catalog", 40, store.Postgres, `LOCK TABLE catalog_genres IN SHARE ROW EXCLUSIVE MODE;`+schema+`
-CREATE FUNCTION catalog_genre_pairs_add() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN `+add+` RETURN NEW; END $$;
-CREATE FUNCTION catalog_genre_pairs_remove() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN `+remove+` IF TG_OP='DELETE' THEN RETURN OLD; END IF; RETURN NEW; END $$;
+CREATE FUNCTION catalog_genre_pairs_add() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+PERFORM pg_advisory_xact_lock(hashtextextended('ether:catalog-genres:' || NEW.key::text,0));
+`+add+` RETURN NEW; END $$;
+CREATE FUNCTION catalog_genre_pairs_remove() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+IF TG_OP='UPDATE' THEN
+ PERFORM pg_advisory_xact_lock(hashtextextended('ether:catalog-genres:' || LEAST(OLD.key,NEW.key)::text,0));
+ IF OLD.key<>NEW.key THEN PERFORM pg_advisory_xact_lock(hashtextextended('ether:catalog-genres:' || GREATEST(OLD.key,NEW.key)::text,0)); END IF;
+ELSE
+ PERFORM pg_advisory_xact_lock(hashtextextended('ether:catalog-genres:' || OLD.key::text,0));
+END IF;
+`+remove+` IF TG_OP='DELETE' THEN RETURN OLD; END IF; RETURN NEW; END $$;
 CREATE TRIGGER catalog_genre_pairs_insert AFTER INSERT OR UPDATE ON catalog_genres FOR EACH ROW EXECUTE FUNCTION catalog_genre_pairs_add();
 CREATE TRIGGER catalog_genre_pairs_delete BEFORE DELETE OR UPDATE ON catalog_genres FOR EACH ROW EXECUTE FUNCTION catalog_genre_pairs_remove();`)
 }
