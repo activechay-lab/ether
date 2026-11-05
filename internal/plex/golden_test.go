@@ -148,7 +148,7 @@ func TestGolden(t *testing.T) {
 		{"prefs", "/:/prefs", nil},
 		{"servers", "/servers", nil},
 		{"system_agents", "/system/agents", nil},
-		{"decision_directplay", "/video/:/transcode/universal/decision?path=%2Flibrary%2Fmetadata%2F1000000000000550&mediaIndex=0&partIndex=0&protocol=hls&directPlay=1&directStream=1&session=s1", appleTV},
+		{"decision_directplay", "/video/:/transcode/universal/decision?hasMDE=1&path=%2Flibrary%2Fmetadata%2F1000000000000550&mediaIndex=0&partIndex=0&protocol=hls&directPlay=1&directStream=1&session=s1", appleTV},
 		{"decision_copy", "/video/:/transcode/universal/decision?path=%2Flibrary%2Fmetadata%2F1000000000000550&protocol=hls&directPlay=0&directStream=1&session=s2", jsonAccept},
 	}
 	for _, c := range cases {

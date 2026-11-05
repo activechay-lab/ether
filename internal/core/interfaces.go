@@ -559,9 +559,6 @@ type SegmentCache interface {
 // Transcoder (internal/transcode)
 
 type StreamInfo struct {
-	ChromaLocation string `json:"chromaLocation,omitempty"`
-	CodedWidth     int    `json:"codedWidth,omitempty"`
-	CodedHeight    int    `json:"codedHeight,omitempty"`
 	// MalformedHEVC marks an invalid SPS header found in the probe data.
 	MalformedHEVC bool `json:"malformedHEVC,omitempty"`
 	// Probe hints for enhancement backends that require progressive, steady-rate input.

@@ -885,6 +885,9 @@ func (s *Server) renderStreams(key core.RatingKey, info core.MediaInfo, sel sele
 			}
 			ps.ColorRange = st.ColorRange
 			ps.ChromaLocation, ps.CodedWidth, ps.CodedHeight = st.ChromaLocation, st.CodedWidth, st.CodedHeight
+			if ps.Codec == "h264" && ps.CodedHeight <= 0 {
+				ps.CodedHeight = st.Height
+			}
 			if ps.Codec == "h264" && ps.CodedHeight > 0 {
 				ps.CodedHeight = ((ps.CodedHeight + 15) / 16) * 16
 			}
