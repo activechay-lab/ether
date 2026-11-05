@@ -9,6 +9,9 @@ import (
 )
 
 func (a *App) buildLiveTV() error {
+	if err := a.buildOnAir(); err != nil {
+		return err
+	}
 	var tc core.Transcoder
 	if a.transcoder != nil {
 		tc = a.transcoder
@@ -17,7 +20,7 @@ func (a *App) buildLiveTV() error {
 	if a.resolver != nil {
 		avail = a.resolver
 	}
-	svc, err := livetv.New(livetv.Options{InputUser: a.users.Owner, Screens: func() config.LiveTVScreens { return a.cfg.Read().LiveTV.Screens }, Logger: a.log.With("component", "livetv"), PlexGuideToken: func() string { return a.cfg.Read().Plex.Token }, Now: parityClock(), DB: a.db, Sealer: a.cfg, Catalog: a.catalog, Collections: a.collections, Playback: a.playback, Transcoder: tc, Availability: avail, Allowed: a.safety.Allowed, CanPlay: a.safety.CanPlay, LogoIndexURL: func() string { return a.cfg.Read().LiveTV.LogoIndexURL }, HealthSweepMinutes: func() int { return a.cfg.Read().LiveTV.HealthSweepMinutes }, StreamLimit: func(u *core.User) int { return playback.UserStreamLimit(a.cfg.Read(), a.safety.UserPolicy(u)) }, Warm: func(ctx context.Context, key core.RatingKey) error {
+	svc, err := livetv.New(livetv.Options{Graphics: a.onair, InputUser: a.users.Owner, Screens: func() config.LiveTVScreens { return a.cfg.Read().LiveTV.Screens }, Logger: a.log.With("component", "livetv"), PlexGuideToken: func() string { return a.cfg.Read().Plex.Token }, Now: parityClock(), DB: a.db, Sealer: a.cfg, Catalog: a.catalog, Collections: a.collections, Playback: a.playback, Transcoder: tc, Availability: avail, Allowed: a.safety.Allowed, CanPlay: a.safety.CanPlay, LogoIndexURL: func() string { return a.cfg.Read().LiveTV.LogoIndexURL }, HealthSweepMinutes: func() int { return a.cfg.Read().LiveTV.HealthSweepMinutes }, StreamLimit: func(u *core.User) int { return playback.UserStreamLimit(a.cfg.Read(), a.safety.UserPolicy(u)) }, Warm: func(ctx context.Context, key core.RatingKey) error {
 		if !a.registrar.Status().PlexPass {
 			return core.ErrUnauthorized
 		}
@@ -32,6 +35,7 @@ func (a *App) buildLiveTV() error {
 		return err
 	}
 	a.livetv = svc
+	a.onair.Start()
 	a.closers = append(a.closers, func() { svc.Close() })
 	return nil
 }

@@ -1,11 +1,11 @@
-import { Button, Input, Tooltip } from "@braedonsaunders/appkit-ui";
+import { Button, Input, Tooltip, toast } from "@braedonsaunders/appkit-ui";
 import { Info, Shuffle, RotateCcw, Play, Upload, PenTool } from "lucide-react";
 import { Field, ChipGroup } from "../../../components/fields";
 import { ColorPicker } from "../../../components/ColorPicker";
 import { t } from "../../../i18n";
 import { referenceLooks } from "./fixtures";
 import { normalizeFont } from "./scene-renderer";
-import { MOMENTS, type Look, type BrandTokens } from "./model";
+import { MOMENTS, onair, type Look, type BrandTokens } from "./model";
 export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look) => void }) {
   const b = look.brand;
   const set = (p: Partial<BrandTokens>) => onChange({ ...look, brand: { ...b, ...p } });
@@ -47,9 +47,10 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    const r = new FileReader();
-                    r.onload = () => set({ logo: String(r.result) });
-                    r.readAsDataURL(file);
+                    void onair
+                      .uploadAsset(file, "image")
+                      .then((a) => set({ logo: a.digest }))
+                      .catch(() => toast.error(t("Upload failed")));
                   }
                 }}
               />

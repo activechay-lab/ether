@@ -1,0 +1,655 @@
+package onair
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/braedonsaunders/ether/internal/artwork"
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/onair/encode"
+	"github.com/braedonsaunders/ether/internal/onair/families"
+	"github.com/braedonsaunders/ether/internal/onair/fonts"
+	"github.com/braedonsaunders/ether/internal/onair/raster"
+	"github.com/braedonsaunders/ether/internal/onair/scene"
+	"golang.org/x/image/font/opentype"
+	"image"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+)
+
+type Options struct {
+	StaticRequests func(context.Context, string) []core.ClipRequest
+	DB             *sql.DB
+	Chat           Chatter
+	Dir            string
+	FFmpeg         func() string
+	Probe          func(context.Context, string) (*core.MediaInfo, error)
+	Acquire        func(context.Context) (context.Context, func(), error)
+	Bindings       func(context.Context, string, string, time.Time) (any, error)
+	// Upcoming supplies requests for the next three hours of watched channels.
+	Upcoming    func(context.Context) []core.ClipRequest
+	Logger      *slog.Logger
+	CacheBytes  int64
+	WorkingSize func() (int, int)
+	Artwork     func(context.Context, string) (image.Image, error)
+	// Render is a seam for verifying that Ensure never executes work inline.
+	Render func(context.Context, scene.Document, raster.Bindings, string) error
+}
+type entry struct {
+	Ref  core.ClipRef
+	Size int64
+	Used time.Time
+	Pin  time.Time
+}
+type renderJob struct {
+	Hash    string
+	Look    string
+	Doc     scene.Document
+	Bind    raster.Bindings
+	Request core.ClipRequest
+	prepare func(context.Context) error
+	convert func(context.Context) error
+}
+type Service struct {
+	resources string
+	reelReady map[string]bool
+	o         Options
+	db        *sql.DB
+	mu        sync.Mutex
+	assetMu   sync.Mutex
+	looks     map[string]Look
+	cache     map[string]entry
+	pins      map[string]time.Time
+	pending   map[string]bool
+	progress  map[string]*Progress
+	lookJobs  map[string][]string
+	jobs      chan renderJob
+	clipJobs  chan renderJob
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	startOnce sync.Once
+}
+
+var _ core.ChannelGraphics = (*Service)(nil)
+
+func New(o Options) (*Service, error) {
+	if o.DB == nil {
+		return nil, fmt.Errorf("onair: database required")
+	}
+	if o.Logger == nil {
+		o.Logger = slog.Default()
+	}
+	if o.CacheBytes <= 0 {
+		o.CacheBytes = 2 << 30
+	}
+	if e := os.MkdirAll(o.Dir, 0750); e != nil {
+		return nil, e
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Service{reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 16), ctx: ctx, cancel: cancel}
+	if e := s.seed(ctx); e != nil {
+		cancel()
+		return nil, e
+	}
+	ls, e := s.Looks(ctx)
+	if e != nil {
+		cancel()
+		return nil, e
+	}
+	for _, l := range ls {
+		s.looks[l.ID] = l
+	}
+	s.loadCache()
+	s.loadReels()
+
+	s.resumeConversions()
+	for _, l := range ls {
+		s.enqueueLook(l)
+	}
+	return s, nil
+}
+
+// Start begins workers after application dependencies have been constructed.
+func (s *Service) Start() {
+	s.startOnce.Do(func() {
+		if s.ctx.Err() == nil {
+			s.wg.Add(1)
+			go s.run()
+		}
+	})
+}
+func (s *Service) Close() { s.cancel(); s.wg.Wait() }
+func (s *Service) Duration(id, m string) (time.Duration, bool) {
+	if strings.HasPrefix(m, "screen.") {
+		switch m {
+		case "screen.card", "screen.static", "screen.bars", "screen.brb", "screen.testcard":
+			return 4 * time.Second, true
+		}
+		return 0, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	l, ok := s.looks[id]
+	v, found := l.Moments[m]
+	return time.Duration(v.Duration * float64(time.Second)), ok && found
+}
+func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
+	s.mu.Lock()
+	l, ok := s.looks[r.LookID]
+	s.mu.Unlock()
+	f := l.Family
+	if f == "lateNight" {
+		f = "late-night"
+	}
+	if strings.HasPrefix(r.Moment, "screen.") {
+		f = "signal"
+		ok = true
+	}
+	if !ok {
+		return renderJob{}, false
+	}
+	d, custom := l.Documents[r.Moment]
+	var e error
+	if !custom {
+		moment := r.Moment
+		if f == "personal" && moment == "offair" {
+			moment = "welcome"
+		}
+		d, e = families.Get(f, moment)
+		if e == nil {
+			d.Moment = r.Moment
+		}
+	}
+	if e != nil {
+		return renderJob{}, false
+	}
+	raw, _ := json.Marshal(d)
+	_ = json.Unmarshal(raw, &d)
+	if v, ok := l.Moments[r.Moment]; ok && f != "signal" {
+		d.Duration = v.Duration
+		d.Poster = v.Poster
+	}
+	b := families.Defaults(f)
+	for k := range b.Slots {
+		b.Slots[k] = ""
+	}
+	for k, v := range r.Bind {
+		b.Slots[k] = v
+	}
+	if f != "signal" {
+		b.Tokens["bg"] = l.Brand.Palette.Background
+		b.Tokens["accent"] = l.Brand.Palette.Accent
+		b.Tokens["text"] = l.Brand.Palette.Text
+		b.Tokens["glow"] = l.Brand.Palette.Glow
+		b.Tokens["fog"] = l.Brand.Palette.Glow
+		b.Tokens["words.break"] = "Back in a moment"
+		if f == "cinema" {
+			b.Tokens["words.break"] = "INTERMISSION"
+		}
+		b.Tokens["logo"] = l.Brand.Logo
+		b.Slots["brand.logo"] = l.Brand.Logo
+		for _, v := range []string{"grain", "flicker", "scanlines", "vignette"} {
+			b.Tokens["textures."+v] = 0.0
+			for _, t := range l.Brand.Textures {
+				if strings.EqualFold(t, v) {
+					b.Tokens["textures."+v] = .07
+				}
+			}
+		}
+		b.Tokens["type.display"] = normalizeFont(l.Brand.Type.Display)
+		b.Tokens["type.mono"] = normalizeFont(l.Brand.Type.Body)
+		b.Tokens["type.body"] = normalizeFont(l.Brand.Type.Body)
+		b.Tokens["energy"] = l.Brand.Energy * 2
+		b.Tokens["seed"] = l.Brand.Seed
+		b.Tokens["volume"] = l.Brand.Volume
+		b.Tokens["sting"] = l.Brand.Sting
+		b.Tokens["words.tagline"] = l.Brand.Tagline
+		for k, v := range l.Brand.Words {
+			if k == "upnext" {
+				k = "upNext"
+			}
+			b.Tokens["words."+k] = v
+		}
+	}
+	if f == "signal" {
+		switch r.Bind["screen.reason"] {
+		case "busy":
+			b.Slots["screen.line1"] = "Waiting for a free connection"
+		case "offair":
+			b.Slots["screen.line1"] = "Off air"
+			if r.Bind["screen.back"] != "" {
+				b.Slots["screen.line1"] = "Back at " + r.Bind["screen.back"]
+			}
+		default:
+			b.Slots["screen.line1"] = "Reconnecting…"
+		}
+		if r.Bind["screen.stationId"] == "1" {
+			b.Slots["station.id"] = "ETHER"
+		}
+	}
+	if v := r.Bind["channel.accent"]; v != "" {
+		b.Tokens["accent"] = v
+	}
+	if v := r.Bind["channel.tagline"]; v != "" {
+		b.Tokens["words.tagline"] = v
+	}
+	applyLayers(d.Layers, l.Layers)
+	if f != "signal" && l.Brand.Logo != "" {
+		if utf8.RuneCountInString(l.Brand.Logo) <= 3 {
+			d.Layers = append(d.Layers, scene.Layer{ID: "owner-logo", Type: "text", Text: l.Brand.Logo, X: 95.0, Y: 130.0, Font: normalizeFont(l.Brand.Type.Display), Size: 72.0, Fill: l.Brand.Palette.Accent})
+		} else {
+			d.Layers = append(d.Layers, scene.Layer{ID: "owner-logo", Type: "image", Src: "{brand.logo}", X: 95.0, Y: 70.0, W: 120.0, H: 120.0, Fit: "contain"})
+		}
+	}
+
+	h := encode.Hash(raster.Version+":"+s.resources, d, struct {
+		Brand  Brand
+		Layers map[string]map[string]any
+	}{l.Brand, l.Layers}, struct {
+		Bindings scene.Bindings
+		Request  core.ClipRequest
+	}{b, r}, r.Art, encode.Profile)
+	return renderJob{Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b}, Request: r}, h != ""
+}
+func (s *Service) Clip(_ context.Context, r core.ClipRequest) (core.ClipRef, bool) {
+	j, ok := s.plan(r)
+	if !ok {
+		return core.ClipRef{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.cache[j.Hash]
+	if ok {
+		v.Used = time.Now()
+		v.Pin = time.Now().Add(3 * time.Hour)
+		s.cache[j.Hash] = v
+	}
+	return v.Ref, ok
+}
+func (s *Service) Ensure(_ context.Context, r core.ClipRequest) {
+	j, ok := s.plan(r)
+	if ok {
+		s.mu.Lock()
+		s.pins[j.Hash] = time.Now().Add(3 * time.Hour)
+		s.mu.Unlock()
+		s.enqueue(j)
+	}
+}
+func (s *Service) enqueue(j renderJob) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pending[j.Hash] {
+		return true
+	}
+	if v, ok := s.cache[j.Hash]; ok {
+		v.Pin = s.pins[j.Hash]
+		s.cache[j.Hash] = v
+		return true
+	}
+	select {
+	case <-s.ctx.Done():
+		return false
+	default:
+	}
+	queue := s.jobs
+	if j.convert != nil {
+		queue = s.clipJobs
+	}
+	select {
+	case queue <- j:
+		s.pending[j.Hash] = true
+		return true
+	default:
+		return false
+	}
+}
+func (s *Service) enqueueLook(l Look) {
+	if s.o.StaticRequests != nil {
+		s.enqueue(renderJob{Hash: "plan-" + l.ID + "-" + newID(), prepare: func(ctx context.Context) error { s.queueLook(l, s.o.StaticRequests(ctx, l.ID)); return nil }})
+		return
+	}
+	s.queueLook(l, nil)
+}
+func (s *Service) queueLook(l Look, requests []core.ClipRequest) {
+	if len(requests) == 0 {
+		ids := l.ChannelIDs
+		if len(ids) == 0 {
+			ids = []string{""}
+		}
+		moments := []string{"ident", "offair", "break"}
+		if l.Family == "personal" {
+			moments = append(moments, "welcome")
+		}
+		for _, id := range ids {
+			for _, m := range moments {
+				requests = append(requests, core.ClipRequest{LookID: l.ID, Moment: m, ChannelID: id, Bind: map[string]string{"channel.name": l.Name}})
+			}
+		}
+	}
+	jobs := []renderJob{}
+	hashes := []string{}
+	for _, r := range requests {
+		if j, ok := s.plan(r); ok {
+			jobs = append(jobs, j)
+			hashes = append(hashes, j.Hash)
+		}
+	}
+	s.mu.Lock()
+	s.lookJobs[l.ID] = hashes
+	s.refreshProgress(l.ID)
+	s.mu.Unlock()
+	for _, j := range jobs {
+		s.enqueue(j)
+	}
+}
+
+// refreshProgress is called under mu and counts only the current saved revision.
+func (s *Service) refreshProgress(id string) {
+	p := &Progress{Total: len(s.lookJobs[id])}
+	for _, h := range s.lookJobs[id] {
+		if _, ok := s.cache[h]; ok {
+			p.Done++
+		}
+	}
+	s.progress[id] = p
+}
+
+func (s *Service) run() {
+	defer s.wg.Done()
+	tick := time.NewTicker(30 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case j := <-s.clipJobs:
+			s.process(j)
+			continue
+		default:
+		}
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-tick.C:
+			if ls, e := s.Looks(s.ctx); e == nil {
+				snapshot := map[string]Look{}
+				for _, l := range ls {
+					snapshot[l.ID] = l
+				}
+				s.mu.Lock()
+				s.looks = snapshot
+				s.evict()
+				s.mu.Unlock()
+			}
+			if s.o.Upcoming != nil {
+				for _, r := range s.o.Upcoming(s.ctx) {
+					j, ok := s.plan(r)
+					if ok {
+						s.mu.Lock()
+						v := s.cache[j.Hash]
+						s.pins[j.Hash] = time.Now().Add(3 * time.Hour)
+						v.Pin = s.pins[j.Hash]
+						if v.Ref.Hash != "" {
+							s.cache[j.Hash] = v
+						}
+						s.mu.Unlock()
+						s.enqueue(j)
+					}
+				}
+			}
+		case j := <-s.clipJobs:
+			s.process(j)
+		case j := <-s.jobs:
+			s.process(j)
+		}
+	}
+}
+func (s *Service) process(j renderJob) {
+	e := s.execute(j)
+	s.mu.Lock()
+	delete(s.pending, j.Hash)
+	s.refreshProgress(j.Look)
+	s.mu.Unlock()
+	if errors.Is(e, context.Canceled) && s.ctx.Err() == nil {
+		s.enqueue(j)
+	}
+	if e != nil && s.ctx.Err() == nil {
+		s.o.Logger.Warn("onair job failed", "hash", j.Hash, "error", e)
+	}
+}
+
+func (s *Service) execute(j renderJob) (err error) {
+	if j.prepare != nil {
+		return j.prepare(s.ctx)
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, 15*time.Minute)
+	defer cancel()
+	if s.o.Acquire != nil {
+		jobCtx, release, e := s.o.Acquire(ctx)
+		if e != nil {
+			return e
+		}
+		defer release()
+		ctx = jobCtx
+	}
+	defer func() {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+	}()
+	if j.convert != nil {
+		return j.convert(ctx)
+	}
+	if e := s.loadAssets(ctx, &j); e != nil {
+		return e
+	}
+	out := filepath.Join(s.o.Dir, j.Hash+".mp4")
+	var e error
+	audio := ""
+	var volume *float64
+	if !strings.HasPrefix(j.Doc.Moment, "screen.") {
+		v, _ := j.Bind.Tokens["volume"].(float64)
+		volume = &v
+	}
+	if digest, ok := j.Bind.Tokens["sting"].(string); ok && len(digest) == 64 {
+		var b []byte
+		if e = s.db.QueryRowContext(ctx, "SELECT content FROM onair_assets WHERE digest=? AND kind='audio'", digest).Scan(&b); e != nil {
+			return e
+		}
+		f, e := os.CreateTemp(s.o.Dir, ".sting-*")
+		if e != nil {
+			return e
+		}
+		defer os.Remove(f.Name())
+		_, e = f.Write(b)
+		f.Close()
+		if e != nil {
+			return e
+		}
+		audio = f.Name()
+	}
+	if s.o.Render != nil {
+		e = s.o.Render(ctx, j.Doc, j.Bind, out)
+	} else {
+		if s.o.FFmpeg == nil {
+			return fmt.Errorf("ffmpeg unavailable")
+		}
+		e = encode.WithOptions(ctx, s.o.FFmpeg(), func(i int) *image.RGBA { return raster.Render(j.Doc, j.Bind, float64(i)/30, 1920, 1080) }, int(j.Doc.Duration*30), 30, audio, out, encode.Options{Workers: 2, Audio: j.Doc.Audio, AudioVolume: volume})
+	}
+	if e != nil {
+		return e
+	}
+	st, e := os.Stat(out)
+	if e != nil {
+		return e
+	}
+	s.mu.Lock()
+	s.cache[j.Hash] = entry{core.ClipRef{Hash: j.Hash, Duration: time.Duration(j.Doc.Duration * float64(time.Second)), Path: out}, st.Size(), time.Now(), s.pins[j.Hash]}
+	s.evict()
+	s.mu.Unlock()
+	meta, _ := json.Marshal(j.Doc.Duration)
+	return os.WriteFile(filepath.Join(s.o.Dir, j.Hash+".json"), meta, 0640)
+}
+func (s *Service) loadCache() {
+	es, _ := os.ReadDir(s.o.Dir)
+	for _, v := range es {
+		if !strings.HasSuffix(v.Name(), ".mp4") {
+			continue
+		}
+		h := strings.TrimSuffix(v.Name(), ".mp4")
+		if len(h) != 64 {
+			continue
+		}
+		b, e := os.ReadFile(filepath.Join(s.o.Dir, h+".json"))
+		var d float64
+		if e != nil || json.Unmarshal(b, &d) != nil {
+			continue
+		}
+		st, e := v.Info()
+		if e != nil {
+			continue
+		}
+		s.cache[h] = entry{Ref: core.ClipRef{Hash: h, Duration: time.Duration(d * float64(time.Second)), Path: filepath.Join(s.o.Dir, v.Name())}, Size: st.Size(), Used: st.ModTime()}
+	}
+}
+func (s *Service) evict() {
+	for h, until := range s.pins {
+		if until.Before(time.Now()) {
+			delete(s.pins, h)
+		}
+	}
+	var total int64
+	keys := []string{}
+	for k, v := range s.cache {
+		total += v.Size
+		if v.Pin.Before(time.Now()) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool { return s.cache[keys[i]].Used.Before(s.cache[keys[j]].Used) })
+	for _, k := range keys {
+		if total <= s.o.CacheBytes {
+			break
+		}
+		v := s.cache[k]
+		if os.Remove(v.Ref.Path) == nil {
+			os.Remove(filepath.Join(s.o.Dir, k+".json"))
+			delete(s.cache, k)
+			total -= v.Size
+		}
+	}
+}
+
+func applyLayers(ls []scene.Layer, patches map[string]map[string]any) {
+	for i := range ls {
+		l := &ls[i]
+		p := patches[l.ID]
+		if p == nil {
+			switch l.ID {
+			case "brand", "title":
+				p = patches["Title"]
+			case "tag":
+				p = patches["Tagline"]
+			}
+		}
+		if p == nil {
+			for key, v := range patches {
+				if strings.EqualFold(key, l.ID) {
+					p = v
+					break
+				}
+			}
+		}
+		if v, ok := p["hidden"].(bool); ok && v {
+			l.Opacity = 0
+		}
+		if v, ok := p["text"].(string); ok {
+			l.Text = v
+		}
+		if v, ok := p["size"]; ok {
+			l.Size = v
+		}
+		if v, ok := p["opacity"].(float64); ok {
+			l.Opacity = v / 100
+		}
+		if v, ok := p["x"]; ok {
+			l.X = v
+		}
+		if v, ok := p["y"]; ok {
+			l.Y = v
+		}
+		if v, ok := p["fit"].(string); ok {
+			l.Fit = v
+		}
+		applyLayers(l.Layers, patches)
+	}
+}
+func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
+	j.Bind.Assets = map[string]image.Image{}
+	j.Bind.Fonts = map[string]*opentype.Font{}
+	refs := map[string]string{}
+	for k, d := range j.Request.Art {
+		refs[k] = d
+	}
+	for slot, d := range j.Bind.Slots {
+		if len(d) == 64 {
+			refs[slot] = d
+		}
+	}
+	for _, key := range []string{"type.display", "type.mono", "type.body", "logo"} {
+		d, _ := j.Bind.Tokens[key].(string)
+		if len(d) == 64 {
+			refs[d] = d
+		}
+	}
+	for slot, d := range refs {
+		if len(d) != 64 {
+			if d != "" && s.o.Artwork != nil {
+				im, e := s.o.Artwork(ctx, d)
+				if e != nil {
+					return e
+				}
+				j.Bind.Assets[d] = im
+				j.Bind.Slots[slot] = d
+			}
+			continue
+		}
+		var b []byte
+		var kind, mime string
+		if e := s.db.QueryRowContext(ctx, "SELECT content,kind,mime FROM onair_assets WHERE digest=?", d).Scan(&b, &kind, &mime); e != nil {
+			return e
+		}
+		if kind == "font" {
+			f, e := opentype.Parse(b)
+			if e != nil {
+				return e
+			}
+			j.Bind.Fonts[d] = f
+			continue
+		}
+		if kind == "image" {
+			if mime == "image/svg+xml" {
+				v, _, e := artwork.NewSVGRasterizer().Rasterize(ctx, d, b, artwork.RasterOptions{})
+				if e != nil {
+					return e
+				}
+				b = v
+			}
+			im, _, e := image.Decode(bytes.NewReader(b))
+			if e != nil {
+				return e
+			}
+			j.Bind.Assets[d] = im
+			j.Bind.Slots[slot] = d
+		}
+	}
+	return nil
+}

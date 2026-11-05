@@ -24,6 +24,7 @@ import (
 // services to these interfaces; tests use fakes. Plugins and Approvals may
 // be nil until WS7 and WS4 land.
 type Deps struct {
+	OnAir       OnAirService
 	Status      StatusService
 	Playback    PlaybackService
 	Resolver    ResolverService
@@ -244,6 +245,7 @@ func All(d Deps) []tools.Tool {
 	out = append(out, readTools(d)...)
 	out = append(out, writeTools(d)...)
 	out = append(out, webTools()...)
+	out = append(out, onairTools(d)...)
 	return out
 }
 

@@ -17,7 +17,10 @@ func (r *render) text(dst *image.RGBA, l scene.Layer, m matrix) {
 	id := r.s(l.Font)
 	parsed := r.parsed[id]
 	if parsed == nil {
-		parsed, _ = fonts.Parse(id)
+		parsed = r.b.Fonts[id]
+		if parsed == nil {
+			parsed, _ = fonts.Parse(id)
+		}
 		r.parsed[id] = parsed
 	}
 	if parsed == nil {

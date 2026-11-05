@@ -1,15 +1,17 @@
 import {
   loadOnAirFonts,
+  setResourceToken,
   loadSceneAssets,
   renderScene,
   type Scene,
   type SceneBindings,
 } from "./scene-renderer";
-const fonts = loadOnAirFonts();
+
 let canvas: OffscreenCanvas | undefined;
 self.onmessage = async (
   event: MessageEvent<{
     id: number;
+    sessionToken?: string;
     document: Scene;
     bindings: SceneBindings;
     time: number;
@@ -18,7 +20,8 @@ self.onmessage = async (
   }>,
 ) => {
   try {
-    await fonts;
+    setResourceToken(event.data.sessionToken ?? "");
+    await loadOnAirFonts();
     const { id, document, bindings, time, width, height } = event.data;
     if (!canvas || canvas.width !== width || canvas.height !== height)
       canvas = new OffscreenCanvas(width, height);

@@ -164,10 +164,11 @@ export const onair = {
   clipPreview: (id: string, clip: string) =>
     `/ether/api/onair/reels/${enc(id)}/clips/${enc(clip)}/preview`,
   assets: () => apiFetch<OnAirAsset[]>("/onair/assets"),
-  uploadAsset: (file: File, kind: string) => {
+  uploadAsset: (file: File, kind: string, license?: string) => {
     const data = new FormData();
     data.append("file", file);
     data.append("kind", kind);
+    if (license) data.append("license", license);
     return write<OnAirAsset>("/onair/assets", "POST", data);
   },
   deleteAsset: (id: string) => write<void>(`/onair/assets/${enc(id)}`, "DELETE"),

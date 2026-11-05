@@ -49,12 +49,12 @@ func TestMCPBuiltinToolsAndEndToEndWorkflow(t *testing.T) {
 	}
 	t.Cleanup(a.Close)
 
-	// 1. Verify all 29 built-in tools are registered in both the tool catalogue
+	// 1. Verify all 34 built-in tools are registered in both the tool catalogue
 	// and the descriptor registry (extend.KindTool). web_search and web_fetch
 	// are among them but stay invisible to MCP principals.
 	toolDescs := a.extendRT.registry.List(extend.KindTool)
-	if len(toolDescs) != 29 {
-		t.Fatalf("expected 29 extend.KindTool descriptors, got %d", len(toolDescs))
+	if len(toolDescs) != 34 {
+		t.Fatalf("expected 34 extend.KindTool descriptors, got %d", len(toolDescs))
 	}
 
 	// Create local owner account and issue an owner console token.

@@ -43,6 +43,9 @@ func (a *App) extensionHandlers() map[string]http.Handler {
 	})
 	m["notifications"] = a.notifications.Handler()
 	m["livetv"] = a.livetv.Handler()
+	if a.onair != nil {
+		m["onair"] = a.onair.Handler()
+	}
 	m["calendar"] = a.calendar.Handler()
 	m["safety/diagnostics"] = a.diagnosticsHandler()
 	m["playback"] = a.playbackPolicyHandler()

@@ -1,5 +1,19 @@
+import { getToken, SESSION_HEADER } from "../../../lib/api";
 import type { Bindings, Look, Moment } from "./model";
 
+let resourceToken = "";
+export function setResourceToken(token: string) {
+  resourceToken = token;
+}
+function resourceHeaders(url: string): HeadersInit {
+  const target = new URL(url, globalThis.location.href);
+  const token = resourceToken || getToken();
+  return token &&
+    target.origin === globalThis.location.origin &&
+    target.pathname.startsWith("/ether/api/")
+    ? { [SESSION_HEADER]: token }
+    : {};
+}
 export type Value =
   | number
   | string
@@ -662,7 +676,9 @@ let ready: Promise<void> | undefined;
 export function loadOnAirFonts() {
   return (ready ??= (async () => {
     if (import.meta.env.MODE !== "mock" && import.meta.env.MODE !== "test") {
-      const response = await fetch("/ether/api/onair/families?documents=1");
+      const response = await fetch("/ether/api/onair/families?documents=1", {
+        headers: resourceHeaders("/ether/api/onair/families?documents=1"),
+      });
       if (!response.ok) throw new Error(`On Air families: ${response.status}`);
       const entries = (await response.json()) as {
         id: string;
@@ -697,7 +713,9 @@ export function loadOnAirFonts() {
         const url =
           Object.entries(fontURLs).find(([path]) => path.endsWith(`/${id}.ttf`))?.[1] ??
           `/ether/api/onair/fonts/${id}`;
-        const face = new FontFace(`onair-${id}`, `url("${url}")`);
+        const response = await fetch(url, { headers: resourceHeaders(url) });
+        if (!response.ok) throw new Error(`Font: ${response.status}`);
+        const face = new FontFace(`onair-${id}`, await response.arrayBuffer());
         await face.load();
         const fonts =
           typeof document !== "undefined"
@@ -833,6 +851,7 @@ function workerFrame(
     state.busy = true;
     sharedWorker.postMessage({
       id: state.id,
+      sessionToken: getToken(),
       document,
       bindings,
       time,
@@ -862,7 +881,15 @@ export function renderLook(
       return {
         ...l,
         ...(patch
-          ? { ...patch, opacity: patch.hidden ? 0 : (patch.opacity ?? l.opacity), font: l.font }
+          ? {
+              ...patch,
+              opacity: patch.hidden
+                ? 0
+                : patch.opacity === undefined
+                  ? l.opacity
+                  : patch.opacity / 100,
+              font: l.font,
+            }
           : {}),
         layers: l.layers ? edit(l.layers) : undefined,
       } as Layer;
@@ -943,7 +970,12 @@ export async function loadSceneAssets(doc: Scene, bindings: SceneBindings): Prom
     for (const l of ls) {
       if (l.src) {
         const src = String(evaluate(l.src, bindings, 0) ?? "");
-        if (src && !assets[src] && /^(\/|https?:|data:|blob:)/.test(src)) sources.add(src);
+        if (
+          src &&
+          !assets[src] &&
+          (/^(\/|https?:|data:|blob:)/.test(src) || /^[a-f0-9]{64}$/.test(src))
+        )
+          sources.add(src);
       }
       if (l.layers) visit(l.layers);
     }
@@ -955,7 +987,8 @@ export async function loadSceneAssets(doc: Scene, bindings: SceneBindings): Prom
       if (!pending) {
         pending = (async () => {
           try {
-            const response = await fetch(src);
+            const url = /^[a-f0-9]{64}$/.test(src) ? `/ether/api/onair/assets/${src}` : src;
+            const response = await fetch(url, { headers: resourceHeaders(url) });
             if (!response.ok) return;
             return await createImageBitmap(await response.blob());
           } catch {
