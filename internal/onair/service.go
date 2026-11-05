@@ -530,7 +530,17 @@ func (s *Service) execute(j renderJob) (err error) {
 		if s.o.FFmpeg == nil {
 			return fmt.Errorf("ffmpeg unavailable")
 		}
-		e = encode.WithOptions(ctx, s.o.FFmpeg(), func(i int) *image.RGBA { return raster.Render(j.Doc, j.Bind, float64(i)/30, 1920, 1080) }, int(j.Doc.Duration*30), 30, audio, out, encode.Options{Workers: 2, Audio: j.Doc.Audio, AudioVolume: volume})
+		opts := encode.Options{Workers: 2, Audio: j.Doc.Audio, AudioVolume: volume}
+		frames := func(i int) *image.RGBA { return raster.Render(j.Doc, j.Bind, float64(i)/30, 1920, 1080) }
+		if strings.HasPrefix(j.Doc.Moment, "plugin:") {
+			opts.MaxSeconds = 600
+			// Long static data cards need one rasterization, not thousands.
+			if staticPluginScene(j.Doc) {
+				still := frames(0)
+				frames = func(int) *image.RGBA { return still }
+			}
+		}
+		e = encode.WithOptions(ctx, s.o.FFmpeg(), frames, int(j.Doc.Duration*30), 30, audio, out, opts)
 	}
 	if e != nil {
 		return e
@@ -651,11 +661,7 @@ func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 	for k, d := range j.Request.Art {
 		refs[k] = d
 	}
-	for slot, d := range j.Bind.Slots {
-		if len(d) == 64 {
-			refs[slot] = d
-		}
-	}
+	collectSceneAssets(j.Doc.Layers, j.Bind.Bindings, refs)
 	for _, key := range []string{"type.display", "type.mono", "type.body", "logo"} {
 		d, _ := j.Bind.Tokens[key].(string)
 		if len(d) == 64 {

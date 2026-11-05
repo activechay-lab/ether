@@ -39,9 +39,11 @@ func Encode(ctx context.Context, ffmpegPath string, frames func(int) *image.RGBA
 // Options allows Signal loops to honor a negotiated session ceiling and size.
 type Options struct {
 	Workers, Width, Height int
-	MaxRate, BufferSize    string
-	Audio                  *scene.Audio
-	AudioVolume            *float64
+	// MaxSeconds is 28 for look moments; plugin segments may opt into 600.
+	MaxSeconds          int
+	MaxRate, BufferSize string
+	Audio               *scene.Audio
+	AudioVolume         *float64
 }
 
 // WithWorkers is also used by the reproducible four-worker Phase 0 measurement.
@@ -53,6 +55,13 @@ func WithOptions(ctx context.Context, ffmpegPath string, frames func(int) *image
 	if workers == 0 {
 		workers = max(1, runtime.GOMAXPROCS(0)/2)
 	}
+	limit := opts.MaxSeconds
+	if limit == 0 {
+		limit = 28
+	}
+	if limit < 4 || limit > 600 {
+		return fmt.Errorf("invalid master duration limit")
+	}
 	width, height := opts.Width, opts.Height
 	if width == 0 {
 		width = 1920
@@ -63,7 +72,7 @@ func WithOptions(ctx context.Context, ffmpegPath string, frames func(int) *image
 	if width < 2 || width > 1920 || height < 2 || height > 1080 || width%2 != 0 || height%2 != 0 {
 		return fmt.Errorf("invalid encode dimensions")
 	}
-	if opts.Audio != nil && audio == "" && fps == 30 && n > 0 && n%120 == 0 && n <= 840 {
+	if opts.Audio != nil && audio == "" && fps == 30 && n > 0 && n%120 == 0 && n <= limit*30 {
 		f, e := os.CreateTemp(filepath.Dir(out), ".onair-audio-*.wav")
 		if e != nil {
 			return e
@@ -77,8 +86,8 @@ func WithOptions(ctx context.Context, ffmpegPath string, frames func(int) *image
 		}
 	}
 
-	if n <= 0 || fps != 30 || n%120 != 0 || n > 840 || workers < 1 {
-		return fmt.Errorf("master requires 30 fps, 4-second multiples, at most 28 seconds")
+	if n <= 0 || fps != 30 || n%120 != 0 || n > limit*30 || workers < 1 {
+		return fmt.Errorf("master requires 30 fps, 4-second multiples, within the declared duration limit")
 	}
 	if err := ctx.Err(); err != nil {
 		return err

@@ -192,7 +192,7 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 		args = append(args, "-realtime", "1")
 	}
 	if enc == "libx264" {
-		args = append(args, "-tune", "zerolatency", "-x264-params", "vbv-init=0.1:rc-lookahead=0:sync-lookahead=0:aq-mode=3:psy-rd=1.0,0.15")
+		args = append(args, "-x264-params", "vbv-init=0.1:rc-lookahead=20:sync-lookahead=0:aq-mode=3:psy-rd=1.0,0.15")
 	}
 	g := int((int64(r.SegmentDuration)*int64(f.FPSNum) + int64(time.Second*time.Duration(f.FPSDen))/2) / int64(time.Second*time.Duration(f.FPSDen)))
 	pix := "yuv420p"
