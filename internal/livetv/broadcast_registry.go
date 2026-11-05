@@ -112,3 +112,18 @@ func (r *broadcastRegistry) expire(now time.Time) {
 		b.close()
 	}
 }
+
+func (r *broadcastRegistry) invalidate(channelID string, all bool) {
+	r.mu.Lock()
+	var stale []*broadcast
+	for key, b := range r.outputs {
+		if all || key.channelID == channelID {
+			delete(r.outputs, key)
+			stale = append(stale, b)
+		}
+	}
+	r.mu.Unlock()
+	for _, b := range stale {
+		b.close()
+	}
+}

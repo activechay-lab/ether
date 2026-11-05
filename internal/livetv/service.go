@@ -47,8 +47,6 @@ type Service struct {
 	channelHealth      map[string]sweepResult
 	sourceMu           sync.Mutex
 	sourceHealth       map[string]streamSourceHealth
-	transMu            sync.RWMutex
-	transcodes         map[string]core.HLSSession
 	o                  Options
 	kinds              *KindRegistry
 	policyReads        atomic.Uint64
@@ -97,7 +95,7 @@ func New(o Options) (*Service, error) {
 	if kinds == nil {
 		kinds = NewKindRegistry()
 	}
-	s := &Service{o: o, kinds: kinds, sessions: map[string]*session{}, transcodes: map[string]core.HLSSession{}, ctx: ctx, cancel: cancel, lineupUnix: o.Now().Unix()}
+	s := &Service{o: o, kinds: kinds, sessions: map[string]*session{}, ctx: ctx, cancel: cancel, lineupUnix: o.Now().Unix()}
 	s.wg.Add(3)
 	go s.maintain()
 	go s.refreshLoop()
@@ -160,21 +158,9 @@ func (s *Service) Close() error {
 	}
 	return nil
 }
-func (s *Service) stopTrack(t *track) {
-	if t.cancel != nil {
-		t.cancel()
-	}
-	s.transMu.Lock()
-	delete(s.transcodes, t.playbackID)
-	s.transMu.Unlock()
-	if t.hls != nil {
-		t.hls.Close()
-	}
-	if s.o.Playback != nil && t.playbackID != "" {
-		s.o.Playback.Stop(t.playbackID)
-	}
-}
+
 func (s *Service) invalidate(channelID, sourceID string) {
+	s.broadcasts.invalidate(channelID, sourceID != "")
 	s.mu.Lock()
 	var stale []*session
 	for id, ss := range s.sessions {

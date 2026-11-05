@@ -102,16 +102,7 @@ func (s *Service) previewRoutes(r chi.Router, owner *core.User) {
 		s.ServeResource(pw, r, id, chi.URLParam(r, "resource"), owner)
 		pw.finish()
 	})
-	r.Get("/sessions/{session}/program/{start}/{segment}", func(w http.ResponseWriter, r *http.Request) {
-		mediasafety.SetHeaders(w)
-		start, e := strconv.ParseInt(chi.URLParam(r, "start"), 10, 64)
-		n, e2 := strconv.Atoi(strings.TrimSuffix(chi.URLParam(r, "segment"), ".ts"))
-		if e != nil || e2 != nil {
-			http.NotFound(w, r)
-			return
-		}
-		s.ServeSegment(w, r, chi.URLParam(r, "session"), start, n, owner)
-	})
+
 }
 
 // relativePlaylists rewrites the Plex-adapter session paths that playlists

@@ -15,6 +15,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request, id string, u
 		writeStreamError(w, err)
 		return nil
 	}
+	ss.mu.Lock()
+	shared := ss.broadcast != nil
+	ss.mu.Unlock()
+	if shared {
+		return s.serveBroadcastHTTP(w, r, ss)
+	}
 	hs, err := s.ensureHTTP(r.Context(), ss, id)
 	if err != nil {
 		return err
@@ -129,12 +135,10 @@ func (s *Service) startHTTPStream(ctx context.Context, ss *session, id string, i
 			ss.mu.Unlock()
 			return nil, err
 		}
+
 	} else {
-		if s.o.Playback == nil || len(ss.tracks) == 0 || ss.tracks[0].playbackID == "" {
-			ss.mu.Unlock()
-			return nil, core.ErrNotAvailable
-		}
-		input = s.o.Playback.InputURL(ss.tracks[0].playbackID)
+		ss.mu.Unlock()
+		return nil, core.ErrNotAvailable
 	}
 	ss.mu.Unlock()
 

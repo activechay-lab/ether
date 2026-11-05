@@ -19,7 +19,6 @@ type scheduleBroadcastPlanner struct {
 	user    core.User
 	format  transcode.RawFormat
 	runner  transcode.ContinuousRunner
-	rings   *broadcastRingCache
 	mu      sync.Mutex
 	at      time.Time
 	current broadcastPlan
@@ -56,21 +55,14 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 			return nil, nil, core.ErrNotAvailable
 		}
 		if programme.Item.Slate != "" {
-			if c.Look == nil || p.s.o.Graphics == nil {
-				return nil, nil, core.ErrNotAvailable
+			request := p.s.screenRequest(c, programme.Item.Slate)
+			loop := programme.Item.Slate == offAirSlate
+			if c.Look != nil && (interstitial(programme.Item) || (loop && c.Look.OffAir)) {
+				request = p.s.clipRequest(c, programme)
 			}
-			request := p.s.clipRequest(c, programme)
-			clip, ok := p.s.o.Graphics.Clip(ctx, request)
-			if !ok {
-				p.s.o.Graphics.Ensure(ctx, request)
-				return nil, nil, core.ErrNotAvailable
-			}
-			ring, err := p.rings.load(ctx, p.runner, clip.Path, p.format)
-			if err != nil {
-				return nil, nil, err
-			}
-			return &ringDecoder{ring: ring, format: p.format, closed: make(chan struct{})}, nil, nil
+			return p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, loop)
 		}
+
 		now := p.s.o.Now()
 		candidates := p.s.virtualCandidates(c, programme)
 		var last error = core.ErrNotAvailable
@@ -131,7 +123,7 @@ func (s *Service) reserveBroadcastProvider(account, channel, id string, limit in
 	}
 	channels := map[string]bool{}
 	for _, ss := range s.sessions {
-		if ss.broadcast != nil {
+		if ss.broadcast != nil || s.useBroadcast(ss.info.Channel) || !ss.ready {
 			continue
 		}
 		source := ss.info.Channel.SourceID
