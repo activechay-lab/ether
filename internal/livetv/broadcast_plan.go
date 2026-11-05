@@ -14,6 +14,12 @@ import (
 // scheduleBroadcastPlanner snapshots the channel recipe. An edited recipe gets
 // a new planner when P4 replaces the channel output after lineup invalidation.
 type scheduleBroadcastPlanner struct {
+	workerCtx    context.Context
+	workerCancel context.CancelFunc
+	workerDone   chan struct{}
+	requests     chan time.Time
+	lastRequest  time.Time
+	window       []Programme
 	overlayMu    sync.Mutex
 	overlayCards map[string]*programmeOverlays
 	overlayBug   *videoOverlay
@@ -25,45 +31,66 @@ type scheduleBroadcastPlanner struct {
 	format       transcode.RawFormat
 	runner       transcode.ContinuousRunner
 	mu           sync.Mutex
-	at           time.Time
-	current      broadcastPlan
-	next         *broadcastPlan
 }
 
+func (p *scheduleBroadcastPlanner) startPlanner(parent context.Context) {
+	p.workerCtx, p.workerCancel = context.WithCancel(parent)
+	p.requests = make(chan time.Time, 1)
+	p.workerDone = make(chan struct{})
+	go p.planWorker()
+}
+func (p *scheduleBroadcastPlanner) closePlanner() { p.workerCancel(); <-p.workerDone }
+func (p *scheduleBroadcastPlanner) planWorker() {
+	defer close(p.workerDone)
+	for {
+		select {
+		case <-p.workerCtx.Done():
+			return
+		case now := <-p.requests:
+			c := p.s.graphicsChannel(p.channel)
+			c = p.s.personalChannel(p.workerCtx, c, &p.user)
+			var ps []Programme
+			if c.Personal != nil {
+				ps, _ = p.s.programmes(p.workerCtx, c, now, now.Add(2*time.Minute))
+				if welcome, ok := p.s.personalWelcome(c, now); ok {
+					ps = append([]Programme{welcome}, ps...)
+				}
+			} else {
+				ps = p.s.broadcastSchedule(p.workerCtx, c, now, now.Add(2*time.Minute), true)
+			}
+			p.mu.Lock()
+			p.window = ps
+			p.mu.Unlock()
+		}
+	}
+}
 func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadcastPlan) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if !p.at.IsZero() && now.Sub(p.at) < time.Second && (p.current.end.IsZero() || now.Before(p.current.end)) {
-		return p.current, p.next
-	}
-	p.at = now
-	c := p.s.graphicsChannel(p.channel)
-	c = p.s.personalChannel(p.s.ctx, c, &p.user)
-	var ps []Programme
-	if c.Personal != nil {
-		ps, _ = p.s.programmes(p.s.ctx, c, now, now.Add(broadcastPrewarm+time.Second))
-		if welcome, ok := p.s.personalWelcome(c, now); ok {
-			ps = append([]Programme{welcome}, ps...)
+	if p.lastRequest.IsZero() || now.Sub(p.lastRequest) >= time.Second {
+		select {
+		case p.requests <- now:
+			p.lastRequest = now
+		default:
 		}
-	} else {
-		ps = p.s.broadcastSchedule(p.s.ctx, c, now, now.Add(broadcastPrewarm+time.Second), true)
 	}
-	p.current = broadcastPlan{id: "screen-" + c.ID}
-	p.next = nil
-	for _, programme := range ps {
-		if p.current.id != "screen-"+c.ID && programme.Start.Before(p.current.end) {
+	current := broadcastPlan{id: "screen-" + p.channel.ID}
+	var next *broadcastPlan
+	for _, programme := range p.window {
+		if current.id != "screen-"+p.channel.ID && programme.Start.Before(current.end) {
 			continue
 		}
 		plan := p.programme(programme)
 		if !now.Before(programme.Start) && now.Before(programme.End) {
-			p.current = plan
+			current = plan
 		} else if programme.Start.After(now) {
-			p.next = &plan
+			next = &plan
 			break
 		}
 	}
-	return p.current, p.next
+	return current, next
 }
+
 func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan {
 	plan := broadcastPlan{id: programme.ID, start: programme.Start, end: programme.End}
 	plan.open = func(ctx context.Context) (transcode.Decoder, func(), error) {

@@ -112,6 +112,9 @@ func int64Hash(id string) int64 {
 // App wiring may invoke it in its existing background invalidation flow.
 func (s *Service) RefreshGraphics(ctx context.Context) {
 	if ctx.Err() == nil {
-		s.refreshReels()
+		select {
+		case s.graphicsWake <- struct{}{}:
+		default:
+		}
 	}
 }

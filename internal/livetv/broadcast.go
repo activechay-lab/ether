@@ -138,6 +138,9 @@ func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planne
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), retryRequests: make(chan struct{}, 1), lastViewer: time.Now()}
+	if lifecycle, ok := planner.(interface{ startPlanner(context.Context) }); ok {
+		lifecycle.startPlanner(ctx)
+	}
 	if planner, ok := planner.(interface {
 		introPlan(time.Time) (broadcastPlan, time.Duration)
 	}); ok {
@@ -362,6 +365,9 @@ func (b *broadcast) noteFailure(p broadcastPlan, err error, now time.Time) {
 func (b *broadcast) run() {
 	defer func() {
 		b.cancel()
+		if lifecycle, ok := b.planner.(interface{ closePlanner() }); ok {
+			lifecycle.closePlanner()
+		}
 		b.mu.Lock()
 		b.closed = true
 		b.mu.Unlock()

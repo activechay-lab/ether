@@ -32,6 +32,7 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 }
 
 type Service struct {
+	graphicsWake       chan struct{}
 	reelSnapshots      map[string]*ReelSnapshot
 	graphicsSkips      map[string]time.Time
 	personalDirty      map[int64]uint64
@@ -102,7 +103,7 @@ func New(o Options) (*Service, error) {
 	if kinds == nil {
 		kinds = NewKindRegistry()
 	}
-	s := &Service{o: o, kinds: kinds, sessions: map[string]*session{}, ctx: ctx, cancel: cancel, lineupUnix: o.Now().Unix()}
+	s := &Service{graphicsWake: make(chan struct{}, 1), o: o, kinds: kinds, sessions: map[string]*session{}, ctx: ctx, cancel: cancel, lineupUnix: o.Now().Unix()}
 	if o.Picker != nil && o.Users != nil {
 		s.wg.Add(1)
 		go s.personalLoop()
@@ -216,6 +217,8 @@ func (s *Service) maintain() {
 		select {
 		case <-s.ctx.Done():
 			return
+		case <-s.graphicsWake:
+			s.refreshReels()
 		case <-t.C:
 			s.expireSessions()
 			s.broadcasts.expire(s.o.Now())
@@ -686,6 +689,10 @@ func (s *Service) LineupChanged() time.Time {
 }
 
 func (s *Service) bumpLineup() {
+	select {
+	case s.graphicsWake <- struct{}{}:
+	default:
+	}
 	s.mu.Lock()
 	now := s.o.Now().Unix()
 	if now <= s.lineupUnix {

@@ -20,7 +20,7 @@ func (a *App) buildLiveTV() error {
 	if a.resolver != nil {
 		avail = a.resolver
 	}
-	svc, err := livetv.New(livetv.Options{Graphics: a.onair, InputUser: a.users.Owner, Screens: func() config.LiveTVScreens { return a.cfg.Read().LiveTV.Screens }, PersonalChanged: func(viewer int64) {
+	svc, err := livetv.New(livetv.Options{Reels: a.onairReelSnapshot, Graphics: a.onair, InputUser: a.users.Owner, Screens: func() config.LiveTVScreens { return a.cfg.Read().LiveTV.Screens }, PersonalChanged: func(viewer int64) {
 		if srv := a.currentPlexServer(); srv != nil {
 			srv.NotifyLiveLineupFor(viewer)
 		}
