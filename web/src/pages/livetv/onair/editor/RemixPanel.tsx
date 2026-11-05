@@ -18,6 +18,7 @@ import {
   loadStyleFonts,
   type SceneBindings,
 } from "../scene-renderer";
+import { onair, type Bindings } from "../model";
 import { DescribeLook } from "../DescribeLook";
 import { LibraryPicker } from "../../library/LibraryPicker";
 
@@ -173,7 +174,11 @@ export function RemixPanel(p: {
 }) {
   const s = p.style,
     [picker, setPicker] = useState(false),
-    [assets, setAssets] = useState<LibraryAsset[]>([]);
+    [assets, setAssets] = useState<LibraryAsset[]>([]),
+    [live, setLive] = useState<Bindings>({});
+  useEffect(() => {
+    void onair.bindings({ channel: s.channelIds[0] }).then(setLive);
+  }, [s.channelIds[0]]);
   useEffect(() => {
     void studio
       .library()
@@ -362,7 +367,11 @@ export function RemixPanel(p: {
             className="rounded-lg border border-border p-1 text-left"
             onClick={() => p.onOpenScene?.(scene.id)}
           >
-            <StyleThumbnail style={s} scene={scene} />
+            <StyleThumbnail
+              style={s}
+              scene={scene}
+              slots={{ ...engineBindings(s, live).slots, "next.poster": live.next?.backdrop ?? "" }}
+            />
             <span className="text-xs">{scene.name}</span>
           </button>
         ))}

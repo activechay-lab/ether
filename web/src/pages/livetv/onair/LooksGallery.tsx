@@ -37,7 +37,8 @@ function useSlots(channel?: string) {
   return {
     "channel.name": b.channel?.name ?? "",
     "next.title": b.next?.title ?? "",
-    "next.poster": b.list?.[0]?.poster ?? "",
+    "next.poster": b.next?.backdrop ?? "",
+    "next.backdrop": b.next?.backdrop ?? "",
     "next.time": b.next?.time ?? "",
     "now.title": b.now?.title ?? "",
     "viewer.name": b.viewer?.name ?? "",

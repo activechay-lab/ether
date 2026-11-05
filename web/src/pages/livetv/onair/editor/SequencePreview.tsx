@@ -108,6 +108,8 @@ export function SequencePreview({
     "channel.name": bindings.channel?.name ?? "",
     "next.title": bindings.next?.title ?? "",
     "next.time": bindings.next?.time ?? "",
+    "next.poster": bindings.next?.backdrop ?? "",
+    "next.backdrop": bindings.next?.backdrop ?? "",
     "now.title": bindings.now?.title ?? "",
   };
   return (
