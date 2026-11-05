@@ -19,7 +19,7 @@ export function catalogValueLabel(field: string, value: string): string {
     if (value === "watched") return t("Watched");
     if (value === "unwatched") return t("Unwatched");
   }
-  if (["progress", "rated", "watchlist"].includes(field)) {
+  if (["progress", "rated", "watchlist", "anime", "kids"].includes(field)) {
     if (value === "true") return t("Yes");
     if (value === "false") return t("No");
   }

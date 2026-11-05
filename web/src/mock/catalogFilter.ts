@@ -3,23 +3,35 @@ import { PEOPLE, STUDIOS, KEYWORDS } from "./data";
 
 /** Mirror the owner browse wire contract in mock mode, so browser tasks exercise
  * real filtering rather than receiving an unchanged decorative result grid. */
-export function matchesCatalogFilter(title: FakeTitle, filter: Record<string, any>): boolean {
+export function matchesCatalogFilter(
+  title: FakeTitle,
+  filter: Record<string, any>,
+  annotations?: ReadonlyMap<string, string[]>,
+): boolean {
   const f = filter;
   const some = (values: string[] | undefined, actual: string[]) =>
     !values?.length || values.some((v) => actual.some((a) => a.toLowerCase() === v.toLowerCase()));
   if (f.group) {
     const visit = (g: any): boolean =>
       g.filter
-        ? matchesCatalogFilter(title, g.filter)
+        ? matchesCatalogFilter(title, g.filter, annotations)
         : g.unwatched !== undefined
           ? g.unwatched === (Number(title.key.slice(-2)) % 3 !== 0)
           : g.inProgress !== undefined
             ? g.inProgress === (Number(title.key.slice(-2)) % 5 === 0)
-            : g.operator === "or"
-              ? g.children.some(visit)
-              : g.children.every(visit);
+            : g.onWatchlist !== undefined
+              ? g.onWatchlist === (Number(title.key.slice(-2)) % 4 === 0)
+              : g.stateField === "lastRatedAt"
+                ? (g.stateOperator === ">") === (Number(title.key.slice(-2)) % 2 === 0)
+                : g.operator === "or"
+                  ? g.children.some(visit)
+                  : g.children.every(visit);
     if (!visit(f.group)) return false;
   }
+  if (
+    f.tags?.some((tag: string) => !(annotations?.get(title.key) || []).includes(tag.toLowerCase()))
+  )
+    return false;
   if (f.type && title.type !== f.type) return false;
   if (f.query && !title.title.toLowerCase().includes(f.query.toLowerCase())) return false;
   if (

@@ -24,6 +24,19 @@ describe("mock catalogue filtering contract", () => {
       }),
     ).toBe(false);
   });
+  it("handles watchlist and rated viewer leaves without treating them as groups", () => {
+    const rated = titles.filter((title) =>
+      matchesCatalogFilter(title, {
+        group: { stateField: "lastRatedAt", stateOperator: ">", stateValue: 0, userId: 1 },
+      }),
+    );
+    const saved = titles.filter((title) =>
+      matchesCatalogFilter(title, { group: { onWatchlist: true, userId: 1 } }),
+    );
+    expect(rated.length).toBeGreaterThan(0);
+    expect(saved.length).toBeGreaterThan(0);
+    expect(saved.length).toBeLessThan(titles.length);
+  });
   it("narrows genre and rating without mutating source data", () => {
     const result = titles.filter((t) =>
       matchesCatalogFilter(t, { genres: ["Thriller"], minRating: 7 }),

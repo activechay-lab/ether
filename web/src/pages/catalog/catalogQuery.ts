@@ -144,17 +144,32 @@ export function compileQuery(state: QueryState, viewer = "") {
     const filter = chipFilter(chip, viewer);
     return filter.__state || { operator: "and", filter };
   };
+  const leaves = (chips: Chip[], operator: string) => {
+    const quality = operator === "and" ? chips.filter((c) => c.field === "quality") : [];
+    return [
+      ...chips.filter((c) => !quality.includes(c)).map(leaf),
+      ...(quality.length
+        ? [{ operator: "and", filter: { qualities: [...new Set(quality.map((c) => c.value))] } }]
+        : []),
+    ];
+  };
   const groups = [...new Set(state.chips.map((c) => c.group || 0))];
   return {
     group: {
       operator: state.mode,
       children: groups.flatMap((group) =>
         group === 0
-          ? state.chips.filter((c) => !c.group).map(leaf)
+          ? leaves(
+              state.chips.filter((c) => !c.group),
+              state.mode,
+            )
           : [
               {
                 operator: state.groupMode || "and",
-                children: state.chips.filter((c) => c.group === group).map(leaf),
+                children: leaves(
+                  state.chips.filter((c) => c.group === group),
+                  state.groupMode || "and",
+                ),
               },
             ],
       ),

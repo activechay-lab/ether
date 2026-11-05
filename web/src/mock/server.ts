@@ -580,6 +580,7 @@ function durationMs(w: string): number {
 export function createFakeServer(opts: FakeOptions = {}) {
   const catalog = buildCatalog();
   const byKey = new Map(catalog.map((t) => [t.key, t]));
+  const ownerTags = new Map<string, string[]>();
   const releaseConsole = createReleaseConsoleMock(catalog);
   const trash = createTrashMock();
   const maintenance = createMaintenance();
@@ -3442,7 +3443,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
             (!ruleVisibility ||
               hiddenByRules(t, ruleGroups, q.get("ruleFallback") ?? "show") ===
                 (ruleVisibility === "hidden")) &&
-            matchesCatalogFilter(t, advanced) &&
+            matchesCatalogFilter(t, advanced, ownerTags) &&
             t.title.toLowerCase().includes(needle) &&
             (!type || t.type === type) &&
             (!waiting || t.type === "movie") &&
@@ -3515,19 +3516,21 @@ export function createFakeServer(opts: FakeOptions = {}) {
         const counts = new Map<string, number>();
         for (const t of pool) {
           const vals =
-            facet === "genre"
-              ? (t.genres ?? [])
-              : facet === "decade"
-                ? [decadeOf(t.year)]
-                : facet === "contentRating"
-                  ? [t.contentRating ?? ""]
-                  : facet === "country"
-                    ? [t.country]
-                    : facet === "language"
-                      ? [t.language]
-                      : facet === "studio"
-                        ? [String(t.studio)]
-                        : [];
+            facet === "tag"
+              ? ownerTags.get(t.key) || []
+              : facet === "genre"
+                ? (t.genres ?? [])
+                : facet === "decade"
+                  ? [decadeOf(t.year)]
+                  : facet === "contentRating"
+                    ? [t.contentRating ?? ""]
+                    : facet === "country"
+                      ? [t.country]
+                      : facet === "language"
+                        ? [t.language]
+                        : facet === "studio"
+                          ? [String(t.studio)]
+                          : [];
           for (const v of vals) if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
         }
         const title = (k: string) =>
@@ -3770,6 +3773,17 @@ export function createFakeServer(opts: FakeOptions = {}) {
       const followed = t ? null : calendar.title(decodeURIComponent(seg[2]));
       if (followed) return json(followed);
       if (!t) return err(404, "not_found", "no such title");
+      if (seg[3] === "tags") {
+        if (method === "PUT")
+          ownerTags.set(t.key, [
+            ...new Set(
+              ((body as { tags: string[] }).tags || [])
+                .map((tag) => tag.trim().toLowerCase())
+                .filter(Boolean),
+            ),
+          ]);
+        return json({ tags: ownerTags.get(t.key) || [] });
+      }
       return json({
         ...card(t),
         cast: t.people.map((id) => PEOPLE.find((p) => p.id === id)).filter(Boolean),

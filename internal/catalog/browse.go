@@ -437,11 +437,22 @@ func groupHasState(g *core.FilterGroup) bool {
 // Browse filters share one SQL statement; their combined parameters remain subject
 // to the database's statement-wide variable limit.
 func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
+	// Positive metadata flags retain their source meaning; absence is unknown.
+	if f.Anime {
+		f.Keywords = append(append([]string{}, f.Keywords...), "anime")
+	}
 	var conds []string
 	var args []any
+	for _, tag := range f.Tags {
+		conds = append(conds, "t.key IN (SELECT key FROM catalog_owner_tags WHERE tag=?)")
+		args = append(args, strings.ToLower(strings.TrimSpace(tag)))
+	}
 	evidenceConds, evidenceArgs := c.consoleAvailabilityConditions(f)
 	conds = append(conds, evidenceConds...)
 	args = append(args, evidenceArgs...)
+	if f.Kids {
+		conds = append(conds, "EXISTS (SELECT 1 FROM catalog_genres kg WHERE kg.key=t.key AND kg.genre='Kids')")
+	}
 	nowTS := c.now().Unix()
 	if cfg := c.config(); cfg.ShowUpcomingMovies && f.RuleVisibility == "" {
 		conds = append(conds, "(t.browsable=1 OR (t.type='movie' AND t.release_known=1 AND t.released_ts>? AND ((?<=0 AND ?<=0) OR (?>0 AND t.popularity>=?) OR (?>0 AND t.vote_count>=?))))", "t.adult=0")
@@ -1023,6 +1034,8 @@ func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) (
 	}
 	var q string
 	switch facet {
+	case "tag":
+		q = `SELECT g.tag, COUNT(*) FROM catalog_owner_tags g JOIN catalog_titles t ON t.key=g.key WHERE ` + base + ` GROUP BY g.tag ORDER BY COUNT(*) DESC,g.tag ASC LIMIT 200`
 	case "language":
 		q = `SELECT t.language,COUNT(*) FROM catalog_titles t WHERE ` + base + ` AND t.language<>'' GROUP BY t.language ORDER BY COUNT(*) DESC,t.language ASC LIMIT 200`
 	case "genre":

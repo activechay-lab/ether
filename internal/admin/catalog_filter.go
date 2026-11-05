@@ -108,8 +108,8 @@ func decodeCatalogFilter(raw string, f *core.Filter) error {
 			}
 		}
 		for _, evidence := range []string{v.Playable, v.DebridCached} {
-			if evidence != "" && evidence != "yes" && evidence != "no" && evidence != "unknown" {
-				return errors.New("Choose yes, no, or unknown availability")
+			if evidence != "" && evidence != "yes" && evidence != "unknown" {
+				return errors.New("Choose verified or unknown availability")
 			}
 		}
 		for _, quality := range v.Qualities {

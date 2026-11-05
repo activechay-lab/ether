@@ -64,7 +64,7 @@ func (s *Service) Facets(ctx context.Context, t core.MediaType, facet string) ([
 	switch facet {
 	case "language":
 		return s.languageFacet(ctx, t)
-	case "genre", "decade", "contentRating", "studio", "country", "year":
+	case "genre", "decade", "contentRating", "studio", "country", "year", "tag":
 	default:
 		return nil, &ValidationError{Fields: map[string]string{"facet": "facet is genre, decade, contentRating, studio, country or language"}}
 	}

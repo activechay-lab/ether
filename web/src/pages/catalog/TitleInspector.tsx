@@ -13,6 +13,7 @@ import { formatRating, ratingSource } from "../../lib/contentRatings";
 import { fixed } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
 import { localToday } from "../calendar/model";
+import { CatalogTags } from "./CatalogTags";
 import { TitleAvailability } from "./TitleAvailability";
 import { TitleCalendar } from "./TitleCalendar";
 import { NextEpisodeCard, TitleEpisodes } from "./TitleEpisodes";
@@ -229,6 +230,7 @@ function Overview({
           <h3>{t("Overview")}</h3>
           <p>{title.summary || t("No overview is available for this title yet.")}</p>
         </section>
+        <CatalogTags titleKey={title.key} />
         <ReleaseEvidence titleKey={title.key} type={title.type} />
         <PanelSlots
           slot="title.panel"

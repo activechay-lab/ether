@@ -208,7 +208,7 @@ export interface CollectionTemplate {
 }
 
 export type FacetName =
-  "genre" | "decade" | "contentRating" | "studio" | "country" | "language" | "keyword";
+  "tag" | "genre" | "decade" | "contentRating" | "studio" | "country" | "language" | "keyword";
 export interface FacetValue {
   key: string;
   title: string;

@@ -12,7 +12,7 @@ import (
 // are a generation-stamped snapshot; pending tells the UI to retry progressively.
 func (c *Catalog) ConsoleFacets(ctx context.Context, typ core.MediaType, facet string) ([]core.FacetValue, bool, error) {
 	switch facet {
-	case "genre", "decade", "year", "studio", "country", "language", "keyword", "contentRating":
+	case "genre", "decade", "year", "studio", "country", "language", "keyword", "contentRating", "tag":
 	default:
 		return nil, false, fmt.Errorf("unknown facet")
 	}

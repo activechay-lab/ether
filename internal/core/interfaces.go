@@ -110,11 +110,12 @@ type Filter struct {
 	UpdatedBefore         int64           `json:"-"`              // inclusive Unix timestamp bound on metadata update time
 	Type                  MediaType       `json:"type,omitempty"` // movie or show
 	Genres                []string        `json:"genres,omitempty"`
-	Playable              string          `json:"playable,omitempty"` // yes, no, or unknown from fresh local evidence
+	Playable              string          `json:"playable,omitempty"` // yes or unknown from fresh local evidence
 	DebridCached          string          `json:"debridCached,omitempty"`
 	Qualities             []string        `json:"qualities,omitempty"` // known 4k, hdr, dv, atmos release facts
 	Anime                 bool            `json:"anime,omitempty"`     // positive canonical anime keyword
 	Kids                  bool            `json:"kids,omitempty"`      // positive canonical Kids genre
+	Tags                  []string        `json:"tags,omitempty"`      // owner annotations, distinct from provider keywords
 	Keywords              []string        `json:"keywords,omitempty"`  // every keyword must match (case-insensitive)
 	YearFrom              int             `json:"yearFrom,omitempty"`
 	YearTo                int             `json:"yearTo,omitempty"`
