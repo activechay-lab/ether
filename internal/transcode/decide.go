@@ -383,6 +383,13 @@ func collectIssues(info core.MediaInfo, v, a, sub *core.StreamInfo, ctx issueCon
 	caps := ctx.caps
 	if v != nil {
 		identity := strings.ToLower(caps.Platform + " " + caps.Product + " " + caps.Device)
+		// PAFF H.264 cannot be decoded by Chromium. The probe cannot
+		// distinguish PAFF from MBAFF, so interlaced H.264 needs conversion
+		// on the measured browser platforms (Rex findings, 2026-10-27).
+		platform := strings.ToLower(caps.Platform)
+		if v.Codec == "h264" && v.Interlaced && (platform == "chrome" || platform == "microsoft edge" || platform == "edge" || platform == "opera") {
+			videoIssues = append(videoIssues, "interlaced H.264 requires deinterlacing for this browser")
+		}
 		product := strings.ToLower(caps.Product)
 		browser := strings.Contains(product, "web") || strings.Contains(product, "chrome") || strings.Contains(product, "firefox") || strings.Contains(product, "safari") || strings.Contains(product, "edge")
 		android := strings.Contains(identity, "android") || strings.Contains(identity, "google tv") || strings.Contains(identity, "shield") || strings.Contains(identity, "fire tv") || strings.Contains(identity, "firetv") || strings.Contains(identity, "fire os")
