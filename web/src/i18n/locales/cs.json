@@ -1058,7 +1058,6 @@
   "m_0466b5b9a300ef": "Studia",
   "m_046871eecddbce": "Zabezpečená připojení",
   "m_04689ff1b29440": "Klíč API",
-  "m_046abde90f9550": "Bezpečná oblast",
   "m_046d8520c1d620": "Průzkumník mezipaměti",
   "m_046f9b8189032a": {
     "one": "{count} stažení dnes · bez denního limitu",
@@ -1465,7 +1464,6 @@
   "m_060263156c7a23": "Momenty",
   "m_0602e88453f640": "Zatím žádné služby debrid",
   "m_0603f8c8c14881": "Speciály, které pořadí umísťuje, si zachovávají své místo. Skrytím speciálů se z procházených seznamů odstraní všechny epizody řady 0. Epizody, které pořadí vynechává, se zobrazí v části Ostatní epizody.",
-  "m_06048ed34eef18": "Neuloženo",
   "m_0607d4d4be574c": "Pokračovat",
   "m_0609d540123cc4": "URL streamu",
   "m_0609fd105ca5cd": "V pevný čas",
@@ -6671,7 +6669,6 @@
   "m_1bb5fa24d90bf6": "Kopírovat cestu pro výměnu",
   "m_1bb6ee1903edda": "Lidé a společnosti",
   "m_1bb801da11773e": "O zobrazení a umístění rozhoduje personalizace",
-  "m_1bb929a679a8e1": "Vyberte vrstvu k úpravě.",
   "m_1bb961e2b8b420": "Účet debridu",
   "m_1bba66d0c53840": "Skrýt málo známé tituly",
   "m_1bbb918638464f": "Spárujte aplikaci AI, aby se mohla ptát Etheru pomocí stejných nástrojů. Změny serveru zde stále vyžadují vaše schválení.",

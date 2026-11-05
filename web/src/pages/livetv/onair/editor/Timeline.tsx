@@ -1,17 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Input, Select } from "@braedonsaunders/appkit-ui";
+import { Button, Input, Select, Popover } from "@braedonsaunders/appkit-ui";
+import {
+  Play,
+  Pause,
+  Repeat,
+  ChevronDown,
+  Sparkles,
+  Music2,
+  Upload,
+  ChevronRight,
+  Gauge,
+} from "lucide-react";
+import { ToolButton } from "./InsertBar";
 import { t } from "../../../../i18n";
 import { studio, type StyleScene, type LibraryAsset } from "../studio-model";
-import { renderScene, type Layer, type Value } from "../scene-renderer";
-import {
-  isAnimated,
-  moveKeyframe,
-  removeKeyframe,
-  setEase,
-  setKeyframe,
-  valueAt,
-  type Ease,
-} from "./keyframes";
+import { renderScene, type Layer } from "../scene-renderer";
+import { isAnimated, moveKeyframe, removeKeyframe, setEase, type Ease } from "./keyframes";
 import { applyAnimation, presets, type AnimationPreset } from "./animation-presets";
 import { SoundLane } from "./SoundLane";
 
@@ -38,7 +42,7 @@ export function Timeline(p: {
     [localHalf, setHalf] = useState(false),
     [zoom, setZoom] = useState(1),
     [expanded, setExpanded] = useState<string[]>([]),
-    [prop, setProp] = useState<keyof Layer>("opacity"),
+    [animateOpen, setAnimateOpen] = useState(false),
     [picker, setPicker] = useState(false),
     [muted, setMuted] = useState<string[]>([]),
     [solo, setSolo] = useState(""),
@@ -91,8 +95,13 @@ export function Timeline(p: {
         end = l.end || p.duration;
       return (
         <div key={l.id}>
-          <div className="flex items-center gap-2 py-1">
+          <div
+            className={`flex h-7 items-center gap-1 border-b border-border/40 ${p.selected.includes(l.id) ? "bg-primary-subtle" : ""}`}
+          >
             <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 min-w-6 px-1"
               aria-label={t("Expand animation tracks")}
               aria-expanded={expanded.includes(l.id)}
               onClick={() =>
@@ -103,24 +112,24 @@ export function Timeline(p: {
                 )
               }
             >
-              ↕
+              <ChevronRight size={11} className={expanded.includes(l.id) ? "rotate-90" : ""} />
             </Button>
             <button
-              className="w-36 shrink-0 truncate text-left"
+              className="w-32 shrink-0 truncate text-left text-[10px]"
               style={{ paddingLeft: depth * 12 }}
               onClick={() => p.onSelect([l.id])}
               aria-pressed={p.selected.includes(l.id)}
             >
-              {l.name || l.id}
+              {l.name || t("Layer")}
             </button>
-            <div data-track className="relative h-8 grow bg-current/5">
+            <div data-track className="relative h-5 grow bg-current/5">
               <span
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-y-0 w-px bg-amber-400 z-10"
                 style={{ left: `${(p.time / p.duration) * 100}%` }}
               />
               <div
-                className="absolute h-8 rounded bg-blue-500/40 flex justify-between"
+                className="absolute h-5 rounded-sm bg-primary/25 flex justify-between"
                 role="slider"
                 tabIndex={0}
                 aria-label={t("Layer timing")}
@@ -336,52 +345,66 @@ export function Timeline(p: {
     setPicker(false);
   };
   return (
-    <section className="space-y-3 rounded-xl border p-3" aria-label={t("Timeline")}>
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={() => p.onPlayingChange?.(!p.playing)}>
-          {p.playing ? t("Pause") : t("Play")}
-        </Button>
-        <Button
-          aria-pressed={loop}
+    <section className="space-y-1 text-xs" aria-label={t("Timeline")}>
+      <div className="sticky top-0 z-20 flex h-8 items-center gap-1 border-b border-border bg-surface pb-1">
+        <ToolButton
+          label={p.playing ? t("Pause") : t("Play")}
+          shortcut="Space"
+          onClick={() => p.onPlayingChange?.(!p.playing)}
+        >
+          {p.playing ? <Pause size={13} /> : <Play size={13} />}
+        </ToolButton>
+        <ToolButton
+          label={t("Loop")}
+          active={loop}
           onClick={() => {
             setLoop(!loop);
             p.onLoopChange?.(!loop);
           }}
         >
-          {t("Loop")}
-        </Button>
-        <Button
-          aria-pressed={half}
+          <Repeat size={13} />
+        </ToolButton>
+        <ToolButton
+          label={t("Half speed")}
+          active={half}
           onClick={() => {
             setHalf(!half);
             p.onRateChange?.(half ? 1 : 0.5);
           }}
         >
-          {t("Half speed")}
-        </Button>
-        <label>
-          {t("Zoom")}
-          <Input
-            type="range"
-            min={1}
-            max={4}
-            step={0.25}
-            value={zoom}
-            onChange={(e) => setZoom(Number(e.target.value))}
-          />
-        </label>
-        <output>{p.time.toFixed(2)}</output>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <details className="w-full">
-          <summary>{t("Animation presets")}</summary>
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          <Gauge size={13} />
+        </ToolButton>
+        <output className="mx-2 min-w-14 font-mono text-[10px] tabular-nums text-fg-muted">
+          {t("{time} / {duration}s", { time: p.time.toFixed(2), duration: p.duration })}
+        </output>
+        <span className="mx-1 h-4 border-l border-border" />
+        <Popover
+          open={animateOpen}
+          onOpenChange={setAnimateOpen}
+          className="max-h-[65vh] w-80 overflow-y-auto p-3"
+          trigger={
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1.5 text-xs"
+              onClick={() => setAnimateOpen(!animateOpen)}
+            >
+              <Sparkles size={13} />
+              {t("Animate")}
+              <ChevronDown size={11} />
+            </Button>
+          }
+        >
+          <h3 className="mb-3 text-xs font-semibold">{t("Animation presets")}</h3>
+          {!p.selected.length && (
+            <p className="mb-3 text-xs text-fg-muted">{t("Select a layer to give it motion.")}</p>
+          )}
+          <div className="grid grid-cols-3 gap-2">
             {presets.map((id) => (
-              <Button
+              <button
                 key={id}
-                variant="outline"
                 disabled={!p.selected.length}
-                className="flex flex-col h-auto p-2"
+                className="space-y-1 overflow-hidden rounded-lg border border-border p-1 text-[10px] hover:border-primary disabled:opacity-40"
                 onClick={() => {
                   const visit = (layers: Layer[]): Layer[] =>
                     layers.map((l) => ({
@@ -392,73 +415,46 @@ export function Timeline(p: {
                     ...p.scene,
                     document: { ...p.scene.document, layers: visit(p.scene.document.layers) },
                   });
+                  setAnimateOpen(false);
                 }}
               >
                 <PresetPreview preset={id} />
-                {presetName(id)}
-              </Button>
+                <span className="block pb-1">{presetName(id)}</span>
+              </button>
             ))}
           </div>
-        </details>
-        <Select
-          aria-label={t("Animated property")}
-          value={prop}
-          onChange={(e) => setProp(e.target.value as keyof Layer)}
+        </Popover>
+        <ToolButton
+          label={t("Add sound")}
+          disabled={p.scene.sounds.length >= 4}
+          onClick={() => setPicker(true)}
         >
-          {[
-            "x",
-            "y",
-            "w",
-            "h",
-            "scale",
-            "scaleX",
-            "scaleY",
-            "rotate",
-            "opacity",
-            "fill",
-            "stroke",
-            "strokeWidth",
-            "text",
-            "font",
-            "size",
-            "track",
-            "src",
-            "tint",
-          ].map((v) => (
-            <option key={v} value={v}>
-              {propertyName(v)}
-            </option>
-          ))}
-        </Select>
-        <Button
-          disabled={!p.selected.length}
-          onClick={() => {
-            const visit = (layers: Layer[]): Layer[] =>
-              layers.map((l) => ({
-                ...(p.selected.includes(l.id)
-                  ? setKeyframe(
-                      l,
-                      prop,
-                      p.time,
-                      valueAt(l[prop] as Value, p.time) ??
-                        (prop === "opacity" || prop === "scale" ? 1 : 0),
-                    )
-                  : l),
-                layers: l.layers ? visit(l.layers) : undefined,
-              }));
-            p.onChange({
-              ...p.scene,
-              document: { ...p.scene.document, layers: visit(p.scene.document.layers) },
-            });
-          }}
-        >
-          {t("Add keyframe")}
-        </Button>
+          <Music2 size={13} />
+        </ToolButton>
+        <label className="ml-auto flex items-center gap-2 text-[10px] text-fg-muted">
+          {t("Zoom")}
+          <input
+            type="range"
+            className="w-16 accent-primary"
+            min="1"
+            max="4"
+            step=".25"
+            value={zoom}
+            aria-label={t("Timeline zoom")}
+            onChange={(e) => setZoom(Number(e.target.value))}
+          />
+        </label>
       </div>
-      {!p.selected.length && <p>{t("Pick a layer, then add an animation")}</p>}
       <div className="overflow-x-auto">
         <div style={{ minWidth: 600 * zoom }}>
           <Input
+            className="accent-primary border-0 bg-transparent px-0 py-0"
+            style={{
+              marginLeft: 160,
+              width: "calc(100% - 160px)",
+              height: 12,
+              accentColor: "var(--color-primary)",
+            }}
             aria-label={t("Playhead")}
             type="range"
             min={0}
@@ -467,7 +463,7 @@ export function Timeline(p: {
             value={p.time}
             onChange={(e) => p.onTime(Number(e.target.value))}
           />
-          <div className="flex justify-between text-xs">
+          <div className="ml-40 flex justify-between text-[9px] text-fg-muted">
             {Array.from({ length: Math.floor(p.duration) + 1 }, (_, i) => (
               <span key={i}>{i}</span>
             ))}
@@ -505,35 +501,32 @@ export function Timeline(p: {
           }
         />
       ))}
-      <Button
-        disabled={p.scene.sounds.length >= 4}
-        onClick={() => {
-          setPicker(!picker);
-        }}
-      >
-        {t("Add sound")}
-      </Button>
       <LibraryPicker
         open={picker}
         kinds={["audio"]}
         onPick={addSound}
         onClose={() => setPicker(false)}
       />
-      <Input
-        aria-label={t("Upload sound")}
-        type="file"
-        accept="audio/*"
-        disabled={p.scene.sounds.length >= 4}
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file)
-            void onair
-              .uploadAsset(file, "audio")
-              .then((a) => studio.asset(a.digest))
-              .then(addSound)
-              .catch((e) => setError(String(e)));
-        }}
-      />
+      <label className="inline-flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[10px] text-fg-muted hover:bg-surface-hover">
+        <Upload size={11} />
+        {t("Upload sound")}
+        <Input
+          className="sr-only"
+          aria-label={t("Upload sound")}
+          type="file"
+          accept="audio/*"
+          disabled={p.scene.sounds.length >= 4}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file)
+              void onair
+                .uploadAsset(file, "audio")
+                .then((a) => studio.asset(a.digest))
+                .then(addSound)
+                .catch((e) => setError(String(e)));
+          }}
+        />
+      </label>
       {error && <p role="alert">{error}</p>}
     </section>
   );
@@ -585,13 +578,13 @@ function PresetPreview({ preset }: { preset: AnimationPreset }) {
       ref={canvas}
       width={160}
       height={90}
-      className="w-full rounded bg-black/10"
+      className="aspect-video w-full rounded bg-black/10"
       aria-hidden="true"
     />
   );
 }
 
-function propertyName(key: string): string {
+export function propertyName(key: string): string {
   return (
     (
       {

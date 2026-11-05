@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Button, Input, Popover, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
+import {
+  Tooltip,
+  Select,
+  Button,
+  Input,
+  Popover,
+  confirmDialog,
+  toast,
+} from "@braedonsaunders/appkit-ui";
 import { Drawer } from "../../../components/Drawer";
 import { SubtabNav } from "../../../components/layout";
-import { ToolbarPicker } from "../../../components/ToolbarPicker";
 import { useUnsavedGuard } from "../../../components/SaveBar";
 import { t } from "../../../i18n";
 import { api, apiBlob } from "../../../lib/api";
@@ -10,15 +17,32 @@ import type { EtherUser } from "../../../lib/types";
 import { tv, type ChannelSummary } from "../model";
 import { onair, type Bindings } from "./model";
 import { studio, type Style, type StyleScene } from "./studio-model";
-import { LookStage, ScenePoster, styleBindings } from "./Stage";
+import { LookStage, styleBindings } from "./Stage";
 import { LayersPanel } from "./LayersPanel";
 import { StyleScreensEditor } from "./StyleScreens";
 import { BugControls } from "./BugControls";
-import { InsertBar } from "./editor/InsertBar";
+import {
+  Undo2,
+  Redo2,
+  MoreHorizontal,
+  ChevronDown,
+  ZoomIn,
+  ZoomOut,
+  Scan,
+  Shield,
+  Volume2,
+  VolumeX,
+  Play,
+  Eye,
+  GripHorizontal,
+  Layers,
+  SlidersHorizontal,
+  MousePointer2,
+} from "lucide-react";
+import { ToolButton, InsertBar } from "./editor/InsertBar";
 import { Inspector } from "./editor/Inspector";
 import { SceneStrip } from "./editor/SceneStrip";
 import { Timeline } from "./editor/Timeline";
-import { VideoPicker } from "./editor/VideoPicker";
 import { useStageClock } from "./editor/clock";
 import { usePreviewAudio } from "./editor/preview-audio";
 import { RemixPanel } from "./editor/RemixPanel";
@@ -39,8 +63,14 @@ export function LookDrawer({
   const [draft, setDraft] = useState(look),
     [saved, setSaved] = useState(look),
     [tab, setTab] = useState(initialTab),
-    [designTab, setDesignTab] = useState("layers"),
-    [sceneId, setSceneId] = useState(look.scenes[0]?.id ?? ""),
+    [mobilePanel, setMobilePanel] = useState("stage"),
+    [rail, setRail] = useState(264),
+    [timelineHeight, setTimelineHeight] = useState(212),
+    [previewOpen, setPreviewOpen] = useState(false),
+    [scenePicker, setScenePicker] = useState(false),
+    [sceneId, setSceneId] = useState(
+      look.scenes.find((s) => s.role === "ident")?.id ?? look.scenes[0]?.id ?? "",
+    ),
     [selected, setSelected] = useState<string[]>([]),
     [channels, setChannels] = useState<ChannelSummary[]>([]),
     [channel, setChannel] = useState(look.channelIds[0] ?? ""),
@@ -60,6 +90,19 @@ export function LookDrawer({
     [sequence, setSequence] = useState(false),
     [muted, setMuted] = useState(true),
     [mix, setMix] = useState<{ muted: string[]; solo: string }>({ muted: [], solo: "" });
+  const resizeRail = useRef({ x: 0, width: 264 });
+  const resizeTimeline = useRef({ y: 0, height: 212 });
+  const roleNames = {
+    ident: t("Ident"),
+    upnext: t("Up next"),
+    tonight: t("Tonight"),
+    break: t("Break"),
+    back: t("Back from break"),
+    offair: t("Off air"),
+    welcome: t("Welcome"),
+    bug: t("Corner logo"),
+    lowerthird: t("Lower third"),
+  };
   const gestureActive = useRef(false);
   const history = useRef<Style[]>([]),
     future = useRef<Style[]>([]),
@@ -131,6 +174,22 @@ export function LookDrawer({
   }, [channel, at, viewer, scene?.role]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const editing = (e.target as HTMLElement).closest(
+        'input,textarea,select,button,[contenteditable="true"]',
+      );
+      if (!editing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (e.code === "Space") {
+          e.preventDefault();
+          clock.setPlaying((value) => !value);
+          return;
+        }
+        if (e.key === "-" || e.key === "+" || e.key === "=") {
+          e.preventDefault();
+          setZoom((value) => Math.max(0.25, Math.min(3, value + (e.key === "-" ? -0.1 : 0.1))));
+          return;
+        }
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -170,25 +229,104 @@ export function LookDrawer({
       open
       stacked={stacked}
       size="2xl"
+      initialFullscreen
       onClose={() => void close()}
       title={
-        <Input
-          aria-label={t("Style name")}
-          value={draft.name}
-          onChange={(e) => change({ ...draft, name: e.target.value })}
-        />
+        <div className="flex min-w-0 items-center gap-3">
+          <Input
+            className="w-36 border-transparent bg-transparent px-0 font-semibold focus:border-border"
+            aria-label={t("Style name")}
+            value={draft.name}
+            onChange={(e) => change({ ...draft, name: e.target.value })}
+          />
+          <span className="hidden h-5 border-l border-border sm:block" />
+          {scene && (
+            <Popover
+              open={scenePicker}
+              onOpenChange={setScenePicker}
+              className="max-h-96 w-72 overflow-y-auto p-1"
+              trigger={
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="inline-flex min-w-0 gap-2"
+                  onClick={() => setScenePicker(!scenePicker)}
+                >
+                  <span className="text-fg-muted">{roleNames[scene.role]}</span>
+                  <span className="hidden text-fg-muted sm:inline">·</span>
+                  <span className="hidden max-w-48 truncate sm:inline">
+                    {scene.name === scene.role ? draft.name : scene.name}
+                  </span>
+                  <ChevronDown size={12} />
+                </Button>
+              }
+            >
+              {draft.scenes.map((item) => (
+                <button
+                  key={item.id}
+                  className="flex w-full gap-3 rounded p-2 text-left text-xs hover:bg-surface-hover"
+                  onClick={() => {
+                    setSceneId(item.id);
+                    setSelected([]);
+                    setScenePicker(false);
+                  }}
+                >
+                  <span className="w-24 shrink-0 text-fg-muted">{roleNames[item.role]}</span>
+                  <span className="truncate">
+                    {item.name === item.role ? draft.name : item.name}
+                  </span>
+                </button>
+              ))}
+            </Popover>
+          )}
+        </div>
+      }
+      subtabs={
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
+          <SubtabNav
+            active={tab}
+            onSelect={setTab}
+            ariaLabel={t("Style workspace")}
+            tabs={[
+              { key: "remix", label: t("Remix") },
+              { key: "design", label: t("Design") },
+              { key: "screens", label: t("Screens") },
+            ]}
+          />
+          <span className="hidden text-[10px] text-fg-muted sm:block">
+            {t("1920 × 1080 · Live television")}
+          </span>
+        </div>
       }
       panelClassName="max-sm:[&>header]:flex-wrap max-sm:[&>header>div:first-child]:w-full max-sm:[&>header>div:last-child]:w-full max-sm:[&>header>div:last-child]:justify-end"
       bodyClassName="flex min-h-0 flex-1 flex-col overflow-y-auto p-0 lg:overflow-hidden"
       headerActions={
         <div className="flex flex-wrap items-center gap-2">
-          {dirty && <Badge>{t("Unsaved")}</Badge>}
-          <Button size="sm" variant="ghost" disabled={!history.current.length} onClick={undo}>
-            {t("Undo")}
-          </Button>
-          <Button size="sm" variant="ghost" disabled={!future.current.length} onClick={redo}>
-            {t("Redo")}
-          </Button>
+          {dirty && (
+            <Tooltip content={t("Unsaved changes")}>
+              <span
+                role="status"
+                aria-label={t("Unsaved changes")}
+                className="mx-1 h-2 w-2 rounded-full bg-amber-400"
+              />
+            </Tooltip>
+          )}
+          <ToolButton
+            label={t("Undo")}
+            shortcut="⌘Z"
+            disabled={!history.current.length}
+            onClick={undo}
+          >
+            <Undo2 size={16} />
+          </ToolButton>
+          <ToolButton
+            label={t("Redo")}
+            shortcut="⇧⌘Z"
+            disabled={!future.current.length}
+            onClick={redo}
+          >
+            <Redo2 size={16} />
+          </ToolButton>
           <Button size="sm" disabled={saving} onClick={() => void save()}>
             {t("Save")}
           </Button>
@@ -202,7 +340,7 @@ export function LookDrawer({
                 aria-label={t("Style actions")}
                 onClick={() => setMenu(!menu)}
               >
-                ⋯
+                <MoreHorizontal size={18} />
               </Button>
             }
           >
@@ -262,59 +400,55 @@ export function LookDrawer({
         </div>
       }
     >
+      <div className="flex shrink-0 items-center justify-center gap-1 border-b border-border p-1 lg:hidden">
+        {[
+          { id: "stage", label: t("Canvas"), Icon: MousePointer2 },
+          { id: "layers", label: tab === "remix" ? t("Remix") : t("Layers"), Icon: Layers },
+          { id: "inspector", label: t("Inspector"), Icon: SlidersHorizontal },
+        ]
+          .filter((i) => tab === "design" || i.id !== "inspector")
+          .map(({ id, label, Icon }) => (
+            <Button
+              key={id}
+              size="sm"
+              variant={mobilePanel === id ? "secondary" : "ghost"}
+              onClick={() => setMobilePanel(id)}
+            >
+              <Icon size={14} />
+              {label}
+            </Button>
+          ))}
+      </div>
       <div
         inert={saving}
-        className="flex flex-col lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[320px_minmax(0,1fr)]"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:overflow-hidden"
+        style={{
+          gridTemplateColumns:
+            tab === "design" ? `${rail}px minmax(0,1fr) 296px` : `${rail}px minmax(0,1fr)`,
+        }}
       >
-        <aside className="order-2 lg:overflow-y-auto border-r border-border p-4 lg:order-1">
-          <SubtabNav
-            active={tab}
-            onSelect={setTab}
-            ariaLabel={t("Style inspector")}
-            tabs={[
-              { key: "remix", label: t("Remix") },
-              { key: "design", label: t("Design") },
-              { key: "screens", label: t("Screens") },
-            ]}
-          />
-          <div className="space-y-5 py-4">
+        <aside
+          className={`${mobilePanel === "layers" ? "block" : "hidden"} relative min-h-0 overflow-y-auto border-r border-border bg-surface lg:block`}
+        >
+          <div className="p-4">
             {tab === "design" && scene ? (
-              <>
-                <SubtabNav
-                  active={designTab}
-                  onSelect={setDesignTab}
-                  ariaLabel={t("Design tools")}
-                  tabs={[
-                    { key: "properties", label: t("Properties") },
-                    { key: "layers", label: t("Layers") },
-                  ]}
-                />
-                {designTab === "layers" ? (
-                  <LayersPanel
-                    document={scene.document}
-                    selected={selected}
-                    onSelect={setSelected}
-                    onChange={(document) => updateScene({ ...scene, document })}
-                  />
-                ) : (
-                  <Inspector
-                    time={clock.time}
-                    style={draft}
-                    scene={scene}
-                    selected={selected}
-                    onChange={change}
-                  />
-                )}
-                <VideoPicker scene={scene} onChange={updateScene} />
-              </>
+              <LayersPanel
+                document={scene.document}
+                selected={selected}
+                onSelect={(ids) => {
+                  setSelected(ids);
+                  clock.setPlaying(false);
+                }}
+                onChange={(document) => updateScene({ ...scene, document })}
+              />
             ) : tab === "screens" ? (
-              <>
+              <div className="space-y-5">
                 <StyleScreensEditor look={draft} onChange={change} />
                 <BugControls
                   value={draft.bug ?? {}}
                   onChange={(bug) => change({ ...draft, bug })}
                 />
-              </>
+              </div>
             ) : (
               <RemixPanel
                 style={draft}
@@ -322,104 +456,184 @@ export function LookDrawer({
                 onOpenScene={(id) => {
                   setSceneId(id);
                   setTab("design");
+                  setMobilePanel("stage");
                 }}
               />
             )}
           </div>
+          <div
+            role="separator"
+            tabIndex={0}
+            aria-label={t("Resize layers panel")}
+            aria-orientation="vertical"
+            aria-valuenow={rail}
+            aria-valuemin={200}
+            aria-valuemax={360}
+            className="absolute inset-y-0 right-0 hidden w-1 cursor-col-resize hover:bg-primary/40 focus:bg-primary/40 lg:block"
+            onPointerDown={(e) => {
+              resizeRail.current = { x: e.clientX, width: rail };
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              if (e.currentTarget.hasPointerCapture(e.pointerId))
+                setRail(
+                  Math.max(
+                    200,
+                    Math.min(360, resizeRail.current.width + e.clientX - resizeRail.current.x),
+                  ),
+                );
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                e.preventDefault();
+                setRail((w) =>
+                  Math.max(200, Math.min(360, w + (e.key === "ArrowRight" ? 16 : -16))),
+                );
+              }
+            }}
+          />
         </aside>
-        <main className="order-1 min-w-0 space-y-4 lg:overflow-y-auto bg-bg-subtle p-4 lg:order-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <ToolbarPicker
-              ariaLabel={t("Preview channel")}
-              value={channel}
-              onChange={setChannel}
-              options={channels.map((c) => ({ value: c.id, label: c.name }))}
-            />
-            <Input
-              className="w-52"
-              type="datetime-local"
-              aria-label={t("Preview time")}
-              value={at}
-              onChange={(e) => setAt(e.target.value)}
-            />
-            <ToolbarPicker
-              ariaLabel={t("Preview viewer")}
-              value={viewer}
-              onChange={setViewer}
-              options={viewers.map((v) => ({ value: String(v.id), label: v.title || v.username }))}
-            />
-            <Button size="sm" variant="ghost" aria-pressed={safe} onClick={() => setSafe(!safe)}>
-              {t("Safe area")}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setZoom(1)}>
-              {t("Fit")}
-            </Button>
-            <Input
-              className="w-20"
-              type="number"
-              min="25"
-              max="300"
-              aria-label={t("Zoom percent")}
-              value={zoom * 100}
-              onChange={(e) => setZoom(Math.max(0.25, Math.min(3, Number(e.target.value) / 100)))}
-            />
-            <Button size="sm" variant="ghost" onClick={() => clock.setPlaying(!clock.playing)}>
-              {clock.playing ? t("Pause") : t("Play")}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setMuted(!muted)}
-              aria-pressed={!muted}
-            >
-              {t("Sound")}
-            </Button>
-          </div>
-          <Button size="sm" variant="ghost" disabled={!channel} onClick={() => setSequence(true)}>
-            {t("Play the sequence")}
-          </Button>
-          {sequence && (
-            <Drawer
-              open
-              stacked
-              size="2xl"
-              title={t("Play the sequence")}
-              onClose={() => setSequence(false)}
-            >
-              <SequencePreview style={draft} channelId={channel} at={new Date(at).toISOString()} />
-            </Drawer>
+        <main
+          className={`${mobilePanel === "stage" ? "flex" : "hidden"} min-h-0 min-w-0 flex-col bg-bg-subtle lg:flex`}
+        >
+          {scene && (
+            <div className="shrink-0 overflow-x-auto">
+              <InsertBar
+                scene={scene}
+                onChange={updateScene}
+                onSelect={setSelected}
+                onPen={() => setPen(true)}
+                onSelectTool={() => setPen(false)}
+                pen={pen}
+                bindings={bindings.slots}
+              >
+                <span className="mx-1 h-5 border-l border-border" />
+                <ToolButton
+                  label={t("Zoom out")}
+                  shortcut="−"
+                  onClick={() => setZoom((z) => Math.max(0.25, z - 0.1))}
+                >
+                  <ZoomOut size={15} />
+                </ToolButton>
+                <button
+                  className="w-10 shrink-0 text-center text-[11px] tabular-nums text-fg-muted"
+                  aria-label={t("Reset zoom")}
+                  onClick={() => setZoom(1)}
+                >
+                  {Math.round(zoom * 100)}%
+                </button>
+                <ToolButton
+                  label={t("Zoom in")}
+                  shortcut="+"
+                  onClick={() => setZoom((z) => Math.min(3, z + 0.1))}
+                >
+                  <ZoomIn size={15} />
+                </ToolButton>
+                <ToolButton label={t("Fit to viewport")} onClick={() => setZoom(1)}>
+                  <Scan size={15} />
+                </ToolButton>
+                <ToolButton label={t("Safe areas")} active={safe} onClick={() => setSafe(!safe)}>
+                  <Shield size={15} />
+                </ToolButton>
+                <ToolButton
+                  label={muted ? t("Enable preview sound") : t("Mute preview sound")}
+                  active={!muted}
+                  onClick={() => setMuted(!muted)}
+                >
+                  {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                </ToolButton>
+                <Popover
+                  open={previewOpen}
+                  onOpenChange={setPreviewOpen}
+                  className="w-72 space-y-4 p-4"
+                  trigger={
+                    <span>
+                      <ToolButton
+                        label={t("Preview as")}
+                        onClick={() => setPreviewOpen(!previewOpen)}
+                      >
+                        <Eye size={15} />
+                        <span className="hidden max-w-32 truncate text-[10px] min-[1500px]:inline">
+                          {t("{channel} · {time} · {viewer}", {
+                            channel: channels.find((c) => c.id === channel)?.name ?? "",
+                            time: new Date(at).toLocaleTimeString(undefined, {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            }),
+                            viewer: viewers.find((v) => String(v.id) === viewer)?.title ?? "",
+                          })}
+                        </span>
+                      </ToolButton>
+                    </span>
+                  }
+                >
+                  <h3 className="text-sm font-semibold">{t("Preview as")}</h3>
+                  <label className="block space-y-1 text-xs">
+                    {t("Channel")}
+                    <Select
+                      aria-label={t("Preview channel")}
+                      value={channel}
+                      onChange={(e) => setChannel(e.target.value)}
+                    >
+                      {channels.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label className="block space-y-1 text-xs">
+                    {t("Time")}
+                    <Input
+                      type="datetime-local"
+                      value={at}
+                      aria-label={t("Preview time")}
+                      onChange={(e) => setAt(e.target.value)}
+                    />
+                  </label>
+                  <label className="block space-y-1 text-xs">
+                    {t("Viewer")}
+                    <Select
+                      aria-label={t("Preview viewer")}
+                      value={viewer}
+                      onChange={(e) => setViewer(e.target.value)}
+                    >
+                      {viewers.map((v) => (
+                        <option key={v.id} value={String(v.id)}>
+                          {v.title || v.username}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <p className="text-xs text-fg-muted">
+                    {t("{channel} · {time} · {viewer}", {
+                      channel: channels.find((c) => c.id === channel)?.name ?? "",
+                      time: new Date(at).toLocaleString(undefined, {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      }),
+                      viewer: viewers.find((v) => String(v.id) === viewer)?.title ?? "",
+                    })}
+                  </p>
+                </Popover>
+                <Button
+                  size="sm"
+                  className="ml-auto h-8 shrink-0 gap-2"
+                  aria-label={t("Play the sequence")}
+                  disabled={!channel || !Number.isFinite(Date.parse(at))}
+                  onClick={() => setSequence(true)}
+                >
+                  <Play size={13} fill="currentColor" />
+                  <span className="hidden min-[1400px]:inline">{t("Play the sequence")}</span>
+                </Button>
+              </InsertBar>
+            </div>
           )}
           {scene ? (
             <>
-              {tab === "design" && (
-                <InsertBar
-                  onPen={() => {
-                    setPen(true);
-                    setTab("design");
-                  }}
-                  scene={scene}
-                  onChange={updateScene}
-                  onSelect={setSelected}
-                />
-              )}
-              {tab === "remix" ? (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {draft.scenes.map((s) => (
-                    <button
-                      key={s.id}
-                      className="space-y-2 rounded-lg border border-border bg-surface p-2 text-left"
-                      onClick={() => {
-                        setSceneId(s.id);
-                        setTab("design");
-                      }}
-                    >
-                      <ScenePoster scene={s} bindings={bindings} playing={clock.playing} />
-                      <span className="text-sm">{s.name}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
+              <div className="relative min-h-[220px] flex-1 overflow-hidden lg:min-h-0">
                 <LookStage
+                  fit
                   onGestureStart={() => {
                     if (!gestureActive.current) {
                       history.current.push(current.current);
@@ -450,28 +664,79 @@ export function LookDrawer({
                   safe={safe}
                   zoom={zoom}
                 />
-              )}
+                <span className="pointer-events-none absolute bottom-2 left-3 text-[10px] text-fg-muted">
+                  {t("{role} · {name}", {
+                    role: roleNames[scene.role],
+                    name: scene.name === scene.role ? draft.name : scene.name,
+                  })}
+                </span>
+              </div>
               {tab === "design" && (
-                <Timeline
-                  scene={scene}
-                  duration={scene.document.duration}
-                  time={clock.time}
-                  playing={clock.playing}
-                  onPlayingChange={clock.setPlaying}
-                  onTime={clock.seek}
-                  loop={clock.loop}
-                  onLoopChange={clock.setLoop}
-                  rate={clock.rate}
-                  onRateChange={clock.setRate}
-                  selected={selected}
-                  onSelect={setSelected}
-                  onChange={updateScene}
-                  onPreviewMixChange={(muted, solo) => setMix({ muted, solo })}
-                />
+                <div
+                  className="relative shrink-0 border-t border-border bg-surface"
+                  style={{ height: timelineHeight }}
+                >
+                  <div
+                    role="separator"
+                    tabIndex={0}
+                    aria-label={t("Resize timeline")}
+                    aria-orientation="horizontal"
+                    aria-valuenow={timelineHeight}
+                    aria-valuemin={140}
+                    aria-valuemax={400}
+                    className="absolute -top-1 left-0 z-10 flex h-2 w-full cursor-row-resize justify-center hover:bg-primary/20 focus:bg-primary/20"
+                    onPointerDown={(e) => {
+                      resizeTimeline.current = { y: e.clientY, height: timelineHeight };
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    }}
+                    onPointerMove={(e) => {
+                      if (e.currentTarget.hasPointerCapture(e.pointerId))
+                        setTimelineHeight(
+                          Math.max(
+                            140,
+                            Math.min(
+                              400,
+                              resizeTimeline.current.height + resizeTimeline.current.y - e.clientY,
+                            ),
+                          ),
+                        );
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setTimelineHeight((h) =>
+                          Math.max(140, Math.min(400, h + (e.key === "ArrowUp" ? 16 : -16))),
+                        );
+                      }
+                    }}
+                  >
+                    <GripHorizontal size={14} className="text-fg-muted" />
+                  </div>
+                  <div className="h-full overflow-auto px-3 py-2">
+                    <Timeline
+                      scene={scene}
+                      duration={scene.document.duration}
+                      time={clock.time}
+                      playing={clock.playing}
+                      onPlayingChange={clock.setPlaying}
+                      onTime={clock.seek}
+                      loop={clock.loop}
+                      onLoopChange={clock.setLoop}
+                      rate={clock.rate}
+                      onRateChange={clock.setRate}
+                      selected={selected}
+                      onSelect={setSelected}
+                      onChange={updateScene}
+                      onPreviewMixChange={(muted, solo) => setMix({ muted, solo })}
+                    />
+                  </div>
+                </div>
               )}
             </>
           ) : (
-            <p>{t("Add a scene to start designing.")}</p>
+            <div className="grid flex-1 place-items-center p-8 text-sm text-fg-muted">
+              {t("Add a scene to start designing.")}
+            </div>
           )}
           <SceneStrip
             style={draft}
@@ -480,12 +745,37 @@ export function LookDrawer({
             onSelect={(id) => {
               setSceneId(id);
               setSelected([]);
-              clock.seek(0);
             }}
             onChange={change}
           />
         </main>
+        {tab === "design" && scene && (
+          <aside
+            className={`${mobilePanel === "inspector" ? "block" : "hidden"} min-h-0 overflow-y-auto border-l border-border bg-surface p-4 lg:block`}
+          >
+            <Inspector
+              bindings={bindings}
+              time={clock.time}
+              style={draft}
+              scene={scene}
+              selected={selected}
+              onChange={change}
+            />
+          </aside>
+        )}
       </div>
+      {sequence && (
+        <Drawer
+          open
+          stacked
+          size="2xl"
+          initialFullscreen
+          title={t("Play the sequence")}
+          onClose={() => setSequence(false)}
+        >
+          <SequencePreview style={draft} channelId={channel} at={new Date(at).toISOString()} />
+        </Drawer>
+      )}
       {useOpen ? (
         <Drawer
           open

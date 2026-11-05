@@ -1006,7 +1006,6 @@
   "m_0466b5b9a300ef": "Stüdyolar",
   "m_046871eecddbce": "Güvenli bağlantılar",
   "m_04689ff1b29440": "API anahtarı",
-  "m_046abde90f9550": "Güvenli alan",
   "m_046d8520c1d620": "Önbellek gezgini",
   "m_046f9b8189032a": {
     "one": "Bugün {count} indirme · günlük limit belirlenmedi",
@@ -1387,7 +1386,6 @@
   "m_060263156c7a23": "Anlar",
   "m_0602e88453f640": "Henüz debrid hizmeti yok",
   "m_0603f8c8c14881": "Sıranın yerleştirdiği özel bölümler yerlerini korur. Özel bölümleri gizlemek, 0. sezonun her bölümünü göz atma listelerinden kaldırır. Sıranın dışarıda bıraktığı bölümler Diğer bölümler altında görünür.",
-  "m_06048ed34eef18": "Kaydedilmedi",
   "m_0607d4d4be574c": "Sürdür",
   "m_0609d540123cc4": "Akış URL'si",
   "m_0609fd105ca5cd": "Saatli yayın",
@@ -6319,7 +6317,6 @@
   "m_1bb5fa24d90bf6": "Değişim yolunu kopyala",
   "m_1bb6ee1903edda": "Kişiler ve şirketler",
   "m_1bb801da11773e": "Yerleşimi ve gösterilip gösterilmeyeceğini kişiselleştirme belirler",
-  "m_1bb929a679a8e1": "Düzenlemek için bir katman seçin.",
   "m_1bb961e2b8b420": "Debrid hesabı",
   "m_1bba66d0c53840": "Az bilinen yapımları gizle",
   "m_1bbb918638464f": "Bir yapay zekâ uygulamasını eşleştirerek Ether’e sor ile aynı araçları kullanıp Ether’e soru sormasını sağlayın. Sunucunuzu değiştiren her işlem yine burada onayınızı gerektirir.",

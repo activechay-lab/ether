@@ -1006,7 +1006,6 @@
   "m_0466b5b9a300ef": "Studioer",
   "m_046871eecddbce": "Sikre tilkoblinger",
   "m_04689ff1b29440": "API-nøkkel",
-  "m_046abde90f9550": "Sikkert område",
   "m_046d8520c1d620": "Hurtigbufferutforsker",
   "m_046f9b8189032a": {
     "one": "{count} nedlasting i dag · ingen daglig grense",
@@ -1387,7 +1386,6 @@
   "m_060263156c7a23": "Øyeblikk",
   "m_0602e88453f640": "Ingen debrid-tjenester ennå",
   "m_0603f8c8c14881": "Spesialer som rekkefølgen plasserer, beholder plassen sin. Når du skjuler spesialer, fjernes alle episoder fra sesong 0 fra bla-lister. Episoder som rekkefølgen utelater, vises under Andre episoder.",
-  "m_06048ed34eef18": "Ikke lagret",
   "m_0607d4d4be574c": "Gjenoppta",
   "m_0609d540123cc4": "Strøm-URL",
   "m_0609fd105ca5cd": "Til faste tider",
@@ -6319,7 +6317,6 @@
   "m_1bb5fa24d90bf6": "Kopier innbyttingssti",
   "m_1bb6ee1903edda": "Personer og selskaper",
   "m_1bb801da11773e": "Personalisering avgjør om og hvor",
-  "m_1bb929a679a8e1": "Velg et lag for å redigere det.",
   "m_1bb961e2b8b420": "Debrid-konto",
   "m_1bba66d0c53840": "Skjul obskure titler",
   "m_1bbb918638464f": "Koble sammen en KI-app slik at den kan stille Ether spørsmål med de samme verktøyene som Spør Ether. Endringer på serveren krever fortsatt din godkjenning her.",

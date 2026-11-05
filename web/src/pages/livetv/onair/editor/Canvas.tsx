@@ -31,6 +31,7 @@ export type CanvasProps = {
   onSelect(ids: string[]): void;
   onChange(doc: Scene): void;
   safe?: boolean;
+  fit?: boolean;
   zoom?: number;
   pen?: boolean;
   onPenDone?(): void;
@@ -50,6 +51,19 @@ export function editValue(
     : { [key]: value };
 }
 export function Canvas(p: CanvasProps) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const [fitWidth, setFitWidth] = useState(960);
+  useEffect(() => {
+    if (!p.fit || !viewport.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry)
+        setFitWidth(
+          Math.max(120, Math.min(entry.contentRect.width, (entry.contentRect.height * 16) / 9)),
+        );
+    });
+    observer.observe(viewport.current);
+    return () => observer.disconnect();
+  }, [p.fit]);
   const canvas = useRef<HTMLCanvasElement>(null),
     host = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<string>(),
@@ -62,6 +76,12 @@ export function Canvas(p: CanvasProps) {
   );
   const [penPreview, setPenPreview] = useState("");
   const penPoints = useRef<{ x: number; y: number; cx?: number; cy?: number }[]>([]);
+  useEffect(() => {
+    if (!p.pen) {
+      penPoints.current = [];
+      setPenPreview("");
+    }
+  }, [p.pen]);
   const gesture = useRef<
     { x: number; y: number; doc: Scene; ids: string[]; mode: string } | undefined
   >(undefined);
@@ -222,7 +242,19 @@ export function Canvas(p: CanvasProps) {
     p.onChange(doc);
   };
   return (
-    <div className="overflow-auto p-4">
+    <div
+      ref={viewport}
+      className={
+        p.fit
+          ? "relative flex h-full min-h-0 items-center justify-center overflow-auto p-6"
+          : "overflow-auto p-4"
+      }
+      style={{
+        backgroundImage:
+          "radial-gradient(color-mix(in srgb, var(--color-border, #ffffff12) 35%, transparent) 1px, transparent 1px)",
+        backgroundSize: "12px 12px",
+      }}
+    >
       {p.pen && (
         <p className="mb-2 text-sm text-fg-muted">
           {t("Click to add corners, drag to curve, and double-click to close the path.")}
@@ -230,8 +262,8 @@ export function Canvas(p: CanvasProps) {
       )}
       <div
         ref={host}
-        className="relative mx-auto aspect-video touch-none bg-black shadow-xl outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        style={{ width: `${(p.zoom ?? 1) * 100}%` }}
+        className="relative mx-auto aspect-video shrink-0 touch-none bg-black shadow-[0_8px_40px_#0005] ring-1 ring-white/10 outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        style={{ width: p.fit ? fitWidth * (p.zoom ?? 1) : `${(p.zoom ?? 1) * 100}%` }}
         tabIndex={0}
         role="application"
         aria-label={t("Scene canvas")}
@@ -361,6 +393,14 @@ export function Canvas(p: CanvasProps) {
           p.onChange(doc);
         }}
       >
+        {!p.document.layers.length && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-bg-subtle text-fg-muted">
+            <span className="text-sm font-medium">{t("Your scene starts here")}</span>
+            <span className="max-w-64 px-4 text-center text-xs">
+              {t("Press T to add text, or pick a template scene")}
+            </span>
+          </div>
+        )}
         {p.video}
         <canvas ref={canvas} width={960} height={540} className="h-full w-full" />
         <svg

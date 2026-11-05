@@ -1006,7 +1006,6 @@
   "m_0466b5b9a300ef": "Studier",
   "m_046871eecddbce": "Sikre forbindelser",
   "m_04689ff1b29440": "API-nøgle",
-  "m_046abde90f9550": "Sikkert område",
   "m_046d8520c1d620": "Cacheudforsker",
   "m_046f9b8189032a": {
     "one": "{count} download i dag · ingen daglig grænse",
@@ -1387,7 +1386,6 @@
   "m_060263156c7a23": "Øjeblikke",
   "m_0602e88453f640": "Ingen debrid-tjenester endnu",
   "m_0603f8c8c14881": "Specialer, som rækkefølgen placerer, beholder deres plads. Hvis du skjuler specialer, fjernes alle episoder i sæson 0 fra gennemsynslister. Episoder, som rækkefølgen udelader, vises under Andre episoder.",
-  "m_06048ed34eef18": "Ikke gemt",
   "m_0607d4d4be574c": "Genoptag",
   "m_0609d540123cc4": "Stream-URL",
   "m_0609fd105ca5cd": "På klokkeslæt",
@@ -6319,7 +6317,6 @@
   "m_1bb5fa24d90bf6": "Kopier indløsningssti",
   "m_1bb6ee1903edda": "Personer og virksomheder",
   "m_1bb801da11773e": "Personalisering afgør, om og hvor",
-  "m_1bb929a679a8e1": "Vælg et lag for at redigere det.",
   "m_1bb961e2b8b420": "Debrid-konto",
   "m_1bba66d0c53840": "Skjul ukendte titler",
   "m_1bbb918638464f": "Par en AI-app, så den kan stille Ether spørgsmål med de samme værktøjer som Spørg Ether. Ændringer på serveren kræver stadig din godkendelse her.",

@@ -1032,7 +1032,6 @@
   "m_0466b5b9a300ef": "Studi",
   "m_046871eecddbce": "Connessioni sicure",
   "m_04689ff1b29440": "Chiave API",
-  "m_046abde90f9550": "Area sicura",
   "m_046d8520c1d620": "Esplora cache",
   "m_046f9b8189032a": {
     "one": "{count} download oggi · nessun limite giornaliero impostato",
@@ -1426,7 +1425,6 @@
   "m_060263156c7a23": "Momenti",
   "m_0602e88453f640": "Nessun servizio debrid per ora",
   "m_0603f8c8c14881": "Gli speciali che l'ordine colloca mantengono il proprio posto. Nascondere gli speciali rimuove dagli elenchi ogni episodio della stagione 0. Gli episodi che l'ordine esclude compaiono in Altri episodi.",
-  "m_06048ed34eef18": "Non salvato",
   "m_0607d4d4be574c": "Riprendi",
   "m_0609d540123cc4": "URL dello stream",
   "m_0609fd105ca5cd": "Appuntamenti orari",
@@ -6495,7 +6493,6 @@
   "m_1bb5fa24d90bf6": "Copia percorso di scambio",
   "m_1bb6ee1903edda": "Persone e aziende",
   "m_1bb801da11773e": "La personalizzazione decide se e dove",
-  "m_1bb929a679a8e1": "Seleziona un livello da modificare.",
   "m_1bb961e2b8b420": "Account debrid",
   "m_1bba66d0c53840": "Nascondi i titoli poco noti",
   "m_1bbb918638464f": "Associa un’app IA per porre domande a Ether con gli stessi strumenti di Chiedi a Ether. Ogni modifica al server richiede comunque la tua approvazione qui.",
