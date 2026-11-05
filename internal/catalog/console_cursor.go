@@ -31,10 +31,6 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 	} else if empty {
 		return core.Page{Items: []core.Title{}}, nil
 	}
-	where, args, err := c.browseWhere(q.Filter)
-	if err != nil {
-		return core.Page{}, err
-	}
 	specs := append([]core.SortSpec{{Sort: q.Sort, Desc: q.Desc}}, q.SecondarySorts...)
 	if specs[0].Sort == "" {
 		specs[0] = core.SortSpec{Sort: core.SortPopularity, Desc: true}
@@ -70,6 +66,13 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 	}
 	all := make([]row, 0, limit*len(types))
 	for _, typ := range types {
+		typed := q.Filter
+		typed.Type = typ
+		where, args, err := c.browseWhere(typed)
+		if err != nil {
+			return core.Page{}, err
+		}
+
 		columns := make([]string, len(specs))
 		orders := make([]string, len(specs))
 		for i, s := range specs {
