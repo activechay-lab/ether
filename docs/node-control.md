@@ -62,3 +62,21 @@ wall-clock sweep. The UI must filter expiry as time passes after a response.
 Used/expired/invalid credentials never become valid through cleanup; pruned
 records become unknown and their historical used/expired reason is no longer
 retained. No background worker is started for token cleanup.
+
+## Read-only role guidance
+
+`GET /ether/api/cluster/nodes/{id}/role-preflight?boot=...` requires the same
+owner and exact live boot. It always returns `eligible: false`, `executor: none`.
+Membership timestamps are preserved; authoritative active sessions and ownership
+retirement remain unknown. A last observed full server or leader adds explicit
+refusal reasons. No timeout can change this response into restart authorization.
+
+The guidance includes a copyable full-pool replica example verified against
+this checkout's Helm values and templates. It changes the desired count of the
+whole pool, not this exact node's identity or roles. Installed deployment
+ownership is unknown. The chart disables service-account token mounting and
+uses OnDelete StatefulSet updates; this API executes no Helm, Kubernetes,
+restart, drain, or role operation. Mixed-public-role runtime guards stay closed.
+A future durable role lifecycle needs a separately reviewed executor, exact
+ownership proof, fresh authoritative session/retirement checks, last-server and
+leader-handoff guards, and new-boot verification before it can report applied.

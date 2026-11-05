@@ -347,6 +347,7 @@ func (a *App) clusterHandler() http.Handler {
 	})
 	mux.Handle("/node", a.clusterManageHandler())
 	mux.Handle("GET /nodes/{id}/control", a.nodeControlHandler())
+	mux.Handle("GET /nodes/{id}/role-preflight", a.nodeRolePreflightHandler())
 	mux.Handle("POST /nodes/{id}/control", a.nodeControlHandler())
 	setup := a.clusterSetupHandler()
 	mux.Handle("/setup", setup)
