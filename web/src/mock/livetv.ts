@@ -129,7 +129,7 @@ function hash(s: string): number {
   return h >>> 0;
 }
 
-export function createLiveTVMock(titles: FakeTitle[]) {
+export function createLiveTVMock(titles: FakeTitle[], empty = false) {
   const movies = titles.filter((t) => t.type === "movie" && t.runtimeMinutes);
   const item = (t: FakeTitle): Item => ({
     key: Number(t.key),
@@ -345,6 +345,7 @@ export function createLiveTVMock(titles: FakeTitle[]) {
     },
     look: { lookId: "personal", ident: true, upNext: true, offAir: true, breaks: "between" },
   });
+  if (empty) channels.length = 0;
   // Two channels have a guide id their own source doesn't carry.
   const unlisted = new Set(["iptv-4", "iptv-10", "iptv-11", "iptv-16"]);
 
@@ -529,7 +530,7 @@ export function createLiveTVMock(titles: FakeTitle[]) {
           coverage: Object.fromEntries(
             channels.map((c) => [c.id, c.kind === "virtual" || Boolean(c.guideId)]),
           ),
-          nextNumber: String(Math.max(...channels.map((c) => Number(c.number))) + 1),
+          nextNumber: String(Math.max(0, ...channels.map((c) => Number(c.number))) + 1),
         },
       };
     }
