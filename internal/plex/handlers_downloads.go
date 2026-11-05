@@ -558,7 +558,7 @@ func (s *Server) handleDownloadQueueItemDelete(w http.ResponseWriter, r *http.Re
 		s.cancelDownloadItem(it)
 	}
 	s.scheduleDownloads()
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // POST /downloadQueue/{queue}/items/{item}/restart — reprocess with the
