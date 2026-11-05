@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -279,7 +280,12 @@ func (r *registry) desired() []unitRow {
 				Username: e.slot.user.Username, Client: e.slot.caps}
 		}
 		rows = append(rows, unitRow{id: groupID(e.group), user: e.slot.user.ID, client: e.slot.caps.ClientID,
-			grp: e.group, kind: unitGroup, data: sharedSnapshot(ps), started: ps.StartedAt.UnixMilli()})
+			grp: func() string {
+				if e.slot.broadcast != "" {
+					return e.slot.broadcast
+				}
+				return e.group
+			}(), kind: unitGroup, data: sharedSnapshot(ps), started: ps.StartedAt.UnixMilli()})
 	}
 	return rows
 }
@@ -386,8 +392,21 @@ func (r *registry) remoteRows(ctx context.Context, q interface {
 // moved to this node).
 func remoteCounts(rows []unitRow, id identity) (user, total int) {
 	units := map[string]int64{}
+	broadcastUnits := map[string]bool{}
+	viewers := map[string]bool{}
 	for _, u := range rows {
 		if u.kind == unitSession && u.user == id.userID && u.client == clusterClientID(id) {
+			continue
+		}
+		if strings.HasPrefix(u.grp, "broadcast-") {
+			broadcastUnits[u.node+"/"+u.grp] = true
+			if u.kind == unitGroup && u.user == id.userID {
+				key := u.client
+				if key == "" {
+					key = u.id
+				}
+				viewers[key] = true
+			}
 			continue
 		}
 		unit := u.id
@@ -402,6 +421,8 @@ func remoteCounts(rows []unitRow, id identity) (user, total int) {
 			user++
 		}
 	}
+	total += len(broadcastUnits)
+	user += len(viewers)
 	return
 }
 

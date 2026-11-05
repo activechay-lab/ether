@@ -65,3 +65,40 @@ func TestPassthroughIPTVReservesAgainstLaterVOD(t *testing.T) {
 		t.Fatalf("reservation did not release: %v", err)
 	}
 }
+
+func TestSharedBroadcastViewerAndRolloverBudget(t *testing.T) {
+	h := newHarness(t, []*fakeRelease{mkv("A", 10000, time.Minute)}, []string{"A"}, func(h *harness, o *Options) { h.cfg.Server.DefaultStreamLimit = 2; h.cfg.Server.MaxStreams = 2 })
+	a, b, c := "broadcast-aaaaaaaaaaaaaaaa", "broadcast-bbbbbbbbbbbbbbbb", "broadcast-cccccccccccccccc"
+	if err := h.m.JoinChannel(owner, defaultCaps("owner-a"), "viewer-aaaaaaaaaaaa", a); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.m.JoinChannel(friend, defaultCaps("friend-a"), "viewer-friend-aaaaa", a); err != nil {
+		t.Fatal("second viewer should share output", err)
+	}
+	if err := h.m.JoinChannel(owner, defaultCaps("owner-b"), "viewer-bbbbbbbbbbbb", b); err != nil {
+		t.Fatal("second channel should fit", err)
+	}
+	ctx := context.Background()
+	if _, err := h.m.PrepareChannel(ctx, owner, movieKey, defaultCaps("source-a"), a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.m.PrepareChannel(ctx, owner, movie2, defaultCaps("source-b"), b); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.m.PrepareChannel(ctx, owner, movie3, defaultCaps("rollover-a"), a); err != nil {
+		t.Fatal("rollover double-counted", err)
+	}
+	if err := h.m.JoinChannel(friend, defaultCaps("friend-c"), "viewer-cccccccccccc", c); !errors.Is(err, core.ErrStreamLimit) {
+		t.Fatal("third distinct output admitted", err)
+	}
+	h.m.EndChannel("viewer-friend-aaaaa")
+	h.m.EndChannel("viewer-aaaaaaaaaaaa")
+	for _, ps := range h.m.Sessions() {
+		if ps.PlaybackGroup == a {
+			h.m.Stop(ps.ID)
+		}
+	}
+	if err := h.m.JoinChannel(friend, defaultCaps("friend-c"), "viewer-cccccccccccc", c); err != nil {
+		t.Fatal("retired output did not release budget", err)
+	}
+}
