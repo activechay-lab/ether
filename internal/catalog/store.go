@@ -552,6 +552,10 @@ func placeholders(n int) string {
 }
 
 type upsertOpts struct {
+	// preserveDetailed keeps a delayed source snapshot from overwriting details
+	// that completed after the snapshot was queued. Enforced by the UPSERT.
+	preserveDetailed bool
+
 	browsable bool // request browsable (added_at set if newly browsable)
 	detail    bool
 	// airDates: the payload is authoritative for the title's air date even
@@ -564,6 +568,31 @@ type upsertOpts struct {
 	// region is the owner's catalogue region; upsertMany sets it. A TMDB
 	// rating from the region or the US outranks a provider rating.
 	region string
+}
+
+// UpsertCollectionTitles mirrors one source refresh in a single transaction.
+// Call only from the collection build worker, never a serving path.
+func (c *Catalog) UpsertCollectionTitles(ctx context.Context, titles []core.Title) error {
+	if len(titles) == 0 {
+		return nil
+	}
+	titles = append([]core.Title(nil), titles...)
+	sort.Slice(titles, func(i, j int) bool { return titles[i].Key < titles[j].Key })
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, t := range titles {
+		if err := upsertOne(ctx, tx, t, upsertOpts{browsable: t.IsReleased(c.now()), preserveDetailed: true}, c.now().Unix()); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	c.writeGen.Add(1)
+	return nil
 }
 
 // UpsertTitle stores a title (exported for tests/seeders and other components that
@@ -694,9 +723,13 @@ func upsertOne(ctx context.Context, tx *sql.Tx, t core.Title, o upsertOpts, now 
 	if homeRating(t.ContentRating, t.ContentRatingSource, o.region) {
 		homeInt = 1
 	}
+	preserveInt := 0
+	if o.preserveDetailed {
+		preserveInt = 1
+	}
 	// Keep richer existing fields when a summary upsert would blank them:
 	// handled per-field with CASE in ON CONFLICT for a few detail-only fields.
-	_, err := tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 INSERT INTO catalog_titles (key,type,tmdb_id,imdb,tvdb,show_key,show_tmdb,show_title,season_title,season,episode,
  title,original_title,sort_title,tagline,summary,year,released_ts,runtime_sec,status,language,
  content_rating,content_rating_rank,content_rating_source,rating,vote_count,popularity,poster,backdrop,still,logo,
@@ -737,18 +770,37 @@ ON CONFLICT(key) DO UPDATE SET
  fetched_at=CASE WHEN `+materialTitleChangeSQL+` OR catalog_titles.content_rating<>(`+ratingPrecedence("content_rating")+`) THEN excluded.fetched_at ELSE catalog_titles.fetched_at END,
  detail=CASE WHEN excluded.detail>catalog_titles.detail THEN excluded.detail ELSE catalog_titles.detail END,
  detail_at=CASE WHEN excluded.detail=1 THEN excluded.detail_at ELSE catalog_titles.detail_at END
- WHERE `+materialTitleChangeSQL+` OR
+ WHERE (`+materialTitleChangeSQL+` OR
  catalog_titles.rating<>excluded.rating OR catalog_titles.vote_count<>excluded.vote_count OR catalog_titles.popularity<>excluded.popularity OR
  catalog_titles.content_rating<>(`+ratingPrecedence("content_rating")+`) OR
  catalog_titles.content_rating_rank<>(`+ratingPrecedence("content_rating_rank")+`) OR
- catalog_titles.content_rating_source<>(`+ratingPrecedence("content_rating_source")+`)`,
+ catalog_titles.content_rating_source<>(`+ratingPrecedence("content_rating_source")+`)) AND (catalog_titles.detail=0 OR excluded.detail=1 OR ?=0)`,
 		int64(t.Key), string(t.Type), t.IDs.TMDB, t.IDs.IMDB, t.IDs.TVDB, int64(t.ShowKey), showTMDB, t.ShowTitle, t.SeasonTitle, t.Season, t.Episode,
 		t.Title, t.OriginalTitle, t.SortTitle, t.Tagline, t.Summary, t.Year, releasedTS, int64(t.Runtime.Seconds()), t.Status, t.Language,
 		t.ContentRating, int(contentrating.LevelOf(t.ContentRating)), t.ContentRatingSource, t.Rating, t.VoteCount, t.Popularity, t.PosterPath, t.BackdropPath, t.StillPath, t.LogoPath,
 		t.CollectionID, t.CollectionName, t.ChildCount, t.LeafCount, browsableInt, addedAtFor(browsableInt, now), now, detailInt, t.Adult, detailAtFor(detailInt, now), lastAirTS,
-		homeInt, homeInt, homeInt, homeInt, homeInt, homeInt, homeInt)
+		homeInt, homeInt, homeInt, homeInt, homeInt, homeInt, homeInt, preserveInt)
 	if err != nil {
 		return fmt.Errorf("catalog: upsert %d: %w", t.Key, err)
+	}
+	if o.preserveDetailed {
+		n, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			var detailed int
+			if err := tx.QueryRowContext(ctx, `SELECT detail FROM catalog_titles WHERE key=?`, int64(t.Key)).Scan(&detailed); err != nil {
+				return err
+			}
+			if detailed != 0 {
+				// Search can promote an existing detail row without replacing its facts.
+				if o.browsable {
+					_, err = tx.ExecContext(ctx, `UPDATE catalog_titles SET browsable=1,added_at=CASE WHEN added_at=0 THEN ? ELSE added_at END WHERE key=? AND browsable=0`, now, int64(t.Key))
+				}
+				return err
+			}
+		}
 	}
 	// A successful detail fetch renews freshness even when its content is
 	// unchanged. Keep this out of the UPSERT predicate: updating only this

@@ -591,9 +591,17 @@ func (s *Service) join(ctx context.Context, snap *snapshot, titles []core.Title,
 		}
 	}
 	if s.upserter != nil {
-		for _, t := range fresh {
-			if err := s.upserter.UpsertTitle(ctx, t, t.IsReleased(s.now())); err != nil {
-				return nil, fmt.Errorf("collections: store title %s: %w", t.Key, err)
+		if batch, ok := s.upserter.(interface {
+			UpsertCollectionTitles(context.Context, []core.Title) error
+		}); ok {
+			if err := batch.UpsertCollectionTitles(ctx, fresh); err != nil {
+				return nil, fmt.Errorf("collections: mirror source batch: %w", err)
+			}
+		} else {
+			for _, t := range fresh {
+				if err := s.upserter.UpsertTitle(ctx, t, t.IsReleased(s.now())); err != nil {
+					return nil, fmt.Errorf("collections: store title %s: %w", t.Key, err)
+				}
 			}
 		}
 		// Reload so entries carry what the mirror knows (details fetched

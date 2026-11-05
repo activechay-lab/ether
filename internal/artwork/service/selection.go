@@ -88,7 +88,7 @@ func (s Source) ArtPath(ctx context.Context, req frontend.ArtworkRequest, elemen
 	if err != nil {
 		return "", 0, err
 	}
-	if (!t.Released.IsZero() && t.Released.After(s.now())) || !s.visible(ctx, req.Viewer, t) {
+	if t.IsFutureRelease(s.now()) || !s.visible(ctx, req.Viewer, t) {
 		return "", 0, core.ErrNotFound
 	}
 	parent := func() *core.Title {

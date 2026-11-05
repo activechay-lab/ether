@@ -513,7 +513,7 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 		return nil, nil, core.Decision{}, errors.New("playback not configured")
 	}
 	t, err := s.d.Catalog.Get(ctx, p.key)
-	if err != nil || (t != nil && !t.Released.IsZero() && t.Released.After(s.now())) {
+	if err != nil || (t != nil && t.IsFutureRelease(s.now())) {
 		if title, _, e := s.lookupPlaceholder(ctx, pr, p.key, p.collection); e == nil {
 			return title, nil, core.Decision{}, core.ErrUnreleased
 		}

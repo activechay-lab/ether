@@ -47,5 +47,5 @@ func (input discoverySnapshot) retentionCutoff() time.Time {
 }
 
 func (input discoverySnapshot) upcomingMovie(t core.Title) bool {
-	return input.showUpcomingMovies && t.Type == core.TypeMovie && !t.Released.IsZero() && t.Released.After(input.now)
+	return input.showUpcomingMovies && t.Type == core.TypeMovie && t.IsFutureRelease(input.now)
 }

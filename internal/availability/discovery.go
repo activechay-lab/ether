@@ -106,7 +106,7 @@ func (s *Service) filterReleaseDiscovery(ctx context.Context, items []core.Title
 		}
 		out = nil
 		for _, t := range items {
-			if allowed[t.Key] || (acceptable[t.Key] && !t.Released.After(input.now)) {
+			if allowed[t.Key] || (acceptable[t.Key] && !t.IsFutureRelease(input.now)) {
 				out = append(out, t)
 			}
 		}
@@ -216,7 +216,7 @@ func (s *Service) filterReleaseEvidence(ctx context.Context, items []core.Title,
 	}
 	out := make([]core.Title, 0, len(items))
 	for _, t := range items {
-		if titles[t.Key] == nil || (!t.Released.After(input.now) && acceptable[t.Key]) {
+		if titles[t.Key] == nil || (!t.IsFutureRelease(input.now) && acceptable[t.Key]) {
 			out = append(out, t)
 		}
 	}

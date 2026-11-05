@@ -138,9 +138,16 @@ type ShowTrajectory struct {
 	SticksLanding bool      `json:"sticksLanding,omitempty"`
 }
 
-// Released reports whether the title has a release/air date in the past.
+// IsReleased reports a passed release/air date or a verified movie home release.
+// Home evidence does not change the theatrical date used for date added.
 func (t *Title) IsReleased(now time.Time) bool {
-	return !t.Released.IsZero() && !t.Released.After(now)
+	return (!t.Released.IsZero() && !t.Released.After(now)) || (t.Type == TypeMovie && t.HomeReleaseChecked && !t.HomeReleased.IsZero() && !t.HomeReleased.After(now))
+}
+
+// IsFutureRelease distinguishes a future cinema date from a movie already
+// released digitally. Released remains the date used for date-added display.
+func (t *Title) IsFutureRelease(now time.Time) bool {
+	return !t.Released.IsZero() && t.Released.After(now) && !t.IsReleased(now)
 }
 
 var (
