@@ -141,3 +141,18 @@ dispose all handles. Do not trust an absent ExitCode from a detached
 Start-Process wrapper, PID-only lookup after reuse, encoder listings, or a
 compile-only result. Do not start the specialist before this test is reviewed
 and passes.
+
+
+The coordinator subsequently verified the actual NVENC-descendant containment
+mode using launcher SHA256
+`265f68851ebcdfbe314da269e95b8a4c861f61fdd8e9257958f565d038ec6883`.
+The native PowerShell 5 test observed nonzero encoded frame progress and retained
+the exact ancestry launcher9288 → assigned branch14388 → pinned FFmpeg5664.
+Creation times were `2026-11-05T18:18:46.2805081Z`,
+`2026-11-05T18:18:46.2976937Z`, and `2026-11-05T18:18:46.3107715Z`, respectively.
+Killing the retained launcher terminated both retained descendants; all three
+Process objects reported HasExited true and the stderr count was zero. The
+script disposed the handles and removed only matching owned PID files. No native
+process or service remained. This completes the native FFmpeg job-containment
+check; it does not prove distributed GPU playback, fencing or node-loss recovery
+(`distributedGPUVerified=false`). No additional containment build is needed.
