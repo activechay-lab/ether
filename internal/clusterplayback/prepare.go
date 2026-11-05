@@ -70,7 +70,7 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 		}
 		return sourceResponse{Prepared: result}, nil
 	}
-	if r.closed || len(r.preparations) >= r.o.Capacity {
+	if r.closed || len(r.preparations) >= r.o.HistoryCapacity {
 		r.mu.Unlock()
 		return sourceResponse{}, ErrDenied
 	}

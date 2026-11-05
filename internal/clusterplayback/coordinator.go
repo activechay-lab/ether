@@ -72,7 +72,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		return nil, ErrDenied
 	}
 	r.mu.Lock()
-	if r.closed || (r.executions[q.SessionID] != nil && !r.executions[q.SessionID].retired) || (r.executions[q.SessionID] == nil && len(r.executions) >= r.o.Capacity) {
+	if r.closed || (r.executions[q.SessionID] != nil && !r.executions[q.SessionID].retired) || (r.executions[q.SessionID] == nil && len(r.executions) >= r.o.HistoryCapacity) {
 		r.mu.Unlock()
 		return nil, ErrPending
 	}
@@ -147,7 +147,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if e != nil {
 		return nil, e
 	}
-	adapter, e := remotetranscode.NewAdapter(remotetranscode.AdapterOptions{Endpoint: endpoint, Client: &http.Client{Transport: &http.Transport{TLSClientConfig: tc}, Timeout: 30 * time.Second}, RecheckServer: check, Assign: func(context.Context, core.HLSRequest) (remotetranscode.Assignment, error) {
+	adapter, e := remotetranscode.NewAdapter(remotetranscode.AdapterOptions{Endpoint: endpoint, Client: &http.Client{Transport: &http.Transport{TLSClientConfig: tc}, Timeout: 0}, RecheckServer: check, Assign: func(context.Context, core.HLSRequest) (remotetranscode.Assignment, error) {
 		return remotetranscode.Assignment{Identity: remoteIdentity(rt), Grant: bound.Stable, Expires: deadline}, nil
 	}, Decide: r.o.Decide, Hardware: r.o.Hardware, Capacity: 1})
 	if e != nil {
@@ -161,7 +161,9 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		return nil, ErrPending
 	}
 	q.InputURL = "" // No local URL crosses the execution protocol.
-	hs, token, e := adapter.StartHLSOwned(ctx, q)
+	startCtx, cancelStart := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelStart()
+	hs, token, e := adapter.StartHLSOwned(startCtx, q)
 	r.mu.Lock()
 	x.retirement = token
 	if s, ok := token.(*remotetranscode.Session); ok {

@@ -24,6 +24,9 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
+	// HistoryCapacity bounds boot-retained authority tombstones (default4096),
+	// independently of concurrent placement resource capacity.
+	HistoryCapacity int
 	// SourcePolicy rechecks live viewer/title/source rights from local facts.
 	SourcePolicy func(context.Context, *core.Viewer, *core.PlaySession) error
 	MemberRole   func(context.Context, nodewire.Identity, config.NodeRole) error
@@ -64,6 +67,12 @@ type Runtime struct {
 }
 
 func NewRuntime(o Options) (*Runtime, error) {
+	if o.HistoryCapacity == 0 {
+		o.HistoryCapacity = 4096
+	}
+	if o.HistoryCapacity < o.Capacity || o.HistoryCapacity > 4096 {
+		return nil, ErrDenied
+	}
 	if o.DB == nil || o.Guard == nil || o.Placement == nil || o.Endpoint == nil || o.Eligible == nil || o.MemberRole == nil || o.Self.Cluster == "" || o.Self.NodeID == "" || o.Self.Boot == "" || !o.ClockBoundKnown || o.ClockSkew < 0 || o.ClockSkew > time.Minute || o.Capacity < 1 || o.Capacity > 4096 {
 		return nil, ErrDenied
 	}
@@ -72,7 +81,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 		if o.SourceAccess == nil || o.ActiveViewer == nil || o.SourcePolicy == nil {
 			return nil, ErrDenied
 		}
-		a, e := nodeauthority.New(nodeauthority.Options{Lookup: o.Placement, Policy: r.sourcePolicy, Owner: placement.Target{NodeID: o.Self.NodeID, Boot: o.Self.Boot}, Now: time.Now, ClockBoundKnown: true, ClockSkew: o.ClockSkew, MaxLifetime: 10 * time.Minute, MaxBindings: o.Capacity, MaxGrants: min(4096, o.Capacity*4), MaxGrantsPerBinding: 4})
+		a, e := nodeauthority.New(nodeauthority.Options{Lookup: o.Placement, Policy: r.sourcePolicy, Owner: placement.Target{NodeID: o.Self.NodeID, Boot: o.Self.Boot}, Now: time.Now, ClockBoundKnown: true, ClockSkew: o.ClockSkew, MaxLifetime: 10 * time.Minute, MaxBindings: o.HistoryCapacity, MaxGrants: 4096, MaxGrantsPerBinding: 4})
 		if e != nil {
 			return nil, e
 		}
@@ -86,7 +95,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 		r.mux.HandleFunc(SourcePath, r.sourceHTTP)
 	}
 	if o.Encoder != nil {
-		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Boot: o.Self.Boot, Capacity: o.Capacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: o.Guard.RemoteAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
+		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: o.Guard.RemoteAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
 		if e != nil {
 			return nil, e
 		}
@@ -262,6 +271,10 @@ func (r *Runtime) Pending(ctx context.Context) (int, error) {
 		}
 	}
 	for _, s := range sources {
+		if s.life == nil {
+			n++
+			continue
+		}
 		select {
 		case <-s.life.Done():
 			if s.life.Err() != nil {

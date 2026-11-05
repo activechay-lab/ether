@@ -6,7 +6,14 @@ budgets, certificate lifecycle and scheduling. No public Plex route changes.
 Construct NewVerifier, placement.New(db, options, verifier), NewRuntime(Options),
 then verifier.Bind(runtime), once before serving. Options requires live Guard,
 exact Self membership boot, trusted Endpoint, Eligible (new work, rejects drain),
-MemberRole (existing work, permits drain), explicit capacity and clock skew bound.
+MemberRole (existing work, permits drain), explicit concurrent capacity and clock skew bound. HistoryCapacity (default4096)
+is an independent boot-retained tombstone quota, bounded by primitive authority
+limits. Capacity=1 does not limit a boot to one completed playback. SourceAccess
+must be constructed with matching history limits. History exhaustion fails closed;
+quiescent runtime rotation is still required after that explicit quota. No TTL
+eviction manufactures source or encoder retirement. Long-lived safe compaction
+requires extending nodeauthority/SourceAccess retirement-floor APIs and remains a
+production acceptance gate.
 Source roles supply Manager, SourceAccess, ActiveViewer and SourcePolicy. The latter
 rechecks current title/parent/library/rating/release policy using local facts.
 Worker roles supply the real core.OwnedTranscoder (CPU or GPU manager). There is no

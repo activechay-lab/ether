@@ -78,7 +78,7 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 	life, cancel := context.WithCancel(context.Background())
 	v := &workerInput{route: rt, gateway: gateway, client: c, cancel: cancel, done: make(chan struct{})}
 	r.mu.Lock()
-	if r.closed || r.inputs[s.Identity] != nil || len(r.inputs) >= r.o.Capacity {
+	if r.closed || r.inputs[s.Identity] != nil || len(r.inputs) >= r.o.HistoryCapacity {
 		r.mu.Unlock()
 		cancel()
 		_ = gateway.Close()
