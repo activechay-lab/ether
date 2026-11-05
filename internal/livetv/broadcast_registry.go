@@ -3,6 +3,7 @@ package livetv
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -16,9 +17,10 @@ type broadcastKey struct {
 	viewerID  int64
 }
 type broadcastRegistry struct {
-	mu      sync.Mutex
-	outputs map[broadcastKey]*broadcast
-	closed  bool
+	mu       sync.Mutex
+	outputs  map[broadcastKey]*broadcast
+	closed   bool
+	yielding atomic.Int32
 }
 type broadcastLease struct {
 	mu        sync.Mutex
@@ -57,6 +59,7 @@ func (r *broadcastRegistry) acquire(ctx context.Context, key broadcastKey, id st
 			r.mu.Unlock()
 			return nil, err
 		}
+		b.yieldIdle = r.yieldIdle
 		r.outputs[key] = b
 		b.start()
 	}
@@ -175,4 +178,29 @@ func (l *broadcastLease) timelineOrigin(ctx context.Context) (time.Time, error) 
 	origin, err := r.origin, r.originErr
 	b.mu.Unlock()
 	return origin, err
+}
+
+// yieldIdle closes every output nobody is watching except the caller, so the
+// stream slots they hold during their idle grace go to a channel someone is
+// tuning. It reports whether slots are being freed, including closes still in
+// flight from an earlier call, so the caller retries soon rather than in 15 s.
+func (r *broadcastRegistry) yieldIdle(except *broadcast) bool {
+	now := time.Now()
+	r.mu.Lock()
+	var idle []*broadcast
+	for key, b := range r.outputs {
+		if b != except && b.unwatched(now) {
+			delete(r.outputs, key)
+			idle = append(idle, b)
+		}
+	}
+	r.mu.Unlock()
+	for _, b := range idle {
+		r.yielding.Add(1)
+		b.logger.Debug("broadcast yielded its stream to a tuned channel")
+		// close waits for the output's goroutines; never block the caller's
+		// frame clock on it.
+		go func() { defer r.yielding.Add(-1); b.close() }()
+	}
+	return len(idle) > 0 || r.yielding.Load() > 0
 }
