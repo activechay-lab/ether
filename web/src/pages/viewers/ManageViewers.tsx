@@ -63,6 +63,7 @@ export function AddViewerDrawer({
   const [method, setMethod] = useState<Method>("local");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [link, setLink] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -95,6 +96,7 @@ export function AddViewerDrawer({
     setMethod("local");
     setUsername("");
     setPassword("");
+    setConfirmPassword("");
     setLink("");
     setError("");
     onClose();
@@ -116,6 +118,7 @@ export function AddViewerDrawer({
       setError(t("Password must be at least 12 characters."));
       return;
     }
+    if (method === "local" && password !== confirmPassword) return;
     setBusy(true);
     setError("");
     try {
@@ -217,8 +220,10 @@ export function AddViewerDrawer({
   const passwordTooShort =
     method === "local" && password !== "" && password.length < MIN_LOCAL_PASSWORD;
 
+  const passwordMismatch = confirmPassword !== "" && password !== confirmPassword;
+
   return (
-    <Drawer open={open} onClose={close} title={t("Add viewer")}>
+    <Drawer open={open} onClose={close} title={t("Add viewer")} size="lg">
       <form className="space-y-5" onSubmit={create}>
         <p className="text-xs font-medium text-fg-muted">{t("Step {step} of 3", { step })}</p>
         {step === 1 ? (
@@ -238,6 +243,8 @@ export function AddViewerDrawer({
             <p className="text-sm font-medium text-fg">{t("How will they sign in?")}</p>
             <Segmented
               ariaLabel={t("How they sign in")}
+              size="sm"
+              className="flex w-full flex-col sm:flex-row sm:flex-nowrap [&>button]:h-auto [&>button]:min-h-8 [&>button]:min-w-0 [&>button]:flex-auto [&>button]:py-1.5 [&_svg]:shrink-0"
               value={method}
               onChange={(v) => {
                 setMethod(v);
@@ -274,6 +281,7 @@ export function AddViewerDrawer({
                   <PasswordInput
                     id="new-viewer-password"
                     aria-invalid={passwordTooShort || undefined}
+                    aria-describedby="new-viewer-password-hint"
                     minLength={MIN_LOCAL_PASSWORD}
                     value={password}
                     onChange={(e) => setPassword(e.currentTarget.value)}
@@ -281,12 +289,39 @@ export function AddViewerDrawer({
                     required
                   />
                   {passwordTooShort ? (
-                    <p className="mt-1 text-xs text-danger" role="alert">
+                    <p
+                      id="new-viewer-password-hint"
+                      className="mt-1 text-xs text-danger"
+                      role="alert"
+                    >
                       {t("Password must be at least 12 characters.")}
                     </p>
                   ) : (
-                    <p className="mt-1 text-xs text-fg-muted">{t("Use at least 12 characters.")}</p>
+                    <p id="new-viewer-password-hint" className="mt-1 text-xs text-fg-muted">
+                      {t("Use at least 12 characters.")}
+                    </p>
                   )}
+                </div>
+                <div>
+                  <Label htmlFor="new-viewer-confirm-password">{t("Confirm password")}</Label>
+                  <PasswordInput
+                    id="new-viewer-confirm-password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.currentTarget.value)}
+                    autoComplete="new-password"
+                    aria-invalid={passwordMismatch || undefined}
+                    aria-describedby={passwordMismatch ? "new-viewer-password-mismatch" : undefined}
+                    required
+                  />
+                  {passwordMismatch ? (
+                    <p
+                      id="new-viewer-password-mismatch"
+                      role="alert"
+                      className="mt-1 text-xs text-danger"
+                    >
+                      {t("Passwords do not match.")}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             ) : method === "invite" ? (
@@ -386,7 +421,13 @@ export function AddViewerDrawer({
           {step < 3 ? (
             <Button
               type="submit"
-              disabled={busy || passwordTooShort || (step === 1 && !name.trim())}
+              disabled={
+                busy ||
+                (step === 2 &&
+                  method === "local" &&
+                  (passwordTooShort || !password || password !== confirmPassword)) ||
+                (step === 1 && !name.trim())
+              }
             >
               {step === 1 || method === "plex"
                 ? t("Continue")

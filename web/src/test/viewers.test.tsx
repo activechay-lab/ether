@@ -388,7 +388,20 @@ it("adds a local viewer through the guided flow and shows how to connect", async
   fireEvent.change(within(drawer).getByLabelText("Password"), {
     target: { value: "a-very-long-password" },
   });
-  fireEvent.click(within(drawer).getByRole("button", { name: "Create viewer" }));
+  const create = within(drawer).getByRole("button", { name: "Create viewer" });
+  const confirmation = within(drawer).getByLabelText("Confirm password");
+  expect(create).toBeDisabled();
+  fireEvent.change(confirmation, { target: { value: "a-different-password" } });
+  expect(confirmation).toHaveAttribute("aria-invalid", "true");
+  expect(confirmation).toHaveAccessibleDescription("Passwords do not match.");
+  expect(create).toBeDisabled();
+  fireEvent.submit(create.closest("form")!);
+  expect(calls(fake, "POST", "/users/local")).toHaveLength(0);
+  fireEvent.change(confirmation, { target: { value: "a-very-long-password" } });
+  expect(confirmation).not.toHaveAttribute("aria-invalid");
+  expect(within(drawer).queryByText("Passwords do not match.")).toBeNull();
+  expect(create).toBeEnabled();
+  fireEvent.click(create);
   expect(await within(drawer).findByText("How to connect", {}, WAIT)).toBeInTheDocument();
   await waitFor(() => expect(calls(fake, "POST", "/users/local")).toHaveLength(1), WAIT);
   expect(calls(fake, "POST", "/users/local")[0]!.body).toEqual({
