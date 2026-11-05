@@ -288,6 +288,31 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	if !worker.ForwardMedia(forwarded, forwardRequest, request.SessionID, "") || forwarded.Code != 206 || forwarded.Body.String() != "egm" {
 		t.Fatalf("forward %d %s", forwarded.Code, forwarded.Body.String())
 	}
+	// Plex representation forwarding is a separate typed media scope; the
+	// original owner handler still validates its public token/grant.
+	if err = front.BindPlexDelivery(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+		if q.Header.Get("X-Plex-Token") != "offline-plex-token" {
+			http.Error(w, "denied", 401)
+			return
+		}
+		h.ServeSegment(w, q, 0)
+	})); err != nil {
+		t.Fatal(err)
+	}
+	plexRequest := httptest.NewRequest("GET", "https://public/video/:/transcode/universal/session/public-session/base/0.ts", nil)
+	plexResponse := httptest.NewRecorder()
+	if !worker.ForwardPlexMedia(plexResponse, plexRequest, request.SessionID) || plexResponse.Code != 401 {
+		t.Fatal("Plex forwarding bypassed original authorization")
+	}
+	plexRequest.Header.Set("X-Plex-Token", "offline-plex-token")
+	plexRequest.Header.Set("Range", "bytes=1-3")
+	plexResponse = httptest.NewRecorder()
+	if !worker.ForwardPlexMedia(plexResponse, plexRequest, request.SessionID) || plexResponse.Code != 206 || plexResponse.Body.String() != "egm" {
+		t.Fatalf("Plex range proxy %d %q", plexResponse.Code, plexResponse.Body.String())
+	}
+	if worker.ForwardPlexMedia(httptest.NewRecorder(), httptest.NewRequest("GET", "https://public/video/:/transcode/universal/start.m3u8?session=public-session", nil), request.SessionID) {
+		t.Fatal("control URI admitted to media scope")
+	}
 	// Durable capacity and exact identity survive a duplicate start.
 	if _, e = front.StartPreparedHLS(ctx, 9, prepared, request); e == nil {
 		t.Fatal("duplicate admitted")

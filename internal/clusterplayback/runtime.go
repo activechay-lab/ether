@@ -50,6 +50,7 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
+	plexDelivery   http.Handler
 	remotePlayback *RemotePlayback
 	control        sync.Mutex
 	preparations   map[string]*preparation
@@ -116,6 +117,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 		r.mux.Handle(WorkerPath, w)
 	}
 	r.mux.HandleFunc(DeliveryPath, r.deliveryHTTP)
+	r.mux.HandleFunc(PlexDeliveryPath, r.plexDeliveryHTTP)
 	return r, nil
 }
 func (r *Runtime) Handler() http.Handler { return r.mux }
@@ -342,4 +344,9 @@ func (e recordingEncoder) StartHLSOwned(ctx context.Context, q core.HLSRequest) 
 	}
 	e.r.mu.Unlock()
 	return s, t, err
+}
+
+func (e recordingEncoder) SupportsDistributedRequest(q core.HLSRequest) bool {
+	backend, ok := e.r.o.Encoder.(requestSupport)
+	return ok && backend.SupportsDistributedRequest(q)
 }
