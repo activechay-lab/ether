@@ -25,6 +25,7 @@ const broadcastDVR = 30 * time.Minute
 // broadcastPlan is immutable. Open performs blocking resolution away from the
 // frame clock. Its release closes the playback/provider reservation exactly once.
 type broadcastPlan struct {
+	element    string
 	policy     *broadcastPolicyTag
 	fill       bool
 	programme  bool
@@ -739,7 +740,22 @@ func (b *broadcast) step(now time.Time) bool {
 	copy(pcm, frame.PCM)
 	frame.PCM = pcm
 	if mode != b.mode {
-		b.logger.Debug("broadcast output switched", "from", b.mode, "input", mode, "tick", b.tick, "scheduledAt", now, "clockLag", time.Since(now))
+		element := current.element
+		if mode == "screen" {
+			element = b.screenPlan.element
+			if element == "" {
+				element = "screen"
+			}
+		} else if mode == "hold" {
+			element = "hold"
+		} else if element == "" && current.programme {
+			element = "programme"
+		}
+		transition := "cut"
+		if b.introFade != nil {
+			transition = "crossfade"
+		}
+		b.logger.Debug("broadcast output switched", "element", element, "transition", transition, "from", b.mode, "input", mode, "tick", b.tick, "scheduledAt", now, "clockLag", time.Since(now))
 		if b.introFade == nil {
 			b.fade.start(previousPCM, b.format)
 		}

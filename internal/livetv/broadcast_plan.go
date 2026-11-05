@@ -115,7 +115,13 @@ func (p *scheduleBroadcastPlanner) prewarmPlans(now time.Time) []broadcastPlan {
 }
 
 func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...time.Time) broadcastPlan {
-	plan := broadcastPlan{policy: programme.policyTag, programme: programme.Item.Key != 0, id: programme.ID, start: programme.Start, end: programme.End}
+	element := programme.Item.Slate
+	if programme.Item.ReelClipID != "" {
+		element = "reel"
+	} else if programme.Item.Key != 0 {
+		element = "programme"
+	}
+	plan := broadcastPlan{element: element, policy: programme.policyTag, programme: programme.Item.Key != 0, id: programme.ID, start: programme.Start, end: programme.End}
 	if interstitial(programme.Item) {
 		plan.failed = func(err error) time.Time {
 			p.s.recordGraphicsSkip(p.channel, programme, err)
@@ -306,7 +312,7 @@ type providerBroadcastPlanner struct {
 }
 
 func (p *providerBroadcastPlanner) plans(time.Time) (broadcastPlan, *broadcastPlan) {
-	return broadcastPlan{programme: true, id: "provider-" + p.channel.ID, open: p.open, failed: p.failed}, nil
+	return broadcastPlan{element: "programme", programme: true, id: "provider-" + p.channel.ID, open: p.open, failed: p.failed}, nil
 }
 func (p *providerBroadcastPlanner) failed(err error) time.Time {
 	p.mu.Lock()
