@@ -192,7 +192,7 @@ func SupportsRequest(r core.HLSRequest, c Capabilities) bool {
 	if (r.Protocol == core.ProtocolDASH && !c.DASH) || (r.Protocol == core.ProtocolHTTP && !c.HTTP) || (r.Protocol != "" && r.Protocol != core.ProtocolHLS && r.Protocol != core.ProtocolDASH && r.Protocol != core.ProtocolHTTP) {
 		return false
 	}
-	if len(r.ReleaseID) > 512 {
+	if r.ManifestSessionID != "" || len(r.ReleaseID) > 512 {
 		return false
 	}
 	if r.InputLease != nil || len(r.InputHeaders) > 0 || r.LiveInput || r.CopyTimestamps || len(r.SlateText) > 0 || len(r.Info.Keyframes) > 0 {

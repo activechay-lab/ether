@@ -72,12 +72,14 @@ func (s *fakeSession) EncoderErr() error {
 
 type fakeEncoder struct {
 	calls            int
+	request          core.HLSRequest
 	session          *fakeSession
 	entered, release chan struct{}
 }
 
 func (f *fakeEncoder) StartHLSOwned(ctx context.Context, r core.HLSRequest) (core.HLSSession, core.EncoderRetirement, error) {
 	f.calls++
+	f.request = r
 	if f.entered != nil {
 		close(f.entered)
 		<-f.release

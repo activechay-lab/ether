@@ -97,6 +97,9 @@ func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if protocol == core.ProtocolDASH && (f.request.ManifestSessionID != req.SessionID || f.request.SessionID == req.SessionID) {
+			t.Fatal("worker did not separate public DASH URLs from exact encoder ownership")
+		}
 		checkRepresentations(t, next, protocol)
 		if protocol == core.ProtocolHLS {
 			out := httptest.NewRecorder()

@@ -11,6 +11,11 @@ import (
 // Transcoder (internal/transcode)
 
 type HLSRequest struct {
+	// ManifestSessionID is a trusted host-assigned public session identifier used
+	// only for DASH representation URL rendering. Empty retains SessionID. It
+	// never changes encoder registry identity, source scope or retirement ownership.
+	ManifestSessionID string
+
 	// SlateText is trusted server-generated copy for a looping silent card.
 	// It is never decoded from client requests. Info.Duration bounds the slot.
 	SlateText []string `json:"-"`

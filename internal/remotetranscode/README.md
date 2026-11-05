@@ -89,7 +89,11 @@ Session implements concrete HLSLadderSession (bounded backend Rungs snapshot,
 ServeRungPlaylist/ServeRungSegment), DASHSession (manifest, per-representation init
 and media), and HTTPSession (progressive Matroska with downstream flushing).
 These methods reject operations outside the configured capability and execution
-protocol. Start.Protocol is immutable and included in generation idempotence.
+protocol. Start.Protocol is immutable and included in generation idempotence. The worker
+sets the additive `HLSRequest.ManifestSessionID` only from validated execution
+Identity.Session, keeping public DASH representation URLs separate from private
+hashed encoder ownership. Caller ManifestSessionID is rejected by preflight;
+ordinary local requests with that field empty render exactly as before.
 The worker verifies the returned backend interfaces and retires on any mismatch;
 a misconfigured promise is a failed owned start, never a local fallback.
 IndependentSegments reflects only the exact backend session-wide proof (false
