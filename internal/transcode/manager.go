@@ -35,6 +35,7 @@ var ErrImageSubtitle = errors.New("transcode: bitmap subtitles cannot be convert
 type Option func(*options)
 
 type options struct {
+	clipCacheDir   string
 	runtimeDir     string
 	runner         Runner
 	finder         *finder
@@ -81,6 +82,9 @@ func defaultOptions() options {
 		audioMatchBudget: defaultAudioMatchBudget,
 	}
 }
+
+// WithClipCacheDir authorizes local on-air master MP4 inputs.
+func WithClipCacheDir(dir string) Option { return func(o *options) { o.clipCacheDir = dir } }
 
 // WithRuntimeDir enables managed optional tool installation in this node-local
 // directory. No downloads occur while RTX Video is off. Embedded/test managers
@@ -564,7 +568,13 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		return nil, err
 	}
 	var slateData []byte
-	if len(req.SlateText) > 0 {
+	if req.ClipPath != "" {
+		input, err := trustedClipPath(m.opts.clipCacheDir, req.ClipPath)
+		if err != nil {
+			return nil, err
+		}
+		req.InputURL = input
+	} else if len(req.SlateText) > 0 {
 		var err error
 		slateData, err = m.slate(ctx, req.Info, req.SlateText)
 		if err != nil {
@@ -607,6 +617,19 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	}
 	if proto == core.ProtocolDASH {
 		d = dashDecision(req.Info, d)
+	}
+	if req.ClipPath != "" {
+		d.VideoCopy, d.AudioCopy = false, false
+		d.Kind = core.DecisionTranscode
+		if v := req.Info.Video(); v != nil {
+			d.VideoCodec = v.Codec
+			d.MaxHeight = v.Height
+		}
+		if a := pickAudio(req.Info, -1); a != nil {
+			d.AudioCodec = a.Codec
+			d.AudioChannels = a.Channels
+			d.AudioSampleRate = a.SampleRate
+		}
 	}
 	v := req.Info.Video()
 	if v == nil {
@@ -810,7 +833,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 			rtxTimeline:        enhancementSelected(d),
 			rtxConfig:          rtxConfig,
 			liveInput:          req.LiveInput,
-			loopInput:          len(slateData) > 0,
+			loopInput:          len(slateData) > 0 || (req.ClipPath != "" && req.ClipLoop),
 			input:              req.InputURL,
 			inputHeaders:       inputHeaders,
 			inputLease:         req.InputLease,
@@ -837,6 +860,15 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 			segSizes:    map[int]int64{},
 			governorOn:  adapt.Governor && proto == core.ProtocolHLS && d.VideoCopy && v != nil,
 		},
+	}
+	if req.ClipPath != "" {
+		s.contract, _ = contractOf(req.Info, d)
+		if s.contract != nil {
+			s.contract.frameRate = req.Info.Video().FrameRate
+		}
+		source := req.Info
+		source.Streams = []core.StreamInfo{{Index: 0, Type: "video", Codec: "h264", Width: 1920, Height: 1080, FrameRate: 30, Profile: "High", PixelFormat: "yuv420p"}, {Index: 1, Type: "audio", Codec: "aac", Channels: 2, SampleRate: 48000}}
+		s.info = source
 	}
 	if softSubtitleStream != nil {
 		s.softSubtitleInputIndex = *softSubtitleStream
