@@ -13,7 +13,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
-// Characterizes existing route behavior; this is not a proposed policy.
+// Shared admission keeps related cards, their hubKey and detail reads consistent.
+// Recorded PMS hubKeys name exactly the rendered cards (see #285 evidence).
 func TestPostplayRelatedHubKeyAuthorizationCharacterization(t *testing.T) {
 	for _, scenario := range []string{"denied title", "denied parent", "unavailable"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -101,15 +102,8 @@ func TestPostplayRelatedHubKeyAuthorizationCharacterization(t *testing.T) {
 						t.Fatalf("HubKey status=%d body=%s", opened.Code, opened.Body.String())
 					}
 					wantIDs := []string{fightClub.Key.String()}
-					wantMetadata := []string{fightClub.Key.String()}
-					if tc.name == "owner" && scenario != "denied title" {
-						wantIDs = []string{candidate.Key.String(), fightClub.Key.String()}
-						if scenario == "denied parent" {
-							wantMetadata = []string{candidate.Key.String(), fightClub.Key.String()}
-						}
-					}
-					if !reflect.DeepEqual(ids, wantIDs) || !reflect.DeepEqual(metadata, wantMetadata) || single.Code != http.StatusNotFound || !reflect.DeepEqual(openedIDs, []string{fightClub.Key.String()}) {
-						t.Fatalf("observed behavior changed: IDs=%v metadata=%v single=%d dereference=%v", ids, metadata, single.Code, openedIDs)
+					if !reflect.DeepEqual(ids, wantIDs) || !reflect.DeepEqual(metadata, wantIDs) || single.Code != http.StatusNotFound || !reflect.DeepEqual(openedIDs, wantIDs) {
+						t.Fatalf("inconsistent admission: IDs=%v metadata=%v single=%d dereference=%v", ids, metadata, single.Code, openedIDs)
 					}
 				})
 			}

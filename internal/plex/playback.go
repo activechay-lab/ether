@@ -1879,7 +1879,7 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 	subDefault := q.Has("subtitleStreamID") && subErr == nil && subID == -1
 	ctx := sessions.WithPlexServe(r.Context(), pr.Remote, "")
 	var audio *sessions.PlexStreamBinding
-	if v := q.Get("audioStreamID"); v != "" {
+	if v := q.Get("audioStreamID"); v != "" && !audioDefault {
 		if sid, err := strconv.ParseInt(v, 10, 64); err == nil {
 			if sid == 0 {
 				writeHTTPError(w, http.StatusBadRequest)
@@ -1899,7 +1899,7 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 	}
 	clearSub := q.Has("subtitleStreamID") && (subErr != nil || subID == 0)
 	var sub *sessions.PlexStreamBinding
-	if v := q.Get("subtitleStreamID"); v != "" {
+	if v := q.Get("subtitleStreamID"); v != "" && !subDefault {
 		if sid, err := strconv.ParseInt(v, 10, 64); err == nil {
 			if sid == 0 {
 				clearSub = true
