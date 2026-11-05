@@ -441,6 +441,26 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	if err != nil || !record.Retired {
 		t.Fatal("exact retirement did not release placement")
 	}
+	receiptKey := placement.HistoryKey{Cluster: front.o.Self.Cluster, Fence: record.Fence}
+	receipt, receiptErr := front.history.Lookup(ctx, receiptKey)
+	if receiptErr != nil || receipt.NeverStarted || receipt.RequestHash == ([32]byte{}) || receipt.Size != 10 || receipt.PlayID != prepared.PlayID || receipt.Revision != prepared.Revision || receipt.Renewal == nil || receipt.Renewal.Operation != renewal.Operation || receipt.EncoderProof == receipt.InputProof || receipt.SourceProof == receipt.EncoderProof {
+		t.Fatal("complete independent retirement receipt missing", receiptErr)
+	}
+	tampered := receipt
+	tampered.SourceProof[0] ^= 1
+	if front.VerifyReceipt(ctx, tampered) == nil {
+		t.Fatal("tampered source digest accepted")
+	}
+	source.mu.Lock()
+	joinedSource := source.sources[sourceKey(record.Fence)]
+	joinedSource.operations++
+	source.mu.Unlock()
+	if front.VerifyReceipt(ctx, receipt) == nil {
+		t.Fatal("unjoined source callback attested")
+	}
+	source.mu.Lock()
+	joinedSource.operations--
+	source.mu.Unlock()
 	// Same-owner reopen requires both old retirements and fresh exact revision
 	// and size; its attestation then binds a currently authorized new fence.
 	oldBinding := playbackcontinuity.SourceBinding{Owner: placement.Target{NodeID: sourceID.NodeID, Boot: sourceID.Boot}, PlayID: prepared.PlayID, Revision: prepared.Revision, Fence: record.Fence}
@@ -495,6 +515,9 @@ mismatchRetired:
 	if err != nil || nextRecord.Generation <= record.Generation {
 		t.Fatal("missing new fence", err)
 	}
+	if retained, err := front.history.Lookup(ctx, receiptKey); err != nil || retained.RequestHash != receipt.RequestHash {
+		t.Fatal("replacement erased exact receipt", err)
+	}
 	nextBinding := playbackcontinuity.SourceBinding{Owner: oldBinding.Owner, PlayID: reopened.Prepared.PlayID, Revision: reopened.Prepared.Revision, Fence: nextRecord.Fence}
 	if err = front.VerifyReopen(ctx, oldBinding, nextBinding, reopened.Proof); err != nil {
 		t.Fatal("reopen attestation", err)
@@ -505,7 +528,70 @@ mismatchRetired:
 		t.Fatal("changed revision accepted")
 	}
 	_ = restarted
+	if _, err = db.ExecContext(ctx, `CREATE TRIGGER reject_retirement_receipt BEFORE INSERT ON placement_history_receipts BEGIN SELECT RAISE(ABORT,'fixture receipt write'); END`); err != nil {
+		t.Fatal(err)
+	}
 	front.Stop(request.SessionID)
+	var publicationErr error
+	for i := 0; i < 50; i++ {
+		worker.Cleanup()
+		source.Cleanup()
+		publicationErr = front.Tick(ctx)
+		if publicationErr != nil {
+			if _, readyErr := front.collectReceipt(ctx, front.executions[request.SessionID].route); readyErr == nil {
+				break
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	held, heldErr := p.Lookup(ctx, request.SessionID)
+	if publicationErr == nil || heldErr != nil || held.Retired {
+		t.Fatal("unknown receipt write released placement", publicationErr, heldErr)
+	}
+	if _, receiptErr = front.history.Lookup(ctx, placement.HistoryKey{Cluster: front.o.Self.Cluster, Fence: nextRecord.Fence}); receiptErr == nil {
+		t.Fatal("failed atomic receipt write persisted partial history")
+	}
+	if _, err = db.ExecContext(ctx, `DROP TRIGGER reject_retirement_receipt`); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a committed atomic write whose response never reached the owner:
+	// publication succeeds, but local acknowledgement is deliberately not applied.
+	var committedReceipt bool
+	for i := 0; i < 50; i++ {
+		worker.Cleanup()
+		source.Cleanup()
+		front.mu.Lock()
+		pending := *front.executions[request.SessionID]
+		front.mu.Unlock()
+		if front.retire(ctx, &pending) == nil {
+			committedReceipt = true
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !committedReceipt {
+		t.Fatal("atomic retirement receipt did not commit after retry")
+	}
+	front.mu.Lock()
+	pendingExecution := front.executions[request.SessionID]
+	acknowledged := pendingExecution.retired
+	front.mu.Unlock()
+	if acknowledged {
+		t.Fatal("fixture prematurely acknowledged commit")
+	}
+	sourceEndpoint, workerEndpoint := endpoints[sourceID], endpoints[workerID]
+	delete(endpoints, sourceID)
+	delete(endpoints, workerID)
+	_ = front.Tick(ctx)
+	endpoints[sourceID] = sourceEndpoint
+	endpoints[workerID] = workerEndpoint
+	front.mu.Lock()
+	reconciled := pendingExecution.retired
+	front.mu.Unlock()
+	if !reconciled {
+		t.Fatal("persisted exact receipt did not reconcile lost commit without live nodes")
+	}
+
 	for i := 0; i < 50; i++ {
 		worker.Cleanup()
 		source.Cleanup()

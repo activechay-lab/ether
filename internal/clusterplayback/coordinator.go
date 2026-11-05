@@ -325,7 +325,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	remote := r.remotePlayback
 	r.mu.Unlock()
 	if remote != nil {
-		result = remote.tick(ctx)
+		if e := remote.tick(ctx); e != nil {
+			result = e
+		}
 	}
 	for _, x := range list {
 		if e := ctx.Err(); e != nil {
@@ -429,6 +431,11 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	return result
 }
 func (r *Runtime) retire(ctx context.Context, x *execution) error {
+	if retired, e := r.retainedReceipt(ctx, x.route); e != nil {
+		return e
+	} else if retired {
+		return nil
+	}
 	if x.foreign {
 		return r.retireForeign(ctx, x)
 	}
@@ -445,7 +452,7 @@ func (r *Runtime) retire(ctx context.Context, x *execution) error {
 	if e != nil || !source.Retired {
 		return ErrPending
 	}
-	return r.o.Placement.Retire(ctx, x.route.Fence, "clusterplayback/exact-retirement")
+	return r.retireWithEvidence(ctx, x.route, "clusterplayback/exact-retirement")
 }
 func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
 	r.mu.Lock()
