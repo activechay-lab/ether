@@ -126,6 +126,8 @@ type Filter struct {
 	MaxVotes              int             `json:"maxVotes,omitempty"`
 	MinPopularity         float64         `json:"minPopularity,omitempty"`
 	MaxPopularity         float64         `json:"maxPopularity,omitempty"`
+	DateAddedFrom         int64           `json:"dateAddedFrom,omitempty"` // release/air date, never insertion
+	DateAddedTo           int64           `json:"dateAddedTo,omitempty"`
 	EtherAddedFrom        int64           `json:"etherAddedFrom,omitempty"`
 	EtherAddedTo          int64           `json:"etherAddedTo,omitempty"`
 	Statuses              []string        `json:"statuses,omitempty"`

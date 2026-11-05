@@ -63,6 +63,7 @@ const fields = (): Field[] => [
   { key: "genre", label: t("Genre"), category: t("Essentials"), facet: "genre" },
   { key: "decade", label: t("Decade"), category: t("Essentials"), facet: "decade", kind: "number" },
   { key: "year", label: t("Year"), category: t("Dates"), kind: "number" },
+  { key: "dateAdded", label: t("Date added"), category: t("Dates"), kind: "date" },
   { key: "released", label: t("Release / air date"), category: t("Dates"), kind: "date" },
   { key: "rating", label: t("TMDB rating"), category: t("Ratings & runtime"), kind: "number" },
   { key: "votes", label: t("TMDB votes"), category: t("Ratings & runtime"), kind: "number" },
@@ -688,7 +689,7 @@ export function CatalogFilterBar({
           </select>
         </label>
       ) : null}
-      {state.chips.some((c) => ["released", "etherAdded"].includes(c.field)) ? (
+      {state.chips.some((c) => ["released", "dateAdded", "etherAdded"].includes(c.field)) ? (
         <p className="catalog-query-note">{t("Date added follows the release or air date.")}</p>
       ) : null}
     </section>

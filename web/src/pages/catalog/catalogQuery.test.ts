@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { compileQuery, parseNatural, readQuery } from "./catalogQuery";
 
 describe("catalogue query language", () => {
+  it("compiles an exact date-added day separately from insertion time", () => {
+    const query = compileQuery({
+      mode: "and",
+      chips: [{ field: "dateAdded", op: "is", value: "2026-01-01" }],
+    });
+    expect(JSON.stringify(query)).toContain('"dateAddedFrom":1767225600');
+    expect(JSON.stringify(query)).toContain('"dateAddedTo":1767311999');
+  });
   it("turns the owner example into inspectable predicates", () => {
     const chips = parseNatural("80s comedies over 7 with Tom Hanks under 2h");
     expect(chips).toEqual(

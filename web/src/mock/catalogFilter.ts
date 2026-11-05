@@ -32,6 +32,36 @@ export function matchesCatalogFilter(
     f.tags?.some((tag: string) => !(annotations?.get(title.key) || []).includes(tag.toLowerCase()))
   )
     return false;
+  if (f.playable && (f.playable === "yes") !== Boolean(title.evidence?.verified)) return false;
+  if (
+    f.debridCached &&
+    (f.debridCached === "yes"
+      ? title.evidence?.cached !== true
+      : title.evidence?.cached !== undefined)
+  )
+    return false;
+  if (
+    f.qualities?.length &&
+    (!title.evidence?.verified ||
+      !f.qualities.every((quality: string) => title.evidence!.qualities.includes(quality)))
+  )
+    return false;
+  if (f.releaseGate && (title.evidence?.gate || "unknown") !== f.releaseGate) return false;
+  if (f.statuses?.length && !f.statuses.includes(title.status)) return false;
+  if (
+    (f.minSeasons && (title.seasons || 0) < f.minSeasons) ||
+    (f.maxSeasons && (title.seasons || 0) > f.maxSeasons) ||
+    (f.minEpisodes && (title.episodes || 0) < f.minEpisodes) ||
+    (f.maxEpisodes && (title.episodes || 0) > f.maxEpisodes)
+  )
+    return false;
+  if (f.etherAddedFrom && Date.parse(title.addedAt) / 1000 < f.etherAddedFrom) return false;
+  if (f.etherAddedTo && Date.parse(title.addedAt) / 1000 > f.etherAddedTo + 86399) return false;
+  if (f.dateAddedFrom && Date.parse(title.released) / 1000 < f.dateAddedFrom) return false;
+  if (f.dateAddedTo && Date.parse(title.released) / 1000 > f.dateAddedTo) return false;
+  if (f.kids && !title.genres?.includes("Kids")) return false;
+  if (f.anime && !title.keywords.some((id) => KEYWORDS.find((k) => k.id === id)?.name === "anime"))
+    return false;
   if (f.type && title.type !== f.type) return false;
   if (f.query && !title.title.toLowerCase().includes(f.query.toLowerCase())) return false;
   if (

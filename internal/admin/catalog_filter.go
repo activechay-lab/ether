@@ -102,7 +102,7 @@ func decodeCatalogFilter(raw string, f *core.Filter) error {
 		if v.MinVotes < 0 || v.MaxVotes < 0 || v.MinPopularity < 0 || v.MaxPopularity < 0 || v.MinSeasons < 0 || v.MaxSeasons < 0 || v.MinEpisodes < 0 || v.MaxEpisodes < 0 {
 			return errors.New("Invalid numeric range")
 		}
-		for _, bounds := range [][2]float64{{float64(v.MinVotes), float64(v.MaxVotes)}, {v.MinPopularity, v.MaxPopularity}, {float64(v.MinSeasons), float64(v.MaxSeasons)}, {float64(v.MinEpisodes), float64(v.MaxEpisodes)}, {float64(v.EtherAddedFrom), float64(v.EtherAddedTo)}} {
+		for _, bounds := range [][2]float64{{float64(v.MinVotes), float64(v.MaxVotes)}, {v.MinPopularity, v.MaxPopularity}, {float64(v.MinSeasons), float64(v.MaxSeasons)}, {float64(v.MinEpisodes), float64(v.MaxEpisodes)}, {float64(v.EtherAddedFrom), float64(v.EtherAddedTo)}, {float64(v.DateAddedFrom), float64(v.DateAddedTo)}} {
 			if bounds[0] < 0 || bounds[1] < 0 || (bounds[1] > 0 && bounds[0] > bounds[1]) {
 				return errors.New("Invalid numeric range")
 			}

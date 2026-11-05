@@ -230,7 +230,21 @@ func (s *Service) ConsoleFacets(ctx context.Context, typ core.MediaType, facet s
 	if c, ok := s.cat.(interface {
 		ConsoleFacets(context.Context, core.MediaType, string) ([]core.FacetValue, bool, error)
 	}); ok {
-		return c.ConsoleFacets(ctx, typ, facet)
+		vals, pending, err := c.ConsoleFacets(ctx, typ, facet)
+		for i := range vals {
+			if facet == "language" {
+				vals[i].Title = languageName(vals[i].Key)
+			}
+			if facet == "decade" {
+				vals[i].Title = vals[i].Key + "s"
+			}
+			if facet == "country" {
+				if name, ok := countryNames[strings.ToUpper(vals[i].Key)]; ok {
+					vals[i].Title = name
+				}
+			}
+		}
+		return vals, pending, err
 	}
 	return []core.FacetValue{}, false, nil
 }

@@ -11,6 +11,7 @@ const allowedFields = new Set([
   "decade",
   "year",
   "released",
+  "dateAdded",
   "rating",
   "votes",
   "popularity",
@@ -98,6 +99,14 @@ export function chipFilter(c: Chip, viewer: string): Record<string, unknown> {
     return {
       credits: [{ ...(number > 0 ? { people: [number] } : { names: [c.value] }), kind: c.field }],
     };
+  if (c.field === "dateAdded") {
+    const stamp = Date.parse(c.value) / 1000;
+    return c.op === "is"
+      ? { dateAddedFrom: stamp, dateAddedTo: stamp + 86399 }
+      : c.op === "max"
+        ? { dateAddedTo: stamp + 86399 }
+        : { dateAddedFrom: stamp };
+  }
   if (c.field === "etherAdded")
     return { [c.op === "max" ? "etherAddedTo" : "etherAddedFrom"]: Date.parse(c.value) / 1000 };
   if (c.field === "watchlist")
