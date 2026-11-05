@@ -63,6 +63,7 @@ func (r *Runtime) StartDistributedHLS(ctx context.Context, viewer int64, playID,
 // StartPreparedHLS composes a concrete remote source-owner preparation with the
 // same durable encoder placement. The broker's remote planning seam can use it.
 func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared PreparedSource, q core.HLSRequest) (core.HLSSession, error) {
+	q.RecoveryStart = core.CloneRecoveryStart(q.RecoveryStart)
 	playID, revision := prepared.PlayID, prepared.Revision
 	if r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil || r.o.Eligible(ctx, prepared.Owner, config.RoleSource) != nil {
 		return nil, ErrDenied
