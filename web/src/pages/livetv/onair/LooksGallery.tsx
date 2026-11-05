@@ -97,6 +97,10 @@ export function LooksGallery({
   onNew: () => void;
   onSelect: (id: string) => void;
 }) {
+  const [families, setFamilies] = useState<Family[]>([]);
+  useEffect(() => {
+    void onair.families().then(setFamilies);
+  }, []);
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <ScreensDefaults />
@@ -113,6 +117,27 @@ export function LooksGallery({
           description={t("Choose a family to get started.")}
           action={<Button onClick={onNew}>{t("New look")}</Button>}
         />
+      ) : null}
+      {!looks.length ? (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {families.map((f) => (
+            <button
+              key={f.id}
+              className="overflow-hidden rounded-lg border border-border text-left"
+              onClick={async () => {
+                const saved = await onair.saveLook({
+                  ...f.look,
+                  name: t("Untitled look"),
+                  channelIds: [],
+                });
+                onSelect(saved.id);
+              }}
+            >
+              <LookTile look={f.look} />
+              <span className="block p-3 text-sm">{t(f.name)}</span>
+            </button>
+          ))}
+        </div>
       ) : null}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-2">
         {looks.map((l) => (

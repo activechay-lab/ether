@@ -123,7 +123,12 @@ function tokenText(c, s, o) {
   for (const [key, value] of Object.entries(look.brand.words)) {
     if (value && words[key]) s = s.replace(new RegExp(words[key], "ig"), value);
   }
-  if (s === "totally gooey TV" || s === "Late night. Lights off.") s = look.brand.tagline;
+  if (
+    s === "totally gooey TV" ||
+    s === "Late night. Lights off." ||
+    s === "LATE NIGHT  ·  LIGHTS OFF"
+  )
+    s = look.brand.tagline;
   const edit = look.layers?.Title;
   if (edit && o.s >= 80) {
     if (edit.text && !edit.text.startsWith("{")) s = edit.text;
@@ -3465,6 +3470,7 @@ const BR = {
 };
 
 export const referenceBrands = BR;
+const logos = new Map();
 export function renderLook(
   c: CanvasRenderingContext2D,
   look: Look,
@@ -3524,6 +3530,22 @@ export function renderLook(
   c.save();
   b.scenes[k].draw(c, t * (0.6 + look.brand.energy * 0.8), D);
   c.restore();
+  if (look.brand.logo) {
+    c.save();
+    c.fillStyle = p.accent;
+    c.font = `700 72px ${look.brand.type.display}`;
+    if (look.brand.logo.length < 4) c.fillText(look.brand.logo, 95, 130);
+    else {
+      let image = logos.get(look.brand.logo);
+      if (!image && typeof Image !== "undefined") {
+        image = new Image();
+        image.src = look.brand.logo;
+        logos.set(look.brand.logo, image);
+      }
+      if (image?.complete && image.naturalWidth) c.drawImage(image, 95, 70, 120, 120);
+    }
+    c.restore();
+  }
   if (b.post && look.brand.textures.length) {
     c.save();
     b.post(c, t, D, k);

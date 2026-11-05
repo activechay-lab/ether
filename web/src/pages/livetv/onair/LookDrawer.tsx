@@ -312,6 +312,7 @@ export function LookDrawer({
           </div>
           <LookStage
             look={draft}
+            compact={tab === "layers"}
             moment={moment}
             bindings={bindings}
             onMomentChange={setMoment}

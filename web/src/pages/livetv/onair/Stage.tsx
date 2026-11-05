@@ -4,6 +4,7 @@ import { Play, Pause, Repeat } from "lucide-react";
 import { t } from "../../../i18n";
 import { renderLook, loadOnAirFonts } from "./proto-renderer";
 import { MOMENTS, type Look, type Moment, type Bindings } from "./model";
+const EMPTY_BINDINGS: Bindings = {};
 let activeTile: HTMLCanvasElement | null = null;
 export function LookTile({
   look,
@@ -29,7 +30,7 @@ export function LookTile({
     let frame = 0,
       mounted = true;
     const start = performance.now();
-    const still = look.moments[moment]?.poster ?? 3;
+    const still = (look.moments[moment]?.poster ?? 4.4) / (0.6 + look.brand.energy * 0.8);
     const draw = () => {
       renderLook(
         ctx,
@@ -86,11 +87,12 @@ export const layerBoxes = [
 export function LookStage({
   look,
   moment = "ident",
-  bindings = {},
+  bindings = EMPTY_BINDINGS,
   at,
   viewer,
   onSelectLayer,
   onMomentChange,
+  compact = false,
 }: {
   look: Look;
   moment?: Moment;
@@ -99,6 +101,7 @@ export function LookStage({
   viewer?: string;
   onSelectLayer?: (id: string) => void;
   onMomentChange?: (m: Moment) => void;
+  compact?: boolean;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [selected, setSelected] = useState(moment);
@@ -115,6 +118,22 @@ export function LookStage({
   const [hover, setHover] = useState<string | null>(null);
   const duration = look.moments[selected]?.duration || 8;
   useEffect(() => setSelected(moment), [moment]);
+  useEffect(() => {
+    if (!sound) return;
+    const audio = new AudioContext();
+    const o = audio.createOscillator(),
+      g = audio.createGain();
+    o.frequency.value = look.brand.sting === "Synth hit" ? 220 : 660;
+    g.gain.setValueAtTime(look.brand.volume * 0.12, audio.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.6);
+    o.connect(g);
+    g.connect(audio.destination);
+    o.start();
+    o.stop(audio.currentTime + 0.6);
+    return () => {
+      void audio.close();
+    };
+  }, [sound, selected, look.brand.sting, look.brand.volume]);
   useEffect(() => {
     let frame = 0,
       last = performance.now();
@@ -177,7 +196,10 @@ export function LookStage({
       }}
     >
       <div
-        className="relative overflow-hidden rounded-xl border border-border shadow-lg"
+        className={cn(
+          "relative overflow-hidden rounded-xl border border-border shadow-lg",
+          compact && "mx-auto max-w-[560px]",
+        )}
         onMouseMove={(e) => {
           const r = e.currentTarget.getBoundingClientRect(),
             x = (e.clientX - r.left) / r.width,
@@ -246,7 +268,13 @@ export function LookStage({
           ½×
         </Button>
       </div>
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+      <div
+        className={
+          compact
+            ? "flex gap-2 overflow-x-auto [&>button]:w-20 [&>button]:shrink-0"
+            : "grid grid-cols-3 gap-2 sm:grid-cols-5"
+        }
+      >
         {MOMENTS.filter((m) => look.family === "personal" || m !== "welcome").map((m) => (
           <button
             key={m}

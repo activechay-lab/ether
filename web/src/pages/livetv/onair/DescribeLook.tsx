@@ -99,7 +99,7 @@ export function DescribeLook({ look, onChange }: { look: Look; onChange: (l: Loo
         <Alert>
           <AlertDescription>
             {t("Connect a language model to describe a look.")}{" "}
-            <Link className="text-primary underline" to="/integrations/language-model">
+            <Link className="text-primary underline" to="/services/overview#llm">
               {t("Integrations › Language model")}
             </Link>
           </AlertDescription>
