@@ -7,6 +7,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/agent/tools"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/onair"
+	"strconv"
 )
 
 type OnAirService interface {
@@ -129,7 +130,7 @@ func onairTools(d Deps) []tools.Tool {
 			b, _ := json.Marshal(l)
 			var v map[string]any
 			json.Unmarshal(b, &v)
-			return propose("Save a channel look", fmt.Sprintf("Save the look %q", l.Name), []tools.ProposalDetail{{Label: "Name", Value: l.Name}, {Label: "Family", Value: l.Family}}, map[string]any{"look": v}, func(ctx context.Context) (tools.Result, error) {
+			return propose("Save a channel look", fmt.Sprintf("Save the look %q", l.Name), []tools.ProposalDetail{{Label: "Name", Value: l.Name}, {Label: "Template", Value: l.Template}, {Label: "Scenes", Value: strconv.Itoa(len(l.Scenes))}}, map[string]any{"look": v}, func(ctx context.Context) (tools.Result, error) {
 				saved, e := d.OnAir.SaveLook(ctx, l)
 				return tools.Result{Data: map[string]any{"look": saved}}, e
 			}), nil
