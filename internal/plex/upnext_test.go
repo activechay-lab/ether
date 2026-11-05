@@ -81,6 +81,11 @@ func TestPostplayUpNextReloadAndPlayQueue(t *testing.T) {
 						continue
 					}
 					path := strings.NewReplacer("{{movieKey}}", bbE2.Key.String(), "{{session}}", "up-next").Replace(probe.Path)
+					if probe.Name == "transcode-start" {
+						if decision := f.request(t, "GET", decisionPath(path), headers); decision.Code != 200 {
+							t.Fatalf("next episode decision: %d %s", decision.Code, decision.Body)
+						}
+					}
 					r := f.request(t, probe.Method, path, headers)
 					if r.Code != 200 {
 						t.Fatalf("next episode %s: %d %s", probe.Name, r.Code, r.Body)
