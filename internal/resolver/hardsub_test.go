@@ -69,7 +69,7 @@ func TestHardsubNearRelease(t *testing.T) {
 
 func TestHardsubExplicitExclusion(t *testing.T) {
 	cfg := testCfg()
-	cfg.Resolver.BlockedTerms = []string{"sub"}
+	cfg.Resolver.HardSubtitles = "exclude"
 	r := rel("hidden", "The.Signal.1999.1080p.BluRay.x264-GROUP", 8000)
 	s := New(&fakeIndexer{releases: []core.Release{r}}, fakeHealth{}, nil, cfg, Options{})
 	defer s.Close()
@@ -81,5 +81,44 @@ func TestHardsubExplicitExclusion(t *testing.T) {
 	}
 	if _, err := s.Resolve(t.Context(), core.ResolveRequest{Title: matrixTitle(), Client: webCaps()}); err == nil {
 		t.Fatal("blocked only option played")
+	}
+}
+
+func TestHardsubKeywordIndependent(t *testing.T) {
+	cfg := testCfg()
+	cfg.Resolver.BlockedTerms = []string{"sub"}
+	r := rel("hc", "The.Signal.1999.1080p.HC.WEBRip.x264-GROUP", 8000)
+	s := New(&fakeIndexer{releases: []core.Release{r}}, fakeHealth{}, nil, cfg, Options{})
+	defer s.Close()
+	if _, err := s.Resolve(t.Context(), core.ResolveRequest{Title: matrixTitle(), Client: webCaps()}); err != nil {
+		t.Fatalf("sub must not alias HC: %v", err)
+	}
+}
+func TestHardsubCheckClaimPersists(t *testing.T) {
+	db := openTestDB(t)
+	s := New(nil, nil, db, testCfg(), Options{})
+	defer s.Close()
+	ok, err := s.ClaimSubtitleCheck(t.Context(), "same")
+	if err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	other := New(nil, nil, db, testCfg(), Options{})
+	defer other.Close()
+	ok, err = other.ClaimSubtitleCheck(t.Context(), "same")
+	if err != nil || ok {
+		t.Fatal("duplicate probe", ok, err)
+	}
+}
+
+func TestHardsubAllowPolicy(t *testing.T) {
+	cfg := testCfg()
+	cfg.Resolver.HardSubtitles = "allow"
+	hc := rel("hc", "The.Signal.1999.1080p.HC.WEBRip.x264-GROUP", 8000)
+	clean := rel("clean", "The.Signal.1999.720p.WEBRip.x264-GROUP", 4000)
+	s := New(&fakeIndexer{releases: []core.Release{hc, clean}}, fakeHealth{}, nil, cfg, Options{})
+	defer s.Close()
+	got, err := s.Resolve(t.Context(), core.ResolveRequest{Title: matrixTitle(), Client: webCaps()})
+	if err != nil || got.Release.ID != "hc" {
+		t.Fatal("allow should preserve quality ranking", got, err)
 	}
 }

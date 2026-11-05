@@ -76,7 +76,7 @@ func (s *Service) RememberSubtitleVerdict(ctx context.Context, id string, v bool
 }
 func (s *Service) hardSubbed(ctx context.Context, r core.Release) bool {
 	v, _ := s.SubtitleVerdict(ctx, r.ID)
-	return v || r.Info.HardSubbed || releaseparse.HardSubbed(r.Name)
+	return v || releaseparse.HardSubbed(r.Name)
 }
 
 // RejectRelease remembers a deliberate rejection for a title across viewers.
@@ -191,18 +191,9 @@ func (s *Service) forgetRejection(ctx context.Context, id string) error {
 	return nil
 }
 
-// HardSubtitleBlocked applies explicit subtitle exclusions to content evidence,
-// including releases whose names conceal their burned-in subtitles.
+// HardSubtitleBlocked is an explicit owner policy, separate from keywords.
 func (s *Service) HardSubtitleBlocked(ctx context.Context, r core.Release) bool {
-	if !s.hardSubbed(ctx, r) {
-		return false
-	}
-	for _, term := range s.resolverCfg().BlockedTerms {
-		if releaseparse.KeywordMatch("HC HARDSUB HARDSUBS HARDCODED KORSUB CHSUB SUBBED SUB", term) {
-			return true
-		}
-	}
-	return false
+	return s.resolverCfg().HardSubtitles == "exclude" && s.hardSubbed(ctx, r)
 }
 
 func releaseBase(name string) string {
@@ -235,4 +226,34 @@ func (s *Service) loadRejectionsFor(ctx context.Context, key core.RatingKey) {
 		s.rejections[key] = snapshot
 		s.mu.Unlock()
 	}
+}
+
+// ClaimSubtitleCheck admits one content inspection attempt for an immutable
+// release, shared across titles, viewers, nodes and process restarts. Failed or
+// interrupted attempts stay unknown; they never become a false clean verdict.
+func (s *Service) ClaimSubtitleCheck(ctx context.Context, id string) (bool, error) {
+	if id == "" {
+		return false, nil
+	}
+	if s.db != nil {
+		res, err := s.db.ExecContext(ctx, `INSERT INTO resolver_subtitle_checks(release_id) VALUES (?) ON CONFLICT(release_id) DO NOTHING`, id)
+		if err != nil {
+			return false, err
+		}
+		n, err := res.RowsAffected()
+		return n == 1, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.subtitleChecks == nil {
+		s.subtitleChecks = map[string]bool{}
+	}
+	if s.subtitleChecks[id] {
+		return false, nil
+	}
+	s.subtitleChecks[id] = true
+	return true, nil
+}
+func init() {
+	store.Register("resolver", 5, `CREATE TABLE resolver_subtitle_checks (release_id TEXT PRIMARY KEY);`)
 }

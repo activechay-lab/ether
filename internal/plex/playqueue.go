@@ -781,9 +781,7 @@ func (s *Server) handlePlayQueueMutate(op string) http.HandlerFunc {
 		}
 		itemID, _ := strconv.ParseInt(chi.URLParam(r, "item"), 10, 64)
 		var bad bool
-		var rejectedKey core.RatingKey
 		snap, ok := s.queues.with(id, u.ID, s.now(), func(p *playQueue) {
-			rejectedKey = 0
 			bad = false // a clustered edit may run again after a conflict
 			switch op {
 			case "add":
@@ -808,9 +806,6 @@ func (s *Server) handlePlayQueueMutate(op string) http.HandlerFunc {
 				if idx < 0 {
 					bad = true
 					return
-				}
-				if idx == p.selected {
-					rejectedKey = p.items[idx].key
 				}
 				p.items = append(p.items[:idx], p.items[idx+1:]...)
 				if idx < p.selected || p.selected >= len(p.items) {
@@ -840,16 +835,6 @@ func (s *Server) handlePlayQueueMutate(op string) http.HandlerFunc {
 		if !ok || bad {
 			writeHTTPError(w, http.StatusNotFound)
 			return
-		}
-		if rejectedKey != 0 {
-			if reject, ok := s.d.Playback.(interface {
-				RejectTitleRelease(context.Context, int64, core.RatingKey) error
-			}); ok {
-				if err := reject.RejectTitleRelease(ctx, u.ID, rejectedKey); err != nil {
-					s.writeErr(w, r, err)
-					return
-				}
-			}
 		}
 		s.writePlayQueue(w, r, snap)
 	}

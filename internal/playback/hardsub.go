@@ -2,9 +2,10 @@ package playback
 
 import (
 	"context"
+	"time"
+
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/releaseparse"
-	"time"
 )
 
 type subtitleMemory interface {
@@ -12,35 +13,97 @@ type subtitleMemory interface {
 	RememberSubtitleVerdict(context.Context, string, bool) error
 }
 
-func (m *Manager) generationHardSubbed(ctx context.Context, g *generation) bool {
+// knownHardSubbed never starts a decoder. Startup only reads existing evidence.
+func (m *Manager) knownHardSubbed(ctx context.Context, g *generation) bool {
 	if g.res == nil {
 		return false
 	}
+	m.cfgMu.RLock()
+	allow := m.cfg.Resolver.HardSubtitles == "allow"
+	m.cfgMu.RUnlock()
+	if allow {
+		return false
+	}
 	r := g.res.Release
-	if r.Info.HardSubbed || releaseparse.HardSubbed(r.Name) {
+	if releaseparse.HardSubbed(r.Name) {
 		return true
 	}
 	mem, ok := m.deps.Resolver.(subtitleMemory)
 	if !ok {
 		return false
 	}
-	if v, known := mem.SubtitleVerdict(ctx, r.ID); known {
-		return v
-	}
-	detector, ok := m.deps.Transcoder.(interface {
-		DetectHardSubs(context.Context, string, time.Duration) (bool, bool)
-	})
-	if !ok {
-		return false
-	}
-	v, known := detector.DetectHardSubs(ctx, m.urlFor(g), g.infoSnapshot().Duration)
-	if known {
-		_ = mem.RememberSubtitleVerdict(ctx, r.ID, v)
-	}
-	return known && v
+	v, _ := mem.SubtitleVerdict(ctx, r.ID)
+	return v
 }
 
-// RejectRelease records the exact source chosen for a deliberately removed item.
+// startSubtitleCheck is called only after client telemetry confirms a picture
+// and ten seconds of playback. No startup, range writer or HLS encoder waits
+// for this worker. The generation hold keeps the loopback URL valid.
+func (m *Manager) startSubtitleCheck(s *session) {
+	s.mu.Lock()
+	ready := s.viewerState == "playing" && !s.exp.pictureAt.IsZero() && m.now().Sub(s.exp.pictureAt) >= 10*time.Second
+	g := s.cur
+	s.mu.Unlock()
+	if !ready || g == nil || g.res == nil {
+		return
+	}
+	m.mu.Lock()
+	if m.closed || m.subtitleRunning || m.subtitleScheduled[g.res.Release.ID] {
+		m.mu.Unlock()
+		return
+	}
+	if !g.acquire() {
+		m.mu.Unlock()
+		return
+	}
+	if m.subtitleScheduled == nil {
+		m.subtitleScheduled = map[string]bool{}
+	}
+	if len(m.subtitleScheduled) >= 10000 {
+		clear(m.subtitleScheduled)
+	}
+	m.subtitleScheduled[g.res.Release.ID] = true
+	m.subtitleRunning = true
+	m.wg.Add(1)
+	m.mu.Unlock()
+	go func() {
+		defer g.release()
+		defer m.wg.Done()
+		defer func() { m.mu.Lock(); m.subtitleRunning = false; m.mu.Unlock() }()
+		mem, ok := m.deps.Resolver.(subtitleMemory)
+		if !ok {
+			return
+		}
+		detector, ok := m.deps.Transcoder.(interface {
+			DetectHardSubs(context.Context, string, time.Duration) (bool, bool)
+		})
+		if !ok {
+			return
+		}
+		ctx, cancel := context.WithTimeout(g.ctx, 8*time.Second)
+		defer cancel()
+		r := g.res.Release
+		if _, known := mem.SubtitleVerdict(ctx, r.ID); known || releaseparse.HardSubbed(r.Name) {
+			return
+		}
+		claims, ok := m.deps.Resolver.(interface {
+			ClaimSubtitleCheck(context.Context, string) (bool, error)
+		})
+		if !ok {
+			return
+		}
+		claimed, err := claims.ClaimSubtitleCheck(ctx, r.ID)
+		if err != nil || !claimed {
+			return
+		}
+		v, known := detector.DetectHardSubs(ctx, m.urlFor(g)+"?background=1", g.infoSnapshot().Duration)
+		if known {
+			_ = mem.RememberSubtitleVerdict(ctx, r.ID, v)
+		}
+	}()
+}
+
+// RejectRelease records a deliberate bad-release report, never housekeeping.
 func (m *Manager) RejectRelease(ctx context.Context, key core.RatingKey, r core.Release) error {
 	reject, ok := m.deps.Resolver.(interface {
 		RejectRelease(context.Context, core.RatingKey, core.Release) error
@@ -51,7 +114,6 @@ func (m *Manager) RejectRelease(ctx context.Context, key core.RatingKey, r core.
 	return reject.RejectRelease(ctx, key, r)
 }
 func (m *Manager) hardSubtitleBlocked(ctx context.Context, r core.Release) bool {
-	r.Info.HardSubbed = true
 	p, ok := m.deps.Resolver.(interface {
 		HardSubtitleBlocked(context.Context, core.Release) bool
 	})
@@ -63,27 +125,6 @@ func (m *Manager) titleReleaseRejected(ctx context.Context, key core.RatingKey, 
 		TitleReleaseRejected(context.Context, core.RatingKey, core.Release) bool
 	})
 	return ok && checker.TitleReleaseRejected(ctx, key, r)
-}
-
-// RejectTitleRelease handles removal of the selected Plex queue item. Unplayed
-// items have no selected source and create no rejection.
-func (m *Manager) RejectTitleRelease(ctx context.Context, userID int64, key core.RatingKey) error {
-	for _, ps := range m.Sessions() {
-		if ps.UserID == userID && ps.Key == key && ps.Resolution != nil {
-			return m.RejectRelease(ctx, key, ps.Resolution.Release)
-		}
-	}
-	if m.resume == nil {
-		return nil
-	}
-	rec, err := m.resume.get(ctx, userID, key)
-	if err != nil {
-		return err
-	}
-	if rec == nil {
-		return nil
-	}
-	return m.RejectRelease(ctx, key, rec.release)
 }
 
 // RejectReleaseID retains all known title associations for an owner's cache

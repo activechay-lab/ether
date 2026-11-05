@@ -185,6 +185,7 @@ type inflight struct {
 
 // Service implements core.Resolver.
 type Service struct {
+	subtitleChecks map[string]bool
 	subMiss        map[string]time.Time
 	subVerdicts    map[string]bool
 	rejections     map[core.RatingKey][]core.Release
@@ -312,6 +313,7 @@ func sourcesKey(cfg config.Config) string {
 	for _, p := range cfg.Usenet.Providers {
 		fmt.Fprintf(&b, "u|%s|%t\n", p.ID, p.Enabled)
 	}
+	fmt.Fprintf(&b, "hardsub|%s\n", cfg.Resolver.HardSubtitles)
 	fmt.Fprintf(&b, "d|%t\n", cfg.Debrid.CachedOnly)
 	for _, d := range cfg.Debrid.Providers {
 		fmt.Fprintf(&b, "d|%s|%s|%t\n", d.ID, d.Kind, d.Enabled)
@@ -1307,7 +1309,7 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 			}
 		}
 		policyResult := policy.Evaluate(rel, policyContext)
-		if s.hardSubbed(ctx, rel) {
+		if env.rcfg.HardSubtitles != "allow" && s.hardSubbed(ctx, rel) {
 			policyResult.Fallback += 100
 		}
 		if len(profile.ReleaseRules) > 0 {

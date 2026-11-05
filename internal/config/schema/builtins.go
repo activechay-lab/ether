@@ -103,7 +103,8 @@ func Builtins() []Builtin {
 		}}},
 		// RELEASE_BLOCKS
 		{ID: "releaseBlocks", ConfigKey: "resolver", Label: extend.T("Words and groups"), Schema: Schema{Groups: []Group{
-			{Title: extend.T("Words and groups"), Description: extend.T("A release whose name contains one of these words, or whose release group matches, is never played."), Fields: []Field{
+			{Title: extend.T("Words and groups"), Description: extend.T("Blocked terms match whole tokens. sub matches SUB, not Subtitles or SUBPACK. Subtitle language tags alone do not prove burned-in subtitles."), Fields: []Field{
+				{Key: "hardSubtitles", Label: extend.T("Burned-in subtitles"), Kind: KindSelect, Help: extend.T("Video checks run after playback starts. A newly discovered verdict applies to later selections."), Options: []Option{{Value: "", Label: extend.T("Prefer clean releases")}, {Value: "exclude", Label: extend.T("Exclude known hardsubs")}, {Value: "allow", Label: extend.T("Allow")}}},
 				{Key: "blockedGroups", Label: extend.T("Blocked release groups"), Kind: KindList, Placeholder: "GROUP1, GROUP2"},
 				{Key: "blockedTerms", Label: extend.T("Blocked terms"), Kind: KindList, Placeholder: "hardcoded, korsub"},
 			}},

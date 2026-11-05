@@ -44,6 +44,11 @@ func prowlarrRetryAfterHeader(v string) string {
 }
 func validatePlaybackConfig(c config.Config) []admin.FieldError {
 	var errs []admin.FieldError
+	switch c.Resolver.HardSubtitles {
+	case "", "exclude", "allow":
+	default:
+		errs = append(errs, admin.FieldError{Field: "resolver.hardSubtitles", Message: "must be empty, exclude or allow"})
+	}
 	if _, err := resolver.NewFormatScorer(c.Resolver.CustomFormats, c.Resolver.CustomFormatScores); err != nil {
 		errs = append(errs, admin.FieldError{Field: "resolver.customFormats", Message: err.Error()})
 	}

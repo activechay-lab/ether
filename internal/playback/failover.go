@@ -159,7 +159,7 @@ func (m *Manager) openInitial(ctx context.Context, s *session, profile core.Qual
 		}
 		burned := false
 		if err == nil {
-			burned = m.generationHardSubbed(ctx, g)
+			burned = m.knownHardSubbed(ctx, g)
 		}
 		if err == nil && burned && m.hardSubtitleBlocked(ctx, res.Release) {
 			m.dropGeneration(g)
