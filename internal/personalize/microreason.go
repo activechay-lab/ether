@@ -27,6 +27,7 @@ const matchConfidence = 0.25
 
 // MicroReason implements core.MicroReasoner. It only reads t.
 func (e *Engine) MicroReason(ctx context.Context, user *core.User, t *core.Title, now time.Time) core.MicroReason {
+	ctx = core.WithCatalogViewer(ctx, user)
 	var mr core.MicroReason
 	if t == nil || user == nil {
 		return mr
@@ -146,6 +147,7 @@ func becauseYouWatched(ts *Taste, t *core.Title) string {
 // (episode runtime for a show) minus the resume offset when in progress.
 // Zero when unknown or already finished.
 func (e *Engine) remainingRuntime(ctx context.Context, user *core.User, t *core.Title) time.Duration {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if t.Type == core.TypeShow {
 		if rem := e.nextEpisodeRuntime(ctx, user, t); rem > 0 {
 			return rem
@@ -175,6 +177,7 @@ func (e *Engine) remainingRuntime(ctx context.Context, user *core.User, t *core.
 // header. A series-level runtime is usually an average episode length, so
 // showing it as the viewer's finish time would be misleading.
 func (e *Engine) nextEpisodeRuntime(ctx context.Context, user *core.User, show *core.Title) time.Duration {
+	ctx = core.WithCatalogViewer(ctx, user)
 	episodes, err := e.catalog.Grandchildren(ctx, show.Key)
 	if err != nil || len(episodes) == 0 {
 		return 0

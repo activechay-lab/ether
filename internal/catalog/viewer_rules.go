@@ -1,0 +1,251 @@
+package catalog
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"sync"
+
+	"github.com/braedonsaunders/ether/internal/clusterbus"
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/libraryfilter"
+	"github.com/braedonsaunders/ether/internal/store"
+)
+
+func init() {
+	store.RegisterViewerTable("catalog", "catalog_viewer_rules", "viewer_id", store.ViewerMergeMove)
+	store.Register("catalog_viewer_rules", 1, `CREATE TABLE catalog_viewer_rules(viewer_id INTEGER PRIMARY KEY, document TEXT NOT NULL, revision INTEGER NOT NULL);`)
+}
+
+// ViewerRules keeps catalogue preferences separate from mandatory safety policy.
+// Exemptions identify the exact global rule, so reordering cannot change them.
+type ViewerRules struct {
+	Mode              string                  `json:"mode"`
+	Exclusions        []core.LibraryExclusion `json:"exclusions"`
+	VisibilityDefault string                  `json:"visibilityDefault"`
+	Exemptions        []string                `json:"exemptions"`
+}
+type compiledViewerRules struct {
+	document       ViewerRules
+	browse, search *libraryfilter.Filter
+	revision       int64
+}
+type viewerRuleCache struct {
+	sync.RWMutex
+	entries map[int64]compiledViewerRules
+	bus     *clusterbus.Invalidator
+}
+
+func RuleIdentity(rule core.LibraryExclusion) string {
+	rule.Name = "" // Renaming a rule preserves the exemption.
+	raw, _ := json.Marshal(rule)
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+func compileViewerRules(p ViewerRules, global []core.LibraryExclusion, fallback string) (*libraryfilter.Filter, error) {
+	switch p.Mode {
+	case "", "inherit":
+		return libraryfilter.CompilePolicy(global, fallback)
+	case "custom":
+		return libraryfilter.CompilePolicy(p.Exclusions, p.VisibilityDefault)
+	case "exempt":
+		skip := map[string]bool{}
+		for _, id := range p.Exemptions {
+			skip[id] = true
+		}
+		rules := make([]core.LibraryExclusion, 0, len(global))
+		for _, rule := range global {
+			if !skip[RuleIdentity(rule)] {
+				rules = append(rules, rule)
+			}
+		}
+		return libraryfilter.CompilePolicy(rules, fallback)
+	default:
+		return nil, fmt.Errorf("invalid catalogue rule mode")
+	}
+}
+
+// recompileViewerRules follows a global config change using the already-loaded
+// documents. Config callbacks must never wait for a database connection.
+func (c *Catalog) recompileViewerRules(global []core.LibraryExclusion, fallback string) error {
+	c.viewerRules.Lock()
+	defer c.viewerRules.Unlock()
+	entries := make(map[int64]compiledViewerRules, len(c.viewerRules.entries))
+	for id, v := range c.viewerRules.entries {
+		f, err := compileViewerRules(v.document, global, fallback)
+		if err != nil {
+			return err
+		}
+		v.browse, v.search = f, f.ForSearch()
+		entries[id] = v
+	}
+	c.viewerRules.entries = entries
+	return nil
+}
+
+func (c *Catalog) reloadViewerRules(ctx context.Context) error {
+	rows, err := c.db.QueryContext(ctx, `SELECT viewer_id,document,revision FROM catalog_viewer_rules`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	cfg := c.config()
+	entries := map[int64]compiledViewerRules{}
+	for rows.Next() {
+		var id int64
+		var raw string
+		var v compiledViewerRules
+		if err := rows.Scan(&id, &raw, &v.revision); err != nil {
+			return err
+		}
+		if err := json.Unmarshal([]byte(raw), &v.document); err != nil {
+			return err
+		}
+		v.browse, err = compileViewerRules(v.document, cfg.Exclusions, cfg.VisibilityDefault)
+		if err != nil {
+			return err
+		}
+		v.search = v.browse.ForSearch()
+		entries[id] = v
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	c.viewerRules.Lock()
+	c.viewerRules.entries = entries
+	c.viewerRules.Unlock()
+	return nil
+}
+func (c *Catalog) SetViewerRulesBus(bus clusterbus.Bus) {
+	iv := clusterbus.NewInvalidator(bus, "catalog_viewer_rules", c.log, func(ctx context.Context, _ []string, _ bool) {
+		c.configUpdateMu.Lock()
+		defer c.configUpdateMu.Unlock()
+		if err := c.reloadViewerRules(ctx); err != nil {
+			c.log.Error("catalog: reload viewer rules", "err", err)
+		}
+	})
+	c.viewerRules.Lock()
+	old := c.viewerRules.bus
+	c.viewerRules.bus = iv
+	c.viewerRules.Unlock()
+	old.Close()
+}
+func (c *Catalog) ViewerRules(id int64) ViewerRules {
+	c.viewerRules.RLock()
+	p, ok := c.viewerRules.entries[id]
+	c.viewerRules.RUnlock()
+	if !ok {
+		return ViewerRules{Mode: "inherit", Exclusions: []core.LibraryExclusion{}, Exemptions: []string{}}
+	}
+	raw, _ := json.Marshal(p.document)
+	var out ViewerRules
+	_ = json.Unmarshal(raw, &out)
+	if out.Exclusions == nil {
+		out.Exclusions = []core.LibraryExclusion{}
+	}
+	if out.Exemptions == nil {
+		out.Exemptions = []string{}
+	}
+	return out
+}
+func (c *Catalog) PutViewerRules(ctx context.Context, id int64, p ViewerRules) error {
+	c.configUpdateMu.Lock()
+	defer c.configUpdateMu.Unlock()
+	if id <= 0 {
+		return fmt.Errorf("invalid viewer")
+	}
+	cfg := c.config()
+	if _, err := compileViewerRules(p, cfg.Exclusions, cfg.VisibilityDefault); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	if _, err = c.db.ExecContext(ctx, `INSERT INTO catalog_viewer_rules(viewer_id,document,revision) VALUES(?,?,1) ON CONFLICT(viewer_id) DO UPDATE SET document=excluded.document,revision=catalog_viewer_rules.revision+1`, id, string(raw)); err != nil {
+		return err
+	}
+	if err := c.reloadViewerRules(ctx); err != nil {
+		return err
+	}
+	c.viewerRules.RLock()
+	iv := c.viewerRules.bus
+	c.viewerRules.RUnlock()
+	iv.Notify(strconv.FormatInt(id, 10))
+	return nil
+}
+func (c *Catalog) viewerFilter(id int64, search bool) *libraryfilter.Filter {
+	c.viewerRules.RLock()
+	v, ok := c.viewerRules.entries[id]
+	c.viewerRules.RUnlock()
+	if ok && v.document.Mode != "inherit" && v.document.Mode != "" {
+		if search {
+			return v.search
+		}
+		return v.browse
+	}
+	if search {
+		return c.searchFilter()
+	}
+	return c.visibilityFilter()
+}
+func (c *Catalog) VisibleForViewer(u *core.User, t *core.Title) bool {
+	var id int64
+	if u != nil {
+		id = u.ID
+	}
+	// Direct lookup and playback retain browsing-only titles.
+	return c.visibleWith(c.viewerFilter(id, true), t)
+}
+func (c *Catalog) viewerPaging(ctx context.Context, f core.Filter) core.Filter {
+	f.CatalogCandidates = core.CatalogCandidates(ctx)
+	if id := core.CatalogViewerID(ctx); id != 0 {
+		f.CatalogViewerID = id
+	}
+	c.viewerRules.RLock()
+	f.CatalogRuleRevision = c.viewerRules.entries[f.CatalogViewerID].revision
+	c.viewerRules.RUnlock()
+	return f
+}
+
+func (c *Catalog) ViewerRulesRevision(u *core.User) int64 {
+	if u == nil {
+		return 0
+	}
+	c.viewerRules.RLock()
+	defer c.viewerRules.RUnlock()
+	return c.viewerRules.entries[u.ID].revision
+}
+
+// ReadViewerRulesRevision is an indexed point read, also used by durable Home snapshots.
+func ReadViewerRulesRevision(ctx context.Context, db *sql.DB, id int64) (int64, error) {
+	var revision int64
+	err := db.QueryRowContext(ctx, `SELECT COALESCE((SELECT revision FROM catalog_viewer_rules WHERE viewer_id=?),0)`, id).Scan(&revision)
+	return revision, err
+}
+
+func (c *Catalog) DiscoveryVisibleForViewer(u *core.User, t *core.Title) bool {
+	var id int64
+	if u != nil {
+		id = u.ID
+	}
+	return c.visibleWith(c.viewerFilter(id, false), t)
+}
+
+// RefreshViewerRules follows viewer removal or merge after the lifecycle transaction.
+func (c *Catalog) RefreshViewerRules(ctx context.Context) error {
+	c.configUpdateMu.Lock()
+	defer c.configUpdateMu.Unlock()
+	if err := c.reloadViewerRules(ctx); err != nil {
+		return err
+	}
+	c.viewerRules.RLock()
+	iv := c.viewerRules.bus
+	c.viewerRules.RUnlock()
+	iv.Notify("")
+	return nil
+}

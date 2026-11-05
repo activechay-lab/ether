@@ -30,6 +30,7 @@ const previewWait = 45 * time.Second
 // The daypart and weekend flag are derived from hc.Now in server local
 // time (hc.Device is kept as given).
 func (e *Engine) PreviewHome(ctx context.Context, user *core.User, hc core.HubContext, sectionArg string, limit int) (*core.HomePreview, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if user == nil {
 		return nil, fmt.Errorf("personalize: no user")
 	}
@@ -174,6 +175,7 @@ func insertBeforeHidden(rows []core.HomeRow, row core.HomeRow) []core.HomeRow {
 }
 
 func (e *Engine) playlistsRow(ctx context.Context, user *core.User) (core.HomeRow, bool) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if e.opts.Playlists == nil {
 		return core.HomeRow{}, false
 	}
@@ -192,6 +194,7 @@ func (e *Engine) playlistsRow(ctx context.Context, user *core.User) (core.HomeRo
 }
 
 func (e *Engine) recentlyAdded(ctx context.Context, user *core.User, t core.MediaType, limit int) []candItem {
+	ctx = core.WithCatalogViewer(ctx, user)
 	q := core.BrowseQuery{Filter: core.Filter{Type: t, KnownAddedDate: true, MaxContentRating: user.MaxContentRating}, Sort: core.SortAdded, Desc: true, Limit: limit}
 	page, err := e.catalog.Browse(ctx, q)
 	if err != nil {
@@ -207,6 +210,7 @@ func (e *Engine) recentlyAdded(ctx context.Context, user *core.User, t core.Medi
 // Refresh rebuilds a viewer's model now (and asks the LLM for fresh themed
 // rows when it supports invalidation).
 func (e *Engine) Refresh(ctx context.Context, user *core.User) error {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if inv, ok := e.llm.(core.ViewerInvalidator); ok && e.llm != nil && user != nil {
 		inv.Invalidate(user.ID)
 	}
@@ -229,6 +233,7 @@ func (e *Engine) Refresh(ctx context.Context, user *core.User) error {
 // Taste returns the viewer's taste profile (from the cached model when
 // there is one).
 func (e *Engine) Taste(ctx context.Context, user *core.User) (*core.TasteProfile, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if user == nil {
 		return nil, fmt.Errorf("personalize: no user")
 	}
@@ -250,6 +255,7 @@ func (e *Engine) Taste(ctx context.Context, user *core.User) (*core.TasteProfile
 // SetTasteOverrides replaces the owner's corrections for a viewer and
 // rebuilds their model so Plex reflects them on the next Home load.
 func (e *Engine) SetTasteOverrides(ctx context.Context, user *core.User, os []core.TasteOverride) (*core.TasteProfile, error) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if user == nil {
 		return nil, fmt.Errorf("personalize: no user")
 	}

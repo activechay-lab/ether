@@ -269,6 +269,7 @@ func (s *RowsService) appendHomeFallback(ctx context.Context, req frontend.RowRe
 }
 
 func (s *RowsService) permitted(ctx context.Context, viewer *core.User, entry frontend.RowEntry) bool {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if !s.d.AllowEntry(ctx, viewer, entry) {
 		return false
 	}

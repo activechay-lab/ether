@@ -129,6 +129,9 @@ func (e *Engine) buildAndStore(ctx context.Context, userID int64) (*userModel, e
 		}
 		return nil, err
 	}
+	if !m.generic && e.opts.CatalogRulesRevision != nil && m.catalogRulesRevision != e.opts.CatalogRulesRevision(&u) {
+		return nil, fmt.Errorf("personalize: catalogue rules changed during build")
+	}
 	if !m.generic && e.opts.NotInterestedSnapshot != nil {
 		signals, revision, err := e.opts.NotInterestedSnapshot(bctx, &u)
 		if err != nil {
@@ -178,6 +181,7 @@ func (e *Engine) ModelReady(userID int64) bool {
 // model (and their own is queued); with wait set (owner preview) the call
 // waits for the viewer's own build instead.
 func (e *Engine) modelFor(ctx context.Context, user *core.User, wait bool) *userModel {
+	ctx = core.WithCatalogViewer(ctx, user)
 	var signature string
 	revisionOK := true
 	if e.opts.NotInterestedSnapshot != nil && user != nil && user.ID > 0 {
@@ -190,6 +194,10 @@ func (e *Engine) modelFor(ctx context.Context, user *core.User, wait bool) *user
 		e.users[user.ID] = *user
 	}
 	m := e.models[user.ID]
+	if m != nil && e.opts.CatalogRulesRevision != nil && m.catalogRulesRevision != e.opts.CatalogRulesRevision(user) {
+		wait = true
+		m = nil
+	}
 	if !revisionOK || (m != nil && e.opts.NotInterestedSnapshot != nil && m.preferenceSignature != signature) {
 		m = nil
 	}
@@ -210,7 +218,7 @@ func (e *Engine) modelFor(ctx context.Context, user *core.User, wait bool) *user
 		e.mu.Lock()
 		m = e.models[user.ID]
 		e.mu.Unlock()
-		if m != nil && revisionOK && (e.opts.NotInterestedSnapshot == nil || m.preferenceSignature == signature) {
+		if m != nil && (e.opts.CatalogRulesRevision == nil || m.catalogRulesRevision == e.opts.CatalogRulesRevision(user)) && revisionOK && (e.opts.NotInterestedSnapshot == nil || m.preferenceSignature == signature) {
 			return m
 		}
 	}
@@ -234,7 +242,7 @@ func (e *Engine) modelFor(ctx context.Context, user *core.User, wait bool) *user
 	if !wait && !first {
 		e.mu.Lock()
 		defer e.mu.Unlock()
-		if m := e.models[user.ID]; m != nil && revisionOK && (e.opts.NotInterestedSnapshot == nil || m.preferenceSignature == signature) {
+		if m := e.models[user.ID]; m != nil && (e.opts.CatalogRulesRevision == nil || m.catalogRulesRevision == e.opts.CatalogRulesRevision(user)) && revisionOK && (e.opts.NotInterestedSnapshot == nil || m.preferenceSignature == signature) {
 			return m
 		}
 		return e.models[genericID]
@@ -256,7 +264,7 @@ func (e *Engine) modelFor(ctx context.Context, user *core.User, wait bool) *user
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if m := e.models[user.ID]; m != nil && revisionOK && (e.opts.NotInterestedSnapshot == nil || m.preferenceSignature == signature) {
+	if m := e.models[user.ID]; m != nil && (e.opts.CatalogRulesRevision == nil || m.catalogRulesRevision == e.opts.CatalogRulesRevision(user)) && revisionOK && (e.opts.NotInterestedSnapshot == nil || m.preferenceSignature == signature) {
 		return m
 	}
 	return e.models[genericID]
@@ -265,6 +273,7 @@ func (e *Engine) modelFor(ctx context.Context, user *core.User, wait bool) *user
 // Rebuild builds a viewer's model now and waits for it (owner refresh,
 // tests).
 func (e *Engine) Rebuild(ctx context.Context, user *core.User) error {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if user == nil {
 		return fmt.Errorf("personalize: no user")
 	}
@@ -351,7 +360,12 @@ func (e *Engine) refreshActive(ctx context.Context) {
 // buildModel gathers a viewer's evidence, builds the taste model and runs
 // every generator.
 func (e *Engine) buildModel(ctx context.Context, user core.User, generic bool) (*userModel, error) {
+	ctx = core.WithCatalogViewer(ctx, &user)
 	start := e.now()
+	var ruleRevision int64
+	if e.opts.CatalogRulesRevision != nil {
+		ruleRevision = e.opts.CatalogRulesRevision(&user)
+	}
 	b := &builder{e: e, ctx: ctx, user: user, generic: generic, now: start, touched: map[core.RatingKey]bool{},
 		statuses: map[core.RatingKey]core.WatchStatus{}, memo: map[string][]core.Title{}, fits: map[core.RatingKey]fitMemo{},
 		hydrateLeft: hydrateBudget}
@@ -382,7 +396,7 @@ func (e *Engine) buildModel(ctx context.Context, user core.User, generic bool) (
 		}
 		rows = append(rows, e.runGenerator(g, b)...)
 	}
-	m := &userModel{user: user, generic: generic, taste: b.taste, rows: rows, fatigue: fatigue, builtAt: start, preferenceRevision: preferenceRevision, preferenceSignature: preferenceSignature,
+	m := &userModel{catalogRulesRevision: ruleRevision, user: user, generic: generic, taste: b.taste, rows: rows, fatigue: fatigue, builtAt: start, preferenceRevision: preferenceRevision, preferenceSignature: preferenceSignature,
 		crowd: b.crowd().features(), buzz: b.buzz().scores()}
 	m.took = e.now().Sub(start)
 	return m, nil
@@ -778,13 +792,18 @@ func (e *Engine) clearOwnerRows() {
 // been fetched (first load after a restart or a collection change) waits at
 // most OwnerRowsWait (SourceTimeout for previews) for its first fetch.
 func (e *Engine) ownerRows(ctx context.Context, user *core.User, hc core.HubContext, section core.MediaType, d core.HomeLayout, wait bool) ([]*candRow, int64) {
+	ctx = core.WithCatalogViewer(ctx, user)
 	if e.opts.Collections == nil {
 		return nil, 0
 	}
 	raw, _ := json.Marshal(d)
 	hash := fnv.New64a()
 	_, _ = hash.Write(raw)
-	scope := "|" + string(section) + "|" + fmt.Sprint(hash.Sum64(), user.MaxContentRating, user.AllowedSections, user.IsOwner)
+	var ruleRevision int64
+	if e.opts.CatalogRulesRevision != nil {
+		ruleRevision = e.opts.CatalogRulesRevision(user)
+	}
+	scope := fmt.Sprint("|rules:", ruleRevision) + "|" + string(section) + "|" + fmt.Sprint(hash.Sum64(), user.MaxContentRating, user.AllowedSections, user.IsOwner)
 	prefix := strconv.FormatInt(user.ID, 10) + "|"
 	key := prefix + hc.Now.Format("2006-01-02") + scope
 	e.mu.Lock()
@@ -860,7 +879,7 @@ func (e *Engine) fetchOwnerRows(key string, user *core.User, hc core.HubContext,
 		close(ent.done)
 		e.mu.Unlock()
 	}()
-	ctx, cancel := context.WithTimeout(e.ctx, e.opts.SourceTimeout)
+	ctx, cancel := context.WithTimeout(core.WithCatalogViewer(e.ctx, user), e.opts.SourceTimeout)
 	defer cancel()
 	rows, err := e.opts.Collections.HomeRowsFor(ctx, user, hc)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 // ResolveExternal resolves an IMDb ID to a currently visible catalogue item.
 // Episode suffixes use canonical TMDB numbering, regardless of viewer display order.
 func (s *Service) ResolveExternal(ctx context.Context, viewer *core.Viewer, _ core.Device, req frontend.ExternalRequest) (core.RatingKey, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if req.Source != "imdb" || len(req.ID) < 3 || len(req.ID) > 18 || req.ID[:2] != "tt" {
 		return 0, core.ErrNotFound
 	}

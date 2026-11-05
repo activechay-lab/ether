@@ -16,10 +16,12 @@ type Recent struct {
 
 // RecentlyAdded loads the catalogue candidates for a library in added order.
 func RecentlyAdded(ctx context.Context, viewer *core.User, kind core.MediaType, count int, visibility Visibility, browse func(context.Context, core.BrowseQuery) (core.Page, error)) ([]core.Title, bool, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	return (Recent{Visibility: visibility}).Added(ctx, viewer, kind, count, browse)
 }
 
 func (r Recent) Added(ctx context.Context, viewer *core.User, kind core.MediaType, count int, browse func(context.Context, core.BrowseQuery) (core.Page, error)) ([]core.Title, bool, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if r.Unrestricted != nil && r.Unrestricted(viewer) {
 		q := core.BrowseQuery{Filter: core.Filter{Type: kind, KnownAddedDate: true}, Sort: core.SortAdded, Desc: true, Limit: count + 1}
 		if viewer != nil {
@@ -67,6 +69,7 @@ func (r Recent) Added(ctx context.Context, viewer *core.User, kind core.MediaTyp
 }
 
 func (r Recent) Viewed(ctx context.Context, viewer *core.User, libraryID int, history func(context.Context, int64, time.Time, int) ([]core.HistoryEntry, error), titles func(context.Context, []core.RatingKey) []core.Title, libraryFor func(core.MediaType) (int, bool)) ([]core.Title, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if viewer == nil || history == nil {
 		return nil, nil
 	}

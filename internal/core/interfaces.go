@@ -69,7 +69,10 @@ type FilterGroup struct {
 
 // Filter narrows a browse or a smart collection. Zero values mean "any".
 type Filter struct {
-	Group *FilterGroup `json:"group,omitempty"`
+	CatalogCandidates   bool         `json:"-"`
+	CatalogViewerID     int64        `json:"-"`
+	CatalogRuleRevision int64        `json:"-"`
+	Group               *FilterGroup `json:"group,omitempty"`
 	// DigitalDiscovery applies the availability service's digital-date gate
 	// before counting and paging a discovery result.
 	DigitalDiscovery    bool `json:"-"`

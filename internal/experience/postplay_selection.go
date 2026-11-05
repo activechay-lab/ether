@@ -16,6 +16,7 @@ type PostPlaySelection struct {
 }
 
 func (s PostPlaySelection) Row(ctx context.Context, viewer *core.User, count int, seen map[core.RatingKey]bool) PostPlayRow {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if !s.Unrestricted {
 		return LoadPostPlay(ctx, viewer, s.Visibility, count, seen, s.Picks)
 	}
@@ -37,6 +38,7 @@ func (s PostPlaySelection) Row(ctx context.Context, viewer *core.User, count int
 }
 
 func (s PostPlaySelection) RelatedRows(ctx context.Context, viewer *core.User, count int, seen map[core.RatingKey]bool) ([]core.Hub, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s.Related == nil {
 		return nil, nil
 	}

@@ -15,6 +15,7 @@ const maxPersonFacetIDs = 256
 // have no corresponding library-wide facet and therefore may not resolve via
 // ResolveFacet for that library.
 func (s *Service) PersonFacetIDs(ctx context.Context, viewer *core.Viewer, _ core.Device, key core.RatingKey, ids []int64) (map[int64]string, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if len(ids) > maxPersonFacetIDs {
 		return nil, errors.New("experience: too many person IDs")
 	}

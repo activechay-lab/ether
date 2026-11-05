@@ -16,6 +16,7 @@ type RelatedCandidate struct {
 // LoadRelated filters before deduplication and limits, expanding candidate
 // requests while a full source page leaves a row short.
 func LoadRelated(ctx context.Context, viewer *core.User, visibility Visibility, count int, seen map[core.RatingKey]bool, load func(context.Context, int) ([]RelatedCandidate, error)) ([]RelatedCandidate, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	fetch := count
 	for {
 		rows, err := load(ctx, fetch)

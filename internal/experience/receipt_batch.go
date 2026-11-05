@@ -15,10 +15,12 @@ import (
 
 // IssueBatch atomically issues receipts and shared admission in input order.
 func (s *Receipts) IssueBatch(ctx context.Context, viewer *core.User, device core.Device, protocol core.Protocol, subjects []ReceiptSubject) ([]string, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	return s.issueBatchChecked(ctx, viewer, device, protocol, subjects, nil, nil)
 }
 
 func (s *Receipts) issueBatchChecked(ctx context.Context, viewer *core.User, device core.Device, protocol core.Protocol, subjects []ReceiptSubject, current func() bool, fence func(*sql.Tx) error) ([]string, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	for attempt := 0; ; attempt++ {
 		tokens, err := s.issueBatchAttempt(ctx, viewer, device, protocol, subjects, current, fence)
 		if !errors.Is(err, viewerpolicy.ErrChanged) || attempt == 1 {
@@ -28,6 +30,7 @@ func (s *Receipts) issueBatchChecked(ctx context.Context, viewer *core.User, dev
 }
 
 func (s *Receipts) issueBatchAttempt(ctx context.Context, viewer *core.User, device core.Device, protocol core.Protocol, subjects []ReceiptSubject, current func() bool, fence func(*sql.Tx) error) ([]string, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s.opts.PolicyLease != nil {
 		release, err := s.opts.PolicyLease(ctx)
 		if err != nil {

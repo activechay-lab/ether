@@ -19,10 +19,10 @@ func (c *Catalog) visibilityFilter() *libraryfilter.Filter {
 // visibilityFor picks the precompiled filter for ctx. An explicit search
 // skips rules the owner limited to browsing; everything else browses.
 func (c *Catalog) visibilityFor(ctx context.Context) *libraryfilter.Filter {
-	if core.ExplicitSearch(ctx) {
-		return c.searchFilter()
+	if core.CatalogCandidates(ctx) {
+		return nil
 	}
-	return c.visibilityFilter()
+	return c.viewerFilter(core.CatalogViewerID(ctx), core.ExplicitSearch(ctx))
 }
 
 func (c *Catalog) searchFilter() *libraryfilter.Filter {

@@ -1,3 +1,4 @@
+import { ViewerCatalogRules } from "./ViewerCatalogRules";
 import { Button, SearchSelect, SettingsSection, Switch, toast } from "@braedonsaunders/appkit-ui";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -121,6 +122,8 @@ export function ViewerAccess({ viewer }: { viewer: Viewer }) {
   const simkl = config.data?.simkl;
   return (
     <div className="space-y-6">
+      <ViewerCatalogRules key={id} id={id} region={String(config.data?.catalog?.region || "US")} />
+
       {users.error ? (
         <ErrorPanel error={users.error} onRetry={() => void users.reload()} />
       ) : policy.error ? (

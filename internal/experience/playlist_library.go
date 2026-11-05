@@ -11,6 +11,7 @@ import (
 // Playlists lists the viewer's own playlists. Membership is the titles this
 // viewer is allowed to see.
 func (s *Service) Playlists(ctx context.Context, viewer *core.Viewer, q frontend.PageQuery) (frontend.PlaylistPage, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return frontend.PlaylistPage{}, err
@@ -39,6 +40,7 @@ func (s *Service) Playlists(ctx context.Context, viewer *core.Viewer, q frontend
 }
 
 func (s *Service) CreatePlaylist(ctx context.Context, viewer *core.Viewer, name string, items []core.RatingKey) (*core.Playlist, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return nil, err
@@ -54,6 +56,7 @@ func (s *Service) CreatePlaylist(ctx context.Context, viewer *core.Viewer, name 
 }
 
 func (s *Service) AddPlaylistItems(ctx context.Context, viewer *core.Viewer, key core.RatingKey, items []core.RatingKey) error {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, playlist, err := s.mutablePlaylist(ctx, viewer, key)
 	if err != nil {
 		return err
@@ -68,6 +71,7 @@ func (s *Service) AddPlaylistItems(ctx context.Context, viewer *core.Viewer, key
 }
 
 func (s *Service) RemovePlaylistItem(ctx context.Context, viewer *core.Viewer, key core.RatingKey, index int) error {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, playlist, raw, err := s.visiblePlaylist(ctx, viewer, key)
 	if err != nil {
 		return err
@@ -79,6 +83,7 @@ func (s *Service) RemovePlaylistItem(ctx context.Context, viewer *core.Viewer, k
 }
 
 func (s *Service) MovePlaylistItem(ctx context.Context, viewer *core.Viewer, key core.RatingKey, from, to int) error {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, playlist, raw, err := s.visiblePlaylist(ctx, viewer, key)
 	if err != nil {
 		return err
@@ -93,6 +98,7 @@ func (s *Service) MovePlaylistItem(ctx context.Context, viewer *core.Viewer, key
 }
 
 func (s *Service) DeletePlaylist(ctx context.Context, viewer *core.Viewer, key core.RatingKey) error {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, playlist, err := s.mutablePlaylist(ctx, viewer, key)
 	if err != nil {
 		return err
@@ -101,6 +107,7 @@ func (s *Service) DeletePlaylist(ctx context.Context, viewer *core.Viewer, key c
 }
 
 func (s *Service) mutablePlaylist(ctx context.Context, viewer *core.Viewer, key core.RatingKey) (*core.User, *core.Playlist, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, err := s.viewer(ctx, viewer)
 	if err != nil {
 		return nil, nil, err
@@ -116,6 +123,7 @@ func (s *Service) mutablePlaylist(ctx context.Context, viewer *core.Viewer, key 
 }
 
 func (s *Service) visiblePlaylist(ctx context.Context, viewer *core.Viewer, key core.RatingKey) (*core.User, *core.Playlist, []int, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	v, playlist, err := s.mutablePlaylist(ctx, viewer, key)
 	if err != nil {
 		return nil, nil, nil, err

@@ -185,13 +185,14 @@ func (a *App) buildAdmin() http.Handler {
 			"updates":  a.updateStatus,
 			"storage":  a.storageStatus,
 		},
-		ResolverTraces:  func(context.Context) (any, error) { return a.resolver.Traces(), nil },
-		Users:           a.users,
-		ViewerDirectory: a.viewerDirectory,
-		Personalization: a.personalize,
-		Collections:     a.collections,
-		CatalogHelper:   a.collections,
-		TitleSchedules:  a.catalog,
+		ResolverTraces:     func(context.Context) (any, error) { return a.resolver.Traces(), nil },
+		Users:              a.users,
+		ViewerDirectory:    a.viewerDirectory,
+		Personalization:    a.personalize,
+		Collections:        a.collections,
+		CatalogHelper:      a.collections,
+		ViewerCatalogRules: a.catalog,
+		TitleSchedules:     a.catalog,
 		WaitingReleaseKeys: func(ctx context.Context) []core.RatingKey {
 			if a.availability == nil {
 				return nil

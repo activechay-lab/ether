@@ -25,6 +25,7 @@ type RowSelection struct {
 }
 
 func (s RowSelection) Items(ctx context.Context, viewer *core.User, row core.Hub) []core.Title {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	items := s.Visibility.TitlesAllowed(viewer, row.Items)
 	if s.PrioritizeAvailable != nil && DiscoveryAvailabilityRow(row.ID) {
 		items = s.PrioritizeAvailable(ctx, items)

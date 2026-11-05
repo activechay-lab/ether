@@ -265,6 +265,7 @@ func (c *Catalog) storedEpisodesWhere(f core.Filter) (string, []any, error) {
 // each episode's series, so a page costs the same however large the
 // library; it refreshes nothing.
 func (c *Catalog) StoredEpisodesByKey(ctx context.Context, show core.Filter, after core.RatingKey, limit int) ([]core.Title, error) {
+	show = c.viewerPaging(ctx, show)
 	where, args, err := c.storedEpisodesWhere(show)
 	if err != nil {
 		return nil, err
@@ -277,6 +278,7 @@ func (c *Catalog) StoredEpisodesByKey(ctx context.Context, show core.Filter, aft
 // CountStoredEpisodes counts StoredEpisodesByKey's whole set. Like a browse
 // total, a large count is served from the last one while it recounts.
 func (c *Catalog) CountStoredEpisodes(ctx context.Context, show core.Filter) (int, error) {
+	show = c.viewerPaging(ctx, show)
 	where, args, err := c.storedEpisodesWhere(show)
 	if err != nil {
 		return 0, err
@@ -335,6 +337,7 @@ func (c *Catalog) EpisodesUnranked(ctx context.Context) (bool, error) {
 // refreshing shows or seasons from TMDB. Sequential key-ordered pages advance
 // via a cached key cursor so deep offsets stay O(limit).
 func (c *Catalog) BrowseStoredEpisodes(ctx context.Context, q core.BrowseQuery) (core.Page, error) {
+	q.Filter = c.viewerPaging(ctx, q.Filter)
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 50
@@ -528,6 +531,7 @@ func (c *Catalog) storedSeasonsWhere(f core.Filter, requireKnownRelease bool) (s
 // key after, in key order (series, season), of the series the browse filter
 // show admits. It never refreshes shows or seasons from TMDB.
 func (c *Catalog) StoredSeasonsByKey(ctx context.Context, show core.Filter, after core.RatingKey, limit int) ([]core.Title, error) {
+	show = c.viewerPaging(ctx, show)
 	where, args, err := c.storedSeasonsWhere(show, false)
 	if err != nil {
 		return nil, err
@@ -565,6 +569,7 @@ func (c *Catalog) StoredSeasonsByKey(ctx context.Context, show core.Filter, afte
 // CountStoredSeasons counts the stored, listable seasons in the library for
 // the browse filter show.
 func (c *Catalog) CountStoredSeasons(ctx context.Context, show core.Filter) (int, error) {
+	show = c.viewerPaging(ctx, show)
 	where, args, err := c.storedSeasonsWhere(show, false)
 	if err != nil {
 		return 0, err
@@ -617,6 +622,7 @@ func (c *Catalog) CountStoredSeasons(ctx context.Context, show core.Filter) (int
 // BrowseStoredSeasons pages stored, listable seasons in the library without
 // refreshing shows or seasons from TMDB.
 func (c *Catalog) BrowseStoredSeasons(ctx context.Context, q core.BrowseQuery) (core.Page, error) {
+	q.Filter = c.viewerPaging(ctx, q.Filter)
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 50

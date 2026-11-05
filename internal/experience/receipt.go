@@ -110,6 +110,7 @@ func snapshotMatches(subject ReceiptSubject, imp *core.NeutralImpression) bool {
 
 // Issue creates an opaque, surface-scoped receipt. A device identifier is required.
 func (s *Receipts) Issue(ctx context.Context, viewer *core.User, device core.Device, protocol core.Protocol, subject ReceiptSubject) (string, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	tokens, err := s.IssueBatch(ctx, viewer, device, protocol, []ReceiptSubject{subject})
 	if err != nil {
 		return "", err

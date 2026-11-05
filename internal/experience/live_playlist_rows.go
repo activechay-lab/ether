@@ -19,6 +19,7 @@ type PlaylistRowSource interface {
 // PlaylistEntries returns newest playlists first. Cross-viewer records are
 // discarded even if a source accidentally returns them.
 func PlaylistEntries(ctx context.Context, viewer *core.User, source PlaylistRowSource, limit int) ([]frontend.RowEntry, bool, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if viewer == nil || source == nil {
 		return nil, false, errors.New("experience: missing viewer or playlist source")
 	}
@@ -55,10 +56,12 @@ type LiveGuideSource interface {
 // The caller supplies the guide horizon; stream and provider URLs never leave
 // this projection. Image is an optional server-controlled logo resolver.
 func LiveEntries(ctx context.Context, viewer *core.User, source LiveGuideSource, now, until time.Time, image func(livetv.Channel) string) ([]frontend.RowEntry, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	return liveEntries(ctx, viewer, source, now, until, image, 0)
 }
 
 func liveEntries(ctx context.Context, viewer *core.User, source LiveGuideSource, now, until time.Time, image func(livetv.Channel) string, limit int) ([]frontend.RowEntry, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if viewer == nil || source == nil || !until.After(now) {
 		return nil, errors.New("experience: invalid live guide request")
 	}
@@ -119,6 +122,7 @@ func liveEntries(ctx context.Context, viewer *core.User, source LiveGuideSource,
 
 // RecentPlaylists preserves source records for adapters that render item counts.
 func RecentPlaylists(ctx context.Context, viewer *core.User, source PlaylistRowSource, limit int) ([]core.Playlist, bool, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if viewer == nil || source == nil {
 		return nil, false, nil
 	}

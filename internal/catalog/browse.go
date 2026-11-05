@@ -19,6 +19,7 @@ import (
 // in-memory count and page caching so repeated library/recommendation reads
 // return without hitting disk.
 func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, error) {
+	q.Filter = c.viewerPaging(ctx, q.Filter)
 	switch q.Filter.Type {
 	case core.TypeEpisode:
 		return c.BrowseStoredEpisodes(ctx, q)
@@ -451,8 +452,8 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		}
 		conds = append(conds, "("+clause+")")
 		args = append(args, values...)
-	} else if f := c.visibilityFilter(); f != nil {
-		q, a := f.SQLHidden()
+	} else if policy := c.viewerFilter(f.CatalogViewerID, false); !f.CatalogCandidates && policy != nil {
+		q, a := policy.SQLHidden()
 		conds = append(conds, "NOT ("+q+")")
 		args = append(args, a...)
 	}
@@ -885,6 +886,7 @@ func (c *Catalog) Facet(ctx context.Context, t core.MediaType, facet string) ([]
 
 // FacetFilter returns value counts over the browsable set matching f.
 func (c *Catalog) FacetFilter(ctx context.Context, f core.Filter, facet string) ([]core.FacetValue, error) {
+	f = c.viewerPaging(ctx, f)
 	if facet == "firstCharacter" {
 		f.FirstCharacter = ""
 	}

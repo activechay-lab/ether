@@ -110,7 +110,8 @@ func (a *App) buildPersonalization(ctx context.Context, cfg config.Config) error
 			}
 			return a.availability.FilterDiscovery(ctx, ts)
 		},
-		UserPolicy: a.safety.UserPolicy, Allowed: a.safety.Allowed,
+		CatalogRulesRevision: a.catalog.ViewerRulesRevision,
+		UserPolicy:           a.safety.UserPolicy, Allowed: a.safety.Allowed,
 		LLM: a.llm, Trakt: a.trakt, Playlists: a.playlists, Favorites: a.favoriteSignals, NotInterested: a.notInterestedSignals, NotInterestedSnapshot: a.notInterestedSnapshot,
 		ExtraHomeRows: a.extraHomeRows,
 		Dependencies: func(scorer core.PersonalScorer) (core.Recommender, core.CollectionRows, error) {

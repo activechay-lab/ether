@@ -33,6 +33,7 @@ type Continue struct {
 }
 
 func (c Continue) appendNext(ctx context.Context, viewer *core.User, titles []core.Title, state map[core.RatingKey]core.WatchStatus, limit int) []core.Title {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	history, err := c.State.History(ctx, viewer.ID, c.Now().Add(-90*24*time.Hour), 200)
 	if err != nil {
 		return titles
@@ -171,6 +172,7 @@ func (c Continue) appendNext(ctx context.Context, viewer *core.User, titles []co
 }
 
 func (c Continue) InProgress(ctx context.Context, viewer *core.User, t core.MediaType, limit int) ([]core.Title, map[core.RatingKey]core.WatchStatus) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	if c.State == nil || viewer == nil {
 		return nil, nil
 	}
@@ -208,10 +210,12 @@ func (c Continue) InProgress(ctx context.Context, viewer *core.User, t core.Medi
 }
 
 func (c Continue) inProgressBatch(ctx context.Context, viewer *core.User, t core.MediaType, limit int, sts []core.WatchStatus) ([]core.Title, map[core.RatingKey]core.WatchStatus) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	return c.inProgressBatchMode(ctx, viewer, t, limit, sts, false)
 }
 
 func (c Continue) inProgressBatchMode(ctx context.Context, viewer *core.User, t core.MediaType, limit int, sts []core.WatchStatus, unrestricted bool) ([]core.Title, map[core.RatingKey]core.WatchStatus) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	keys := make([]core.RatingKey, 0, len(sts))
 	state := make(map[core.RatingKey]core.WatchStatus, len(sts))
 	for _, st := range sts {
@@ -302,6 +306,7 @@ func PrioritizeFavoriteShows(titles []core.Title, favorites map[core.RatingKey]b
 
 // Row applies the viewer's Continue Watching preferences after resume selection.
 func (c Continue) Row(ctx context.Context, viewer *core.User, kind core.MediaType, limit int) ([]core.Title, map[core.RatingKey]core.WatchStatus) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	items, state := c.InProgress(ctx, viewer, kind, limit)
 	if c.Filter != nil {
 		items = c.Filter(ctx, viewer, items)
@@ -311,6 +316,7 @@ func (c Continue) Row(ctx context.Context, viewer *core.User, kind core.MediaTyp
 
 // Shelf selects one overflow candidate before applying preferences and the shelf limit.
 func (c Continue) Shelf(ctx context.Context, viewer *core.User, kind core.MediaType, limit int) ([]core.Title, map[core.RatingKey]core.WatchStatus, bool) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	items, state := c.Row(ctx, viewer, kind, limit+1)
 	more := len(items) > limit
 	if more {

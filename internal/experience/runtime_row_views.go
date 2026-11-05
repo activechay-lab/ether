@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
@@ -43,7 +44,11 @@ func RowViewRevision(ctx context.Context, db *sql.DB, user *core.User) (string, 
 	if err != nil {
 		return "", err
 	}
-	b, err := json.Marshal([]any{user.ID, user.IsOwner, user.MaxContentRating, user.AllowedSections, layout, favorites, exclusions})
+	rules, err := catalog.ReadViewerRulesRevision(ctx, db, user.ID)
+	if err != nil {
+		return "", err
+	}
+	b, err := json.Marshal([]any{user.ID, user.IsOwner, user.MaxContentRating, user.AllowedSections, layout, favorites, exclusions, rules})
 	if err != nil {
 		return "", err
 	}
@@ -295,6 +300,7 @@ func RowViewCollectionMembers(ctx context.Context, source RowViewCollectionSourc
 // RowViewResolveBatchTitles binds this call's viewer, device and protocol into
 // the neutral title hydrator. Nothing in the adapter is reused for a later pass.
 func RowViewResolveBatchTitles(ctx context.Context, viewer *core.User, device core.Device, protocol core.Protocol, refs []core.NeutralEntryRef, one func(context.Context, *core.User, core.Device, core.Protocol, core.NeutralEntryRef) (frontend.RowEntry, error), batch func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error), get func(context.Context, *core.User, core.RatingKey) (*core.Title, error), visibility Visibility, live func(context.Context, *core.User) ([]frontend.RowEntry, error)) ([]frontend.RowEntry, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	return RowViewHydrateEntries(ctx, viewer, refs, func(ctx context.Context, ref core.NeutralEntryRef) (frontend.RowEntry, error) {
 		return one(ctx, viewer, device, protocol, ref)
 	}, batch, func(ctx context.Context, key core.RatingKey) (*core.Title, error) {

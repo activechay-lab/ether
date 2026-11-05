@@ -30,6 +30,7 @@ func PostPlay(ctx context.Context, picks []core.PostPlayPick, viewer *core.User,
 // UniqueRelated excludes previously served titles, recording all newly seen
 // keys in row order so later rows cannot repeat them.
 func UniqueRelated(ctx context.Context, viewer *core.User, visibility Visibility, items []core.Title, seen map[core.RatingKey]bool, limit int) []core.Title {
+	ctx = core.WithCatalogViewer(ctx, viewer)
 	out := items[:0:0]
 	for _, item := range items {
 		if !seen[item.Key] && visibility.Visible(ctx, viewer, &item) {
