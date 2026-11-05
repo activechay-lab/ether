@@ -6,6 +6,8 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/config"
@@ -57,8 +59,15 @@ func ReadDeployment(path string) (Deployment, error) {
 		d.ProbeListen = ":32402"
 	}
 	for _, address := range []string{d.PrivateListen, d.ProbeListen} {
-		if _, _, err := net.SplitHostPort(address); err != nil {
+		_, port, err := net.SplitHostPort(address)
+		n, portErr := strconv.Atoi(port)
+		if err != nil || portErr != nil || n < 1 || n > 65535 {
 			return Deployment{}, errors.New("deployment: invalid listener address")
+		}
+	}
+	for _, p := range []string{d.TempDir, d.CacheDir, d.CgroupV2Path, d.DatabaseURLFile, d.ClusterKeyFile, d.CAFile, d.CAKeyFile, d.RootsFile} {
+		if p != "" && !filepath.IsAbs(p) {
+			return Deployment{}, errors.New("deployment: paths must be absolute")
 		}
 	}
 	if d.PrivateListen == d.ProbeListen || d.InternalAddress == "" || d.DatabaseURLFile == "" || d.ClusterKeyFile == "" || d.CAFile == "" || d.CAKeyFile == "" || d.RootsFile == "" {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/dburl"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -15,6 +16,7 @@ import (
 // 32-byte cluster credential key supplied through a mounted Secret, not a token.
 // The caller must exclusively lock DataDir for the complete operation.
 type ProvisionOptions struct {
+	MigrationGate   store.MigrationGate
 	TempDir         string
 	CacheDir        string
 	DataDir         string
@@ -38,7 +40,10 @@ func Provision(ctx context.Context, o ProvisionOptions) error {
 	}
 	// Validate DB trust before writing local identity material. Fresh initialization
 	// uses SaveShared's compare-and-swap, so simultaneous first pods adopt one doc.
-	db, err := openPostgres(ctx, o.DatabaseURL, nil)
+	if !dburl.IsPostgres(o.DatabaseURL) {
+		return errors.New("provision: PostgreSQL URL required")
+	}
+	db, _, err := store.OpenWithRetry(ctx, store.Options{Driver: config.DatabasePostgres, URL: o.DatabaseURL, MigrationGate: o.MigrationGate}, store.RetryOptions{})
 	if err != nil {
 		return errors.New("provision: cannot open PostgreSQL")
 	}

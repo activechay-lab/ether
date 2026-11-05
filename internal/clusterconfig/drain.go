@@ -33,7 +33,7 @@ func ReadDrainControl(dir, name string) (DrainControl, error) {
 	if err != nil {
 		return d, err
 	}
-	if !st.Mode().IsRegular() || st.Mode().Perm()&0077 != 0 || st.Size() > 4096 {
+	if !st.Mode().IsRegular() || !privateDrainFile(p, st) || st.Size() > 4096 {
 		return d, errors.New("drain: unsafe control file")
 	}
 	b, err := os.ReadFile(p)
@@ -51,7 +51,7 @@ func WriteDrainControl(dir, name string, d DrainControl) error {
 	}
 	p := filepath.Join(dir, name)
 	if st, err := os.Lstat(p); err == nil {
-		if !st.Mode().IsRegular() || st.Mode().Perm()&0077 != 0 {
+		if !st.Mode().IsRegular() || !privateDrainFile(p, st) {
 			return errors.New("drain: unsafe control file")
 		}
 	} else if !os.IsNotExist(err) {
@@ -67,6 +67,10 @@ func WriteDrainControl(dir, name string, d DrainControl) error {
 	}
 	tmp := f.Name()
 	defer os.Remove(tmp)
+	if err := protectDrainFile(tmp); err != nil {
+		_ = f.Close()
+		return errors.New("drain: cannot protect control file")
+	}
 	if _, err = f.Write(b); err == nil {
 		err = f.Sync()
 	}
