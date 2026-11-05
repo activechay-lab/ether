@@ -1,7 +1,13 @@
 import { api } from "../../../lib/api";
 import { useAsync } from "../../../lib/hooks";
 import { onair, type Look } from "./model";
-import { renderLook } from "./proto-renderer";
+import {
+  renderLook,
+  renderDocument,
+  documentFor,
+  loadOnAirFonts,
+  releaseRenderer,
+} from "./scene-renderer";
 import { useEffect, useRef, useState } from "react";
 import { Volume2, VolumeX } from "lucide-react";
 import { cn } from "@braedonsaunders/appkit-ui";
@@ -75,77 +81,31 @@ function ScreenCard({
           hover ? time / 1000 : 3,
         );
         ctx.restore();
-      } else if ((style || fallback) === "static") {
-        const pixels = ctx.createImageData(w, h);
-        for (let i = 0; i < pixels.data.length; i += 4) {
-          const v = Math.random() * 200;
-          pixels.data[i] = v;
-          pixels.data[i + 1] = v;
-          pixels.data[i + 2] = v;
-          pixels.data[i + 3] = 255;
-        }
-        ctx.putImageData(pixels, 0, 0);
-        ctx.fillStyle = "rgba(255,255,255,.25)";
-        ctx.fillRect(0, (time / 25) % h, w, 12);
-      } else if (style === "bars" || style === "testcard") {
-        ["#d6d6d6", "#c4c400", "#00c4c4", "#00c400", "#c400c4", "#c40000", "#0000c4"].forEach(
-          (c, i) => {
-            ctx.fillStyle = c;
-            ctx.fillRect((i * w) / 7, 0, w / 7 + 1, h * 0.72);
-          },
-        );
-        ["#101010", "#222c80", "#eeeeee", "#603575", "#111111"].forEach((c, i) => {
-          ctx.fillStyle = c;
-          ctx.fillRect((i * w) / 5, h * 0.72, w / 5 + 1, h * 0.28);
-        });
-        if (style === "testcard") {
-          ctx.strokeStyle = "#fff";
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(160, 90, 72, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(160, 0);
-          ctx.lineTo(160, 180);
-          ctx.moveTo(0, 90);
-          ctx.lineTo(320, 90);
-          ctx.stroke();
-        }
       } else {
-        const gradient = ctx.createLinearGradient(0, 0, w, h);
-        gradient.addColorStop(0, "#153d43");
-        gradient.addColorStop(1, "#15162c");
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, w, h);
-        ctx.fillStyle = "rgba(255,255,255,.07)";
-        ctx.beginPath();
-        ctx.arc(270 + Math.sin(time / 700) * 12, 30, 85, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#fff";
-        ctx.font = "600 20px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(
-          style === "brb"
-            ? t("We'll be right back")
-            : style === "error"
-              ? t("Can't play this channel")
-              : t("Off air"),
-          160,
-          94,
-        );
-      }
-      if (station) {
-        ctx.fillStyle = "rgba(0,0,0,.7)";
-        ctx.fillRect(0, 143, w, 37);
-        ctx.fillStyle = "#fff";
-        ctx.textAlign = "center";
-        ctx.font = "12px sans-serif";
-        ctx.fillText(station, 160, 166);
+        const selected = style || fallback || "card";
+        const doc = documentFor("signal", `screen.${selected === "error" ? "card" : selected}`);
+        if (doc)
+          renderDocument(
+            ctx,
+            doc,
+            {
+              tokens: { seed: 7 },
+              slots: {
+                "station.id": station,
+                "screen.line1": selected === "error" ? t("Can't play this channel") : t("Off air"),
+                "screen.line2": t("Programming will resume shortly"),
+              },
+            },
+            hover ? time / 1000 : doc.poster,
+          );
       }
       if (hover && !reduced) frame = requestAnimationFrame(draw);
     };
-    draw(0);
-    return () => cancelAnimationFrame(frame);
+    void loadOnAirFonts().then(() => draw(0));
+    return () => {
+      cancelAnimationFrame(frame);
+      releaseRenderer(ctx);
+    };
   }, [style, station, hover, look, fallback]);
   const audible = style === "static" || style === "bars" || style === "testcard";
   return (

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, cn } from "@braedonsaunders/appkit-ui";
 import { Play, Pause, Repeat } from "lucide-react";
 import { t } from "../../../i18n";
-import { renderLook, loadOnAirFonts } from "./proto-renderer";
+import { renderLook, loadOnAirFonts, releaseRenderer, documentFor } from "./scene-renderer";
 import { MOMENTS, type Look, type Moment, type Bindings } from "./model";
 const EMPTY_BINDINGS: Bindings = {};
 let activeTile: HTMLCanvasElement | null = null;
@@ -30,7 +30,7 @@ export function LookTile({
     let frame = 0,
       mounted = true;
     const start = performance.now();
-    const still = (look.moments[moment]?.poster ?? 4.4) / (0.6 + look.brand.energy * 0.8);
+    const still = documentFor(look.family, moment)?.poster ?? look.moments[moment]?.poster ?? 5.5;
     const draw = () => {
       renderLook(
         ctx,
@@ -54,6 +54,7 @@ export function LookTile({
       if (mounted && !hover) draw();
     });
     return () => {
+      releaseRenderer(ctx);
       mounted = false;
       cancelAnimationFrame(frame);
     };
@@ -136,7 +137,8 @@ export function LookStage({
   }, [sound, selected, look.brand.sting, look.brand.volume]);
   useEffect(() => {
     let frame = 0,
-      last = performance.now();
+      last = performance.now(),
+      lastDrawTime = -1;
     const draw = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
@@ -147,6 +149,11 @@ export function LookStage({
           if (!loop) setPlaying(false);
         }
       }
+      if (!playing && clock.current === lastDrawTime) {
+        frame = requestAnimationFrame(draw);
+        return;
+      }
+      lastDrawTime = clock.current;
       const ctx = canvas.current?.getContext("2d");
       if (ctx) {
         renderLook(
@@ -155,6 +162,7 @@ export function LookStage({
           corner ? "lowerthird" : selected,
           { ...bindings, ...(viewer ? { viewer: { name: viewer } } : {}) },
           clock.current,
+          safe,
         );
         if (safe) {
           ctx.save();
@@ -171,8 +179,14 @@ export function LookStage({
       frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
-    void loadOnAirFonts();
-    return () => cancelAnimationFrame(frame);
+    void loadOnAirFonts().then(() => {
+      lastDrawTime = -1;
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      const ctx = canvas.current?.getContext("2d");
+      if (ctx) releaseRenderer(ctx);
+    };
   }, [look, selected, bindings, playing, slow, loop, safe, corner, duration, at, viewer]);
   const step = (n: number) => {
     setPlaying(false);
@@ -275,40 +289,42 @@ export function LookStage({
             : "grid grid-cols-3 gap-2 sm:grid-cols-5"
         }
       >
-        {MOMENTS.filter((m) => look.family === "personal" || m !== "welcome").map((m) => (
-          <button
-            key={m}
-            className={cn(
-              "min-w-0 rounded-lg border p-1 text-left",
-              selected === m
-                ? "border-primary bg-primary-subtle"
-                : "border-border hover:bg-surface-hover",
-            )}
-            onClick={() => {
-              setSelected(m);
-              clock.current = 3;
-              onMomentChange?.(m);
-            }}
-            onDoubleClick={() => onSelectLayer?.("Title")}
-          >
-            <LookTile look={look} moment={m} bindings={bindings} playOnHover={false} />
-            <span className="block truncate px-1 pt-1 text-xs text-fg-muted">
-              {t(
-                {
-                  ident: "Ident",
-                  tonight: "Tonight",
-                  upnext: "Up next",
-                  break: "Break",
-                  back: "Back",
-                  offair: "Off air",
-                  welcome: "Welcome",
-                  bug: "Corner logo",
-                  lowerthird: "Lower third",
-                }[m],
+        {MOMENTS.filter((m) => (look.family === "personal" ? m !== "offair" : m !== "welcome")).map(
+          (m) => (
+            <button
+              key={m}
+              className={cn(
+                "min-w-0 rounded-lg border p-1 text-left",
+                selected === m
+                  ? "border-primary bg-primary-subtle"
+                  : "border-border hover:bg-surface-hover",
               )}
-            </span>
-          </button>
-        ))}
+              onClick={() => {
+                setSelected(m);
+                clock.current = 3;
+                onMomentChange?.(m);
+              }}
+              onDoubleClick={() => onSelectLayer?.("Title")}
+            >
+              <LookTile look={look} moment={m} bindings={bindings} playOnHover={false} />
+              <span className="block truncate px-1 pt-1 text-xs text-fg-muted">
+                {t(
+                  {
+                    ident: "Ident",
+                    tonight: "Tonight",
+                    upnext: "Up next",
+                    break: "Break",
+                    back: "Back",
+                    offair: "Off air",
+                    welcome: "Welcome",
+                    bug: "Corner logo",
+                    lowerthird: "Lower third",
+                  }[m],
+                )}
+              </span>
+            </button>
+          ),
+        )}
       </div>
       <div className="flex flex-wrap gap-2">
         {[

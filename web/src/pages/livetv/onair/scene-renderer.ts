@@ -1,0 +1,976 @@
+import type { Bindings, Look, Moment } from "./model";
+
+export type Value =
+  | number
+  | string
+  | { keys: [number, Value, string?][] }
+  | { linear?: number[]; radial?: number[]; stops: [number, string][] };
+export type Params = {
+  start?: number;
+  step?: number;
+  amplitude?: number;
+  speed?: number;
+  seed?: number;
+};
+export type Layer = {
+  id: string;
+  type: string;
+  x?: Value;
+  y?: Value;
+  w?: Value;
+  h?: Value;
+  scale?: Value;
+  scaleX?: Value;
+  scaleY?: Value;
+  rotate?: Value;
+  opacity?: Value;
+  fill?: Value;
+  stroke?: Value;
+  strokeWidth?: Value;
+  join?: CanvasLineJoin;
+  cap?: CanvasLineCap;
+  fillRule?: CanvasFillRule;
+  path?: string;
+  clip?: string;
+  text?: Value;
+  font?: Value;
+  size?: Value;
+  weight?: number;
+  track?: Value;
+  align?: CanvasTextAlign;
+  maxWidth?: number;
+  fit?: string;
+  maxLines?: number;
+  src?: Value;
+  tint?: Value;
+  tintBlend?: string;
+  blend?: string;
+  blur?: number;
+  glow?: number;
+  count?: number;
+  seed?: number;
+  repeat?: number;
+  grainSize?: number;
+  noiseFps?: number;
+  behave?: Record<string, Params>[];
+  reveal?: { wipe: string; from: number; to: number; ease?: string };
+  layers?: Layer[];
+};
+export type Scene = {
+  v: number;
+  moment: string;
+  duration: number;
+  poster: number;
+  slots?: string[];
+  layers: Layer[];
+  post?: { type: string; amount: Value; seed?: number }[];
+};
+export type SceneBindings = {
+  tokens: Record<string, unknown>;
+  slots: Record<string, string>;
+  assets?: Record<string, CanvasImageSource>;
+};
+type Context = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+export const normalizeFont = (s: string) => s.toLowerCase().replace(/[ _-]/g, "");
+const clamp = (n: number, a = 0, z = 1) => Math.max(a, Math.min(z, n));
+export function random(seed: number, i: number) {
+  let x = Math.imul((seed >>> 0) ^ Math.imul((i + 1) >>> 0, 0x9e3779b1), 0x85ebca6b);
+  x ^= x >>> 13;
+  x = Math.imul(x, 0xc2b2ae35);
+  x ^= x >>> 16;
+  return (x >>> 0) / 4294967296;
+}
+function lookup(tokens: Record<string, unknown>, key: string): unknown {
+  if (key in tokens) return tokens[key];
+  const at = key.indexOf(".");
+  return at >= 0 && typeof tokens[key.slice(0, at)] === "object" && tokens[key.slice(0, at)]
+    ? lookup(tokens[key.slice(0, at)] as Record<string, unknown>, key.slice(at + 1))
+    : undefined;
+}
+export function resolve(s: string, b: SceneBindings): string {
+  for (let i = 0; i < 16; i++) {
+    const match = /\{([^}]+)\}/.exec(s);
+    if (!match) break;
+    s =
+      s.slice(0, match.index) +
+      String(b.slots[match[1]!] ?? lookup(b.tokens, match[1]!) ?? "") +
+      s.slice(match.index + match[0].length);
+  }
+  return s;
+}
+export function ease(name: string, u: number, energy = 1): number {
+  u = clamp(u);
+  switch (name) {
+    case "in":
+      return u ** 3;
+    case "out":
+      return 1 - (1 - u) ** 3;
+    case "inOut":
+      return u < 0.5 ? 4 * u ** 3 : 1 - (-2 * u + 2) ** 3 / 2;
+    case "back": {
+      const c = 1.70158 * energy;
+      return 1 + (c + 1) * (u - 1) ** 3 + c * (u - 1) ** 2;
+    }
+    case "elastic":
+    case "spring":
+      return u === 0 || u === 1 ? u : 1 - 2 ** (-10 * u) * Math.cos(u * Math.PI * 6) * energy;
+    default:
+      return u;
+  }
+}
+function rgba(s: string): number[] {
+  const [hex = "", alpha = "1"] = s.split("@");
+  let h = hex.replace("#", "");
+  if (h.length === 3) h = [...h].map((c) => c + c).join("");
+  const a = clamp(Number(alpha) * (h.length === 8 ? parseInt(h.slice(6), 16) / 255 : 1));
+  const v = parseInt(h.slice(0, 6), 16) || 0;
+  return [((v >>> 16) & 255) * a, ((v >>> 8) & 255) * a, (v & 255) * a, 255 * a];
+}
+function color(s: string): string {
+  const c = rgba(s),
+    a = c[3]! / 255;
+  return `rgba(${a ? c[0]! / a : 0},${a ? c[1]! / a : 0},${a ? c[2]! / a : 0},${a})`;
+}
+export function evaluate(v: Value | undefined, b: SceneBindings, t: number): unknown {
+  if (typeof v === "string") return resolve(v, b);
+  if (v && typeof v === "object" && "keys" in v) {
+    let prev = v.keys[0]!;
+    for (const next of v.keys.slice(1)) {
+      if (t < next[0]) {
+        const u = ease(
+          next[2] ?? "linear",
+          (t - prev[0]) / Math.max(0.00001, next[0] - prev[0]),
+          Number(lookup(b.tokens, "energy") ?? 1),
+        );
+        const a = evaluate(prev[1], b, t),
+          z = evaluate(next[1], b, t);
+        if (typeof a === "string" && typeof z === "string") {
+          if (
+            /^#[\da-f]{6}([\da-f]{2})?(@[\d.]+)?$/i.test(a) &&
+            /^#[\da-f]{6}([\da-f]{2})?(@[\d.]+)?$/i.test(z)
+          ) {
+            const aa = rgba(a),
+              zz = rgba(z),
+              out = aa.map((c, i) => clamp(c + (zz[i]! - c) * u, 0, 255));
+            const alpha = out[3]! / 255;
+            return (
+              "#" +
+              out
+                .map((c, i) =>
+                  Math.floor((i < 3 && alpha ? c / alpha : c) + 0.5)
+                    .toString(16)
+                    .padStart(2, "0"),
+                )
+                .join("")
+            );
+          }
+          return u >= 1 ? z : a;
+        }
+        return Number(a ?? 0) + (Number(z ?? 0) - Number(a ?? 0)) * u;
+      }
+      prev = next;
+    }
+    return evaluate(prev[1], b, t);
+  }
+  return v;
+}
+const number = (v: unknown, fallback: number) =>
+  v === undefined || v === null || !Number.isFinite(Number(v)) ? fallback : Number(v);
+function surface(w: number, h: number) {
+  const c =
+    typeof OffscreenCanvas !== "undefined"
+      ? new OffscreenCanvas(w, h)
+      : Object.assign(document.createElement("canvas"), { width: w, height: h });
+  return c;
+}
+const blend = (s?: string): GlobalCompositeOperation =>
+  !s || s === "normal" ? "source-over" : (s as GlobalCompositeOperation);
+export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t: number) {
+  const width = ctx.canvas.width,
+    height = ctx.canvas.height;
+  const n = (v: Value | undefined, fallback = 0) => number(evaluate(v, bindings, t), fallback);
+  const s = (v: Value | undefined) => String(evaluate(v, bindings, t) ?? "");
+  const energy = number(lookup(bindings.tokens, "energy"), 1);
+  const paint = (c: Context, v: Value | undefined): string | CanvasGradient => {
+    const p = evaluate(v, bindings, t);
+    if (p && typeof p === "object" && "stops" in p) {
+      const g = p as { linear?: number[]; radial?: number[]; stops: [number, string][] };
+      const a = (g.linear ?? g.radial)!;
+      const gradient = g.linear
+        ? c.createLinearGradient(a[0]!, a[1]!, a[2]!, a[3]!)
+        : c.createRadialGradient(
+            a[0]!,
+            a[1]!,
+            Math.max(0, a[2]!),
+            a[0]!,
+            a[1]!,
+            Math.max(0, a[3]!),
+          );
+      for (let j = 0; j < g.stops.length - 1; j++) {
+        const [from, first] = g.stops[j]!,
+          [to, last] = g.stops[j + 1]!;
+        const a = rgba(resolve(first, bindings)),
+          b = rgba(resolve(last, bindings));
+        for (let k = 0; k < 32; k++) {
+          const u = k / 32,
+            c = a.map((v, i) => v + (b[i]! - v) * u),
+            alpha = c[3]! / 255;
+          gradient.addColorStop(
+            from + (to - from) * u,
+            `rgba(${alpha ? c[0]! / alpha : 0},${alpha ? c[1]! / alpha : 0},${alpha ? c[2]! / alpha : 0},${alpha})`,
+          );
+        }
+      }
+      const final = g.stops.at(-1)!;
+      gradient.addColorStop(final[0], color(resolve(final[1], bindings)));
+      return gradient;
+    }
+    return color(String(p ?? "#000000@0"));
+  };
+  function text(c: Context, l: Layer) {
+    let value = s(l.text),
+      size = n(l.size, 60);
+    const track = n(l.track);
+    for (const b of l.behave ?? [])
+      if (b.typewriter)
+        value = [...value]
+          .slice(
+            0,
+            Math.max(
+              0,
+              Math.floor(
+                (t - (b.typewriter.start ?? 0)) / Math.max(0.001, b.typewriter.step ?? 0),
+              ) + 1,
+            ),
+          )
+          .join("");
+    const setFont = () => {
+      c.font = `${size}px "onair-${normalizeFont(s(l.font))}", "onair-notosans"`;
+    };
+    setFont();
+    const measure = (line: string) =>
+      c.measureText(line).width + Math.max(0, [...line].length - 1) * track;
+    if (l.fit === "shrink" && l.maxWidth && measure(value) > l.maxWidth) {
+      size *= l.maxWidth / measure(value);
+      setFont();
+    }
+    let lines = [value];
+    if (l.fit === "wrap" && l.maxWidth) {
+      lines = [];
+      let line = "";
+      for (const word of value.trim().split(/\s+/)) {
+        const test = line ? line + " " + word : word;
+        if (line && measure(test) > l.maxWidth) {
+          lines.push(line);
+          line = word;
+        } else line = test;
+      }
+      lines.push(line);
+    }
+    if (l.maxLines && lines.length > l.maxLines) {
+      lines = lines.slice(0, l.maxLines);
+      let last = [...lines.at(-1)!];
+      while (last.length && measure(last.join("") + "…") > (l.maxWidth ?? Infinity)) last.pop();
+      lines[lines.length - 1] = last.join("") + "…";
+    }
+    c.textBaseline = "alphabetic";
+    c.textAlign = "left";
+    if (l.maxWidth && l.align !== "center" && l.align !== "right") {
+      c.beginPath();
+      c.rect(0, -size * 2, l.maxWidth, size * (lines.length + 3));
+      c.clip();
+    }
+    lines.forEach((line, i) => {
+      let x = l.align === "center" ? -measure(line) / 2 : l.align === "right" ? -measure(line) : 0;
+      if (!track) c.fillText(line, x, i * size * 1.15);
+      else {
+        const chars = [...line];
+        chars.forEach((ch, j) => {
+          c.fillText(ch, x, i * size * 1.15);
+          const next = chars[j + 1];
+          x +=
+            c.measureText(ch).width +
+            track +
+            (next
+              ? c.measureText(ch + next).width - c.measureText(ch).width - c.measureText(next).width
+              : 0);
+        });
+      }
+    });
+  }
+  function layers(c: Context, ls: Layer[]) {
+    for (const l of ls)
+      for (let rep = 0; rep < Math.max(1, l.repeat ?? 1); rep++) {
+        let x = n(l.x),
+          y = n(l.y),
+          sx = n(l.scale, 1) * n(l.scaleX, 1),
+          sy = n(l.scale, 1) * n(l.scaleY, 1),
+          rot = n(l.rotate),
+          alpha = n(l.opacity, 1);
+        for (const b of l.behave ?? [])
+          for (const [kind, p] of Object.entries(b)) {
+            const u = Math.max(0, t - (p.start ?? 0)),
+              speed = p.speed || 1,
+              a = (p.amplitude ?? 0) * energy;
+            switch (kind) {
+              case "wiggle":
+                rot += Math.sin(u * speed * 6.28) * a;
+                break;
+              case "bounce":
+                y -= Math.abs(Math.sin(u * speed * Math.PI)) * a;
+                break;
+              case "drift":
+                x += u * a;
+                y += Math.sin(u * speed) * a * 0.2;
+                break;
+              case "pop":
+                sx *= ease("back", u * speed, energy);
+                sy *= ease("back", u * speed, energy);
+                break;
+              case "squash": {
+                const k = Math.sin(u * speed * 6.28) * a * 0.01;
+                sx *= 1 + k;
+                sy /= Math.max(0.1, 1 + k);
+                break;
+              }
+              case "flicker":
+                alpha *= 1 - a * random((l.seed ?? 0) + (p.seed ?? 0), Math.trunc(t * 24));
+                break;
+            }
+          }
+        if (alpha <= 0 || sx === 0 || sy === 0) continue;
+        c.save();
+        c.translate(x, y);
+        c.rotate(rot);
+        c.scale(sx, sy);
+        const isolated = !!(
+          l.blur ||
+          l.glow ||
+          (l.blend && l.blend !== "normal") ||
+          alpha !== 1 ||
+          l.behave?.some((b) => b.chroma || b.glint)
+        );
+        let draw = c;
+        let scratch: ReturnType<typeof surface> | undefined;
+        if (isolated) {
+          scratch = surface(width, height);
+          draw = scratch.getContext("2d", { willReadFrequently: true }) as Context;
+          draw.setTransform(c.getTransform());
+        }
+        draw.save();
+        if (l.clip) draw.clip(new Path2D(l.clip));
+        const w = n(l.w, 1920),
+          h = n(l.h, 1080),
+          seed = ((l.seed ?? 0) + rep + number(lookup(bindings.tokens, "seed"), 7)) >>> 0;
+        if (l.reveal) {
+          const r = l.reveal,
+            u = ease(r.ease ?? "linear", (t - r.from) / (r.to - r.from), energy),
+            extent = Math.max(l.maxWidth ?? 0, w);
+          draw.beginPath();
+          draw.rect(
+            r.wipe === "rtl" ? extent * (1 - u) : -10000,
+            -10000,
+            r.wipe === "rtl" ? 10000 : 10000 + extent * u,
+            20000,
+          );
+          draw.clip();
+        }
+        draw.fillStyle = paint(draw, l.fill);
+        draw.strokeStyle = paint(draw, l.stroke);
+        draw.lineWidth = n(l.strokeWidth, 1);
+        draw.lineJoin = l.join ?? "miter";
+        draw.lineCap = l.cap ?? "butt";
+        if (l.type === "group") layers(draw, l.layers ?? []);
+        else if (l.type === "text") text(draw, l);
+        else if (["art", "logo", "image"].includes(l.type)) {
+          const image = bindings.assets?.[s(l.src)];
+          if (image) {
+            const im = image as { width: number; height: number };
+            const scale = (l.fit === "contain" ? Math.min : Math.max)(w / im.width, h / im.height);
+            draw.beginPath();
+            draw.rect(0, 0, w, h);
+            draw.clip();
+            draw.drawImage(
+              image,
+              (w - im.width * scale) / 2,
+              (h - im.height * scale) / 2,
+              im.width * scale,
+              im.height * scale,
+            );
+            if (l.tint) {
+              draw.globalCompositeOperation = "multiply";
+              draw.fillStyle = paint(draw, l.tint);
+              draw.fillRect(0, 0, w, h);
+            }
+          }
+        } else if (l.type === "noise") {
+          const inv = draw.getTransform().inverse(),
+            pixels = draw.getImageData(0, 0, width, height),
+            data = pixels.data;
+          const grain = l.grainSize || 1,
+            fx = l.grainSize ? width / 1920 : 1,
+            fy = l.grainSize ? height / 1080 : 1;
+          const frame = Math.trunc(t * (l.noiseFps || 24)) * 100003;
+          if (inv.b === 0 && inv.c === 0) {
+            const xs = new Int32Array(width),
+              valid = new Uint8Array(width);
+            for (let xx = 0; xx < width; xx++) {
+              const px = inv.a * xx + inv.e;
+              valid[xx] = px >= 0 && px < w ? 1 : 0;
+              xs[xx] = Math.trunc(Math.trunc(px * fx) / grain);
+            }
+            let previous = -2147483648,
+              previousRow = -1;
+            for (let yy = 0; yy < height; yy++) {
+              const py = inv.d * yy + inv.f;
+              if (py < 0 || py >= h) continue;
+              const iy = Math.trunc(Math.trunc(py * fy) / grain),
+                row = yy * width * 4;
+              if (iy === previous && previousRow >= 0) {
+                data.copyWithin(row, previousRow, previousRow + width * 4);
+                continue;
+              }
+              previous = iy;
+              previousRow = row;
+              const base = iy * 1920 + frame;
+              for (let xx = 0; xx < width; xx++) {
+                if (!valid[xx]) continue;
+                const v = Math.floor(random(seed, xs[xx]! + base) * 255),
+                  i = row + xx * 4;
+                data[i] = v;
+                data[i + 1] = v;
+                data[i + 2] = v;
+                data[i + 3] = 255;
+              }
+            }
+          } else {
+            for (let yy = 0; yy < height; yy++)
+              for (let xx = 0; xx < width; xx++) {
+                const px = inv.a * xx + inv.c * yy + inv.e,
+                  py = inv.b * xx + inv.d * yy + inv.f;
+                if (px < 0 || py < 0 || px >= w || py >= h) continue;
+                const v = Math.floor(
+                    random(
+                      seed,
+                      Math.trunc(Math.trunc(px * fx) / grain) +
+                        Math.trunc(Math.trunc(py * fy) / grain) * 1920 +
+                        frame,
+                    ) * 255,
+                  ),
+                  i = (yy * width + xx) * 4;
+                data[i] = v;
+                data[i + 1] = v;
+                data[i + 2] = v;
+                data[i + 3] = 255;
+              }
+          }
+          draw.putImageData(pixels, 0, 0);
+        } else {
+          const path = new Path2D(l.type === "path" ? l.path : undefined);
+          if (["rect", "gradient"].includes(l.type)) path.rect(0, 0, w, h);
+          if (["ellipse", "blob"].includes(l.type)) {
+            for (let j = 0; j < 96; j++) {
+              const a = (j * Math.PI * 2) / 96,
+                k =
+                  l.type === "blob"
+                    ? 1 +
+                      0.06 * Math.sin(a * 7 + t * 2 + random(seed, 1) * 6.28) +
+                      0.03 * Math.sin(a * 11 - t)
+                    : 1;
+              const xx = w / 2 + ((Math.cos(a) * w) / 2) * k,
+                yy = h / 2 + ((Math.sin(a) * h) / 2) * k;
+              if (!j) path.moveTo(xx, yy);
+              else path.lineTo(xx, yy);
+            }
+            path.closePath();
+          }
+          if (l.type === "particles")
+            for (let j = 0; j < (l.count ?? 0); j++) {
+              const xx = random(seed, j) * w + Math.sin(t + j) * 15,
+                yy = (random(seed, j + 2050) * h + t * (8 + random(seed, j + 4100) * 35)) % h,
+                r = 1 + random(seed, j + 6200) * 4;
+              path.rect(xx - r, yy - r, r * 2, r * 2);
+            }
+          if (l.type === "grid") {
+            for (let j = 0; j < 24; j++) {
+              const xx = ((j - 12) * w) / 8;
+              path.moveTo(w / 2 + xx * 0.05, 0);
+              path.lineTo(w / 2 + xx, h);
+            }
+            for (let j = 0; j < 16; j++) {
+              const yy = ((j / 16 + t * 0.035) % 1) ** 2 * h;
+              path.moveTo(0, yy);
+              path.lineTo(w, yy);
+            }
+          }
+          if (l.fill !== undefined) draw.fill(path, l.fillRule ?? "nonzero");
+          if (l.stroke !== undefined) draw.stroke(path);
+        }
+        draw.restore();
+        if (scratch) {
+          pixelBehaviours(draw, l, t, width, height);
+          c.save();
+          c.setTransform(1, 0, 0, 1, 0, 0);
+          c.globalAlpha *= clamp(alpha);
+          if (l.glow) {
+            c.globalCompositeOperation = "screen";
+            c.filter = `blur(${(l.glow * width) / 1920}px)`;
+            c.drawImage(scratch, 0, 0);
+          }
+          c.globalCompositeOperation = blend(l.blend);
+          c.filter = l.blur ? `blur(${(l.blur * width) / 1920}px)` : "none";
+          c.drawImage(scratch, 0, 0);
+          c.restore();
+        }
+        c.restore();
+      }
+  }
+  ctx.save();
+  ctx.resetTransform();
+  ctx.clearRect(0, 0, width, height);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+  ctx.filter = "none";
+  ctx.scale(width / 1920, height / 1080);
+  layers(ctx, doc.layers);
+  ctx.restore();
+  if (doc.post?.some((e) => n(e.amount) !== 0)) {
+    const pixels = ctx.getImageData(0, 0, width, height),
+      data = pixels.data;
+    const effects = doc.post
+      .map((e) => ({
+        type: e.type,
+        amount: n(e.amount),
+        seed: ((e.seed ?? 0) + number(lookup(bindings.tokens, "seed"), 7)) >>> 0,
+      }))
+      .filter((e) => e.amount !== 0);
+    const frame = Math.trunc(t * 24);
+    const x2 = new Float64Array(width);
+    for (let x = 0; x < width; x++) {
+      const dx = (x / width - 0.5) * 1.4;
+      x2[x] = dx * dx;
+    }
+    const flickers = effects.map((e) => 1 - e.amount * random(e.seed, frame));
+    for (let y = 0; y < height; y++) {
+      const dy = (y / height - 0.5) * 1.4,
+        y2 = dy * dy;
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 4,
+          a = data[i + 3]! / 255;
+        let r = data[i]! * a,
+          g = data[i + 1]! * a,
+          b = data[i + 2]! * a;
+        for (let j = 0; j < effects.length; j++) {
+          const e = effects[j]!;
+          let v = 1,
+            offset = 0;
+          switch (e.type) {
+            case "grain":
+              offset = (random(e.seed, x + y * width + frame * 100003) - 0.5) * e.amount * 255;
+              break;
+            case "scanlines":
+              if (y % 3 === 0) v = 1 - e.amount;
+              break;
+            case "vignette":
+              v = 1 - e.amount * Math.min(1, x2[x]! + y2);
+              break;
+            case "flicker":
+              v = flickers[j]!;
+              break;
+          }
+          r = Math.floor(Math.max(0, Math.min(a * 255, r * v + offset)));
+          g = Math.floor(Math.max(0, Math.min(a * 255, g * v + offset)));
+          b = Math.floor(Math.max(0, Math.min(a * 255, b * v + offset)));
+        }
+        data[i] = a ? r / a : 0;
+        data[i + 1] = a ? g / a : 0;
+        data[i + 2] = a ? b / a : 0;
+      }
+    }
+    ctx.putImageData(pixels, 0, 0);
+  }
+}
+
+function pixelBehaviours(ctx: Context, l: Layer, t: number, w: number, h: number) {
+  if (!l.behave?.some((b) => b.glint || b.chroma)) return;
+  const pixels = ctx.getImageData(0, 0, w, h),
+    d = pixels.data;
+  for (const b of l.behave) {
+    if (b.glint) {
+      const p = b.glint,
+        center = ((Math.max(0, t - (p.start ?? 0)) * (p.speed || 1) * 0.3) % 1.5) - 0.25;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4,
+            k = Math.min(
+              1,
+              Math.max(0, 1 - Math.abs(x / w + (y / h) * 0.2 - center) / 0.06) *
+                (p.amplitude || 0.5),
+            );
+          for (let ch = 0; ch < 3; ch++)
+            d[i + ch] = Math.floor(d[i + ch]! + (255 - d[i + ch]!) * k);
+        }
+    }
+    if (b.chroma) {
+      const p = b.chroma,
+        dx = Math.round(
+          (Math.sin((t - (p.start ?? 0)) * Math.max(1, p.speed ?? 0) * 6.28) *
+            (p.amplitude || 3) *
+            w) /
+            1920,
+        ),
+        original = d.slice();
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++)
+          for (const ch of [0, 2]) {
+            const xx = x + (ch === 0 ? dx : -dx),
+              i = (y * w + x) * 4;
+            if (xx >= 0 && xx < w) d[i + ch] = original[(y * w + xx) * 4 + ch]!;
+          }
+    }
+  }
+  ctx.putImageData(pixels, 0, 0);
+}
+
+// Vite reads the authoritative files only in mock mode. Production uses owner routes.
+const documents =
+  import.meta.env.MODE === "mock" || import.meta.env.MODE === "test"
+    ? import.meta.glob<Scene>("../../../../../internal/onair/families/documents/*.json", {
+        eager: true,
+        import: "default",
+      })
+    : {};
+const fontURLs =
+  import.meta.env.MODE === "mock"
+    ? import.meta.glob<string>("../../../../../internal/onair/fonts/data/*.ttf", {
+        eager: true,
+        query: "?url",
+        import: "default",
+      })
+    : {};
+let catalog: Record<string, Scene> = Object.fromEntries(
+  Object.entries(documents).map(([path, doc]) => [
+    path
+      .split("/")
+      .at(-1)!
+      .replace(/\.json$/, ""),
+    doc,
+  ]),
+);
+let defaults: Record<string, SceneBindings> = {};
+let ready: Promise<void> | undefined;
+export function loadOnAirFonts() {
+  return (ready ??= (async () => {
+    if (import.meta.env.MODE !== "mock" && import.meta.env.MODE !== "test") {
+      const response = await fetch("/ether/api/onair/families?documents=1");
+      if (!response.ok) throw new Error(`On Air families: ${response.status}`);
+      const entries = (await response.json()) as {
+        id: string;
+        documents: Record<string, Scene>;
+        bindings: SceneBindings;
+      }[];
+      catalog = {};
+      defaults = {};
+      for (const f of entries) {
+        defaults[f.id] = f.bindings;
+        for (const [m, d] of Object.entries(f.documents)) catalog[`${f.id}-${m}`] = d;
+      }
+    }
+    if (typeof FontFace === "undefined") return;
+    const ids = [
+      "inter",
+      "spacegrotesk",
+      "fraunces",
+      "playfairdisplay",
+      "bungee",
+      "fredoka",
+      "specialelite",
+      "monoton",
+      "orbitron",
+      "vt323",
+      "archivoblack",
+      "ibmplexmono",
+      "notosans",
+    ];
+    await Promise.all(
+      ids.map(async (id) => {
+        const url =
+          Object.entries(fontURLs).find(([path]) => path.endsWith(`/${id}.ttf`))?.[1] ??
+          `/ether/api/onair/fonts/${id}`;
+        const face = new FontFace(`onair-${id}`, `url("${url}")`);
+        await face.load();
+        const fonts =
+          typeof document !== "undefined"
+            ? document.fonts
+            : (globalThis as unknown as { fonts: FontFaceSet }).fonts;
+        fonts.add(face);
+      }),
+    );
+  })());
+}
+export function documentFor(family: string, moment: string) {
+  return catalog[
+    `${family === "lateNight" ? "late-night" : family}-${moment === "offair" && family === "personal" ? "welcome" : moment}`
+  ];
+}
+export function lookBindings(look: Look, bindings: Bindings): SceneBindings {
+  const family = look.family === "lateNight" ? "late-night" : look.family;
+  const tokens: Record<string, unknown> = {
+    ...defaults[family]?.tokens,
+    bg: look.brand.palette.background,
+    accent: look.brand.palette.accent,
+    text: look.brand.palette.text,
+    glow: look.brand.palette.glow,
+    moon: "#ded9c5",
+    fog: look.brand.palette.glow,
+    "type.display": normalizeFont(look.brand.type.display),
+    "type.mono": normalizeFont(look.brand.type.body),
+    energy: look.brand.energy * 2,
+    seed: look.brand.seed,
+    "textures.grain": look.brand.textures.includes("Grain") ? 0.07 : 0,
+    "words.tagline": look.brand.tagline,
+    "words.tonight": "TONIGHT",
+    "words.upNext": "UP NEXT",
+    "words.now": "NOW PLAYING",
+    "words.break": family === "cinema" ? "INTERMISSION" : "Back in a moment",
+    "words.back": "NOW RESUMING",
+    "words.offair": "OFF AIR",
+  };
+  for (const [k, v] of Object.entries(look.brand.words))
+    tokens[`words.${k === "upnext" ? "upNext" : k}`] = v;
+  const slots: Record<string, string> = {
+    ...defaults[family]?.slots,
+    "channel.name": bindings.channel?.name ?? look.name,
+    "viewer.name": bindings.viewer?.name ?? "Alex",
+    "viewer.greeting": bindings.viewer?.greeting ?? bindings.greeting ?? "Good evening",
+    "offair.message": bindings.offair?.message ?? "Programming resumes soon",
+  };
+  function flatten(value: unknown, prefix: string) {
+    if (value === undefined || value === null) return;
+    if (typeof value !== "object") {
+      slots[prefix] = String(value);
+      return;
+    }
+    for (const [key, child] of Object.entries(value))
+      flatten(
+        child,
+        Array.isArray(value) ? `${prefix}[${key}]` : prefix ? `${prefix}.${key}` : key,
+      );
+  }
+  flatten(bindings, "");
+  return { tokens, slots };
+}
+type WorkerState = { id: number; ctx: Context; busy: boolean; failed?: boolean };
+const workers = new WeakMap<object, WorkerState>();
+const consumers = new Map<number, WorkerState>();
+let sharedWorker: Worker | undefined;
+let nextID = 0;
+export function releaseRenderer(ctx: Context) {
+  const state = workers.get(ctx);
+  if (!state) return;
+  consumers.delete(state.id);
+  workers.delete(ctx);
+  if (!consumers.size) {
+    sharedWorker?.terminate();
+    sharedWorker = undefined;
+  }
+}
+function workerFrame(
+  ctx: Context,
+  document: Scene,
+  bindings: SceneBindings,
+  time: number,
+): boolean {
+  if (
+    typeof window === "undefined" ||
+    typeof Worker === "undefined" ||
+    typeof OffscreenCanvas === "undefined"
+  )
+    return false;
+  if (!sharedWorker) {
+    sharedWorker = new Worker(new URL("./scene-worker.ts", import.meta.url), { type: "module" });
+    sharedWorker.onmessage = (
+      event: MessageEvent<{ id: number; bitmap?: ImageBitmap; error?: string }>,
+    ) => {
+      const state = consumers.get(event.data.id),
+        bitmap = event.data.bitmap;
+      if (!state) {
+        bitmap?.close();
+        return;
+      }
+      state.busy = false;
+      if (event.data.error) {
+        state.failed = true;
+        return;
+      }
+      if (bitmap) {
+        const c = state.ctx;
+        c.save();
+        c.resetTransform();
+        c.clearRect(0, 0, c.canvas.width, c.canvas.height);
+        c.drawImage(bitmap, 0, 0);
+        c.restore();
+        bitmap.close();
+      }
+    };
+    sharedWorker.onerror = () => {
+      for (const state of consumers.values()) {
+        state.failed = true;
+        state.busy = false;
+      }
+      sharedWorker?.terminate();
+      sharedWorker = undefined;
+    };
+  }
+  let state = workers.get(ctx);
+  if (!state) {
+    state = { id: ++nextID, ctx, busy: false };
+    workers.set(ctx, state);
+    consumers.set(state.id, state);
+  }
+  if (state.failed) return false;
+  if (!state.busy) {
+    state.busy = true;
+    sharedWorker.postMessage({
+      id: state.id,
+      document,
+      bindings,
+      time,
+      width: ctx.canvas.width,
+      height: ctx.canvas.height,
+    });
+  }
+  return true;
+}
+export function renderLook(
+  ctx: Context,
+  look: Look,
+  moment: Moment,
+  bindings: Bindings = {},
+  t = 3,
+  synchronous = false,
+) {
+  const doc = documentFor(look.family, moment);
+  if (!doc) return;
+  const edit = (layers: Layer[]): Layer[] =>
+    layers.map((l) => {
+      const patch =
+        look.layers?.[l.id] ??
+        look.layers?.[
+          l.id === "brand" || l.id === "title" ? "Title" : l.id === "tag" ? "Tagline" : l.id
+        ];
+      return {
+        ...l,
+        ...(patch
+          ? { ...patch, opacity: patch.hidden ? 0 : (patch.opacity ?? l.opacity), font: l.font }
+          : {}),
+        layers: l.layers ? edit(l.layers) : undefined,
+      } as Layer;
+    });
+  let previewLayers = doc.layers;
+  if (moment === "bug" || moment === "lowerthird") {
+    const illustration = documentFor(look.family, "upnext")?.layers.find((l) =>
+      l.id.endsWith("-illustration"),
+    );
+    if (illustration?.layers) {
+      const sky = illustration.layers[0]!;
+      const programme: Layer = {
+        ...illustration,
+        x: 0,
+        y: 0,
+        scaleX: 1920 / number(sky.w, 1920),
+        scaleY: 1080 / number(sky.h, 1080),
+      };
+      previewLayers = [
+        programme,
+        ...(moment === "lowerthird" ? (documentFor(look.family, "bug")?.layers ?? []) : []),
+        ...doc.layers,
+      ];
+    }
+  }
+  const document = { ...doc, layers: look.layers ? edit(previewLayers) : previewLayers };
+  const bound = lookBindings(look, bindings);
+  if (look.brand.logo) {
+    const logo = look.brand.logo;
+    if ([...logo].length <= 3)
+      document.layers = [
+        ...document.layers,
+        {
+          id: "owner-logo",
+          type: "text",
+          text: logo,
+          x: 95,
+          y: 130,
+          font: normalizeFont(look.brand.type.display),
+          size: 72,
+          fill: look.brand.palette.accent,
+        },
+      ];
+    else {
+      bound.slots["brand.logo"] = logo;
+      document.layers = [
+        ...document.layers,
+        {
+          id: "owner-logo",
+          type: "image",
+          src: "{brand.logo}",
+          x: 95,
+          y: 70,
+          w: 120,
+          h: 120,
+          fit: "contain",
+        },
+      ];
+    }
+  }
+
+  if (synchronous || !workerFrame(ctx, document, bound, t)) renderScene(ctx, document, bound, t);
+}
+
+if (import.meta.hot)
+  import.meta.hot.dispose(() => {
+    sharedWorker?.terminate();
+    sharedWorker = undefined;
+    consumers.clear();
+  });
+
+const artwork = new Map<string, Promise<ImageBitmap | undefined>>();
+// Resource preparation is outside the pure frame evaluator, just as in Go.
+export async function loadSceneAssets(doc: Scene, bindings: SceneBindings): Promise<SceneBindings> {
+  const assets = { ...bindings.assets };
+  const sources = new Set<string>();
+  const visit = (ls: Layer[]) => {
+    for (const l of ls) {
+      if (l.src) {
+        const src = String(evaluate(l.src, bindings, 0) ?? "");
+        if (src && !assets[src] && /^(\/|https?:|data:|blob:)/.test(src)) sources.add(src);
+      }
+      if (l.layers) visit(l.layers);
+    }
+  };
+  visit(doc.layers);
+  await Promise.all(
+    [...sources].map(async (src) => {
+      let pending = artwork.get(src);
+      if (!pending) {
+        pending = (async () => {
+          try {
+            const response = await fetch(src);
+            if (!response.ok) return;
+            return await createImageBitmap(await response.blob());
+          } catch {
+            return;
+          }
+        })();
+        artwork.set(src, pending);
+      }
+      const image = await pending;
+      if (image) assets[src] = image;
+    }),
+  );
+  return { ...bindings, assets };
+}
+
+export function renderDocument(ctx: Context, doc: Scene, bindings: SceneBindings, time: number) {
+  if (!workerFrame(ctx, doc, bindings, time)) renderScene(ctx, doc, bindings, time);
+}

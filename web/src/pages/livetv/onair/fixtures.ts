@@ -120,6 +120,23 @@ export const families: Family[] = ["clean", "kids", "lateNight", "cinema", "retr
       ...(referenceLooks.find((l) => l.family === id) || referenceLooks[1]!),
       id: "",
       family: id,
+      ...(id === "clean"
+        ? {
+            name: "Clean",
+            channelIds: [],
+            brand: {
+              ...referenceLooks[1]!.brand,
+              palette: {
+                background: "#0b1320",
+                accent: "#78b9e8",
+                text: "#f2f5fa",
+                glow: "#17254a",
+              },
+              type: { display: "Inter", body: "Inter" },
+              tagline: "A little more to discover",
+            },
+          }
+        : {}),
     },
   }),
 );

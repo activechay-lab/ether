@@ -4,6 +4,7 @@ import { Field, ChipGroup } from "../../../components/fields";
 import { ColorPicker } from "../../../components/ColorPicker";
 import { t } from "../../../i18n";
 import { referenceLooks } from "./fixtures";
+import { normalizeFont } from "./scene-renderer";
 import { MOMENTS, type Look, type BrandTokens } from "./model";
 export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look) => void }) {
   const b = look.brand;
@@ -135,11 +136,17 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
             >
               <span
                 className="block text-xl"
-                style={{ fontFamily: l.brand.type.display, color: b.palette.accent }}
+                style={{
+                  fontFamily: `onair-${normalizeFont(l.brand.type.display)}`,
+                  color: b.palette.accent,
+                }}
               >
                 Aa
               </span>
-              <span className="block text-xs" style={{ fontFamily: l.brand.type.body }}>
+              <span
+                className="block text-xs"
+                style={{ fontFamily: `onair-${normalizeFont(l.brand.type.body)}` }}
+              >
                 {t("Up next")}
               </span>
               <span className="mt-2 block truncate text-xs text-fg-muted">
