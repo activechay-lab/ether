@@ -1,0 +1,138 @@
+{
+  "v": 1,
+  "moment": "offair",
+  "duration": 8,
+  "poster": 4.8,
+  "slots": [
+    "channel.name",
+    "next.title",
+    "next.meta",
+    "next.logline",
+    "next.time",
+    "next.backdrop",
+    "offair.message"
+  ],
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": "#777777"
+    },
+    {
+      "id": "static",
+      "type": "noise",
+      "w": 1920,
+      "h": 1080,
+      "opacity": 0.65
+    },
+    {
+      "id": "band",
+      "type": "rect",
+      "x": 0,
+      "y": {
+        "keys": [
+          [
+            0,
+            -220
+          ],
+          [
+            8,
+            1300
+          ]
+        ]
+      },
+      "w": 1920,
+      "h": 220,
+      "fill": {
+        "linear": [
+          0,
+          0,
+          0,
+          220
+        ],
+        "stops": [
+          [
+            0,
+            "#000000@0"
+          ],
+          [
+            0.5,
+            "#000000@0.45"
+          ],
+          [
+            1,
+            "#000000@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "panel",
+      "type": "rect",
+      "x": 520,
+      "y": 350,
+      "w": 880,
+      "h": 380,
+      "fill": "#000000@0.9",
+      "stroke": "{text}@0.5",
+      "strokeWidth": 2
+    },
+    {
+      "id": "brand",
+      "type": "text",
+      "text": "{channel.name}",
+      "x": 960,
+      "y": 480,
+      "size": 96,
+      "font": "playfairdisplay",
+      "fill": "{text}",
+      "align": "center",
+      "track": 10,
+      "maxWidth": 820,
+      "fit": "shrink"
+    },
+    {
+      "id": "sleep",
+      "type": "text",
+      "text": "THE CHANNEL SLEEPS.",
+      "x": 960,
+      "y": 570,
+      "size": 40,
+      "font": "specialelite",
+      "fill": "{text}",
+      "align": "center",
+      "track": 6
+    },
+    {
+      "id": "return",
+      "type": "text",
+      "text": "{offair.message}",
+      "x": 960,
+      "y": 650,
+      "size": 32,
+      "font": "specialelite",
+      "fill": "{accent}",
+      "align": "center",
+      "maxWidth": 800,
+      "fit": "shrink"
+    }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": "{textures.grain}"
+    },
+    {
+      "type": "flicker",
+      "amount": 0.09
+    },
+    {
+      "type": "vignette",
+      "amount": 0.8
+    }
+  ]
+}

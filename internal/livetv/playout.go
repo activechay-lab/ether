@@ -34,6 +34,7 @@ type track struct {
 	count      int
 }
 type session struct {
+	broadcast           *broadcastLease
 	inputURL            string // selected upstream, immutable once the tune is ready
 	inputSource         StreamSource
 	inputHeaders        http.Header
@@ -195,6 +196,8 @@ func (ss *session) close(s *Service) {
 	}
 	ss.closed = true
 	ss.generation++
+	broadcast := ss.broadcast
+	ss.broadcast = nil
 	tracks := ss.tracks
 	relay := ss.relay
 	relayCancel := ss.relayCancel
@@ -205,6 +208,9 @@ func (ss *session) close(s *Service) {
 	reserved := ss.reserved
 	ready, requested, delivered := ss.ready, ss.consumed, ss.firstMediaDelivered
 	ss.mu.Unlock()
+	if broadcast != nil {
+		broadcast.close()
+	}
 	s.revokeInput(ss)
 	if relayCancel != nil {
 		relayCancel()

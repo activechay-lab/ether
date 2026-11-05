@@ -1,0 +1,78 @@
+{
+  "v": 1,
+  "moment": "screen.brb",
+  "duration": 4,
+  "poster": 1.5,
+  "slots": [
+    "channel.name",
+    "screen.line1",
+    "screen.line2",
+    "station.id"
+  ],
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": "#101a29"
+    },
+    {
+      "id": "pulse",
+      "type": "ellipse",
+      "x": 850,
+      "y": 230,
+      "w": 220,
+      "h": 220,
+      "fill": "#78b9e8@0.2",
+      "scale": {
+        "keys": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            1.1,
+            "inOut"
+          ],
+          [
+            4,
+            1,
+            "inOut"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "brb",
+      "type": "text",
+      "text": "WE\u2019LL BE RIGHT BACK",
+      "x": 960,
+      "y": 580,
+      "size": 92,
+      "font": "spacegrotesk",
+      "fill": "#f2f5fa",
+      "align": "center",
+      "fit": "shrink",
+      "maxWidth": 1600
+    },
+    {
+      "id": "channel",
+      "type": "text",
+      "text": "{channel.name}",
+      "x": 960,
+      "y": 730,
+      "size": 44,
+      "font": "inter",
+      "fill": "#78b9e8",
+      "align": "center"
+    }
+  ],
+  "audio": {
+    "generator": "bed",
+    "seed": 7
+  }
+}

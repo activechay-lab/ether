@@ -1,0 +1,456 @@
+package livetv
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/transcode"
+)
+
+const broadcastPrewarm = 20 * time.Second
+const broadcastStall = 1500 * time.Millisecond
+const broadcastIdle = 60 * time.Second
+const broadcastDVR = 30 * time.Minute
+
+// broadcastPlan is immutable. Open performs blocking resolution away from the
+// frame clock. Its release closes the playback/provider reservation exactly once.
+type broadcastPlan struct {
+	id         string
+	start, end time.Time
+	open       func(context.Context) (transcode.Decoder, func(), error)
+	failed     func(error) time.Time
+	ring       *frameRing
+}
+type broadcastPlanner interface {
+	plans(time.Time) (broadcastPlan, *broadcastPlan)
+}
+type broadcastRendition struct {
+	height  int
+	id      string
+	encoder transcode.ContinuousEncoder
+	queue   chan transcode.RawFrame
+	cancel  context.CancelFunc
+	viewers int
+}
+type broadcastInput struct {
+	started                 time.Time
+	plan                    broadcastPlan
+	decoder                 transcode.Decoder
+	release                 func()
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	frames                  chan transcode.RawFrame
+	errs                    chan error
+	activate                chan struct{}
+	activateOnce, closeOnce sync.Once
+}
+
+func (i *broadcastInput) close() {
+	if i == nil {
+		return
+	}
+	i.closeOnce.Do(func() {
+		i.cancel()
+		i.decoder.Close()
+		if i.release != nil {
+			i.release()
+		}
+	})
+}
+func (i *broadcastInput) run() {
+	defer close(i.frames)
+	for {
+		frame, err := i.decoder.Next(i.ctx)
+		if err != nil {
+			select {
+			case i.errs <- err:
+			default:
+			}
+			return
+		}
+		select {
+		case i.frames <- frame:
+		case <-i.ctx.Done():
+			return
+		}
+		select {
+		case <-i.activate:
+		case <-i.ctx.Done():
+			return
+		}
+	}
+}
+func (i *broadcastInput) activateNow() {
+	if i != nil {
+		i.activateOnce.Do(func() { close(i.activate) })
+	}
+}
+
+type broadcastPrepared struct {
+	input *broadcastInput
+	err   error
+	plan  broadcastPlan
+}
+type broadcast struct {
+	dvr           time.Duration
+	black         []byte
+	viewers       int
+	startMu       sync.Mutex
+	ctx           context.Context
+	cancel        context.CancelFunc
+	format        transcode.RawFormat
+	planner       broadcastPlanner
+	runner        transcode.ContinuousRunner
+	origin        time.Time
+	mu            sync.Mutex
+	renditions    map[string]*broadcastRendition
+	lastViewer    time.Time
+	closed        bool
+	wg            sync.WaitGroup
+	prepared      chan broadcastPrepared
+	current, next *broadcastInput
+	opening       map[string]bool
+	retry         map[string]time.Time
+	lastFrame     transcode.RawFrame
+	freshAt       time.Time
+	fade          pcmFade
+	screen        *frameRing
+	mode          string
+	tick          int64
+}
+
+func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planner broadcastPlanner, format transcode.RawFormat, screen *frameRing) (*broadcast, error) {
+	if err := validateRawFormat(format); err != nil {
+		return nil, err
+	}
+	if runner == nil || planner == nil {
+		return nil, fmt.Errorf("broadcast requires runners and a planner")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), screen: screen, lastViewer: time.Now()}
+	return b, nil
+}
+func (b *broadcast) start() { b.wg.Add(1); go func() { defer b.wg.Done(); b.run() }() }
+func (b *broadcast) close() {
+	b.startMu.Lock()
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		b.startMu.Unlock()
+		b.wg.Wait()
+		return
+	}
+	b.closed = true
+	b.cancel()
+	b.mu.Unlock()
+	b.startMu.Unlock()
+	b.wg.Wait()
+}
+func (b *broadcast) addRendition(ctx context.Context, id string, decision core.Decision) (transcode.SegmentIndex, error) {
+	b.startMu.Lock()
+	defer b.startMu.Unlock()
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return nil, core.ErrNotFound
+	}
+	if r := b.renditions[id]; r != nil {
+		r.viewers++
+		b.viewers++
+		b.lastViewer = time.Now()
+		b.mu.Unlock()
+		return r.encoder.Segments(), nil
+	}
+	b.mu.Unlock()
+	lifetime, cancel := context.WithCancel(b.ctx)
+	stop := context.AfterFunc(ctx, cancel)
+	encoder, err := b.runner.StartEncoder(lifetime, transcode.EncoderRequest{SessionID: id, Source: b.format, Decision: decision, SegmentDuration: 4 * time.Second, DVRWindow: b.dvr})
+	stop()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	if ctx.Err() != nil || b.ctx.Err() != nil {
+		cancel()
+		encoder.Close()
+		return nil, context.Canceled
+	}
+	r := &broadcastRendition{height: decision.MaxHeight, id: id, encoder: encoder, queue: make(chan transcode.RawFrame, 2), cancel: cancel, viewers: 1}
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		cancel()
+		encoder.Close()
+		return nil, core.ErrNotFound
+	}
+	b.renditions[id] = r
+	b.viewers++
+	b.lastViewer = time.Now()
+	b.wg.Add(1)
+	b.mu.Unlock()
+	go func() {
+		defer b.wg.Done()
+		defer encoder.Close()
+		for {
+			select {
+			case <-lifetime.Done():
+				return
+			case frame := <-r.queue:
+				if err := encoder.Write(lifetime, frame); err != nil {
+					b.dropRendition(id, r)
+					return
+				}
+			}
+		}
+	}()
+	return encoder.Segments(), nil
+}
+func (b *broadcast) dropRendition(id string, r *broadcastRendition) {
+	b.mu.Lock()
+	if b.renditions[id] == r {
+		delete(b.renditions, id)
+		r.cancel()
+		b.lastViewer = time.Now()
+	}
+	b.mu.Unlock()
+}
+func (b *broadcast) releaseRendition(id string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.viewers > 0 {
+		b.viewers--
+	}
+	b.lastViewer = time.Now()
+	if r := b.renditions[id]; r != nil {
+		r.viewers--
+		b.lastViewer = time.Now()
+		if r.viewers <= 0 && len(b.renditions) > 1 {
+			delete(b.renditions, id)
+			r.cancel()
+		}
+	}
+}
+func (b *broadcast) idle(now time.Time) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.viewers == 0 && now.Sub(b.lastViewer) >= broadcastIdle
+}
+func (b *broadcast) open(plan broadcastPlan, now time.Time) {
+	if plan.id == "" || plan.open == nil || b.opening[plan.id] || now.Before(b.retry[plan.id]) {
+		return
+	}
+	b.opening[plan.id] = true
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		d, release, err := plan.open(b.ctx)
+		result := broadcastPrepared{plan: plan, err: err}
+		defer func() {
+			if b.ctx.Err() != nil && result.input != nil {
+				result.input.close()
+			}
+		}()
+		if err == nil {
+			if d == nil {
+				err = fmt.Errorf("decoder opener returned no decoder")
+				result.err = err
+			} else {
+				result.input = newBroadcastInput(b.ctx, plan, d, release)
+			}
+		}
+		if err != nil {
+			if d != nil {
+				d.Close()
+			}
+			if release != nil {
+				release()
+			}
+		}
+		select {
+		case b.prepared <- result:
+		case <-b.ctx.Done():
+			if result.input != nil {
+				result.input.close()
+			}
+		}
+	}()
+}
+func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcastPlan) {
+	for {
+		select {
+		case result := <-b.prepared:
+			delete(b.opening, result.plan.id)
+			if result.err != nil {
+				b.noteFailure(result.plan, result.err, now)
+				continue
+			}
+			input := result.input
+			if result.plan.id == current.id {
+				b.current.close()
+				b.current = input
+				input.started = now
+				input.activateNow()
+			} else if next != nil && result.plan.id == next.id {
+				b.next.close()
+				b.next = input
+			} else {
+				input.close()
+				continue
+			}
+			b.wg.Add(1)
+			go func() { defer b.wg.Done(); input.run() }()
+		default:
+			return
+		}
+	}
+}
+func (b *broadcast) noteFailure(p broadcastPlan, err error, now time.Time) {
+	retry := now.Add(15 * time.Second)
+	if p.failed != nil {
+		retry = p.failed(err)
+	}
+	b.retry[p.id] = retry
+}
+func (b *broadcast) run() {
+	defer func() {
+		b.cancel()
+		b.mu.Lock()
+		b.closed = true
+		b.mu.Unlock()
+		b.current.close()
+		b.next.close()
+		b.mu.Lock()
+		for _, r := range b.renditions {
+			r.cancel()
+		}
+		b.mu.Unlock()
+		for {
+			select {
+			case result := <-b.prepared:
+				if result.input != nil {
+					result.input.close()
+				}
+			default:
+				return
+			}
+		}
+	}()
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for {
+		select {
+		case <-b.ctx.Done():
+			return
+		case <-timer.C:
+		}
+		now := time.Now()
+		if b.idle(now) {
+			return
+		}
+		b.step(now)
+		b.tick++
+		next := b.origin.Add(time.Duration(b.tick) * time.Second * time.Duration(b.format.FPSDen) / time.Duration(b.format.FPSNum))
+		delay := time.Until(next)
+		if delay < 0 {
+			delay = 0
+		}
+		timer.Reset(delay)
+	}
+}
+func (b *broadcast) step(now time.Time) {
+	previousPCM := b.lastFrame.PCM
+	current, next := b.planner.plans(now)
+	b.accept(now, current, next)
+	if b.current != nil && b.current.plan.id != current.id {
+		b.current.close()
+		b.current = nil
+		b.freshAt = time.Time{}
+	}
+	if b.next != nil && b.next.plan.id == current.id {
+		b.current = b.next
+		b.next = nil
+		b.current.started = now
+		b.current.activateNow()
+	}
+	if b.next != nil && (next == nil || b.next.plan.id != next.id) {
+		b.next.close()
+		b.next = nil
+	}
+	if b.current == nil && current.ring == nil {
+		b.open(current, now)
+	}
+	if next != nil && next.start.Sub(now) <= broadcastPrewarm && b.next == nil && next.ring == nil {
+		b.open(*next, now)
+	}
+	samples := tickSamples(b.format, b.tick)
+	frame := transcode.RawFrame{}
+	mode := "screen"
+	if current.ring != nil {
+		frame = current.ring.next(samples, b.format.Channels)
+		mode = current.id
+	} else if b.current != nil {
+		select {
+		case f, ok := <-b.current.frames:
+			if ok && validRawFrame(b.format, f) {
+				frame = f
+				b.freshAt = now
+				mode = current.id
+			}
+		default:
+		}
+		if frame.Video == nil {
+			select {
+			case err := <-b.current.errs:
+				b.noteFailure(current, err, now)
+				b.current.close()
+				b.current = nil
+			default:
+			}
+		}
+	}
+	if frame.Video == nil && b.current != nil && now.Sub(b.current.started) >= broadcastStall && (b.freshAt.IsZero() || now.Sub(b.freshAt) >= broadcastStall) {
+		b.noteFailure(current, fmt.Errorf("decoder stalled"), now)
+		b.current.close()
+		b.current = nil
+	}
+	if frame.Video == nil && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
+		frame = b.lastFrame
+		mode = "hold"
+	}
+	if frame.Video == nil {
+		if b.screen != nil {
+			frame = b.screen.next(samples, b.format.Channels)
+		} else {
+			frame = transcode.RawFrame{Video: b.black}
+		}
+	}
+	// PCM follows the output tick, including fractional frame rates. Never let a
+	// malformed decoder chunk shift every subsequent audio timestamp.
+	pcm := make([]byte, samples*b.format.Channels*2)
+	copy(pcm, frame.PCM)
+	frame.PCM = pcm
+	if mode != b.mode {
+		b.fade.start(previousPCM, b.format)
+		b.mode = mode
+	}
+	b.fade.apply(frame.PCM, b.format.Channels)
+	b.lastFrame = frame
+	b.mu.Lock()
+	for id, r := range b.renditions {
+		select {
+		case r.queue <- frame:
+		default:
+			delete(b.renditions, id)
+			r.cancel()
+		}
+	}
+	b.mu.Unlock()
+}
+
+func newBroadcastInput(parent context.Context, plan broadcastPlan, d transcode.Decoder, release func()) *broadcastInput {
+	ctx, cancel := context.WithCancel(parent)
+	return &broadcastInput{ctx: ctx, cancel: cancel, decoder: d, release: release, plan: plan, frames: make(chan transcode.RawFrame, 1), errs: make(chan error, 1), activate: make(chan struct{})}
+}
