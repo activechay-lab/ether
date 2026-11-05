@@ -208,6 +208,10 @@ func TestContinuousSegmentIndex(t *testing.T) {
 	start := time.Unix(1000, 0)
 	index.setStart(start)
 	for n := int64(0); n < 6; n++ {
+		first, count := continuousSegmentFrames(e.req.Source, n)
+		for tick := first; tick < first+count; tick++ {
+			index.recordPolicy(tick, []any{"programme", n})
+		}
 		for _, path := range []string{index.ts(n), index.mp4(n)} {
 			if err := os.WriteFile(path, []byte("finished"), 0600); err != nil {
 				t.Fatal(err)
@@ -220,6 +224,9 @@ func TestContinuousSegmentIndex(t *testing.T) {
 		t.Fatal(segments)
 	}
 	for _, seg := range segments {
+		if len(seg.PolicyTags) != 2 || seg.PolicyTags[0] != "programme" || seg.PolicyTags[1] != seg.Seq {
+			t.Fatalf("lost policy: %+v", seg)
+		}
 		if seg.Duration != 4004*time.Millisecond || !seg.Start.Equal(start.Add(time.Duration(seg.Seq-2)*4004*time.Millisecond)) {
 			t.Fatal(seg)
 		}

@@ -12,13 +12,14 @@ import (
 // Beyond that watermark, repeat a picture while preserving every audio tick.
 // Additional backlog costs only PCM, rather than full uncompressed pictures.
 type broadcastFrameQueue struct {
-	mu        sync.Mutex
-	frames    []transcode.RawFrame
-	head      int
-	fps       int
-	repeating bool
-	held      []byte
-	ready     chan struct{}
+	mu         sync.Mutex
+	frames     []transcode.RawFrame
+	head       int
+	fps        int
+	repeating  bool
+	held       []byte
+	heldPolicy []any
+	ready      chan struct{}
 }
 
 func newBroadcastFrameQueue(fps int) *broadcastFrameQueue {
@@ -37,8 +38,10 @@ func (q *broadcastFrameQueue) push(frame transcode.RawFrame) (changed, repeating
 	if q.repeating && q.held != nil {
 		frame.Video = q.held
 		frame.RepeatVideo = true
+		frame.PolicyTags = mergeBroadcastTags(frame.PolicyTags, q.heldPolicy)
 	} else {
 		q.held = frame.Video
+		q.heldPolicy = frame.PolicyTags
 	}
 	q.frames = append(q.frames, frame)
 	changed, repeating = was != q.repeating, q.repeating
@@ -79,4 +82,21 @@ func (q *broadcastFrameQueue) pop(ctx context.Context) (transcode.RawFrame, bool
 		case <-q.ready:
 		}
 	}
+}
+
+func mergeBroadcastTags(a, b []any) []any {
+	out := append([]any(nil), a...)
+	for _, tag := range b {
+		found := false
+		for _, old := range out {
+			if old == tag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, tag)
+		}
+	}
+	return out
 }

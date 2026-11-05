@@ -722,10 +722,8 @@ export function loadOnAirFonts() {
       "bungee",
       "fredoka",
       "specialelite",
-      "monoton",
       "orbitron",
       "vt323",
-      "archivoblack",
       "ibmplexmono",
       "notosans",
     ];

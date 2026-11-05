@@ -50,36 +50,24 @@ func (s *Service) broadcastWindow(ctx context.Context, ss *session, r *http.Requ
 		end = end.Add(-time.Duration(seconds * float64(time.Second)))
 		from = end.Add(-24 * time.Second)
 	}
+	ss.mu.Lock()
+	user := ss.user
+	ss.mu.Unlock()
+	ctx, err = s.broadcastPolicyContext(ctx, ss, &user)
+	if err != nil {
+		return nil, nil, err
+	}
 	segments := index.Window(from, end)
 	if len(segments) == 0 {
 		return nil, nil, core.ErrNotAvailable
 	}
-	last := segments[len(segments)-1]
-	if !s.broadcastIntervalAllowed(ctx, ss, segments[0].Start, last.Start.Add(last.Duration)) {
-		return nil, nil, core.ErrUnauthorized
-	}
-	return index, segments, nil
-}
-func (s *Service) broadcastSegmentAllowed(ctx context.Context, ss *session, seg transcode.Segment) bool {
-	return s.broadcastIntervalAllowed(ctx, ss, seg.Start, seg.Start.Add(seg.Duration))
-}
-func (s *Service) broadcastIntervalAllowed(ctx context.Context, ss *session, from, until time.Time) bool {
-	ss.mu.Lock()
-	c, user := ss.info.Channel, ss.user
-	ss.mu.Unlock()
-	ps, err := s.programmes(ctx, c, from, until)
-	if err != nil {
-		return false
-	}
-	if len(ps) == 0 {
-		return s.allowed(ctx, &user, c, nil)
-	}
-	for _, p := range ps {
-		if !s.allowed(ctx, &user, c, &p) {
-			return false
+
+	for _, seg := range segments {
+		if !s.broadcastSegmentAllowed(ctx, ss, seg) {
+			return nil, nil, core.ErrUnauthorized
 		}
 	}
-	return true
+	return index, segments, nil
 }
 func (s *Service) serveBroadcastPlaylist(w http.ResponseWriter, r *http.Request, ss *session) {
 	index, segments, err := s.broadcastWindow(r.Context(), ss, r)
