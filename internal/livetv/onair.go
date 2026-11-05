@@ -25,7 +25,25 @@ func interstitial(it Item) bool {
 func (c Channel) moments(at time.Time) []Item { return c.momentsWithin(at, 0) }
 func (c Channel) momentsWithin(at time.Time, budget time.Duration) []Item {
 	if c.Look != nil && c.Look.BreakPattern != nil {
-		return c.podItems(at, budget)
+		look := *c.Look
+		look.BreakPattern = nil
+		look.Breaks = ""
+		creative := c
+		creative.Look = &look
+		extras := creative.momentsWithin(at, budget)
+		var reserved time.Duration
+		for _, it := range extras {
+			reserved += time.Duration(it.DurationMS) * time.Millisecond
+		}
+		available := budget
+		if budget > 0 {
+			available -= reserved
+			if available <= 0 {
+				return extras
+			}
+		}
+		pods := c.podItems(at, available)
+		return append(pods, extras...)
 	}
 	if c.Look == nil || c.clipDuration == nil {
 		return nil
@@ -49,9 +67,13 @@ func (c Channel) momentsWithin(at time.Time, budget time.Duration) []Item {
 	}
 	if c.Look.UpNext {
 		kinds = append(kinds, "upnext")
-		if at.In(zoneOf(c.Timezone)).Hour() >= 18 {
-			kinds = append(kinds, "tonight")
-		}
+	}
+	tonight := c.Look.UpNext
+	if c.Look.Tonight != nil {
+		tonight = *c.Look.Tonight
+	}
+	if tonight && at.In(zoneOf(c.Timezone)).Hour() >= 18 {
+		kinds = append(kinds, "tonight")
 	}
 	var base []Item
 	var reserved time.Duration
@@ -111,10 +133,18 @@ func (c Channel) momentsWithin(at time.Time, budget time.Duration) []Item {
 // guideSchedule preserves the original gap guide, including filler and off-air
 // rows. Insert placement folds clip spans into the preceding programme.
 func guideSchedule(c Channel, from, until time.Time) []Programme {
-	if c.Look == nil || c.clipDuration == nil {
+	inserted := func(l *ChannelLook) bool { return l != nil && (l.Placement == "insert" || l.BreakPattern != nil) }
+	hasInsert := inserted(c.Look)
+	for _, b := range c.Blocks {
+		hasInsert = hasInsert || inserted(b.Breaks)
+	}
+	for _, p := range c.Pins {
+		hasInsert = hasInsert || inserted(p.Breaks)
+	}
+	if c.clipDuration == nil || (c.Look == nil && !hasInsert) {
 		return Schedule(c, from, until)
 	}
-	if c.Look.Placement != "insert" && c.Look.BreakPattern == nil {
+	if !hasInsert {
 		if len(c.Clock) > 0 {
 			// Suppress look interstitials while retaining the clock's channel policy.
 			look := *c.Look
@@ -136,7 +166,7 @@ func guideSchedule(c Channel, from, until time.Time) []Programme {
 			}
 			continue
 		}
-		if c.Look.BreakPattern != nil && len(out) > 0 && p.Item.Key != 0 && out[len(out)-1].Item.Key == p.Item.Key && p.sourceOffset > 0 {
+		if len(out) > 0 && p.Item.Key != 0 && out[len(out)-1].Item.Key == p.Item.Key && p.sourceOffset > 0 {
 			out[len(out)-1].End = p.End
 			continue
 		}
@@ -214,6 +244,19 @@ func (s *Service) graphicsChannel(c Channel) Channel {
 		if meta, ok := s.o.Graphics.(core.ChannelSegmentMetadata); ok {
 			c.segmentInfo = meta.SegmentInfo
 		}
+		c.programmingReels = map[string]*ReelSnapshot{}
+		s.mu.Lock()
+		for _, b := range c.Blocks {
+			if b.Breaks != nil {
+				c.programmingReels[b.Breaks.ReelID] = s.reelSnapshots[b.Breaks.ReelID]
+			}
+		}
+		for _, p := range c.Pins {
+			if p.Breaks != nil {
+				c.programmingReels[p.Breaks.ReelID] = s.reelSnapshots[p.Breaks.ReelID]
+			}
+		}
+		s.mu.Unlock()
 		if c.Look != nil && c.Look.BreakContent == "reel" {
 			s.mu.Lock()
 			c.reel = s.reelSnapshots[c.Look.ReelID]

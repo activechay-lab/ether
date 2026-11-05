@@ -1151,3 +1151,47 @@ Console integration components: `BreakPatternEditor` in channel Look › Breaks,
 inspector's selected moment (props `look`, `moment`, `onChange`). All changes use
 the owning drawer/page save bar except import actions, which queue immediately
 like uploads.
+
+### Appendix A addendum: channel programming (W22)
+
+`Channel.blocks` is the weekly daypart calendar. Blocks add `id`, `preset`
+(`morning`, `daytime`, `prime`, `late`, `overnight`, `custom`) and optional
+`breaks` (a `ChannelLook` override). Saved start/end minutes are authoritative;
+presets supply editable defaults. All days use the channel timezone, Sunday=0.
+
+`ProgramSource` adds `id`, `kind` (`items`, `show`, `movies`, `collection`,
+`filter`, `personal`, `plugin`, `mix`), `showKey`, `startSeason`, `startEpisode`,
+`order` (`order`, `shuffle`), `strip`, `segmentId`, `personal` (PersonalRecipe),
+and recursive `sources`. `items` is the saved expanded snapshot. Sources retain
+their own episode ordering; channel-level marathon/shuffle cannot override it.
+Weights apply across every source kind, independent of pool size. A strip
+continues episodes on eligible days from the channel epoch, skipping other days.
+
+`Channel.pins` contains `{id,name,start,end,days,date?,sources,items,mode,
+repeatDays,breaks?}`. A `date` in `YYYY-MM-DD` creates a special; absent dates
+create recurring appointments. Specials outrank recurring pins, which outrank
+blocks. A pin can preempt an overrunning programme. `fit` is `cut`, `pad` (fill
+the remainder instead of starting an item that cannot fit), or `shift` (finish
+the programme and move subsequent programming, until a pin or midnight).
+
+Channel breaks and creative scheduling remain in `Channel.look`, exposed in
+Programming. `breakPlacement` adds `natural`, `even`, `between`; `tonight` is an
+optional boolean (absent retains existing evening-promo behavior). Each block
+or pin can supply its own complete `breaks` override. `Item.breakPoints` adds
+`{atMs,source,confidence?}` alongside `breakPointsMs`. Natural placement consumes
+saved chapter/detection offsets; evenly spaced placement calculates media offsets.
+
+The `livetv/11` store migration preserves existing resolved `items`, seed,
+epoch, playout rules and times, assigns stable block IDs, and freezes old source
+queries into their already-saved item snapshot. New source declarations use
+individual materialized snapshots. There is one calendar scheduler.
+
+`GET /livetv/channels/{id}/timeline?from=<unixMs>&to=<unixMs>&viewer=<id?>`
+reads W19's background playback snapshot, never expands a schedule on request.
+Cold/stale snapshots return 503 and `Retry-After: 2`; ranges are at most 8 days.
+`elements` cover the range without overlap, including off-air gaps. Pod parents
+contain `children` with absolute times and the same element schema. Programme
+provenance is `blockId`, `sourceId`, `pinned`, `rule`; those fields are additive
+and do not change Plex programme identity. The client timeline uses the playback
+view so individual pod spots remain inspectable; the public guide folds pods
+into programme slots.

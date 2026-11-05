@@ -15,7 +15,15 @@ import (
 
 const Provider = "tv.plex.providers.epg.xmltv:1"
 
+type BreakPoint struct {
+	AtMS       int64   `json:"atMs"`
+	Source     string  `json:"source"`
+	Confidence float64 `json:"confidence,omitempty"`
+}
+
 type Item struct {
+	SourceID      string         `json:"sourceId,omitempty"`
+	BreakPoints   []BreakPoint   `json:"breakPoints,omitempty"`
 	BreakPointsMS []int64        `json:"breakPointsMs,omitempty"`
 	ReelID        string         `json:"reelId,omitempty"`
 	ReelClipID    string         `json:"reelClipId,omitempty"`
@@ -49,14 +57,27 @@ type Item struct {
 // ProgramSource is one weighted part of a mix. Weight 0 means 1.
 // Watched is "", "watched" or "unwatched" for the whole household.
 type ProgramSource struct {
-	Name       string         `json:"name,omitempty"`
-	Weight     int            `json:"weight,omitempty"`
-	Items      []Item         `json:"items,omitempty"`
-	Collection core.RatingKey `json:"collection,omitempty"`
-	Filter     *core.Filter   `json:"filter,omitempty"`
-	Watched    string         `json:"watched,omitempty"`
+	ID           string          `json:"id,omitempty"`
+	Kind         string          `json:"kind,omitempty"`
+	ShowKey      core.RatingKey  `json:"showKey,omitempty"`
+	StartSeason  int             `json:"startSeason,omitempty"`
+	StartEpisode int             `json:"startEpisode,omitempty"`
+	Order        string          `json:"order,omitempty"`
+	Strip        bool            `json:"strip,omitempty"`
+	SegmentID    string          `json:"segmentId,omitempty"`
+	Personal     *PersonalRecipe `json:"personal,omitempty"`
+	Sources      []ProgramSource `json:"sources,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	Weight       int             `json:"weight,omitempty"`
+	Items        []Item          `json:"items,omitempty"`
+	Collection   core.RatingKey  `json:"collection,omitempty"`
+	Filter       *core.Filter    `json:"filter,omitempty"`
+	Watched      string          `json:"watched,omitempty"`
 }
 type Block struct {
+	ID     string       `json:"id,omitempty"`
+	Preset string       `json:"preset,omitempty"`
+	Breaks *ChannelLook `json:"breaks,omitempty"`
 	// Start and End are minutes after midnight in Timezone, or UTC when
 	// the channel has no timezone. End may be 1440. Days empty means every
 	// day, which is how channels saved before the weekly grid behave.
@@ -81,6 +102,8 @@ type Block struct {
 	Watched     string          `json:"watched,omitempty"`
 }
 type ChannelLook struct {
+	BreakPlacement       string            `json:"breakPlacement,omitempty"`
+	Tonight              *bool             `json:"tonight,omitempty"`
 	Bug                  *core.BugSettings `json:"bug,omitempty"`
 	BreakPattern         *BreakPattern     `json:"breakPattern,omitempty"`
 	LookID               string            `json:"lookId"`
@@ -114,15 +137,35 @@ type ClockSlot struct {
 	Until        int    `json:"until"`
 	Days         []int  `json:"days"`
 }
+type PinnedSlot struct {
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	Start      int             `json:"start"`
+	End        int             `json:"end"`
+	Days       []int           `json:"days,omitempty"`
+	Date       string          `json:"date,omitempty"`
+	Sources    []ProgramSource `json:"sources,omitempty"`
+	Items      []Item          `json:"items,omitempty"`
+	Mode       string          `json:"mode,omitempty"`
+	RepeatDays int             `json:"repeatDays,omitempty"`
+	Breaks     *ChannelLook    `json:"breaks,omitempty"`
+}
+
 type Channel struct {
-	Clock          []ClockSlot `json:"clock,omitempty"`
-	segmentInfo    func(string) (string, string, bool)
-	reel           *ReelSnapshot
-	momentHistory  *momentHistory
-	DVRMinutes     int             `json:"dvrMinutes,omitempty"`
-	Personal       *PersonalRecipe `json:"personal,omitempty"`
-	personalViewer *core.User
-	Screens        *ChannelScreens `json:"screens,omitempty"`
+	Pins                 []PinnedSlot `json:"pins,omitempty"`
+	programmingNotBefore time.Time
+	programmingReels     map[string]*ReelSnapshot
+	programmingBlockID   string
+	programmingRule      string
+	programmingPinned    bool
+	Clock                []ClockSlot `json:"clock,omitempty"`
+	segmentInfo          func(string) (string, string, bool)
+	reel                 *ReelSnapshot
+	momentHistory        *momentHistory
+	DVRMinutes           int             `json:"dvrMinutes,omitempty"`
+	Personal             *PersonalRecipe `json:"personal,omitempty"`
+	personalViewer       *core.User
+	Screens              *ChannelScreens `json:"screens,omitempty"`
 
 	Look *ChannelLook `json:"look,omitempty"`
 	// clipDuration is supplied on a channel copy; scheduling performs no I/O.
@@ -279,6 +322,10 @@ type SourceGroup struct {
 	Excluded bool `json:"excluded,omitempty"`
 }
 type Programme struct {
+	BlockID         string `json:"blockId,omitempty"`
+	SourceID        string `json:"sourceId,omitempty"`
+	Pinned          bool   `json:"pinned,omitempty"`
+	Rule            string `json:"rule,omitempty"`
 	policyTag       *broadcastPolicyTag
 	sourceOffset    time.Duration
 	graphicsRequest *core.ClipRequest

@@ -236,12 +236,28 @@ func (s *Service) buildPersonal(ctx context.Context, c Channel, u *core.User) er
 	if err != nil {
 		return err
 	}
-	result, err := s.o.DB.ExecContext(ctx, `INSERT INTO livetv_personal(viewer_id,channel_id,day,rundown,cursor_ms,built_at) VALUES(?,?,?,?,?,?) ON CONFLICT(viewer_id,channel_id,day) DO UPDATE SET rundown=excluded.rundown,built_at=excluded.built_at WHERE livetv_personal.built_at=?`, u.ID, c.ID, time.UnixMilli(cursor).In(zoneOf(c.Timezone)).Format("2006-01-02"), b, cursor, now.UnixMilli(), old.built.UnixMilli())
+	tx, err := s.o.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	day := time.UnixMilli(cursor).In(zoneOf(c.Timezone)).Format("2006-01-02")
+	result, err := tx.ExecContext(ctx, `INSERT INTO livetv_personal(viewer_id,channel_id,day,rundown,cursor_ms,built_at) VALUES(?,?,?,?,?,?) ON CONFLICT(viewer_id,channel_id,day) DO UPDATE SET rundown=excluded.rundown,built_at=excluded.built_at WHERE livetv_personal.built_at=?`, u.ID, c.ID, time.UnixMilli(cursor).In(zoneOf(c.Timezone)).Format("2006-01-02"), b, cursor, now.UnixMilli(), old.built.UnixMilli())
 	if err == nil {
 		if n, _ := result.RowsAffected(); n == 0 {
 			return nil
 		}
 	}
+	if err != nil {
+		return err
+	}
+	if err = s.indexPersonal(ctx, tx, u.ID, c.ID, day, ps); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+
 	if err == nil {
 		s.personalMu.Lock()
 		if s.personalLineup == nil {
@@ -269,7 +285,9 @@ func (s *Service) personalProgrammes(ctx context.Context, c Channel, u *core.Use
 	if u == nil || u.ID <= 0 || s.o.Picker == nil {
 		return out, nil
 	}
-	r, err := s.readPersonal(ctx, personalKey{u.ID, c.ID})
+	var cursorMS int64
+	var day string
+	err := s.o.DB.QueryRowContext(ctx, `SELECT day,cursor_ms FROM livetv_personal WHERE viewer_id=? AND channel_id=? ORDER BY built_at DESC LIMIT 1`, u.ID, c.ID).Scan(&day, &cursorMS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, nil
 	}
@@ -286,17 +304,37 @@ func (s *Service) personalProgrammes(ctx context.Context, c Channel, u *core.Use
 			now = clock.welcomeUntil
 		}
 		s.personalMu.Unlock()
-		cursor := s.personalCursor(k, r.cursor, now)
+		cursor := s.personalCursor(k, cursorMS, now)
 		shift = time.Duration(now.UnixMilli()-cursor) * time.Millisecond
 	}
-	for _, p := range r.programmes {
+
+	// Seek the latest start at/before the requested window, then scan only
+	// overlapping/future rows. The primary key bounds work by returned output.
+	rows, err := s.o.DB.QueryContext(ctx, `SELECT data FROM livetv_personal_programmes WHERE viewer_id=? AND channel_id=? AND day=? AND start_ms>=COALESCE((SELECT MAX(start_ms) FROM livetv_personal_programmes WHERE viewer_id=? AND channel_id=? AND day=? AND start_ms<=?),?) AND start_ms<? AND end_ms>? ORDER BY start_ms`, u.ID, c.ID, day, u.ID, c.ID, day, from.Add(-shift).UnixMilli(), from.Add(-shift).UnixMilli(), until.Add(-shift).UnixMilli(), from.Add(-shift).UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b []byte
+		var record personalProgrammeRecord
+		if err = rows.Scan(&b); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(b, &record); err != nil {
+			return nil, err
+		}
+		p := record.Programme
+		p.policyTag = &broadcastPolicyTag{programme: p, title: record.Title, catalog: record.Catalog}
 		p.Start = p.Start.Add(shift)
 		p.End = p.End.Add(shift)
 		p.ID = fmt.Sprintf("%s-%d", c.ID, p.Start.UnixMilli())
-		if p.End.After(from) && p.Start.Before(until) {
-			out = append(out, p)
-		}
+		out = append(out, p)
 	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return out, nil
 }
 
@@ -410,7 +448,7 @@ func (s *Service) beginPersonal(c Channel, u *core.User) {
 	}
 	k := personalKey{u.ID, c.ID}
 	now := s.o.Now()
-	r, err := s.readPersonal(s.ctx, k)
+	r, err := s.readPersonalClock(s.ctx, k)
 	if err != nil {
 		return
 	}

@@ -155,7 +155,25 @@ func emitProgrammeWithPods(out *[]Programme, c Channel, item Item, start, finish
 	cursor := start
 	offset := time.Duration(0)
 	if c.Look != nil && c.Look.BreakPattern != nil && c.Look.BreakPattern.Inside {
-		for _, ms := range item.BreakPointsMS {
+		points := append([]int64(nil), item.BreakPointsMS...)
+		if len(item.BreakPoints) > 0 {
+			points = nil
+			for _, p := range item.BreakPoints {
+				points = append(points, p.AtMS)
+			}
+		}
+		if c.Look.BreakPlacement == "between" {
+			points = nil
+		}
+		if c.Look.BreakPlacement == "even" {
+			points = nil
+			spacing := int64(30 * 60 * 1000 / c.Look.BreakPattern.PodsPerHalfHour)
+			for at := spacing; at < item.DurationMS; at += spacing {
+				points = append(points, at)
+			}
+		}
+		sort.Slice(points, func(i, j int) bool { return points[i] < points[j] })
+		for _, ms := range points {
 			point := time.Duration(ms) * time.Millisecond
 			if point <= offset || point >= finish.Sub(start) {
 				continue
