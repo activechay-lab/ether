@@ -12,7 +12,7 @@ import (
 )
 
 // consoleCursorPage never visits the preceding pages: resolve one boundary row
-// by primary key, seek each media type's ordered index, merge at most 2*limit
+// by primary key, seek each media type's ordered index, merge at most 2*(sorts+1)*limit
 // narrow rows, then hydrate only the selected keys. Other clients keep Browse's
 // existing date-added, paging and cache contracts.
 func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (core.Page, error) {
@@ -83,7 +83,6 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 			}
 			orders[i] = columns[i] + " " + dir
 		}
-		predicate, seekArgs := consoleSeek(columns, specs, after, q.AfterKey)
 		hint := ""
 		if store.DialectOf(c.db) != store.Postgres {
 			if specs[0].Sort == core.SortPopularity && specs[0].Desc && len(specs) == 1 {
@@ -93,29 +92,31 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 				hint = " INDEXED BY catalog_titles_console_year_title_page"
 			}
 		}
-		sqlArgs := append(append([]any{}, args...), string(typ))
-		sqlArgs = append(sqlArgs, seekArgs...)
-		sqlArgs = append(sqlArgs, limit)
-		rows, err := c.db.QueryContext(ctx, `SELECT t.key,`+strings.Join(columns, ",")+` FROM catalog_titles t`+hint+` WHERE `+where+` AND t.type=?`+predicate+` ORDER BY `+strings.Join(orders, ",")+`,t.key ASC LIMIT ?`, sqlArgs...)
-		if err != nil {
-			return core.Page{}, err
-		}
-		for rows.Next() {
-			r := row{values: make([]any, len(specs))}
-			dest := []any{&r.key}
-			for i := range r.values {
-				dest = append(dest, &r.values[i])
-			}
-			if err := rows.Scan(dest...); err != nil {
-				rows.Close()
+		for _, seek := range consoleSeekRanges(columns, specs, after, q.AfterKey) {
+			sqlArgs := append(append([]any{}, args...), string(typ))
+			sqlArgs = append(sqlArgs, seek.args...)
+			sqlArgs = append(sqlArgs, limit)
+			rows, err := c.db.QueryContext(ctx, `SELECT t.key,`+strings.Join(columns, ",")+` FROM catalog_titles t`+hint+` WHERE `+where+` AND t.type=?`+seek.predicate+` ORDER BY `+strings.Join(orders, ",")+`,t.key ASC LIMIT ?`, sqlArgs...)
+			if err != nil {
 				return core.Page{}, err
 			}
-			all = append(all, r)
-		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return core.Page{}, err
+			for rows.Next() {
+				r := row{values: make([]any, len(specs))}
+				dest := []any{&r.key}
+				for i := range r.values {
+					dest = append(dest, &r.values[i])
+				}
+				if err := rows.Scan(dest...); err != nil {
+					rows.Close()
+					return core.Page{}, err
+				}
+				all = append(all, r)
+			}
+			err = rows.Err()
+			rows.Close()
+			if err != nil {
+				return core.Page{}, err
+			}
 		}
 	}
 	slices.SortFunc(all, func(a, b row) int {
@@ -148,20 +149,23 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 	return core.Page{Items: items, Total: len(items)}, nil
 }
 
-// Inclusive leading bound is deliberately separate: SQLite can seek the index
-// before evaluating the tie disjunction rather than scanning from its start.
-func consoleSeek(columns []string, specs []core.SortSpec, values []any, key core.RatingKey) (string, []any) {
+type consoleSeekRange struct {
+	predicate string
+	args      []any
+}
+
+// Disjoint ranges let both engines seek every equality prefix and the next
+// strict boundary. A single OR expression can still walk an entire tie block
+// (e.g. 600k titles with the same release date) before reaching the key boundary.
+// Each range contributes at most one page to the bounded merge.
+func consoleSeekRanges(columns []string, specs []core.SortSpec, values []any, key core.RatingKey) []consoleSeekRange {
 	if key == 0 {
-		return "", nil
+		return []consoleSeekRange{{}}
 	}
-	inclusive := ">="
-	if specs[0].Desc {
-		inclusive = "<="
-	}
-	args := []any{values[0]}
-	branches := make([]string, 0, len(columns)+1)
+	ranges := make([]consoleSeekRange, 0, len(columns)+1)
 	for i := 0; i <= len(columns); i++ {
 		parts := make([]string, 0, i+1)
+		args := make([]any, 0, i+1)
 		for j := 0; j < i; j++ {
 			parts = append(parts, columns[j]+"=?")
 			args = append(args, values[j])
@@ -177,7 +181,7 @@ func consoleSeek(columns []string, specs []core.SortSpec, values []any, key core
 			parts = append(parts, columns[i]+op+"?")
 			args = append(args, values[i])
 		}
-		branches = append(branches, "("+strings.Join(parts, " AND ")+")")
+		ranges = append(ranges, consoleSeekRange{" AND " + strings.Join(parts, " AND "), args})
 	}
-	return " AND " + columns[0] + inclusive + "? AND (" + strings.Join(branches, " OR ") + ")", args
+	return ranges
 }

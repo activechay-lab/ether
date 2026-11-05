@@ -66,13 +66,14 @@ func TestConsoleCursorRejectsOffsetAndUnavailableAnchor(t *testing.T) {
 	}
 }
 
-func TestConsoleSeekHasLeadingIndexBoundAndMixedDirections(t *testing.T) {
-	sql, args := consoleSeek([]string{"t.year", "t.sort_title"}, []core.SortSpec{{Sort: core.SortYear, Desc: true}, {Sort: core.SortTitle}}, []any{int64(1995), "Seven"}, 7)
-	want := " AND t.year<=? AND ((t.year<?) OR (t.year=? AND t.sort_title>?) OR (t.year=? AND t.sort_title=? AND t.key>?))"
-	if sql != want {
-		t.Fatal(sql)
+func TestConsoleSeekRangesSeekEveryPrefixWithMixedDirections(t *testing.T) {
+	ranges := consoleSeekRanges([]string{"t.year", "t.sort_title"}, []core.SortSpec{{Sort: core.SortYear, Desc: true}, {Sort: core.SortTitle}}, []any{int64(1995), "Seven"}, 7)
+	want := []consoleSeekRange{
+		{" AND t.year<?", []any{int64(1995)}},
+		{" AND t.year=? AND t.sort_title>?", []any{int64(1995), "Seven"}},
+		{" AND t.year=? AND t.sort_title=? AND t.key>?", []any{int64(1995), "Seven", int64(7)}},
 	}
-	if !reflect.DeepEqual(args, []any{int64(1995), int64(1995), int64(1995), "Seven", int64(1995), "Seven", int64(7)}) {
-		t.Fatal(args)
+	if !reflect.DeepEqual(ranges, want) {
+		t.Fatalf("%#v", ranges)
 	}
 }

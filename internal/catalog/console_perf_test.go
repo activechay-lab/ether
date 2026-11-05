@@ -75,6 +75,20 @@ func TestConsole600K(t *testing.T) {
 		name string
 		q    core.BrowseQuery
 	}{"deep-keyset-wire-typical-540k", deepWire})
+	deepReleased := cases[0].q
+	deepReleased.Sort = core.SortReleased
+	deepReleased.AfterKey = core.MovieKey(540000)
+	cases = append(cases, struct {
+		name string
+		q    core.BrowseQuery
+	}{"deep-keyset-identical-release-540k", deepReleased})
+	deepRating := cases[0].q
+	deepRating.Sort = core.SortRating
+	deepRating.AfterKey = core.MovieKey(540000)
+	cases = append(cases, struct {
+		name string
+		q    core.BrowseQuery
+	}{"deep-keyset-rating-ties-540k", deepRating})
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.q.Filter.LocalOnly = true
