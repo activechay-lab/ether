@@ -75,6 +75,7 @@ func (s *Server) routes() chi.Router {
 	get("/library/metadata/{key}/parent", s.handleParent)
 	get("/library/metadata/{key}/grandparent", s.handleParent)
 	get("/library/metadata/{key}/extras", s.handleExtras)
+	r.Post("/library/metadata/{key}/extras", func(w http.ResponseWriter, r *http.Request) { writeHTTPError(w, http.StatusBadRequest) })
 	get("/library/metadata/{key}/extras/all", s.handleExtras)
 	get("/library/metadata/{key}/subtitles", s.handleSubtitleSearch)
 	r.Put("/library/metadata/{key}/subtitles", s.handleSubtitlePick)

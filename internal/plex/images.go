@@ -265,6 +265,20 @@ var discoveryImageRe = regexp.MustCompile(`^/library/metadata/(\d+)/discoveryPos
 // variant closest to the requested width.
 func (s *Server) handlePhotoTranscode(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	// Validate even options handled by the upstream image service.
+	for _, name := range []string{"minSize", "upscale", "opacity", "quality", "blur"} {
+		if raw, present := firstQuery(q, name); present {
+			n, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || ((name == "minSize" || name == "upscale") && n != 0 && n != 1) {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
+			if name == "blur" && n < 0 {
+				writeHTTPError(w, http.StatusInternalServerError)
+				return
+			}
+		}
+	}
 	raw := q.Get("url")
 	if raw == "" {
 		writeHTTPError(w, http.StatusBadRequest)
