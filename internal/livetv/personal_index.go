@@ -88,6 +88,23 @@ func (s *Service) backfillPersonalIndex(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+
+		// Lock only the version that was decoded. A concurrent node may have
+		// published a newer rundown/index while local title facts were loaded.
+		result, lockErr := tx.ExecContext(ctx, `UPDATE livetv_personal SET built_at=built_at WHERE viewer_id=? AND channel_id=? AND day=? AND CAST(rundown AS TEXT)=?`, p.viewer, p.channel, p.day, string(p.data))
+		if lockErr != nil {
+			tx.Rollback()
+			return lockErr
+		}
+		matched, lockErr := result.RowsAffected()
+		if lockErr != nil {
+			tx.Rollback()
+			return lockErr
+		}
+		if matched == 0 {
+			tx.Rollback()
+			continue
+		}
 		err = s.indexPersonal(ctx, tx, p.viewer, p.channel, p.day, records)
 		if err != nil {
 			tx.Rollback()
