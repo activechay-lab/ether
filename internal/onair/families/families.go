@@ -57,6 +57,9 @@ func Defaults(family string) scene.Bindings {
 		b.Slots[fmt.Sprintf("list[%d].meta", i)] = "Tonight's selection"
 	}
 	switch family {
+	case "signal":
+		b.Slots["channel.name"] = "Ether"
+		b.Slots["station.id"] = "ETHER"
 	case "cinema":
 		b.Tokens["bg"] = "#070d1d"
 		b.Tokens["accent"] = "#d8b26e"
