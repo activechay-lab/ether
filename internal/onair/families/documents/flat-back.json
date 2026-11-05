@@ -22,7 +22,7 @@
       "w": 1150,
       "h": 1400,
       "fill": "{accent}",
-      "rotate": 32,
+      "rotate": "{control.rotate}",
       "name": "Accent plane"
     },
     {
@@ -41,12 +41,12 @@
       "text": "THE 2010s / DAILY EDITION",
       "x": 120,
       "y": 160,
-      "size": 30,
+      "size": "{control.size}",
       "font": "{type.display}",
       "fill": "{text}",
       "fit": "shrink",
       "maxWidth": 1500,
-      "track": 6,
+      "track": "{control.track}",
       "name": "Edition"
     },
     {
@@ -129,7 +129,7 @@
       "fit": "shrink",
       "maxWidth": 1500,
       "align": "center",
-      "track": 6,
+      "track": "{control.track}",
       "name": "Station"
     }
   ]

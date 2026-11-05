@@ -1,3 +1,4 @@
+import { remixMock } from "./onair-remix";
 import type { Programme } from "../pages/livetv/model";
 import clipPreview from "./clip-preview.mp4?url";
 import { referenceLooks, families } from "../pages/livetv/onair/fixtures";
@@ -163,6 +164,7 @@ export function createOnAirMock(
         return result;
       }
       if (seg[0] !== "onair") return null;
+      const remix = remixMock(method, seg, body); if (remix) return remix;
       const [, kind, id, action, clipId] = seg;
       if (kind === "clips" && id === "render")
         return {

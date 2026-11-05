@@ -23,6 +23,7 @@ import (
 // ResourceRoutes mounts W6's font and family resource handlers on this router.
 func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 	r := chi.NewRouter()
+	s.StudioRoutes(r)
 	r.Post("/assets/import", s.importHandler(false))
 	r.Post("/reels/{id}/clips/import", s.importHandler(true))
 	r.Get("/fonts/{id}", func(w http.ResponseWriter, r *http.Request) {
