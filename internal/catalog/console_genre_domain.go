@@ -11,16 +11,15 @@ import (
 
 // This metadata-only projection is a safe upper bound for every viewer/type/
 // date policy. A missing pair proves an AND impossible; a present pair never
-// bypasses the ordinary policy query. Writes touch only a title's own genres.
+// bypasses the ordinary policy query. Per-title witnesses avoid global counter
+// hot spots during bulk ingestion. Writes touch only a title's own genres.
 func init() {
-	schema := `CREATE TABLE catalog_genre_pairs(a TEXT NOT NULL,b TEXT NOT NULL,title_count INTEGER NOT NULL,PRIMARY KEY(a,b));
-CREATE INDEX catalog_genre_pairs_reverse ON catalog_genre_pairs(b,a);
-INSERT INTO catalog_genre_pairs(a,b,title_count) SELECT a.genre,b.genre,COUNT(*) FROM catalog_genres a JOIN catalog_genres b ON b.key=a.key GROUP BY a.genre,b.genre;`
-	add := `INSERT INTO catalog_genre_pairs(a,b,title_count) SELECT NEW.genre,genre,1 FROM catalog_genres WHERE key=NEW.key ON CONFLICT(a,b) DO UPDATE SET title_count=catalog_genre_pairs.title_count+1;
-INSERT INTO catalog_genre_pairs(a,b,title_count) SELECT genre,NEW.genre,1 FROM catalog_genres WHERE key=NEW.key AND genre<>NEW.genre ON CONFLICT(a,b) DO UPDATE SET title_count=catalog_genre_pairs.title_count+1;`
-	remove := `UPDATE catalog_genre_pairs SET title_count=title_count-1 WHERE a=OLD.genre AND b IN(SELECT genre FROM catalog_genres WHERE key=OLD.key);
-UPDATE catalog_genre_pairs SET title_count=title_count-1 WHERE b=OLD.genre AND a<>OLD.genre AND a IN(SELECT genre FROM catalog_genres WHERE key=OLD.key);
-DELETE FROM catalog_genre_pairs WHERE title_count<=0 AND (a=OLD.genre OR b=OLD.genre);`
+	schema := `CREATE TABLE catalog_genre_pairs(a TEXT NOT NULL,b TEXT NOT NULL,key BIGINT NOT NULL,PRIMARY KEY(a,b,key));
+CREATE INDEX catalog_genre_pairs_title ON catalog_genre_pairs(key);
+INSERT INTO catalog_genre_pairs(a,b,key) SELECT a.genre,b.genre,a.key FROM catalog_genres a JOIN catalog_genres b ON b.key=a.key;`
+	add := `INSERT INTO catalog_genre_pairs(a,b,key) SELECT NEW.genre,genre,NEW.key FROM catalog_genres WHERE key=NEW.key ON CONFLICT(a,b,key) DO NOTHING;
+INSERT INTO catalog_genre_pairs(a,b,key) SELECT genre,NEW.genre,NEW.key FROM catalog_genres WHERE key=NEW.key AND genre<>NEW.genre ON CONFLICT(a,b,key) DO NOTHING;`
+	remove := `DELETE FROM catalog_genre_pairs WHERE key=OLD.key AND (a=OLD.genre OR b=OLD.genre);`
 	store.Register("catalog", 40, schema+`
 CREATE TRIGGER catalog_genre_pairs_insert AFTER INSERT ON catalog_genres BEGIN `+add+` END;
 CREATE TRIGGER catalog_genre_pairs_delete BEFORE DELETE ON catalog_genres BEGIN `+remove+` END;
@@ -126,13 +125,13 @@ func (c *Catalog) consoleDomainEmpty(ctx context.Context, f core.Filter) (bool, 
 			}
 		}
 	}
-	// Diagonal pairs also provide an indexed, exact known-genre domain.
+	// The genre index proves unknown values empty; pair witnesses prove disjoint conjunctions.
 	for i, left := range genres {
 		args := make([]any, 0, len(left))
 		for _, v := range left {
 			args = append(args, v)
 		}
-		ok, err := exists("SELECT 1 FROM catalog_genre_pairs WHERE a=b AND a IN("+placeholders(len(left))+")", args...)
+		ok, err := exists("SELECT 1 FROM catalog_genres WHERE genre IN("+placeholders(len(left))+")", args...)
 		if err != nil || !ok {
 			return !ok, err
 		}

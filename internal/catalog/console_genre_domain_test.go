@@ -23,7 +23,7 @@ func TestConsoleGenreDomainTracksInsertUpdateDelete(t *testing.T) {
 		t.Fatalf("shared genre title lost: %v %v", empty, err)
 	}
 	var count int
-	if err := c.db.QueryRowContext(ctx, `SELECT title_count FROM catalog_genre_pairs WHERE a='Comedy' AND b='Thriller'`).Scan(&count); err != nil || count != 1 {
+	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_genre_pairs WHERE a='Comedy' AND b='Thriller'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("pair count %d: %v", count, err)
 	}
 	if _, err := c.db.ExecContext(ctx, `DELETE FROM catalog_genres WHERE key=? AND genre='Thriller'`, int64(core.MovieKey(1))); err != nil {
@@ -36,7 +36,7 @@ func TestConsoleGenreDomainTracksInsertUpdateDelete(t *testing.T) {
 	if _, err := c.db.ExecContext(ctx, `UPDATE catalog_genres SET genre='Comedy' WHERE key=? AND genre='Thriller'`, int64(core.MovieKey(3))); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.db.QueryRowContext(ctx, `SELECT title_count FROM catalog_genre_pairs WHERE a='Comedy' AND b='Comedy'`).Scan(&count); err != nil || count != 3 {
+	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_genre_pairs WHERE a='Comedy' AND b='Comedy'`).Scan(&count); err != nil || count != 3 {
 		t.Fatalf("updated diagonal %d: %v", count, err)
 	}
 	if _, err := c.db.ExecContext(ctx, `DELETE FROM catalog_genres`); err != nil {
