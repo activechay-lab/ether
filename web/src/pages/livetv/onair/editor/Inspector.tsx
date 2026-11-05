@@ -19,7 +19,7 @@ import {
   type ControlKind,
   type LibraryAsset,
 } from "../studio-model";
-import { evaluate, type Value, type Layer } from "../scene-renderer";
+import { evaluate, type Value, type Layer, type SceneBindings } from "../scene-renderer";
 import { styleBindings } from "../Stage";
 import { layerBounds } from "./scene-bounds";
 import { findLayer, updateLayer } from "./scene-edit";
@@ -43,6 +43,7 @@ export function Inspector(p: {
   selected: string[];
   onChange(style: Style): void;
   time?: number;
+  bindings?: SceneBindings;
 }) {
   const [assets, setAssets] = useState<LibraryAsset[]>([]),
     [animProp, setAnimProp] = useState<keyof Layer>("opacity"),
@@ -64,7 +65,7 @@ export function Inspector(p: {
     lowerthird: t("Lower third"),
   };
   const layer = findLayer(p.scene.document, p.selected[0] ?? "");
-  const bindings = styleBindings(p.style),
+  const bindings = p.bindings ?? styleBindings(p.style),
     time = p.time ?? 0;
   const changeScene = (next: StyleScene) =>
     p.onChange({ ...p.style, scenes: p.style.scenes.map((s) => (s.id === next.id ? next : s)) });
@@ -513,10 +514,10 @@ export function Inspector(p: {
         </div>
       </Section>
       <Section title={t("Appearance")} open>
-        {color("fill", t("Fill"))}
-        {color("stroke", t("Stroke"))}
+        {layer.type !== "group" && color("fill", t("Fill"))}
+        {layer.type !== "group" && color("stroke", t("Stroke"))}
         <div className="grid grid-cols-2 gap-2">
-          {number("strokeWidth")}
+          {layer.type !== "group" && number("strokeWidth")}
           {number("blur")}
           {number("glow")}
         </div>

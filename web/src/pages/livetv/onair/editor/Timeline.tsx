@@ -448,6 +448,13 @@ export function Timeline(p: {
       <div className="overflow-x-auto">
         <div style={{ minWidth: 600 * zoom }}>
           <Input
+            className="accent-primary border-0 bg-transparent px-0 py-0"
+            style={{
+              marginLeft: 160,
+              width: "calc(100% - 160px)",
+              height: 12,
+              accentColor: "var(--color-primary)",
+            }}
             aria-label={t("Playhead")}
             type="range"
             min={0}

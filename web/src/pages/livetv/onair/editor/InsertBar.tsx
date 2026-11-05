@@ -155,6 +155,7 @@ export function InsertBar(p: {
   }, [p.scene]);
   const dropdown = (key: string, label: string, icon: ReactNode, content: ReactNode) => (
     <Popover
+      align="start"
       open={panel === key}
       onOpenChange={(open) => setPanel(open ? key : "")}
       className="w-64 p-3"
@@ -209,7 +210,7 @@ export function InsertBar(p: {
     <div
       role="toolbar"
       aria-label={t("Scene tools")}
-      className="flex h-11 shrink-0 items-center gap-0.5 border-b border-border bg-surface px-2"
+      className="flex h-11 min-w-max shrink-0 items-center gap-0.5 border-b border-border bg-surface px-2"
     >
       <ToolButton label={t("Select")} shortcut="V" active={!p.pen} onClick={p.onSelectTool}>
         <MousePointer2 size={16} />

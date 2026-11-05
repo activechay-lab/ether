@@ -537,7 +537,7 @@ export function LookDrawer({
                         onClick={() => setPreviewOpen(!previewOpen)}
                       >
                         <Eye size={15} />
-                        <span className="hidden max-w-32 truncate text-[10px] xl:inline">
+                        <span className="hidden max-w-32 truncate text-[10px] min-[1500px]:inline">
                           {t("{channel} · {time} · {viewer}", {
                             channel: channels.find((c) => c.id === channel)?.name ?? "",
                             time: new Date(at).toLocaleTimeString(undefined, {
@@ -737,6 +737,7 @@ export function LookDrawer({
             className={`${mobilePanel === "inspector" ? "block" : "hidden"} min-h-0 overflow-y-auto border-l border-border bg-surface p-4 lg:block`}
           >
             <Inspector
+              bindings={bindings}
               time={clock.time}
               style={draft}
               scene={scene}

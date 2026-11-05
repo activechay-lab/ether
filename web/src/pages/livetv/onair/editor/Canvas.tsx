@@ -58,10 +58,7 @@ export function Canvas(p: CanvasProps) {
     const observer = new ResizeObserver(([entry]) => {
       if (entry)
         setFitWidth(
-          Math.max(
-            120,
-            Math.min(entry.contentRect.width - 48, ((entry.contentRect.height - 48) * 16) / 9),
-          ),
+          Math.max(120, Math.min(entry.contentRect.width, (entry.contentRect.height * 16) / 9)),
         );
     });
     observer.observe(viewport.current);
@@ -247,7 +244,8 @@ export function Canvas(p: CanvasProps) {
           : "overflow-auto p-4"
       }
       style={{
-        backgroundImage: "radial-gradient(var(--color-border, #ffffff12) 1px, transparent 1px)",
+        backgroundImage:
+          "radial-gradient(color-mix(in srgb, var(--color-border, #ffffff12) 35%, transparent) 1px, transparent 1px)",
         backgroundSize: "12px 12px",
       }}
     >
