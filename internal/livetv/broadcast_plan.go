@@ -1,0 +1,268 @@
+package livetv
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/transcode"
+)
+
+// scheduleBroadcastPlanner snapshots the channel recipe. An edited recipe gets
+// a new planner when P4 replaces the channel output after lineup invalidation.
+type scheduleBroadcastPlanner struct {
+	caps    core.ClientCaps
+	s       *Service
+	channel Channel
+	user    core.User
+	format  transcode.RawFormat
+	runner  transcode.ContinuousRunner
+	rings   *broadcastRingCache
+	mu      sync.Mutex
+	at      time.Time
+	current broadcastPlan
+	next    *broadcastPlan
+}
+
+func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadcastPlan) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.at.IsZero() && now.Sub(p.at) < time.Second && (p.current.end.IsZero() || now.Before(p.current.end)) {
+		return p.current, p.next
+	}
+	p.at = now
+	c := p.s.graphicsChannel(p.channel)
+	ps := Schedule(c, now, now.Add(broadcastPrewarm+time.Second))
+	p.current = broadcastPlan{id: "screen-" + c.ID}
+	p.next = nil
+	for _, programme := range ps {
+		plan := p.programme(programme)
+		if !now.Before(programme.Start) && now.Before(programme.End) {
+			p.current = plan
+		} else if programme.Start.After(now) {
+			p.next = &plan
+			break
+		}
+	}
+	return p.current, p.next
+}
+func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan {
+	plan := broadcastPlan{id: programme.ID, start: programme.Start, end: programme.End}
+	plan.open = func(ctx context.Context) (transcode.Decoder, func(), error) {
+		c := p.channel
+		if p.s.o.Playback == nil && programme.Item.Slate == "" {
+			return nil, nil, core.ErrNotAvailable
+		}
+		if programme.Item.Slate != "" {
+			if c.Look == nil || p.s.o.Graphics == nil {
+				return nil, nil, core.ErrNotAvailable
+			}
+			request := p.s.clipRequest(c, programme)
+			clip, ok := p.s.o.Graphics.Clip(ctx, request)
+			if !ok {
+				p.s.o.Graphics.Ensure(ctx, request)
+				return nil, nil, core.ErrNotAvailable
+			}
+			ring, err := p.rings.load(ctx, p.runner, clip.Path, p.format)
+			if err != nil {
+				return nil, nil, err
+			}
+			return &ringDecoder{ring: ring, format: p.format, closed: make(chan struct{})}, nil, nil
+		}
+		now := p.s.o.Now()
+		candidates := p.s.virtualCandidates(c, programme)
+		var last error = core.ErrNotAvailable
+		for attempt, candidate := range candidates {
+			if attempt >= virtualMaxAttempts {
+				break
+			}
+			if p.s.knownUnavailable(ctx, candidate.Item.Key) {
+				continue
+			}
+			if !p.s.allowed(ctx, &p.user, c, &candidate) {
+				continue
+			}
+			var ps *core.PlaySession
+			var err error
+			attempt, cancel := context.WithTimeout(ctx, virtualAttemptBudget)
+			group := "broadcast-" + c.ID
+			if grouped, ok := p.s.o.Playback.(core.ChannelPreparer); ok {
+				ps, err = grouped.PrepareChannel(attempt, &p.user, candidate.Item.Key, p.caps, group)
+			} else {
+				ps, err = p.s.o.Playback.Prepare(attempt, &p.user, candidate.Item.Key, p.caps)
+			}
+			cancel()
+			if err != nil {
+				last = err
+				continue
+			}
+			offset := time.Duration(0)
+			if candidate.ID == programme.ID && now.After(programme.Start) {
+				offset = now.Sub(programme.Start)
+			}
+			decoder, err := p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: group + "-" + candidate.ID, InputURL: p.s.o.Playback.InputURL(ps.ID), Offset: offset, Format: p.format})
+			if err != nil {
+				p.s.o.Playback.Stop(ps.ID)
+				last = err
+				continue
+			}
+			return decoder, func() { p.s.o.Playback.Stop(ps.ID) }, nil
+		}
+		return nil, nil, last
+	}
+	return plan
+}
+
+// reserveBroadcastProvider takes the provider slot under the same Service.mu
+// as ordinary tunes. A waiting output holds no slot. Legacy viewers sharing
+// a channel are counted once, as are the new shared channel outputs.
+func (s *Service) reserveBroadcastProvider(account, channel, id string, limit int) (func(), error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.broadcastProviders == nil {
+		s.broadcastProviders = map[string]map[string]string{}
+	}
+	active := s.broadcastProviders[account]
+	if active == nil {
+		active = map[string]string{}
+		s.broadcastProviders[account] = active
+	}
+	channels := map[string]bool{}
+	for _, ss := range s.sessions {
+		if ss.broadcast != nil {
+			continue
+		}
+		source := ss.info.Channel.SourceID
+		if ss.inputSource.AuthSourceID != "" {
+			source = ss.inputSource.AuthSourceID
+		}
+		if source == account {
+			channels[ss.info.Channel.ID] = true
+		}
+	}
+	for _, ch := range active {
+		channels[ch] = true
+	}
+	if _, exists := active[id]; exists {
+		return nil, ErrProviderBusy
+	}
+	if limit > 0 && len(channels) >= limit {
+		return nil, ErrProviderBusy
+	}
+	active[id] = channel
+	var once sync.Once
+	return func() { once.Do(func() { s.mu.Lock(); delete(s.broadcastProviders[account], id); s.mu.Unlock() }) }, nil
+}
+
+type providerBroadcastPlanner struct {
+	s        *Service
+	channel  Channel
+	format   transcode.RawFormat
+	runner   transcode.ContinuousRunner
+	mu       sync.Mutex
+	selected StreamSource
+}
+
+func (p *providerBroadcastPlanner) plans(time.Time) (broadcastPlan, *broadcastPlan) {
+	return broadcastPlan{id: "provider-" + p.channel.ID, open: p.open, failed: p.failed}, nil
+}
+func (p *providerBroadcastPlanner) failed(err error) time.Time {
+	p.mu.Lock()
+	src := p.selected
+	p.mu.Unlock()
+	if src.ID != "" {
+		p.s.recordSourceHealth(p.channel.ID, src, err, false)
+		return p.s.sourceStatus(p.channel.ID, src).RetryAfter
+	}
+	now := p.s.o.Now()
+	retry := now.Add(15 * time.Second)
+	c := p.channel
+	if normalizeStreamSources(&c) == nil {
+		for _, src := range c.StreamSources {
+			at := p.s.sourceStatus(c.ID, src).RetryAfter
+			if at.After(now) && at.Before(retry) {
+				retry = at
+			}
+		}
+	}
+	return retry
+}
+func (p *providerBroadcastPlanner) open(ctx context.Context) (transcode.Decoder, func(), error) {
+	p.mu.Lock()
+	p.selected = StreamSource{}
+	p.mu.Unlock()
+	c := p.channel
+	if err := normalizeStreamSources(&c); err != nil {
+		return nil, nil, err
+	}
+	var last error = core.ErrNotAvailable
+	for _, src := range c.StreamSources {
+		if !src.Enabled || p.s.sourceStatus(c.ID, src).RetryAfter.After(p.s.o.Now()) {
+			continue
+		}
+		account := src.AuthSourceID
+		if account == "" {
+			account = c.SourceID
+		}
+		entry, err := p.s.sourceEntry(ctx, account)
+		if err != nil {
+			last = err
+			continue
+		}
+		release, err := p.s.reserveBroadcastProvider(account, c.ID, "broadcast-"+c.ID, entry.limit)
+		if err != nil {
+			last = err
+			continue
+		}
+		attempt, cancelAttempt := context.WithTimeout(ctx, 5*time.Second)
+		resolved, headers, err := p.s.ResolveStreamSource(attempt, c, src)
+		cancelAttempt()
+		if err != nil {
+			release()
+			p.s.recordSourceHealth(c.ID, src, err, false)
+			last = err
+			continue
+		}
+		inputCtx, cancel := context.WithCancel(ctx)
+		ss := &session{ctx: inputCtx, cancel: cancel, info: SessionInfo{ID: "broadcast-" + c.ID, Channel: c}, inputSource: src, inputURL: resolved, inputHeaders: headers}
+		grant := src
+		grant.URL = resolved
+		err = p.s.grantInput(ss, grant, headers)
+		var input string
+		if err == nil {
+			input, err = p.s.relayInput(ss)
+		}
+		var decoder transcode.Decoder
+		if err == nil {
+			decoder, err = p.runner.StartDecoder(inputCtx, transcode.DecoderRequest{SessionID: ss.info.ID, InputURL: input, Format: p.format, Live: true})
+		}
+		cleanup := func() { cancel(); p.s.revokeInput(ss); release() }
+		if err != nil {
+			cleanup()
+			p.s.recordSourceHealth(c.ID, src, err, false)
+			last = err
+			continue
+		}
+		p.mu.Lock()
+		p.selected = src
+		p.mu.Unlock()
+		return &providerBroadcastDecoder{Decoder: decoder, ready: func() { p.s.recordSourceHealth(c.ID, src, nil, true) }}, cleanup, nil
+	}
+	return nil, nil, fmt.Errorf("broadcast provider: %w", last)
+}
+
+type providerBroadcastDecoder struct {
+	transcode.Decoder
+	once  sync.Once
+	ready func()
+}
+
+func (d *providerBroadcastDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
+	frame, err := d.Decoder.Next(ctx)
+	if err == nil {
+		d.once.Do(d.ready)
+	}
+	return frame, err
+}
