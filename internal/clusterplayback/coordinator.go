@@ -211,6 +211,7 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placemen
 	if err != nil {
 		return placement.Target{}, nil, remotetranscode.Capabilities{}, err
 	}
+	failure := &SelectionError{}
 	for _, candidate := range candidates {
 		target, rolesJSON, scopesJSON := candidate.target, candidate.rolesJSON, candidate.scopesJSON
 		var roles config.NodeRoles
@@ -225,12 +226,19 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placemen
 		if e = r.o.Eligible(ctx, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: target.NodeID, Boot: target.Boot}, config.RoleTranscode); e != nil {
 			continue
 		}
+		failure.Eligible++
 		claims := make([]placement.Claim, len(names))
 		available := true
 		for i, name := range names {
 			var remaining int64
 			err := r.o.DB.QueryRowContext(ctx, `SELECT p.capacity-COALESCE(SUM(c.units),0) FROM placement_pools p LEFT JOIN placement_claims c ON c.scope=p.scope WHERE p.scope=? AND p.role=? GROUP BY p.scope,p.capacity`, name, string(config.RoleTranscode)).Scan(&remaining)
-			if err != nil || remaining < 1 {
+			if err != nil {
+				failure.Unavailable++
+				available = false
+				break
+			}
+			if remaining < 1 {
+				failure.Exhausted++
 				available = false
 				break
 			}
@@ -241,12 +249,21 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placemen
 			continue
 		}
 		caps, e := r.workerCapabilities(ctx, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: target.NodeID, Boot: target.Boot}, q)
-		if e != nil || !supportedRequest(q, caps) {
+		if e != nil {
+			if errors.Is(e, remotetranscode.ErrUnsupported) {
+				failure.Unsupported++
+			} else {
+				failure.Unavailable++
+			}
+			continue
+		}
+		if !supportedRequest(q, caps) {
+			failure.Unsupported++
 			continue
 		}
 		return target, claims, caps, nil
 	}
-	return placement.Target{}, nil, remotetranscode.Capabilities{}, placement.ErrCapacity
+	return placement.Target{}, nil, remotetranscode.Capabilities{}, failure
 }
 
 func (r *Runtime) Session(id string) (core.HLSSession, bool) {

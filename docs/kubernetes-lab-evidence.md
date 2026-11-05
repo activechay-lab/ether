@@ -67,8 +67,12 @@ million. All new members were current and nondraining. The allocation oracle
 failed because no durable allocation/route existed. No media segment or packet
 continuity evidence was collected, and no loss or native stage followed.
 
-Static tracing explains the source warning: native MP4 probing rejects the
-fixture's `mp4v` sample entry, then the source-role `directOnly.Probe` fallback
+Offline probing of the unchanged fixture confirms the native error:
+`transcode: native probe incomplete: video sample entry mp4v`. The runtime worker
+used its actual first 262,144 bytes with the honest total size of 32,506,600;
+the extracted head includes the complete 93,310-byte moov. Its SHA256 is
+`171ecb6fc913ac9121e44e8a633d2b8ee266a25ae09cbed75efa0c320a6fd8b9`.
+No source playback retry was needed. Static tracing then shows the source-role `directOnly.Probe` fallback
 returns `ErrNotAvailable`. The resulting estimated media information is rejected
 by the dedicated encoder's real preflight. Runtime/playback owners are repairing
 source-owned bounded probing. The exact encrypted capability HTTP response and

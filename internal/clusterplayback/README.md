@@ -157,6 +157,15 @@ separate authoritative immutable reopen provider plus real external fencing.
 
 ## Concrete retirement evidence and atomic publication
 
+Pre-reservation target diagnostics return SelectionError with only aggregate
+eligible/exhausted/unsupported/unavailable counts. ErrNoEligibleTarget means no
+configured live candidate passed membership/role admission. ErrTargetUnavailable
+means at least one candidate had an unresolved pool or authenticated capability
+check; it is not saturation. ErrUnsupported means a candidate declined the exact
+request or negotiated capabilities. ErrCapacity is reserved for known exhausted
+advisory pools (all eligible candidates) or atomic placement admission. These
+observations never authorize retries after reservation, release, or retirement.
+
 Runtime now constructs placement.History with the configured cluster and itself as
 an independent re-fetching ReceiptVerifier. Read-only EvidencePath permits exact
 current controller proof reads while its lease remains active; a different live
