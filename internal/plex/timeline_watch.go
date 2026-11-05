@@ -39,6 +39,13 @@ func (s *Server) timelineWatch(ctx context.Context, pr *Request, key core.Rating
 			_ = parents.PlexTouchParents(ctx, pr.User.ID, key, s.now(), result.Completed)
 		}
 	}
+	if result.Changed {
+		if restore, ok := s.d.State.(interface {
+			RestoreContinue(context.Context, int64, core.RatingKey) error
+		}); ok {
+			_ = restore.RestoreContinue(ctx, pr.User.ID, key)
+		}
+	}
 	if result.Changed && s.d.Discovery != nil && s.d.Discovery.Personal != nil {
 		_ = s.d.Discovery.Personal.RestoreContinue(ctx, pr.User.ID, key)
 	}

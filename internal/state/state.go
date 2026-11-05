@@ -214,12 +214,7 @@ func New(db *sql.DB, opts Options) *State {
 			Name: "watch progress", Availability: opts.Availability, Logger: opts.Logger,
 			Merge: mergeProgress,
 			Apply: func(ctx context.Context, k progressKey, w progressWrite) error {
-				if w.before != nil {
-					if err := s.progressAt(ctx, k.user, k.key, *w.before); err != nil {
-						return err
-					}
-				}
-				return s.progressAt(ctx, k.user, k.key, w)
+				return s.applyProgressChain(ctx, k, w)
 			},
 		})
 	}
@@ -275,6 +270,15 @@ func (w progressWrite) completes() bool {
 }
 
 func mergeProgress(old, w progressWrite) progressWrite {
+	if len(w.state) > 5 && w.state[:5] == "plex-" && len(old.state) > 5 && old.state[:5] == "plex-" {
+		carry := old.before
+		if old.completes() {
+			copy := old
+			carry = &copy
+		}
+		w.before = carry
+		return w
+	}
 	carry := old.before
 	if old.completes() {
 		c := old

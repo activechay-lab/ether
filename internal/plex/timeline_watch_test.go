@@ -222,3 +222,44 @@ func TestPlexTimelineIntegerThresholdForShortContent(t *testing.T) {
 		t.Fatalf("integer threshold: %+v", got)
 	}
 }
+
+func TestPlexTimelineCrossingIsolatedByClientAndValidation(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	watch := state.New(store.OpenTest(t), state.Options{})
+	f.srv.d.State = watch
+	key := fightClub.Key.String()
+	call := func(query, client string) int {
+		t.Helper()
+		return f.get(t, "/:/timeline?ratingKey="+key+"&"+query, "X-Plex-Client-Identifier", client).Code
+	}
+	if call("state=playing&time=3000&duration=1000000", "one") != 200 {
+		t.Fatal("seed")
+	}
+	if call("state=playing&time=920000&duration=1000000", "two") != 200 {
+		t.Fatal("cold client")
+	}
+	got, _ := watch.Get(context.Background(), ownerUser.ID, fightClub.Key)
+	if got.ViewCount != 0 {
+		t.Fatal("other client's position armed a completion")
+	}
+	if call("state=playing&time=1000001&duration=1000000", "one") != 400 {
+		t.Fatal("out-of-range report accepted")
+	}
+	if call("state=stopped&time=920000&duration=1000000", "one") != 200 {
+		t.Fatal("crossing")
+	}
+	got, _ = watch.Get(context.Background(), ownerUser.ID, fightClub.Key)
+	if got.ViewCount != 1 {
+		t.Fatal("refused beat consumed the valid client's crossing")
+	}
+	for _, count := range []string{"-1", "oops"} {
+		if call("state=stopped&offline=1&viewCount="+count, "one") != 200 {
+			t.Fatal("invalid offline value must be ignored")
+		}
+	}
+	got, _ = watch.Get(context.Background(), ownerUser.ID, fightClub.Key)
+	if got.ViewCount != 1 {
+		t.Fatal("invalid offline value changed viewed count")
+	}
+}

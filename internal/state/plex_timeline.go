@@ -182,3 +182,21 @@ func (s *State) plexProgressAt(ctx context.Context, user int64, key core.RatingK
 		return complete && key.Kind() != core.KindPlaylist, complete, []Event{ev}
 	})
 }
+
+// applyProgressChain retains completion events while coalescing held positions.
+func (s *State) applyProgressChain(ctx context.Context, k progressKey, w progressWrite) error {
+	if w.before != nil {
+		if err := s.applyProgressChain(ctx, k, *w.before); err != nil {
+			return err
+		}
+	}
+	// Retrying a partially flushed chain must not append the same history again.
+	if !w.at.IsZero() && len(w.state) > 5 && w.state[:5] == "plex-" {
+		var at int64
+		err := s.db.QueryRowContext(ctx, `SELECT watch_at FROM state_watch WHERE user_id=? AND rating_key=?`, k.user, int64(k.key)).Scan(&at)
+		if err == nil && !unixTime(at).Before(w.at) {
+			return nil
+		}
+	}
+	return s.progressAt(ctx, k.user, k.key, w)
+}

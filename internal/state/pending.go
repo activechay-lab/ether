@@ -54,7 +54,11 @@ func (p *pendingWrites) put(k progressKey, w pendingWrite) error {
 		if old.kind != "progress" {
 			return nil
 		}
-		if old.progress.completes() && !w.progress.completes() {
+		if len(w.progress.state) > 5 && w.progress.state[:5] == "plex-" && len(old.progress.state) > 5 && old.progress.state[:5] == "plex-" {
+			// Preserve committed intentions when a new play starts before the
+			// held completion reaches SQLite. Ordinary progress still coalesces.
+			w.progress = mergeProgress(old.progress, w.progress)
+		} else if old.progress.completes() && !w.progress.completes() {
 			return nil
 		}
 		if old.progress.state == "stopped" && w.progress.state != "stopped" && !w.progress.completes() {
@@ -120,7 +124,7 @@ func (p *pendingWrites) apply(ctx context.Context, k progressKey, w pendingWrite
 			return err
 		}
 		if errors.Is(err, sql.ErrNoRows) || unixTime(watchAt).Before(w.progress.before.at) {
-			if err := p.s.progressAt(ctx, k.user, k.key, *w.progress.before); err != nil {
+			if err := p.s.applyProgressChain(ctx, k, *w.progress.before); err != nil {
 				return err
 			}
 		}
