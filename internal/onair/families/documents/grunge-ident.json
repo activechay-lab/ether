@@ -300,11 +300,48 @@
       "id": "Title",
       "type": "text",
       "text": "{channel.name}",
-      "x": 960,
+      "x": {
+        "keys": [
+          [
+            0,
+            850
+          ],
+          [
+            0.65,
+            960,
+            "out"
+          ]
+        ]
+      },
       "y": 535,
       "size": 140,
       "font": "{type.display}",
-      "fill": "{text}",
+      "fill": {
+        "linear": [
+          0,
+          -150,
+          0,
+          25
+        ],
+        "stops": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.49,
+            "#ffffff"
+          ],
+          [
+            0.52,
+            "{glow}"
+          ],
+          [
+            1,
+            "{accent}"
+          ]
+        ]
+      },
       "fit": "shrink",
       "maxWidth": 1500,
       "align": "center",

@@ -55,7 +55,19 @@
       "id": "Title",
       "type": "text",
       "text": "TONIGHT",
-      "x": 960,
+      "x": {
+        "keys": [
+          [
+            0,
+            850
+          ],
+          [
+            0.65,
+            960,
+            "out"
+          ]
+        ]
+      },
       "y": 535,
       "size": 140,
       "font": "{type.display}",

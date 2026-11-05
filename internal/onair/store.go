@@ -162,7 +162,21 @@ func (s *Service) Looks(ctx context.Context) ([]Look, error) {
 		s.mu.Unlock()
 		out = append(out, l)
 	}
-	return out, rows.Err()
+	if e = rows.Err(); e != nil {
+		return nil, e
+	}
+	rows.Close()
+	if s.o.StyleChannels != nil {
+		usage, err := s.o.StyleChannels(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for i := range out {
+			out[i].ChannelIDs = append([]string{}, usage[out[i].ID]...)
+			out[i].ChannelCount = len(out[i].ChannelIDs)
+		}
+	}
+	return out, nil
 }
 func (s *Service) Look(ctx context.Context, id string) (Look, error) {
 	var b string

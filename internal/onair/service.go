@@ -28,6 +28,7 @@ import (
 )
 
 type Options struct {
+	StyleChannels  func(context.Context) (map[string][]string, error)
 	PluginSegment  func(string) (PluginSegment, bool)
 	StaticRequests func(context.Context, string) []core.ClipRequest
 	DB             *sql.DB

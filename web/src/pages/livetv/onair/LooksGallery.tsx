@@ -32,6 +32,7 @@ export function LooksAside({
   query: string;
   onSelect: (kind: string, id: string) => void;
 }) {
+  const families = useFamilies();
   return (
     <div className="space-y-5 p-3">
       {looks
@@ -47,9 +48,9 @@ export function LooksAside({
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{l.name}</p>
-              <p className="text-xs text-fg-muted">{familyName(l.family)}</p>
+              <p className="text-xs text-fg-muted">{familyName(l.family, families)}</p>
               <p className="text-xs text-fg-subtle">
-                {tn(l.channelIds.length, "Used by {count} channel", "Used by {count} channels")}
+                {tn(l.channelCount ?? 0, "Used by {count} channel", "Used by {count} channels")}
               </p>
               {l.pack ? <Badge>{t("From {pack}", { pack: l.pack.name })}</Badge> : null}
             </div>
@@ -58,17 +59,27 @@ export function LooksAside({
     </div>
   );
 }
-function familyName(id: string) {
-  return (
-    {
-      kids: t("Kids"),
-      lateNight: t("Late night"),
-      cinema: t("Cinema"),
-      retro: t("Retro"),
-      personal: t("Personal"),
-      clean: t("Clean"),
-    }[id] || id
-  );
+function useFamilies() {
+  const [families, setFamilies] = useState<Family[]>([]);
+  useEffect(() => {
+    void onair.families().then(setFamilies);
+  }, []);
+  return families;
+}
+function familyName(id: string, families: Family[]) {
+  const name = families.find((f) => f.id === id)?.name ?? id;
+  const labels: Record<string, string> = {
+    Clean: t("Clean"),
+    Kids: t("Kids"),
+    "Late night": t("Late night"),
+    Cinema: t("Cinema"),
+    Retro: t("Retro"),
+    Personal: t("Personal"),
+    "Grunge 90": t("Grunge 90"),
+    "Aqua 00": t("Aqua 00"),
+    "Flat 10": t("Flat 10"),
+  };
+  return labels[name] ?? name;
 }
 export function LooksGallery({
   looks,
@@ -115,7 +126,7 @@ export function LooksGallery({
               }}
             >
               <LookTile look={f.look} />
-              <span className="block p-3 text-sm">{t(f.name)}</span>
+              <span className="block p-3 text-sm">{familyName(f.id, families)}</span>
             </button>
           ))}
         </div>
@@ -133,10 +144,10 @@ export function LooksGallery({
                 <h3 className="truncate font-semibold tracking-tight" title={l.name}>
                   {l.name}
                 </h3>
-                <p className="mt-1 text-xs text-fg-muted">{familyName(l.family)}</p>
+                <p className="mt-1 text-xs text-fg-muted">{familyName(l.family, families)}</p>
               </div>
               <span className="shrink-0 text-xs text-fg-subtle">
-                {tn(l.channelIds.length, "Used by {count} channel", "Used by {count} channels")}
+                {tn(l.channelCount ?? 0, "Used by {count} channel", "Used by {count} channels")}
               </span>
             </div>
           </button>
@@ -212,7 +223,9 @@ export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => v
                     onClick={() => choose(f.look)}
                   >
                     <LookTile look={f.look} />
-                    <span className="block p-3 text-sm font-medium">{t(f.name)}</span>
+                    <span className="block p-3 text-sm font-medium">
+                      {familyName(f.id, families)}
+                    </span>
                   </button>
                 ))}
               </div>

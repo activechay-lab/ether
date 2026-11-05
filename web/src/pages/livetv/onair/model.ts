@@ -41,6 +41,7 @@ export type BugSettings = {
   fadeCredits?: boolean;
 };
 export type Look = {
+  channelCount?: number;
   bug?: BugSettings;
   screens?: StyleScreens;
   id: string;

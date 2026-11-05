@@ -1,10 +1,12 @@
+import { formatBytes } from "../../../lib/format";
+import { Link } from "react-router-dom";
 import { LinkImport } from "./LinkImport";
 import { useEffect, useState } from "react";
 import { Button, Input, Select, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
 import { Upload, FileType, Image, AudioLines, Film, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { t, tn } from "../../../i18n";
+import { t, tn, tx } from "../../../i18n";
 import { onair, type OnAirAsset, type Reel, type Look } from "./model";
 // Import and pod slots accept W16 components without adding a top-level tab.
 export function AssetsPanel({
@@ -254,9 +256,7 @@ export function AssetsPanel({
                       {a.status === "error" ? a.error : t("Importing…")}
                     </p>
                   ) : null}
-                  <p className="text-xs text-fg-muted">
-                    {t("{size} KB", { size: Math.round(a.size / 1024) })}
-                  </p>
+                  <p className="text-xs text-fg-muted">{formatBytes(a.size)}</p>
                 </div>
                 <Button
                   variant="ghost"
@@ -292,17 +292,29 @@ export function AssetsPanel({
                 </Button>
               </div>
               <p className="mt-2 text-xs text-fg-subtle">
-                {a.usedBy.some((id) => looks.some((l) => l.id === id))
-                  ? t("Used by {layers}", {
-                      layers: tn(
-                        a.usedBy.filter((id) => looks.some((l) => l.id === id)).length,
-                        "{count} style",
-                        "{count} styles",
-                      ),
+                {a.usedBy.length
+                  ? tx("Used by: {layers}", {
+                      layers: a.usedBy.map((id, i) => {
+                        const look = looks.find((l) => l.id === id),
+                          reel = reels.find((r) => r.id === id);
+                        return (
+                          <span key={id}>
+                            {i ? ", " : ""}
+                            <Link
+                              className="text-primary hover:underline"
+                              to={
+                                look
+                                  ? `/livetv/looks?look=${encodeURIComponent(id)}`
+                                  : `/livetv/looks?reel=${encodeURIComponent(id)}`
+                              }
+                            >
+                              {look?.name ?? reel?.name ?? t("Unavailable")}
+                            </Link>
+                          </span>
+                        );
+                      }),
                     })
-                  : a.usedBy.length
-                    ? t("Used by {layers}", { layers: a.usedBy.join(", ") })
-                    : t("Not used yet")}
+                  : t("Not used yet")}
               </p>
               {a.kind === "font" && a.license ? (
                 <p className="mt-2 text-xs text-fg-subtle">
