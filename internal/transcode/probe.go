@@ -658,6 +658,8 @@ func NormalizeCodec(c string) string {
 		return "mpeg2video"
 	case "dca":
 		return "dts"
+	case "pcm_bluray":
+		return "pcm_bluray"
 	case "mlp":
 		return "truehd"
 	case "hdmv_pgs_subtitle":
