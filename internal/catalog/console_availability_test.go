@@ -36,6 +36,7 @@ func TestConsoleAvailabilityEvidence(t *testing.T) {
 	run(core.Filter{Qualities: []string{"4k", "dv"}}, 0)
 	run(core.Filter{Qualities: []string{"hdr"}}, 1)
 	run(core.Filter{Qualities: []string{"dv"}}, 1)
+	run(core.Filter{DebridCached: "yes", Qualities: []string{"dv"}}, 0)
 	policy = "two"
 	run(core.Filter{Playable: "yes"}, 0)
 	run(core.Filter{Playable: "unknown"}, 3)
@@ -66,4 +67,13 @@ func TestConsoleAvailabilityEvidence(t *testing.T) {
 	}
 	run(core.Filter{DebridCached: "yes"}, 0)
 	run(core.Filter{DebridCached: "unknown"}, 3)
+}
+
+func TestConsoleAvailabilityCombinedQualityPredicate(t *testing.T) {
+	c := largeCatalogue(t, 1)
+	c.SetConsoleAvailabilityPolicy(func() string { return "policy" })
+	conditions, args := c.consoleAvailabilityConditions(core.Filter{Playable: "yes", DebridCached: "yes", Qualities: []string{"4k"}})
+	if len(conditions) != 1 || len(args) != 3 {
+		t.Fatalf("redundant evidence work conditions%v args%v", conditions, args)
+	}
 }

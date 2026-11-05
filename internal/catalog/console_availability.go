@@ -9,6 +9,7 @@ import (
 )
 
 func init() {
+	store.Register("catalog", 39, `CREATE INDEX catalog_release_evidence_quality_cover ON catalog_release_evidence(policy,verified_until,height,hdr,dv,atmos,cached,cache_until,rating_key);`)
 	store.Register("catalog", 37, `
 CREATE TABLE catalog_release_evidence (
  rating_key INTEGER NOT NULL, release_id TEXT NOT NULL, source_id TEXT NOT NULL,
@@ -76,14 +77,14 @@ func (c *Catalog) consoleAvailabilityConditions(f core.Filter) ([]string, []any)
 		return []string{"1=0"}, nil
 	}
 	playable := `t.key IN (SELECT ev.rating_key FROM catalog_release_evidence ev WHERE ev.policy=? AND ev.verified_until>?)`
-	if f.Playable != "" {
+	if f.Playable != "" && !(f.Playable == "yes" && len(f.Qualities) > 0) {
 		if f.Playable == "unknown" {
 			playable = "NOT (" + playable + ")"
 		}
 		conds = append(conds, playable)
 		args = append(args, policy, now)
 	}
-	if f.DebridCached != "" {
+	if f.DebridCached != "" && !(f.DebridCached == "yes" && len(f.Qualities) > 0) {
 		sql := `t.key IN (SELECT ev.rating_key FROM catalog_release_evidence ev WHERE ev.policy=? AND ev.cached=1 AND ev.cache_until>?)`
 		if f.DebridCached == "unknown" {
 			sql = `t.key NOT IN (SELECT ev.rating_key FROM catalog_release_evidence ev WHERE ev.policy=? AND ev.cached>=0 AND ev.cache_until>?)`
@@ -107,8 +108,14 @@ func (c *Catalog) consoleAvailabilityConditions(f core.Filter) ([]string, []any)
 				return []string{"1=0"}, nil
 			}
 		}
+		if f.DebridCached == "yes" {
+			q = append(q, "ev.cached=1 AND ev.cache_until>?")
+		}
 		conds = append(conds, fmt.Sprintf(`t.key IN (SELECT ev.rating_key FROM catalog_release_evidence ev WHERE ev.policy=? AND ev.verified_until>? AND %s)`, strings.Join(q, " AND ")))
 		args = append(args, policy, now)
+		if f.DebridCached == "yes" {
+			args = append(args, now)
+		}
 	}
 	return conds, args
 }
