@@ -28,6 +28,9 @@ import (
 type hubCtx struct {
 	section int
 	related core.RatingKey
+	// visible caps the rendered items of a hub whose candidate window is
+	// wider (section hubs assemble a stable window for later pages).
+	visible int
 }
 
 // hubSpec is a hub plus the PMS presentation details Ether generates for
@@ -66,11 +69,23 @@ func hubItemsKey(h core.Hub, hc hubCtx) string {
 
 func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubCtx) model.Hub {
 	h := hs.Hub
-	items := s.shelfItems(ctx, pr, h, hc, func() []core.Title {
+	build := func() []core.Title {
 		return (experience.RowSelection{Visibility: s.visibility(), PrioritizeAvailable: s.d.PrioritizeAvailable,
 			SameDayUnavailable: func(ctx context.Context, t *core.Title) bool { return s.sameDayUnavailable(ctx, pr, t) },
 		}).Items(ctx, pr.User, h)
-	})
+	}
+	var items []core.Title
+	if hs.state != nil {
+		// Watch-state shelves (Continue Watching) change with every
+		// scrobble; they are never held in a paging cut.
+		items = build()
+	} else {
+		items = s.shelfItems(ctx, pr, h, hc, build)
+	}
+	if hc.visible > 0 && len(items) > hc.visible {
+		items = items[:hc.visible]
+		h.More = true
+	}
 	// Related hubs (detail pages, postplay) carry Guid children and omit the
 	// items' library section and the hub's promoted flag, like PMS.
 	related := hc.related != 0
@@ -661,25 +676,20 @@ func (s *Server) buildSectionHubs(r *http.Request, sec Section) homeBuild {
 	mc.LibrarySectionID = model.Ptr(sec.ID)
 	mc.LibrarySectionTitle = sec.Title
 	mc.LibrarySectionUUID = sec.UUID
-	hc := hubCtx{section: sec.ID}
+	hc := hubCtx{section: sec.ID, visible: visibleCount}
 	pc := s.hubContext(pr, sec.ID)
 	served := map[string]core.Hub{}
 	var layoutHubs []core.Hub
 	var layoutNeutral []core.NeutralHomeRow
 	add := func(hs hubSpec) {
 		mh := s.renderHub(ctx, pr, hs, hc)
-		if len(mh.Metadata) > visibleCount {
-			mh.Metadata = mh.Metadata[:visibleCount]
-			mh.Size = len(mh.Metadata)
-			mh.More = true
-		}
 		mc.Hub = append(mc.Hub, mh)
 		hub, neutral := homeLayoutFacts(mh)
 		layoutHubs = append(layoutHubs, hub)
 		layoutNeutral = append(layoutNeutral, neutral)
 		served[mh.HubIdentifier] = hs.Hub
 	}
-	add(s.continueHub(ctx, pr, cwSection, sec, count))
+	add(s.continueHub(ctx, pr, cwSection, sec, visibleCount))
 	if ra, err := s.recentlyAddedHub(ctx, pr, sec, count); err == nil {
 		add(ra)
 	} else {
