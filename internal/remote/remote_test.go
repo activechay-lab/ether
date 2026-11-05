@@ -629,7 +629,7 @@ func TestGDMRoundTrip(t *testing.T) {
 
 func TestGDMMessages(t *testing.T) {
 	hello := string(GDMHello(GDMInfo{Name: "E", MachineIdentifier: "m", Port: 1, Version: "v"}, false))
-	if !strings.HasPrefix(hello, "HELLO * HTTP/1.0\r\nContent-Type: plex/media-server\r\nResource-Identifier: m\r\n") || !strings.HasSuffix(hello, "\r\n\r\n") {
+	if !strings.HasPrefix(hello, "HELLO * HTTP/1.0\r\nContent-Type: plex/media-server\r\nName: E\r\nPort: 1\r\nResource-Identifier: m\r\n") || !strings.HasSuffix(hello, "\r\n\r\n") {
 		t.Fatalf("%q", hello)
 	}
 	if !strings.HasPrefix(string(GDMHello(GDMInfo{}, true)), "BYE * HTTP/1.0") {
