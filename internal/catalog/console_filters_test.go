@@ -117,3 +117,21 @@ func TestConsoleNarrowPagingMatchesBrowse(t *testing.T) {
 		}
 	}
 }
+
+func TestConsoleYearEmptyGuardRespectsBooleanAlternatives(t *testing.T) {
+	c := largeCatalogue(t, 4)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		f     core.Filter
+		empty bool
+	}{
+		{core.Filter{Type: core.TypeMovie, YearFrom: 2199}, true},
+		{core.Filter{Group: &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{{Filter: &core.Filter{YearFrom: 2199}}}}}, true},
+		{core.Filter{Group: &core.FilterGroup{Operator: "or", Children: []core.FilterGroup{{Filter: &core.Filter{YearFrom: 2199}}, {Filter: &core.Filter{YearFrom: 1990}}}}}, false},
+	} {
+		empty, err := c.consoleYearEmpty(ctx, tc.f)
+		if err != nil || empty != tc.empty {
+			t.Fatalf("%+v empty=%v err=%v", tc.f, empty, err)
+		}
+	}
+}

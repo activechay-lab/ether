@@ -45,6 +45,19 @@ func TestConsole600K(t *testing.T) {
 		{"or-secondary", core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie, Group: &core.FilterGroup{Operator: "or", Children: []core.FilterGroup{{Filter: &core.Filter{YearTo: 1971}}, {Filter: &core.Filter{MinRating: 9.8}}}}}, Sort: core.SortYear, Desc: true, SecondarySorts: []core.SortSpec{{Sort: core.SortTitle}}, Limit: 49, NoTotal: true}},
 		{"zero-match", core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie, YearFrom: 2199, Genres: []string{"Thriller"}, MinRating: 9.9}, Sort: core.SortPopularity, Desc: true, Limit: 49, NoTotal: true}},
 	}
+	wireTypical := core.Filter{Group: &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{{Operator: "and", Children: []core.FilterGroup{
+		{Filter: &core.Filter{YearFrom: 1990, YearTo: 1999}}, {Filter: &core.Filter{Genres: []string{"Thriller"}}}, {Filter: &core.Filter{MinRating: 7}}, {Filter: &core.Filter{MaxRuntime: 2 * time.Hour}},
+	}}}}}
+	cases = append(cases, struct {
+		name string
+		q    core.BrowseQuery
+	}{"wire-all-titles-typical", core.BrowseQuery{Filter: wireTypical, Sort: core.SortPopularity, Desc: true, Limit: 49, NoTotal: true}})
+	wireOR := cases[3].q
+	wireOR.Filter.Type = ""
+	cases = append(cases, struct {
+		name string
+		q    core.BrowseQuery
+	}{"wire-all-titles-or-secondary", wireOR})
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.q.Filter.LocalOnly = true

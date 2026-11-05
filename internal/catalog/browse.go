@@ -71,6 +71,15 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	}
 	c.cacheMu.RUnlock()
 
+	if q.Filter.LocalOnly && q.NoTotal {
+		empty, err := c.consoleYearEmpty(ctx, q.Filter)
+		if err != nil {
+			return core.Page{}, err
+		}
+		if empty {
+			return core.Page{Items: []core.Title{}, Total: offset}, nil
+		}
+	}
 	where, args, err := c.browseWhere(q.Filter)
 	if err != nil {
 		return core.Page{}, err
@@ -146,7 +155,9 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	if q.Filter.LocalOnly && q.NoTotal && !computedAdded && q.Filter.Type != "" {
 		hint := ""
 		if store.DialectOf(c.db) != store.Postgres {
-			if q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 {
+			if len(q.Filter.Languages) == 1 && q.Filter.MinVotes > 0 {
+				hint = " INDEXED BY catalog_titles_console_language_votes_page"
+			} else if q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 {
 				hint = " INDEXED BY catalog_titles_console_pop_page"
 			}
 			if q.Sort == core.SortYear && q.Desc && len(q.SecondarySorts) == 1 && q.SecondarySorts[0].Sort == core.SortTitle && !q.SecondarySorts[0].Desc {
@@ -177,6 +188,15 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	}
 	var items []core.Title
 	switch {
+	case q.Filter.LocalOnly && q.NoTotal && q.Filter.Type == "" && !q.SortLastViewed && !computedAdded && offset+limit <= mergedPageMax:
+		keys, err := c.consoleMergedKeys(ctx, pageWhere, pageArgs, q, offset, limit)
+		if err != nil {
+			return core.Page{}, err
+		}
+		items, err = c.titlesInKeyOrder(ctx, keys)
+		if err != nil {
+			return core.Page{}, err
+		}
 	case q.Filter.Type == "" && !q.SortLastViewed && !computedAdded && len(q.SecondarySorts) == 0 && q.Sort != core.SortTitle && offset+limit <= mergedPageMax:
 		// Movies and series together: no index orders both types, so the
 		// sorted query reads every browsable title. Each type's page comes
