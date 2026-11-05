@@ -146,66 +146,47 @@ func ParseRequest(r *http.Request, trusted ...netip.Prefix) *Request {
 	return pr
 }
 
-// wantsJSON negotiates the response format from Accept like PMS: XML is the
-// default, JSON only when application/json is acceptable and preferred over
-// every explicitly listed XML type (higher q, or equal q and listed first).
-// Clients such as plexapi send "application/xml, application/json;q=0.9" and
-// must get XML; Plex Web sends "application/json, text/plain, */*" and gets JSON.
+// wantsJSON follows PMS's media-range grammar rather than HTTP's generic
+// Accept parser. A qualifying range still participates at weight zero when
+// its q value is invalid; absence of a qualifying range defaults to XML.
 func wantsJSON(r *http.Request) bool {
-	jsonQ, jsonPos := -1.0, 0
-	xmlQ, xmlPos := -1.0, 0
-	pos := 0
+	bestQ := -1.0
+	json := false
 	for _, a := range r.Header.Values("Accept") {
 		for _, part := range strings.Split(a, ",") {
-			part = strings.TrimSpace(part)
-			if part == "" {
+			mt, params, hasParams := strings.Cut(strings.TrimSpace(part), ";")
+			mt = strings.TrimSpace(mt)
+			if mt != "application/json" && mt != "application/xml" {
 				continue
 			}
-			pos++
-			mt, params, _ := strings.Cut(part, ";")
-			mt = strings.ToLower(strings.TrimSpace(mt))
-			q := acceptQ(params)
-			switch mt {
-			case "application/json":
-				if q > jsonQ {
-					jsonQ, jsonPos = q, pos
+			q := 1.0
+			if hasParams {
+				// The first parameter must start with exactly q=, with no
+				// whitespace after the semicolon and no case folding.
+				if !strings.HasPrefix(params, "q=") {
+					continue
 				}
-			case "application/xml", "text/xml":
-				if q > xmlQ {
-					xmlQ, xmlPos = q, pos
-				}
+				q = acceptQ(params)
+			}
+			if q > bestQ {
+				bestQ, json = q, mt == "application/json"
 			}
 		}
 	}
-	if jsonQ <= 0 {
-		return false
-	}
-	if xmlQ <= 0 {
-		return true
-	}
-	if jsonQ != xmlQ {
-		return jsonQ > xmlQ
-	}
-	return jsonPos < xmlPos
+	return json
 }
 
-// acceptQ returns the q parameter of an Accept media range (default 1).
+// acceptQ reads a single q parameter. Extra parameters and invalid or negative
+// values retain the media range with weight zero.
 func acceptQ(params string) float64 {
-	for _, p := range strings.Split(params, ";") {
-		k, v, ok := strings.Cut(strings.TrimSpace(p), "=")
-		if !ok || !strings.EqualFold(strings.TrimSpace(k), "q") {
-			continue
-		}
-		q, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-		if err != nil || q < 0 {
-			return 0
-		}
-		if q > 1 {
-			return 1
-		}
-		return q
+	if !strings.HasPrefix(params, "q=") || strings.Contains(params, ";") {
+		return 0
 	}
-	return 1
+	q, err := strconv.ParseFloat(params[2:], 64)
+	if err != nil || !(q >= 0) {
+		return 0
+	}
+	return q
 }
 
 // window applies the client's paging request to a list of n items and
