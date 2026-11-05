@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	store.Register("state_history_identity", 1, `
+	ddl := `
 ALTER TABLE state_history ADD COLUMN view_type INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE state_history ADD COLUMN device_id INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE state_history ADD COLUMN snapshot TEXT NOT NULL DEFAULT '';
@@ -20,8 +20,37 @@ CREATE INDEX state_history_seconds ON state_history(user_id,view_type,(viewed_at
 CREATE INDEX state_history_global_seconds ON state_history(view_type,(viewed_at/1000000000),id);
 CREATE INDEX state_history_kind ON state_history(user_id, view_type, viewed_at, id);
 CREATE INDEX state_history_item ON state_history(rating_key, user_id, view_type, viewed_at, id);
+CREATE INDEX state_history_section ON state_history((rating_key/1000000000000000),user_id,view_type,(viewed_at/1000000000),id);
 CREATE INDEX state_history_device ON state_history(device_id, user_id, view_type, viewed_at, id);
-`)
+`
+	store.Register("state", 8, ddl)
+	// Some prerelease databases recorded these columns in a separate component.
+	// Inspect the table shape so moving to the ordered state migration is safe.
+	store.RegisterApply("state", 8, func(ctx context.Context, tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, "SELECT * FROM state_history WHERE 1=0")
+		if err != nil {
+			return err
+		}
+		columns, err := rows.Columns()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		have := map[string]bool{}
+		for _, c := range columns {
+			have[c] = true
+		}
+		for _, column := range []struct{ name, definition string }{{"view_type", "INTEGER NOT NULL DEFAULT 1"}, {"device_id", "INTEGER NOT NULL DEFAULT 0"}, {"snapshot", "TEXT NOT NULL DEFAULT ''"}} {
+			if !have[column.name] {
+				if _, err := tx.ExecContext(ctx, "ALTER TABLE state_history ADD COLUMN "+column.name+" "+column.definition); err != nil {
+					return err
+				}
+			}
+		}
+		indexes := ddl[strings.Index(ddl, "CREATE INDEX"):]
+		_, err = tx.ExecContext(ctx, strings.ReplaceAll(indexes, "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS "))
+		return err
+	})
 }
 
 type historyScrobbleKey struct{}
@@ -56,6 +85,9 @@ func (s *State) QueryHistory(ctx context.Context, q core.HistoryQuery) ([]core.H
 	add := func(clause string, value any) { where = append(where, clause); args = append(args, value) }
 	if q.UserID != 0 {
 		add("user_id=?", q.UserID)
+	}
+	if q.Kind != 0 {
+		add("rating_key/1000000000000000=?", int(q.Kind))
 	}
 	if q.Key != 0 {
 		add("rating_key=?", int64(q.Key))

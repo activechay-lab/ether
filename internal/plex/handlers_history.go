@@ -80,15 +80,6 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 			viewTypes[int(n)] = true
 		}
 	}
-	_, size := pr.pageOf(0)
-	maxRows := min(size, 500)
-	if n, ok := ids["limit"]; ok && n < int64(maxRows) {
-		maxRows = int(max(n, 0))
-	}
-	if listHistory || !wantHistory || maxRows == 0 || s.d.State == nil || pr.User == nil || (!pr.User.IsOwner && q.Has("accountID") && ids["accountID"] != pr.User.PlexID) {
-		s.write(w, r, mc)
-		return
-	}
 	asc := false
 	if q.Has("sort") {
 		field, desc, ok := parseSort(q.Get("sort"))
@@ -100,6 +91,15 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	if offset, ok := ids["offset"]; ok && (offset < -2147483648 || offset > 2147483647) {
 		writeHTTPError(w, 400)
+		return
+	}
+	_, size := pr.pageOf(0)
+	maxRows := min(size, 500)
+	if n, ok := ids["limit"]; ok && n < int64(maxRows) {
+		maxRows = int(max(n, 0))
+	}
+	if listHistory || !wantHistory || maxRows == 0 || s.d.State == nil || pr.User == nil || (!pr.User.IsOwner && q.Has("accountID") && ids["accountID"] != pr.User.PlexID) {
+		s.write(w, r, mc)
 		return
 	}
 	accounts := map[int64]int64{pr.User.ID: pr.User.PlexID}
@@ -134,6 +134,19 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 			vtype = -1
 		}
 		query := core.HistoryQuery{UserID: userID, ViewType: vtype, Asc: asc, Offset: int(ids["offset"]), Limit: 500}
+		if section, ok := ids["librarySectionID"]; ok {
+			sec, found := s.sectionByID(int(section))
+			if !found {
+				s.write(w, r, mc)
+				return
+			}
+			if sec.Type == core.TypeMovie {
+				query.Kind = core.KindMovie
+			} else {
+				query.Kind = core.KindEpisode
+			}
+		}
+
 		if v, ok := ids["metadataItemID"]; ok {
 			query.Key = core.RatingKey(v)
 		}
@@ -169,7 +182,9 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	visible := map[core.RatingKey]bool{}
 	for _, h := range hist {
- if q.Has("accountID") && accounts[h.UserID]!=ids["accountID"]{continue}
+		if q.Has("accountID") && accounts[h.UserID] != ids["accountID"] {
+			continue
+		}
 		if !viewTypes[h.ViewType] {
 			continue
 		}
@@ -209,20 +224,8 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		md := model.Metadata{
-			RatingKey: t.Key.String(),
-			Key:       "/library/metadata/" + t.Key.String(),
-			Type:      string(t.Type),
-			Title:     t.Title,
-			Thumb:     thumbURL(t),
-			Extra: []model.Attr{
-				model.A("historyKey", "/status/sessions/history/"+strconv.FormatInt(h.ID, 10)),
-				model.A("viewedAt", h.ViewedAt.Unix()),
-				model.A("librarySectionID", historySection(s, t)),
-				model.A("deviceID", h.DeviceID),
-				model.A("accountID", accounts[h.UserID]),
-			},
-		}
+		md := model.HistoryMetadata{RatingKey: t.Key.String(), Key: "/library/metadata/" + t.Key.String(), Type: string(t.Type), Title: t.Title, Thumb: thumbURL(t), HistoryKey: "/status/sessions/history/" + strconv.FormatInt(h.ID, 10), ViewedAt: h.ViewedAt.Unix(), LibrarySectionID: historySection(s, t), DeviceID: h.DeviceID, AccountID: accounts[h.UserID]}
+
 		if !t.Released.IsZero() {
 			md.OriginallyAvailableAt = t.Released.Format("2006-01-02")
 		}
@@ -236,25 +239,31 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 			md.RatingKey = ""
 		}
 		if h.ViewType != 0 {
-			md.Extra = append(md.Extra, model.A("viewType", h.ViewType))
+			md.ViewType = model.Ptr(h.ViewType)
 		}
 		if t.Type == core.TypeEpisode {
 			md.ParentKey = "/library/metadata/" + core.SeasonKey(t.ShowKey.TMDB(), t.Season).String()
+			md.ParentThumb = md.ParentKey + "/thumb"
+			md.GrandparentThumb = "/library/metadata/" + t.ShowKey.String() + "/thumb"
 			md.GrandparentKey = "/library/metadata/" + t.ShowKey.String()
 		}
-		mc.Metadata = append(mc.Metadata, md)
-		if len(mc.Metadata) == maxRows {
+		mc.History = append(mc.History, md)
+		if len(mc.History) == maxRows {
 			break
 		}
 	}
-	mc.Size = len(mc.Metadata)
+	mc.Size = len(mc.History)
 	mc.TotalSize = model.Ptr(mc.Size)
 	s.write(w, r, mc)
 }
 
 func (s *Server) handleHistoryItem(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(r.Context())
-	id, err := strconv.ParseInt(chi.URLParam(r, "history"), 10, 32)
+	id, err := strconv.ParseInt(chi.URLParam(r, "history"), 10, 64)
+	if err == nil && id > 2147483647 {
+		writeHTTPError(w, 400)
+		return
+	}
 	if err != nil || id <= 0 {
 		writeHTTPError(w, 404)
 		return
@@ -302,8 +311,8 @@ func (s *Server) handleHistoryItem(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	md := model.Metadata{Title: t.Title, Type: string(t.Type), Extra: []model.Attr{
-		model.A("historyKey", "/status/sessions/history/"+strconv.FormatInt(h.ID, 10)), model.A("librarySectionID", historySection(s, t)), model.A("viewedAt", h.ViewedAt.Unix()), model.A("accountID", accountID), model.A("deviceID", h.DeviceID), model.A("viewType", 1)}}
+	md := model.HistoryMetadata{Title: t.Title, Type: string(t.Type), HistoryKey: "/status/sessions/history/" + strconv.FormatInt(h.ID, 10), LibrarySectionID: historySection(s, t), ViewedAt: h.ViewedAt.Unix(), AccountID: accountID, DeviceID: h.DeviceID, ViewType: model.Ptr(1)}
+
 	if !t.Released.IsZero() {
 		md.OriginallyAvailableAt = t.Released.Format("2006-01-02")
 	}
@@ -312,5 +321,5 @@ func (s *Server) handleHistoryItem(w http.ResponseWriter, r *http.Request) {
 		md.Index = model.Ptr(t.Episode)
 		md.ParentIndex = model.Ptr(t.Season)
 	}
-	s.write(w, r, &model.MediaContainer{Size: 1, Metadata: []model.Metadata{md}})
+	s.write(w, r, &model.MediaContainer{Size: 1, History: []model.HistoryMetadata{md}})
 }

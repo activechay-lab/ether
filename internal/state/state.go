@@ -397,7 +397,7 @@ func addHistoryTx(ctx context.Context, tx *sql.Tx, userID int64, key core.Rating
 	if err != nil {
 		return err
 	}
-	return addLifetimeTx(ctx, tx, userID, key, at.UnixNano())
+	return nil
 }
 
 // Get returns the status for one key. A never-touched key returns a zero

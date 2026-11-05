@@ -313,6 +313,7 @@ type HistoryEntry struct {
 
 // HistoryQuery selects persisted viewing events before applying a bounded page.
 type HistoryQuery struct {
+	Kind             KeyKind
 	UserID           int64 // zero selects all accounts (owner only at the protocol boundary)
 	Key              RatingKey
 	DeviceID         *int64
@@ -321,10 +322,15 @@ type HistoryQuery struct {
 	Asc              bool
 	Offset, Limit    int
 }
-type HistoryCount struct {Key RatingKey;Count int;LastAt int64;Users []int64}
+type HistoryCount struct {
+	Key    RatingKey
+	Count  int
+	LastAt int64
+	Users  []int64
+}
 type HistoryTopStore interface {
- HistoryTop(context.Context,HistoryQuery,KeyKind)([]HistoryCount,error)
- LifetimeUsers(context.Context,RatingKey,HistoryQuery)([]HistoryCount,error)
+	HistoryTop(context.Context, HistoryQuery, KeyKind) ([]HistoryCount, error)
+	LifetimeUsers(context.Context, RatingKey, HistoryQuery) ([]HistoryCount, error)
 }
 type HistoryStore interface {
 	QueryHistory(context.Context, HistoryQuery) ([]HistoryEntry, error)
