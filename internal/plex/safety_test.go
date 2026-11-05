@@ -186,7 +186,7 @@ func TestHistoryHidesRestrictedTitles(t *testing.T) {
 	f.srv.d.State = historyState{fakeState: f.state, hist: []core.HistoryEntry{
 		{UserID: 30, Key: fightClub.Key, ViewedAt: fixedNow}, {UserID: 30, Key: pg.Key, ViewedAt: fixedNow},
 	}}
-	rec := f.get(t, "/status/sessions/history/all", "X-Plex-Token", "kid")
+	rec := f.get(t, "/status/sessions/history/all?type=1", "X-Plex-Token", "kid")
 	if rec.Code != 200 || strings.Contains(rec.Body.String(), "Fjord Harbor") || !strings.Contains(rec.Body.String(), "Alien") {
 		t.Errorf("history: %d %s", rec.Code, rec.Body.String())
 	}
@@ -304,7 +304,7 @@ func TestHistoryAndPosterHideBlockedShowEpisodes(t *testing.T) {
 	show.Keywords = []string{"blocked"}
 	f.catalog.titles[show.Key] = show
 	f.srv.d.State = historyState{fakeState: f.state, hist: []core.HistoryEntry{{UserID: friendUser.ID, Key: bbE1.Key, ViewedAt: fixedNow}}}
-	if rec := f.get(t, "/status/sessions/history/all", "X-Plex-Token", friendToken); rec.Code != 200 || strings.Contains(rec.Body.String(), bbE1.Title) {
+	if rec := f.get(t, "/status/sessions/history/all?type=1", "X-Plex-Token", friendToken); rec.Code != 200 || strings.Contains(rec.Body.String(), bbE1.Title) {
 		t.Errorf("history: %d %s", rec.Code, rec.Body.String())
 	}
 	key := core.CollectionKey(78)
