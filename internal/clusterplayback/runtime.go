@@ -13,6 +13,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
+	"github.com/braedonsaunders/ether/internal/playbackbuffer"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"net/http"
 	"net/url"
@@ -24,6 +25,10 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
+	// OutputBuffer is an opt-in surviving-controller segment store. Scratch has
+	// one slot of MaxSegmentBytes; nil leaves existing delivery unchanged.
+	OutputBuffer                           *playbackbuffer.Store
+	MaxSegmentBytes                        int64
 	WorkerCapabilities, RemoteCapabilities remotetranscode.Capabilities
 	// HistoryCapacity bounds boot-retained authority tombstones (default4096),
 	// independently of concurrent placement resource capacity.
@@ -50,6 +55,7 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
+	outputScratch  chan struct{}
 	history        *placement.History
 	credentials    map[string]sourceCredential
 	reopenLives    map[string]*ReopenResponsibility
@@ -75,6 +81,9 @@ type Runtime struct {
 }
 
 func NewRuntime(o Options) (*Runtime, error) {
+	if o.OutputBuffer != nil && (o.MaxSegmentBytes <= 0 || o.MaxSegmentBytes > 64<<20) {
+		return nil, ErrDenied
+	}
 	var capErr error
 	o.WorkerCapabilities, capErr = remotetranscode.NormalizeCapabilities(o.WorkerCapabilities)
 	if capErr != nil {
@@ -94,6 +103,9 @@ func NewRuntime(o Options) (*Runtime, error) {
 		return nil, ErrDenied
 	}
 	r := &Runtime{credentials: map[string]sourceCredential{}, reopenLives: map[string]*ReopenResponsibility{}, reopens: map[string]*reopenRecord{}, preparations: map[string]*preparation{}, o: o, mux: http.NewServeMux(), sources: map[string]*ownedSource{}, inputs: map[remotetranscode.Identity]*workerInput{}, executions: map[string]*execution{}}
+	if o.OutputBuffer != nil {
+		r.outputScratch = make(chan struct{}, 1)
+	}
 	history, historyErr := placement.NewHistory(o.Placement, o.Self.Cluster, r)
 	if historyErr != nil {
 		return nil, historyErr

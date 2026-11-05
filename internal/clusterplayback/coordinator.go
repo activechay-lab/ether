@@ -15,6 +15,7 @@ import (
 )
 
 type execution struct {
+	output                        *bufferedSession
 	foreign                       bool
 	done                          chan struct{}
 	busy, reservePending, retired bool
@@ -186,6 +187,12 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		r.Stop(q.SessionID)
 		return nil, ErrPending
 	}
+	if output := r.newBufferedSession(rt, q, x.session); output != nil {
+		r.mu.Lock()
+		x.output = output
+		r.mu.Unlock()
+		return output, nil
+	}
 	return hs, nil
 }
 func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
@@ -270,14 +277,32 @@ func (r *Runtime) Session(id string) (core.HLSSession, bool) {
 	r.mu.Lock()
 	x := r.executions[id]
 	var a *remotetranscode.Adapter
+	var output *bufferedSession
+	active := x != nil && !x.stopping && !x.retired && !r.closed
 	if x != nil {
 		a = x.adapter
+		output = x.output
 	}
 	r.mu.Unlock()
 	if a == nil {
 		return nil, false
 	}
-	return a.Session(id)
+	// Published local bytes remain available after an encoder failure, while
+	// exact current authority is rechecked at every cache request. This is not
+	// evidence of worker retirement or permission to replace it.
+	if output != nil {
+		if !active {
+			return nil, false
+		}
+		if output.published.Load() {
+			return output, true
+		}
+	}
+	session, ok := a.Session(id)
+	if ok && output != nil {
+		return output, true
+	}
+	return session, ok
 }
 func (r *Runtime) EncoderRetirement(id string) (core.EncoderRetirement, bool) {
 	r.mu.Lock()
