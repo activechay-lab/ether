@@ -180,6 +180,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if m.Op == "start" {
+
 		w.start(out, r, peer, *m.Start)
 		return
 	}
@@ -277,6 +278,24 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 			return
 		}
 		replyStatus(out, snapshot)
+		return
+	}
+	// Preserve immutable duplicate replay before rechecking current backend policy.
+	// The checker runs without the worker mutex and before source/admission work.
+	w.mu.Unlock()
+	if backend, ok := w.opts.Encoder.(interface{ SupportsDistributedRequest(core.HLSRequest) bool }); ok {
+		var planStart Start
+		_ = json.Unmarshal(encoded, &planStart)
+		plan := core.HLSRequest{ReleaseID: planStart.ReleaseID, Info: planStart.Info, Decision: planStart.Decision, StartOffset: planStart.Offset, SegmentDuration: planStart.SegmentDuration, Protocol: planStart.Protocol, SoftSubtitleStream: planStart.SoftSubtitleStream, RequireIndependentProof: planStart.IndependentProof}
+		if !backend.SupportsDistributedRequest(plan) {
+			http.Error(out, "backend plan unsupported", 422)
+			return
+		}
+	}
+	w.mu.Lock()
+	if w.records[s.Identity] != nil {
+		w.mu.Unlock()
+		w.start(out, r, peer, s)
 		return
 	}
 	key := s.Identity.Controller + "/" + s.Identity.Session

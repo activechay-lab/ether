@@ -243,3 +243,30 @@ private transport, backend HTTP completion/goodput describe worker-to-controller
 output, not final controller-to-viewer delivery. In particular DeliveredUntil
 must not be treated as proof of final viewer delivery. Final-hop delivery evidence
 requires separate broker integration; no observation invents it here.
+
+## Concrete backend preflight
+
+When the injected encoder implements `SupportsDistributedRequest(core.HLSRequest)
+bool`, Worker repeats this side-effect-free check on new exact executions before
+source resolution or admission. Existing immutable duplicate-start replay is
+resolved first. The check runs outside the worker mutex. Missing optional methods
+on custom injected backends retain the explicit trusted host capability contract;
+they do not establish real Manager compatibility by themselves.
+
+`transcode.Manager.SupportsDistributedRequest` validates the actual normalized
+command dependencies against startup-probed encoder/filter/hardware inventories
+and additive muxer/demuxer/decoder/BSF/input-protocol inventories. It checks HTTP
+AAC and DASH normalization, configured ladder decisions, subtitle output, HDR
+conversion plans, implicit muxer BSFs and seek-only dependencies without opening
+sources or spawning processes. Unknown inventories and unsupported combinations
+deny distributed admission. It does not substitute codecs to make a plan pass.
+
+The extra inventories are optional startup queries with a 15-second overall cap,
+3-second per-query bound and 1 MiB combined output cap. Probe failure leaves that
+inventory unknown and changes no standalone FFmpeg feature fallback behavior.
+Preflight and execution must use the same dedicated Manager with fixed policy:
+FastStart/SpikeGovernor/RTX and source mutation disabled; ABR ladders only when
+explicitly configured and supported end-to-end. Protocol capability admission,
+current source/placement authorization and actual worker capacity remain separate
+mandatory checks. Feature support never guarantees successful process/device
+startup or reserves future capacity.
