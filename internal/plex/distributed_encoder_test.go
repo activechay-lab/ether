@@ -59,6 +59,8 @@ func (e *recordedPlexEncoder) ForwardPlexMedia(w http.ResponseWriter, r *http.Re
 		// no sender user/context/acceptance assertion is transferred.
 		request := httptest.NewRequest(r.Method, r.URL.RequestURI(), nil)
 		request.Header = r.Header.Clone()
+		request.RemoteAddr, request.Host, request.TLS = r.RemoteAddr, r.Host, r.TLS
+		request.Header.Set("X-Ether-Delivery-Hop", "1")
 		e.forwardHandler.ServeHTTP(w, request)
 		return true
 	}

@@ -78,10 +78,16 @@ func (s *Server) forwardPlexMedia(w http.ResponseWriter, r *http.Request, id str
 // missingPlexMediaID is deliberately narrower than general Plex routing. It is
 // eligible only for terminal owner transfer, never local authentication success.
 func missingPlexMediaID(r *http.Request) (string, bool) {
+	if len(r.Header.Values("X-Ether-Delivery-Hop")) != 0 {
+		return "", false
+	}
+	return strictPlexMediaID(r)
+}
+func strictPlexMediaID(r *http.Request) (string, bool) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		return "", false
 	}
-	if r.URL == nil || !capabilityPathOK(r) || len(r.URL.RequestURI()) > 16384 || r.Header.Get("X-Ether-Delivery-Hop") != "" {
+	if r.URL == nil || !capabilityPathOK(r) || len(r.URL.RequestURI()) > 16384 {
 		return "", false
 	}
 	const prefix = "/video/:/transcode/universal/session/"

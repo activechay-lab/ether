@@ -287,6 +287,10 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 					writeHTTPError(w, http.StatusUnauthorized)
 					return
 				}
+				if !s.forwardedOwnerPolicy(r, pr) {
+					writeHTTPError(w, http.StatusForbidden)
+					return
+				}
 				if s.d.Hooks.OnClientSeen != nil {
 					s.d.Hooks.OnClientSeen(pr.ClientID)
 				}
@@ -309,6 +313,10 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		if s.authenticateStreamGrant(r, pr) || s.authenticateSessionRead(r, pr) || s.authenticateLiveGrant(r, pr) {
 			if !s.acceptanceCurrent(r) {
 				writeHTTPError(w, http.StatusUnauthorized)
+				return
+			}
+			if !s.forwardedOwnerPolicy(r, pr) {
+				writeHTTPError(w, http.StatusForbidden)
 				return
 			}
 			next.ServeHTTP(w, r)
