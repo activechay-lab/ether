@@ -28,6 +28,11 @@ func TestInfuseDirectPartUsesMinuteResumeThreshold(t *testing.T) {
 			if rec := f.request(t, http.MethodGet, part, partHeaders); rec.Code != http.StatusPartialContent {
 				t.Fatalf("direct part: %d %s", rec.Code, rec.Body.String())
 			}
+			ps, ok := f.playback.SessionFor(ownerUser.ID, "infuse-direct", fightClub.Key)
+			if !ok {
+				t.Fatal("missing direct playback")
+			}
+			ps.BytesServed = 10 // the fake range server delivered the requested bytes
 			for _, playbackState := range []string{"playing", "stopped"} {
 				path := fmt.Sprintf("/:/timeline?ratingKey=%s&state=%s&time=%d&duration=5820000", fightClub.Key, playbackState, tc.offset)
 				if rec := f.request(t, http.MethodPost, path, headers); rec.Code != http.StatusOK {
