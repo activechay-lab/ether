@@ -746,7 +746,7 @@ ON CONFLICT(key) DO UPDATE SET
 	if err != nil {
 		return fmt.Errorf("catalog: upsert %d: %w", t.Key, err)
 	}
-	if err := updateReleaseNames(ctx, tx, int64(t.Key)); err != nil {
+	if err := updateReleaseNames(ctx, tx, int64(t.Key), t.Type); err != nil {
 		return fmt.Errorf("catalog: index release name: %w", err)
 	}
 	if t.RemoteTrailerURL != "" {
