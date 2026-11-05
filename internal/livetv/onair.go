@@ -151,7 +151,7 @@ func guideSchedule(c Channel, from, until time.Time) []Programme {
 	return visible
 }
 
-func (s *Service) clipRequest(c Channel, p Programme) core.ClipRequest {
+func (s *Service) clipRequest(c Channel, p Programme, snapshots ...[]Programme) core.ClipRequest {
 	lookID := ""
 	if c.Look != nil {
 		lookID = c.Look.LookID
@@ -179,7 +179,13 @@ func (s *Service) clipRequest(c Channel, p Programme) core.ClipRequest {
 		return r
 	}
 	c = s.graphicsChannel(c)
-	for _, next := range Schedule(c, p.Start, p.End.Add(24*time.Hour)) {
+	var upcoming []Programme
+	if len(snapshots) > 0 {
+		upcoming = snapshots[0]
+	} else {
+		upcoming = Schedule(c, p.Start, p.End.Add(24*time.Hour))
+	}
+	for _, next := range upcoming {
 		if next.Item.Key != 0 && !next.Start.Before(p.End) {
 			r.Bind["next.title"] = next.Item.Title
 			r.Bind["next.time"] = next.Start.In(zoneOf(c.Timezone)).Format("15:04")

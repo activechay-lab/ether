@@ -63,24 +63,25 @@ type renderJob struct {
 	convert     func(context.Context) error
 }
 type Service struct {
-	resources string
-	reelReady map[string]bool
-	o         Options
-	db        *sql.DB
-	mu        sync.Mutex
-	assetMu   sync.Mutex
-	looks     map[string]Look
-	cache     map[string]entry
-	pins      map[string]time.Time
-	pending   map[string]bool
-	progress  map[string]*Progress
-	lookJobs  map[string][]string
-	jobs      chan renderJob
-	clipJobs  chan renderJob
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	startOnce sync.Once
+	resources   string
+	reelReady   map[string]bool
+	o           Options
+	db          *sql.DB
+	mu          sync.Mutex
+	assetMu     sync.Mutex
+	looks       map[string]Look
+	cache       map[string]entry
+	pins        map[string]time.Time
+	pending     map[string]bool
+	renderTimes map[string]time.Duration
+	progress    map[string]*Progress
+	lookJobs    map[string][]string
+	jobs        chan renderJob
+	clipJobs    chan renderJob
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	startOnce   sync.Once
 }
 
 var _ core.ChannelGraphics = (*Service)(nil)
@@ -99,7 +100,7 @@ func New(o Options) (*Service, error) {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 16), ctx: ctx, cancel: cancel}
+	s := &Service{reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 16), ctx: ctx, cancel: cancel}
 	if e := s.seed(ctx); e != nil {
 		cancel()
 		return nil, e
@@ -326,6 +327,26 @@ func (s *Service) Clip(_ context.Context, r core.ClipRequest) (core.ClipRef, boo
 	}
 	return v.Ref, ok
 }
+
+// RenderLead reflects measured 1080p master work, including slot contention.
+// Every channel decodes these same masters; lower-resolution outputs inherit
+// the conservative native-resolution estimate. Cached repeats need no work.
+func (s *Service) RenderLead(look, moment string) time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	estimate := time.Duration(0)
+	if moment != "" {
+		estimate = s.renderTimes[look+"/"+moment]
+	} else {
+		for key, duration := range s.renderTimes {
+			if look == "" || strings.HasPrefix(key, look+"/") {
+				estimate = max(estimate, duration)
+			}
+		}
+	}
+	return max(3*time.Minute, 4*estimate)
+}
+
 func (s *Service) Ensure(_ context.Context, r core.ClipRequest) {
 	j, ok := s.plan(r)
 	if ok {
@@ -498,6 +519,19 @@ func (s *Service) execute(j renderJob) (err error) {
 	if j.convert != nil {
 		return j.convert(ctx)
 	}
+	started := time.Now()
+	defer func() {
+		elapsed := time.Since(started)
+		s.mu.Lock()
+		key := j.Look + "/" + j.Doc.Moment
+		if s.renderTimes == nil {
+			s.renderTimes = map[string]time.Duration{}
+		}
+		previous := s.renderTimes[key]
+		s.renderTimes[key] = max(elapsed, (previous*3+elapsed)/4)
+		s.mu.Unlock()
+		s.o.Logger.Debug("onair master rendered", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed, "cached", err == nil)
+	}()
 	if e := s.loadAssets(ctx, &j); e != nil {
 		return e
 	}

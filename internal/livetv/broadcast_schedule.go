@@ -29,7 +29,7 @@ func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until 
 		skip := s.graphicsSkips[c.ID+"/"+p.ID]
 		s.mu.Unlock()
 		if skip.IsZero() && check && interstitial(p.Item) && p.End.Add(-advance).After(from) && p.Start.Add(-advance).Before(until) {
-			request := s.clipRequest(c, p)
+			request := s.clipRequest(c, p, ps)
 			p.graphicsRequest = &request
 			ready := false
 			if p.Item.ReelClipID == "" {
