@@ -1077,7 +1077,7 @@ func applyTranscodeMedia(m *model.Media, dec core.Decision, protocol string) {
 // the shape under review against a real PMS Android capture; the selected
 // stream's shape never changes.
 //
-// The selected subtitle row follows PMS 1.42 (rex subtitles_s1422 capture):
+// The selected subtitle row follows PMS 1.42 (recorded PMS 1.42.2 capture):
 // subtitles=none is decision="ignore" with nothing delivered (except a
 // text track a Matroska run carries, which keeps the copy row); a burned text
 // track is decision="burn" burn="1" location="segments-av"; Plex Web's text

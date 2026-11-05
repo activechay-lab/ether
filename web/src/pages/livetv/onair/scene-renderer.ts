@@ -1,4 +1,5 @@
 import { warmStatic } from "./warm-static";
+import { resolveBug } from "./bug";
 import { getToken, SESSION_HEADER } from "../../../lib/api";
 import type { Bindings, Look, Moment } from "./model";
 
@@ -261,7 +262,7 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
           )
           .join("");
     const setFont = () => {
-      c.font = `${size}px "onair-${normalizeFont(s(l.font))}", "onair-notosans"`;
+      c.font = `${l.weight ?? 400} ${size}px "onair-${normalizeFont(s(l.font))}", "onair-notosans"`;
     };
     setFont();
     const measure = (line: string) =>
@@ -416,10 +417,27 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
               im.height * scale,
             );
             if (l.tint) {
-              draw.globalCompositeOperation = "multiply";
+              draw.globalCompositeOperation =
+                l.tintBlend === "silhouette" ? "source-in" : "multiply";
               draw.fillStyle = paint(draw, l.tint);
               draw.fillRect(0, 0, w, h);
             }
+          } else if (l.id === "station-logo" || l.id === "bug-shadow") {
+            draw.save();
+            draw.translate(0, 64);
+            text(draw, {
+              ...l,
+              type: "text",
+              text: "{channel.name}",
+              font: "{type.display}",
+              size: 48,
+              weight: 600,
+              track: 2,
+              fill: l.tint ?? "{accent}",
+              fit: "shrink",
+              maxWidth: 288,
+            });
+            draw.restore();
           }
         } else if (l.type === "noise") {
           draw.imageSmoothingEnabled = true;
@@ -922,7 +940,56 @@ export function renderLook(
         layers: l.layers ? edit(l.layers) : undefined,
       } as Layer;
     });
-  let previewLayers = doc.layers;
+  const bug = resolveBug(look.bug);
+  const scale = bug.size === "small" ? 0.75 : bug.size === "large" ? 1.3 : 1;
+  const logo = bindings.channel?.logo || look.brand.logo;
+  const useLogo = bug.source === "logo" && logo && logo.length > 3;
+  const mark: Layer = useLogo
+    ? {
+        id: "station-logo",
+        type: "image",
+        src: logo,
+        w: 288,
+        h: 100,
+        fit: "contain",
+        glow: 2,
+        ...(bug.style === "monochrome" ? { tint: "#eeeeee", tintBlend: "silhouette" } : {}),
+      }
+    : {
+        id: "Title",
+        type: "text",
+        text: "{channel.name}",
+        y: 64,
+        font: "{type.display}",
+        size: 48,
+        weight: 600,
+        track: 2,
+        fill: bug.style === "original" ? "{accent}" : "#eeeeee",
+        maxWidth: 288,
+        fit: "shrink",
+        glow: 2,
+      };
+  const shadow: Layer = {
+    ...mark,
+    id: "bug-shadow",
+    fill: "#000000",
+    tint: "#000000",
+    glow: 0,
+    blur: 2,
+    y: mark.type === "text" ? 66 : 2,
+  };
+  const bugLayers: Layer[] = [
+    {
+      id: "station-bug",
+      type: "group",
+      x: bug.position.endsWith("Left") ? 192 : 1728 - 288 * scale,
+      y: bug.position.startsWith("top") ? 108 : 972 - 100 * scale,
+      scale,
+      opacity: bug.opacity,
+      layers: [shadow, mark],
+    },
+  ];
+  let previewLayers = moment === "bug" ? bugLayers : doc.layers;
   if (moment === "bug" || moment === "lowerthird") {
     const illustration = documentFor(look.family, "upnext")?.layers.find((l) =>
       l.id.endsWith("-illustration"),
@@ -938,14 +1005,33 @@ export function renderLook(
       };
       previewLayers = [
         programme,
-        ...(moment === "lowerthird" ? (documentFor(look.family, "bug")?.layers ?? []) : []),
-        ...doc.layers,
+        ...(moment === "lowerthird" ? bugLayers : []),
+        ...(moment === "bug" ? bugLayers : doc.layers),
       ];
     }
   }
   const document = { ...doc, layers: look.layers ? edit(previewLayers) : previewLayers };
+  if (moment === "ident" && document.layers[0]?.id === "ident-envelope") {
+    const duration = look.moments.ident?.duration ?? doc.duration;
+    document.duration = duration;
+    document.layers = document.layers.map((layer, i) =>
+      i
+        ? layer
+        : {
+            ...layer,
+            opacity: {
+              keys: [
+                [0, 0],
+                [0.4, 1, "inOut"],
+                [duration - 0.4, 1],
+                [duration, 0, "inOut"],
+              ],
+            },
+          },
+    );
+  }
   const bound = lookBindings(look, bindings);
-  if (look.brand.logo) {
+  if (look.brand.logo && moment !== "bug" && moment !== "lowerthird") {
     const logo = look.brand.logo;
     if ([...logo].length <= 3)
       document.layers = [
@@ -989,15 +1075,18 @@ if (import.meta.hot)
     consumers.clear();
   });
 
+const silhouettes = new Map<string, Promise<ImageBitmap>>();
 const artwork = new Map<string, Promise<ImageBitmap | undefined>>();
 // Resource preparation is outside the pure frame evaluator, just as in Go.
 export async function loadSceneAssets(doc: Scene, bindings: SceneBindings): Promise<SceneBindings> {
   const assets = { ...bindings.assets };
   const sources = new Set<string>();
+  const masks = new Set<string>();
   const visit = (ls: Layer[]) => {
     for (const l of ls) {
       if (l.src) {
         const src = String(evaluate(l.src, bindings, 0) ?? "");
+        if (l.tintBlend === "silhouette") masks.add(src);
         if (
           src &&
           !assets[src] &&
@@ -1026,7 +1115,38 @@ export async function loadSceneAssets(doc: Scene, bindings: SceneBindings): Prom
         artwork.set(src, pending);
       }
       const image = await pending;
-      if (image) assets[src] = image;
+      if (image) {
+        if (masks.has(src)) {
+          let mask = silhouettes.get(src);
+          if (!mask) {
+            mask = (async () => {
+              const c = new OffscreenCanvas(image.width, image.height),
+                x = c.getContext("2d")!;
+              x.drawImage(image, 0, 0);
+              const pixels = x.getImageData(0, 0, c.width, c.height),
+                p = pixels.data;
+              let transparent = false;
+              for (let i = 3; i < p.length; i += 4)
+                if (p[i]! < 250) {
+                  transparent = true;
+                  break;
+                }
+              const invert = (p[0]! + p[1]! + p[2]!) / 3 > 128;
+              for (let i = 0; i < p.length; i += 4) {
+                if (!transparent) {
+                  const l = 0.2126 * p[i]! + 0.7152 * p[i + 1]! + 0.0722 * p[i + 2]!;
+                  p[i + 3] = invert ? 255 - l : l;
+                }
+                p[i] = p[i + 1] = p[i + 2] = 255;
+              }
+              x.putImageData(pixels, 0, 0);
+              return createImageBitmap(c);
+            })();
+            silhouettes.set(src, mask);
+          }
+          assets[src] = await mask;
+        } else assets[src] = image;
+      }
     }),
   );
   return { ...bindings, assets };

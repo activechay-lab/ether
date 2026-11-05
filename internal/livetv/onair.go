@@ -151,8 +151,12 @@ func (s *Service) clipRequest(c Channel, p Programme) core.ClipRequest {
 	}
 	r := core.ClipRequest{LookID: lookID, Moment: p.Item.Slate, ChannelID: c.ID, Bind: map[string]string{"channel.name": c.Name}, Art: map[string]string{}}
 	if c.Look != nil {
+		r.Bug = c.Look.Bug
 		r.Bind["channel.tagline"] = c.Look.Tagline
 		r.Bind["channel.accent"] = c.Look.Accent
+	}
+	if p.Item.Slate == "bug" && c.Logo != "" {
+		r.Art["channel.logo"] = c.Logo
 	}
 	if c.Personal != nil && c.personalViewer != nil {
 		r.ViewerID = c.personalViewer.ID

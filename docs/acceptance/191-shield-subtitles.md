@@ -33,14 +33,9 @@ references are in `testdata/conform/plex` (see `internal/plex/conform_test.go`).
 Those are useful for decision envelopes and PGS metadata, but do not contain
 the exact Shield subtitle conversion capture.
 
-Additional reference facts were studied at
-`~/Documents/.ether-ref/rex/tests/fixtures/transcode/subtitles_s1422.json`
-(real PMS 1.42.2, Android **Mobile** conversion, iOS and Web) and
-`tests/fixtures/decisions/shield_android_tv_decision.json` (a sanitized Shield
-**request**, not a PMS response). Rex's `runtime/universal.rs`, `streams.rs`,
-`subtitles.rs`, and `docs/protocol-traps.md` were consulted for concepts only.
-No Rex source or fixture was copied into Ether. The lasting test authors its
-own media facts and request from these observed protocol fields.
+Additional recorded PMS 1.42.2 conversion facts (Android Mobile, iOS and Web)
+and a sanitized Shield decision request were studied. The lasting test authors
+its own media facts and request from these observed protocol fields.
 
 | Element/path | Native MKV | Matroska HLS conversion |
 | --- | --- | --- |
@@ -52,15 +47,13 @@ own media facts and request from these observed protocol fields.
 | Playlist | Part bytes | Existing Matroska HLS header via `EXT-X-MAP`, then cluster fragments |
 | `/library/streams/{id}` | Existing authenticated extraction route remains available for text | Used when a decision really offers a sidecar; never a substitute for PGS burn |
 
-Rex and PMS make the output contract explicit: a Matroska target stays
-Matroska; selected text travels with the AV segments. Ether already had the
-muxer, subtitle mapping, default/language flags, ASS headers and header/cluster
-playlist support. Its late fallback bypassed those facilities. Rex's conversion
-plan also explicitly separates image burn from text copy and sidecar delivery;
-Ether now retains the TV image selection and burns it when conversion is needed.
-Rex's capture notes that PMS can burn ASS while Rex copies it; Rex is therefore
-not treated as the oracle for every ASS mode. Explicit TV burn requests use
-Ether's existing libass path.
+PMS makes the output contract explicit: a Matroska target stays Matroska;
+selected text travels with the AV segments. Ether already had the muxer,
+subtitle mapping, default/language flags, ASS headers and header/cluster
+playlist support. Its late fallback bypassed those facilities. The conversion
+plan now explicitly separates image burn from text copy and sidecar delivery:
+Ether retains the TV image selection and burns it when conversion is needed.
+Explicit TV burn requests use Ether's existing libass path.
 
 AndroidX's Matroska extractor recognizes S_TEXT/UTF8, S_TEXT/ASS and S_HDMV/PGS.
 Text block durations and ASS initialization data matter, so merely finding cue

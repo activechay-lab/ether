@@ -178,6 +178,9 @@ func TestDebridSeekConnectionReplay(t *testing.T) {
 			t.Fatal("seek did not reach CDN")
 		}
 	}
+	// A client retires its obsolete requests explicitly. A new range alone
+	// must not cancel still-live direct-play reads (including Cues).
+	cancel()
 	if err := request(context.Background(), 1_640_000_000); err != nil {
 		t.Fatal(err)
 	}

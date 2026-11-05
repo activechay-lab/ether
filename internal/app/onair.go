@@ -104,7 +104,7 @@ func (a *App) onairBindings(ctx context.Context, channel, viewer string, at time
 		greeting = "Good afternoon"
 	}
 	out["viewer"] = map[string]string{"name": name, "greeting": greeting}
-	out["channel"] = map[string]string{"name": c.Name}
+	out["channel"] = map[string]string{"name": c.Name, "logo": c.Logo}
 	ps, e := a.livetv.GuideForChannels(ctx, u, at, at.Add(24*time.Hour), []string{channel})
 	if e != nil {
 		return nil, e

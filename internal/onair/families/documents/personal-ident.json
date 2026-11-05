@@ -5,626 +5,654 @@
   "poster": 5.5,
   "layers": [
     {
-      "id": "bg",
-      "type": "rect",
-      "x": 0,
-      "y": 0,
-      "w": 1920,
-      "h": 1080,
-      "fill": "{bg}"
-    },
-    {
-      "id": "aurora0",
-      "type": "ellipse",
-      "x": {
+      "id": "ident-envelope",
+      "type": "group",
+      "opacity": {
         "keys": [
           [
             0,
-            -700
+            0
+          ],
+          [
+            0.4,
+            1,
+            "inOut"
+          ],
+          [
+            7.6,
+            1
           ],
           [
             8,
-            -300
+            0,
+            "inOut"
           ]
         ]
       },
-      "y": -350,
-      "w": 1500,
-      "h": 1500,
-      "fill": {
-        "radial": [
-          750,
-          750,
-          0,
-          750
-        ],
-        "stops": [
-          [
-            0,
-            "{accent}@0.45"
-          ],
-          [
-            1,
-            "{bg}@0"
-          ]
-        ]
-      },
-      "blend": "screen"
-    },
-    {
-      "id": "aurora1",
-      "type": "ellipse",
-      "x": {
-        "keys": [
-          [
-            0,
-            -50
-          ],
-          [
-            8,
-            300
-          ]
-        ]
-      },
-      "y": -130,
-      "w": 1500,
-      "h": 1500,
-      "fill": {
-        "radial": [
-          750,
-          750,
-          0,
-          750
-        ],
-        "stops": [
-          [
-            0,
-            "{glow}@0.45"
-          ],
-          [
-            1,
-            "{bg}@0"
-          ]
-        ]
-      },
-      "blend": "screen"
-    },
-    {
-      "id": "aurora2",
-      "type": "ellipse",
-      "x": {
-        "keys": [
-          [
-            0,
-            600
-          ],
-          [
-            8,
-            900
-          ]
-        ]
-      },
-      "y": 90,
-      "w": 1500,
-      "h": 1500,
-      "fill": {
-        "radial": [
-          750,
-          750,
-          0,
-          750
-        ],
-        "stops": [
-          [
-            0,
-            "{accent}@0.45"
-          ],
-          [
-            1,
-            "{bg}@0"
-          ]
-        ]
-      },
-      "blend": "screen"
-    },
-    {
-      "id": "monogram",
-      "type": "path",
-      "x": 180,
-      "y": 330,
-      "fill": {
-        "linear": [
-          0,
-          0,
-          190,
-          190
-        ],
-        "stops": [
-          [
-            0,
-            "{accent}"
-          ],
-          [
-            1,
-            "{glow}"
-          ]
-        ]
-      },
-      "path": "M 30 0 H 160 Q 190 0 190 30 V 160 Q 190 190 160 190 H 30 Q 0 190 0 160 V 30 Q 0 0 30 0 Z"
-    },
-    {
-      "id": "tv-weight0",
-      "type": "text",
-      "text": "TV",
-      "x": 273.2,
-      "y": 462,
-      "size": 74,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "tv-weight1",
-      "type": "text",
-      "text": "TV",
-      "x": 276.8,
-      "y": 462,
-      "size": 74,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "tv-weight2",
-      "type": "text",
-      "text": "TV",
-      "x": 275,
-      "y": 460.2,
-      "size": 74,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "tv-weight3",
-      "type": "text",
-      "text": "TV",
-      "x": 275,
-      "y": 463.8,
-      "size": 74,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "tv",
-      "type": "text",
-      "text": "TV",
-      "x": 275,
-      "y": 462,
-      "size": 74,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Title-weight0",
-      "type": "text",
-      "text": "{viewer.name} TV",
-      "x": 428.2,
-      "y": 480,
-      "size": 150,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "maxLines": 1,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Title-weight1",
-      "type": "text",
-      "text": "{viewer.name} TV",
-      "x": 431.8,
-      "y": 480,
-      "size": 150,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "maxLines": 1,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Title-weight2",
-      "type": "text",
-      "text": "{viewer.name} TV",
-      "x": 430,
-      "y": 478.2,
-      "size": 150,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "maxLines": 1,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Title-weight3",
-      "type": "text",
-      "text": "{viewer.name} TV",
-      "x": 430,
-      "y": 481.8,
-      "size": 150,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "maxLines": 1,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Title",
-      "type": "text",
-      "text": "{viewer.name} TV",
-      "x": 430,
-      "y": 480,
-      "size": 150,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "maxLines": 1,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Greeting-weight0",
-      "type": "text",
-      "text": "{viewer.greeting}, {viewer.name}.",
-      "x": 178.2,
-      "y": 700,
-      "size": 64,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Greeting-weight1",
-      "type": "text",
-      "text": "{viewer.greeting}, {viewer.name}.",
-      "x": 181.8,
-      "y": 700,
-      "size": 64,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Greeting-weight2",
-      "type": "text",
-      "text": "{viewer.greeting}, {viewer.name}.",
-      "x": 180,
-      "y": 698.2,
-      "size": 64,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Greeting-weight3",
-      "type": "text",
-      "text": "{viewer.greeting}, {viewer.name}.",
-      "x": 180,
-      "y": 701.8,
-      "size": 64,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Greeting",
-      "type": "text",
-      "text": "{viewer.greeting}, {viewer.name}.",
-      "x": 180,
-      "y": 700,
-      "size": 64,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Tagline",
-      "type": "text",
-      "text": "{words.tagline}",
-      "x": 180,
-      "y": 790,
-      "size": 38,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
+      "layers": [
+        {
+          "id": "bg",
+          "type": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 1920,
+          "h": 1080,
+          "fill": "{bg}"
+        },
+        {
+          "id": "aurora0",
+          "type": "ellipse",
+          "x": {
+            "keys": [
+              [
+                0,
+                -700
+              ],
+              [
+                8,
+                -300
+              ]
+            ]
+          },
+          "y": -350,
+          "w": 1500,
+          "h": 1500,
+          "fill": {
+            "radial": [
+              750,
+              750,
+              0,
+              750
+            ],
+            "stops": [
+              [
+                0,
+                "{accent}@0.45"
+              ],
+              [
+                1,
+                "{bg}@0"
+              ]
+            ]
+          },
+          "blend": "screen"
+        },
+        {
+          "id": "aurora1",
+          "type": "ellipse",
+          "x": {
+            "keys": [
+              [
+                0,
+                -50
+              ],
+              [
+                8,
+                300
+              ]
+            ]
+          },
+          "y": -130,
+          "w": 1500,
+          "h": 1500,
+          "fill": {
+            "radial": [
+              750,
+              750,
+              0,
+              750
+            ],
+            "stops": [
+              [
+                0,
+                "{glow}@0.45"
+              ],
+              [
+                1,
+                "{bg}@0"
+              ]
+            ]
+          },
+          "blend": "screen"
+        },
+        {
+          "id": "aurora2",
+          "type": "ellipse",
+          "x": {
+            "keys": [
+              [
+                0,
+                600
+              ],
+              [
+                8,
+                900
+              ]
+            ]
+          },
+          "y": 90,
+          "w": 1500,
+          "h": 1500,
+          "fill": {
+            "radial": [
+              750,
+              750,
+              0,
+              750
+            ],
+            "stops": [
+              [
+                0,
+                "{accent}@0.45"
+              ],
+              [
+                1,
+                "{bg}@0"
+              ]
+            ]
+          },
+          "blend": "screen"
+        },
+        {
+          "id": "monogram",
+          "type": "path",
+          "x": 180,
+          "y": 330,
+          "fill": {
+            "linear": [
+              0,
+              0,
+              190,
+              190
+            ],
+            "stops": [
+              [
+                0,
+                "{accent}"
+              ],
+              [
+                1,
+                "{glow}"
+              ]
+            ]
+          },
+          "path": "M 30 0 H 160 Q 190 0 190 30 V 160 Q 190 190 160 190 H 30 Q 0 190 0 160 V 30 Q 0 0 30 0 Z"
+        },
+        {
+          "id": "tv-weight0",
+          "type": "text",
+          "text": "TV",
+          "x": 273.2,
+          "y": 462,
+          "size": 74,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "tv-weight1",
+          "type": "text",
+          "text": "TV",
+          "x": 276.8,
+          "y": 462,
+          "size": 74,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "tv-weight2",
+          "type": "text",
+          "text": "TV",
+          "x": 275,
+          "y": 460.2,
+          "size": 74,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "tv-weight3",
+          "type": "text",
+          "text": "TV",
+          "x": 275,
+          "y": 463.8,
+          "size": 74,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "tv",
+          "type": "text",
+          "text": "TV",
+          "x": 275,
+          "y": 462,
+          "size": 74,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Title-weight0",
+          "type": "text",
+          "text": "{viewer.name} TV",
+          "x": 428.2,
+          "y": 480,
+          "size": 150,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "maxLines": 1,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Title-weight1",
+          "type": "text",
+          "text": "{viewer.name} TV",
+          "x": 431.8,
+          "y": 480,
+          "size": 150,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "maxLines": 1,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Title-weight2",
+          "type": "text",
+          "text": "{viewer.name} TV",
+          "x": 430,
+          "y": 478.2,
+          "size": 150,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "maxLines": 1,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Title-weight3",
+          "type": "text",
+          "text": "{viewer.name} TV",
+          "x": 430,
+          "y": 481.8,
+          "size": 150,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "maxLines": 1,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Title",
+          "type": "text",
+          "text": "{viewer.name} TV",
+          "x": 430,
+          "y": 480,
+          "size": 150,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "maxLines": 1,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Greeting-weight0",
+          "type": "text",
+          "text": "{viewer.greeting}, {viewer.name}.",
+          "x": 178.2,
+          "y": 700,
+          "size": 64,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Greeting-weight1",
+          "type": "text",
+          "text": "{viewer.greeting}, {viewer.name}.",
+          "x": 181.8,
+          "y": 700,
+          "size": 64,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Greeting-weight2",
+          "type": "text",
+          "text": "{viewer.greeting}, {viewer.name}.",
+          "x": 180,
+          "y": 698.2,
+          "size": 64,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Greeting-weight3",
+          "type": "text",
+          "text": "{viewer.greeting}, {viewer.name}.",
+          "x": 180,
+          "y": 701.8,
+          "size": 64,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Greeting",
+          "type": "text",
+          "text": "{viewer.greeting}, {viewer.name}.",
+          "x": 180,
+          "y": 700,
+          "size": 64,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Tagline",
+          "type": "text",
+          "text": "{words.tagline}",
+          "x": 180,
+          "y": 790,
+          "size": 38,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        }
+      ]
     }
   ],
   "post": [

@@ -80,21 +80,22 @@ type Block struct {
 	Watched     string          `json:"watched,omitempty"`
 }
 type ChannelLook struct {
-	LookID               string   `json:"lookId"`
-	Ident                bool     `json:"ident"`
-	UpNext               bool     `json:"upNext"`
-	Placement            string   `json:"placement,omitempty"`
-	Breaks               string   `json:"breaks,omitempty"`
-	BreakEvery           int      `json:"breakEvery,omitempty"`
-	BreakContent         string   `json:"breakContent,omitempty"`
-	ReelID               string   `json:"reelId,omitempty"`
-	SegmentIDs           []string `json:"segmentIds,omitempty"`
-	BreakSeconds         int      `json:"breakSeconds,omitempty"`
-	OffAir               bool     `json:"offAir"`
-	Overlays             string   `json:"overlays,omitempty"`
-	AllowUnratedSegments bool     `json:"allowUnratedSegments,omitempty"`
-	Tagline              string   `json:"tagline,omitempty"`
-	Accent               string   `json:"accent,omitempty"`
+	Bug                  *core.BugSettings `json:"bug,omitempty"`
+	LookID               string            `json:"lookId"`
+	Ident                bool              `json:"ident"`
+	UpNext               bool              `json:"upNext"`
+	Placement            string            `json:"placement,omitempty"`
+	Breaks               string            `json:"breaks,omitempty"`
+	BreakEvery           int               `json:"breakEvery,omitempty"`
+	BreakContent         string            `json:"breakContent,omitempty"`
+	ReelID               string            `json:"reelId,omitempty"`
+	SegmentIDs           []string          `json:"segmentIds,omitempty"`
+	BreakSeconds         int               `json:"breakSeconds,omitempty"`
+	OffAir               bool              `json:"offAir"`
+	Overlays             string            `json:"overlays,omitempty"`
+	AllowUnratedSegments bool              `json:"allowUnratedSegments,omitempty"`
+	Tagline              string            `json:"tagline,omitempty"`
+	Accent               string            `json:"accent,omitempty"`
 }
 
 // ChannelScreens overrides the server defaults. Empty values follow them.

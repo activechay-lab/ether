@@ -168,7 +168,7 @@ func TestDirectPlayEmbeddedTextFollowsPMS(t *testing.T) {
 }
 
 // TestDirectStreamCarriesSelectedTextSubtitle is Plex for Android TV's
-// own request (rex shield_android_tv_decision.json: directPlay=1,
+// own request (recorded Shield decision request: directPlay=1,
 // directStream=1, hasMDE=1, subtitles=none, a Matroska HLS target) ending
 // in a Direct Stream (#191). subtitles=none means the player draws the
 // track; on a remux it reads it from the Matroska segments, so the run

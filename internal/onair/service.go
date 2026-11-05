@@ -214,6 +214,9 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	_ = json.Unmarshal(raw, &d)
 	if v, ok := l.Moments[r.Moment]; ok && f != "signal" {
 		d.Duration = v.Duration
+		if r.Moment == "ident" && len(d.Layers) > 0 && d.Layers[0].ID == "ident-envelope" {
+			d.Layers[0].Opacity = map[string]any{"keys": []any{[]any{0.0, 0.0}, []any{.4, 1.0, "inOut"}, []any{v.Duration - .4, 1.0}, []any{v.Duration, 0.0, "inOut"}}}
+		}
 		d.Poster = v.Poster
 	}
 	if isPlugin {
@@ -284,7 +287,7 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		b.Tokens["words.tagline"] = v
 	}
 	applyLayers(d.Layers, l.Layers)
-	if f != "signal" && l.Brand.Logo != "" {
+	if f != "signal" && r.Moment != "bug" && r.Moment != "lowerthird" && l.Brand.Logo != "" {
 		if utf8.RuneCountInString(l.Brand.Logo) <= 3 {
 			d.Layers = append(d.Layers, scene.Layer{ID: "owner-logo", Type: "text", Text: l.Brand.Logo, X: 95.0, Y: 130.0, Font: normalizeFont(l.Brand.Type.Display), Size: 72.0, Fill: l.Brand.Palette.Accent})
 		} else {
@@ -662,6 +665,9 @@ func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 			if d != "" && s.o.Artwork != nil {
 				im, e := s.o.Artwork(ctx, d)
 				if e != nil {
+					if j.Request.Moment == "bug" && slot == "channel.logo" {
+						continue
+					}
 					return e
 				}
 				j.Bind.Assets[d] = im

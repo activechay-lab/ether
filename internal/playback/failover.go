@@ -919,10 +919,10 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 			g, err = nil, fmt.Errorf("replacement needs video encoding: %w", core.ErrNotAvailable)
 		}
 		// Byte-range clients retain the original container headers and
-		// offsets. Only an exact-size repost may replace a non-spliceable
-		// direct source in place; a healthy mismatched candidate is kept
-		// as a remux-switch fallback instead of being spliced in.
-		if err == nil && direct && (g.src.Size() != cur.src.Size() || fo.strictDirect) {
+		// offsets. Equal lengths do not prove equal bytes or Cues. A different
+		// release is kept as a remux-switch fallback rather than being served
+		// under the original representation's validators.
+		if err == nil && direct && (g.releaseID() != cur.releaseID() || g.src.Size() != cur.src.Size() || fo.strictDirect) {
 			keep := fallbackGen == nil
 			if !keep && fo.down {
 				// A down-failover's remux fallback only helps at a lower
@@ -997,12 +997,12 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 		}
 	}
 	if g == nil && fallbackGen != nil {
-		// No exact-size repost: do not splice. Swap anyway and restart
+		// No identical representation: do not splice. Swap anyway and restart
 		// the client as a zero-encode remux at the mapped time.
 		g, fallbackGen = fallbackGen, nil
 		if direct {
 			remuxSwitch = true
-			log.Warn("no exact-size direct-play replacement; switching to remux", "release", g.res.Release.Name)
+			log.Warn("direct-play replacement changes representation; switching to remux", "release", g.res.Release.Name)
 		}
 	}
 	if fallbackGen != nil {

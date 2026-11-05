@@ -556,6 +556,11 @@ func blocksOverlap(a, b Block) bool {
 }
 
 func validateChannel(c *Channel) error {
+	if c.Look != nil {
+		if err := c.Look.Bug.Validate(); err != nil {
+			return err
+		}
+	}
 	if err := validatePersonal(*c); err != nil {
 		return err
 	}
