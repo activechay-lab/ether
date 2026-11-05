@@ -3,6 +3,7 @@
 {{- if gt (int $pool.replicas) 0 }}
 {{ $data := mergeOverwrite (deepCopy $root.Values.data) (default dict $pool.data) -}}
 {{ $cache := mergeOverwrite (deepCopy $root.Values.cache) (default dict $pool.cache) -}}
+{{ $resources := default $root.Values.resources $pool.resources }}
 {{ $scratch := mergeOverwrite (deepCopy $root.Values.scratch) (default dict $pool.scratch) -}}
 ---
 apiVersion: apps/v1
@@ -79,6 +80,9 @@ spec:
             - {name: XDG_CACHE_HOME, value: /cache}
             - {name: TMPDIR, value: /scratch}
             - {name: HOME, value: /config}
+            {{- if hasKey (default dict $resources.limits) "nvidia.com/gpu" }}
+            - {name: NVIDIA_DRIVER_CAPABILITIES, value: "compute,video,utility"}
+            {{- end }}
           ports:
             {{- if has $role (list "full" "server") }}
             - {name: public, containerPort: 32400}
@@ -99,7 +103,7 @@ spec:
             httpGet: {path: /livez, port: probes}
             {{- toYaml $root.Values.probes.liveness | nindent 12 }}
           resources:
-            {{- toYaml (default $root.Values.resources $pool.resources) | nindent 12 }}
+            {{- toYaml $resources | nindent 12 }}
           volumeMounts:
             - {name: data, mountPath: /config}
             - {name: cache, mountPath: /cache}

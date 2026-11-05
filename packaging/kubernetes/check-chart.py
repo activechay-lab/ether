@@ -26,6 +26,8 @@ def check(docs, persistent=False):
         assert ('public' in [p['name'] for p in c['ports']]) == (role in ('full','server'))
         assert [v['metadata']['name'] for v in s['volumeClaimTemplates']] == (['data','cache'] if persistent else ['data'])
         assert len([v for v in pod['volumes'] if 'secret' in v]) == 3
+        if 'nvidia.com/gpu' in c['resources'].get('limits',{}):
+            assert next(e for e in c['env'] if e['name']=='NVIDIA_DRIVER_CAPABILITIES')['value']=='compute,video,utility'
     for d in docs:
         assert d['kind'] != 'Secret', 'chart must never render credential bytes'
         if d['kind'] == 'ConfigMap':

@@ -191,7 +191,11 @@ Overlay `packaging/kubernetes/nvidia.values.yaml` for an NVIDIA transcode pool.
 The host needs a supported driver, NVIDIA Container Toolkit and device plugin
 (or GPU Operator); the chart installs none of these. Label suitable nodes
 `ether.plex/gpu=nvidia`. Request `nvidia.com/gpu: 1` and optionally select an
-administrator-created RuntimeClass. A resource request schedules hardware; it
+administrator-created RuntimeClass. For NVIDIA GPU limits the chart requests `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`,
+including the video libraries required by NVENC/NVDEC. CDI installations must
+also include video libraries in their generated device specifications; verify
+this with the cluster administrator. See [NVIDIA runtime capabilities](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/docker-specialized.html).
+A resource request schedules hardware; it
 does not prove FFmpeg can encode. Verify the device, available encoder and an
 actual host workload before claiming acceleration. `resourceScope` and capacity
 must represent physical capacity correctly if multiple workers share a device;
