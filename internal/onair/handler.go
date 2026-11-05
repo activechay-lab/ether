@@ -29,28 +29,19 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 		r.SetPathValue("id", chi.URLParam(r, "id"))
 		ServeFont(w, r)
 	})
-	r.Get("/families", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("documents") == "1" {
-			ServeFamilies(w, r)
+
+	r.Get("/templates", func(w http.ResponseWriter, r *http.Request) { v, e := s.Templates(r.Context()); result(w, v, e) })
+	r.Post("/scenes/validate", func(w http.ResponseWriter, r *http.Request) {
+		var sc StyleScene
+		if !body(w, r, &sc) {
 			return
 		}
-		v, e := s.FamilyRecords(r.Context())
-		result(w, v, e)
+		e := s.validateScenes(r.Context(), Look{Roles: map[string]RoleConfig{sc.Role: {Duration: sc.Document.Duration}}, Scenes: []StyleScene{sc}})
+		result(w, sc, e)
 	})
 	for _, mount := range resources {
 		mount(r)
 	}
-	r.Post("/template", func(w http.ResponseWriter, r *http.Request) {
-		var v struct {
-			Prompt string `json:"prompt"`
-			Base   Look   `json:"base"`
-		}
-		if !body(w, r, &v) {
-			return
-		}
-		l, e := s.Template(r.Context(), v.Prompt, v.Base)
-		result(w, l, e)
-	})
 	r.Get("/looks", func(w http.ResponseWriter, r *http.Request) { v, e := s.Looks(r.Context()); result(w, v, e) })
 	r.Post("/looks", func(w http.ResponseWriter, r *http.Request) {
 		var l Look
