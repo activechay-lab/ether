@@ -99,7 +99,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	// Validate before any catalogue lookup or playback warm-up: these flags
 	// have a boolean integer grammar even when their work is asynchronous.
-	for _, name := range []string{"checkFiles", "skipRefresh", "asyncCheckFiles", "asyncAugmentMetadata", "asyncRefreshLocalMediaAgent", "asyncRefreshAnalysis"} {
+	for _, name := range []string{"checkFiles", "skipRefresh", "asyncCheckFiles", "checkFileAvailability", "asyncAugmentMetadata", "asyncRefreshLocalMediaAgent", "asyncRefreshAnalysis"} {
 		if values, present := q[name]; present {
 			n, err := strconv.Atoi(values[0])
 			if err != nil || (n != 0 && n != 1) {
@@ -214,7 +214,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 			if len(keys) == 1 {
 				pr.versionItemKey = t.Key
 			}
-			if len(keys) == 1 && (metadataOptionOn(q.Get("checkFiles")) || metadataOptionOn(q.Get("asyncCheckFiles"))) {
+			if len(keys) == 1 && (metadataOptionOn(q.Get("checkFiles")) || metadataOptionOn(q.Get("asyncCheckFiles")) || metadataOptionOn(q.Get("checkFileAvailability"))) {
 				pr.versionFlowKey = t.Key
 			}
 			md = s.detail(ctx, pr, t, metadataOptionOn(q.Get("includeChildren")), metadataOptionOn(q.Get("includeOnDeck")), metadataOptionOn(q.Get("includeRelated")), metadataOptionOn(q.Get("includeExtras")), q.Get("extraTypes"))
@@ -241,18 +241,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	if mc == nil {
 		mc = libraryContainer()
 	}
-	// PMS answers checkFiles=1 with Part@exists/@accessible. Plex for Apple TV
-	// sends it before playback and shows "Unavailable Media" when they are absent.
-	if metadataOptionOn(q.Get("checkFiles")) {
-		for i := range mc.Metadata {
-			for j := range mc.Metadata[i].Media {
-				for k := range mc.Metadata[i].Media[j].Part {
-					p := &mc.Metadata[i].Media[j].Part[k]
-					p.Exists, p.Accessible = model.Ptr(true), model.Ptr(true)
-				}
-			}
-		}
-	}
+	s.projectFileAvailability(r, mc)
 	mc.Size = len(mc.Metadata)
 	s.write(w, r, mc)
 }
