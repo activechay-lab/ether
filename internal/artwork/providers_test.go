@@ -154,7 +154,7 @@ func TestProviderRejectsRedirectAndNonRaster(t *testing.T) {
 			}
 		}))
 		im := NewImages(ImagesOptions{})
-		_, _, err := im.fetchPoster(context.Background(), src.URL+"?key=private", 200)
+		_, err := im.fetchProviderOriginal(context.Background(), src.URL+"?key=private", nil)
 		src.Close()
 		if err == nil || strings.Contains(err.Error(), "private") {
 			t.Fatal("unsafe response/error", err)

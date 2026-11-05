@@ -312,13 +312,7 @@ func imageETag(img frontend.Image, width, height int, format string, blur bool) 
 }
 
 func (s *ImageGrantService) writeGrantedImage(w http.ResponseWriter, r *http.Request, viewer *core.Viewer, device core.Device, item core.RatingKey, channel string, img frontend.Image, hash, sourceHash, deviceJSON string) {
-	width, _ := strconv.Atoi(r.URL.Query().Get("w"))
-	if width < 0 || width > 4000 {
-		width = 500
-	}
-	if width == 0 && r.URL.Query().Get("h") == "" {
-		width = 500
-	}
+	width := grantedImageWidth(r, s.surface)
 	height, _ := strconv.Atoi(r.URL.Query().Get("h"))
 	format := r.URL.Query().Get("format")
 	blur := r.URL.Query().Get("blur") == "1"
@@ -378,3 +372,24 @@ func (s *ImageGrantService) writeGrantedImage(w http.ResponseWriter, r *http.Req
 }
 
 var _ frontend.ImageGrants = (*ImageGrantService)(nil)
+
+func grantedImageWidth(r *http.Request, surface frontend.Protocol) int {
+	width, _ := strconv.Atoi(r.URL.Query().Get("w"))
+	// Accept Silo image sizing parameters within its advertised budget.
+	// Other protocols retain their existing parameter and default behavior.
+	if surface == "silo" && width == 0 {
+		for _, name := range []string{"maxWidth", "fillWidth"} {
+			if n, err := strconv.Atoi(r.URL.Query().Get(name)); err == nil && n > 0 {
+				width = min(n, 3840)
+				break
+			}
+		}
+	}
+	if width < 0 || width > 4000 {
+		width = 500
+	}
+	if width == 0 && r.URL.Query().Get("h") == "" {
+		width = 500
+	}
+	return width
+}

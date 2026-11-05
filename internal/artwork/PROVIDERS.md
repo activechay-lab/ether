@@ -37,9 +37,25 @@ have an eight-second deadline, two active fetch/decode slots, an 8 MiB response
 limit and a 16-megapixel decode limit (8192 per dimension). Output is a resized
 JPEG. Provider errors and bodies are never logged or returned to clients.
 
-The existing memory/disk cache is keyed by a SHA-256 digest of all settings,
-resolved URL and width, with six-hour generations for upstream changes. Failed
-provider requests fall back to TMDB without populating the provider cache.
+Provider originals use the existing bounded memory LRU and durable image disk
+cache (512 MiB by default, shared with image variants). The stable key hashes the
+resolved provider URL, including profile and credentials; neither raw URLs nor
+credentials are stored in cache metadata. Client width and the six-hour client
+version are excluded. Originals retain ETag, Last-Modified and freshness metadata
+on disk. Freshness defaults to six hours, capped by upstream max-age/Age;
+no-cache forces conditional revalidation and no-store prevents persistence.
+Expired originals send If-None-Match and If-Modified-Since. A 304 renews freshness
+without rendering/downloading another poster. Changed content selects new local
+JPEG derivatives, keyed by content digest and bounded width. One detached flight
+per original coalesces concurrent widths and survives individual cancellation.
+Failed requests fall back to TMDB without poisoning the provider cache.
+
+URL/profile/key edits immediately select a different original. Provider-side
+rating/style changes are discovered on expiry; viewer ratings do not change a
+provider's generated poster. Existing six-hour presentation versions still
+refresh client URLs, but no longer force an unconditional upstream render.
+Eviction can require a new fetch; this is a bounded cache, not permanent storage.
+
 Ether overlays composite the resulting image, so disable overlapping badges
 in either service. The saved-source artwork preview uses the same pipeline.
 Plex thumbnail URLs carry only opaque versions. Provider responses use content
@@ -49,3 +65,10 @@ Limitations: no live account tests or supplied credentials; no cross-origin or
 same-origin redirects; no season/episode-specific provider artwork; no provider
 style editor (use provider configurators). Collection mosaics continue to use
 TMDB. Plex clients may keep previously downloaded thumbnails until refresh.
+
+Offline replay validation (2026-11-05): a fake XRDB slept three seconds per
+request and served two titles. Home requested widths 200 and 400 concurrently;
+the library requested width 600. Repeating all sizes and reconstructing the
+image store against the same disk directory added no requests. Before: six
+upstream requests, 9.062 s cold. After: two requests, 3.044 s cold. This measures
+the artwork-fetch replay, not end-to-end client rendering or a live XRDB account.

@@ -158,6 +158,13 @@ func (a Source) readEntry(ctx context.Context, req frontend.ArtworkRequest, entr
 		if err != nil {
 			return nil, "", err
 		}
+		// The overlay renderer's legacy backdrop path fetches w1280.
+		// Explicit larger hero requests must read the selected source at the
+		// requested resolution; the same undersizing affects any such client.
+		if entry.discoveryKind == "backdrop" && width > 1280 {
+			_, path := a.Discovery.Overlays.Paths(ctx, req.Viewer, t, req.Device.Language)
+			return a.remote(ctx, path, width)
+		}
 		data, ct, err := a.Discovery.RenderArtwork(ctx, req.Viewer, t, entry.discoveryKind, req.Device.Language)
 		if err == nil && a.Discovery.Overlays.CustomPostersEnabled() && width > 0 && (entry.discoveryKind == "" || entry.discoveryKind == "poster") {
 			if resized, e := artwork.ResizePoster(data, width); e == nil {
