@@ -122,6 +122,9 @@ func TestConsole600K(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.q.Filter.LocalOnly = true
 			tc.q.CursorPage = true
+			if os.Getenv("ETHER_CATALOG_PLAN") == "1" && len(normalizeConsoleFilter(tc.q.Filter).Qualities) > 0 {
+				consoleEvidencePlan(t, c, tc.q)
+			}
 			times := make([]time.Duration, 31)
 			for i := range times {
 				c.cacheMu.Lock()
