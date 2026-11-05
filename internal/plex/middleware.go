@@ -66,7 +66,7 @@ func (s *Server) commonHeaders(next http.Handler) http.Handler {
 		if r.Method == http.MethodOptions {
 			// PMS leaves subtitle-search/upload OPTIONS unimplemented, even
 			// though the rest of the API accepts generic CORS preflights.
-			if strings.HasPrefix(r.URL.Path, "/library/metadata/") && strings.HasSuffix(r.URL.Path, "/subtitles") {
+			if strings.HasPrefix(r.URL.Path, "/library/metadata/") && (strings.HasSuffix(r.URL.Path, "/subtitles") || strings.HasSuffix(r.URL.Path, "/tree")) {
 				writeHTTPError(w, http.StatusNotFound)
 				return
 			}
