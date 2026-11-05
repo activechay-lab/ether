@@ -123,14 +123,18 @@ export default function LiveTV() {
   );
 
   useEffect(() => {
-    setLeftTab(
+    // The Guide tab has no route of its own: leaving Looks for Guide lands on
+    // /livetv, which must keep the Guide tab rather than fall back to Channels.
+    setLeftTab((prev) =>
       tab === "looks"
         ? "looks"
         : tab === "guide-data"
           ? "guide"
           : tab === "sources"
             ? "sources"
-            : "channels",
+            : prev === "guide"
+              ? "guide"
+              : "channels",
     );
   }, [tab]);
   useEffect(() => {
