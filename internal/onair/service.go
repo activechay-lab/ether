@@ -218,6 +218,12 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		ok = true
 	} else if isPlugin {
 		d = plugin.Document
+	} else if r.AssetDigest != "" {
+		// A channel bumper is independent of whether this style has the role.
+		d = scene.Document{V: 1, Moment: r.Moment, Duration: 8, Poster: 0}
+		if role, found := l.Roles[r.Moment]; found {
+			d.Duration = role.Duration
+		}
 	} else {
 		selected, ok = pickScene(l, r)
 		if !ok && r.AssetDigest == "" {
