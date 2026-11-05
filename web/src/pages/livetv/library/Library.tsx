@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Button, Input, Select, confirmDialog } from "@braedonsaunders/appkit-ui";
+import { Button, Checkbox, Input, Select, confirmDialog } from "@braedonsaunders/appkit-ui";
 import { AudioLines, Film, Image, Type } from "lucide-react";
+import { SubtabNav } from "../../../components/layout";
 import { Drawer } from "../../../components/Drawer";
 import { t, tn } from "../../../i18n";
 import { apiFetch, apiBlob, sessionXhrSetup, errorMessage } from "../../../lib/api";
@@ -91,11 +92,12 @@ function Preview({ asset: a, full = false }: { asset: LibraryAsset; full?: boole
       <video
         className="h-full w-full object-cover"
         src={preview || undefined}
-        poster={thumbnail}
+        poster={thumbnail || undefined}
         controls={full}
         muted={!full}
         loop={!full}
         playsInline
+        tabIndex={0}
         preload="metadata"
         onLoadedData={(e) => {
           if (!full && hovered) void e.currentTarget.play().catch(() => {});
@@ -131,7 +133,7 @@ function Preview({ asset: a, full = false }: { asset: LibraryAsset; full?: boole
     );
   if (a.kind === "font")
     return (
-      <div className="p-4 text-center">
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-4 text-center">
         {full && (
           <Input
             aria-label={t("Sample text")}
@@ -154,7 +156,12 @@ function Preview({ asset: a, full = false }: { asset: LibraryAsset; full?: boole
       <img src={preview || undefined} alt={a.name} className="max-h-[60vh] w-full object-contain" />
     </a>
   ) : (
-    <img src={thumbnail} alt="" loading="lazy" className="h-full w-full object-cover" />
+    <img
+      src={thumbnail || undefined}
+      alt=""
+      loading="lazy"
+      className="h-full w-full object-cover"
+    />
   );
 }
 const kinds: AssetKind[] = ["video", "audio", "image", "font"];
@@ -166,7 +173,7 @@ export function LibraryGrid({
   onPick?: (a: LibraryAsset) => void;
 }) {
   const [params, setParams] = useSearchParams();
-  const [assets, setAssets] = useState<LibraryAsset[]>([]),
+  const [assets, setAssets] = useState<(LibraryAsset & { readOnly?: boolean })[]>([]),
     [error, setError] = useState("");
   const [selected, setSelected] = useState<string[]>([]),
     [pending, setPending] = useState<File[]>([]),
@@ -183,7 +190,26 @@ export function LibraryGrid({
     });
   const reload = async () => {
     try {
-      setAssets(await studio.library());
+      const library = await studio.library();
+      if (!onPick) {
+        const reels = await onair.reels();
+        for (const reel of reels)
+          for (const clip of reel.clips) {
+            library.push({
+              ...clip,
+              digest: `reel-${reel.id}-${clip.id}`,
+              kind: "video",
+              mime: "video/mp4",
+              size: 0,
+              createdAt: 0,
+              usedBy: [{ kind: "reel", id: reel.id, name: reel.name }],
+              url: clip.preview,
+              thumbnail: clip.thumbnail,
+              readOnly: true,
+            } as LibraryAsset);
+          }
+      }
+      setAssets(library);
       setError("");
     } catch (e) {
       setError(errorMessage(e));
@@ -351,16 +377,18 @@ export function LibraryGrid({
           onChange={(e) => change("q", e.target.value)}
           className="min-w-40 flex-1"
         />
-        <Select
-          aria-label={t("Sort assets")}
-          value={sort}
-          onChange={(e) => change("sort", e.target.value)}
-        >
-          <option value="newest">{t("Newest")}</option>
-          <option value="name">{t("Name")}</option>
-          <option value="size">{t("Size")}</option>
-          <option value="used">{t("Most used")}</option>
-        </Select>
+        <div className="w-44 shrink-0">
+          <Select
+            aria-label={t("Sort assets")}
+            value={sort}
+            onChange={(e) => change("sort", e.target.value)}
+          >
+            <option value="newest">{t("Newest")}</option>
+            <option value="name">{t("Name")}</option>
+            <option value="size">{t("Size")}</option>
+            <option value="used">{t("Most used")}</option>
+          </Select>
+        </div>
       </div>
       {error && (
         <p role="alert" className="text-danger">
@@ -464,9 +492,8 @@ export function LibraryGrid({
                   >
                     {a.name}
                   </button>
-                  {!onPick && (
-                    <input
-                      type="checkbox"
+                  {!onPick && !a.readOnly && (
+                    <Checkbox
                       aria-label={t("Select {name}", { name: a.name })}
                       checked={selected.includes(a.digest)}
                       onChange={(e) =>
@@ -502,7 +529,21 @@ export function LibraryGrid({
           );
         })}
       </div>
-      {active && !onPick && (
+      {active && !onPick && active.readOnly && (
+        <Drawer open title={active.name} onClose={() => change("asset", "")} size="lg">
+          <Preview asset={active} full />
+          {active.usedBy.map((u) => (
+            <Link
+              key={u.id}
+              className="mt-4 block text-primary"
+              to={`/livetv/looks?reel=${encodeURIComponent(u.id)}`}
+            >
+              {t("Used in reel {name}", { name: u.name })}
+            </Link>
+          ))}
+        </Drawer>
+      )}
+      {active && !onPick && !active.readOnly && (
         <AssetDrawer
           key={active.digest}
           asset={active}
@@ -528,6 +569,8 @@ function AssetDrawer({
   onChanged: (a?: LibraryAsset) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("assetTab") ?? "preview";
   const [name, setName] = useState(a.name),
     [license, setLicense] = useState(a.license ?? ""),
     [attribution, setAttribution] = useState(a.attribution ?? ""),
@@ -550,56 +593,75 @@ function AssetDrawer({
   return (
     <Drawer open onClose={onClose} title={a.name} size="lg">
       <div className="space-y-6">
-        <Preview asset={a} full />
+        <SubtabNav
+          ariaLabel={t("Asset sections")}
+          active={tab}
+          onSelect={(v) =>
+            setParams((p) => {
+              p.set("assetTab", v);
+              return p;
+            })
+          }
+          tabs={[
+            { key: "preview", label: t("Preview") },
+            { key: "details", label: t("Details") },
+            { key: "usage", label: t("Used by") },
+          ]}
+        />
+        {tab === "preview" && <Preview asset={a} full />}
         {error && (
           <p role="alert" className="text-danger">
             {error}
           </p>
         )}
-        <label className="block space-y-2">
-          {t("Name")}
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label className="block space-y-2">
-          {t("Licence")}
-          <Input value={license} onChange={(e) => setLicense(e.target.value)} />
-        </label>
-        <label className="block space-y-2">
-          {t("Attribution")}
-          <Input value={attribution} onChange={(e) => setAttribution(e.target.value)} />
-        </label>
-        {a.source && (
-          <a className="text-primary" href={a.source} target="_blank" rel="noreferrer">
-            {t("Original source")}
-          </a>
+        {tab === "details" && (
+          <>
+            <label className="block space-y-2">
+              {t("Name")}
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
+            <label className="block space-y-2">
+              {t("Licence")}
+              <Input value={license} onChange={(e) => setLicense(e.target.value)} />
+            </label>
+            <label className="block space-y-2">
+              {t("Attribution")}
+              <Input value={attribution} onChange={(e) => setAttribution(e.target.value)} />
+            </label>
+            {a.source && (
+              <a className="text-primary" href={a.source} target="_blank" rel="noreferrer">
+                {t("Original source")}
+              </a>
+            )}
+            <Button
+              disabled={busy || !name.trim()}
+              onClick={() =>
+                void run(() =>
+                  apiFetch<LibraryAsset>(`/onair/assets/${a.digest}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ name, license, attribution }),
+                  }),
+                )
+              }
+            >
+              {t("Save details")}
+            </Button>
+            <label className="block cursor-pointer text-primary">
+              {t("Replace file")}
+              <input
+                type="file"
+                className="mt-2 block w-full text-sm"
+                disabled={busy}
+                accept={a.kind === "font" ? ".ttf,.otf" : `${a.kind}/*`}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void run(() => studio.replaceAsset(a.digest, f));
+                }}
+              />
+            </label>
+          </>
         )}
-        <Button
-          disabled={busy || !name.trim()}
-          onClick={() =>
-            void run(() =>
-              apiFetch<LibraryAsset>(`/onair/assets/${a.digest}`, {
-                method: "PATCH",
-                body: JSON.stringify({ name, license, attribution }),
-              }),
-            )
-          }
-        >
-          {t("Save details")}
-        </Button>
-        <label className="block cursor-pointer text-primary">
-          {t("Replace file")}
-          <input
-            type="file"
-            className="mt-2 block w-full text-sm"
-            disabled={busy}
-            accept={a.kind === "font" ? ".ttf,.otf" : `${a.kind}/*`}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void run(() => studio.replaceAsset(a.digest, f));
-            }}
-          />
-        </label>
-        {(a.kind === "audio" || a.kind === "video") && (
+        {tab === "preview" && (a.kind === "audio" || a.kind === "video") && (
           <fieldset className="space-y-3 rounded-lg border border-border p-4">
             <legend>{t("Save a clip")}</legend>
             <label className="block">
@@ -639,38 +701,42 @@ function AssetDrawer({
             </Button>
           </fieldset>
         )}
-        <section className="space-y-2">
-          <h3 className="font-medium">{t("Used by")}</h3>
-          {a.usedBy.map((u, i) => (
-            <Link
-              key={i}
-              className="block text-primary"
-              to={
-                u.kind === "channel"
-                  ? `/livetv?channel=${encodeURIComponent(u.id)}`
-                  : `/livetv/looks?${u.kind === "reel" ? "reel" : "look"}=${encodeURIComponent(u.id)}${u.scene ? `&scene=${encodeURIComponent(u.scene)}` : ""}`
-              }
+        {tab === "usage" && (
+          <>
+            <section className="space-y-2">
+              <h3 className="font-medium">{t("Used by")}</h3>
+              {a.usedBy.map((u, i) => (
+                <Link
+                  key={i}
+                  className="block text-primary"
+                  to={
+                    u.kind === "channel"
+                      ? `/livetv?channel=${encodeURIComponent(u.id)}`
+                      : `/livetv/looks?${u.kind === "reel" ? "reel" : "look"}=${encodeURIComponent(u.id)}${u.scene ? `&scene=${encodeURIComponent(u.scene)}` : ""}`
+                  }
+                >
+                  {u.name}
+                </Link>
+              ))}
+              <p className="text-sm text-fg-muted">
+                {a.usedBy.length
+                  ? tn(
+                      a.usedBy.length,
+                      "Used by {count} record. Remove it from there first.",
+                      "Used by {count} records. Remove it from them first.",
+                    )
+                  : t("Not used yet")}
+              </p>
+            </section>
+            <Button
+              variant="outline"
+              disabled={busy || a.usedBy.length > 0}
+              onClick={() => void run(onDelete)}
             >
-              {u.name}
-            </Link>
-          ))}
-          <p className="text-sm text-fg-muted">
-            {a.usedBy.length
-              ? tn(
-                  a.usedBy.length,
-                  "Used by {count} record. Remove it from there first.",
-                  "Used by {count} records. Remove it from them first.",
-                )
-              : t("Not used yet")}
-          </p>
-        </section>
-        <Button
-          variant="outline"
-          disabled={busy || a.usedBy.length > 0}
-          onClick={() => void run(onDelete)}
-        >
-          {t("Delete asset")}
-        </Button>
+              {t("Delete asset")}
+            </Button>
+          </>
+        )}
       </div>
     </Drawer>
   );

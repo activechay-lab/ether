@@ -354,7 +354,12 @@ func (s *Service) replaceLibraryAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.assetMu.Lock()
-	defer s.assetMu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			s.assetMu.Unlock()
+		}
+	}()
 	tx, e := s.db.BeginTx(r.Context(), nil)
 	if e != nil {
 		result(w, nil, e)
@@ -391,6 +396,8 @@ func (s *Service) replaceLibraryAsset(w http.ResponseWriter, r *http.Request) {
 		result(w, nil, e)
 		return
 	}
+	s.assetMu.Unlock()
+	locked = false
 	if s.o.Changed != nil {
 		_ = s.o.Changed(r.Context())
 	}

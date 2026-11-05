@@ -743,44 +743,46 @@ export default function LiveTV() {
 
   const panelHead = (
     <PanelHead className="@container flex h-[104px]! flex-col items-stretch! justify-between space-y-0! pt-3! pb-0! border-b! [&>div:last-child]:mb-0">
-      <div className="flex items-center gap-1.5">
-        <div className="relative min-w-0 flex-1">
-          <Search
-            size={13}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
-            aria-hidden
-          />
-          <Input
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.currentTarget.value)}
-            placeholder={
-              leftTab === "looks"
-                ? styleCopy("Search styles…")
-                : leftTab === "sources"
-                  ? t("Find a channel, group or source…")
-                  : leftTab === "guide"
-                    ? t("Find a channel or guide…")
-                    : t("Find a channel or group…")
-            }
-            aria-label={leftTab === "looks" ? styleCopy("Search styles") : t("Search channels")}
-            className="h-8 pl-7 text-sm"
+      {leftTab !== "library" && (
+        <div className="flex items-center gap-1.5">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              size={13}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
+              aria-hidden
+            />
+            <Input
+              type="search"
+              value={q}
+              onChange={(e) => setQ(e.currentTarget.value)}
+              placeholder={
+                leftTab === "looks"
+                  ? styleCopy("Search styles…")
+                  : leftTab === "sources"
+                    ? t("Find a channel, group or source…")
+                    : leftTab === "guide"
+                      ? t("Find a channel or guide…")
+                      : t("Find a channel or group…")
+              }
+              aria-label={leftTab === "looks" ? styleCopy("Search styles") : t("Search channels")}
+              className="h-8 pl-7 text-sm"
+            />
+          </div>
+          <ToolbarPicker
+            ariaLabel={t("Show")}
+            value={filter}
+            onChange={setFilter}
+            options={FILTERS.map((f) => ({
+              ...f,
+              hint:
+                f.value === "missing" && missingCount !== null
+                  ? tn(missingCount, "{count} channel", "{count} channels")
+                  : undefined,
+            }))}
+            menuClassName="w-48"
           />
         </div>
-        <ToolbarPicker
-          ariaLabel={t("Show")}
-          value={filter}
-          onChange={setFilter}
-          options={FILTERS.map((f) => ({
-            ...f,
-            hint:
-              f.value === "missing" && missingCount !== null
-                ? tn(missingCount, "{count} channel", "{count} channels")
-                : undefined,
-          }))}
-          menuClassName="w-48"
-        />
-      </div>
+      )}
       <SubtabNav
         ariaLabel={t("Lineup")}
         className="grid grid-cols-5 gap-0 overflow-visible [&>button]:min-w-0 [&>button]:justify-center [&>button]:px-0.5 [&>button]:text-xs @min-[280px]:[&>button]:text-sm [&>button>span]:block [&>button>span]:min-w-0 [&>button>span]:break-words"
@@ -1092,9 +1094,14 @@ export default function LiveTV() {
         aside={aside}
         main={main}
       >
-        {leftTab === "looks"
-          ? undefined
-          : (state ?? (leftTab === "channels" ? lineupGuide : undefined))}
+        {leftTab === "library" ? (
+          <div className="app-scroll min-h-0 flex-1 overflow-y-auto">
+            {panelHead}
+            <main className="p-4 sm:p-6">{main}</main>
+          </div>
+        ) : leftTab === "looks" ? undefined : (
+          (state ?? (leftTab === "channels" ? lineupGuide : undefined))
+        )}
       </Workspace>
       <Drawer
         open={guideOpen}
