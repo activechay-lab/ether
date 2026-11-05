@@ -25,7 +25,9 @@ CREATE TRIGGER catalog_genre_pairs_insert AFTER INSERT ON catalog_genres BEGIN `
 CREATE TRIGGER catalog_genre_pairs_delete BEFORE DELETE ON catalog_genres BEGIN `+remove+` END;
 CREATE TRIGGER catalog_genre_pairs_update_before BEFORE UPDATE ON catalog_genres BEGIN `+remove+` END;
 CREATE TRIGGER catalog_genre_pairs_update_after AFTER UPDATE ON catalog_genres BEGIN `+add+` END;`)
-	store.RegisterDialect("catalog", 40, store.Postgres, schema+`
+	// The migration transaction excludes old-version writers until backfill and
+	// maintenance triggers become visible together.
+	store.RegisterDialect("catalog", 40, store.Postgres, `LOCK TABLE catalog_genres IN SHARE ROW EXCLUSIVE MODE;`+schema+`
 CREATE FUNCTION catalog_genre_pairs_add() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN `+add+` RETURN NEW; END $$;
 CREATE FUNCTION catalog_genre_pairs_remove() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN `+remove+` IF TG_OP='DELETE' THEN RETURN OLD; END IF; RETURN NEW; END $$;
 CREATE TRIGGER catalog_genre_pairs_insert AFTER INSERT OR UPDATE ON catalog_genres FOR EACH ROW EXECUTE FUNCTION catalog_genre_pairs_add();
