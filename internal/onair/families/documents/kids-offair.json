@@ -21,14 +21,15 @@
         "stops": [
           [
             0,
-            "#1b0b3a"
+            "{control.detail1}"
           ],
           [
             1,
             "{bg}"
           ]
         ]
-      }
+      },
+      "name": "Background"
     },
     {
       "id": "stars",
@@ -37,7 +38,8 @@
       "w": 1920,
       "h": 650,
       "fill": "#ffffff@0.8",
-      "seed": 73
+      "seed": 73,
+      "name": "Stars"
     },
     {
       "id": "crescent",
@@ -45,7 +47,8 @@
       "x": 1450,
       "y": 120,
       "path": "M 180 0 A 120 120 0 1 0 180 240 A 105 120 0 0 1 180 0 Z",
-      "fill": "#ffd23f"
+      "fill": "{control.detail3}",
+      "name": "Crescent"
     },
     {
       "id": "confetti",
@@ -54,7 +57,8 @@
       "h": 1080,
       "count": 55,
       "fill": "{glow}",
-      "seed": 17
+      "seed": 17,
+      "name": "Confetti"
     },
     {
       "id": "mascot",
@@ -79,8 +83,9 @@
           "w": 600,
           "h": 350,
           "fill": "{accent}",
-          "stroke": "#1b0b3a",
-          "strokeWidth": 12
+          "stroke": "{control.detail1}",
+          "strokeWidth": 12,
+          "name": "Goo"
         },
         {
           "id": "eye0",
@@ -96,9 +101,10 @@
               "y": -60,
               "w": 100,
               "h": 120,
-              "fill": "#ffffff",
-              "stroke": "#1b0b3a",
-              "strokeWidth": 8
+              "fill": "{control.detail2}",
+              "stroke": "{control.detail1}",
+              "strokeWidth": 8,
+              "name": "White0"
             },
             {
               "id": "pupil0",
@@ -107,9 +113,11 @@
               "y": -22,
               "w": 40,
               "h": 60,
-              "fill": "#1b0b3a"
+              "fill": "{control.detail1}",
+              "name": "Pupil0"
             }
-          ]
+          ],
+          "name": "Eye0"
         },
         {
           "id": "eye1",
@@ -125,9 +133,10 @@
               "y": -60,
               "w": 100,
               "h": 120,
-              "fill": "#ffffff",
-              "stroke": "#1b0b3a",
-              "strokeWidth": 8
+              "fill": "{control.detail2}",
+              "stroke": "{control.detail1}",
+              "strokeWidth": 8,
+              "name": "White1"
             },
             {
               "id": "pupil1",
@@ -136,19 +145,23 @@
               "y": -22,
               "w": 40,
               "h": 60,
-              "fill": "#1b0b3a"
+              "fill": "{control.detail1}",
+              "name": "Pupil1"
             }
-          ]
+          ],
+          "name": "Eye1"
         },
         {
           "id": "smile",
           "type": "path",
           "path": "M -65 30 Q 0 105 65 30",
-          "stroke": "#1b0b3a",
+          "stroke": "{control.detail1}",
           "strokeWidth": 12,
-          "cap": "round"
+          "cap": "round",
+          "name": "Smile"
         }
-      ]
+      ],
+      "name": "Mascot"
     },
     {
       "id": "Title-shadow",
@@ -158,7 +171,7 @@
       "y": 479,
       "size": 100,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -178,7 +191,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title shadow"
     },
     {
       "id": "Title-outline3",
@@ -188,7 +202,7 @@
       "y": 475,
       "size": 100,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -208,7 +222,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title outline3"
     },
     {
       "id": "Title-outline2",
@@ -218,7 +233,7 @@
       "y": 465,
       "size": 100,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -238,7 +253,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title outline2"
     },
     {
       "id": "Title-outline1",
@@ -248,7 +264,7 @@
       "y": 470,
       "size": 100,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -268,7 +284,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title outline1"
     },
     {
       "id": "Title-outline0",
@@ -278,7 +295,7 @@
       "y": 470,
       "size": 100,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -298,7 +315,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title outline0"
     },
     {
       "id": "Title",
@@ -328,7 +346,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Channel title"
     },
     {
       "id": "subtitle-outline3",
@@ -338,7 +357,7 @@
       "y": 655,
       "size": 54,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -358,7 +377,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Subtitle outline3"
     },
     {
       "id": "subtitle-outline2",
@@ -368,7 +388,7 @@
       "y": 645,
       "size": 54,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -388,7 +408,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Subtitle outline2"
     },
     {
       "id": "subtitle-outline1",
@@ -398,7 +419,7 @@
       "y": 650,
       "size": 54,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -418,7 +439,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Subtitle outline1"
     },
     {
       "id": "subtitle-outline0",
@@ -428,7 +450,7 @@
       "y": 650,
       "size": 54,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -448,7 +470,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Subtitle outline0"
     },
     {
       "id": "subtitle",
@@ -478,7 +501,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Subtitle"
     }
   ],
   "post": [
