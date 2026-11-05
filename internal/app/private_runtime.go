@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -96,7 +98,20 @@ func (a *App) prepareDeployment(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	o.MigrationGate = startupMigrationsGate(identity.NodeID, false, clusterLiveAfter, time.Now)
+	var local struct {
+		Database struct {
+			DeferMigrations bool `json:"deferMigrations"`
+		} `json:"database"`
+	}
+	raw, readErr := os.ReadFile(filepath.Join(a.opts.DataDir, "config.json"))
+	if readErr == nil {
+		if json.Unmarshal(raw, &local) != nil {
+			return errors.New("deployment: local settings are invalid")
+		}
+	} else if !os.IsNotExist(readErr) {
+		return errors.New("deployment: cannot inspect local migration settings")
+	}
+	o.MigrationGate = startupMigrationsGate(identity.NodeID, local.Database.DeferMigrations, clusterLiveAfter, time.Now)
 	if err := clusterconfig.Provision(ctx, o); err != nil {
 		return err
 	}
@@ -121,7 +136,22 @@ func (a *App) buildPrivateCredentials() error {
 	if err != nil {
 		return err
 	}
-	p.telemetry, err = hoststat.NewNodeResources(hoststat.NodeOptions{CgroupV2Path: p.settings.CgroupV2Path})
+	paths := []string{}
+	cfg := a.cfg.Get()
+	for _, path := range []string{cfg.Transcode.TempDir, cfg.Cache.Dir} {
+		if path != "" {
+			seen := false
+			for _, old := range paths {
+				if old == path {
+					seen = true
+				}
+			}
+			if !seen {
+				paths = append(paths, path)
+			}
+		}
+	}
+	p.telemetry, err = hoststat.NewNodeResources(hoststat.NodeOptions{CgroupV2Path: p.settings.CgroupV2Path, ScratchPaths: paths})
 	return err
 }
 
