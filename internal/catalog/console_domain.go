@@ -58,7 +58,7 @@ func (c *Catalog) consoleYearEmpty(ctx context.Context, f core.Filter) (bool, er
 			args = append(args, to)
 		}
 		var key int64
-		err := c.db.QueryRowContext(ctx, query+" LIMIT 1", args...).Scan(&key)
+		err := c.db.QueryRowContext(ctx, query+" ORDER BY year DESC LIMIT 1", args...).Scan(&key)
 		if err == nil {
 			return false, nil
 		}
