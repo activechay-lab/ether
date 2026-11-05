@@ -39,6 +39,7 @@ type sourceRequest struct {
 	Old     nodesource.Grant
 }
 type sourceResponse struct {
+	Phase    string
 	Prepared PreparedSource
 	Stable   string
 	Grant    nodesource.Grant
@@ -73,6 +74,12 @@ func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
 }
 func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m sourceRequest) (sourceResponse, error) {
 	deny := func() (sourceResponse, error) { return sourceResponse{}, ErrDenied }
+	if m.Op == "operation-status" {
+		if m.Prepare == nil {
+			return deny()
+		}
+		return r.preparationStatus(peer, m.Prepare.Operation)
+	}
 	if m.Op == "prepare-status" {
 		if m.Prepare == nil {
 			return deny()

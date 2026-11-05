@@ -180,8 +180,18 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	o.Guard = guards[0]
 	o.Playback = manager
 	o.SourceAccess = access
-	o.SourcePolicy = func(context.Context, *core.Viewer, *core.PlaySession) error { return nil }
-	o.ActiveViewer = func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
+	o.SourcePolicy = func(_ context.Context, _ *core.Viewer, ps *core.PlaySession) error {
+		if strings.Contains(ps.ClientID, "owned-error") {
+			return ErrDenied
+		}
+		return nil
+	}
+	o.ActiveViewer = func(_ context.Context, id int64) (*core.Viewer, error) {
+		if id != 9 {
+			return nil, ErrDenied
+		}
+		return &core.Viewer{ID: id}, nil
+	}
 	source, e := NewRuntime(o)
 	if e != nil {
 		t.Fatal(e)
@@ -215,6 +225,7 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 		defer server.Close()
 		endpoints[r.o.Self] = server.URL
 	}
+	testPreparationFailures(t, ctx, front, source, sourceID, frontendID)
 	prepared, err := front.PrepareSource(ctx, sourceID, PrepareRequest{Operation: "prepare-offline", Viewer: 9, Key: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "offline"}, Protocol: "hls"})
 	if err != nil || prepared.Owner != sourceID || prepared.PlayID != ps.ID || prepared.Revision == "" {
 		t.Fatalf("remote prepare: %#v %v", prepared, err)
@@ -479,3 +490,81 @@ func testRemoteNeutralBroker(t *testing.T, ctx context.Context, base Options, gu
 }
 
 func (*fixtureEncoder) SupportsDistributedRequest(core.HLSRequest) bool { return true }
+
+func testPreparationFailures(t *testing.T, ctx context.Context, front, source *Runtime, owner, controller nodewire.Identity) {
+	t.Helper()
+	remote, err := NewRemotePlayback(front, RemotePlaybackOptions{Estimate: func(context.Context, *core.Title, core.ClientCaps) core.MediaInfo { return core.MediaInfo{} }, SelectSource: func(context.Context) (nodewire.Identity, error) { return owner, nil }, Capacity: 32})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		viewer int64
+		exact  bool
+		client string
+	}{{"denied-before-acquire", 777, false, "denied-client"}, {"invalid-exact-before-acquire", 9, true, "invalid-client"}, {"error-with-life", 9, false, "owned-error-client"}} {
+		_, life, err := remote.PrepareSurfaceSource(ctx, &core.User{ID: test.viewer}, core.MovieKey(1), core.ClientCaps{ClientID: test.client}, "", test.exact)
+		if err == nil || life == nil {
+			t.Fatalf("%s did not retain error lifetime: %v", test.name, err)
+		}
+		select {
+		case <-life.Done():
+			t.Fatal("failure alone proved retirement")
+		default:
+		}
+		for i := 0; i < 50; i++ {
+			_ = front.Tick(ctx)
+			source.Cleanup()
+			select {
+			case <-life.Done():
+				if life.Err() != nil {
+					t.Fatal(life.Err())
+				}
+				goto settled
+			default:
+				time.Sleep(time.Millisecond)
+			}
+		}
+		t.Fatalf("%s failed to settle exact operation", test.name)
+	settled:
+	}
+	// Retirement of an unknown request seals the operation before a delayed
+	// original request can acquire a source; no Prepare replay is issued.
+	op := "retire-before-delayed-prepare"
+	if retired, err := front.RetirePreparedSource(ctx, owner, op); err != nil || !retired {
+		t.Fatal("unknown operation was not sealed", err)
+	}
+	if _, err := front.PrepareSource(ctx, owner, PrepareRequest{Operation: op, Viewer: 9, Key: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "must-not-open"}, Protocol: "hls"}); err == nil {
+		t.Fatal("delayed prepare bypassed retirement tombstone")
+	}
+	// Simulate successful source acquisition with a lost response. The frontend
+	// retains only the immutable operation; Tick must retire it without reprepare.
+	request := PrepareRequest{Operation: "lost-prepare-result", Viewer: 9, Key: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "lost-result-client"}, Protocol: "hls"}
+	if _, err := front.PrepareSource(ctx, owner, request); err != nil {
+		t.Fatal(err)
+	}
+	entry := &remotePreparation{operation: request.Operation, owner: owner, request: request, retiring: true, done: make(chan struct{})}
+	remote.mu.Lock()
+	remote.entries["lost-result"] = entry
+	remote.mu.Unlock()
+	source.mu.Lock()
+	count := len(source.preparations)
+	source.mu.Unlock()
+	for i := 0; i < 50; i++ {
+		_ = front.Tick(ctx)
+		source.Cleanup()
+		select {
+		case <-entry.done:
+			source.mu.Lock()
+			same := len(source.preparations) == count
+			source.mu.Unlock()
+			if !same {
+				t.Fatal("lost-result reconciliation created another operation")
+			}
+			return
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	t.Fatal("lost-result operation did not retire")
+}

@@ -26,6 +26,7 @@ type PreparedSource struct {
 	Info                        core.MediaInfo
 }
 type preparation struct {
+	request  PrepareRequest
 	viewer   int64
 	retiring bool
 	peer     nodewire.Identity
@@ -56,9 +57,23 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 	r.mu.Lock()
 	previous := r.preparations[key]
 	if previous != nil {
-		if previous.peer != peer || previous.hash != hash || !previous.finished {
+		if previous.peer != peer || previous.hash != hash || previous.retiring {
 			r.mu.Unlock()
-			return sourceResponse{}, ErrPending
+			return sourceResponse{}, ErrDenied
+		}
+		if !previous.finished {
+			phase := "preparing"
+			if !previous.running {
+				phase = "owned-error"
+				if previous.life == nil {
+					phase = "rejected"
+				}
+			}
+			r.mu.Unlock()
+			if phase == "rejected" {
+				return sourceResponse{Phase: phase}, ErrDenied
+			}
+			return sourceResponse{Phase: phase}, ErrPending
 		}
 		result := previous.result
 		r.mu.Unlock()
@@ -76,7 +91,7 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 		r.mu.Unlock()
 		return sourceResponse{}, ErrDenied
 	}
-	entry := &preparation{viewer: q.Viewer, peer: peer, hash: hash, running: true}
+	entry := &preparation{request: *q, viewer: q.Viewer, peer: peer, hash: hash, running: true}
 	r.preparations[key] = entry
 	r.mu.Unlock()
 	defer func() { r.mu.Lock(); entry.running = false; r.mu.Unlock() }()
@@ -113,7 +128,11 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 	r.mu.Lock()
 	entry.result = result
 	entry.finished = true
+	sealed := entry.retiring
 	r.mu.Unlock()
+	if sealed {
+		return sourceResponse{}, ErrPending
+	}
 	return sourceResponse{Prepared: result}, nil
 }
 
@@ -123,30 +142,91 @@ func (r *Runtime) RetirePreparedSource(ctx context.Context, owner nodewire.Ident
 	reply, e := r.sourceCall(ctx, Route{Source: owner}, sourceRequest{Op: "prepare-retire", Prepare: &PrepareRequest{Operation: operation}})
 	return reply.Retired, e
 }
+
 func (r *Runtime) retirePreparation(ctx context.Context, peer nodewire.Identity, q *PrepareRequest) (sourceResponse, error) {
-	if q == nil || q.Operation == "" {
+	if q == nil || q.Operation == "" || len(q.Operation) > 128 {
 		return sourceResponse{}, ErrDenied
 	}
 	key := peer.NodeID + "/" + peer.Boot + "/" + q.Operation
 	r.mu.Lock()
 	entry := r.preparations[key]
-	if entry == nil || entry.peer != peer {
+	if entry == nil {
+		// An authenticated retirement seals the operation before a delayed Prepare
+		// can start. Absence alone is never returned as proof without this barrier.
+		if len(r.preparations) >= r.o.HistoryCapacity {
+			r.mu.Unlock()
+			return sourceResponse{}, ErrPending
+		}
+		entry = &preparation{peer: peer, retiring: true}
+		r.preparations[key] = entry
+	}
+	if entry.peer != peer {
 		r.mu.Unlock()
 		return sourceResponse{}, ErrDenied
 	}
 	entry.retiring = true
-	life, id := entry.life, entry.result.PlayID
+	running, life, id, request := entry.running, entry.life, entry.result.PlayID, entry.request
 	r.mu.Unlock()
-	if life == nil || id == "" {
-		return sourceResponse{}, ErrPending
+	if running {
+		return sourceResponse{Phase: "preparing"}, ErrPending
 	}
-	if e := r.o.Playback.RetireSource(id, life); e != nil {
-		return sourceResponse{}, e
+	if life == nil {
+		return sourceResponse{Retired: true, Phase: "retired"}, nil
 	}
 	select {
 	case <-life.Done():
-		return sourceResponse{Retired: life.Err() == nil}, nil
+		if life.Err() == nil {
+			return sourceResponse{Retired: true, Phase: "retired"}, nil
+		}
+		return sourceResponse{Phase: "owned-error"}, ErrPending
 	default:
-		return sourceResponse{}, ErrPending
 	}
+	if id == "" {
+		// Indexed lookup recovers a failed preparation's session only if its exact
+		// trusted lifetime is still attached. It cannot adopt a replacement.
+		ps, ok := r.o.Playback.SessionForSurface(string(request.Caps.Protocol), request.Viewer, request.Caps.ClientID, request.Key, request.ReleaseID, request.Exact)
+		if ok && ps != nil {
+			observed, owned := r.o.Playback.SourceRetirement(ps.ID)
+			if owned && observed == life {
+				id = ps.ID
+				r.mu.Lock()
+				entry.result.PlayID = id
+				r.mu.Unlock()
+			}
+		}
+	}
+	if id == "" {
+		return sourceResponse{Phase: "owned-error"}, ErrPending
+	}
+	if e := r.o.Playback.RetireSource(id, life); e != nil {
+		return sourceResponse{Phase: "owned-error"}, e
+	}
+	select {
+	case <-life.Done():
+		return sourceResponse{Retired: life.Err() == nil, Phase: "retired"}, nil
+	default:
+		return sourceResponse{Phase: "retiring"}, ErrPending
+	}
+}
+func (r *Runtime) preparationStatus(peer nodewire.Identity, operation string) (sourceResponse, error) {
+	if operation == "" || len(operation) > 128 {
+		return sourceResponse{}, ErrDenied
+	}
+	key := peer.NodeID + "/" + peer.Boot + "/" + operation
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry := r.preparations[key]
+	if entry == nil || entry.peer != peer {
+		return sourceResponse{Phase: "unknown"}, nil
+	}
+	if entry.running {
+		return sourceResponse{Phase: "preparing"}, nil
+	}
+	if entry.life == nil {
+		return sourceResponse{Phase: "rejected"}, nil
+	}
+	if !entry.finished {
+		return sourceResponse{Phase: "owned-error"}, nil
+	}
+	return sourceResponse{Phase: "ready", Prepared: entry.result}, nil
 }

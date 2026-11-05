@@ -297,19 +297,7 @@ func (p *RemotePlayback) tick(c context.Context) error {
 	p.mu.Unlock()
 	var result error
 	for _, e := range list {
-		p.mu.Lock()
-		needsReconcile := e.prepared.PlayID == ""
-		p.mu.Unlock()
-		if needsReconcile {
-			prepared, err := p.r.PrepareSource(c, e.owner, e.request)
-			if err != nil {
-				result = ErrPending
-				continue
-			}
-			p.mu.Lock()
-			e.prepared = prepared
-			p.mu.Unlock()
-		}
+
 		retired, err := p.r.RetirePreparedSource(c, e.owner, e.operation)
 		if err != nil || !retired {
 			result = ErrPending
