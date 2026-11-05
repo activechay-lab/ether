@@ -211,9 +211,26 @@ func (s *Service) importStylePack(ctx context.Context, raw []byte, packID string
 				break
 			}
 		}
-		l.Pack = &Pack{ID: packID, Name: l.Name}
 	}
-	return s.SaveLook(ctx, l)
+	saved, err := s.SaveLook(ctx, l)
+	if err != nil {
+		return Look{}, err
+	}
+	if packID != "" {
+		saved.Pack = &Pack{ID: packID, Name: saved.Name}
+		b, err := json.Marshal(saved)
+		if err != nil {
+			return Look{}, err
+		}
+		if _, err = s.db.ExecContext(ctx, "UPDATE onair_looks SET data=?,pack_id=? WHERE id=?", string(b), packID, saved.ID); err != nil {
+			return Look{}, err
+		}
+		s.mu.Lock()
+		s.looks[saved.ID] = saved
+		s.mu.Unlock()
+	}
+	return saved, nil
+
 }
 func (s *Service) StudioRoutes(r chi.Router) {
 	r.Post("/draft", func(w http.ResponseWriter, r *http.Request) {
