@@ -68,7 +68,7 @@ func (s *Server) libraryByGUID(w http.ResponseWriter, r *http.Request, sec *Sect
 				s.writeErr(w, r, err)
 				return
 			}
-			if title == nil || (typ != "" && title.Type != typ) || !validGUIDMediaType(title.Type) || (!title.Released.IsZero() && title.Released.After(s.now())) || !s.visibleTitle(ctx, pr.User, title) {
+			if title == nil || (typ != "" && title.Type != typ) || !validGUIDMediaType(title.Type) || title.IsFutureRelease(s.now()) || !s.visibleTitle(ctx, pr.User, title) {
 				continue
 			}
 			titles = append(titles, *title)

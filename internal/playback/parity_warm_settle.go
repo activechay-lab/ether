@@ -144,7 +144,7 @@ func (m *Manager) ParityProbeNow(ctx context.Context, user *core.User, key core.
 	if err != nil || title == nil || title.Type == core.TypeShow || title.Type == core.TypeSeason {
 		return nil
 	}
-	if !title.Released.IsZero() && title.Released.After(m.now()) {
+	if title.IsFutureRelease(m.now()) {
 		return nil
 	}
 	profile := m.deps.SelectProfile(caps, user)

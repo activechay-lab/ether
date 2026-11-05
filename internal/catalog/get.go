@@ -98,7 +98,7 @@ func (c *Catalog) Get(ctx context.Context, key core.RatingKey) (*core.Title, err
 
 // upcomingMovie permits metadata browsing only; playback still enforces release availability.
 func (c *Catalog) upcomingMovie(t *core.Title) bool {
-	return t != nil && c.config().ShowUpcomingMovies && t.Type == core.TypeMovie && !t.Released.IsZero() && t.Released.After(c.now())
+	return t != nil && c.config().ShowUpcomingMovies && t.Type == core.TypeMovie && t.IsFutureRelease(c.now())
 }
 
 func (c *Catalog) visibleTitle(t *core.Title) bool {

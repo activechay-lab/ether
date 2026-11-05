@@ -124,18 +124,9 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 		stampIncluded(md)
 	}
 	keys := make([]string, 0, len(md))
-	if generation != "" {
-		for _, item := range md {
-			keys = append(keys, item.RatingKey)
-		}
-	} else {
-		// Preserve the established Home/detail key projection.
-		if hc.visible > 0 && len(sourceItems) > hc.visible {
-			sourceItems = sourceItems[:hc.visible]
-		}
-		for _, item := range sourceItems {
-			keys = append(keys, item.Key.String())
-		}
+	// hubKey must name exactly the cards that survived admission.
+	for _, item := range md {
+		keys = append(keys, item.RatingKey)
 	}
 	typ := string(h.Type)
 	if typ == "" {

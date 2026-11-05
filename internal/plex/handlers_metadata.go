@@ -147,7 +147,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 			}
 		default:
 			t, err := s.metadataTitle(ctx, pr, k)
-			if err == nil && ((!t.Released.IsZero() && t.Released.After(s.now())) || !s.visibleTitle(ctx, pr.User, t)) {
+			if err == nil && !s.visibleTitle(ctx, pr.User, t) {
 				err = core.ErrNotFound
 			}
 			if err != nil && len(keys) == 1 && q.Get("collection") == "" {
@@ -833,7 +833,7 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k core.
 	} else {
 		for i := range page.Items {
 			t := &page.Items[i]
-			if !t.Released.IsZero() && t.Released.After(s.now()) {
+			if t.IsFutureRelease(s.now()) {
 				mc.Metadata = append(mc.Metadata, s.placeholderMetadata(ctx, pr, t, k))
 			} else {
 				mc.Metadata = append(mc.Metadata, s.renderTitles(ctx, pr, []core.Title{*t}, renderOpts{media: true})...)

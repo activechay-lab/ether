@@ -1175,10 +1175,7 @@ func languageTag(code string) string {
 // renderTitles renders a list, loading the user's watch state in one call.
 func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []core.Title, o renderOpts) []model.Metadata {
 	ctx = withStoredPolicy(ctx)
-	ts = s.visibleTitles(pr.User, ts)
-	if !o.availabilityInSQL && !shelfContainsAll(ctx, ts) {
-		ts = s.availableForViewer(ctx, pr.User, ts)
-	}
+	ts = s.openableTitles(ctx, pr.User, ts, o.availabilityInSQL || shelfContainsAll(ctx, ts))
 	if len(ts) == 0 {
 		return nil
 	}
