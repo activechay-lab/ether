@@ -289,6 +289,9 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	if v := r.Bind["channel.tagline"]; v != "" {
 		b.Tokens["words.tagline"] = v
 	}
+	if r.Moment == "ident" || r.Moment == "offair" || r.Moment == "welcome" {
+		bindStyleTagline(d.Layers)
+	}
 	applyLayers(d.Layers, l.Layers)
 	if f != "signal" && r.Moment != "bug" && r.Moment != "lowerthird" && l.Brand.Logo != "" {
 		if utf8.RuneCountInString(l.Brand.Logo) <= 3 {
@@ -741,4 +744,14 @@ func (s *Service) StyleScreens(id string) *config.LiveTVScreens {
 		return &cp
 	}
 	return nil
+}
+
+func bindStyleTagline(layers []scene.Layer) {
+	for i := range layers {
+		l := &layers[i]
+		if l.ID == "tag" && l.Type == "text" {
+			l.Text = "{words.tagline}"
+		}
+		bindStyleTagline(l.Layers)
+	}
 }

@@ -89,7 +89,7 @@ export function LayersPanel({
                     value={layer.fit ?? source.fit ?? "shrink"}
                     onChange={(e) => patch({ fit: e.currentTarget.value })}
                   >
-                    {["shrink", "wrap", "clip"].map((v) => (
+                    {["shrink", "wrap"].map((v) => (
                       <option key={v} value={v}>
                         {t({ shrink: "Shrink", wrap: "Wrap", clip: "Clip" }[v]!)}
                       </option>

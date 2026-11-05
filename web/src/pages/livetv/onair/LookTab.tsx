@@ -54,9 +54,22 @@ export function LookTab({
     breakSeconds: 60,
   };
   const set = (patch: Partial<ChannelLook>) => onChange({ look: { ...settings, ...patch } });
-  const look = looks.data?.find(
+  const baseLook = looks.data?.find(
     (v) => v.id === (settings.lookId || config.data?.liveTV?.defaultStyleId),
   );
+  const look = baseLook
+    ? {
+        ...baseLook,
+        brand: {
+          ...baseLook.brand,
+          tagline: settings.tagline || baseLook.brand.tagline,
+          palette: {
+            ...baseLook.brand.palette,
+            accent: settings.accent || baseLook.brand.palette.accent,
+          },
+        },
+      }
+    : undefined;
   const navigateLook = (id: string) =>
     setParams((p) => {
       p.set("look", id);

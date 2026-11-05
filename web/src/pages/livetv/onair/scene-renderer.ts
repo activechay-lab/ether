@@ -949,6 +949,9 @@ export function renderLook(
         ];
       return {
         ...l,
+        ...(l.id === "tag" && l.type === "text" && ["ident", "offair", "welcome"].includes(moment)
+          ? { text: "{words.tagline}" }
+          : {}),
         ...(patch
           ? {
               ...patch,
@@ -1033,7 +1036,7 @@ export function renderLook(
       ];
     }
   }
-  const document = { ...doc, layers: look.layers ? edit(previewLayers) : previewLayers };
+  const document = { ...doc, layers: edit(previewLayers) };
   if (moment === "ident" && document.layers[0]?.id === "ident-envelope") {
     const duration = look.moments.ident?.duration ?? doc.duration;
     document.duration = duration;

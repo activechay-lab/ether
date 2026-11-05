@@ -134,7 +134,8 @@ export function createOnAirMock(
           body: {
             ...next,
             id: base.id,
-            name: prompt,
+            name: prompt.slice(0,80),
+            screens:{offAir:"card",noSignal:"card",stationId:true},
             channelIds: base.channelIds,
             brand: {
               ...next.brand,

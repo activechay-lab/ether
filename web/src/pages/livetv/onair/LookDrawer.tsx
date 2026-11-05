@@ -1,3 +1,5 @@
+import { api } from "../../../lib/api";
+import type { EtherUser } from "../../../lib/types";
 import { styleCopy } from "./naming";
 import { MomentVideoPicker } from "./MomentVideoPicker";
 import { useUnsavedGuard } from "../../../components/SaveBar";
@@ -35,14 +37,26 @@ export function LookDrawer({
     [menu, setMenu] = useState(false),
     [moment, setMoment] = useState<Moment>("ident"),
     [layer, setLayer] = useState("Title"),
-    [channel, setChannel] = useState("v-movie-night"),
+    [channel, setChannel] = useState(look.channelIds[0] || ""),
     [at, setAt] = useState("now"),
-    [custom, setCustom] = useState("2026-11-05T20:00"),
-    [viewer, setViewer] = useState("1"),
+    [custom, setCustom] = useState(() =>
+      new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16),
+    ),
+    [viewer, setViewer] = useState(""),
     [channels, setChannels] = useState<ChannelSummary[]>([]),
     [bindings, setBindings] = useState<Bindings>({}),
     [render, setRender] = useState(look.render?.done ?? 7),
     [saving, setSaving] = useState(false);
+  const [viewers, setViewers] = useState<EtherUser[]>([]);
+  useEffect(() => {
+    void api
+      .users()
+      .then((users) => {
+        setViewers(users);
+        setViewer(String(users.find((u) => u.isOwner)?.id ?? users[0]?.id ?? ""));
+      })
+      .catch(() => {});
+  }, []);
   const [useOpen, setUseOpen] = useState(false);
   const [useChannels, setUseChannels] = useState<string[]>(look.channelIds);
   const history = useRef<Look[]>([]),
@@ -88,12 +102,21 @@ export function LookDrawer({
   useEffect(() => {
     void tv
       .channelSummaries()
-      .then(setChannels)
+      .then((rows) => {
+        setChannels(rows);
+        setChannel((id) =>
+          rows.some((c) => c.id === id)
+            ? id
+            : (rows.find((c) => c.kind === "virtual")?.id ?? rows[0]?.id ?? ""),
+        );
+      })
       .catch(() => {});
   }, []);
   const previewAt =
     at === "custom"
-      ? new Date(custom).toISOString()
+      ? Number.isNaN(Date.parse(custom))
+        ? new Date().toISOString()
+        : new Date(custom).toISOString()
       : at === "tonight"
         ? new Date(new Date().setHours(20, 0, 0, 0)).toISOString()
         : at === "morning"
@@ -307,10 +330,10 @@ export function LookDrawer({
                   ariaLabel={t("Preview as")}
                   value={viewer}
                   onChange={setViewer}
-                  options={[
-                    { value: "1", label: "Braedon" },
-                    { value: "2", label: "Alex" },
-                  ]}
+                  options={viewers.map((v) => ({
+                    value: String(v.id),
+                    label: v.title || v.username,
+                  }))}
                 />
               </>
             ) : null}

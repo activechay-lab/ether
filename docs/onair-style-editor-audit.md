@@ -11,7 +11,7 @@ Screenshots and persona records: `thread-storage/thr_cp7svgfc62/v035/gallery-loo
 | Revert draft chip | Restores prior whole draft | Live stage changes; joins undo history. |
 | Name | `Look.name` | Gallery/drawer title; ident binds preview channel name when previewing a real channel. Both header and manual field labeled. |
 | Logo upload / monogram | `Brand.logo`, image asset digest or short monogram | Same owner-logo layer in browser and Go. Accessible upload. |
-| Tagline | `Brand.tagline` | Bound tagline in scenes that use it. |
+| Tagline | `Brand.tagline` | Ident/off-air/welcome tag layers bind the brand token, with explicit layer text taking precedence. Channel tagline/accent overrides also preview live. |
 | Four role colours | `Brand.palette` | Browser tokens and server tokens; contrast checked live and server rejects text contrast below 4.5:1. |
 | Palette preset / shuffle | Palette plus seed | Live output changes. |
 | Bundled type pair | `Brand.type` | Bundled browser FontFace and Go font selection. |
@@ -26,13 +26,13 @@ Screenshots and persona records: `thread-storage/thr_cp7svgfc62/v035/gallery-loo
 | Moment words | `Brand.words` | Offered only when that scene references the corresponding words token. Language selector and unused word inputs removed. |
 | Actual layer selection | Selected scene's real IDs, recursively enumerated | Bounded scrolling list; selects properties without changing output. Replaces fabricated universal layer list. |
 | Layer text | `Look.layers[id].text` | Same slot resolver in browser/Go; explicit textbox label. `MIDNIGHT MOVIES` and `NEON 84` saved and re-read in browser. |
-| Layer fit | `Look.layers[id].fit` | Lowercase shrink/wrap/clip; offered only on text with a width constraint. |
+| Layer fit | `Look.layers[id].fit` | Lowercase shrink/wrap; offered only on text with a width constraint. |
 | Layer size / x / y / opacity | Same layer patch fields | Applied by browser and Go. Scene defaults shown until edited. |
 | Visibility | `Look.layers[id].hidden` | Persisted patch, rather than local state. Hidden wins over opacity in Go and browser. |
 | Keyframes / locks / behaviour / fake timeline | Removed | Old controls had no persisted/rendered behavior. Animation remains authored in family scene documents; arbitrary animation authoring is not claimed. |
 | Stage transport | Preview state only | Play/pause, seek, loop, half speed, frame stepping and safe area. Reduced motion starts paused. |
 | Moment filmstrip | Preview state only | All supported family moments; changes selected inspector scene. |
-| Preview channel / time | `/onair/bindings` | Actual channel guide binding. |
+| Preview channel / time / viewer | `/onair/bindings` | Actual channels and saved viewers, without demo IDs. Custom time handles an empty input without crashing. |
 | Undo / redo / Discard | Whole draft history / saved snapshot | No save until explicit action. Editing is inert while Save is in flight so a late response cannot overwrite a later edit. |
 | Save | Existing look POST/PUT | Re-renders in background, render progress retained. New ID transition and repeated layer saves exercised. |
 | Duplicate / delete / use on channels | Existing record endpoints / channel saves | Disabled before first save. Channel removals in the assignment picker now remove the matching assignment. |

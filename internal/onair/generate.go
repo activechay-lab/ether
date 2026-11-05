@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/llm"
 	"strings"
 )
@@ -15,6 +16,9 @@ type Chatter interface {
 }
 
 func (s *Service) Draft(ctx context.Context, l Look) (Look, error) {
+	if l.Screens == nil {
+		l.Screens = &config.LiveTVScreens{OffAir: "card", NoSignal: "card", StationID: true}
+	}
 	if l.Moments == nil {
 		l.Moments = map[string]Moment{}
 		for _, m := range strings.Fields("ident upnext tonight break back offair welcome bug lowerthird") {

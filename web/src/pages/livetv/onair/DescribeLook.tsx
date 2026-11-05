@@ -76,7 +76,16 @@ export function DescribeLook({ look, onChange }: { look: Look; onChange: (l: Loo
         const draft = c.output?.look as Look | undefined;
         if (draft?.brand && draft.moments) {
           const before = structuredClone(current.current);
-          const next = { ...draft, id: before.id, channelIds: before.channelIds };
+          const next = {
+            ...draft,
+            screens: draft.screens ?? {
+              offAir: "card" as const,
+              noSignal: "card" as const,
+              stationId: true,
+            },
+            id: before.id,
+            channelIds: before.channelIds,
+          };
           setSteps((s) => [
             ...s,
             {
