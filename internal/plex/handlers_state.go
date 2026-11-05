@@ -58,8 +58,25 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	s.rememberStreamRequest(r, pr.User, key)
 	state := q.Get("state")
+	switch state {
+	case "playing", "paused", "stopped", "buffering":
+	default:
+		writeHTTPError(w, http.StatusBadRequest)
+		return
+	}
+	// Reject malformed positions before they can affect playback or watch state.
+	// Keep the existing handling of late positions from source switches below.
+	for _, name := range []string{"time", "duration"} {
+		if q.Has(name) {
+			n, err := strconv.ParseInt(q.Get(name), 10, 64)
+			if err != nil || n < 0 || n > math.MaxInt64/int64(time.Millisecond) {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
+		}
+	}
+	s.rememberStreamRequest(r, pr.User, key)
 	// A late stop from an explicitly superseded playback must not stop the
 	// replacement source or overwrite its progress. Unknown/omitted IDs keep
 	// the historical behavior for clients with different request identities.
@@ -248,7 +265,20 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	if err := s.d.State.Progress(ctx, pr.User.ID, key, msParam(q.Get("time")), 0, q.Get("state")); err != nil {
+	n, err := strconv.ParseInt(q.Get("time"), 10, 64)
+	if err != nil || n < 0 || n > math.MaxInt64/int64(time.Millisecond) {
+		writeHTTPError(w, http.StatusInternalServerError)
+		return
+	}
+	offset := time.Duration(n) * time.Millisecond
+	if legacy, ok := s.d.State.(interface {
+		LegacyProgress(context.Context, int64, core.RatingKey, time.Duration) error
+	}); ok {
+		err = legacy.LegacyProgress(ctx, pr.User.ID, key, offset)
+	} else {
+		err = s.d.State.Progress(ctx, pr.User.ID, key, offset, 0, q.Get("state"))
+	}
+	if err != nil {
 		s.writeErr(w, r, err)
 		return
 	}

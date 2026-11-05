@@ -264,7 +264,7 @@ type progressWrite struct {
 }
 
 func (w progressWrite) completes() bool {
-	return w.duration > 0 && float64(w.offset) >= WatchedThreshold*float64(w.duration)
+	return w.state != "progress" && w.duration > 0 && float64(w.offset) >= WatchedThreshold*float64(w.duration)
 }
 
 func mergeProgress(old, w progressWrite) progressWrite {
@@ -712,12 +712,30 @@ func (s *State) Progress(ctx context.Context, userID int64, key core.RatingKey, 
 	return err
 }
 
+// LegacyProgress stores the position reported by Plex's /:/progress endpoint.
+// This endpoint updates a resume point independently of a playback session:
+// even a position beyond the media duration must not count a completed view.
+func (s *State) LegacyProgress(ctx context.Context, userID int64, key core.RatingKey, offset time.Duration) error {
+	return s.Progress(ctx, userID, key, offset, 0, "progress")
+}
+
 // progressAt applies one timeline update (at zero: now).
 func (s *State) progressAt(ctx context.Context, userID int64, key core.RatingKey, w progressWrite) error {
 	ctx = WithOrigin(ctx, w.origin)
 	reported, duration, state := w.offset, w.duration, w.state
 	return s.updateAt(ctx, userID, []core.RatingKey{key}, w.at, func(cur *row, now time.Time) (bool, bool, []Event) {
 		offset := reported // fn may be re-run after a conflict
+		if state == "progress" {
+			if offset <= time.Minute {
+				return false, false, nil
+			}
+			cur.ws.ViewOffset = offset
+			cur.ws.LastViewedAt = now
+			cur.ws.UpdatedAt = now
+			cur.watchAt = now
+			return false, false, []Event{{Kind: EventProgress, UserID: userID, Key: cur.ws.Key,
+				Offset: offset, Duration: cur.ws.Duration, State: state, At: now}}
+		}
 		if duration > 0 {
 			cur.ws.Duration = duration
 		}
