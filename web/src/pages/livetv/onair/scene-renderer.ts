@@ -615,12 +615,12 @@ function pixelBehaviours(ctx: Context, l: Layer, t: number, w: number, h: number
         center = ((Math.max(0, t - (p.start ?? 0)) * (p.speed || 1) * 0.3) % 1.5) - 0.25;
       for (let y = 0; y < h; y++)
         for (let x = 0; x < w; x++) {
-          const i = (y * w + x) * 4,
-            k = Math.min(
-              1,
-              Math.max(0, 1 - Math.abs(x / w + (y / h) * 0.2 - center) / 0.06) *
-                (p.amplitude || 0.5),
-            );
+          const i = (y * w + x) * 4;
+          if (!d[i + 3]) continue;
+          const k = Math.min(
+            1,
+            Math.max(0, 1 - Math.abs(x / w + (y / h) * 0.2 - center) / 0.06) * (p.amplitude || 0.5),
+          );
           for (let ch = 0; ch < 3; ch++)
             d[i + ch] = Math.floor(d[i + ch]! + (255 - d[i + ch]!) * k);
         }
@@ -778,7 +778,24 @@ export function lookBindings(look: Look, bindings: Bindings): SceneBindings {
   flatten(bindings, "");
   return { tokens, slots };
 }
-type WorkerState = { id: number; ctx: Context; busy: boolean; failed?: boolean };
+type WorkerRequest = {
+  id: number;
+  sessionToken: string;
+  document: Scene;
+  bindings: SceneBindings;
+  time: number;
+  width: number;
+  height: number;
+};
+type WorkerState = {
+  id: number;
+  ctx: Context;
+  busy: boolean;
+  painted?: boolean;
+  failed?: boolean;
+  pending?: WorkerRequest;
+};
+
 const workers = new WeakMap<object, WorkerState>();
 const consumers = new Map<number, WorkerState>();
 let sharedWorker: Worker | undefined;
@@ -830,6 +847,13 @@ function workerFrame(
         c.restore();
         bitmap.close();
       }
+      // Continue with the latest requested frame without another main-thread RAF gap.
+      if (state.pending && sharedWorker) {
+        const pending = state.pending;
+        state.pending = undefined;
+        state.busy = true;
+        sharedWorker.postMessage(pending);
+      }
     };
     sharedWorker.onerror = () => {
       for (const state of consumers.values()) {
@@ -847,17 +871,23 @@ function workerFrame(
     consumers.set(state.id, state);
   }
   if (state.failed) return false;
+  const request: WorkerRequest = {
+    id: state.id,
+    sessionToken: getToken(),
+    document,
+    bindings,
+    time,
+    width: ctx.canvas.width,
+    height: ctx.canvas.height,
+  };
   if (!state.busy) {
     state.busy = true;
-    sharedWorker.postMessage({
-      id: state.id,
-      sessionToken: getToken(),
-      document,
-      bindings,
-      time,
-      width: ctx.canvas.width,
-      height: ctx.canvas.height,
-    });
+    sharedWorker.postMessage(request);
+  } else state.pending = request;
+  // Paint a poster immediately while the shared worker loads its fonts/modules.
+  if (!state.painted) {
+    state.painted = true;
+    return false;
   }
   return true;
 }

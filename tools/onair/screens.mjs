@@ -11,7 +11,7 @@ const code=`async page => {
  await page.getByRole('heading',{name:'Looks',exact:true}).waitFor();
  await page.locator('[data-brand-splash]').waitFor({state:'hidden'});
  await page.getByRole('heading',{name:'Nocturne',exact:true}).waitFor();
- await page.waitForFunction(()=>[...document.querySelectorAll('canvas')].some(c=>c.getContext('2d').getImageData(0,0,c.width,c.height).data.some(v=>v!==0)));
+ await page.waitForFunction(()=>[...document.querySelectorAll('canvas')].every(c=>c.getContext('2d').getImageData(0,0,c.width,c.height).data.some(v=>v!==0)));
  await page.waitForTimeout(250);
  await page.screenshot({path:${JSON.stringify(out)}+'/screen-pickers.png'});
  captions.push({file:'screen-pickers.png',caption:'Signal screen pickers; 1440×900 dark.'});
