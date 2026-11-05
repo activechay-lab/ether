@@ -272,17 +272,17 @@ func TestDetailEditionTitleFromAutoVariant(t *testing.T) {
 	}
 }
 
-func TestListResponsesStaySingleMedia(t *testing.T) {
+func TestListResponsesShareVersionMedia(t *testing.T) {
 	f, _ := newVariantPlaybackFixture(t)
 	rec := f.get(t, "/library/sections/1/all?type=1")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
-	if n := strings.Count(rec.Body.String(), "<Media "); n != 2 {
-		t.Errorf("list media count %d, want 2 (one per movie)", n)
+	if n := strings.Count(rec.Body.String(), "<Media "); n != 5 {
+		t.Errorf("list media count %d, want 5 (all versions of both movies)", n)
 	}
-	if f.resolver.calls != 0 {
-		t.Errorf("list rendering consulted variants %d times", f.resolver.calls)
+	if f.resolver.calls != 2 {
+		t.Errorf("list rendering consulted cached variants %d times, want 2", f.resolver.calls)
 	}
 }
 
@@ -314,14 +314,14 @@ func TestMediaIndexSelectsVariant(t *testing.T) {
 	}
 }
 
-func TestMediaIndexRecomputesWithoutRender(t *testing.T) {
+func TestMediaIndexWithoutIssuedListUsesAuto(t *testing.T) {
 	f, pb := newVariantPlaybackFixture(t)
-	// No detail render first: the selection is resolved by recomputation.
+	// No issued list: a stored position must not select a new candidate.
 	rec := f.get(t, "/video/:/transcode/universal/decision?path=/library/metadata/"+fightClub.Key.String()+"&mediaIndex=2&session=v9")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
-	if len(pb.variantCalls) != 1 || pb.variantCalls[0] != "rel-compat" {
+	if len(pb.variantCalls) != 0 || pb.prepared != 1 {
 		t.Fatalf("variant calls %v", pb.variantCalls)
 	}
 }
@@ -773,8 +773,8 @@ func TestAutoScope1080pAndSecondRowReleaseConsistency(t *testing.T) {
 }
 
 // A detail page opened before the title's search finished shows one
-// version. Once the search lands, a library timeline entry tells the open
-// page to reload, so Play Version appears without leaving it (#214).
+// version. Once the search lands a library timeline entry refreshes facts,
+// but the open client retains its version identities until idle expiry (#339).
 func TestDetailPageRefreshesWhenVersionsArrive(t *testing.T) {
 	saved := variantWatchSchedule
 	variantWatchSchedule = []time.Duration{10 * time.Millisecond, 10 * time.Millisecond, 10 * time.Millisecond, 10 * time.Millisecond}
@@ -802,8 +802,14 @@ func TestDetailPageRefreshesWhenVersionsArrive(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no refresh after the versions arrived")
 	}
+	if n := strings.Count(f.get(t, "/library/metadata/"+fightClub.Key.String()).Body.String(), "<Media "); n != 1 {
+		t.Fatalf("media count %d after notification, client still holds one", n)
+	}
+	// A notification can refresh facts, but must not change settings that
+	// the open client already built. A later idle flow can see new versions.
+	f.srv.d.Now = func() time.Time { return fixedNow.Add(playIdentityTTL + time.Second) }
 	if n := strings.Count(f.get(t, "/library/metadata/"+fightClub.Key.String()).Body.String(), "<Media "); n != 3 {
-		t.Fatalf("media count %d after the refresh, want 3", n)
+		t.Fatalf("media count %d after idle expiry, want 3", n)
 	}
 }
 

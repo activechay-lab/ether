@@ -193,16 +193,15 @@ func (s *Server) partTitle(partID int64) (key core.RatingKey, releaseID string, 
 // ---------------------------------------------------------------------------
 // Rendering
 
-// mediaForVariants renders one Media per release variant for a detail
-// page. It returns (nil, "") to fall back to the single virtual Media:
+// mediaForVariants renders the same ordered versions on hubs, listings,
+// detail pages and queues. It returns (nil, "") to fall back to the single virtual Media:
 // no variant resolver wired, nothing cached yet, or only Auto exists.
 // The second value is the item's editionTitle, or "".
 //
 // The list is pinned per viewer, client and title (play_identity.go).
-// While a session is admitted or live the pinned list is rendered instead
-// of a new resolver answer, and the Media it was admitted on stays the
-// selected one through probes and failovers.
-func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Title, stamp int64, probed core.MediaInfo, probedRelease string, ps *core.PlaySession) ([]model.Media, string) {
+// The first issued list is reused until idle expiry, including before a
+// session exists. The admitted Media stays selected through probes/failovers.
+func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Title, stamp int64, probed core.MediaInfo, probedRelease string, ps *core.PlaySession, withStreams bool) ([]model.Media, string) {
 	if s.d.Variants == nil || pr.User == nil {
 		return nil, ""
 	}
@@ -211,14 +210,21 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 	now := s.now()
 	pin := s.playIDs.pinned(ik, live, now)
 	var vs []core.ReleaseVariant
-	if pin.frozen && pin.resolved {
+	if pin.resolved {
 		if len(pin.variants) < 2 {
+			if withStreams && !live {
+				s.watchVariants(pr, t)
+			}
 			return nil, ""
 		}
 		vs = cloneVariants(pin.variants)
 		// The resolver names Auto after the release Auto actually opened.
 		// Ask once for the admitted release, not again after a failover.
-		if rel := pin.admittedRelease; live && rel != "" && pin.autoAligned != rel && vs[0].Auto && vs[0].Release.ID != rel {
+		rel := pin.admittedRelease
+		if rel == "" {
+			rel = probedRelease
+		}
+		if rel != "" && pin.autoAligned != rel && vs[0].Auto && vs[0].Release.ID != rel {
 			vctx, cancel := context.WithTimeout(ctx, variantRenderBudget)
 			resolved, err := s.d.Variants.Variants(vctx, core.ResolveRequest{Title: t, Client: s.clientCaps(pr), User: pr.User, PlayedRelease: rel}, core.MaxVariants)
 			cancel()
@@ -239,8 +245,14 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 			resolved = nil
 		}
 		s.playIDs.issueList(ik, resolved, live, now)
+		// Read back the winner: a hub/detail render may have issued its
+		// list concurrently. Never return a list we did not retain.
+		pin = s.playIDs.pinned(ik, live, now)
+		if pin.resolved {
+			resolved = pin.variants
+		}
 		if len(resolved) < 2 {
-			if !live {
+			if withStreams && !live {
 				s.watchVariants(pr, t)
 			}
 			return nil, ""
@@ -314,13 +326,15 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 		// playing Part's streams: without a video stream it adds no "None"
 		// subtitle track, and its player settings panel then reads the id
 		// of an undefined selected subtitle and ends playback (#267).
-		info := s.withCachedSidecars(ctx, pr.User, t, variant.Info)
-		if stored.subtitleSet {
-			info = infoWithSelectedSidecar(info, stored.subtitleStream)
+		if withStreams {
+			info := s.withCachedSidecars(ctx, pr.User, t, variant.Info)
+			if stored.subtitleSet {
+				info = infoWithSelectedSidecar(info, stored.subtitleStream)
+			}
+			sel := resolveSelection(stored, info)
+			sel = s.preferredSelection(ctx, pr.User, t.Key, info, t.Language, sel)
+			m.Part[0].Stream = s.issuedStreams(t.Key, ik, m.ID, info, sel, pr.User)
 		}
-		sel := resolveSelection(stored, info)
-		sel = s.preferredSelection(ctx, pr.User, t.Key, info, t.Language, sel)
-		m.Part[0].Stream = s.issuedStreams(t.Key, ik, m.ID, info, sel, pr.User)
 		// The admitted version stays selected while its probe is pending,
 		// so the selection does not move from Auto to it once probed.
 		if played || i == admittedIdx {
@@ -411,11 +425,6 @@ func applyEditionTitle(m *model.Metadata, edition string) {
 // ---------------------------------------------------------------------------
 // Selection → playback
 
-// resolveVariantSelection maps a play request's mediaIndex back to the
-// release the viewer picked, using the list rendered for them; when that
-// memory is gone (server restart, TTL) it recomputes the list, which is
-// deterministic for the same cached search results and client. It
-// returns "" for Auto (or when the index cannot be resolved).
 // partIDFromPath extracts the numeric Part id from a
 // "/library/parts/{id}/..." path, as sent by clients that address the
 // chosen version's part key in decision/start requests.
@@ -431,6 +440,9 @@ func partIDFromPath(p string) (int64, bool) {
 	return id, err == nil
 }
 
+// resolveVariantSelection maps a positional choice only through the list
+// issued to this client. Unknown/stale positions use Auto; a stable Part id
+// identifies its explicit release even when the positional list is gone.
 func (s *Server) resolveVariantSelection(ctx context.Context, pr *Request, p *playRequest) string {
 	if p.partReleaseID != "" {
 		return p.partReleaseID
@@ -446,20 +458,10 @@ func (s *Server) resolveVariantSelection(ctx context.Context, pr *Request, p *pl
 			"key", p.key, "mediaIndex", p.mediaIndex, "rendered", len(ids))
 		return ""
 	}
-	if s.d.Variants == nil || s.d.Catalog == nil {
-		return ""
-	}
-	t, err := s.d.Catalog.Get(ctx, p.key)
-	if err != nil {
-		return ""
-	}
-	vctx, cancel := context.WithTimeout(ctx, variantRenderBudget)
-	defer cancel()
-	vs, err := s.d.Variants.Variants(vctx, core.ResolveRequest{Title: t, Client: p.caps, User: pr.User}, core.MaxVariants)
-	if err != nil || p.mediaIndex >= len(vs) {
-		return ""
-	}
-	return vs[p.mediaIndex].Release.ID
+	// A position without its issued list is ambiguous (restart, idle expiry
+	// or an old stored preference). Recomputing against today's candidates
+	// can silently play another release. Explicit Part ids remain stable.
+	return ""
 }
 
 // alignPlayedAutoVariant updates Auto in place when the played release is a

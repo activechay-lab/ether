@@ -163,7 +163,8 @@ func (p *playIdentities) entryLocked(k playIdentityKey, now time.Time) *playIden
 
 // pinned returns the identity's list. live renders (a session exists)
 // freeze it; a render without a session or admission thaws it, so the
-// next pre-playback page sees a fresh list.
+// selected playback state can be cleared. The issued list remains valid
+// until its idle TTL expires, including before admission.
 func (p *playIdentities) pinned(k playIdentityKey, live bool, now time.Time) pinnedVariants {
 	if p == nil || !k.valid() {
 		return pinnedVariants{}
@@ -183,11 +184,14 @@ func (p *playIdentities) pinned(k playIdentityKey, live bool, now time.Time) pin
 	if !e.frozen && now.Sub(e.at) > playIdentityTTL {
 		return pinnedVariants{}
 	}
-	return pinnedVariants{variants: e.variants, resolved: e.resolved, frozen: e.frozen, selected: e.selected, admittedRelease: e.admittedRelease, autoAligned: e.autoAligned}
+	e.at = now
+	return pinnedVariants{variants: cloneVariants(e.variants), resolved: e.resolved, frozen: e.frozen, selected: e.selected, admittedRelease: e.admittedRelease, autoAligned: e.autoAligned}
 }
 
-// issueList records the version list just rendered. A frozen identity
-// keeps the list it already issued.
+// issueList records the first version list rendered in this browsing/play
+// flow. Even an unresolved singleton is retained until idle expiry; otherwise
+// a refill between a hub, pre-play metadata and queue changes the settings
+// the client built before admission (#339).
 func (p *playIdentities) issueList(k playIdentityKey, vs []core.ReleaseVariant, live bool, now time.Time) {
 	if p == nil || !k.valid() {
 		return
@@ -195,7 +199,7 @@ func (p *playIdentities) issueList(k playIdentityKey, vs []core.ReleaseVariant, 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	e := p.entryLocked(k, now)
-	if e == nil || (e.frozen && e.resolved) {
+	if e == nil || (e.resolved && (e.frozen || now.Sub(e.at) <= playIdentityTTL)) {
 		return
 	}
 	e.variants = cloneVariants(vs)
@@ -217,7 +221,7 @@ func (p *playIdentities) alignAuto(k playIdentityKey, auto *core.ReleaseVariant,
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	e := p.m[k]
-	if e == nil || e.admittedRelease != release {
+	if e == nil || (e.admittedRelease != "" && e.admittedRelease != release) {
 		return
 	}
 	e.autoAligned = release
@@ -236,8 +240,13 @@ func (p *playIdentities) releases(k playIdentityKey, now time.Time) ([]string, b
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	e := p.m[k]
-	if e == nil || !e.resolved || len(e.variants) < 2 || (!e.frozen && now.Sub(e.at) > playIdentityTTL) {
+	if e == nil || !e.resolved || (!e.frozen && now.Sub(e.at) > playIdentityTTL) {
 		return nil, false
+	}
+	// A singleton is also an issued list. In particular, do not resolve a
+	// stale nonzero mediaIndex against newly arrived candidates.
+	if len(e.variants) < 2 {
+		return []string{""}, true
 	}
 	ids := make([]string, len(e.variants))
 	for i, v := range e.variants {
@@ -256,6 +265,9 @@ func (p *playIdentities) beginAdmission(k playIdentityKey, now time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if e := p.entryLocked(k, now); e != nil {
+		if !e.frozen && now.Sub(e.at) > playIdentityTTL {
+			*e = playIdentity{at: now, media: map[int64]*issuedMedia{}}
+		}
 		e.admitting++
 		e.frozen = true
 		e.at = now
