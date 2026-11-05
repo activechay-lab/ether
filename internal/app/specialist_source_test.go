@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/braedonsaunders/ether/internal/config"
@@ -24,10 +25,18 @@ func TestSourceRoleConstructionBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	if err := a.buildSourceRole(ctx, cfg.Get()); err != nil {
+	// Construction resolves an executable without starting it. Media/process
+	// acceptance belongs to the source-prober invariants and shipping lab.
+	probePath, err := os.Executable()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if a.playback == nil || a.resolver == nil || a.fetcher == nil || a.cache == nil || a.users == nil || a.safety == nil {
+	sourceCfg := cfg.Get()
+	sourceCfg.Transcode.FFprobePath = probePath
+	if err := a.buildSourceRole(ctx, sourceCfg); err != nil {
+		t.Fatal(err)
+	}
+	if a.sourceProber == nil || a.playback == nil || a.resolver == nil || a.fetcher == nil || a.cache == nil || a.users == nil || a.safety == nil {
 		t.Fatal("source dependencies missing")
 	}
 	if err := cfg.Update(func(c *config.Config) error { c.Cache.BudgetBytes = 1234567; return nil }); err != nil {
