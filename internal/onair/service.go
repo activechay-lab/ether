@@ -27,6 +27,7 @@ import (
 )
 
 type Options struct {
+	PluginSegment  func(string) (PluginSegment, bool)
 	StaticRequests func(context.Context, string) []core.ClipRequest
 	DB             *sql.DB
 	Chat           Chatter
@@ -130,6 +131,13 @@ func (s *Service) Start() {
 }
 func (s *Service) Close() { s.cancel(); s.wg.Wait() }
 func (s *Service) Duration(id, m string) (time.Duration, bool) {
+	if strings.HasPrefix(m, "plugin:") {
+		if s.o.PluginSegment != nil {
+			v, ok := s.o.PluginSegment(m)
+			return time.Duration(v.Document.Duration * float64(time.Second)), ok
+		}
+		return 0, false
+	}
 	if strings.HasPrefix(m, "screen.") {
 		switch m {
 		case "screen.card", "screen.static", "screen.bars", "screen.brb", "screen.testcard":
@@ -144,9 +152,34 @@ func (s *Service) Duration(id, m string) (time.Duration, bool) {
 	return time.Duration(v.Duration * float64(time.Second)), ok && found
 }
 func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
+	var plugin PluginSegment
+	isPlugin := strings.HasPrefix(r.Moment, "plugin:")
+	if isPlugin {
+		if s.o.PluginSegment == nil {
+			return renderJob{}, false
+		}
+		var found bool
+		plugin, found = s.o.PluginSegment(r.Moment)
+		if !found || !time.Now().Before(plugin.Expires) {
+			return renderJob{}, false
+		}
+		bind := make(map[string]string, len(r.Bind)+len(plugin.Slots)+1)
+		for k, v := range r.Bind {
+			bind[k] = v
+		}
+		for k, v := range plugin.Slots {
+			bind[k] = v
+		}
+		bind["feed.version"] = plugin.Version
+		r.Bind = bind
+	}
 	s.mu.Lock()
 	l, ok := s.looks[r.LookID]
 	s.mu.Unlock()
+	if isPlugin && r.LookID == "" {
+		l = familyLook("clean", "Clean")
+		ok = true
+	}
 	f := l.Family
 	if f == "lateNight" {
 		f = "late-night"
@@ -160,6 +193,10 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	}
 	d, custom := l.Documents[r.Moment]
 	var e error
+	if isPlugin && !custom {
+		d = plugin.Document
+		custom = true
+	}
 	if !custom {
 		moment := r.Moment
 		if f == "personal" && moment == "offair" {
@@ -178,6 +215,9 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	if v, ok := l.Moments[r.Moment]; ok && f != "signal" {
 		d.Duration = v.Duration
 		d.Poster = v.Poster
+	}
+	if isPlugin {
+		d.Duration = plugin.Document.Duration
 	}
 	b := families.Defaults(f)
 	for k := range b.Slots {
@@ -259,7 +299,7 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		Bindings scene.Bindings
 		Request  core.ClipRequest
 	}{b, r}, r.Art, encode.Profile)
-	return renderJob{Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b}, Request: r}, h != ""
+	return renderJob{Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b, Assets: plugin.Images}, Request: r}, h != ""
 }
 func (s *Service) Clip(_ context.Context, r core.ClipRequest) (core.ClipRef, bool) {
 	j, ok := s.plan(r)
@@ -593,7 +633,11 @@ func applyLayers(ls []scene.Layer, patches map[string]map[string]any) {
 	}
 }
 func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
-	j.Bind.Assets = map[string]image.Image{}
+	assets := map[string]image.Image{}
+	for k, v := range j.Bind.Assets {
+		assets[k] = v
+	}
+	j.Bind.Assets = assets
 	j.Bind.Fonts = map[string]*opentype.Font{}
 	refs := map[string]string{}
 	for k, d := range j.Request.Art {
@@ -611,6 +655,9 @@ func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 		}
 	}
 	for slot, d := range refs {
+		if _, ok := j.Bind.Assets[d]; ok {
+			continue
+		}
 		if len(d) != 64 {
 			if d != "" && s.o.Artwork != nil {
 				im, e := s.o.Artwork(ctx, d)
@@ -652,4 +699,13 @@ func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 		}
 	}
 	return nil
+}
+
+// SegmentInfo supplies immutable policy metadata without accessing the database.
+func (s *Service) SegmentInfo(moment string) (name, rating string, ok bool) {
+	if s.o.PluginSegment == nil {
+		return "", "", false
+	}
+	v, ok := s.o.PluginSegment(moment)
+	return v.Name, v.Rating, ok
 }

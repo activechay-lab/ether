@@ -10,6 +10,7 @@ import { t } from "../i18n";
 import { useLocale } from "../i18n/react";
 
 export type DescriptorKind =
+  | "onairSegment"
   | "rankingStep"
   | "ruleField"
   | "collectionSource"

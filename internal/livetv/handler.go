@@ -255,7 +255,7 @@ func (s *Service) Handler() http.Handler {
 			ownerResult(w, ps, e)
 			return
 		}
-		ownerResult(w, Schedule(c, from, until), nil)
+		ownerResult(w, Schedule(s.graphicsChannel(c), from, until), nil)
 	})
 	return gzipResponses(r)
 }

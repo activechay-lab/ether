@@ -54,6 +54,7 @@ const (
 	CapRuleCondition   Capability = "rule_condition"
 	CapTools           Capability = "tools"
 	CapUI              Capability = "ui"
+	CapOnAirContent    Capability = "onair_content"
 )
 
 // Reserved capabilities are known names a manifest may not claim in v1.
@@ -193,6 +194,8 @@ type ViewerPerms struct {
 
 // Contributes carries per-capability metadata and UI contributions.
 type Contributes struct {
+	OnAirFeeds     []OnAirFeed         `json:"onairFeeds,omitempty"`
+	OnAirSegments  []OnAirSegment      `json:"onairSegments,omitempty"`
 	Directories    []DirectoryMeta     `json:"directories,omitempty"`
 	Metadata       *MetadataMeta       `json:"metadata,omitempty"`
 	Source         *SourceMeta         `json:"source,omitempty"`
@@ -325,6 +328,8 @@ type CommandMeta struct {
 // Request is one HTTP-shaped call from Ether to a plugin (SPEC §5.1.2).
 // Hosted plugins receive the same object in-process.
 type Request struct {
+	Op       string            `json:"op,omitempty"`
+	ID       string            `json:"id,omitempty"`
 	PluginID string            `json:"pluginId"`
 	Method   string            `json:"method"`
 	Path     string            `json:"path"`
@@ -571,4 +576,22 @@ type MetadataMeta struct {
 type DirectoryMeta struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
+}
+
+// OnAirFeed declares a bounded household feed. MaxAge is a Go duration.
+type OnAirFeed struct {
+	ID     string            `json:"id"`
+	Fields map[string]string `json:"fields"`
+	Sample map[string]any    `json:"sample,omitempty"`
+	MaxAge string            `json:"maxAge"`
+}
+
+// OnAirSegment is a fixed-duration declarative scene, never arbitrary video.
+type OnAirSegment struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Duration int      `json:"duration"`
+	File     string   `json:"file"`
+	Feeds    []string `json:"feeds"`
+	Rating   string   `json:"rating,omitempty"`
 }

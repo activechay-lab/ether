@@ -1,4 +1,5 @@
 import { Button, Input, Select, Switch } from "@braedonsaunders/appkit-ui";
+import { textOf, useRegistry } from "../../../lib/extend";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { MoreOptions } from "../../../components/ConfigSection";
@@ -24,6 +25,7 @@ export function LookTab({
   onChange: (patch: Partial<Channel>) => void;
   viewerName?: string;
 }) {
+  const segments = useRegistry<{ duration: number }>("onairSegment");
   const looks = useAsync(() => onair.looks(), []);
   const bindings = useAsync(
     () =>
@@ -228,19 +230,28 @@ export function LookTab({
                 <SettingsRow
                   title={t("Plugin segments")}
                   control={
-                    <label className="flex items-center gap-2 text-sm">
-                      <Switch
-                        checked={settings.segmentIds?.includes("plugin:weather/forecast") || false}
-                        aria-label={t("Local forecast")}
-                        onChange={(e) =>
-                          set({
-                            segmentIds: e.currentTarget.checked ? ["plugin:weather/forecast"] : [],
-                          })
-                        }
-                      />
-                      {t("Local forecast · 2 min")}
-                      <span className="text-xs text-fg-muted">{t("Weather")}</span>
-                    </label>
+                    <div className="space-y-2">
+                      {segments.descriptors.map((segment) => (
+                        <label key={segment.id} className="flex items-center gap-2 text-sm">
+                          <Switch
+                            checked={settings.segmentIds?.includes(segment.id) || false}
+                            aria-label={textOf(segment.label)}
+                            onChange={(e) =>
+                              set({
+                                segmentIds: e.currentTarget.checked
+                                  ? [...(settings.segmentIds ?? []), segment.id]
+                                  : (settings.segmentIds ?? []).filter((id) => id !== segment.id),
+                              })
+                            }
+                          />
+                          {t("{name} · {minutes} min", {
+                            name: textOf(segment.label),
+                            minutes: (segment.meta?.duration ?? 0) / 60,
+                          })}
+                          <span className="text-xs text-fg-muted">{segment.group}</span>
+                        </label>
+                      ))}
+                    </div>
                   }
                 />
                 {channel.rating || channel.filter?.maxContentRating ? (

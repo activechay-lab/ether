@@ -540,6 +540,17 @@ func validateChannel(c *Channel) error {
 	if err := validatePersonal(*c); err != nil {
 		return err
 	}
+	for _, slot := range c.Clock {
+		if !strings.HasPrefix(slot.SegmentID, "plugin:") || slot.Minute < 0 || slot.Minute > 59 || slot.EveryMinutes < 0 || slot.EveryMinutes > 1440 || slot.From < 0 || slot.Until > 1440 || slot.Until <= slot.From {
+			return fmt.Errorf("invalid clock slot")
+		}
+		for _, d := range slot.Days {
+			if d < 0 || d > 6 {
+				return fmt.Errorf("invalid clock weekday")
+			}
+		}
+	}
+
 	c.Name = strings.TrimSpace(c.Name)
 	c.Number = strings.TrimSpace(c.Number)
 	if c.Name == "" || c.Number == "" || len(c.Name) > 200 || len(c.Number) > 32 {
@@ -763,6 +774,9 @@ func (s *Service) allowedWithLookup(ctx context.Context, u *core.User, c Channel
 		return false
 	}
 	if !u.IsOwner && !pol.Permits(c.ID, c.Private) {
+		return false
+	}
+	if p != nil && strings.HasPrefix(p.Item.Slate, "plugin:") && p.Item.Rating == "" && (u.MaxContentRating != "" || pol.MaxRating != "") {
 		return false
 	}
 	rating := c.Rating

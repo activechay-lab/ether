@@ -236,6 +236,7 @@ type App struct {
 	markers           *markers.Service
 	extras            *extras.Service
 	prerolls          *prerolls.Service
+	pluginContent     *onair.PluginContentCache
 	onair             *onair.Service
 	backups           *backup.Service
 	migration         *migrate.Service

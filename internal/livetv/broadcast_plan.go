@@ -79,7 +79,7 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 				}
 			}
 			loop := programme.Item.Slate == offAirSlate
-			if c.Look != nil && (interstitial(programme.Item) || (loop && c.Look.OffAir)) {
+			if interstitial(programme.Item) || (c.Look != nil && loop && c.Look.OffAir) {
 				request = p.s.clipRequest(c, programme)
 				if programme.graphicsRequest != nil {
 					request = *programme.graphicsRequest

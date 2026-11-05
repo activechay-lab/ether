@@ -1,3 +1,4 @@
+import { textOf, useRegistry } from "../../../lib/extend";
 import { Button, Input, Select } from "@braedonsaunders/appkit-ui";
 import { Plus, Trash2, CloudSun } from "lucide-react";
 import { Field } from "../../../components/fields";
@@ -11,6 +12,7 @@ export function ClockRows({
   slots: ClockSlot[];
   onChange: (slots: ClockSlot[]) => void;
 }) {
+  const segments = useRegistry<{ duration: number }>("onairSegment");
   return (
     <section className="space-y-3 rounded-xl border border-border bg-surface p-4">
       <div className="flex items-center justify-between">
@@ -19,13 +21,14 @@ export function ClockRows({
           {t("On the clock")}
         </h3>
         <Button
+          disabled={!segments.descriptors.length}
           size="sm"
           variant="outline"
           onClick={() =>
             onChange([
               ...slots,
               {
-                segmentId: "plugin:weather/forecast",
+                segmentId: segments.descriptors[0]?.id ?? "",
                 minute: 58,
                 everyMinutes: 60,
                 from: 360,
@@ -45,7 +48,11 @@ export function ClockRows({
         return (
           <div key={i} className="space-y-3 rounded-lg border border-border p-3">
             <p className="text-sm font-medium text-fg">
-              {t("Local forecast at :{minute} every hour, {from} to {until}", {
+              {t("{name} at :{minute} every {every} minutes, {from} to {until}", {
+                name:
+                  textOf(segments.descriptors.find((s) => s.id === slot.segmentId)?.label) ||
+                  slot.segmentId,
+                every: slot.everyMinutes || 60,
                 minute: String(slot.minute).padStart(2, "0"),
                 from: timeOfDay(slot.from),
                 until: timeOfDay(slot.until),
@@ -58,9 +65,15 @@ export function ClockRows({
                   value={slot.segmentId}
                   onChange={(e) => set({ segmentId: e.currentTarget.value })}
                 >
-                  <option value="plugin:weather/forecast">
-                    {t("Local forecast · Weather · 2 min")}
-                  </option>
+                  {segments.descriptors.map((segment) => (
+                    <option key={segment.id} value={segment.id}>
+                      {t("{name} · {plugin} · {minutes} min", {
+                        name: textOf(segment.label),
+                        plugin: segment.group ?? "",
+                        minutes: (segment.meta?.duration ?? 0) / 60,
+                      })}
+                    </option>
+                  ))}
                 </Select>
               </Field>
               <Field label={t("Minute")}>

@@ -57,6 +57,7 @@
           "uniqueItems": true,
           "items": {
             "enum": [
+              "onair_content",
               "stream_source",
               "list_source",
               "livetv_channels",
@@ -143,23 +144,85 @@
           "description": "Locale to file path or inline key map. en is required when $t: keys are used."
         },
         "schedule": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["every", "call"],
-            "properties": {
-              "every": {
-                "type": "string",
-                "description": "Go duration, at least 15m."
-              },
-              "call": { "type": "string", "pattern": "^/" }
+          "anyOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["every", "call"],
+                "properties": {
+                  "every": {
+                    "type": "string",
+                    "description": "Go duration, at least 15m."
+                  },
+                  "call": { "type": "string", "pattern": "^/" }
+                }
+              }
             }
-          }
+          ]
         },
         "contributes": {
           "type": "object",
           "description": "Per-capability metadata. Mandatory metadata is enforced by the Go validator.",
           "properties": {
+            "onairFeeds": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "fields", "maxAge"],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "enum": ["text", "number", "image", "list"]
+                    }
+                  },
+                  "sample": {
+                    "type": "object"
+                  },
+                  "maxAge": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "onairSegments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "name", "duration", "file", "feeds"],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "duration": {
+                    "type": "integer",
+                    "minimum": 4,
+                    "maximum": 600,
+                    "multipleOf": 4
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "feeds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "rating": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
             "source": {
               "type": "object",
               "required": ["class"],

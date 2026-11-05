@@ -251,3 +251,15 @@ export function createOnAirMock(tv: {
     },
   };
 }
+
+// Demo installation only; production segments come from installed plugins.
+export const mockOnAirSegments = [
+  {
+    kind: "onairSegment" as const,
+    id: "plugin:weather/forecast",
+    owner: "weather",
+    label: { resolved: "Local forecast" },
+    group: "Weather",
+    meta: { duration: 120, feeds: ["now"] },
+  },
+];

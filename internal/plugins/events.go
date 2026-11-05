@@ -253,6 +253,7 @@ func (m *Manager) runOnce(ctx context.Context, lastHealth map[string]time.Time) 
 		return
 	}
 	now := m.now()
+	m.refreshOnAir(ctx, recs, now)
 	for _, r := range recs {
 		if r.Enabled && r.Manifest.IsStremioOnly() && r.SourceKind == "url" && m.isLeader() {
 			// Stremio add-ons change catalogs and resources without a
@@ -287,6 +288,9 @@ func (m *Manager) runOnce(ctx context.Context, lastHealth map[string]time.Time) 
 			continue
 		}
 		for _, job := range r.Manifest.Ether.Schedule {
+			if job.Call == "/ether/feeds" {
+				continue
+			}
 			every, err := time.ParseDuration(job.Every)
 			if err != nil {
 				continue
