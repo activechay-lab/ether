@@ -27,7 +27,7 @@ func (a *App) buildPlayback(ctx context.Context, cfg config.Config) error {
 	tracePlayback := os.Getenv("ETHER_TRACE_PLAYBACK") == "1"
 	a.tracePlayback = tracePlayback
 	if a.opts.FixtureTranscoder == nil {
-		a.transcoder, err = transcode.New(cfg.Transcode, log, transcode.WithClipCacheDir(filepath.Join(dataDir, "cache", "onair")), transcode.WithRuntimeDir(filepath.Join(dataDir, "tools")), transcode.WithTracePlayback(tracePlayback), transcode.WithEncoderObserver(func(sessionID string, started bool, excerpt string) {
+		a.transcoder, err = transcode.New(cfg.Transcode, log, transcode.WithRuntimeDir(filepath.Join(dataDir, "tools")), transcode.WithTracePlayback(tracePlayback), transcode.WithEncoderObserver(func(sessionID string, started bool, excerpt string) {
 			if a.support == nil {
 				return
 			}
