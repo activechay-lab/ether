@@ -31,6 +31,7 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 		ServeFont(w, r)
 	})
 
+	r.Get("/system-screens", ServeSystemScreens)
 	r.Get("/templates", func(w http.ResponseWriter, r *http.Request) { v, e := s.Templates(r.Context()); result(w, v, e) })
 	r.Post("/scenes/validate", func(w http.ResponseWriter, r *http.Request) {
 		var sc StyleScene
