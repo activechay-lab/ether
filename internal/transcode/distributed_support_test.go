@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
@@ -126,5 +127,75 @@ func TestDistributedFilterDependencyParser(t *testing.T) {
 	}
 	if distributedFilterList("scale=1920:1080,unprobed=x", inventory) || distributedFilterList("format='unterminated", inventory) {
 		t.Fatal("unknown/malformed graph admitted")
+	}
+}
+
+func TestDistributedRequestPreservesBoundedIndexAdmission(t *testing.T) {
+	m, req := distributedFixture()
+	req.Info.Keyframes = []core.KeyframePoint{{Offset: 123, Time: 0}, {Offset: 9000, Time: 4 * time.Second}}
+	if !m.SupportsDistributedRequest(req) {
+		t.Fatal("complete real index denied")
+	}
+	req.Info.Keyframes = make([]core.KeyframePoint, MaxDistributedKeyframes+1)
+	if m.SupportsDistributedRequest(req) {
+		t.Fatal("oversize index admitted")
+	}
+	req.Info.Keyframes = []core.KeyframePoint{{Offset: 12, Time: time.Second}, {Offset: 11, Time: 2 * time.Second}}
+	if m.SupportsDistributedRequest(req) {
+		t.Fatal("unsorted index admitted")
+	}
+}
+
+func TestDistributedActualCPUDecisionWithIndexAndOffStatus(t *testing.T) {
+	fr := newFakeRunner()
+	fr.runFunc = func(ctx context.Context, c Command) error {
+		response := ""
+		switch c.Args[1] {
+		case "-muxers":
+			response = "Muxers:\n E hls HLS\n E mpegts MPEGTS\n E mp4 MP4\n E dash DASH\n E matroska MKV\n E ssegment SEG\n"
+		case "-demuxers":
+			response = "Demuxers:\n D matroska,webm MKV\n"
+		case "-decoders":
+			response = "Decoders:\n ------\n VFS..D h264 H264\n A....D aac AAC\n"
+		case "-bsfs":
+			response = "Bitstream filters:\nnoise\nh264_mp4toannexb\ndump_extra\n"
+		case "-protocols":
+			response = "Input:\nhttp\nhttps\ntcp\ntls\nOutput:\nfile\n"
+		case "-filters":
+			response = sampleFilters + "\n .. format V->V Format\n .. setsar V->V SAR\n .. aresample A->A Resample\n"
+		default:
+			return errUnhandled
+		}
+		_, err := io.WriteString(c.Stdout, response)
+		return err
+	}
+	m := newTestManager(t, fr, config.Transcode{HWAccel: AccelNone}, WithoutHWDetection())
+	_, req := distributedFixture()
+	req.Info.Duration = time.Hour
+	for i := 0; i < 360; i++ {
+		req.Info.Keyframes = append(req.Info.Keyframes, core.KeyframePoint{Offset: int64(123 + i*1000), Time: time.Duration(i) * 2 * time.Second})
+	}
+	caps := core.ClientCaps{VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac"}, Containers: []string{"mkv"}}
+	req.Decision = m.Decide(req.Info, caps, core.DecideOptions{DirectPlay: false, DirectStream: true, MaxHeight: 720, AudioStream: -1, SubtitleStream: -1})
+	if req.Decision.Enhancement == (core.VideoEnhancement{}) || req.Decision.Enhancement.State != "off" || req.Decision.Enhancement.Reason != "disabled by owner" {
+		t.Fatalf("fixture did not produce actual nonempty defaultCPU status: %+v", req.Decision.Enhancement)
+	}
+	original := req.Decision.Enhancement
+	if !m.SupportsDistributedRequest(req) {
+		t.Fatalf("actual indexed CPU decision rejected: %+v", req.Decision)
+	}
+	if req.Decision.Enhancement != original || len(req.Info.Keyframes) != 360 {
+		t.Fatal("preflight stripped source/status metadata")
+	}
+	for _, state := range []string{"selected", "starting", "running", "fallback", "stopped", "unknown", "unavailable", "ineligible"} {
+		req.Decision.Enhancement.State = state
+		if m.SupportsDistributedRequest(req) {
+			t.Fatal("operational/unknown enhancement status admitted", state)
+		}
+	}
+	req.Decision.Enhancement = original
+	req.Decision.Enhancement.Width = 1
+	if m.SupportsDistributedRequest(req) {
+		t.Fatal("off status with action dimensions admitted")
 	}
 }
