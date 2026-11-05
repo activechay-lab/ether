@@ -1,0 +1,12 @@
+# Overlay mixed-cpu.values.yaml. Requires a working host driver, container
+# toolkit, NVIDIA device plugin (or GPU Operator), and labeled GPU nodes.
+pools:
+  transcode:
+    nodeSelector: {ether.plex/gpu: nvidia}
+    # Set only if your administrator configured this RuntimeClass:
+    # runtimeClassName: nvidia
+    tolerations:
+      - {key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}
+    resources:
+      requests: {cpu: "1", memory: 1Gi}
+      limits: {cpu: "4", memory: 4Gi, nvidia.com/gpu: 1}

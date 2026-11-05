@@ -1,0 +1,20 @@
+# References only. Create these Secrets outside Helm, from local files.
+runtime:
+  clockBoundKnown: true
+  clockSkewMillis: 1000
+secrets:
+  database: {existingSecret: ether-db}
+  cluster: {existingSecret: ether-cluster}
+  authority: {existingSecret: ether-authority}
+pools:
+  full:
+    replicas: 2
+  source:
+    replicas: 1
+  transcode:
+    replicas: 1
+    resources:
+      requests: {cpu: "1", memory: 512Mi}
+      limits: {cpu: "2", memory: 2Gi}
+  delivery:
+    replicas: 1

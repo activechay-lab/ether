@@ -1,0 +1,7 @@
+apiVersion: v2
+name: ether
+description: Ether role pools with persistent node identity and private TLS transport
+version: 0.3.5
+appVersion: "0.3.5"
+type: application
+kubeVersion: ">=1.32.0-0"

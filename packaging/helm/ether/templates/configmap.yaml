@@ -1,0 +1,21 @@
+{{- if not .Values.runtime.clockBoundKnown }}{{ fail "runtime.clockBoundKnown must be true after verifying clock synchronization" }}{{ end }}
+{{- $root := . -}}
+{{- range $role, $pool := .Values.pools }}
+{{- if gt (int $pool.replicas) 0 }}
+{{- if and $pool.bootstrap (not (has $role (list "full" "server"))) }}
+{{- fail "bootstrap requires a full or server pool" }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ether.name" $root }}-{{ $role }}
+  labels:
+    {{- include "ether.labels" $root | nindent 4 }}
+data:
+  deployment.json: |
+    {{- $deployment := dict "bootstrap" $pool.bootstrap "roles" (list $role) "privateListen" ":32401" "probeListen" ":32402" "internalAddress" (printf "https://__ETHER_POD_NAME__.%s-private.__ETHER_NAMESPACE__.svc.%s:32401" (include "ether.name" $root) $root.Values.clusterDomain) "databaseURLFile" "/run/ether/database/url" "clusterKeyFile" "/run/ether/cluster/key" "caFile" "/run/ether/authority/ca.crt" "caKeyFile" "/run/ether/authority/ca.key" "rootsFile" "/run/ether/authority/roots.pem" "tempDir" "/scratch/transcode" "cacheDir" "/cache/ether" "capacity" (default $root.Values.runtime.capacity $pool.capacity) "clockBoundKnown" $root.Values.runtime.clockBoundKnown "clockSkewMillis" $root.Values.runtime.clockSkewMillis }}
+    {{- with $pool.resourceScope }}{{ $_ := set $deployment "resourceScope" . }}{{ end }}
+    {{ $deployment | toJson }}
+{{- end }}
+{{- end }}
