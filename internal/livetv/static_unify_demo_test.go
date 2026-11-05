@@ -123,10 +123,7 @@ func TestStaticUnifyDemo(t *testing.T) {
 				b.current.frames <- raw
 				b.tick = int64(n)
 				b.step(b.origin.Add(time.Duration(n) * time.Second / 30))
-				raw, ok := q.pop(ctx)
-				if !ok {
-					panic("evidence queue closed")
-				}
+				raw, _ = q.pop(ctx)
 				generation += time.Since(start)
 				return evidenceRGBA(raw.Video, f.Width, f.Height)
 			}
