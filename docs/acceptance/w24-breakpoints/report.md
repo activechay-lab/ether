@@ -79,3 +79,31 @@ App wiring additions: `internal/app/livetv.go` supplies analyzer DB, configured 
 Opt-in diagnostics: `app.Options.BreakEvidenceObserver` wires `markers.BreakAnalyzer.OnEvidence(ctx, BreakInput, BreakEvidence)`. The synchronous callback runs while the source lease is pinned/open, receives the catalogue Key, and can collect stills through the existing background loopback input in a local validation harness. It must neither close nor retain the lease. BreakEvidence exports raw chapter bounds/label-match flags, black/silence intervals, scene times with actual ffmpeg scdet percent scores, accepted points, cache/complete/decode flags and CPU/wall milliseconds. It contains no URL, source grant or media; BreakInput URL/Info/Close are excluded from JSON too. Default is nil, no public endpoint, no new auth/config. Cache hits explicitly indicate unavailable historical decode evidence. [Raw synthetic candidates](synthetic-candidates.json) demonstrate measured scene scores and the rejected black-with-audio interval.
 
 W17 owner-identity correction carries only the admitted numeric owner ID into each ordered background task and re-resolves the real owner at execution. Setup stand-in admission is accepted only while setup remains open and unclaimed; request contexts are not retained. Focused identity-transition and context-detachment tests pass.
+
+## Bandwidth policy follow-up (held until the quality run completes)
+
+Default full pre-air scans are limited to **1 GiB/day** and **256 MiB/release**, with a conservative reservation of **2 × playable-file size + 8 MiB**. Unknown sizes fail closed. Files above **1 GiB** require explicit large-file opt-in as well as adequate release/day limits. Reservations are atomic in the shared store, so cluster nodes cannot multiply the allowance. Failed attempts remain charged; no refund can enable a retry storm. An over-reservation meter cancels decoding; sampled enforcement can overshoot by one short source-read interval. Chapters, cached full results and cached verified partial observations bypass full-scan admission. Container metadata probes still have small bounded head/tail costs.
+
+Owner-adjustable `liveTV` JSON fields (no UI/limit prompts):
+
+| Field | Zero/default | Other values |
+| --- | --- | --- |
+| `breakScanDailyBytes` | 1073741824 | Negative disables full scans |
+| `breakScanReleaseBytes` | 268435456 | Negative disables full scans |
+| `breakScanLargeReleaseBytes` | 1073741824 | Positive large-file threshold |
+| `breakScanAllowLarge` | false | Explicit opt-in above threshold |
+
+The source factory retains the normal 1080p selection caps. No alternate smaller encode is scanned just to infer another release's offsets. All used offsets remain pinned to their analyzed release and revision.
+
+The on-air decoder samples its existing unmodified limited-range Y plane (at most 2304 pixels/frame) and signed PCM envelope before overlays. No extra decode, HTTP source request or media buffer is created. Short black + RMS silence observations use the existing 0.91 combined threshold; no unmeasured scene confidence is added. Seeks discard unfinished runs; a cut must visibly finish before publication. Only verified positive points from partial playings persist; partial/empty viewings never masquerade as complete scans. Persistence/publication runs in the background, with a bounded queue and bounded in-memory pending map. First airings without evidence retain between-programme pods; even mode still uses only the explicitly selected even policy.
+
+Additional schemas: `markers_breaks/2` creates `markers_breaks_budget(day PRIMARY KEY,reserved_bytes,read_bytes)`; `/3` creates `markers_breaks_observed(release_key PRIMARY KEY,duration_ms,points,updated_at)`. Partial observations merge under a store transaction and remain separate from full-scan records. `BreakEvidence.partial` identifies reused partial facts. Byte evidence includes `reservedBytes`, `readBytes`, and `readBytesKnown`; an unknown meter is never a measured zero. Read bytes count logical source bytes delivered by Ether's existing background loopback path, not raw provider-wire overhead or cache misses. The 2× reservation accounts conservatively for mux/probe/range overhead.
+
+| Analysis mode | Additional source bytes per video hour |
+| --- | --- |
+| Existing-decoder opportunistic sampling | **0**, by construction |
+| Cached result | **0** decode bytes; bounded metadata lookup/probe |
+| Full scan under new defaults | Metered `readBytes × 3600000 / durationMs`; bounded by admission/reservation, real measurement pending |
+| W17 4.55 GB remux quality run | Full source read; deliberately diagnostic, denied by default policy. Exact normalized bytes/hour pending duration/read evidence |
+
+New lasting tests cover remux rejection, daily reservation exhaustion, chapter bypass, partial observation reuse, dark-with-audio rejection, seek gaps and unfinished fades. Config changes are exactly the four additive fields above. Further app wiring shares a single release-key helper between pre-air and live observation and attaches a byte counter to the leased background source. Playback adds one background byte counter per source generation; viewer accounting is unchanged.

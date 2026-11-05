@@ -469,7 +469,7 @@ func appendProgramme(out *[]Programme, c Channel, item Item, cursor, finish, fro
 		item.BreakRevision = ""
 	}
 	if finish.After(from) && cursor.Before(until) && finish.After(cursor) {
-		*out = append(*out, Programme{ID: fmt.Sprintf("%s-%d", c.ID, cursor.UnixMilli()), ChannelID: c.ID, Start: cursor, End: finish, Item: item})
+		*out = append(*out, Programme{naturalBreaks: naturalBreakPolicy(c.Look), ID: fmt.Sprintf("%s-%d", c.ID, cursor.UnixMilli()), ChannelID: c.ID, Start: cursor, End: finish, Item: item})
 	}
 }
 

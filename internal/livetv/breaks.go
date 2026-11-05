@@ -29,6 +29,8 @@ func (s *Service) breakLoop() {
 		select {
 		case <-s.ctx.Done():
 			return
+		case observation := <-s.breakObserved:
+			s.storeBreakObservation(observation)
 		case <-tick.C:
 		}
 	}
@@ -59,6 +61,11 @@ func (s *Service) analyzeUpcomingBreaks(retry map[core.RatingKey]time.Time) {
 		for _, p := range Schedule(c, now, now.Add(2*time.Hour)) {
 			if p.Item.Key == 0 || !eligible[p.Item.Key] || (p.Item.Key.Kind() != core.KindEpisode && p.Item.ShowKey == 0 && p.Item.MediaType != "episode") || !p.Start.After(now.Add(time.Minute)) || now.Before(retry[p.Item.Key]) {
 				continue
+			}
+			if observed, ok := s.observedBreaks[p.Item.Key]; ok {
+				// A later airing can reuse observed points without reopening source bytes.
+				s.publishBreaks(p.Item.Key, observed.points, observed.input.Info.Duration.Milliseconds(), observed.input.ReleaseID, observed.input.Revision)
+				delete(s.observedBreaks, p.Item.Key)
 			}
 			pending = append(pending, breakTask{programme: p, ownerID: ownerID})
 		}
