@@ -1,0 +1,207 @@
+.catalogue-result-options {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  font-size: 0.8rem;
+  color: var(--color-fg-muted);
+}
+.catalogue-columns {
+  margin-left: auto;
+  position: relative;
+}
+.catalogue-columns summary {
+  cursor: pointer;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+}
+.catalogue-columns > div {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 30;
+  display: grid;
+  gap: 0.5rem;
+  background: var(--color-bg);
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px #0003;
+}
+.catalogue-columns label {
+  display: flex;
+  gap: 0.5rem;
+}
+.catalogue-result-viewport {
+  height: min(72vh, 900px);
+  min-height: 320px;
+  overflow: auto;
+  position: relative;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.catalogue-result-window {
+  position: relative;
+}
+.catalogue-result-card {
+  position: absolute;
+  padding: 0 8px 16px;
+  box-sizing: border-box;
+  min-width: 0;
+}
+.catalogue-result-open {
+  width: 100%;
+  display: block;
+  text-align: left;
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+.catalogue-result-open:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.catalogue-result-artwork {
+  width: 100%;
+  aspect-ratio: 2/3;
+  border-radius: 0.6rem;
+  background: var(--color-bg-subtle);
+}
+.catalogue-result-copy {
+  padding: 0.6rem 0;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--color-fg-muted);
+}
+.catalogue-result-copy h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-fg);
+  margin-bottom: 0.25rem;
+}
+.catalogue-result-action {
+  font-size: 0.7rem;
+}
+.catalogue-result-action button {
+  max-width: 100%;
+  font-size: 0.7rem;
+  padding: 0.25rem 0.4rem;
+  white-space: nowrap;
+}
+.catalogue-result-select {
+  position: absolute;
+  top: 0.5rem;
+  left: 1rem;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 0.35rem;
+  padding: 0.3rem;
+}
+.catalogue-result-select input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--color-primary);
+}
+.catalogue-result-peek {
+  pointer-events: none;
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 90px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 8px 28px #0004;
+  padding: 0.8rem;
+  z-index: 8;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+}
+.catalogue-result-peek strong {
+  display: block;
+  color: var(--color-fg);
+}
+.catalogue-result-peek p {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0.4rem 0;
+  color: var(--color-fg-muted);
+}
+.is-list .catalogue-result-card {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  border-bottom: 1px solid var(--color-border);
+  padding: 8px;
+}
+.is-list .catalogue-result-open {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex: 1;
+  min-width: 0;
+}
+.is-list .catalogue-result-artwork {
+  width: 42px;
+  height: 63px;
+  flex-shrink: 0;
+}
+.is-list .catalogue-result-copy {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  width: 100%;
+}
+.is-list .catalogue-result-copy h4 {
+  flex: 1;
+  min-width: 100px;
+  margin: 0;
+}
+.is-list .catalogue-result-copy span {
+  flex-shrink: 0;
+}
+.is-list .catalogue-result-copy .catalogue-result-genres {
+  max-width: 24%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.is-list .catalogue-result-select {
+  position: static;
+}
+.is-list .catalogue-result-peek {
+  left: 64px;
+  bottom: 65px;
+  max-width: 420px;
+}
+@media (max-width: 640px) {
+  .catalogue-result-options {
+    flex-wrap: wrap;
+  }
+  .is-list .catalogue-result-copy {
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+  }
+  .is-list .catalogue-result-copy h4 {
+    flex-basis: 100%;
+  }
+  .is-list .catalogue-result-genres {
+    display: none;
+  }
+  .is-list .catalogue-result-action {
+    max-width: 95px;
+  }
+  .catalogue-result-peek {
+    display: none;
+  }
+  .catalogue-result-action button svg {
+    display: none;
+  }
+}
