@@ -7,7 +7,7 @@ import { Field, NumberInput } from "../../../components/fields";
 import { t } from "../../../i18n";
 import type { Programme } from "../model";
 import type { CollectionChoice } from "../ChannelStudio";
-import type { PersonalRecipe } from "./channel-draft";
+import type { PersonalRecipe } from "./model";
 
 export function InfoTip({ text }: { text: string }) {
   return (

@@ -1,4 +1,6 @@
-import { personalRecipe, type PersonalRecipe } from "./onair/channel-draft";
+import type { ScreenStyle } from "./onair/ScreenPicker";
+import { personalRecipe } from "./onair/defaults";
+import type { PersonalRecipe, ChannelLook, ClockSlot } from "./onair/model";
 import { getLocale, localized, t, tn } from "../../i18n";
 import { apiFetch } from "../../lib/api";
 import { unit } from "../../lib/format";
@@ -45,6 +47,9 @@ export type Block = {
 };
 export type Channel = {
   personal?: PersonalRecipe;
+  look?: ChannelLook;
+  screens?: { offAir?: ScreenStyle; noSignal?: ScreenStyle };
+  clock?: ClockSlot[];
   health?: "unchecked" | "available" | "unavailable";
   id: string;
   number: string;

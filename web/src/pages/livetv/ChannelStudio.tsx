@@ -1,3 +1,5 @@
+import { ClockRows } from "./onair/ClockRows";
+import { LookTab } from "./onair/LookTab";
 import { RecipeTab } from "./onair/RecipeTab";
 import { apiFetch } from "../../lib/api";
 import { SubtabNav } from "../../components/layout";
@@ -260,7 +262,10 @@ export function ChannelStudio({
   }, [c.id, Boolean(c.personal), viewer, previewKey]);
   const schedule = c.personal ? rundown : virtual ? (preview ?? (isNew ? [] : guide)) : guide;
   const live = onNow(schedule, now);
-  const next = upNext(schedule, now);
+  const next = upNext(
+    schedule.filter((p) => !p.slate),
+    now,
+  );
   const windowFrom = now - 30 * MINUTE;
   const windowUntil = virtual ? now + horizon * 24 * 60 * MINUTE : now + 8 * 60 * MINUTE;
   const hue = hueOf(c.id || c.name || "new");
@@ -270,12 +275,14 @@ export function ChannelStudio({
     ? [
         { key: "programming", label: c.personal ? t("Recipe") : t("Programming") },
         { key: "schedule", label: t("Schedule"), count: c.blocks?.length || undefined },
+        { key: "look", label: t("Look") },
         { key: "viewers", label: t("Viewers") },
         { key: "details", label: t("Details") },
       ]
     : [
         { key: "stream", label: t("Stream") },
         { key: "guide", label: t("Guide") },
+        { key: "look", label: t("Look") },
         { key: "viewers", label: t("Viewers") },
         { key: "details", label: t("Details") },
       ];
@@ -483,7 +490,7 @@ export function ChannelStudio({
             <RecipeTab
               recipe={c.personal}
               onChange={(personal) => set({ personal })}
-              rundown={rundown}
+              rundown={rundown.filter((p) => !p.slate)}
               collections={collections}
             />
           ) : (
@@ -529,6 +536,13 @@ export function ChannelStudio({
             now={now}
             onMap={onMapGuide}
             isNew={isNew}
+          />
+        ) : null}
+        {tab === "look" ? (
+          <LookTab
+            channel={c}
+            onChange={set}
+            viewerName={users.find((u) => String(u.id) === viewer)?.title}
           />
         ) : null}
         {tab === "viewers" ? (
@@ -1417,6 +1431,7 @@ function Schedule({
   return (
     <div className="space-y-5">
       <WeekGrid blocks={blocks} onChange={setBlocks} selected={selected} onSelect={setSelected} />
+      <ClockRows slots={c.clock ?? []} onChange={(clock) => onChange({ clock })} />
       <MoreOptions label={t("More options")}>
         <div className="px-4 pb-4">
           <Field label={t("Timezone")}>

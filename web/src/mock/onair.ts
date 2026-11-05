@@ -70,17 +70,7 @@ export function createOnAirMock(tv: {
       body: unknown,
     ): { body: unknown; status?: number } | null {
       if (seg[0] === "livetv" && seg[3] === "rundown") {
-        const ps = tv.handle("GET", ["livetv", "guide"], new URLSearchParams(), null)?.body as {
-          id: string;
-          start: string;
-          end: string;
-          item: { title: string };
-        }[];
-        return {
-          body: (ps || [])
-            .slice(0, 8)
-            .map((p) => ({ ...p, title: p.item.title, reason: "Picked for you" })),
-        };
+        return tv.handle(method, seg, q, body);
       }
       if (seg[0] !== "onair") return null;
       const [, kind, id, action, clipId] = seg;
