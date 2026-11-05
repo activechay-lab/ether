@@ -24,7 +24,8 @@ func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until 
 	var out []Programme
 	var advance time.Duration
 	for _, p := range ps {
-		if interstitial(p.Item) && check {
+		p.graphicsID = p.ID
+		if interstitial(p.Item) && p.Item.ReelClipID == "" && check {
 			request := s.clipRequest(c, p)
 			p.graphicsRequest = &request
 		}
@@ -33,28 +34,27 @@ func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until 
 		s.mu.Unlock()
 		if skip.IsZero() && check && interstitial(p.Item) && p.End.Add(-advance).After(from) && p.Start.Add(-advance).Before(until) {
 			request := s.clipRequest(c, p)
-			if _, ok := s.o.Graphics.Clip(ctx, request); !ok {
-				s.o.Graphics.Ensure(ctx, request)
-				s.mu.Lock()
-				if s.graphicsSkips == nil {
-					s.graphicsSkips = map[string]time.Time{}
-				}
-				key := c.ID + "/" + p.ID
-				first := s.graphicsSkips[key].IsZero()
-				s.graphicsSkips[key] = p.End
-				for k, end := range s.graphicsSkips {
-					if end.Before(s.o.Now().Add(-48 * time.Hour)) {
-						delete(s.graphicsSkips, k)
+			ready := false
+			if p.Item.ReelClipID == "" {
+				_, ready = s.o.Graphics.Clip(ctx, request)
+			}
+			if p.Item.ReelClipID != "" {
+				ready = false
+				if c.reel != nil {
+					for _, clip := range c.reel.Clips {
+						if clip.ID == p.Item.ReelClipID && clip.Path != "" {
+							ready = true
+							break
+						}
 					}
 				}
-				s.mu.Unlock()
+			}
+			if !ready {
+				if p.Item.ReelClipID == "" {
+					s.o.Graphics.Ensure(ctx, request)
+				}
+				s.recordGraphicsSkip(c, p, fmt.Errorf("clip not cached"))
 				skip = p.End
-				if first {
-					faillog.New(s.o.Logger, "livetv: interstitial skipped").Fail(fmt.Errorf("clip not cached"), "programme", p.ID, "moment", p.Item.Slate)
-					if c.Look != nil && c.Look.Placement == "insert" {
-						s.bumpLineup()
-					}
-				}
 			}
 		}
 		if !skip.IsZero() {
@@ -114,4 +114,33 @@ func (s *Service) broadcastGuide(c Channel, from, until time.Time) []Programme {
 		}
 	}
 	return visible
+}
+
+// recordGraphicsSkip is shared by cache preflight and decoder failures (a master
+// can be evicted or disappear between preflight and prepare). The airing's
+// original schedule ID survives inserted advances, so every viewer agrees.
+func (s *Service) recordGraphicsSkip(c Channel, p Programme, err error) {
+	id := p.graphicsID
+	if id == "" {
+		id = p.ID
+	}
+	s.mu.Lock()
+	if s.graphicsSkips == nil {
+		s.graphicsSkips = map[string]time.Time{}
+	}
+	key := c.ID + "/" + id
+	first := s.graphicsSkips[key].IsZero()
+	s.graphicsSkips[key] = p.End
+	for k, end := range s.graphicsSkips {
+		if end.Before(s.o.Now().Add(-48 * time.Hour)) {
+			delete(s.graphicsSkips, k)
+		}
+	}
+	s.mu.Unlock()
+	if first {
+		faillog.New(s.o.Logger, "livetv: interstitial skipped").Fail(err, "programme", id, "moment", p.Item.Slate)
+		if c.Look != nil && c.Look.Placement == "insert" {
+			s.bumpLineup()
+		}
+	}
 }

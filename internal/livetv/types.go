@@ -16,6 +16,8 @@ import (
 const Provider = "tv.plex.providers.epg.xmltv:1"
 
 type Item struct {
+	ReelID       string         `json:"reelId,omitempty"`
+	ReelClipID   string         `json:"reelClipId,omitempty"`
 	EpisodeTitle string         `json:"episodeTitle,omitempty"`
 	ShowTitle    string         `json:"showTitle,omitempty"`
 	Art          string         `json:"art,omitempty"`
@@ -112,6 +114,8 @@ type ClockSlot struct {
 type Channel struct {
 	Clock          []ClockSlot `json:"clock,omitempty"`
 	segmentInfo    func(string) (string, string, bool)
+	reel           *ReelSnapshot
+	momentHistory  *momentHistory
 	DVRMinutes     int             `json:"dvrMinutes,omitempty"`
 	Personal       *PersonalRecipe `json:"personal,omitempty"`
 	personalViewer *core.User
@@ -274,6 +278,7 @@ type SourceGroup struct {
 type Programme struct {
 	sourceOffset    time.Duration
 	graphicsRequest *core.ClipRequest
+	graphicsID      string
 	Reason          string    `json:"reason,omitempty"`
 	Lens            string    `json:"lens,omitempty"`
 	ID              string    `json:"id"`
@@ -312,6 +317,7 @@ type Policy struct {
 	channelSet map[string]struct{} // Channels as a set for long lists; see indexChannels
 }
 type Options struct {
+	Reels     func(context.Context, string) (ReelSnapshot, error)
 	InputUser func(context.Context) (*core.User, error)
 	Screens   func() config.LiveTVScreens
 	Watchlist interface{ Generation() uint64 }

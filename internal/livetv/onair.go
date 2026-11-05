@@ -16,18 +16,23 @@ func interstitial(it Item) bool {
 		return true
 	}
 	switch it.Slate {
-	case "ident", "upnext", "break", "back", "tonight", "welcome":
+	case "ident", "upnext", "break", "back", "tonight", "welcome", "reel":
 		return true
 	}
 	return false
 }
 
-func (c Channel) moments(at time.Time) []Item {
+func (c Channel) moments(at time.Time) []Item { return c.momentsWithin(at, 0) }
+func (c Channel) momentsWithin(at time.Time, budget time.Duration) []Item {
 	if c.Look == nil || c.clipDuration == nil {
 		return nil
 	}
 	var kinds []string
-	if c.Look.Breaks == "between" && (c.Look.BreakEvery <= 0 || at.Unix()/60%int64(c.Look.BreakEvery) == 0) {
+	breaks := c.Look.Breaks == "between"
+	if breaks && c.Look.BreakEvery > 0 && c.momentHistory != nil && !c.momentHistory.lastBreak.IsZero() {
+		breaks = at.Sub(c.momentHistory.lastBreak) >= time.Duration(c.Look.BreakEvery)*time.Minute
+	}
+	if breaks {
 		if c.Look.BreakContent == "segments" {
 			kinds = append(kinds, c.Look.SegmentIDs...)
 		} else {
@@ -35,25 +40,69 @@ func (c Channel) moments(at time.Time) []Item {
 		}
 		kinds = append(kinds, "back")
 	}
+
+	if c.Look.Ident {
+		kinds = append(kinds, "ident")
+	}
 	if c.Look.UpNext {
 		kinds = append(kinds, "upnext")
 		if at.In(zoneOf(c.Timezone)).Hour() >= 18 {
 			kinds = append(kinds, "tonight")
 		}
 	}
-	var items []Item
+	var base []Item
+	var reserved time.Duration
 	for _, kind := range kinds {
 		if strings.HasPrefix(kind, "plugin:") {
 			if item, ok := c.pluginItem(kind); ok {
-				items = append(items, item)
+				base = append(base, item)
+				reserved += time.Duration(item.DurationMS) * time.Millisecond
 			}
 			continue
 		}
 		if d, ok := c.clipDuration(c.Look.LookID, kind); ok && d > 0 && d%segmentDuration == 0 {
-			items = append(items, Item{Slate: kind, Title: kind, DurationMS: d.Milliseconds()})
+			base = append(base, Item{Slate: kind, Title: kind, DurationMS: d.Milliseconds()})
+			reserved += d
 		}
 	}
-	return items
+	if breaks && c.momentHistory != nil && len(base) > 0 {
+		c.momentHistory.lastBreak = at
+	}
+	if budget > 0 && reserved > budget {
+		var fit []Item
+		for _, item := range base {
+			d := time.Duration(item.DurationMS) * time.Millisecond
+			if d <= budget {
+				fit = append(fit, item)
+				budget -= d
+			}
+		}
+		return fit
+	}
+	var out []Item
+	cursor := at
+	for _, item := range base {
+		out = append(out, item)
+		cursor = cursor.Add(time.Duration(item.DurationMS) * time.Millisecond)
+		if item.Slate == "break" {
+			if c.momentHistory != nil {
+				c.momentHistory.lastBreak = at
+			}
+			available := time.Duration(0)
+			if budget > 0 {
+				available = budget - reserved
+				if available <= 0 {
+					continue
+				}
+			}
+			reel := c.reelItems(cursor, available)
+			out = append(out, reel...)
+			for _, clip := range reel {
+				cursor = cursor.Add(time.Duration(clip.DurationMS) * time.Millisecond)
+			}
+		}
+	}
+	return out
 }
 
 // guideSchedule preserves the original gap guide, including filler and off-air
@@ -68,6 +117,7 @@ func guideSchedule(c Channel, from, until time.Time) []Programme {
 			look := *c.Look
 			look.Breaks = ""
 			look.UpNext = false
+			look.Ident = false
 			c.Look = &look
 		} else {
 			c.Look = nil
@@ -114,7 +164,7 @@ func (s *Service) clipRequest(c Channel, p Programme) core.ClipRequest {
 			r.Bind["resume.minutes"] = p.Item.Summary
 		}
 	}
-	if p.Item.Slate != "upnext" && p.Item.Slate != "tonight" && p.Item.Slate != "back" {
+	if p.Item.Slate != "upnext" && p.Item.Slate != "tonight" && p.Item.Slate != "back" && p.Item.Slate != "lowerthird" {
 		return r
 	}
 	c = s.graphicsChannel(c)
@@ -134,6 +184,11 @@ func (s *Service) graphicsChannel(c Channel) Channel {
 		if meta, ok := s.o.Graphics.(core.ChannelSegmentMetadata); ok {
 			c.segmentInfo = meta.SegmentInfo
 		}
+		if c.Look != nil && c.Look.BreakContent == "reel" {
+			s.mu.Lock()
+			c.reel = s.reelSnapshots[c.Look.ReelID]
+			s.mu.Unlock()
+		}
 	}
 	return c
 }
@@ -152,9 +207,6 @@ func (s *Service) ensureGraphics() {
 		if !c.Enabled || !recent[c.ID] {
 			continue
 		}
-		for _, reason := range []string{offAirSlate, "reconnecting", "busy"} {
-			s.o.Graphics.Ensure(s.ctx, s.screenRequest(c, reason))
-		}
 		if c.Look == nil && len(c.Clock) == 0 {
 			continue
 		}
@@ -166,7 +218,7 @@ func (s *Service) ensureGraphics() {
 			if strings.HasPrefix(p.Item.Slate, "plugin:") && p.Start.After(now.Add(15*time.Minute)) {
 				continue
 			}
-			if interstitial(p.Item) || p.Item.Slate == offAirSlate {
+			if (interstitial(p.Item) && p.Item.ReelClipID == "") || (p.Item.Slate == offAirSlate && c.Look != nil && c.Look.OffAir) {
 				s.o.Graphics.Ensure(s.ctx, s.clipRequest(c, p))
 			}
 		}

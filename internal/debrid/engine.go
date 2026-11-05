@@ -1658,6 +1658,12 @@ func (s *httpSource) ReadAtContext(ctx context.Context, p []byte, off int64) (in
 	return s.read(ctx, p, off, fetchUrgent, true)
 }
 
+type concurrentRangeKey struct{}
+
+func (s *httpSource) ReadAtConcurrentContext(ctx context.Context, p []byte, off int64) (int, error) {
+	return s.read(context.WithValue(ctx, concurrentRangeKey{}, true), p, off, fetchUrgent, true)
+}
+
 // ReadAtPrefetchContext reads at background priority without read-ahead.
 func (s *httpSource) ReadAtPrefetchContext(ctx context.Context, p []byte, off int64) (int, error) {
 	return s.read(ctx, p, off, fetchPrefetch, false)
@@ -1719,7 +1725,15 @@ func (s *httpSource) read(ctx context.Context, p []byte, off int64, mode fetchMo
 			runLen = min(maxRun, 4)
 		}
 		s.last = lastBlock
+		// Encoder range bytes belong to their active request. A concurrent
+		// Matroska header/tail/seek range may retire the source's speculative
+		// epoch, but cannot cancel another live HTTP response's producer.
+		// Request cancellation still retires the urgent run; joined readers
+		// retry an abandoned flight under their own request context.
 		liveRun = s.raCtx
+		if concurrent, _ := ctx.Value(concurrentRangeKey{}).(bool); concurrent {
+			liveRun = ctx
+		}
 		s.mu.Unlock()
 		// Start read-ahead past this read before blocking, so the burst
 		// runs in parallel with the request for the bytes asked for.

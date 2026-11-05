@@ -3,6 +3,7 @@ package livetv
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync"
 	"time"
@@ -14,78 +15,138 @@ import (
 // scheduleBroadcastPlanner snapshots the channel recipe. An edited recipe gets
 // a new planner when P4 replaces the channel output after lineup invalidation.
 type scheduleBroadcastPlanner struct {
-	joinAt  time.Time
-	caps    core.ClientCaps
-	s       *Service
-	channel Channel
-	user    core.User
-	format  transcode.RawFormat
-	runner  transcode.ContinuousRunner
-	mu      sync.Mutex
-	at      time.Time
-	current broadcastPlan
-	next    *broadcastPlan
+	workerCtx    context.Context
+	workerCancel context.CancelFunc
+	workerDone   chan struct{}
+	requests     chan time.Time
+	lastRequest  time.Time
+	window       []Programme
+	overlayMu    sync.Mutex
+	overlayCards map[string]*programmeOverlays
+	overlayBug   *videoOverlay
+	joinAt       time.Time
+	caps         core.ClientCaps
+	s            *Service
+	channel      Channel
+	user         core.User
+	format       transcode.RawFormat
+	runner       transcode.ContinuousRunner
+	mu           sync.Mutex
 }
 
+func (p *scheduleBroadcastPlanner) startPlanner(parent context.Context) {
+	p.workerCtx, p.workerCancel = context.WithCancel(parent)
+	p.requests = make(chan time.Time, 1)
+	p.workerDone = make(chan struct{})
+	go p.planWorker()
+}
+func (p *scheduleBroadcastPlanner) closePlanner() { p.workerCancel(); <-p.workerDone }
+func (p *scheduleBroadcastPlanner) planWorker() {
+	defer close(p.workerDone)
+	for {
+		select {
+		case <-p.workerCtx.Done():
+			return
+		case now := <-p.requests:
+			c := p.s.graphicsChannel(p.channel)
+			c = p.s.personalChannel(p.workerCtx, c, &p.user)
+			var ps []Programme
+			if c.Personal != nil {
+				ps, _ = p.s.programmes(p.workerCtx, c, now, now.Add(2*time.Minute))
+				if welcome, ok := p.s.personalWelcome(c, now); ok {
+					ps = append([]Programme{welcome}, ps...)
+				}
+			} else {
+				ps = p.s.broadcastSchedule(p.workerCtx, c, now, now.Add(2*time.Minute), true)
+			}
+			p.mu.Lock()
+			p.window = ps
+			p.mu.Unlock()
+		}
+	}
+}
 func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadcastPlan) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if !p.at.IsZero() && now.Sub(p.at) < time.Second && (p.current.end.IsZero() || now.Before(p.current.end)) {
-		return p.current, p.next
-	}
-	p.at = now
-	c := p.s.graphicsChannel(p.channel)
-	c = p.s.personalChannel(p.s.ctx, c, &p.user)
-	var ps []Programme
-	if c.Personal != nil {
-		ps, _ = p.s.programmes(p.s.ctx, c, now, now.Add(broadcastPrewarm+time.Second))
-		if welcome, ok := p.s.personalWelcome(c, now); ok {
-			ps = append([]Programme{welcome}, ps...)
+	if p.lastRequest.IsZero() || now.Sub(p.lastRequest) >= time.Second {
+		select {
+		case p.requests <- now:
+			p.lastRequest = now
+		default:
 		}
-	} else {
-		ps = p.s.broadcastSchedule(p.s.ctx, c, now, now.Add(broadcastPrewarm+time.Second), true)
 	}
-	p.current = broadcastPlan{id: "screen-" + c.ID}
-	p.next = nil
-	for _, programme := range ps {
-		if p.current.id != "screen-"+c.ID && programme.Start.Before(p.current.end) {
+	current := broadcastPlan{id: "screen-" + p.channel.ID}
+	var next *broadcastPlan
+	for _, programme := range p.window {
+		if current.id != "screen-"+p.channel.ID && programme.Start.Before(current.end) {
 			continue
 		}
 		plan := p.programme(programme)
 		if !now.Before(programme.Start) && now.Before(programme.End) {
-			p.current = plan
+			current = plan
 		} else if programme.Start.After(now) {
-			p.next = &plan
+			next = &plan
 			break
 		}
 	}
-	return p.current, p.next
+	return current, next
 }
+
 func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan {
 	plan := broadcastPlan{id: programme.ID, start: programme.Start, end: programme.End}
+	if interstitial(programme.Item) {
+		plan.failed = func(err error) time.Time {
+			p.s.recordGraphicsSkip(p.channel, programme, err)
+			// Force a fresh background snapshot; it restores gap filler or advances
+			// the following programme before the next frame-clock planning pass.
+			select {
+			case p.requests <- p.s.o.Now():
+			default:
+			}
+			return programme.End
+		}
+	}
 	plan.open = func(ctx context.Context) (transcode.Decoder, func(), error) {
-		c := p.s.personalChannel(ctx, p.channel, &p.user)
+		c := p.s.graphicsChannel(p.s.personalChannel(ctx, p.channel, &p.user))
 		if p.s.o.Playback == nil && programme.Item.Slate == "" {
 			return nil, nil, core.ErrNotAvailable
 		}
-		if programme.Item.Slate != "" {
-			request := p.s.screenRequest(c, programme.Item.Slate)
-			if programme.Item.Slate == offAirSlate {
-				for _, next := range Schedule(p.s.graphicsChannel(c), programme.End, programme.End.Add(24*time.Hour)) {
-					if next.Item.Key != 0 {
-						request.Bind["screen.back"] = next.Start.In(zoneOf(c.Timezone)).Format("3:04 PM")
+		if programme.Item.ReelClipID != "" {
+			var path string
+			if c.reel != nil {
+				for _, clip := range c.reel.Clips {
+					if clip.ID == programme.Item.ReelClipID {
+						path = clip.Path
 						break
 					}
 				}
 			}
-			loop := programme.Item.Slate == offAirSlate
-			if interstitial(programme.Item) || (c.Look != nil && loop && c.Look.OffAir) {
-				request = p.s.clipRequest(c, programme)
-				if programme.graphicsRequest != nil {
-					request = *programme.graphicsRequest
-				}
+			if path == "" {
+				return nil, nil, core.ErrNotAvailable
 			}
-			return p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, loop)
+			decoder, err := p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: "reel-" + programme.Item.ReelClipID, InputURL: path, Format: p.format})
+			return decoder, nil, err
+		}
+		if programme.Item.Slate != "" {
+			if programme.Item.Slate == offAirSlate && (c.Look == nil || !c.Look.OffAir) {
+				back := ""
+				for _, next := range Schedule(p.s.graphicsChannel(c), programme.End, programme.End.Add(24*time.Hour)) {
+					if next.Item.Key != 0 {
+						back = next.Start.In(zoneOf(c.Timezone)).Format("3:04 PM")
+						break
+					}
+				}
+				return p.s.openSignalDecoder(ctx, p.s.screenRequestWithBack(c, offAirSlate, back), p.format)
+			}
+			request := p.s.clipRequest(c, programme)
+			if programme.graphicsRequest != nil {
+				request = *programme.graphicsRequest
+			}
+			decoder, release, err := p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, programme.Item.Slate == offAirSlate)
+			if err != nil && programme.Item.Slate == offAirSlate {
+				return p.s.openSignalDecoder(ctx, p.s.screenRequest(c, offAirSlate), p.format)
+			}
+			return decoder, release, err
 		}
 
 		now := p.s.o.Now()
@@ -126,16 +187,21 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 				now = p.joinAt
 			}
 			offset := time.Duration(0)
-			if candidate.ID == programme.ID && now.After(programme.Start) {
-				offset = now.Sub(programme.Start)
+			if candidate.ID == programme.ID {
+				at := now
+				if at.Before(programme.Start) {
+					at = programme.Start
+				}
+				offset = programme.Offset(at)
 			}
+			p.s.o.Logger.Debug("broadcast programme decoder start", "channel", c.ID, "programme", programme.ID, "playback", ps.ID, "offset", offset)
 			decoder, err := p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: group + "-" + candidate.ID, InputURL: p.s.o.Playback.InputURL(ps.ID), Offset: offset, Format: p.format})
 			if err != nil {
 				p.s.o.Playback.Stop(ps.ID)
 				last = err
 				continue
 			}
-			return decoder, func() { p.s.o.Playback.Stop(ps.ID) }, nil
+			return &overlayDecoder{Decoder: decoder, overlays: p.prepareProgrammeOverlays(ctx, programme)}, func() { p.s.o.Playback.Stop(ps.ID) }, nil
 		}
 		return nil, nil, last
 	}
@@ -292,4 +358,11 @@ func (d *providerBroadcastDecoder) Next(ctx context.Context) (transcode.RawFrame
 		d.once.Do(d.ready)
 	}
 	return frame, err
+}
+
+func (p *scheduleBroadcastPlanner) broadcastLogger() *slog.Logger {
+	return p.s.o.Logger.With("channel", p.channel.ID)
+}
+func (p *providerBroadcastPlanner) broadcastLogger() *slog.Logger {
+	return p.s.o.Logger.With("channel", p.channel.ID)
 }

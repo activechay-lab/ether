@@ -93,10 +93,7 @@ func (p *providerBroadcastPlanner) screen(time.Time) broadcastPlan {
 	return p.s.screenPlan(p.channel, p.runner, p.format)
 }
 func (s *Service) screenPlan(c Channel, runner transcode.ContinuousRunner, format transcode.RawFormat) broadcastPlan {
-	request := s.screenRequest(c, "reconnecting")
-	return broadcastPlan{id: "screen-" + c.ID, failed: func(error) time.Time { return s.o.Now().Add(time.Second) }, open: func(ctx context.Context) (transcode.Decoder, func(), error) {
-		return s.openGraphicsDecoder(ctx, runner, request, format, true)
-	}}
+	return s.signalPlan(c, "reconnecting", "", format)
 }
 func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 	runner, ok := s.o.Transcoder.(transcode.ContinuousRunner)

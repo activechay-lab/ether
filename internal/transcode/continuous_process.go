@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -60,6 +61,7 @@ type continuousProcess struct {
 	done    chan struct{}
 	once    sync.Once
 	err     error
+	stderr  *tailBuffer
 }
 
 func (m *Manager) startContinuous(ctx context.Context, args []string, dir string, drain bool, sockets []*rawSocket, stdout io.Writer, release func()) (*continuousProcess, error) {
@@ -73,13 +75,21 @@ func (m *Manager) startContinuous(ctx context.Context, args []string, dir string
 	// Register before launch so Manager.Close waits even for a concurrent Start.
 	m.continuousWG.Add(1)
 	m.mu.Unlock()
-	p, e := m.runner.Start(Command{Path: m.ffmpeg, Args: args, Dir: dir, Stdout: stdout})
+	stderr := newTailBuffer(24)
+	input := ""
+	for i, arg := range args {
+		if arg == "-i" && i+1 < len(args) {
+			input = args[i+1]
+			break
+		}
+	}
+	p, e := m.runner.Start(Command{Path: m.ffmpeg, Args: args, Dir: dir, Stdout: stdout, Stderr: &lineWriter{fn: func(line string) { stderr.add((redactingRunner{input: input}).redact(line)) }}})
 	if e != nil {
 		cancel()
 		m.continuousWG.Done()
 		return nil, e
 	}
-	c := &continuousProcess{ctx: ctx, cancel: cancel, proc: p, sockets: sockets, done: make(chan struct{})}
+	c := &continuousProcess{ctx: ctx, cancel: cancel, proc: p, sockets: sockets, done: make(chan struct{}), stderr: stderr}
 	go func() {
 		defer m.continuousWG.Done()
 		select {
@@ -121,7 +131,10 @@ func (p *continuousProcess) close() error {
 func (p *continuousProcess) result() error {
 	<-p.done
 	if p.err != nil {
-		return fmt.Errorf("continuous ffmpeg: %w", p.err)
+		return fmt.Errorf("continuous ffmpeg: %w: %s", p.err, strings.TrimSpace(p.stderr.String()))
+	}
+	if tail := strings.TrimSpace(p.stderr.String()); tail != "" {
+		return fmt.Errorf("continuous ffmpeg: %w: %s", io.EOF, tail)
 	}
 	return io.EOF
 }
