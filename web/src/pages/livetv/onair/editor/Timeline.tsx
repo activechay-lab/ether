@@ -202,15 +202,18 @@ export function Timeline(p: {
                 .map(([key, v]) => (
                   <div key={key} className="flex h-9 items-center">
                     <span className="w-32">{propertyName(key)}</span>
-                    <div className="relative grow h-8">
+                    <div data-track className="relative min-w-48 grow h-8">
                       {isAnimated(v) &&
                         v.keys.map((k) => (
                           <button
                             key={k[0]}
-                            className="absolute text-blue-500"
+                            className="absolute text-blue-500 touch-none"
                             style={{ left: `${(k[0] / p.duration) * 100}%` }}
                             aria-label={t("Keyframe")}
-                            onClick={() => p.onTime(k[0])}
+                            onClick={() => {
+                              p.onTime(k[0]);
+                              p.onSelect([l.id]);
+                            }}
                             onPointerDown={(e) =>
                               drag(e, k[0], (time) =>
                                 edit(l.id, (old) =>
@@ -242,7 +245,14 @@ export function Timeline(p: {
                         ))}
                     </div>
                     <Select
+                      className="w-32 shrink-0"
                       aria-label={t("Keyframe easing")}
+                      disabled={!isAnimated(v) || !v.keys.some((k) => k[0] === p.time)}
+                      value={
+                        isAnimated(v)
+                          ? (v.keys.find((k) => k[0] === p.time)?.[2] ?? "linear")
+                          : "linear"
+                      }
                       onChange={(e) =>
                         edit(l.id, (old) =>
                           setEase(old, key as keyof Layer, p.time, e.target.value as Ease),
