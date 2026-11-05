@@ -3,7 +3,9 @@ package onair
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,7 +26,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 )
 
 type Options struct {
@@ -57,6 +58,7 @@ type entry struct {
 	Pin  time.Time
 }
 type renderJob struct {
+	Scene       StyleScene
 	download    bool
 	AssetDigest string
 	Hash        string
@@ -163,8 +165,15 @@ func (s *Service) Duration(id, m string) (time.Duration, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	l, ok := s.looks[id]
-	v, found := l.Moments[m]
-	return time.Duration(v.Duration * float64(time.Second)), ok && found
+	v, found := l.Roles[m]
+	enabled := false
+	for _, sc := range l.Scenes {
+		if sc.Role == m && sc.Enabled {
+			enabled = true
+			break
+		}
+	}
+	return time.Duration(v.Duration * float64(time.Second)), ok && found && enabled
 }
 func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	var plugin PluginSegment
@@ -195,95 +204,74 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		l = familyLook("clean", "Clean")
 		ok = true
 	}
-	f := l.Family
-	if f == "lateNight" {
-		f = "late-night"
-	}
+
+	var selected StyleScene
+	var d scene.Document
+	f := ""
 	if strings.HasPrefix(r.Moment, "screen.") {
 		f = "signal"
+		var err error
+		d, err = families.Get("signal", r.Moment)
+		if err != nil {
+			return renderJob{}, false
+		}
 		ok = true
+	} else if isPlugin {
+		d = plugin.Document
+	} else {
+		selected, ok = pickScene(l, r)
+		if !ok && r.AssetDigest == "" {
+			return renderJob{}, false
+		}
+		d = selected.Document
 	}
 	if !ok {
 		return renderJob{}, false
 	}
-	d, custom := l.Documents[r.Moment]
-	var e error
-	if isPlugin && !custom {
-		d = plugin.Document
-		custom = true
-	}
-	if !custom {
-		moment := r.Moment
-		if f == "personal" && moment == "offair" {
-			moment = "welcome"
-		}
-		d, e = families.Get(f, moment)
-		if e == nil {
-			d.Moment = r.Moment
-		}
-	}
-	if e != nil {
-		return renderJob{}, false
-	}
 	raw, _ := json.Marshal(d)
 	_ = json.Unmarshal(raw, &d)
-	if v, ok := l.Moments[r.Moment]; ok && f != "signal" {
-		d.Duration = v.Duration
-		if r.Moment == "ident" && len(d.Layers) > 0 && d.Layers[0].ID == "ident-envelope" {
-			d.Layers[0].Opacity = map[string]any{"keys": []any{[]any{0.0, 0.0}, []any{.4, 1.0, "inOut"}, []any{v.Duration - .4, 1.0}, []any{v.Duration, 0.0, "inOut"}}}
-		}
-		d.Poster = v.Poster
+	assetDigest := ""
+	if selected.Video != nil && selected.Video.Mode == "replace" {
+		assetDigest = selected.Video.AssetDigest
 	}
-	if isPlugin {
-		d.Duration = plugin.Document.Duration
-	}
-	assetDigest := l.Moments[r.Moment].AssetDigest
 	if r.AssetDigest != "" {
 		assetDigest = r.AssetDigest
 		if r.AssetDuration > 0 {
 			d.Duration = r.AssetDuration.Seconds()
 		}
 	}
-	b := families.Defaults(f)
-	for k := range b.Slots {
-		b.Slots[k] = ""
+	b := scene.Bindings{Tokens: map[string]any{}, Slots: map[string]string{}}
+	if f == "signal" {
+		b = families.Defaults("signal")
+		for k := range b.Slots {
+			b.Slots[k] = ""
+		}
 	}
 	for k, v := range r.Bind {
-		b.Slots[k] = v
+		if k != "studio.scene" {
+			b.Slots[k] = v
+		}
 	}
 	if f != "signal" {
 		b.Tokens["bg"] = l.Brand.Palette.Background
 		b.Tokens["accent"] = l.Brand.Palette.Accent
 		b.Tokens["text"] = l.Brand.Palette.Text
 		b.Tokens["glow"] = l.Brand.Palette.Glow
-		b.Tokens["fog"] = l.Brand.Palette.Glow
-		b.Tokens["words.break"] = "Back in a moment"
-		if f == "cinema" {
-			b.Tokens["words.break"] = "INTERMISSION"
-		}
-		b.Tokens["logo"] = l.Brand.Logo
-		b.Slots["brand.logo"] = l.Brand.Logo
-		for _, v := range []string{"grain", "flicker", "scanlines", "vignette"} {
-			b.Tokens["textures."+v] = 0.0
-			for _, t := range l.Brand.Textures {
-				if strings.EqualFold(t, v) {
-					b.Tokens["textures."+v] = .07
-				}
-			}
-		}
 		b.Tokens["type.display"] = normalizeFont(l.Brand.Type.Display)
-		b.Tokens["type.mono"] = normalizeFont(l.Brand.Type.Body)
 		b.Tokens["type.body"] = normalizeFont(l.Brand.Type.Body)
-		b.Tokens["energy"] = l.Brand.Energy * 2
-		b.Tokens["seed"] = l.Brand.Seed
-		b.Tokens["volume"] = l.Brand.Volume
-		b.Tokens["sting"] = l.Brand.Sting
+		b.Tokens["type.mono"] = normalizeFont(l.Brand.Type.Body)
+		b.Tokens["energy"] = l.Brand.Energy
 		b.Tokens["words.tagline"] = l.Brand.Tagline
-		for k, v := range l.Brand.Words {
-			if k == "upnext" {
-				k = "upNext"
-			}
-			b.Tokens["words."+k] = v
+		b.Tokens["brand.logo"] = l.Brand.Logo
+		b.Slots["brand.logo"] = l.Brand.Logo
+		for _, v := range []string{"grain", "flicker", "scanlines", "vignette", "chroma"} {
+			b.Tokens["textures."+v] = 0.0
+		}
+		for _, v := range l.Brand.Textures {
+			b.Tokens["textures."+strings.ToLower(v)] = .07
+		}
+		for _, c := range l.Controls {
+			b.Tokens["control."+c.ID] = c.Value
 		}
 	}
 	if f == "signal" {
@@ -308,27 +296,25 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	if v := r.Bind["channel.tagline"]; v != "" {
 		b.Tokens["words.tagline"] = v
 	}
-	if r.Moment == "ident" || r.Moment == "offair" || r.Moment == "welcome" {
-		bindStyleTagline(d.Layers)
-	}
-	applyLayers(d.Layers, l.Layers)
-	if f != "signal" && r.Moment != "bug" && r.Moment != "lowerthird" && l.Brand.Logo != "" {
-		if utf8.RuneCountInString(l.Brand.Logo) <= 3 {
-			d.Layers = append(d.Layers, scene.Layer{ID: "owner-logo", Type: "text", Text: l.Brand.Logo, X: 95.0, Y: 130.0, Font: normalizeFont(l.Brand.Type.Display), Size: 72.0, Fill: l.Brand.Palette.Accent})
-		} else {
-			d.Layers = append(d.Layers, scene.Layer{ID: "owner-logo", Type: "image", Src: "{brand.logo}", X: 95.0, Y: 70.0, W: 120.0, H: 120.0, Fit: "contain"})
+
+	// Scene selection is represented by its document and media; the internal prewarm selector is not a cache input.
+	cacheRequest := r
+	cacheRequest.Bind = map[string]string{}
+	for k, v := range r.Bind {
+		if k != "studio.scene" {
+			cacheRequest.Bind[k] = v
 		}
 	}
-
 	h := encode.Hash(raster.Version+":"+s.resources, d, struct {
-		Brand       Brand
-		AssetDigest string
-		Layers      map[string]map[string]any
-	}{l.Brand, assetDigest, l.Layers}, struct {
+		Brand Brand
+		Scene StyleScene
+		Asset string
+	}{l.Brand, selected, assetDigest}, struct {
 		Bindings scene.Bindings
 		Request  core.ClipRequest
-	}{b, r}, r.Art, encode.Profile)
-	return renderJob{AssetDigest: assetDigest, Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b, Assets: plugin.Images}, Request: r}, h != ""
+	}{b, cacheRequest}, r.Art, encode.Profile)
+	return renderJob{Scene: selected, AssetDigest: assetDigest, Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b, Assets: plugin.Images}, Request: r}, h != ""
+
 }
 func (s *Service) Clip(_ context.Context, r core.ClipRequest) (core.ClipRef, bool) {
 	j, ok := s.plan(r)
@@ -417,9 +403,9 @@ func (s *Service) queueLook(l Look, requests []core.ClipRequest) {
 		if len(ids) == 0 {
 			ids = []string{""}
 		}
-		moments := []string{"ident", "offair", "break"}
-		if l.Family == "personal" {
-			moments = append(moments, "welcome")
+		moments := []string{}
+		for role := range l.Roles {
+			moments = append(moments, role)
 		}
 		for _, id := range ids {
 			for _, m := range moments {
@@ -430,9 +416,20 @@ func (s *Service) queueLook(l Look, requests []core.ClipRequest) {
 	jobs := []renderJob{}
 	hashes := []string{}
 	for _, r := range requests {
-		if j, ok := s.plan(r); ok {
-			jobs = append(jobs, j)
-			hashes = append(hashes, j.Hash)
+		for _, sc := range l.Scenes {
+			if !sc.Enabled || sc.Role != r.Moment {
+				continue
+			}
+			bind := map[string]string{}
+			for k, v := range r.Bind {
+				bind[k] = v
+			}
+			bind["studio.scene"] = sc.ID
+			r.Bind = bind
+			if j, ok := s.plan(r); ok {
+				jobs = append(jobs, j)
+				hashes = append(hashes, j.Hash)
+			}
 		}
 	}
 	s.mu.Lock()
@@ -571,27 +568,44 @@ func (s *Service) execute(j renderJob) (err error) {
 	out := filepath.Join(s.o.Dir, j.Hash+".mp4")
 	var e error
 	audio := ""
-	var volume *float64
-	if !strings.HasPrefix(j.Doc.Moment, "screen.") {
-		v, _ := j.Bind.Tokens["volume"].(float64)
-		volume = &v
-	}
-	if digest, ok := j.Bind.Tokens["sting"].(string); ok && len(digest) == 64 {
+
+	var sounds []encode.SoundInput
+	prepare := func(digest, kind string) (string, error) {
 		var b []byte
-		if e = s.db.QueryRowContext(ctx, "SELECT content FROM onair_assets WHERE digest=? AND kind='audio'", digest).Scan(&b); e != nil {
-			return e
+		if err := s.db.QueryRowContext(ctx, "SELECT content FROM onair_assets WHERE digest=? AND kind=?", digest, kind).Scan(&b); err != nil {
+			return "", err
 		}
-		f, e := os.CreateTemp(s.o.Dir, ".sting-*")
-		if e != nil {
-			return e
+		f, err := os.CreateTemp(s.o.Dir, ".scene-media-*")
+		if err != nil {
+			return "", err
 		}
-		defer os.Remove(f.Name())
-		_, e = f.Write(b)
-		f.Close()
-		if e != nil {
-			return e
+		_, err = f.Write(b)
+		closeErr := f.Close()
+		if err == nil {
+			err = closeErr
 		}
-		audio = f.Name()
+		if err != nil {
+			os.Remove(f.Name())
+			return "", err
+		}
+		return f.Name(), nil
+	}
+	for _, sound := range j.Scene.Sounds {
+		path, err := prepare(sound.AssetDigest, "audio")
+		if err != nil {
+			return err
+		}
+		defer os.Remove(path)
+		sounds = append(sounds, encode.SoundInput{Path: path, At: sound.At, Start: sound.Start, End: sound.End, Volume: sound.Volume, FadeIn: sound.FadeIn, FadeOut: sound.FadeOut})
+	}
+	var background *encode.VideoInput
+	if v := j.Scene.Video; v != nil && v.Mode == "background" && j.Request.AssetDigest == "" {
+		path, err := prepare(v.AssetDigest, "video")
+		if err != nil {
+			return err
+		}
+		defer os.Remove(path)
+		background = &encode.VideoInput{Path: path, Fit: v.Fit, Start: v.Start}
 	}
 	if j.AssetDigest != "" {
 		e = s.renderMomentVideo(ctx, j, out)
@@ -601,7 +615,7 @@ func (s *Service) execute(j renderJob) (err error) {
 		if s.o.FFmpeg == nil {
 			return fmt.Errorf("ffmpeg unavailable")
 		}
-		opts := encode.Options{Workers: 2, Audio: j.Doc.Audio, AudioVolume: volume}
+		opts := encode.Options{Workers: 2, Audio: j.Doc.Audio, Sounds: sounds, Background: background}
 		frames := func(i int) *image.RGBA { return raster.Render(j.Doc, j.Bind, float64(i)/30, 1920, 1080) }
 		if strings.HasPrefix(j.Doc.Moment, "plugin:") {
 			opts.MaxSeconds = 600
@@ -677,51 +691,6 @@ func (s *Service) evict() {
 	}
 }
 
-func applyLayers(ls []scene.Layer, patches map[string]map[string]any) {
-	for i := range ls {
-		l := &ls[i]
-		p := patches[l.ID]
-		if p == nil {
-			switch l.ID {
-			case "brand", "title":
-				p = patches["Title"]
-			case "tag":
-				p = patches["Tagline"]
-			}
-		}
-		if p == nil {
-			for key, v := range patches {
-				if strings.EqualFold(key, l.ID) {
-					p = v
-					break
-				}
-			}
-		}
-
-		if v, ok := p["text"].(string); ok {
-			l.Text = v
-		}
-		if v, ok := p["size"]; ok {
-			l.Size = v
-		}
-		if v, ok := p["opacity"].(float64); ok {
-			l.Opacity = v / 100
-		}
-		if v, ok := p["x"]; ok {
-			l.X = v
-		}
-		if v, ok := p["y"]; ok {
-			l.Y = v
-		}
-		if v, ok := p["fit"].(string); ok {
-			l.Fit = v
-		}
-		if v, ok := p["hidden"].(bool); ok && v {
-			l.Opacity = 0
-		}
-		applyLayers(l.Layers, patches)
-	}
-}
 func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 	assets := map[string]image.Image{}
 	for k, v := range j.Bind.Assets {
@@ -837,4 +806,30 @@ func bindStyleTagline(layers []scene.Layer) {
 		bindStyleTagline(l.Layers)
 
 	}
+}
+
+func pickScene(l Look, r core.ClipRequest) (StyleScene, bool) {
+	var choices []StyleScene
+	total := 0
+	for _, sc := range l.Scenes {
+		if sc.Enabled && sc.Role == r.Moment && sc.Weight > 0 {
+			if r.Bind["studio.scene"] == sc.ID {
+				return sc, true
+			}
+			choices = append(choices, sc)
+			total += sc.Weight
+		}
+	}
+	if total == 0 {
+		return StyleScene{}, false
+	}
+	sum := sha256.Sum256([]byte(l.ID + "\x00" + r.ChannelID + "\x00" + r.Bind["slate.start"]))
+	n := int(binary.BigEndian.Uint64(sum[:8]) % uint64(total))
+	for _, sc := range choices {
+		n -= sc.Weight
+		if n < 0 {
+			return sc, true
+		}
+	}
+	return StyleScene{}, false
 }

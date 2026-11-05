@@ -35,7 +35,12 @@ func (s *Service) renderMomentVideo(ctx context.Context, j renderJob, out string
 	for _, st := range info.Streams {
 		hasAudio = hasAudio || st.Type == "audio"
 	}
-	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", f.Name()}
+	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", strconv.FormatFloat(func() float64 {
+		if j.Request.AssetDigest == "" && j.Scene.Video != nil {
+			return j.Scene.Video.Start
+		}
+		return 0
+	}(), 'f', 6, 64), "-i", f.Name()}
 	if !hasAudio {
 		args = append(args, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo")
 	}
@@ -53,5 +58,10 @@ func (s *Service) renderMomentVideo(ctx context.Context, j renderJob, out string
 func (s *Service) Crossfade(look, moment string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.looks[look].Moments[moment].Crossfade
+	for _, sc := range s.looks[look].Scenes {
+		if sc.Role == moment && sc.Enabled && sc.Video != nil && sc.Video.Crossfade {
+			return true
+		}
+	}
+	return false
 }
