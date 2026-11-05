@@ -263,6 +263,7 @@ func TestStartDASH(t *testing.T) {
 func TestDASHRoutesLeaveHLSAlone(t *testing.T) {
 	f, _ := dashFixture()
 	defer f.srv.Close()
+	f.get(t, "/video/:/transcode/universal/decision?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=hls-1&protocol=hls")
 	rec := f.get(t, "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=hls-1&protocol=hls")
 	if rec.Code != 200 {
 		t.Fatalf("start.m3u8: %d", rec.Code)
@@ -287,12 +288,14 @@ func TestStartDASHFailures(t *testing.T) {
 	}
 	f.playback.failures[fightClub.Key] = core.ErrNotAvailable
 	// This playback attempt is terminal; a deliberate Play can try again.
+	f.get(t, "/video/:/transcode/universal/decision?"+dashQuery)
 	if rec := f.get(t, "/video/:/transcode/universal/start.mpd?"+dashQuery); rec.Code != http.StatusNotFound || rec.Header().Get("Retry-After") != "" {
 		t.Errorf("not available: %d retry-after=%q", rec.Code, rec.Header().Get("Retry-After"))
 	}
 	// The plain shared fake returns HLS sessions: refused cleanly.
 	f2 := newFixture()
 	defer f2.srv.Close()
+	f2.get(t, "/video/:/transcode/universal/decision?"+dashQuery)
 	if rec := f2.get(t, "/video/:/transcode/universal/start.mpd?"+dashQuery); rec.Code != http.StatusInternalServerError {
 		t.Errorf("non-DASH transcoder: %d", rec.Code)
 	}

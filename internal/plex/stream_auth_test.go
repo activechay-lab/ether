@@ -16,6 +16,7 @@ func TestStreamGrantIsolation(t *testing.T) {
 	defer f.srv.Close()
 	f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "fmp4"}
 	startPath := "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=private-stream"
+	f.get(t, decisionPath(startPath))
 	start := f.get(t, startPath)
 	if start.Code != 200 {
 		t.Fatal(start.Code, start.Body.String())
@@ -69,6 +70,7 @@ func TestEncodedSlashCapabilityCannotReachDecision(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "fmp4"}
+	f.get(t, decisionPath("/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=path-escape"))
 	start := f.get(t, "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=path-escape")
 	if start.Code != 200 {
 		t.Fatal(start.Code, start.Body.String())
@@ -121,6 +123,7 @@ func TestSessionReadAuth(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "fmp4"}
+	f.get(t, decisionPath("/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=live-session"))
 	start := f.get(t, "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=live-session")
 	if start.Code != 200 {
 		t.Fatal(start.Code, start.Body.String())
@@ -187,6 +190,7 @@ func TestExpireRevokesReadCapability(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "fmp4"}
+	f.get(t, decisionPath("/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=expire-session"))
 	start := f.get(t, "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=expire-session")
 	if start.Code != 200 {
 		t.Fatal(start.Code, start.Body.String())
@@ -209,6 +213,7 @@ func TestSessionReadRejectsReclaimedBinding(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "fmp4"}
+	f.get(t, decisionPath("/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=reclaim-session"))
 	start := f.get(t, "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=reclaim-session")
 	if start.Code != 200 {
 		t.Fatal(start.Code, start.Body.String())

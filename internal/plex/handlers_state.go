@@ -693,7 +693,7 @@ func (s *Server) terminateLocal(sid, reason string) bool {
 				return true
 			}
 
-			s.setTermination(e.id, reason)
+			s.setOwnerTermination(e.id, reason)
 			if s.d.Playback != nil {
 				if ps, ok := s.d.Playback.SessionFor(e.user.ID, e.client.ClientID, e.key); ok && ps != nil {
 					if stop, ok := s.playbackBroker.(interface {
@@ -717,6 +717,7 @@ type termination struct {
 	reason    string
 	at        time.Time
 	delivered bool
+	ownerKill bool
 }
 
 // terminationTTL bounds how long a kill waits for its client: one that
@@ -740,8 +741,12 @@ func (s *Server) takeTermination(tid string) (string, bool) {
 	if !ok || t.delivered {
 		return "", false
 	}
-	t.delivered = true
-	s.terms[tid] = t
+	if t.ownerKill {
+		t.delivered = true
+		s.terms[tid] = t
+	} else {
+		delete(s.terms, tid)
+	}
 	return t.reason, true
 }
 
@@ -769,5 +774,14 @@ func (s *Server) playbackTerminated(pr *Request) bool {
 	s.termMu.Lock()
 	defer s.termMu.Unlock()
 	t, ok := s.terms[trackID(pr.User.ID, pr.ClientID, pr.SessionID)]
-	return ok && s.now().Sub(t.at) <= terminationTTL
+	return ok && t.ownerKill && s.now().Sub(t.at) <= terminationTTL
+}
+
+func (s *Server) setOwnerTermination(tid, reason string) {
+	s.termMu.Lock()
+	defer s.termMu.Unlock()
+	if s.terms == nil {
+		s.terms = map[string]termination{}
+	}
+	s.terms[tid] = termination{reason: reason, at: s.now(), ownerKill: true}
 }

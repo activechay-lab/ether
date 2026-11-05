@@ -544,6 +544,7 @@ func TestTranscodeSidecarSubtitlesFollowSessionOffset(t *testing.T) {
 	f.get(t, "/library/metadata/"+key)
 	releaseID := externalID(fightClub.Key, "ether-subtitle:release-en")
 	path := url.QueryEscape("/library/metadata/" + key)
+	f.get(t, decisionPath(fmt.Sprintf("/video/:/transcode/universal/start.m3u8?path=%s&session=hls1&protocol=hls&offset=30&directPlay=0&directStream=1&subtitleStreamID=%d", path, releaseID)))
 	rec := f.get(t, fmt.Sprintf("/video/:/transcode/universal/start.m3u8?path=%s&session=hls1&protocol=hls&offset=30&directPlay=0&directStream=1&subtitleStreamID=%d", path, releaseID))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("start: %d %s", rec.Code, rec.Body.String())
@@ -563,6 +564,7 @@ func TestTranscodeSidecarSubtitlesFollowSessionOffset(t *testing.T) {
 		t.Fatalf("foreign client: %d %s", rec.Code, rec.Body.String())
 	}
 	// Subtitles off: nothing to serve.
+	f.get(t, decisionPath(fmt.Sprintf("/video/:/transcode/universal/start.m3u8?path=%s&session=hls2&protocol=hls&directPlay=0&directStream=1&subtitleStreamID=0", path)))
 	f.get(t, fmt.Sprintf("/video/:/transcode/universal/start.m3u8?path=%s&session=hls2&protocol=hls&directPlay=0&directStream=1&subtitleStreamID=0", path))
 	rec = f.get(t, "/video/:/transcode/universal/subtitles?session=hls2")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<MediaContainer size="0"`) {

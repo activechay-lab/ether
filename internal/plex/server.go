@@ -238,9 +238,11 @@ type Server struct {
 
 	// Owner stream kills, delivered on the client's next timeline; the
 	// janitor drops those whose client never reports again.
-	termMu       sync.Mutex
-	terms        map[string]termination
-	decisionArms map[string]decisionArm
+	termMu             sync.Mutex
+	terms              map[string]termination
+	decisionArms       map[string]decisionArm
+	decisionWriterOnce sync.Once
+	decisionWriter     chan decisionArmWrite
 
 	// Stalled-start watches and Dolby Vision base-layer fallbacks.
 	starts startGuard
@@ -578,6 +580,7 @@ func (s *Server) janitor() {
 			s.playbackOwners.Expire(now, 2*time.Hour)
 			s.extraPlay.expire(now, 2*time.Hour)
 			s.expireTerminations(now, terminationTTL)
+			s.refreshDecisionArms(now)
 			s.starts.expire(now)
 			expired := s.sessions.expire(now, 3*time.Minute)
 			for _, e := range expired {

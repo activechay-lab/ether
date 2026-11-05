@@ -53,6 +53,7 @@ func TestStartRenegotiatesQualityAndTracks(t *testing.T) {
 				}
 				return hs.(*fakeHLS).req
 			}
+			get("/video/:/transcode/universal/decision?" + query + "&maxVideoBitrate=12000&offset=12.5")
 			get(start + query + "&maxVideoBitrate=12000&offset=12.5")
 			first := request()
 			if first.Decision.Kind != core.DecisionRemux || f.trans.lastOpts.MaxBitrateKbps != 8000 {

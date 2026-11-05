@@ -169,3 +169,36 @@ func TestPMSSessionAppearanceLifecycle(t *testing.T) {
 		t.Fatal("stop retained session")
 	}
 }
+
+func TestPMSTerminationBlocksOwnerKillsOnly(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	pr := &Request{User: &core.User{ID: 1}, ClientID: "client", SessionID: "session"}
+	id := trackID(1, "client", "session")
+	f.srv.setTermination(id, "failed source")
+	if f.srv.playbackTerminated(pr) {
+		t.Fatal("failed source blocked retry")
+	}
+	f.srv.takeTermination(id)
+	f.srv.setOwnerTermination(id, "owner stop")
+	if !f.srv.playbackTerminated(pr) {
+		t.Fatal("owner stop did not block")
+	}
+	if _, ok := f.srv.takeTermination(id); !ok {
+		t.Fatal("missing owner notice")
+	}
+	if _, ok := f.srv.takeTermination(id); ok {
+		t.Fatal("repeated owner notice")
+	}
+	if !f.srv.playbackTerminated(pr) {
+		t.Fatal("notice consumption allowed reopen")
+	}
+}
+
+// decisionPath preserves the player's session and request options while selecting
+// the decision endpoint for tests that exercise a subsequent media start.
+func decisionPath(startPath string) string {
+	path, query, _ := strings.Cut(startPath, "?")
+	i := strings.LastIndex(path, "/")
+	return path[:i+1] + "decision?" + query
+}

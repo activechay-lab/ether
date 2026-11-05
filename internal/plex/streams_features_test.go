@@ -179,6 +179,7 @@ func TestDecisionDurationIncludesLateCredits(t *testing.T) {
 func TestOwnedPauseTimelineReachesEncoder(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
+	f.get(t, decisionPath("/video/:/transcode/universal/start.m3u8?path=/library/metadata/"+fightClub.Key.String()+"&session=pause-output&directPlay=0"))
 	rec := f.get(t, "/video/:/transcode/universal/start.m3u8?path=/library/metadata/"+fightClub.Key.String()+"&session=pause-output&directPlay=0")
 	if rec.Code != 200 {
 		t.Fatalf("start: %s", rec.Body.String())

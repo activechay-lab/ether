@@ -1,13 +1,22 @@
 package plex
 
 import (
+	"context"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/store"
 	"time"
 )
 
+func init() {
+	store.Register("plex_decision_arms", 1, `CREATE TABLE plex_decision_arms(user_id BIGINT NOT NULL,client_id TEXT NOT NULL,session_id TEXT NOT NULL,title_key BIGINT NOT NULL,expires BIGINT NOT NULL,PRIMARY KEY(user_id,client_id,session_id,title_key)); CREATE INDEX plex_decision_arms_expiry ON plex_decision_arms(expires);`)
+	store.RegisterViewerTable("plex_decision_arms", "plex_decision_arms", "user_id", store.ViewerMergeDrop)
+}
+
 type decisionArm struct {
-	items map[core.RatingKey]bool
-	at    time.Time
+	user            int64
+	client, session string
+	items           map[core.RatingKey]bool
+	at              time.Time
 }
 
 // The public player session owns its decision state; the encoder's session=
@@ -17,7 +26,6 @@ func (s *Server) armDecision(pr *Request, key core.RatingKey) {
 		return
 	}
 	s.termMu.Lock()
-	defer s.termMu.Unlock()
 	if s.decisionArms == nil {
 		s.decisionArms = make(map[string]decisionArm)
 	}
@@ -26,21 +34,39 @@ func (s *Server) armDecision(pr *Request, key core.RatingKey) {
 	if a.items == nil {
 		a.items = make(map[core.RatingKey]bool)
 	}
+	a.user, a.client, a.session = pr.User.ID, pr.ClientID, pr.SessionID
 	a.items[key] = true
 	a.at = s.now()
 	s.decisionArms[id] = a
+	s.termMu.Unlock()
+	s.persistDecisionArm(pr, key)
 }
 func (s *Server) decisionArmed(pr *Request, key core.RatingKey) bool {
 	if pr.User == nil {
 		return false
 	}
+	id := trackID(pr.User.ID, pr.ClientID, pr.SessionID)
 	s.termMu.Lock()
-	defer s.termMu.Unlock()
-	a, ok := s.decisionArms[trackID(pr.User.ID, pr.ClientID, pr.SessionID)]
-	if !ok || s.now().Sub(a.at) > 3*time.Minute {
+	a, ok := s.decisionArms[id]
+	if ok && s.now().Sub(a.at) <= 3*time.Minute && (key == 0 || a.items[key]) {
+		a.at = s.now()
+		s.decisionArms[id] = a
+		s.termMu.Unlock()
+		return true
+	}
+	s.termMu.Unlock()
+	if s.d.DB == nil {
 		return false
 	}
-	a.at = s.now()
-	s.decisionArms[trackID(pr.User.ID, pr.ClientID, pr.SessionID)] = a
-	return key == 0 || a.items[key]
+	ctx, cancel := context.WithTimeout(s.ctx, dbTimeout)
+	defer cancel()
+	query := `SELECT 1 FROM plex_decision_arms WHERE user_id=? AND client_id=? AND session_id=? AND expires>=?`
+	args := []any{pr.User.ID, pr.ClientID, pr.SessionID, s.now().UnixMilli()}
+	if key != 0 {
+		query += ` AND title_key=?`
+		args = append(args, key)
+	}
+	query += ` LIMIT 1`
+	var found int
+	return s.d.DB.QueryRowContext(ctx, query, args...).Scan(&found) == nil
 }
