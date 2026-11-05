@@ -20,7 +20,7 @@ func consoleEvidencePlan(t *testing.T, c *Catalog, q core.BrowseQuery) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, hint := range []string{"", " INDEXED BY catalog_titles_console_pop_page"} {
+	for _, hint := range []string{"", " INDEXED BY catalog_titles_console_pop_page", " INDEXED BY catalog_titles_console_candidate_page"} {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		sql := `SELECT t.key,t.popularity FROM catalog_titles t` + hint + ` WHERE ` + where + ` ORDER BY t.popularity DESC,t.key ASC LIMIT 49`
 		start := time.Now()

@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/core"
+	"os"
 	"testing"
 	"time"
 )
@@ -31,6 +32,9 @@ func TestConsoleEvidenceCandidatePagesPreservePositiveAndUnknownMembership(t *te
 	} {
 		tc.f.LocalOnly = true
 		tc.f.Type = core.TypeMovie
+		if os.Getenv("ETHER_CATALOG_PLAN") == "1" {
+			consoleEvidencePlan(t, c, core.BrowseQuery{Filter: tc.f})
+		}
 		page, err := c.Browse(ctx, core.BrowseQuery{Filter: tc.f, Sort: core.SortPopularity, Desc: true, Limit: 49, NoTotal: true, CursorPage: true})
 		if err != nil {
 			t.Fatal(err)
