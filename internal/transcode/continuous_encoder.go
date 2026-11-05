@@ -195,7 +195,19 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 	args = append(args, "-map", "0:v:0", "-map", "1:a:0", "-vf", vf)
 	spec := runSpec{Decision: r.Decision, Accel: m.hw, Features: m.feat}
 	spec.Decision.VideoCodec = codec
+	ceiling := r.Decision.BitrateKbps
+	if ceiling <= 0 {
+		ceiling = bitrateCeiling(r.Decision.MaxHeight, codec)
+	}
+	// Reserve AAC and container overhead, and bound a one-second VBV burst:
+	// maxrate + buffer <= remaining budget. Keep CRF/mbtree/lookahead intact.
+	budget := max(200, ceiling-max(r.Decision.AudioBitrateKbps, 128)-64)
+	spec.Rate = rateControl{TargetKbps: budget * 9 / 10, MaxrateKbps: budget * 9 / 10, BufsizeKbps: budget / 10}
+
 	args = append(args, planEncodeArgs(spec, picturePlan{w: w, h: h, outRange: rangeSDR}, enc, codec, false)...)
+	if enc == "libx264" {
+		args = append(args, "-x264-params", "vbv-init=0.1")
+	}
 	g := int((int64(r.SegmentDuration)*int64(f.FPSNum) + int64(time.Second*time.Duration(f.FPSDen))/2) / int64(time.Second*time.Duration(f.FPSDen)))
 	pix := "yuv420p"
 	if strings.HasSuffix(enc, "_vaapi") {

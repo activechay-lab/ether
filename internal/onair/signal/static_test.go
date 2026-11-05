@@ -53,3 +53,14 @@ func TestStaticContinuity(t *testing.T) {
 		t.Fatalf("hiss RMS %f", rms)
 	}
 }
+
+func BenchmarkLiveWarm1080p30(b *testing.B) {
+	e := NewStatic(1920, 1080, "classic", 7)
+	video := make([]byte, 1920*1080*3/2)
+	pcm := make([]int16, 3200)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		e.Render(video, pcm, int64(n))
+	}
+}

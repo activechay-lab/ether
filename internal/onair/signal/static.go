@@ -37,48 +37,69 @@ func walk(seed, tick int64) float64 {
 	return start + (end-start)*position/32 + (sum-total*position/32)*.08
 }
 
-// StaticVideo fills tightly packed I420. Noise is evaluated on a one-third-size
-// working grid in 2x2 grains (6x6 destination pixels), changing at 15 Hz. The
+// StaticVideo fills tightly packed I420. Noise is evaluated at half resolution,
+// bilinearly upscaled with horizontal bandwidth smear, changing at 15 Hz. The
 // rolling bar and tears follow the full 30 Hz clock and never use a clip phase.
 // Composite an optional pre-rendered ID with ApplyOverlay after this call.
 func StaticVideo(dst []byte, w, h int, seed, tick int64) {
 	if w < 2 || h < 2 || w%2 != 0 || h%2 != 0 || len(dst) < w*h*3/2 {
 		panic("signal: invalid I420 buffer")
 	}
+
 	yplane := dst[:w*h]
-	for i := w * h; i < w*h*3/2; i++ {
-		dst[i] = 128
+	// Reuse the U plane as half-resolution scratch; chroma is neutralized
+	// afterwards. No heap buffer or mutable state survives a tick.
+	sw, sh := w/2, h/2
+	grid := dst[w*h : w*h+w*h/4]
+	update := tick / 2
+	for y := 0; y < sh; y++ {
+		state := uint32(hash(uint64(seed) ^ uint64(update)*0xd1342543de82ef95 ^ uint64(y)*0x9e3779b97f4a7c15))
+		if state == 0 {
+			state = 1
+		}
+		for x := 0; x < sw; x++ {
+			state ^= state << 13
+			state ^= state >> 17
+			state ^= state << 5
+			grid[y*sw+x] = byte(52 + (state >> 25))
+		}
 	}
 	t := float64(tick) / 30
 	bar := int((.5 + .24*math.Sin(t*.173) + .13*math.Sin(t*.071*math.Sqrt2) + .08*walk(seed, tick)) * float64(h))
 	barHeight := max(12, h/11)
-	update := tick / 2
-	for gy, y := 0, 0; y < h; gy, y = gy+1, y+6 {
+	for y := 0; y < h; y++ {
+		top := grid[(y/2)*sw : (y/2+1)*sw]
+		bottom := grid[min(sh-1, y/2+1)*sw : (min(sh-1, y/2+1)+1)*sw]
 		row := yplane[y*w : (y+1)*w]
-		for gx, x := 0, 0; x < w; gx, x = gx+1, x+6 {
-			v := byte(52 + int(hash(uint64(seed)^uint64(update)*0xd1342543de82ef95^uint64(gy)*0x9e3779b97f4a7c15^uint64(gx))>>57)*1)
-			for xx, end := x, min(w, x+6); xx < end; xx++ {
-				row[xx] = v
-			}
+		distance := abs(y - bar)
+		offset := int(hash(uint64(seed)^uint64(update)*131071^uint64(y))%5) - 2
+		if distance < barHeight {
+			offset -= (barHeight - distance) * 28 / barHeight
 		}
-		for dy := 1; dy < min(6, h-y); dy++ {
-			copy(yplane[(y+dy)*w:(y+dy+1)*w], row)
+		if y%3 == 0 {
+			offset -= 2
 		}
-		for dy := 0; dy < min(6, h-y); dy++ {
-			target := yplane[(y+dy)*w : (y+dy+1)*w]
-			distance := abs(y + dy - bar)
-			offset := 0
-			if distance < barHeight {
-				offset = -(barHeight - distance) * 28 / barHeight
+		prev := int(top[0])
+		if y%2 != 0 {
+			prev = (prev + int(bottom[0]) + 1) / 2
+		}
+		for x := 0; x < sw; x++ {
+			a, b := int(top[x]), int(top[min(sw-1, x+1)])
+			if y%2 != 0 {
+				a = (a + int(bottom[x]) + 1) / 2
+				b = (b + int(bottom[min(sw-1, x+1)]) + 1) / 2
 			}
-			if (y+dy)%3 == 0 {
-				offset -= 3
-			}
-			for x, v := range target {
-				target[x] = byte(max(16, min(235, int(v)+offset)))
-			}
+			mid := (a + b + 1) / 2
+			// Bilinear 2x upsampling, followed by a two-pixel horizontal smear.
+			row[x*2] = byte(max(16, min(235, (prev+a+1)/2+offset)))
+			row[x*2+1] = byte(max(16, min(235, (a+mid+1)/2+offset)))
+			prev = mid
 		}
 	}
+	for i := w * h; i < w*h*3/2; i++ {
+		dst[i] = 128
+	}
+
 	// Rare horizontal tracking tears; each event uses its own seed and position.
 	event := tick / 3
 	bits := hash(uint64(seed) ^ uint64(event)*0xa0761d6478bd642f)
