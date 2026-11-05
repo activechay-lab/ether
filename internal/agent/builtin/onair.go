@@ -12,6 +12,7 @@ import (
 
 type OnAirService interface {
 	Generate(context.Context, string, string, onair.Look) (onair.Look, error)
+	GenerateScene(context.Context, string, string, onair.Look, string) (onair.Look, error)
 	Draft(context.Context, onair.Look) (onair.Look, error)
 	Look(context.Context, string) (onair.Look, error)
 	SaveLook(context.Context, onair.Look) (onair.Look, error)

@@ -38,7 +38,10 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 		if !body(w, r, &sc) {
 			return
 		}
-		e := s.validateScenes(r.Context(), Look{Roles: map[string]RoleConfig{sc.Role: {Duration: sc.Document.Duration}}, Scenes: []StyleScene{sc}})
+		e := sc.Document.Validate()
+		if e == nil && len(sc.Sounds) > 4 {
+			e = fmt.Errorf("scene %q: use at most four sounds", sc.Name)
+		}
 		result(w, sc, e)
 	})
 	for _, mount := range resources {
