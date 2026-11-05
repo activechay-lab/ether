@@ -870,7 +870,7 @@ func TestWaysToWatchSubtitleReread(t *testing.T) {
 	}
 	guidPath := "/library/metadata/" + url.PathEscape(guid)
 
-	put := func(partID string) {
+	put := func(partID string, status int) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodPut, "/library/parts/"+partID+"?subtitleStreamID="+esID+"&allParts=1", nil)
 		req.RemoteAddr = "192.168.1.50:51000"
@@ -879,7 +879,7 @@ func TestWaysToWatchSubtitleReread(t *testing.T) {
 		}
 		rec := httptest.NewRecorder()
 		f.srv.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
+		if rec.Code != status {
 			t.Fatalf("PUT part %s: %d %s", partID, rec.Code, rec.Body.String())
 		}
 	}
@@ -896,24 +896,24 @@ func TestWaysToWatchSubtitleReread(t *testing.T) {
 	}
 
 	// A different title's part must not take the stream.
-	put(alien.Key.String())
+	put(alien.Key.String(), http.StatusBadRequest)
 	if chosen := selectedTag(subtitleTags(f.get(t, "/library/metadata/"+key, hdr...).Body.String())); chosen != "" {
 		t.Fatalf("cross-title part stored a selection: %s", chosen)
 	}
 
 	// Unregistered id in the 8×10^15 block: the stream id names the title.
-	put("8000000000000001")
+	put("8000000000000001", http.StatusOK)
 	assertSpanish("/library/metadata/" + key)
 	assertSpanish(guidPath)
 
 	// Registered variant part, then the Auto part. Re-read the part id itself
 	// and the plex:// guid the discover row keeps.
-	put(variant[1])
+	put(variant[1], http.StatusOK)
 	assertSpanish("/library/metadata/" + key)
 	assertSpanish("/library/metadata/" + variant[1])
 	assertSpanish(guidPath)
 
-	put(key)
+	put(key, http.StatusOK)
 	assertSpanish("/library/metadata/" + key)
 	assertSpanish(guidPath)
 }

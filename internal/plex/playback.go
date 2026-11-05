@@ -1819,7 +1819,7 @@ func (s *Server) partSelectsTitle(id *int64, rawID int64, viaRegistry bool, bind
 	return true
 }
 
-// handlePartSelect is PUT /library/parts/{part}?audioStreamID=&subtitleStreamID=.
+// handlePartSelect is PUT or POST /library/parts/{part}?audioStreamID=&subtitleStreamID=.
 // The stored subtitle is the title's choice. The part id only finds that
 // title: Play Version part ids move between releases as the list reorders.
 //
@@ -1851,14 +1851,20 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 	var audio *sessions.PlexStreamBinding
 	if v := q.Get("audioStreamID"); v != "" {
 		if sid, err := strconv.ParseInt(v, 10, 64); err == nil {
+			if sid == 0 {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
 			binding, rerr := s.resolveIssuedStream(ctx, pr.User, pr.ClientID, sid)
 			if rerr != nil && !streamMiss(rerr) {
 				writeHTTPError(w, http.StatusUnauthorized)
 				return
 			}
-			if rerr == nil && binding.Info.Type == "audio" && s.partSelectsTitle(&id, rawID, viaRegistry, binding.Key) {
-				audio = &binding
+			if rerr != nil || binding.Info.Type != "audio" || !s.partSelectsTitle(&id, rawID, viaRegistry, binding.Key) {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
 			}
+			audio = &binding
 		}
 	}
 	clearSub := false
@@ -1873,9 +1879,11 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 					writeHTTPError(w, http.StatusUnauthorized)
 					return
 				}
-				if rerr == nil && binding.Info.Type == "subtitle" && s.partSelectsTitle(&id, rawID, viaRegistry, binding.Key) {
-					sub = &binding
+				if rerr != nil || binding.Info.Type != "subtitle" || !s.partSelectsTitle(&id, rawID, viaRegistry, binding.Key) || (audio != nil && audio.Key != binding.Key) {
+					writeHTTPError(w, http.StatusBadRequest)
+					return
 				}
+				sub = &binding
 			}
 		}
 	}
@@ -1919,7 +1927,11 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	raw, _, _ = strings.Cut(raw, ".")
 	id, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
-		writeHTTPError(w, http.StatusNotFound)
+		status := http.StatusNotFound
+		if r.Method == http.MethodPut || r.Method == http.MethodDelete {
+			status = http.StatusBadRequest
+		}
+		writeHTTPError(w, status)
 		return
 	}
 	if !s.acceptanceCurrent(r) {
@@ -1941,7 +1953,26 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			writeHTTPError(w, http.StatusUnauthorized)
 			return
 		}
-		writeHTTPError(w, http.StatusNotFound)
+		status := http.StatusNotFound
+		if r.Method == http.MethodPut {
+			status = http.StatusBadRequest
+		}
+		writeHTTPError(w, status)
+		return
+	}
+	// Embedded tracks cannot be removed from the media bytes. PMS accepts
+	// stream PUTs without changing the track; reads still use Ether's
+	// extraction and sidecar paths.
+	switch r.Method {
+	case http.MethodPut:
+		w.WriteHeader(http.StatusOK)
+		return
+	case http.MethodDelete:
+		if !binding.Info.External {
+			writeHTTPError(w, http.StatusForbidden)
+		} else {
+			writeHTTPError(w, http.StatusNotFound)
+		}
 		return
 	}
 	if binding.Info.Type == "subtitle" && !binding.Info.External {
