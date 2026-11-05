@@ -248,7 +248,7 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		}
 	}
 	for k, v := range r.Bind {
-		if k != "studio.scene" {
+		if k != "studio.scene" && k != "slate.start" {
 			b.Slots[k] = v
 		}
 	}
@@ -301,7 +301,7 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	cacheRequest := r
 	cacheRequest.Bind = map[string]string{}
 	for k, v := range r.Bind {
-		if k != "studio.scene" {
+		if k != "studio.scene" && k != "slate.start" {
 			cacheRequest.Bind[k] = v
 		}
 	}
@@ -352,12 +352,31 @@ func (s *Service) RenderLead(look, moment string) time.Duration {
 }
 
 func (s *Service) Ensure(_ context.Context, r core.ClipRequest) {
-	j, ok := s.plan(r)
-	if ok {
-		s.mu.Lock()
-		s.pins[j.Hash] = time.Now().Add(3 * time.Hour)
-		s.mu.Unlock()
-		s.enqueue(j)
+	s.mu.Lock()
+	l := s.looks[r.LookID]
+	s.mu.Unlock()
+	variants := []core.ClipRequest{r}
+	if r.AssetDigest == "" && !strings.HasPrefix(r.Moment, "screen.") && !strings.HasPrefix(r.Moment, "plugin:") {
+		variants = nil
+		for _, sc := range l.Scenes {
+			if sc.Enabled && sc.Role == r.Moment {
+				v := r
+				v.Bind = map[string]string{}
+				for k, x := range r.Bind {
+					v.Bind[k] = x
+				}
+				v.Bind["studio.scene"] = sc.ID
+				variants = append(variants, v)
+			}
+		}
+	}
+	for _, v := range variants {
+		if j, ok := s.plan(v); ok {
+			s.mu.Lock()
+			s.pins[j.Hash] = time.Now().Add(3 * time.Hour)
+			s.mu.Unlock()
+			s.enqueue(j)
+		}
 	}
 }
 func (s *Service) enqueue(j renderJob) bool {
@@ -608,7 +627,7 @@ func (s *Service) execute(j renderJob) (err error) {
 		background = &encode.VideoInput{Path: path, Fit: v.Fit, Start: v.Start}
 	}
 	if j.AssetDigest != "" {
-		e = s.renderMomentVideo(ctx, j, out)
+		e = s.renderMomentVideo(ctx, j, out, sounds)
 	} else if s.o.Render != nil {
 		e = s.o.Render(ctx, j.Doc, j.Bind, out)
 	} else {
@@ -795,17 +814,6 @@ func (s *Service) StyleScreens(id string) *config.LiveTVScreens {
 		return &cp
 	}
 	return nil
-}
-
-func bindStyleTagline(layers []scene.Layer) {
-	for i := range layers {
-		l := &layers[i]
-		if l.ID == "tag" && l.Type == "text" {
-			l.Text = "{words.tagline}"
-		}
-		bindStyleTagline(l.Layers)
-
-	}
 }
 
 func pickScene(l Look, r core.ClipRequest) (StyleScene, bool) {
