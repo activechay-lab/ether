@@ -100,6 +100,9 @@ it("copies a friendly message for a local viewer", async () => {
   fireEvent.change(screen.getByLabelText("Password"), {
     target: { value: "a-very-long-password" },
   });
+  fireEvent.change(screen.getByLabelText("Confirm password"), {
+    target: { value: "a-very-long-password" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Create viewer" }));
   expect(await screen.findByText("How to connect")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /Copy as message/ }));

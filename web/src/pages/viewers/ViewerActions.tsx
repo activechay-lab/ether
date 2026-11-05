@@ -394,6 +394,7 @@ function ResetPasswordPanel({
             id="reset-password"
             aria-label={t("New password")}
             aria-invalid={tooShort || undefined}
+            aria-describedby="reset-password-hint"
             minLength={MIN_LOCAL_PASSWORD}
             value={password}
             onChange={(e) => setPassword(e.currentTarget.value)}
@@ -401,17 +402,23 @@ function ResetPasswordPanel({
             required
           />
           {tooShort ? (
-            <p className="mt-1 text-xs text-danger" role="alert">
+            <p id="reset-password-hint" className="mt-1 text-xs text-danger" role="alert">
               {t("Password must be at least 12 characters.")}
             </p>
           ) : (
-            <p className="mt-1 text-xs text-fg-muted">{t("Use at least 12 characters.")}</p>
+            <p id="reset-password-hint" className="mt-1 text-xs text-fg-muted">
+              {t("Use at least 12 characters.")}
+            </p>
           )}
         </div>
         <div>
           <Label htmlFor="reset-confirm">{t("Confirm new password")}</Label>
           <PasswordInput
             id="reset-confirm"
+            aria-invalid={(confirm !== "" && confirm !== password) || undefined}
+            aria-describedby={
+              confirm && confirm !== password ? "reset-password-mismatch" : undefined
+            }
             aria-label={t("Confirm new password")}
             value={confirm}
             onChange={(e) => setConfirm(e.currentTarget.value)}
@@ -419,7 +426,7 @@ function ResetPasswordPanel({
             required
           />
           {confirm && confirm !== password ? (
-            <p role="alert" className="mt-1 text-xs text-danger">
+            <p id="reset-password-mismatch" role="alert" className="mt-1 text-xs text-danger">
               {t("Passwords do not match.")}
             </p>
           ) : null}
