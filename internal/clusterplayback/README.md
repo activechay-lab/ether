@@ -246,3 +246,30 @@ PendingDetails reports numeric barrier categories, including PreparationReceipts
 and SourceCallbacks. The total is not a count of distinct sessions; a source,
 its placement and its encoder can independently require proof. No raw operation,
 viewer identity, grant, provider URL or private address is exposed by that DTO.
+
+## Private initial admission and retained Start commitment
+
+Each attempted remote start captures a detached initial request after the actual
+placement reservation and authenticated source bind, before invoking the remote
+adapter. Its private execution state binds the full placement fence, owning
+controller node/boot, target node/boot, authenticated source node/boot, PlayID,
+viewer and exact prepared revision. Route has no separate delivery-node identity;
+none is invented. No input URL, headers, grant or input-lifetime actor is retained
+in this snapshot. Every mutable request fact is detached, and the adapter receives
+another independent copy. The initial request/decision never comes from live
+Observe telemetry. Unset protocol/duration remain default instructions rather
+than fabricated backend facts.
+
+Session.StartCommitment returns only the exact retained Start identity and SHA256
+of the actual immutable marshaled bytes installed before its RPC attempt. It
+works on uncertain/stopped tokens independently of Session availability and does
+not infer sending, acceptance, source verification or retirement. Runtime captures
+it immediately when the owned token returns, outside its mutex, and binds it only
+to the matching initial route-derived identity. Mismatch/error retains the exact
+token and reservation for conservative retirement; it never authorizes fallback.
+
+The snapshot and commitment are boot-local historical admission state. This adds
+no persistence, public observation API, wire proof, output observation, successful
+splice, client-buffer evidence or recovery enablement. Later receipt consumers
+still need reviewed actual source-index, complete packaged-picture/sample ends,
+final transformed bytes, current authority and fencing contracts.

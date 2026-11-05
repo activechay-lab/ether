@@ -15,6 +15,7 @@ import (
 )
 
 type execution struct {
+	initial                       *initialAdmission
 	output                        *bufferedSession
 	foreign                       bool
 	done                          chan struct{}
@@ -63,7 +64,7 @@ func (r *Runtime) StartDistributedHLS(ctx context.Context, viewer int64, playID,
 // StartPreparedHLS composes a concrete remote source-owner preparation with the
 // same durable encoder placement. The broker's remote planning seam can use it.
 func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared PreparedSource, q core.HLSRequest) (core.HLSSession, error) {
-	q.RecoveryStart = core.CloneRecoveryStart(q.RecoveryStart)
+	q = cloneAdmissionRequest(q)
 	playID, revision := prepared.PlayID, prepared.Revision
 	if r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil || r.o.Eligible(ctx, prepared.Owner, config.RoleSource) != nil {
 		return nil, ErrDenied
@@ -168,21 +169,21 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	r.mu.Lock()
 	x.adapter = adapter
 	blocked := r.closed || x.stopping
+	if !blocked {
+		x.initial = newInitialAdmission(rt, q)
+		// The transport receives a separate mutable copy; callbacks cannot alter
+		// the retained original admission even on an uncertain start result.
+		q = cloneAdmissionRequest(x.initial.request)
+	}
 	r.mu.Unlock()
 	if blocked {
 		return nil, ErrPending
 	}
-	q.InputURL = "" // No local URL crosses the execution protocol.
 	startCtx, cancelStart := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelStart()
 	hs, token, e := adapter.StartHLSOwned(startCtx, q)
-	r.mu.Lock()
-	x.retirement = token
-	if s, ok := token.(*remotetranscode.Session); ok {
-		x.session = s
-	}
-	r.mu.Unlock()
-	if e != nil || hs == nil {
+	committed := r.retainStartCommitment(x, token)
+	if e != nil || hs == nil || !committed {
 		return nil, ErrPending
 	}
 	running = true
