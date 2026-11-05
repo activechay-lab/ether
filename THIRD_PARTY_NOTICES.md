@@ -293,11 +293,22 @@ recorded observations, not copied AGPL source.
 ## On Air embedded Google Fonts
 
 Sources: https://github.com/google/fonts (pinned revision in
-`internal/onair/fonts/data/revision.txt`). Fonts are instantiated and subset
-with `tools/subset-onair-fonts.py`; they retain their original notices.
-Inter, Space Grotesk, Fraunces, Playfair Display, Bungee, Fredoka, Monoton,
-Orbitron, VT323, Archivo Black, IBM Plex Mono and Noto Sans are licensed under
-SIL Open Font License 1.1. The complete copyright and licence text for each
-face is embedded alongside its TTF in `internal/onair/fonts/data/*-OFL.txt`.
-Special Elite is licensed under Apache License 2.0, with its complete licence
-in `internal/onair/fonts/data/specialelite-LICENSE.txt`.
+`internal/onair/fonts/data/revision.txt`). Rebuild with
+`tools/subset-onair-fonts.py` and fonttools 4.68.0. The modified faces keep
+Latin, Latin Extended, combining marks, Greek, Cyrillic and punctuation
+available in their sources; Noto Sans remains the glyph fallback. Hinting
+is removed for the on-air renderer, which uses unhinted text. Common shaping,
+kerning, ligatures and combining-mark features are retained.
+
+Inter, Space Grotesk, Fraunces, Playfair Display, Bungee, Fredoka, Orbitron,
+VT323, IBM Plex Mono and Noto Sans are licensed under SIL Open Font License
+1.1. Complete original copyright and licence texts are embedded alongside
+the TTFs in `internal/onair/fonts/data/*-OFL.txt`. Special Elite is licensed
+under Apache License 2.0; its complete licence is in
+`internal/onair/fonts/data/specialelite-LICENSE.txt`.
+
+All modified primary/PostScript font names are renamed EtherAir01 through
+EtherAir11 (mapping in the subset script), respecting the Reserved Font
+Names **Playfair Display**, **Orbitron** and **Plex**. Stable API IDs and
+filenames identify the source family; original licence metadata is retained.
+Archivo Black and Monoton are not bundled because shipped scenes do not use them.

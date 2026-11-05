@@ -68,7 +68,7 @@ func (s *Service) validateLook(ctx context.Context, l Look) error {
 			return fmt.Errorf("unknown family %q", l.Family)
 		}
 	}
-	known := " inter playfairdisplay specialelite fraunces bungee fredoka orbitron vt323 spacegrotesk ibmplexmono archivoblack monoton notosans "
+	known := " inter playfairdisplay specialelite fraunces bungee fredoka orbitron vt323 spacegrotesk ibmplexmono notosans "
 	for _, f := range []string{l.Brand.Type.Display, l.Brand.Type.Body} {
 		if !strings.Contains(known, " "+normalizeFont(f)+" ") {
 			var n int
