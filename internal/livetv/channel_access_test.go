@@ -238,10 +238,10 @@ func TestMigrationMakesListedChannelsPrivate(t *testing.T) {
 				t.Fatalf("%s: %v", q, err)
 			}
 		}
-		// This package's test binary does not register the auth component.
-		exec(`CREATE TABLE IF NOT EXISTS auth_users(id INTEGER PRIMARY KEY, is_owner INTEGER NOT NULL DEFAULT 0)`)
+		// The router acceptance harness also registers the real auth schema.
+		exec(`CREATE TABLE IF NOT EXISTS auth_users(id INTEGER PRIMARY KEY, is_owner INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0)`)
 		for _, u := range [][2]int64{{1, 1}, {2, 0}, {3, 0}, {4, 0}, {5, 0}, {6, 0}} {
-			exec(`INSERT INTO auth_users(id, is_owner) VALUES(?, ?)`, u[0], u[1])
+			exec(`INSERT INTO auth_users(id, is_owner, created_at, updated_at) VALUES(?, ?, 0, 0)`, u[0], u[1])
 		}
 		channel := func(id, allowed string) {
 			data := `{"id":"` + id + `","number":"1","name":"` + id + `","kind":"virtual","enabled":true,"rating":"G","epoch":"1970-01-01T00:00:00Z","seed":0,"shuffle":false,"items":[{"key":1,"title":"T","durationMs":60000}]` + allowed + `}`

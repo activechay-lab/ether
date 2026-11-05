@@ -734,8 +734,8 @@ export function createLiveTVMock(titles: FakeTitle[], empty = false) {
     if (method === "POST" && seg[1] === "channels" && seg[3] === "play")
       return {
         body: {
-          id: "mock-session",
-          playlist: "sessions/mock-session/index.m3u8",
+          id: `mock-session-${seg[2]}`,
+          playlist: `sessions/mock-session-${seg[2]}/index.m3u8`,
           activeSourceName: "Primary stream",
           programme: schedule(
             channels.find((c) => c.id === seg[2]) ?? channels[0]!,

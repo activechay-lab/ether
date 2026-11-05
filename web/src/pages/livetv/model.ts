@@ -436,8 +436,11 @@ export const tv = {
     );
     return Array.isArray(r) ? r : (r?.sources ?? []);
   },
-  play: (id: string) =>
-    apiFetch<PreviewSession>(`/livetv/channels/${enc(id)}/play`, { method: "POST", body: "{}" }),
+  play: (id: string, viewer?: string) =>
+    apiFetch<PreviewSession>(
+      `/livetv/channels/${enc(id)}/play${viewer ? `?viewer=${enc(viewer)}` : ""}`,
+      { method: "POST", body: "{}" },
+    ),
   stopPreview: (session: string) =>
     apiFetch(`/livetv/sessions/${enc(session)}`, { method: "DELETE" }),
   policies: (signal?: AbortSignal) => apiFetch<LiveTVPolicy[]>("/livetv/policies", { signal }),
