@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/net/netutil"
+
 	"github.com/braedonsaunders/ether/internal/cluster"
 	"github.com/braedonsaunders/ether/internal/clusterconfig"
 	"github.com/braedonsaunders/ether/internal/config"
@@ -91,7 +93,7 @@ func (a *App) prepareDeployment(ctx context.Context) error {
 			Ledger    *placement.QuotaStatus `json:"ledger,omitempty"`
 		}{p.ready.Load() && p.quotaOpen.Load() && !a.nodeDraining(), p.quota.Load()})
 	})
-	p.probes = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
+	p.probes = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	p.probeListener, err = net.Listen("tcp", d.ProbeListen)
 	if err != nil {
 		return errors.New("deployment: cannot bind probe listener")
@@ -193,13 +195,13 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		}
 		p.playback.Handler().ServeHTTP(w, r)
 	})
-	srv := &http.Server{Handler: mux, TLSConfig: p.guard.ServerTLS(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
+	srv := &http.Server{Handler: mux, TLSConfig: p.guard.ServerTLS(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	a.closers = append(a.closers, cancel)
 	var workers sync.WaitGroup
 	launch := func(f func()) { workers.Add(1); go func() { defer workers.Done(); f() }() }
 	launch(func() {
-		err := srv.Serve(tls.NewListener(ln, srv.TLSConfig))
+		err := srv.Serve(tls.NewListener(netutil.LimitListener(ln, 256), srv.TLSConfig))
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			p.ready.Store(false)
 			p.protocol.Store(0)
@@ -342,6 +344,10 @@ func (a *App) runSpecialist(ctx context.Context) error {
 		return err
 	}
 	defer a.cluster.Close()
+	if a.fetcher != nil {
+		background.start(func() { a.runBudgets(ctx) })
+		background.start(func() { a.runEgress(ctx) })
+	}
 	stop, err := a.startPrivate(ctx)
 	if err != nil {
 		return err
