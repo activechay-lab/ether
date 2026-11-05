@@ -8,6 +8,9 @@ imagePullSecrets: []
 clusterDomain: cluster.local
 runtime:
   capacity: 1
+  # Durable cluster-lifetime generation floors, NOT simultaneous encoder slots.
+  # All replicas must agree with the persisted fleet policy.
+  ledgerCapacity: 1000000
   # Set true only after verifying synchronized clocks and the stated bound.
   clockBoundKnown: false
   clockSkewMillis: 1000
@@ -88,12 +91,19 @@ probes:
 disruptionBudget:
   enabled: true
   maxUnavailable: 1
+# Direct L4 exposure remains available for full-only public pools.
+# Server/delivery pools require ClusterIP plus the shared-origin Ingress.
 service:
   type: ClusterIP
   port: 32400
   annotations: {}
+# Mixed public roles route only the two fixed representation namespaces to
+# the private media Service; all other paths remain on the API Service.
 ingress:
   enabled: false
+  # Temporary broad-Prefix split is ONLY for isolated canonical HLS acceptance.
+  # It misroutes unsupported session resources (.ass/index.mpd) to delivery.
+  canonicalHLSLabOnly: false
   className: ""
   annotations: {}
   hosts: []

@@ -1,7 +1,13 @@
 Ether {{ .Chart.AppVersion }} configuration rendered.
 
 This chart requires the deployment runtime contract; do not use an older image.
-Public Service: {{ include "ether.name" . }}:{{ .Values.service.port }}
+API Service (full/server): {{ include "ether.name" . }}:{{ .Values.service.port }}
+{{- if or (gt (int .Values.pools.server.replicas) 0) (gt (int .Values.pools.delivery.replicas) 0) }}
+Media Service (full/delivery, ClusterIP): {{ include "ether.name" . }}-media:{{ .Values.service.port }}
+CANONICAL HLS LAB ONLY: broad Prefix routes send unsupported session resources
+(.ass/index.mpd) to delivery too. General mixed-client parity is NOT established.
+Use full-only public pools until typed delivery or exact routing is accepted.
+{{- end }}
 Private identity DNS: POD.{{ include "ether.name" . }}-private.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}
 
 StatefulSets use OnDelete. An upgrade changes the pod template but does not

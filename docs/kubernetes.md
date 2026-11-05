@@ -72,9 +72,13 @@ helm upgrade --install ether packaging/helm/ether -n ether \
 kubectl -n ether get pods,pvc,svc
 ```
 
-`full` maps to the runtime’s empty roles array and runs all roles; `server` exposes the public frontend; `source`, `transcode`
-and `delivery` are specialists without public Plex listeners. Enable the pools
-needed for your topology. Public service selectors only match full/server pods.
+`full` maps to the runtime’s empty roles array and runs all roles. `server`
+provides browse/control and responses that combine admission with streaming;
+`delivery` provides the fixed public representation sender. `source` and
+`transcode` have no public Plex listeners. Enabling a pool in values does not
+remove a runtime guard or establish that its shipping graph passes acceptance.
+The API Service selects only full/server pods; the separate media Service selects
+only full/delivery pods. See the same-origin routing requirements below.
 Specialists are runtime roles, not separate products; changing role mix does not
 change Plex server identifiers, rows, personalization or policy.
 
@@ -96,9 +100,55 @@ limit voluntary eviction; they do not protect direct pod deletion, forced loss,
 or guarantee spare capacity. A one-replica pool with maxUnavailable 1 can become
 fully unavailable. Choose PDB and scheduling rules to match the capacity plan.
 
+## Durable ledger quota
+
+`runtime.capacity` limits concurrent work at a node/resource scope (1–4096).
+`runtime.ledgerCapacity` is the separate cluster-lifetime quota for durable
+session-generation floors: default 1000000, range 4096–10000000. It is at least
+both concurrent capacity and the fixed 4096 boot-history bound. Every replica
+must use the same ledger value. This chart requires the runtime version that
+implements this field; earlier staging candidates reject it as unknown.
+
+Placement seeds or verifies a persisted fleet policy under its transaction lock.
+Each new Reserve checks equality with that policy in the same transaction.
+Changing Helm configuration alone never silently raises the quota. When the
+ledger fills, preserve its generation floors; there is no TTL deletion or
+compaction that makes an old generation safe to reuse. Admission status and
+transition logs expose exhaustion. Existing work must remain serviceable when
+new allocations fail closed.
+
+To raise the quota, first use the trusted local administrative command on one
+healthy pod (example raises 1000000 to 2000000):
+
+```sh
+kubectl -n ether exec ether-ether-full-0 -- /usr/lib/ether/ether cluster ledger-quota \
+  --data-dir /config/ether --expect 1000000 --capacity 2000000
+helm upgrade ether packaging/helm/ether -n ether -f your-values.yaml \
+  --set runtime.ledgerCapacity=2000000
+```
+
+The command performs a monotonic compare-and-swap against the persisted policy.
+A mismatch or attempted decrease fails. After raising, update the same fleet
+value and use the sequential drain/replacement procedure below. During the
+transition, stale coordinators keep existing work but reject new allocations
+until their configured quota matches. Do not try to bypass the policy by editing
+rows or deleting generation history. Plan this admission interruption before
+raising the quota.
+
 ## Storage, probes and transport
 
-Every ordinal gets a retained `data` PVC mounted at `/config`. Cache defaults to
+Every ordinal gets a retained `data` PVC mounted at `/config`. New installs
+create `/config/ether` as UID999 with mode0700 and use it as `ETHER_DATA_DIR`.
+This protects identity/config files even when a provisioner creates the volume
+root with broad permissions. The startup script fails closed if it finds a
+legacy root `node.json`, `config.json` or `.credentials-key`; it never silently
+creates a replacement identity under an existing root layout. Migrating that
+layout requires a stopped, positively fenced node, a backup of its full data
+directory, and an explicit move preserving its exact identity/key/config into
+`/config/ether` with UID/GID999 ownership and mode0700. Do not migrate by copying
+only node.json or generating a new identity. The rollout helper reads the exact
+pod's advertised data directory and supports both layouts, so it drains existing
+root-layout nodes using `/config` before a deliberate migration. Cache defaults to
 an independent disk-backed emptyDir at `/cache`; select `cache.type: persistent`
 for an additional per-ordinal PVC. Scratch is a separate bounded emptyDir at
 `/scratch`; runtime paths are `/scratch/transcode` and `/cache/ether`. Neither
@@ -149,7 +199,7 @@ For each pod, verify replacement capacity, then use:
 packaging/kubernetes/rollout.sh ether ether-ether-full-0
 ```
 
-The helper invokes `ether cluster drain --data-dir /config --wait 120s` through
+The helper invokes `ether cluster drain --data-dir "$ETHER_DATA_DIR" --wait 120s` through
 `kubectl exec`. This is a local owner-only request/status file protocol scoped
 to the current boot and operation, not an unauthenticated network mutation. The
 command stops new placements and waits for runtime quiescence. On timeout it
@@ -183,12 +233,64 @@ been positively fenced. Do not delete a namespace/PVC as a rollback method.
 
 ## Reachability and GPUs
 
-The public Service defaults to ClusterIP on 32400. A LoadBalancer or an optional
-Ingress exposes only full/server pods. Ingress routes `/` with Prefix; select a
-controller class, hostname, TLS Secret and controller-specific streaming timeout
-annotations. Test range requests, WebSockets, long streams and proxy buffering
-against that controller. Console routing remains separate from this public
-Plex listener; this chart does not publish a console service.
+The API Service defaults to ClusterIP on 32400 and selects full/server pods.
+With full nodes as the only public role, its existing LoadBalancer/NodePort option
+and catch-all `/` Ingress remain unchanged. If server or delivery pools are
+enabled, rendering requires an enabled Ingress with a nonempty hostname list,
+API Service type ClusterIP, at least one API node (full/server), at least one
+media node (full/delivery), and the explicit temporary
+`ingress.canonicalHLSLabOnly=true` acknowledgement. That flag defaults false and
+permits only isolated canonical-HLS lab staging, not mixed-client deployment. Direct L4 API exposure would bypass representation
+routing and is rejected. Installing an Ingress object is not sufficient: provide
+an actual controller, DNS/TLS and an externally reachable shared origin.
+
+For mixed public roles the chart creates a ClusterIP-only `RELEASE-ether-media`
+Service and configures these literal Kubernetes Prefix routes under that same
+host, preserving paths and query strings:
+
+| Prefix | Backend | Contract |
+| --- | --- | --- |
+| `/video/:/transcode/universal/session` | media (full/delivery) | Broad Prefix for the canonical-HLS lab; includes unsupported session resources too. |
+| `/sessions/media` | media (full/delivery) | Canonical grant-bearing representations: GET/HEAD only. |
+| `/` and every other path | API (full/server) | Browse, admission, control and control-coupled responses. |
+
+The delivery handler rejects non-GET/HEAD requests; they are not alternate API
+control routes. Prefix matching uses complete path elements, so similarly named
+paths such as `/sessions/mediaevil` remain API traffic. Do not broaden either
+prefix to `/video/:/transcode/universal` or `/library/parts`. Plex decision,
+start/start.m3u8/start.mpd/start.mkv, ping/stop, `/transcode/sessions`, direct parts
+and part-track PUT, streams, download queues and query-based subtitle endpoints
+remain on API. Some GET endpoints both admit and stream bytes in one response;
+server nodes may proxy those bytes through real remote adapters without local
+providers or encoders. This topology does not claim that every byte path runs
+on a delivery-only node or rewrites a client to a different media origin.
+
+The broad Prefix has a known mismatch with the current typed sender:
+`/video/:/transcode/universal/session/id/subtitles/1.ass` and
+`/video/:/transcode/universal/session/id/base/index.mpd` both route to the media
+Service, where current typed delivery rejects them. They do **not** fall back to
+API because an application matcher excludes them. Standard Prefix routing cannot
+express those suffix exceptions. General mixed-client parity is blocked until
+typed authenticated delivery covers the actual authored representations and real
+same-origin controller tests pass. The preferred production strategy is that
+application coverage; the chart does not introduce a Traefik CRD/controller
+requirement or promise a regex fix. Full-only public pools remain supported.
+
+Jellyfin/Emby media aliases require the explicit
+auth-preserving runtime adapter and matching approved routing before being
+claimed; the chart currently leaves `/jellyfin/sessions/media` and
+`/emby/sessions/media` on API. Silo playback paths likewise remain on API until a
+typed authenticated seam is implemented. Do not add stripping/rewrite annotations
+or generic alias prefixes to imply unverified compatibility. Manual lab replay of
+the same returned path from server pod to delivery pod proves that role path
+only; it does not replace a real client test through the shared Ingress origin.
+
+Select the controller class, hostname, TLS Secret and controller-specific stream
+timeouts. For the explicitly gated HLS lab, the controller must accept the literal colon
+in Plex paths and honor longest Prefix routing without URL rewriting. Test actual range/HEAD requests,
+WebSockets, long streams, auth/policy and proxy buffering against that controller.
+Console routing remains separate from this public Plex listener; this chart does
+not publish a console service.
 
 Kubernetes bridge networking does not supply LAN GDM UDP discovery or UPnP router
 mapping. Configure reachable advertised connections and explicit router/firewall

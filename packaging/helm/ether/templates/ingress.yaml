@@ -23,6 +23,23 @@ spec:
     - host: {{ . | quote }}
       http:
         paths:
+          {{- if or (gt (int $.Values.pools.server.replicas) 0) (gt (int $.Values.pools.delivery.replicas) 0) }}
+          # Canonical HLS LAB ONLY. Prefix includes unsupported .ass/.mpd
+          # session resources; these will reach delivery and fail, not API.
+          # General mixed-client routing remains blocked by validation.
+          - path: /video/:/transcode/universal/session
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ether.name" $ }}-media
+                port: {name: public}
+          - path: /sessions/media
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ether.name" $ }}-media
+                port: {name: public}
+          {{- end }}
           - path: /
             pathType: Prefix
             backend:

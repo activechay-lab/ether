@@ -29,3 +29,20 @@ spec:
     ether.plex/public: "true"
   ports:
     - {name: public, port: {{ .Values.service.port }}, targetPort: public}
+
+{{- if or (gt (int .Values.pools.server.replicas) 0) (gt (int .Values.pools.delivery.replicas) 0) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ether.name" . }}-media
+  labels:
+    {{- include "ether.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ether.selector" . | nindent 4 }}
+    ether.plex/media: "true"
+  ports:
+    - {name: public, port: {{ .Values.service.port }}, targetPort: public}
+{{- end }}
