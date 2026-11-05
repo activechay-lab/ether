@@ -794,6 +794,13 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 	if title == nil || title.Key != p.request.Item || (!title.Released.IsZero() && title.Released.After(b.deps.Now())) {
 		return frontend.Session{}, core.ErrNotFound
 	}
+	if remote, ok := b.deps.Playback.(interface {
+		RevalidateSession(context.Context, string) error
+	}); ok {
+		if err := remote.RevalidateSession(ctx, p.source.ID); err != nil {
+			return frontend.Session{}, err
+		}
+	}
 	ps, ok := b.deps.Playback.Session(p.source.ID)
 	if !ok || ps == nil || ps.UserID != v.ID || ps.ClientID != p.request.Caps.ClientID || ps.Key != p.request.Item {
 		return frontend.Session{}, core.ErrNotAvailable

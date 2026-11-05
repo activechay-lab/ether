@@ -219,7 +219,7 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	if err != nil || prepared.Owner != sourceID || prepared.PlayID != ps.ID || prepared.Revision == "" {
 		t.Fatalf("remote prepare: %#v %v", prepared, err)
 	}
-	testRemoteNeutralBroker(t, ctx, base, guards[3], brokerID, sourceID, endpoints, source)
+
 	// A proven pre-reservation failure must not poison a stable public ID.
 	preflight := core.HLSRequest{SessionID: "public-session", Info: ps.Info, Decision: core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, SubtitleStream: -1}}
 	if _, err := front.StartPreparedHLS(ctx, 9, prepared, preflight); err == nil || front.Allocated(preflight.SessionID) {
@@ -232,6 +232,7 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	if e = p.SetTarget(ctx, target, config.NodeRoles{config.RoleTranscode}, map[config.NodeRole][]string{config.RoleTranscode: {"worker/streams"}}); e != nil {
 		t.Fatal(e)
 	}
+	testRemoteNeutralBroker(t, ctx, base, guards[3], brokerID, sourceID, endpoints, source, worker)
 	request := core.HLSRequest{SessionID: "public-session", Info: ps.Info, Decision: core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, SubtitleStream: -1}}
 	h, e := front.StartPreparedHLS(ctx, 9, prepared, request)
 	if e != nil {
@@ -331,7 +332,7 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 		source.Cleanup()
 		rec, e := p.Lookup(ctx, reserve.Session)
 		if e == nil && rec.Retired {
-			if rec.Operation != reserve.Operation || len(worker.encoderTokens) != 1 {
+			if rec.Operation != reserve.Operation || len(worker.encoderTokens) != 2 {
 				t.Fatal("reconciliation changed operation or started another encoder")
 			}
 			return
@@ -377,9 +378,15 @@ type fixtureProgress struct{}
 func (fixtureProgress) Progress(context.Context, int64, core.RatingKey, time.Duration, time.Duration, string) error {
 	return nil
 }
-func testRemoteNeutralBroker(t *testing.T, ctx context.Context, base Options, guard *nodewire.Guard, self, sourceID nodewire.Identity, endpoints map[nodewire.Identity]string, source *Runtime) {
+func testRemoteNeutralBroker(t *testing.T, ctx context.Context, base Options, guard *nodewire.Guard, self, sourceID nodewire.Identity, endpoints map[nodewire.Identity]string, source, worker *Runtime) {
 	t.Helper()
+	verifier := NewVerifier()
+	ownPlacement, err := placement.New(base.DB, placement.Options{MaxSessions: 16, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
 	o := base
+	o.Placement = ownPlacement
 	o.Self = self
 	o.Guard = guard
 	o.Roles = config.NodeRoles{config.RoleServer, config.RoleDelivery}
@@ -391,6 +398,9 @@ func testRemoteNeutralBroker(t *testing.T, ctx context.Context, base Options, gu
 		t.Fatal(err)
 	}
 	defer runtime.Close()
+	if err = verifier.Bind(runtime); err != nil {
+		t.Fatal(err)
+	}
 	remote, err := NewRemotePlayback(runtime, RemotePlaybackOptions{Estimate: func(context.Context, *core.Title, core.ClientCaps) core.MediaInfo { return core.MediaInfo{} }, SelectSource: func(context.Context) (nodewire.Identity, error) { return sourceID, nil }, Capacity: 16})
 	if err != nil {
 		t.Fatal(err)
@@ -444,13 +454,23 @@ func testRemoteNeutralBroker(t *testing.T, ctx context.Context, base Options, gu
 	if !source.ForwardMedia(forwarded, request, opened.ID, "jellyfin") || forwarded.Code != 200 || forwarded.Body.Len() != 0 {
 		t.Fatalf("remote direct indexed HEAD %d %q", forwarded.Code, forwarded.Body.String())
 	}
+	hlsPath, err := broker.StartStream(ctx, access, opened.ID, frontend.StreamRequest{Format: frontend.StreamHLS})
+	if err != nil {
+		t.Fatal("remote neutral HLS", err)
+	}
+	playlist := httptest.NewRecorder()
+	broker.ServeMedia(playlist, httptest.NewRequest("GET", "https://public"+hlsPath, nil))
+	if playlist.Code != 200 || !strings.Contains(playlist.Body.String(), "#EXTM3U") {
+		t.Fatalf("remote neutral HLS playlist %d %q", playlist.Code, playlist.Body.String())
+	}
 	if err = broker.Stop(ctx, access, opened.ID); err != nil {
 		t.Fatal("remote stop", err)
 	}
 	for i := 0; i < 50; i++ {
 		_ = runtime.Tick(ctx)
 		source.Cleanup()
-		if remote.pending() == 0 {
+		worker.Cleanup()
+		if n, e := runtime.Pending(ctx); e == nil && n == 0 {
 			return
 		}
 		time.Sleep(time.Millisecond)

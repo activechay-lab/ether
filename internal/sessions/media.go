@@ -72,6 +72,13 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 	if err != nil || !b.currentMediaPolicy(ctx, viewer, s) {
 		return "", core.ErrUnauthorized
 	}
+	if remote, ok := b.deps.Playback.(interface {
+		RevalidateSession(context.Context, string) error
+	}); ok {
+		if err := remote.RevalidateSession(ctx, s.playID); err != nil {
+			return "", err
+		}
+	}
 	if s.sourcePinned {
 		ps, ok := b.deps.Playback.Session(s.playID)
 		if !ok || ps == nil || sourceRevision(ps) != s.sourceETag {

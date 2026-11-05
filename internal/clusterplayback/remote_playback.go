@@ -90,6 +90,9 @@ func (p *RemotePlayback) PrepareSurfaceSource(c context.Context, v *core.User, k
 		return nil, nil, core.ErrUnauthorized
 	}
 	if prior, ok := p.SessionForSurface(string(caps.Protocol), v.ID, caps.ClientID, k, release, exact); ok {
+		if _, err := p.CurrentSource(c, prior.ID); err != nil {
+			return nil, p.lifetime(prior.ID), err
+		}
 		return prior, p.lifetime(prior.ID), nil
 	}
 	owner, err := p.o.SelectSource(c)
@@ -360,4 +363,9 @@ func (p *RemotePlayback) close() {
 	for _, e := range p.entries {
 		e.retiring = true
 	}
+}
+
+func (p *RemotePlayback) RevalidateSession(ctx context.Context, id string) error {
+	_, err := p.CurrentSource(ctx, id)
+	return err
 }
