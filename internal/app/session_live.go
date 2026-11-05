@@ -5,6 +5,7 @@ import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/mediasafety"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -42,11 +43,6 @@ func normalizeLiveTail(tail string) string {
 	if rest, ok := strings.CutPrefix(tail, "relay-"); ok && rest != "" && !strings.Contains(rest, "/") {
 		return "relay/" + rest
 	}
-	if rest, ok := strings.CutPrefix(tail, "program-"); ok && !strings.Contains(rest, "/") {
-		if start, seg, ok := strings.Cut(rest, "-"); ok && start != "" && seg != "" {
-			return "program/" + start + "/" + seg
-		}
-	}
 	return tail
 }
 
@@ -58,6 +54,9 @@ func (l sessionLive) Serve(w http.ResponseWriter, r *http.Request, viewer *core.
 	clean.Header = r.Header.Clone()
 	clean.Header.Del("X-Plex-Token")
 	clean.URL.RawQuery = ""
+	if offset := r.URL.Query().Get("offset"); offset != "" {
+		clean.URL.RawQuery = url.Values{"offset": []string{offset}}.Encode()
+	}
 	sessionPrefix := "/livetv/sessions/" + id + "/0/"
 	p := &livePlaylistWriter{
 		ResponseWriter: w,
@@ -82,14 +81,6 @@ func (l sessionLive) Serve(w http.ResponseWriter, r *http.Request, viewer *core.
 			return
 		}
 		l.service.ServeRelaySegment(p, clean, id, n, viewer)
-	case len(parts) == 3 && parts[0] == "program":
-		start, e1 := strconv.ParseInt(parts[1], 10, 64)
-		n, e2 := strconv.Atoi(strings.TrimSuffix(parts[2], ".ts"))
-		if e1 != nil || e2 != nil || n < 0 {
-			http.NotFound(p, clean)
-			return
-		}
-		l.service.ServeSegment(p, clean, id, start, n, viewer)
 	default:
 		http.NotFound(p, clean)
 	}
@@ -191,11 +182,7 @@ func rewriteSiloLiveURI(raw, sessionPrefix, base string) string {
 		if seg != "" && !strings.Contains(seg, "/") {
 			return base + "relay-" + seg
 		}
-	case strings.HasPrefix(rel, "program/"):
-		parts := strings.Split(strings.TrimPrefix(rel, "program/"), "/")
-		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-			return base + "program-" + parts[0] + "-" + parts[1]
-		}
+
 	}
 	return strings.ReplaceAll(raw, sessionPrefix, base)
 }

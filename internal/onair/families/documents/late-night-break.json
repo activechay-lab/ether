@@ -1,0 +1,410 @@
+{
+  "v": 1,
+  "moment": "break",
+  "duration": 8,
+  "poster": 5.5,
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": "{bg}"
+    },
+    {
+      "id": "moon",
+      "type": "group",
+      "x": 1390,
+      "y": {
+        "keys": [
+          [
+            0,
+            520
+          ],
+          [
+            3.2,
+            330,
+            "out"
+          ]
+        ]
+      },
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            1.5,
+            1
+          ]
+        ]
+      },
+      "layers": [
+        {
+          "id": "halo",
+          "type": "ellipse",
+          "x": -510,
+          "y": -510,
+          "w": 1020,
+          "h": 1020,
+          "fill": {
+            "radial": [
+              510,
+              510,
+              120,
+              510
+            ],
+            "stops": [
+              [
+                0,
+                "{moon}@0.28"
+              ],
+              [
+                1,
+                "{moon}@0"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "disc",
+          "type": "ellipse",
+          "x": -150,
+          "y": -150,
+          "w": 300,
+          "h": 300,
+          "fill": "{moon}"
+        },
+        {
+          "id": "crater0",
+          "type": "ellipse",
+          "x": -78,
+          "y": -63,
+          "w": 66,
+          "h": 66,
+          "fill": "#3c3c46@0.1"
+        },
+        {
+          "id": "crater1",
+          "type": "ellipse",
+          "x": 14,
+          "y": -9,
+          "w": 48,
+          "h": 48,
+          "fill": "#3c3c46@0.1"
+        },
+        {
+          "id": "crater2",
+          "type": "ellipse",
+          "x": -26,
+          "y": 42,
+          "w": 36,
+          "h": 36,
+          "fill": "#3c3c46@0.1"
+        },
+        {
+          "id": "crater3",
+          "type": "ellipse",
+          "x": 38,
+          "y": -67,
+          "w": 30,
+          "h": 30,
+          "fill": "#3c3c46@0.1"
+        }
+      ]
+    },
+    {
+      "id": "fog0",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            -700
+          ],
+          [
+            8,
+            -300
+          ]
+        ]
+      },
+      "y": 650,
+      "w": 1400,
+      "h": 320,
+      "fill": {
+        "radial": [
+          700,
+          160,
+          0,
+          700
+        ],
+        "stops": [
+          [
+            0,
+            "{fog}@0.13"
+          ],
+          [
+            1,
+            "{fog}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "fog1",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            -370
+          ],
+          [
+            8,
+            30
+          ]
+        ]
+      },
+      "y": 725,
+      "w": 1400,
+      "h": 320,
+      "fill": {
+        "radial": [
+          700,
+          160,
+          0,
+          700
+        ],
+        "stops": [
+          [
+            0,
+            "{fog}@0.13"
+          ],
+          [
+            1,
+            "{fog}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "fog2",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            -40
+          ],
+          [
+            8,
+            360
+          ]
+        ]
+      },
+      "y": 800,
+      "w": 1400,
+      "h": 320,
+      "fill": {
+        "radial": [
+          700,
+          160,
+          0,
+          700
+        ],
+        "stops": [
+          [
+            0,
+            "{fog}@0.13"
+          ],
+          [
+            1,
+            "{fog}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "fog3",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            290
+          ],
+          [
+            8,
+            690
+          ]
+        ]
+      },
+      "y": 650,
+      "w": 1400,
+      "h": 320,
+      "fill": {
+        "radial": [
+          700,
+          160,
+          0,
+          700
+        ],
+        "stops": [
+          [
+            0,
+            "{fog}@0.13"
+          ],
+          [
+            1,
+            "{fog}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "fog4",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            620
+          ],
+          [
+            8,
+            1020
+          ]
+        ]
+      },
+      "y": 725,
+      "w": 1400,
+      "h": 320,
+      "fill": {
+        "radial": [
+          700,
+          160,
+          0,
+          700
+        ],
+        "stops": [
+          [
+            0,
+            "{fog}@0.13"
+          ],
+          [
+            1,
+            "{fog}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "fog5",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            950
+          ],
+          [
+            8,
+            1350
+          ]
+        ]
+      },
+      "y": 800,
+      "w": 1400,
+      "h": 320,
+      "fill": {
+        "radial": [
+          700,
+          160,
+          0,
+          700
+        ],
+        "stops": [
+          [
+            0,
+            "{fog}@0.13"
+          ],
+          [
+            1,
+            "{fog}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "doorlight",
+      "type": "path",
+      "path": "M 1100 180 L 1310 130 L 1310 900 L 1100 850 Z",
+      "fill": "{text}@0.8",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            1.2,
+            0.8
+          ]
+        ]
+      }
+    },
+    {
+      "id": "door",
+      "type": "rect",
+      "x": 950,
+      "y": 150,
+      "w": 270,
+      "h": 720,
+      "fill": "#08080a",
+      "stroke": "{fog}@0.4",
+      "strokeWidth": 3
+    },
+    {
+      "id": "Title",
+      "type": "text",
+      "text": "{words.break}",
+      "x": 480,
+      "y": 550,
+      "size": 90,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 780,
+      "align": "center"
+    },
+    {
+      "id": "subtitle",
+      "type": "text",
+      "text": "{next.title}",
+      "x": 480,
+      "y": 650,
+      "size": 38,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 780,
+      "align": "center"
+    }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": "{textures.grain}"
+    },
+    {
+      "type": "vignette",
+      "amount": 0.45
+    }
+  ],
+  "slots": [
+    "next.title"
+  ]
+}

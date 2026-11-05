@@ -92,15 +92,6 @@ export function createOnAirMock(tv: {
             message: "Real clips arrive with the Go renderer",
           },
         };
-      if (kind === "fonts")
-        return {
-          body: {
-            id,
-            url: "https://fonts.googleapis.com/css2?family=" + encodeURIComponent(id || "Inter"),
-          },
-        };
-      if (kind === "renderer.wasm")
-        return { body: { status: "prototype", message: "Canvas2D preview active" }, status: 501 };
       if (kind === "packs")
         return { body: { message: "Channel packs arrive in a later build" }, status: 501 };
       const data = body as Look & Reel;
@@ -134,8 +125,22 @@ export function createOnAirMock(tv: {
             next: {
               title: guide[1]?.item.title || "Arrival",
               reason: "Because you enjoyed Severance",
+              time: guide[1]
+                ? new Date(guide[1].start).toLocaleTimeString("en", {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })
+                : "8:30 PM",
+              meta: "2024 · Drama · 1h 48m",
+              logline: "A familiar place. An unexpected journey.",
             },
-            list: guide.map((p) => ({
+            list: guide.map((p, i) => ({
+              meta: [
+                "The evening feature",
+                "A new adventure",
+                "Something unexpected",
+                "One more story",
+              ][i],
               title: p.item.title,
               time: new Date(p.start).toLocaleTimeString("en", {
                 hour: "numeric",

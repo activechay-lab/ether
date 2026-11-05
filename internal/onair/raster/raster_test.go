@@ -3,6 +3,7 @@ package raster_test
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/onair/families"
 	"github.com/braedonsaunders/ether/internal/onair/raster"
@@ -10,10 +11,39 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 )
 
 func TestGoldenAndDeterminism(t *testing.T) {
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		type entry struct {
+			Family   string `json:"family"`
+			Moment   string `json:"moment"`
+			Bindings any    `json:"bindings"`
+		}
+		var entries []entry
+		for family, moments := range families.Names() {
+			for _, moment := range moments {
+				d, err := families.Get(family, moment)
+				if err != nil {
+					t.Fatal(err)
+				}
+				entries = append(entries, entry{family, d.Moment, families.Defaults(family)})
+			}
+		}
+		sort.Slice(entries, func(i, j int) bool {
+			if entries[i].Family != entries[j].Family {
+				return entries[i].Family < entries[j].Family
+			}
+			return entries[i].Moment < entries[j].Moment
+		})
+		data, _ := json.MarshalIndent(entries, "", "  ")
+		if err := os.WriteFile("testdata/manifest.json", data, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	for family, moments := range families.Names() {
 		for _, moment := range moments {
 			times := []float64{.5, 3, 5.5}

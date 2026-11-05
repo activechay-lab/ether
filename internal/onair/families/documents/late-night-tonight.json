@@ -1,0 +1,780 @@
+{
+  "v": 1,
+  "moment": "tonight",
+  "duration": 8,
+  "poster": 5.5,
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": "{bg}"
+    },
+    {
+      "id": "moon",
+      "type": "group",
+      "x": 1390,
+      "y": {
+        "keys": [
+          [
+            0,
+            520
+          ],
+          [
+            3.2,
+            330,
+            "out"
+          ]
+        ]
+      },
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            1.5,
+            1
+          ]
+        ]
+      },
+      "layers": [
+        {
+          "id": "halo",
+          "type": "ellipse",
+          "x": -510,
+          "y": -510,
+          "w": 1020,
+          "h": 1020,
+          "fill": {
+            "radial": [
+              510,
+              510,
+              120,
+              510
+            ],
+            "stops": [
+              [
+                0,
+                "{moon}@0.28"
+              ],
+              [
+                1,
+                "{moon}@0"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "disc",
+          "type": "ellipse",
+          "x": -150,
+          "y": -150,
+          "w": 300,
+          "h": 300,
+          "fill": "{moon}"
+        },
+        {
+          "id": "crater0",
+          "type": "ellipse",
+          "x": -78,
+          "y": -63,
+          "w": 66,
+          "h": 66,
+          "fill": "#3c3c46@0.1"
+        },
+        {
+          "id": "crater1",
+          "type": "ellipse",
+          "x": 14,
+          "y": -9,
+          "w": 48,
+          "h": 48,
+          "fill": "#3c3c46@0.1"
+        },
+        {
+          "id": "crater2",
+          "type": "ellipse",
+          "x": -26,
+          "y": 42,
+          "w": 36,
+          "h": 36,
+          "fill": "#3c3c46@0.1"
+        },
+        {
+          "id": "crater3",
+          "type": "ellipse",
+          "x": 38,
+          "y": -67,
+          "w": 30,
+          "h": 30,
+          "fill": "#3c3c46@0.1"
+        }
+      ]
+    },
+    {
+      "id": "fog0",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            -700
+          ],
+          [
+            8,
+            -300
+          ]
+        ]
+      },
+      "y": 650,
+      "w": 1400,
+      "h": 320,
+      "fill": {
+        "radial": [
+          700,
+          160,
+          0,
+          700
+        ],
+        "stops": [
+          [
+            0,
+            "{fog}@0.13"
+          ],
+          [
+            1,
+            "{fog}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "fog1",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            -370
+          ],
+          [
+            8,
+            30
+          ]
+        ]
+      },
+      "y": 725,
+      "w": 1400,
+      "h": 320,
+      "fill": {
+        "radial": [
+          700,
+          160,
+          0,
+          700
+        ],
+        "stops": [
+          [
+            0,
+            "{fog}@0.13"
+          ],
+          [
+            1,
+            "{fog}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "fog2",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            -40
+          ],
+          [
+            8,
+            360
+          ]
+        ]
+      },
+      "y": 800,
+      "w": 1400,
+      "h": 320,
+      "fill": {
+        "radial": [
+          700,
+          160,
+          0,
+          700
+        ],
+        "stops": [
+          [
+            0,
+            "{fog}@0.13"
+          ],
+          [
+            1,
+            "{fog}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "fog3",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            290
+          ],
+          [
+            8,
+            690
+          ]
+        ]
+      },
+      "y": 650,
+      "w": 1400,
+      "h": 320,
+      "fill": {
+        "radial": [
+          700,
+          160,
+          0,
+          700
+        ],
+        "stops": [
+          [
+            0,
+            "{fog}@0.13"
+          ],
+          [
+            1,
+            "{fog}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "fog4",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            620
+          ],
+          [
+            8,
+            1020
+          ]
+        ]
+      },
+      "y": 725,
+      "w": 1400,
+      "h": 320,
+      "fill": {
+        "radial": [
+          700,
+          160,
+          0,
+          700
+        ],
+        "stops": [
+          [
+            0,
+            "{fog}@0.13"
+          ],
+          [
+            1,
+            "{fog}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "fog5",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            950
+          ],
+          [
+            8,
+            1350
+          ]
+        ]
+      },
+      "y": 800,
+      "w": 1400,
+      "h": 320,
+      "fill": {
+        "radial": [
+          700,
+          160,
+          0,
+          700
+        ],
+        "stops": [
+          [
+            0,
+            "{fog}@0.13"
+          ],
+          [
+            1,
+            "{fog}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "Title",
+      "type": "text",
+      "text": "{words.tonight}",
+      "x": 960,
+      "y": 190,
+      "size": 86,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "center",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "card0",
+      "type": "path",
+      "x": 360,
+      "y": 268,
+      "fill": "{accent}@0.14",
+      "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z"
+    },
+    {
+      "id": "time0",
+      "type": "text",
+      "text": "{list[0].time}",
+      "x": 180,
+      "y": 350,
+      "size": 42,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "maxLines": 1,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "item0",
+      "type": "text",
+      "text": "{list[0].title}",
+      "x": 420,
+      "y": 340,
+      "size": 58,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "meta0",
+      "type": "text",
+      "text": "{list[0].meta}",
+      "x": 420,
+      "y": 382,
+      "size": 28,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "card1",
+      "type": "path",
+      "x": 360,
+      "y": 438,
+      "fill": "{accent}@0.14",
+      "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z"
+    },
+    {
+      "id": "time1",
+      "type": "text",
+      "text": "{list[1].time}",
+      "x": 180,
+      "y": 520,
+      "size": 42,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "maxLines": 1,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "item1",
+      "type": "text",
+      "text": "{list[1].title}",
+      "x": 420,
+      "y": 510,
+      "size": 58,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "meta1",
+      "type": "text",
+      "text": "{list[1].meta}",
+      "x": 420,
+      "y": 552,
+      "size": 28,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "card2",
+      "type": "path",
+      "x": 360,
+      "y": 608,
+      "fill": "{accent}@0.14",
+      "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z"
+    },
+    {
+      "id": "time2",
+      "type": "text",
+      "text": "{list[2].time}",
+      "x": 180,
+      "y": 690,
+      "size": 42,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "maxLines": 1,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "item2",
+      "type": "text",
+      "text": "{list[2].title}",
+      "x": 420,
+      "y": 680,
+      "size": 58,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "meta2",
+      "type": "text",
+      "text": "{list[2].meta}",
+      "x": 420,
+      "y": 722,
+      "size": 28,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "card3",
+      "type": "path",
+      "x": 360,
+      "y": 778,
+      "fill": "{accent}@0.14",
+      "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z"
+    },
+    {
+      "id": "time3",
+      "type": "text",
+      "text": "{list[3].time}",
+      "x": 180,
+      "y": 860,
+      "size": 42,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "maxLines": 1,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "item3",
+      "type": "text",
+      "text": "{list[3].title}",
+      "x": 420,
+      "y": 850,
+      "size": 58,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "meta3",
+      "type": "text",
+      "text": "{list[3].meta}",
+      "x": 420,
+      "y": 892,
+      "size": 28,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": "{textures.grain}"
+    },
+    {
+      "type": "vignette",
+      "amount": 0.45
+    }
+  ],
+  "slots": [
+    "list[0].meta",
+    "list[0].time",
+    "list[0].title",
+    "list[1].meta",
+    "list[1].time",
+    "list[1].title",
+    "list[2].meta",
+    "list[2].time",
+    "list[2].title",
+    "list[3].meta",
+    "list[3].time",
+    "list[3].title"
+  ]
+}

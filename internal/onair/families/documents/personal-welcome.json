@@ -1,0 +1,350 @@
+{
+  "v": 1,
+  "moment": "welcome",
+  "duration": 8,
+  "poster": 5.5,
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": "{bg}"
+    },
+    {
+      "id": "aurora0",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            -700
+          ],
+          [
+            8,
+            -300
+          ]
+        ]
+      },
+      "y": -350,
+      "w": 1500,
+      "h": 1500,
+      "fill": {
+        "radial": [
+          750,
+          750,
+          0,
+          750
+        ],
+        "stops": [
+          [
+            0,
+            "{accent}@0.45"
+          ],
+          [
+            1,
+            "{bg}@0"
+          ]
+        ]
+      },
+      "blend": "screen"
+    },
+    {
+      "id": "aurora1",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            -50
+          ],
+          [
+            8,
+            300
+          ]
+        ]
+      },
+      "y": -130,
+      "w": 1500,
+      "h": 1500,
+      "fill": {
+        "radial": [
+          750,
+          750,
+          0,
+          750
+        ],
+        "stops": [
+          [
+            0,
+            "{glow}@0.45"
+          ],
+          [
+            1,
+            "{bg}@0"
+          ]
+        ]
+      },
+      "blend": "screen"
+    },
+    {
+      "id": "aurora2",
+      "type": "ellipse",
+      "x": {
+        "keys": [
+          [
+            0,
+            600
+          ],
+          [
+            8,
+            900
+          ]
+        ]
+      },
+      "y": 90,
+      "w": 1500,
+      "h": 1500,
+      "fill": {
+        "radial": [
+          750,
+          750,
+          0,
+          750
+        ],
+        "stops": [
+          [
+            0,
+            "{accent}@0.45"
+          ],
+          [
+            1,
+            "{bg}@0"
+          ]
+        ]
+      },
+      "blend": "screen"
+    },
+    {
+      "id": "Title-weight0",
+      "type": "text",
+      "text": "Welcome back, {viewer.name}.",
+      "x": 958.2,
+      "y": 400,
+      "size": 104,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "Title-weight1",
+      "type": "text",
+      "text": "Welcome back, {viewer.name}.",
+      "x": 961.8,
+      "y": 400,
+      "size": 104,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "Title-weight2",
+      "type": "text",
+      "text": "Welcome back, {viewer.name}.",
+      "x": 960,
+      "y": 398.2,
+      "size": 104,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "Title-weight3",
+      "type": "text",
+      "text": "Welcome back, {viewer.name}.",
+      "x": 960,
+      "y": 401.8,
+      "size": 104,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "Title",
+      "type": "text",
+      "text": "Welcome back, {viewer.name}.",
+      "x": 960,
+      "y": 400,
+      "size": 104,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "subtitle",
+      "type": "text",
+      "text": "Your channel paused while you were away.",
+      "x": 960,
+      "y": 480,
+      "size": 42,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    },
+    {
+      "id": "resume-card",
+      "type": "rect",
+      "x": 440,
+      "y": 570,
+      "w": 1040,
+      "h": 280,
+      "fill": "{text}@0.06",
+      "stroke": "{text}@0.16",
+      "strokeWidth": 2
+    },
+    {
+      "id": "art-illustration",
+      "type": "group",
+      "x": 470,
+      "y": 600,
+      "clip": "M 16 0 H 524 Q 540 0 540 16 V 634 Q 540 650 524 650 H 16 Q 0 650 0 634 V 16 Q 0 0 16 0 Z",
+      "layers": [
+        {
+          "id": "art-sky",
+          "type": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 540,
+          "h": 650,
+          "fill": {
+            "linear": [
+              0,
+              0,
+              0,
+              650
+            ],
+            "stops": [
+              [
+                0,
+                "#152443"
+              ],
+              [
+                1,
+                "#bd794f"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "art-moon",
+          "type": "ellipse",
+          "x": 378.0,
+          "y": 78.0,
+          "w": 86.4,
+          "h": 86.4,
+          "fill": "#efdbaa"
+        },
+        {
+          "id": "art-ridge0",
+          "type": "path",
+          "path": "M 0 338.0 L 108.0 195.0 L 189.0 325.0 L 351.0 175.5 L 540 312.0 L 540 650 L 0 650 Z",
+          "fill": "#384762"
+        },
+        {
+          "id": "art-ridge1",
+          "type": "path",
+          "path": "M 0 416.0 L 108.0 299.0 L 189.0 390.0 L 351.0 286.00000000000006 L 540 377.0 L 540 650 L 0 650 Z",
+          "fill": "#293248"
+        },
+        {
+          "id": "art-ridge2",
+          "type": "path",
+          "path": "M 0 494.0 L 108.0 403.0 L 189.0 454.99999999999994 L 351.0 396.50000000000006 L 540 441.99999999999994 L 540 650 L 0 650 Z",
+          "fill": "#172139"
+        }
+      ],
+      "scaleX": 0.7407407407407407,
+      "scaleY": 0.3384615384615385
+    },
+    {
+      "id": "programme",
+      "type": "text",
+      "text": "{next.title}",
+      "x": 910,
+      "y": 680,
+      "size": 54,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 520,
+      "fit": "shrink"
+    },
+    {
+      "id": "reason",
+      "type": "text",
+      "text": "{next.reason}",
+      "x": 910,
+      "y": 735,
+      "size": 30,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "maxWidth": 520,
+      "fit": "shrink"
+    },
+    {
+      "id": "progress",
+      "type": "rect",
+      "x": 912,
+      "y": 770,
+      "w": 520,
+      "h": 8,
+      "fill": "#ffffff@0.14"
+    },
+    {
+      "id": "elapsed",
+      "type": "rect",
+      "x": 912,
+      "y": 770,
+      "w": 310,
+      "h": 8,
+      "fill": "{accent}"
+    },
+    {
+      "id": "resume",
+      "type": "text",
+      "text": "Ready when you are",
+      "x": 960,
+      "y": 930,
+      "size": 36,
+      "font": "{type.display}",
+      "fill": "{accent}",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "align": "center"
+    }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": "{textures.grain}"
+    }
+  ],
+  "slots": [
+    "next.reason",
+    "next.title",
+    "viewer.name"
+  ]
+}

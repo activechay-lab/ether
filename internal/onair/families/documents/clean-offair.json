@@ -2,16 +2,7 @@
   "v": 1,
   "moment": "offair",
   "duration": 8,
-  "poster": 4.8,
-  "slots": [
-    "channel.name",
-    "next.title",
-    "next.meta",
-    "next.logline",
-    "next.time",
-    "next.backdrop",
-    "offair.message"
-  ],
+  "poster": 5.5,
   "layers": [
     {
       "id": "bg",
@@ -20,77 +11,38 @@
       "y": 0,
       "w": 1920,
       "h": 1080,
-      "fill": {
-        "linear": [
-          0,
-          0,
-          1920,
-          1080
-        ],
-        "stops": [
-          [
-            0,
-            "{bg}"
-          ],
-          [
-            1,
-            "#182638"
-          ]
-        ]
-      }
+      "fill": "{bg}"
     },
     {
-      "id": "status",
-      "type": "ellipse",
-      "x": 946,
-      "y": 340,
-      "w": 28,
-      "h": 28,
-      "fill": "{accent}",
-      "behave": [
-        {
-          "flicker": {
-            "amplitude": 0.25,
-            "speed": 1
-          }
-        }
-      ]
+      "id": "rail",
+      "type": "rect",
+      "x": 120,
+      "y": 140,
+      "w": 6,
+      "h": 800,
+      "fill": "{accent}"
     },
     {
-      "id": "brand",
+      "id": "toprule",
+      "type": "rect",
+      "x": 160,
+      "y": 140,
+      "w": 1640,
+      "h": 2,
+      "fill": "{text}@0.18"
+    },
+    {
+      "id": "Title",
       "type": "text",
-      "text": "{channel.name}",
-      "x": 960,
-      "y": 500,
-      "size": 110,
-      "font": "inter",
+      "text": "{words.offair}",
+      "x": 180,
+      "y": 470,
+      "size": 100,
+      "font": "{type.display}",
       "fill": "{text}",
-      "align": "center",
+      "fit": "shrink",
       "maxWidth": 1600,
-      "fit": "shrink"
-    },
-    {
-      "id": "off",
-      "type": "text",
-      "text": "OFF AIR",
-      "x": 960,
-      "y": 620,
-      "size": 48,
-      "font": "spacegrotesk",
-      "fill": "{text}",
-      "align": "center",
-      "track": 12
-    },
-    {
-      "id": "return",
-      "type": "text",
-      "text": "{offair.message}",
-      "x": 960,
-      "y": 730,
-      "size": 36,
-      "font": "inter",
-      "fill": "{text}",
-      "align": "center",
+      "align": "left",
       "opacity": {
         "keys": [
           [
@@ -98,14 +50,55 @@
             0
           ],
           [
-            1.5,
-            1
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
           ]
         ]
-      },
+      }
+    },
+    {
+      "id": "subtitle",
+      "type": "text",
+      "text": "{offair.message}",
+      "x": 180,
+      "y": 650,
+      "size": 54,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
       "maxWidth": 1600,
-      "fit": "shrink"
+      "align": "left",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
     }
   ],
-  "post": []
+  "post": [
+    {
+      "type": "grain",
+      "amount": "{textures.grain}"
+    }
+  ],
+  "slots": [
+    "offair.message"
+  ]
 }

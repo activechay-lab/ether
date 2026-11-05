@@ -21,6 +21,12 @@ func (s *Service) ServeDASH(w http.ResponseWriter, r *http.Request, id string, u
 		writeStreamError(w, err)
 		return nil
 	}
+	ss.mu.Lock()
+	shared := ss.broadcast != nil
+	ss.mu.Unlock()
+	if shared {
+		return s.serveBroadcastDASH(w, r, ss)
+	}
 	ds, err := s.ensureDASH(r.Context(), ss, id)
 	if err != nil {
 		var dashErr *VirtualDASHError
@@ -33,16 +39,6 @@ func (s *Service) ServeDASH(w http.ResponseWriter, r *http.Request, id string, u
 	rec := httptest.NewRecorder()
 	ds.ServeManifest(rec, r)
 	if rec.Code != 200 {
-		if _, virtual := ds.(*virtualDASH); virtual {
-			switch rec.Code {
-			case http.StatusNotFound:
-				return core.ErrNotFound
-			case http.StatusForbidden:
-				return &VirtualDASHError{Err: core.ErrUnauthorized}
-			default:
-				return &VirtualDASHError{Err: core.ErrNotAvailable}
-			}
-		}
 		http.Error(w, "Live stream unavailable", rec.Code)
 		return nil
 	}
@@ -74,15 +70,6 @@ func (s *Service) ensureDASH(ctx context.Context, ss *session, id string) (core.
 		ds := ss.dash
 		ss.mu.Unlock()
 		return ds, nil
-	}
-	if ss.info.Channel.Kind == "virtual" {
-		if s.o.Transcoder == nil {
-			ss.mu.Unlock()
-			return nil, &VirtualDASHError{Err: core.ErrNotAvailable}
-		}
-		gen := ss.generation
-		ss.mu.Unlock()
-		return s.publishVirtualDASH(ctx, ss, id, gen)
 	}
 	defer ss.mu.Unlock()
 	if ss.info.Channel.Kind != "iptv" || s.o.Transcoder == nil {
@@ -132,8 +119,13 @@ func (s *Service) ServeDASHPart(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	ss.mu.Lock()
+	shared := ss.broadcast != nil
 	ds := ss.dash
 	ss.mu.Unlock()
+	if shared {
+		s.serveBroadcastDASHPart(w, r, ss, rep, int64(n), init)
+		return
+	}
 	if ds == nil {
 		writeStreamError(w, core.ErrNotFound)
 		return

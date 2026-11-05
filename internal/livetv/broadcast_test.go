@@ -28,6 +28,9 @@ func (e *broadcastFakeEncoder) Write(ctx context.Context, f transcode.RawFrame) 
 	default:
 	}
 	copyFrame := transcode.RawFrame{Video: append([]byte(nil), f.Video...), PCM: append([]byte(nil), f.PCM...)}
+	if len(f.Video) > 6 {
+		return nil
+	}
 	e.mu.Lock()
 	e.frames = append(e.frames, copyFrame)
 	e.mu.Unlock()
@@ -121,12 +124,7 @@ func TestBroadcastStallAndRecoveryKeepsOneOutput(t *testing.T) {
 			opened++
 			return &broadcastFakeDecoder{origin: origin, format: format, closed: make(chan struct{}), stall: true}, nil, nil
 		}}
-		screenFrame := blackFrame(format, 1600)
-		for i := range screenFrame.Video {
-			screenFrame.Video[i] = 32
-		}
-		screen := &frameRing{frames: []transcode.RawFrame{{Video: screenFrame.Video}}, pcm: screenFrame.PCM}
-		b, err := newBroadcast(context.Background(), runner, broadcastFakePlanner{plan: plan}, format, screen)
+		b, err := newBroadcast(context.Background(), runner, broadcastFakePlanner{plan: plan}, format)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -158,7 +156,7 @@ func TestBroadcastStallAndRecoveryKeepsOneOutput(t *testing.T) {
 					recovered = true
 				}
 				seenReal = true
-			case 32:
+			case 16:
 				if seenReal {
 					seenScreen = true
 				}
@@ -185,7 +183,7 @@ func TestBroadcastRegistrySharesViewersAndStopsAfterGrace(t *testing.T) {
 		created := 0
 		create := func() (*broadcast, error) {
 			created++
-			return newBroadcast(context.Background(), runner, broadcastFakePlanner{plan: broadcastPlan{id: "screen"}}, format, nil)
+			return newBroadcast(context.Background(), runner, broadcastFakePlanner{plan: broadcastPlan{id: "screen"}}, format)
 		}
 		a, err := registry.acquire(context.Background(), broadcastKey{channelID: "one"}, "main", core.Decision{MaxHeight: 720}, create)
 		if err != nil {
@@ -207,7 +205,10 @@ func TestBroadcastRegistrySharesViewersAndStopsAfterGrace(t *testing.T) {
 		b.close()
 		time.Sleep(59 * time.Second)
 		synctest.Wait()
-		if _, err := b.output(); err != nil {
+		b.broadcast.mu.Lock()
+		closed := b.broadcast.closed
+		b.broadcast.mu.Unlock()
+		if closed {
 			t.Fatal("idle grace cut short")
 		}
 		time.Sleep(2 * time.Second)
@@ -286,7 +287,7 @@ func TestBroadcastPrewarmsTwentySecondsBeforeCut(t *testing.T) {
 			secondOpened = time.Now()
 			return countedBroadcastDecoder{Decoder: &broadcastFakeDecoder{origin: origin, format: format, closed: make(chan struct{})}, calls: &nextCalls}, nil, nil
 		}}
-		b, err := newBroadcast(context.Background(), runner, timedBroadcastPlanner{first: first, second: second}, format, nil)
+		b, err := newBroadcast(context.Background(), runner, timedBroadcastPlanner{first: first, second: second}, format)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -331,9 +332,20 @@ func TestProviderBroadcastReservationIsReleasedWhileWaiting(t *testing.T) {
 
 type fakeBroadcastIndex struct{}
 
-func (fakeBroadcastIndex) Latest() (transcode.Segment, bool)               { return transcode.Segment{}, false }
-func (fakeBroadcastIndex) Window(time.Time, time.Time) []transcode.Segment { return nil }
-func (fakeBroadcastIndex) Since(int64, int) []transcode.Segment            { return nil }
+func (fakeBroadcastIndex) Latest() (transcode.Segment, bool) {
+	return transcode.Segment{Seq: 5, Start: time.Unix(20, 0), Duration: 4 * time.Second}, true
+}
+func (fakeBroadcastIndex) Window(from, until time.Time) []transcode.Segment {
+	var out []transcode.Segment
+	for n := int64(0); n < 6; n++ {
+		seg := transcode.Segment{Seq: n, Start: time.Unix(n*4, 0), Duration: 4 * time.Second}
+		if seg.Start.Before(until) && seg.Start.Add(seg.Duration).After(from) {
+			out = append(out, seg)
+		}
+	}
+	return out
+}
+func (fakeBroadcastIndex) Since(int64, int) []transcode.Segment { return nil }
 func (fakeBroadcastIndex) Wait(ctx context.Context, _ int64) (transcode.Segment, error) {
 	<-ctx.Done()
 	return transcode.Segment{}, ctx.Err()
@@ -346,23 +358,10 @@ func (fakeBroadcastIndex) Format() (string, int, int, int) {
 	return "avc1.640028,mp4a.40.2", 2, 2, 1000
 }
 
-func TestBroadcastRingLoopsAudioAcrossFractionalSeams(t *testing.T) {
-	f := smallBroadcastFormat()
-	f.FPSNum, f.FPSDen = 30000, 1001
-	pcm := make([]byte, 12)
-	for i := 0; i < 6; i++ {
-		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(i+1))
-	}
-	r := &frameRing{frames: []transcode.RawFrame{{Video: make([]byte, 6)}}, pcm: pcm}
-	var bytes int
-	for n := int64(0); n < 30; n++ {
-		frame := r.next(tickSamples(f, n), 2)
-		for i := 0; i < len(frame.PCM); i += 2 {
-			want := int16((bytes/2)%6 + 1)
-			if got := int16(binary.LittleEndian.Uint16(frame.PCM[i:])); got != want {
-				t.Fatal("ring audio seam", got, want)
-			}
-			bytes += 2
-		}
-	}
+func (f *fakeTranscoder) HWAccel() core.HWAccel { return core.HWAccel{Name: "none"} }
+func (f *fakeTranscoder) StartEncoder(context.Context, transcode.EncoderRequest) (transcode.ContinuousEncoder, error) {
+	return &broadcastFakeEncoder{}, nil
+}
+func (f *fakeTranscoder) StartDecoder(_ context.Context, r transcode.DecoderRequest) (transcode.Decoder, error) {
+	return &broadcastFakeDecoder{format: r.Format, origin: time.Now(), closed: make(chan struct{})}, nil
 }
