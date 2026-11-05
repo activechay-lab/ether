@@ -118,12 +118,26 @@ func (s *Server) rememberStreamRequest(r *http.Request, user *core.User, key cor
 		return
 	}
 	for _, kind := range []string{"audio", "subtitle"} {
-		v := r.URL.Query().Get(kind + "StreamID")
-		if v == "" {
+		q := r.URL.Query()
+		v := q.Get(kind + "StreamID")
+		if !q.Has(kind + "StreamID") {
 			continue
 		}
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
+			if kind == "audio" {
+				continue
+			}
+			id = 0 // A malformed subtitle selector means None.
+		}
+		if id == -1 {
+			if resetter, ok := s.d.TrackPreferences.(interface {
+				ForgetChoice(context.Context, int64, core.RatingKey, string) error
+			}); ok {
+				if err := resetter.ForgetChoice(r.Context(), user.ID, key, kind); err != nil {
+					s.log.Warn("reset stream preference", "error", err)
+				}
+			}
 			continue
 		}
 		var track *core.StreamInfo
