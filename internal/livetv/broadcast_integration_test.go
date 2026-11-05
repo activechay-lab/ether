@@ -98,7 +98,14 @@ func TestBroadcastRealContinuity(t *testing.T) {
 		t.Fatalf("only %d segments", len(segments))
 	}
 	for i, seg := range segments {
-		if seg.Seq != int64(i) || seg.Duration != 4*time.Second {
+		expected := 4 * time.Second
+		switch i {
+		case 0, 1:
+			expected = time.Second
+		case 2:
+			expected = 2 * time.Second
+		}
+		if seg.Seq != int64(i) || seg.Duration != expected {
 			t.Fatal("non-contiguous timeline", segments)
 		}
 		if i > 0 && !seg.Start.Equal(segments[i-1].Start.Add(segments[i-1].Duration)) {

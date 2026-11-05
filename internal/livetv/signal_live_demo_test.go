@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -309,18 +310,27 @@ func TestLiveSignalDemo(t *testing.T) {
 					}
 				}
 				json.Unmarshal(raw, &data)
-				bins := map[int]int{}
+				type timedPacket struct {
+					at   float64
+					bits int
+				}
+				packets := make([]timedPacket, 0, len(data.Packets))
 				for _, p := range data.Packets {
-					pts, _ := strconv.ParseFloat(p.PTS, 64)
+					at, _ := strconv.ParseFloat(p.PTS, 64)
 					size, _ := strconv.Atoi(p.Size)
-					bins[int(pts)] += size * 8
+					packets = append(packets, timedPacket{at: at, bits: size * 8})
 				}
-				peak := 0
-				for sec, bits := range bins {
-					if sec >= 0 {
-						peak = max(peak, bits)
+				sort.Slice(packets, func(i, j int) bool { return packets[i].at < packets[j].at })
+				peak, sum, left := 0, 0, 0
+				for right, p := range packets {
+					sum += p.bits
+					for left < right && p.at-packets[left].at >= 1 {
+						sum -= packets[left].bits
+						left++
 					}
+					peak = max(peak, sum)
 				}
+
 				duration, _ := strconv.ParseFloat(data.Format.Duration, 64)
 				bitrate, _ := strconv.ParseFloat(data.Format.BitRate, 64)
 				means := inspectSignalSample(t, ctx, ff, output, *liveSignalDemo, name)
