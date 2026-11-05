@@ -92,7 +92,7 @@ func (c Channel) podItems(at time.Time, budget time.Duration) []Item {
 	}
 	outB, inB := moment("break"), moment("back")
 	id := Item{}
-	if p.StationID {
+	if p.StationID && !c.Look.Ident {
 		id = moment("ident")
 	}
 	reserved := time.Duration(outB.DurationMS+inB.DurationMS+id.DurationMS) * time.Millisecond

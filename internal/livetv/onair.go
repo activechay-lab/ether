@@ -25,7 +25,25 @@ func interstitial(it Item) bool {
 func (c Channel) moments(at time.Time) []Item { return c.momentsWithin(at, 0) }
 func (c Channel) momentsWithin(at time.Time, budget time.Duration) []Item {
 	if c.Look != nil && c.Look.BreakPattern != nil {
-		return c.podItems(at, budget)
+		// Era pods compose with the ordinary channel moments. Reserve their
+		// time first so a full pod cannot silently consume ident/up-next.
+		plain := c
+		look := *c.Look
+		look.BreakPattern = nil
+		look.Breaks = ""
+		plain.Look = &look
+		regular := plain.momentsWithin(at, budget)
+		remaining := budget
+		if budget > 0 {
+			for _, item := range regular {
+				remaining -= time.Duration(item.DurationMS) * time.Millisecond
+			}
+			if remaining <= 0 {
+				return regular
+			}
+		}
+		pod := c.podItems(at, remaining)
+		return append(pod, regular...)
 	}
 	if c.Look == nil || c.clipDuration == nil {
 		return nil

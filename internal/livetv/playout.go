@@ -2,6 +2,7 @@ package livetv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -366,7 +367,38 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	s.mu.Unlock()
 	s.beginPersonal(c, u)
 	if limiter, ok := s.o.Playback.(channelLimiter); ok {
-		if err = limiter.BeginChannel(u, caps, ss.info.ID); err != nil {
+		if joined, ok := s.o.Playback.(interface {
+			JoinChannel(*core.User, core.ClientCaps, string, string) error
+		}); ok && s.useBroadcast(c) {
+			group := "broadcast-" + c.ID
+			if c.Personal != nil {
+				group += "-viewer-" + strconv.FormatInt(u.ID, 10)
+			}
+			err = joined.JoinChannel(u, caps, ss.info.ID, group)
+			if errors.Is(err, core.ErrStreamLimit) && s.broadcasts.yieldIdle(nil) {
+				deadline := time.NewTimer(2 * time.Second)
+				tick := time.NewTicker(25 * time.Millisecond)
+				defer deadline.Stop()
+				defer tick.Stop()
+			retryJoin:
+				for {
+					select {
+					case <-ctx.Done():
+						break retryJoin
+					case <-deadline.C:
+						break retryJoin
+					case <-tick.C:
+						err = joined.JoinChannel(u, caps, ss.info.ID, group)
+						if !errors.Is(err, core.ErrStreamLimit) {
+							break retryJoin
+						}
+					}
+				}
+			}
+		} else {
+			err = limiter.BeginChannel(u, caps, ss.info.ID)
+		}
+		if err != nil {
 			s.Stop(ctx, ss.info.ID, u)
 			return SessionInfo{}, err
 		}

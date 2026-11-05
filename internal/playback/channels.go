@@ -44,8 +44,26 @@ func (m *Manager) PrepareChannel(ctx context.Context, u *core.User, key core.Rat
 // reservationCountsLocked counts distinct viewing groups and ordinary sources.
 func (m *Manager) reservationCountsLocked(id identity) (user, total, children int) {
 	group := m.channelGroups[id]
+	joining := strings.HasPrefix(id.clientID, "join/")
 	units := map[string]int64{}
+	broadcastUnits := map[string]bool{}
+	viewerUnits := map[string]bool{}
 	for g, slot := range m.externalGroups {
+		if slot.broadcast != "" {
+			if slot.broadcast != group {
+				broadcastUnits[slot.broadcast] = true
+			}
+			if slot.user.ID == id.userID && (joining || group == "") {
+				key := slot.caps.ClientID
+				if key == "" {
+					key = g
+				}
+				if !joining || key != strings.TrimPrefix(id.clientID, "join/") {
+					viewerUnits[key] = true
+				}
+			}
+			continue
+		}
 		if g == group && slot.user.ID == id.userID {
 			continue
 		}
@@ -55,6 +73,10 @@ func (m *Manager) reservationCountsLocked(id identity) (user, total, children in
 		g := m.channelGroups[other]
 		if group != "" && g == group && other.userID == id.userID {
 			children++
+			return
+		}
+		if strings.HasPrefix(g, "broadcast-") {
+			broadcastUnits[g] = true
 			return
 		}
 		if g != "" {
@@ -83,17 +105,32 @@ func (m *Manager) reservationCountsLocked(id identity) (user, total, children in
 			user++
 		}
 	}
+	total += len(broadcastUnits)
+	user += len(viewerUnits)
 	return
 }
 
 type externalGroup struct {
-	user core.User
-	caps core.ClientCaps
+	broadcast string
+	user      core.User
+	caps      core.ClientCaps
 }
 
 // BeginChannel reserves a viewing unit in the same transaction as ordinary
 // Prepare. This also counts passthrough IPTV, which has no on-demand source.
 func (m *Manager) BeginChannel(u *core.User, caps core.ClientCaps, group string) error {
+	return m.beginChannel(u, caps, group, "")
+}
+
+// JoinChannel keeps a viewer reservation under its session ID while sharing
+// the physical output's server budget with other viewers and source decoders.
+func (m *Manager) JoinChannel(u *core.User, caps core.ClientCaps, session, output string) error {
+	if !strings.HasPrefix(output, "broadcast-") || len(output) > 128 {
+		return fmt.Errorf("invalid broadcast group")
+	}
+	return m.beginChannel(u, caps, session, output)
+}
+func (m *Manager) beginChannel(u *core.User, caps core.ClientCaps, group, output string) error {
 	if u == nil {
 		return core.ErrUnauthorized
 	}
@@ -120,7 +157,17 @@ func (m *Manager) BeginChannel(u *core.User, caps core.ClientCaps, group string)
 		return core.ErrUnauthorized
 	}
 	id := identity{userID: u.ID, clientID: "external/" + group}
+	if output != "" {
+		if m.channelGroups == nil {
+			m.channelGroups = map[identity]string{}
+		}
+		id.clientID = "join/" + caps.ClientID
+		m.channelGroups[id] = output
+	}
 	userN, total, _ := m.reservationCountsLocked(id)
+	if output != "" {
+		delete(m.channelGroups, id)
+	}
 	if n := userLimit; n > 0 && userN >= n {
 		m.mu.Unlock()
 		return core.ErrStreamLimit
@@ -132,14 +179,18 @@ func (m *Manager) BeginChannel(u *core.User, caps core.ClientCaps, group string)
 	if m.externalGroups == nil {
 		m.externalGroups = map[string]externalGroup{}
 	}
-	m.externalGroups[group] = externalGroup{user: *u, caps: caps}
+	m.externalGroups[group] = externalGroup{user: *u, caps: caps, broadcast: output}
 	m.mu.Unlock()
 	if m.reg == nil {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	claim := unitRow{id: groupID(group), user: u.ID, client: caps.ClientID, grp: group, kind: unitGroup,
+	claimGroup := group
+	if output != "" {
+		claimGroup = output
+	}
+	claim := unitRow{id: groupID(group), user: u.ID, client: caps.ClientID, grp: claimGroup, kind: unitGroup,
 		started: m.now().UnixMilli()}
 	if err := m.reg.admit(ctx, u, id, claim, userN, total, userLimit, serverLimit); err != nil {
 		m.mu.Lock()

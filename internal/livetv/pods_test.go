@@ -121,3 +121,44 @@ func TestPodsGuideAndSourceResume(t *testing.T) {
 		t.Fatal("query windows differ")
 	}
 }
+
+func TestEraPodsComposeWithChannelMomentToggles(t *testing.T) {
+	for _, era := range []string{"1980s", "1990s", "2000s", "2010s"} {
+		for _, enabled := range []bool{true, false} {
+			c := podChannel()
+			p, _ := EraBreakPattern(era)
+			p.StationID = false
+			c.Look.BreakPattern = &p
+			c.Look.Ident = enabled
+			c.Look.UpNext = enabled
+			c.momentHistory = &momentHistory{last: map[string]time.Time{}}
+			got := c.momentsWithin(c.Epoch, 5*time.Minute)
+			counts := map[string]int{}
+			firstSpot, lastSpot, brk, back := -1, -1, -1, -1
+			for i, it := range got {
+				counts[it.Slate]++
+				switch it.Slate {
+				case "break":
+					brk = i
+				case "back":
+					back = i
+				case "reel":
+					if firstSpot < 0 {
+						firstSpot = i
+					}
+					lastSpot = i
+				}
+			}
+			want := 0
+			if enabled {
+				want = 1
+			}
+			if counts["ident"] != want || counts["upnext"] != want {
+				t.Fatalf("%s enabled=%t moments=%v", era, enabled, counts)
+			}
+			if firstSpot <= brk || back <= lastSpot || brk < 0 {
+				t.Fatalf("pod not between bumpers: %v", got)
+			}
+		}
+	}
+}
