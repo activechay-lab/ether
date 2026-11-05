@@ -3105,10 +3105,6 @@
   "m_0da1883d607d06": "Egna mönster",
   "m_0da1e4f0cb2843": "Databasen kunde inte läsas. Noder visas här när den kan det.",
   "m_0da398fbd32a25": "till {time}",
-  "m_0da42434b46cef": {
-    "one": "{count} server",
-    "other": "{count} servrar"
-  },
   "m_0da58ccb0576db": "VPN-container (Gluetun) på ett delat Docker-nätverk",
   "m_0da597b69e9aa8": "Ta bort…",
   "m_0da656c043a8a0": "kommande avsnitt premiärer finaler releaser sänds ikväll sonarr radarr schema",

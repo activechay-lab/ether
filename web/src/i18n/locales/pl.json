@@ -3273,12 +3273,6 @@
   "m_0da1883d607d06": "Własne wzorce",
   "m_0da1e4f0cb2843": "Nie udało się odczytać bazy danych. Węzły pojawią się tutaj, gdy będzie to możliwe.",
   "m_0da398fbd32a25": "do {time}",
-  "m_0da42434b46cef": {
-    "one": "{count} serwer",
-    "few": "{count} serwery",
-    "many": "{count} serwerów",
-    "other": "{count} serwera"
-  },
   "m_0da58ccb0576db": "Kontener VPN (Gluetun) we wspólnej sieci Docker",
   "m_0da597b69e9aa8": "Usuń…",
   "m_0da656c043a8a0": "nadchodzące odcinki premiery finały wydania emisja dziś wieczorem sonarr radarr harmonogram",

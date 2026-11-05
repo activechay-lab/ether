@@ -3105,10 +3105,6 @@
   "m_0da1883d607d06": "Eigen patronen",
   "m_0da1e4f0cb2843": "De database kon niet worden gelezen. Nodes verschijnen hier zodra dat kan.",
   "m_0da398fbd32a25": "tot {time}",
-  "m_0da42434b46cef": {
-    "one": "{count} server",
-    "other": "{count} servers"
-  },
   "m_0da58ccb0576db": "VPN-container (Gluetun) op een gedeeld Docker-netwerk",
   "m_0da597b69e9aa8": "Verwijderen…",
   "m_0da656c043a8a0": "aankomend afleveringen premières finales releases vanavond uitgezonden sonarr radarr planning",

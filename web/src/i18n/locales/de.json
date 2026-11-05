@@ -3105,10 +3105,6 @@
   "m_0da1883d607d06": "Eigene Muster",
   "m_0da1e4f0cb2843": "Die Datenbank konnte nicht gelesen werden. Knoten erscheinen hier, sobald sie lesbar ist.",
   "m_0da398fbd32a25": "bis {time}",
-  "m_0da42434b46cef": {
-    "one": "{count} Server",
-    "other": "{count} Server"
-  },
   "m_0da58ccb0576db": "VPN-Container (Gluetun) in einem gemeinsamen Docker-Netzwerk",
   "m_0da597b69e9aa8": "Entfernen…",
   "m_0da656c043a8a0": "kommende Folgen Premieren Finale Veröffentlichungen heute Abend Ausstrahlung sonarr radarr Zeitplan",

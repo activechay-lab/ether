@@ -3189,11 +3189,6 @@
   "m_0da1883d607d06": "Patrones personalizados",
   "m_0da1e4f0cb2843": "No se pudo leer la base de datos. Los nodos aparecerán aquí cuando se pueda.",
   "m_0da398fbd32a25": "hasta las {time}",
-  "m_0da42434b46cef": {
-    "one": "{count} servidor",
-    "many": "{count} servidores",
-    "other": "{count} servidores"
-  },
   "m_0da58ccb0576db": "Contenedor VPN (Gluetun) en una red Docker compartida",
   "m_0da597b69e9aa8": "Quitar…",
   "m_0da656c043a8a0": "próximos episodios estrenos finales lanzamientos emisión esta noche sonarr radarr programación",

@@ -3189,11 +3189,6 @@
   "m_0da1883d607d06": "Padrões personalizados",
   "m_0da1e4f0cb2843": "Não foi possível ler o banco de dados. Os nós aparecem aqui assim que for possível.",
   "m_0da398fbd32a25": "até {time}",
-  "m_0da42434b46cef": {
-    "one": "{count} servidor",
-    "many": "{count} de servidores",
-    "other": "{count} servidores"
-  },
   "m_0da58ccb0576db": "Contêiner de VPN (Gluetun) em uma rede Docker compartilhada",
   "m_0da597b69e9aa8": "Remover…",
   "m_0da656c043a8a0": "próximos episódios estreias finais lançamentos exibição hoje noite sonarr radarr programação",

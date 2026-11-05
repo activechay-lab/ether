@@ -3189,11 +3189,6 @@
   "m_0da1883d607d06": "Motifs personnalisés",
   "m_0da1e4f0cb2843": "Impossible de lire la base de données. Les nœuds apparaîtront ici dès qu’elle sera lisible.",
   "m_0da398fbd32a25": "jusqu’à {time}",
-  "m_0da42434b46cef": {
-    "one": "{count} serveur",
-    "many": "{count} serveurs",
-    "other": "{count} serveurs"
-  },
   "m_0da58ccb0576db": "Conteneur VPN (Gluetun) sur un réseau Docker partagé",
   "m_0da597b69e9aa8": "Supprimer…",
   "m_0da656c043a8a0": "à venir épisodes premières finales sorties diffusion ce soir sonarr radarr programme",

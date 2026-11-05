@@ -3105,10 +3105,6 @@
   "m_0da1883d607d06": "Egendefinerte mønstre",
   "m_0da1e4f0cb2843": "Databasen kunne ikke leses. Noder vises her når den kan det.",
   "m_0da398fbd32a25": "til {time}",
-  "m_0da42434b46cef": {
-    "one": "{count} server",
-    "other": "{count} servere"
-  },
   "m_0da58ccb0576db": "VPN-container (Gluetun) på et delt Docker-nettverk",
   "m_0da597b69e9aa8": "Fjern…",
   "m_0da656c043a8a0": "kommende episoder premierer finaler utgivelser sendes i kveld sonarr radarr tidsplan",

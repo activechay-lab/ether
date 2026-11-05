@@ -105,7 +105,7 @@ export function integrationTabs(
 
 interface Service {
   tab: Exclude<ServiceTab, "overview" | "ratings">;
-  configKey: "trakt" | "simkl" | "llm" | "openSubtitles" | "markers";
+  configKey: "plexServers" | "trakt" | "simkl" | "llm" | "openSubtitles" | "markers";
   endpoint: string;
   /** Boolean this card's switch writes. Omitted fields stay stored. */
   flag: "enabled" | "theIntroDb";
@@ -127,6 +127,14 @@ interface Service {
 }
 
 const SERVICES: Service[] = localized(() => [
+  {
+    tab: "plexservers",
+    configKey: "plexServers",
+    endpoint: "plexservers",
+    flag: "enabled",
+    label: t("Plex Media Servers"),
+    groups: [],
+  },
   {
     tab: "trakt",
     configKey: "trakt",
@@ -299,6 +307,11 @@ function mergeSection(
   section: Obj,
 ): EtherConfig {
   switch (key) {
+    case "plexServers":
+      return {
+        ...base,
+        plexServers: { enabled: boolField(section, "enabled", base.plexServers?.enabled ?? true) },
+      };
     case "trakt":
       return {
         ...base,
@@ -586,7 +599,7 @@ export function ConnectedServices({
       const current = draftNow[service.configKey] ?? {};
       if (!next) skipSetupOffer.current = true;
 
-      if (next) {
+      if (next && service.tab !== "plexservers") {
         openSectionSetup(service, current);
         return;
       }
@@ -895,7 +908,7 @@ export function ConnectedServices({
         )}
       </PosterAccounts>
       {SERVICES.map((s) => {
-        if (tab !== s.tab && !visited.has(s.tab)) return null;
+        if (s.tab === "plexservers" || (tab !== s.tab && !visited.has(s.tab))) return null;
         const value = draft[s.configKey] ?? {};
         const set = (next: Obj) => setDraft({ ...draft, [s.configKey]: next });
         const testButton =
@@ -956,7 +969,16 @@ export function ConnectedServices({
       })}
       {tab === "plexservers" || visited.has("plexservers") ? (
         <div hidden={tab !== "plexservers"}>
-          <PlexServers />
+          <PlexServers
+            enabled={cfg?.plexServers?.enabled ?? true}
+            disabled={locked}
+            onToggle={(next) =>
+              void toggleService(
+                SERVICES.find((s) => s.tab === "plexservers")!,
+                next,
+              )
+            }
+          />
         </div>
       ) : null}
       {tab === "ratings" || visited.has("ratings") ? (
@@ -1137,7 +1159,12 @@ function ServiceOverview({
           configureHref="/services/simkl"
           configureLabel={on("simkl") ? t("Manage Simkl") : t("Set up Simkl")}
         />
-        <PlexServersCard />
+        <PlexServersCard
+          enabled={on("plexservers")}
+          busy={locked || busyId === "plexservers"}
+          disabled={switchesHeld}
+          onToggle={(next) => onToggle(service("plexservers"), next)}
+        />
       </IntegrationGroup>
       <>
         <IntegrationGroup title={t("Artwork and ratings")}>
@@ -1229,28 +1256,26 @@ function flattenCards(children: ReactNode): ReactNode[] {
 }
 
 function IntegrationGroup({ title, children }: { title: string; children: ReactNode }) {
-  const cards = flattenCards(children).filter(
-    (child) => isValidElement<{ identity?: { name?: string } }>(child) && child.props.identity,
-  );
-  const rest = flattenCards(children).filter(
-    (child) => !(isValidElement<{ identity?: { name?: string } }>(child) && child.props.identity),
-  );
+  const cards = flattenCards(children).filter(isValidElement);
   return (
     <section aria-label={title} className="space-y-3 pt-6 first:pt-0">
       <h2 className="text-sm font-semibold text-fg">{title}</h2>
       <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {cards.map((child) => {
+        {cards.map((child, index) => {
           const name = isValidElement<{ identity?: { name?: string } }>(child)
             ? child.props.identity?.name
             : undefined;
           return (
-            <li key={name} aria-label={name} className="h-full">
+            <li
+              key={isValidElement(child) ? (child.key ?? name ?? index) : index}
+              aria-label={name}
+              className="h-full"
+            >
               {child}
             </li>
           );
         })}
       </ul>
-      {rest}
     </section>
   );
 }

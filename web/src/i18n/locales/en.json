@@ -3114,10 +3114,6 @@
   "m_0da1883d607d06": "Custom patterns",
   "m_0da1e4f0cb2843": "The database couldn't be read. Nodes appear here once it can.",
   "m_0da398fbd32a25": "to {time}",
-  "m_0da42434b46cef": {
-    "one": "{count} server",
-    "other": "{count} servers"
-  },
   "m_0da58ccb0576db": "VPN container (Gluetun) on a shared Docker network",
   "m_0da597b69e9aa8": "Remove…",
   "m_0da656c043a8a0": "upcoming episodes premieres finales releases airing tonight sonarr radarr schedule",

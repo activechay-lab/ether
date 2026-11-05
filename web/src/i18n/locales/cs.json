@@ -3273,12 +3273,6 @@
   "m_0da1883d607d06": "Vlastní vzory",
   "m_0da1e4f0cb2843": "Databázi se nepodařilo přečíst. Uzly se tu zobrazí, jakmile to půjde.",
   "m_0da398fbd32a25": "do {time}",
-  "m_0da42434b46cef": {
-    "one": "{count} server",
-    "few": "{count} servery",
-    "many": "{count} serveru",
-    "other": "{count} serverů"
-  },
   "m_0da58ccb0576db": "Kontejner VPN (Gluetun) ve sdílené síti Docker",
   "m_0da597b69e9aa8": "Odebrat…",
   "m_0da656c043a8a0": "nadcházející epizody premiéry finále vydání dnes večer vysílání sonarr radarr program",

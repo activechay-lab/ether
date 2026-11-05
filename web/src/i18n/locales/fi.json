@@ -3105,10 +3105,6 @@
   "m_0da1883d607d06": "Omat mallit",
   "m_0da1e4f0cb2843": "Tietokantaa ei voitu lukea. Solmut näkyvät täällä, kun se onnistuu.",
   "m_0da398fbd32a25": "asti {time}",
-  "m_0da42434b46cef": {
-    "one": "{count} palvelin",
-    "other": "{count} palvelinta"
-  },
   "m_0da58ccb0576db": "VPN-kontti (Gluetun) jaetussa Docker-verkossa",
   "m_0da597b69e9aa8": "Poista…",
   "m_0da656c043a8a0": "tulevat jaksot ensi-illat päätösjaksot julkaisut tänä iltana esitys sonarr radarr aikataulu",

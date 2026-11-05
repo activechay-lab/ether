@@ -153,8 +153,18 @@ function errorText(e: unknown): string {
 
 const when = (seconds: number) => (seconds ? formatDateTime(new Date(seconds * 1000)) : t("Never"));
 
-/** Integrations overview card. It has no switch: a server is on once added. */
-export function PlexServersCard() {
+/** Uses the overview persistence queue and global switch lock. */
+export function PlexServersCard({
+  enabled,
+  busy,
+  disabled,
+  onToggle,
+}: {
+  enabled: boolean;
+  busy: boolean;
+  disabled: boolean;
+  onToggle: (next: boolean) => void;
+}) {
   const servers = useAsync((signal) => listPlexServers(signal), []);
   const list = servers.data ?? [];
   const attention = list.some((s) => s.problem || s.viewers.some((v) => v.problem));
@@ -163,13 +173,21 @@ export function PlexServersCard() {
       identity={{ id: "plexservers", name: t("Plex Media Servers") }}
       logo={<PlexMark />}
       description={t("Keep watched marks in step with Plex Media Servers you run.")}
+      enabled={enabled}
+      busy={busy || servers.loading}
+      disabled={disabled || !!servers.error}
+      onToggle={onToggle}
       status={
-        list.length === 0 ? (
+        !enabled ? (
+          <Badge variant="secondary">{t("Off")}</Badge>
+        ) : servers.error ? (
+          <Badge variant="warning">{t("Needs attention")}</Badge>
+        ) : list.length === 0 ? (
           <Badge variant="secondary">{t("Not set up")}</Badge>
         ) : attention ? (
           <Badge variant="warning">{t("Needs attention")}</Badge>
         ) : (
-          <Badge variant="success">{tn(list.length, "{count} server", "{count} servers")}</Badge>
+          <Badge variant="success">{t("On")}</Badge>
         )
       }
       configureHref="/services/plexservers"
@@ -179,7 +197,15 @@ export function PlexServersCard() {
 }
 
 /** Integrations › Plex Media Servers: server-to-server watch sync. */
-export function PlexServers() {
+export function PlexServers({
+  enabled,
+  disabled,
+  onToggle,
+}: {
+  enabled: boolean;
+  disabled: boolean;
+  onToggle: (next: boolean) => void;
+}) {
   const servers = useAsync((signal) => listPlexServers(signal), []);
   const viewers = useAsync(() => api.viewers(), []);
   const [server, setServer] = useState<ServerDraft | null>(null);
@@ -349,7 +375,9 @@ export function PlexServers() {
     <IntegrationTab
       id="plexservers"
       name={t("Plex Media Servers")}
-      enabled={list.length > 0}
+      enabled={enabled}
+      disabled={disabled}
+      onToggle={onToggle}
       href="/viewers"
       usage={t("Each Plex account is matched to one viewer above.")}
     >
@@ -393,7 +421,7 @@ export function PlexServers() {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={busy}
+                  disabled={busy || !enabled}
                   onClick={() => void syncNow(srv)}
                 >
                   {t("Sync now")}

@@ -1,0 +1,16 @@
+Branch: fix/035-plex-servers-card
+
+PASS: pnpm i18n sync
+No new messages; existing translations reused in all 20 locales.
+The retired server-count badge message was removed from every catalogue.
+
+PASS: pnpm exec vitest run src/test/plex-servers-card.test.tsx src/test/settings.test.tsx src/test/integration-setup.test.tsx src/i18n --maxWorkers=1
+5 files, 91 tests passed.
+
+PASS: pnpm typecheck
+
+PASS: GOMAXPROCS=2 go test -p 1 ./internal/plexwatch ./internal/config ./internal/admin ./internal/app
+
+PASS: Browser width checks at 1440x900, 390x844 and 900x900 in both themes.
+All three Watch tracking cards have equal widths (within 1px).
+Screenshots use the local demo backend; no production services were changed.

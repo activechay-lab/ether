@@ -3189,11 +3189,6 @@
   "m_0da1883d607d06": "Pattern personalizzati",
   "m_0da1e4f0cb2843": "Impossibile leggere il database. I nodi compariranno qui quando sarà possibile.",
   "m_0da398fbd32a25": "fino alle {time}",
-  "m_0da42434b46cef": {
-    "one": "{count} server",
-    "many": "{count} server",
-    "other": "{count} server"
-  },
   "m_0da58ccb0576db": "Container VPN (Gluetun) su una rete Docker condivisa",
   "m_0da597b69e9aa8": "Rimuovi…",
   "m_0da656c043a8a0": "in arrivo episodi première finali uscite in onda stasera sonarr radarr programmazione",

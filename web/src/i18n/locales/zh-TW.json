@@ -3021,9 +3021,6 @@
   "m_0da1883d607d06": "自訂模式",
   "m_0da1e4f0cb2843": "無法讀取資料庫。可讀取後，節點就會顯示在這裡。",
   "m_0da398fbd32a25": "至 {time}",
-  "m_0da42434b46cef": {
-    "other": "{count} 台伺服器"
-  },
   "m_0da58ccb0576db": "共用 Docker 網路上的 VPN 容器（Gluetun）",
   "m_0da597b69e9aa8": "移除…",
   "m_0da656c043a8a0": "即將 集數 首播 完結 上映 今晚 播出 sonarr radarr 排程",
