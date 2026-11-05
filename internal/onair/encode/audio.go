@@ -10,7 +10,7 @@ import (
 )
 
 // PCM returns deterministic stereo 48 kHz signed PCM. Static masters use the
-// same warm hiss as the live Signal engine; tone and bed remain periodic.
+// same band-limited hiss as the live Signal engine; tone and bed remain periodic.
 func PCM(a scene.Audio, seconds int) ([]int16, error) {
 	if seconds < 1 || seconds > 600 {
 		return nil, fmt.Errorf("invalid audio duration")
@@ -22,7 +22,7 @@ func PCM(a scene.Audio, seconds int) ([]int16, error) {
 	if a.Generator == "static" {
 		out := make([]int16, n*2)
 		for tick := 0; tick < seconds*30; tick++ {
-			signal.WarmAudio(out[tick*3200:(tick+1)*3200], int64(tick), int64(a.Seed))
+			signal.StaticAudio(out[tick*3200:(tick+1)*3200], int64(tick), 1600, int64(a.Seed))
 		}
 		return out, nil
 	}

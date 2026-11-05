@@ -132,7 +132,7 @@ func TestLiveSignalDemo(t *testing.T) {
 	}
 	os.MkdirAll(*liveSignalDemo, 0755)
 	type spec struct{ name, style, overlay string }
-	specs := []spec{{"static", "warm", ""}, {"nocturne", "warm", ""}, {"bars", "bars", ""}, {"card-back-at-6pm", "card", "back-at-6pm"}, {"card-reconnecting", "card", "reconnecting"}, {"card-waiting", "card", "waiting"}, {"brb", "brb", ""}, {"testcard", "testcard", ""}}
+	specs := []spec{{"static", "crisp", ""}, {"nocturne", "crisp", ""}, {"bars", "bars", ""}, {"card-back-at-6pm", "card", "back-at-6pm"}, {"card-reconnecting", "card", "reconnecting"}, {"card-waiting", "card", "waiting"}, {"brb", "brb", ""}, {"testcard", "testcard", ""}}
 	for _, s := range specs {
 		for _, h := range []int{1080, 720} {
 			t.Run(fmt.Sprintf("%s-%d", s.name, h), func(t *testing.T) {
