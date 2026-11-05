@@ -34,6 +34,7 @@ type privatePlayback interface {
 }
 
 type deploymentRuntime struct {
+	sourceAdmin   http.Handler
 	quotaOpen     atomic.Bool
 	quota         atomic.Pointer[placement.QuotaStatus]
 	encoder       *transcode.Manager
@@ -183,6 +184,10 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 	mux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := p.guard.Request(r); err != nil {
 			http.Error(w, "denied", 403)
+			return
+		}
+		if p.sourceAdmin != nil && r.URL.Path == "/cluster/runtime/source-admin" {
+			p.sourceAdmin.ServeHTTP(w, r)
 			return
 		}
 		p.playback.Handler().ServeHTTP(w, r)

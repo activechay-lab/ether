@@ -242,11 +242,12 @@ func (a *App) buildAdmin() http.Handler {
 	if a.load == nil {
 		deps.SystemLoad = nil
 	}
+	a.remoteSourceAdminDeps(&deps)
 	h := admin.NewHandler(deps)
 	if a.streamRT != nil {
 		a.streamRT.SetDashboard(h.SnapshotDashboard)
 	}
-	return h
+	return sourceOwnerContext(h)
 }
 
 func (a *App) plexWatchAPI() admin.PlexWatch {

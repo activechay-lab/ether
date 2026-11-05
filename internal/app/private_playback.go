@@ -75,7 +75,7 @@ func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
 	p.playback = runtime
 	p.placement = ledger
 	a.closers = append(a.closers, func() { _ = runtime.Close() })
-	return nil
+	return a.buildSourceAdmin()
 }
 
 func (a *App) privateMemberRole(ctx context.Context, id nodewire.Identity, role config.NodeRole) error {
