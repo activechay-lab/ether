@@ -4,7 +4,8 @@
     "mappingState": "mapped",
     "mappingError": "",
     "signInState": "ok",
-    "privatePort": 32400,
+    "privateAddress": "",
+    "privatePort": 0,
     "subscriptionActive": false,
     "subscriptionState": "Unknown"
   }
