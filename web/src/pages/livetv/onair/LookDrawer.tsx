@@ -5,12 +5,12 @@ import { SubtabNav } from "../../../components/layout";
 import { ToolbarPicker } from "../../../components/ToolbarPicker";
 import { useUnsavedGuard } from "../../../components/SaveBar";
 import { t } from "../../../i18n";
-import { api } from "../../../lib/api";
+import { api, apiBlob } from "../../../lib/api";
 import type { EtherUser } from "../../../lib/types";
 import { tv, type ChannelSummary } from "../model";
 import { onair, type Bindings } from "./model";
 import { studio, type Style, type StyleScene } from "./studio-model";
-import { LookStage, styleBindings } from "./Stage";
+import { LookStage, ScenePoster, styleBindings } from "./Stage";
 import { LayersPanel } from "./LayersPanel";
 import { StyleScreensEditor } from "./StyleScreens";
 import { BugControls } from "./BugControls";
@@ -220,9 +220,24 @@ export function LookDrawer({
               >
                 {t("Duplicate")}
               </Button>
-              <a href={studio.exportPack(saved.id)} download>
+              <Button
+                variant="ghost"
+                onClick={async () => {
+                  try {
+                    const blob = await apiBlob(studio.exportPack(saved.id));
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = `${draft.name}.etherstyle`;
+                    link.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : t("Couldn’t export style"));
+                  }
+                }}
+              >
                 {t("Export pack")}
-              </a>
+              </Button>
               <Button
                 variant="ghost"
                 onClick={async () => {
@@ -387,37 +402,55 @@ export function LookDrawer({
                   onSelect={setSelected}
                 />
               )}
-              <LookStage
-                onGestureStart={() => {
-                  if (!gestureActive.current) {
-                    history.current.push(current.current);
-                    future.current = [];
-                    gestureActive.current = true;
-                  }
-                }}
-                onGestureEnd={() => {
-                  gestureActive.current = false;
-                }}
-                sceneVideo={scene.video}
-                playing={clock.playing}
-                muted={muted}
-                pen={pen}
-                onPenDone={() => setPen(false)}
-                document={scene.document}
-                bindings={bindings}
-                time={clock.time}
-                selected={selected}
-                onSelect={(ids) => {
-                  setSelected(ids);
-                  if (ids.length) {
-                    clock.setPlaying(false);
-                    setTab("design");
-                  }
-                }}
-                onChange={(document) => updateScene({ ...scene, document })}
-                safe={safe}
-                zoom={zoom}
-              />
+              {tab === "remix" ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {draft.scenes.map((s) => (
+                    <button
+                      key={s.id}
+                      className="space-y-2 rounded-lg border border-border bg-surface p-2 text-left"
+                      onClick={() => {
+                        setSceneId(s.id);
+                        setTab("design");
+                      }}
+                    >
+                      <ScenePoster scene={s} bindings={bindings} playing={clock.playing} />
+                      <span className="text-sm">{s.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <LookStage
+                  onGestureStart={() => {
+                    if (!gestureActive.current) {
+                      history.current.push(current.current);
+                      future.current = [];
+                      gestureActive.current = true;
+                    }
+                  }}
+                  onGestureEnd={() => {
+                    gestureActive.current = false;
+                  }}
+                  sceneVideo={scene.video}
+                  playing={clock.playing}
+                  muted={muted}
+                  pen={pen}
+                  onPenDone={() => setPen(false)}
+                  document={scene.document}
+                  bindings={bindings}
+                  time={clock.time}
+                  selected={selected}
+                  onSelect={(ids) => {
+                    setSelected(ids);
+                    if (ids.length) {
+                      clock.setPlaying(false);
+                      setTab("design");
+                    }
+                  }}
+                  onChange={(document) => updateScene({ ...scene, document })}
+                  safe={safe}
+                  zoom={zoom}
+                />
+              )}
               {tab === "design" && (
                 <Timeline
                   scene={scene}

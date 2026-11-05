@@ -4,6 +4,7 @@ import { isAnimated, setKeyframe } from "./keyframes";
 import { evaluate } from "../scene-renderer";
 import { styleBindings } from "../Stage";
 import type { Value } from "../scene-renderer";
+import { layerBounds } from "./scene-bounds";
 import { editValue } from "./Canvas";
 import { Button, Input, Select } from "@braedonsaunders/appkit-ui";
 import { t } from "../../../../i18n";
@@ -47,7 +48,17 @@ export function Inspector(p: {
       ),
     });
   const field = (key: keyof Layer, label: string, kind: ControlKind = "number") => {
-    const value = layer[key];
+    const bounds =
+      (key === "w" || key === "h") && ["path", "text"].includes(layer.type)
+        ? layerBounds(p.scene.document, styleBindings(p.style), p.time ?? 0).find(
+            (b) => b.id === layer.id,
+          )
+        : undefined;
+    const value = bounds
+      ? key === "w"
+        ? bounds.w * bounds.scaleX
+        : bounds.h * bounds.scaleY
+      : layer[key];
     const input = isAnimated(value)
       ? String(evaluate(value, styleBindings(p.style), p.time ?? 0) ?? "")
       : typeof value === "object"
@@ -106,6 +117,12 @@ export function Inspector(p: {
                 return;
               }
             } else if (kind === "number") next = Number(raw);
+            if (bounds && typeof next === "number") {
+              const prop = key === "w" ? "scaleX" : "scaleY";
+              const base = key === "w" ? bounds.w : bounds.h;
+              patch(editValue(layer, prop, next / Math.max(1, base), p.time ?? 0));
+              return;
+            }
             patch(
               kind === "number" && typeof next === "number"
                 ? editValue(layer, key, next, p.time ?? 0)
@@ -278,7 +295,7 @@ export function Inspector(p: {
           </>
         )}
         {layer.type === "path" && field("path", t("Path"), "text")}
-        {["particles", "grid", "noise"].includes(layer.type) && (
+        {["particles", "noise"].includes(layer.type) && (
           <>
             {field("count", t("Count"))}
             {field("seed", t("Seed"))}

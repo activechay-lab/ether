@@ -200,6 +200,27 @@ export function layerBounds(doc: Scene, b: SceneBindings, t: number) {
       right = Math.max(...children.map((c) => c.world.x + c.world.w)),
       bottom = Math.max(...children.map((c) => c.world.y + c.world.h));
     g.world = { x, y, w: right - x, h: bottom - y };
+    const matrix = new DOMMatrix(g.matrix),
+      inverse = matrix.inverse();
+    const corners = [
+      { x, y },
+      { x: right, y },
+      { x, y: bottom },
+      { x: right, y: bottom },
+    ].map((p) => inverse.transformPoint(p));
+    const lx = Math.min(...corners.map((p) => p.x)),
+      ly = Math.min(...corners.map((p) => p.y));
+    g.local = {
+      x: lx,
+      y: ly,
+      w: Math.max(...corners.map((p) => p.x)) - lx,
+      h: Math.max(...corners.map((p) => p.y)) - ly,
+    };
+    const origin = matrix.transformPoint({ x: lx, y: ly });
+    g.x = origin.x;
+    g.y = origin.y;
+    g.w = g.local.w;
+    g.h = g.local.h;
   }
   return geometry;
 }
