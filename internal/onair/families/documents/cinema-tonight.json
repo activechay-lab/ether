@@ -1,0 +1,1147 @@
+{
+  "v": 1,
+  "moment": "tonight",
+  "duration": 8,
+  "poster": 5.5,
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": {
+        "radial": [
+          960,
+          480,
+          0,
+          1300
+        ],
+        "stops": [
+          [
+            0,
+            "{glow}"
+          ],
+          [
+            1,
+            "{bg}"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "beam",
+      "type": "path",
+      "path": "M 150 0 L 520 0 L 1500 1080 L 700 1080 Z",
+      "fill": {
+        "linear": [
+          0,
+          0,
+          0,
+          1080
+        ],
+        "stops": [
+          [
+            0,
+            "{accent}@0.06"
+          ],
+          [
+            1,
+            "{accent}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "dust",
+      "type": "particles",
+      "count": 70,
+      "fill": "{accent}@0.4",
+      "seed": 11
+    },
+    {
+      "id": "Title",
+      "type": "text",
+      "text": "{words.tonight}",
+      "x": 960,
+      "y": 190,
+      "size": 86,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "center",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "timeline",
+      "type": "rect",
+      "x": 320,
+      "y": 370,
+      "w": 1280,
+      "h": 2,
+      "fill": "{accent}"
+    },
+    {
+      "id": "time0",
+      "type": "text",
+      "text": "{list[0].time}",
+      "x": 470,
+      "y": 330,
+      "size": 30,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "center",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "poster0",
+      "type": "rect",
+      "x": 330,
+      "y": 420,
+      "w": 280,
+      "h": 410,
+      "fill": {
+        "linear": [
+          0,
+          0,
+          0,
+          1080
+        ],
+        "stops": [
+          [
+            0,
+            "{glow}"
+          ],
+          [
+            1,
+            "{bg}"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "art0-illustration",
+      "type": "group",
+      "x": 330,
+      "y": 420,
+      "clip": "M 16 0 H 264 Q 280 0 280 16 V 394 Q 280 410 264 410 H 16 Q 0 410 0 394 V 16 Q 0 0 16 0 Z",
+      "layers": [
+        {
+          "id": "art0-sky",
+          "type": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 280,
+          "h": 410,
+          "fill": {
+            "linear": [
+              0,
+              0,
+              0,
+              410
+            ],
+            "stops": [
+              [
+                0,
+                "#152443"
+              ],
+              [
+                1,
+                "#bd794f"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "art0-house",
+          "type": "rect",
+          "x": 50.4,
+          "y": 131.2,
+          "w": 179.20000000000002,
+          "h": 278.8,
+          "fill": "#22313a"
+        },
+        {
+          "id": "art0-roof",
+          "type": "path",
+          "path": "M 22.400000000000002 139.4 L 140.0 41.0 L 257.6 139.4 Z",
+          "fill": "#121b2b"
+        },
+        {
+          "id": "art0-window00",
+          "type": "rect",
+          "x": 67.2,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art0-window01",
+          "type": "rect",
+          "x": 106.4,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art0-window02",
+          "type": "rect",
+          "x": 145.6,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art0-window03",
+          "type": "rect",
+          "x": 184.8,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art0-window10",
+          "type": "rect",
+          "x": 67.2,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art0-window11",
+          "type": "rect",
+          "x": 106.4,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art0-window12",
+          "type": "rect",
+          "x": 145.6,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art0-window13",
+          "type": "rect",
+          "x": 184.8,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art0-window20",
+          "type": "rect",
+          "x": 67.2,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art0-window21",
+          "type": "rect",
+          "x": 106.4,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art0-window22",
+          "type": "rect",
+          "x": 145.6,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art0-window23",
+          "type": "rect",
+          "x": 184.8,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        }
+      ]
+    },
+    {
+      "id": "art0",
+      "type": "art",
+      "src": "{list[0].poster}",
+      "x": 330,
+      "y": 420,
+      "w": 280,
+      "h": 410,
+      "fit": "cover"
+    },
+    {
+      "id": "item0",
+      "type": "text",
+      "text": "{list[0].title}",
+      "x": 470,
+      "y": 900,
+      "size": 32,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "center",
+      "maxLines": 2,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "time1",
+      "type": "text",
+      "text": "{list[1].time}",
+      "x": 810,
+      "y": 330,
+      "size": 30,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "center",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "poster1",
+      "type": "rect",
+      "x": 670,
+      "y": 420,
+      "w": 280,
+      "h": 410,
+      "fill": {
+        "linear": [
+          0,
+          0,
+          0,
+          1080
+        ],
+        "stops": [
+          [
+            0,
+            "{glow}"
+          ],
+          [
+            1,
+            "{bg}"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "art1-illustration",
+      "type": "group",
+      "x": 670,
+      "y": 420,
+      "clip": "M 16 0 H 264 Q 280 0 280 16 V 394 Q 280 410 264 410 H 16 Q 0 410 0 394 V 16 Q 0 0 16 0 Z",
+      "layers": [
+        {
+          "id": "art1-sky",
+          "type": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 280,
+          "h": 410,
+          "fill": {
+            "linear": [
+              0,
+              0,
+              0,
+              410
+            ],
+            "stops": [
+              [
+                0,
+                "#201d3a"
+              ],
+              [
+                1,
+                "#b66363"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "art1-house",
+          "type": "rect",
+          "x": 50.4,
+          "y": 131.2,
+          "w": 179.20000000000002,
+          "h": 278.8,
+          "fill": "#462435"
+        },
+        {
+          "id": "art1-roof",
+          "type": "path",
+          "path": "M 22.400000000000002 139.4 L 140.0 41.0 L 257.6 139.4 Z",
+          "fill": "#121b2b"
+        },
+        {
+          "id": "art1-window00",
+          "type": "rect",
+          "x": 67.2,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art1-window01",
+          "type": "rect",
+          "x": 106.4,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art1-window02",
+          "type": "rect",
+          "x": 145.6,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art1-window03",
+          "type": "rect",
+          "x": 184.8,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art1-window10",
+          "type": "rect",
+          "x": 67.2,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art1-window11",
+          "type": "rect",
+          "x": 106.4,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art1-window12",
+          "type": "rect",
+          "x": 145.6,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art1-window13",
+          "type": "rect",
+          "x": 184.8,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art1-window20",
+          "type": "rect",
+          "x": 67.2,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art1-window21",
+          "type": "rect",
+          "x": 106.4,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art1-window22",
+          "type": "rect",
+          "x": 145.6,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art1-window23",
+          "type": "rect",
+          "x": 184.8,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        }
+      ]
+    },
+    {
+      "id": "art1",
+      "type": "art",
+      "src": "{list[1].poster}",
+      "x": 670,
+      "y": 420,
+      "w": 280,
+      "h": 410,
+      "fit": "cover"
+    },
+    {
+      "id": "item1",
+      "type": "text",
+      "text": "{list[1].title}",
+      "x": 810,
+      "y": 900,
+      "size": 32,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "center",
+      "maxLines": 2,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "time2",
+      "type": "text",
+      "text": "{list[2].time}",
+      "x": 1150,
+      "y": 330,
+      "size": 30,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "center",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "poster2",
+      "type": "rect",
+      "x": 1010,
+      "y": 420,
+      "w": 280,
+      "h": 410,
+      "fill": {
+        "linear": [
+          0,
+          0,
+          0,
+          1080
+        ],
+        "stops": [
+          [
+            0,
+            "{glow}"
+          ],
+          [
+            1,
+            "{bg}"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "art2-illustration",
+      "type": "group",
+      "x": 1010,
+      "y": 420,
+      "clip": "M 16 0 H 264 Q 280 0 280 16 V 394 Q 280 410 264 410 H 16 Q 0 410 0 394 V 16 Q 0 0 16 0 Z",
+      "layers": [
+        {
+          "id": "art2-sky",
+          "type": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 280,
+          "h": 410,
+          "fill": {
+            "linear": [
+              0,
+              0,
+              0,
+              410
+            ],
+            "stops": [
+              [
+                0,
+                "#24372e"
+              ],
+              [
+                1,
+                "#bd9b56"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "art2-house",
+          "type": "rect",
+          "x": 50.4,
+          "y": 131.2,
+          "w": 179.20000000000002,
+          "h": 278.8,
+          "fill": "#30493e"
+        },
+        {
+          "id": "art2-roof",
+          "type": "path",
+          "path": "M 22.400000000000002 139.4 L 140.0 41.0 L 257.6 139.4 Z",
+          "fill": "#121b2b"
+        },
+        {
+          "id": "art2-window00",
+          "type": "rect",
+          "x": 67.2,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art2-window01",
+          "type": "rect",
+          "x": 106.4,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art2-window02",
+          "type": "rect",
+          "x": 145.6,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art2-window03",
+          "type": "rect",
+          "x": 184.8,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art2-window10",
+          "type": "rect",
+          "x": 67.2,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art2-window11",
+          "type": "rect",
+          "x": 106.4,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art2-window12",
+          "type": "rect",
+          "x": 145.6,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art2-window13",
+          "type": "rect",
+          "x": 184.8,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art2-window20",
+          "type": "rect",
+          "x": 67.2,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art2-window21",
+          "type": "rect",
+          "x": 106.4,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art2-window22",
+          "type": "rect",
+          "x": 145.6,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art2-window23",
+          "type": "rect",
+          "x": 184.8,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        }
+      ]
+    },
+    {
+      "id": "art2",
+      "type": "art",
+      "src": "{list[2].poster}",
+      "x": 1010,
+      "y": 420,
+      "w": 280,
+      "h": 410,
+      "fit": "cover"
+    },
+    {
+      "id": "item2",
+      "type": "text",
+      "text": "{list[2].title}",
+      "x": 1150,
+      "y": 900,
+      "size": 32,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "center",
+      "maxLines": 2,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "time3",
+      "type": "text",
+      "text": "{list[3].time}",
+      "x": 1490,
+      "y": 330,
+      "size": 30,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "center",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "poster3",
+      "type": "rect",
+      "x": 1350,
+      "y": 420,
+      "w": 280,
+      "h": 410,
+      "fill": {
+        "linear": [
+          0,
+          0,
+          0,
+          1080
+        ],
+        "stops": [
+          [
+            0,
+            "{glow}"
+          ],
+          [
+            1,
+            "{bg}"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "art3-illustration",
+      "type": "group",
+      "x": 1350,
+      "y": 420,
+      "clip": "M 16 0 H 264 Q 280 0 280 16 V 394 Q 280 410 264 410 H 16 Q 0 410 0 394 V 16 Q 0 0 16 0 Z",
+      "layers": [
+        {
+          "id": "art3-sky",
+          "type": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 280,
+          "h": 410,
+          "fill": {
+            "linear": [
+              0,
+              0,
+              0,
+              410
+            ],
+            "stops": [
+              [
+                0,
+                "#182a41"
+              ],
+              [
+                1,
+                "#7d99ac"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "art3-house",
+          "type": "rect",
+          "x": 50.4,
+          "y": 131.2,
+          "w": 179.20000000000002,
+          "h": 278.8,
+          "fill": "#1c354a"
+        },
+        {
+          "id": "art3-roof",
+          "type": "path",
+          "path": "M 22.400000000000002 139.4 L 140.0 41.0 L 257.6 139.4 Z",
+          "fill": "#121b2b"
+        },
+        {
+          "id": "art3-window00",
+          "type": "rect",
+          "x": 67.2,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art3-window01",
+          "type": "rect",
+          "x": 106.4,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art3-window02",
+          "type": "rect",
+          "x": 145.6,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art3-window03",
+          "type": "rect",
+          "x": 184.8,
+          "y": 164.0,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art3-window10",
+          "type": "rect",
+          "x": 67.2,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art3-window11",
+          "type": "rect",
+          "x": 106.4,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art3-window12",
+          "type": "rect",
+          "x": 145.6,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art3-window13",
+          "type": "rect",
+          "x": 184.8,
+          "y": 233.70000000000002,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art3-window20",
+          "type": "rect",
+          "x": 67.2,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art3-window21",
+          "type": "rect",
+          "x": 106.4,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art3-window22",
+          "type": "rect",
+          "x": 145.6,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art3-window23",
+          "type": "rect",
+          "x": 184.8,
+          "y": 303.4,
+          "w": 18.2,
+          "h": 45.1,
+          "fill": "#edbf78"
+        }
+      ]
+    },
+    {
+      "id": "art3",
+      "type": "art",
+      "src": "{list[3].poster}",
+      "x": 1350,
+      "y": 420,
+      "w": 280,
+      "h": 410,
+      "fit": "cover"
+    },
+    {
+      "id": "item3",
+      "type": "text",
+      "text": "{list[3].title}",
+      "x": 1490,
+      "y": 900,
+      "size": 32,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "center",
+      "maxLines": 2,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": "{textures.grain}"
+    },
+    {
+      "type": "vignette",
+      "amount": 0.45
+    }
+  ],
+  "slots": [
+    "list[0].poster",
+    "list[0].time",
+    "list[0].title",
+    "list[1].poster",
+    "list[1].time",
+    "list[1].title",
+    "list[2].poster",
+    "list[2].time",
+    "list[2].title",
+    "list[3].poster",
+    "list[3].time",
+    "list[3].title"
+  ]
+}

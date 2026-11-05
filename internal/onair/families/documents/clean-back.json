@@ -1,0 +1,104 @@
+{
+  "v": 1,
+  "moment": "back",
+  "duration": 8,
+  "poster": 5.5,
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": "{bg}"
+    },
+    {
+      "id": "rail",
+      "type": "rect",
+      "x": 120,
+      "y": 140,
+      "w": 6,
+      "h": 800,
+      "fill": "{accent}"
+    },
+    {
+      "id": "toprule",
+      "type": "rect",
+      "x": 160,
+      "y": 140,
+      "w": 1640,
+      "h": 2,
+      "fill": "{text}@0.18"
+    },
+    {
+      "id": "Title",
+      "type": "text",
+      "text": "{words.back}",
+      "x": 180,
+      "y": 470,
+      "size": 100,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "left",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "subtitle",
+      "type": "text",
+      "text": "{now.title}",
+      "x": 180,
+      "y": 650,
+      "size": 54,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "left",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": "{textures.grain}"
+    }
+  ],
+  "slots": [
+    "now.title"
+  ]
+}
