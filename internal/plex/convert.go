@@ -351,12 +351,14 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *core.Title, o ren
 		}
 	}
 
-	// Tags. PMS renders episodes inside hubs in full (tag ids, Guid,
-	// streams), everything else in lists with three plain tags of a kind.
+	// Tags. Detail episodes inside hubs retain full tags. Light rows cap
+	// genre/country/writer at two and director/cast at three.
 	detail := o.detail || (o.detailEpisodes && t.Type == core.TypeEpisode)
-	maxTags := 3
+	maxTags := 2
+	maxPeople := 3
 	if detail {
 		maxTags = math.MaxInt
+		maxPeople = math.MaxInt
 	}
 	genres, countries := t.Genres, t.Countries
 	if t.Type == core.TypeSeason || t.Type == core.TypeEpisode {
@@ -384,12 +386,9 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *core.Title, o ren
 		}
 		m.Country = append(m.Country, tag)
 	}
-	if t.Type != core.TypeShow || detail {
-		// Show tiles in PMS lists carry Role tags only.
-		m.Director = s.personTags(t.Key, t.Directors, "director", maxTags, detail, false)
-		m.Writer = s.personTags(t.Key, t.Writers, "writer", maxTags, detail, false)
-	}
-	m.Role = s.personTags(t.Key, t.Cast, "actor", maxTags, detail, true)
+	m.Director = s.personTags(t.Key, t.Directors, "director", maxPeople, detail, false)
+	m.Writer = s.personTags(t.Key, t.Writers, "writer", maxTags, detail, false)
+	m.Role = s.personTags(t.Key, t.Cast, "actor", maxPeople, detail, true)
 	if t.CollectionID > 0 && t.CollectionName != "" {
 		tag := model.Tag{Tag: t.CollectionName}
 		if detail {
