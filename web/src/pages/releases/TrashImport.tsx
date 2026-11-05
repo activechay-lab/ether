@@ -456,9 +456,7 @@ function ImportPreview({
         <SettingsRow
           title={t("Imported from")}
           description={
-            plan.profileId
-              ? t("Source profile: {profile}", { profile: plan.profileId })
-              : undefined
+            plan.profileId ? t("Source profile: {profile}", { profile: plan.profileId }) : undefined
           }
           control={
             <span className="flex flex-wrap items-center gap-1.5">
