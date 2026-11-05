@@ -554,11 +554,13 @@ func (b *broadcast) step(now time.Time) {
 		b.mode = mode
 	}
 	b.fade.apply(frame.PCM, b.format.Channels)
-	b.lastFrame = frame
-	if b.current != nil && b.current.overlays != nil && (fresh || mode == "hold") {
-		frame.Video = append([]byte(nil), frame.Video...)
+	// Next transfers an exclusively owned video buffer. Composite a fresh frame
+	// once in place, then publish it immutably to all renditions. A stalled input
+	// holds that exact completed picture; it must not accumulate another blend.
+	if fresh && b.current != nil && b.current.overlays != nil {
 		b.current.overlays.blend(frame.Video, b.format, now, current.start, current.end)
 	}
+	b.lastFrame = frame
 	b.mu.Lock()
 	for id, r := range b.renditions {
 		select {
