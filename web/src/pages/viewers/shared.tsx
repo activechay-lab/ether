@@ -5,7 +5,7 @@ import { SettingsRow } from "../../components/SettingsRow";
 import { localized, t } from "../../i18n";
 
 /** Split a comma-separated list, optionally lower-casing (language codes). */
-export function parseList(text: string, lower = false): string[] {
+function parseList(text: string, lower = false): string[] {
   return text
     .split(",")
     .map((s) => (lower ? s.trim().toLowerCase() : s.trim()))
@@ -37,7 +37,6 @@ export function ListText({
   useEffect(() => {
     // Follow outside changes (discard, reset, presets) without fighting typing.
     if (JSON.stringify(parseList(text, lower)) !== key) setText(list.join(", "));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   return (
     <Input
@@ -55,7 +54,7 @@ export function ListText({
 
 // ---- Audio & subtitle rules (/stream-preferences/:user; user 0 is the default) ----
 
-export type SubtitleAppearance = {
+type SubtitleAppearance = {
   fontSize: string;
   fontFamily: string;
   fontColor: string;
@@ -67,7 +66,7 @@ export type SubtitleAppearance = {
   position: string;
 };
 
-export const DEFAULT_SUBTITLE_APPEARANCE: SubtitleAppearance = {
+const DEFAULT_SUBTITLE_APPEARANCE: SubtitleAppearance = {
   fontSize: "large",
   fontFamily: "sans-serif",
   fontColor: "#ffffff",
@@ -176,6 +175,7 @@ export function StreamRulesFields({
         description={t("Plex track changes are remembered for later episodes of the same show.")}
       >
         <SettingsRow
+          setting="audio-languages"
           title={t("Audio languages")}
           description={t("Language codes in preference order, e.g. en, ja.")}
           control={
@@ -192,6 +192,7 @@ export function StreamRulesFields({
           }
         />
         <SettingsRow
+          setting="prefer-the-original-language"
           title={t("Prefer the original language")}
           description={t("Play a title's original language before dubs.")}
           control={
@@ -204,6 +205,7 @@ export function StreamRulesFields({
           }
         />
         <SettingsRow
+          setting="subtitle-languages"
           title={t("Subtitle languages")}
           description={t("Language codes in preference order, e.g. en, fr.")}
           control={
@@ -220,6 +222,7 @@ export function StreamRulesFields({
           }
         />
         <SettingsRow
+          setting="show-subtitles"
           title={t("Show subtitles")}
           control={
             <div className="w-64">
@@ -239,6 +242,7 @@ export function StreamRulesFields({
           }
         />
         <SettingsRow
+          setting="subtitle-style"
           title={t("Subtitle style")}
           control={
             <div className="w-64">
@@ -262,8 +266,12 @@ export function StreamRulesFields({
         title={t("Subtitle appearance")}
         description={t("Size, colour, background and position, in apps that can style subtitles.")}
       >
-        <MoreOptions label={t("More options: {title}", { title: t("Subtitle appearance") })}>
+        <MoreOptions
+          setting="subtitle-appearance"
+          label={t("More options: {title}", { title: t("Subtitle appearance") })}
+        >
           <SettingsRow
+            setting="size"
             title={t("Size")}
             control={
               <div className="w-64">
@@ -283,6 +291,7 @@ export function StreamRulesFields({
             }
           />
           <SettingsRow
+            setting="text-colour"
             title={t("Text colour")}
             description={t("A hex colour, such as #ffffff.")}
             control={
@@ -298,6 +307,7 @@ export function StreamRulesFields({
             }
           />
           <SettingsRow
+            setting="background"
             title={t("Background")}
             control={
               <div className="flex w-72 items-center gap-2">
@@ -324,6 +334,7 @@ export function StreamRulesFields({
             }
           />
           <SettingsRow
+            setting="position"
             title={t("Position")}
             control={
               <div className="w-64">
@@ -350,7 +361,10 @@ export function StreamRulesFields({
           "Needs server audio transcoding. Dialogue boost applies to sources with six or more channels.",
         )}
       >
-        <MoreOptions label={t("More options: {title}", { title: t("Audio processing") })}>
+        <MoreOptions
+          setting="audio-processing"
+          label={t("More options: {title}", { title: t("Audio processing") })}
+        >
           {(
             [
               ["loudness", t("Normalize loudness")],
@@ -360,6 +374,13 @@ export function StreamRulesFields({
           ).map(([key, label]) => (
             <SettingsRow
               key={key}
+              setting={
+                {
+                  loudness: "normalize-loudness",
+                  nightMode: "night-mode-compression",
+                  dialogueBoost: "boost-centre-channel-dialogue",
+                }[key]
+              }
               title={label}
               control={
                 <Switch
@@ -388,7 +409,7 @@ export type SafetyPolicy = {
   timezone: string;
 };
 
-export function emptyPolicy(): SafetyPolicy {
+function emptyPolicy(): SafetyPolicy {
   return {
     blockedGenres: [],
     blockedKeywords: [],

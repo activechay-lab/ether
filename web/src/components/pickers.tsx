@@ -29,7 +29,7 @@ import { useLocale } from "../i18n/react";
 
 const facetCache = new Map<string, Promise<FacetValue[]>>();
 
-export function loadFacet(type: string, facet: FacetName): Promise<FacetValue[]> {
+function loadFacet(type: string, facet: FacetName): Promise<FacetValue[]> {
   const key = `${type}:${facet}`;
   let p = facetCache.get(key);
   if (!p) {
@@ -40,7 +40,7 @@ export function loadFacet(type: string, facet: FacetName): Promise<FacetValue[]>
   return p;
 }
 
-export function useFacet(type: string, facet: FacetName) {
+function useFacet(type: string, facet: FacetName) {
   const [values, setValues] = useState<FacetValue[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   useEffect(() => {

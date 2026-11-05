@@ -61,7 +61,6 @@ export function AddAddonDrawer({
     setPendingRead("");
     void read(pendingRead);
     // read is recreated each render; this runs once per configured link.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingRead]);
 
   const read = async (link = url) => {

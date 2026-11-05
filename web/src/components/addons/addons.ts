@@ -10,7 +10,7 @@ export type AddonRole =
   | "metadata"
   | "plugin_directory";
 
-export interface AddonRoleState {
+interface AddonRoleState {
   role: AddonRole | string;
   on: boolean;
 }

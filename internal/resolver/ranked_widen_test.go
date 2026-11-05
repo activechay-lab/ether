@@ -137,16 +137,19 @@ func gotS01E01() []windowStep {
 // Before widening (cc8c2e6) this replay took 18.428s, against 18.452s of
 // live validation (20.824s total less 2.372s search), and the winner
 // started at 10.871s. Two confirmed failures now widen the window for the
-// equivalent candidates behind them, so it starts at 8.063s. Both versions
-// check the same thirteen releases: nothing ranked below the winner runs.
+// equivalent candidates behind them, so it started at 8.063s. The first
+// backup now waits the hedge delay (1.5s, no startup history) beside the
+// lead instead of starting with it, so a healthy lead costs one grab; the
+// winner starts at 8.676s. Every version checks the same thirteen releases:
+// nothing ranked below the winner runs.
 func TestRankedWindowGameOfThronesReplay(t *testing.T) {
 	steps := gotS01E01()
 	r := runWindow(t, steps, nil, 0)
 	if r.err != nil || r.winner != len(steps)-1 {
 		t.Fatalf("winner=%d err=%v", r.winner, r.err)
 	}
-	if r.elapsed != 15620*time.Millisecond || r.started["7f793"] != 8063*time.Millisecond {
-		t.Fatalf("validation took %s, winner started at %s; want 15.62s and 8.063s", r.elapsed, r.started["7f793"])
+	if r.elapsed != 16233*time.Millisecond || r.started["7f793"] != 8676*time.Millisecond {
+		t.Fatalf("validation took %s, winner started at %s; want 16.233s and 8.676s", r.elapsed, r.started["7f793"])
 	}
 	if r.peak != 4 || len(r.started) != len(steps) {
 		t.Fatalf("peak %d checks in flight, %d started; want 4 and %d", r.peak, len(r.started), len(steps))
@@ -162,19 +165,29 @@ func TestRankedWindowGameOfThronesReplay(t *testing.T) {
 	}
 }
 
+// A healthy lead that answers within the hedge delay is the only check: the
+// title costs one grab. A slower lead gets one hedge, and nothing more.
 func TestRankedWindowHealthyLeadStartsNoExtraWork(t *testing.T) {
 	steps := []windowStep{
-		{id: "lead", score: 130, cost: 1500 * time.Millisecond, healthy: true},
+		{id: "lead", score: 130, cost: 1400 * time.Millisecond, healthy: true},
 		{id: "backup", score: 129, hang: true},
 		{id: "third", score: 128, cost: time.Second, err: core.ErrArticleMissing},
 		{id: "fourth", score: 127, cost: time.Second, err: core.ErrArticleMissing},
 	}
 	r := runWindow(t, steps, nil, 0)
-	if r.err != nil || r.winner != 0 || r.elapsed != 1500*time.Millisecond {
+	if r.err != nil || r.winner != 0 || r.elapsed != 1400*time.Millisecond {
 		t.Fatalf("winner=%d err=%v elapsed=%s", r.winner, r.err, r.elapsed)
 	}
-	if len(r.started) != 2 || r.peak != 2 {
-		t.Fatalf("speculative checks beyond the backup: %v", r.started)
+	if len(r.started) != 1 || r.peak != 1 {
+		t.Fatalf("a healthy lead within the hedge delay started more checks: %v", r.started)
+	}
+	steps[0].cost = 1900 * time.Millisecond
+	r = runWindow(t, steps, nil, 0)
+	if r.err != nil || r.winner != 0 || r.elapsed != 1900*time.Millisecond {
+		t.Fatalf("winner=%d err=%v elapsed=%s", r.winner, r.err, r.elapsed)
+	}
+	if len(r.started) != 2 || r.peak != 2 || r.started["backup"] != defaultHealthHedgeDelay {
+		t.Fatalf("a slow lead should get one hedge at %s: %v", defaultHealthHedgeDelay, r.started)
 	}
 }
 

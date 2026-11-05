@@ -32,7 +32,7 @@ func TestReserveWarmsNinetySecondsWithoutDelayingPlay(t *testing.T) {
 
 func TestDetailReserveUsesMediaDuration(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("A", 100_000_000, 100*time.Second)}, []string{"A"})
-	if !h.m.PreResolve(t.Context(), owner, movieKey, defaultCaps("detail-reserve")) {
+	if !h.m.Prewarm(t.Context(), owner, movieKey, defaultCaps("detail-reserve"), core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("warm skipped")
 	}
 	waitWarm(t, h, owner.ID, "detail-reserve", movieKey)
@@ -226,7 +226,7 @@ func TestMeasuredColdAndPreparedPlay(t *testing.T) {
 	cold := h.prepare(owner, movieKey, "cold-measure")
 	coldTime := time.Since(start)
 	h.m.Stop(cold.ID)
-	if !h.m.PreResolve(t.Context(), owner, movieKey, defaultCaps("warm-measure")) {
+	if !h.m.Prewarm(t.Context(), owner, movieKey, defaultCaps("warm-measure"), core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("prewarm skipped")
 	}
 	waitWarm(t, h, owner.ID, "warm-measure", movieKey)

@@ -48,13 +48,3 @@ func removeAllRetry(dir string) error {
 	}
 	return err
 }
-
-// waitTimeout waits for wg, giving up after d.
-func waitTimeout(wg *sync.WaitGroup, d time.Duration) {
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(d):
-	}
-}

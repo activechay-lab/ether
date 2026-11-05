@@ -1,7 +1,10 @@
 package livetv
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/extend"
 )
@@ -67,5 +70,42 @@ func TestLiveTVSourceDescriptors(t *testing.T) {
 	}
 	if !found {
 		t.Error("xtream password param is not a secret field")
+	}
+}
+
+type deadlineSource struct{ deadline time.Time }
+
+func (*deadlineSource) ID() string               { return "plugin:test/deadline" }
+func (*deadlineSource) Describe() SourceDescribe { return SourceDescribe{} }
+func (*deadlineSource) Matches(s Source) bool    { return s.Kind == "plugin:test/deadline" }
+func (d *deadlineSource) Fetch(ctx context.Context, _ *Service, _ *Source) (Fetched, error) {
+	d.deadline, _ = ctx.Deadline()
+	return Fetched{}, context.Canceled
+}
+func TestManualImportHasTotalBudget(t *testing.T) {
+	s := testService(t, Options{})
+	kind := &deadlineSource{}
+	if err := s.RegisterSourceKind(kind); err != nil {
+		t.Fatal(err)
+	}
+	for _, budget := range []time.Duration{0, time.Second} {
+		ctx := context.Background()
+		cancel := func() {}
+		if budget > 0 {
+			ctx, cancel = context.WithTimeout(ctx, budget)
+		}
+		started := time.Now()
+		_, err := s.ImportSource(ctx, Source{Name: "Deadline", Kind: kind.ID()})
+		cancel()
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+		max := refreshBudget
+		if budget > 0 {
+			max = budget
+		}
+		if kind.deadline.IsZero() || kind.deadline.After(started.Add(max+time.Second)) || kind.deadline.Before(started.Add(max-time.Second)) {
+			t.Fatalf("deadline %s, budget %s", kind.deadline, max)
+		}
 	}
 }

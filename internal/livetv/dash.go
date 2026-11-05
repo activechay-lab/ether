@@ -144,6 +144,8 @@ func (s *Service) ServeDASHPart(w http.ResponseWriter, r *http.Request, id strin
 	if init {
 		ds.ServeInit(w, r, rep)
 	} else {
-		ds.ServeMedia(w, r, rep, n)
+		observed := s.observeMedia(w, ss)
+		defer observed.done()
+		ds.ServeMedia(observed, r, rep, n)
 	}
 }

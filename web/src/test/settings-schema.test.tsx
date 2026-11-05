@@ -8,7 +8,12 @@ import { extract } from "../../scripts/i18n-lib.mjs";
 import { api } from "../lib/api";
 import { descriptors } from "../mock/extend/descriptors/settings";
 import { createFakeServer } from "../mock/server";
-import { SchemaForm, type LoadOptions, type ServedSchema } from "../pages/settings/SchemaForm";
+import {
+  SchemaGroups,
+  fieldGroupsFromServed,
+  type LoadOptions,
+  type ServedSchema,
+} from "../pages/settings/SchemaForm";
 
 const WAIT = { timeout: 4000 };
 
@@ -76,7 +81,7 @@ describe("served settings schemas", () => {
     expect(catalogue.dynamic.filter((r) => r.startsWith("internal/"))).toEqual([]);
   });
 
-  it("renders and edits every field kind in SchemaForm", async () => {
+  it("renders and edits every field kind in SchemaGroups", async () => {
     const fake = createFakeServer();
     vi.stubGlobal("fetch", vi.fn(fake.fetch));
 
@@ -203,10 +208,11 @@ describe("served settings schemas", () => {
     function Harness({ errors }: { errors?: Record<string, string> }) {
       const [val, setVal] = useState<Record<string, unknown>>(latest);
       return (
-        <SchemaForm
-          schema={schema}
+        <SchemaGroups
+          groups={fieldGroupsFromServed(schema)}
+          prefix="settings"
           value={val}
-          errors={errors}
+          errors={errors ?? {}}
           loadOptions={loadOptions}
           onChange={(next) => {
             latest = next;

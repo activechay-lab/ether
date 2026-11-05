@@ -14,9 +14,9 @@ import { useAsync } from "../../lib/hooks";
 import { SourceCard } from "./cards";
 import { OrderButtons, swap, useTests } from "./form";
 
-export type SourceClass = "debrid" | "usenet" | "indexer" | "direct";
+type SourceClass = "debrid" | "usenet" | "indexer" | "direct";
 
-export type SourceKindMeta = {
+type SourceKindMeta = {
   class?: SourceClass | string;
   abilities?: string[];
   limits?: {
@@ -119,7 +119,7 @@ function PluginStateBadge({ plugin }: { plugin?: PluginRecord }) {
   }
 }
 
-export async function testPluginSource(
+async function testPluginSource(
   pluginId: string,
 ): Promise<{ ok: boolean; error?: string; durationMs: number }> {
   const started = Date.now();

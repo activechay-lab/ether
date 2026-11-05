@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"database/sql"
+	"github.com/braedonsaunders/ether/internal/store"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -71,8 +72,8 @@ func applyAiredCounts(ctx context.Context, db *sql.DB, now time.Time, items []*c
 	// Each show lands in exactly one chunk, so seasons/order and the
 	// per-season GROUP BY aggregates accumulate exactly as unchunked.
 	const batch = 200
-	for start := 0; start < len(showArgs); start += batch {
-		part := showArgs[start:min(start+batch, len(showArgs))]
+	for chunk := range store.Chunks(showArgs, batch) {
+		part := chunk
 		rows, err := db.QueryContext(ctx, `SELECT show_key,season,released_ts,child_count FROM catalog_titles WHERE type='season' AND show_key IN (`+placeholders(len(part))+`)`, part...)
 		if err != nil {
 			return err
@@ -98,8 +99,8 @@ func applyAiredCounts(ctx context.Context, db *sql.DB, now time.Time, items []*c
 			return err
 		}
 	}
-	for start := 0; start < len(showArgs); start += batch {
-		part := showArgs[start:min(start+batch, len(showArgs))]
+	for chunk := range store.Chunks(showArgs, batch) {
+		part := chunk
 		// COUNT(CASE ...) rather than SUM so both SQLite and PostgreSQL return
 		// an integer.
 		rows, err := db.QueryContext(ctx, `SELECT show_key,season,COUNT(*),COUNT(CASE WHEN release_known=1 AND released_ts<=? AND adult=0 THEN 1 END),

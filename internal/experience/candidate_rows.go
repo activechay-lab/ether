@@ -7,23 +7,6 @@ import (
 	"strings"
 )
 
-// HubRows converts trusted recommender candidates to neutral rows;
-// wire contexts stay on the producer side. Authorization and pagination are
-// performed by experience.RowsService before returning these candidates.
-func HubRows(hubs []core.Hub) []frontend.Row {
-	out := make([]frontend.Row, 0, len(hubs))
-	for _, h := range hubs {
-		purpose := CandidatePurpose(h)
-		row := frontend.Row{ID: h.ID, Title: h.Title, Purpose: purpose, Style: h.Style, Promoted: h.Promoted, More: h.More, Collection: h.Key}
-		for i := range h.Items {
-			item := h.Items[i]
-			row.Entries = append(row.Entries, frontend.RowEntry{Kind: frontend.RowEntryTitle, Title: &item})
-		}
-		out = append(out, row)
-	}
-	return out
-}
-
 // CandidateRows projects already-authorized neutral selection data;
 // source-specific Context is deliberately absent from the candidate contract.
 func CandidateRows(candidates []RankedCandidate) []frontend.Row {

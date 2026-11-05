@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/httpclient"
 	"io"
 	"net/http"
 	"net/url"
@@ -116,7 +117,7 @@ func (s *Service) fetchSource(ctx context.Context, rawURL string, limit int64, t
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Ether")
+	req.Header.Set("User-Agent", httpclient.UserAgent)
 	req.Header.Set("Accept", "application/json, text/plain, application/x-yaml, */*")
 	resp, err := s.sourceHC.Do(req)
 	if err != nil {

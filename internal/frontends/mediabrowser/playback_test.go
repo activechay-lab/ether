@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/core"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -95,17 +94,10 @@ func TestPlaybackInfoEstimatesAndOpens(t *testing.T) {
 	if w.Code != 200 || strings.Join(calls, ",") != "estimate" || !strings.Contains(w.Body.String(), `"SupportsDirectPlay":true`) || !strings.Contains(w.Body.String(), `"SupportsTranscoding":false`) {
 		t.Fatal(w.Code, w.Body.String(), calls)
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	if e == nil {
-		doc, e := openapi.Parse(spec)
-		if e != nil {
+	if doc := spectest.Document(t, "jellyfin"); doc != nil {
+		if e := doc.Validate("POST", strings.TrimPrefix(path, "/jellyfin"), w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
 			t.Fatal(e)
 		}
-		if e = doc.Validate("POST", strings.TrimPrefix(path, "/jellyfin"), w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
-			t.Fatal(e)
-		}
-	} else if !os.IsNotExist(e) {
-		t.Fatal(e)
 	}
 	if w := call(`{"IsPlayback":true,"EnableDirectStream":false,"EnableTranscoding":false}`); w.Code != 200 || strings.Join(calls, ",") != "estimate,plan,open,stream" || !strings.Contains(w.Body.String(), "https://ether.example/jellyfin/sessions/media/") || !strings.Contains(w.Body.String(), `"ETag":"source-revision"`) {
 		t.Fatal(w.Code, w.Body.String(), calls)
@@ -154,14 +146,7 @@ func TestTimelineReportsAndStops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	var doc *openapi.Document
-	if e == nil {
-		doc, e = openapi.Parse(spec)
-	}
-	if e != nil && !os.IsNotExist(e) {
-		t.Fatal(e)
-	}
+	doc := spectest.Document(t, "jellyfin")
 	for _, p := range []string{"/Sessions/Playing/Progress", "/Sessions/Playing/Stopped"} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("POST", p, strings.NewReader(`{"PlaySessionId":"session","PositionTicks":10000000}`))

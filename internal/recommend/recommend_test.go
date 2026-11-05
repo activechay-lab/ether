@@ -115,32 +115,6 @@ func (f *fakeCatalog) ByExternalID(context.Context, string, string) (*core.Title
 	return nil, core.ErrNotFound
 }
 
-type fakeCollections struct {
-	items map[core.RatingKey][]core.Title
-	list  []core.Collection
-}
-
-func (f fakeCollections) List(_ context.Context, _ *core.User, t core.MediaType) ([]core.Collection, error) {
-	var out []core.Collection
-	for _, c := range f.list {
-		if c.Type == t {
-			out = append(out, c)
-		}
-	}
-	return out, nil
-}
-func (f fakeCollections) Get(context.Context, *core.User, core.RatingKey) (*core.Collection, error) {
-	return nil, core.ErrNotFound
-}
-func (f fakeCollections) Items(_ context.Context, _ *core.User, k core.RatingKey, _, _ int) (core.Page, error) {
-	it := f.items[k]
-	return core.Page{Items: it, Total: len(it)}, nil
-}
-func (f fakeCollections) CreateSmart(context.Context, core.Collection) (*core.Collection, error) {
-	return nil, nil
-}
-func (f fakeCollections) DeleteSmart(context.Context, core.RatingKey) error { return nil }
-
 // ---- fixture ---------------------------------------------------------------
 
 var (

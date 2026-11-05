@@ -80,15 +80,12 @@ func (s *Service) presentation(ctx context.Context, u *core.User, t *core.Title,
 	var quality []string
 	if cfg.Enabled && cfg.Quality {
 		var q []string
-		switch {
-		case f.Width >= 3840 || f.Height >= 2160:
-			q = append(q, "4K")
-		case f.Width >= 1920 || f.Height >= 1080:
-			q = append(q, "1080p")
-		case f.Width >= 1280 || f.Height >= 720:
-			q = append(q, "720p")
-		case f.Height > 0:
-			q = append(q, "SD")
+		if f.Width > 0 || f.Height > 0 {
+			label := "SD"
+			if core.ResolutionTier(f.Width, f.Height) >= 720 {
+				label = core.ResolutionLabel(f.Width, f.Height)
+			}
+			q = append(q, label)
 		}
 		if f.DolbyVision {
 			q = append(q, "DV")

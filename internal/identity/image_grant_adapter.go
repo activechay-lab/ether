@@ -155,7 +155,7 @@ func (s *ImageGrantService) admitHeaders(ctx context.Context, tx *sql.Tx, viewer
 }
 
 // imageCleanupEvery bounds how often one viewer's expired image rows are
-// pruned on the issue path; PruneImageGrants sweeps the rest.
+// pruned on the issue path; reads enforce grant expiry.
 const imageCleanupEvery = 30 * time.Second
 
 func (s *ImageGrantService) imageCleanupDue(viewerID int64) bool {
@@ -230,69 +230,6 @@ func (s *ImageGrantService) revokeAdmitted(ctx context.Context, viewerID int64, 
 		}
 	}
 	return tx.Commit()
-}
-
-// PruneImageGrants removes expired legacy image grants and expired image headers.
-// Callers hold every image shard lock
-// in ascending order before either delete, and never take those locks in another order.
-// Header deletion uses PruneHeadersInTx, which is namespace-global and capped at 40 rows.
-func PruneImageGrants(ctx context.Context, db *sql.DB, now time.Time) (int64, error) {
-	if db == nil || now.IsZero() {
-		return 0, errors.New("identity: image grant maintenance requires a database and clock")
-	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-	dialect := store.DialectOf(db)
-	for shard := int64(0); shard < capability.HeaderShardCount; shard++ {
-		if err = store.LockKey(ctx, dialect, tx, fmt.Sprintf("capability:admission:image:%d", shard)); err != nil {
-			return 0, err
-		}
-	}
-	ms := now.UnixMilli()
-	var removed int64
-	left := imageMaintenanceLimit
-	for left > 0 {
-		n := left
-		if n > capability.HeaderBatchMax {
-			n = capability.HeaderBatchMax
-		}
-		res, err := tx.ExecContext(ctx, `DELETE FROM frontend_image_grants WHERE expires<=? AND hash IN (SELECT hash FROM frontend_image_grants WHERE expires<=? ORDER BY expires,hash LIMIT ?)`, ms, ms, n)
-		if err != nil {
-			return 0, err
-		}
-		n64, err := res.RowsAffected()
-		if err != nil {
-			return 0, err
-		}
-		removed += n64
-		left -= int(n64)
-		if n64 < int64(n) {
-			break
-		}
-	}
-	left = imageMaintenanceLimit
-	for left > 0 {
-		n := left
-		if n > capability.HeaderBatchMax {
-			n = capability.HeaderBatchMax
-		}
-		n64, err := capability.PruneHeadersInTx(ctx, tx, imageCapabilityNamespace, ms, n)
-		if err != nil {
-			return 0, err
-		}
-		removed += n64
-		left -= int(n64)
-		if n64 < int64(n) {
-			break
-		}
-	}
-	if err = tx.Commit(); err != nil {
-		return 0, err
-	}
-	return removed, nil
 }
 
 // PruneImageGrantShard performs one bounded maintenance transaction for one

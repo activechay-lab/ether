@@ -26,6 +26,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/egress"
+	"github.com/braedonsaunders/ether/internal/textclip"
 )
 
 // Message is one chat message.
@@ -417,6 +418,9 @@ func repairJSON(s string) string {
 
 // extractJSON finds the first balanced {...} or [...] in model output,
 // tolerating code fences and prose around it, and repairs common faults.
+// ExtractJSON extracts and repairs the first balanced JSON object or array in model output.
+func ExtractJSON(s string) string { return extractJSON(StripReasoning(s)) }
+
 func extractJSON(s string) string {
 	return repairJSON(extractJSONRaw(s))
 }
@@ -604,7 +608,7 @@ func ParseTitlesLinesOnly(content string) []TitleRef {
 
 func truncate(s string, n int) string {
 	if len(s) > n {
-		return s[:n] + "…"
+		return textclip.Bytes(s, n) + "…"
 	}
 	return s
 }

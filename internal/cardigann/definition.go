@@ -14,13 +14,12 @@ package cardigann
 import (
 	"errors"
 	"fmt"
+	"go.yaml.in/yaml/v3"
 	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-
-	"go.yaml.in/yaml/v3"
 )
 
 // maxDefinitionBytes bounds an uploaded or downloaded definition.
@@ -28,17 +27,17 @@ const maxDefinitionBytes = 1 << 20
 
 // Definition is a parsed Cardigann indexer definition.
 type Definition struct {
-	ID              string
-	Name            string
-	Description     string
-	Language        string
-	Type            string // public, semi-private, private
-	Encoding        string
-	Links           []string
-	LegacyLinks     []string
-	FollowRedirect  bool
-	TestLinkTorrent bool
-	RequestDelay    float64 // seconds between requests
+	ID          string
+	Name        string
+	Description string
+	Language    string
+	Type        string // public, semi-private, private
+	Encoding    string
+	Links       []string
+
+	FollowRedirect bool
+
+	RequestDelay float64 // seconds between requests
 	// Protocol is "torrent" (the Cardigann default) or "usenet" for a site
 	// whose downloads are NZB documents. Definitions may declare
 	// `protocol: usenet`; anything else is a torrent site.
@@ -55,7 +54,6 @@ type Caps struct {
 	// CategoryMappings maps a site category id to a Newznab category.
 	CategoryMappings []CategoryMapping
 	Modes            map[string][]string
-	AllowRawSearch   bool
 }
 
 // CategoryMapping is one caps.categorymappings (or legacy caps.categories) entry.
@@ -281,12 +279,6 @@ func (e *ValidationError) Error() string {
 type parser struct {
 	err      error
 	warnings []string
-}
-
-func (p *parser) fail(format string, args ...any) {
-	if p.err == nil {
-		p.err = fmt.Errorf(format, args...)
-	}
 }
 
 // mapping returns key → value nodes of a mapping node in document order.
@@ -553,12 +545,8 @@ func (p *parser) definition(root *yaml.Node) *Definition {
 			d.Encoding = scalar(v)
 		case "links":
 			d.Links = strList(v)
-		case "legacylinks":
-			d.LegacyLinks = strList(v)
 		case "followredirect":
 			d.FollowRedirect = boolean(v)
-		case "testlinktorrent":
-			d.TestLinkTorrent = boolean(v)
 		case "requestDelay", "requestdelay":
 			d.RequestDelay = number(v)
 		case "protocol":
@@ -617,8 +605,6 @@ func (p *parser) caps(n *yaml.Node) Caps {
 				}
 				c.Modes[mode[0].Value] = params
 			}
-		case "allowrawsearch":
-			c.AllowRawSearch = boolean(v)
 		}
 	}
 	for i := range c.CategoryMappings {

@@ -15,7 +15,6 @@ type Queue struct {
 	jobs chan bgJob
 
 	mu      sync.Mutex
-	idle    *sync.Cond
 	pending map[string]bool // queued or running
 }
 
@@ -27,20 +26,10 @@ type bgJob struct {
 // NewQueue starts workers that stop when ctx is cancelled; wg tracks them.
 func NewQueue(ctx context.Context, wg *sync.WaitGroup, workers, depth int) *Queue {
 	q := &Queue{ctx: ctx, jobs: make(chan bgJob, depth), pending: map[string]bool{}}
-	q.idle = sync.NewCond(&q.mu)
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go q.worker(wg)
 	}
-	// Wake waiters on shutdown so wait never hangs.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		<-ctx.Done()
-		q.mu.Lock()
-		q.idle.Broadcast()
-		q.mu.Unlock()
-	}()
 	return q
 }
 
@@ -86,18 +75,5 @@ func (q *Queue) worker(wg *sync.WaitGroup) {
 func (q *Queue) done(key string) {
 	q.mu.Lock()
 	delete(q.pending, key)
-	if len(q.pending) == 0 {
-		q.idle.Broadcast()
-	}
 	q.mu.Unlock()
-}
-
-// wait blocks until nothing is queued or running (or the queue is shut
-// down). Tests use it to make background enrichment deterministic.
-func (q *Queue) Wait() {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	for len(q.pending) > 0 && q.ctx.Err() == nil {
-		q.idle.Wait()
-	}
 }

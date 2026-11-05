@@ -1,6 +1,7 @@
 package plex
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -287,7 +288,7 @@ func (s *Server) parseExtraPlayRequest(r *http.Request, key core.RatingKey) play
 	if vb, err := strconv.Atoi(q.Get("videoBitrate")); err == nil && vb > 0 && (p.opts.MaxBitrateKbps == 0 || vb < p.opts.MaxBitrateKbps) {
 		p.opts.MaxBitrateKbps = vb
 	}
-	p.sessionID = firstNonEmpty(q.Get("session"), q.Get("transcodeSessionId"), pr.SessionID)
+	p.sessionID = cmp.Or(q.Get("session"), q.Get("transcodeSessionId"), pr.SessionID)
 	if p.sessionID == "" {
 		p.sessionID = sanitizeSessionID(pr.ClientID + "-" + key.String())
 	}
@@ -455,7 +456,7 @@ func (s *Server) extraDecision(w http.ResponseWriter, r *http.Request, pr *Reque
 			model.A("directPlayDecisionCode", codeDirectPlayError), model.A("directPlayDecisionText", msg),
 			model.A("generalDecisionCode", codeGeneralError), model.A("generalDecisionText", msg),
 			model.A("transcodeDecisionCode", codeTranscodeError), model.A("transcodeDecisionText", msg),
-			model.A("resourceSession", firstNonEmpty(pr.ClientID, p.sessionID)),
+			model.A("resourceSession", cmp.Or(pr.ClientID, p.sessionID)),
 		}
 		s.write(w, r, mc)
 		return
@@ -484,7 +485,7 @@ func (s *Server) extraDecision(w http.ResponseWriter, r *http.Request, pr *Reque
 			model.A("transcodeDecisionCode", codeConversionOK), model.A("transcodeDecisionText", textConversionOK),
 		}
 	}
-	mc.Extra = append(mc.Extra, model.A("resourceSession", firstNonEmpty(pr.ClientID, p.sessionID)))
+	mc.Extra = append(mc.Extra, model.A("resourceSession", cmp.Or(pr.ClientID, p.sessionID)))
 	s.write(w, r, mc)
 }
 

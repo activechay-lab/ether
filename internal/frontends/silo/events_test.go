@@ -3,10 +3,9 @@ package silo
 import (
 	"context"
 	"errors"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -63,17 +62,10 @@ func TestEventSocketSendsViewerChange(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("ticket %d", rec.Code)
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", "")
-	if e == nil {
-		doc, e := openapi.Parse(spec)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if e = doc.Validate("POST", "/api/v2/events/ws-ticket", rec.Code, rec.Header().Get("Content-Type"), rec.Body.Bytes()); e != nil {
+	if doc := spectest.Document(t, "silo"); doc != nil {
+		if e := doc.Validate("POST", "/api/v2/events/ws-ticket", rec.Code, rec.Header().Get("Content-Type"), rec.Body.Bytes()); e != nil {
 			t.Errorf("ticket spec: %v", e)
 		}
-	} else if !os.IsNotExist(e) {
-		t.Fatal(e)
 	}
 	srv := httptest.NewServer(instance.Handler())
 	defer srv.Close()

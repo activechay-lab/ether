@@ -28,7 +28,6 @@ type loadBearingSkip struct {
 const allowSyncReason = "Ether answers allowSync=0; PMS 1.43.4 answers 1. Changing Plex production responses is out of this slice"
 const hubDashReason = "Ether's home/dashboard hub composition is not the recorded PMS library; slice D owns the dashboard"
 const hubSectionReason = "Ether's section hubs are not the recorded PMS library; slice B owns browse hubs"
-const hubSearchReason = "search hub rows include library types this fixture does not catalog; slice C owns search hubs"
 const prefsReason = "Ether exposes fewer section prefs than PMS 1.43.4; production change is out of this slice"
 const catalogIDReason = "section IDs and item types follow this fixture's catalog, not the recorded PMS library"
 

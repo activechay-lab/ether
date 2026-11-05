@@ -56,8 +56,11 @@ type ImageGrantService struct {
 	art                map[pageArtKey][]frontend.Image
 	shortMu            sync.Mutex
 	short              map[string]pageClaims
-	denied             sync.Map
-	gen                atomic.Uint64
+	// denied maps revoked grant digests to when the entry may be dropped
+	// (Unix ms); see deny.
+	denied      sync.Map
+	deniedSwept atomic.Int64
+	gen         atomic.Uint64
 	// cleaned is when each viewer's expired image rows were last pruned
 	// on the issue path (imageCleanupDue).
 	cleanMu sync.Mutex
@@ -241,10 +244,9 @@ func (s *ImageGrantService) Revoke(ctx context.Context, credential, secret strin
 		if !ok {
 			return core.ErrUnauthorized
 		}
-		err = s.revokeAdmitted(ctx, viewer.ID, source, hash)
-	}
-	if err == nil {
-		s.gen.Add(1)
+		if err = s.revokeAdmitted(ctx, viewer.ID, source, hash); err == nil {
+			s.gen.Add(1)
+		}
 	}
 	return err
 }

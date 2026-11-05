@@ -54,17 +54,6 @@ func (s *Server) arrangeHomeRows(ctx context.Context, pr *Request, hc core.HubCo
 	return out
 }
 
-// finalizeHomeRows is the wire-level entry used by layout tests. Production
-// home and section handlers pass facts captured while painting.
-func (s *Server) finalizeHomeRows(ctx context.Context, pr *Request, hc core.HubContext, section string, rows []model.Hub) []model.Hub {
-	hubs := make([]core.Hub, len(rows))
-	neutral := make([]core.NeutralHomeRow, len(rows))
-	for i, row := range rows {
-		hubs[i], neutral[i] = homeLayoutFacts(row)
-	}
-	return s.arrangeHomeRows(ctx, pr, hc, section, rows, hubs, neutral)
-}
-
 // stableHomeHubs drops rows a client would draw empty, and keeps the first
 // copy when the same hub was produced twice (promoted and section builders,
 // or a recommender repeating a row the front end already built).

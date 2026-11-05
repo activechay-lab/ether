@@ -131,3 +131,30 @@ func TestDecisionForcedRemuxHonorsAudioTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestAndroidDVDirectPlaySurvivesOptionalRemux(t *testing.T) {
+	for _, tc := range []struct {
+		name, platform      string
+		profile             int
+		dv, required, allow bool
+		want                core.DecisionKind
+	}{
+		{"DV8 native file", "Android", 8, true, false, true, core.DecisionDirectPlay},
+		{"DV5 native file", "Android", 5, true, false, true, core.DecisionDirectPlay},
+		{"required remux wins", "Android", 8, true, true, true, core.DecisionRemux},
+		{"client rejection wins", "Android", 8, true, false, false, core.DecisionRemux},
+		{"unsupported profile", "Android", 7, true, false, true, core.DecisionRemux},
+		{"DV disabled", "Android", 8, false, false, true, core.DecisionRemux},
+		{"other platform unchanged", "tvOS", 8, true, false, true, core.DecisionRemux},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ps := &core.PlaySession{RequiresRemux: tc.required, Resolution: &core.Resolution{Release: core.Release{ID: "usenet:dv"}}, Info: core.MediaInfo{Container: "mkv", Streams: []core.StreamInfo{{Type: "video", Codec: "hevc", DolbyVision: true, DolbyVisionProfile: tc.profile}}}}
+			r := DecisionRequest{Session: ps, PreferRemux: true, Caps: core.ClientCaps{Platform: tc.platform, Device: "SHIELD Android TV", DolbyVision: tc.dv}, Options: core.DecideOptions{DirectPlay: tc.allow, DirectStream: true}}
+			transcoder := decisionTranscoder{decision: core.Decision{Kind: core.DecisionDirectPlay}}
+			got, err := Decide(nil, transcoder, r)
+			if err != nil || got.Kind != tc.want {
+				t.Fatalf("decision=%+v err=%v", got, err)
+			}
+		})
+	}
+}

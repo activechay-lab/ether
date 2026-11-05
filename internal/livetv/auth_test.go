@@ -1,12 +1,18 @@
 package livetv
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 // provider serves a playlist and guide only to requests that pass check.
@@ -15,6 +21,10 @@ func provider(t *testing.T, check func(r *http.Request) bool) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !check(r) {
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path == "/player_api.php" {
+			writeXtreamDocuments(w, r)
 			return
 		}
 		switch {
@@ -26,6 +36,19 @@ func provider(t *testing.T, check func(r *http.Request) bool) *httptest.Server {
 	}))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// JSON live API fixtures keep document timeout/progress coverage on the same
+// account/category/channel path used by release Xtream imports.
+func writeXtreamDocuments(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Query().Get("action") {
+	case "get_live_categories":
+		w.Write([]byte(`[{"category_id":"1","category_name":"News"}]`))
+	case "get_live_streams":
+		w.Write([]byte(`[{"num":1,"stream_id":1,"name":"News Network","epg_channel_id":"news.us","category_id":"1"}]`))
+	default:
+		w.Write([]byte(`{"user_info":{"auth":1,"status":"Active","allowed_output_formats":["ts"]}}`))
+	}
 }
 
 func TestBasicAuthSourceKeepsItsSecretRedacted(t *testing.T) {
@@ -161,6 +184,136 @@ func TestXtreamImportKeepsChannelsFirstImportedFromTheM3UExport(t *testing.T) {
 	cs, _ := s.Channels(ctx)
 	if len(cs) != 1 || cs[0].ID != "legacy-id" || cs[0].Enabled || !cs[0].Favorite || cs[0].StreamSources[0].URL != up.URL+"/live/u/p/101.m3u8" {
 		t.Fatalf("carried channel: %+v", cs)
+	}
+}
+
+func TestXtreamFetchFailureNamesItsCauseWithoutTheURL(t *testing.T) {
+	raw := "http://panel.example:8080/get.php?username=panel-user&password=panel-pass"
+	refused := sourceFetchFailure(&url.Error{Op: "Get", URL: raw, Err: errors.New("dial tcp 203.0.113.5:8080: connect: connection refused")})
+	if !strings.Contains(refused.Error(), "source fetch failed") || !strings.Contains(refused.Error(), "connection refused") {
+		t.Fatalf("cause lost: %v", refused)
+	}
+	if strings.Contains(refused.Error(), "panel-user") || strings.Contains(refused.Error(), "panel-pass") {
+		t.Fatalf("error leaks credentials: %v", refused)
+	}
+	slow := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+	}))
+	defer slow.Close()
+	_, doErr := (&http.Client{Timeout: 10 * time.Millisecond}).Get(slow.URL + "/get.php?username=panel-user&password=panel-pass")
+	if doErr == nil {
+		t.Fatal("expected a client timeout")
+	}
+	timedOut := sourceFetchFailure(doErr)
+	if !strings.Contains(timedOut.Error(), "did not answer") {
+		t.Fatalf("timeout not named: %v", timedOut)
+	}
+	if strings.Contains(timedOut.Error(), "panel-user") || strings.Contains(timedOut.Error(), "panel-pass") {
+		t.Fatalf("timeout error leaks credentials: %v", timedOut)
+	}
+	if strings.Contains(timedOut.Error(), "panel") {
+		t.Fatalf("a plain source is called a panel: %v", timedOut)
+	}
+}
+
+func TestSourceReadTimeoutNamesItsCause(t *testing.T) {
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		time.Sleep(80 * time.Millisecond)
+	}))
+	defer slow.Close()
+	res, err := (&http.Client{Timeout: 10 * time.Millisecond}).Get(slow.URL + "/list.m3u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	_, readErr := io.ReadAll(res.Body)
+	if readErr == nil {
+		t.Fatal("expected a body read timeout")
+	}
+	got := sourceReadFailure(readErr, "playlist")
+	if !strings.Contains(got.Error(), "did not finish sending the playlist") {
+		t.Fatalf("read timeout not named: %v", got)
+	}
+	if stalled := sourceReadFailure(errSourceStalled, "guide"); !strings.Contains(stalled.Error(), "stopped sending the guide") {
+		t.Fatalf("stall not named: %v", stalled)
+	}
+	// A size limit already names itself and must not become a timeout.
+	if limit := (&limitError{msg: "playlist exceeds the 64 MB limit"}); sourceReadFailure(limit, "playlist") != limit {
+		t.Fatal("size-limit error rewritten")
+	}
+}
+
+func TestXtreamPanelHasTimeToComposeItsDocuments(t *testing.T) {
+	// The service client bounds stream work to 20 s; a panel that composes a
+	// large playlist or guide gets the refresh budget instead.
+	up := provider(t, func(*http.Request) bool {
+		time.Sleep(60 * time.Millisecond)
+		return true
+	})
+	s := testService(t, Options{HTTPClient: &http.Client{Timeout: 20 * time.Millisecond}})
+	got, err := s.ImportSource(context.Background(), Source{ID: "x", Name: "Slow panel", Auth: &SourceAuth{Type: "xtream", Server: up.URL, Username: "u", Password: "p"}})
+	if err != nil {
+		t.Fatalf("slow panel: %v", err)
+	}
+	if got.ChannelCount != 1 {
+		t.Fatalf("import: %+v", got)
+	}
+	if s.o.HTTPClient.Timeout != 20*time.Millisecond {
+		t.Fatalf("service client changed: %s", s.o.HTTPClient.Timeout)
+	}
+}
+
+func TestSourceRequestsUseAnIPTVUserAgent(t *testing.T) {
+	var got []string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.UserAgent())
+	}))
+	defer up.Close()
+	s := testService(t, Options{HTTPClient: up.Client()})
+	for _, ua := range []string{"", "Custom/1.0"} {
+		req, err := http.NewRequest(http.MethodGet, up.URL, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ua != "" {
+			req.Header.Set("User-Agent", ua)
+		}
+		res, err := s.o.HTTPClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+	}
+	if len(got) != 2 || got[0] != sourceUserAgent || got[1] != "Custom/1.0" {
+		t.Fatalf("user agents: %v", got)
+	}
+}
+
+func TestImportFailureIsLoggedWithoutCredentials(t *testing.T) {
+	var logs bytes.Buffer
+	s := testService(t, Options{
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		HTTPClient: &http.Client{Transport: lifecycleTransport(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("dial tcp 203.0.113.5:8080: connect: connection refused")
+		})},
+	})
+	_, err := s.ImportSource(context.Background(), Source{ID: "x", Name: "Panel", Auth: &SourceAuth{Type: "xtream", Server: "http://panel.example:8080", Username: "panel-user", Password: "panel-pass"}})
+	if err == nil {
+		t.Fatal("import succeeded")
+	}
+	if !strings.Contains(err.Error(), "Xtream account:") || !strings.Contains(err.Error(), "connection refused") {
+		t.Fatalf("error lacks the step or cause: %v", err)
+	}
+	got := logs.String()
+	for _, want := range []string{"Live TV source import failed", "sourceId=x", "source=Panel", "panel.example", "Xtream account:", "connection refused"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("log missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "panel-user") || strings.Contains(got, "panel-pass") {
+		t.Fatalf("log leaks credentials: %s", got)
 	}
 }
 

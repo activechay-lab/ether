@@ -1,6 +1,7 @@
 package silo
 
 import (
+	"github.com/braedonsaunders/ether/internal/frontend/kit/paging"
 	"net/http"
 	"strconv"
 	"time"
@@ -62,14 +63,14 @@ func (i *instance) notInterestedList(w http.ResponseWriter, r *http.Request) {
 	}
 	limit, offset := 50, 0
 	if raw := r.URL.Query().Get("limit"); raw != "" {
-		limit, err = strconv.Atoi(raw)
-		if err != nil || limit < 1 || limit > 200 {
+		limit, err = paging.ParseLimit(raw, limit, 200)
+		if err != nil {
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return
 		}
 	}
 	if raw := r.URL.Query().Get("cursor"); raw != "" {
-		offset, err = strconv.Atoi(raw)
+		offset, err = paging.ParseOffset(raw, limit)
 		if err != nil || offset < 0 {
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return

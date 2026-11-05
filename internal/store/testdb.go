@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/dburl"
 	"io"
 	"log/slog"
 	"os"
@@ -193,7 +194,7 @@ var sweepOnce sync.Once
 func OpenTestPostgres(ctx context.Context, rawURL string) (*sql.DB, error) {
 	cfg, err := pgx.ParseConfig(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("store: invalid %s URL %s", TestPostgresEnv, RedactURL(rawURL))
+		return nil, fmt.Errorf("store: invalid %s URL %s", TestPostgresEnv, dburl.Redact(rawURL))
 	}
 	sweepOnce.Do(func() { sweepTestSchemas(ctx, cfg) })
 	var rnd [6]byte

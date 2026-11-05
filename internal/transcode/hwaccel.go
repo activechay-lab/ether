@@ -199,15 +199,14 @@ type accelCandidate struct {
 	name     string
 	h264     string
 	hevc     string
-	hwaccel  string // matching -hwaccels entry, "" when not required
 	platform []string
 }
 
 var accelCandidates = []accelCandidate{
-	{name: AccelVideoToolbox, h264: "h264_videotoolbox", hevc: "hevc_videotoolbox", hwaccel: "videotoolbox", platform: []string{"darwin"}},
+	{name: AccelVideoToolbox, h264: "h264_videotoolbox", hevc: "hevc_videotoolbox", platform: []string{"darwin"}},
 	{name: AccelNVENC, h264: "h264_nvenc", hevc: "hevc_nvenc", platform: []string{"linux", "windows"}},
 	{name: AccelQSV, h264: "h264_qsv", hevc: "hevc_qsv", platform: []string{"linux", "windows"}},
-	{name: AccelVAAPI, h264: "h264_vaapi", hevc: "hevc_vaapi", hwaccel: "vaapi", platform: []string{"linux"}},
+	{name: AccelVAAPI, h264: "h264_vaapi", hevc: "hevc_vaapi", platform: []string{"linux"}},
 }
 
 // testEncodeArgs is a 1-frame lavfi encode that proves an encoder works on

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/store"
 	"net/http"
 	"strconv"
 	"strings"
@@ -340,7 +341,7 @@ func (s *Servers) saveSent(ctx context.Context, p *pmsPair, key core.RatingKey, 
 		VALUES(?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(server_id,user_id,rating_key) DO UPDATE SET pms_key=excluded.pms_key,remote_watched=excluded.remote_watched,
 		  local_watched=excluded.local_watched,local_at=excluded.local_at,offset_ms=excluded.offset_ms,sent_at=excluded.sent_at`,
-		p.serverID, p.userID, int64(key), r.pmsKey, boolInt(r.remoteWatched), boolInt(r.localWatched), r.localAt, r.offsetMS, r.sentAt)
+		p.serverID, p.userID, int64(key), r.pmsKey, store.BoolInt(r.remoteWatched), store.BoolInt(r.localWatched), r.localAt, r.offsetMS, r.sentAt)
 	return err
 }
 

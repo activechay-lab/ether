@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -187,5 +189,19 @@ func TestDecisionExplainsMissingSources(t *testing.T) {
 	mc := decodeJSON(t, f.get(t, "/video/:/transcode/universal/decision?path=/library/metadata/1000000000000550", jsonAccept...))
 	if mc["generalDecisionText"] != msgNoTorrentSources || mc["transcodeDecisionText"] != msgNoTorrentSources {
 		t.Fatalf("decision: %v", mc)
+	}
+}
+
+// Both request paths must tell players that transient source failures can retry.
+func TestTransientPlaybackErrorMappingAgrees(t *testing.T) {
+	s := &Server{log: slog.Default()}
+	for _, err := range []error{core.ErrSourceUnavailable, context.DeadlineExceeded, core.ErrPrepareSlow} {
+		for _, write := range []func(http.ResponseWriter, *http.Request, error){s.writeErr, func(w http.ResponseWriter, r *http.Request, e error) { s.writeStartErr(w, r, nil, e) }} {
+			w := httptest.NewRecorder()
+			write(w, httptest.NewRequest("GET", "/", nil), err)
+			if w.Code != 503 || w.Header().Get("Retry-After") != notAvailableRetryAfter {
+				t.Fatalf("%v: %d %v", err, w.Code, w.Header())
+			}
+		}
 	}
 }

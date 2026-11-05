@@ -74,7 +74,6 @@ type userModel struct {
 	// taste key (crowd.go, buzz.go): ranker features and Top 10 freshness.
 	crowd   map[core.RatingKey]crowdFeat
 	buzz    map[core.RatingKey]float64
-	arms    map[string]arm // this viewer's per-kind row stats
 	builtAt time.Time
 	took    time.Duration
 	// version identifies the build (memo keys).
@@ -99,7 +98,6 @@ type builder struct {
 	// hydrateLeft is the remaining catalogue detail fetches of this build.
 	hydrateLeft int
 	fits        map[core.RatingKey]fitMemo
-	rowsOut     []*candRow
 	// crowd graph and trend momentum, computed on first use (crowd.go,
 	// buzz.go).
 	crowdDone bool

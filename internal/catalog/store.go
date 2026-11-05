@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/store"
 	"math"
 	"sort"
 	"strconv"
@@ -24,7 +25,6 @@ child_count,leaf_count,browsable,added_at,fetched_at,detail,adult,last_air_ts,co
 type storedTitle struct {
 	t         core.Title
 	browsable bool
-	addedAt   time.Time
 	fetchedAt time.Time
 	detail    bool
 	// detailAt is when the detail payload was last fetched (zero if never).
@@ -151,9 +151,6 @@ func scanTitle(s scanner) (*storedTitle, error) {
 	st.t = t
 	st.browsable = browsable != 0
 	st.detail = detail != 0
-	if addedAt != 0 {
-		st.addedAt = time.Unix(addedAt, 0).UTC()
-	}
 	if fetchedAt != 0 {
 		st.fetchedAt = time.Unix(fetchedAt, 0).UTC()
 	}
@@ -192,8 +189,8 @@ func (c *Catalog) hydrateSlice(ctx context.Context, items []core.Title) error {
 	// (same 200 as titlesByKeys). One statement covers genres, keywords,
 	// studios, countries, credits and home-release dates.
 	const batch = 200
-	for start := 0; start < len(keys); start += batch {
-		if err := c.hydrateFactBatch(ctx, items, idx, keys[start:min(start+batch, len(keys))]); err != nil {
+	for chunk := range store.Chunks(keys, batch) {
+		if err := c.hydrateFactBatch(ctx, items, idx, chunk); err != nil {
 			return err
 		}
 	}
@@ -208,8 +205,8 @@ func (c *Catalog) hydrateSlice(ctx context.Context, items []core.Title) error {
 
 func (c *Catalog) hydrateTrailers(ctx context.Context, items []core.Title, idx map[core.RatingKey][]int, keys []any) error {
 	const batch = 200
-	for start := 0; start < len(keys); start += batch {
-		args := keys[start:min(start+batch, len(keys))]
+	for chunk := range store.Chunks(keys, batch) {
+		args := chunk
 		rows, err := c.db.QueryContext(ctx, `SELECT key, name, url FROM catalog_remote_trailers WHERE key IN (`+placeholders(len(args))+`)`, args...)
 		if err != nil {
 			return err
@@ -266,7 +263,7 @@ UNION ALL
 SELECT c.key, 'credit', c.kind, c.name, c.role, c.thumb, CAST(c.person_tmdb AS TEXT), COALESCE(p.imdb,''), CAST(c.ord AS TEXT), c.provider_id FROM catalog_credits c LEFT JOIN catalog_people p ON p.person_tmdb=c.person_tmdb WHERE c.key IN (` + ph + `)
 UNION ALL
 SELECT h.key, 'home', CAST(h.checked AS TEXT), CAST(h.earliest_ts AS TEXT), CAST(h.fallback_admitted AS TEXT), CAST(t.released_ts AS TEXT), CAST(t.year AS TEXT), '', '', '' FROM catalog_home_release h JOIN catalog_titles t ON t.key=h.key WHERE h.key IN (` + ph + `)
-)`
+) AS facts`
 	bound := make([]any, 0, len(args)*7)
 	for i := 0; i < 7; i++ {
 		bound = append(bound, args...)
@@ -387,8 +384,8 @@ func (c *Catalog) hydrateShows(ctx context.Context, items []core.Title) error {
 	}
 	counts := map[core.RatingKey]map[int]int{}
 	const batch = 200
-	for start := 0; start < len(showArgs); start += batch {
-		part := showArgs[start:min(start+batch, len(showArgs))]
+	for chunk := range store.Chunks(showArgs, batch) {
+		part := chunk
 		ph := placeholders(len(part))
 		q := `SELECT tag, key, a, b, c, d, e, f FROM (
 SELECT 'id' AS tag, key, imdb AS a, CAST(tvdb AS TEXT) AS b, CAST(year AS TEXT) AS c, original_title AS d, title AS e, content_rating AS f FROM catalog_titles WHERE key IN (` + ph + `)
@@ -398,7 +395,7 @@ UNION ALL
 SELECT 'alt', key, title, '', '', '', '', '' FROM catalog_alt_titles WHERE key IN (` + ph + `)
 UNION ALL
 SELECT 'season', show_key, CAST(season AS TEXT), CAST(child_count AS TEXT), '', '', '', '' FROM catalog_titles WHERE type='season' AND season>0 AND show_key IN (` + ph + `)
-)`
+) AS show_facts`
 		bound := make([]any, 0, len(part)*4)
 		for i := 0; i < 4; i++ {
 			bound = append(bound, part...)
@@ -551,14 +548,7 @@ func keyArgs(items []core.Title) []any {
 	return args
 }
 func placeholders(n int) string {
-	if n <= 0 {
-		return "NULL"
-	}
-	s := "?"
-	for i := 1; i < n; i++ {
-		s += ",?"
-	}
-	return s
+	return store.Placeholders(n)
 }
 
 type upsertOpts struct {
@@ -755,6 +745,9 @@ ON CONFLICT(key) DO UPDATE SET
 		homeInt, homeInt, homeInt)
 	if err != nil {
 		return fmt.Errorf("catalog: upsert %d: %w", t.Key, err)
+	}
+	if err := updateReleaseNames(ctx, tx, int64(t.Key)); err != nil {
+		return fmt.Errorf("catalog: index release name: %w", err)
 	}
 	if t.RemoteTrailerURL != "" {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_remote_trailers(key, name, url) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET name=excluded.name, url=excluded.url`, int64(t.Key), t.RemoteTrailerName, t.RemoteTrailerURL); err != nil {

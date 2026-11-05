@@ -162,7 +162,6 @@ type Manager struct {
 	noKey          bool // build has no release key: never check
 	state          string
 	available      *Update
-	skipped        string // available version ignored because it was rolled back
 	failed         *FailedUpdate
 	staged         string // verified download for available
 	stagedVersion  string
@@ -497,9 +496,9 @@ func (m *Manager) check(ctx context.Context, now time.Time) {
 	}
 	m.nextCheck = now.Add(m.opts.PollInterval)
 	m.lastErr = ""
-	m.skipped = ""
+
 	if upd != nil && m.failed != nil && sameVersion(upd.Version(), m.failed.Version) {
-		m.skipped = upd.Version()
+
 		m.log.Info("updater: skipping previously rolled-back version", "version", upd.Version())
 		upd = nil
 	}
@@ -752,7 +751,7 @@ func (m *Manager) advanceCoordinated(ctx context.Context, now time.Time, cfg con
 		m.log.Warn("updater: skipping a release that rolled back on another cluster node", "version", upd.Version())
 		m.failed = &FailedUpdate{Version: upd.Version(), From: m.opts.CurrentVersion, At: now,
 			Reason: "rolled back on another cluster node"}
-		m.skipped = upd.Version()
+
 		m.resetAvailableLocked()
 		m.requested, m.force = false, false
 		m.state = StateIdle

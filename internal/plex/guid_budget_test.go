@@ -18,7 +18,7 @@ type detailWarmer struct {
 	calls int
 }
 
-func (w *detailWarmer) PreResolve(context.Context, *core.User, core.RatingKey, core.ClientCaps) bool {
+func (w *detailWarmer) Prewarm(context.Context, *core.User, core.RatingKey, core.ClientCaps, core.PrewarmOptions) bool {
 	w.calls++
 	return true
 }
@@ -189,7 +189,7 @@ type keyWarmer struct {
 	keys []core.RatingKey
 }
 
-func (w *keyWarmer) PreResolve(_ context.Context, _ *core.User, k core.RatingKey, _ core.ClientCaps) bool {
+func (w *keyWarmer) Prewarm(_ context.Context, _ *core.User, k core.RatingKey, _ core.ClientCaps, _ core.PrewarmOptions) bool {
 	w.keys = append(w.keys, k)
 	return true
 }

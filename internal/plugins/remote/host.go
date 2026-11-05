@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/paging"
+	"github.com/braedonsaunders/ether/internal/httpjson"
 	"io"
 	"log/slog"
 	"net/http"
@@ -365,7 +367,7 @@ func pageParams(r *http.Request) (limit, offset int) {
 	if v, err := strconv.Atoi(q.Get("limit")); err == nil && v > 0 {
 		limit = v
 	}
-	if v, err := strconv.Atoi(q.Get("offset")); err == nil && v >= 0 {
+	if v, err := paging.ParseOffset(q.Get("offset"), limit); err == nil && v >= 0 {
 		offset = v
 	}
 	if q.Get("page") != "" {
@@ -375,7 +377,7 @@ func pageParams(r *http.Request) (limit, offset int) {
 		}
 		if v, err := strconv.Atoi(q.Get("page")); err == nil && v >= 1 {
 			limit = pageSize
-			offset = (v - 1) * pageSize
+			offset = paging.PageOffset(v, pageSize)
 		}
 	}
 	if limit > maxPageLimit {
@@ -399,10 +401,7 @@ func readBody(w http.ResponseWriter, r *http.Request, max int64) ([]byte, error)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	httpjson.Write(w, status, v)
 }
 
 // writeHostError emits the EPP error shape (SPEC §5.1.2).

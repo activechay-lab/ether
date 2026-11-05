@@ -14,7 +14,7 @@ func TestStremioIndexerURLSealedAtRest(t *testing.T) {
 {"id":"s1","kind":"stremio","url":"https://addon.example.com/SECRETKEYSEGMENT/manifest.json"},
 {"id":"n1","url":"https://idx.example.com/api","apiKey":"news-key"}
 ]}`)
-	sealed, err := sealDocument(doc, key, true)
+	sealed, err := sealDocument(doc, key)
 	if err != nil {
 		t.Fatal(err)
 	}

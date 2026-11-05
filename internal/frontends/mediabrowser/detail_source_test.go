@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
@@ -84,16 +83,9 @@ func TestItemDetailDoesNotExposeEstimatedVersionStreams(t *testing.T) {
 		if _, ok := source["Container"]; ok || len(source["MediaStreams"].([]any)) != 0 {
 			t.Fatal(protocol, source)
 		}
-		spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", string(protocol), "")
-		if os.IsNotExist(err) {
+		doc := spectest.Document(t, string(protocol))
+		if doc == nil {
 			continue
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		doc, err := openapi.Parse(spec)
-		if err != nil {
-			t.Fatal(err)
 		}
 		if err := doc.Validate("GET", r.URL.Path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 			t.Fatalf("%s: %v", protocol, err)

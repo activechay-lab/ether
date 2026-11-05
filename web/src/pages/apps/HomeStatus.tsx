@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ConnectionStatusRow, AddressChip } from "../../components/AppStatusList";
 import { t } from "../../i18n";
+import { formatDateTime } from "../../lib/format";
 import {
   chosenAddress,
   homeSummary,
@@ -37,7 +38,7 @@ export function HomeStatusRow({
     reason && checked && !Number.isNaN(checked.valueOf())
       ? t("{reason} · {time}. Checked from this server; other devices may differ.", {
           reason,
-          time: checked.toLocaleString(),
+          time: formatDateTime(checked),
         })
       : home.detail;
   return (

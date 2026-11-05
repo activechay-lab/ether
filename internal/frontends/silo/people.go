@@ -2,6 +2,7 @@ package silo
 
 import (
 	"errors"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/paging"
 	"net/http"
 	"strconv"
 	"unicode/utf8"
@@ -69,9 +70,9 @@ func (i *instance) people(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	limit := 20
-	if q.Has("limit") {
-		limit, err = strconv.Atoi(q.Get("limit"))
-		if err != nil || limit < 1 || limit > 100 {
+	if q.Get("limit") != "" {
+		limit, err = paging.ParseLimit(q.Get("limit"), limit, 100)
+		if err != nil {
 			peopleProblem(w, 400)
 			return
 		}

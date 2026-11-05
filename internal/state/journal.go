@@ -40,8 +40,6 @@ type SyncRow struct {
 	Rating     float64
 	At         time.Time
 	Bulk       bool
-	Dead       bool
-	LastErr    string
 	Attempts   int
 	ConsentGen int64
 }
@@ -467,22 +465,8 @@ func (s *State) ApplyRemote(ctx context.Context, userID int64, key core.RatingKe
 	return nil
 }
 
-// observedClocks is the time a remote import has to beat. A current writer
-// stores watch_at or rating_at at the same moment as updated_at. A previous
-// binary only updates last_viewed_at, updated_at, and version, leaving the
-// new columns at the migration backfill, so those legacy columns are the
-// local time when they are newer.
-func observedClocks(r row) (watch, rating time.Time) {
-	watch = r.watchAt
-	if r.ws.LastViewedAt.After(watch) {
-		watch = r.ws.LastViewedAt
-	}
-	rating = r.ratingAt
-	if r.ws.UpdatedAt.After(r.watchAt) && r.ws.UpdatedAt.After(rating) {
-		rating = r.ws.UpdatedAt
-	}
-	return watch, rating
-}
+// observedClocks reads independent clocks repaired by the startup migration.
+func observedClocks(r row) (watch, rating time.Time) { return r.watchAt, r.ratingAt }
 
 // remoteOlder reports that remote must not replace local. A known local
 // clock wins ties and wins against a remote record with no time.

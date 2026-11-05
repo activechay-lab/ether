@@ -166,7 +166,7 @@ describe("Settings", () => {
 
   it("keeps the TheIntroDB key, health and test on its integration tab", async () => {
     const { fake } = renderApp("/services/introdb", {}, (f) => {
-      f.state.config.markers = { accountEnabled: true, theIntroDb: true, apiKey: "" };
+      f.state.config.markers = { theIntroDb: true, apiKey: "" };
     });
     expect(await screen.findByLabelText("Optional TheIntroDB key", {}, WAIT)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Test TheIntroDB" })).toBeInTheDocument();

@@ -2,6 +2,7 @@ package playback
 
 import (
 	"context"
+	"github.com/braedonsaunders/ether/internal/core"
 	"testing"
 	"time"
 )
@@ -12,7 +13,7 @@ func TestConstrainedClientDoesNotReuseLargePreparedSource(t *testing.T) {
 		caps := defaultCaps("client")
 		ctx := context.Background()
 		if warm {
-			if !h.m.PreResolve(ctx, owner, movieKey, caps) {
+			if !h.m.Prewarm(ctx, owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 				t.Fatal("warm skipped")
 			}
 			waitWarm(t, h, owner.ID, caps.ClientID, movieKey)

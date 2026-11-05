@@ -1,3 +1,4 @@
+import { copyText } from "../../components/CopyButton";
 import {
   Button,
   Input,
@@ -290,8 +291,7 @@ function InvitePanel({
               variant="outline"
               size="sm"
               onClick={() => {
-                void navigator.clipboard?.writeText(link);
-                toast.success(t("Link copied"));
+                void copyText(link);
               }}
             >
               <Copy size={14} /> {t("Copy link")}

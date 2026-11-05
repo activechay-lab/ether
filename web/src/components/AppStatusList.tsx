@@ -1,4 +1,5 @@
-import { Button, Tooltip, toast } from "@braedonsaunders/appkit-ui";
+import { copyText } from "./CopyButton";
+import { Button, Tooltip } from "@braedonsaunders/appkit-ui";
 import { AlertTriangle, CheckCircle2, XCircle, Copy, CircleHelp } from "lucide-react";
 import type { ComponentProps } from "react";
 import { SettingsRow } from "./SettingsRow";
@@ -41,10 +42,7 @@ export function AddressChip({ address }: { address: string }) {
         size="sm"
         aria-label={t("Copy address")}
         onClick={() => {
-          void navigator.clipboard
-            .writeText(address)
-            .then(() => toast.success(t("Address copied")))
-            .catch(() => toast.error(t("Couldn't copy address")));
+          void copyText(address);
         }}
       >
         <Copy size={16} />

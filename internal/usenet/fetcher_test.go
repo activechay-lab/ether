@@ -527,13 +527,18 @@ func TestTransientErrorsRetried(t *testing.T) {
 
 	// Persistent protocol errors exhaust retries and move on, then report
 	// a transient (not missing) error.
+	n.Store(0)
 	s.SetFault(func(cmd, arg string) nntptest.Fault {
 		if cmd == "BODY" {
+			n.Add(1)
 			return nntptest.Fault{Code: 503, Text: "program fault"}
 		}
 		return nntptest.Fault{}
 	})
 	_, err = f.Body(context.Background(), "a@x", nil, core.PriorityLive)
+	if got := n.Load(); got != 3 {
+		t.Fatalf("failed attempts = %d, want 3", got)
+	}
 	var pe *ProtocolError
 	if !errors.As(err, &pe) || pe.Code != 503 || errors.Is(err, core.ErrArticleMissing) {
 		t.Fatalf("err = %v", err)

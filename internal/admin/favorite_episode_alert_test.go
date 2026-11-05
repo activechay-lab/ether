@@ -45,7 +45,7 @@ func TestFavoriteEpisodeAlertAuthorization(t *testing.T) {
 	owner, _ := grants.Issue(ctx, ownerID, nil, "owner", core.Device{})
 	portal, _ := grants.Issue(ctx, otherID, nil, "viewer-portal", core.Device{})
 	mirror := &fakeAlertPrefs{enabled: map[int64]bool{}}
-	h := admin.New(admin.Deps{Config: newStore(t, nil), IdentityGrants: grants, ViewerAlerts: mirror, ActiveViewer: users.ActiveUser})
+	h := admin.NewHandler(admin.Deps{Config: newStore(t, nil), IdentityGrants: grants, ViewerAlerts: mirror, ActiveViewer: users.ActiveUser})
 	do := func(method, path, token, body string) int {
 		r := req(method, path, body)
 		r.Header.Set("Authorization", "Bearer "+token)

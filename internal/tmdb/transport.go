@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/logredact"
 	"io"
 	"net/http"
 	"net/url"
@@ -318,18 +319,16 @@ func (c *Client) doAttempts(ctx context.Context, full, etag string, cfg clientSe
 // URL net/http embeds in transport errors, so the key never reaches logs or
 // API responses.
 func redactURLError(err error) error {
-	var ue *url.Error
-	if !errors.As(err, &ue) {
-		return err
-	}
-	if u, perr := url.Parse(ue.URL); perr == nil {
-		if q := u.Query(); q.Has("api_key") {
-			q.Set("api_key", "REDACTED")
-			u.RawQuery = q.Encode()
+	return logredact.TransportError(err, "", func(raw string) string {
+		if u, e := url.Parse(raw); e == nil {
+			if q := u.Query(); q.Has("api_key") {
+				q.Set("api_key", "REDACTED")
+				u.RawQuery = q.Encode()
+			}
+			return u.String()
 		}
-		return &url.Error{Op: ue.Op, URL: u.String(), Err: ue.Err}
-	}
-	return &url.Error{Op: ue.Op, URL: "tmdb", Err: ue.Err}
+		return "tmdb"
+	})
 }
 
 func parseHTTPError(code int, b []byte) *HTTPError {

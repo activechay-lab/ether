@@ -8,7 +8,7 @@ import { localized, msg, searchTerms, t } from "../i18n";
 import { textOf, type Descriptor } from "./extend";
 import { pageRoute, searchTextOf, type PageMeta } from "./console-descriptors";
 
-export interface Destination {
+interface Destination {
   href: string;
   title: string;
   /** Page the destination belongs to, shown as the search subtitle. */
@@ -18,7 +18,7 @@ export interface Destination {
   isPage?: boolean;
 }
 
-export interface PageDef {
+interface PageDef {
   href: string;
   title: string;
   /** In-page sections (tabs) in display order. */
@@ -26,7 +26,7 @@ export interface PageDef {
   keywords?: string;
 }
 
-export const PAGES = localized<PageDef[]>(() => [
+const PAGES = localized<PageDef[]>(() => [
   {
     href: "/cache",
     title: t("Cache"),

@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"net/url"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -19,33 +18,11 @@ import (
 	_ "github.com/braedonsaunders/ether/internal/plexwatch"
 )
 
-// origin/prism b4ef791d. Registered only in this test process so the state
-// package's own suite does not grow a second state/3.
-const prismPlaylistMarkersSQL = `CREATE TABLE state_playlist_markers (user_id INTEGER NOT NULL, marker TEXT NOT NULL, playlist_id INTEGER NOT NULL UNIQUE, PRIMARY KEY(user_id,marker), FOREIGN KEY(playlist_id) REFERENCES state_playlists(id) ON DELETE CASCADE);`
-
-const prismLastSourceSQL = `
-CREATE TABLE state_source_sequence (id INTEGER PRIMARY KEY AUTOINCREMENT);
-CREATE TABLE state_last_source (
- user_id INTEGER NOT NULL, rating_key INTEGER NOT NULL, session_order INTEGER NOT NULL, sequence INTEGER NOT NULL,
- revision TEXT NOT NULL, release_digest TEXT NOT NULL, video_codec TEXT NOT NULL,
- height INTEGER NOT NULL, hdr INTEGER, PRIMARY KEY(user_id,rating_key)
-);`
-
-var registerPrism sync.Once
-
-func registerPrismState(t *testing.T) {
-	t.Helper()
-	registerPrism.Do(func() {
-		store.Register("state", 3, prismPlaylistMarkersSQL)
-		store.Register("state", 4, prismLastSourceSQL)
-	})
-}
-
 // TestPrismStateAndPlexwatchSchema migrates Prism state/3 and state/4
-// together with state_plexwatch/1-4 and the plexwatch account component.
-// Fresh and state/2 baselines both keep their rows.
+// together with state_plexwatch/1-5 and the plexwatch account component.
+// Fresh and state/2 baselines both keep their rows, including the final
+// pre-clock write repaired by state_plexwatch/5.
 func TestPrismStateAndPlexwatchSchema(t *testing.T) {
-	registerPrismState(t)
 	ctx := context.Background()
 	t.Run("sqlite", func(t *testing.T) {
 		db := openSQLite(t)
@@ -164,19 +141,13 @@ func assertCombinedFromState2(t *testing.T, ctx context.Context, db *sql.DB) {
 	if _, err := db.Exec(`INSERT INTO state_playlists(user_id, title) VALUES(7, 'Baseline')`); err != nil {
 		t.Fatal(err)
 	}
+	// Establish the old clock-bearing schema, then leave its repair pending.
+	// This models a pre-upgrade writer advancing the row but not its clocks.
 	if err := store.Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	assertCombinedObjects(t, db)
-	var watchAt, ratingAt, views int64
-	if err := db.QueryRow(`SELECT watch_at, rating_at, view_count FROM state_watch WHERE user_id=7`).Scan(&watchAt, &ratingAt, &views); err != nil {
+	if _, err := db.Exec(`DELETE FROM schema_migrations WHERE component='state_plexwatch' AND version=5`); err != nil {
 		t.Fatal(err)
-	}
-	if views != 1 {
-		t.Fatalf("view count %d before the old write", views)
-	}
-	if watchAt != t1.UnixNano() || ratingAt != t1.UnixNano() {
-		t.Fatalf("backfill watch_at %d rating_at %d", watchAt, ratingAt)
 	}
 	t3 := t1.Add(2 * time.Hour)
 	res, err := db.Exec(`UPDATE state_watch SET view_offset_ns=?, duration_ns=?, view_count=?, counted=?,
@@ -188,6 +159,20 @@ func assertCombinedFromState2(t *testing.T, ctx context.Context, db *sql.DB) {
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		t.Fatalf("old writer updated %d", n)
+	}
+	if err := store.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	assertCombinedObjects(t, db)
+	var watchAt, ratingAt, views int64
+	if err := db.QueryRow(`SELECT watch_at, rating_at, view_count FROM state_watch WHERE user_id=7`).Scan(&watchAt, &ratingAt, &views); err != nil {
+		t.Fatal(err)
+	}
+	if views != 2 {
+		t.Fatalf("view count %d after migration", views)
+	}
+	if watchAt != t3.UnixNano() || ratingAt != t3.UnixNano() {
+		t.Fatalf("backfill watch_at %d rating_at %d", watchAt, ratingAt)
 	}
 	s := state.New(db, state.Options{})
 	watched := true
@@ -241,7 +226,7 @@ func assertCombinedObjects(t *testing.T, db *sql.DB) {
 	}
 	for _, k := range []string{
 		"state/1", "state/2", "state/3", "state/4",
-		"state_plexwatch/1", "state_plexwatch/2", "state_plexwatch/3", "state_plexwatch/4",
+		"state_plexwatch/1", "state_plexwatch/2", "state_plexwatch/3", "state_plexwatch/4", "state_plexwatch/5",
 		"plexwatch/1", "plexwatch/2", "plexwatch/3", "plexwatch/4",
 		"watchsend/1",
 	} {

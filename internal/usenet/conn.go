@@ -70,18 +70,13 @@ type Conn struct {
 	onStatus       func(string)
 	onCommand      func(string)
 
-	// PostingAllowed reports a 200 (vs 201) greeting.
-	PostingAllowed bool
-	// Greeting is the server's welcome text.
-	Greeting string
-
 	recoveryProbe bool // pool-owned half-open breaker lease
 	bodyStarted   bool // current pipeline reply accepted BODY before transport failed
 	broken        bool
 	inBody        bool
 	group         string
-	created       time.Time
-	used          time.Time // last time a command completed
+
+	used time.Time // last time a command completed
 	// idleSince is when the pool last got the connection back from a
 	// request; keepalive pings do not move it.
 	idleSince time.Time
@@ -174,9 +169,9 @@ func Dial(ctx context.Context, o DialOptions) (*Conn, error) {
 		onPhase:        o.OnPhase,
 		onStatus:       o.OnStatus,
 		onCommand:      o.OnCommand,
-		created:        now,
-		used:           now,
-		wire:           wire,
+
+		used: now,
+		wire: wire,
 	}
 	if err := c.handshake(dctx, o.Username, o.Password); err != nil {
 		c.Close()
@@ -204,13 +199,11 @@ func (c *Conn) handshake(ctx context.Context, user, pass string) error {
 	}
 	switch code {
 	case 200:
-		c.PostingAllowed = true
 	case 201:
 	default:
 		c.broken = true
 		return &ProtocolError{Cmd: "greeting", Code: code, Msg: msg}
 	}
-	c.Greeting = msg
 	if c.onPhase != nil {
 		c.onPhase("greeting", time.Since(phaseStart))
 	}

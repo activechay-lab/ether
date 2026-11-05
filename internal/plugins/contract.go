@@ -530,16 +530,16 @@ type Catalogue interface {
 
 // Sentinel errors. Adapters and the API map them to plain reasons.
 var (
-	ErrNotFound         = errors.New("plugins: not found")
-	ErrAlreadyInstalled = errors.New("plugins: already installed")
+	ErrNotFound = errors.New("plugins: not found")
+
 	ErrPermissionDenied = errors.New("plugins: permission denied")
 	ErrQuotaExceeded    = errors.New("plugins: storage quota exceeded")
 	ErrDisabled         = errors.New("plugins: plugin is disabled")
 	ErrNoRuntime        = errors.New("plugins: no runtime registered for this plugin")
 	ErrUnavailable      = errors.New("plugins: host service unavailable")
-	ErrShadow           = errors.New("plugins: write recorded in shadow mode")
-	ErrDigestMismatch   = errors.New("plugins: artifact digest does not match")
-	ErrRevoked          = errors.New("plugins: plugin was revoked")
+
+	ErrDigestMismatch = errors.New("plugins: artifact digest does not match")
+	ErrRevoked        = errors.New("plugins: plugin was revoked")
 )
 
 // FieldError is one validation problem, keyed by a dotted field path.

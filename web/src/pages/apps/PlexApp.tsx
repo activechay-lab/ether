@@ -31,9 +31,9 @@ import { awaySummary, type ReachabilityStatus } from "./reachability";
 type Obj = Record<string, unknown>;
 type PlexDraft = { plex: Obj };
 type Pin = { id: string; code: string; authUrl: string };
-export type PlexSection = "account" | "remote" | "downloads";
+type PlexSection = "account" | "remote" | "downloads";
 
-export function plexSection(section: string | undefined): PlexSection {
+function plexSection(section: string | undefined): PlexSection {
   if (section === "remote" || section === "downloads") return section;
   return "account";
 }
@@ -314,7 +314,7 @@ export function PlexApp({
       if (err instanceof ApiError && err.fields) {
         const translatedFields = err.fields.map((field) => ({
           field: field.field,
-          message: translatePlexFieldError(field.message),
+          message: translatePlexFieldError(field),
         }));
         setError(new ApiError(err.status, err.code, err.message, translatedFields));
         setErrors(
@@ -443,7 +443,13 @@ function OptionGroup({
   onChange,
   moreLabel,
 }: {
-  group: { title?: string; description?: string; fields: FieldDef[]; more?: FieldDef[] };
+  group: {
+    id?: string;
+    title?: string;
+    description?: string;
+    fields: FieldDef[];
+    more?: FieldDef[];
+  };
   value: Obj;
   errors: Record<string, string>;
   onChange: (key: string, next: unknown) => void;
@@ -464,6 +470,7 @@ function OptionGroup({
       />
       {extra.length ? (
         <MoreOptions
+          setting={group.id}
           label={moreLabel ?? label}
           text={moreLabel ?? t("More options")}
           hasError={extra.some((field) => Boolean(errors[`plex.${field.key}`]))}
@@ -490,6 +497,7 @@ function PlexMetadata({ claimed }: { claimed: boolean }) {
   return (
     <SettingsSection title={t("Metadata")}>
       <SettingsRow
+        setting="use-plex-s-metadata-for-plex-apps"
         title={t("Use Plex's metadata for Plex apps")}
         description={
           claimed

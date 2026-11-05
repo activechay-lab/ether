@@ -2,6 +2,7 @@ package newznab
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -67,5 +68,54 @@ func TestUnattendedWorkKeepsToItsShare(t *testing.T) {
 	}
 	if grabs.Load() != 130 {
 		t.Fatalf("indexer grabs %d, want 130: a downloaded NZB is read from disk", grabs.Load())
+	}
+}
+
+// A rescue keeps the class of the search that asked for it: speculative
+// work (warm-ups, detail discovery, availability) cannot spend past its
+// share by triggering a rescue (it sends none at all), while Play's rescue
+// is tagged rescue and is never refused by that share.
+func TestRescueInheritsSpeculativeClass(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("t") != "caps" {
+			hits.Add(1)
+		}
+		w.Write([]byte(`<?xml version="1.0"?><rss><channel></channel></rss>`))
+	}))
+	defer srv.Close()
+	db := store.OpenTest(t)
+	m := NewManager(db, []config.Indexer{{ID: "ix", Name: "IX", URL: srv.URL, APIKey: "k", Enabled: true, DailyLimit: 100}}, Options{HTTPClient: srv.Client()})
+	warm := core.WithUnattendedSearch(core.WithIndexerPurpose(context.Background(), core.IndexerPurposeWarmup))
+	for i := range 20 {
+		_, _ = m.Search(warm, core.SearchRequest{Type: core.TypeMovie, Title: fmt.Sprint("w", i), Year: 2020})
+	}
+	spent := hits.Load()
+	if spent != 10 {
+		t.Fatalf("warm-ups sent %d requests, want their 10%% share of 100", spent)
+	}
+	rescue := core.SearchRequest{Type: core.TypeEpisode, Title: "Show", Season: 1, Episode: 2}
+	for _, ctx := range []context.Context{
+		warm,
+		core.WithIndexerPurpose(context.Background(), core.IndexerPurposeDetail),
+		core.WithIndexerPurpose(context.Background(), core.IndexerPurposeAvailability),
+	} {
+		if _, err := m.SearchRescue(ctx, rescue); err != nil && !errors.Is(err, core.ErrBudgetExhausted) {
+			t.Fatal(err)
+		}
+	}
+	if hits.Load() != spent {
+		t.Fatalf("speculative rescues sent %d requests past the spent share", hits.Load()-spent)
+	}
+	play := core.WithIndexerPurpose(context.Background(), core.IndexerPurposePlayback)
+	if _, err := m.SearchRescue(play, rescue); err != nil {
+		t.Fatal(err)
+	}
+	var rescued int
+	if err := db.QueryRow(`SELECT COALESCE(SUM(hits),0) FROM newznab_usage WHERE purpose='rescue'`).Scan(&rescued); err != nil {
+		t.Fatal(err)
+	}
+	if rescued == 0 || int(hits.Load()-spent) != rescued {
+		t.Fatalf("Play's rescue sent %d requests, %d recorded as rescue", hits.Load()-spent, rescued)
 	}
 }

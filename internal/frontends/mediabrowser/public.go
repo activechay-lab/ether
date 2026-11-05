@@ -19,12 +19,6 @@ type PublicInfo struct {
 	ID, ServerName, LocalAddress, Version, ProductName string
 }
 
-// PublicRoutes registers connection endpoints that do not require a grant.
-// A user picker is intentionally not exposed until the host can supply its
-// authorized list of visible viewers.
-func PublicRoutes(r *route.Router, info PublicInfo) error {
-	return publicRoutes(r, func() PublicInfo { return info }, nil, nil)
-}
 func publicRoutes(r *route.Router, getInfo func() PublicInfo, picker http.HandlerFunc, clientIP func(*http.Request) (netip.Addr, bool)) error {
 	if picker == nil {
 		picker = func(w http.ResponseWriter, _ *http.Request) { jsonReply(w, []any{}) }

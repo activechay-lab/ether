@@ -81,7 +81,7 @@ export function Prerolls() {
       const v = viewers?.find((x) => x.id === id);
       return v ? viewerName(v) : t("Viewer {id}", { id });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     [viewers, locale],
   );
   const nameOfCollection = useCallback(
@@ -194,7 +194,7 @@ export function Prerolls() {
         ),
       },
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     [locale, nameOfCollection, nameOfViewer, items],
   );
 

@@ -7,16 +7,8 @@ import { mediaUrl, type Preroll } from "./prerolls-api";
 import { videoState, type PlainError } from "./prerolls-copy";
 
 /** A collapsed group of rarely needed controls. */
-export function Disclosure({
-  label,
-  children,
-  defaultOpen = false,
-}: {
-  label: string;
-  children: ReactNode;
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
+export function Disclosure({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
   const id = useId();
   return (
     <div>

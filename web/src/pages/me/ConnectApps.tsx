@@ -1,3 +1,4 @@
+import { copyText } from "../../components/CopyButton";
 import { useEffect, useState } from "react";
 import { Button, buttonVariants } from "@braedonsaunders/appkit-ui";
 import {
@@ -78,7 +79,7 @@ function ConnectAppsSession({ base, token }: { base: string; token: string }) {
         }
         if (
           body.error?.code === "address_unavailable" ||
-          body.error?.message === "address unavailable"
+          body.error?.code === "address_unavailable"
         ) {
           setError(
             t(
@@ -154,11 +155,7 @@ function ConnectAppsSession({ base, token }: { base: string; token: string }) {
                       {t("Password")}: <code>{connection.password}</code>
                     </p>
                   )}
-                  <Button
-                    onClick={() =>
-                      void navigator.clipboard.writeText(connection.password || connection.url)
-                    }
-                  >
+                  <Button onClick={() => void copyText(connection.password || connection.url)}>
                     {t("Copy token")}
                   </Button>
                   <Button onClick={() => setShowQR(!showQR)}>{t("Show QR code")}</Button>

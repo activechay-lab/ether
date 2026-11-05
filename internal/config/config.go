@@ -10,12 +10,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -120,8 +120,6 @@ type Plex struct {
 	// the version Ether's responses were verified against. Plex apps enable
 	// features by server version, so tracking can reach endpoints Ether lacks.
 	TrackLatestVersion bool `json:"trackLatestVersion,omitempty"`
-	// Deprecated: retained for config compatibility; latest tracking is now opt-in.
-	DisableVersionTracking bool `json:"disableVersionTracking,omitempty"`
 	// Token is the owner's plex.tv token from sign-in; the server token.
 	Token            string `json:"token"`
 	ClientIdentifier string `json:"clientIdentifier"` // X-Plex-Client-Identifier Ether uses towards plex.tv
@@ -226,6 +224,19 @@ type Indexer struct {
 	// ClientIdentity overrides the global client identity for this indexer's
 	// searches and grabs. Empty inherits the policy.
 	ClientIdentity string `json:"clientIdentity,omitempty"`
+	// ProwlarrImport is what the last Prowlarr sync wrote into the fields
+	// the owner may also edit. A later sync updates a field only while it
+	// still holds that value, so owner edits survive syncs. Nil for
+	// indexers not imported from Prowlarr.
+	ProwlarrImport *IndexerImport `json:"prowlarrImport,omitempty"`
+}
+
+// IndexerImport is one Prowlarr sync's values for an imported indexer.
+type IndexerImport struct {
+	DailyLimit int  `json:"dailyLimit"`
+	DailyGrabs int  `json:"dailyGrabs"`
+	Priority   int  `json:"priority"`
+	Enabled    bool `json:"enabled"`
 }
 
 // Indexer kinds (Indexer.Kind).
@@ -635,15 +646,6 @@ type Store struct {
 	// keyCreated is set when Open generated the credential key, so data
 	// sealed elsewhere (the database) cannot have been sealed with it.
 	keyCreated bool
-	// bound seals database fields and writes the shared settings in v2
-	// (credentials.go, fieldseal.go): set by UpgradeCredentials, at Open
-	// for a configuration already upgraded, and on loading shared
-	// settings another node already upgraded.
-	bound atomic.Bool
-	// localBound writes config.json in v2. Only UpgradeCredentials (this
-	// node's own rollback gate) or an upgraded config.json sets it: the
-	// node-local file must stay readable if this node rolls back.
-	localBound atomic.Bool
 
 	// Cluster mode (see shared.go). shared is nil on a standalone server,
 	// where config.json is the only source. writeMu sequences cluster-mode
@@ -717,19 +719,19 @@ func Open(dataDir string) (*Store, error) {
 			return nil, err
 		}
 		var dropped bool
-		if s.cfg, dropped, err = decodeOverDefaults(s.cfg, plain); err != nil {
+		if s.cfg, dropped, err = decodeStartupConfig(s.cfg, plain); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", s.path, err)
 		}
 		upgraded := upgradeShippedQuality(&s.cfg)
-		// A configuration already upgraded to v2 credentials stays v2.
-		s.bound.Store(stats.strict)
-		s.localBound.Store(stats.strict)
 		// Seal secrets written in plaintext (by hand, or by a release that
 		// predates sealing). Also rewrite a file that still names a server
 		// per app.
-		if dropped || upgraded || stats.plaintext > 0 || !ContainsSealed(b) {
+		if dropped || upgraded || !stats.strict || stats.plaintext > 0 || stats.legacy > 0 {
 			if err := s.save(); err != nil {
 				return nil, err
+			}
+			if !stats.strict || stats.legacy > 0 || stats.plaintext > 0 {
+				slog.Info("config: converted stored credentials to v2", "legacy", stats.legacy, "plaintext", stats.plaintext)
 			}
 		}
 	case os.IsNotExist(err):
@@ -770,7 +772,28 @@ func Read(dataDir string) (Config, error) {
 	return cfg, nil
 }
 
-// decodeOverDefaults decodes the config document b over defaults. The
+// decodeOverDefaults loads the current stored shape without upgrade rewrites.
+func decodeOverDefaults(defaults Config, b []byte) (Config, bool, error) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var file map[string]any
+	if err := dec.Decode(&file); err != nil {
+		return Config{}, false, err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return Config{}, false, fmt.Errorf("invalid data after the top-level value")
+	}
+	// A retired opt-out flag has no effect; older files remain loadable.
+	if plex, ok := file["plex"].(map[string]any); ok {
+		delete(plex, "disableVersionTracking")
+	}
+	doc := toDoc(defaults)
+	mergeDoc(doc, file)
+	cfg, err := fromDoc(doc)
+	return cfg, false, err
+}
+
+// decodeStartupConfig decodes the stored config over defaults. The
 // merge happens on the JSON documents (objects recursively, see mergeDoc)
 // and the result is decoded into a fresh Config: json.Unmarshal
 // straight into defaults would decode a file's array elements into the
@@ -778,7 +801,9 @@ func Read(dataDir string) (Config, error) {
 // default field the file omits (omitempty zero values) — a saved quality
 // rule {"platform":"iOS"} would come back still matching the default rule's
 // "Apple TV" product.
-func decodeOverDefaults(defaults Config, b []byte) (Config, bool, error) {
+// decodeStartupConfig converts stored v0.3.x settings once before Open saves
+// the current shape atomically. Read and request decoding never run upgrades.
+func decodeStartupConfig(defaults Config, b []byte) (Config, bool, error) {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.UseNumber()
 	var file map[string]any
@@ -790,6 +815,12 @@ func decodeOverDefaults(defaults Config, b []byte) (Config, bool, error) {
 		return Config{}, false, fmt.Errorf("invalid data after the top-level value")
 	}
 	dropped := stripFrontendServerNames(file)
+	if server, ok := file["plex"].(map[string]any); ok {
+		if _, exists := server["disableVersionTracking"]; exists {
+			delete(server, "disableVersionTracking")
+			dropped = true
+		}
+	}
 	doc := toDoc(defaults)
 	if av, ok := file["availability"].(map[string]any); ok {
 		if _, present := av["mode"]; !present {
@@ -820,6 +851,7 @@ func decodeOverDefaults(defaults Config, b []byte) (Config, bool, error) {
 		for i := range cfg.Quality.Profiles {
 			if len(cfg.Quality.Profiles[i].Ranking) == 0 {
 				cfg.Quality.Profiles[i].Ranking = core.DefaultRanking(cfg.Quality.Profiles[i].ReleaseRules)
+				dropped = true
 			}
 		}
 	}
@@ -975,7 +1007,7 @@ func (s *Store) save() error {
 	if err != nil {
 		return err
 	}
-	b, err = sealDocument(b, s.credentialKey, s.localBound.Load())
+	b, err = sealDocument(b, s.credentialKey)
 	if err != nil {
 		return err
 	}

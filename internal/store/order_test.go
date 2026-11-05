@@ -44,3 +44,27 @@ func TestMigrationDependenciesOrderAndValidate(t *testing.T) {
 		t.Fatalf("partial registry: %d", len(got))
 	}
 }
+
+// A version has one base migration even when its SQL is empty. Dialect-first
+// registration must still work, since components initialize independently.
+func TestRegisterRejectsDuplicateBaseMigration(t *testing.T) {
+	old := migrations
+	migrations = nil
+	t.Cleanup(func() { migrations = old })
+	for _, text := range []string{"", "SELECT 1"} {
+		migrations = nil
+		RegisterDialect("probe", 1, Postgres, "SELECT 2")
+		Register("probe", 1, text)
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("duplicate base migration accepted")
+				}
+			}()
+			Register("probe", 1, text)
+		}()
+		if got := migrations[0].sqlFor(Postgres); got != "SELECT 2" {
+			t.Fatal(got)
+		}
+	}
+}

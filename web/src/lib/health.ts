@@ -313,8 +313,8 @@ export function cacheHealth(v: unknown): HealthItem {
   const base = { id: "cache" as const, label: t("Cache"), href: "/cache" };
   if (!isPlainObject(v))
     return { ...base, level: "unknown", summary: t("Not reported"), details: [] };
-  const used = num(v.used ?? v.usedBytes);
-  const budget = num(v.budget ?? v.budgetBytes);
+  const used = num(v.used);
+  const budget = num(v.budget);
   if (v.mode === "off")
     return { ...base, level: "off", summary: t("Persistent media bypassed"), details: [] };
   if (budget <= 0)

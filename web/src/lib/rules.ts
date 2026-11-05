@@ -23,7 +23,7 @@ import { textOf } from "./extend";
  * Lookup-backed rules also carry `label`: the display names joined by ", ".
  */
 
-export type ValueKind = "facet" | "lookup" | "number" | "date" | "bool";
+type ValueKind = "facet" | "lookup" | "number" | "date" | "bool";
 
 export interface FieldMeta {
   field: RuleField;
@@ -267,7 +267,7 @@ export function fieldMeta(field: string): FieldMeta | undefined {
   return (FIELD_BY_NAME as Record<string, FieldMeta | undefined>)[field];
 }
 
-export const OP_LABELS = localized<Record<RuleOp, string>>(() => ({
+const OP_LABELS = localized<Record<RuleOp, string>>(() => ({
   is: t("is"),
   isNot: t("is not"),
   in: t("is any of"),
@@ -303,7 +303,7 @@ export function parseWithin(v: unknown): { n: number; unit: string } {
   return m ? { n: Number(m[1]), unit: m[2] ?? "d" } : { n: 30, unit: "d" };
 }
 
-export function formatWithin(v: unknown): string {
+function formatWithin(v: unknown): string {
   const { n, unit } = parseWithin(v);
   if (unit === "w") return tn(n, "{count} week", "{count} weeks");
   if (unit === "m") return tn(n, "{count} month", "{count} months");
@@ -476,7 +476,7 @@ function opPhrase(op: RuleOp, kind: ValueKind | undefined, field: string, value:
 // (internal/collections, kind "collectionSource"); the console keeps no
 // list of its own. These types mirror internal/extend/meta_sources.go.
 
-export interface ParamOption {
+interface ParamOption {
   value: string;
   label: ExtendText;
   media?: string[];
@@ -524,7 +524,7 @@ export function paramOptions(
   }));
 }
 
-export function optionLabel(field: ParamField | undefined, value: string): string {
+function optionLabel(field: ParamField | undefined, value: string): string {
   const o = field?.options?.find((x) => x.value === value);
   return o ? textOf(o.label) : value;
 }

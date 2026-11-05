@@ -38,7 +38,7 @@ export function isBuiltin(ix: { kind?: string }) {
   return ix.kind === "cardigann";
 }
 
-export function isInfoSetting(s: SiteSetting) {
+function isInfoSetting(s: SiteSetting) {
   return s.type.startsWith("info");
 }
 
@@ -303,7 +303,6 @@ export function SitePicker({
   }
   useEffect(() => {
     void loadCatalog();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const q = query.trim().toLowerCase();
@@ -717,8 +716,12 @@ export function SiteDefinitions({
             </ul>
           </SettingsRow>
         ) : null}
-        <MoreOptions label={t("More options: {title}", { title: t("Site definitions") })}>
+        <MoreOptions
+          setting="site-definitions"
+          label={t("More options: {title}", { title: t("Site definitions") })}
+        >
           <TextRow
+            setting="definitions-source"
             label={t("Definitions source")}
             type="url"
             value={draft.definitionsUrl ?? ""}
@@ -730,6 +733,7 @@ export function SiteDefinitions({
             onChange={(v) => setDraft({ ...draft, definitionsUrl: v })}
           />
           <TextRow
+            setting="flaresolverr"
             label="FlareSolverr"
             type="url"
             value={draft.flareSolverrUrl ?? ""}

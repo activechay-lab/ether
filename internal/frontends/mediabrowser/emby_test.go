@@ -5,11 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 )
@@ -80,23 +79,16 @@ func TestEmbySurfaceAndAuthentication(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "emby-grant") {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", "emby", "")
-	if os.IsNotExist(err) {
+	doc := spectest.Document(t, "emby")
+	if doc == nil {
 		return
 	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := openapi.Parse(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = doc.Validate("POST", "/Users/AuthenticateByName", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
+	if err := doc.Validate("POST", "/Users/AuthenticateByName", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 	response := httptest.NewRecorder()
 	h.Handler().ServeHTTP(response, httptest.NewRequest("GET", "/emby/System/Info/Public", nil))
-	if err = doc.Validate("GET", "/System/Info/Public", response.Code, response.Header().Get("Content-Type"), response.Body.Bytes()); err != nil {
+	if err := doc.Validate("GET", "/System/Info/Public", response.Code, response.Header().Get("Content-Type"), response.Body.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 }

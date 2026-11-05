@@ -104,7 +104,7 @@ export function hasWhen(w: LayoutWhen | undefined): w is LayoutWhen {
   );
 }
 
-export interface WhenContext {
+interface WhenContext {
   day: number;
   hour: number;
   device: string;
@@ -134,7 +134,7 @@ export function whenMatches(w: LayoutWhen | undefined, ctx: WhenContext): boolea
   return true;
 }
 
-export function isoDate(d: Date): string {
+function isoDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -171,7 +171,7 @@ export function describeWhen(w: LayoutWhen | undefined, dayNames: readonly strin
 
 // ---- reading the document -----------------------------------------------------------
 
-export function pagesOf(doc: HomeLayout, layer: LayerKey): LayoutPage[] {
+function pagesOf(doc: HomeLayout, layer: LayerKey): LayoutPage[] {
   if (layer === "global") return doc.global ?? [];
   return doc.viewers?.find((v) => v.userId === layer)?.pages ?? [];
 }
@@ -341,7 +341,7 @@ function tuningCount(t: LayoutTuning | undefined): number {
   return t ? TUNING_DIALS.filter((d) => t[d] !== undefined).length : 0;
 }
 
-export const TUNING_DIALS: TuningDial[] = ["discovery", "freshness", "variety"];
+const TUNING_DIALS: TuningDial[] = ["discovery", "freshness", "variety"];
 export const DIAL_DEFAULT = 0.5;
 
 /** The dial value a layer sets (undefined = inherits). */
@@ -507,7 +507,7 @@ export function sameLayout(a: HomeLayout, b: HomeLayout): boolean {
 }
 
 /** Apply fn to a layer's page (created when missing), then prune. */
-export function updatePage(
+function updatePage(
   doc: HomeLayout,
   layer: LayerKey,
   section: LayoutSection,
@@ -532,7 +532,7 @@ export function updatePage(
 }
 
 /** Normalise a policy the way the server does (status for anchors, neutral values dropped). */
-export function tidyPolicy(p: RowPolicy): RowPolicy {
+function tidyPolicy(p: RowPolicy): RowPolicy {
   const out: RowPolicy = { row: p.row, status: p.status };
   if (p.slot) {
     out.slot = p.slot;
@@ -644,10 +644,10 @@ export function freeSlot(doc: HomeLayout, layer: LayerKey, section: LayoutSectio
 }
 
 /** What a policy chip describes; stable across languages, for filtering. */
-export type PolicyChipKind =
+type PolicyChipKind =
   "slot" | "minSlot" | "maxSlot" | "priority" | "maxPerPage" | "maxDaysPerWeek" | "when";
 
-export interface PolicyChip {
+interface PolicyChip {
   kind: PolicyChipKind;
   text: string;
 }

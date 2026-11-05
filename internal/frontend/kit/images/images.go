@@ -2,17 +2,12 @@
 package images
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"image"
 	"image/color"
 )
 
 var ErrDimensions = errors.New("invalid image dimensions")
-
-// Tag changes whenever the input artwork bytes change.
-func Tag(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:16]) }
 
 // Resize returns a nearest-neighbour copy with explicit bounded dimensions.
 func Resize(src image.Image, width, height int) (*image.NRGBA, error) {

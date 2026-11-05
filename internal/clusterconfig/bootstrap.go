@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/dburl"
 	"io"
 	"log/slog"
 	"os"
@@ -24,13 +25,9 @@ func discard(l *slog.Logger) *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func isPostgresURL(u string) bool {
-	return config.Database{URL: u}.IsPostgres()
-}
-
 // openPostgres opens (and migrates) the cluster database.
 func openPostgres(ctx context.Context, url string, log *slog.Logger) (*sql.DB, error) {
-	if !isPostgresURL(url) {
+	if !dburl.IsPostgres(url) {
 		return nil, errors.New("clusterconfig: the cluster database URL must start with postgres:// or postgresql://")
 	}
 	db, _, err := store.OpenWith(ctx, store.Options{Driver: store.Postgres.String(), URL: url, Logger: log})
@@ -69,7 +66,7 @@ func Init(ctx context.Context, o InitOptions) error {
 	if cfgStore.Get().Database.IsPostgres() {
 		return errors.New("this server already uses PostgreSQL; add further nodes with `ether cluster join`")
 	}
-	if !isPostgresURL(o.DatabaseURL) {
+	if !dburl.IsPostgres(o.DatabaseURL) {
 		return errors.New("a postgres:// database URL is required (--database-url or ETHER_DATABASE_URL)")
 	}
 	pg, err := openPostgres(ctx, o.DatabaseURL, log)

@@ -4,12 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/braedonsaunders/ether/internal/conform"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/route"
 )
 
@@ -43,16 +42,9 @@ func TestPublicRoutes(t *testing.T) {
 }
 
 func TestJellyfinPublicSpec(t *testing.T) {
-	spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	if os.IsNotExist(err) {
-		t.Skip("spec cache empty")
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := openapi.Parse(spec)
-	if err != nil {
-		t.Fatal(err)
+	doc := spectest.Document(t, "jellyfin")
+	if doc == nil {
+		return
 	}
 	r := &route.Router{}
 	if err := PublicRoutes(r, PublicInfo{ID: "00000000000000000000000000000001", ServerName: "Ether", Version: "12.4.0", ProductName: "Jellyfin Server"}); err != nil {

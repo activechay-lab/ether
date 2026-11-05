@@ -1,3 +1,4 @@
+import { copyText } from "../../components/CopyButton";
 import { t, tx } from "../../i18n";
 import { useEffect, useState, type FormEvent } from "react";
 import { Button, Input, Label, toast } from "@braedonsaunders/appkit-ui";
@@ -325,8 +326,7 @@ export function AddViewerDrawer({
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    void navigator.clipboard?.writeText(link);
-                    toast.success(t("Link copied"));
+                    void copyText(link);
                   }}
                 >
                   <Copy size={14} /> {t("Copy link")}
@@ -362,8 +362,7 @@ export function AddViewerDrawer({
               variant="outline"
               size="sm"
               onClick={() => {
-                void navigator.clipboard?.writeText(messageText());
-                toast.success(t("Message copied"));
+                void copyText(messageText());
               }}
             >
               <MessageSquareText size={14} /> {t("Copy as message")}

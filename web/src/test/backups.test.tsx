@@ -199,7 +199,7 @@ describe("Backups & import", () => {
     expect(headers["X-Ether-Backup-Legacy"]).toBeUndefined();
   });
 
-  it("asks before restoring an unencrypted bundle from an older version", async () => {
+  it("rejects an unencrypted bundle without uploading it", async () => {
     const calls = backend();
     render(
       <>
@@ -211,21 +211,12 @@ describe("Backups & import", () => {
     fireEvent.change(await screen.findByLabelText("Choose backup file"), {
       target: { files: [file] },
     });
-    expect(await screen.findByText("This backup isn't password protected")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Choose a backup downloaded from Ether (an .etherbackup file)."),
+    ).toBeInTheDocument();
     expect(calls.some((c) => c.url.endsWith("/backups/restore") && c.init?.method === "POST")).toBe(
       false,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Check backup" }));
-    await waitFor(() =>
-      expect(
-        calls.some((c) => c.url.endsWith("/backups/restore") && c.init?.method === "POST"),
-      ).toBe(true),
-    );
-    const headers = calls.find(
-      (c) => c.url.endsWith("/backups/restore") && c.init?.method === "POST",
-    )!.init!.headers as Record<string, string>;
-    expect(headers["X-Ether-Backup-Legacy"]).toBe("plaintext");
-    expect(headers["X-Ether-Backup-Password"]).toBeUndefined();
   });
 
   it("has no local library tools", async () => {

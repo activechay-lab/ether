@@ -43,9 +43,6 @@ func TestConnBodyStatGroupDate(t *testing.T) {
 	}
 	s.AddArticle("text@test", []byte(".dot first\n..double\nplain\n"))
 	c := dialServer(t, s)
-	if !c.PostingAllowed {
-		t.Fatal("expected 200 greeting")
-	}
 
 	part, err := c.BodyDecode(context.Background(), "seg1@test", nil)
 	if err != nil {

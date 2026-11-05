@@ -83,7 +83,18 @@ export function NewReleasesSettings({
               >
                 <Icon className="new-release-card-icon" aria-hidden="true" />
                 <span className="new-release-card-head">
-                  <span className="new-release-card-title">{item.title()}</span>
+                  <span
+                    data-setting={
+                      {
+                        playable: "when-they-can-play",
+                        digital: "on-digital-release",
+                        immediate: "right-away",
+                      }[item.value]
+                    }
+                    className="new-release-card-title"
+                  >
+                    {item.title()}
+                  </span>
                   {item.recommended ? (
                     <span className="new-release-recommended">{t("Recommended")}</span>
                   ) : null}
@@ -121,7 +132,7 @@ export function NewReleasesSettings({
  * Daily indexer budget for new-release checks (`availability.effort` /
  * `feedRequests`), edited on Sources › Indexers.
  */
-export function NewReleaseBudget({
+function NewReleaseBudget({
   availability,
   onChange,
 }: {
@@ -131,6 +142,7 @@ export function NewReleaseBudget({
   const ceiling = customRequestCeiling(availability);
   return (
     <SettingsRow
+      setting="daily-budget-for-new-release-checks"
       title={t("Daily budget for new-release checks")}
       description={t("Leave empty to let Ether choose a daily limit from your indexers.")}
       control={
@@ -200,7 +212,10 @@ export function NewReleaseBudgetSection() {
   if (!availability.draft) return null;
   return (
     <SettingsSection title={t("Daily budgets")}>
-      <MoreOptions label={t("More options: {title}", { title: t("Daily budgets") })}>
+      <MoreOptions
+        setting="daily-budgets"
+        label={t("More options: {title}", { title: t("Daily budgets") })}
+      >
         <NewReleaseBudget availability={availability.draft} onChange={availability.setDraft} />
       </MoreOptions>
       {availability.saveBar}

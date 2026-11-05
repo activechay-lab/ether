@@ -13,7 +13,7 @@ import { localized, t } from "../../i18n";
 import { api, apiFetch } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 import type { PosterProviderConfig as Posters } from "../../lib/types";
-export const emptyPoster: Posters = {
+const emptyPoster: Posters = {
   enabled: false,
   source: "tmdb",
   baseUrl: "",
@@ -75,7 +75,7 @@ export function normalizePosters(value?: Posters | null): Posters {
     ),
   };
 }
-export function PosterAccountForm({
+function PosterAccountForm({
   value,
   onChange,
 }: {

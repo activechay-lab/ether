@@ -309,7 +309,7 @@ func TestResumedDetailRefillDoesNotWaitOrChangeSource(t *testing.T) {
 	caps.ClientID = "client-2"
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if !x.mgr.PreResolve(ctx, &ownerUser, x.title.Key, caps) {
+	if !x.mgr.Prewarm(ctx, &ownerUser, x.title.Key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("second client warm refused")
 	}
 	x.waitWarm(t)

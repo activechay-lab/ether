@@ -35,7 +35,7 @@ import { RecordDrawer, TextRow } from "../sources/form";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
 import { useLocale } from "../../i18n/react";
 
-export type ImportMode = "guides" | "dictionarry" | "paste";
+type ImportMode = "guides" | "dictionarry" | "paste";
 
 const APPS = localized(() => [
   { value: "radarr" as const, label: t("Movies (Radarr)") },
@@ -98,17 +98,15 @@ const STATUS: Record<
  */
 export function TrashImport({
   open,
-  initialMode = "guides",
   onClose,
   onImported,
 }: {
   open: boolean;
-  initialMode?: ImportMode;
   onClose: () => void;
   onImported: () => Promise<void> | void;
 }) {
   const [app, setApp] = useState<StarrApp>("radarr");
-  const [mode, setMode] = useState<ImportMode>(initialMode);
+  const [mode, setMode] = useState<ImportMode>("guides");
   const [profileId, setProfileId] = useState("");
   const [pasted, setPasted] = useState("");
   const [plan, setPlan] = useState<QualityImportPlan | null>(null);
@@ -158,13 +156,12 @@ export function TrashImport({
   // Start over each time the drawer opens.
   useEffect(() => {
     if (!open) return;
-    setMode(initialMode);
+    setMode("guides");
     setProfileId("");
     setPasted("");
     clearPreview();
     setSaveError(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialMode]);
+  }, [open]);
 
   function clearPreview() {
     preview.current?.abort();

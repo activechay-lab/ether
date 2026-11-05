@@ -44,7 +44,7 @@ const SOURCE_LABELS: Record<ViewerSource, string> = localized(() => ({
   dlnaGuest: t("Living-room guest"),
 }));
 
-export function sourceLabel(source: ViewerSource): string {
+function sourceLabel(source: ViewerSource): string {
   return SOURCE_LABELS[source];
 }
 

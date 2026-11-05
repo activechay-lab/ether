@@ -98,7 +98,6 @@ export default function AskEtherPanel({
     if (!out.includes(fallback)) out.push(fallback);
     return out.slice(0, 4);
     // locale re-renders the fallback copy in the active language.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [descriptors, route, locale]);
 
   const toolLabels = useMemo(() => {
@@ -108,7 +107,6 @@ export default function AskEtherPanel({
       ...humanized,
       ...toolLabelsFromDescriptors(descriptors.filter((d) => d.kind === "tool")),
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [descriptors, locale]);
 
   return (

@@ -29,9 +29,7 @@ func (s *Service) ensureFenceTx(ctx context.Context, tx *sql.Tx, userID int64) e
 // between the admission read and the permit insert.
 func (s *Service) lockFence(ctx context.Context, tx *sql.Tx, userID int64) (int64, error) {
 	q := `SELECT generation FROM plexwatch_fence WHERE user_id=?`
-	if store.DialectOf(s.db) == store.Postgres {
-		q += ` FOR UPDATE`
-	}
+	q += store.ForUpdate(store.DialectOf(s.db))
 	var gen int64
 	err := tx.QueryRowContext(ctx, q, userID).Scan(&gen)
 	return gen, err
@@ -192,9 +190,7 @@ func (s *Service) acquireSend(ctx context.Context, row state.SyncRow, attempt st
 // consent is the generation stored on that row. A missing row is not owned.
 func (s *Service) lockIntent(ctx context.Context, tx *sql.Tx, seq int64, attempt string) (owned bool, consent int64, err error) {
 	q := `SELECT claimed_by, dead, superseded, delivered_at, consent_generation FROM state_sync_journal WHERE seq=?`
-	if store.DialectOf(s.db) == store.Postgres {
-		q += ` FOR UPDATE`
-	}
+	q += store.ForUpdate(store.DialectOf(s.db))
 	var claimed string
 	var dead, superseded int
 	var delivered int64

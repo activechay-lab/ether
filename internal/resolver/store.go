@@ -96,18 +96,11 @@ func (s *Service) persistBad(ctx context.Context, e BlockEntry) error {
 		   source=CASE WHEN excluded.manual=1 THEN excluded.source ELSE resolver_bad.source END,
 		   manual=CASE WHEN excluded.manual=1 THEN 1 ELSE resolver_bad.manual END,
 		   updated_at=excluded.updated_at`,
-		e.ReleaseID, e.Reason, now, e.Name, e.Indexer, int64(e.TitleKey), e.TitleName, e.Source, boolInt(e.Manual), now)
+		e.ReleaseID, e.Reason, now, e.Name, e.Indexer, int64(e.TitleKey), e.TitleName, e.Source, store.BoolInt(e.Manual), now)
 	if err == nil {
 		s.notify("bad:" + e.ReleaseID)
 	}
 	return err
-}
-
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 func (s *Service) recordReputation(ctx context.Context, indexer string, success bool) {

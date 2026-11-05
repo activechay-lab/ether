@@ -145,28 +145,8 @@ func WithCatalogConfig(fn func() config.Catalog) Option { return func(s *Service
 // WithTraktConfig supplies the Trakt client id used to read public lists.
 func WithTraktConfig(fn func() config.Trakt) Option { return func(s *Service) { s.traktCfg = fn } }
 
-// WithHTTPClient sets the client for the external list sites.
-func WithHTTPClient(c *http.Client) Option { return func(s *Service) { s.opts.httpClient = c } }
-
 // WithUserAgent identifies Ether to list sites.
 func WithUserAgent(ua string) Option { return func(s *Service) { s.opts.userAgent = ua } }
-
-// WithExternalBases points external list fetches at other origins (tests).
-func WithExternalBases(b ExternalBases) Option { return func(s *Service) { s.opts.bases = &b } }
-
-// WithIndexTTL sets how often the catalogue index checks for changes
-// (default 2m; 0 checks on every use).
-func WithIndexTTL(d time.Duration) Option { return func(s *Service) { s.opts.indexTTL = d } }
-
-// WithLiveTTL sets how long a live collection's evaluation is reused
-// (default 2m).
-func WithLiveTTL(d time.Duration) Option { return func(s *Service) { s.liveTTL = d } }
-
-// WithSchedulerTick sets how often Run looks for collections due a refresh.
-func WithSchedulerTick(d time.Duration) Option { return func(s *Service) { s.tick = d } }
-
-// WithoutDefaults skips seeding the starter collections (tests).
-func WithoutDefaults() Option { return func(s *Service) { s.opts.noSeed = true } }
 
 // New creates the collection engine, migrating v1 smart collections and
 // seeding built-ins and starter collections.
@@ -1122,17 +1102,6 @@ func filterTitlesByRating(items []core.Title, user *core.User) []core.Title {
 		}
 	}
 	return out
-}
-
-// BuiltinKey returns the rating key of a built-in collection by slug
-// (e.g. "trending-week-movie"), or 0.
-func BuiltinKey(slug string) core.RatingKey {
-	for _, b := range builtins {
-		if b.slug == slug {
-			return core.SmartKey(b.id)
-		}
-	}
-	return 0
 }
 
 func idString(id int64) string { return strconv.FormatInt(id, 10) }

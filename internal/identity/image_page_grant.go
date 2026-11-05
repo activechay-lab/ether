@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -526,13 +527,13 @@ func (s *ImageGrantService) withCheckedTags(ctx context.Context, master []byte, 
 
 func (s *ImageGrantService) tagDenied(ctx context.Context, tag string) bool {
 	digest := pageDigest(tag)
-	if _, ok := s.denied.Load(digest); ok {
+	if s.isDenied(digest) {
 		return true
 	}
 	if checked, ok := ctx.Value(checkedTagsKey{}).(map[string]bool); ok {
 		if denied, ok := checked[digest]; ok {
 			if denied {
-				s.denied.Store(digest, true)
+				s.deny(digest, 0)
 			}
 			return denied
 		}
@@ -540,7 +541,7 @@ func (s *ImageGrantService) tagDenied(ctx context.Context, tag string) bool {
 	var revoked int
 	err := s.db.QueryRowContext(ctx, `SELECT revoked FROM frontend_image_grants WHERE hash=? AND surface=?`, digest, string(s.surface)).Scan(&revoked)
 	if err == nil && revoked != 0 {
-		s.denied.Store(digest, true)
+		s.deny(digest, 0)
 		return true
 	}
 	return false
@@ -662,7 +663,7 @@ func imageItemKey(path string) (core.RatingKey, bool) {
 }
 
 func (s *ImageGrantService) servePageGrant(w http.ResponseWriter, r *http.Request, secret string) {
-	if _, denied := s.denied.Load(pageDigest(secret)); denied {
+	if s.isDenied(pageDigest(secret)) {
 		http.NotFound(w, r)
 		return
 	}
@@ -717,28 +718,17 @@ func (s *ImageGrantService) serveClaims(w http.ResponseWriter, r *http.Request, 
 	s.writeGrantedImage(w, r, viewer, device, core.RatingKey(claims.Item), claims.Channel, img, pageDigest(secret), claims.Source, string(claims.Device))
 }
 
+// revokeShortGrant and revokePageGrant deny the grant in memory at once
+// (this node stops serving it even if persisting fails) and then persist the
+// revocation, so it survives a restart and reaches the other nodes. A failed
+// persist is returned: the owner must know the revocation is node-local.
 func (s *ImageGrantService) revokeShortGrant(ctx context.Context, viewerID int64, source, secret string) error {
 	claims, ok := s.loadShort(secret)
 	if !ok || claims.Viewer != viewerID || subtle.ConstantTimeCompare([]byte(claims.Source), []byte(source)) != 1 {
 		return core.ErrUnauthorized
 	}
 	s.forgetShort(secret)
-	digest := pageDigest(secret)
-	s.denied.Store(digest, true)
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil
-	}
-	defer tx.Rollback()
-	row := imageBatchRow{hash: digest, item: core.RatingKey(claims.Item), image: frontend.Image{Kind: claims.Kind, Path: claims.Path, Tag: claims.Tag, Subject: claims.Subject}}
-	if err = s.insertAdmitted(ctx, tx, viewerID, source, deviceID(claims.Device), string(claims.Device), claims.Channel, []imageBatchRow{row}); err != nil {
-		return nil
-	}
-	if _, err = tx.ExecContext(ctx, `UPDATE frontend_image_grants SET revoked=1 WHERE hash=? AND source_hash=? AND viewer_id=? AND surface=?`, digest, source, viewerID, string(s.surface)); err != nil {
-		return nil
-	}
-	_ = tx.Commit()
-	return nil
+	return s.persistRevocation(ctx, viewerID, source, pageDigest(secret), claims)
 }
 
 func (s *ImageGrantService) revokePageGrant(ctx context.Context, viewerID int64, source, secret string) error {
@@ -746,22 +736,60 @@ func (s *ImageGrantService) revokePageGrant(ctx context.Context, viewerID int64,
 	if err != nil || claims.Viewer != viewerID || subtle.ConstantTimeCompare([]byte(claims.Source), []byte(source)) != 1 {
 		return core.ErrUnauthorized
 	}
-	digest := pageDigest(secret)
-	s.denied.Store(digest, true)
+	return s.persistRevocation(ctx, viewerID, source, pageDigest(secret), claims)
+}
+
+func (s *ImageGrantService) persistRevocation(ctx context.Context, viewerID int64, source, digest string, claims pageClaims) error {
+	s.deny(digest, claims.Expires)
+	s.gen.Add(1)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil
+		return fmt.Errorf("identity: persist image grant revocation: %w", err)
 	}
 	defer tx.Rollback()
 	row := imageBatchRow{hash: digest, item: core.RatingKey(claims.Item), image: frontend.Image{Kind: claims.Kind, Path: claims.Path, Tag: claims.Tag, Subject: claims.Subject}}
 	if err = s.insertAdmitted(ctx, tx, viewerID, source, deviceID(claims.Device), string(claims.Device), claims.Channel, []imageBatchRow{row}); err != nil {
-		return nil
+		return fmt.Errorf("identity: persist image grant revocation: %w", err)
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE frontend_image_grants SET revoked=1 WHERE hash=? AND source_hash=? AND viewer_id=? AND surface=?`, digest, source, viewerID, string(s.surface)); err != nil {
-		return nil
+		return fmt.Errorf("identity: persist image grant revocation: %w", err)
 	}
-	_ = tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("identity: persist image grant revocation: %w", err)
+	}
 	return nil
+}
+
+// deny records a revoked grant digest in memory until untilMs (Unix
+// milliseconds), after which the grant has expired anyway or the persisted
+// revoked row answers. Expired entries are swept at most once per TTL.
+func (s *ImageGrantService) deny(digest string, untilMs int64) {
+	now := s.now().UnixMilli()
+	if floor := now + s.ttl.Milliseconds(); untilMs < floor {
+		untilMs = floor
+	}
+	s.denied.Store(digest, untilMs)
+	if last := s.deniedSwept.Load(); now-last >= s.ttl.Milliseconds() && s.deniedSwept.CompareAndSwap(last, now) {
+		s.denied.Range(func(k, v any) bool {
+			if until, _ := v.(int64); until <= now {
+				s.denied.CompareAndDelete(k, v)
+			}
+			return true
+		})
+	}
+}
+
+// isDenied reports whether digest is revoked in memory.
+func (s *ImageGrantService) isDenied(digest string) bool {
+	v, ok := s.denied.Load(digest)
+	if !ok {
+		return false
+	}
+	if until, _ := v.(int64); until <= s.now().UnixMilli() {
+		s.denied.CompareAndDelete(digest, v)
+		return false
+	}
+	return true
 }
 
 func deviceID(raw json.RawMessage) string {

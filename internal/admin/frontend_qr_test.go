@@ -10,7 +10,7 @@ import (
 
 func TestFrontendQR(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
 	call := func(query string) int {
 		r := req("GET", "/ether/api/frontends/qr?url="+query, "")
 		r.Header.Set("X-Plex-Token", ownerToken)

@@ -109,14 +109,12 @@ export function Shelf({
   posterWidth = "w-28 sm:w-32",
   ariaLabel,
   empty,
-  renderBadge,
 }: {
   items: TitleCard[];
   reasons?: Record<string, string>;
   posterWidth?: string;
   ariaLabel: string;
   empty?: ReactNode;
-  renderBadge?: (item: TitleCard) => ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const scroll = (dir: 1 | -1) => {
@@ -136,7 +134,7 @@ export function Shelf({
       >
         {items.map((it, i) => (
           <div key={`${it.key}-${i}`} role="listitem" className={cn("shrink-0", posterWidth)}>
-            <PosterCard item={it} reason={reasons?.[it.key]} badge={renderBadge?.(it)} />
+            <PosterCard item={it} reason={reasons?.[it.key]} />
           </div>
         ))}
       </div>
@@ -173,13 +171,11 @@ export function PosterGrid({
   items,
   reasons,
   onSelect,
-  renderBadge,
   className,
 }: {
   items: TitleCard[];
   reasons?: Record<string, string>;
   onSelect?: (item: TitleCard) => void;
-  renderBadge?: (item: TitleCard) => ReactNode;
   className?: string;
 }) {
   return (
@@ -195,7 +191,7 @@ export function PosterGrid({
           <PosterCard
             item={it}
             reason={reasons?.[it.key]}
-            badge={renderBadge?.(it)}
+
             onClick={onSelect ? () => onSelect(it) : undefined}
             eager={i < 12}
           />

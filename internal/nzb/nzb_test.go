@@ -446,3 +446,14 @@ func TestParseBoundsSegmentNumbers(t *testing.T) {
 		t.Fatalf("Missing = %d entries", len(m))
 	}
 }
+
+func TestRejectsHostilePartCounts(t *testing.T) {
+	for _, doc := range []string{
+		`<nzb><file subject='"x.mkv" yEnc (1/999999)'><segments><segment bytes="100" number="1">a</segment></segments></file></nzb>`,
+		`<nzb><file subject='"x.mkv"'><segments><segment bytes="100" number="999999">a</segment></segments></file></nzb>`,
+	} {
+		if _, err := Parse([]byte(doc)); err == nil {
+			t.Fatal("accepted hostile sparse file")
+		}
+	}
+}

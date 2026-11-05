@@ -736,12 +736,6 @@ func (b *Broker) releaseLazyHeartbeat() {
 	b.mu.Unlock()
 }
 
-// heartbeat rechecks authority while a response is still being transferred.
-// Revocation during a transfer is detected at the next tick, at most one
-// minute later. New requests still check authorization immediately.
-func (s *lazyStreams) heartbeat(ctx context.Context, cancel context.CancelFunc, hash, reference string, viewerID int64, id string, req frontend.PlanRequest) {
-	s.heartbeatBinding(ctx, cancel, hash, hash, reference, viewerID, id, req)
-}
 func (s *lazyStreams) heartbeatBinding(ctx context.Context, cancel context.CancelFunc, hash, binding, reference string, viewerID int64, id string, req frontend.PlanRequest) {
 	interval := min(time.Minute, s.ttl/3)
 	var ticks <-chan time.Time
@@ -792,12 +786,6 @@ func (s *lazyStreams) heartbeatBinding(ctx context.Context, cancel context.Cance
 	}
 }
 
-// renewActive is called only after a GET has established or found a session
-// and passed grant, viewer and current media policy checks. HEAD probes never
-// keep an abandoned capability alive. The issuing grant is never extended.
-func (s *lazyStreams) renewActive(ctx context.Context, hash, reference string, viewerID int64, sessionID string) error {
-	return s.renewActiveBinding(ctx, hash, hash, reference, viewerID, sessionID)
-}
 func (s *lazyStreams) renewActiveBinding(ctx context.Context, hash, binding, reference string, viewerID int64, sessionID string) error {
 	now := s.broker.deps.Now()
 	until := now.Add(s.ttl)

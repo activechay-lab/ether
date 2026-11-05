@@ -57,13 +57,6 @@ func PlexWireID(key core.RatingKey, slot string) int64 {
 	return int64(h.Sum64()%2_000_000_000) + 1
 }
 
-// PlexStreamSlot is the stable identity of a stream within a title.
-// A subtitle's id is its language, codec, and source (the sidecar URL, or
-// embedded), not its position in a variant's stream list. Play Version
-// reorders those lists as candidates warm, and the same part id can name a
-// different release; the viewer's choice has to keep naming the same track.
-func PlexStreamSlot(index int, info core.StreamInfo) string { return plexStreamSlot(index, info) }
-
 func plexStreamSlot(index int, info core.StreamInfo) string {
 	if info.External && info.ExternalURL != "" {
 		return "external/" + info.ExternalURL
@@ -82,9 +75,6 @@ func plexStreamSlot(index int, info core.StreamInfo) string {
 	}
 	return strconv.Itoa(index)
 }
-
-// PlexStreamsMatch reports whether two renders are the same visible stream.
-func PlexStreamsMatch(a, b core.StreamInfo) bool { return plexSameStream(a, b) }
 
 func plexSameStream(a, b core.StreamInfo) bool {
 	return a.Type == b.Type && a.Codec == b.Codec && a.Language == b.Language &&

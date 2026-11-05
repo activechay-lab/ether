@@ -49,7 +49,7 @@ func TestJellyfinQuickConnectPlexPortal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	portal := admin.New(admin.Deps{PollLimiter: pollLimiter, Config: a.cfg, IdentityGrants: grants, QuickConnect: quick, IdentityLimiter: limiter, SignIn: quickPlexPIN{}, AuthenticatePlex: func(_ context.Context, token string) (*core.User, error) {
+	portal := admin.NewHandler(admin.Deps{PollLimiter: pollLimiter, Config: a.cfg, IdentityGrants: grants, QuickConnect: quick, IdentityLimiter: limiter, SignIn: quickPlexPIN{}, AuthenticatePlex: func(_ context.Context, token string) (*core.User, error) {
 		if token != "plex-viewer-token" {
 			return nil, core.ErrUnauthorized
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/store"
 	"time"
 )
 
@@ -73,8 +74,8 @@ func (c *Catalog) ShowTrajectories(ctx context.Context, shows []core.RatingKey) 
 	// show lands in exactly one chunk, so per-show points stay ordered
 	// and are never merged across queries.
 	const batch = 200
-	for start := 0; start < len(args); start += batch {
-		part := args[start:min(start+batch, len(args))]
+	for chunk := range store.Chunks(args, batch) {
+		part := chunk
 		ph := placeholders(len(part))
 		srows, err := c.db.QueryContext(ctx, `SELECT key, status, rating FROM catalog_titles WHERE key IN (`+ph+`)`, part...)
 		if err != nil {

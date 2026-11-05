@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/plugins/remotetest"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,7 +26,7 @@ func TestPlaybackThroughTunnel(t *testing.T) {
 		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer ha.Close()
-	tunnel := remote.NewTunnelServer(remote.TunnelOptions{Auth: remote.StaticCredentials{"fixture-credential": "org.ether.examples.home-assistant"}})
+	tunnel := remote.NewTunnelServer(remote.TunnelOptions{Auth: remotetest.Credentials{"fixture-credential": "org.ether.examples.home-assistant"}})
 	defer tunnel.Close()
 	server := httptest.NewServer(tunnel.Handler())
 	defer server.Close()

@@ -2,7 +2,7 @@ import { t } from "../../../i18n";
 import type { PluginDetail } from "../types";
 
 /** What a plugin can add to Ether's own surfaces, most visible first. */
-export const CONTRIBUTIONS = [
+const CONTRIBUTIONS = [
   "livetv_channels",
   "list_source",
   "stream_source",
@@ -14,7 +14,7 @@ export const CONTRIBUTIONS = [
 
 export type Contribution = (typeof CONTRIBUTIONS)[number];
 
-export function capabilitiesOf(detail: PluginDetail): string[] {
+function capabilitiesOf(detail: PluginDetail): string[] {
   return detail.capabilities?.length
     ? detail.capabilities
     : (detail.manifest.ether?.capabilities ?? []);

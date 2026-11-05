@@ -378,11 +378,6 @@ func (s *Service) Poster(ctx context.Context, u *core.User, t *core.Title, lang 
 	return s.compositeContext(ctx, data, labels, cfg)
 }
 
-// composite retains the package's offline rendering entry point.
-func (s *Service) composite(data []byte, labels []string, settings Settings) ([]byte, string, error) {
-	return s.compositeContext(context.Background(), data, labels, settings)
-}
-
 func (s *Service) compositeContext(ctx context.Context, data []byte, labels []string, settings Settings) ([]byte, string, error) {
 	settings = normalizeSettings(settings)
 	if err := validateSettings(settings); err != nil {

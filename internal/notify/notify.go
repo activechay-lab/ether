@@ -297,11 +297,6 @@ func (s *Service) normalize(c Channel) (Channel, error) {
 	return c, nil
 }
 
-// validateChannel checks a channel against the built-in kinds.
-func validateChannel(c Channel) error {
-	return validateWith(builtinRegistry(), c)
-}
-
 func validateWith(reg *KindRegistry, c Channel) error {
 	kind, ok := reg.Get(c.Kind)
 	if !ok {
@@ -439,9 +434,6 @@ func matches(events []string, k string) bool {
 		}
 	}
 	return false
-}
-func (s *Service) enqueue(ctx context.Context, c Channel, e Event) error {
-	return enqueueWith(ctx, s.db, c, e, s.opts.Now())
 }
 
 func enqueueWith(ctx context.Context, db interface {

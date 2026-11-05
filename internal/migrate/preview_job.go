@@ -5,12 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/releaseparse"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -232,20 +232,7 @@ func splitTitleCountry(title string) (base, iso, name string) {
 }
 
 func normalizeAlnum(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	s = strings.ReplaceAll(s, "&", " and ")
-	var b strings.Builder
-	space := false
-	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
-			space = false
-		} else if !space && b.Len() > 0 {
-			b.WriteByte(' ')
-			space = true
-		}
-	}
-	return strings.TrimSpace(b.String())
+	return releaseparse.NormalizeTitle(s)
 }
 
 func titleMatchesExact(t *core.Title, want string) bool {

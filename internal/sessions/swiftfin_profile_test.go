@@ -79,7 +79,10 @@ func TestSwiftfinVideoRangeDirectPlaysOrTranscodes(t *testing.T) {
 	profile7 := dovi
 	profile7.DolbyVisionProfile = 7
 	profile7.DolbyVisionCompatibilityID = 6
-	if d, err := play(profile7); err != nil || d.Kind != core.DecisionTranscode || d.VideoCopy {
+	// Swiftfin lists HDR10 but not DV with an enhancement layer: copy the
+	// HDR10 base layer with the Dolby Vision signalling stripped (#328)
+	// rather than re-encoding the picture.
+	if d, err := play(profile7); err != nil || !d.VideoCopy || !d.StripDolbyVision || d.Kind == core.DecisionDirectPlay {
 		t.Fatalf("Dolby Vision profile 7: %+v %v", d, err)
 	}
 }

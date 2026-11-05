@@ -8,12 +8,12 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/extend"
+	"github.com/braedonsaunders/ether/internal/retryafter"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -194,12 +194,8 @@ func (s *Service) plexGuideRequest(ctx context.Context, path string, q url.Value
 		s.plexGate.failures++
 		s.plexGate.status = resp.StatusCode
 		wait := plexBackoff(s.plexGate.failures)
-		if raw := resp.Header.Get("Retry-After"); raw != "" {
-			if n, e := strconv.Atoi(raw); e == nil && n >= 0 && n < int((365*24*time.Hour)/time.Second) {
-				wait = time.Duration(n) * time.Second
-			} else if t, e := http.ParseTime(raw); e == nil && time.Until(t) > 0 {
-				wait = time.Until(t)
-			}
+		if d, ok := retryafter.Parse(resp.Header.Get("Retry-After"), time.Now(), 24*time.Hour); ok {
+			wait = d
 		}
 		s.plexGate.next = time.Now().Add(wait)
 		switch resp.StatusCode {

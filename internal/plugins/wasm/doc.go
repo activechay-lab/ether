@@ -10,6 +10,11 @@
 //     (see Compile), then run as JavaScript.
 //   - Raw WebAssembly modules, executed directly by wazero.
 //
+// The QuickJS WASI instance has no preopened filesystem, environment or
+// arguments. Its std and os modules are disabled. Raw modules cannot import
+// WASI. Host capabilities such as HTTP and folders are available only through
+// Ether's permission-checked host calls. Studio previews use the same runtime.
+//
 // # Request ABI (all kinds)
 //
 // A plugin answers HTTP-shaped JSON requests. The request is

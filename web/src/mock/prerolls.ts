@@ -10,7 +10,7 @@ import type {
 } from "../pages/playback/prerolls-api";
 
 /** What the simulator needs to know about a feature title. */
-export type PrerollTitle = Pick<TitleCard, "key" | "type" | "title" | "genres" | "contentRating">;
+type PrerollTitle = Pick<TitleCard, "key" | "type" | "title" | "genres" | "contentRating">;
 
 type Options = {
   /** Seed three pre-rolls, their recent plays and one video still converting. */

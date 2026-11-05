@@ -54,8 +54,8 @@ function normalizeTrace(raw: Record<string, unknown>, i: number): ResolverTrace 
   const limits = isPlainObject(raw.limits) ? raw.limits : {};
   const nestedLimits = isPlainObject(nested.limits) ? nested.limits : {};
   return {
-    titleKey: String(raw.titleKey ?? raw.key ?? i),
-    titleName: String(raw.titleName ?? raw.title ?? raw.name ?? t("Trace {n}", { n: i + 1 })),
+    titleKey: String(raw.titleKey ?? i),
+    titleName: String(raw.titleName ?? t("Trace {n}", { n: i + 1 })),
     profile: String(raw.profile ?? ""),
     profileMaxHeight: configuredCeiling(
       raw.profileMaxHeight ??
@@ -76,15 +76,10 @@ function normalizeTrace(raw: Record<string, unknown>, i: number): ResolverTrace 
         nestedLimits.profileMaxHeight,
     ),
     at: String(raw.at ?? ""),
-    candidates: (Array.isArray(raw.candidates)
-      ? raw.candidates
-      : Array.isArray(raw.releases)
-        ? raw.releases
-        : []
-    )
+    candidates: (Array.isArray(raw.candidates) ? raw.candidates : [])
       .filter(isPlainObject)
       .map((c) => ({
-        releaseId: String(c.releaseId ?? c.id ?? ""),
+        releaseId: String(c.releaseId ?? ""),
         name: String(c.name ?? ""),
         indexer: String(c.indexer ?? ""),
         score: Number(c.score ?? 0),
@@ -108,8 +103,7 @@ function normalizeTrace(raw: Record<string, unknown>, i: number): ResolverTrace 
         route: typeof c.route === "string" ? c.route : undefined,
       })),
     winner: typeof raw.winner === "string" ? raw.winner : undefined,
-    err:
-      typeof raw.err === "string" ? raw.err : typeof raw.error === "string" ? raw.error : undefined,
+    err: typeof raw.err === "string" ? raw.err : undefined,
     searchDuration: Number(raw.searchDuration ?? 0),
     failover: Boolean(raw.failover),
     pinned: typeof raw.pinned === "string" ? raw.pinned : undefined,

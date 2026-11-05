@@ -167,35 +167,6 @@ func registerViewerTable(component, table, column string, merge ViewerMergeMode,
 	viewerMu.Unlock()
 }
 
-// RegisterViewerExempt records that a table holding a viewer column needs
-// no purge or merge of its own, and why (for example its rows cascade from
-// a registered parent table). The coverage guard accepts the exemption.
-func RegisterViewerExempt(component, table, reason string) {
-	if reason == "" {
-		panic("store: RegisterViewerExempt requires a reason")
-	}
-	viewerMu.Lock()
-	defer viewerMu.Unlock()
-	claimViewerTables(component, []string{table})
-	viewerExempts[table] = reason
-}
-
-// ViewerCoverage reports the registered per-viewer tables (table ->
-// component) and the exemptions (table -> reason).
-func ViewerCoverage() (covered, exempt map[string]string) {
-	viewerMu.Lock()
-	defer viewerMu.Unlock()
-	covered = make(map[string]string, len(viewerTables))
-	for table, component := range viewerTables {
-		covered[table] = component
-	}
-	exempt = make(map[string]string, len(viewerExempts))
-	for table, reason := range viewerExempts {
-		exempt[table] = reason
-	}
-	return covered, exempt
-}
-
 func sortedPurges() []viewerPurge {
 	viewerMu.Lock()
 	out := append([]viewerPurge(nil), viewerPurges...)

@@ -8,7 +8,7 @@ import type { FacetValue } from "./contract";
  */
 export const NOT_RATED = "NR";
 
-export interface RatingLevel {
+interface RatingLevel {
   /** Stored key. */
   value: string;
   /** The US film and TV labels of the level, as one line. */

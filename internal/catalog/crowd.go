@@ -38,9 +38,6 @@ const DefaultCrowdTTL = 72 * time.Hour
 // maxCrowdPages bounds the pages fetched per title (20 results each).
 const maxCrowdPages = 2
 
-// WithCrowdTTL overrides how long co-engagement lists stay fresh.
-func WithCrowdTTL(d time.Duration) Option { return func(c *Catalog) { c.crowdTTL = d } }
-
 // crowdKey maps seasons and episodes onto their show; films and shows map
 // to themselves. Other kinds have no list.
 func crowdKey(key core.RatingKey) (core.RatingKey, bool) {
@@ -278,8 +275,8 @@ func (c *Catalog) titlesByKeys(ctx context.Context, keys []core.RatingKey) ([]co
 	c.cacheMu.RUnlock()
 
 	const batch = 200
-	for i := 0; i < len(missing); i += batch {
-		part := missing[i:min(i+batch, len(missing))]
+	for chunk := range store.Chunks(missing, batch) {
+		part := chunk
 		args := make([]any, len(part))
 		for j, k := range part {
 			args[j] = int64(k)
@@ -340,8 +337,8 @@ func (c *Catalog) CrowdGraphBatch(ctx context.Context, keys []core.RatingKey, ma
 	var targetKeys []core.RatingKey
 	seenTarget := map[core.RatingKey]bool{}
 	const batch = 200
-	for start := 0; start < len(args); start += batch {
-		part := args[start:min(start+batch, len(args))]
+	for chunk := range store.Chunks(args, batch) {
+		part := chunk
 		rows, err := c.db.QueryContext(ctx, `SELECT key, recs FROM catalog_crowd WHERE key IN (`+placeholders(len(part))+`) ORDER BY key`, part...)
 		if err != nil {
 			return nil, nil, err

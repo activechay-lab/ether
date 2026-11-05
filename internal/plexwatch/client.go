@@ -363,7 +363,7 @@ func redactURL(err error) error {
 	if !errors.As(err, &ue) {
 		return err
 	}
-	safe := ue.URL
+	safe := "[redacted URL]"
 	if u, perr := url.Parse(ue.URL); perr == nil {
 		u.RawQuery, u.Fragment, u.User = "", "", nil
 		safe = u.String()

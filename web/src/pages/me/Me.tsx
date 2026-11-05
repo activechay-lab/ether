@@ -152,7 +152,7 @@ export default function Me() {
       .then((res) => (res.ok ? (res.json() as Promise<{ signInMethods?: string[] }>) : null))
       .then((boot) => {
         if (stop) return;
-        const offered = (boot?.signInMethods ?? ["local", "plex"]).filter(
+        const offered = (boot?.signInMethods ?? []).filter(
           (item): item is Method => item === "local" || item === "plex",
         );
         const next = offered.length ? offered : (["local", "plex"] as Method[]);

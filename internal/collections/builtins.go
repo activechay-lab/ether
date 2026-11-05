@@ -2,15 +2,14 @@ package collections
 
 import (
 	"context"
-	"database/sql"
+
 	"encoding/json"
-	"errors"
+
 	"fmt"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // builtin is a collection Ether ships: a live TMDB list. Owners can
@@ -96,80 +95,12 @@ func mergeBuiltin(fixed, edited core.CollectionSpec) core.CollectionSpec {
 	return out
 }
 
-// seedDefaults creates the starter collections on a fresh install. Nodes
-// starting together on a fresh cluster database take turns, so only the
-// first seeds.
-func (s *Service) seedDefaults(ctx context.Context) error {
-	if s.meta(ctx, "seeded") != "" {
-		return nil
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := store.LockKey(ctx, store.DialectOf(s.db), tx, "collections:seed"); err != nil {
-		return err
-	}
-	var seeded string
-	if err := tx.QueryRowContext(ctx, `SELECT v FROM collections_meta WHERE k='seeded'`).Scan(&seeded); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if seeded != "" {
-		return nil
-	}
-	var n int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM collections_specs WHERE builtin=0`).Scan(&n); err != nil {
-		return err
-	}
-	if n == 0 {
-		for _, sp := range defaultSpecs() {
-			if _, err := s.insertSpecTx(ctx, tx, sp, 0); err != nil {
-				return err
-			}
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO collections_meta(k,v) VALUES('seeded','1') ON CONFLICT(k) DO UPDATE SET v=excluded.v`); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
 func mkRule(field, op string, v any) core.CollectionRule {
 	b, err := json.Marshal(v)
 	if err != nil {
 		panic(fmt.Sprintf("collections: rule value: %v", err))
 	}
 	return core.CollectionRule{Field: field, Op: op, Value: b}
-}
-
-func defaultSpecs() []core.CollectionSpec {
-	base := func(name, media string) core.CollectionSpec {
-		return core.CollectionSpec{Name: name, MediaType: media, Sources: []core.CollectionSource{{Kind: "catalog"}},
-			Match: MatchAll, Refresh: RefreshDaily, Enabled: true, Sort: "popularity", SortDesc: true,
-			Artwork: core.CollectionArtwork{Mode: "auto"},
-			Targets: core.CollectionTargets{CollectionsTab: true, Users: core.AllUsers()}}
-	}
-	eighties := base("80s Sci-Fi Under 2 Hours", MediaMovie)
-	eighties.Description = "Synthesisers, practical effects and big ideas, all in under two hours."
-	eighties.Rules = []core.CollectionRule{mkRule("genre", "is", "Science Fiction"), mkRule("decade", "is", 1980), mkRule("runtime", "lte", 120)}
-	acclaimedM := base("Critically Acclaimed Movies", MediaMovie)
-	acclaimedM.Rules = []core.CollectionRule{mkRule("rating", "gte", 8.0), mkRule("votes", "gte", 500)}
-	acclaimedM.Sort = "rating"
-	acclaimedS := base("Critically Acclaimed Shows", MediaShow)
-	acclaimedS.Rules = []core.CollectionRule{mkRule("rating", "gte", 8.0), mkRule("votes", "gte", 200)}
-	acclaimedS.Sort = "rating"
-	recentM := base("Recently Released Movies", MediaMovie)
-	recentM.Rules = []core.CollectionRule{mkRule("released", "within", "1y")}
-	recentM.Sort = "released"
-	recentS := base("Recently Released Shows", MediaShow)
-	recentS.Rules = []core.CollectionRule{mkRule("released", "within", "1y")}
-	recentS.Sort = "released"
-	out := []core.CollectionSpec{eighties, acclaimedM, acclaimedS, recentM, recentS}
-	for i := range out {
-		Normalize(&out[i])
-	}
-	return out
 }
 
 func ratingExceeds(rating, max string) bool { return contentrating.Exceeds(rating, max) }

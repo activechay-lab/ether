@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/dburl"
 	"net/http"
 	"time"
 
@@ -90,7 +91,7 @@ func Handler(o HandlerOptions) http.Handler {
 		if url == "" && o.DatabaseURL != nil {
 			url = o.DatabaseURL()
 		}
-		if !isPostgresURL(url) {
+		if !dburl.IsPostgres(url) {
 			writeError(w, http.StatusBadRequest, "bad_request", "databaseUrl must be a postgres:// URL")
 			return
 		}

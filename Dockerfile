@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Ether — multi-stage build.
 #   docker build -t ether .
 #   docker run --network host -v ether-config:/config -v ether-cache:/cache ether
@@ -15,20 +16,25 @@
 FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
+# go.mod replaces qjs with the vendored sandbox fork; it must exist before download.
+COPY third_party/ third_party/
 RUN go mod download
 COPY . .
 ARG TARGETOS TARGETARCH
 ARG VERSION=dev
 ARG COMMIT=
 ARG ETHER_UPDATE_PUBLIC_KEY=
-ARG ETHER_TMDB_KEY=
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
+# Optional private-build fallback: docker build --secret id=ETHER_TMDB_BUNDLED_KEY,env=ETHER_TMDB_BUNDLED_KEY .
+# BuildKit keeps the input out of image metadata; the resulting binary embeds it.
+RUN --mount=type=secret,id=ETHER_TMDB_BUNDLED_KEY \
+    ETHER_TMDB_BUNDLED_KEY="$(cat /run/secrets/ETHER_TMDB_BUNDLED_KEY 2>/dev/null || true)" && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
       -trimpath \
       -ldflags "-s -w \
         -X github.com/braedonsaunders/ether/internal/updater.Version=${VERSION} \
         -X github.com/braedonsaunders/ether/internal/updater.Commit=${COMMIT} \
         -X github.com/braedonsaunders/ether/internal/updater.PublicKeyB64=${ETHER_UPDATE_PUBLIC_KEY} \
-        -X github.com/braedonsaunders/ether/internal/tmdb.BundledKey=${ETHER_TMDB_KEY}" \
+        -X github.com/braedonsaunders/ether/internal/tmdb.BundledKey=${ETHER_TMDB_BUNDLED_KEY}" \
       -o /out/ether ./cmd/ether
 
 # ---- runtime ----------------------------------------------------------------

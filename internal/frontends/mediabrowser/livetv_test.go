@@ -3,7 +3,7 @@ package mediabrowser
 import (
 	"context"
 	"encoding/json"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
@@ -72,14 +72,7 @@ func TestLiveTVUsesViewerScopedHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	var doc *openapi.Document
-	if e == nil {
-		doc, e = openapi.Parse(spec)
-	}
-	if e != nil && !os.IsNotExist(e) {
-		t.Fatal(e)
-	}
+	doc := spectest.Document(t, "jellyfin")
 	paths := []string{"/LiveTv/Channels", "/LiveTv/Programs?ChannelIds=" + id + "&MinStartDate=" + url.QueryEscape(start.Format(time.RFC3339)) + "&MaxStartDate=" + url.QueryEscape(start.Add(time.Hour).Format(time.RFC3339))}
 	for _, path := range paths {
 		w := httptest.NewRecorder()
@@ -288,14 +281,7 @@ func TestSwiftfinLiveTVChannelsProgramsAndTune(t *testing.T) {
 		tuned = ""
 		stoppedID = ""
 		proto := string(front.Describe().ID)
-		spec, specErr := openapi.CachedSpec("../../conform/specs/manifest.json", proto, "")
-		var doc *openapi.Document
-		if specErr == nil {
-			doc, specErr = openapi.Parse(spec)
-		}
-		if specErr != nil && !os.IsNotExist(specErr) {
-			t.Fatal(specErr)
-		}
+		doc := spectest.Document(t, proto)
 		inst, err := front.Mount(context.Background(), frontend.Host{Identity: ident, Experience: exp, LiveTV: live, Sessions: sessions, Capabilities: frontendtest.Capabilities{}})
 		if err != nil {
 			t.Fatal(err)

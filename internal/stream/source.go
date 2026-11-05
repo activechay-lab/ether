@@ -428,10 +428,6 @@ func (s *source) repairNeeded(c *cursor, begin, end int64) bool {
 	return false
 }
 
-// schedule starts read-ahead fetches for [from, to) without blocking and
-// returns how far it got (the start of the first slot it could not start).
-func (s *source) schedule(from, to int64) int64 { return s.scheduleCursor(from, to, nil) }
-
 func (s *source) scheduleCursor(from, to int64, c *cursor) int64 {
 	lay := s.plan.layout()
 	for _, pc := range lay.pieces(from, to-from) {

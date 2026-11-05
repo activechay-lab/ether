@@ -176,7 +176,6 @@ export function DescribeDialog({
     return () => {
       live = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs on open only
   }, [open]);
 
   // A build started before a reload keeps running on the server; follow it.
@@ -285,7 +284,7 @@ export function DescribeDialog({
       disabledDescription: t("Connect a language model to describe collections."),
       placeholder: t("e.g. Feel-good 80s adventure films for a Saturday night"),
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- copy follows the language
+
     [locale],
   );
   const toolLabels = useMemo(
@@ -294,7 +293,7 @@ export function DescribeDialog({
       catalog_search: t("Search the catalogue"),
       title_details: t("Title details"),
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- copy follows the language
+
     [locale],
   );
 

@@ -303,10 +303,15 @@ func (virtualKind) Fetch(context.Context, *Service, *Source) (Fetched, error) {
 // from the pre-registry ImportSource.
 func fetchPlaylistGuide(ctx context.Context, s *Service, src *Source, withChannels bool) (Fetched, error) {
 	var err error
+	progress := importProgress(ctx)
+	if progress != nil {
+		progress.setPhase("playlist")
+	}
 	if src.PlaylistURL != "" {
+		s.o.Logger.Info("Live TV source fetching", "sourceId", src.ID, "source", src.Name, "url", sourceOrigin(*src), "step", "playlist")
 		src.Playlist, err = s.readURLWith(ctx, src.PlaylistURL, maxPlaylistBytes, src.Auth.header(), "playlist")
 		if err != nil {
-			return Fetched{}, err
+			return Fetched{}, fmt.Errorf("playlist: %w", err)
 		}
 	}
 	if strings.TrimSpace(src.Playlist) == "" && strings.TrimSpace(src.Guide) == "" && src.GuideURL == "" {
@@ -314,11 +319,17 @@ func fetchPlaylistGuide(ctx context.Context, s *Service, src *Source, withChanne
 	}
 	var cs []Channel
 	if withChannels && strings.TrimSpace(src.Playlist) != "" {
-		cs, err = ParseM3U(strings.NewReader(src.Playlist), src.ID)
+		var stats m3uStats
+		cs, stats, err = parseM3U(strings.NewReader(src.Playlist), src.ID)
 		if err != nil {
-			return Fetched{}, err
+			return Fetched{}, fmt.Errorf("playlist: %w", err)
 		}
+		src.SkippedVOD = stats.SkippedVOD
 		cs = s.applyGroupRules(ctx, src, cs)
+		if progress != nil {
+			progress.setChannels(len(cs))
+		}
+		s.o.Logger.Info("Live TV source read", "sourceId", src.ID, "source", src.Name, "step", "playlist", "bytes", len(src.Playlist), "channels", len(cs), "skippedVod", stats.SkippedVOD)
 	}
 	g, err := fetchSourceGuide(ctx, s, src, cs, withChannels && strings.TrimSpace(src.Playlist) != "")
 	if err != nil {
@@ -335,11 +346,25 @@ func fetchSourceGuide(ctx context.Context, s *Service, src *Source, cs []Channel
 		return XMLGuide{}, err
 	}
 	filter := guideFilter{From: s.o.Now().Add(-guideLookback), Until: s.o.Now().Add(guideLookahead), IDs: allow}
+	nameCandidateCount := 0
+	if len(cs) > 0 {
+		filter.Resolve = func(channels map[string]Channel, names map[string][]string) map[string]struct{} {
+			candidates := nameCandidates(cs, channels, names)
+			nameCandidateCount = len(candidates)
+			return candidates
+		}
+	}
+	progress := importProgress(ctx)
+	if progress != nil {
+		progress.setChannels(len(cs))
+		progress.setPhase("guide")
+	}
 	g := XMLGuide{}
 	if src.GuideURL != "" {
+		s.o.Logger.Info("Live TV source fetching", "sourceId", src.ID, "source", src.Name, "url", sourceOrigin(*src), "step", "guide")
 		g, err = s.readGuide(ctx, src.GuideURL, src.Auth.header(), filter)
 		if err != nil {
-			return XMLGuide{}, err
+			return XMLGuide{}, fmt.Errorf("guide: %w", err)
 		}
 	} else if src.Guide != "" {
 		var dropped bool
@@ -354,6 +379,13 @@ func fetchSourceGuide(ctx context.Context, s *Service, src *Source, cs []Channel
 			}
 			src.Guide = trimmed
 		}
+	}
+	g.Programmes = dedupeProgrammes(g.Programmes)
+	if src.Guide != "" || src.GuideURL != "" {
+		if progress != nil {
+			progress.setProgrammes(len(g.Programmes))
+		}
+		s.o.Logger.Info("Live TV source read", "sourceId", src.ID, "source", src.Name, "step", "guide", "guideChannels", len(g.Channels), "nameCandidates", nameCandidateCount, "lateChannels", g.LateChannels, "programmes", len(g.Programmes))
 	}
 	return g, nil
 }

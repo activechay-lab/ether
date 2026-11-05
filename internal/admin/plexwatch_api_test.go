@@ -84,7 +84,7 @@ func TestPlexWatchUsesViewerPlexID(t *testing.T) {
 		c.Plex.Token = ownerToken
 	})
 	watch := &fakePlexWatch{}
-	h := admin.New(admin.Deps{
+	h := admin.NewHandler(admin.Deps{
 		Config: store, IsOwnerToken: storedOwner(store), PlexWatch: watch,
 		ViewerDirectory: func(context.Context) ([]admin.ViewerRecord, error) {
 			return []admin.ViewerRecord{{

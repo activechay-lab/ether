@@ -12,7 +12,10 @@ import (
 
 // validateRanked validates candidates in rank order with a sliding window:
 // two checks stay in flight, and when one fails the next candidate starts at
-// once instead of after the rest of its batch. The best-ranked candidate
+// once instead of after the rest of its batch. Until a check fails, a check
+// that spends an indexer grab (spendsGrab) joins one already in flight only
+// as a hedge, after healthHedgeDelay, so a healthy title normally costs one
+// grab. The best-ranked candidate
 // (the "lead") wins when healthy; a later healthy candidate may win while
 // the lead is still being checked, after rankedSourceGrace when the two are
 // equivalent under the owner's existing quality and score policy.
@@ -45,7 +48,7 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 	results = make(chan validation, limit)
 	startedAt := make([]time.Time, limit)
 	done := make([]*validation, limit)
-	next, inflight, confirmed := 0, 0, 0
+	next, inflight, confirmed, failed := 0, 0, 0, 0
 	launch := func() {
 		i := next
 		next++
@@ -83,9 +86,33 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 		}
 		return width
 	}
+	// hedgeAt is when a grab-spending candidate held back by the hedge
+	// delay may start; zero when none is waiting.
+	var hedgeAt time.Time
+	hedgeDue := func(c candidate) bool {
+		if inflight != 1 || failed > 0 || !spendsGrab(c.rel) {
+			// Nothing running (c leads), a hedge already running beside the
+			// lead (the window and stall rules decide), or a check already
+			// failed (the releases may be dying): no hedge delay.
+			return true
+		}
+		var youngest time.Time
+		for i := 0; i < next; i++ {
+			if done[i] == nil && startedAt[i].After(youngest) {
+				youngest = startedAt[i]
+			}
+		}
+		at := youngest.Add(s.healthHedgeDelay(c.rel))
+		if time.Now().Before(at) {
+			hedgeAt = at
+			return false
+		}
+		return true
+	}
 	// fill keeps width checks running, but a verified lead runs alone:
 	// reusing a known working release must not start speculative downloads.
 	fill := func(lead int) {
+		hedgeAt = time.Time{}
 		// Once a healthy backup is ready, wait for the preferred source or
 		// its grace period instead of spending more indexer/provider calls.
 		for i := lead; i < next; i++ {
@@ -105,6 +132,9 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 			if inflight >= capacity(lead) {
 				return
 			}
+			if !hedgeDue(cands[next]) {
+				return
+			}
 			launch()
 		}
 	}
@@ -122,6 +152,7 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 		if ct.Healthy {
 			return
 		}
+		failed++
 		ct.Rejected = true
 		ct.err = v.err
 		if v.err != nil {
@@ -212,6 +243,11 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 		// take its slot.
 		if lead < next && done[lead] == nil && next < limit && inflight == width && equivalentHedge(cands[lead], cands[next], margin) {
 			if left := rankedSourceGrace - age; left > 0 && (wait < 0 || left < wait) {
+				wait = left
+			}
+		}
+		if !hedgeAt.IsZero() {
+			if left := max(time.Until(hedgeAt), time.Millisecond); wait < 0 || left < wait {
 				wait = left
 			}
 		}

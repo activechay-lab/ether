@@ -4,11 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
@@ -247,16 +246,9 @@ func callExtras(inst frontend.Instance, path string) *httptest.ResponseRecorder 
 
 func validateSpec(t *testing.T, name, method, path string, w *httptest.ResponseRecorder) {
 	t.Helper()
-	spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", name, "")
-	if os.IsNotExist(err) {
+	doc := spectest.Document(t, name)
+	if doc == nil {
 		return
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := openapi.Parse(spec)
-	if err != nil {
-		t.Fatal(err)
 	}
 	if err := doc.Validate(method, path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 		t.Fatalf("%s %s %s: %v\n%s", name, method, path, err, w.Body.String())

@@ -18,15 +18,7 @@ import (
 // destination), so a sealed value copied to another row, column or
 // destination fails to open instead of authenticating there.
 //
-// Upgrade. Releases before v2 read these columns as plaintext and would
-// send a sealed value to the provider (Trakt then drops the link as
-// revoked). Until UpgradeCredentials is called (or, on a cluster node,
-// shared settings another node upgraded are loaded) SealField therefore
-// returns its input unchanged and config.json keeps the v1 format; the app calls
-// it once no rollback to an older release can happen and, in a cluster,
-// every live node runs a release that reads v2. It then rewrites
-// config.json and the cluster's shared settings in v2, and the components
-// re-seal the plaintext rows they find (their MigrateSecrets).
+// All new database secrets are sealed in v2. Startup converts older rows.
 
 // FieldSealer protects secrets stored outside config.json (*Store
 // implements it).
@@ -40,10 +32,9 @@ type FieldSealer interface {
 var ErrSealedWithoutKey = errors.New("config: sealed value but no credential key")
 
 // SealField protects plain for storage, bound to context. Empty values
-// stay empty. Until the store seals fields (SealsFields) it returns plain
-// unchanged.
+// stay empty.
 func (s *Store) SealField(plain string, context ...string) (string, error) {
-	if plain == "" || !s.bound.Load() {
+	if plain == "" {
 		return plain, nil
 	}
 	aead, err := newAEAD(s.credentialKey)
@@ -114,43 +105,20 @@ func fieldName(context []string) string {
 // FieldContext joins an int64 row identity for a field context.
 func FieldContext(id int64) string { return strconv.FormatInt(id, 10) }
 
-// CredentialsUpgraded reports whether this node completed
-// UpgradeCredentials (config.json is written in v2).
-func (s *Store) CredentialsUpgraded() bool { return s.localBound.Load() }
-
-// SealsFields reports whether SealField seals (database fields and shared
-// settings are written in v2), which can precede CredentialsUpgraded on a
-// cluster node that loaded settings another node upgraded.
-func (s *Store) SealsFields() bool { return s.bound.Load() }
-
 // KeyCreated reports whether Open generated this data directory's
 // credential key, i.e. nothing stored before this start was sealed with
 // it. Database rows sealed under another key mean the key file was lost.
 func (s *Store) KeyCreated() bool { return s.keyCreated }
 
-// UpgradeCredentials switches the store to v2 credentials (see above):
-// config.json is rewritten in v2 and, on a cluster node, the shared
-// settings are re-sealed in v2 unless another node already did. It is
-// idempotent and resumable: config.json is rewritten atomically when the
-// store switches (a configuration opened in v2 already has), and the
-// shared settings are checked on every call, so a call interrupted
-// between the two steps completes on the next.
+// UpgradeCredentials finishes startup conversion of cluster shared settings.
+// Open already rewrote config.json atomically. Conflicts retry without changing
+// stored values; interrupted conversions resume on the next startup/pass.
 func (s *Store) UpgradeCredentials(ctx context.Context) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	s.mu.Lock()
-	var err error
-	s.bound.Store(true)
-	if !s.localBound.Swap(true) {
-		if err = s.save(); err != nil {
-			s.localBound.Store(false)
-		}
-	}
+	s.mu.RLock()
 	b, o := s.shared, s.sharedOpts
-	s.mu.Unlock()
-	if err != nil {
-		return fmt.Errorf("config: rewrite credentials: %w", err)
-	}
+	s.mu.RUnlock()
 	if b == nil {
 		return nil
 	}
@@ -195,7 +163,7 @@ func (s *Store) upgradeShared(ctx context.Context, b SharedBackend) (int64, erro
 	if stats.strict && stats.plaintext == 0 {
 		return 0, nil
 	}
-	sealed, err := sealDocument(plain, s.credentialKey, true)
+	sealed, err := sealDocument(plain, s.credentialKey)
 	if err != nil {
 		return 0, err
 	}

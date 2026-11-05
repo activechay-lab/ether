@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -344,7 +345,7 @@ func (e *Engine) AvailableRows(ctx context.Context) ([]core.RowDescriptor, error
 		for _, section := range allSurfaces {
 			for _, hub := range e.extraHomeRows(ctx, &core.User{IsOwner: true}, hc, section, 1) {
 				if i, ok := index[hub.ID]; ok {
-					if !containsString(extra[i].Sections, section) {
+					if !slices.Contains(extra[i].Sections, section) {
 						extra[i].Sections = append(extra[i].Sections, section)
 					}
 					continue
@@ -371,15 +372,6 @@ func collectionSections(mediaType string) []string {
 		return []string{surfHome, surfShows}
 	}
 	return append([]string(nil), allSurfaces...)
-}
-
-func containsString(xs []string, x string) bool {
-	for _, v := range xs {
-		if v == x {
-			return true
-		}
-	}
-	return false
 }
 
 // RowInsights reports, per row kind, how often it was shown and played

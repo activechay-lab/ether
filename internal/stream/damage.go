@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/container/ebml"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -311,13 +312,8 @@ func (s *source) ebmlVint(ctx context.Context, off int64, id bool, prio core.Pri
 	if _, err := s.readRaw(ctx, b[:1], off, prio); err != nil {
 		return 0, 0, false, false
 	}
-	width := 1
-	mask := byte(0x80)
-	for width <= 8 && b[0]&mask == 0 {
-		width++
-		mask >>= 1
-	}
-	if width > 8 || (id && width > 4) {
+	width := ebml.Width(b[0])
+	if width == 0 || (id && width > 4) {
 		return 0, 0, false, false
 	}
 	if width > 1 {
@@ -325,15 +321,8 @@ func (s *source) ebmlVint(ctx context.Context, off int64, id bool, prio core.Pri
 			return 0, 0, false, false
 		}
 	}
-	value := uint64(b[0])
-	if !id {
-		value &= uint64(mask - 1)
-	}
-	for _, v := range b[1:width] {
-		value = value<<8 | uint64(v)
-	}
-	unknown := !id && value == (uint64(1)<<uint(7*width))-1
-	return value, width, unknown, true
+	value, width := ebml.Vint(b[:width], id)
+	return value, width, !id && ebml.Unknown(value, width), true
 }
 
 // CRC-32 is allowed anywhere among a master's children, not just first. Scan

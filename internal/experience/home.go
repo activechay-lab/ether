@@ -50,18 +50,6 @@ func AssembleHome(candidates []HomeCandidate, includeContinue, promotedOnly bool
 	}
 }
 
-// CompleteHome orders the remaining home producers and finalizes the response.
-// The adapter owns rendered metadata and only exposes these operations here.
-func CompleteHome(includePlaylists bool, playlists, discovery, live, selectRows, layout func()) {
-	if includePlaylists {
-		playlists()
-	}
-	discovery()
-	live()
-	selectRows()
-	layout()
-}
-
 // HomeAssembly owns row inclusion, deduplication and ordering while adapters
 // supply rendered projections and preserve their exact producer sidecars.
 // Report records layout facts at paint time. Layout receives those facts and

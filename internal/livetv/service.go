@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -54,7 +56,17 @@ type Service struct {
 	sessions      map[string]*session
 	// watched is when each channel was last tuned or playing (guarded by
 	// mu): only channels watched lately are pre-warmed.
-	watched          map[string]time.Time
+	watched map[string]time.Time
+
+	progressMu       sync.Mutex
+	progress         map[string]*progressTracker
+	lineupMu         sync.Mutex
+	lineupIndex      []ChannelSummary
+	lineupRev        int64
+	coverageMu       sync.Mutex
+	coverageStats    map[guideKey]guideStat
+	coverageAt       time.Time
+	coverageRev      int64
 	nextSubscription int64 // guarded by mu
 	ctx              context.Context
 	cancel           context.CancelFunc
@@ -65,12 +77,19 @@ func New(o Options) (*Service, error) {
 	if o.DB == nil {
 		return nil, fmt.Errorf("livetv requires a database")
 	}
+	if o.Logger == nil {
+		o.Logger = slog.Default().With("component", "livetv")
+	}
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.Logger == nil {
+		o.Logger = slog.Default()
 	}
 	if o.HTTPClient == nil {
 		o.HTTPClient = egress.Client(egress.CapDirect, 20*time.Second)
 	}
+	o.HTTPClient = sourceHTTPClient(o.HTTPClient)
 	ctx, cancel := context.WithCancel(context.Background())
 	kinds := o.Kinds
 	if kinds == nil {
@@ -82,6 +101,49 @@ func New(o Options) (*Service, error) {
 	go s.refreshLoop()
 	go s.healthSweepLoop()
 	return s, nil
+}
+
+// sourceUserAgent is the player identity most IPTV providers' CDNs accept.
+// Several reset the connection for Go's default client (h2 PROTOCOL_ERROR or
+// a malformed HTTP/1.x response), so a source without its own identity
+// presents this one.
+const sourceUserAgent = "VLC/3.0.20 LibVLC/3.0.20"
+
+// sourceHTTPClient returns the client for every upstream Live TV request. It
+// copies the caller's client so the default identity never mutates it.
+func sourceHTTPClient(base *http.Client) *http.Client {
+	c := *base
+	if c.Transport == nil {
+		c.Transport = http.DefaultTransport
+	}
+	c.Transport = sourceUserAgentTransport{base: c.Transport}
+	return &c
+}
+
+// sourceUserAgentTransport adds the default player identity when a source has
+// not set its own. An owner's user agent is already on the request and wins.
+type sourceUserAgentTransport struct{ base http.RoundTripper }
+
+func (t sourceUserAgentTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.Header.Get("User-Agent") == "" {
+		r = r.Clone(r.Context())
+		r.Header.Set("User-Agent", sourceUserAgent)
+	}
+	return t.base.RoundTrip(r)
+}
+
+// sourceOrigin names where a source's credentials are sent without its query
+// string: playlist and guide URLs, and Xtream's derived ones, embed them.
+func sourceOrigin(src Source) string {
+	if src.Auth != nil {
+		if origin := urlOrigin(src.Auth.Server); origin != "" {
+			return origin
+		}
+	}
+	if origin := urlOrigin(src.PlaylistURL); origin != "" {
+		return origin
+	}
+	return urlOrigin(src.GuideURL)
 }
 func (s *Service) Close() error {
 	s.cancel()
@@ -105,7 +167,7 @@ func (s *Service) stopTrack(t *track) {
 	if t.hls != nil {
 		t.hls.Close()
 	}
-	if s.o.Playback != nil {
+	if s.o.Playback != nil && t.playbackID != "" {
 		s.o.Playback.Stop(t.playbackID)
 	}
 }
@@ -120,6 +182,7 @@ func (s *Service) invalidate(channelID, sourceID string) {
 	}
 	s.mu.Unlock()
 	for _, ss := range stale {
+		s.sessionLog(ss).Info("live session expired")
 		ss.close(s)
 	}
 }
@@ -155,7 +218,7 @@ func (s *Service) maintain() {
 		case <-t.C:
 			s.expireSessions()
 			if s.o.Warm != nil {
-				cs, err := s.Channels(s.ctx)
+				cs, err := s.virtualChannels(s.ctx)
 				if err != nil {
 					continue
 				}
@@ -211,6 +274,7 @@ func (s *Service) expireSessions() {
 	}
 	s.mu.Unlock()
 	for _, ss := range stale {
+		s.sessionLog(ss).Info("live session expired")
 		ss.close(s)
 	}
 }
@@ -766,33 +830,41 @@ func (s *Service) AllowedChannels(ctx context.Context, u *core.User) ([]Channel,
 	if err != nil {
 		return nil, err
 	}
-	// An IPTV programme only matters through its rating. Without a rating
-	// cap the airing read is skipped for those channels, which on a large
-	// lineup is most of the cost of every Plex lineup request.
 	rated := u != nil && (strings.TrimSpace(u.MaxContentRating) != "" || strings.TrimSpace(pol.MaxRating) != "")
-	need := make([]int, 0, len(cs))
-	for i, c := range cs {
-		if c.Enabled && (c.Kind == "virtual" || rated) {
-			need = append(need, i)
+	now := s.o.Now()
+	var airing map[int]Programme
+	if rated {
+		guided := make([]Channel, 0, len(cs))
+		positions := make([]int, 0, len(cs))
+		for i, c := range cs {
+			if c.Enabled && c.Kind != "virtual" {
+				guided = append(guided, c)
+				positions = append(positions, i)
+			}
 		}
-	}
-	subset := make([]Channel, len(need))
-	for j, i := range need {
-		subset[j] = cs[i]
-	}
-	found, err := s.programmesAt(ctx, subset, s.o.Now())
-	if err != nil {
-		return nil, err
-	}
-	airing := make(map[int]Programme, len(found))
-	for j, p := range found {
-		airing[need[j]] = p
+		current, e := s.programmesAt(ctx, guided, now)
+		if e != nil {
+			return nil, e
+		}
+		airing = make(map[int]Programme, len(current))
+		for i, p := range current {
+			airing[positions[i]] = p
+		}
 	}
 	out := []Channel{}
 	for i, c := range cs {
 		var current *Programme
-		if p, ok := airing[i]; ok {
-			current = &p
+		switch {
+		case c.Kind == "virtual":
+			if ps := Schedule(s.guideChannel(ctx, c), now, now.Add(time.Second)); len(ps) > 0 {
+				current = &ps[0]
+			}
+		default:
+			if p, ok := airing[i]; ok {
+				p.ChannelID = c.ID
+				p.ID = fmt.Sprintf("%s-%d", c.ID, p.Start.UnixMilli())
+				current = &p
+			}
 		}
 		if s.allowed(ctx, u, c, current) {
 			c.StreamURL = ""
@@ -801,6 +873,62 @@ func (s *Service) AllowedChannels(ctx context.Context, u *core.User) ([]Channel,
 		}
 	}
 	return out, nil
+}
+
+// AllowedChannel resolves one channel by id or number and applies the same
+// policy check as AllowedChannels without loading the lineup. Plex tune used
+// the whole list only to find the requested channel.
+func (s *Service) AllowedChannel(ctx context.Context, u *core.User, key string) (Channel, error) {
+	ctx, _, err := s.withPolicy(ctx, u)
+	if err != nil {
+		return Channel{}, err
+	}
+	c, err := s.Channel(ctx, key)
+	if err == nil {
+		return s.allowedChannelRecord(ctx, u, c)
+	}
+	if !errors.Is(err, core.ErrNotFound) {
+		return Channel{}, err
+	}
+	all, err := s.channelSummaries(ctx)
+	if err != nil {
+		return Channel{}, err
+	}
+	for _, summary := range all {
+		if summary.Number != key || !summary.Enabled {
+			continue
+		}
+		c, err = s.Channel(ctx, summary.ID)
+		if errors.Is(err, core.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return Channel{}, err
+		}
+		c, err = s.allowedChannelRecord(ctx, u, c)
+		if errors.Is(err, core.ErrNotFound) {
+			continue
+		}
+		return c, err
+	}
+	return Channel{}, core.ErrNotFound
+}
+
+func (s *Service) allowedChannelRecord(ctx context.Context, u *core.User, c Channel) (Channel, error) {
+	p, ok, err := s.programmeAt(ctx, c, s.o.Now())
+	if err != nil {
+		return Channel{}, err
+	}
+	var current *Programme
+	if ok {
+		current = &p
+	}
+	if !s.allowed(ctx, u, c, current) {
+		return Channel{}, core.ErrNotFound
+	}
+	c.StreamURL = ""
+	c.StreamSources = nil
+	return c, nil
 }
 
 // ChannelPermitted decides one channel. A memo on ctx, when present, answers
@@ -1035,6 +1163,25 @@ func (s *Service) programmes(ctx context.Context, c Channel, from, until time.Ti
 	return out, rows.Err()
 }
 func (s *Service) Guide(ctx context.Context, u *core.User, from, until time.Time) ([]Programme, error) {
+	return s.guide(ctx, u, from, until, nil)
+}
+
+// GuideForChannels builds the guide for the requested channels only. The
+// console sends the rows it can see; nil means the whole lineup (XMLTV).
+func (s *Service) GuideForChannels(ctx context.Context, u *core.User, from, until time.Time, ids []string) ([]Programme, error) {
+	return s.guide(ctx, u, from, until, ids)
+}
+
+func channelFromSummary(c ChannelSummary) Channel {
+	return Channel{
+		ID: c.ID, Number: c.Number, Name: c.Name, Kind: c.Kind, sweepKey: c.sweepKey,
+		Private: c.Private, Enabled: c.Enabled, Favorite: c.Favorite,
+		Rating: c.Rating, Logo: c.Logo, SourceID: c.SourceID,
+		GuideID: c.GuideID, GuideSourceID: c.GuideSourceID, Group: c.Group,
+	}
+}
+
+func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time, ids []string) ([]Programme, error) {
 	if !until.After(from) || until.Sub(from) > 7*24*time.Hour {
 		return nil, fmt.Errorf("guide window must be positive and at most 7 days")
 	}
@@ -1043,10 +1190,49 @@ func (s *Service) Guide(ctx context.Context, u *core.User, from, until time.Time
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.Channels(ctx)
-	if err != nil {
-		return nil, err
+	var cs []Channel
+	if ids != nil {
+		full, err := s.channelsByIDs(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+		cs = make([]Channel, 0, len(ids))
+		for _, id := range ids {
+			if c, ok := full[id]; ok {
+				cs = append(cs, c)
+			}
+		}
+	} else {
+		// Identity comes from the cached lineup index; only virtual channels
+		// need their programming snapshot.
+		all, err := s.channelSummaries(ctx)
+		if err != nil {
+			return nil, err
+		}
+		virtualIDs := make([]string, 0)
+		for _, c := range all {
+			if c.Kind == "virtual" {
+				virtualIDs = append(virtualIDs, c.ID)
+			}
+		}
+		full, err := s.channelsByIDs(ctx, virtualIDs)
+		if err != nil {
+			return nil, err
+		}
+		cs = make([]Channel, 0, len(all))
+		for _, c := range all {
+			if c.Kind == "virtual" {
+				if v, ok := full[c.ID]; ok {
+					cs = append(cs, v)
+				}
+				continue
+			}
+			cs = append(cs, channelFromSummary(c))
+		}
 	}
+
+	orderIndex := make(map[string]int, len(cs))
+	byKey := make(map[guideKey][]Channel)
 	out := []Programme{}
 	if until.Sub(from) <= time.Second {
 		// What is airing now (Home's On Now row): one batched read.
@@ -1090,17 +1276,95 @@ func (s *Service) Guide(ctx context.Context, u *core.User, from, until time.Time
 		if !c.Enabled {
 			continue
 		}
-		ps, err := s.programmes(ctx, c, from, until)
-		if err != nil {
-			return nil, err
+		orderIndex[c.ID] = len(orderIndex)
+		if c.Kind == "virtual" {
+			for _, p := range Schedule(s.guideChannel(ctx, c), from, until) {
+				if s.allowed(ctx, u, c, &p) {
+					out = append(out, p)
+				}
+			}
+			continue
 		}
-		for _, p := range ps {
-			if s.allowed(ctx, u, c, &p) {
-				out = append(out, p)
+		if c.GuideID == "" {
+			continue
+		}
+		k := guideKey{guideSource(c), c.GuideID}
+		byKey[k] = append(byKey[k], c)
+	}
+	perKey, err := s.programmesForKeys(ctx, byKey, from, until)
+	if err != nil {
+		return nil, err
+	}
+	for k, ps := range perKey {
+		for _, c := range byKey[k] {
+			for _, p := range ps {
+				p.ChannelID = c.ID
+				p.ID = fmt.Sprintf("%s-%d", c.ID, p.Start.UnixMilli())
+				if s.allowed(ctx, u, c, &p) {
+					out = append(out, p)
+				}
 			}
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].Start.Equal(out[j].Start) {
+			return out[i].Start.Before(out[j].Start)
+		}
+		if orderIndex[out[i].ChannelID] != orderIndex[out[j].ChannelID] {
+			return orderIndex[out[i].ChannelID] < orderIndex[out[j].ChannelID]
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+// programmesForKeys uses bounded channel-key batches for every lineup size.
+// The source/channel/end index skips expired rows and unrelated sources.
+func (s *Service) programmesForKeys(ctx context.Context, wanted map[guideKey][]Channel, from, until time.Time) (map[guideKey][]Programme, error) {
+	out := make(map[guideKey][]Programme, len(wanted))
+	if len(wanted) == 0 {
+		return out, nil
+	}
+	scan := func(query string, args ...any) error {
+		rows, err := s.o.DB.QueryContext(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var k guideKey
+			var b []byte
+			if err = rows.Scan(&k.source, &k.guide, &b); err != nil {
+				return err
+			}
+			if _, ok := wanted[k]; !ok {
+				continue
+			}
+			var p Programme
+			if err = json.Unmarshal(b, &p); err != nil {
+				return err
+			}
+			out[k] = append(out[k], p)
+		}
+		return rows.Err()
+	}
+	keys := make([]guideKey, 0, len(wanted))
+	for k := range wanted {
+		keys = append(keys, k)
+	}
+	for start := 0; start < len(keys); start += guideBatch {
+		end := min(start+guideBatch, len(keys))
+		marks := make([]string, 0, end-start)
+		args := make([]any, 0, (end-start)*2+2)
+		for _, k := range keys[start:end] {
+			marks = append(marks, "(?,?)")
+			args = append(args, k.source, k.guide)
+		}
+		args = append(args, from.UnixMilli(), until.UnixMilli())
+		if err := scan(`SELECT source_id, channel_id, data FROM livetv_programmes WHERE (source_id,channel_id) IN (`+strings.Join(marks, ",")+`) AND end_ms>? AND start_ms<?`, args...); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
 }
 
@@ -1221,9 +1485,26 @@ func (s *Service) readURL(ctx context.Context, raw string, max int64) (string, e
 	return s.readURLWith(ctx, raw, max, nil, "source")
 }
 
-// ImportSource atomically replaces source programming. Owner changes to mapping,
-// enabled state, channel numbering, favourites and restrictions survive refresh.
+// ImportSource atomically replaces source programming and logs the outcome.
+// Owner changes to mapping, enabled state, channel numbering, favourites and
+// restrictions survive refresh.
 func (s *Service) ImportSource(ctx context.Context, src Source) (Source, error) {
+	v, err := s.importSource(ctx, src)
+	if err != nil {
+		s.o.Logger.Warn("Live TV source import failed",
+			"sourceId", v.ID, "source", v.Name, "url", sourceOrigin(v), "error", err)
+		return v, err
+	}
+	s.o.Logger.Info("Live TV source imported",
+		"sourceId", v.ID, "source", v.Name, "url", sourceOrigin(v),
+		"channels", v.ChannelCount, "guideChannels", v.GuideChannelCount)
+	return v, nil
+}
+
+// importSource is ImportSource without the outcome log.
+func (s *Service) importSource(ctx context.Context, src Source) (Source, error) {
+	ctx, cancel := context.WithTimeout(ctx, refreshBudget)
+	defer cancel()
 	if src.ID == "" {
 		src.ID = randomID()
 	}
@@ -1249,6 +1530,8 @@ func (s *Service) ImportSource(ctx context.Context, src Source) (Source, error) 
 	if !ok {
 		return src, fmt.Errorf("source needs a playlist or an XMLTV guide")
 	}
+	progress := importProgress(ctx)
+	src.SkippedVOD = 0
 	// Account and groups are what this fetch reports; a source body from the
 	// owner API carries stale read-only copies.
 	src.Account, src.Groups = nil, nil
@@ -1258,6 +1541,12 @@ func (s *Service) ImportSource(ctx context.Context, src Source) (Source, error) 
 	}
 	cs, g := fetched.Channels, fetched.Guide
 	s.matchLogos(ctx, cs)
+	g.Programmes = dedupeProgrammes(g.Programmes)
+	if progress != nil {
+		progress.setChannels(len(cs))
+		progress.setProgrammes(len(g.Programmes))
+		progress.setPhase("saving")
+	}
 	tx, err := s.o.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return src, err
@@ -1304,56 +1593,95 @@ func (s *Service) ImportSource(ctx context.Context, src Source) (Source, error) 
 	if _, err = tx.ExecContext(ctx, `DELETE FROM livetv_channels WHERE `+store.JSONText(store.DialectOf(s.o.DB), "data", "sourceId")+`=?`, src.ID); err != nil {
 		return src, err
 	}
+	// Insert in batches: one statement per row also fires the database's
+	// per-statement viewer-policy trigger once per row, which made a large
+	// import take many minutes. SQLite's default variable limit is 999.
+	batch := 1000
+	if store.DialectOf(s.o.DB) == store.SQLite {
+		batch = 150
+	}
 	stored := make([]Channel, 0, len(cs))
-	for _, c := range cs {
-		if previous, ok := oldByID[c.ID]; ok {
-			if _, keep := keepNumber[c.ID]; keep {
-				c.Number = previous.Number
-			}
-			c.Enabled = previous.Enabled
-			c.Favorite = previous.Favorite
-			c.Rating = previous.Rating
-			c.GuideID = previous.GuideID
-			c.GuideSourceID = previous.GuideSourceID
-			c.Transcode = previous.Transcode
-			if previous.CustomGroup {
-				c.Group, c.CustomGroup = previous.Group, true
-			}
-			if fetched.AddonInputs {
-				c.StreamSources = mergeAddonStreams(c.StreamSources, previous.StreamSources)
-			} else {
-				c.StreamSources = mergeImportedStreams(c, previous)
-			}
-			if len(c.StreamSources) > 0 {
-				if err := normalizeStreamSources(&c); err != nil {
-					return src, err
+	for start := 0; start < len(cs); start += batch {
+		end := min(start+batch, len(cs))
+		placeholders := make([]string, 0, end-start)
+		args := make([]any, 0, (end-start)*2)
+		for _, c := range cs[start:end] {
+			if previous, ok := oldByID[c.ID]; ok {
+				if _, keep := keepNumber[c.ID]; keep {
+					c.Number = previous.Number
+				}
+				c.Enabled = previous.Enabled
+				c.Favorite = previous.Favorite
+				c.Rating = previous.Rating
+				c.GuideID = previous.GuideID
+				c.GuideSourceID = previous.GuideSourceID
+				c.Transcode = previous.Transcode
+				if previous.CustomGroup {
+					c.Group, c.CustomGroup = previous.Group, true
+				}
+				if fetched.AddonInputs {
+					c.StreamSources = mergeAddonStreams(c.StreamSources, previous.StreamSources)
+				} else {
+					c.StreamSources = mergeImportedStreams(c, previous)
+				}
+				if len(c.StreamSources) > 0 {
+					if err := normalizeStreamSources(&c); err != nil {
+						return src, err
+					}
 				}
 			}
+			if guide, ok := g.Channels[c.GuideID]; ok && c.Logo == "" {
+				c.Logo = guide.Logo
+			}
+			b, e := json.Marshal(c)
+			if e != nil {
+				return src, e
+			}
+			placeholders = append(placeholders, "(?,?)")
+			args = append(args, c.ID, b)
+			stored = append(stored, c)
 		}
-		if guide, ok := g.Channels[c.GuideID]; ok && c.Logo == "" {
-			c.Logo = guide.Logo
-		}
-		b, e := json.Marshal(c)
-		if e != nil {
-			return src, e
-		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO livetv_channels(id,data) VALUES(?,?)`, c.ID, b); err != nil {
+		q := `INSERT INTO livetv_channels(id,data) VALUES ` + strings.Join(placeholders, ",")
+		if _, err = tx.ExecContext(ctx, q, args...); err != nil {
 			return src, err
 		}
-		stored = append(stored, c)
+		if progress != nil {
+			progress.setSavedChannels(end)
+		}
 	}
-	for _, p := range g.Programmes {
-		b, e := json.Marshal(p)
-		if e != nil {
-			return src, e
+	if progress != nil {
+		progress.setSavedChannels(len(stored))
+	}
+	for start := 0; start < len(g.Programmes); start += batch {
+		end := min(start+batch, len(g.Programmes))
+		placeholders := make([]string, 0, end-start)
+		args := make([]any, 0, (end-start)*5)
+		for _, p := range g.Programmes[start:end] {
+			b, e := json.Marshal(p)
+			if e != nil {
+				return src, e
+			}
+			placeholders = append(placeholders, "(?,?,?,?,?)")
+			args = append(args, src.ID, p.ChannelID, p.Start.UnixMilli(), p.End.UnixMilli(), b)
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO livetv_programmes(source_id,channel_id,start_ms,end_ms,data) VALUES(?,?,?,?,?)
-			ON CONFLICT(source_id,channel_id,start_ms) DO UPDATE SET end_ms=excluded.end_ms, data=excluded.data`,
-			src.ID, p.ChannelID, p.Start.UnixMilli(), p.End.UnixMilli(), b); err != nil {
+		q := `INSERT INTO livetv_programmes(source_id,channel_id,start_ms,end_ms,data) VALUES ` + strings.Join(placeholders, ",") + `
+			ON CONFLICT(source_id,channel_id,start_ms) DO UPDATE SET end_ms=excluded.end_ms, data=excluded.data`
+		if _, err = tx.ExecContext(ctx, q, args...); err != nil {
 			return src, err
 		}
+		if progress != nil {
+			progress.setSavedProgrammes(end)
+		}
+	}
+	if progress != nil {
+		progress.setSavedProgrammes(len(g.Programmes))
 	}
 	if err = replaceGuideChannels(ctx, tx, src.ID, g); err != nil {
+		return src, err
+	}
+	// Guide-only sources change coverage without touching any channel rows.
+	// Publish that change transactionally to every cluster node's caches.
+	if _, err = tx.ExecContext(ctx, `UPDATE livetv_channel_epoch SET generation=generation+1 WHERE id=1`); err != nil {
 		return src, err
 	}
 	err = tx.Commit()
@@ -1430,6 +1758,50 @@ func (s *Service) guideAllow(ctx context.Context, src Source, playlist []Channel
 		}
 	}
 	return ids, nil
+}
+
+// nameCandidates returns guide ids whose normalized name matches a playlist
+// channel that has no guide id, or whose guide id the guide does not declare.
+// Ambiguous matches are included: they are only stored for the owner to
+// review, and the resolver never changes a channel's mapping.
+func nameCandidates(cs []Channel, channels map[string]Channel, names map[string][]string) map[string]struct{} {
+	if len(cs) == 0 || len(channels) == 0 {
+		return nil
+	}
+	byName := map[string][]string{}
+	for id, c := range channels {
+		seen := map[string]bool{}
+		for _, n := range append([]string{c.Name}, names[id]...) {
+			k := normalizeGuideName(n)
+			if k == "" || seen[k] {
+				continue
+			}
+			seen[k] = true
+			byName[k] = append(byName[k], id)
+		}
+	}
+	channelIDs := make(map[string]bool, len(channels))
+	for id := range channels {
+		channelIDs[strings.ToLower(strings.TrimSpace(id))] = true
+	}
+	out := map[string]struct{}{}
+	for _, c := range cs {
+		if channelIDs[strings.ToLower(strings.TrimSpace(c.GuideID))] {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, n := range []string{c.TvgName, c.Name} {
+			k := normalizeGuideName(n)
+			if k == "" || seen[k] {
+				continue
+			}
+			seen[k] = true
+			for _, id := range byName[k] {
+				out[id] = struct{}{}
+			}
+		}
+	}
+	return out
 }
 
 // SavePendingSource stores a named source that will receive a file upload
@@ -1515,12 +1887,30 @@ func (s *Service) ImportUpload(ctx context.Context, id, part string, body io.Rea
 		if err != nil {
 			return src, err
 		}
+	} else {
+		// URL-backed sources do not store their playlist body. Their current
+		// channels are the best available resolver input for a guide upload.
+		stored, err := s.Channels(ctx)
+		if err != nil {
+			return src, err
+		}
+		for _, c := range stored {
+			if c.SourceID == src.ID {
+				cs = append(cs, c)
+			}
+		}
 	}
 	allow, err := s.guideAllow(ctx, src, cs, strings.TrimSpace(src.Playlist) != "" || src.PlaylistURL != "")
 	if err != nil {
 		return src, err
 	}
-	g, _, err := parseXMLTV(rd, guideFilter{From: s.o.Now().Add(-guideLookback), Until: s.o.Now().Add(guideLookahead), IDs: allow})
+	filter := guideFilter{From: s.o.Now().Add(-guideLookback), Until: s.o.Now().Add(guideLookahead), IDs: allow}
+	if len(cs) > 0 {
+		filter.Resolve = func(channels map[string]Channel, names map[string][]string) map[string]struct{} {
+			return nameCandidates(cs, channels, names)
+		}
+	}
+	g, _, err := parseXMLTV(rd, filter)
 	if err != nil {
 		return src, err
 	}
@@ -1546,6 +1936,9 @@ func (s *Service) DeleteSource(ctx context.Context, id string) error {
 		if _, err = tx.ExecContext(ctx, q, id); err != nil {
 			return err
 		}
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE livetv_channel_epoch SET generation=generation+1 WHERE id=1`); err != nil {
+		return err
 	}
 	err = tx.Commit()
 	if err == nil {

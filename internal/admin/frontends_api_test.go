@@ -31,7 +31,7 @@ func (f *frontendsFake) Toggle(_ context.Context, _ frontend.Protocol, b bool) e
 func TestFrontendAPI(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
 	f := &frontendsFake{}
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Frontends: f})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Frontends: f})
 	unauth := serve(h, req("GET", "/ether/api/frontends", ""))
 	if unauth.Code != http.StatusUnauthorized {
 		t.Fatal(unauth.Code)
@@ -70,7 +70,7 @@ func TestFrontendAPI(t *testing.T) {
 func TestFrontendHealth(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
 	f := &healthFrontends{}
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Frontends: f})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Frontends: f})
 	for _, protocol := range []string{"plex", "jellyfin", "emby", "silo", "stremio", "webdav", "m3u", "dlna"} {
 		path := "/ether/api/frontends/" + protocol + "/health"
 		if w := serve(h, req("GET", path, "")); w.Code != 401 {

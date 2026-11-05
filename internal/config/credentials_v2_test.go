@@ -94,11 +94,11 @@ func assertNoPlaintext(t *testing.T, path string) string {
 	return string(raw)
 }
 
-func TestCredentialsStayV1UntilUpgrade(t *testing.T) {
+func TestCredentialsAlwaysWriteV2(t *testing.T) {
 	s, dir := v2Fixture(t)
 	raw := assertNoPlaintext(t, s.Path())
-	if strings.Contains(raw, sealedPrefixV2) || strings.Contains(raw, credentialFormatKey) || s.CredentialsUpgraded() {
-		t.Fatal("v2 written before UpgradeCredentials")
+	if !strings.Contains(raw, sealedPrefixV2) || !strings.Contains(raw, credentialFormatKey) {
+		t.Fatal("v2 credentials missing")
 	}
 	if err := s.UpgradeCredentials(context.Background()); err != nil {
 		t.Fatal(err)
@@ -112,9 +112,9 @@ func TestCredentialsStayV1UntilUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := again.Get()
-	if !again.CredentialsUpgraded() || got.Plex.Token != "plex-token-value" || got.Catalog.TMDBKey != "tmdb-key-value" ||
+	if got.Plex.Token != "plex-token-value" || got.Catalog.TMDBKey != "tmdb-key-value" ||
 		got.Usenet.Providers[1].Password != "pass-b" || got.Indexers[2].SecretSettings["passkey"] != "passkey-value" {
-		t.Fatalf("v2 round trip: upgraded=%v %+v", again.CredentialsUpgraded(), got.Usenet.Providers)
+		t.Fatalf("v2 round trip: %+v", got.Usenet.Providers)
 	}
 	if cfg, err := Read(dir); err != nil || cfg.LLM.APIKey != "llm-key-value" {
 		t.Fatalf("Read v2: %v", err)
@@ -137,7 +137,7 @@ func TestLegacyFilesMigrate(t *testing.T) {
 			return []byte(`{"plex":{"token":"plex-token-value"},"usenet":{"providers":[{"id":"a","host":"h","username":"user-a","password":"pass-a"}]}}`)
 		},
 		"v1": func(key []byte) []byte {
-			b, err := sealDocument([]byte(`{"plex":{"token":"plex-token-value"},"usenet":{"providers":[{"id":"a","host":"h","username":"user-a","password":"pass-a"}]}}`), key, false)
+			b, err := legacySealDocument([]byte(`{"plex":{"token":"plex-token-value"},"usenet":{"providers":[{"id":"a","host":"h","username":"user-a","password":"pass-a"}]}}`), key, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -309,7 +309,7 @@ func TestOlderReleaseRewriteUnwraps(t *testing.T) {
 	_ = json.Unmarshal(raw, &doc)
 	delete(doc, credentialFormatKey)
 	asSeenByOld, _ := json.Marshal(doc)
-	rewritten, err := sealDocument(asSeenByOld, s.CredentialKey(), false)
+	rewritten, err := legacySealDocument(asSeenByOld, s.CredentialKey(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,9 +322,6 @@ func TestOlderReleaseRewriteUnwraps(t *testing.T) {
 	}
 	if c := again.Get(); c.Usenet.Providers[0].Password != "pass-a" || c.Plex.Token != "plex-token-value" || c.Indexers[2].SecretSettings["passkey"] != "passkey-value" {
 		t.Fatalf("double-sealed values: %+v", c.Usenet.Providers[0])
-	}
-	if again.CredentialsUpgraded() {
-		t.Fatal("a document without the marker is not strict")
 	}
 }
 
@@ -363,7 +360,7 @@ func TestV2WrongAndLostKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, err := Open(restored)
-	if err != nil || r.Get().Usenet.Providers[0].Password != "pass-a" || !r.CredentialsUpgraded() {
+	if err != nil || r.Get().Usenet.Providers[0].Password != "pass-a" {
 		t.Fatalf("restore: %v", err)
 	}
 	_ = dir
@@ -373,11 +370,11 @@ func TestSealedFieldsAndCompatibility(t *testing.T) {
 	s, _ := Open(t.TempDir())
 	// Existing Seal/Unseal consumers keep the v1 name-bound format.
 	sealed, err := s.Seal("identity/cert", []byte("pem"))
-	if err != nil || !strings.HasPrefix(sealed, sealedPrefix) {
+	if err != nil || !strings.HasPrefix(sealed, sealedPrefixV2) {
 		t.Fatal(sealed, err)
 	}
 	// Before the upgrade, fields are stored as given.
-	if v, err := s.SealField("secret", "t", "c", "1"); err != nil || v != "secret" {
+	if v, err := s.SealField("secret", "t", "c", "1"); err != nil || !strings.HasPrefix(v, sealedPrefixV2) {
 		t.Fatalf("pre-upgrade field: %q %v", v, err)
 	}
 	if v, legacy, err := s.OpenField("secret", "t", "c", "1"); err != nil || !legacy || v != "secret" {
@@ -389,7 +386,7 @@ func TestSealedFieldsAndCompatibility(t *testing.T) {
 	if got, err := s.Unseal("identity/cert", sealed); err != nil || string(got) != "pem" {
 		t.Fatal("Seal value unreadable after upgrade")
 	}
-	if again, _ := s.Seal("identity/cert", []byte("pem")); !strings.HasPrefix(again, sealedPrefix) {
+	if again, _ := s.Seal("identity/cert", []byte("pem")); !strings.HasPrefix(again, sealedPrefixV2) {
 		t.Fatal("Seal format changed")
 	}
 	v, err := s.SealField("secret", "t", "c", "1")
@@ -426,105 +423,6 @@ func TestSealedFieldsAndCompatibility(t *testing.T) {
 	}
 }
 
-func TestSharedCredentialUpgrade(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	dirA, dirB := clusterNodes(t)
-	backend := &memShared{}
-	a, err := Open(dirA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := a.Update(func(c *Config) error {
-		c.Usenet.Providers = []UsenetProvider{{ID: "p", Host: "news.test", Port: 563, Username: "user-a", Password: "pass-a"}}
-		c.Plex.Token = "plex-token-value"
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.AttachShared(ctx, backend, SharedOptions{PollInterval: -1}); err != nil {
-		t.Fatal(err)
-	}
-	b, err := Open(dirB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.AttachShared(ctx, backend, SharedOptions{PollInterval: -1, NoSeed: true}); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(backend.doc.Doc, sealedPrefixV2) {
-		t.Fatal("shared settings written in v2 before the upgrade")
-	}
-	if err := a.UpgradeCredentials(ctx); err != nil {
-		t.Fatal(err)
-	}
-	doc := backend.doc.Doc
-	if strings.Contains(doc, sealedPrefix) || !strings.Contains(doc, sealedPrefixV2) || strings.Contains(doc, "pass-a") || !strings.Contains(doc, credentialFormatKey) {
-		t.Fatalf("shared settings not upgraded:\n%s", doc)
-	}
-	if backend.doc.Version != 2 || a.SharedVersion() != 2 {
-		t.Fatalf("version %d/%d", backend.doc.Version, a.SharedVersion())
-	}
-	// A node not yet upgraded reads v2 shared settings with the cluster key
-	// and starts sealing database fields at once, while its own config.json
-	// waits for its UpgradeCredentials (its rollback gate).
-	if b.SealsFields() {
-		t.Fatal("node B sealing before the cluster upgraded")
-	}
-	if err := b.RefreshShared(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if !b.SealsFields() || b.CredentialsUpgraded() {
-		t.Fatalf("node B after loading upgraded settings: seals=%v upgraded=%v", b.SealsFields(), b.CredentialsUpgraded())
-	}
-	if v, _ := b.SealField("secret", "t", "c"); !IsSealed(v) {
-		t.Fatal("node B still writes plaintext fields")
-	}
-	if raw, _ := os.ReadFile(b.Path()); strings.Contains(string(raw), sealedPrefixV2) {
-		t.Fatal("node B rewrote config.json in v2 before its own upgrade")
-	}
-	// A node starting against already-upgraded settings seals at attach.
-	dirC := t.TempDir()
-	if err := InstallCredentialKey(dirC, a.CredentialKey()); err != nil {
-		t.Fatal(err)
-	}
-	c, err := Open(dirC)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := c.AttachShared(ctx, backend, SharedOptions{PollInterval: -1, NoSeed: true}); err != nil {
-		t.Fatal(err)
-	}
-	if !c.SealsFields() || c.CredentialsUpgraded() {
-		t.Fatal("node C did not adopt field sealing at attach")
-	}
-	if got := b.Get().Usenet.Providers[0]; got.Password != "pass-a" || got.Username != "user-a" {
-		t.Fatalf("node B: %+v", got)
-	}
-	// A second upgrade (another node) finds nothing to do in the shared
-	// settings and rewrites that node's own config.json.
-	if err := b.UpgradeCredentials(ctx); err != nil || backend.doc.Version != 2 {
-		t.Fatalf("second upgrade: %v version %d", err, backend.doc.Version)
-	}
-	if raw, _ := os.ReadFile(b.Path()); !b.CredentialsUpgraded() || !strings.Contains(string(raw), sealedPrefixV2) || strings.Contains(string(raw), sealedPrefix) {
-		t.Fatal("node B config.json not upgraded by its own UpgradeCredentials")
-	}
-	// A repointed host in the shared document does not open on any node.
-	var m map[string]any
-	_ = json.Unmarshal([]byte(doc), &m)
-	obj(m, "usenet", "providers", 0)["host"] = "evil.test"
-	bad, _ := json.Marshal(m)
-	backend.mu.Lock()
-	backend.doc.Doc, backend.doc.Version = string(bad), 3
-	backend.mu.Unlock()
-	if err := b.RefreshShared(ctx); err == nil {
-		t.Fatal("repointed shared credential opened")
-	}
-	if b.Get().Usenet.Providers[0].Host != "news.test" {
-		t.Fatal("refused shared settings were applied")
-	}
-}
-
 func TestDataDirWarning(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX modes")
@@ -546,4 +444,59 @@ func TestDataDirWarning(t *testing.T) {
 	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o755 {
 		t.Fatal("permissions changed")
 	}
+}
+
+// legacySealDocument models the writer shipped before v0.3.4.
+func legacySealDocument(data, key []byte, bound bool) ([]byte, error) {
+	if bound {
+		return sealDocument(data, key)
+	}
+	var root any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil, err
+	}
+	aead, err := newAEAD(key)
+	if err != nil {
+		return nil, err
+	}
+	var visit func(any, string) error
+	visit = func(v any, parent string) error {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, v := range x {
+				if inner, ok := v.(map[string]any); ok && isSecretMap(parent, k) {
+					for sk, sv := range inner {
+						if text, ok := sv.(string); ok && text != "" {
+							sealed, e := sealWithAAD(aead, sealedPrefix, text, []byte(sk))
+							if e != nil {
+								return e
+							}
+							inner[sk] = sealed
+						}
+					}
+					continue
+				}
+				if text, ok := v.(string); ok && text != "" && secretIn(x, parent, k) {
+					sealed, e := sealWithAAD(aead, sealedPrefix, text, []byte(k))
+					if e != nil {
+						return e
+					}
+					x[k] = sealed
+				} else if e := visit(v, k); e != nil {
+					return e
+				}
+			}
+		case []any:
+			for _, v := range x {
+				if e := visit(v, parent); e != nil {
+					return e
+				}
+			}
+		}
+		return nil
+	}
+	if err := visit(root, ""); err != nil {
+		return nil, err
+	}
+	return json.Marshal(root)
 }

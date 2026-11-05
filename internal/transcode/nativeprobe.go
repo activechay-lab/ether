@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/container/ebml"
 	"io"
 	"math"
 	"strconv"
@@ -150,24 +151,9 @@ type mkvNode struct {
 }
 
 func mkvVint(b []byte, id bool) (uint64, int, bool) {
-	if len(b) == 0 || b[0] == 0 {
+	v, n := ebml.Vint(b, id)
+	if n == 0 || (id && n > 4) {
 		return 0, 0, false
-	}
-	n := 1
-	mask := byte(0x80)
-	for b[0]&mask == 0 {
-		n++
-		mask >>= 1
-	}
-	if n > 8 || n > len(b) || (id && n > 4) {
-		return 0, 0, false
-	}
-	v := uint64(b[0])
-	if !id {
-		v &= uint64(mask - 1)
-	}
-	for i := 1; i < n; i++ {
-		v = v<<8 | uint64(b[i])
 	}
 	return v, n, true
 }
@@ -294,7 +280,7 @@ type mkvTrack struct {
 	defaultDur  uint64
 	width       uint64
 	height      uint64
-	bitsPerChan uint64
+
 	transfer    int
 	primaries   int
 	matrix      int
@@ -1000,7 +986,7 @@ func mkvTracksOf(b []byte) ([]mkvTrack, error) {
 							case mkvRange:
 								t.colourRange = int(mkvUint(c.body))
 							case mkvBitsPerChan:
-								t.bitsPerChan = mkvUint(c.body)
+
 							}
 						}
 					}

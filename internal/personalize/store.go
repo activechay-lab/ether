@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -116,13 +115,6 @@ func dayTime(d int, loc *time.Location) time.Time {
 	return time.Date(d/10000, time.Month(d/100%100), d%100, 0, 0, 0, 0, loc)
 }
 
-func b2i(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 // ---- impressions -----------------------------------------------------------
 
 type rowAgg struct {
@@ -172,7 +164,7 @@ func (s *sqlStore) writeImpressions(ctx context.Context, rows []rowAgg, items []
 	defer rowStmt.Close()
 	for _, r := range rows {
 		if _, err := rowStmt.ExecContext(ctx, r.userID, r.day, r.hubID, r.kind, r.title, r.serves, r.bestPosition,
-			r.first, r.last, r.hc.Device, r.hc.Daypart, b2i(r.hc.Weekend)); err != nil {
+			r.first, r.last, r.hc.Device, r.hc.Daypart, store.BoolInt(r.hc.Weekend)); err != nil {
 			return err
 		}
 	}
@@ -232,10 +224,7 @@ func (s *sqlStore) attribute(ctx context.Context, userID int64, keys []core.Rati
 }
 
 func placeholders(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	return strings.Repeat("?,", n-1) + "?"
+	return store.Placeholders(n)
 }
 
 // shownDays returns, per item key, the number of distinct days the item was
@@ -283,8 +272,6 @@ func (s *sqlStore) lastSeen(ctx context.Context) (map[int64]time.Time, error) {
 type rowStat struct {
 	kind, hubID, title string
 	shows              float64 // row-days shown
-	plays              float64 // plays attributed
-	reward             float64 // sum of play rewards (completion-weighted)
 }
 
 // kindShows counts days each kind was shown per (user, kind) since
@@ -425,13 +412,13 @@ func (s *sqlStore) insertPlay(ctx context.Context, p *playRecord) error {
 		(user_id, item_key, taste_key, hub_id, kind, started_at, updated_at, duration_ms, start_fraction, max_fraction, completed, abandoned, device, daypart, weekend)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
 		p.userID, int64(p.key), int64(p.tasteKey), p.hubID, p.kind, ms(p.started), ms(p.updated), p.duration.Milliseconds(),
-		p.startFraction, p.maxFraction, b2i(p.completed), b2i(p.abandoned), p.device, p.daypart, b2i(p.weekend)).Scan(&p.id)
+		p.startFraction, p.maxFraction, store.BoolInt(p.completed), store.BoolInt(p.abandoned), p.device, p.daypart, store.BoolInt(p.weekend)).Scan(&p.id)
 }
 
 func (s *sqlStore) updatePlay(ctx context.Context, p *playRecord) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE personalize_plays SET updated_at = ?, duration_ms = ?, max_fraction = ?,
 		completed = ?, abandoned = ? WHERE id = ?`,
-		ms(p.updated), p.duration.Milliseconds(), p.maxFraction, b2i(p.completed), b2i(p.abandoned), p.id)
+		ms(p.updated), p.duration.Milliseconds(), p.maxFraction, store.BoolInt(p.completed), store.BoolInt(p.abandoned), p.id)
 	return err
 }
 

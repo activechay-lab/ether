@@ -21,8 +21,7 @@ import (
 //
 // Rows are stored as {"format":2,"releases":[...]}. Releases before this
 // format read a row as a bare array; they treat the object as a cache miss
-// instead of fetching a tokenized link. Legacy array rows (which contain
-// keys) are still served until PurgeLegacyCache removes them.
+// instead of fetching a tokenized link. Legacy array rows are rejected and purged at startup.
 
 const cacheFormat = 2
 
@@ -194,13 +193,6 @@ func (c *Client) encodeCached(results []core.Release) (string, bool) {
 
 // decodeCached reads a stored row (current or legacy format).
 func (c *Client) decodeCached(raw string) ([]core.Release, bool) {
-	if strings.HasPrefix(strings.TrimSpace(raw), "[") {
-		var legacy []core.Release
-		if json.Unmarshal([]byte(raw), &legacy) != nil {
-			return nil, false
-		}
-		return legacy, true
-	}
 	var doc cachedResults
 	if json.Unmarshal([]byte(raw), &doc) != nil || doc.Format != cacheFormat {
 		return nil, false

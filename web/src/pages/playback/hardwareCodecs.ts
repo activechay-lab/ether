@@ -1,6 +1,6 @@
 const ORDER = ["h264", "hevc", "av1", "vp9"] as const;
 
-export type VideoCodec = (typeof ORDER)[number];
+type VideoCodec = (typeof ORDER)[number];
 
 /** Codec badges implied by ffmpeg encoder names. Unknown names are ignored. */
 export function encodeCodecs(encoders: string[] | null | undefined): VideoCodec[] {

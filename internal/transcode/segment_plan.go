@@ -397,11 +397,10 @@ func (tl *Timeline) NextChange(n int) int {
 
 // SegmentPlan is one planned segment, for tests and admin reporting.
 type SegmentPlan struct {
-	Index               int
-	Start               time.Duration // playlist-relative
-	Duration            time.Duration
-	Mode                SegMode
-	DiscontinuityBefore bool
+	Index    int
+	Start    time.Duration // playlist-relative
+	Duration time.Duration
+	Mode     SegMode
 }
 
 // Plan returns segment n's plan. discont reports discontinuities for the

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/httpclient"
 	"io"
 	"log/slog"
 	"net/http"
@@ -387,7 +388,7 @@ func call(ctx context.Context, hc *http.Client, base string, r apiRequest, auth 
 		req.Header.Set("Content-Type", ctype)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "Ether")
+	req.Header.Set("User-Agent", httpclient.UserAgent)
 	if auth != nil {
 		auth(req)
 	}

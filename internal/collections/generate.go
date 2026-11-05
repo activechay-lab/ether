@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/llm"
+	"github.com/braedonsaunders/ether/internal/textclip"
 )
 
 // Chatter is the LLM the generator drafts specs with; *llm.Client
@@ -359,53 +359,18 @@ func firstField(ve *ValidationError) string {
 	return "invalid"
 }
 
-var trailingComma = regexp.MustCompile(`,(\s*[}\]])`)
-
-// extractObject finds the first balanced JSON object in model output,
-// tolerating code fences, prose and trailing commas.
+// extractObject accepts only an object, preserving the generator's contract.
 func extractObject(s string) string {
-	s = llm.StripReasoning(s)
-	if i := strings.Index(s, "```"); i >= 0 {
-		rest := s[i+3:]
-		rest = strings.TrimPrefix(rest, "json")
-		if j := strings.Index(rest, "```"); j >= 0 {
-			s = rest[:j]
-		}
-	}
-	start := strings.IndexByte(s, '{')
-	if start < 0 {
+	out := llm.ExtractJSON(s)
+	if !strings.HasPrefix(out, "{") || !json.Valid([]byte(out)) {
 		return ""
 	}
-	depth, inStr, esc := 0, false, false
-	for i := start; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case esc:
-			esc = false
-		case c == '\\' && inStr:
-			esc = true
-		case c == '"':
-			inStr = !inStr
-		case inStr:
-		case c == '{':
-			depth++
-		case c == '}':
-			depth--
-			if depth == 0 {
-				out := s[start : i+1]
-				if !json.Valid([]byte(out)) {
-					out = trailingComma.ReplaceAllString(out, "$1")
-				}
-				return out
-			}
-		}
-	}
-	return ""
+	return out
 }
 
 func truncate(s string, n int) string {
 	if len(s) > n {
-		return s[:n]
+		return textclip.Bytes(s, n)
 	}
 	return s
 }

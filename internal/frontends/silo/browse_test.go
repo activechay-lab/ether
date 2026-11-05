@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -400,17 +399,10 @@ func TestBrowseAndMutationsUseViewer(t *testing.T) {
 	}
 	for _, path := range []string{"/api/v2/user/libraries", "/api/v2/home/sections"} {
 		w := call("GET", path)
-		spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", "")
-		if e == nil {
-			doc, e := openapi.Parse(spec)
-			if e != nil {
-				t.Fatal(e)
-			}
-			if e = doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
+		if doc := spectest.Document(t, "silo"); doc != nil {
+			if e := doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
 				t.Errorf("%s spec: %v", path, e)
 			}
-		} else if !os.IsNotExist(e) {
-			t.Fatal(e)
 		}
 	}
 	detailPath := "/api/v2/catalog/items/" + ids.RatingKeyGUID(key)
@@ -418,17 +410,10 @@ func TestBrowseAndMutationsUseViewer(t *testing.T) {
 	if dw.Code != 200 {
 		t.Fatalf("detail %d %s", dw.Code, dw.Body.String())
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", "")
-	if e == nil {
-		doc, e := openapi.Parse(spec)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if e = doc.Validate("GET", detailPath, dw.Code, dw.Header().Get("Content-Type"), dw.Body.Bytes()); e != nil {
+	if doc := spectest.Document(t, "silo"); doc != nil {
+		if e := doc.Validate("GET", detailPath, dw.Code, dw.Header().Get("Content-Type"), dw.Body.Bytes()); e != nil {
 			t.Errorf("detail spec: %v", e)
 		}
-	} else if !os.IsNotExist(e) {
-		t.Fatal(e)
 	}
 
 	if w := call("POST", "/api/v2/watched/"+ids.RatingKeyGUID(key)); w.Code != 204 || played != key {
@@ -518,21 +503,14 @@ func TestDetailWithEstimatedVersionSpec(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"kind":"intro"`) || !strings.Contains(rec.Body.String(), `"start_seconds":1`) || !strings.Contains(rec.Body.String(), `"end_seconds":10`) {
 		t.Errorf("single probed file markers: %s", rec.Body.String())
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", "")
-	if e == nil {
-		doc, e := openapi.Parse(spec)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if e = doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
+	if doc := spectest.Document(t, "silo"); doc != nil {
+		if e := doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
 			t.Errorf("detail spec: %v", e)
 		}
-		if e = doc.Validate("GET", watchPath, rec.Code, rec.Header().Get("Content-Type"), rec.Body.Bytes()); e != nil {
+		if e := doc.Validate("GET", watchPath, rec.Code, rec.Header().Get("Content-Type"), rec.Body.Bytes()); e != nil {
 			t.Errorf("watch spec: %v", e)
 		}
 
-	} else if !os.IsNotExist(e) {
-		t.Fatal(e)
 	}
 }
 

@@ -2,6 +2,7 @@ package mediabrowser
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,11 +15,15 @@ import (
 
 func TestBrowsePageCacheFollowsFreshness(t *testing.T) {
 	name := "First"
+	revoked := false
 	var gen uint64
 	experience := frontendtest.Experience{ItemFunc: func(context.Context, frontend.ItemRequest) (frontend.ItemDetail, error) {
 		return frontend.ItemDetail{Title: frontend.Title{Key: 5, Type: "movie", Title: name}}, nil
 	}}
 	identity := frontendtest.Identity{ResolveFunc: func(context.Context, string) (*frontend.Viewer, error) {
+		if revoked {
+			return nil, errors.New("revoked")
+		}
 		return &frontend.Viewer{ID: 1}, nil
 	}}
 	inst, err := (Jellyfin{MachineID: "cache"}).Mount(context.Background(), frontend.Host{
@@ -53,6 +58,11 @@ func TestBrowsePageCacheFollowsFreshness(t *testing.T) {
 	if notModified.Code != http.StatusNotModified || notModified.Body.Len() != 0 {
 		t.Fatal(notModified.Code, notModified.Body.String())
 	}
+	revoked = true
+	if denied := get(etag); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked cached response: %d", denied.Code)
+	}
+	revoked = false
 	gen++
 	fresh := get("")
 	if fresh.Code != 200 || !strings.Contains(fresh.Body.String(), "Second") {

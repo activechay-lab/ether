@@ -472,6 +472,7 @@ func (c openContext) Deadline() (time.Time, bool) { return c.deadline, true }
 // opener is the first reader's context: its deadline bounds the connect,
 // and the open is abandoned if it ends first.
 func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.Header, opener context.Context) {
+	started := time.Now()
 	ctx, cancel := context.WithCancel(s.ctx)
 	t.mu.Lock()
 	t.cancel = cancel
@@ -487,6 +488,9 @@ func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.He
 		e, _ := s.sourceEntry(ctx, g.source)
 		var wait time.Duration
 		if wait, err = t.reg.reserveOpen(g.source, e.gap, e.perHour, time.Now()); err == nil && wait > 0 {
+			if g.log != nil {
+				g.log.Info("live provider tune gap", "wait", wait)
+			}
 			select {
 			case <-time.After(wait):
 			case <-ctx.Done():
@@ -503,6 +507,9 @@ func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.He
 		err = opener.Err()
 	}
 	if err != nil {
+		if g.log != nil {
+			g.log.Debug("live upstream open failed", append(Diagnose("upstream_headers", err).LogAttrs(), "elapsed", time.Since(started))...)
+		}
 		t.openErr = err
 		close(t.ready)
 		t.close(err)
@@ -510,6 +517,9 @@ func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.He
 	}
 	t.status, t.header, t.base = res.StatusCode, res.Header.Clone(), res.Request.URL
 	t.ctype = res.Header.Get("Content-Type")
+	if g.log != nil {
+		g.log.Debug("live upstream headers", "status", res.StatusCode, "elapsed", time.Since(started))
+	}
 	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusPartialContent {
 		res.Body.Close()
 		close(t.ready)
@@ -576,16 +586,10 @@ func (s *Service) sniffInput(ctx context.Context, ss *session, n int) ([]byte, s
 		if ctx.Err() != nil {
 			return nil, "", ctx.Err()
 		}
-		if errors.Is(t.openErr, ErrProviderPaced) {
-			return nil, "", ErrProviderPaced
-		}
-		if errors.Is(t.openErr, context.DeadlineExceeded) {
-			return nil, "", context.DeadlineExceeded
-		}
-		return nil, "", core.ErrNotAvailable
+		return nil, "", Diagnose("upstream_headers", t.openErr)
 	}
 	if t.status != http.StatusOK && t.status != http.StatusPartialContent {
-		return nil, "", core.ErrNotAvailable
+		return nil, "", providerResponseError(t.status)
 	}
 	if t.isManifest {
 		t.takeManifest()

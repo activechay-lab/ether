@@ -548,18 +548,11 @@ func streamResolutionClass(info core.MediaInfo) int {
 }
 
 func resolutionClass(w, h int) int {
-	switch {
-	case w >= 3200 || h >= 1800:
-		return 2160
-	case w >= 1700 || h >= 1000:
-		return 1080
-	case w >= 1200 || h >= 700:
-		return 720
-	case w > 0 || h > 0:
+	tier := core.ResolutionTier(w, h)
+	if tier > 0 && tier < 720 {
 		return 480
-	default:
-		return 0
 	}
+	return tier
 }
 
 func audioCodecFamily(c string) string {
@@ -651,23 +644,8 @@ func plexQualityPhrase(info core.ReleaseInfo) string {
 	case info.HDR10:
 		parts = append(parts, "HDR10")
 	}
-	switch info.Source {
-	case core.SourceRemux:
-		parts = append(parts, "Remux")
-	case core.SourceWEBDL:
-		parts = append(parts, "WEB-DL")
-	case core.SourceBluRay:
-		parts = append(parts, "Blu-ray")
-	case core.SourceWEBRip:
-		parts = append(parts, "WEBRip")
-	case core.SourceHDTV:
-		parts = append(parts, "HDTV")
-	case core.SourceDVD:
-		parts = append(parts, "DVD")
-	case core.SourceScreener:
-		parts = append(parts, "Screener")
-	case core.SourceCam:
-		parts = append(parts, "CAM")
+	if source := core.SourceLabel(info.Source); source != "" {
+		parts = append(parts, source)
 	}
 	return strings.Join(parts, " ")
 }

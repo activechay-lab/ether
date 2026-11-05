@@ -214,20 +214,3 @@ func ComposeRAR(vols []*RARVolume) ([]Member, error) {
 	}
 	return members, nil
 }
-
-// ListRAR reads every volume (in order) with ReadRARVolume and composes the
-// members. Extent volume indexes refer to vols.
-func ListRAR(vols []Volume) ([]Member, error) {
-	parsed := make([]*RARVolume, len(vols))
-	for i, v := range vols {
-		if v.R == nil {
-			return nil, fmt.Errorf("archive: volume %d: %w", i, ErrMissingVolume)
-		}
-		rv, err := ReadRARVolume(v.R, v.Size, nil)
-		if err != nil {
-			return nil, fmt.Errorf("archive: volume %d: %w", i, err)
-		}
-		parsed[i] = rv
-	}
-	return ComposeRAR(parsed)
-}

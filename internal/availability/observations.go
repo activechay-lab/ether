@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/releaseparse"
+	"github.com/braedonsaunders/ether/internal/store"
 	"strconv"
 	"strings"
 )
@@ -239,7 +240,7 @@ func (s *Service) storedGenerations(ctx context.Context, titles map[core.RatingK
 	out := map[string]string{}
 	for start := 0; start < len(keys); start += 500 {
 		batch := keys[start:min(start+500, len(keys))]
-		marks := strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")
+		marks := store.Placeholders(len(batch))
 		rows, err := s.db.QueryContext(ctx, `SELECT id,rating_key,source_id,generation FROM availability_releases WHERE rating_key IN (`+marks+`)`, batch...)
 		if err != nil {
 			return out

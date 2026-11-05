@@ -262,7 +262,6 @@ type Catalog struct {
 	listMu       sync.Mutex
 	listCache    map[string]listEntry
 
-	syncMu     sync.Mutex
 	syncing    atomic.Bool
 	progress   SyncProgress
 	progressMu sync.RWMutex
@@ -377,10 +376,6 @@ func (c *Catalog) now() time.Time {
 	}
 	return fn()
 }
-func WithStaleAfter(d time.Duration) Option {
-	return func(c *Catalog) { c.staleAfter = d }
-}
-func WithListTTL(d time.Duration) Option { return func(c *Catalog) { c.listTTL = d } }
 
 // WithResumeSchedule makes Run continue the refresh schedule recorded in
 // the database instead of syncing as soon as it starts: the first sync
@@ -388,9 +383,6 @@ func WithListTTL(d time.Duration) Option { return func(c *Catalog) { c.listTTL =
 // (by any node). A cluster uses it because Run restarts on every leader
 // handoff; with no recorded sync Run still syncs at once.
 func WithResumeSchedule() Option { return func(c *Catalog) { c.resumeSchedule = true } }
-
-// WithSyncYears bounds the year slices used when discover exceeds 500 pages.
-func WithSyncYears(from, to int) Option { return func(c *Catalog) { c.syncYears = [2]int{from, to} } }
 
 // New creates a catalogue. client may be nil (mirror-only / offline mode).
 func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...Option) (*Catalog, error) {

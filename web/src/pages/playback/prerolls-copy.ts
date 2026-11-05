@@ -76,7 +76,7 @@ export const MONTH_NAMES = localized<readonly string[]>(() => {
 });
 
 /** "Oct 1" for "10-01". */
-export function formatMonthDay(md: string): string {
+function formatMonthDay(md: string): string {
   const [m, d] = md.split("-").map(Number);
   if (!m || !d) return md;
   return new Intl.DateTimeFormat(getLocale(), {

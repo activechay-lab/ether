@@ -25,11 +25,6 @@ type NATPMP struct {
 	Tries int
 }
 
-// NewNATPMP returns a client for gateway (port NATPMPPort).
-func NewNATPMP(gateway net.IP) *NATPMP {
-	return &NATPMP{Gateway: net.JoinHostPort(gateway.String(), fmt.Sprint(NATPMPPort))}
-}
-
 // NATPMPError is a non-zero NAT-PMP result code.
 type NATPMPError struct{ Code uint16 }
 

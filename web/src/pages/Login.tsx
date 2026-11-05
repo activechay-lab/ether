@@ -15,8 +15,8 @@ const POLL_MS = 2000;
  * Owner sign-in is required on every connection, including localhost.
  */
 export default function Login({ boot, onReady }: { boot: Bootstrap; onReady: () => void }) {
-  // Older servers omit this field; retain their available sign-in paths.
-  const methods = boot.signInMethods ?? ["local", "plex"];
+  // Offer only the methods the server explicitly advertises.
+  const methods = boot.signInMethods ?? [];
   const localEnabled = methods.includes("local");
   const plexEnabled = methods.includes("plex");
   const [error, setError] = useState<unknown>(null);

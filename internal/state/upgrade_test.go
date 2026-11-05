@@ -218,6 +218,13 @@ func assertUpgradeKeepsOldWrite(t *testing.T, ctx context.Context, db *sql.DB) {
 	if watchAt != t1.UnixNano() || ratingAt != t1.UnixNano() {
 		t.Fatalf("old writer moved the new clocks watch_at %d rating_at %d", watchAt, ratingAt)
 	}
+	// Simulate a v0.3.x install which has not run the v0.3.4 clock repair.
+	if _, err := db.Exec("DELETE FROM schema_migrations WHERE component='state_plexwatch' AND version=5"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
 	s := New(db, Options{})
 	t2 := t1.Add(time.Hour)
 	watched := true

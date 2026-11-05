@@ -42,13 +42,6 @@ func ok() Result { return Result{OK: true} }
 
 func fail(errs ...string) Result { return Result{OK: false, Errors: errs} }
 
-// Validate checks a raw ViewSpec document against the base language: closed
-// unions, strict objects, depth cap and path guards. Class-name fields are
-// allowed here; they are a built-in-spec privilege.
-func Validate(raw []byte) Result {
-	return validate(raw, false)
-}
-
 // ValidatePlugin checks a document that came from a plugin. On top of the
 // base language it rejects class-name fields, requires widget and frame
 // names from the Ether registry (with prop shape checks), limits filter-bar
@@ -142,12 +135,3 @@ var (
 		"labelClassName":    true,
 	}
 )
-
-// ClassFields returns the field names plugin documents may never carry.
-func ClassFields() []string {
-	out := make([]string, 0, len(classFields))
-	for name := range classFields {
-		out = append(out, name)
-	}
-	return out
-}

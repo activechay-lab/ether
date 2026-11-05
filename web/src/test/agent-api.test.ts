@@ -60,7 +60,7 @@ describe("agent API helpers", () => {
         id: "why",
         owner: "builtin",
         label: { source: "Why this release?" },
-        meta: { agentSuggestion: true, routes: ["/releases/*"] },
+        meta: { agentSuggestion: true, routePatterns: ["/releases/*"] },
       },
       {
         kind: "command",
@@ -74,7 +74,7 @@ describe("agent API helpers", () => {
         id: "channels",
         owner: "builtin",
         label: { source: "Which channels?" },
-        meta: { agentSuggestion: true, routePattern: "/livetv" },
+        meta: { agentSuggestion: true, routePatterns: ["/livetv"] },
       },
     ];
     expect(registrySuggestions(descriptors, "/releases/history")).toEqual(["Why this release?"]);

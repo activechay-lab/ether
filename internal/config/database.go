@@ -1,8 +1,9 @@
 package config
 
 import (
-	"net/url"
 	"strings"
+
+	"github.com/braedonsaunders/ether/internal/dburl"
 )
 
 // DatabaseURLEnv overrides Database for this process: a postgres:// (or
@@ -38,7 +39,7 @@ type Database struct {
 // and normalises the driver name.
 func (d Database) Effective(getenv func(string) string) Database {
 	if getenv != nil {
-		if v := strings.TrimSpace(getenv(DatabaseURLEnv)); v != "" && isPostgresURL(v) {
+		if v := strings.TrimSpace(getenv(DatabaseURLEnv)); v != "" && dburl.IsPostgres(v) {
 			d.Driver, d.URL = DatabasePostgres, v
 		}
 	}
@@ -46,7 +47,7 @@ func (d Database) Effective(getenv func(string) string) Database {
 	case "postgres", "postgresql", "pg", "pgx":
 		d.Driver = DatabasePostgres
 	case "":
-		if isPostgresURL(d.URL) {
+		if dburl.IsPostgres(d.URL) {
 			d.Driver = DatabasePostgres
 		} else {
 			d.Driver = DatabaseSQLite
@@ -63,47 +64,6 @@ func (d Database) IsPostgres() bool { return d.Effective(nil).Driver == Database
 // Redacted returns a copy safe to log or display: the URL's password is
 // masked.
 func (d Database) Redacted() Database {
-	d.URL = RedactDatabaseURL(d.URL)
+	d.URL = dburl.Redact(d.URL)
 	return d
-}
-
-// RedactDatabaseURL masks the password in a connection URL.
-func RedactDatabaseURL(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		if i := strings.Index(raw, "://"); i >= 0 {
-			rest := raw[i+3:]
-			if at := strings.LastIndex(rest, "@"); at >= 0 {
-				if c := strings.Index(rest[:at], ":"); c >= 0 {
-					return raw[:i+3] + rest[:c] + ":xxxxx" + rest[at:]
-				}
-			}
-		}
-		return "[unparseable database URL]"
-	}
-	if u.User != nil {
-		if _, has := u.User.Password(); has {
-			u.User = url.UserPassword(u.User.Username(), "xxxxx")
-		}
-	}
-	q := u.Query()
-	changed := false
-	for k := range q {
-		if strings.Contains(strings.ToLower(k), "password") {
-			q.Set(k, "xxxxx")
-			changed = true
-		}
-	}
-	if changed {
-		u.RawQuery = q.Encode()
-	}
-	return u.String()
-}
-
-func isPostgresURL(v string) bool {
-	v = strings.ToLower(strings.TrimSpace(v))
-	return strings.HasPrefix(v, "postgres://") || strings.HasPrefix(v, "postgresql://")
 }

@@ -3,7 +3,6 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { Toaster } from "@braedonsaunders/appkit-ui";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { resetRegistryCache } from "../lib/extend";
-import { selectSlotForPlugin, setSlotXrayEnabled } from "../components/SlotXray";
 import { PanelSlots, PluginActionMenu, useSlots } from "../viewspec/slots/Slots";
 import { galleryDoc } from "../viewspec/fixtures/galleryDoc";
 const descriptor = (slot: string, key = "panel") => ({
@@ -36,23 +35,19 @@ function setup(ds: unknown[], result: unknown = {}) {
 }
 beforeEach(() => {
   resetRegistryCache();
-  setSlotXrayEnabled(false);
 });
 afterEach(() => {
   vi.unstubAllGlobals();
-  setSlotXrayEnabled(false);
-  selectSlotForPlugin(null);
 });
 function renderIn(node: React.ReactNode) {
   return render(<MemoryRouter>{node}</MemoryRouter>);
 }
-it("does not fetch plugin views when no slots exist and registers x-ray", async () => {
+it("does not fetch or render plugin views when no slots exist", async () => {
   setup([]);
-  setSlotXrayEnabled(true);
   const { container } = renderIn(<PanelSlots slot="dashboard.panel" />);
   await waitFor(() => expect(calls.length).toBeGreaterThan(0));
   expect(calls.filter((c) => c.url.includes("/views/"))).toHaveLength(0);
-  expect(container.querySelector('[data-slot-xray="dashboard.panel"]')).toBeTruthy();
+  expect(container.childElementCount).toBe(0);
 });
 it("loads the title panel with identifiers and lazily loads multiple panels", async () => {
   setup([descriptor("title.panel", "first"), descriptor("title.panel", "second")]);
@@ -163,33 +158,6 @@ it("applies action toast, refresh and open results", async () => {
   expect(await screen.findByText("Updated")).toBeTruthy();
   expect(await screen.findByText("/metadata")).toBeTruthy();
   expect(refresh).toHaveBeenCalledOnce();
-});
-
-it.each(["title", "viewer", "collection", "release"] as const)(
-  "registers the %s action slot with x-ray",
-  async (type) => {
-    setup([]);
-    setSlotXrayEnabled(true);
-    const { container } = renderIn(<PluginActionMenu slot={`actionMenu.${type}`} recordId="1" />);
-    expect(container.querySelector(`[data-slot-xray="actionMenu.${type}"]`)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "New plugin for slot" })).toBeTruthy();
-  },
-);
-
-it("opens Studio when an x-ray anchor is selected", async () => {
-  setup([]);
-  setSlotXrayEnabled(true);
-  function Location() {
-    return <span>{useLocation().pathname}</span>;
-  }
-  renderIn(
-    <>
-      <PanelSlots slot="title.panel" />
-      <Location />
-    </>,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "New plugin for slot" }));
-  expect(screen.getByText("/plugins/studio")).toBeTruthy();
 });
 
 it("shows a job toast without applying other action effects", async () => {

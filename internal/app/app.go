@@ -442,6 +442,10 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		a.Close()
 		return nil, startFail(startup.FailCredentialKey, err)
 	}
+	if err := a.migrateCredentialBlobs(ctx); err != nil {
+		a.Close()
+		return nil, fmt.Errorf("convert credential blobs: %w", err)
+	}
 	if dialect == store.Postgres {
 		if err := a.attachCluster(ctx, dbCfg.URL); err != nil {
 			a.Close()
@@ -598,8 +602,6 @@ func (a *App) Handler() http.Handler { return a.handler }
 // settleBeforeListen finishes startup database work that would otherwise
 // hold the write lock across the first play. The listener is not open yet.
 func (a *App) settleBeforeListen(ctx context.Context) {
-	var waitingFor string
-	a.credentialPass(ctx, &waitingFor)
 	if a.safety != nil && a.users != nil {
 		owner, err := a.users.Owner(ctx)
 		if err == nil && owner != nil {
@@ -633,6 +635,9 @@ func (a *App) Run(ctx context.Context) error {
 			return a.runResult()
 		}
 		return err
+	}
+	if err := a.migrateCredentials(ctx); err != nil {
+		return fmt.Errorf("convert stored credentials: %w", err)
 	}
 	var background backgroundGroup
 	defer background.Wait()
@@ -714,7 +719,6 @@ func (a *App) Run(ctx context.Context) error {
 	background.start(func() { a.runBudgets(ctx) })
 	background.start(func() { a.cluster.RunAsLeader(ctx, "prowlarr indexer sync", a.runProwlarrSync) })
 	background.start(func() { a.runEgress(ctx) })
-	background.start(func() { a.runCredentialUpgrade(ctx) })
 	// Credential sealing and the startup WAL checkpoint finish before the
 	// listener accepts a play. A play must not wait on that write.
 	a.settleBeforeListen(ctx)

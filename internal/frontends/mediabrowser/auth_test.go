@@ -7,12 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
@@ -107,14 +106,7 @@ func TestAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	var doc *openapi.Document
-	if e == nil {
-		doc, e = openapi.Parse(spec)
-	}
-	if e != nil && !os.IsNotExist(e) {
-		t.Fatal(e)
-	}
+	doc := spectest.Document(t, "jellyfin")
 	cases := []struct {
 		method, path, body, auth string
 		status                   int
@@ -124,7 +116,7 @@ func TestAuthentication(t *testing.T) {
 		{"GET", "/System/Info", "", `MediaBrowser Token="valid"`, 200},
 		{"POST", "/Sessions/Capabilities/Full", "{}", `MediaBrowser Token="valid"`, 204},
 		{"GET", "/Users/Me", "", "", 401},
-		{"GET", "/socket", "", "", 403},
+		{"GET", "/socket", "", "", 401},
 		{"POST", "/Sessions/Logout", "", `MediaBrowser Token="valid"`, 204},
 	}
 	for _, c := range cases {
@@ -244,14 +236,7 @@ func TestQuickConnectStatusDoesNotRedeem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, specErr := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	var doc *openapi.Document
-	if specErr == nil {
-		doc, specErr = openapi.Parse(spec)
-	}
-	if specErr != nil && !os.IsNotExist(specErr) {
-		t.Fatal(specErr)
-	}
+	doc := spectest.Document(t, "jellyfin")
 	call := func(method, path, body, token string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(method, path, strings.NewReader(body))

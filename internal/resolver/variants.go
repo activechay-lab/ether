@@ -509,32 +509,10 @@ func qualityPhrase(info core.ReleaseInfo) string {
 	case info.HDR10:
 		parts = append(parts, "HDR10")
 	}
-	if src := sourceWord(info.Source); src != "" {
+	if src := core.SourceLabel(info.Source); src != "" {
 		parts = append(parts, src)
 	}
 	return strings.Join(parts, " ")
-}
-
-func sourceWord(s core.Source) string {
-	switch s {
-	case core.SourceRemux:
-		return "Remux"
-	case core.SourceWEBDL:
-		return "WEB-DL"
-	case core.SourceBluRay:
-		return "Blu-ray"
-	case core.SourceWEBRip:
-		return "WEBRip"
-	case core.SourceHDTV:
-		return "HDTV"
-	case core.SourceDVD:
-		return "DVD"
-	case core.SourceScreener:
-		return "Screener"
-	case core.SourceCam:
-		return "CAM"
-	}
-	return ""
 }
 
 // estimateVariantInfo derives the expected MediaInfo from a parsed release

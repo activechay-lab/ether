@@ -1165,3 +1165,6 @@ func drainBodyBounded(c *Conn, reader *BodyReader, maxBytes int64) error {
 		}
 	}
 }
+
+// OwnsArticleRetries signals that Fetcher enforces its own per-provider budget.
+func (*Fetcher) OwnsArticleRetries() {}

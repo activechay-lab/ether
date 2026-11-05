@@ -1,10 +1,13 @@
 # Ether — developer makefile.
 GO ?= go
 VERSION ?= dev
+DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null)
 LDFLAGS := -s -w \
 	-X github.com/braedonsaunders/ether/internal/updater.Version=$(VERSION) \
 	-X github.com/braedonsaunders/ether/internal/updater.Commit=$(COMMIT) \
+	-X github.com/braedonsaunders/ether/internal/updater.Date=$(DATE) \
+	-X github.com/braedonsaunders/ether/internal/tmdb.BundledKey=$(ETHER_TMDB_BUNDLED_KEY) \
 	-X github.com/braedonsaunders/ether/internal/updater.PublicKeyB64=$(ETHER_UPDATE_PUBLIC_KEY)
 
 .PHONY: build test lint vet web spike run tray ffmpeg icons release-snapshot keys clean
@@ -31,9 +34,9 @@ vet:
 web:
 	cd web && pnpm install --frozen-lockfile && pnpm build
 
-## spike: run the server in spike mode (local files library)
+## spike: run a local files library (make spike FILES="movie.mp4 ...")
 spike:
-	CGO_ENABLED=0 $(GO) run ./cmd/ether
+	CGO_ENABLED=0 $(GO) run ./cmd/ether --spike $(FILES)
 
 ## run: run the server from source
 run:

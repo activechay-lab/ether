@@ -961,12 +961,6 @@ func (br *browseRequest) applySortParam(raw string, t core.MediaType) {
 	}
 }
 
-// sortFor maps a Plex sort key to a catalogue sort.
-func sortFor(key, dir string) (core.SortOrder, bool) {
-	so, desc, _, _ := sortSpecFor(key, dir)
-	return so, desc
-}
-
 func sortSpecFor(key, dir string) (so core.SortOrder, desc, lastViewed, valid bool) {
 	def := true // desc
 	valid = true

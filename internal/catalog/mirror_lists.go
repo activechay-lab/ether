@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"github.com/braedonsaunders/ether/internal/store"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -78,8 +79,8 @@ func (c *Catalog) storedKeys(ctx context.Context, titles []core.Title, browsable
 	}
 	out := make(map[core.RatingKey]bool, len(titles))
 	const batch = 200
-	for start := 0; start < len(titles); start += batch {
-		part := titles[start:min(start+batch, len(titles))]
+	for chunk := range store.Chunks(titles, batch) {
+		part := chunk
 		args := make([]any, len(part))
 		for i := range part {
 			args[i] = int64(part[i].Key)

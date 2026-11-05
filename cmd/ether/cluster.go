@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/dburl"
 	"io"
 	"log/slog"
 	"os"
@@ -71,7 +72,7 @@ func runCluster(args []string, defaultDataDir string, stdout, stderr io.Writer) 
 		fmt.Fprintln(stdout, "Make sure Ether is stopped on this machine; changes made while copying would be lost.")
 		err = clusterconfig.Init(ctx, clusterconfig.InitOptions{DataDir: *dataDir, DatabaseURL: url, Logger: log})
 		if err == nil {
-			fmt.Fprintf(stdout, "This server is now the first node of a cluster on %s.\nStart Ether, then add nodes with `ether cluster token` here and `ether cluster join` there.\n", store.RedactURL(url))
+			fmt.Fprintf(stdout, "This server is now the first node of a cluster on %s.\nStart Ether, then add nodes with `ether cluster token` here and `ether cluster join` there.\n", dburl.Redact(url))
 		}
 	case "token":
 		err = clusterToken(ctx, stdout, *dataDir, *dbURL, *ttl, log)

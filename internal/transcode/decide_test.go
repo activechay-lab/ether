@@ -130,10 +130,10 @@ func TestDecide(t *testing.T) {
 				container: ContainerMPEGTS, maxHeight: 1080, audioIdx: 3, reason: []string{"dts", "aac 2ch"}},
 		},
 		{
-			name: "DV profile 8.1 direct plays on HDR10-only TV via base layer",
+			name: "DV profile 8.1 remuxes a clean base layer for HDR10-only TV",
 			info: dv8, caps: hdr10TV,
-			want: want{kind: core.DecisionDirectPlay, videoCopy: true, audioCopy: true, videoCodec: "hevc", audioCodec: "eac3",
-				container: "mkv", maxHeight: 1608, audioIdx: 1},
+			want: want{kind: core.DecisionRemux, videoCopy: true, audioCopy: true, videoCodec: "hevc", audioCodec: "eac3",
+				container: ContainerFMP4, maxHeight: 1608, audioIdx: 1},
 		},
 		{
 			name: "DV profile 5 needs a tone-mapping transcode on HDR10-only TV",

@@ -226,12 +226,6 @@ func (s *Service) markPolled(ctx context.Context, f core.ReleaseFeed) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE availability_feeds SET polled_at=? WHERE source_id=? AND generation=?`, s.now().Unix(), f.ID, f.Generation)
 	return err
 }
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
 func safeReason(err error) string {
 	switch {
 	case errors.Is(err, core.ErrBudgetExhausted):

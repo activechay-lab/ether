@@ -9,7 +9,7 @@ import type { Descriptor } from "../../lib/extend";
 import type { ExtendHandler } from "./index";
 import { createStudioMock } from "./studio";
 
-export interface PluginSummary {
+interface PluginSummary {
   id: string;
   name: string;
   version: string;
@@ -31,7 +31,7 @@ export interface PluginSummary {
   host?: string;
 }
 
-export interface PluginHealth {
+interface PluginHealth {
   status: string;
   reason?: string;
   restarts: number;
@@ -44,7 +44,7 @@ export interface PluginHealth {
   egressBytes: number;
 }
 
-export interface PluginDetail extends PluginSummary {
+interface PluginDetail extends PluginSummary {
   manifest: Record<string, unknown>;
   permissions: {
     lines: string[];
@@ -74,7 +74,7 @@ export interface PluginDetail extends PluginSummary {
   changelog?: string;
 }
 
-export interface CatalogueEntry {
+interface CatalogueEntry {
   id: string;
   name: string;
   version: string;
@@ -257,7 +257,7 @@ function catalogueFixtures(): CatalogueEntry[] {
 }
 
 /** An installed Stremio add-on (no ether block) and its roles. */
-export function addonDetail(
+function addonDetail(
   id: string,
   name: string,
   host: string,

@@ -41,14 +41,14 @@ import { TitlePicker } from "./Search";
  * for which steps and fields exist, their order, editors and choices;
  * this file keeps no copy of those lists.
  */
-export interface DescriptorOption {
+interface DescriptorOption {
   value: string;
   label?: ExtendText;
 }
 
-export type RankingEditorKind = "ordered_list" | "choice" | "range" | "toggle" | "none";
+type RankingEditorKind = "ordered_list" | "choice" | "range" | "toggle" | "none";
 
-export interface RankingStepMeta {
+interface RankingStepMeta {
   editor:
     | RankingEditorKind
     | {
@@ -66,9 +66,9 @@ export interface RankingStepMeta {
   hint?: string;
 }
 
-export type RuleValueClass = "text" | "choice" | "language" | "number" | "none";
+type RuleValueClass = "text" | "choice" | "language" | "number" | "none";
 
-export interface RuleFieldMeta {
+interface RuleFieldMeta {
   valueClass: RuleValueClass;
   operators?: string[];
   defaultOperator?: string;
@@ -192,7 +192,7 @@ export function descriptorLabel(d: Descriptor): string {
     : label;
 }
 
-export function optionLabel(option: DescriptorOption): string {
+function optionLabel(option: DescriptorOption): string {
   return textOf(option.label) || option.value;
 }
 
@@ -311,7 +311,7 @@ export function insertPreferRuleInRanking(ranking: string[], ruleId: string): st
   return [...without.slice(0, insertAt), key, ...without.slice(insertAt)];
 }
 
-export function fieldDescriptor(
+function fieldDescriptor(
   fields: RuleFieldDescriptor[],
   field: string,
 ): RuleFieldDescriptor | undefined {

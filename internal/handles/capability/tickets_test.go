@@ -296,9 +296,3 @@ func TestTicketMultiBatchPreservesTypedScope(t *testing.T) {
 		t.Fatalf("header count=%d", count)
 	}
 }
-
-type activeFixture struct{}
-
-func (activeFixture) ActiveUser(_ context.Context, id int64) (*core.User, error) {
-	return &core.User{ID: id}, nil
-}

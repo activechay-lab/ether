@@ -338,8 +338,8 @@ func TestTrashCacheIsBounded(t *testing.T) {
 	for i := range 40 {
 		g.store("radarr/cf/"+strconv.Itoa(i)+".json", big)
 	}
-	if g.bytes > trashCacheBytes || len(g.files) > trashCacheBytes/len(big) {
-		t.Fatalf("cache holds %d bytes in %d files", g.bytes, len(g.files))
+	if g.files.Cost() > trashCacheBytes || g.files.Len() > trashCacheBytes/len(big) {
+		t.Fatalf("cache holds %d bytes in %d files", g.files.Cost(), g.files.Len())
 	}
 }
 

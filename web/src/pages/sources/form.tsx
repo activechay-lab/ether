@@ -54,6 +54,7 @@ function Help({ help, error }: { help?: ReactNode; error?: string }) {
 }
 
 export function TextRow({
+  setting,
   label,
   value,
   onChange,
@@ -62,6 +63,7 @@ export function TextRow({
   help,
   type,
 }: {
+  setting?: string;
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -72,6 +74,7 @@ export function TextRow({
 }) {
   return (
     <SettingsRow
+      setting={setting}
       title={label}
       description={<Help help={help} error={error} />}
       control={

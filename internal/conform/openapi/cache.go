@@ -56,6 +56,11 @@ func CachedSpecManifest(b []byte, protocol, cacheDir string) ([]byte, error) {
 		name = "jellyfin-openapi-" + version + ".json"
 	}
 	if cacheDir == "" {
+		// fetch.sh <dir> writes the specs straight into dir; CI points
+		// ETHER_CONFORM_SPECS_DIR at it.
+		cacheDir = os.Getenv("ETHER_CONFORM_SPECS_DIR")
+	}
+	if cacheDir == "" {
 		cacheDir = os.Getenv("XDG_CACHE_HOME")
 		if protocol == "jellyfin" && version != "" {
 			if strings.ContainsAny(version, "/\\") {

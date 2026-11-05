@@ -56,16 +56,6 @@ func (k ChannelKind) Descriptor() extend.Descriptor {
 	})
 }
 
-// field returns the named schema field, if the kind declares it.
-func (k ChannelKind) field(key string) (extend.SettingsField, bool) {
-	for _, f := range k.Fields {
-		if f.Key == key {
-			return f, true
-		}
-	}
-	return extend.SettingsField{}, false
-}
-
 // KindRegistry holds the channel kinds a service can validate and deliver.
 // It is safe for concurrent use; the plugin host registers plugin kinds
 // here as plugins are installed.

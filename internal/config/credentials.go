@@ -12,8 +12,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -196,11 +198,8 @@ func newAEAD(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-// sealDocument seals every secret of the config document data. bound
-// selects the v2 format (path- and destination-bound, with the format
-// marker); otherwise values are written in the legacy v1 format that
-// releases before v2 can read.
-func sealDocument(data, key []byte, bound bool) ([]byte, error) {
+// sealDocument always writes path- and destination-bound v2 credentials.
+func sealDocument(data, key []byte) ([]byte, error) {
 	var root any
 	if err := json.Unmarshal(data, &root); err != nil {
 		return nil, err
@@ -209,15 +208,13 @@ func sealDocument(data, key []byte, bound bool) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := &credentialWalker{aead: aead, seal: true, bound: bound}
+	w := &credentialWalker{aead: aead, seal: true, bound: true}
 	if err := w.walk(root, nil, ""); err != nil {
 		return nil, err
 	}
 	if m, ok := root.(map[string]any); ok {
 		delete(m, credentialFormatKey)
-		if bound {
-			m[credentialFormatKey] = credentialFormatV2
-		}
+		m[credentialFormatKey] = credentialFormatV2
 	}
 	return json.MarshalIndent(root, "", "  ")
 }
@@ -309,10 +306,7 @@ func (w *credentialWalker) walk(v any, path []string, parent string) error {
 func (w *credentialWalker) value(text, name string, path []string, dest string) (string, error) {
 	aad := credentialAAD(path, dest)
 	if w.seal {
-		if w.bound {
-			return sealWithAAD(w.aead, sealedPrefixV2, text, aad)
-		}
-		return sealWithAAD(w.aead, sealedPrefix, text, []byte(name))
+		return sealWithAAD(w.aead, sealedPrefixV2, text, aad)
 	}
 	where := strings.Join(path, ".")
 	switch {
@@ -322,6 +316,7 @@ func (w *credentialWalker) value(text, name string, path []string, dest string) 
 			return "", fmt.Errorf("decrypt credential %s: key mismatch, damaged configuration, or the value was moved to another setting or destination", where)
 		}
 		return plain, nil
+	// v0.3.4 startup conversion only. Remove this v1 decoder in the next release.
 	case strings.HasPrefix(text, sealedPrefix):
 		plain, err := openWithAAD(w.aead, sealedPrefix, text, []byte(name))
 		if err != nil {
@@ -396,12 +391,7 @@ func appendPath(path []string, k string) []string {
 }
 
 func sortedKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
+	return append([]string{}, slices.Sorted(maps.Keys(m))...)
 }
 
 // credentialAAD is the v2 additional data of a config.json credential.
@@ -464,42 +454,46 @@ func KeyFingerprint(key []byte) string {
 // sealBytes encrypts plain with key, binding it to aad (a name that must
 // match when opening). The result is printable.
 func sealBytes(key []byte, aad string, plain []byte) (string, error) {
-	block, err := aes.NewCipher(key)
+	aead, err := newAEAD(key)
 	if err != nil {
 		return "", err
 	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
-	return sealedPrefix + base64.RawStdEncoding.EncodeToString(aead.Seal(nonce, nonce, plain, []byte(aad))), nil
+	return sealWithAAD(aead, sealedPrefixV2, string(plain), contextAAD("ether-seal:v2", []string{aad}))
 }
 
 func openBytes(key []byte, aad, sealed string) ([]byte, error) {
-	if !strings.HasPrefix(sealed, sealedPrefix) {
-		return nil, errors.New("config: value is not sealed")
-	}
-	block, err := aes.NewCipher(key)
+	aead, err := newAEAD(key)
 	if err != nil {
 		return nil, err
 	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
+	if !strings.HasPrefix(sealed, sealedPrefixV2) {
+		return nil, errors.New("config: value is not sealed in v2")
 	}
-	payload, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(sealed, sealedPrefix))
-	if err != nil || len(payload) < aead.NonceSize() {
-		return nil, errors.New("config: invalid sealed value")
+	prefix, context := sealedPrefixV2, contextAAD("ether-seal:v2", []string{aad})
+	plain, err := openWithAAD(aead, prefix, sealed, context)
+	return []byte(plain), err
+}
+
+// ConvertLegacyBlob is only for the v0.3.4 startup conversion. Remove this
+// method and its v1 decoder next release, after all stored blobs are v2.
+func (s *Store) ConvertLegacyBlob(name, stored string) (string, error) {
+	if strings.HasPrefix(stored, sealedPrefixV2) {
+		return stored, nil
 	}
-	plain, err := aead.Open(nil, payload[:aead.NonceSize()], payload[aead.NonceSize():], []byte(aad))
-	if err != nil {
-		return nil, fmt.Errorf("config: decrypt %s: key mismatch or damaged value", aad)
+	plain := stored
+	if strings.HasPrefix(stored, sealedPrefix) {
+		aead, err := newAEAD(s.credentialKey)
+		if err != nil {
+			return "", err
+		}
+		plain, err = openWithAAD(aead, sealedPrefix, stored, []byte(name))
+		if err != nil {
+			return "", err
+		}
+	} else if IsSealed(stored) {
+		return "", errors.New("config: unsupported sealed blob format")
 	}
-	return plain, nil
+	return s.Seal(name, []byte(plain))
 }
 
 // InstallCredentialKey writes key as dir's credential key. It refuses to

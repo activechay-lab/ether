@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -29,6 +30,9 @@ func testService(t *testing.T, o Options) *Service {
 		}
 		t.Cleanup(func() { db.Close() })
 		o.DB = db
+	}
+	if o.Logger == nil {
+		o.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	s, e := New(o)
 	if e != nil {

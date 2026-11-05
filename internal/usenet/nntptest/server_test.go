@@ -116,7 +116,7 @@ func TestPostAndFetch(t *testing.T) {
 			t.Fatalf("segment %+v", sg)
 		}
 		body := fetchBody(t, c, sg.ID)
-		p, err := yenc.Decode(body)
+		p, err := decodeArticle(body)
 		if err != nil {
 			t.Fatalf("segment %d: %v", i+1, err)
 		}
@@ -278,14 +278,14 @@ func TestFaultsAndCorrupt(t *testing.T) {
 	})
 	c := dial(t, s)
 	cmd(t, c, 503, "BODY <y@z>")
-	p, err := yenc.Decode(fetchBody(t, c, "y@z"))
+	p, err := decodeArticle(fetchBody(t, c, "y@z"))
 	if err != nil || !bytes.Equal(p.Data, data) {
 		t.Fatalf("decode: %v", err)
 	}
 	if err := s.Corrupt("y@z"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := yenc.Decode(fetchBody(t, c, "y@z")); !errors.Is(err, yenc.ErrCRCMismatch) {
+	if _, err := decodeArticle(fetchBody(t, c, "y@z")); !errors.Is(err, yenc.ErrCRCMismatch) {
 		t.Fatalf("err = %v", err)
 	}
 	if err := s.Corrupt("missing@z"); err == nil {
@@ -334,8 +334,22 @@ func TestBodyDelayPreservesCommandSentMidBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	part, err := yenc.Decode(body)
+	part, err := decodeArticle(body)
 	if err != nil || string(part.Data) != "second" {
 		t.Fatalf("second payload %v %v", part, err)
 	}
+}
+
+type articleLines struct{ lines [][]byte }
+
+func (r *articleLines) ReadLine() ([]byte, error) {
+	if len(r.lines) == 0 {
+		return nil, io.EOF
+	}
+	line := bytes.TrimSuffix(r.lines[0], []byte("\r"))
+	r.lines = r.lines[1:]
+	return line, nil
+}
+func decodeArticle(body []byte) (*yenc.Part, error) {
+	return yenc.DecodeLines(&articleLines{lines: bytes.Split(body, []byte("\n"))}, nil)
 }

@@ -45,7 +45,7 @@ export function installMockBackend(): void {
       username: "ether",
       password: "[configured]",
     };
-    c.markers = { ...c.markers, theIntroDb: true, accountEnabled: true, apiKey: "[configured]" };
+    c.markers = { ...c.markers, theIntroDb: true, apiKey: "[configured]" };
     c.posters = {
       version: 1,
       enabled: false,

@@ -21,13 +21,6 @@ import (
 // ConnectStep identifies a translated owner-console connection instruction.
 type ConnectStep string
 
-const (
-	ConnectOpenApp      ConnectStep = "openApp"
-	ConnectAddServer    ConnectStep = "addServer"
-	ConnectSignIn       ConnectStep = "signIn"
-	ConnectInstallAddon ConnectStep = "installAddon"
-)
-
 // CertifiedApp contains only verified native clients, with their connection steps.
 type CertifiedApp struct {
 	Name  string        `json:"name"`

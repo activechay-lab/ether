@@ -48,22 +48,6 @@ func validHeaderScope(s HeaderScope) bool {
 		strings.TrimSpace(s.Namespace) == s.Namespace && s.ViewerID > 0 && s.Surface != "" && len(s.Surface) <= 128 && len(s.DeviceID) <= 512
 }
 
-// BindHeadersInTx inserts headers on the caller's transaction. The caller owns
-// scope authorization, per-domain quota, timestamp selection and atomic domain
-// insertion; tx must come from the same database as the domain operation.
-// Duplicate namespace/digest fails and must cause the caller to roll back.
-func BindHeadersInTx(ctx context.Context, tx *sql.Tx, headers []Header) error {
-	if tx == nil || len(headers) == 0 || len(headers) > HeaderBatchMax {
-		return ErrInvalidHeader
-	}
-	for _, h := range headers {
-		if !validHeaderScope(h.HeaderScope) || !digestValid(h.Digest) || h.ExpiresMillis <= 0 {
-			return ErrInvalidHeader
-		}
-	}
-	return insertHeadersInTx(ctx, tx, headers)
-}
-
 func insertHeadersInTx(ctx context.Context, tx *sql.Tx, headers []Header) error {
 	// 40 rows × 7 fields = at most 280 parameters. Explicit casts keep
 	// PostgreSQL's UNION inputs typed; SQLite accepts the same statement.

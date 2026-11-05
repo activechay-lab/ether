@@ -50,6 +50,7 @@ export function StartSpeed() {
   return (
     <SettingsSection title={t("Start speed")}>
       <SettingsRow
+        setting="start-before-the-health-check-finishes"
         title={t("Start before the health check finishes")}
         description={
           <QualityHelp
@@ -65,8 +66,9 @@ export function StartSpeed() {
           />
         }
       />
-      <MoreOptions label={t("More options: Start speed")}>
+      <MoreOptions setting="start-speed" label={t("More options: Start speed")}>
         <SettingsRow
+          setting="concurrent-checks"
           title={t("Concurrent checks")}
           description={
             <QualityHelp

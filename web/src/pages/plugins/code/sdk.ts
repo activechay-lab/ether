@@ -1,5 +1,5 @@
 /**
- * Prototype copy of the Ether plugin SDK typings that the editor loads, so
+ * A copy of the Ether plugin SDK typings that the editor loads, so
  * completion, hover docs and inline errors come from the real SDK surface.
  */
 export const SDK_DTS = `declare module "ether" {
@@ -68,57 +68,6 @@ export const SDK_DTS = `declare module "ether" {
   export function t(text: string): string;
 }
 `;
-
-export const MANIFEST = `{
-  "id": "dev.alex.unwatched-4k",
-  "name": "4K nobody has watched",
-  "version": "1.0.0",
-  "ether": {
-    "runtime": { "kind": "hosted", "entry": "plugin.ts" },
-    "permissions": { "history": "read", "collections": "write" }
-  }
-}
-`;
-
-export const STRINGS = `{
-  "4K nobody has watched": "4K nobody has watched"
-}
-`;
-
-export const SETTINGS = `{
-  "type": "object",
-  "properties": {
-    "minRating": { "type": "number", "title": "Lowest rating", "default": 7 }
-  }
-}
-`;
-
-export function pluginSource(skipKids: boolean): string {
-  const kids = skipKids
-    ? `
-      // Skip kids' titles.
-      .filter((title) => !title.isForKids())`
-    : "";
-  return `import { definePlugin, t } from "ether";
-
-export default definePlugin({
-  collections: {
-    "unwatched-4k": {
-      title: t("4K nobody has watched"),
-      refresh: "nightly",
-      limit: 18,
-      async build(ether) {
-        const titles = await ether.catalog.search({ resolution: "2160p", minRating: 7 });
-        const started = await ether.viewers.startedTitles();
-        return titles
-          .filter((title) => !started.has(title.id))${kids}
-          .sortBy("rating");
-      },
-    },
-  },
-});
-`;
-}
 
 /**
  * The global `ether` host that Studio drafts and installed hosted plugins

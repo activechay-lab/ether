@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"github.com/braedonsaunders/ether/internal/store"
 	"net/http"
 	"sort"
 	"strconv"
@@ -39,18 +40,11 @@ type playMeasure struct {
 	startFailure                  string
 }
 
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 func measure(p *core.PlaySession, release string) playMeasure {
-	q := playMeasure{ttffMS: -1, remote: boolInt(p.Client.Remote)}
+	q := playMeasure{ttffMS: -1, remote: store.BoolInt(p.Client.Remote)}
 	if e := p.Experience; e != nil {
-		q.played = boolInt(e.Requested)
-		q.pictured = boolInt(e.Pictured)
+		q.played = store.BoolInt(e.Requested)
+		q.pictured = store.BoolInt(e.Pictured)
 		if e.Pictured && e.StartTime >= 0 {
 			q.ttffMS = e.StartTime.Milliseconds()
 		}
@@ -72,8 +66,8 @@ func measure(p *core.PlaySession, release string) playMeasure {
 	}
 	videoCopy := p.Decision == core.DecisionDirectPlay || p.DecisionVideoCopy
 	if v := p.Info.Video(); v != nil && videoCopy {
-		q.uhd = boolInt(v.Height >= 1600 || v.Width >= 3200)
-		q.hdr = boolInt(v.DolbyVision || v.ColorTransfer == "smpte2084" || v.ColorTransfer == "arib-std-b67")
+		q.uhd = store.BoolInt(v.Height >= 1600 || v.Width >= 3200)
+		q.hdr = store.BoolInt(v.DolbyVision || v.ColorTransfer == "smpte2084" || v.ColorTransfer == "arib-std-b67")
 	}
 	if p.Decision == core.DecisionRemux || p.Decision == core.DecisionTranscode {
 		q.reasonKind, q.reasonDetail = classifyReason(p.DecisionReason)

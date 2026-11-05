@@ -34,12 +34,11 @@ type buildResult struct {
 	personalX []*rule // per-user exclusions, applied when serving
 	// unshared (only for match "any" with per-user rules) lists members that
 	// met none of the shared rules; they need a per-user rule to hold.
-	unshared  map[core.RatingKey]bool
-	spec      core.CollectionSpec
-	builtAt   time.Time
-	hash      string
-	resolved  core.CollectionSpec // spec with labels resolved to ids
-	hasDetail bool
+	unshared map[core.RatingKey]bool
+	spec     core.CollectionSpec
+	builtAt  time.Time
+	hash     string
+	resolved core.CollectionSpec // spec with labels resolved to ids
 }
 
 // itemCount is what the owner sees: matches capped by the limit.

@@ -36,7 +36,7 @@ func TestDLNAGuestCreationRequiresOwner(t *testing.T) {
 	owner, _ := grants.Issue(ctx, ownerID, nil, "owner", core.Device{})
 	viewer, _ := grants.Issue(ctx, viewerID, nil, "viewer-portal", core.Device{})
 	called := 0
-	h := admin.New(admin.Deps{Config: newStore(t, nil), IdentityGrants: grants, CreateDLNAGuest: func(context.Context) (*core.Viewer, error) { called++; return &core.Viewer{ID: 42}, nil }})
+	h := admin.NewHandler(admin.Deps{Config: newStore(t, nil), IdentityGrants: grants, CreateDLNAGuest: func(context.Context) (*core.Viewer, error) { called++; return &core.Viewer{ID: 42}, nil }})
 	do := func(token string, csrf bool) int {
 		r := req("POST", "/ether/api/frontends/dlna/guest", "")
 		r.Header.Set("Authorization", "Bearer "+token)

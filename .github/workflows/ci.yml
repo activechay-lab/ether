@@ -59,6 +59,23 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Cache protocol specs
+        if: matrix.shard == 'protocols-catalog' || matrix.shard == 'rest' || matrix.shard == 'all'
+        id: specs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci-specs
+          key: protocol-specs-${{ hashFiles('internal/conform/specs/manifest.json') }}
+      - name: Stage protocol specs
+        if: matrix.shard == 'protocols-catalog' || matrix.shard == 'rest' || matrix.shard == 'all'
+        shell: bash
+        run: |
+          if [ '${{ steps.specs.outputs.cache-hit }}' != 'true' ]; then
+            bash internal/conform/specs/fetch.sh .ci-specs
+          fi
+          specdir="$GITHUB_WORKSPACE/.ci-specs"
+          if [ "$RUNNER_OS" = Windows ]; then specdir=$(cygpath -w "$specdir"); fi
+          echo "ETHER_CONFORM_SPECS_DIR=$specdir" >> "$GITHUB_ENV"
       # Stage the pinned ffmpeg/ffprobe (packaging/ffmpeg.lock.json,
       # SHA-256 verified by scripts/fetch-ffmpeg.sh) and put them first on
       # PATH so the real integration tests in internal/transcode run
@@ -225,6 +242,40 @@ jobs:
               echo "Cross-compiling $t..."
               GOOS="${t%/*}" GOARCH="${t#*/}" go build ./cmd/ether ./cmd/ether-tray ./internal/...
             '
+
+  postgres:
+    name: PostgreSQL 14 (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [store, cluster, clusterconfig, clusterbus, state, livetv, app, artwork/service, auth, backup, debrid, experience, handles/capability, identity, migrate, playback, plexwatch, sessions]
+    services:
+      postgres:
+        # PostgreSQL 14 is Ether's minimum supported server version.
+        image: postgres:14
+        env:
+          POSTGRES_USER: ether
+          POSTGRES_PASSWORD: ether
+          POSTGRES_DB: ether
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ether -d ether"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test with PostgreSQL
+        env:
+          CGO_ENABLED: "0"
+          ETHER_TEST_POSTGRES: postgres://ether:ether@127.0.0.1:5432/ether?sslmode=disable
+        run: go test -count=1 -timeout 20m ./internal/${{ matrix.package }}/...
 
   vulnerabilities:
     name: Go vulnerabilities

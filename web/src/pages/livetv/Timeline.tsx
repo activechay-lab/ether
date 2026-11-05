@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@braedonsaunders/appkit-ui";
 import { t } from "../../i18n";
 import { MINUTE, clock, hueOf, type Programme } from "./model";
@@ -21,16 +22,38 @@ export function Timeline({
   label: string;
   className?: string;
 }) {
+  const root = useRef<HTMLDivElement>(null);
+  const [availableWidth, setAvailableWidth] = useState(600);
+  useLayoutEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const measure = () => {
+      if (el.clientWidth) setAvailableWidth(el.clientWidth);
+    };
+    measure();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    observer?.observe(el);
+    return () => observer?.disconnect();
+  }, []);
   const span = until - from;
-  const pct = (ms: number) => ((Math.min(until, Math.max(from, ms)) - from) / span) * 100;
-  const hours: number[] = [];
-  const step = span > 12 * 60 * MINUTE ? 3 * 60 * MINUTE : 60 * MINUTE;
-  for (let ms = Math.ceil(from / step) * step; ms < until; ms += step) hours.push(ms);
-  // A day fits the drawer. A week keeps each hour readable and scrolls sideways.
   const hourCount = span / (60 * MINUTE);
   const minWidth = hourCount > 30 ? Math.round(hourCount * 32) : undefined;
+  const labelHours = Math.max(
+    span > 12 * 60 * MINUTE ? 3 : 1,
+    Math.ceil((hourCount * 72) / Math.max(1, minWidth ?? availableWidth)),
+  );
+  const pct = (ms: number) => ((Math.min(until, Math.max(from, ms)) - from) / span) * 100;
+  const hours: number[] = [];
+  const step = labelHours * 60 * MINUTE;
+  for (let ms = Math.ceil(from / step) * step; ms < until; ms += step) hours.push(ms);
+  // A day fits the drawer. A week keeps each hour readable and scrolls sideways.
   return (
-    <div className={cn("min-w-0 overflow-x-auto", className)} role="img" aria-label={label}>
+    <div
+      ref={root}
+      className={cn("min-w-0 overflow-x-auto", className)}
+      role="img"
+      aria-label={label}
+    >
       <div className="space-y-1.5" style={minWidth ? { minWidth } : undefined}>
         <div className="relative h-14 overflow-hidden rounded-xl border border-border bg-bg-subtle">
           {programmes.map((p) => {
@@ -82,7 +105,11 @@ export function Timeline({
         </div>
         <div className="relative h-4 text-[10.5px] tabular-nums text-fg-subtle" aria-hidden>
           {hours.map((ms) => (
-            <span key={ms} className="absolute -translate-x-1/2" style={{ left: `${pct(ms)}%` }}>
+            <span
+              key={ms}
+              className="absolute -translate-x-1/2 whitespace-nowrap"
+              style={{ left: `${pct(ms)}%` }}
+            >
               {clock(new Date(ms))}
             </span>
           ))}

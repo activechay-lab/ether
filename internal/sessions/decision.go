@@ -54,6 +54,14 @@ func Decide(playback core.Playback, transcoder core.Transcoder, r DecisionReques
 	}
 	preferRemux := r.PreferRemux && onDemand && ps.Resolution.Release.Protocol != core.ProtocolTorrent &&
 		ps.Resolution.Release.Protocol != core.ProtocolHTTP
+	// Keep native Dolby Vision file playback on Android when the decision
+	// accepted the container, tracks and DV profile. Optional source-change
+	// remuxing must not send it through a different player/demuxer. A required
+	// remux and an explicit client rejection of direct play still win.
+	if v := ps.Info.Video(); v != nil && v.DolbyVision && r.Options.DirectPlay &&
+		strings.EqualFold(r.Caps.Platform, "Android") && transcode.SupportsDVProfile(r.Caps, v.DolbyVisionProfile) {
+		preferRemux = false
+	}
 	if (preferRemux || requiresRemux) && r.Options.DirectStream && onDemand && dec.Kind == core.DecisionDirectPlay && transcoder != nil {
 		dec.Kind = core.DecisionRemux
 		dec.VideoCopy, dec.AudioCopy = true, true

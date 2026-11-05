@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/go-chi/chi/v5"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
@@ -311,8 +310,8 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *core.Title) {
 		return
 	}
 	caps := s.clientCaps(pr)
-	if warm, ok := s.d.Playback.(core.PlaybackPreparer); ok {
-		warm.PreResolve(ctx, pr.User, t.Key, caps)
+	if warm, ok := s.d.Playback.(core.Prewarmer); ok {
+		warm.Prewarm(ctx, pr.User, t.Key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail})
 	}
 	if pr == nil || pr.User == nil {
 		return
@@ -675,10 +674,6 @@ func (s *Server) collectionSelection() experience.ScopedCollection {
 	return experience.ScopedCollection{Collections: s.d.Collections, Visibility: s.visibility(), Now: s.now, Unrestricted: func(viewer *core.User) bool { return !s.viewerRestricted(viewer) }}
 }
 
-func (s *Server) scopedCollectionItems(ctx context.Context, u *core.User, k core.RatingKey) ([]core.Title, error) {
-	return s.collectionSelection().Items(ctx, u, k, collectionDevice(ctx))
-}
-
 func (s *Server) lookupPlaceholder(ctx context.Context, pr *Request, key core.RatingKey, raw string) (*core.Title, core.RatingKey, error) {
 	var requested *core.RatingKey
 	if raw != "" {
@@ -693,12 +688,6 @@ func (s *Server) lookupPlaceholder(ctx context.Context, pr *Request, key core.Ra
 
 func (s *Server) scopedCollectionCounts(ctx context.Context, u *core.User, cs []core.Collection) []core.Collection {
 	return s.collectionSelection().Counts(ctx, u, cs, collectionDevice(ctx))
-}
-
-// collectionVisible reports whether u may see the section a movie or show
-// collection belongs to (mixed collections have no single section).
-func (s *Server) collectionVisible(u *core.User, c *core.Collection) bool {
-	return s.visibility().CollectionAllowed(u, c)
 }
 
 func (s *Server) collectionMetadata(c *core.Collection) model.Metadata {

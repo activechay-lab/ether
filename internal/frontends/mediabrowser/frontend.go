@@ -11,7 +11,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/conformance"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/route"
-	"github.com/braedonsaunders/ether/internal/frontend/kit/support"
 )
 
 // Jellyfin provides the native Jellyfin API on an independent surface.
@@ -52,6 +51,7 @@ func mount(ctx context.Context, host frontend.Host, machineID string, protocol f
 	if host.PageFreshness != nil {
 		inst.pages = newBrowseCache()
 	}
+	r.SetMiddleware(inst.routeMiddleware)
 	unmatched := &unmatchedLogger{}
 	r.SetUnmatched(func(req *http.Request, status int) { unmatched.log(inst, req, status) })
 	mounted := false
@@ -145,19 +145,6 @@ type instance struct {
 
 func (i *instance) Handler() http.Handler {
 	var inner http.Handler = i.router
-	if i.pages != nil && i.host.PageFreshness != nil {
-		inner = i.pages.wrap(inner, i.host.PageFreshness)
-	}
-	inner = support.Wrap(i.host.Support, string(i.protocol), func(r *http.Request) (*frontend.Viewer, frontend.Device) {
-		if _, ok := i.host.Identity.(frontend.GrantDeviceIdentity); !ok {
-			return nil, frontend.Device{}
-		}
-		v, _, err := i.viewer(r)
-		if err != nil {
-			return nil, frontend.Device{}
-		}
-		return v, device(r)
-	}, func(path string) string { return path }, inner)
 	next := StripPrefix("/"+string(i.protocol), inner)
 	if i.protocol == "jellyfin" {
 		// Stored blurhashes and dimensions are joined on every request. This

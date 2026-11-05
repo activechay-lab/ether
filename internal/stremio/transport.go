@@ -52,26 +52,6 @@ func BaseURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
-// FetchManifestAny reads the manifest without the stream-indexer check,
-// for catalog, tv and subtitle roles.
-func FetchManifestAny(ctx context.Context, client *http.Client, rawURL string) (Manifest, error) {
-	base, err := BaseURL(rawURL)
-	if err != nil {
-		return Manifest{}, err
-	}
-	var m Manifest
-	if err := getJSON(ctx, client, base, "/manifest.json", maxManifest, &m); err != nil {
-		return Manifest{}, err
-	}
-	if m.ID == "" && len(m.Resources) == 0 && len(m.Catalogs) == 0 {
-		return Manifest{}, fmt.Errorf("stremio: %s did not answer with an addon manifest", base.Host)
-	}
-	if m.BehaviorHints.ConfigurationRequired {
-		return m, ErrConfigurationRequired
-	}
-	return m, nil
-}
-
 // FetchManifest reads and checks the manifest of the addon at rawURL.
 func FetchManifest(ctx context.Context, client *http.Client, rawURL string) (Manifest, error) {
 	base, err := BaseURL(rawURL)

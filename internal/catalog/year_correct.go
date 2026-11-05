@@ -368,15 +368,6 @@ func (c *Catalog) refreshMovieYearKey(ctx context.Context, key core.RatingKey) (
 	return c.fetchMovieYear(ctx, key)
 }
 
-// refreshOneMovieYear fetches the next queued movie. Tests call it directly.
-func (c *Catalog) refreshOneMovieYear(ctx context.Context) (bool, error) {
-	key, ok, err := c.nextMovieYearKey(ctx)
-	if !ok || err != nil {
-		return false, err
-	}
-	return c.fetchMovieYear(ctx, key)
-}
-
 func (c *Catalog) fetchMovieYear(ctx context.Context, rating core.RatingKey) (bool, error) {
 	if c.tmdb() == nil {
 		return false, errors.New("catalog: movie year refresh waiting for TMDB")

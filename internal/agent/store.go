@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -47,9 +46,7 @@ CREATE INDEX agent_audit_created ON agent_audit(created_at);
 }
 
 func newID(prefix string) string {
-	var b [12]byte
-	_, _ = rand.Read(b[:])
-	return prefix + hex.EncodeToString(b[:])
+	return prefix + rand.Text()
 }
 
 // Thread is one conversation.

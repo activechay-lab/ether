@@ -48,7 +48,7 @@ func TestWarmReadyAndPlayDoNotWaitForSeekIndex(t *testing.T) {
 	// source implementation finishing a read.
 	defer close(engine.release)
 	caps := defaultCaps("fast-start")
-	if !h.m.PreResolve(context.Background(), owner, movieKey, caps) {
+	if !h.m.Prewarm(context.Background(), owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("warm skipped")
 	}
 	select {

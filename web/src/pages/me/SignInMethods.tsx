@@ -1,4 +1,5 @@
 import { t } from "../../i18n";
+import { formatDateTime } from "../../lib/format";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
@@ -43,7 +44,7 @@ function deviceName(device: Device): string {
 function lastUsedLabel(value: string | number): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return t("Last used {when}", { when: date.toLocaleString() });
+  return t("Last used {when}", { when: formatDateTime(date) });
 }
 
 export default function SignInMethods({

@@ -237,23 +237,6 @@ func New(run RunFunc, opts Options) (*Service, error) {
 	return &Service{opts: opts2, cfg: cfg, prog: prog, svc: ks, log: opts2.Logger, postInstall: applyPlatformRecovery, secureData: secureDataDir, updateInstalled: updateInstalledPlatform}, nil
 }
 
-// newWithBackend is the test seam.
-func newWithBackend(run RunFunc, opts Options, be backend) (*Service, error) {
-	opts2, err := opts.withDefaults()
-	if err != nil {
-		return nil, err
-	}
-	cfg, err := opts2.Config()
-	if err != nil {
-		return nil, err
-	}
-	return &Service{
-		opts: opts2, cfg: cfg,
-		prog: &program{run: run, log: opts2.Logger, stopTimeout: opts2.StopTimeout},
-		svc:  be, log: opts2.Logger,
-	}, nil
-}
-
 // Config returns the registration config in effect.
 func (s *Service) Config() *ksvc.Config { return s.cfg }
 

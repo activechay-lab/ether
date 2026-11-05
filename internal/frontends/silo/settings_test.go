@@ -6,13 +6,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
@@ -196,17 +196,11 @@ func TestRevisionEightSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("capabilities: %d %s", w.Code, w.Body.String())
 	}
 	var document *openapi.Document
-	if spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", ""); e == nil {
-		doc, e := openapi.Parse(spec)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if e = doc.Validate("GET", "/api/v2/settings/contract/capabilities", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
+	if doc := spectest.Document(t, "silo"); doc != nil {
+		if e := doc.Validate("GET", "/api/v2/settings/contract/capabilities", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
 			t.Fatal(e)
 		}
 		document = doc
-	} else if !os.IsNotExist(e) {
-		t.Fatal(e)
 	}
 	for key, d := range settingDefinitions {
 		scope := ""

@@ -105,7 +105,7 @@ describe("Overview", () => {
     const net = within(server).getByRole("group", { name: "Network" });
     expect(within(net).getByLabelText("Download")).toBeInTheDocument();
     expect(within(net).getByLabelText("Upload")).toBeInTheDocument();
-    expect(within(net).getAllByText(/Mbit\/s/).length).toBeGreaterThanOrEqual(2);
+    expect(within(net).getAllByText(/Mbps/).length).toBeGreaterThanOrEqual(2);
     const gpu = within(server).getByRole("group", { name: "GPU · RTX 4080" });
     expect(within(gpu).getByText("Encode")).toBeInTheDocument();
     expect(

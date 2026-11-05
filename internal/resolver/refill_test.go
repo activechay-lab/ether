@@ -130,17 +130,20 @@ func TestRefillSearchCacheDedupCapacityAndNoQueue(t *testing.T) {
 	}
 }
 
-func TestRefillSearchCacheLifetimeAndFailures(t *testing.T) {
+// Detail discovery runs at most once per title per unavailable cooloff,
+// whatever it found; only a budget refusal (no request sent) may be retried
+// sooner. A title remembered unavailable is not discovered at all.
+func TestRefillSearchCacheOncePerCooloff(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		results []core.Release
 		err     error
-		ttl     time.Duration
+		retry   time.Duration
 	}{
-		{"results", variantReleases(), nil, 30 * time.Minute},
-		{"empty", nil, nil, freshReleaseCooloff},
-		{"error", nil, errors.New("offline search failed"), 0},
-		{"budget", nil, core.ErrBudgetExhausted, 0},
+		{"results", variantReleases(), nil, time.Hour},
+		{"empty", nil, nil, time.Hour},
+		{"error", nil, errors.New("offline search failed"), time.Hour},
+		{"budget", nil, core.ErrBudgetExhausted, refillRetryDelay},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := &fakeClock{t: time.Now()}
@@ -149,34 +152,36 @@ func TestRefillSearchCacheLifetimeAndFailures(t *testing.T) {
 			defer s.Close()
 			title := matrixTitle()
 			waitRefill(t, s.RefillSearchCache(title))
-			if idx.searches.Load() != 1 {
-				t.Fatal("automatic retry")
+			call := <-idx.started
+			if core.IndexerPurpose(call.ctx) != core.IndexerPurposeDetail || !core.SpeculativeIndexerWork(call.ctx) {
+				t.Fatal("detail discovery must run as speculative work")
 			}
-			if tc.ttl > 0 {
-				if s.RefillSearchCache(title) != nil {
-					t.Fatal("valid cache must skip, including empty results")
-				}
-				clock.add(tc.ttl - time.Nanosecond)
-				if s.RefillSearchCache(title) != nil {
-					t.Fatal("cache expired early")
-				}
-				clock.add(time.Nanosecond)
-			} else {
+			if tc.err != nil {
 				if _, ok := s.peekSearchCache(searchCacheKey(searchRequestFor(title))); ok {
 					t.Fatal("failed search cached as successful")
 				}
-				if s.RefillSearchCache(title) != nil {
-					t.Fatal("failed search was immediately retried")
-				}
-				clock.add(refillRetryDelay)
 			}
-			// Expiry or a cooled-down failure allows a new explicit admission.
+			clock.add(tc.retry - time.Nanosecond)
+			if s.RefillSearchCache(title) != nil {
+				t.Fatal("discovery repeated within its cooloff")
+			}
+			clock.add(time.Nanosecond)
 			waitRefill(t, s.RefillSearchCache(title))
 			if idx.searches.Load() != 2 || idx.fetches.Load() != 0 {
 				t.Fatal("refill count/source work")
 			}
 		})
 	}
+	t.Run("unavailable", func(t *testing.T) {
+		idx := &refillIndexer{started: make(chan refillSearch, 8)}
+		s := New(idx, nil, nil, testCfg(), Options{})
+		defer s.Close()
+		title := matrixTitle()
+		s.setAvailability(context.Background(), int64(title.Key), false, time.Hour)
+		if s.RefillSearchCache(title) != nil || idx.searches.Load() != 0 {
+			t.Fatal("a title remembered unavailable was discovered again")
+		}
+	})
 }
 
 func TestRefillSearchCacheDeadline(t *testing.T) {

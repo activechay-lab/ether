@@ -4,9 +4,9 @@ import { t } from "../../i18n";
 import { api, apiFetch } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 
-export type ShareFilterPart = { kind: string; values: string[] };
+type ShareFilterPart = { kind: string; values: string[] };
 
-export type PlexViewerDefaults = {
+type PlexViewerDefaults = {
   audioLanguage?: string;
   autoSelectAudio?: boolean;
   subtitleLanguage?: string;

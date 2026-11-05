@@ -104,7 +104,7 @@ func TestLayoutCarriesCollectionSchedules(t *testing.T) {
 	e := &fakeEngine{}
 	studio := &schedulingStudio{fakeStudio: newFakeStudio(), schedules: map[string]*core.CollectionSchedule{"1": {Days: []int{5}}, "2": {Months: []int{12}}}}
 	cfg := newStore(t, nil)
-	h := admin.New(admin.Deps{Config: cfg, IsOwnerToken: storedOwner(cfg), Personalization: e, Collections: studio})
+	h := admin.NewHandler(admin.Deps{Config: cfg, IsOwnerToken: storedOwner(cfg), Personalization: e, Collections: studio})
 	rec := serve(h, req(http.MethodGet, "/ether/api/layout", ""))
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"collectionSchedules":{"1":{"days":[5]},"2":{"months":[12]}}`) {
 		t.Fatalf("GET %d %s", rec.Code, rec.Body)

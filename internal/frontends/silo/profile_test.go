@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 )
@@ -56,17 +55,10 @@ func TestProfilePreferencesRoundTrip(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"show_forced_subtitles":true`) {
 		t.Fatalf("forced subtitle default: %s", w.Body.String())
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", "")
-	if e == nil {
-		doc, e := openapi.Parse(spec)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if e = doc.Validate("GET", "/api/v2/profiles", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
+	if doc := spectest.Document(t, "silo"); doc != nil {
+		if e := doc.Validate("GET", "/api/v2/profiles", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
 			t.Errorf("profile spec: %v", e)
 		}
-	} else if !os.IsNotExist(e) {
-		t.Fatal(e)
 	}
 	w = call("PATCH", "/api/v2/profiles/7", `{"subtitle_language":"fr","subtitle_mode":"always","auto_skip_intro":true}`)
 	if w.Code != 200 || tracks.value.SubtitleMode != "always" || len(tracks.value.SubtitleLanguages) != 1 || tracks.value.SubtitleLanguages[0] != "fr" || !strings.Contains(w.Body.String(), `"auto_skip_intro":true`) {

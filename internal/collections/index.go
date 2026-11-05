@@ -194,9 +194,8 @@ type snapshot struct {
 }
 
 type fingerprint struct {
-	count             int
-	maxFetch, maxAdd  int64
-	credits, keywords int
+	count            int
+	maxFetch, maxAdd int64
 }
 
 func newIndex(db *sql.DB, now func() time.Time, checkTTL time.Duration) *index {
@@ -471,22 +470,4 @@ func (ix *index) load(ctx context.Context) (*snapshot, error) {
 		snap.order = append(snap.order, e)
 	}
 	return snap, nil
-}
-
-// lookupRows loads entries for keys that are not in the snapshot (titles
-// in the mirror that are not browsable yet).
-func (ix *index) lookupRows(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]*entry, error) {
-	out := map[core.RatingKey]*entry{}
-	if len(keys) == 0 {
-		return out, nil
-	}
-	titles, err := ix.mirror.Titles(ctx, keys)
-	if err != nil {
-		return nil, err
-	}
-	in := newInterner()
-	for _, t := range titles {
-		out[t.Key] = entryFromTitle(t, in)
-	}
-	return out, nil
 }

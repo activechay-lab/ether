@@ -424,27 +424,6 @@ func (p *Prefetcher) runJob(j job) {
 	}
 }
 
-// waitIdle blocks until no job is queued or running, or ctx ends.
-func (p *Prefetcher) waitIdle(ctx context.Context) error {
-	stop := context.AfterFunc(ctx, func() {
-		p.mu.Lock()
-		p.idle.Broadcast()
-		p.mu.Unlock()
-	})
-	defer stop()
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for {
-		if p.pending == 0 || p.closed {
-			return nil
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		p.idle.Wait()
-	}
-}
-
 // nextEpisode resolves the episode after key for the user's client and
 // pulls its opening bytes.
 func (p *Prefetcher) nextEpisode(ctx context.Context, user *core.User, key core.RatingKey) error {
@@ -622,13 +601,6 @@ func (p *Prefetcher) warmPass(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-// WarmWindow is the byte window kept warm for a resume point: behind bytes
-// before the offset mapped from viewOffset (constant-bitrate mapping) and
-// ahead bytes after it, clamped to the file.
-func WarmWindow(viewOffset, duration time.Duration, size, behind, ahead int64) (start, length int64) {
-	return WarmWindowFor(viewOffset, playback.TimeMap{Size: size, Duration: duration}, behind, ahead)
 }
 
 func WarmWindowFor(viewOffset time.Duration, tm playback.TimeMap, behind, ahead int64) (start, length int64) {

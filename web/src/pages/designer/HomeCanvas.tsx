@@ -339,7 +339,7 @@ type Actions = {
   edit: (r: HomeRow) => void;
 };
 
-export function provenance(
+function provenance(
   r: HomeRow,
   who: string,
 ): { label: string; variant: "success" | "info" | "default" | "secondary" | "destructive" } {

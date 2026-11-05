@@ -62,7 +62,7 @@ func (c *Client) recordUsage(ctx context.Context, kind string) {
 	_, err := db.ExecContext(context.WithoutCancel(ctx),
 		`INSERT INTO newznab_usage(indexer_id, day, purpose, `+col+`) VALUES (?,?,?,1)
 ON CONFLICT(indexer_id, day, purpose) DO UPDATE SET `+col+`=newznab_usage.`+col+`+1`,
-		c.indexerID(), c.today(), core.IndexerPurpose(ctx))
+		c.indexerID(), c.today(), usagePurpose(ctx))
 	if err != nil {
 		c.log.Debug("newznab: record usage", "indexer", c.Name(), "err", err)
 	}

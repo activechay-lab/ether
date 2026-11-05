@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"mime"
 	"net"
 	"net/http"
@@ -62,6 +63,7 @@ type inputRelay struct {
 }
 
 type inputGrant struct {
+	log     *slog.Logger // immutable, credential-free session correlation
 	token   string
 	origin  string      // the only origin that receives headers
 	headers http.Header // provider headers; immutable
@@ -122,6 +124,7 @@ func (s *Service) grantInput(ss *session, src StreamSource, headers http.Header)
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
 	g := &inputGrant{
+		log:   s.sessionLog(ss).With("input", src.ID),
 		token: base64.RawURLEncoding.EncodeToString(b[:]), origin: relayOrigin(u), headers: headers.Clone(),
 		ctx: ctx, cancel: cancel, slots: make(chan struct{}, relayConcurrency), source: source,
 		resources: map[string]*relayResource{"0": {name: relayName("stream", u.Path), url: src.URL}},
@@ -531,10 +534,17 @@ func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *
 		if res != nil {
 			res.Body.Close()
 		}
-		if ctx.Err() != nil || errors.Is(err, errRelayDowngrade) {
-			return nil, core.ErrNotAvailable
+		if ctx.Err() != nil {
+			return nil, Diagnose("upstream_headers", ctx.Err())
 		}
-		last = core.ErrNotAvailable
+		if errors.Is(err, errRelayDowngrade) {
+			return nil, Diagnose("upstream_headers", err)
+		}
+		if err != nil {
+			last = Diagnose("upstream_headers", err)
+		} else {
+			last = providerResponseError(res.StatusCode)
+		}
 		if attempt < attempts-1 {
 			select {
 			case <-ctx.Done():

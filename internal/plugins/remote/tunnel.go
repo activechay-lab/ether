@@ -737,7 +737,7 @@ func (c *tunnelConn) call(ctx context.Context, req Request, credential string) (
 // callStream returns as soon as the sidecar sends response headers;
 // the body then streams chunk by chunk.
 func (c *tunnelConn) callStream(ctx context.Context, req Request, credential string) (*StreamResponse, error) {
-	p, id, done, err := c.begin(ctx, req, credential)
+	p, _, done, err := c.begin(ctx, req, credential)
 	if err != nil {
 		return nil, err
 	}
@@ -750,7 +750,7 @@ func (c *tunnelConn) callStream(ctx context.Context, req Request, credential str
 		return &StreamResponse{
 			Status:  start.status,
 			Headers: start.headers,
-			Body:    &tunnelBody{conn: c, id: id, p: p, done: done},
+			Body:    &tunnelBody{p: p, done: done},
 		}, nil
 	case err := <-p.done:
 		// If response headers and body arrived together before we read
@@ -761,7 +761,7 @@ func (c *tunnelConn) callStream(ctx context.Context, req Request, credential str
 				return &StreamResponse{
 					Status:  start.status,
 					Headers: start.headers,
-					Body:    &tunnelBody{conn: c, id: id, p: p, done: done, ended: true},
+					Body:    &tunnelBody{p: p, done: done, ended: true},
 				}, nil
 			}
 			if start.err != nil {
@@ -779,8 +779,6 @@ func (c *tunnelConn) callStream(ctx context.Context, req Request, credential str
 
 // tunnelBody adapts chunk frames to io.ReadCloser.
 type tunnelBody struct {
-	conn   *tunnelConn
-	id     string
 	p      *pendingCall
 	done   context.CancelFunc
 	buf    []byte

@@ -74,15 +74,7 @@ function CellLink({ href, children }: { href: string; children: ReactNode }) {
   );
 }
 
-export function LeafCellView({
-  cell,
-  scope,
-  root,
-}: {
-  cell: LeafCell;
-  scope: unknown;
-  root: unknown;
-}) {
+function LeafCellView({ cell, scope, root }: { cell: LeafCell; scope: unknown; root: unknown }) {
   switch (cell.kind) {
     case "text": {
       const raw = resolveIn(scope, root, cell.field);

@@ -20,9 +20,6 @@ export function claimFailureMessage(error: unknown): string {
     return t("Plex couldn't link this server. Try again in a minute.");
   }
   const detail = error instanceof Error ? error.message : String(error);
-  if (detail === "Plex couldn't link this server. Try again in a minute.") {
-    return t("Plex couldn't link this server. Try again in a minute.");
-  }
   return t("Signed in, but claiming failed: {error}", { error: detail });
 }
 
@@ -90,9 +87,9 @@ export function validateCustomUrls(value: unknown): string | undefined {
 }
 
 /** Translates known server field validation messages on the Plex settings page. */
-export function translatePlexFieldError(message: string): string {
-  if (message === "Enter full http:// or https:// server URLs, separated by commas.") {
+export function translatePlexFieldError(field: { field: string; message: string }): string {
+  if (field.field === "plex.customUrls") {
     return t("Enter full http:// or https:// server URLs, separated by commas.");
   }
-  return message;
+  return field.message;
 }

@@ -168,13 +168,6 @@ func (c *connCap) hedgeAllowed(addr string) bool {
 	return limit > 1 && c.open[addr] < limit-1
 }
 
-// inUse reports open connections to addr (tests and diagnostics).
-func (c *connCap) inUse(addr string) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.open[addr]
-}
-
 type cappedConn struct {
 	net.Conn
 	once    sync.Once

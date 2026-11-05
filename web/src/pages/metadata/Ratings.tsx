@@ -72,7 +72,6 @@ function useFieldDraft<T extends Record<string, unknown>>(saved: T | null) {
     setDraft(saved ? structuredClone(saved) : null);
     setBase(savedKey);
     // savedKey stands in for the saved snapshot.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedKey]);
   const adopt = useCallback((next: T) => {
     const key = JSON.stringify(next);

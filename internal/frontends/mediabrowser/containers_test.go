@@ -4,10 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"testing"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
@@ -58,16 +57,9 @@ func TestAuthorizedCollectionAndPlaylistDetails(t *testing.T) {
 			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &dto) != nil || dto["Id"] != ids.RatingKeyGUID(tc.key) || dto["Type"] != tc.kind || dto["Name"] != tc.name || dto["ChildCount"] != tc.count {
 				t.Fatal(w.Code, w.Body.String())
 			}
-			spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", dialect.protocol, "")
-			if os.IsNotExist(err) {
+			doc := spectest.Document(t, dialect.protocol)
+			if doc == nil {
 				continue
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			doc, err := openapi.Parse(spec)
-			if err != nil {
-				t.Fatal(err)
 			}
 			if err := doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 				t.Fatalf("%s %s: %v", dialect.protocol, tc.kind, err)

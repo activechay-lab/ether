@@ -225,7 +225,7 @@ type Service struct {
 	bgClosed         bool
 	bgWG             sync.WaitGroup
 	refills          map[string]chan struct{} // episode search key -> completion; guarded by bgMu
-	refillRetryAfter map[string]time.Time     // failed attempts; guarded by bgMu
+	refillRetryAfter map[string]refillMark    // next detail discovery allowed; guarded by bgMu
 
 	flightMu sync.Mutex
 	flights  map[string]*inflight
@@ -781,8 +781,14 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 		trace.Err = err.Error()
 		return nil, err
 	}
-	rescueTried := false
-	if len(cands) == 0 && searchErr == nil && ctx.Err() == nil {
+	// Speculative work (warm-ups, detail discovery) never runs a rescue: it
+	// is Play's second pass. What speculative work did not find proves
+	// nothing about the title, so it is not remembered unavailable either.
+	speculative := core.SpeculativeIndexerWork(ctx)
+	rescueTried, rescueSkipped := false, false
+	if len(cands) == 0 && searchErr == nil && ctx.Err() == nil && speculative {
+		rescueSkipped = true
+	} else if len(cands) == 0 && searchErr == nil && ctx.Err() == nil {
 		rescueTried = true
 		var rejected bool
 		cands, results, rejected, err = s.rescueCandidates(ctx, req, sreq, profile, results, &trace, pinID)
@@ -808,7 +814,7 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 		}
 		// Client/profile restrictions and temporary source skips do not prove
 		// that the title is unavailable for everyone.
-		if !clientRejected && len(req.Exclude) == 0 && searchErr == nil && !coverage.Incomplete() {
+		if !clientRejected && !rescueSkipped && len(req.Exclude) == 0 && searchErr == nil && !coverage.Incomplete() {
 			s.setAvailability(ctx, int64(t.Key), false, s.cooloffFor(t))
 		}
 		if isFreshRelease(t, s.now()) {
@@ -916,7 +922,9 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 
 	var rescuePrimary []candidate
 	// Retry discovery once after the initially ranked releases failed health.
-	if !rescueTried && searchErr == nil && ctx.Err() == nil {
+	if !rescueTried && searchErr == nil && ctx.Err() == nil && core.SpeculativeIndexerWork(ctx) {
+		rescueSkipped = true
+	} else if !rescueTried && searchErr == nil && ctx.Err() == nil {
 		rescueCands, _, rejected, rerr := s.rescueCandidates(ctx, req, sreq, profile, results, &trace, pinID)
 		clientRejected = clientRejected || rejected
 		if rerr == nil && len(rescueCands) > 0 {
@@ -975,7 +983,7 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 		return nil, uerr
 	}
 	// A capped warm-up did not check every candidate, so it proves nothing.
-	if !clientRejected && len(req.Exclude) == 0 && len(cands) <= maxHealthAttempts && !(core.IsSpeculative(ctx) && len(cands) > speculativeHealthAttempts) && !coverage.Incomplete() {
+	if !clientRejected && !rescueSkipped && len(req.Exclude) == 0 && len(cands) <= maxHealthAttempts && !(core.IsSpeculative(ctx) && len(cands) > speculativeHealthAttempts) && !coverage.Incomplete() {
 		s.setAvailability(ctx, int64(t.Key), false, min(s.cooloff(), failedHealthTTL))
 	}
 	trace.Err = "no healthy candidates"
@@ -1015,11 +1023,6 @@ func titleOriginalLanguage(t *core.Title) string {
 
 func searchCacheKey(req core.SearchRequest) string {
 	return fmt.Sprintf("%s|%v|%s|%d|%d|%d", req.Type, req.IDs, strings.ToLower(req.Title), req.Year, req.Season, req.Episode)
-}
-
-func (s *Service) search(ctx context.Context, req core.SearchRequest) ([]core.Release, error) {
-	results, _, err := s.searchCached(ctx, req, false)
-	return results, err
 }
 
 type rescueSearcher interface {
@@ -1108,7 +1111,7 @@ func (s *Service) searchCached(ctx context.Context, req core.SearchRequest, fres
 	if !fresh && ctx.Value(refillSearchContextKey{}) == nil {
 		s.bgMu.Lock()
 		done := s.refills[key]
-		cooldown := s.refillRetryAfter[key]
+		mark := s.refillRetryAfter[key]
 		s.bgMu.Unlock()
 		if done != nil {
 			select {
@@ -1116,7 +1119,7 @@ func (s *Service) searchCached(ctx context.Context, req core.SearchRequest, fres
 				if results, ok := s.peekSearchCache(key); ok {
 					return results, true, nil
 				}
-				// A failed attended search is not a reason for speculative
+				// A failed detail discovery is not a reason for speculative
 				// playback preparation to immediately spend the quota again.
 				if core.IsSpeculative(ctx) {
 					return nil, false, core.ErrBudgetExhausted
@@ -1124,7 +1127,9 @@ func (s *Service) searchCached(ctx context.Context, req core.SearchRequest, fres
 			case <-ctx.Done():
 				return nil, false, ctx.Err()
 			}
-		} else if core.IsSpeculative(ctx) && s.now().Before(cooldown) {
+		} else if core.IsSpeculative(ctx) && mark.missed && s.now().Before(mark.until) {
+			// Discovery for this title found nothing this cooloff: speculative
+			// playback preparation does not spend the quota asking again.
 			return nil, false, core.ErrBudgetExhausted
 		}
 	}
@@ -1191,13 +1196,6 @@ func (s *Service) storeSearchCache(req core.SearchRequest, results []core.Releas
 	}
 	s.searchCache[key] = searchCacheEntry{results: append([]core.Release(nil), results...), expires: now.Add(ttl)}
 	s.mu.Unlock()
-}
-
-// scoreCandidates filters and ranks search results for a request and
-// profile. trace may be nil (the variants path); candidate.trace is then
-// -1 and no trace rows are written.
-func (s *Service) scoreCandidates(ctx context.Context, req core.ResolveRequest, sreq core.SearchRequest, profile core.QualityProfile, results []core.Release, trace *Trace) ([]candidate, bool, error) {
-	return s.rankCandidates(ctx, req, sreq, profile, results, trace, "")
 }
 
 // rankCandidates is scoreCandidates with the owner's pinned release id

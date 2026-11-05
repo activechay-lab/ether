@@ -25,6 +25,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/agent"
 	"github.com/braedonsaunders/ether/internal/agent/tools"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 )
 
 // ApprovalStore is the slice of WS4's agent.Store MCP writes need.
@@ -199,7 +200,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 var nullID = json.RawMessage("null")
 
 func (s *Server) authenticate(r *http.Request) (tools.Principal, error) {
-	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	token, ok := authhdr.Bearer(r.Header.Get("Authorization"))
 	if !ok || strings.TrimSpace(token) == "" {
 		return tools.Principal{}, fmt.Errorf("missing bearer token")
 	}

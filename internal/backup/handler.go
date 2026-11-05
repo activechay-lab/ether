@@ -187,7 +187,7 @@ func (s *Service) Handler() http.Handler {
 		reply(w, out, nil)
 	})
 	m.HandleFunc("POST /restore", func(w http.ResponseWriter, r *http.Request) {
-		access, ok := restoreAccess(w, r)
+		_, ok := restoreAccess(w, r)
 		if !ok {
 			return
 		}
@@ -208,15 +208,10 @@ func (s *Service) Handler() http.Handler {
 				return
 			}
 		} else {
-			if !access.Owner {
-				fail(w, http.StatusForbidden, "owner_required", "an unencrypted backup can only be restored by the signed-in owner")
-				return
-			}
-			if r.Header.Get("X-Ether-Backup-Legacy") != "plaintext" {
-				fail(w, http.StatusBadRequest, "legacy_confirm", "this is an unencrypted backup from an older version; confirm to restore it")
-				return
-			}
+			fail(w, http.StatusBadRequest, "encrypted_required", "upload an encrypted backup")
+			return
 		}
+
 		st, e := StageUpload(r.Context(), dataDir, body, password, uploadName(r))
 		if errors.Is(e, ErrBadPassword) {
 			fail(w, http.StatusBadRequest, "bad_password", e.Error())

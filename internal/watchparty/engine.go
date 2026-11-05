@@ -4,6 +4,7 @@
 package watchparty
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -520,7 +521,7 @@ func (e *Engine) Report(ctx context.Context, actor frontend.PartyActor, msg fron
 	case "ready":
 		m.buffering = false
 		m.ready = true
-		m.session = firstNonEmpty(msg.SessionID, m.session)
+		m.session = cmp.Or(msg.SessionID, m.session)
 		if r.play == "waiting" && r.allReady() {
 			r.phase = "playing"
 			e.issueLocked(r, "play", r.anchor)
@@ -1388,15 +1389,6 @@ func canonicalID(id string) (string, error) {
 		return "", frontend.ErrPartyNotFound
 	}
 	return parsed.String(), nil
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 var _ frontend.WatchParty = (*Engine)(nil)

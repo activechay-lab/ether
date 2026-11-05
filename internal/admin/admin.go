@@ -264,9 +264,6 @@ type Handler struct {
 	loginBodySlots chan struct{}
 }
 
-// New returns the admin handler per the work-package contract.
-func New(deps Deps) http.Handler { return NewHandler(deps) }
-
 // NewHandler builds the admin handler. It panics when Deps.Config is nil.
 func NewHandler(deps Deps) *Handler {
 	if deps.Config == nil {

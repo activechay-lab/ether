@@ -3,11 +3,16 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
+
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/releaseparse"
 )
 
-// ReleaseMatches joins a feed page to local metadata in one narrow scan. It
+const releaseMatchCols = `SELECT t.key,t.type,t.tmdb_id,t.imdb,t.tvdb,t.title,t.original_title,t.year,t.adult FROM catalog_titles t `
+
+// ReleaseMatches joins a feed page to local metadata through bounded indexed lookups. It
 // never spends a metadata API call per feed item. Ambiguous names are ignored;
 // explicit identifier conflicts always defeat a textual match. Season packs are
 // expanded only to locally known episodes, never to invented episode identities.
@@ -23,53 +28,95 @@ func (c *Catalog) ReleaseMatches(ctx context.Context, releases []core.Release) (
 			byID[id] = append(byID[id], i)
 		}
 	}
-	rows, err := c.db.QueryContext(ctx, `SELECT key,type,tmdb_id,imdb,tvdb,title,original_title,year FROM catalog_titles WHERE type IN ('movie','show') AND adult=0`)
-	if err != nil {
-		return nil, err
-	}
+	// Each key lookup is capped. If an unusually common key overflows,
+	// refuse to guess for every affected release rather than scan the library
+	// or choose a candidate from an incomplete set.
+	const candidateLimit = 256
 	matches := map[int][]core.RatingKey{}
-	for rows.Next() {
-		var t core.Title
-		if err = rows.Scan(&t.Key, &t.Type, &t.IDs.TMDB, &t.IDs.IMDB, &t.IDs.TVDB, &t.Title, &t.OriginalTitle, &t.Year); err != nil {
-			rows.Close()
+	overflow := map[int]bool{}
+	seen := map[int]map[core.RatingKey]bool{}
+	lookup := func(query string, value any, indices []int) error {
+		rows, err := c.db.QueryContext(ctx, query, value, candidateLimit+1)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		var titles []core.Title
+		for rows.Next() {
+			var t core.Title
+			var adult bool
+			if err := rows.Scan(&t.Key, &t.Type, &t.IDs.TMDB, &t.IDs.IMDB, &t.IDs.TVDB, &t.Title, &t.OriginalTitle, &t.Year, &adult); err != nil {
+				return err
+			}
+			if adult {
+				t.Type = ""
+			}
+			titles = append(titles, t)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(titles) > candidateLimit {
+			for _, i := range indices {
+				overflow[i] = true
+			}
+			return nil
+		}
+		for _, t := range titles {
+			if t.Type != core.TypeMovie && t.Type != core.TypeShow {
+				continue
+			}
+			for _, i := range indices {
+				if seen[i] == nil {
+					seen[i] = map[core.RatingKey]bool{}
+				}
+				if seen[i][t.Key] {
+					continue
+				}
+				seen[i][t.Key] = true
+				r := releases[i]
+				tv := len(r.Info.Seasons) > 0 || len(r.Info.Episodes) > 0 || r.Info.FullSeason || r.Category/1000 == 5
+				if (t.Type == core.TypeShow) != tv {
+					continue
+				}
+				same, conflict := releaseparse.CompareTitleIDs(r.TitleIDs, t.IDs)
+				if conflict || (!same && (!releaseparse.YearMatches(r.Info.Year, t.Year) || !(releaseparse.TitleMatches(r.Info, t.Title) || releaseparse.TitleMatches(r.Info, t.OriginalTitle)))) {
+					continue
+				}
+				if !same && t.Type == core.TypeMovie && r.Info.Year == 0 {
+					continue
+				}
+				matches[i] = append(matches[i], t.Key)
+			}
+		}
+		return nil
+	}
+	for name, indices := range byName {
+		if err := lookup(releaseMatchCols+`JOIN catalog_release_names n ON n.key=t.key WHERE n.name=? LIMIT ?`, name, indices); err != nil {
 			return nil, err
 		}
-		indices := map[int]bool{}
-		for _, n := range []string{t.Title, t.OriginalTitle} {
-			for _, i := range byName[releaseparse.NormalizeTitle(n)] {
-				indices[i] = true
-			}
-		}
-		for _, id := range feedIDs(t.IDs) {
-			for _, i := range byID[id] {
-				indices[i] = true
-			}
-		}
-		for i := range indices {
-			r := releases[i]
-			tv := len(r.Info.Seasons) > 0 || len(r.Info.Episodes) > 0 || r.Info.FullSeason || r.Category/1000 == 5
-			if (t.Type == core.TypeShow) != tv {
-				continue
-			}
-			same, conflict := releaseparse.CompareTitleIDs(r.TitleIDs, t.IDs)
-			if conflict || (!same && (!releaseparse.YearMatches(r.Info.Year, t.Year) || !(releaseparse.TitleMatches(r.Info, t.Title) || releaseparse.TitleMatches(r.Info, t.OriginalTitle)))) {
-				continue
-			}
-			// A film without either a reported identifier or a year is too ambiguous.
-			if !same && t.Type == core.TypeMovie && r.Info.Year == 0 {
-				continue
-			}
-			matches[i] = append(matches[i], t.Key)
-		}
 	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
+	for id, indices := range byID {
+		kind, value, _ := strings.Cut(id, ":")
+		column := map[string]string{"tmdb": "tmdb_id", "imdb": "imdb", "tvdb": "tvdb"}[kind]
+		if column == "" {
+			continue
+		}
+		var arg any = value
+		if kind != "imdb" {
+			var err error
+			arg, err = strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if err := lookup(releaseMatchCols+`WHERE t.`+column+`=? LIMIT ?`, arg, indices); err != nil {
+			return nil, err
+		}
 	}
 	out := map[string][]core.Title{}
 	for i, keys := range matches {
-		if len(keys) != 1 {
+		if overflow[i] || len(keys) != 1 {
 			continue
 		}
 		r := releases[i]

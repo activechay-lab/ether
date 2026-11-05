@@ -20,7 +20,7 @@ import { t } from "../../i18n";
 import { apiFetch, errorMessage } from "../../lib/api";
 import { Reference } from "./CodeStudio";
 import { PaneResizer, useStudioPanes } from "./code/panes";
-import type { StudioProject, StudioProjectSummary } from "./develop/types";
+import type { StudioProject, StudioProjectSummary } from "./studio-types";
 
 const CodeMirrorPane = lazy(() => import("./code/CodeMirrorPane"));
 

@@ -46,7 +46,7 @@ export function sourceMonogram(name: string): string {
   return letters || "?";
 }
 
-export function SourceMark({ name, logo }: { name: string; logo?: ReactNode }) {
+function SourceMark({ name, logo }: { name: string; logo?: ReactNode }) {
   return (
     <span
       aria-hidden

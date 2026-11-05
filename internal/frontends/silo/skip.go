@@ -133,7 +133,7 @@ func attachWatchMarkers(item map[string]any, segments []any) {
 
 func (i *instance) skipIntroAtStart(r *http.Request, viewer *frontend.Viewer, scope frontend.VersionScope, key frontend.RatingKey, versionHandle string, position time.Duration) time.Duration {
 	settings := i.skipSettings(r, viewer)
-	if !settings.seekIntro() || i.host.Experience == nil {
+	if (!settings.seekIntro() && !settings.autoCredits && !settings.autoRecap) || i.host.Experience == nil {
 		return position
 	}
 	detail, err := i.host.Experience.Item(r.Context(), frontend.ItemRequest{Viewer: viewer, Device: device(r), Key: key})
@@ -153,13 +153,29 @@ func (i *instance) skipIntroAtStart(r *http.Request, viewer *frontend.Viewer, sc
 	} else if len(detail.Versions) == 1 && len(detail.Versions[0].Markers) > 0 {
 		markers = detail.Versions[0].Markers
 	}
-	return seekPastIntro(position, markers)
+	return settings.seekPastMarkers(position, markers)
 }
 
 func seekPastIntro(position time.Duration, markers []frontend.Marker) time.Duration {
 	for _, marker := range markers {
 		if marker.Type == "intro" && position >= marker.Start && position < marker.End {
 			return marker.End
+		}
+	}
+	return position
+}
+
+func (s skipSettings) seekPastMarkers(position time.Duration, markers []frontend.Marker) time.Duration {
+	for range len(markers) {
+		previous := position
+		for _, marker := range markers {
+			enabled := marker.Type == "intro" && s.seekIntro() || marker.Type == "credits" && s.autoCredits || marker.Type == "recap" && s.autoRecap
+			if enabled && position >= marker.Start && position < marker.End {
+				position = marker.End
+			}
+		}
+		if position == previous {
+			break
 		}
 	}
 	return position

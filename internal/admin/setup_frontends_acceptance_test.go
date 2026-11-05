@@ -321,7 +321,7 @@ func TestSetupFrontendsAcceptanceAdminSessionIsNotPlayback(t *testing.T) {
 		t.Fatal("fixture Plex owner token was not a playback credential")
 	}
 	cfg := openConfig(t, t.TempDir())
-	h := admin.New(admin.Deps{
+	h := admin.NewHandler(admin.Deps{
 		Config:       cfg,
 		IsOwnerToken: productionOwnerToken(users),
 		Sessions:     users,
@@ -393,7 +393,7 @@ func newLimiter(t *testing.T, db *sql.DB) *identity.LoginLimiter {
 }
 
 func newSetupHandler(cfg *config.Store, users *auth.Service, local *identity.Local, grants *identity.Grants, limiter *identity.LoginLimiter, frontends admin.FrontendAdmin) http.Handler {
-	return admin.New(admin.Deps{
+	return admin.NewHandler(admin.Deps{
 		Config:               cfg,
 		LocalIdentity:        local,
 		IdentityGrants:       grants,

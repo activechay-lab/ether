@@ -3,6 +3,7 @@ package studio
 import (
 	"encoding/json"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/httpjson"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -538,9 +539,7 @@ func writeStudioError(w http.ResponseWriter, err error) {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	httpjson.Write(w, status, v)
 }
 
 func writeError(w http.ResponseWriter, status int, code, msg string) {

@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  agentSuggestionsFor,
-  pageRoute,
-  pluginNavGroup,
-  type CommandMeta,
-  type PageMeta,
-} from "./console-descriptors";
+import { pageRoute, pluginNavGroup, type PageMeta } from "./console-descriptors";
 import { destinationsFrom } from "./sitemap";
 import { descriptors } from "../mock/extend/descriptors/console";
 import type { Descriptor } from "./extend";
@@ -20,8 +14,6 @@ export const fixturePluginPage: Descriptor<PageMeta> = {
   order: 80,
   meta: { navGroup: "server", keywords: { resolved: "year in review" } },
 };
-
-const commands = descriptors.filter((d) => d.kind === "command") as Descriptor<CommandMeta>[];
 
 describe("console descriptors", () => {
   it("routes a plugin page to /p/<plugin>/<page>", () => {
@@ -46,18 +38,6 @@ describe("console descriptors", () => {
       title: "Ether Wrapped",
       isPage: true,
     });
-  });
-
-  it("keeps agent suggestions per route and out of plain actions", () => {
-    const onReleases = agentSuggestionsFor(commands, "/quality/profiles");
-    expect(onReleases.map((c) => c.id)).toContain("ask.releases.why-pick");
-    expect(agentSuggestionsFor(commands, "/livetv").map((c) => c.id)).toContain(
-      "ask.livetv.failing",
-    );
-    expect(agentSuggestionsFor(commands, "/cache")).toEqual([]);
-    const actions = commands.filter((c) => c.meta?.route && !c.meta.agentSuggestion);
-    expect(actions.map((c) => c.id)).toContain("new-collection");
-    expect(actions.map((c) => c.id)).not.toContain("ask.releases.why-pick");
   });
 });
 

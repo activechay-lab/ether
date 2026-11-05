@@ -98,7 +98,7 @@ function conditionLine(rule: Rule) {
 }
 
 /** "Hide · Genre is Horror, Thriller". The stored name stays in the drawer. */
-export function ruleLabel(rule: VisibilityRule) {
+function ruleLabel(rule: VisibilityRule) {
   const action = actionOf(rule) === "show" ? t("Show") : t("Hide");
   const bits = rule.rules.filter(isRuleComplete).map(conditionLine);
   const body =

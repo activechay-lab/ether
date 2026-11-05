@@ -321,7 +321,13 @@ func (e *Engine) load(ctx context.Context, pf *postedFile, i int, id string, glo
 		}
 	}
 	var lastErr error
-	for attempt := 0; attempt <= e.opts.Retries; attempt++ {
+	retries := e.opts.Retries
+	// A fetcher that owns per-provider retries must not be retried as a whole:
+	// doing so multiplies its budget and replays all provider tiers.
+	if _, ok := e.fetcher.(interface{ OwnsArticleRetries() }); ok {
+		retries = 0
+	}
+	for attempt := 0; attempt <= retries; attempt++ {
 		if attempt > 0 {
 			t := time.NewTimer(time.Duration(attempt) * 150 * time.Millisecond)
 			select {

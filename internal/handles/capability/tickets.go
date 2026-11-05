@@ -50,12 +50,6 @@ type CapacityError struct{ Scope string }
 func (e *CapacityError) Error() string {
 	return "capability: ticket capacity reached (" + e.Scope + ")"
 }
-func NewTickets(db *sql.DB) (*Tickets, error) {
-	if db == nil {
-		return nil, errors.New("capability: database required")
-	}
-	return &Tickets{db: db}, nil
-}
 
 // NewTicketsWithClock preserves a service-owned trusted clock contract. The
 // clock is injected by the host, never by a front-end request.

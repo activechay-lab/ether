@@ -66,7 +66,7 @@ func measureHotWork() time.Duration {
 	ensureQJS()
 	lim := Limits{}
 	lim.normalize()
-	in, err := newJSInstance(context.Background(), calibrationJS, &lim, true)
+	in, err := newJSInstance(context.Background(), calibrationJS, &lim, true, nil, "calibration")
 	if err != nil {
 		return 0
 	}

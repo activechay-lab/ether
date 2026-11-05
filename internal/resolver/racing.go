@@ -253,7 +253,7 @@ func qualityFallbackReason(rel core.Release, tr *Trace) string {
 	label := "unknown resolution"
 	if height > 0 {
 		label = fmt.Sprintf("%dp", height)
-		if source := sourceWord(rel.Info.Source); source != "" {
+		if source := core.SourceLabel(rel.Info.Source); source != "" {
 			label += " " + source
 		}
 	}

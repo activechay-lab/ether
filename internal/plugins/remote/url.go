@@ -3,7 +3,7 @@ package remote
 import (
 	"bytes"
 	"context"
-	"errors"
+
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/stremio"
 	"io"
@@ -427,7 +427,3 @@ func (c *cappedReadCloser) Close() error {
 
 var _ Runtime = (*URLClient)(nil)
 var _ Streamer = (*URLClient)(nil)
-
-// IsBlocked reports whether err is a safefetch refusal, so callers
-// can show the owner a plain "address not allowed" reason.
-func IsBlocked(err error) bool { return errors.Is(err, safefetch.ErrBlocked) }

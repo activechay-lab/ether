@@ -47,16 +47,7 @@ func TestStoredTokensSealedAndMigrated(t *testing.T) {
 	}
 	sealer := sealerFor(t, false)
 	c := New(Options{Config: config.Trakt{Enabled: true, ClientID: "id", ClientSecret: "s"}, DB: db, Sealer: sealer, Logger: quietLog()})
-	// Before the upgrade nothing is sealed, so older nodes keep working.
-	if n, err := c.MigrateSecrets(ctx); err != nil || n != 0 {
-		t.Fatalf("pre-upgrade migration: %d %v", n, err)
-	}
-	if a, _ := rawTokens(t, db, 1); a != "legacy-access" {
-		t.Fatal("sealed before the upgrade")
-	}
-	if err := sealer.UpgradeCredentials(ctx); err != nil {
-		t.Fatal(err)
-	}
+	// Startup immediately converts plaintext; current writers always seal.
 	if n, err := c.MigrateSecrets(ctx); err != nil || n != 1 {
 		t.Fatalf("migration: %d %v", n, err)
 	}

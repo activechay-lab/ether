@@ -1,6 +1,6 @@
 import { Bell, Blocks, FolderOpen, Globe, Network, Plug, Puzzle, Tv } from "lucide-react";
 import { createElement, type ReactNode } from "react";
-import { t } from "../../i18n";
+import { getLocale, t } from "../../i18n";
 import type { Viewer } from "../../lib/contract";
 import { textOf, type Descriptor } from "../../lib/extend";
 import type { HealthLevel } from "../../lib/health";
@@ -363,6 +363,7 @@ export function buildGrantItems(detail: PluginDetail): GrantItem[] {
 }
 
 export interface PlacementLink {
+  kind: string;
   id: string;
   label: string;
   area: string;
@@ -382,6 +383,7 @@ export function buildPlacements(descriptors: Descriptor[], pluginId: string): Pl
     if (d.kind === "navItem") continue;
     const rawKey = d.id.includes("/") ? (d.id.split("/").pop() ?? d.id) : d.id;
     const label = textOf(d.label) || rawKey;
+    let kind: string = d.kind;
     let area = t("Console");
     let href = "/plugins";
 
@@ -447,28 +449,30 @@ export function buildPlacements(descriptors: Descriptor[], pluginId: string): Pl
         href = "/plugins";
         break;
       default:
+        kind = "console";
         break;
     }
 
     const dedupeKey = `${d.kind}:${rawKey}:${href}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
-    out.push({ id: dedupeKey, label, area, href });
+    out.push({ kind, id: dedupeKey, label, area, href });
   }
   return out;
 }
 
-const LANGUAGE_OPTIONS: { value: string; label: string }[] = [
-  { value: "en", label: "English" },
-  { value: "fr", label: "French" },
-  { value: "es", label: "Spanish" },
-  { value: "de", label: "German" },
-  { value: "it", label: "Italian" },
-  { value: "pt", label: "Portuguese" },
-  { value: "ja", label: "Japanese" },
-  { value: "ko", label: "Korean" },
-  { value: "zh", label: "Chinese" },
-];
+const LANGUAGE_CODES = ["en", "fr", "es", "de", "it", "pt", "ja", "ko", "zh"];
+
+/** The schema language choices, named in the console language. */
+function languageOptions(): { value: string; label: string }[] {
+  let names: Intl.DisplayNames | null = null;
+  try {
+    names = new Intl.DisplayNames([getLocale()], { type: "language" });
+  } catch {
+    names = null;
+  }
+  return LANGUAGE_CODES.map((code) => ({ value: code, label: names?.of(code) ?? code }));
+}
 
 interface RawField {
   key?: string;
@@ -613,7 +617,7 @@ function toFieldDef(
         numeric: raw.numeric,
       };
     case "language": {
-      const opts = [...LANGUAGE_OPTIONS];
+      const opts = languageOptions();
       if (
         typeof currentValue === "string" &&
         currentValue &&

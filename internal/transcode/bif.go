@@ -154,15 +154,6 @@ func (b *BIF) Time(i int) time.Duration { return b.times[i] }
 // Frame returns the JPEG bytes of frame i (a sub-slice of the input).
 func (b *BIF) Frame(i int) []byte { return b.data[b.offsets[i]:b.offsets[i+1]] }
 
-// FrameAt returns the latest frame at or before at, if any.
-func (b *BIF) FrameAt(at time.Duration) ([]byte, bool) {
-	i := sort.Search(len(b.times), func(i int) bool { return b.times[i] > at }) - 1
-	if i < 0 {
-		return nil, false
-	}
-	return b.Frame(i), true
-}
-
 // ParseBIF parses a whole BIF file held in memory.
 func ParseBIF(data []byte) (*BIF, error) {
 	if len(data) < bifHeaderSize {

@@ -13,6 +13,9 @@ type sweepResult struct {
 }
 
 func sweepSignature(c Channel) string {
+	if c.sweepKey != "" {
+		return c.sweepKey
+	}
 	b, _ := json.Marshal(c.StreamSources)
 	return stableID(c.StreamURL, string(b))
 }

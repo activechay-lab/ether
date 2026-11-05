@@ -39,22 +39,13 @@ func MovieName(title core.Title) string {
 	}
 	return name
 }
-func Movie(title core.Title) string {
-	name := MovieName(title)
-	return path.Join("Movies", name, name+".mkv")
-}
-func Show(title core.Title) string { return path.Join("TV", Safe(title.Title)) }
+
 func Season(show string, season int) string {
 	return path.Join("TV", Safe(show), fmt.Sprintf("Season %02d", season))
 }
 func Episode(title core.Title) string {
 	show := Safe(title.ShowTitle)
 	return path.Join(Season(show, title.Season), fmt.Sprintf("%s - S%02dE%02d.mkv", show, title.Season, title.Episode))
-}
-
-// Collection places a safe filename beneath a collection directory.
-func Collection(name, filename string) string {
-	return path.Join("Collections", Safe(name), Safe(filename))
 }
 
 // NamedKey names a sibling using its stable catalogue identity.

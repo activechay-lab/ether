@@ -1002,7 +1002,6 @@ function ActivitySection({ id, locale }: { id?: string; locale: string }) {
         ))}
       </ul>
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, plays, error, locale]);
   return (
     <Section title={t("Activity")} description={t("The latest plays, newest first.")}>

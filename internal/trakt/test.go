@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/httpclient"
 	"io"
 	"net/http"
 	"strings"
@@ -32,7 +33,7 @@ func test(ctx context.Context, hc *http.Client, base string, cfg config.Trakt) e
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("trakt-api-version", "2")
 	req.Header.Set("trakt-api-key", id)
-	req.Header.Set("User-Agent", "Ether")
+	req.Header.Set("User-Agent", httpclient.UserAgent)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("trakt: %w", err)

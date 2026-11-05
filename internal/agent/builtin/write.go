@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/textutil"
 	"net/url"
 	"strings"
 
@@ -601,26 +602,7 @@ func validConditions(conds []core.ReleaseCondition) ([]core.ReleaseCondition, er
 }
 
 func slug(name string) string {
-	var b strings.Builder
-	lastDash := true
-	for _, r := range strings.ToLower(name) {
-		switch {
-		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':
-			b.WriteRune(r)
-			lastDash = false
-		case !lastDash:
-			b.WriteByte('-')
-			lastDash = true
-		}
-	}
-	s := strings.Trim(b.String(), "-")
-	if s == "" {
-		s = "rule"
-	}
-	if len(s) > 48 {
-		s = s[:48]
-	}
-	return s
+	return textutil.Slug(name, "rule", 48)
 }
 
 // hostOf returns a bare host for display; "" for empty input. Credentials

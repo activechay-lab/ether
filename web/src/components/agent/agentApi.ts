@@ -20,7 +20,6 @@ export interface AgentThreadSummary {
   title: string;
   createdAt?: string;
   updatedAt?: string;
-  messageCount?: number;
 }
 
 export interface McpClient {
@@ -64,10 +63,9 @@ export async function fetchAgentStatus(): Promise<AgentStatus> {
 export function parseThreads(value: unknown): AgentThreadSummary[] {
   return listOf<Record_>(value, "threads").map((thread) => ({
     id: String(thread.id ?? ""),
-    title: typeof thread.title === "string" && thread.title ? thread.title : "Conversation",
+    title: typeof thread.title === "string" && thread.title ? thread.title : t("Conversation"),
     createdAt: typeof thread.createdAt === "string" ? thread.createdAt : undefined,
     updatedAt: typeof thread.updatedAt === "string" ? thread.updatedAt : undefined,
-    messageCount: typeof thread.messageCount === "number" ? thread.messageCount : undefined,
   }));
 }
 
@@ -133,7 +131,7 @@ export async function submitAgentSecret(requestId: string, value: string): Promi
 export function parseMcpClients(value: unknown): McpClient[] {
   return listOf<Record_>(value, "clients").map((client) => ({
     id: String(client.id ?? ""),
-    name: typeof client.name === "string" && client.name ? client.name : "AI app",
+    name: typeof client.name === "string" && client.name ? client.name : t("AI app"),
     createdAt: typeof client.createdAt === "string" ? client.createdAt : undefined,
     lastSeenAt: typeof client.lastSeenAt === "string" ? client.lastSeenAt : undefined,
     scopes: Array.isArray(client.scopes) ? client.scopes.map(String) : undefined,
@@ -176,24 +174,7 @@ export function matchRoutePattern(pattern: string, route: string): boolean {
 
 export interface AgentSuggestionMeta {
   agentSuggestion?: boolean;
-  prompt?: string;
-  route?: string;
-  routes?: string[];
-  routePattern?: string;
   routePatterns?: string[];
-  pattern?: string;
-  patterns?: string[];
-}
-
-function suggestionPatterns(meta: AgentSuggestionMeta): string[] {
-  return [
-    ...(meta.routes ?? []),
-    ...(meta.routePatterns ?? []),
-    ...(meta.patterns ?? []),
-    ...(meta.route ? [meta.route] : []),
-    ...(meta.routePattern ? [meta.routePattern] : []),
-    ...(meta.pattern ? [meta.pattern] : []),
-  ];
 }
 
 /** Registry command prompts flagged for Ask Ether on this route. */
@@ -202,10 +183,9 @@ export function registrySuggestions(descriptors: Descriptor[], route: string): s
   for (const descriptor of descriptors) {
     const meta = record(descriptor.meta) as AgentSuggestionMeta;
     if (!meta.agentSuggestion) continue;
-    const patterns = suggestionPatterns(meta);
+    const patterns = meta.routePatterns ?? [];
     if (patterns.length && !patterns.some((pattern) => matchRoutePattern(pattern, route))) continue;
-    const text =
-      textOf(descriptor.label) || (typeof meta.prompt === "string" ? t(meta.prompt) : "");
+    const text = textOf(descriptor.label);
     if (text && !out.includes(text)) out.push(text);
   }
   return out;

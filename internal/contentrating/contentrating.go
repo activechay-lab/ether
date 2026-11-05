@@ -105,9 +105,6 @@ type Rating struct {
 	Level   Level
 }
 
-// Rated reports whether the rating has an age level.
-func (r Rating) Rated() bool { return r.Level != Unrated }
-
 // Qualify is the stored form of a country's label: bare for the US,
 // otherwise "cc/label" like Plex Media Server.
 func Qualify(country, label string) string {

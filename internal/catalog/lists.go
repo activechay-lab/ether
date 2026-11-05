@@ -3,15 +3,14 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/store"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
-	"golang.org/x/text/unicode/norm"
-
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"github.com/braedonsaunders/ether/internal/tmdb"
@@ -68,8 +67,8 @@ func (c *Catalog) reloadSummaries(ctx context.Context, titles []core.Title) []co
 	}
 	byKey := make(map[core.RatingKey]core.Title, len(titles))
 	const batch = 200
-	for start := 0; start < len(titles); start += batch {
-		part := titles[start:min(start+batch, len(titles))]
+	for chunk := range store.Chunks(titles, batch) {
+		part := chunk
 		args := make([]any, len(part))
 		for i := range part {
 			args[i] = int64(part[i].Key)
@@ -115,6 +114,45 @@ func (c *Catalog) reloadSummariesIndividually(ctx context.Context, titles []core
 		} else {
 			out = append(out, t)
 		}
+	}
+	return out
+}
+
+// reloadSearchRows retains reloadSummaries' source order and missing-row
+// fallback, without fetching facts before the merged ranking is known.
+func (c *Catalog) reloadSearchRows(ctx context.Context, titles []core.Title) []core.Title {
+	byKey := make(map[core.RatingKey]core.Title, len(titles))
+	const batch = 200
+	for chunk := range store.Chunks(titles, batch) {
+		part := chunk
+		args := make([]any, len(part))
+		for i := range part {
+			args[i] = int64(part[i].Key)
+		}
+		rows, err := c.db.QueryContext(ctx, `SELECT `+titleCols+` FROM catalog_titles WHERE key IN (`+placeholders(len(args))+`)`, args...)
+		if err != nil {
+			return c.reloadSummaries(ctx, titles)
+		}
+		for rows.Next() {
+			st, err := scanTitle(rows)
+			if err != nil {
+				rows.Close()
+				return c.reloadSummaries(ctx, titles)
+			}
+			byKey[st.t.Key] = st.t
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return c.reloadSummaries(ctx, titles)
+		}
+	}
+	out := make([]core.Title, 0, len(titles))
+	for _, t := range titles {
+		if row, ok := byKey[t.Key]; ok {
+			t = row
+		}
+		out = append(out, t)
 	}
 	return out
 }
@@ -177,15 +215,13 @@ func searchTitleYear(query string) (string, int) {
 	return title, year
 }
 
-func (c *Catalog) searchTitles(ctx context.Context, query string, types []core.MediaType, limit, year int) ([]core.Title, error) {
-	return c.searchTitlesOpts(ctx, query, types, limit, year, false)
-}
-
 func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []core.MediaType, limit, year int, unfiltered bool) ([]core.Title, error) {
-	// Local candidates already carry the facets loaded by queryTitles. Only
-	// remote summaries need FilterVisibility's database enrichment pass.
+	// Track origins so visibility and final hydration retain the different
+	// local and remote semantics.
 	localKeys := make(map[core.RatingKey]bool)
-	finish := func(items []core.Title) []core.Title {
+	remoteKeys := make(map[core.RatingKey]bool)
+	deferredLocal := false
+	finish := func(items []core.Title) ([]core.Title, error) {
 		if !unfiltered {
 			var remote []core.Title
 			for _, item := range items {
@@ -223,7 +259,49 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 		}
 		applySearchAffinity(ctx, items)
 		sortTitlesForSearch(items)
-		return limitTitles(items, limit)
+		items = limitTitles(items, limit)
+		if deferredLocal {
+			keys := make([]core.RatingKey, 0, len(items))
+			for _, t := range items {
+				if localKeys[t.Key] {
+					keys = append(keys, t.Key)
+				}
+			}
+			loaded, err := c.searchCandidates(ctx, keys, unfiltered)
+			if err != nil {
+				return nil, err
+			}
+			byKey := make(map[core.RatingKey]core.Title, len(loaded))
+			for _, t := range loaded {
+				byKey[t.Key] = t
+			}
+			for i, t := range items {
+				if localKeys[t.Key] {
+					if full, ok := byKey[t.Key]; ok {
+						full.SearchScore = t.SearchScore
+						items[i] = full
+					}
+				}
+			}
+			var remote []core.Title
+			for _, t := range items {
+				if remoteKeys[t.Key] {
+					remote = append(remote, t)
+				}
+			}
+			loadedRemote := c.reloadSummaries(ctx, remote)
+			byRemote := make(map[core.RatingKey]core.Title, len(loadedRemote))
+			for _, t := range loadedRemote {
+				byRemote[t.Key] = t
+			}
+			for i, t := range items {
+				if full, ok := byRemote[t.Key]; ok {
+					full.SearchScore = t.SearchScore
+					items[i] = full
+				}
+			}
+		}
+		return items, nil
 	}
 	wantMovie, wantTV, wantSeason, wantEpisode := true, true, false, false
 	if len(types) > 0 {
@@ -270,9 +348,18 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 	// every type until the index's first build, from the literal match.
 	var localErr error
 	ix := c.searchIndex(ctx, true)
+	deferredLocal = year == 0 && !wantSeason && !wantEpisode && (unfiltered || (c.visibilityFor(ctx).Passive() && c.config().ReleaseMode != config.ModeDigital))
 	if ix != nil && (wantMovie || wantTV) {
 		keys, scores := c.searchKeys(ix, sq, wantMovie, wantTV, max(limit*3, 30))
-		local, err := c.searchCandidates(ctx, keys, unfiltered)
+		// When visibility needs no facets, rank and merge the lightweight
+		// rows first. Only survivors need credits and other full metadata.
+		var local []core.Title
+		var err error
+		if deferredLocal {
+			local, err = c.searchCandidateRows(ctx, keys, unfiltered)
+		} else {
+			local, err = c.searchCandidates(ctx, keys, unfiltered)
+		}
 		if err != nil {
 			localErr = err
 		}
@@ -298,7 +385,7 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 			types = append(types, "'episode'")
 		}
 		if len(types) > 0 {
-			local, err := c.searchLiteral(ctx, query, strings.Join(types, ","), year, limit*2, unfiltered, ix == nil)
+			local, err := c.searchLiteral(ctx, query, strings.Join(types, ","), year, limit*2, unfiltered, ix == nil, deferredLocal)
 			if err != nil && localErr == nil {
 				localErr = err
 			}
@@ -320,7 +407,7 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 		if localErr != nil && len(out) == 0 {
 			return nil, localErr
 		}
-		return finish(out), nil
+		return finish(out)
 	}
 	if c.tmdb() == nil || (!wantMovie && !wantTV) {
 		return localAnswer()
@@ -395,15 +482,23 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 	if len(remote) > 0 {
 		// Reload so callers get hydrated/genres-preserved rows, in one
 		// batch rather than a read per result.
-		for _, t := range c.reloadSummaries(ctx, remote) {
+		loaded := c.reloadSummaries
+		if deferredLocal {
+			loaded = c.reloadSearchRows
+		}
+		for _, t := range loaded(ctx, remote) {
 			if t.SearchScore = scoreSearchText(sq, &t); t.SearchScore == 0 {
 				// TMDB matched a name the catalogue does not hold.
 				t.SearchScore = searchRemoteOnly + popularityPrior(t.Popularity, t.VoteCount)
 			}
+			wasSeen := seen[t.Key]
 			add([]core.Title{t})
+			if deferredLocal && !wasSeen && seen[t.Key] {
+				remoteKeys[t.Key] = true
+			}
 		}
 	}
-	return finish(out), nil
+	return finish(out)
 }
 
 func (c *Catalog) queryTitlesUnfiltered(ctx context.Context, q string, args ...any) ([]core.Title, error) {
@@ -445,9 +540,12 @@ func sortTitlesForSearch(items []core.Title) {
 // searchLiteral is the literal title match over types (a quoted SQL list):
 // the most popular titles whose name holds query. Without the title index
 // (walk) a dense movie and show term is read from the popularity index.
-func (c *Catalog) searchLiteral(ctx context.Context, query, types string, year, n int, unfiltered, walk bool) ([]core.Title, error) {
+func (c *Catalog) searchLiteral(ctx context.Context, query, types string, year, n int, unfiltered, walk, deferFacts bool) ([]core.Title, error) {
 	if walk && year == 0 {
 		if keys, ok, err := c.searchByPopularity(ctx, query, n, unfiltered); err == nil && ok {
+			if deferFacts {
+				return c.searchCandidateRows(ctx, keys, unfiltered)
+			}
 			return c.searchCandidates(ctx, keys, unfiltered)
 		}
 	}
@@ -458,20 +556,13 @@ func (c *Catalog) searchLiteral(ctx context.Context, query, types string, year, 
 	}
 	q := `SELECT ` + titleCols + ` FROM catalog_titles WHERE ` + adult + `type IN (` + types + `) AND ` + match + ` ORDER BY CASE WHEN ?>0 AND year=? THEN 0 ELSE 1 END, popularity DESC LIMIT ?`
 	args = append(args, year, year, n)
+	if deferFacts {
+		return c.querySearchRows(ctx, unfiltered, q, args...)
+	}
 	if unfiltered {
 		return c.queryTitlesUnfiltered(ctx, q, args...)
 	}
 	return c.queryTitles(ctx, q, args...)
-}
-
-// Fold accents for relevance ranking without changing the title sent to TMDB.
-func searchFold(s string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.Is(unicode.Mn, r) {
-			return -1
-		}
-		return unicode.ToLower(r)
-	}, norm.NFD.String(s))
 }
 
 // List returns TMDB curated/trending lists with a short in-memory TTL.
@@ -949,8 +1040,64 @@ func (c *Catalog) releasedTitles(items []core.Title) []core.Title {
 	return out
 }
 
-// searchCandidates reads the titles of keys in their order, as the sorted
-// search query returns them.
+// searchCandidateRows reads the same title rows as searchCandidates without
+// their facts. It retains key order and the ordinary release and cache rules.
+func (c *Catalog) searchCandidateRows(ctx context.Context, keys []core.RatingKey, unfiltered bool) ([]core.Title, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	args := make([]any, len(keys))
+	for i, k := range keys {
+		args[i] = int64(k)
+	}
+	titles, err := c.querySearchRows(ctx, unfiltered, `SELECT `+titleCols+` FROM catalog_titles WHERE key IN (`+placeholders(len(keys))+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	byKey := make(map[core.RatingKey]core.Title, len(titles))
+	for _, t := range titles {
+		byKey[t.Key] = t
+	}
+	out := make([]core.Title, 0, len(keys))
+	for _, key := range keys {
+		if t, ok := byKey[key]; ok {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (c *Catalog) querySearchRows(ctx context.Context, unfiltered bool, query string, args ...any) ([]core.Title, error) {
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	gen, minute := c.writeGen.Load(), c.minuteBucket()
+	var out []core.Title
+	for rows.Next() {
+		st, err := scanTitle(rows)
+		if err != nil {
+			return nil, err
+		}
+		t := st.t
+		if t.Adult || (!unfiltered && !t.IsReleased(c.now()) && !c.upcomingMovie(&t)) {
+			continue
+		}
+		if !unfiltered {
+			if cached, ok := c.cachedStored(t.Key, gen, minute); ok {
+				t = cached
+			}
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// searchCandidates reads and hydrates titles in the supplied key order.
 func (c *Catalog) searchCandidates(ctx context.Context, keys []core.RatingKey, unfiltered bool) ([]core.Title, error) {
 	if len(keys) == 0 {
 		return nil, nil

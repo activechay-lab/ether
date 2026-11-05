@@ -59,6 +59,7 @@ function ObscureTitles({ draft, onChange }: { draft: Obj; onChange: (next: Obj) 
   const preset = obscurePreset(draft);
   return (
     <SettingsRow
+      setting="hide-obscure-titles"
       title={t("Hide obscure titles")}
       description={preset === "custom" ? t("Custom limits are set under More options.") : undefined}
       control={
@@ -197,7 +198,10 @@ export function CatalogSettings() {
                     />
                   ) : null}
                   {g.more?.length ? (
-                    <MoreOptions label={t("More options: {title}", { title: g.title ?? "" })}>
+                    <MoreOptions
+                      setting={g.id}
+                      label={t("More options: {title}", { title: g.title ?? "" })}
+                    >
                       {g.more.map((f, j) => (
                         <SchemaField
                           key={`more-${f.key}-${j}`}

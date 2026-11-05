@@ -612,18 +612,14 @@ func classifySource(s core.Source) string {
 }
 
 func resolutionString(height int) string {
-	switch {
-	case height >= 2160:
-		return "2160p"
-	case height >= 1080:
-		return "1080p"
-	case height >= 720:
-		return "720p"
-	case height > 0:
-		return fmt.Sprintf("%dp", height)
-	default:
+	if height <= 0 {
 		return ""
 	}
+	tier := core.ResolutionTier(0, height)
+	if tier >= 720 {
+		return fmt.Sprintf("%dp", tier)
+	}
+	return fmt.Sprintf("%dp", height)
 }
 
 func replayMatchesAnyLang(have, want []string) bool {

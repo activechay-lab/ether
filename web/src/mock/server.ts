@@ -510,7 +510,7 @@ const VIEWERS: Viewer[] = [
 ];
 
 /** Lifecycle as the real API reports it: Plex accounts are managed on plex.tv. */
-export function mockLifecycle(
+function mockLifecycle(
   v: Pick<Viewer, "isOwner" | "plexId" | "title" | "username" | "accessStatus" | "lifecycle">,
 ) {
   if (v.lifecycle) return v.lifecycle;

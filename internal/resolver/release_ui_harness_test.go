@@ -58,7 +58,7 @@ func TestReleaseUIHarness(t *testing.T) {
 		Catalog: fakeCatalog{titles: map[core.RatingKey]*core.Title{title.Key: title}},
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
-	h := admin.New(admin.Deps{
+	h := admin.NewHandler(admin.Deps{
 		Config: store,
 		IsOwnerToken: func(_ context.Context, token string) bool {
 			return token == harnessOwner

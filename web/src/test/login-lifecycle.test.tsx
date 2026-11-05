@@ -11,6 +11,7 @@ const boot = {
   authenticated: false,
   authRequired: true,
   serverName: "Ether",
+  signInMethods: ["plex" as const],
 };
 
 describe("Plex sign-in lifecycle", () => {

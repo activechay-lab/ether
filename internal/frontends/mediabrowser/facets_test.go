@@ -3,13 +3,12 @@ package mediabrowser
 import (
 	"context"
 	"errors"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 )
@@ -50,17 +49,10 @@ func TestFacetsAndPolicyScopedFilterResolution(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), facet.ID) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	if e == nil {
-		doc, e := openapi.Parse(spec)
-		if e != nil {
+	if doc := spectest.Document(t, "jellyfin"); doc != nil {
+		if e := doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
 			t.Fatal(e)
 		}
-		if e = doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
-			t.Fatal(e)
-		}
-	} else if !os.IsNotExist(e) {
-		t.Fatal(e)
 	}
 	w = call("/Items?ParentId=" + view + "&GenreIds=" + facet.ID)
 	if w.Code != 200 || !filtered {

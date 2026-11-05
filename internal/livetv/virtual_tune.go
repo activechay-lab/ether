@@ -21,6 +21,15 @@ var (
 const virtualMaxAttempts = 4
 
 func (s *Service) tuneVirtual(ctx context.Context, ss *session, current Programme) error {
+	if current.Item.Slate == offAirSlate {
+		ctx, cancel := context.WithTimeout(ctx, virtualTuneBudget)
+		defer cancel()
+		_, err := s.prepareTrack(ctx, ss, current)
+		if err == nil {
+			s.useProgramme(ss, current)
+		}
+		return err
+	}
 	deadline := time.Now().Add(virtualTuneBudget)
 	attempts := 0
 	var last error

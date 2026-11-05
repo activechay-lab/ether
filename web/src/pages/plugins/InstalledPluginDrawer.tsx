@@ -46,7 +46,7 @@ import {
   type PluginSummary,
 } from "./types";
 
-export type DrawerTab = "overview" | "adds" | "setup" | "activity";
+type DrawerTab = "overview" | "adds" | "setup" | "activity";
 
 /**
  * One installed plugin. The header carries what you reach for every time
@@ -55,7 +55,6 @@ export type DrawerTab = "overview" | "adds" | "setup" | "activity";
  */
 export function InstalledPluginDrawer({
   pluginId,
-  initialTab = "overview",
   logRevision = 0,
   liveLogLines = [],
   onClose,
@@ -63,7 +62,6 @@ export function InstalledPluginDrawer({
   onRemoved,
 }: {
   pluginId: string | null;
-  initialTab?: DrawerTab;
   logRevision?: number;
   liveLogLines?: string[];
   onClose: () => void;
@@ -71,7 +69,7 @@ export function InstalledPluginDrawer({
   onRemoved: () => void;
 }) {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<DrawerTab>(initialTab);
+  const [tab, setTab] = useState<DrawerTab>("overview");
   const [detail, setDetail] = useState<PluginDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<unknown>(null);
@@ -84,7 +82,7 @@ export function InstalledPluginDrawer({
   const [undoFirst, setUndoFirst] = useState(true);
   const { calls, reload: reloadCalls } = usePluginCalls(pluginId, logRevision);
 
-  useEffect(() => setTab(initialTab), [pluginId, initialTab]);
+  useEffect(() => setTab("overview"), [pluginId]);
   useEffect(() => setBusy(null), [pluginId]);
 
   const loadDetail = useCallback(async (id: string, quiet = false) => {

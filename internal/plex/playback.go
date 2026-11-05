@@ -1,6 +1,7 @@
 package plex
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -428,7 +429,7 @@ func (s *Server) parsePlayRequest(r *http.Request) (playRequest, error) {
 			}
 		}
 	}
-	p.sessionID = firstNonEmpty(q.Get("session"), q.Get("transcodeSessionId"), pr.SessionID)
+	p.sessionID = cmp.Or(q.Get("session"), q.Get("transcodeSessionId"), pr.SessionID)
 	if p.sessionID == "" {
 		p.sessionID = sanitizeSessionID(pr.ClientID + "-" + key.String())
 	}
@@ -446,15 +447,6 @@ func isPlayableKey(k core.RatingKey) bool {
 		return true
 	}
 	return false
-}
-
-func firstNonEmpty(vs ...string) string {
-	for _, v := range vs {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // sanitizeSessionID keeps session ids path-safe.
@@ -751,7 +743,7 @@ func (s *Server) decisionError(ctx context.Context, pr *Request, t *core.Title, 
 		// *DecisionText whose code is >= 2000).
 		mc.Extra = append(mc.Extra, model.A("mdeDecisionCode", codeGeneralError), model.A("mdeDecisionText", msg))
 	}
-	mc.Extra = append(mc.Extra, model.A("resourceSession", firstNonEmpty(pr.ClientID, p.sessionID)))
+	mc.Extra = append(mc.Extra, model.A("resourceSession", cmp.Or(pr.ClientID, p.sessionID)))
 	mc.Size = len(mc.Metadata)
 	mc.SetDecision()
 	return mc
@@ -854,7 +846,7 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 		mc.Extra = append(mc.Extra, model.A("mdeDecisionCode", code), model.A("mdeDecisionText", text))
 	}
 	// PMS echoes the client identifier as the resource session.
-	mc.Extra = append(mc.Extra, model.A("resourceSession", firstNonEmpty(pr.ClientID, p.sessionID)))
+	mc.Extra = append(mc.Extra, model.A("resourceSession", cmp.Or(pr.ClientID, p.sessionID)))
 	return mc
 }
 
@@ -964,13 +956,6 @@ func directPlayMedia(m model.Media, streams []model.Stream, selectedOnly bool, s
 	}
 	part.Stream = kept
 	return m
-}
-
-func embeddedTextSubtitle(st model.Stream) bool {
-	if st.StreamType != 3 || (st.External != nil && *st.External) {
-		return false
-	}
-	return textSidecarCodec(st.Codec)
 }
 
 func textSidecarCodec(codec string) bool {

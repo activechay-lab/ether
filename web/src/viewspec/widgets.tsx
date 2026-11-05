@@ -45,7 +45,7 @@ function str(value: unknown): string {
  * plugin's loader computed these fields; Ether only checks the shape it
  * needs to draw a poster tile.
  */
-export function toTitleCard(raw: unknown): TitleCard | null {
+function toTitleCard(raw: unknown): TitleCard | null {
   if (!isObj(raw)) return null;
   const key = str(raw.key || raw.ratingKey);
   const title = str(raw.title);
@@ -82,12 +82,12 @@ function toTitleCards(raw: unknown): TitleCard[] {
  * below 2^53 so JavaScript handles them exactly. ether.titleCard resolves a
  * TMDB id through the same catalogue endpoint as a rating key.
  */
-export function ratingKeyForTmdb(tmdbId: number, mediaType?: string): string {
+function ratingKeyForTmdb(tmdbId: number, mediaType?: string): string {
   const kind = mediaType === "show" || mediaType === "tv" ? 2 : 1;
   return String(kind * 1_000_000_000_000_000 + Math.trunc(tmdbId));
 }
 
-export function tmdbFromRatingKey(key: string): { tmdbId: number; mediaType: string } | null {
+function tmdbFromRatingKey(key: string): { tmdbId: number; mediaType: string } | null {
   const n = Number(key);
   if (!Number.isFinite(n) || n < 1_000_000_000_000_000) return null;
   const kind = Math.floor(n / 1_000_000_000_000_000);

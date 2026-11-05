@@ -13,7 +13,6 @@ type RatingKey = core.RatingKey
 type Playlist = core.Playlist
 type MediaType = core.MediaType
 type Page = core.Page
-type SortOrder = core.SortOrder
 type WatchStatus = core.WatchStatus
 type StreamInfo = core.StreamInfo
 type MediaInfo = core.MediaInfo
@@ -21,7 +20,6 @@ type DecideOptions = core.DecideOptions
 type ClientCaps = core.ClientCaps
 type PlaybackSourceHistory = core.PlaybackSourceHistory
 type Decision = core.Decision
-type HLSSession = core.HLSSession
 
 // Catalogue key kinds and constructors stay owned by core. Adapters compare
 // and rebuild parent keys through these aliases.
@@ -32,9 +30,8 @@ const (
 	KindExtra   = core.KindExtra
 )
 
-func ShowKey(tmdb int64) RatingKey  { return core.ShowKey(tmdb) }
-func MovieKey(tmdb int64) RatingKey { return core.MovieKey(tmdb) }
-func ExtraKey(id int64) RatingKey   { return core.ExtraKey(id) }
+func ShowKey(tmdb int64) RatingKey { return core.ShowKey(tmdb) }
+
 func SeasonKey(show int64, season int) RatingKey {
 	return core.SeasonKey(show, season)
 }

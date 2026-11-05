@@ -12,6 +12,7 @@ const remoteBoot = {
   authenticated: false,
   authRequired: true,
   serverName: "Ether",
+  signInMethods: ["plex" as const],
 };
 
 function renderApp() {

@@ -24,7 +24,7 @@ func (b *browseHelper) BrowseTitles(_ context.Context, q core.BrowseQuery) (core
 func TestCatalogBrowse(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
 	helper := &browseHelper{}
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), CatalogHelper: helper})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), CatalogHelper: helper})
 	path := "/ether/api/catalog/browse?type=movie&q=Seven&genre=Drama&decade=1990&sort=title&offset=48&limit=48"
 	if rec := serve(h, req(http.MethodGet, path, "")); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated status %d", rec.Code)
@@ -74,7 +74,7 @@ func TestCatalogBrowseWaitingFilter(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
 	helper := &browseHelper{}
 	waiting := []core.RatingKey{core.MovieKey(7), core.MovieKey(8)}
-	h := admin.New(admin.Deps{
+	h := admin.NewHandler(admin.Deps{
 		Config:             store,
 		IsOwnerToken:       storedOwner(store),
 		CatalogHelper:      helper,
@@ -91,7 +91,7 @@ func TestCatalogBrowseWaitingFilter(t *testing.T) {
 	if q.Filter.Type != core.TypeMovie || len(q.Filter.IncludeKeys) != 2 || q.Filter.IncludeKeys[0] != waiting[0] {
 		t.Fatalf("waiting query: %+v", q)
 	}
-	empty := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), CatalogHelper: helper})
+	empty := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), CatalogHelper: helper})
 	rec = serve(empty, authed(req(http.MethodGet, "/ether/api/catalog/browse?waiting=1&type=show", "")))
 	if rec.Code != 200 {
 		t.Fatal(rec.Code)

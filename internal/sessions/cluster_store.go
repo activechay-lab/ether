@@ -12,31 +12,21 @@ import (
 )
 
 // clusterStore uses historical table names with protocol-neutral content.
-// The data column retains Plex's legacy shared-entry JSON shape for old nodes.
+// Broker rows store protocol-neutral facts; native Plex rows are separate.
 type clusterStore struct {
 	db   *sql.DB
 	node string
 }
 
-type legacyClusterEntry struct {
+// clusterEntry contains only the non-secret facts remote session readers need.
+type clusterEntry struct {
 	ID              string         `json:"id"`
-	SessionKey      int64          `json:"sessionKey"`
-	User            core.User      `json:"user"`
-	Client          legacyClient   `json:"client"`
-	Key             core.RatingKey `json:"key"`
-	State           string         `json:"state"`
+	ViewerID        int64          `json:"viewerID"`
+	Item            core.RatingKey `json:"item"`
 	StartedAt       time.Time      `json:"startedAt"`
-	UpdatedAt       time.Time      `json:"updatedAt"`
 	SourceID        string         `json:"sourceID,omitempty"`
 	Channel         string         `json:"channel,omitempty"`
 	ClientSessionID string         `json:"clientSessionID,omitempty"`
-}
-type legacyClient struct {
-	ClientID   string `json:"clientID"`
-	Product    string `json:"product,omitempty"`
-	Version    string `json:"version,omitempty"`
-	Platform   string `json:"platform,omitempty"`
-	DeviceName string `json:"deviceName,omitempty"`
 }
 
 func (c clusterStore) put(ctx context.Context, s frontend.Session, sourceID string, viewer core.Viewer, now time.Time) error {
@@ -87,12 +77,10 @@ func (c clusterStore) putOnce(ctx context.Context, s frontend.Session, sourceID 
 	if err := tx.QueryRowContext(ctx, `UPDATE plex_counters SET value=value+1 WHERE name='session_key' RETURNING value`).Scan(&key); err != nil {
 		return err
 	}
-	// Never persist a media grant or credential. Only identity needed by old
-	// status readers is written; policy and credentials remain authoritative.
-	v := core.User{ID: viewer.ID, Username: viewer.Username, Title: viewer.Title, IsOwner: viewer.IsOwner}
+	// Persist neither a media grant nor credential.
 	d := s.Device
 	d.Client = ""
-	data, err := json.Marshal(legacyClusterEntry{ID: s.ID, SessionKey: key, User: v, Client: legacyClient{ClientID: d.ID, Product: d.Product, Version: d.Version, Platform: d.Platform, DeviceName: d.DeviceName}, Key: s.Item, State: "playing", StartedAt: s.StartedAt, UpdatedAt: now, SourceID: sourceID, Channel: s.Channel, ClientSessionID: s.ClientSessionID})
+	data, err := json.Marshal(clusterEntry{ID: s.ID, ViewerID: viewer.ID, Item: s.Item, StartedAt: s.StartedAt, SourceID: sourceID, Channel: s.Channel, ClientSessionID: s.ClientSessionID})
 	if err != nil {
 		return err
 	}
@@ -170,13 +158,78 @@ func (c clusterStore) list(ctx context.Context, cutoff time.Time, live map[strin
 		if live != nil && !live[node] {
 			continue
 		}
-		var e legacyClusterEntry
+		var e clusterEntry
 		var d core.Device
-		if json.Unmarshal([]byte(data), &e) != nil || !device.Valid || json.Unmarshal([]byte(device.String), &d) != nil || e.ID == "" || e.User.ID != viewer {
+		if json.Unmarshal([]byte(data), &e) != nil || !device.Valid || json.Unmarshal([]byte(device.String), &d) != nil || e.ID == "" || e.ViewerID != viewer {
 			continue
 		}
 		d.Client = ""
-		out = append(out, remoteSession{node: node, sourceID: e.SourceID, session: frontend.Session{ID: e.ID, ViewerID: viewer, Protocol: frontend.Protocol(protocol), Item: e.Key, Channel: e.Channel, ClientSessionID: e.ClientSessionID, Device: d, StartedAt: e.StartedAt}})
+		out = append(out, remoteSession{node: node, sourceID: e.SourceID, session: frontend.Session{ID: e.ID, ViewerID: viewer, Protocol: frontend.Protocol(protocol), Item: e.Item, Channel: e.Channel, ClientSessionID: e.ClientSessionID, Device: d, StartedAt: e.StartedAt}})
 	}
 	return out, rows.Err()
+}
+
+// migrateEntries converts pre-v0.3.4 broker snapshots atomically at startup.
+// Native Plex snapshots (surface IS NULL) remain owned by the Plex protocol.
+func (c clusterStore) migrateEntries(ctx context.Context) (int, error) {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, "SELECT id,user_id,data FROM plex_sessions WHERE surface IS NOT NULL")
+	if err != nil {
+		return 0, err
+	}
+	type record struct {
+		id     string
+		viewer int64
+		raw    string
+	}
+	var all []record
+	for rows.Next() {
+		var r record
+		if err := rows.Scan(&r.id, &r.viewer, &r.raw); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		all = append(all, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	changed := 0
+	for _, r := range all {
+		var probe map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(r.raw), &probe); err != nil {
+			return 0, err
+		}
+		if _, current := probe["viewerID"]; current {
+			continue
+		}
+		// Only this converter knows the retired snapshot shape.
+		var old struct {
+			ID                                 string
+			User                               struct{ ID int64 }
+			Key                                core.RatingKey
+			StartedAt                          time.Time
+			SourceID, Channel, ClientSessionID string
+		}
+		if err := json.Unmarshal([]byte(r.raw), &old); err != nil {
+			return 0, err
+		}
+		if old.ID != r.id || old.User.ID != r.viewer {
+			return 0, errors.New("invalid stored broker session identity")
+		}
+		raw, err := json.Marshal(clusterEntry{ID: r.id, ViewerID: r.viewer, Item: old.Key, StartedAt: old.StartedAt, SourceID: old.SourceID, Channel: old.Channel, ClientSessionID: old.ClientSessionID})
+		if err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE plex_sessions SET data=? WHERE id=? AND data=?", string(raw), r.id, r.raw); err != nil {
+			return 0, err
+		}
+		changed++
+	}
+	return changed, tx.Commit()
 }

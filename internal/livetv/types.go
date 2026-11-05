@@ -5,6 +5,7 @@ package livetv
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -77,6 +78,7 @@ type Block struct {
 	Watched     string          `json:"watched,omitempty"`
 }
 type Channel struct {
+	sweepKey      string
 	numberMissing bool
 	Health        string `json:"health,omitempty"`
 	Transcode     bool   `json:"transcode"` // IPTV: normalize codecs through the transcoder
@@ -95,6 +97,7 @@ type Channel struct {
 	Rating        string         `json:"rating,omitempty"`
 	SourceID      string         `json:"sourceId,omitempty"`
 	GuideID       string         `json:"guideId,omitempty"`
+	TvgName       string         `json:"tvgName,omitempty"`       // provider's label; a guide-matching hint
 	StreamURL     string         `json:"streamUrl,omitempty"`     // owner API only
 	StreamSources []StreamSource `json:"streamSources,omitempty"` // ordered inputs; independent of channel/guide identity
 	Group         string         `json:"group,omitempty"`
@@ -163,6 +166,10 @@ type Source struct {
 	LastError       string     `json:"lastError,omitempty"`
 	LastErrorAt     *time.Time `json:"lastErrorAt,omitempty"`
 	RefreshFailures int        `json:"refreshFailures,omitempty"`
+	// SkippedVOD counts VOD entries (Xtream /movie/ and /series/ streams)
+	// the last playlist import left out. It is persisted with the source so
+	// the console can report what the import dropped.
+	SkippedVOD int `json:"skippedVod,omitempty"`
 	// Read-only statistics computed by Sources(); ignored on import.
 	HasPlaylist       bool       `json:"hasPlaylist"`
 	HasGuide          bool       `json:"hasGuide"`
@@ -272,6 +279,8 @@ type Options struct {
 	LogoIndexURL       func() string
 	HealthSweepMinutes func() int // 0 defaults to 15; negative disables
 	Now                func() time.Time
+	// Logger receives credential-safe import, playback and delivery diagnostics.
+	Logger *slog.Logger
 	// Allowed applies additional owner title/genre policies to every surface.
 	Allowed func(*core.User, *core.Title) bool
 	// Warm resolves/primes a title without opening a viewer stream.

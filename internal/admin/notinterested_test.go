@@ -47,7 +47,7 @@ func TestPortalHiddenAndPushRoutesAreGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := admin.New(admin.Deps{Config: newStore(t, nil), IdentityGrants: grants, NotInterested: &fakeNotInterestedPortal{}})
+	h := admin.NewHandler(admin.Deps{Config: newStore(t, nil), IdentityGrants: grants, NotInterested: &fakeNotInterestedPortal{}})
 	for _, path := range []string{
 		"/ether/api/me/not-interested",
 		"/ether/api/me/alerts/push/key",
@@ -89,7 +89,7 @@ func TestOwnerListsHiddenRecommendationsForAViewer(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeNotInterestedPortal{}
-	h := admin.New(admin.Deps{Config: newStore(t, nil), IdentityGrants: grants, NotInterested: fake, ActiveViewer: users.ActiveUser})
+	h := admin.NewHandler(admin.Deps{Config: newStore(t, nil), IdentityGrants: grants, NotInterested: fake, ActiveViewer: users.ActiveUser})
 	r := req("GET", "/ether/api/viewers/"+strconv.FormatInt(viewerID, 10)+"/not-interested", "")
 	r.Header.Set("Authorization", "Bearer "+portal)
 	if res := serve(h, r); res.Code == 200 {

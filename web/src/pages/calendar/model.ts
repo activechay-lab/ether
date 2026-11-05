@@ -1,10 +1,10 @@
 import { getLocale, localized, t } from "../../i18n";
 import { apiFetch } from "../../lib/api";
 
-export type EntryKind = "episode" | "premiere" | "movie";
+type EntryKind = "episode" | "premiere" | "movie";
 export type EntryState = "available" | "today" | "upcoming" | "unavailable";
-export type Badge = "seriesPremiere" | "seasonPremiere" | "finale";
-export type Reason = "watching" | "watchlist" | "lookahead" | "taste" | "popular";
+type Badge = "seriesPremiere" | "seasonPremiere" | "finale";
+type Reason = "watching" | "watchlist" | "lookahead" | "taste" | "popular";
 
 export interface CalendarEntry {
   id: string;
@@ -42,7 +42,7 @@ export interface CalendarViewer {
   owner?: boolean;
 }
 
-export interface CalendarData {
+interface CalendarData {
   from: string;
   to: string;
   today: string;
@@ -104,12 +104,12 @@ export const calendarApi = {
 
 const DAY = 86_400_000;
 
-export function parseDay(s: string): Date {
+function parseDay(s: string): Date {
   const [y, m, d] = s.split("-").map(Number);
   return new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1));
 }
 
-export function dayKey(d: Date): string {
+function dayKey(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
@@ -157,7 +157,7 @@ export function startOfWeek(s: string, first = weekStartDay()): string {
   return addDays(s, -((dow - first + 7) % 7));
 }
 
-export function startOfMonth(s: string): string {
+function startOfMonth(s: string): string {
   return `${s.slice(0, 7)}-01`;
 }
 

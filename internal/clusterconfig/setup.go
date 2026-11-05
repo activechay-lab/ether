@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/dburl"
 	"strconv"
 	"strings"
 	"time"
@@ -38,7 +39,7 @@ func (s SetupRequest) Validate() error {
 			return err
 		}
 	}
-	if !isPostgresURL(s.URL()) {
+	if !dburl.IsPostgres(s.URL()) {
 		return errors.New("enter a PostgreSQL connection URL")
 	}
 	return nil

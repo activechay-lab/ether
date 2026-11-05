@@ -23,7 +23,6 @@ type httpSession struct {
 	id   string
 	req  core.HLSRequest
 	life *encoderLifetime
-	stub *Session
 	log  *slog.Logger
 
 	mu         sync.Mutex
@@ -81,11 +80,11 @@ func (m *Manager) startHTTP(ctx context.Context, req core.HLSRequest, life *enco
 		return nil, errors.New("transcode: session closed")
 	}
 	h := &httpSession{
-		m:          m,
-		id:         id,
-		req:        req,
-		life:       life,
-		stub:       stub,
+		m:    m,
+		id:   id,
+		req:  req,
+		life: life,
+
 		log:        stub.log,
 		lastAccess: time.Now(),
 	}

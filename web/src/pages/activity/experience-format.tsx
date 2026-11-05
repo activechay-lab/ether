@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { getLocale, t, tn, tx } from "../../i18n";
-import { fixed, formatPercent } from "../../lib/format";
+import { formatBitrate, fixed, formatPercent } from "../../lib/format";
 import type { ExperienceCause, ExperienceMetrics, ReasonKind } from "./types";
 
 /** Targets the owner approved: start ≤5 s good, ≤10 s fair; buffering <1/h good. */
 export const START_GOOD_MS = 5_000;
-export const START_FAIR_MS = 10_000;
+const START_FAIR_MS = 10_000;
 export const BUFFER_GOOD_PER_HOUR = 1;
-export const BUFFER_FAIR_PER_HOUR = 3;
+const BUFFER_FAIR_PER_HOUR = 3;
 
 export type Tone = "success" | "warning" | "danger";
 
@@ -33,9 +33,7 @@ export function formatPerHour(v: number | null | undefined): string {
 }
 
 export function formatMbps(kbps: number | null | undefined): string {
-  if (kbps == null || !Number.isFinite(kbps) || kbps <= 0) return DASH;
-  const mbps = kbps / 1000;
-  return t("{rate} Mbps", { rate: fixed(mbps, mbps < 10 ? 1 : 0) });
+  return formatBitrate((kbps ?? 0) * 1000);
 }
 
 /** A 0–100 value from the API as a localised percentage. */

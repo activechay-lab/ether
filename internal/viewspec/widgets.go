@@ -138,9 +138,3 @@ var frameShapes = map[string]propShape{
 		literals: map[string][]string{"title": {"string"}, "openLabel": {"string"}},
 	},
 }
-
-// WidgetNames returns the registered Ether widget names.
-func WidgetNames() []string { return append([]string(nil), EtherWidgets...) }
-
-// FrameNames returns the registered Ether frame names.
-func FrameNames() []string { return append([]string(nil), EtherFrames...) }

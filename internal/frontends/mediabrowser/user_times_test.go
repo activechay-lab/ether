@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 )
@@ -56,15 +55,7 @@ func TestUserTimesUseIssuedAndRequestCredentials(t *testing.T) {
 			if calls != 0 || stamped == wireTime(login) || ok != (protocol == "jellyfin") {
 				t.Fatal("sign-in waited for viewer times", w.Body.String(), calls)
 			}
-			spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", string(protocol), "")
-			if err != nil && !os.IsNotExist(err) {
-				t.Fatal(err)
-			}
-			if err == nil {
-				doc, err := openapi.Parse(spec)
-				if err != nil {
-					t.Fatal(err)
-				}
+			if doc := spectest.Document(t, string(protocol)); doc != nil {
 				if err := doc.Validate("POST", "/Users/AuthenticateByName", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 					t.Fatal(err)
 				}

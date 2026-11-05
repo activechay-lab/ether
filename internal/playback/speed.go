@@ -294,8 +294,7 @@ func (m *Manager) backgroundDownFailover(s *session, g *generation, at time.Dura
 		if _, err := m.failoverWith(ctx, s, g, at, failoverOpts{
 			reason:       "source slower than playback",
 			followPlayer: true, preserveBuffer: true,
-			markBad: false,
-			down:    true,
+			down: true,
 		}); err != nil && ctx.Err() == nil && !errors.Is(err, errRequireRemux) {
 			m.log.Error("down-failover failed", "session", s.id, "err", err)
 		}

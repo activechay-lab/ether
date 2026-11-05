@@ -151,7 +151,7 @@ func TestPrismUpgradeFromDelivered9503(t *testing.T) {
 	if store.KnownMigrations()["capability_headers"] != 3 {
 		t.Fatalf("capability_headers version = %d, want 3", store.KnownMigrations()["capability_headers"])
 	}
-	if store.KnownMigrations()["plexwatch"] != 5 || store.KnownMigrations()["state_plexwatch"] != 4 || store.KnownMigrations()["watchsend"] != 1 {
+	if store.KnownMigrations()["plexwatch"] != 5 || store.KnownMigrations()["state_plexwatch"] != 5 || store.KnownMigrations()["watchsend"] != 1 {
 		t.Fatalf("account sync inventory plexwatch=%d state_plexwatch=%d watchsend=%d", store.KnownMigrations()["plexwatch"], store.KnownMigrations()["state_plexwatch"], store.KnownMigrations()["watchsend"])
 	}
 
@@ -411,7 +411,7 @@ func assertUpgradeBoundary(t *testing.T) {
 	if known["capability_headers"] != 3 {
 		t.Fatalf("capability_headers version = %d, want 3", known["capability_headers"])
 	}
-	if known["plexwatch"] != 5 || known["state_plexwatch"] != 4 || known["watchsend"] != 1 {
+	if known["plexwatch"] != 5 || known["state_plexwatch"] != 5 || known["watchsend"] != 1 {
 		t.Fatalf("account sync inventory plexwatch=%d state_plexwatch=%d watchsend=%d", known["plexwatch"], known["state_plexwatch"], known["watchsend"])
 	}
 	if known["auth"] != 8 || known["auth_sessions"] != 1 {
@@ -795,11 +795,12 @@ func postgresSearchPath(dsn, schema string) (string, error) {
 	}
 	q := u.Query()
 	q.Set("options", "-csearch_path="+schema)
+	// This fixture reads the same tables before and after DDL on one pool.
+	// Re-describe each query so pgx does not reuse a pre-migration row shape.
+	q.Set("default_query_exec_mode", "describe_exec")
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }
-
-type randReader struct{}
 
 func jsonBool(t *testing.T, raw []byte, key string) bool {
 	t.Helper()

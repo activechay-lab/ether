@@ -21,7 +21,7 @@ import {
   isEtherWidget,
 } from "./registry";
 
-export type PluginSpecValidation =
+type PluginSpecValidation =
   { ok: true; spec: PageSpec; errors: [] } | { ok: false; errors: string[] };
 
 function isObj(value: unknown): value is Record<string, unknown> {

@@ -12,7 +12,7 @@ func TestCatalogReleaseMigration(t *testing.T) {
 	for _, mode := range []string{ModePlayable, ModeDigital, ModeImmediate} {
 		for _, gate := range []bool{false, true} {
 			raw, _ := json.Marshal(map[string]any{"catalog": map[string]any{"gateMoviesByHomeRelease": gate, "showUpcomingEpisodes": true}, "availability": map[string]any{"mode": mode}})
-			cfg, changed, err := decodeOverDefaults(Defaults(t.TempDir()), raw)
+			cfg, changed, err := decodeStartupConfig(Defaults(t.TempDir()), raw)
 			want := mode
 			if gate && mode == ModeImmediate {
 				want = ModeDigital
@@ -24,7 +24,7 @@ func TestCatalogReleaseMigration(t *testing.T) {
 			if strings.Contains(string(encoded), "gateMoviesByHomeRelease") {
 				t.Fatal("legacy field persisted")
 			}
-			again, changed, err := decodeOverDefaults(Defaults(t.TempDir()), encoded)
+			again, changed, err := decodeStartupConfig(Defaults(t.TempDir()), encoded)
 			if err != nil || changed || again.Availability.EffectiveMode() != want {
 				t.Fatal("not idempotent")
 			}

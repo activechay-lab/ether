@@ -38,6 +38,3 @@ func Convert(streams []Stream, req core.SearchRequest, look Lookup, opts Convert
 	})
 	return c
 }
-
-// RequestHeaders are the headers the add-on says its stream URL needs.
-func (s *stream) RequestHeaders() map[string]string { return s.requestHeaders() }

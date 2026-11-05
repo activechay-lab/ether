@@ -11,6 +11,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/logredact"
 	"io"
 	"log/slog"
 	"net/http"
@@ -351,18 +352,16 @@ func (c *Client) once(ctx context.Context, r request) (*response, error) {
 // in the query, so the raw error would leak them into logs, the admin
 // status and API error messages.
 func redactURLError(err error) error {
-	var ue *url.Error
-	if !errors.As(err, &ue) {
-		return err
-	}
-	safe := ue.URL
-	if u, perr := url.Parse(ue.URL); perr == nil {
-		u.RawQuery, u.Fragment, u.User = "", "", nil
-		safe = u.String()
-	} else if i := strings.IndexAny(safe, "?#"); i >= 0 {
-		safe = safe[:i]
-	}
-	return &url.Error{Op: ue.Op, URL: safe, Err: ue.Err}
+	return logredact.TransportError(err, "", func(raw string) string {
+		if u, e := url.Parse(raw); e == nil {
+			u.RawQuery, u.Fragment, u.User = "", "", nil
+			return u.String()
+		}
+		if i := strings.IndexAny(raw, "?#"); i >= 0 {
+			return raw[:i]
+		}
+		return raw
+	})
 }
 
 func (c *Client) setHeaders(h http.Header, token string) {

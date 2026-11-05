@@ -32,10 +32,9 @@ type postedFile struct {
 	name     string
 }
 
-// maxTailGrowth is how many slots beyond the NZB listing a yEnc part total
-// may always add; beyond that a total may at most double the listed count
-// (repeated headers cannot compound the growth).
-const maxTailGrowth = 1024
+// maxTailGrowth permits a few missing parts in addition to twice the listed
+// count; repeated headers cannot compound the growth.
+const maxTailGrowth = 10
 
 type slot struct {
 	msgID      string   // "" when the NZB lacks this part
@@ -206,7 +205,7 @@ func (pf *postedFile) slotsFor(off, n int64) []int {
 func (pf *postedFile) learn(i int, begin, end, fileSize int64, total int) (changed bool) {
 	pf.mu.Lock()
 	defer pf.mu.Unlock()
-	if listed := pf.file.SegmentCount(); total > len(pf.slots) && total-listed <= max(listed, maxTailGrowth) {
+	if listed := len(pf.file.Segments); total > len(pf.slots) && total <= listed*2+maxTailGrowth {
 		// The post has more parts than the NZB lists: the tail is missing.
 		// The total comes from an untrusted yEnc header; an absurd one must
 		// not allocate an enormous slot table.

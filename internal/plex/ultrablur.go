@@ -5,7 +5,6 @@ import (
 	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"image"
 )
 
 const (
@@ -16,10 +15,7 @@ const (
 func wirePalette(p artworkservice.Palette) model.UltraBlurColors {
 	return model.UltraBlurColors{TopLeft: p.TopLeft, TopRight: p.TopRight, BottomLeft: p.BottomLeft, BottomRight: p.BottomRight}
 }
-func ultraBlurFromImage(img image.Image) (model.UltraBlurColors, error) {
-	p, err := artworkservice.PaletteFromImage(img)
-	return wirePalette(p), err
-}
+
 func (s *Server) ultraBlurFor(key core.RatingKey, backdrop string) *model.UltraBlurColors {
 	if s.ultra == nil || backdrop == "" {
 		return nil

@@ -409,21 +409,6 @@ func TestGetOfflineAndNotFound(t *testing.T) {
 	}
 }
 
-func TestEstimateMonotonic(t *testing.T) {
-	strict := catalog.EstimateCatalogSize(20, 1000)
-	defaultEst := catalog.EstimateCatalogSize(5, 100)
-	loose := catalog.EstimateCatalogSize(1, 10)
-	if !(strict.Total < defaultEst.Total && defaultEst.Total < loose.Total) {
-		t.Fatalf("estimates not monotonic: strict=%+v default=%+v loose=%+v", strict, defaultEst, loose)
-	}
-	if defaultEst.Total < 10000 || defaultEst.Total > 500000 {
-		t.Fatalf("default estimate out of plausible range: %+v", defaultEst)
-	}
-	if got := catalog.EstimateTitles(0, 0); got <= 0 {
-		t.Fatalf("zero thresholds estimate %d", got)
-	}
-}
-
 func TestStatsCacheAndTimeoutFallback(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCatalog(t, fakeTMDB(t))

@@ -212,7 +212,7 @@ func (b *builder) planRAR(ctx context.Context, vols []*postedFile) (*plan, error
 		info[k] = volInfo{size: info[1].size, dataOff: info[1].dataOff + delta, dataSize: info[1].dataSize - delta}
 	}
 	p := newPlan(b.rel, kindRAR, path.Base(main.Name), main.UnpackedSize, vols, info, verified)
-	p.member, p.rar5 = main.Name, rar5
+	p.member = main.Name
 	if err := p.init(); err != nil {
 		// The uniform model does not add up: learn every volume.
 		b.e.log.Debug("rar uniform layout rejected; reading all volume headers", "name", main.Name, "err", err)

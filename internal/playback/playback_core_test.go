@@ -44,7 +44,7 @@ func TestWarmReusedAcrossProfileChange(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("r1", 2<<30, 90*time.Minute)}, []string{"r1"})
 	detailCaps := defaultCaps("client")
 	detailCaps.MaxHeight = 2160 // SelectProfile -> "4K"
-	if !h.m.PreResolve(context.Background(), owner, movieKey, detailCaps) {
+	if !h.m.Prewarm(context.Background(), owner, movieKey, detailCaps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("warm skipped")
 	}
 	waitWarm(t, h, owner.ID, "client", movieKey)
@@ -71,7 +71,7 @@ func TestWarmDiscardedWhenTooTallForPlayCaps(t *testing.T) {
 	detailCaps := defaultCaps("client")
 	detailCaps.MaxHeight = 2160
 	detailCaps.VideoCodecs = []string{"h264", "hevc"}
-	if !h.m.PreResolve(context.Background(), owner, movieKey, detailCaps) {
+	if !h.m.Prewarm(context.Background(), owner, movieKey, detailCaps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("warm skipped")
 	}
 	waitWarm(t, h, owner.ID, "client", movieKey)
@@ -90,7 +90,7 @@ func TestWarmDiscardedWhenTooTallForPlayCaps(t *testing.T) {
 func TestInstantPrepareAfterWarm(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("r1", 2<<30, 90*time.Minute)}, []string{"r1"})
 	caps := defaultCaps("client")
-	if !h.m.PreResolve(context.Background(), owner, movieKey, caps) {
+	if !h.m.Prewarm(context.Background(), owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("warm skipped")
 	}
 	waitWarm(t, h, owner.ID, "client", movieKey)
@@ -268,7 +268,7 @@ func TestConcurrentPrepareVariantsDoNotLeaveDuplicateSessions(t *testing.T) {
 func TestPrepareVariantIgnoresWarmOfOtherRelease(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("A", 2<<30, 90*time.Minute), mkv("B", 2<<30, 90*time.Minute)}, []string{"A", "B"})
 	caps := defaultCaps("c1")
-	if !h.m.PreResolve(context.Background(), owner, movieKey, caps) {
+	if !h.m.Prewarm(context.Background(), owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("warm skipped")
 	}
 	waitWarm(t, h, owner.ID, "c1", movieKey) // warms A (rank 1)
@@ -644,7 +644,7 @@ func TestWarmCachesKeyframes(t *testing.T) {
 	profile.MinSizeMBPerMin = 0
 	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User) core.QualityProfile { return profile }
 	caps := defaultCaps("c1")
-	if !h.m.PreResolve(context.Background(), owner, movieKey, caps) {
+	if !h.m.Prewarm(context.Background(), owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("warm skipped")
 	}
 	waitWarm(t, h, owner.ID, "c1", movieKey)
@@ -678,7 +678,7 @@ func TestBlockedWarmAndPersistedResumeResolveAgain(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("A", 10000, time.Minute), mkv("B", 10000, time.Minute)}, []string{"A", "B"})
 	ps := h.prepare(owner, movieKey, "first")
 	h.m.Stop(ps.ID)
-	if !h.m.PreResolve(ctx, owner, movieKey, defaultCaps("warm")) {
+	if !h.m.Prewarm(ctx, owner, movieKey, defaultCaps("warm"), core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("warm skipped")
 	}
 	waitWarm(t, h, owner.ID, "warm", movieKey)

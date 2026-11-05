@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """Controlled real-client NNTP comparison. No providers or external media needed.
 
+Run manually from the repository root (not a CI test):
+  go build -o /tmp/ether-usenetbench ./cmd/usenetbench
+  python3 scripts/usenet-compare.py --ether /tmp/ether-usenetbench \
+    --sab /path/to/SABnzbd --sab-python /path/to/venv/bin/python \
+    --output /tmp/ether-usenet-comparison
+Use --help for fixture sizes, scenarios and repeat counts. Results are written
+under --output; no production server or provider credentials are used.
+
 Requires a built cmd/usenetbench and an installed SABnzbd Python environment.
 Every client gets a fresh fixture server and isolated output/config directories.
 The latency shim delays packets in transit, independently of request boundaries;

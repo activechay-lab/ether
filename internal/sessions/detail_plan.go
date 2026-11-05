@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 	"time"
@@ -125,6 +126,11 @@ func (b *Broker) DetailPlan(ctx context.Context, req frontend.PlanRequest) (fron
 		case <-entry.done:
 		}
 		if entry.err != nil {
+			// The leader's own cancellation says nothing about this caller:
+			// its failed entry is already gone, so plan afresh.
+			if ctx.Err() == nil && (errors.Is(entry.err, context.Canceled) || errors.Is(entry.err, context.DeadlineExceeded)) {
+				return b.DetailPlan(ctx, req)
+			}
 			return frontend.PlayPlan{}, entry.err
 		}
 		if source, ok := b.deps.Playback.Session(entry.sourceID); ok && source != nil {

@@ -69,17 +69,6 @@ func ParseVersion(s string) (Semver, error) {
 	return Semver{Major: nums[0], Minor: nums[1], Patch: nums[2], Pre: pre, raw: orig}, nil
 }
 
-func (v Semver) String() string {
-	if v.raw != "" {
-		return v.raw
-	}
-	s := fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
-	if len(v.Pre) > 0 {
-		s += "-" + strings.Join(v.Pre, ".")
-	}
-	return s
-}
-
 // CompareVersions returns -1, 0 or 1 (a <, ==, > b) per semver precedence:
 // a release outranks its prereleases; numeric prerelease identifiers
 // compare numerically and rank below alphanumeric ones.

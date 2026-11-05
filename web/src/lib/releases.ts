@@ -38,7 +38,7 @@ export interface Release {
   score: number;
 }
 
-export interface FormatMatch {
+interface FormatMatch {
   id: string;
   name: string;
   score: number;
@@ -75,7 +75,7 @@ export interface ConsoleRelease {
   health?: HealthResult | null;
 }
 
-export type PinStatus = "" | "healthy" | "unhealthy" | "rejected" | "unavailable";
+type PinStatus = "" | "healthy" | "unhealthy" | "rejected" | "unavailable";
 
 export interface Pin {
   titleKey: string;
@@ -150,7 +150,7 @@ export interface ChildTitle {
   pinned?: boolean;
 }
 
-export interface ConsoleProfiles {
+interface ConsoleProfiles {
   default: string;
   profiles: string[];
   special: string[];
@@ -227,7 +227,7 @@ export interface TrashProfileList {
 }
 
 /** present: already saved; add: added by the import. */
-export type ImportFormatStatus = "present" | "add" | "unsupported" | "missing";
+type ImportFormatStatus = "present" | "add" | "unsupported" | "missing";
 
 export interface ImportFormat {
   id: string;

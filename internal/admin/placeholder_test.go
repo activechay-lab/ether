@@ -38,7 +38,7 @@ func placeholderStore(t *testing.T) *config.Store {
 
 func TestPlaceholderSaveRequiresUnchangedDestination(t *testing.T) {
 	store := placeholderStore(t)
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
 	before := store.Get()
 
 	put := func(section, body string) (int, string) {
@@ -105,7 +105,7 @@ func TestPlaceholderSaveRequiresUnchangedDestination(t *testing.T) {
 
 func TestPlaceholderRoundTripUnchanged(t *testing.T) {
 	store := placeholderStore(t)
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
 	want := store.Get()
 	rec := serve(h, ownerReq(http.MethodGet, "/ether/api/config", ""))
 	if rec.Code != 200 {
@@ -141,7 +141,7 @@ func TestPlaceholderTestersStayBound(t *testing.T) {
 	var called []string
 	var seen string
 	note := func(name, secret string) error { called = append(called, name); seen = secret; return nil }
-	h := admin.New(admin.Deps{
+	h := admin.NewHandler(admin.Deps{
 		Config: store, IsOwnerToken: storedOwner(store),
 		TestUsenet: func(_ context.Context, p config.UsenetProvider) error { return note("usenet", p.Password) },
 		TestIndexer: func(_ context.Context, ix config.Indexer) error {
@@ -219,7 +219,7 @@ func TestPlaceholderTestersStayBound(t *testing.T) {
 // challenged requests (and their query strings) are relayed through.
 func TestPlaceholderBoundToFlareSolverr(t *testing.T) {
 	store := placeholderStore(t)
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
 	rec := serve(h, ownerReq(http.MethodPatch, "/ether/api/config/indexerSites", `{"flareSolverrUrl":"https://evil.example.com"}`))
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"indexers[1].secretSettings.password"`) || strings.Contains(rec.Body.String(), "indexers[0]") {
 		t.Fatalf("flaresolverr change kept site secret: %d %s", rec.Code, rec.Body)

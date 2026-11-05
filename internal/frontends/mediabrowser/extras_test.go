@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
@@ -49,16 +48,9 @@ func TestExtrasRoutesAuthorizeParentAndReturnEmptyArrays(t *testing.T) {
 			if w.Code != 200 || strings.TrimSpace(w.Body.String()) != "[]" {
 				t.Fatal(tc.name, path, w.Code, w.Body.String())
 			}
-			spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", tc.name, "")
-			if os.IsNotExist(err) {
+			doc := spectest.Document(t, tc.name)
+			if doc == nil {
 				continue
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			doc, err := openapi.Parse(spec)
-			if err != nil {
-				t.Fatal(err)
 			}
 			if err := doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 				t.Fatalf("%s %s: %v", tc.name, path, err)

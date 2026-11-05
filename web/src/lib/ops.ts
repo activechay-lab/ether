@@ -61,7 +61,7 @@ export async function startupStatus(signal?: AbortSignal): Promise<StartupStatus
 
 // ---- Restart ---------------------------------------------------------------
 
-export type RestartManager =
+type RestartManager =
   "systemd" | "launchd" | "windows-service" | "service" | "container" | "terminal";
 
 export interface RestartInfo {
@@ -127,16 +127,16 @@ export interface RestoreState {
 const BACKUPS = "/adoption/backups";
 
 /** Header values are Latin-1 only, so the password travels as base64 of UTF-8. */
-export function base64Utf8(s: string): string {
+function base64Utf8(s: string): string {
   let bin = "";
   for (const b of new TextEncoder().encode(s)) bin += String.fromCharCode(b);
   return btoa(bin);
 }
 
 /** The first bytes of every encrypted Ether backup. */
-export const ENCRYPTED_MAGIC = "ETHERBK1";
+const ENCRYPTED_MAGIC = "ETHERBK1";
 
-export function readHead(file: Blob, n: number): Promise<string> {
+function readHead(file: Blob, n: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () =>
@@ -196,15 +196,12 @@ export const restoreApi = {
       method: "POST",
     }),
   /**
-   * Validates an uploaded backup into a staging folder: an encrypted download
-   * with its password, or (legacy) an unencrypted bundle from an older version.
+   * Validates an encrypted backup download with its password into a staging folder.
    */
-  stageUpload: (file: File, password: string, legacy = false) =>
+  stageUpload: (file: File, password: string) =>
     uploadBackup<StagedBackup>(API_BASE + `${BACKUPS}/restore`, file, {
       [SESSION_HEADER]: getToken(),
-      ...(legacy
-        ? { "X-Ether-Backup-Legacy": "plaintext" }
-        : { "X-Ether-Backup-Password": base64Utf8(password) }),
+      "X-Ether-Backup-Password": base64Utf8(password),
     }),
   apply: (id: string, whenIdle: boolean) =>
     apiFetch<{ ok: boolean }>(`${BACKUPS}/restore/apply/${encodeURIComponent(id)}`, {

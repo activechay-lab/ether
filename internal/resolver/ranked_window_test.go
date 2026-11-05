@@ -148,7 +148,8 @@ func TestRankedWindowCancellationJoinsWorkers(t *testing.T) {
 		s := New(&fakeIndexer{}, h, nil, testCfg(), Options{})
 		defer s.Close()
 		cs, tr := windowCandidates("first", "second", "unstarted")
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		// Past the hedge delay (the backup runs too), before the lead's grace.
+		ctx, cancel := context.WithTimeout(context.Background(), (defaultHealthHedgeDelay+rankedSourceGrace)/2)
 		defer cancel()
 		winner, _, err := s.validateCandidates(ctx, cs, tr, 0)
 		if winner != -1 || !errors.Is(err, context.DeadlineExceeded) || len(stopped) != 2 {
@@ -224,7 +225,10 @@ func TestRankedWindowCountsGraceAlreadySpentDuringDiscovery(t *testing.T) {
 // Friends S07E01 (cold, 2026-10-21): the lead slow-failed after 7.36s
 // while two fast failures used the other slot, so the equivalent winner
 // started at 3.18s and won at 7.63s. A stalled lead now yields one slot to
-// an equivalent backup once its grace ends.
+// an equivalent backup once its grace ends. The first hedge waits the hedge
+// delay (1.5s) rather than starting with the lead, so the extra slot at the
+// grace goes to fastfail2 and the winner starts when fastfail1 fails, at
+// 2.84s, winning at 7.29s.
 func TestRankedWindowStalledLeadYieldsSlotToEquivalent(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var mu sync.Mutex
@@ -273,15 +277,16 @@ func TestRankedWindowStalledLeadYieldsSlotToEquivalent(t *testing.T) {
 		if err != nil || winner != 3 {
 			t.Fatalf("winner=%d err=%v", winner, err)
 		}
-		if got, want := time.Since(start), rankedSourceGrace+4450*time.Millisecond; got != want {
+		goodAt := defaultHealthHedgeDelay + 1340*time.Millisecond
+		if got, want := time.Since(start), goodAt+4450*time.Millisecond; got != want {
 			t.Fatalf("validation took %s, want %s", got, want)
 		}
-		if started["good"] != rankedSourceGrace {
-			t.Fatalf("equivalent backup started at %s, want the lead's grace %s", started["good"], rankedSourceGrace)
+		if started["fastfail2"] != rankedSourceGrace || started["good"] != goodAt {
+			t.Fatalf("stall slot at %s, backup at %s; want the lead's grace %s and %s", started["fastfail2"], started["good"], rankedSourceGrace, goodAt)
 		}
 		// Never more than one check beyond the window: "fallback" only
 		// took the slot fastfail2 left, and nothing started after it.
-		if started["fallback"] != 3180*time.Millisecond || tr.Candidates[5].Attempted {
+		if started["fallback"] != rankedSourceGrace+1840*time.Millisecond || tr.Candidates[5].Attempted {
 			t.Fatalf("extra checks: %v trace=%+v", started, tr.Candidates)
 		}
 		if tr.Candidates[0].Rejected || !strings.Contains(tr.Candidates[3].Route, "healthy equivalent") {

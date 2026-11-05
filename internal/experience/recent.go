@@ -66,11 +66,6 @@ func (r Recent) Added(ctx context.Context, viewer *core.User, kind core.MediaTyp
 	return items, false, nil
 }
 
-// RecentlyViewed loads unique history entries in their most recent order.
-func RecentlyViewed(ctx context.Context, viewer *core.User, libraryID int, visibility Visibility, history func(context.Context, int64, time.Time, int) ([]core.HistoryEntry, error), titles func(context.Context, []core.RatingKey) []core.Title, libraryFor func(core.MediaType) (int, bool)) ([]core.Title, error) {
-	return (Recent{Visibility: visibility}).Viewed(ctx, viewer, libraryID, history, titles, libraryFor)
-}
-
 func (r Recent) Viewed(ctx context.Context, viewer *core.User, libraryID int, history func(context.Context, int64, time.Time, int) ([]core.HistoryEntry, error), titles func(context.Context, []core.RatingKey) []core.Title, libraryFor func(core.MediaType) (int, bool)) ([]core.Title, error) {
 	if viewer == nil || history == nil {
 		return nil, nil

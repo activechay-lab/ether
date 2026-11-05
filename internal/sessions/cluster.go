@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/clusterbus"
@@ -56,7 +57,13 @@ type remoteRetired struct {
 func startBrokerCluster(b *Broker, db *sql.DB, node clusterbus.Node) (*brokerCluster, error) {
 	c := &brokerCluster{store: clusterStore{db: db, node: node.NodeID()}, node: node, broker: b, stop: make(chan struct{}), done: make(chan struct{}), kick: make(chan struct{}, 1)}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	err := c.store.cleanup(ctx)
+	n, err := c.store.migrateEntries(ctx)
+	if err == nil && n > 0 {
+		slog.Info("sessions: converted stored broker snapshots", "rows", n)
+	}
+	if err == nil {
+		err = c.store.cleanup(ctx)
+	}
 	cancel()
 	if err != nil {
 		return nil, err

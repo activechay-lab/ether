@@ -61,10 +61,6 @@ type correction struct {
 	RetryAfter time.Time     `json:"retryAfter,omitempty"`
 }
 
-func (c correction) fit() TimingFit {
-	return TimingFit{Offset: c.Offset, Rate: c.Rate, Confidence: c.Confidence, Inliers: c.Inliers}
-}
-
 // SourceKey is the on-disk correction key for a release/source id.
 // URLs and path-like values are hashed so they never become path
 // components. Store and load both go through this function.

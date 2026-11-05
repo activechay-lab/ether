@@ -19,7 +19,7 @@ func TestSupportCaptureIsOwnerBound(t *testing.T) {
 	})
 	rec := diagnostics.New(diagnostics.Deps{})
 	rec.Observe(diagnostics.Event{Kind: diagnostics.KindDevice, DeviceKey: "tv", DeviceName: "Living Room"})
-	h := admin.New(admin.Deps{
+	h := admin.NewHandler(admin.Deps{
 		Config: store,
 		IsOwnerToken: func(_ context.Context, tok string) bool {
 			return tok == ownerToken || tok == "other-session"

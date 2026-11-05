@@ -16,7 +16,7 @@ import { Suspense, lazy, useCallback, useEffect, useState, type ReactNode } from
 import { t } from "../../i18n";
 import { Drawer } from "../../components/Drawer";
 import { apiFetch, errorMessage } from "../../lib/api";
-import type { StudioProject } from "./develop/types";
+import type { StudioProject } from "./studio-types";
 import { PaneResizer, useStudioPanes } from "./code/panes";
 
 const CodeMirrorPane = lazy(() => import("./code/CodeMirrorPane"));

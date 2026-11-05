@@ -3,7 +3,7 @@ package notify
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
+
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -129,17 +129,6 @@ func (p *ViewerPush) PurgeViewer(ctx context.Context, viewerID int64) error {
 		return core.ErrUnauthorized
 	}
 	_, err := p.Preferences.DB.ExecContext(ctx, `DELETE FROM viewer_push_subscriptions WHERE viewer_id=?`, viewerID)
-	return err
-}
-
-// PurgeViewerTx and PurgeGrantTx participate in the same transaction that
-// deactivates membership or revokes a device grant.
-func PurgeViewerTx(ctx context.Context, tx *sql.Tx, viewerID int64) error {
-	_, err := tx.ExecContext(ctx, `DELETE FROM viewer_push_subscriptions WHERE viewer_id=?`, viewerID)
-	return err
-}
-func PurgeGrantTx(ctx context.Context, tx *sql.Tx, viewerID int64, grantHash string) error {
-	_, err := tx.ExecContext(ctx, `DELETE FROM viewer_push_subscriptions WHERE viewer_id=? AND grant_hash=?`, viewerID, grantHash)
 	return err
 }
 

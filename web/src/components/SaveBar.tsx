@@ -34,7 +34,7 @@ export function useDraft<T>(saved: T | null | undefined) {
   const dirty = draft !== null && JSON.stringify(draft) !== savedKey;
   const reset = useCallback(
     () => setDraft(saved == null ? null : structuredClone(saved)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     [savedKey],
   );
   return { draft, setDraft, dirty, reset };
@@ -53,7 +53,7 @@ export function useUnsavedGuard(dirty: boolean) {
   }, [dirty]);
 }
 
-export interface SaveBarProps {
+interface SaveBarProps {
   dirty: boolean;
   saving?: boolean;
   onSave: () => void | Promise<void>;

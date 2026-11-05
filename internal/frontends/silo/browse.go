@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/paging"
 	"net/http"
 	"strconv"
 	"strings"
@@ -104,14 +105,6 @@ func (i *instance) rememberedLiveCard(channelGUID string) (liveChannelCardMeta, 
 	defer i.liveMu.Unlock()
 	meta, ok := i.liveCards[channelGUID]
 	return meta, ok
-}
-
-// liveChannelCards is the On Now shelf. Experience rows carry channels, not
-// catalogue titles, so the home builder cannot reuse title cards. The item
-// uses the catalogue card shape: the programme is the title and the channel
-// is the series line. content_id is the channel the client tunes.
-func liveChannelCards(row frontend.Row) []any {
-	return (*instance)(nil).buildLiveChannelCards(row)
 }
 
 func (i *instance) buildLiveChannelCards(row frontend.Row) []any {
@@ -278,8 +271,8 @@ func (i *instance) sections(w http.ResponseWriter, r *http.Request) {
 	}
 	limit := 0
 	if text := r.URL.Query().Get("item_limit"); text != "" {
-		limit, err = strconv.Atoi(text)
-		if err != nil || limit < 1 || limit > 100 {
+		limit, err = paging.ParseLimit(text, 0, 100)
+		if err != nil {
 			http.Error(w, "Bad Request", 400)
 			return
 		}

@@ -19,9 +19,12 @@ import (
 )
 
 func TestUserViewsOnProductionCopy(t *testing.T) {
-	const path = "/tmp/ether-userviews.db"
+	path := os.Getenv("ETHER_TEST_USERVIEWS_DB")
+	if path == "" {
+		t.Skip("set ETHER_TEST_USERVIEWS_DB to an offline production database copy")
+	}
 	if _, err := os.Stat(path); err != nil {
-		t.Skip(err)
+		t.Fatal(err)
 	}
 	db, err := sql.Open("sqlite-cached", "file:"+path+"?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(2000)")
 	if err != nil {

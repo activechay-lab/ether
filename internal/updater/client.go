@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/egress"
 	"github.com/braedonsaunders/ether/internal/schedule"
 )
@@ -112,15 +111,6 @@ func NewClient(opts Options) (*Client, error) {
 	}
 	c.pub = pub
 	return c, nil
-}
-
-// NewClientFromConfig maps the owner's Updates settings onto a Client.
-func NewClientFromConfig(upd config.Updates, logger *slog.Logger) (*Client, error) {
-	return NewClient(Options{
-		FeedURL: upd.FeedURL,
-		Channel: upd.Channel,
-		Logger:  logger,
-	})
 }
 
 // CurrentVersion is the version Check compares against.
@@ -267,10 +257,6 @@ func (c *Client) get(ctx context.Context, url string, maxBytes int64) ([]byte, e
 	}
 	return b, nil
 }
-
-// ShouldAutoApply interprets the owner's update policy: auto-apply only
-// when config says so; the tray/server otherwise prompts.
-func ShouldAutoApply(upd config.Updates) bool { return upd.AutoUpdate }
 
 // Poll periodically checks the feed until ctx ends, invoking onUpdate for
 // each newly-seen update version. Check errors are logged and retried on

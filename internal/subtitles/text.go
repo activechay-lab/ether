@@ -47,12 +47,6 @@ func legacyCharmap(lang string) *charmap.Charmap {
 	return charmap.Windows1252
 }
 
-// toUTF8 converts subtitle bytes to UTF-8. Handles UTF-8 (with/without BOM),
-// UTF-16LE/BE (BOM or NUL-pattern heuristic) and falls back to the
-// language's legacy Windows code page (Windows-1252 when unknown), which is
-// what most legacy subtitle files actually use.
-func toUTF8(b []byte) string { return toUTF8Lang(b, "") }
-
 func toUTF8Lang(b []byte, lang string) string {
 	switch {
 	case len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF:
@@ -338,10 +332,6 @@ func assText(s string) string {
 	s = strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
 	return strings.ReplaceAll(strings.TrimRight(s, "\n"), "\n", "\\N")
 }
-
-// Normalize converts raw downloaded subtitle bytes to UTF-8 SRT and WebVTT,
-// guessing a legacy encoding as Windows-1252.
-func Normalize(raw []byte) (srt, vtt string, err error) { return NormalizeLang(raw, "") }
 
 // NormalizeLang is Normalize with the subtitle's language, which picks the
 // legacy code page for non-UTF files (Windows-1251 for Russian, …).

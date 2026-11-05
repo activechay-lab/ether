@@ -14,7 +14,7 @@ import (
 
 func TestDashboardFramePolicy(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
 	check := func(wantCSP, wantXFO string) {
 		t.Helper()
 		r := req(http.MethodGet, "/ether/", "")
@@ -73,7 +73,7 @@ func TestDashboardFramePolicy(t *testing.T) {
 // nothing else inline is.
 func TestConsoleScriptPolicyMatchesServedIndex(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
 	rec := serve(h, req(http.MethodGet, "/ether/", ""))
 	if rec.Code != 200 {
 		t.Skipf("embedded UI not built: %d", rec.Code)

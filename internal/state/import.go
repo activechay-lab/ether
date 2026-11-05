@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/store"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -124,7 +125,7 @@ func (s *State) importTx(ctx context.Context, tx *sql.Tx, b ImportBatch) ([]Even
 			if r.Rating > 0 {
 				ratingAt = now
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO state_watch(user_id,rating_key,view_offset_ns,duration_ns,view_count,counted,last_viewed_at,user_rating,updated_at,watch_at,rating_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,rating_key) DO UPDATE SET view_offset_ns=excluded.view_offset_ns,duration_ns=excluded.duration_ns,counted=excluded.counted,view_count=CASE WHEN excluded.view_count>state_watch.view_count THEN excluded.view_count ELSE state_watch.view_count END,last_viewed_at=CASE WHEN excluded.last_viewed_at>state_watch.last_viewed_at THEN excluded.last_viewed_at ELSE state_watch.last_viewed_at END,user_rating=CASE WHEN excluded.user_rating>0 THEN excluded.user_rating ELSE state_watch.user_rating END,updated_at=excluded.updated_at,watch_at=CASE WHEN excluded.watch_at>state_watch.watch_at THEN excluded.watch_at ELSE state_watch.watch_at END,rating_at=CASE WHEN excluded.rating_at>state_watch.rating_at THEN excluded.rating_at ELSE state_watch.rating_at END,version=state_watch.version+1`, r.UserID, r.Key, int64(r.Offset), int64(r.Duration), r.Views, b2i(r.Views > 0 && r.Offset == 0), viewed, r.Rating, now, watchAt, ratingAt); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO state_watch(user_id,rating_key,view_offset_ns,duration_ns,view_count,counted,last_viewed_at,user_rating,updated_at,watch_at,rating_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,rating_key) DO UPDATE SET view_offset_ns=excluded.view_offset_ns,duration_ns=excluded.duration_ns,counted=excluded.counted,view_count=CASE WHEN excluded.view_count>state_watch.view_count THEN excluded.view_count ELSE state_watch.view_count END,last_viewed_at=CASE WHEN excluded.last_viewed_at>state_watch.last_viewed_at THEN excluded.last_viewed_at ELSE state_watch.last_viewed_at END,user_rating=CASE WHEN excluded.user_rating>0 THEN excluded.user_rating ELSE state_watch.user_rating END,updated_at=excluded.updated_at,watch_at=CASE WHEN excluded.watch_at>state_watch.watch_at THEN excluded.watch_at ELSE state_watch.watch_at END,rating_at=CASE WHEN excluded.rating_at>state_watch.rating_at THEN excluded.rating_at ELSE state_watch.rating_at END,version=state_watch.version+1`, r.UserID, r.Key, int64(r.Offset), int64(r.Duration), r.Views, store.BoolInt(r.Views > 0 && r.Offset == 0), viewed, r.Rating, now, watchAt, ratingAt); err != nil {
 				return nil, err
 			}
 			latest[ident] = max(old, viewed)
@@ -237,11 +238,4 @@ func (s *State) ExportEntries(ctx context.Context, userID int64, ratings bool) (
 		out = append(out, e)
 	}
 	return out, rows.Err()
-}
-
-func b2i(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

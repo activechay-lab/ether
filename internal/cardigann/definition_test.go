@@ -25,7 +25,7 @@ func TestParseFixtureDefinitions(t *testing.T) {
 
 func TestParsePublicDetails(t *testing.T) {
 	def := loadDef(t, "public.yml")
-	if def.Type != "public" || def.Language != "en-US" || len(def.LegacyLinks) != 1 || def.Protocol != "torrent" {
+	if def.Type != "public" || def.Language != "en-US" || def.Protocol != "torrent" {
 		t.Fatalf("metadata = %+v", def)
 	}
 	if len(def.Caps.CategoryMappings) != 3 || def.Caps.CategoryMappings[0].Newznab != 2040 || !def.Caps.CategoryMappings[0].Default {

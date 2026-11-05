@@ -272,7 +272,7 @@ func writeServes(ctx context.Context, db *sql.DB, ops []serveOp, ids *serveIDs) 
 		r := op.rec
 		at := ms(r.at)
 		var id int64
-		if err := serveStmt.QueryRowContext(ctx, r.userID, at, at, r.surface, r.hc.Device, r.hc.Daypart, b2i(r.hc.Weekend)).Scan(&id); err != nil {
+		if err := serveStmt.QueryRowContext(ctx, r.userID, at, at, r.surface, r.hc.Device, r.hc.Daypart, store.BoolInt(r.hc.Weekend)).Scan(&id); err != nil {
 			return err
 		}
 		fresh[r.id] = id

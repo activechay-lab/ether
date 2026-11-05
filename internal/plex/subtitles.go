@@ -13,6 +13,7 @@ package plex
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -588,7 +589,7 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 	p, perr := s.parsePlayRequest(r)
 	sessionID := p.sessionID
 	if perr != nil {
-		sessionID = sanitizeSessionID(firstNonEmpty(q.Get("session"), q.Get("transcodeSessionId"), pr.SessionID))
+		sessionID = sanitizeSessionID(cmp.Or(q.Get("session"), q.Get("transcodeSessionId"), pr.SessionID))
 	}
 	entry, ok := s.transcodes.get(sessionID)
 	if !ok || pr.User == nil || entry.userID != pr.User.ID || (pr.ClientID != "" && entry.clientID != "" && entry.clientID != pr.ClientID) || entry.key == 0 || (perr == nil && p.key != entry.key) {

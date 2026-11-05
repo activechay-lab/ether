@@ -133,7 +133,7 @@ func TestSharedSeedOverlayAndPropagation(t *testing.T) {
 	if !a.Clustered() || backend.doc.Version != 1 {
 		t.Fatalf("seed: clustered=%v version=%d", a.Clustered(), backend.doc.Version)
 	}
-	if strings.Contains(backend.doc.Doc, "owner-secret-token") || !strings.Contains(backend.doc.Doc, sealedPrefix) {
+	if strings.Contains(backend.doc.Doc, "owner-secret-token") || !strings.Contains(backend.doc.Doc, sealedPrefixV2) {
 		t.Fatal("shared document holds an unsealed secret")
 	}
 	if strings.Contains(backend.doc.Doc, "32401") {
@@ -345,7 +345,7 @@ func TestStandaloneUnchanged(t *testing.T) {
 func TestSealRoundTrip(t *testing.T) {
 	s, _ := Open(t.TempDir())
 	sealed, err := s.Seal("certs/plexdirect", []byte("pem"))
-	if err != nil || !strings.HasPrefix(sealed, sealedPrefix) {
+	if err != nil || !strings.HasPrefix(sealed, sealedPrefixV2) {
 		t.Fatal(sealed, err)
 	}
 	if got, err := s.Unseal("certs/plexdirect", sealed); err != nil || string(got) != "pem" {

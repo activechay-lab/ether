@@ -18,10 +18,22 @@ export function fixed(n: number, digits: number): string {
   }).format(n);
 }
 
+/** Bitrate in bits per second; bytes/sec callers use formatRate. */
+export function formatBitrate(bitsPerSecond: number): string {
+  if (!Number.isFinite(bitsPerSecond) || bitsPerSecond <= 0) return "—";
+  const rate = bitsPerSecond / 1e6;
+  return t("{rate} Mbps", { rate: fixed(rate, rate >= 10 ? 0 : 1) });
+}
+
+/** Transfer throughput in bytes per second (decimal megabytes). */
+export function formatThroughput(bytesPerSecond: number): string {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) return "—";
+  const rate = bytesPerSecond / 1e6;
+  return t("{rate} MB/s", { rate: fixed(rate, rate >= 10 ? 0 : 1) });
+}
+
 export function formatRate(bytesPerSecond: number): string {
-  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "—";
-  const mbit = (bytesPerSecond * 8) / 1e6;
-  return `${fixed(mbit, mbit >= 10 ? 0 : 1)} Mbit/s`;
+  return formatBitrate(bytesPerSecond * 8);
 }
 
 export function humanizeKey(key: string): string {

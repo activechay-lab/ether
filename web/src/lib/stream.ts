@@ -10,7 +10,7 @@
 import { useEffect, useRef } from "react";
 import { API_BASE, getToken, SESSION_HEADER } from "./api";
 
-export type StreamEventType =
+type StreamEventType =
   | "dashboard"
   | "extend.changed"
   | "plugins.changed"
@@ -42,7 +42,7 @@ export function backoffDelay(attempt: number): number {
   return capped * (1 - j + Math.random() * 2 * j);
 }
 
-export interface ParsedEvent {
+interface ParsedEvent {
   id: string;
   type: string;
   data: string;

@@ -344,7 +344,6 @@ export function ListInput({
     if (JSON.stringify(parseListInput(text, numeric)) !== key) {
       setText(list.join(", "));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, numeric]);
   return (
     <Input
@@ -398,7 +397,6 @@ export function MapInput({
     if (JSON.stringify(toObject(rows)) !== key) {
       setRows(Object.entries(value));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const commit = (next: [string, string][]) => {
     setRows(next);

@@ -1,3 +1,4 @@
+import { copyText } from "../../components/CopyButton";
 import { Button, Input, SettingsSection, Spinner } from "@braedonsaunders/appkit-ui";
 import { StremioMark } from "../sources/marks";
 import { Copy } from "lucide-react";
@@ -52,7 +53,9 @@ export function AppConnections() {
     <SettingsSection>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
         <div>
-          <h2 className="text-sm font-medium">{t("How apps connect")}</h2>
+          <h2 data-setting="how-apps-connect" className="text-sm font-medium">
+            {t("How apps connect")}
+          </h2>
           <p className="mt-1 text-sm text-fg-muted">
             {t("Use the address for your network. Port changes need a restart.")}
           </p>
@@ -108,7 +111,9 @@ function Connection({ app }: { app: Frontend }) {
         <h3 className="flex-1 font-medium">{name}</h3>
         {["plex", "jellyfin", "emby", "silo"].includes(id) ? (
           <label className="flex items-center gap-2 text-sm text-fg-muted">
-            <span className="hidden sm:inline">{t("Port")}</span>
+            <span className="hidden sm:inline" data-setting="port">
+              {t("Port")}
+            </span>
             <Input
               className="w-20"
               aria-label={t("{app} port", { app: name })}
@@ -133,7 +138,10 @@ function Connection({ app }: { app: Frontend }) {
       {addresses.map((address) => (
         <div key={address} className="flex min-w-0 items-center gap-2">
           <div className="min-w-0 flex-1">
-            <p className="text-xs text-fg-muted">
+            <p
+              data-setting={localAddress(address) ? "local-url" : "remote-url"}
+              className="text-xs text-fg-muted"
+            >
               {localAddress(address) ? t("Local URL") : t("Remote URL")}
             </p>
             <p className="break-all text-sm">{address}</p>
@@ -144,8 +152,7 @@ function Connection({ app }: { app: Frontend }) {
             aria-label={t("Copy {address}", { address })}
             onClick={async () => {
               try {
-                await navigator.clipboard.writeText(address);
-                setCopied(address);
+                if (await copyText(address)) setCopied(address);
               } catch (e) {
                 setError(e);
               }
@@ -197,7 +204,7 @@ function NetworkOptions({ plexEnabled }: { plexEnabled: boolean }) {
   const [error, setError] = useState<unknown>();
   const fields = SERVER.find((group) => group.id === "connect")?.more ?? [];
   return (
-    <MoreOptions label={t("More options: How apps connect")}>
+    <MoreOptions setting="connect" label={t("More options: How apps connect")}>
       {!plexEnabled && draft ? (
         <label className="flex items-center justify-between gap-4 p-4 text-sm">
           {t("Ether port")}

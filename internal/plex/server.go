@@ -33,7 +33,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/stats"
-	"github.com/braedonsaunders/ether/internal/trickplay"
 )
 
 // DefaultPMSVersion is reported when Identity.Version is empty. Clients gate
@@ -184,15 +183,13 @@ type Deps struct {
 // Server is the PMS API handler. It is an http.Handler; call Close on
 // shutdown to stop background work and notification streams.
 type Server struct {
-	homeSharedMu     sync.Mutex
-	homeShared       map[string]*homeSharedEntry
-	home             *homeCache
-	trickplayMu      sync.Mutex
-	trickplayHolders map[string]*trickplay.Holder
-	trickplayClosed  bool
-	d                Deps
-	log              *slog.Logger
-	router           chi.Router
+	homeSharedMu sync.Mutex
+	homeShared   map[string]*homeSharedEntry
+	home         *homeCache
+
+	d      Deps
+	log    *slog.Logger
+	router chi.Router
 
 	sections []Section
 
@@ -343,7 +340,7 @@ func (s *Server) Close() error {
 	s.once.Do(func() {
 		s.releaseAllDownloads()
 		s.cancel()
-		s.closeTrickplayHolders()
+
 		s.notifier.close()
 		s.wg.Wait()
 		if s.cl != nil {
@@ -539,7 +536,7 @@ func (s *Server) janitor() {
 			return
 		case <-t.C:
 			now := s.now()
-			s.expireTrickplayHolders()
+
 			s.expireDownloads(now)
 			s.queues.expire(now, 6*time.Hour)
 			s.playIDs.expire(now, s.playIdentityAlive)
@@ -591,16 +588,6 @@ func (s *Server) releaseMountedPlayback() {
 		}
 		s.dropTranscode(id)
 	}
-	s.releaseTrickplayHolders()
-	s.releaseAllDownloads()
-}
 
-func (s *Server) releaseTrickplayHolders() {
-	s.trickplayMu.Lock()
-	holds := s.trickplayHolders
-	s.trickplayHolders = nil
-	s.trickplayMu.Unlock()
-	for _, hold := range holds {
-		hold.Close(true)
-	}
+	s.releaseAllDownloads()
 }

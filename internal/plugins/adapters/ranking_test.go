@@ -54,40 +54,49 @@ func (s slowHot) Budgets() plugins.HotBudgets {
 	return plugins.HotBudgets{PerCandidate: time.Millisecond, PerBatch: time.Second}
 }
 
+type deterministicRanking struct{ plugins.HotRuntime }
+
+func (deterministicRanking) HasRankKey() bool   { return true }
+func (deterministicRanking) HasCondMatch() bool { return true }
+
+func (deterministicRanking) RankBatch(_ context.Context, facts []plugins.CandidateFacts, _ json.RawMessage) ([]int64, plugins.HotOutcome, error) {
+	keys := make([]int64, len(facts))
+	for i, fact := range facts {
+		if strings.Contains(fact.Name, "DUB") {
+			keys[i] = 10
+		}
+	}
+	return keys, plugins.HotOutcome{Status: "ok"}, nil
+}
+func (deterministicRanking) CondMatch(_ context.Context, fact plugins.CandidateFacts, _ string, _ json.RawMessage) (bool, plugins.HotOutcome, error) {
+	return strings.Contains(fact.Name, "DUB"), plugins.HotOutcome{Status: "ok"}, nil
+}
+func (deterministicRanking) Budgets() plugins.HotBudgets {
+	return plugins.HotBudgets{PerCandidate: time.Second, PerBatch: time.Minute}
+}
+
 func fixtureRanking(t testing.TB) *rankingManagerFake {
 	t.Helper()
-	eng := wasm.NewEngine(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	t.Cleanup(func() { _ = eng.Close() })
-	man := plugins.Manifest{Version: "1", Ether: &plugins.EtherBlock{Runtime: plugins.RuntimeDecl{Kind: "hosted", Entry: "p.js"}, Contributes: plugins.Contributes{RankingSteps: []plugins.RankingStepMeta{{Key: "dub", Label: "Dub"}}, RuleConditions: []plugins.RuleConditionMeta{{Key: "dub", Label: "Dub"}}}}}
-	src := `globalThis.rank_key = c => c.name.includes("DUB") ? 10 : 0; globalThis.cond_match = (c,op,v) => c.name.includes("DUB");`
-	rt, err := plugins.HostedRuntimeFactory(eng)(plugins.Installed{ID: "test.dub", Manifest: man, Files: func(string) ([]byte, bool) { return []byte(src), true }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = rt.Close() })
+	// Adapter correctness uses deterministic outcomes; hosted JavaScript execution
+	// and budget enforcement are covered by plugins and plugins/wasm tests.
+	man := plugins.Manifest{Version: "1", Ether: &plugins.EtherBlock{Contributes: plugins.Contributes{RankingSteps: []plugins.RankingStepMeta{{Key: "dub", Label: "Dub"}}, RuleConditions: []plugins.RuleConditionMeta{{Key: "dub", Label: "Dub"}}}}}
 	reg := extend.New()
 	if err := reg.Register(plugins.DescriptorsFor(plugins.Manifest{ID: "test.dub", Version: man.Version, Ether: man.Ether})...); err != nil {
 		t.Fatal(err)
 	}
-	return &rankingManagerFake{rt: rt.(plugins.HotRuntime), registry: reg, record: plugins.Record{ID: "test.dub", Enabled: true, Manifest: man}}
+	return &rankingManagerFake{rt: deterministicRanking{}, registry: reg, record: plugins.Record{ID: "test.dub", Enabled: true, Manifest: man}}
 }
-func TestRankingHostedJSAndSlowFallback(t *testing.T) {
+func TestRankingKeysAndConditions(t *testing.T) {
 	m := fixtureRanking(t)
 	session := (Ranking{Manager: m, Registry: m.registry}).NewResolve(context.Background(), core.ClientCaps{})
 	rels := []core.Release{{ID: "a", Name: "film.1080p"}, {ID: "b", Name: "film.DUB.1080p"}}
 	keys := session.Rank("plugin:test.dub/dub", nil, rels, nil)
-	if session.(*rankingSession).report("test.dub").Slow > 0 {
-		t.Skip("hosted runtime exhausted its budget under load")
-	}
 	if len(keys) != 2 || keys[0] != 0 || keys[1] != 10 {
 		t.Fatalf("keys: %v", keys)
 	}
 	cond := core.ReleaseCondition{Field: "plugin:test.dub/dub", Operator: "equals", Value: "dub"}
 	matchedDub, _ := session.Match(rels[1], cond, false)
 	matchedPlain, _ := session.Match(rels[0], cond, false)
-	if session.(*rankingSession).report("test.dub").Slow > 0 {
-		t.Skip("hosted runtime exhausted its budget under load")
-	}
 	if !matchedDub || matchedPlain {
 		t.Fatal("condition mismatch")
 	}
@@ -129,6 +138,18 @@ func (i rankingBenchIndexer) FetchNZB(context.Context, core.Release) ([]byte, er
 }
 func BenchmarkResolve500PluginStep(b *testing.B) {
 	m := fixtureRanking(b)
+	// The benchmark still measures the real hosted runtime; correctness tests
+	// above use fixed outcomes so a busy machine cannot erase assertions.
+	eng := wasm.NewEngine(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	defer eng.Close()
+	m.record.Manifest.Ether.Runtime = plugins.RuntimeDecl{Kind: "hosted", Entry: "p.js"}
+	src := `globalThis.rank_key = c => c.name.includes("DUB") ? 10 : 0; globalThis.cond_match = c => c.name.includes("DUB");`
+	rt, err := plugins.HostedRuntimeFactory(eng)(plugins.Installed{ID: "test.dub", Manifest: m.record.Manifest, Files: func(string) ([]byte, bool) { return []byte(src), true }})
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer rt.Close()
+	m.rt = rt.(plugins.HotRuntime)
 	cfg := config.Defaults(b.TempDir())
 	cfg.Quality.Default = "1080p"
 	cfg.Quality.Remote = "1080p"
@@ -156,7 +177,7 @@ func BenchmarkResolve500PluginStep(b *testing.B) {
 	b.ReportMetric(float64(m.report.Slow)/float64(b.N), "slow-candidates/op")
 }
 
-func TestHostedJSChangesActualResolve(t *testing.T) {
+func TestPluginRankingChangesActualResolve(t *testing.T) {
 	m := fixtureRanking(t)
 	cfg := config.Defaults(t.TempDir())
 	cfg.Quality.Default = "1080p"
@@ -176,9 +197,6 @@ func TestHostedJSChangesActualResolve(t *testing.T) {
 	got, err := s.Resolve(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if m.report.Slow > 0 {
-		t.Skip("hosted runtime exhausted its budget under load")
 	}
 	if got.Release.ID != "1" {
 		t.Fatalf("winner %q, slow=%d", got.Release.ID, m.report.Slow)

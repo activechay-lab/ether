@@ -31,13 +31,6 @@ type certTrust struct {
 	reason      string
 }
 
-// setTrustDial replaces the TLS dial VerifyTrust uses. Tests only.
-func (m *CertManager) setTrustDial(fn trustDialFunc) {
-	m.mu.Lock()
-	m.trustDial = fn
-	m.mu.Unlock()
-}
-
 // VerifyTrust checks the installed certificate and remembers the result.
 // Status polls read that memory; they do not call this.
 // VerifyTrust checks the installed plex.direct certificate and then a TLS

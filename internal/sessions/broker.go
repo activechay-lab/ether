@@ -68,7 +68,7 @@ type BrokerDeps struct {
 	OpenSubtitle     func(string, string) (io.ReadCloser, string, error)
 	OpenSubtitleFrom func(string, string, string) (io.ReadCloser, string, error)
 	ExtractSubtitle  func(context.Context, string, int, string, io.Writer) error
-	// Trickplay is borrowed from the runtime owner (internal/app/trickplay_owner.go).
+	// Trickplay is borrowed from the runtime owner (internal/trickplay/owner.go).
 	// It is the same provider Plex uses. The broker releases its own leases;
 	// only the runtime owner may Close the provider.
 	Trickplay core.TrickplayProvider
@@ -1004,7 +1004,7 @@ func (b *Broker) Sessions(ctx context.Context, a frontend.SessionAccess) ([]fron
 	return visible, nil
 }
 func (b *Broker) Report(ctx context.Context, a frontend.SessionAccess, id string, t frontend.Timeline) error {
-	s, v, err := b.accessSession(ctx, a, id, t.State != "stopped")
+	s, _, err := b.accessSession(ctx, a, id, t.State != "stopped")
 	if errors.Is(err, core.ErrNotFound) {
 		item, retired, retiredErr := b.retiredAccess(ctx, a, id)
 		if retiredErr != nil {
@@ -1033,7 +1033,7 @@ func (b *Broker) Report(ctx context.Context, a frontend.SessionAccess, id string
 		return err
 	}
 	defer unlock()
-	s, v, err = b.accessSession(ctx, a, id, t.State != "stopped")
+	s, v, err := b.accessSession(ctx, a, id, t.State != "stopped")
 	if err != nil {
 		return err
 	}

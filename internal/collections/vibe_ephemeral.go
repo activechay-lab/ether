@@ -34,11 +34,6 @@ func WithVibeRefiner(r core.VibeRefiner) Option {
 	return func(s *Service) { s.SetVibeRefiner(r) }
 }
 
-// WithEphemeralLimits bounds the ephemeral registry (tests).
-func WithEphemeralLimits(ttl time.Duration, max int) Option {
-	return func(s *Service) { s.vibeTTL, s.vibeMax = ttl, max }
-}
-
 // SetVibeRefiner installs the refiner after construction.
 func (s *Service) SetVibeRefiner(r core.VibeRefiner) {
 	s.depsMu.Lock()

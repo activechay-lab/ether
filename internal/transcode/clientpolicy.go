@@ -104,16 +104,3 @@ func SupportsDVProfile(c core.ClientCaps, profile int) bool {
 func supportsSubtitle(c core.ClientCaps, codec string) bool {
 	return slices.Contains(ClientPolicyFor(c).SubtitleCodecs, codec)
 }
-
-// ClientPolicies is the owner-facing supplemental quirk matrix. It describes
-// defaults only; a real request's profile and hardware declarations refine it.
-func ClientPolicies() []ClientPolicy {
-	products := []string{"Apple TV", "iOS", "Android TV", "Google TV", "NVIDIA Shield", "Roku", "Fire TV", "LG webOS", "Samsung Tizen", "Plex Web Chrome", "Plex Web Firefox", "Plex Web Safari", "Plex Web Edge", "Xbox", "PlayStation", "HTPC"}
-	out := make([]ClientPolicy, 0, len(products))
-	for _, product := range products {
-		p := ClientPolicyFor(core.ClientCaps{Product: product})
-		p.Family = product
-		out = append(out, p)
-	}
-	return out
-}

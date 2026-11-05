@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/flight"
 	_ "modernc.org/sqlite"
 )
 
@@ -63,13 +64,7 @@ type Dictionarry struct {
 	mu     sync.Mutex
 	cached *dictionarryCatalog
 	at     time.Time
-	flight *dictionarryFlight
-}
-
-type dictionarryFlight struct {
-	done chan struct{}
-	cat  *dictionarryCatalog
-	err  error
+	flight flight.Group[struct{}, *dictionarryCatalog]
 }
 
 type dictionarryCatalog struct {
@@ -158,41 +153,32 @@ func (d *Dictionarry) catalog(ctx context.Context) (*dictionarryCatalog, error) 
 		d.mu.Unlock()
 		return cat, nil
 	}
-	f := d.flight
-	if f == nil {
-		f = &dictionarryFlight{done: make(chan struct{})}
-		d.flight = f
-		go func() {
-			lctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-			defer cancel()
-			f.cat, f.err = d.fetchAndCompile(lctx)
-			d.mu.Lock()
-			if f.err == nil && f.cat != nil {
-				d.cached = f.cat
-				d.at = d.o.Now()
-			}
-			d.flight = nil
-			d.mu.Unlock()
-			close(f.done)
-		}()
-	}
 	d.mu.Unlock()
-
-	select {
-	case <-f.done:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	if f.err != nil {
+	cat, err := d.flight.DoDetached(ctx, struct{}{}, func(fctx context.Context) (*dictionarryCatalog, error) {
+		lctx, cancel := context.WithTimeout(fctx, 45*time.Second)
+		defer cancel()
+		cat, err := d.fetchAndCompile(lctx)
+		if err == nil && cat != nil {
+			d.mu.Lock()
+			d.cached = cat
+			d.at = d.o.Now()
+			d.mu.Unlock()
+		}
+		return cat, err
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		d.mu.Lock()
 		stale := d.cached
 		d.mu.Unlock()
 		if stale != nil {
 			return stale, nil
 		}
-		return nil, f.err
+		return nil, err
 	}
-	return f.cat, nil
+	return cat, nil
 }
 
 func (d *Dictionarry) fetchAndCompile(ctx context.Context) (*dictionarryCatalog, error) {

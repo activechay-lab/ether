@@ -67,7 +67,7 @@ export function useServerReconnect({
 }
 
 /** Re-renders every second, for elapsed clocks and countdowns. */
-export function useNow(active = true): number {
+function useNow(active = true): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;

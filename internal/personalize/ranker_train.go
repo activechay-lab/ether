@@ -254,11 +254,6 @@ func (m *rankModel) logit(raw []float32, kind, surface string) float64 {
 	return z
 }
 
-// prob is the calibrated play probability of a served title.
-func (m *rankModel) prob(raw []float32, kind, surface string) float64 {
-	return sigmoid(m.logit(raw, kind, surface))
-}
-
 // modelScore maps a title's logit onto 0..1 relative to the titles the
 // model trained on (0.5 = typical).
 func (m *rankModel) modelScore(raw []float32, kind, surface string) float64 {

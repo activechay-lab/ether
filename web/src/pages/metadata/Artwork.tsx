@@ -566,7 +566,6 @@ function TitleArtworkDrawer({
       });
     return () => ctl.abort();
     // Reload only for a different title; the language is read when it opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title?.key]);
 
   const save = async () => {

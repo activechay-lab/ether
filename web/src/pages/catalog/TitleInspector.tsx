@@ -27,7 +27,7 @@ import {
 } from "./titleSchedule";
 import "./catalog.css";
 
-export type InspectorTab = "overview" | "episodes" | "calendar" | "releases" | "availability";
+type InspectorTab = "overview" | "episodes" | "calendar" | "releases" | "availability";
 
 /** Where another tab asked the drawer to go: a season, and optionally one episode. */
 export interface EpisodeFocus {
@@ -38,12 +38,10 @@ export interface EpisodeFocus {
 export function TitleInspector({
   titleKey,
   onClose,
-  initialTab = "overview",
   watchlistAction,
 }: {
   titleKey: string;
   onClose: () => void;
-  initialTab?: InspectorTab;
   watchlistAction?: ReactNode;
 }) {
   const state = useAsync(() => api.title(titleKey), [titleKey]);
@@ -61,7 +59,7 @@ export function TitleInspector({
     (signal) => (isMovie ? titleScheduleApi.releases(titleKey, signal) : Promise.resolve(null)),
     [titleKey, isMovie],
   );
-  const [tab, setTab] = useState<InspectorTab>(initialTab);
+  const [tab, setTab] = useState<InspectorTab>("overview");
   const [focus, setFocus] = useState<EpisodeFocus | null>(null);
   const [availabilityKey, setAvailabilityKey] = useState<string | null>(null);
 

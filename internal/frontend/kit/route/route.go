@@ -19,10 +19,18 @@ type registered struct {
 	handler http.Handler
 }
 type Router struct {
-	mu        sync.RWMutex
-	routes    []registered
-	ordered   []registered
-	unmatched func(*http.Request, int)
+	mu         sync.RWMutex
+	routes     []registered
+	ordered    []registered
+	unmatched  func(*http.Request, int)
+	middleware func(Route, http.Handler) http.Handler
+}
+
+// SetMiddleware wraps each matched route after its path parameters are set.
+func (r *Router) SetMiddleware(m func(Route, http.Handler) http.Handler) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.middleware = m
 }
 
 // SetUnmatched installs an optional observer for 404 and 405 responses. The
@@ -103,6 +111,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.mu.RLock()
 	entries := append([]registered(nil), r.ordered...)
 	unmatched := r.unmatched
+	middleware := r.middleware
 	r.mu.RUnlock()
 	methodMismatch := false
 	for _, e := range entries {
@@ -140,7 +149,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		for k, v := range values {
 			req.SetPathValue(k, v)
 		}
-		e.handler.ServeHTTP(w, req)
+		h := e.handler
+		if middleware != nil {
+			h = middleware(e.route, h)
+		}
+		h.ServeHTTP(w, req)
 		return
 	}
 	if methodMismatch {

@@ -154,7 +154,7 @@ export function savedHouseholdLanguage(input: {
  * A first-time setup with no saved console language and no household audio
  * or subtitle list takes the browser. Anything already stored is shown as-is.
  */
-export function initialHouseholdLanguage(input: {
+function initialHouseholdLanguage(input: {
   setupComplete: boolean;
   remembered: AppLocale | null;
   browserLanguages: readonly string[];

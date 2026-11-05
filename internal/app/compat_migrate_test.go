@@ -12,7 +12,7 @@ import (
 func TestSplitAppOverrides(t *testing.T) {
 	in := []core.ClientCapabilityOverride{{Product: "Plex for Android", MaxHeight: 2160}}
 	got, count := splitAppOverrides(in)
-	if count != 1 || len(got) != 4 || got[0].ProductMatch != "contains" || got[1].Product != "Plex for Android" || got[2].Product != "Plex for Android (Mobile)" || got[3].Product != "Plex for Android (TV)" || got[2].CopiedFrom != in[0].Product || got[3].MaxHeight != 2160 {
+	if count != 1 || len(got) != 3 || got[0].Product != "Plex for Android" || got[1].Product != "Plex for Android (Mobile)" || got[2].Product != "Plex for Android (TV)" || got[2].CopiedFrom != in[0].Product || got[2].MaxHeight != 2160 {
 		t.Fatalf("count=%d got=%+v", count, got)
 	}
 	_, count = splitAppOverrides(got)

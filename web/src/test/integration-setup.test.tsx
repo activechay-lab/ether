@@ -57,7 +57,7 @@ it.each([
     f.state.config.simkl = { enabled: true, clientId: "", clientSecret: "" };
     f.state.config.llm.enabled = true;
     f.state.config.openSubtitles.enabled = true;
-    f.state.config.markers = { accountEnabled: true, theIntroDb: false, apiKey: "" };
+    f.state.config.markers = { theIntroDb: true, apiKey: "" };
     f.state.config.posters = {
       version: 1,
       enabled: false,
@@ -98,7 +98,7 @@ it.each([
     expect(screen.getByRole("button", { name: "Provider" })).toBeInTheDocument();
 });
 
-it("configures TheIntroDB without enabling playback lookup", async () => {
+it("turns TheIntroDB lookups on from its card switch", async () => {
   const { fake } = renderApp("/services/overview", {}, (f) => {
     f.state.config.markers = { theIntroDb: false, apiKey: "" };
   });
@@ -108,8 +108,8 @@ it("configures TheIntroDB without enabling playback lookup", async () => {
     target: { value: "intro-key" },
   });
   fireEvent.click(within(dialog).getByRole("button", { name: "Save and enable" }));
-  await waitFor(() => expect(fake.state.config.markers?.accountEnabled).toBe(true));
-  expect(fake.state.config.markers?.theIntroDb).toBe(false);
+  await waitFor(() => expect(fake.state.config.markers?.theIntroDb).toBe(true));
+  expect(fake.state.config.markers?.apiKey).toBe("intro-key");
 });
 
 it("keeps configured TMDB required and opens Manage in the shared drawer", async () => {

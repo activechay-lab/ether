@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/flight"
 )
 
 // PMS's owner history endpoint includes every account unless explicitly scoped.
@@ -54,13 +55,7 @@ type sourceMapper struct {
 	moviesByTitleYear   map[string][]media
 	moviesByTitle       map[string][]media
 	missing             map[string]bool
-	inflight            map[string]*mapCall
-}
-
-type mapCall struct {
-	done chan struct{}
-	key  core.RatingKey
-	err  error
+	flights             flight.Group[string, core.RatingKey]
 }
 
 func foldTitle(s string) string {
@@ -240,34 +235,18 @@ func (m *sourceMapper) resolve(ctx context.Context, item media, fetched bool) (c
 		m.mu.Unlock()
 		return 0, core.ErrNotFound
 	}
-	if m.inflight == nil {
-		m.inflight = map[string]*mapCall{}
-	}
-	if call := m.inflight[item.Key]; call != nil {
-		m.mu.Unlock()
-		select {
-		case <-ctx.Done():
-			return 0, ctx.Err()
-		case <-call.done:
-			return call.key, call.err
+	m.mu.Unlock()
+	return m.flights.Do(ctx, "item\x00"+item.Key, func(ctx context.Context) (core.RatingKey, error) {
+		key, err := m.resolveBody(ctx, item, fetched)
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if err == nil {
+			m.keys[item.Key] = key
+		} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			m.missing[item.Key] = true
 		}
-	}
-	call := &mapCall{done: make(chan struct{})}
-	m.inflight[item.Key] = call
-	m.mu.Unlock()
-
-	key, err := m.resolveBody(ctx, item, fetched)
-	m.mu.Lock()
-	if err == nil {
-		m.keys[item.Key] = key
-	} else if !errors.Is(err, context.Canceled) {
-		m.missing[item.Key] = true
-	}
-	delete(m.inflight, item.Key)
-	call.key, call.err = key, err
-	close(call.done)
-	m.mu.Unlock()
-	return key, err
+		return key, err
+	})
 }
 
 func (m *sourceMapper) resolveBody(ctx context.Context, item media, fetched bool) (core.RatingKey, error) {
@@ -294,7 +273,7 @@ func (m *sourceMapper) resolveBody(ctx context.Context, item media, fetched bool
 		}
 		return key, nil
 	}
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return 0, err
 	}
 	if !fetched && item.Key != "" {
@@ -322,7 +301,7 @@ func (m *sourceMapper) resolveBody(ctx context.Context, item media, fetched bool
 				if err == nil && key != 0 {
 					return key, nil
 				}
-				if errors.Is(err, context.Canceled) {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return 0, err
 				}
 			}
@@ -387,7 +366,7 @@ func (m *sourceMapper) movieFromLibrary(ctx context.Context, title string, year 
 			var err error
 			k, err = m.service.mapMediaGUIDs(ctx, m.base, m.token, cand)
 			if err != nil {
-				if errors.Is(err, context.Canceled) {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return 0, false
 				}
 				continue
@@ -419,56 +398,39 @@ func (m *sourceMapper) showForTitle(ctx context.Context, title string, maxAirYea
 		m.mu.Unlock()
 		return show, show != 0
 	}
-	if m.inflight == nil {
-		m.inflight = map[string]*mapCall{}
-	}
-	if call := m.inflight[id]; call != nil {
-		m.mu.Unlock()
-		select {
-		case <-ctx.Done():
-			return 0, false
-		case <-call.done:
-		}
-		m.mu.Lock()
-		show := m.showsByTitle[ft]
-		m.mu.Unlock()
-		return show, show != 0
-	}
-	call := &mapCall{done: make(chan struct{})}
-	m.inflight[id] = call
 	gps := append([]string(nil), m.titleToGrandparents[ft]...)
 	m.mu.Unlock()
-
-	var show core.RatingKey
-	for _, gp := range gps {
-		cand, ok := m.showFor(ctx, gp)
-		if !ok {
-			if ctx.Err() != nil {
+	show, err := m.flights.Do(ctx, id, func(ctx context.Context) (core.RatingKey, error) {
+		var show core.RatingKey
+		for _, gp := range gps {
+			cand, ok := m.showFor(ctx, gp)
+			if !ok {
+				if ctx.Err() != nil {
+					break
+				}
+				continue
+			}
+			if show != 0 && show != cand {
+				show = 0
 				break
 			}
-			continue
+			show = cand
 		}
-		if show != 0 && show != cand {
-			show = 0
-			break
+		if show == 0 && ctx.Err() == nil {
+			if t, err := m.service.searchShow(ctx, title, maxAirYear, season); err == nil && t != nil && t.Key != 0 {
+				show = t.Key
+			}
 		}
-		show = cand
-	}
-	if show == 0 && ctx.Err() == nil {
-		if t, err := m.service.searchShow(ctx, title, maxAirYear, season); err == nil && t != nil && t.Key != 0 {
-			show = t.Key
-		}
-	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.inflight, id)
-	close(call.done)
-	if ctx.Err() != nil && show == 0 {
-		return 0, false
-	}
-	m.showsByTitle[ft] = show
-	return show, show != 0
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if ctx.Err() != nil && show == 0 {
+			return 0, ctx.Err()
+		}
+		m.showsByTitle[ft] = show
+		return show, nil
+	})
+	return show, err == nil && show != 0
 }
 
 func (m *sourceMapper) showFor(ctx context.Context, grandparent string) (core.RatingKey, bool) {
@@ -479,62 +441,45 @@ func (m *sourceMapper) showFor(ctx context.Context, grandparent string) (core.Ra
 		m.mu.Unlock()
 		return show, show != 0
 	}
-	if m.inflight == nil {
-		m.inflight = map[string]*mapCall{}
-	}
-	if call := m.inflight[id]; call != nil {
-		m.mu.Unlock()
-		select {
-		case <-ctx.Done():
-			return 0, false
-		case <-call.done:
-		}
-		m.mu.Lock()
-		show := m.parents[grandparent]
-		m.mu.Unlock()
-		return show, show != 0
-	}
-	call := &mapCall{done: make(chan struct{})}
-	m.inflight[id] = call
 	m.mu.Unlock()
-
-	var show core.RatingKey
-	var showTitle string
-	c, e := m.service.get(ctx, m.base, m.token, "/library/metadata/"+url.PathEscape(grandparent)+"?includeGuids=1")
-	if e == nil {
-		for _, d := range c.Directories {
-			show, _ = m.service.mapMedia(ctx, m.base, m.token, media{Type: "show", Title: d.Title, OrigTitle: d.OrigTitle, Year: d.Year, AirDate: d.AirDate, GUID: d.GUID, GUIDs: d.GUIDs})
-			if show != 0 {
-				showTitle = d.Title
-				break
-			}
-		}
-		if show == 0 {
-			for _, item := range append(c.Videos, c.Metadata...) {
-				item.Type = "show"
-				show, _ = m.service.mapMedia(ctx, m.base, m.token, item)
+	show, err := m.flights.Do(ctx, id, func(ctx context.Context) (core.RatingKey, error) {
+		var show core.RatingKey
+		var showTitle string
+		c, e := m.service.get(ctx, m.base, m.token, "/library/metadata/"+url.PathEscape(grandparent)+"?includeGuids=1")
+		if e == nil {
+			for _, d := range c.Directories {
+				show, _ = m.service.mapMedia(ctx, m.base, m.token, media{Type: "show", Title: d.Title, OrigTitle: d.OrigTitle, Year: d.Year, AirDate: d.AirDate, GUID: d.GUID, GUIDs: d.GUIDs})
 				if show != 0 {
-					showTitle = item.Title
+					showTitle = d.Title
 					break
 				}
 			}
+			if show == 0 {
+				for _, item := range append(c.Videos, c.Metadata...) {
+					item.Type = "show"
+					show, _ = m.service.mapMedia(ctx, m.base, m.token, item)
+					if show != 0 {
+						showTitle = item.Title
+						break
+					}
+				}
+			}
 		}
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.inflight, id)
-	close(call.done)
-	if errors.Is(e, context.Canceled) && show == 0 {
-		return 0, false
-	}
-	m.parents[grandparent] = show
-	if show != 0 && showTitle != "" {
-		if m.showsByTitle == nil {
-			m.showsByTitle = map[string]core.RatingKey{}
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if ctx.Err() != nil && show == 0 {
+			return 0, ctx.Err()
 		}
-		if ft := foldTitle(showTitle); ft != "" && m.showsByTitle[ft] == 0 {
-			m.showsByTitle[ft] = show
+		m.parents[grandparent] = show
+		if show != 0 && showTitle != "" {
+			if m.showsByTitle == nil {
+				m.showsByTitle = map[string]core.RatingKey{}
+			}
+			if ft := foldTitle(showTitle); ft != "" && m.showsByTitle[ft] == 0 {
+				m.showsByTitle[ft] = show
+			}
 		}
-	}
-	return show, show != 0
+		return show, nil
+	})
+	return show, err == nil && show != 0
 }

@@ -15,7 +15,7 @@ export interface ViewContext {
   section: LayoutSection;
 }
 
-export const DEVICE_OPTIONS = localized(() => [
+const DEVICE_OPTIONS = localized(() => [
   { value: "tv" as const, label: t("TV"), icon: <Tv size={14} /> },
   { value: "mobile" as const, label: t("Phone"), icon: <Smartphone size={14} /> },
   { value: "web" as const, label: t("Web"), icon: <Globe size={14} /> },

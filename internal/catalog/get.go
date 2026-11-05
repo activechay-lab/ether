@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/store"
 	"strconv"
 	"strings"
 	"sync"
@@ -836,8 +837,8 @@ func (c *Catalog) NextStoredEpisodes(ctx context.Context, episodes []core.Rating
 		}
 		got := map[core.RatingKey]core.Title{}
 		const batch = 200
-		for start := 0; start < len(keys); start += batch {
-			part := keys[start:min(start+batch, len(keys))]
+		for chunk := range store.Chunks(keys, batch) {
+			part := chunk
 			rows, err := c.queryTitles(ctx, `SELECT `+titleCols+` FROM catalog_titles WHERE key IN (`+placeholders(len(part))+`)`, part...)
 			if err != nil {
 				return nil, err

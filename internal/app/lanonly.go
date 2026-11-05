@@ -68,12 +68,3 @@ func forwardedFromOutside(r *http.Request) bool {
 	}
 	return false
 }
-
-var cgnat = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
-
-func isLocalAddr(ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || cgnat.Contains(ip)
-}

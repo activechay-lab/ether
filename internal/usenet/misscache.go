@@ -84,9 +84,3 @@ func (m *missCache) add(id, key string) {
 		delete(m.items, e.id)
 	}
 }
-
-func (m *missCache) len() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.order.Len()
-}

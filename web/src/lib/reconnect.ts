@@ -24,7 +24,7 @@ export interface ReconnectState {
   slow: boolean;
 }
 
-export type ReconnectEvent =
+type ReconnectEvent =
   | { type: "reset"; baseline: string | null; waitForIdle: boolean; at: number }
   | { type: "status"; status: StartupStatus }
   | { type: "unreachable" }

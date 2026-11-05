@@ -108,8 +108,6 @@ func (e *realEnv) gopFrames(t *testing.T, source string, from, to float64, dropL
 	return out
 }
 
-const fixtureFrame = 1.0 / 24
-
 // checkOpenGOPSegment requires a published segment to hold exactly the
 // GOPs whose keyframes fall in its playlist span: its first packet the
 // keyframe at the span's start (or no media at all: an alias inside a GOP

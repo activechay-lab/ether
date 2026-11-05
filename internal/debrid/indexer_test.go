@@ -78,8 +78,6 @@ func TestIndexerFetchDispatch(t *testing.T) {
 type streamingInner struct {
 	fakeInner
 	fast, slow []core.Release
-	release    chan struct{}
-	checksSeen chan int
 	h          *harness
 }
 

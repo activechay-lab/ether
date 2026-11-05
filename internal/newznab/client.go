@@ -10,6 +10,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/atomicfile"
+	"github.com/braedonsaunders/ether/internal/logredact"
 	"io"
 	"log/slog"
 	"net/http"
@@ -37,9 +39,10 @@ const (
 	// capsRetry spaces caps requests after a failure. Every caps request
 	// spends a daily API hit, and searches work (ungated) without caps.
 	capsRetry = time.Hour
-	// nzbFlightTimeout caps one shared NZB fetch. The fetch runs detached
-	// from its callers so one cancelled caller cannot fail the others;
-	// this bound keeps an indexer that never answers from pinning it.
+	// nzbFlightTimeout caps one shared NZB fetch. The fetch runs apart
+	// from any one caller's cancellation so a cancelled caller cannot fail
+	// the others, and is cancelled when the last caller leaves; this bound
+	// keeps an indexer that never answers from pinning it.
 	nzbFlightTimeout = 90 * time.Second
 )
 
@@ -48,11 +51,7 @@ var errCapsUnavailable = errors.New("newznab: capabilities unavailable; retrying
 // redactURLError drops the request URL from a *url.Error: indexer URLs
 // carry the API key, and callers log and surface these errors.
 func redactURLError(err error) error {
-	var ue *url.Error
-	if errors.As(err, &ue) {
-		return fmt.Errorf("newznab: %s request: %w", ue.Op, ue.Err)
-	}
-	return err
+	return logredact.TransportError(err, "newznab", nil)
 }
 
 // Options tunes a Client or Manager. Zero values get sensible defaults.
@@ -157,6 +156,7 @@ type nzbFlight struct {
 	background bool // started by a background check (smaller grab share)
 	waiters    int
 	readers    int
+	cancel     context.CancelFunc // stops the fetch once no caller waits
 }
 
 // nzbSaveLock is a refcounted per-key mutex (see lockNZB).
@@ -226,9 +226,6 @@ func New(cfg config.Indexer, db *sql.DB, opts Options) *Client {
 	c.SetClientIdentity(opts.ClientIdentity)
 	return c
 }
-
-// NewClient is an alias for New.
-func NewClient(cfg config.Indexer, db *sql.DB, opts Options) *Client { return New(cfg, db, opts) }
 
 // Config returns the indexer's current config.
 func (c *Client) Config() config.Indexer {
@@ -569,9 +566,6 @@ func (c *Client) Caps(ctx context.Context) (*Caps, error) {
 		c.capsMu.Unlock()
 		return caps, nil
 	}
-	if err := c.reserve(capsPurpose(ctx), "hit"); err != nil {
-		return nil, err
-	}
 	caps, err := c.fetchCaps(ctx)
 	c.capsMu.Lock()
 	current := c.capsEndpoint() == ep // the config did not change meanwhile
@@ -596,6 +590,9 @@ func (c *Client) fetchCaps(ctx context.Context) (*Caps, error) {
 	id := c.generalIdentity()
 	u, err := c.apiURL(url.Values{"t": {"caps"}}, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := c.reserve(capsPurpose(ctx), "hit"); err != nil {
 		return nil, err
 	}
 	body, err := c.get(ctx, u, 5<<20, id)
@@ -863,14 +860,17 @@ func (c *Client) doSearch(ctx context.Context, params url.Values, id config.Iden
 	if err := c.searchPaused(); err != nil {
 		return nil, err
 	}
-	if err := c.reserve(ctx, "hit"); err != nil {
-		return nil, err
-	}
 	u, err := c.apiURL(params, id)
 	if err != nil {
 		return nil, err
 	}
 	results, err := c.guardSearch(ctx, true, defaultHTTPTimeout, func(ctx context.Context) ([]core.Release, error) {
+		// The hit is reserved once the breaker has admitted the request,
+		// right before it is sent: the budget and the usage breakdown count
+		// HTTP requests the indexer actually receives, as Prowlarr does.
+		if err := c.reserve(ctx, "hit"); err != nil {
+			return nil, err
+		}
 		if emit, ok := ctx.Value(searchArrivalKey{}).(func([]core.Release)); ok {
 			return c.getSearchStream(ctx, u, emit, id)
 		}
@@ -891,6 +891,10 @@ func (c *Client) doSearch(ctx context.Context, params url.Values, id config.Iden
 }
 
 // Search implements core.Indexer.
+// primaryMissKey suffixes the cache key of a primary query that found
+// nothing for speculative work, which never asks the fallbacks.
+const primaryMissKey = "|primary-miss"
+
 func (c *Client) Search(ctx context.Context, req core.SearchRequest) ([]core.Release, error) {
 	if cfg := c.Config(); !cfg.Enabled {
 		return nil, fmt.Errorf("indexer %q is disabled", c.Name())
@@ -899,6 +903,13 @@ func (c *Client) Search(ctx context.Context, req core.SearchRequest) ([]core.Rel
 	ctx = withCacheAge(ctx, req.Released)
 	if cached, ok := c.cacheGet(ctx, key); ok {
 		return cached, nil
+	}
+	speculative := core.SpeculativeIndexerWork(ctx) || core.IsBackgroundCheck(ctx)
+	if speculative {
+		// A primary query that already missed for speculative work.
+		if cached, ok := c.cacheGet(ctx, key+primaryMissKey); ok {
+			return cached, nil
+		}
 	}
 	// Exhausted limits prohibit new requests, not reuse of already fetched
 	// results and NZBs. The manager must reach this cache before this check.
@@ -939,12 +950,16 @@ func (c *Client) Search(ctx context.Context, req core.SearchRequest) ([]core.Rel
 		c.cachePut(ctx, key, results)
 		return results, nil
 	}
-	if core.IsBackgroundCheck(ctx) {
-		// A background check (new-release evidence) asks the targeted
-		// primary query only. The fallback fan-out (other ids, keyword
-		// and alias queries) costs several API hits per indexer and is
-		// kept for searches a viewer is waiting on. The miss is not
-		// cached: a foreground search must still run the fallbacks.
+	if speculative {
+		// Speculative work (warm-ups, detail discovery, watchlist, cache
+		// fill, availability) asks the targeted primary query only. The
+		// fallback queries (other ids, keyword and alias searches, season
+		// packs) cost a request each and are kept for a viewer's Play, whose
+		// rescue also runs them when nothing found here plays. The miss is
+		// remembered for speculative work only: Play still runs fallbacks.
+		if firstErr == nil {
+			c.cachePut(ctx, key+primaryMissKey, nil)
+		}
 		return nil, firstErr
 	}
 	rest := attempts[1:]
@@ -958,10 +973,9 @@ func (c *Client) Search(ctx context.Context, req core.SearchRequest) ([]core.Rel
 	// When the primary attempt misses on an uncapped indexer, fan out the
 	// fallback queries (alternate IDs, keyword search, OriginalTitle/aliases,
 	// season packs) in bounded parallel bursts so obscure titles resolve in
-	// a single round-trip instead of N serial timeouts. A search nobody is
-	// waiting on (a warm-up, a watchlist check) tries them one at a time and
-	// stops at the first hit: it spends fewer API hits and has time.
-	if c.Config().DailyLimit == 0 && firstErr == nil && !core.IsUnattendedSearch(ctx) {
+	// a single round-trip instead of N serial timeouts. An indexer with a
+	// personal cap tries them one at a time and stops at the first hit.
+	if c.Config().DailyLimit == 0 && firstErr == nil {
 		const burstWidth = 4
 		for base := 0; base < len(rest); base += burstWidth {
 			if err := ctx.Err(); err != nil {
@@ -1039,14 +1053,6 @@ func (c *Client) Search(ctx context.Context, req core.SearchRequest) ([]core.Rel
 				continue
 			}
 			if len(results) > 0 {
-				if core.IsUnattendedSearch(ctx) && c.Config().DailyLimit == 0 {
-					// An unattended search stopped at its first fallback hit;
-					// Play would have merged a whole burst. Keep that partial
-					// answer out of the cache Play reads, and tell the resolver
-					// the fleet answer is incomplete so it is not stored there.
-					core.NoteSearchIncomplete(ctx)
-					return results, nil
-				}
 				c.cachePut(ctx, key, results)
 				return results, nil
 			}
@@ -1156,6 +1162,10 @@ func (c *Client) SearchRescue(ctx context.Context, req core.SearchRequest) ([]co
 	if cfg := c.Config(); !cfg.Enabled {
 		return nil, fmt.Errorf("indexer %q is disabled", c.Name())
 	}
+	if core.SpeculativeIndexerWork(ctx) || core.IsBackgroundCheck(ctx) {
+		// Rescue is Play's second pass; speculative work never fans out.
+		return nil, nil
+	}
 	key := cacheKey(c, req) + "|rescue"
 	ctx = withCacheAge(ctx, req.Released)
 	if cached, ok := c.cacheGet(ctx, key); ok {
@@ -1214,8 +1224,8 @@ func (c *Client) SearchRescue(ctx context.Context, req core.SearchRequest) ([]co
 	var merged []core.Release
 	seen := map[string]bool{}
 	var firstErr error
-	// As for Search: unattended rescues go one query at a time.
-	if c.Config().DailyLimit == 0 && !core.IsUnattendedSearch(ctx) {
+	// As for Search: a capped indexer's rescue goes one query at a time.
+	if c.Config().DailyLimit == 0 {
 		type slot struct {
 			res []core.Release
 			err error
@@ -1256,6 +1266,8 @@ func (c *Client) SearchRescue(ctx context.Context, req core.SearchRequest) ([]co
 			res, err := c.doSearch(ctx, p, id)
 			if err != nil {
 				if errors.Is(err, core.ErrBudgetExhausted) {
+					// A refused query proves nothing: never cache it as a miss.
+					firstErr = err
 					break
 				}
 				if firstErr == nil {
@@ -1331,9 +1343,10 @@ func (c *Client) fetchNZBReporting(ctx context.Context, r core.Release) ([]byte,
 		select {
 		case <-f.done:
 		case <-ctx.Done():
-			// The shared fetch carries on for the other callers and
-			// still lands in the disk cache.
-			c.leaveNZB(f)
+			// The shared fetch carries on for the other callers; once
+			// none is left it is cancelled (a losing health check must
+			// not finish a grab nobody will read).
+			c.leaveNZB(r.ID, f)
 			return nil, leader, ctx.Err()
 		}
 		body := c.takeNZB(f)
@@ -1365,17 +1378,31 @@ func (c *Client) takeNZB(f *nzbFlight) []byte {
 }
 
 // leaveNZB gives up a caller's turn without reading the body, which may
-// still be in flight.
-func (c *Client) leaveNZB(f *nzbFlight) {
+// still be in flight. The last caller to leave an unfinished fetch cancels
+// it and forgets it, so a later caller starts a fetch of its own.
+func (c *Client) leaveNZB(id string, f *nzbFlight) {
 	c.nzbFlightMu.Lock()
+	defer c.nzbFlightMu.Unlock()
 	f.readers--
-	c.nzbFlightMu.Unlock()
+	if f.readers > 0 {
+		return
+	}
+	select {
+	case <-f.done:
+		return
+	default:
+	}
+	if c.nzbFlights[id] == f {
+		delete(c.nzbFlights, id)
+	}
+	f.cancel()
 }
 
 // joinNZBFlight attaches to the in-flight fetch for r.ID, or starts one.
 // The shared fetch keeps ctx's values (budget class, trust) but not its
-// cancellation, and is bounded by nzbFlightTimeout. The flight is
-// forgotten as soon as it ends, so errors are not cached past it.
+// cancellation: it ends when the last caller leaves (leaveNZB), and is
+// bounded by nzbFlightTimeout. The flight is forgotten as soon as it ends,
+// so errors are not cached past it.
 func (c *Client) joinNZBFlight(ctx context.Context, r core.Release) (*nzbFlight, bool) {
 	c.nzbFlightMu.Lock()
 	defer c.nzbFlightMu.Unlock()
@@ -1387,14 +1414,16 @@ func (c *Client) joinNZBFlight(ctx context.Context, r core.Release) (*nzbFlight,
 	if c.nzbFlights == nil {
 		c.nzbFlights = map[string]*nzbFlight{}
 	}
-	f := &nzbFlight{done: make(chan struct{}), background: core.IsBackgroundCheck(ctx), waiters: 1, readers: 1}
-	c.nzbFlights[r.ID] = f
 	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), nzbFlightTimeout)
+	f := &nzbFlight{done: make(chan struct{}), background: core.IsBackgroundCheck(ctx), waiters: 1, readers: 1, cancel: cancel}
+	c.nzbFlights[r.ID] = f
 	go func() {
 		defer cancel()
 		f.body, f.err = c.fetchNZB(fctx, r)
 		c.nzbFlightMu.Lock()
-		delete(c.nzbFlights, r.ID)
+		if c.nzbFlights[r.ID] == f {
+			delete(c.nzbFlights, r.ID)
+		}
 		c.nzbFlightMu.Unlock()
 		close(f.done)
 	}()
@@ -1415,9 +1444,6 @@ func (c *Client) fetchNZB(ctx context.Context, r core.Release) ([]byte, error) {
 		}
 		c.saveNZB(r.ID, body)
 		return body, nil
-	}
-	if err := c.reserve(ctx, "grab"); err != nil {
-		return nil, err
 	}
 	id := c.clientIdentityFor(releaseIsTV(r), true)
 	// r.NZBURL comes from the indexer's feed, so it is untrusted data:
@@ -1445,6 +1471,11 @@ func (c *Client) fetchNZB(ctx context.Context, r core.Release) ([]byte, error) {
 			return nil, redactURLError(err)
 		}
 		rawURL = base.ResolveReference(ref).String()
+	}
+	// Reserved right before the request, so a release with no usable URL
+	// spends nothing.
+	if err := c.reserve(ctx, "grab"); err != nil {
+		return nil, err
 	}
 	body, err := c.get(ctx, rawURL, c.maxNZB, id)
 	if err != nil {
@@ -1491,24 +1522,7 @@ func (c *Client) saveNZB(releaseID string, body []byte) {
 	if err := os.MkdirAll(c.nzbDir, 0o755); err != nil {
 		return
 	}
-	f, err := os.CreateTemp(c.nzbDir, ".nzb-*.tmp")
-	if err != nil {
-		return
-	}
-	tmp := f.Name()
-	defer os.Remove(tmp) // no-op once renamed
-	if _, err := f.Write(body); err != nil {
-		f.Close()
-		return
-	}
-	if err := f.Chmod(0o644); err != nil {
-		f.Close()
-		return
-	}
-	if err := f.Close(); err != nil {
-		return
-	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := atomicfile.Write(path, body, 0644); err != nil {
 		c.log.Debug("newznab save NZB failed", "indexer", c.Name(), "err", err)
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/httpclient"
 	"io"
 	"log/slog"
 	"net/http"
@@ -30,6 +31,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/retryafter"
 	"github.com/braedonsaunders/ether/internal/state"
 	"github.com/braedonsaunders/ether/internal/store"
+	"github.com/braedonsaunders/ether/internal/textclip"
 )
 
 func init() {
@@ -282,7 +284,7 @@ func (c *Client) do(ctx context.Context, method, path string, payload any, token
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("trakt-api-version", "2")
 		req.Header.Set("trakt-api-key", id)
-		req.Header.Set("User-Agent", "Ether")
+		req.Header.Set("User-Agent", httpclient.UserAgent)
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
@@ -600,7 +602,7 @@ func (c *Client) authed(ctx context.Context, userID int64, method, path string, 
 
 func truncate(s string, n int) string {
 	if len(s) > n {
-		return s[:n] + "…"
+		return textclip.Bytes(s, n) + "…"
 	}
 	return s
 }

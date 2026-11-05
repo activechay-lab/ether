@@ -1,3 +1,4 @@
+import { copyText } from "../../components/CopyButton";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { useCallback, useEffect, useState } from "react";
 import { MutationError } from "../../components/feedback";
@@ -54,7 +55,7 @@ export function SidecarPairing({ id }: { id: string }) {
   };
   const copy = async (value: string) => {
     try {
-      await navigator.clipboard.writeText(value);
+      await copyText(value);
     } catch (e) {
       setError(e);
     }

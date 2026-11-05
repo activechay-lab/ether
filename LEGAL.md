@@ -3,16 +3,16 @@
 Ether is free, open-source software licensed under the GNU General
 Public License v3.0. See [LICENSE](LICENSE).
 
-## Ether ships no content, indexers or credentials
+## Content, providers and credentials
 
 - Ether contains **no media files** and hosts none. Its catalogue is
   metadata (titles, artwork, descriptions) fetched from TMDB using the
-  owner's API key.
+  official builds' bundled TMDB v3 API key or an owner-supplied key.
 - Ether contains **no Usenet providers, no indexers, no site definitions,
-  no default indexer URLs, no accounts, and no embedded third-party API
-  keys**. To browse or play anything, the owner must supply their own
-  TMDB API key, Usenet provider subscription(s), and indexer access in
-  the setup wizard. What those services return is solely between the
+  no default indexer URLs and no accounts**. Official builds embed a TMDB
+  v3 API key for catalogue metadata; owners can supply their own key in
+  configuration. Other builds only embed a key if supplied at build time.
+  Owners supply their own Usenet provider subscriptions and indexer access. What those services return is solely between the
   owner and those services.
 - Ether is a clean-room *protocol implementation*: it answers the HTTP
   API that compatible client apps use to talk to a media server. It

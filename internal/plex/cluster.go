@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/store"
 	"net/netip"
-	"strings"
 	"sync"
 	"time"
 
@@ -304,7 +304,7 @@ ON CONFLICT(id) DO UPDATE SET node_id=excluded.node_id, user_id=excluded.user_id
 	}
 	q := `DELETE FROM plex_sessions WHERE node_id=? AND (protocol IS NULL OR protocol='plex')`
 	if len(entries) > 0 {
-		q += ` AND id NOT IN (` + strings.TrimSuffix(strings.Repeat("?,", len(entries)), ",") + `)`
+		q += ` AND id NOT IN (` + store.Placeholders(len(entries)) + `)`
 	}
 	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 		return err

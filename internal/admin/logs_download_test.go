@@ -26,7 +26,7 @@ func TestLogsDownloadIsOwnerOnlyOrderedAndScrubbed(t *testing.T) {
 	write("ether.log", "newest Authorization: Bearer "+secret+"\nno newline at end")
 	write("crash.log", "panic: boom\n")
 	write("ether.db", "not a log "+secret)
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), LogDir: dir, Version: "9.9.9"})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), LogDir: dir, Version: "9.9.9"})
 
 	if rec := serve(h, req(http.MethodGet, "/ether/api/logs/download", "")); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous download: %d", rec.Code)
@@ -61,7 +61,7 @@ func TestLogsDownloadFallsBackToMemory(t *testing.T) {
 	log := slog.New(buf.Handler())
 	log.Info("first")
 	log.Warn("second", "url", "https://x.example/?apikey=abc123secret")
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Logs: buf, LogDir: t.TempDir()})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Logs: buf, LogDir: t.TempDir()})
 	r := req(http.MethodGet, "/ether/api/logs/download", "")
 	r.Header.Set("X-Plex-Token", ownerToken)
 	body := serve(h, r).Body.String()

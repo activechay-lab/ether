@@ -10,9 +10,12 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
+
+var xtreamVODFile = regexp.MustCompile(`^[0-9]+\.[A-Za-z0-9]+$`)
 
 var m3uAttr = regexp.MustCompile(`([a-zA-Z0-9_-]+)="([^"]*)"`)
 
@@ -25,9 +28,43 @@ func validHTTP(raw string) bool {
 	return e == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
+// m3uStats records what ParseM3U left out, for the import log.
+type m3uStats struct {
+	SkippedVOD int
+}
+
+// isVODStream reports whether an Xtream URL belongs to a VOD family: a path
+// segment "movie" or "series" followed by exactly three more segments
+// (username/password/id). The query is ignored. /live/ and /timeshift/ are
+// never VOD, and non-Xtream layouts are left alone.
+func isVODStream(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
+	for i, segment := range segments {
+		switch strings.ToLower(segment) {
+		case "movie", "series":
+			if len(segments)-i-1 == 3 && segments[i+1] != "" && segments[i+2] != "" && xtreamVODFile.MatchString(segments[i+3]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ParseM3U preserves only explicitly provided HTTP(S) streams. Executable,
 // file and media-tool pseudo protocols are rejected.
 func ParseM3U(r io.Reader, sourceID string) ([]Channel, error) {
+	channels, _, err := parseM3U(r, sourceID)
+	return channels, err
+}
+
+// parseM3U is ParseM3U with the counts an import logs. VOD entries are
+// skipped by URL family; live and timeshift streams are always kept.
+func parseM3U(r io.Reader, sourceID string) ([]Channel, m3uStats, error) {
+	var stats m3uStats
 	limited := &hardLimit{r: r, max: maxPlaylistBytes, kind: "playlist"}
 	sc := bufio.NewScanner(limited)
 	sc.Buffer(make([]byte, 4096), 1<<20)
@@ -42,7 +79,7 @@ func ParseM3U(r io.Reader, sourceID string) ([]Channel, error) {
 		}
 		if !header {
 			if !strings.HasPrefix(line, "#EXTM3U") {
-				return nil, fmt.Errorf("playlist must start with #EXTM3U")
+				return nil, stats, fmt.Errorf("playlist must start with #EXTM3U")
 			}
 			header = true
 			continue
@@ -68,17 +105,22 @@ func ParseM3U(r io.Reader, sourceID string) ([]Channel, error) {
 			if comma >= 0 && strings.TrimSpace(line[comma+1:]) != "" {
 				name = strings.TrimSpace(line[comma+1:])
 			}
-			pending = &Channel{Name: name, Number: attrs["tvg-chno"], Logo: attrs["tvg-logo"], GuideID: attrs["tvg-id"], Group: attrs["group-title"], SourceID: sourceID, Kind: "iptv", Enabled: true}
+			pending = &Channel{Name: name, TvgName: attrs["tvg-name"], Number: attrs["tvg-chno"], Logo: attrs["tvg-logo"], GuideID: attrs["tvg-id"], Group: attrs["group-title"], SourceID: sourceID, Kind: "iptv", Enabled: true}
 			continue
 		}
 		if strings.HasPrefix(line, "#") {
 			continue
 		}
 		if pending == nil {
-			return nil, fmt.Errorf("stream has no #EXTINF entry")
+			return nil, stats, fmt.Errorf("stream has no #EXTINF entry")
 		}
 		if !validHTTP(line) {
-			return nil, fmt.Errorf("channel %q needs an HTTP(S) stream", pending.Name)
+			return nil, stats, fmt.Errorf("channel %q needs an HTTP(S) stream", pending.Name)
+		}
+		if isVODStream(line) {
+			stats.SkippedVOD++
+			pending = nil
+			continue
 		}
 		pending.StreamURL = line
 		identity := pending.GuideID
@@ -115,20 +157,20 @@ func ParseM3U(r io.Reader, sourceID string) ([]Channel, error) {
 	}
 	if err := sc.Err(); err != nil {
 		if lim := limitCause(err); lim != nil {
-			return nil, lim
+			return nil, stats, lim
 		}
-		return nil, err
+		return nil, stats, err
 	}
 	if err := limited.overflow(); err != nil {
-		return nil, err
+		return nil, stats, err
 	}
 	if pending != nil {
-		return nil, fmt.Errorf("playlist ends before a stream URL")
+		return nil, stats, fmt.Errorf("playlist ends before a stream URL")
 	}
 	if !header {
-		return nil, fmt.Errorf("empty playlist")
+		return nil, stats, fmt.Errorf("empty playlist")
 	}
-	return out, nil
+	return out, stats, nil
 }
 
 type xmlText struct {
@@ -168,6 +210,10 @@ type XMLGuide struct {
 	Programmes []Programme
 	// Names holds every display-name of each XMLTV channel, in order.
 	Names map[string][]string
+	// LateChannels counts <channel> elements that appeared after the first
+	// <programme>. A valid guide has none; they are skipped rather than
+	// buffered, so name candidates they declare are missed.
+	LateChannels int
 }
 
 func xmlTime(s string) (time.Time, error) {
@@ -186,17 +232,15 @@ func ParseXMLTV(r io.Reader) (XMLGuide, error) {
 // guideFilter keeps programmes that overlap [From, Until) and, when IDs is
 // non-nil, only those channel ids (case-insensitive). A nil IDs map keeps
 // every channel, which is a guide-only source. A zero From means no time cut.
+//
+// Resolve, when set, runs once after the leading <channel> elements (at the
+// first <programme>, or EOF) and may add ids for channels matched by name.
+// XMLTV's content model puts every <channel> before the first <programme>, so
+// candidates are found without buffering programmes or reading twice.
 type guideFilter struct {
 	From, Until time.Time
 	IDs         map[string]struct{}
-}
-
-func (f guideFilter) allows(id string) bool {
-	if f.IDs == nil {
-		return true
-	}
-	_, ok := f.IDs[strings.ToLower(strings.TrimSpace(id))]
-	return ok
+	Resolve     func(channels map[string]Channel, names map[string][]string) map[string]struct{}
 }
 
 func (f guideFilter) timed() bool { return !f.From.IsZero() }
@@ -210,6 +254,49 @@ func parseXMLTV(r io.Reader, f guideFilter) (XMLGuide, bool, error) {
 	d := xml.NewDecoder(limited)
 	root := false
 	dropped := false
+	// allow starts as the caller's set. Resolve replaces it with a copy plus
+	// its candidates; the caller's map is never mutated.
+	allow := f.IDs
+	allows := func(id string) bool {
+		if allow == nil {
+			return true
+		}
+		_, ok := allow[strings.ToLower(strings.TrimSpace(id))]
+		return ok
+	}
+	resolved := false
+	sawProgramme := false
+	// Leading <channel> elements are kept whole while name candidates can
+	// still be resolved. A guide-only source (IDs nil) already keeps them.
+	collecting := func() bool { return !resolved && !sawProgramme && f.Resolve != nil && f.IDs != nil }
+	resolve := func() {
+		if resolved {
+			return
+		}
+		resolved = true
+		if f.Resolve == nil || f.IDs == nil {
+			return
+		}
+		extra := f.Resolve(g.Channels, g.Names)
+		merged := make(map[string]struct{}, len(f.IDs)+len(extra))
+		for id := range f.IDs {
+			merged[id] = struct{}{}
+		}
+		for id := range extra {
+			if id = strings.ToLower(strings.TrimSpace(id)); id != "" {
+				merged[id] = struct{}{}
+			}
+		}
+		allow = merged
+		for id := range g.Channels {
+			if _, ok := merged[strings.ToLower(strings.TrimSpace(id))]; ok {
+				continue
+			}
+			delete(g.Channels, id)
+			delete(g.Names, id)
+			dropped = true
+		}
+	}
 	for {
 		tok, err := d.Token()
 		if err == io.EOF {
@@ -235,7 +322,12 @@ func parseXMLTV(r io.Reader, f guideFilter) (XMLGuide, bool, error) {
 		switch el.Name.Local {
 		case "channel":
 			id := xmlAttr(el, "id")
-			if !f.allows(id) {
+			if sawProgramme {
+				// Invalid per the DTD: only count it. Name matching has
+				// already run, and buffering would not help.
+				g.LateChannels++
+			}
+			if !collecting() && !allows(id) {
 				dropped = true
 				if err := d.Skip(); err != nil {
 					if lim := limitCause(err); lim != nil {
@@ -261,9 +353,13 @@ func parseXMLTV(r io.Reader, f guideFilter) (XMLGuide, bool, error) {
 				g.Names[c.ID] = append(g.Names[c.ID], strings.TrimSpace(n.Value))
 			}
 		case "programme":
+			if !sawProgramme {
+				sawProgramme = true
+				resolve()
+			}
 			channel := strings.TrimSpace(xmlAttr(el, "channel"))
-			if channel == "" || !f.allows(channel) {
-				if channel != "" && !f.allows(channel) {
+			if channel == "" || !allows(channel) {
+				if channel != "" && !allows(channel) {
 					dropped = true
 				}
 				if err := d.Skip(); err != nil {
@@ -342,6 +438,8 @@ func parseXMLTV(r io.Reader, f guideFilter) (XMLGuide, bool, error) {
 	if !root {
 		return g, dropped, fmt.Errorf("empty XMLTV guide")
 	}
+	// A guide with no programmes still prunes its channels at EOF.
+	resolve()
 	g.Programmes = inferMissingStops(g.Programmes)
 	if f.timed() {
 		kept := g.Programmes[:0]
@@ -443,6 +541,24 @@ func formatXMLTV(g XMLGuide) (string, error) {
 
 func xmlEscape(b *strings.Builder, s string) error {
 	return xml.EscapeText(b, []byte(s))
+}
+
+// dedupeProgrammes keeps the last entry for each channel and start time, the
+// same result one-row ON CONFLICT DO UPDATE produced. Provider guides repeat
+// entries, and a multi-row ON CONFLICT cannot touch one row twice.
+func dedupeProgrammes(ps []Programme) []Programme {
+	seen := make(map[string]int, len(ps))
+	out := ps[:0]
+	for _, p := range ps {
+		key := p.ChannelID + "\x00" + strconv.FormatInt(p.Start.UnixMilli(), 10)
+		if i, ok := seen[key]; ok {
+			out[i] = p
+			continue
+		}
+		seen[key] = len(out)
+		out = append(out, p)
+	}
+	return out
 }
 
 // inferMissingStops ends each programme without a stop time at the start

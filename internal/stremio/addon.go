@@ -79,18 +79,6 @@ func (a Addon) get(ctx context.Context, route string, limit int64, out any) erro
 	return nil
 }
 
-// DecodeManifest parses a manifest document.
-func DecodeManifest(body []byte) (Manifest, error) {
-	var m Manifest
-	if err := json.Unmarshal(body, &m); err != nil {
-		return Manifest{}, errors.New("stremio: the add-on manifest is not valid JSON")
-	}
-	if !m.Valid() {
-		return Manifest{}, errors.New("stremio: the link did not answer with an add-on manifest")
-	}
-	return m, nil
-}
-
 // Route builds a resource route: /{resource}/{type}/{id}[/{extra}].json.
 // Extras are sorted and query-escaped, as the Stremio SDK writes them.
 func Route(resource, typ, id string, extra map[string]string) string {

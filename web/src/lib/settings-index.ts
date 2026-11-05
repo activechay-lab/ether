@@ -1,8 +1,8 @@
 /**
  * Every individual owner setting ⌘K can jump to. Schema-driven forms are
  * listed from their field groups; hand-built sections are listed by the
- * exact row title they render. `more` names the "More options" disclosure
- * (its accessible label) that hides the row, so the jump can open it.
+ * stable row key they render. `more` names the "More options" disclosure
+ * (its data-more key) that hides the row, so the jump can open it.
  */
 
 import { t } from "../i18n";
@@ -11,18 +11,15 @@ import * as S from "../pages/settings/schema";
 import { UpcomingEpisodeSettings } from "../pages/catalog/HomeReleaseSettings";
 
 export interface SettingHit {
-  /** Visible row title; the jump looks for this text on the page. */
+  /** Stable row id, independent of display language. */
+  key: string;
   title: string;
   /** Section or page the setting sits in, shown as the search subtitle. */
   where: string;
   href: string;
-  /** Accessible label of the "More options" disclosure hiding the row. */
+  /** Stable id of the "More options" disclosure hiding the row. */
   more?: string;
   keywords?: string;
-}
-
-function moreLabel(title?: string) {
-  return title ? t("More options: {title}", { title }) : t("More options");
 }
 
 function fieldHits(
@@ -36,6 +33,7 @@ function fieldHits(
     if (f.kind === "group") return fieldHits(f.fields, href, where, more);
     return [
       {
+        key: f.key,
         title: f.label,
         where,
         href,
@@ -50,19 +48,24 @@ function groupHits(
   groups: readonly FieldGroup[],
   href: string,
   page: string,
-  more?: (g: FieldGroup) => string | undefined,
+  moreKey?: (g: FieldGroup) => string | undefined,
 ): SettingHit[] {
   return groups.flatMap((g) => {
     const where = g.title ? `${page} › ${g.title}` : page;
     return [
       ...fieldHits(g.fields, href, where, undefined),
-      ...fieldHits(g.more ?? [], href, where, more ? more(g) : moreLabel(g.title)),
+      ...fieldHits(g.more ?? [], href, where, moreKey ? moreKey(g) : g.id),
     ];
   });
 }
 
-function rows(href: string, where: string, titles: string[], more?: string): SettingHit[] {
-  return titles.map((title) => ({ title, where, href, more }));
+function rows(
+  href: string,
+  where: string,
+  titles: [string, string][],
+  more?: string,
+): SettingHit[] {
+  return titles.map(([key, title]) => ({ key, title, where, href, more }));
 }
 
 export function settingsIndex(): SettingHit[] {
@@ -74,12 +77,14 @@ export function settingsIndex(): SettingHit[] {
   const away = t("Away from home");
   return [
     {
+      key: "poster-source",
       title: t("Poster source"),
       where: t("Artwork"),
       href: "/metadata/artwork",
       keywords: "TMDB RPDB Custom PostersPlus XRDB BetterPosters",
     },
     ...["PostersPlus", "XRDB", "BetterPosters", "RPDB"].map((title) => ({
+      key: title.toLowerCase(),
       title,
       where: t("Integrations"),
       href: "/services/overview",
@@ -88,29 +93,39 @@ export function settingsIndex(): SettingHit[] {
     // General
     ...groupHits(S.SERVER, "/server", general),
     ...rows("/server", general, [
-      t("Send indexers, debrid and Usenet through a proxy"),
-      t("Proxy address"),
-      t("How apps connect"),
-      t("Port"),
-      t("Local URL"),
-      t("Remote URL"),
+      [
+        "send-indexers-debrid-and-usenet-through-a-proxy",
+        t("Send indexers, debrid and Usenet through a proxy"),
+      ],
+      ["proxy-address", t("Proxy address")],
+      ["how-apps-connect", t("How apps connect")],
+      ["port", t("Port")],
+      ["local-url", t("Local URL")],
+      ["remote-url", t("Remote URL")],
     ]),
     ...rows(
       "/server",
       general,
-      [t("Username"), t("Password"), t("Names that stay on this network")],
-      t("More options: How Ether reaches the internet"),
+      [
+        ["username", t("Username")],
+        ["password", t("Password")],
+        ["names-that-stay-on-this-network", t("Names that stay on this network")],
+      ],
+      "how-ether-reaches-the-internet",
     ),
     // Apps
-    ...groupHits(S.AWAY, "/apps/overview", t("Apps"), (g) =>
-      g.id === "certificate" ? t("Use your own certificate") : moreLabel(away),
-    ).map((h) => ({ ...h, where: `${t("Apps")} › ${away}` })),
+    ...groupHits(S.AWAY, "/apps/overview", t("Apps")).map((h) => ({
+      ...h,
+      where: `${t("Apps")} › ${away}`,
+    })),
     ...groupHits(
       S.PLEX.filter((g) => g.id === "compatibility"),
       "/apps/plex/account",
       plex,
     ),
-    ...rows("/apps/plex/account", plex, [t("Use Plex's metadata for Plex apps")]),
+    ...rows("/apps/plex/account", plex, [
+      ["use-plex-s-metadata-for-plex-apps", t("Use Plex's metadata for Plex apps")],
+    ]),
     ...groupHits(
       S.PLEX.filter((g) => g.id !== "compatibility"),
       "/apps/plex/remote",
@@ -121,91 +136,105 @@ export function settingsIndex(): SettingHit[] {
     ...groupHits(S.CATALOG, "/catalog/settings", catalog),
     ...groupHits([UpcomingEpisodeSettings], "/catalog/settings", catalog),
     ...rows("/catalog/settings", catalog, [
-      t("Hide obscure titles"),
-      t("Watchlist monitoring"),
-      t("Plex watchlists"),
-      t("Trakt watchlists"),
-      t("Tell me too"),
-      t("Check every"),
+      ["hide-obscure-titles", t("Hide obscure titles")],
+      ["watchlist-monitoring", t("Watchlist monitoring")],
+      ["plex-watchlists", t("Plex watchlists")],
+      ["trakt-watchlists", t("Trakt watchlists")],
+      ["tell-me-too", t("Tell me too")],
+      ["check-every", t("Check every")],
     ]),
     ...rows("/catalog/settings", `${catalog} › ${t("New releases")}`, [
-      t("When they can play"),
-      t("On digital release"),
-      t("Right away"),
+      ["when-they-can-play", t("When they can play")],
+      ["on-digital-release", t("On digital release")],
+      ["right-away", t("Right away")],
     ]),
-    ...rows("/catalog/rules", catalog, [t("Rules"), t("Hide"), t("Show")]),
     // Sources
-    ...groupHits(S.DEBRID, "/sources/debrid", t("Debrid"), () => t("More options")),
+    ...groupHits(S.DEBRID, "/sources/debrid", t("Debrid"), () => "debrid"),
     ...rows(
       "/sources/indexers",
       t("Indexers"),
-      [t("Daily budget for new-release checks")],
-      t("More options: {title}", { title: t("Daily budgets") }),
+      [["daily-budget-for-new-release-checks", t("Daily budget for new-release checks")]],
+      "daily-budgets",
     ),
     ...rows(
       "/sources/indexers",
       t("Site definitions"),
-      [t("Definitions source"), "FlareSolverr"],
-      t("More options: {title}", { title: t("Site definitions") }),
+      [
+        ["definitions-source", t("Definitions source")],
+        ["flaresolverr", "FlareSolverr"],
+      ],
+      "site-definitions",
     ),
     // Quality
-    ...rows("/quality/profiles", `${quality} › ${away}`, [t("Away profile"), t("Bitrate limit")]),
-    ...rows("/quality/profiles", quality, [t("Source order")]),
-    ...rows("/quality/check", quality, [t("Check quality")]),
+    ...rows("/quality/profiles", `${quality} › ${away}`, [
+      ["away-profile", t("Away profile")],
+      ["bitrate-limit", t("Bitrate limit")],
+    ]),
+    ...rows("/quality/profiles", quality, [["source-order", t("Source order")]]),
+    ...rows("/quality/check", quality, [["check-quality", t("Check quality")]]),
     ...groupHits(S.PLAY_VERSIONS, "/quality/profiles", quality),
     ...rows("/quality/searching", `${quality} › ${t("Start speed")}`, [
-      t("Start before the health check finishes"),
+      ["start-before-the-health-check-finishes", t("Start before the health check finishes")],
     ]),
     ...rows(
       "/quality/searching",
       `${quality} › ${t("Start speed")}`,
-      [t("Concurrent checks")],
-      t("More options: Start speed"),
+      [["concurrent-checks", t("Concurrent checks")]],
+      "start-speed",
     ),
     ...groupHits(S.RELEASE_SEARCH, "/quality/searching", quality),
     ...groupHits(S.RELEASE_BLOCKS, "/quality/blocklist", quality),
     // Playback
     ...rows("/playback/subtitles", `${playback} › ${t("Languages")}`, [
-      t("Audio languages"),
-      t("Prefer the original language"),
-      t("Subtitle languages"),
-      t("Show subtitles"),
-      t("Subtitle style"),
+      ["audio-languages", t("Audio languages")],
+      ["prefer-the-original-language", t("Prefer the original language")],
+      ["subtitle-languages", t("Subtitle languages")],
+      ["show-subtitles", t("Show subtitles")],
+      ["subtitle-style", t("Subtitle style")],
     ]),
     ...rows(
       "/playback/subtitles",
       `${playback} › ${t("Subtitle appearance")}`,
-      [t("Size"), t("Text colour"), t("Background"), t("Position")],
-      t("More options: {title}", { title: t("Subtitle appearance") }),
+      [
+        ["size", t("Size")],
+        ["text-colour", t("Text colour")],
+        ["background", t("Background")],
+        ["position", t("Position")],
+      ],
+      "subtitle-appearance",
     ),
     ...rows(
       "/playback/subtitles",
       `${playback} › ${t("Audio processing")}`,
-      [t("Normalize loudness"), t("Night mode compression"), t("Boost centre-channel dialogue")],
-      t("More options: {title}", { title: t("Audio processing") }),
+      [
+        ["normalize-loudness", t("Normalize loudness")],
+        ["night-mode-compression", t("Night mode compression")],
+        ["boost-centre-channel-dialogue", t("Boost centre-channel dialogue")],
+      ],
+      "audio-processing",
     ),
     ...groupHits(S.STREAM_LIMITS, "/playback/transcoding", playback),
     ...groupHits(S.TRANSCODE, "/playback/transcoding", playback),
     ...groupHits(S.EXTRAS, "/playback/prerolls", playback),
     ...rows("/playback/extras", `${playback} › ${t("Skip buttons")}`, [
-      t("Skip intro"),
-      t("Skip credits"),
+      ["skip-intro", t("Skip intro")],
+      ["skip-credits", t("Skip credits")],
     ]),
     ...groupHits(S.UP_NEXT, "/playback/extras", playback),
     // Home
     ...groupHits(S.PERSONAL_TOUCHES, "/home", t("Home")),
     // Notifications
     ...rows("/notifications/report", t("Weekly report"), [
-      t("Email the weekly report"),
-      t("Day"),
-      t("Time"),
-      t("Report viewer"),
+      ["email-the-weekly-report", t("Email the weekly report")],
+      ["day", t("Day")],
+      ["time", t("Time")],
+      ["report-viewer", t("Report viewer")],
     ]),
     // Maintenance
     ...groupHits(S.UPDATES, "/maintenance/updates", t("Updates")),
     ...rows("/maintenance/health", t("Health"), [
-      t("Send uptime heartbeat"),
-      t("Secret heartbeat URL"),
+      ["send-uptime-heartbeat", t("Send uptime heartbeat")],
+      ["secret-heartbeat-url", t("Secret heartbeat URL")],
     ]),
     ...groupHits(S.SPIKE, "/maintenance/health", t("Health")),
     ...groupHits(S.LOG_LEVEL, "/maintenance/logs", t("Logs")),

@@ -202,3 +202,16 @@ func TestTorznabClientMarksResultsAndManagerKeepsProtocolsApart(t *testing.T) {
 		t.Fatalf("torrents %d usenet %d: %+v", torrents, usenet, rels)
 	}
 }
+
+// Both Torznab and Stremio use these values; malformed unrelated fields
+// must not turn an escaped info hash into a different or missing torrent.
+func TestMagnetEscapedHashWithMalformedField(t *testing.T) {
+	const hash = "0123456789012345678901234567890123456789"
+	magnet := "magnet:?xt=urn%3Abtih%3A" + hash + "&dn=bad%escape&tr=https%3A%2F%2Ftracker.invalid%2Fa"
+	if got := InfoHashFromMagnet(magnet); got != hash {
+		t.Fatalf("hash=%q", got)
+	}
+	if got := MagnetValues(magnet).Get("tr"); got != "https://tracker.invalid/a" {
+		t.Fatalf("tracker=%q", got)
+	}
+}

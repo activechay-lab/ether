@@ -10,7 +10,6 @@ import {
 import {
   SortableContext,
   arrayMove,
-  horizontalListSortingStrategy,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
@@ -35,14 +34,12 @@ export function SortableList<T>({
   getId,
   onReorder,
   renderItem,
-  axis = "vertical",
   className,
 }: {
   items: T[];
   getId: (item: T) => string;
   onReorder: (next: T[], moved: { from: number; to: number }) => void;
   renderItem: (item: T, handle: DragHandleProps, index: number) => ReactNode;
-  axis?: "vertical" | "horizontal";
   className?: string;
 }) {
   const sensors = useSensors(
@@ -59,10 +56,7 @@ export function SortableList<T>({
   };
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-      <SortableContext
-        items={ids}
-        strategy={axis === "vertical" ? verticalListSortingStrategy : horizontalListSortingStrategy}
-      >
+      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
         <div className={className}>
           {items.map((item, i) => (
             <SortableItem key={ids[i]} id={ids[i] as string}>

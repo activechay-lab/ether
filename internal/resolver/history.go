@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/store"
 	"sort"
 	"time"
 
@@ -130,7 +131,7 @@ func (s *Service) recordHistory(ctx context.Context, tr Trace) {
 		`INSERT INTO resolver_history(resolved_at, rating_key, title_name, profile, release_id, release_name, indexer, size, error, failover, pinned, candidates, trace)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
 		h.At.Unix(), int64(h.TitleKey), h.TitleName, h.Profile, h.ReleaseID, h.ReleaseName, h.Indexer, h.Size,
-		h.Error, boolInt(h.Failover), boolInt(h.Pinned), h.Candidates, string(raw)).Scan(&id)
+		h.Error, store.BoolInt(h.Failover), store.BoolInt(h.Pinned), h.Candidates, string(raw)).Scan(&id)
 	if err != nil {
 		s.log.Debug("resolver history not saved", "err", err)
 		return

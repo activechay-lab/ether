@@ -2,7 +2,7 @@ import { API_BASE, ApiError, apiFetch, sessionXhrSetup } from "../../lib/api";
 import { t } from "../../i18n";
 
 export type DeviceKind = "tv" | "mobile" | "desktop" | "web";
-export type PrerollKind = "movie" | "episode";
+type PrerollKind = "movie" | "episode";
 export type AudienceMode = "everyone" | "only" | "except";
 export type NetworkMode = "any" | "home" | "away";
 export type FrequencyMode = "always" | "daily" | "hours" | "title";
@@ -49,10 +49,10 @@ export type Preroll = PrerollInput & {
   updatedAt: string;
 };
 export type Selection = "priority" | "shuffle";
-export type Reason = { code: string; ok: boolean };
+type Reason = { code: string; ok: boolean };
 export type Candidate = { id: string; name: string; plays: boolean; reasons: Reason[] };
 export type Simulation = { winner: { id: string; name: string } | null; candidates: Candidate[] };
-export type SimulationRequest = {
+type SimulationRequest = {
   viewerId: number;
   ratingKey: string;
   device: DeviceKind;
@@ -87,7 +87,7 @@ export function mediaUrl(path: string): string {
 }
 
 /** Uploads one file and reports progress (0–100). */
-export type UploadTransport = (
+type UploadTransport = (
   url: string,
   form: FormData,
   onProgress: (percent: number) => void,

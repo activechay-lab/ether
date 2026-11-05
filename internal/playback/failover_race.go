@@ -67,7 +67,8 @@ func (m *Manager) raceAlternates(ctx context.Context, s *session, tried []string
 			results <- raceResult{alt: alt, g: g, err: err}
 		}()
 	}
-	for running < width && next < len(cands) {
+	// A cancelled caller (a stopped session) starts no provider requests.
+	for running < width && next < len(cands) && ctx.Err() == nil {
 		launch()
 	}
 	var failed []string
@@ -106,7 +107,7 @@ func (m *Manager) raceAlternates(ctx context.Context, s *session, tried []string
 				} else {
 					m.dropGeneration(r.g)
 				}
-				if next < len(cands) && next < m.opts.MaxAttempts {
+				if next < len(cands) && next < m.opts.MaxAttempts && ctx.Err() == nil {
 					launch()
 				}
 				continue

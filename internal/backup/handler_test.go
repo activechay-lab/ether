@@ -58,7 +58,7 @@ func backupAPI(t *testing.T, s *Service, setupComplete bool) (http.Handler, *con
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return admin.New(admin.Deps{
+	return admin.NewHandler(admin.Deps{
 		Config:       cfg,
 		IsOwnerToken: func(_ context.Context, tok string) bool { return tok == ownerToken },
 		Extensions:   map[string]http.Handler{"adoption/backups": s.Handler()},
@@ -220,21 +220,21 @@ func TestBackupAPIRestore(t *testing.T) {
 		}
 	})
 
-	t.Run("unencrypted backup needs the owner and a confirmation", func(t *testing.T) {
+	t.Run("unencrypted uploads are rejected", func(t *testing.T) {
 		s := standalone(t)
 		pre, _ := backupAPI(t, s, false)
 		confirm := map[string]string{"X-Ether-Backup-Legacy": "plaintext"}
-		if w := upload(bundle, false, confirm).do(pre); w.Code != http.StatusForbidden || errCode(w) != "owner_required" {
+		if w := upload(bundle, false, confirm).do(pre); w.Code != http.StatusBadRequest || errCode(w) != "encrypted_required" {
 			t.Fatalf("tokenless legacy restore: %d %s", w.Code, w.Body)
 		}
 		h, _ := backupAPI(t, s, true)
-		if w := upload(bundle, true, nil).do(h); w.Code != 400 || errCode(w) != "legacy_confirm" {
+		if w := upload(bundle, true, nil).do(h); w.Code != 400 || errCode(w) != "encrypted_required" {
 			t.Fatalf("unconfirmed legacy restore: %d %s", w.Code, w.Body)
 		}
 		if got := restored(s); len(got) != 0 {
 			t.Fatalf("refused restore left %v", got)
 		}
-		if w := upload(bundle, true, confirm).do(h); w.Code != 200 {
+		if w := upload(bundle, true, confirm).do(h); w.Code != 400 || errCode(w) != "encrypted_required" {
 			t.Fatalf("owner legacy restore: %d %s", w.Code, w.Body)
 		}
 	})

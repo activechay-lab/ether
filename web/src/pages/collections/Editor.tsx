@@ -163,7 +163,6 @@ export default function CollectionEditor() {
       history.reset(base);
       setRestored(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source.data, dKey]);
 
   const ready = baseline !== null;

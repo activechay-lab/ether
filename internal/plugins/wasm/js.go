@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"runtime"
 	"strings"
 	"sync"
@@ -217,6 +218,19 @@ func (s *swapCtx) Done() <-chan struct{} { return (*s.cur.Load()).Done() }
 func (s *swapCtx) Err() error            { return (*s.cur.Load()).Err() }
 func (s *swapCtx) Value(key any) any     { return (*s.cur.Load()).Value(key) }
 
+// jsLogWriter keeps WASI output out of the process streams.
+type jsLogWriter struct {
+	logger   *slog.Logger
+	pluginID string
+}
+
+func (w jsLogWriter) Write(p []byte) (int, error) {
+	if w.logger != nil {
+		w.logger.Debug("plugin output", "plugin", w.pluginID, "output", string(p))
+	}
+	return len(p), nil
+}
+
 type jsInstance struct {
 	rt           *qjs.Runtime
 	qc           *qjs.Context
@@ -226,7 +240,7 @@ type jsInstance struct {
 	cs           *callState // set for the duration of one call
 }
 
-func newJSInstance(ctx context.Context, source string, lim *Limits, hot bool) (in *jsInstance, err error) {
+func newJSInstance(ctx context.Context, source string, lim *Limits, hot bool, logger *slog.Logger, pluginID string) (in *jsInstance, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			in, err = nil, &Error{Status: StatusError, Message: fmt.Sprintf("create JS instance: %v", r), Trap: true}
@@ -239,7 +253,7 @@ func newJSInstance(ctx context.Context, source string, lim *Limits, hot bool) (i
 	defer swap.reset()
 	rt, err2 := qjs.New(qjs.Option{Context: swap, CloseOnContextDone: true,
 		MemoryLimit: int(lim.MemoryBytes), MaxStackSize: 1 << 20,
-		Stdout: io.Discard, Stderr: io.Discard})
+		Stdout: jsLogWriter{logger, pluginID}, Stderr: jsLogWriter{logger, pluginID}})
 	if err2 != nil {
 		return nil, &Error{Status: StatusError, Message: "create JS runtime: " + err2.Error(), Trap: true}
 	}
@@ -491,7 +505,7 @@ func (e *Engine) LoadJS(id, version, source string, host Host, lim Limits) (*Plu
 	e.scaleHot(&lim)
 	p := &Plugin{id: id, version: version, eng: e, host: host, lim: lim, memo: newMemo(4096), source: source}
 	makeSvc := func(ctx context.Context) (instance, error) {
-		in, err := newJSInstance(ctx, source, &p.lim, false)
+		in, err := newJSInstance(ctx, source, &p.lim, false, e.logger, id)
 		if err != nil {
 			return nil, err
 		}
@@ -501,7 +515,9 @@ func (e *Engine) LoadJS(id, version, source string, host Host, lim Limits) (*Plu
 		}
 		return in, nil
 	}
-	makeHot := func(ctx context.Context) (instance, error) { return newJSInstance(ctx, source, &p.lim, true) }
+	makeHot := func(ctx context.Context) (instance, error) {
+		return newJSInstance(ctx, source, &p.lim, true, e.logger, id)
+	}
 	p.svc = newPool(lim.PoolSize, makeSvc)
 	p.hot = newWarmPool(lim.PoolSize, makeHot)
 	probe, err := p.svc.get(context.Background())

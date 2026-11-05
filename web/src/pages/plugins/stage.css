@@ -39,14 +39,6 @@
     transform: none;
   }
 }
-@keyframes stage-sweep {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(100%);
-  }
-}
 .stage-rise {
   animation: stage-rise 520ms var(--ease-out) both;
 }
@@ -59,21 +51,11 @@
 .stage-flow {
   animation: stage-flow 520ms var(--ease-spring) both;
 }
-.stage-sweep::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgb(var(--ch-primary) / 0.14), transparent);
-  animation: stage-sweep 1.1s var(--ease-in-out) infinite;
-}
 @media (prefers-reduced-motion: reduce) {
   .stage-rise,
   .stage-snap,
   .stage-pop,
   .stage-flow {
-    animation: none;
-  }
-  .stage-sweep::after {
     animation: none;
   }
 }

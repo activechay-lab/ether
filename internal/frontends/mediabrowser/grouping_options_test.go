@@ -5,14 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/braedonsaunders/ether/internal/conform"
 	conformmb "github.com/braedonsaunders/ether/internal/conform/mediabrowser"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
@@ -90,16 +89,9 @@ func TestGroupingOptionsInfuseRecordedStatusAndPolicy(t *testing.T) {
 			t.Fatal(tc.name, "other viewer", denied.Code)
 		}
 		if tc.name == "jellyfin" {
-			spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-			if os.IsNotExist(err) {
+			doc := spectest.Document(t, "jellyfin")
+			if doc == nil {
 				continue
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			doc, err := openapi.Parse(spec)
-			if err != nil {
-				t.Fatal(err)
 			}
 			if err := doc.Validate("GET", r.URL.Path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 				t.Fatal(err)

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -302,7 +301,7 @@ func (r *registry) sync(ctx context.Context) error {
 	args := []any{r.self}
 	q := `DELETE FROM playback_live_sessions WHERE node_id=?`
 	if len(rows) > 0 {
-		q += ` AND id NOT IN (` + strings.TrimSuffix(strings.Repeat("?,", len(rows)), ",") + `)`
+		q += ` AND id NOT IN (` + store.Placeholders(len(rows)) + `)`
 		for _, u := range rows {
 			args = append(args, u.id)
 		}

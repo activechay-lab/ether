@@ -110,14 +110,17 @@ func (x xtreamAPI) url(action string) string {
 }
 
 func (x xtreamAPI) get(ctx context.Context, action string, into any) error {
+	if progress := importProgress(ctx); progress != nil {
+		progress.setPhase("playlist")
+	}
 	rc, err := x.s.openURL(ctx, x.url(action), x.auth.header())
 	if err != nil {
-		return err
+		return fmt.Errorf("Xtream %s: %w", xtreamWhat(action), err)
 	}
 	defer rc.Close()
 	b, err := readLimited(rc, maxXtreamBytes, "playlist")
 	if err != nil {
-		return err
+		return sourceReadFailure(err, "channel list")
 	}
 	if err := json.Unmarshal(b, into); err != nil {
 		return fmt.Errorf("the Xtream panel sent an unreadable %s reply", xtreamWhat(action))

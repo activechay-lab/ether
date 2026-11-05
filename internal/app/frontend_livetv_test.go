@@ -2,7 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
+	"github.com/braedonsaunders/ether/internal/frontends/m3u"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -192,5 +196,55 @@ func TestChannelArtworkGrantFollowsLiveTVPolicy(t *testing.T) {
 	service.Serve(w, httptest.NewRequest("GET", "/?format=png&w=32", nil), secret)
 	if w.Code != 200 || w.Header().Get("Content-Type") != "image/png" {
 		t.Fatalf("external SVG transform: %d %q", w.Code, w.Header().Get("Content-Type"))
+	}
+}
+
+// Exercise the real M3U handler through the shared adapter, not a mock guide.
+func TestM3UGuideOver4096Channels(t *testing.T) {
+	ctx := context.Background()
+	a := setupTestApp(t, true)
+	if err := a.users.SetOwner(ctx, plextv.Account{ID: 42, Username: "owner"}, "owner-token"); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := a.users.Owner(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Hour)
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for i := 0; i < 4100; i++ {
+		id := fmt.Sprintf("large-%04d", i)
+		c := livetv.Channel{ID: id, Number: fmt.Sprint(i + 1), Name: id, Kind: "iptv", Enabled: true, SourceID: "large", GuideID: id}
+		b, _ := json.Marshal(c)
+		if _, err = tx.ExecContext(ctx, `INSERT INTO livetv_channels(id,data) VALUES(?,?)`, id, b); err != nil {
+			t.Fatal(err)
+		}
+		p := livetv.Programme{ChannelID: id, Start: now, End: now.Add(2 * time.Hour), Item: livetv.Item{Title: "Programme " + id}}
+		b, _ = json.Marshal(p)
+		if _, err = tx.ExecContext(ctx, `INSERT INTO livetv_programmes(source_id,channel_id,start_ms,end_ms,data) VALUES(?,?,?,?,?)`, "large", id, p.Start.UnixMilli(), p.End.UnixMilli(), b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	inst, err := (m3u.Frontend{}).Mount(ctx, frontend.Host{Identity: frontendtest.Identity{ResolveFunc: func(context.Context, string) (*frontend.Viewer, error) { return owner, nil }}, LiveTV: surfaceLiveTV{app: a}, Sessions: frontendtest.Sessions{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	inst.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/m3u/test/guide.xml", nil))
+	if rec.Code != 200 {
+		t.Fatalf("guide: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := strings.Count(rec.Body.String(), "<programme "); got != 4100 {
+		t.Fatalf("programmes=%d", got)
+	}
+	if got := strings.Count(rec.Body.String(), "<channel "); got != 4100 {
+		t.Fatalf("channels=%d", got)
 	}
 }

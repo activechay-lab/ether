@@ -191,7 +191,7 @@ export default function ViewerProfile() {
         </div>
       }
       subtabs={
-        <SlotAnchor slot="viewer.tab" onPickSlot={() => navigate("/plugins/studio")}>
+        <SlotAnchor>
           <SubtabNav
             ariaLabel={t("Viewer sections")}
             active={tab}

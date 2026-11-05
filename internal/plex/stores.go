@@ -13,10 +13,6 @@ import (
 // stream bindings; playback ids come from the broker.
 func slotHash(key core.RatingKey, slot string) int64 { return sessions.PlexWireID(key, slot) }
 
-func streamSlot(index int, info core.StreamInfo) string {
-	return sessions.PlexStreamSlot(index, info)
-}
-
 // ---------------------------------------------------------------------------
 // Stream selections (PUT /library/parts/{id}?audioStreamID=&subtitleStreamID=)
 

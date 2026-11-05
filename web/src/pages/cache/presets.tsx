@@ -6,7 +6,7 @@ import type { EtherConfig } from "../../lib/types";
 const GiB = 1024 ** 3;
 const MiB = 1024 ** 2;
 
-export type CachePresetChoice = {
+type CachePresetChoice = {
   key: string;
   name: string;
   values: Partial<EtherConfig["cache"]>;

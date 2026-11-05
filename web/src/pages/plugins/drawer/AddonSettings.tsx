@@ -32,7 +32,7 @@ interface AddonConfig {
   host: string;
 }
 
-export interface ConfigResult {
+interface ConfigResult {
   name: string;
   added?: string[];
   removed?: string[];
@@ -329,7 +329,7 @@ export function AddonSettings({
   );
 }
 
-export function ResultCard({ result }: { result: ConfigResult }) {
+function ResultCard({ result }: { result: ConfigResult }) {
   const ok = !result.problems?.length;
   return (
     <div className="space-y-2 rounded-xl border border-border bg-surface px-4 py-3" role="status">
@@ -404,7 +404,6 @@ export function AddonSettingsPage({
       .then(setSrc)
       .catch((e) => setError(errorMessage(e)));
     // openPage is a fresh closure per render; the page opens once per open.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const take = useCallback(

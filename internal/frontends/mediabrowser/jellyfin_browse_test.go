@@ -7,13 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/conform"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
@@ -889,18 +888,11 @@ func TestJellyfinShowParentIsTheVisibleLibrary(t *testing.T) {
 
 func requireJellyfinSpec(t *testing.T, method, path string, w *httptest.ResponseRecorder) {
 	t.Helper()
-	spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	if os.IsNotExist(err) {
-		t.Skip("pinned Jellyfin spec is not cached")
+	doc := spectest.Document(t, "jellyfin")
+	if doc == nil {
+		return
 	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := openapi.Parse(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = doc.Validate(method, path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
+	if err := doc.Validate(method, path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 }

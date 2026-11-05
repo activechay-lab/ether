@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/egress"
+	"github.com/braedonsaunders/ether/internal/retryafter"
 )
 
 // ExternalBases are the origins external list sources are fetched from.
@@ -193,19 +194,8 @@ func (w *webClient) do(ctx context.Context, method, rawURL string, reqBody []byt
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
 		delay := time.Minute
-		if n, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && n >= 0 {
-			if n > 86400 {
-				n = 86400
-			}
-			delay = time.Duration(n) * time.Second
-		} else if until, err := http.ParseTime(resp.Header.Get("Retry-After")); err == nil {
-			delay = time.Until(until)
-		}
-		if delay < 0 {
-			delay = 0
-		}
-		if delay > 24*time.Hour {
-			delay = 24 * time.Hour
+		if d, ok := retryafter.Parse(resp.Header.Get("Retry-After"), time.Now(), 24*time.Hour); ok {
+			delay = d
 		}
 		w.mu.Lock()
 		w.last[host] = time.Now().Add(delay - gap)

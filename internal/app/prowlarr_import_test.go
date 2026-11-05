@@ -470,3 +470,43 @@ func TestProwlarrRetryAfterHeaderValidation(t *testing.T) {
 		t.Fatalf("huge=%q want 86400", got)
 	}
 }
+
+// The periodic Prowlarr sync must not wipe the owner's per-indexer edits
+// (daily limits, priority, enabled), while values the owner never touched
+// keep following the connection's settings.
+func TestProwlarrSyncKeepsOwnerOverrides(t *testing.T) {
+	body := `[{"id":4,"name":"News","enable":true,"protocol":"usenet"},{"id":5,"name":"Other","enable":true,"protocol":"usenet"}]`
+	status := http.StatusOK
+	a, store, url := prowlarrTestApp(t, &body, &status, "")
+	cfg := config.Prowlarr{URL: url, APIKey: "k", DailyLimit: 100, Priority: 10}
+	if w := postProwlarrConfig(t, a, cfg, true); w.Code != http.StatusOK {
+		t.Fatalf("import code=%d body=%s", w.Code, w.Body.String())
+	}
+	prefix := newznab.ProwlarrIDPrefix(cfg)
+	if err := store.Update(func(c *config.Config) error {
+		for i := range c.Indexers {
+			if c.Indexers[i].ID == prefix+"4" {
+				c.Indexers[i].DailyLimit, c.Indexers[i].DailyGrabs, c.Indexers[i].Priority, c.Indexers[i].Enabled = 50, 5, 1, false
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg.DailyLimit, cfg.Priority = 200, 20
+	for range 2 { // every sync, not just the first after an edit
+		if w := postProwlarrConfig(t, a, cfg, true); w.Code != http.StatusOK {
+			t.Fatalf("resync code=%d body=%s", w.Code, w.Body.String())
+		}
+	}
+	got := map[string]config.Indexer{}
+	for _, ix := range store.Get().Indexers {
+		got[ix.ID] = ix
+	}
+	if ix := got[prefix+"4"]; ix.DailyLimit != 50 || ix.DailyGrabs != 5 || ix.Priority != 1 || ix.Enabled {
+		t.Fatalf("owner edits lost on sync: %+v", ix)
+	}
+	if ix := got[prefix+"5"]; ix.DailyLimit != 200 || ix.Priority != 20 || !ix.Enabled {
+		t.Fatalf("untouched indexer did not follow the connection: %+v", ix)
+	}
+}

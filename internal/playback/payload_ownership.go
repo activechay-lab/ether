@@ -413,13 +413,6 @@ func (p *payloadStore) share(ctx context.Context, hash string) (payloadOwner, bo
 	return ref, true
 }
 
-// releaseLater keeps the payload protected for delay after o is dropped, so a
-// replay can share the committed anchor instead of inserting another row.
-// A zero delay, or a hash that cannot be shared, retires o immediately.
-func (p *payloadStore) releaseLater(ctx context.Context, o payloadOwner, delay time.Duration) error {
-	return p.releaseOwnedLater(ctx, o, delay, false, nil)
-}
-
 // releaseSourceLater is releaseLater for a source lifetime. A resume holder
 // sharing the row does not settle that lifetime; onGone runs when the row
 // is actually deleted.

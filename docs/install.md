@@ -241,7 +241,7 @@ for remote access outside your LAN:
   Ether asks your router for a UPnP mapping and publishes the address to
   plex.tv, for Plex clients. UPnP is under *More options* there.
 - Manual: forward one external TCP port (e.g. 32400) to the Ether host's
-  32400, then set that public port under **Apps › Overview › Away from home ›
+  32400, then set that public port under **Apps › Away from home ›
   More options**.
 - LAN discovery additionally uses UDP 32410–32414 (GDM); only relevant
   inside your network, never forward it.
@@ -366,7 +366,7 @@ and one-time join tokens. No terminal commands are required for setup.
   deliberately for a controlled deployment.
 - **A port forward per node** for remote access: each node needs its own
   external port (for example 32400 to the first node, 32401 to the second),
-  or UPnP. Set the public port on each node under **Apps › Overview › Away from home**.
+  or UPnP. Set the public port on each node under **Apps › Away from home**.
 - **One public IP for providers.** Debrid services may flag one account used
   from several addresses at once. Keep every node behind the same internet
   connection. The Cluster page warns when the address nodes use for indexers,
@@ -490,7 +490,7 @@ place, set a **Shared backup folder** on *Backups & import*: a folder every
 node reaches at the same path, such as a network share.
 
 Creating snapshots, changing their schedule, and downloading them require the
-owner account after setup is complete. In **Backups & import › Snapshots**, enter
+owner account after setup is complete. In **Backups & import › Backups**, enter
 a password of at least 12 characters before downloading. Downloads use the
 encrypted `.etherbackup` format. Ether does not store the password.
 

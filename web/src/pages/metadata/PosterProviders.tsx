@@ -12,7 +12,7 @@ export function PosterProviders({ onSaved }: { onSaved: () => void }) {
   return (
     <section className="metadata-control-section">
       <div className="metadata-section-title">
-        <h3>{t("Poster source")}</h3>
+        <h3 data-setting="poster-source">{t("Poster source")}</h3>
       </div>
       <SearchSelect
         ariaLabel={t("Poster source")}

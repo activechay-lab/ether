@@ -143,6 +143,7 @@ export function CatalogPickers({
   return (
     <>
       <SettingsRow
+        setting="language"
         title={t("Language")}
         control={
           <div className="w-56">
@@ -158,6 +159,7 @@ export function CatalogPickers({
         }
       />
       <SettingsRow
+        setting="region"
         title={t("Region")}
         control={
           <div className="w-56">
@@ -173,6 +175,7 @@ export function CatalogPickers({
         }
       />
       <SettingsRow
+        setting="refreshInterval"
         title={t("Refresh every")}
         control={
           <div className="w-48">

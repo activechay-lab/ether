@@ -11,7 +11,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 )
 
-func TestSocketDistinguishesMissingAndInvalidCredential(t *testing.T) {
+func TestSocketRejectsMissingAndInvalidCredential(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		front frontend.Frontend
@@ -24,7 +24,7 @@ func TestSocketDistinguishesMissingAndInvalidCredential(t *testing.T) {
 		for _, test := range []struct {
 			token  string
 			status int
-		}{{"", http.StatusForbidden}, {"invalid-or-expired", http.StatusUnauthorized}} {
+		}{{"", http.StatusUnauthorized}, {"invalid-or-expired", http.StatusUnauthorized}} {
 			r := httptest.NewRequest("GET", "/socket", nil)
 			if test.token != "" {
 				r.Header.Set("X-Emby-Token", test.token)

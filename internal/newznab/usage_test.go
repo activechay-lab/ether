@@ -164,3 +164,55 @@ func TestUsageReportsUnattributedHistory(t *testing.T) {
 		t.Fatalf("usage rows left %d (%v)", left, err)
 	}
 }
+
+// Accounting counts HTTP requests, not logical searches: every fallback
+// query of a Play fan-out is one hit, and a grab that never reaches the
+// indexer (a release without a download URL) costs nothing. The console's
+// totals must equal what the indexer (or Prowlarr in front of it) counted.
+func TestUsageCountsEveryHTTPRequestSent(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.OpenMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	f := newFakeIndexer(t, "emptyimdb") // the id query misses: Play fans out
+	m := NewManager(db, []config.Indexer{testConfig(f.server.URL)}, Options{NZBDir: t.TempDir()})
+	play := core.WithIndexerPurpose(ctx, core.IndexerPurposePlayback)
+	req := core.SearchRequest{Type: core.TypeMovie, Title: "The Signal", OriginalTitle: "La Señal", Year: 1999, IDs: core.IDs{IMDB: "tt0000001", TMDB: 7}}
+	results, err := m.Search(play, req)
+	if err != nil || len(results) == 0 {
+		t.Fatalf("search: %v %v", results, err)
+	}
+	if _, err := m.FetchNZB(play, results[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.FetchNZB(play, core.Release{ID: "no-url", Name: "x", Indexer: "Fake", Protocol: core.ProtocolUsenet}); err == nil {
+		t.Fatal("a release without a URL cannot be fetched")
+	}
+	rep, err := m.Usage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := rep.Indexers[0]
+	f.mu.Lock()
+	served := 0
+	for _, n := range f.hits {
+		served += n
+	}
+	grabs := f.nzbHits
+	f.mu.Unlock()
+	if served < 4 {
+		t.Fatalf("the fan-out should have sent several queries, sent %d", served)
+	}
+	if u.Today.Hits != int64(served) || u.Today.Grabs != int64(grabs) || grabs != 1 {
+		t.Fatalf("usage %+v, indexer received %d API requests and %d NZB downloads", u.Today, served, grabs)
+	}
+	r, err := m.Clients()[0].Remaining(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.HitsUsed != served || r.GrabsUsed != grabs {
+		t.Fatalf("budget %d hits / %d grabs, indexer received %d / %d", r.HitsUsed, r.GrabsUsed, served, grabs)
+	}
+}

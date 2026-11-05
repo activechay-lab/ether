@@ -3,45 +3,13 @@
  * Shows connection instructions and the revocable list of paired apps.
  */
 import { Button, Spinner, toast } from "@braedonsaunders/appkit-ui";
-import { Check, Copy } from "lucide-react";
+import { CopyButton } from "../CopyButton";
 import { useCallback, useEffect, useState } from "react";
 import { t } from "../../i18n";
+import { formatDate } from "../../lib/format";
 import { Drawer } from "../Drawer";
 import { ErrorPanel } from "../feedback";
 import { fetchMcpClients, revokeMcpClient, type McpClient } from "./agentApi";
-
-function formatDate(iso?: string): string {
-  if (!iso) return "";
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime())
-    ? ""
-    : date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      toast.error(t("Copy failed"), { description: t("Copy the text by hand instead.") });
-    }
-  };
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      onClick={() => void copy()}
-      aria-label={label}
-    >
-      {copied ? <Check size={14} /> : <Copy size={14} />}
-      {copied ? t("Copied") : t("Copy")}
-    </Button>
-  );
-}
 
 export function McpPairingDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [clients, setClients] = useState<McpClient[] | null>(null);
@@ -129,7 +97,7 @@ export function McpPairingDrawer({ open, onClose }: { open: boolean; onClose: ()
           ) : (
             <ul className="divide-y divide-border rounded-xl border border-border">
               {clients.map((client) => {
-                const pairedOn = formatDate(client.createdAt);
+                const pairedOn = client.createdAt ? formatDate(client.createdAt) : "";
                 return (
                   <li key={client.id} className="flex items-center gap-3 px-3 py-2.5">
                     <span className="min-w-0 flex-1">

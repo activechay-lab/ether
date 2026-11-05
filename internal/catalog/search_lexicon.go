@@ -147,14 +147,6 @@ func (lx *searchLexicon) size() int { return len(lx.docs) }
 
 func (lx *searchLexicon) key(i int) string { return lx.blob[lx.offs[i]:lx.offs[i+1]] }
 
-// surfaces is how titles spell key i, most common first.
-func (lx *searchLexicon) surfaces(i int) []string {
-	if s, ok := lx.surface[uint32(i)]; ok {
-		return s
-	}
-	return []string{lx.key(i)}
-}
-
 // find returns key's index, or -1.
 func (lx *searchLexicon) find(key string) int {
 	i := sort.Search(lx.size(), func(i int) bool { return lx.key(i) >= key })
@@ -162,12 +154,6 @@ func (lx *searchLexicon) find(key string) int {
 		return i
 	}
 	return -1
-}
-
-// hasPrefix reports whether some key starts with prefix.
-func (lx *searchLexicon) hasPrefix(prefix string) bool {
-	i := sort.Search(lx.size(), func(i int) bool { return lx.key(i) >= prefix })
-	return i < lx.size() && strings.HasPrefix(lx.key(i), prefix)
 }
 
 // approxMatch is a key within the allowed edit distance of a query word.

@@ -104,12 +104,12 @@ const PROTOCOLS: { value: IndexerProtocol; label: string }[] = localized(() => [
   { value: "torrent", label: t("Torrent (Torznab)") },
 ]);
 
-export function isTorrent(ix: { protocol?: string }) {
+function isTorrent(ix: { protocol?: string }) {
   return ix.protocol === "torrent";
 }
 
 /** The indexer API name for a protocol, as shown on badges. */
-export function protocolLabel(ix: { protocol?: string }) {
+function protocolLabel(ix: { protocol?: string }) {
   return isTorrent(ix) ? "Torznab" : "Newznab";
 }
 
@@ -250,7 +250,6 @@ export function IndexerList({
         ? blankStremioIndexer(indexers.length)
         : blankIndexer(indexers.length),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addRequest, cfg, indexers.length]);
 
   async function save() {

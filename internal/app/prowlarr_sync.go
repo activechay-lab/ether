@@ -192,11 +192,10 @@ func applyProwlarrSync(c *config.Config, cfg config.Prowlarr, found []config.Ind
 	kept := map[string]bool{}
 	for _, x := range found {
 		kept[x.ID] = true
+		imported := config.IndexerImport{DailyLimit: x.DailyLimit, DailyGrabs: x.DailyGrabs, Priority: x.Priority, Enabled: x.Enabled}
+		x.ProwlarrImport = &imported
 		if i, ok := byID[x.ID]; ok {
-			// Prowlarr does not know the owner's per-indexer identity, so the
-			// sync must not drop it.
-			x.ClientIdentity = c.Indexers[i].ClientIdentity
-			c.Indexers[i] = x
+			c.Indexers[i] = mergeProwlarrIndexer(c.Indexers[i], x)
 		} else {
 			byID[x.ID] = len(c.Indexers)
 			c.Indexers = append(c.Indexers, x)
@@ -210,10 +209,42 @@ func applyProwlarrSync(c *config.Config, cfg config.Prowlarr, found []config.Ind
 		if !strings.HasPrefix(x.ID, prefix) || kept[x.ID] || !x.Enabled {
 			continue
 		}
+		// The sync's own stop: re-enabled when the tag comes back.
+		imported := config.IndexerImport{DailyLimit: x.DailyLimit, DailyGrabs: x.DailyGrabs, Priority: x.Priority}
+		if x.ProwlarrImport != nil {
+			imported = *x.ProwlarrImport
+		}
+		imported.Enabled = false
 		c.Indexers[i].Enabled = false
+		c.Indexers[i].ProwlarrImport = &imported
 		stopped++
 	}
 	return stopped
+}
+
+// mergeProwlarrIndexer updates a stored Prowlarr indexer from a sync's
+// fresh import. The owner's edits in Ether win: a daily limit, grab limit,
+// priority or enabled state that differs from what the previous sync wrote
+// (old.ProwlarrImport) is the owner's and is kept; a value the owner never
+// touched follows Prowlarr. With no record of the previous sync (an indexer
+// imported before it was kept), every stored value is kept. Prowlarr does
+// not know the owner's per-indexer client identity, so that is kept too.
+func mergeProwlarrIndexer(old, fresh config.Indexer) config.Indexer {
+	fresh.ClientIdentity = old.ClientIdentity
+	prev := old.ProwlarrImport
+	if prev == nil || old.DailyLimit != prev.DailyLimit {
+		fresh.DailyLimit = old.DailyLimit
+	}
+	if prev == nil || old.DailyGrabs != prev.DailyGrabs {
+		fresh.DailyGrabs = old.DailyGrabs
+	}
+	if prev == nil || old.Priority != prev.Priority {
+		fresh.Priority = old.Priority
+	}
+	if prev == nil || old.Enabled != prev.Enabled {
+		fresh.Enabled = old.Enabled
+	}
+	return fresh
 }
 
 func (a *App) resolveProwlarr(in config.Prowlarr) config.Prowlarr {

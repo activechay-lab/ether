@@ -17,7 +17,7 @@ type Segment = {
   restoring?: string;
 };
 
-export interface OpsOptions {
+interface OpsOptions {
   /**
    * Pin the server in a startup state: a phase ("waiting_database",
    * "migrating", "restoring", …) or "failed:<code>".

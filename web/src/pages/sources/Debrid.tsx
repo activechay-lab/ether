@@ -1,3 +1,4 @@
+import { formatThroughput } from "../../lib/format";
 import { t, tn, tx } from "../../i18n";
 import {
   Alert,
@@ -50,7 +51,7 @@ import {
 } from "./form";
 import { SortableList } from "../../components/Sortable";
 
-export function debridKindLabel(kind: string): string {
+function debridKindLabel(kind: string): string {
   return DEBRID_KINDS.find((k) => k.value === kind)?.label ?? kind;
 }
 
@@ -58,7 +59,7 @@ export function debridKindLabel(kind: string): string {
 const EMPTY: DebridConfig = { providers: [], cachedOnly: true, removeUncached: true };
 
 /** Debrid settings for `cfg`, with defaults filled in. */
-export function debridOf(cfg: EtherConfig): DebridConfig {
+function debridOf(cfg: EtherConfig): DebridConfig {
   return { ...EMPTY, ...cfg.debrid };
 }
 
@@ -126,10 +127,7 @@ function ms(n: number): string {
 }
 
 /** Megabytes per second, decimal (as speed tests report it). */
-function mbps(bytesPerSecond: number): string {
-  const v = bytesPerSecond / 1e6;
-  return `${fixed(v, v >= 10 ? 0 : 1)} MB/s`;
-}
+const mbps = formatThroughput;
 
 /** Averaged timings for one provider, or null before it has been used. */
 export function latencySummary(l: DebridLatency | undefined): string | null {
@@ -221,7 +219,7 @@ export function DebridSources({
   const debrid = cfg ? debridOf(cfg) : null;
   const providers = useMemo(
     () => [...(debrid?.providers ?? [])].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     [JSON.stringify(debrid?.providers ?? [])],
   );
   const live = status.data?.providers ?? [];
@@ -257,7 +255,6 @@ export function DebridSources({
     seenAdd.current = addKind.nonce;
     open(providers.length, { ...blankProvider(providers.length), kind: addKind.kind });
     // Open once per gallery choice. `open` closes over the list at that moment.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addKind, debrid, providers.length]);
   const close = () => {
     if (!saving) setEditing(null);
@@ -618,7 +615,7 @@ function DebridSettings({
         );
       })}
       {collapsed.size ? (
-        <MoreOptions label={t("More options")}>
+        <MoreOptions setting="debrid" label={t("More options")}>
           <p className="px-4 pt-1 text-sm text-fg-muted">
             {t(
               "Leave these at 0. Ether already chooses a fast first byte and how far to read ahead. Change them only when a player stutters.",

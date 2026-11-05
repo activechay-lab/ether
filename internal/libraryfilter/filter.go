@@ -8,6 +8,7 @@ package libraryfilter
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/store"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/contentrating"
@@ -33,11 +34,6 @@ type rule struct {
 type Filter struct {
 	rules    []rule
 	fallback string // show or hide
-}
-
-// Compile treats every rule as hide and leaves unmatched titles visible.
-func Compile(specs []core.LibraryExclusion) (*Filter, error) {
-	return CompilePolicy(specs, "show")
 }
 
 // CompilePolicy compiles ordered rules. fallback is "show" or "hide" for
@@ -579,7 +575,7 @@ func (c condition) sql() (string, []any) {
 		default:
 			q = "0=1"
 			if len(c.levels) > 0 {
-				q = "t.content_rating_rank IN (" + strings.TrimSuffix(strings.Repeat("?,", len(c.levels)), ",") + ")"
+				q = "t.content_rating_rank IN (" + store.Placeholders(len(c.levels)) + ")"
 			}
 			if c.op == "notIn" || c.op == "isNot" {
 				q = "NOT (" + q + ")"
@@ -614,7 +610,7 @@ func (c condition) sql() (string, []any) {
 		}
 		return q, args
 	}
-	ph := strings.TrimSuffix(strings.Repeat("?,", len(c.values)), ",")
+	ph := store.Placeholders(len(c.values))
 	args := make([]any, len(c.values))
 	for i, v := range c.values {
 		args[i] = v

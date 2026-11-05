@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/braedonsaunders/ether/internal/config"
@@ -128,20 +129,44 @@ func (c *Client) dailyLimitOrAssumed(kind string) int {
 }
 
 // speculativeShare is the percentage of an indexer's daily limit that
-// work nobody is waiting on (warm-ups, preloads, prefetches, watchlist
-// checks, availability grabs) may spend; playback keeps the rest.
+// work nobody is waiting on may spend: unattended warm-ups (preloads,
+// prefetches, watchlist and cache-fill checks, detail warm-ups not yet
+// promoted to Play), detail-page version discovery and availability grabs.
+// Playback keeps the rest.
 const speculativeShare = 10
 
+// Usage labels whose requests draw on the speculative share. Availability
+// searches have their own allowance (internal/availability); their grabs
+// share this one.
+const (
+	speculativeHitPurposes  = "'warmup','detail'"
+	speculativeGrabPurposes = "'warmup','detail','availability'"
+)
+
+// usagePurpose is the purpose a request is recorded and budgeted under: ctx's
+// tag, except that a warm-up a viewer promoted to Play is playback from then
+// on. Unpromoted warm-ups stay warm-ups, so the speculative share counts only
+// speculative requests.
+func usagePurpose(ctx context.Context) string {
+	p := core.IndexerPurpose(ctx)
+	if p == core.IndexerPurposeWarmup && !core.IsUnattendedSearch(ctx) {
+		return core.IndexerPurposePlayback
+	}
+	return p
+}
+
 // speculativeRoom refuses a speculative request once today's speculative
-// requests of kind reached their share: unattended warm-ups (preloads,
-// prefetches, watchlist checks, detail warm-ups not yet promoted to Play)
-// and availability grabs. Availability searches have their own allowance
-// (internal/availability). The count is today's newznab_usage rows.
+// requests of kind reached their share. Purpose is inherited: a fallback
+// query, caps-free retry or rescue started by speculative work keeps its
+// label (Manager.SearchRescueWith), so it is counted and refused here too.
+// The count is today's newznab_usage rows.
 func (c *Client) speculativeRoom(ctx context.Context, kind string) error {
-	// A warm-up a viewer promoted to Play is no longer unattended.
-	purpose := core.IndexerPurpose(ctx)
-	warmup := purpose == core.IndexerPurposeWarmup && core.IsUnattendedSearch(ctx)
-	if !warmup && (kind != "grab" || purpose != core.IndexerPurposeAvailability) {
+	purposes := speculativeHitPurposes
+	col := "hits"
+	if kind == "grab" {
+		purposes, col = speculativeGrabPurposes, "grabs"
+	}
+	if !strings.Contains(purposes, "'"+usagePurpose(ctx)+"'") {
 		return nil
 	}
 	db := c.db
@@ -150,10 +175,6 @@ func (c *Client) speculativeRoom(ctx context.Context, kind string) error {
 	}
 	if db == nil {
 		return nil
-	}
-	col, purposes := "hits", "'warmup'"
-	if kind == "grab" {
-		col, purposes = "grabs", "'warmup','availability'"
 	}
 	var used int
 	if err := db.QueryRowContext(ctx, `SELECT COALESCE(SUM(`+col+`),0) FROM newznab_usage WHERE indexer_id=? AND day=? AND purpose IN (`+purposes+`)`, c.indexerID(), c.today()).Scan(&used); err != nil {

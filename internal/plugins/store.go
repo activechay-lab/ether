@@ -16,6 +16,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/logredact"
 	"github.com/braedonsaunders/ether/internal/store"
+	"github.com/braedonsaunders/ether/internal/textclip"
 )
 
 func init() {
@@ -609,7 +610,7 @@ func truncate(v string, n int) string {
 	if len(v) <= n {
 		return v
 	}
-	return v[:n]
+	return textclip.Bytes(v, n)
 }
 
 func (s *storage) calls(ctx context.Context, plugin string, limit int) ([]CallRecord, error) {

@@ -15,25 +15,23 @@ import (
 // Request is the parsed Plex request context: every X-Plex-* header (or its
 // query-string equivalent), paging, the output format and the remote address.
 type Request struct {
-	Token              string
-	ClientID           string // X-Plex-Client-Identifier
-	Product            string // X-Plex-Product
-	Version            string // X-Plex-Version
-	Platform           string // X-Plex-Platform
-	PlatformVersion    string // X-Plex-Platform-Version
-	Device             string // X-Plex-Device
-	DeviceName         string // X-Plex-Device-Name
-	Model              string // X-Plex-Model
-	Vendor             string // X-Plex-Device-Vendor
-	Language           string // X-Plex-Language
-	Marketplace        string // X-Plex-Marketplace
-	Provides           string // X-Plex-Provides
-	Features           string // X-Plex-Features
-	ProfileExtra       string // X-Plex-Client-Profile-Extra
-	ProfileName        string // X-Plex-Client-Profile-Name
+	Token           string
+	ClientID        string // X-Plex-Client-Identifier
+	Product         string // X-Plex-Product
+	Version         string // X-Plex-Version
+	Platform        string // X-Plex-Platform
+	PlatformVersion string // X-Plex-Platform-Version
+	Device          string // X-Plex-Device
+	DeviceName      string // X-Plex-Device-Name
+	Model           string // X-Plex-Model
+	Vendor          string // X-Plex-Device-Vendor
+	Language        string // X-Plex-Language
+
+	Features     string // X-Plex-Features
+	ProfileExtra string // X-Plex-Client-Profile-Extra
+
 	ClientCapabilities string // X-Plex-Client-Capabilities (legacy)
 	SessionID          string // X-Plex-Session-Identifier
-	PMSAPIVersion      string // X-Plex-Pms-Api-Version
 
 	// Paging (X-Plex-Container-Start/Size); HasPage is false when the client
 	// did not ask for a window.
@@ -94,25 +92,23 @@ func plexParam(r *http.Request, name string) string {
 // addresses are considered only for a loopback peer (a local reverse proxy).
 func ParseRequest(r *http.Request, trusted ...netip.Prefix) *Request {
 	pr := &Request{
-		Token:              plexParam(r, "X-Plex-Token"),
-		ClientID:           plexParam(r, "X-Plex-Client-Identifier"),
-		Product:            plexParam(r, "X-Plex-Product"),
-		Version:            plexParam(r, "X-Plex-Version"),
-		Platform:           plexParam(r, "X-Plex-Platform"),
-		PlatformVersion:    plexParam(r, "X-Plex-Platform-Version"),
-		Device:             plexParam(r, "X-Plex-Device"),
-		DeviceName:         plexParam(r, "X-Plex-Device-Name"),
-		Model:              plexParam(r, "X-Plex-Model"),
-		Vendor:             plexParam(r, "X-Plex-Device-Vendor"),
-		Language:           plexParam(r, "X-Plex-Language"),
-		Marketplace:        plexParam(r, "X-Plex-Marketplace"),
-		Provides:           plexParam(r, "X-Plex-Provides"),
-		Features:           plexParam(r, "X-Plex-Features"),
-		ProfileExtra:       plexParam(r, "X-Plex-Client-Profile-Extra"),
-		ProfileName:        plexParam(r, "X-Plex-Client-Profile-Name"),
+		Token:           plexParam(r, "X-Plex-Token"),
+		ClientID:        plexParam(r, "X-Plex-Client-Identifier"),
+		Product:         plexParam(r, "X-Plex-Product"),
+		Version:         plexParam(r, "X-Plex-Version"),
+		Platform:        plexParam(r, "X-Plex-Platform"),
+		PlatformVersion: plexParam(r, "X-Plex-Platform-Version"),
+		Device:          plexParam(r, "X-Plex-Device"),
+		DeviceName:      plexParam(r, "X-Plex-Device-Name"),
+		Model:           plexParam(r, "X-Plex-Model"),
+		Vendor:          plexParam(r, "X-Plex-Device-Vendor"),
+		Language:        plexParam(r, "X-Plex-Language"),
+
+		Features:     plexParam(r, "X-Plex-Features"),
+		ProfileExtra: plexParam(r, "X-Plex-Client-Profile-Extra"),
+
 		ClientCapabilities: plexParam(r, "X-Plex-Client-Capabilities"),
 		SessionID:          plexParam(r, "X-Plex-Session-Identifier"),
-		PMSAPIVersion:      plexParam(r, "X-Plex-Pms-Api-Version"),
 	}
 	if pr.ClientID == "" {
 		pr.ClientID = plexParam(r, "X-Plex-Client-Id")

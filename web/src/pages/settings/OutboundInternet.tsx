@@ -19,7 +19,7 @@ import { api, ApiError } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 import type { EtherConfig } from "../../lib/types";
 
-export interface OutboundConfig {
+interface OutboundConfig {
   enabled: boolean;
   preset?: string;
   url: string;
@@ -146,6 +146,7 @@ export function OutboundInternet({ hidden = false }: { hidden?: boolean }) {
       )}
     >
       <SettingsRow
+        setting="send-indexers-debrid-and-usenet-through-a-proxy"
         title={t("Send indexers, debrid and Usenet through a proxy")}
         description={t(
           "Off until you turn it on. A proxy that is down is not replaced by a direct connection.",
@@ -159,7 +160,11 @@ export function OutboundInternet({ hidden = false }: { hidden?: boolean }) {
         }
       />
       <div className="space-y-3 border-t border-border p-4">
-        <label htmlFor="outbound-proxy" className="block text-sm font-medium">
+        <label
+          htmlFor="outbound-proxy"
+          className="block text-sm font-medium"
+          data-setting="proxy-address"
+        >
           {t("Proxy address")}
         </label>
         <div className="flex flex-wrap items-center gap-2">
@@ -207,8 +212,12 @@ export function OutboundInternet({ hidden = false }: { hidden?: boolean }) {
         </Button>
         {check ? <CheckResult result={check} /> : null}
       </div>
-      <MoreOptions label={t("More options: How Ether reaches the internet")}>
+      <MoreOptions
+        setting="how-ether-reaches-the-internet"
+        label={t("More options: How Ether reaches the internet")}
+      >
         <SettingsRow
+          setting="username"
           title={t("Username")}
           control={
             <Input
@@ -221,6 +230,7 @@ export function OutboundInternet({ hidden = false }: { hidden?: boolean }) {
           }
         />
         <SettingsRow
+          setting="password"
           title={t("Password")}
           control={
             <SecretInput
@@ -256,6 +266,7 @@ export function OutboundInternet({ hidden = false }: { hidden?: boolean }) {
           onChange={(metadata) => patch({ metadata })}
         />
         <SettingsRow
+          setting="names-that-stay-on-this-network"
           title={t("Names that stay on this network")}
           description={t(
             "Hostnames or addresses, separated by commas. This computer and private addresses always stay here.",

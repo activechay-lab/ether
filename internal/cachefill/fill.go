@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/atomicfile"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -365,20 +366,7 @@ func (m *Manager) save() error {
 		defer cancel()
 		return m.deps.Shared.save(ctx, b, m.localStatus())
 	}
-	f, err := os.CreateTemp(filepath.Dir(m.path), "preload-*.tmp")
-	if err != nil {
-		return err
-	}
-	name := f.Name()
-	defer os.Remove(name)
-	if _, err = f.Write(b); err != nil {
-		f.Close()
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, m.path)
+	return atomicfile.Write(m.path, b, 0600)
 }
 func releaseLabel(r core.Release) string {
 	if r.Name != "" {

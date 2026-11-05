@@ -187,11 +187,7 @@ function Recovery() {
     run(async () => {
       if (!file) return;
       if (!(await isEncryptedBackup(file)))
-        throw new Error(
-          t(
-            "Choose a backup downloaded from Ether (an .etherbackup file). Older unencrypted bundles can only be restored from the running console.",
-          ),
-        );
+        throw new Error(t("Choose a backup downloaded from Ether (an .etherbackup file)."));
       await recoveryApi.restoreUpload(file, password, token);
       setPassword("");
     });

@@ -117,7 +117,7 @@ async function upload(
 }
 
 /** Backups leave the server encrypted with a password of at least this length. */
-export const MIN_BACKUP_PASSWORD = 12;
+const MIN_BACKUP_PASSWORD = 12;
 /** Downloads a snapshot encrypted with password (never stored). */
 async function exportBackup(name: string, password: string) {
   const res = await fetch(API_BASE + base + "/backups/export/" + encodeURIComponent(name), {

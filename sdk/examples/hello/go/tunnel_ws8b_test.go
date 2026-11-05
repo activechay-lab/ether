@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/plugins/remote"
+	"github.com/braedonsaunders/ether/internal/plugins/remotetest"
 	hello "github.com/braedonsaunders/ether/sdk/examples/hello/go"
 	sdk "github.com/braedonsaunders/ether/sdk/go"
 	"net/http/httptest"
@@ -20,7 +21,7 @@ import (
 func TestWS8bSDKInterop(t *testing.T) {
 	for _, lang := range []string{"go", "python", "typescript"} {
 		t.Run(lang, func(t *testing.T) {
-			s := remote.NewTunnelServer(remote.TunnelOptions{Auth: remote.StaticCredentials{"testcred": "org.ether.examples.hello"}, PingInterval: 50 * time.Millisecond})
+			s := remote.NewTunnelServer(remote.TunnelOptions{Auth: remotetest.Credentials{"testcred": "org.ether.examples.hello"}, PingInterval: 50 * time.Millisecond})
 			defer s.Close()
 			srv := httptest.NewServer(s.Handler())
 			defer srv.Close()
@@ -91,7 +92,7 @@ m.serve(m.hello_plugin, mode='tunnel', tunnel_url=sys.argv[2], credential='testc
 }
 
 func TestWS8bGoSidecarReportsDisconnect(t *testing.T) {
-	s := remote.NewTunnelServer(remote.TunnelOptions{Auth: remote.StaticCredentials{"testcred": "org.ether.examples.hello"}})
+	s := remote.NewTunnelServer(remote.TunnelOptions{Auth: remotetest.Credentials{"testcred": "org.ether.examples.hello"}})
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
 	t.Cleanup(func() { _ = s.Close() })

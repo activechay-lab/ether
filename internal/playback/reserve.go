@@ -67,7 +67,6 @@ type standbyState struct {
 	ready    *generation
 	consumed chan struct{}
 	prepared chan struct{}
-	elapsed  time.Duration
 }
 
 // Source-cache reserve, independent of the player's own buffering policy. All
@@ -290,7 +289,6 @@ func (m *Manager) prepareSpeedAlternate(g *generation) {
 		}
 		d.mu.Lock()
 		d.ready = prepared
-		d.elapsed = time.Since(started)
 		d.mu.Unlock()
 		notify()
 		m.log.Info("playback alternate prepared", "session", s.id, "release", prepared.releaseID(), "took", time.Since(started))

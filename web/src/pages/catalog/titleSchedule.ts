@@ -17,7 +17,7 @@ export interface ScheduleEpisode {
   finale?: boolean;
 }
 
-export interface ScheduleSeason {
+interface ScheduleSeason {
   season: number;
   title: string;
   overview?: string;

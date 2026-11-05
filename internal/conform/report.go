@@ -3,6 +3,7 @@ package conform
 import (
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -67,7 +68,7 @@ func Summarize(r Report) []EndpointSummary {
 			agg[k] = ps
 			order = append(order, k)
 		}
-		if d.Client != "" && !containsString(ps.Clients, d.Client) {
+		if d.Client != "" && !slices.Contains(ps.Clients, d.Client) {
 			ps.Clients = append(ps.Clients, d.Client)
 		}
 		if d.Count > ps.Count {
@@ -121,15 +122,6 @@ func str(v any) string {
 		return ""
 	}
 	return fmt.Sprint(v)
-}
-
-func containsString(xs []string, x string) bool {
-	for _, v := range xs {
-		if v == x {
-			return true
-		}
-	}
-	return false
 }
 
 // WriteSummary prints, per endpoint, the missing and extra attributes or

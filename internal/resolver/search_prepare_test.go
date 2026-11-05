@@ -293,3 +293,69 @@ func TestSameNameTorrentsWithDifferentHashesAreCheckedSeparately(t *testing.T) {
 		t.Fatalf("want the cached copy without waiting for the slow indexer: %v %v", result, err)
 	}
 }
+
+// grabCountingIndexer streams its whole answer at once and counts NZB grabs.
+type grabCountingIndexer struct {
+	fakeIndexer
+	grabs atomic.Int32
+}
+
+func (g *grabCountingIndexer) SearchWith(ctx context.Context, req core.SearchRequest, arrived func([]core.Release)) ([]core.Release, error) {
+	res, err := g.Search(ctx, req)
+	arrived(res)
+	return res, err
+}
+
+func (g *grabCountingIndexer) FetchNZB(ctx context.Context, r core.Release) ([]byte, error) {
+	g.grabs.Add(1)
+	return []byte("nzb:" + r.ID), nil
+}
+
+type slowHealth struct{ cost time.Duration }
+
+func (h slowHealth) Check(ctx context.Context, nzb []byte) (bool, error) {
+	select {
+	case <-time.After(h.cost):
+		return true, nil
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+}
+
+// Every Usenet health check downloads an NZB, one of the indexer's daily
+// grabs. With several equivalent releases on offer, a healthy title that
+// checks within the hedge delay costs exactly one grab, through early
+// checks and ranked validation alike; a slow check gets one hedge.
+func TestHealthyTitleCostsOneGrab(t *testing.T) {
+	for _, tc := range []struct {
+		cost  time.Duration
+		grabs int32
+	}{
+		{time.Second, 1},
+		// Slower than the hedge delay but inside the lead's grace: exactly
+		// at rankedSourceGrace the check finishing and the stall timer tie
+		// at one fake instant, and a stalled lead may add a third check.
+		{rankedSourceGrace - 100*time.Millisecond, 2},
+	} {
+		synctest.Test(t, func(t *testing.T) {
+			var releases []core.Release
+			for i := range 6 {
+				releases = append(releases, rel(fmt.Sprint("r", i), fmt.Sprintf("The.Signal.1999.1080p.BluRay.x264-GRP%d", i), 8000-int64(i)))
+			}
+			idx := &grabCountingIndexer{fakeIndexer: fakeIndexer{releases: releases}}
+			s := New(idx, slowHealth{cost: tc.cost}, nil, testCfg(), Options{})
+			defer s.Close()
+			start := time.Now()
+			res, err := s.Resolve(t.Context(), core.ResolveRequest{Title: matrixTitle(), Client: webCaps()})
+			if err != nil || res == nil {
+				t.Fatal(err)
+			}
+			if got := idx.grabs.Load(); got != tc.grabs {
+				t.Fatalf("check taking %s: %d grabs, want %d", tc.cost, got, tc.grabs)
+			}
+			if elapsed := time.Since(start); elapsed > tc.cost+discoveryWindow {
+				t.Fatalf("check taking %s resolved in %s", tc.cost, elapsed)
+			}
+		})
+	}
+}

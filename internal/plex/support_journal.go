@@ -22,6 +22,9 @@ func supportDocumentPath(path string) bool {
 			return false
 		}
 	}
+	if path == liveProviderPath+"/grid" || strings.HasPrefix(path, liveProviderPath+"/metadata/") || path == liveProviderPath+"/lineups/dvr/channels" {
+		return true
+	}
 	for _, prefix := range []string{"/hubs", "/library/sections", "/library/metadata", "/library/ondeck", "/playlists", "/search", "/media/providers"} {
 		if strings.HasPrefix(p, prefix) {
 			return true

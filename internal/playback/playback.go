@@ -283,7 +283,6 @@ type Manager struct {
 	sharedMu sync.Mutex
 	shared   map[string]*sharedHold
 
-	ln      net.Listener
 	srv     *http.Server
 	baseURL string
 
@@ -472,7 +471,6 @@ func New(deps Deps, cfg config.Config, opts Options) (*Manager, error) {
 		m.titleInval.Close()
 		return nil, fmt.Errorf("playback: loopback listen: %w", err)
 	}
-	m.ln = ln
 	m.baseURL = "http://" + ln.Addr().String()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/src/{session}/{token}", m.serveLoopback)

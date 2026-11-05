@@ -3,7 +3,7 @@ import { newId } from "../../lib/api";
 import { textOf, type Descriptor, type ExtendText } from "../../lib/extend";
 
 /** Mirrors internal/extend.SettingsOption. */
-export interface SettingsOption {
+interface SettingsOption {
   value: string;
   label: ExtendText;
 }
@@ -34,14 +34,14 @@ export interface ChannelKindMeta {
 }
 
 /** Mirrors internal/extend.EventKindMeta. */
-export interface EventKindMeta {
+interface EventKindMeta {
   automatic?: boolean;
   critical?: boolean;
   channelKinds?: string[];
 }
 
-export type ChannelKindDescriptor = Descriptor<ChannelKindMeta>;
-export type EventKindDescriptor = Descriptor<EventKindMeta>;
+type ChannelKindDescriptor = Descriptor<ChannelKindMeta>;
+type EventKindDescriptor = Descriptor<EventKindMeta>;
 
 export type Channel = {
   id: string;

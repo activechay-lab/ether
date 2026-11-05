@@ -5,13 +5,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/coder/websocket"
@@ -121,11 +120,7 @@ func TestPlaybackControlIsSessionBoundAndRelaysCommands(t *testing.T) {
 	if ticketResponse.Code != http.StatusOK || !strings.Contains(ticketResponse.Body.String(), `"protocol":"silo.playback-control.v2"`) {
 		t.Fatalf("ticket: %d %s", ticketResponse.Code, ticketResponse.Body.String())
 	}
-	if data, e := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", ""); e == nil {
-		doc, e := openapi.Parse(data)
-		if e != nil {
-			t.Fatal(e)
-		}
+	if doc := spectest.Document(t, "silo"); doc != nil {
 		for _, check := range []struct {
 			method, path string
 			response     *httptest.ResponseRecorder
@@ -133,12 +128,10 @@ func TestPlaybackControlIsSessionBoundAndRelaysCommands(t *testing.T) {
 			{"GET", "/api/v2/playback/sessions/control/capabilities", capResponse},
 			{"POST", "/api/v2/playback/sessions/" + id + "/control/ws-ticket", ticketResponse},
 		} {
-			if e = doc.Validate(check.method, check.path, check.response.Code, check.response.Header().Get("Content-Type"), check.response.Body.Bytes()); e != nil {
+			if e := doc.Validate(check.method, check.path, check.response.Code, check.response.Header().Get("Content-Type"), check.response.Body.Bytes()); e != nil {
 				t.Errorf("%s spec: %v", check.path, e)
 			}
 		}
-	} else if !os.IsNotExist(e) {
-		t.Fatal(e)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

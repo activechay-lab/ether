@@ -1,3 +1,4 @@
+import { copyText } from "../../../components/CopyButton";
 import { Badge, Button, Switch, cn, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
 import { Check, ChevronRight, Copy, RefreshCw, Undo2 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
@@ -339,8 +340,7 @@ function RawLog({ pluginId, liveLogLines }: { pluginId: string; liveLogLines: st
               size="sm"
               disabled={!all.length}
               onClick={() => {
-                void navigator.clipboard?.writeText(all.join("\n")).catch(() => undefined);
-                setCopied(true);
+                void copyText(all.join("\n")).then(setCopied);
                 setTimeout(() => setCopied(false), 1500);
               }}
             >

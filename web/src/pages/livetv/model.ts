@@ -57,6 +57,8 @@ export type Channel = {
   logo?: string;
   sourceId?: string;
   guideId?: string;
+  /** The provider's own tvg-name label; a hint for guide matching, not a key. */
+  tvgName?: string;
   /** The source whose XMLTV guide feeds this channel (blank: its own source). */
   guideSourceId?: string;
   streamUrl?: string;
@@ -85,6 +87,33 @@ export type Channel = {
   marathonKey?: number;
   /** IANA zone. Empty means block times are UTC, every day, as older channels stored them. */
   timezone?: string;
+};
+/** The lineup identity the paged console API returns; no stream or programme payload. */
+export type ChannelSummary = Omit<Channel, "epoch" | "seed" | "shuffle" | "items"> &
+  Partial<Pick<Channel, "epoch" | "seed" | "shuffle" | "items">>;
+export type ChannelCounts = {
+  all: number;
+  live: number;
+  favorites: number;
+  virtual: number;
+  iptv: number;
+  off: number;
+  missing: number;
+};
+export type ChannelGroup = {
+  key: string;
+  sourceId?: string;
+  kind: "virtual" | "iptv";
+  count: number;
+  start: number;
+};
+export type ChannelPage = {
+  channels: Channel[];
+  total: number;
+  counts: ChannelCounts;
+  groups: ChannelGroup[];
+  coverage: Record<string, boolean>;
+  nextNumber: string;
 };
 export type StreamSource = {
   id: string;
@@ -181,6 +210,8 @@ export type Source = {
   channelCount?: number;
   guideChannelCount?: number;
   programmeCount?: number;
+  /** VOD entries the last playlist import left out. */
+  skippedVod?: number;
   guideFrom?: string;
   guideUntil?: string;
   lastError?: string;
@@ -208,6 +239,18 @@ export type SourceDraft = {
   auth?: SourceAuth;
 } & GroupRules &
   SourceLimitRules;
+/** Live progress of a manual import, polled while the save request runs. */
+export type SourceProgress = {
+  phase: "starting" | "playlist" | "guide" | "saving" | string;
+  read: number;
+  total?: number;
+  channels?: number;
+  programmes?: number;
+  savedChannels?: number;
+  savedProgrammes?: number;
+  started: string;
+  updated: string;
+};
 export type Programme = { id: string; channelId: string; start: string; end: string; item: Item };
 export function plexLineupName(title: string): string {
   return title.replace(/\s*\([\d,]+\s+channels?\)$/i, "").trim();
@@ -235,11 +278,14 @@ export type MatchChange = {
   guideId: string;
   guideName: string;
   method?: "id" | "name" | "alias";
+  reviewRegion?: boolean;
 };
 export type MatchResult = {
   matched: number;
   unmatched: number;
   skipped?: number;
+  ambiguous?: number;
+  regionRejected?: number;
   changes: MatchChange[] | null;
 };
 
@@ -296,6 +342,8 @@ export type LiveUsage = {
     gapSeconds: number;
   }[];
 };
+export const CHANNELS_PER_PAGE = 200;
+
 export const tv = {
   usage: async (signal?: AbortSignal): Promise<LiveUsage> => {
     const u = await apiFetch<Partial<LiveUsage> | null>("/livetv/usage", { signal });
@@ -311,12 +359,31 @@ export const tv = {
       `/livetv/plex-guide/lineups?country=${enc(country)}&postalCode=${enc(postalCode)}`,
     ),
   channels: (signal?: AbortSignal) => apiFetch<Channel[]>("/livetv/channels", { signal }),
+  channelPage: (
+    q: { offset?: number; limit?: number; q?: string; filter?: string; source?: string },
+    signal?: AbortSignal,
+  ) => {
+    const p = new URLSearchParams();
+    p.set("offset", String(q.offset ?? 0));
+    p.set("limit", String(q.limit ?? CHANNELS_PER_PAGE));
+    if (q.q?.trim()) p.set("q", q.q.trim());
+    if (q.filter) p.set("filter", q.filter);
+    if (q.source) p.set("source", q.source);
+    return apiFetch<ChannelPage>(`/livetv/channels/page?${p}`, { signal });
+  },
+  channel: (id: string, signal?: AbortSignal) =>
+    apiFetch<Channel>(`/livetv/channels/${enc(id)}`, { signal }),
+  channelSummaries: (signal?: AbortSignal) =>
+    apiFetch<ChannelSummary[]>("/livetv/channels/summary", { signal }),
   sources: (signal?: AbortSignal) => apiFetch<Source[]>("/livetv/sources", { signal }),
-  guide: (from: Date, until: Date, signal?: AbortSignal) =>
-    apiFetch<Programme[]>(
-      `/livetv/guide?from=${enc(from.toISOString())}&until=${enc(until.toISOString())}`,
-      { signal },
-    ),
+  guide: (from: Date, until: Date, channels?: string[], signal?: AbortSignal) => {
+    const p = new URLSearchParams({
+      from: from.toISOString(),
+      until: until.toISOString(),
+    });
+    if (channels?.length) p.set("channels", channels.join(","));
+    return apiFetch<Programme[]>(`/livetv/guide?${p}`, { signal });
+  },
   updateChannels: (
     ids: string[],
     patch: { enabled?: boolean; favorite?: boolean; group?: string },
@@ -351,11 +418,18 @@ export const tv = {
     const suffix = q.size ? `?${q}` : "";
     return apiFetch<Programme[]>(`/livetv/preview${suffix}`, { ...json("POST", c), signal });
   },
-  saveSource: (s: SourceDraft, pending = false) =>
-    apiFetch<Source>(
-      `/livetv/sources${s.id ? `/${enc(s.id)}` : ""}${pending ? "?pending=1" : ""}`,
+  saveSource: (s: SourceDraft, pending = false, progress = "") => {
+    const q = new URLSearchParams();
+    if (pending) q.set("pending", "1");
+    if (progress) q.set("progress", progress);
+    const suffix = q.size ? `?${q}` : "";
+    return apiFetch<Source>(
+      `/livetv/sources${s.id ? `/${enc(s.id)}` : ""}${suffix}`,
       json(s.id ? "PUT" : "POST", s),
-    ),
+    );
+  },
+  sourceProgress: (id: string) =>
+    apiFetch<SourceProgress | null>(`/livetv/sources/progress/${enc(id)}`),
   uploadSource: (id: string, part: "playlist" | "guide", file: File) =>
     apiFetch<Source>(`/livetv/sources/${enc(id)}/${part}`, {
       method: "POST",

@@ -2,6 +2,7 @@ package silo
 
 import (
 	"errors"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/paging"
 	"net/http"
 	"strconv"
 
@@ -21,15 +22,15 @@ func (i *instance) similar(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit := 20
 	if raw := q.Get("limit"); raw != "" {
-		limit, err = strconv.Atoi(raw)
-		if err != nil || limit < 1 || limit > 50 {
+		limit, err = paging.ParseLimit(raw, limit, 50)
+		if err != nil {
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return
 		}
 	}
 	offset := 0
 	if raw := q.Get("cursor"); raw != "" {
-		offset, err = strconv.Atoi(raw)
+		offset, err = paging.ParseOffset(raw, limit)
 		if err != nil || offset < 0 {
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return

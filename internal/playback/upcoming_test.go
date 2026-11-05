@@ -22,7 +22,7 @@ func TestFutureTitleNeverReachesResolver(t *testing.T) {
 	if calls != 0 {
 		t.Fatalf("resolver called %d times", calls)
 	}
-	if h.m.PreResolve(context.Background(), owner, movieKey, defaultCaps("future-warm")) {
+	if h.m.Prewarm(context.Background(), owner, movieKey, defaultCaps("future-warm"), core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		h.m.mu.Lock()
 		e := h.m.warm[identity{userID: owner.ID, clientID: "future-warm", key: movieKey}]
 		h.m.mu.Unlock()

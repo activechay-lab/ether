@@ -20,7 +20,7 @@ import {
 } from "./titleSchedule";
 
 /** Aired, airing today, upcoming, or not yet dated — judged in the browser's day. */
-export type EpisodeState = "aired" | "today" | "upcoming" | "unannounced";
+type EpisodeState = "aired" | "today" | "upcoming" | "unannounced";
 
 export function episodeState(e: Pick<ScheduleEpisode, "airDate">, today: string): EpisodeState {
   if (!e.airDate) return "unannounced";
@@ -36,7 +36,7 @@ export function airLabel(date: string | undefined, today: string): string {
   return shortDate(date, today);
 }
 
-export function StateBadge({ state }: { state: EpisodeState }) {
+function StateBadge({ state }: { state: EpisodeState }) {
   if (state === "today") return <Badge variant="success">{t("Airs today")}</Badge>;
   if (state === "upcoming") return <Badge variant="secondary">{t("Upcoming")}</Badge>;
   if (state === "unannounced") return <Badge variant="outline">{t("Date not announced")}</Badge>;

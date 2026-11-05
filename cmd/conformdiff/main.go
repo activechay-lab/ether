@@ -528,9 +528,7 @@ func compareRedacted(p pmsconform.Protocol, request pmsconform.Request, referenc
 	}
 	return report
 }
-func fixtureName(profile, path string, jsonMode bool) string {
-	return pmsconform.FixtureName(profile, path, jsonMode)
-}
+
 func formatName(jsonMode bool) string {
 	if jsonMode {
 		return "json"

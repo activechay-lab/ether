@@ -690,8 +690,8 @@ function Placements({ detail, onClose }: { detail: PluginDetail; onClose: () => 
   // One chip per surface; a plugin with many catalogues still reads as one.
   const chips = new Map<string, { label: string; href: string }>();
   for (const p of placements) {
-    if (p.area === t("Console")) continue;
-    const label = p.area === t("Plugin page") ? p.label : p.area;
+    if (p.kind === "console") continue;
+    const label = p.kind === "page" ? p.label : p.area;
     if (!chips.has(label)) chips.set(label, { label, href: p.href });
   }
   if (collections > 0) {

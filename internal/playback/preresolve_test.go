@@ -16,10 +16,10 @@ func TestPreResolveReusedWithoutLiveSessionOrHistory(t *testing.T) {
 	h.resolver.delay = 200 * time.Millisecond
 	h.resolver.mu.Unlock()
 	caps := defaultCaps("client")
-	if !h.m.PreResolve(context.Background(), owner, movieKey, caps) {
+	if !h.m.Prewarm(context.Background(), owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("first warm skipped")
 	}
-	if h.m.PreResolve(context.Background(), owner, movie2, caps) {
+	if h.m.Prewarm(context.Background(), owner, movie2, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("per-user budget ignored")
 	}
 	h.m.mu.Lock()
@@ -71,7 +71,7 @@ func TestSurfaceVersionUsesMatchingWarmProbe(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("r1", 2<<30, 90*time.Minute)}, []string{"r1"})
 	caps := defaultCaps("client")
 	caps.Protocol = "jellyfin"
-	if !h.m.PreResolve(context.Background(), owner, movieKey, caps) {
+	if !h.m.Prewarm(context.Background(), owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("warm skipped")
 	}
 	h.m.mu.Lock()
@@ -132,7 +132,7 @@ func TestCachePolicyCanDisableSpeculation(t *testing.T) {
 				cfg.Cache.DisableSpeculation = true
 			}
 			h.m.SetConfig(cfg)
-			if h.m.PreResolve(context.Background(), owner, movieKey, defaultCaps("client")) {
+			if h.m.Prewarm(context.Background(), owner, movieKey, defaultCaps("client"), core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 				t.Fatal("disabled warm was admitted")
 			}
 			h.resolver.mu.Lock()
@@ -167,7 +167,7 @@ func TestPrewarmRejectsMissingOpeningButNotTransientFailure(t *testing.T) {
 			h := newHarness(t, []*fakeRelease{mkv("r1", 2<<30, 90*time.Minute)}, []string{"r1"})
 			engine := &openingPrefetchFailure{Engine: h.engine, err: failure, finished: make(chan context.Context, 1)}
 			h.m.deps.Engine = engine
-			if !h.m.PreResolve(context.Background(), owner, movieKey, defaultCaps("client")) {
+			if !h.m.Prewarm(context.Background(), owner, movieKey, defaultCaps("client"), core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 				t.Fatal("warm skipped")
 			}
 			select {
@@ -213,7 +213,7 @@ func TestPrepareDoesNotWaitForUsenetOpeningPrefetch(t *testing.T) {
 	hold := make(chan struct{})
 	h.m.deps.Engine = &holdPrefetch{Engine: h.engine, hold: hold}
 	t.Cleanup(func() { close(hold) })
-	if !h.m.PreResolve(context.Background(), owner, movieKey, defaultCaps("client")) {
+	if !h.m.Prewarm(context.Background(), owner, movieKey, defaultCaps("client"), core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("warm skipped")
 	}
 	h.m.mu.Lock()

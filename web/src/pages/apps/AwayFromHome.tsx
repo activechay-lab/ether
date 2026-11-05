@@ -60,7 +60,7 @@ export function AwayFromHome() {
       if (err instanceof ApiError && err.fields) {
         const fields = err.fields.map((f) => ({
           field: f.field,
-          message: translatePlexFieldError(f.message),
+          message: translatePlexFieldError(f),
         }));
         setErrors(Object.fromEntries(fields.map((f) => [f.field, f.message])));
         setError(new ApiError(err.status, err.code, err.message, fields));
@@ -94,6 +94,7 @@ export function AwayFromHome() {
   return (
     <SettingsSection title={address.title} description={address.description}>
       <MoreOptions
+        setting={address.id}
         label={t("More options: {title}", { title: address.title ?? "" })}
         text={t("Address and port")}
         hasError={hasError(address.more)}
@@ -101,6 +102,7 @@ export function AwayFromHome() {
         {fields(address.more)}
       </MoreOptions>
       <MoreOptions
+        setting={certificate.id}
         label={t("Use your own certificate")}
         text={t("Use your own certificate")}
         hasError={hasError(certificate.more)}

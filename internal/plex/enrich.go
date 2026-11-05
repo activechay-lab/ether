@@ -229,12 +229,6 @@ func (s *Server) enrich(t *core.Title) *core.Title {
 	return &cp
 }
 
-// showOf returns the cached detail of a season's or episode's show, or nil
-// (scheduling a fetch) when it isn't cached yet.
-func (s *Server) showOf(t *core.Title) *core.Title {
-	return s.showOfOpts(t, false)
-}
-
 func (s *Server) showOfOpts(t *core.Title, storedOnly bool) *core.Title {
 	if s.titles == nil || (t.Type != core.TypeSeason && t.Type != core.TypeEpisode) {
 		return nil

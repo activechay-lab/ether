@@ -237,6 +237,7 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		RTXTimeline:          s.rtxTimeline,
 		AudioGainDB:          s.audioMatch.gain,
 		LiveInput:            s.liveInput,
+		LoopInput:            s.loopInput,
 		InputHeaders:         s.inputHeaders,
 		Input:                s.input,
 		Info:                 s.info,

@@ -115,7 +115,7 @@ export function PlanSkeleton() {
  * Restart Ether from the console: what happens and who is watching first,
  * then the restart followed live until the server is back.
  */
-export function RestartDrawer({
+function RestartDrawer({
   open,
   onClose,
   context,

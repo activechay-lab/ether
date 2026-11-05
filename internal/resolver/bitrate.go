@@ -170,16 +170,6 @@ func (a qualityRank) movedEqual(b qualityRank) bool {
 	return a.movedCodec == b.movedCodec && a.movedAudio == b.movedAudio && a.movedSize == b.movedSize
 }
 
-func (a qualityRank) better(b qualityRank) bool {
-	if a.height != b.height {
-		return a.height > b.height
-	}
-	if a.source != b.source {
-		return a.source > b.source
-	}
-	return a.hdr > b.hdr
-}
-
 func hasDefaultScoreTail(ladder []string) bool {
 	n := len(ladder)
 	return n >= 3 &&

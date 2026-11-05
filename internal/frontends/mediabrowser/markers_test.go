@@ -2,12 +2,11 @@ package mediabrowser
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -30,18 +29,11 @@ func TestMediaSegments(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"Type":"Intro"`) || strings.Contains(w.Body.String(), `"Type":"Outro"`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	if os.IsNotExist(err) {
+	doc := spectest.Document(t, "jellyfin")
+	if doc == nil {
 		return
 	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := openapi.Parse(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
+	if err := doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -528,11 +528,20 @@ describe("Release traces", () => {
       ).toBeInTheDocument();
     }
   });
-  it("normalizes typed and loosely shaped traces", () => {
+  it("normalizes resolver traces using their JSON field names", () => {
     const t = normalizeTraces([
       {
+        titleKey: "movie:438631",
         titleName: "Dune",
-        candidates: [{ name: "Dune.1080p", score: 5, rejected: true, reason: "too big" }],
+        candidates: [
+          {
+            releaseId: "release-1",
+            name: "Dune.1080p",
+            score: 5,
+            rejected: true,
+            reason: "too big",
+          },
+        ],
         err: "no luck",
         pinStatus: "unhealthy: health: unhealthy",
       },
@@ -545,6 +554,7 @@ describe("Release traces", () => {
       pinStatus: "unhealthy: health: unhealthy",
     });
     expect(t[0]!.candidates![0]).toMatchObject({
+      releaseId: "release-1",
       name: "Dune.1080p",
       rejected: true,
       reason: "too big",

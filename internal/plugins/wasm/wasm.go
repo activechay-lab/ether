@@ -87,10 +87,6 @@ type Host interface {
 // HostFunc adapts a function to Host.
 type HostFunc func(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error)
 
-func (f HostFunc) CallHost(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error) {
-	return f(ctx, name, args)
-}
-
 // Default host-call unit costs, in the spirit of appkit-sandbox's priced
 // host functions. Wall time adds 1 unit per WallUnitInterval.
 var DefaultCosts = map[string]int64{

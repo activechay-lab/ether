@@ -1,6 +1,7 @@
 package stremio
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -277,12 +278,6 @@ func guidSuffix(s *stream, req core.SearchRequest, packs bool) string {
 	return ""
 }
 
-// convert turns addon streams into releases with default options (tests,
-// fuzzing).
-func convert(streams []stream, req core.SearchRequest, packs bool) (out []core.Release, skippedNoHash, skippedAmbiguous int) {
-	return convertWith(streams, req, packs, convertOptions{})
-}
-
 // convertOptions carry what conversion needs beyond the streams.
 type convertOptions struct {
 	// origin is the addon's own scheme://host[:port], the one private
@@ -383,7 +378,7 @@ func convertWith(streams []stream, req core.SearchRequest, packs bool, opts conv
 			rel.GUID = "btih:" + hash + guidSuffix(s, req, packs)
 			rel.Protocol = core.ProtocolTorrent
 			rel.InfoHash = hash
-			rel.MagnetURL = newznab.MagnetFor(hash, firstNonEmpty(torrent, name), streamTrackers(s))
+			rel.MagnetURL = newznab.MagnetFor(hash, cmp.Or(torrent, name), streamTrackers(s))
 			if streamURL != "" && !packs {
 				rel.StreamURL, rel.StreamHeaders, rel.StreamOrigin = streamURL, s.requestHeaders(), opts.origin
 			}
@@ -454,23 +449,7 @@ func streamHash(s *stream) (hash string, ambiguous bool) {
 
 // magnetValues parses a magnet URI's query, tolerating unescaped junk in
 // other parameters (same tolerance as newznab.InfoHashFromMagnet).
-func magnetValues(magnet string) url.Values {
-	q := magnet[strings.IndexByte(magnet, ':')+1:]
-	q = strings.TrimPrefix(q, "?")
-	values, err := url.ParseQuery(q)
-	if err != nil {
-		values = url.Values{}
-		for _, part := range strings.Split(q, "&") {
-			if k, v, ok := strings.Cut(part, "="); ok {
-				if uv, uerr := url.QueryUnescape(v); uerr == nil {
-					v = uv
-				}
-				values.Add(k, v)
-			}
-		}
-	}
-	return values
-}
+func magnetValues(magnet string) url.Values { return newznab.MagnetValues(magnet) }
 
 // hashFromMagnet extracts the v1 info hash from a magnet URI's
 // xt=urn:btih: parameters. ambiguous reports two or more distinct valid
@@ -816,12 +795,7 @@ func parseSize(text string) int64 {
 	if m == nil {
 		return 0
 	}
-	v, err := strconv.ParseFloat(strings.ReplaceAll(m[1], ",", "."), 64)
-	if err != nil || v <= 0 {
-		return 0
-	}
-	shift := map[string]uint{"": 0, "K": 10, "M": 20, "G": 30, "T": 40}[strings.ToUpper(m[2])]
-	return int64(v * float64(uint64(1)<<shift))
+	return releaseparse.ParseSize(m[1] + " " + m[2] + "B")
 }
 
 // streamTrackers returns the announce URLs carried into the generated
@@ -865,15 +839,6 @@ func trackers(sources []string) []string {
 		}
 	}
 	return out
-}
-
-func firstNonEmpty(vs ...string) string {
-	for _, v := range vs {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // hintRe matches a debrid service tag with its availability marker:

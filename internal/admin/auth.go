@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"github.com/braedonsaunders/ether/internal/identity"
 )
 
@@ -22,7 +23,7 @@ func tokenFromRequest(r *http.Request) string {
 		return t
 	}
 	if a := strings.TrimSpace(r.Header.Get("Authorization")); a != "" {
-		if rest, ok := strings.CutPrefix(a, "Bearer "); ok {
+		if rest, ok := authhdr.Bearer(a); ok {
 			return strings.TrimSpace(rest)
 		}
 	}

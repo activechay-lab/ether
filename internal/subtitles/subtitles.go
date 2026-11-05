@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/atomicfile"
 	"io"
 	"log/slog"
 	"math"
@@ -41,6 +42,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/flight"
 	"github.com/braedonsaunders/ether/internal/langtag"
 	"github.com/braedonsaunders/ether/internal/retryafter"
+	"github.com/braedonsaunders/ether/internal/textclip"
 )
 
 // URLPrefix prefixes the ExternalURL of sidecar streams from this package.
@@ -354,7 +356,18 @@ func (s *Service) SearchWithHash(ctx context.Context, title *core.Title, lang, r
 		}
 		q.Set("moviehash", movieHash)
 	}
-	u := s.base + "/subtitles?" + q.Encode()
+	cacheKey := q.Encode()
+	s.mu.Lock()
+	until, missed := s.negative[cacheKey]
+	if missed && !s.now().Before(until) {
+		delete(s.negative, cacheKey)
+		missed = false
+	}
+	s.mu.Unlock()
+	if missed {
+		return nil, nil
+	}
+	u := s.base + "/subtitles?" + cacheKey
 	resp, err := s.send(ctx, func() (*http.Request, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		if err != nil {
@@ -393,6 +406,27 @@ func (s *Service) SearchWithHash(ctx context.Context, title *core.Title, lang, r
 			Uploader: a.Uploader.Name, UploaderRank: a.Uploader.Rank,
 			HearingImp: a.HearingImp, AITranslated: a.AITranslated, Forced: a.ForeignOnly && !a.HearingImp,
 		})
+	}
+	if len(out) == 0 && ctx.Err() == nil {
+		s.mu.Lock()
+		now := s.now()
+		for key, until := range s.negative {
+			if !now.Before(until) {
+				delete(s.negative, key)
+			}
+		}
+		if len(s.negative) >= 4096 {
+			var oldest string
+			var expiry time.Time
+			for key, until := range s.negative {
+				if oldest == "" || until.Before(expiry) {
+					oldest, expiry = key, until
+				}
+			}
+			delete(s.negative, oldest)
+		}
+		s.negative[cacheKey] = now.Add(s.negTTL)
+		s.mu.Unlock()
 	}
 	Rank(out, releaseName)
 	return out, nil
@@ -718,11 +752,6 @@ done:
 	return languageRank, styleRank, true
 }
 
-// unzipSubtitle is retained for callers without candidate style metadata.
-func unzipSubtitle(raw []byte, lang string) ([]byte, error) {
-	return unzipSubtitleCandidate(raw, Candidate{Language: lang})
-}
-
 // unzipSubtitleCandidate chooses only entries compatible with known filename
 // labels, preferring explicit language and style matches before cue count.
 // Expansion and parsing are bounded even when an entry is corrupt.
@@ -957,8 +986,7 @@ func firstPrefs(prefs []Preferences) Preferences {
 	return Preferences{}
 }
 
-// prefSig identifies a preference set for the negative cache, so a
-// "nothing found" for one mode/style never blocks another.
+// prefSig identifies the selection preferences stored for a subtitle.
 func prefSig(p Preferences) string { return p.Mode + "/" + p.Style }
 
 // selectionSatisfies reports whether a persisted selection may serve as
@@ -992,48 +1020,6 @@ func missingForPreferences(user *core.User, embedded []core.StreamInfo, p Prefer
 		}
 	}
 	return MissingLanguages(user, suitable)
-}
-
-// candidatesForFetch applies Preferences to ranked candidates: forced-only
-// requires a real forced track (never a full or HI track), style sdh/forced
-// prefers matching tracks via a stable partition that keeps Rank order
-// inside each group. The input slice is not mutated.
-func candidatesForFetch(cands []Candidate, p Preferences) []Candidate {
-	if p.Mode == "forced-only" {
-		out := make([]Candidate, 0, len(cands))
-		for _, c := range cands {
-			if c.Forced {
-				out = append(out, c)
-			}
-		}
-		if len(out) == 0 {
-			return nil
-		}
-		cands = out
-	}
-	var match func(Candidate) bool
-	switch p.Style {
-	case "sdh":
-		match = func(c Candidate) bool { return c.HearingImp }
-	case "forced":
-		match = func(c Candidate) bool { return c.Forced }
-	case "normal":
-		match = func(c Candidate) bool { return !c.Forced && !c.HearingImp }
-	default:
-		return cands
-	}
-	out := make([]Candidate, 0, len(cands))
-	for _, c := range cands {
-		if match(c) {
-			out = append(out, c)
-		}
-	}
-	for _, c := range cands {
-		if !match(c) {
-			out = append(out, c)
-		}
-	}
-	return out
 }
 
 // Sidecars returns external subtitle streams already cached for the
@@ -1102,45 +1088,8 @@ func (s *Service) loadSelection(title *core.Title, lang, release string, prefs .
 	return sel, true
 }
 
-func (s *Service) saveSelection(title *core.Title, lang, release string, sel selection, prefs ...Preferences) {
-	if s.dir == "" {
-		return
-	}
-	p := s.indexPath(title, lang, release, prefs...)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		s.log.Debug("subtitle index dir", "err", err)
-		return
-	}
-	b, _ := json.Marshal(sel)
-	if err := writeFileAtomic(p, b); err != nil {
-		s.log.Debug("subtitle index write", "err", err)
-	}
-}
-
 func writeFileAtomic(path string, data []byte) error {
-	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
-func negKey(title *core.Title, lang, release string, p Preferences) string {
-	return fmt.Sprintf("%d|%s|%s|%s", int64(title.Key), lang, releaseSig(release), prefSig(p))
+	return atomicfile.Write(path, data, 0600)
 }
 
 func sidecarTitle(lang, release string) string {
@@ -1287,7 +1236,7 @@ func (s *Service) OpenFormatFrom(id, format, source string) (io.ReadCloser, stri
 
 func truncate(s string, n int) string {
 	if len(s) > n {
-		return s[:n] + "…"
+		return textclip.Bytes(s, n) + "…"
 	}
 	return s
 }

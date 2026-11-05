@@ -176,7 +176,6 @@ export function UsenetProviders({
     if (!addNonce || !cfg || seenAdd.current === addNonce) return;
     seenAdd.current = addNonce;
     open(providers.length, blankProvider(providers.length));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addNonce, cfg, providers.length]);
   const close = () => {
     if (!saving) setEditing(null);

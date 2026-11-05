@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -193,7 +194,7 @@ func readTools(d Deps) []tools.Tool {
 						cands = append(cands, map[string]any{
 							"releaseId": c.ReleaseID, "name": truncate(c.Name, 300),
 							"indexer": c.Indexer, "score": c.Score, "size": c.Size, "height": c.Height,
-							"rejected": c.Rejected, "reason": truncate(firstNonEmpty(c.Reason, c.CompatibilityReason), 300),
+							"rejected": c.Rejected, "reason": truncate(cmp.Or(c.Reason, c.CompatibilityReason), 300),
 							"route": truncate(c.Route, 200), "attempted": c.Attempted,
 							"healthChecked": c.HealthChecked, "healthy": c.Healthy,
 							"pinned": c.Pinned, "winner": c.ReleaseID != "" && c.ReleaseID == rec.ReleaseID,
@@ -730,13 +731,4 @@ func merge(maps ...map[string]any) map[string]any {
 		}
 	}
 	return out
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }

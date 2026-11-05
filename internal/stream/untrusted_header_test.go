@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -46,5 +47,23 @@ func TestLearnIgnoresAbsurdPartTotal(t *testing.T) {
 	pf.learn(1, 100, 200, 350, 2000)
 	if n := pf.numSlots(); n != 4 {
 		t.Fatalf("slots = %d after a compounding total, want 4", n)
+	}
+}
+
+type retryOwningFetcher struct{ *fakeFetcher }
+
+func (*retryOwningFetcher) OwnsArticleRetries() {}
+
+func TestFetcherRetryBudgetIsNotMultiplied(t *testing.T) {
+	f := newFakeFetcher()
+	f.failures["a"] = 100
+	e := newTestEngine(t, &retryOwningFetcher{f}, nil, Options{Retries: 2})
+	pf := twoPartFile()
+	_, _, err := e.load(context.Background(), pf, 0, "a", 0, core.PriorityLive, fetchOpts{})
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	if got := f.bodyCalls["a"]; got != 1 {
+		t.Fatalf("fetch calls = %d, want 1", got)
 	}
 }

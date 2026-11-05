@@ -14,7 +14,7 @@ import { t } from "../../i18n";
 import { ApiError, apiFetch, errorMessage } from "../../lib/api";
 import { invalidateRegistry } from "../../lib/extend";
 import { MenuItem } from "./MenuItem";
-import type { StudioProject } from "./develop/types";
+import type { StudioProject } from "./studio-types";
 
 interface InstalledState {
   id: string;

@@ -304,13 +304,6 @@ func encodeNotification(nc model.NotificationContainer) (notification, bool) {
 	return newNotification(nc.Type, data), true
 }
 
-// publish delivers to every interested subscriber, dropping for slow ones.
-func (n *notifier) publish(nc model.NotificationContainer, userID int64) {
-	if msg, ok := encodeNotification(nc); ok {
-		n.deliver(msg, userID)
-	}
-}
-
 // deliver hands an encoded notification to every interested subscriber.
 func (n *notifier) deliver(msg notification, userID int64) {
 	n.mu.Lock()

@@ -1,7 +1,7 @@
 import { useCallback, useReducer } from "react";
 
 /** Undo/redo history. Rapid edits sharing a coalesce key fold into one step. */
-export interface HistoryState<T> {
+interface HistoryState<T> {
   past: T[];
   present: T;
   future: T[];
@@ -9,13 +9,13 @@ export interface HistoryState<T> {
   lastAt: number;
 }
 
-export type HistoryAction<T> =
+type HistoryAction<T> =
   | { type: "set"; value: T; key?: string; at: number }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "reset"; value: T };
 
-export const HISTORY_LIMIT = 100;
+const HISTORY_LIMIT = 100;
 export const COALESCE_MS = 800;
 
 export function initHistory<T>(value: T): HistoryState<T> {

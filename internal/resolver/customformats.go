@@ -1,15 +1,10 @@
 package resolver
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
-	"path/filepath"
+
 	"strings"
 	"time"
 
@@ -319,83 +314,4 @@ func (s *FormatScorer) ScoreForTitle(r core.Release, overrides map[string]int, o
 		matches = append(matches, FormatMatch{f.def.ID, f.def.Name, score})
 	}
 	return total, matches, nil
-}
-
-// ImportCustomFormats accepts a native single definition or an array, validating
-// before returning. Callers persist the result in config.Resolver.CustomFormats.
-func ImportCustomFormats(data []byte) ([]core.CustomFormat, error) {
-	if len(data) > 8<<20 {
-		return nil, fmt.Errorf("custom formats: input exceeds 8 MiB")
-	}
-	data = bytes.TrimSpace(data)
-	var defs []core.CustomFormat
-	if len(data) > 0 && data[0] == '[' {
-		if err := json.Unmarshal(data, &defs); err != nil {
-			return nil, err
-		}
-	} else {
-		var d core.CustomFormat
-		if err := json.Unmarshal(data, &d); err != nil {
-			return nil, err
-		}
-		defs = []core.CustomFormat{d}
-	}
-	_, err := NewFormatScorer(defs, nil)
-	return defs, err
-}
-
-// FetchFormatJSON conditionally refreshes an owner-selected JSON resource.
-// The last valid download is cached atomically, and remains usable offline.
-func FetchFormatJSON(ctx context.Context, cl *http.Client, rawURL, cachePath string) ([]byte, error) {
-	if cl == nil {
-		cl = &http.Client{Timeout: 20 * time.Second}
-	}
-	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := cl.Do(req)
-	if err != nil {
-		if data, e := os.ReadFile(cachePath); e == nil {
-			return data, nil
-		}
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("custom formats: HTTP %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, (8<<20)+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > 8<<20 {
-		return nil, fmt.Errorf("custom formats: response too large")
-	}
-	if !json.Valid(data) {
-		return nil, fmt.Errorf("custom formats: invalid JSON")
-	}
-	if cachePath != "" {
-		if err = os.MkdirAll(filepath.Dir(cachePath), 0700); err != nil {
-			return nil, err
-		}
-		f, e := os.CreateTemp(filepath.Dir(cachePath), ".formats-*")
-		if e != nil {
-			return nil, e
-		}
-		tmp := f.Name()
-		defer os.Remove(tmp)
-		_, e = f.Write(data)
-		ce := f.Close()
-		if e != nil {
-			return nil, e
-		}
-		if ce != nil {
-			return nil, ce
-		}
-		if e = os.Rename(tmp, cachePath); e != nil {
-			return nil, e
-		}
-	}
-	return data, nil
 }

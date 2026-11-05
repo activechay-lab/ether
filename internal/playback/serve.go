@@ -153,7 +153,7 @@ func (m *Manager) streamClient(ctx context.Context, w io.Writer, s *session, vst
 			// do not wait for its internal retries before replacing it.
 			g.noteReadFailure(core.ErrSourceUnavailable)
 			at = g.timeMapSnapshot().TimeAt(srcpos)
-			_, err := m.failoverWith(ctx, s, g, at, failoverOpts{reason: "media source stalled", markBad: true, strictDirect: true})
+			_, err := m.failoverWith(ctx, s, g, at, failoverOpts{reason: "media source stalled", strictDirect: true})
 			if err != nil && !errors.Is(err, errRequireRemux) && ctx.Err() == nil {
 				m.emitEvent("error", s, err)
 				m.Stop(s.id)
@@ -181,7 +181,7 @@ func (m *Manager) streamClient(ctx context.Context, w io.Writer, s *session, vst
 			}
 			g.noteReadFailure(rerr)
 			at = g.timeMapSnapshot().TimeAt(srcpos)
-			ng, err := m.failoverWith(ctx, s, g, at, failoverOpts{reason: "source read failed during direct play", markBad: true, strictDirect: boundedDirect})
+			ng, err := m.failoverWith(ctx, s, g, at, failoverOpts{reason: "source read failed during direct play", strictDirect: boundedDirect})
 			if errors.Is(err, errRequireRemux) {
 				return errEndResponse
 			}
@@ -246,7 +246,7 @@ func (m *Manager) limitDirectRetryAfter(s *session, g *generation, at, delay tim
 		g.noteReadFailure(core.ErrSourceUnavailable)
 		ctx, cancel := context.WithTimeout(g.ctx, 25*time.Second)
 		defer cancel()
-		_, err := m.failoverWith(ctx, s, g, at, failoverOpts{reason: "media source unavailable", markBad: true, stillNeeded: pending, strictDirect: true})
+		_, err := m.failoverWith(ctx, s, g, at, failoverOpts{reason: "media source unavailable", stillNeeded: pending, strictDirect: true})
 		if err != nil && !errors.Is(err, errRequireRemux) && pending() {
 			m.emitEvent("error", s, err)
 			m.Stop(s.id)
@@ -554,7 +554,6 @@ func (m *Manager) backgroundFailover(s *session, g *generation, at time.Duration
 		if _, err := m.failoverWith(ctx, s, g, at, failoverOpts{
 			reason:         "source read failed while transcoding",
 			preserveBuffer: true,
-			markBad:        true,
 			followPlayer:   true,
 		}); err != nil && ctx.Err() == nil && !errors.Is(err, errRequireRemux) {
 			m.log.Error("background failover failed", "session", s.id, "err", err)

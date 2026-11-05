@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
+
 	"net/http"
 	"strconv"
 	"strings"
@@ -289,14 +289,6 @@ func (s *Service) PolicyInTx(ctx context.Context, tx *sql.Tx, viewerID int64) (P
 		return Policy{}, err
 	}
 	return policy, nil
-}
-func IsRemote(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	ip := net.ParseIP(host)
-	return ip == nil || !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
 }
 
 // Preset is a parental-controls starting point. MaxContentRating belongs on

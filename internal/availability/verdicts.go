@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -276,7 +275,7 @@ func (s *Service) storedVerdicts(ctx context.Context, policy string, titles map[
 	for start := 0; start < len(keys); start += 500 {
 		batch := keys[start:min(start+500, len(keys))]
 		args := append([]any{policy}, batch...)
-		rows, err := s.db.QueryContext(ctx, `SELECT rating_key,release_id,digest,reason FROM availability_verdicts WHERE policy=? AND rating_key IN (`+strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")+`)`, args...)
+		rows, err := s.db.QueryContext(ctx, `SELECT rating_key,release_id,digest,reason FROM availability_verdicts WHERE policy=? AND rating_key IN (`+store.Placeholders(len(batch))+`)`, args...)
 		if err != nil {
 			return out
 		}

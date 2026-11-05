@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
@@ -83,18 +82,11 @@ func TestPlaybackInfoReportsEtherProducedSourcesAsLocal(t *testing.T) {
 				if strings.Contains(w.Body.String(), `"VideoType"`) {
 					t.Fatal("empty media claimed a video file", w.Body.String())
 				}
-				spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", protocol, "")
-				if os.IsNotExist(err) {
+				doc := spectest.Document(t, protocol)
+				if doc == nil {
 					return
 				}
-				if err != nil {
-					t.Fatal(err)
-				}
-				doc, err := openapi.Parse(spec)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if err = doc.Validate("POST", "/Items/"+itemID+"/PlaybackInfo", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
+				if err := doc.Validate("POST", "/Items/"+itemID+"/PlaybackInfo", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 					t.Fatal(err)
 				}
 			})

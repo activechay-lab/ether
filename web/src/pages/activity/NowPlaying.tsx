@@ -1,3 +1,4 @@
+import { formatBitrate } from "../../lib/format";
 import { Badge, Button, EmptyState, Select, toast } from "@braedonsaunders/appkit-ui";
 import {
   ArrowRight,
@@ -34,10 +35,7 @@ const clockOf = (ms: number) => {
 };
 
 /** Mbps, the unit Activity uses everywhere. */
-export const mbpsOf = (bitsPerSecond: number) =>
-  bitsPerSecond > 0
-    ? t("{rate} Mbps", { rate: (bitsPerSecond / 1e6).toFixed(bitsPerSecond >= 1e7 ? 0 : 1) })
-    : "—";
+export const mbpsOf = formatBitrate;
 
 const isTranscoding = (s: Stream) =>
   s.decision === "transcode" || (s.decision === "copy" && !s.audioCopy);
@@ -328,7 +326,7 @@ function StreamRow({ s, stopping, onStop }: { s: Stream; stopping: boolean; onSt
 }
 
 /** Card or list layout for Now Playing, remembered on this browser. */
-export type NowView = "cards" | "list";
+type NowView = "cards" | "list";
 const VIEW_KEY = "ether.activity.nowView";
 /** Watched share, plus the read-ahead buffer when it runs past the playhead. */
 function progressLabel(progress: number, buffered: number) {
@@ -382,7 +380,7 @@ export function ViewSwitch({
 }
 
 /** The protocols of the live streams, for the tab row's filter. */
-export const streamProtocols = (streams: Stream[]) =>
+const streamProtocols = (streams: Stream[]) =>
   [...new Set(streams.map((stream) => stream.protocol))].sort();
 
 /** A protocol filter for Now Playing's tab row, shown once streams differ. */

@@ -2,13 +2,14 @@ package plextv
 
 import (
 	"context"
-	"crypto"
+
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
+
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/atomicfile"
 	"log/slog"
 	"net/http"
 	"os"
@@ -600,16 +601,7 @@ func (m *CertManager) RequireReissue(ctx context.Context) error {
 // file in the same directory renamed over path, so an interrupted write
 // (shutdown, crash, power loss) leaves the old file or the new one.
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	tmp, err := writeTemp(path, data, perm)
-	if err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	syncDir(filepath.Dir(path))
-	return nil
+	return atomicfile.Write(path, data, perm)
 }
 
 // writePairAtomic replaces a key and its certificate. Both are written and
@@ -667,13 +659,7 @@ func writeTemp(path string, data []byte, perm os.FileMode) (string, error) {
 // syncDir makes renames in dir durable (best effort; Windows journals
 // renames and cannot fsync a directory).
 func syncDir(dir string) {
-	if runtime.GOOS == "windows" {
-		return
-	}
-	if d, err := os.Open(dir); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
+	_ = atomicfile.SyncDir(dir)
 }
 
 // removeStaleTemps deletes temp files a crash left mid-write.
@@ -682,25 +668,4 @@ func removeStaleTemps(dir string) {
 	for _, p := range stale {
 		_ = os.Remove(p)
 	}
-}
-
-// keyFromPEM parses a PKCS#8/PKCS#1/EC private key (tests and Install
-// callers holding PEM).
-func keyFromPEM(b []byte) (crypto.Signer, error) {
-	blk, _ := pem.Decode(b)
-	if blk == nil {
-		return nil, errors.New("no PEM key")
-	}
-	if k, err := x509.ParsePKCS8PrivateKey(blk.Bytes); err == nil {
-		if s, ok := k.(crypto.Signer); ok {
-			return s, nil
-		}
-	}
-	if k, err := x509.ParsePKCS1PrivateKey(blk.Bytes); err == nil {
-		return k, nil
-	}
-	if k, err := x509.ParseECPrivateKey(blk.Bytes); err == nil {
-		return k, nil
-	}
-	return nil, errors.New("unsupported private key")
 }

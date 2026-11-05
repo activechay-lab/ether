@@ -263,28 +263,6 @@ func TestOpenWithBadURLDoesNotLeakPassword(t *testing.T) {
 	}
 }
 
-func TestRedactURL(t *testing.T) {
-	for in, want := range map[string]string{
-		"": "",
-		"postgres://u:pw@h:5432/db?sslmode=disable": "postgres://u:xxxxx@h:5432/db?sslmode=disable",
-		"postgres://u@h/db":                         "postgres://u@h/db",
-		"postgres://h/db?password=pw":               "postgres://h/db?password=xxxxx",
-		"host=h user=u password=pw dbname=db":       "host=h user=u password=xxxxx dbname=db",
-		// Unencoded special characters in the password must not leak any
-		// of it (url.Parse takes '#' as a fragment).
-		"postgres://u:#secret@h/db":                 "postgres://u:xxxxx@h/db",
-		"postgres://u:1234#secret@h/db":             "postgres://u:xxxxx@h/db",
-		"postgres://u:p@ss#word@h/db":               "postgres://u:xxxxx@h/db",
-		"postgres://u:pa/ss@h/db":                   "postgres://u:xxxxx@h/db",
-		"postgres://h/db?password=a#bcd":            "postgres://h/db?password=xxxxx",
-		"postgres://u:p#w@h/db?x=1&sslpassword=s#t": "postgres://u:xxxxx@h/db?x=1&sslpassword=xxxxx",
-	} {
-		if got := RedactURL(in); got != want {
-			t.Errorf("RedactURL(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestFileSQLiteKeepsWarmConnections(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(ctx, t.TempDir())

@@ -691,16 +691,14 @@ func (m *Manager) FailoverInput(ctx context.Context, sessionID, inputURL string,
 	return err
 }
 
-// failoverOpts distinguishes a broken-source failover (markBad) from a
-// speed-driven down-failover (down: pick a lower-bitrate candidate, never
-// mark the slow release bad).
+// failoverOpts controls candidate selection and recovery behavior. Permanent
+// source failures are marked bad independently of these options.
 type failoverOpts struct {
 	encoder        bool        // encoder shortage: only accept a video-copy candidate
 	stillNeeded    func() bool // speculative recovery rechecks before publishing a swap
 	quietFailure   bool
 	preserveBuffer bool
 	reason         string
-	markBad        bool
 	down           bool
 	stopOnFailure  bool
 	strictDirect   bool // a different release needs a new direct-play decision
@@ -711,7 +709,7 @@ type failoverOpts struct {
 }
 
 func (m *Manager) failover(ctx context.Context, s *session, observed *generation, at time.Duration, reason string) (*generation, error) {
-	return m.failoverWith(ctx, s, observed, at, failoverOpts{reason: reason, markBad: true})
+	return m.failoverWith(ctx, s, observed, at, failoverOpts{reason: reason})
 }
 
 // failoverWith replaces generation observed. Concurrent callers that
@@ -722,6 +720,11 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 		return nil, err
 	}
 	defer unlock(s.failSem)
+	// lock's select is random when the semaphore frees as ctx is cancelled
+	// (a stopped Live TV session): a cancelled caller opens no provider.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	started := time.Now()
 
 	s.mu.Lock()
@@ -852,6 +855,14 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 		attemptCtx := ctx
 		if copySearchCtx != nil {
 			attemptCtx = copySearchCtx
+		}
+		if ctx.Err() != nil {
+			// The copy-preference retry skips the post-failure check
+			// below; never start another candidate's search or open.
+			if fallbackGen != nil {
+				m.dropGeneration(fallbackGen)
+			}
+			return nil, ctx.Err()
 		}
 		res := prepared
 		prepared = nil

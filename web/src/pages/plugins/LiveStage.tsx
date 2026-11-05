@@ -2,10 +2,10 @@ import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { t } from "../../i18n";
 import { apiFetch } from "../../lib/api";
-import { GuideStrip, MomentView, type GuideChannel, type Moment, type StreamTile } from "./Stage";
+import { MomentView, type GuideChannel, type Moment, type StreamTile } from "./Stage";
 
 /** One SSE chunk of Ether's agent stream (AI SDK UI message stream). */
-export interface AgentChunk {
+interface AgentChunk {
   type: string;
   /** The assistant message (turn) id, on the start chunk. */
   messageId?: string;
@@ -67,7 +67,7 @@ interface Programme {
 }
 
 /** The first channels of a draft's real lineup, with what is on now and next. */
-export async function draftGuide(id: string, limit = 6): Promise<GuideChannel[]> {
+async function draftGuide(id: string, limit = 6): Promise<GuideChannel[]> {
   const r = await runDraft(id, "/ether/channels.json");
   const list = (r.body?.channels as Record<string, unknown>[] | undefined) ?? [];
   const now = Date.now();
@@ -94,7 +94,7 @@ export async function draftGuide(id: string, limit = 6): Promise<GuideChannel[]>
 }
 
 /** Sources a draft finds for a sample catalogue title, as stream tiles. */
-export async function draftSources(id: string): Promise<{ title: string; tiles: StreamTile[] }> {
+async function draftSources(id: string): Promise<{ title: string; tiles: StreamTile[] }> {
   const r = await runDraft(id, `/stream/movie/${SAMPLE_FILM.imdb}.json`, {
     title: SAMPLE_FILM.title,
     year: SAMPLE_FILM.year,
@@ -104,7 +104,7 @@ export async function draftSources(id: string): Promise<{ title: string; tiles: 
     title: `${SAMPLE_FILM.title} (${SAMPLE_FILM.year})`,
     tiles: streams.slice(0, 4).map((s) => {
       const [name, detail] = String(s.title ?? s.name ?? "").split("\n");
-      return { name: name || String(s.name ?? ""), ok: true, ms: r.ms, score: detail };
+      return { name: name || String(s.name ?? ""), score: detail };
     }),
   };
 }
@@ -116,7 +116,7 @@ type CatalogPreview = {
 };
 
 /** The first catalogue an add-on draft answers, as the posters Ether shows. */
-export async function draftCatalog(
+async function draftCatalog(
   id: string,
   manifestText: string | undefined,
 ): Promise<CatalogPreview | null> {
@@ -188,7 +188,6 @@ export function NativePreview({
     return () => {
       live = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reruns on save, not per keystroke
   }, [projectId, template, epoch]);
   if (catalog?.items.length) {
     return (
@@ -231,9 +230,7 @@ export function NativePreview({
  */
 export function LiveStageView({ moments, narration }: { moments: Moment[]; narration: string }) {
   const current = moments[moments.length - 1];
-  const result = [...moments]
-    .reverse()
-    .find((m) => m.kind === "guide" || m.kind === "streams" || m.kind === "found");
+  const result = [...moments].reverse().find((m) => m.kind === "guide" || m.kind === "found");
   const done = moments.slice(0, -1);
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4 px-4 py-6 sm:px-6">
@@ -371,5 +368,3 @@ export async function momentsForTool(
       return [];
   }
 }
-
-export { GuideStrip };

@@ -63,6 +63,7 @@ import {
   type Block,
   policyPermits,
   type Channel,
+  type ChannelSummary,
   type Coverage,
   type LiveTVPolicy,
   type Programme,
@@ -186,7 +187,7 @@ export function ChannelStudio({
   collections: CollectionChoice[];
   now: number;
   onDelete: () => void;
-  onMapGuide: (c: Channel) => Promise<void>;
+  onMapGuide: (c: ChannelSummary) => Promise<void>;
 }) {
   const c = draft.channel;
   const set = (patch: Partial<Channel>) => onChange({ ...draft, channel: { ...c, ...patch } });
@@ -1506,7 +1507,7 @@ function GuideTab({
   coverage?: Coverage;
   sources: Source[];
   now: number;
-  onMap: (c: Channel) => Promise<void>;
+  onMap: (c: ChannelSummary) => Promise<void>;
   isNew: boolean;
 }) {
   const src = sources.find((s) => s.id === (c.guideSourceId || c.sourceId));

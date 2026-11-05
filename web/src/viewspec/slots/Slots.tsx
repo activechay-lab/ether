@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ActionMenu } from "../../components/ActionMenu";
 import { Drawer } from "../../components/Drawer";
-import { SlotAnchor, useSlotXray } from "../../components/SlotXray";
+import { SlotAnchor } from "../../components/SlotXray";
 import { t } from "../../i18n";
 import { apiFetch, errorMessage } from "../../lib/api";
 import { textOf, useRegistry } from "../../lib/extend";
@@ -38,11 +38,9 @@ export function PanelSlots({
   type?: string;
 }) {
   const slots = useSlots(slot);
-  const { enabled } = useSlotXray();
-  const navigate = useNavigate();
-  if (!slots.length && !enabled) return null;
+  if (!slots.length) return null;
   return (
-    <SlotAnchor slot={slot} className="space-y-4" onPickSlot={() => navigate("/plugins/studio")}>
+    <SlotAnchor className="space-y-4">
       {slots.map((d) => {
         const content = (
           <PluginView
@@ -117,7 +115,6 @@ export function PluginActionMenu({
   onRefresh?: () => void;
 }) {
   const slots = useSlots(slot);
-  const { enabled } = useSlotXray();
   const navigate = useNavigate();
   const [proposal, setProposal] = useState<{ plugin: string; value: PluginProposal } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -184,14 +181,10 @@ export function PluginActionMenu({
       label: textOf(d.label),
       onSelect: () => void act(d.owner, d.meta!.action!),
     }));
-  if (!items.length && !entries.length && !enabled && !proposal && !drawer) return null;
+  if (!items.length && !entries.length && !proposal && !drawer) return null;
   return (
     <>
-      <SlotAnchor
-        slot={slot}
-        className="inline-block"
-        onPickSlot={() => navigate("/plugins/studio")}
-      >
+      <SlotAnchor className="inline-block">
         {items.length || entries.length ? (
           <ActionMenu items={[...items, ...entries]} label={label} />
         ) : null}

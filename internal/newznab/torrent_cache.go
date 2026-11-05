@@ -3,6 +3,7 @@ package newznab
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"github.com/braedonsaunders/ether/internal/lru"
 	"sync"
 	"time"
 
@@ -22,7 +23,7 @@ type torrentDescriptor struct {
 
 type torrentDescriptorCache struct {
 	mu      sync.Mutex
-	entries map[[32]byte]torrentDescriptor
+	entries *lru.Cache[[32]byte, torrentDescriptor]
 }
 
 // Include the configuration and download identity, so replacing an indexer or
@@ -39,9 +40,12 @@ func torrentDescriptorKey(cfg config.Indexer, r core.Release) [32]byte {
 func (c *torrentDescriptorCache) get(key [32]byte, now time.Time) (string, string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	e, ok := c.entries[key]
+	if c.entries == nil {
+		return "", "", false
+	}
+	e, ok := c.entries.Get(key)
 	if ok && !now.Before(e.expires) {
-		delete(c.entries, key)
+		c.entries.Remove(key)
 		ok = false
 	}
 	return e.hash, e.magnet, ok
@@ -56,22 +60,7 @@ func (c *torrentDescriptorCache) put(key [32]byte, hash, magnet string, now time
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entries == nil {
-		c.entries = make(map[[32]byte]torrentDescriptor)
+		c.entries = lru.New(lru.Options[[32]byte, torrentDescriptor]{MaxEntries: maxTorrentDescriptors})
 	}
-	if len(c.entries) >= maxTorrentDescriptors {
-		var oldest [32]byte
-		var expiry time.Time
-		for k, e := range c.entries {
-			if !now.Before(e.expires) {
-				delete(c.entries, k)
-			}
-			if expiry.IsZero() || e.expires.Before(expiry) {
-				oldest, expiry = k, e.expires
-			}
-		}
-		if len(c.entries) >= maxTorrentDescriptors {
-			delete(c.entries, oldest)
-		}
-	}
-	c.entries[key] = torrentDescriptor{hash: hash, magnet: magnet, expires: now.Add(torrentDescriptorTTL)}
+	c.entries.Add(key, torrentDescriptor{hash: hash, magnet: magnet, expires: now.Add(torrentDescriptorTTL)})
 }

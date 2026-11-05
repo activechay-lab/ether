@@ -21,7 +21,7 @@ import {
   type LayerKey,
 } from "../../lib/layout";
 
-export function rowTitle(available: AvailableRow[], row: string): string {
+function rowTitle(available: AvailableRow[], row: string): string {
   return available.find((a) => a.hubId === row || a.kind === row)?.title ?? row;
 }
 

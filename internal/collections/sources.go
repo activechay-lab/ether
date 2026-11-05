@@ -299,7 +299,6 @@ func (s *Service) resolveExternal(ctx context.Context, source string, refs []ext
 func (s *Service) resolveExternalDetailed(ctx context.Context, source string, refs []extRef) ([]core.Title, int, int, []string) {
 	type slot struct {
 		key core.RatingKey
-		t   *core.Title
 	}
 	slots := make([]slot, len(refs))
 	var mu sync.Mutex

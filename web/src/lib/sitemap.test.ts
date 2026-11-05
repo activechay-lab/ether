@@ -76,9 +76,9 @@ describe("settings index", () => {
     expect(at("Adapt Home to tonight's browsing")[0]).toMatchObject({ href: "/home" });
   });
 
-  it("names the More options disclosure for hidden settings", () => {
+  it("uses a stable More options disclosure key for hidden settings", () => {
     const hit = settingsIndex().find((s) => s.title === "Minimum popularity");
-    expect(hit?.more).toBe("More options: What's browsable");
+    expect(hit?.more).toBe("browsable");
     expect(settingsIndex().find((s) => s.title === "Port")?.more).toBeUndefined();
   });
 });

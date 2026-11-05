@@ -257,9 +257,6 @@ func andMatch(title, query string, limit int) bool {
 			if j-i >= 2 {
 				words[strings.Join(titleTokens[i:j], "")] = true
 			}
-		} else if len(titleTokens[i]) >= 2 && len(titleTokens[i]) <= 5 {
-			// Also allow an initialism in the title ("la", "mash") to satisfy
-			// split single-letter tokens when query was sanitized from "L.A.".
 		}
 	}
 	qTokens := split(query)

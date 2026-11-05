@@ -437,9 +437,10 @@ func (s *Server) recommendSection(ctx context.Context, pr *Request, t core.Media
 }
 
 // warmBrowseLink opens at most one already-visible playable after the hub
-// response is written: Continue Watching first, else the first movie/episode
-// on screen. It only resolves and opens the cached/debrid link (no opening
-// prefetch), and Prewarm's existing per-user / rate budgets still apply.
+// response is written: the viewer's own Continue Watching / On Deck item,
+// never a recommendation nobody chose. It only resolves and opens the
+// cached/debrid link (no opening prefetch), and Prewarm's existing per-user
+// / rate budgets still apply.
 func (s *Server) warmBrowseLink(ctx context.Context, pr *Request, rows []model.Hub) {
 	if pr == nil || pr.User == nil {
 		return
@@ -455,33 +456,31 @@ func (s *Server) warmBrowseLink(ctx context.Context, pr *Request, rows []model.H
 	pw.Prewarm(store.DetachQueryStats(context.WithoutCancel(ctx)), pr.User, key, s.clientCaps(pr), core.PrewarmOptions{Reason: core.PrewarmBrowse})
 }
 
+// firstBrowseWarmKey is the first movie or episode in a row of the viewer's
+// own progress (Continue Watching, a section's in-progress row or On Deck).
+// Rows of recommendations, trending or anything else are never warmed: each
+// warm-up searches the indexers for a title the viewer may never play.
 func firstBrowseWarmKey(rows []model.Hub) (core.RatingKey, bool) {
-	continueWatching := func(id string) bool {
+	ownProgress := func(id string) bool {
 		id = strings.ToLower(id)
-		return strings.Contains(id, "continue")
+		return strings.Contains(id, "continue") || strings.Contains(id, "inprogress") || strings.Contains(id, "ondeck")
 	}
-	pick := func(onlyContinue bool) (core.RatingKey, bool) {
-		for _, row := range rows {
-			if onlyContinue && !continueWatching(row.HubIdentifier) && !continueWatching(row.Context) {
+	for _, row := range rows {
+		if !ownProgress(row.HubIdentifier) && !ownProgress(row.Context) {
+			continue
+		}
+		for _, md := range row.Metadata {
+			if md.Type != "" && md.Type != "movie" && md.Type != "episode" {
 				continue
 			}
-			for _, md := range row.Metadata {
-				if md.Type != "" && md.Type != "movie" && md.Type != "episode" {
-					continue
-				}
-				k, err := core.ParseRatingKey(md.RatingKey)
-				if err != nil || !isPlayableKey(k) {
-					continue
-				}
-				return k, true
+			k, err := core.ParseRatingKey(md.RatingKey)
+			if err != nil || !isPlayableKey(k) {
+				continue
 			}
+			return k, true
 		}
-		return 0, false
 	}
-	if k, ok := pick(true); ok {
-		return k, true
-	}
-	return pick(false)
+	return 0, false
 }
 
 // recordImpressions hands the rows actually written, in response order, to
@@ -502,14 +501,6 @@ func (s *Server) recordImpressions(pr *Request, hc core.HubContext, written []mo
 	if len(out) > 0 {
 		sink.RecordImpressions(pr.User, hc, out)
 	}
-}
-
-// playlistsHub is PMS's "Recent Playlists" Home row (home.playlists): the
-// user's playlists, most recently updated first. Omitted when there are
-// none.
-func (s *Server) playlistsHub(ctx context.Context, pr *Request, count int) (model.Hub, bool) {
-	h, _, ok := s.playlistsHubProjection(ctx, pr, count)
-	return h, ok
 }
 
 func (s *Server) playlistsHubProjection(ctx context.Context, pr *Request, count int) (model.Hub, frontend.Row, bool) {

@@ -143,7 +143,7 @@ func personalizationHandler(t *testing.T, eng admin.Personalization) http.Handle
 	t.Helper()
 	store := newStore(t, nil)
 	us := &fakeUsers{users: []core.User{{ID: 1, PlexID: 11, Username: "alice", Title: "Alice", IsOwner: true}, {ID: 2, PlexID: 22, Username: "bob"}}}
-	return admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Users: us, Personalization: eng})
+	return admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Users: us, Personalization: eng})
 }
 
 func TestViewersEndpoints(t *testing.T) {
@@ -328,7 +328,7 @@ func TestImportedViewersRemainVisibleOutsideActiveMembership(t *testing.T) {
 	directory := func(context.Context) ([]admin.ViewerRecord, error) {
 		return []admin.ViewerRecord{{User: core.User{ID: 1, Username: "owner", IsOwner: true}, Active: true}, {User: core.User{ID: 32, Username: "imported-viewer"}, Origin: "imported"}}, nil
 	}
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Users: active, ViewerDirectory: directory, Personalization: &fakeEngine{}})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Users: active, ViewerDirectory: directory, Personalization: &fakeEngine{}})
 	for _, path := range []string{"/ether/api/viewers", "/ether/api/users", "/ether/api/viewers/32"} {
 		rec := serve(h, req(http.MethodGet, path, ""))
 		if rec.Code != 200 || !strings.Contains(rec.Body.String(), "imported-viewer") {
@@ -363,7 +363,7 @@ func TestViewerDirectoryMembershipStatuses(t *testing.T) {
 			{User: core.User{ID: 4}, Origin: "friend"},
 		}, nil
 	}
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Users: &fakeUsers{}, ViewerDirectory: directory, Personalization: &fakeEngine{}})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Users: &fakeUsers{}, ViewerDirectory: directory, Personalization: &fakeEngine{}})
 	for i, status := range []string{"owner", "active", "imported", "inactive"} {
 		rec := serve(h, req(http.MethodGet, fmt.Sprintf("/ether/api/viewers/%d", i+1), ""))
 		if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"accessStatus":"`+status+`"`) {

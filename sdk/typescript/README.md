@@ -6,6 +6,12 @@ The same `plugin({ manifest, routes })` definition runs:
 - **Hosted** inside Ether's embedded QuickJS + wazero sandbox (`ether.runtime.kind: "hosted"`), bundled into a single artifact with `ether plugin pack`.
 - **As a sidecar** on Node or Bun (`ether.runtime.kind: "remote"`), either serving HTTP directly (`serve(p, { mode: "http" })`) or dialing outbound over the `ether-tunnel-v1` WebSocket tunnel (`serve(p, { mode: "tunnel" })`).
 
+Hosted plugins and Studio previews have no direct host filesystem, environment,
+process or network access. QuickJS `std` and `os` modules are unavailable.
+Use the permission-checked `ether` host APIs for services such as HTTP and
+folders. Remote sidecars run under their own operating-system permissions and
+are not covered by the hosted sandbox.
+
 ## Usage
 
 ```ts

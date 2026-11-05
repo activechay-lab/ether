@@ -30,7 +30,7 @@ func TestLocalOwnerAndPortalIsolation(t *testing.T) {
 	limiter, _ := identity.NewLoginLimiter(db, time.Minute, 100, 20, nil)
 	invites, _ := identity.NewInvite(db, time.Hour, time.Hour, nil)
 	cfg := newStore(t, nil)
-	h := admin.New(admin.Deps{Config: cfg, LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter, Invites: invites, RefreshViewers: users.RefreshViewers, LocalOwnerConfigured: func(ctx context.Context) bool { x, err := users.Owner(ctx); return err == nil && x.PlexID == 0 }})
+	h := admin.NewHandler(admin.Deps{Config: cfg, LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter, Invites: invites, RefreshViewers: users.RefreshViewers, LocalOwnerConfigured: func(ctx context.Context) bool { x, err := users.Owner(ctx); return err == nil && x.PlexID == 0 }})
 	setup := serve(h, req("POST", "/ether/api/setup/local", `{"username":"alice","password":"secret-pass1"}`))
 	if setup.Code != 200 {
 		t.Fatalf("setup: %d %s", setup.Code, setup.Body)
@@ -177,7 +177,7 @@ func TestLocalOwnerAndPortalIsolation(t *testing.T) {
 func TestBootstrapPlexSignInRequiresConfiguredClaim(t *testing.T) {
 	for _, claimed := range []bool{false, true} {
 		cfg := newStore(t, func(c *config.Config) { c.Plex.Claimed = claimed })
-		h := admin.New(admin.Deps{Config: cfg, SignIn: &fakeSignIn{}})
+		h := admin.NewHandler(admin.Deps{Config: cfg, SignIn: &fakeSignIn{}})
 		var boot struct {
 			SignInMethods []string `json:"signInMethods"`
 		}
@@ -216,7 +216,7 @@ func TestPortalPlexLinkCannotAttachAnotherViewer(t *testing.T) {
 	si := &fakeSignIn{tokens: map[string]string{}}
 	cfg := newStore(t, func(c *config.Config) { c.SetupComplete = true })
 	pollLimiter, _ := identity.NewPollLimiter(db, time.Minute, 120, 60, nil)
-	h := admin.New(admin.Deps{Config: cfg, LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter, PollLimiter: pollLimiter, SignIn: si, LinkPlex: func(context.Context, int64, string) error { return core.ErrUnauthorized }})
+	h := admin.NewHandler(admin.Deps{Config: cfg, LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter, PollLimiter: pollLimiter, SignIn: si, LinkPlex: func(context.Context, int64, string) error { return core.ErrUnauthorized }})
 	r := req("POST", "/ether/api/me/link/plex", `{}`)
 	r.Header.Set("Authorization", "Bearer "+portal)
 	res := serve(h, r)
@@ -262,7 +262,7 @@ func TestOwnerPausesAndResumesLocalViewer(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := newStore(t, func(c *config.Config) { c.SetupComplete = true })
-	h := admin.New(admin.Deps{Config: cfg, LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter, RefreshViewers: users.RefreshViewers, Lifecycle: users, ViewerDirectory: lifecycleDirectory(users)})
+	h := admin.NewHandler(admin.Deps{Config: cfg, LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter, RefreshViewers: users.RefreshViewers, Lifecycle: users, ViewerDirectory: lifecycleDirectory(users)})
 	r := req("POST", "/ether/api/users/local", `{"username":"bob","password":"secret-pass1"}`)
 	r.Header.Set("Authorization", "Bearer "+ownerToken)
 	res := serve(h, r)
@@ -311,7 +311,7 @@ func TestOwnerPausesAndResumesLocalViewer(t *testing.T) {
 
 func TestPlexFreeSetupRequiresOwnerEvenForced(t *testing.T) {
 	cfg := newStore(t, func(c *config.Config) { c.Frontends = map[string]config.Frontend{"jellyfin": {Enabled: true}} })
-	h := admin.New(admin.Deps{Config: cfg})
+	h := admin.NewHandler(admin.Deps{Config: cfg})
 	rec := serve(h, req("POST", "/ether/api/setup/complete", `{"force":true}`))
 	if rec.Code != 409 {
 		t.Fatalf("forced setup without owner: %d %s", rec.Code, rec.Body)
@@ -322,7 +322,7 @@ func TestPlexFreeSetupRequiresOwnerEvenForced(t *testing.T) {
 }
 func TestGrantNeverFallsBackToPlexOwner(t *testing.T) {
 	cfg := newStore(t, func(c *config.Config) { c.SetupComplete = true })
-	h := admin.New(admin.Deps{Config: cfg, IsOwnerToken: func(context.Context, string) bool { return true }})
+	h := admin.NewHandler(admin.Deps{Config: cfg, IsOwnerToken: func(context.Context, string) bool { return true }})
 	r := req("GET", "/ether/api/config", "")
 	r.Header.Set("Authorization", "Bearer eg1_invalid")
 	if res := serve(h, r); res.Code != 401 {
@@ -340,7 +340,7 @@ func TestLocalOwnerConsoleSessionSignOut(t *testing.T) {
 	grants, _ := identity.NewGrants(db, users, time.Hour, nil)
 	limiter, _ := identity.NewLoginLimiter(db, time.Minute, 100, 20, nil)
 	cfg := newStore(t, nil)
-	h := admin.New(admin.Deps{Config: cfg, LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter, RefreshViewers: users.RefreshViewers, Sessions: users})
+	h := admin.NewHandler(admin.Deps{Config: cfg, LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter, RefreshViewers: users.RefreshViewers, Sessions: users})
 	res := serve(h, req("POST", "/ether/api/setup/local", `{"username":"alice","password":"secret-pass1"}`))
 	if res.Code != 200 {
 		t.Fatalf("setup: %d %s", res.Code, res.Body)
@@ -421,7 +421,7 @@ func TestPortalApproveDistinguishesUsedCodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := admin.New(admin.Deps{
+	h := admin.NewHandler(admin.Deps{
 		Config: newStore(t, nil), LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter, QuickConnect: quick,
 		RefreshViewers: users.RefreshViewers,
 		LocalOwnerConfigured: func(ctx context.Context) bool {
@@ -501,7 +501,7 @@ func TestOwnerCredentialChangesAreReported(t *testing.T) {
 	limiter, _ := identity.NewLoginLimiter(db, time.Minute, 100, 20, nil)
 	calls := 0
 	cfg := newStore(t, nil)
-	h := admin.New(admin.Deps{Config: cfg, LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter, RefreshViewers: users.RefreshViewers, Sessions: users,
+	h := admin.NewHandler(admin.Deps{Config: cfg, LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter, RefreshViewers: users.RefreshViewers, Sessions: users,
 		OwnerCredentialChanged: func(context.Context) { calls++ }})
 	if res := serve(h, req("POST", "/ether/api/setup/local", `{"username":"alice","password":"secret-pass1"}`)); res.Code != 200 {
 		t.Fatalf("setup: %d %s", res.Code, res.Body)
@@ -531,7 +531,7 @@ func TestLocalPasswordMinimumLength(t *testing.T) {
 	grants, _ := identity.NewGrants(db, users, time.Hour, nil)
 	limiter, _ := identity.NewLoginLimiter(db, time.Minute, 100, 20, nil)
 	cfg := newStore(t, nil)
-	h := admin.New(admin.Deps{
+	h := admin.NewHandler(admin.Deps{
 		Config: cfg, LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter,
 		RefreshViewers: users.RefreshViewers,
 		LocalOwnerConfigured: func(ctx context.Context) bool {
@@ -589,7 +589,7 @@ func TestLoginStalledBodyDeadline(t *testing.T) {
 	local, _ := identity.NewLocal(db)
 	grants, _ := identity.NewGrants(db, users, time.Hour, nil)
 	limiter, _ := identity.NewLoginLimiter(db, time.Minute, 100, 20, nil)
-	h := admin.New(admin.Deps{Config: newStore(t, nil), LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter})
+	h := admin.NewHandler(admin.Deps{Config: newStore(t, nil), LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter})
 	server := httptest.NewServer(h)
 	defer server.Close()
 	for _, prefix := range []string{`{"username":`, `{"username":"alice","password":"secret-pass1"}}`} {

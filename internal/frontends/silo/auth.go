@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/support"
 )
 
@@ -68,11 +68,11 @@ func (i *instance) resolveDevice(ctx context.Context, token string, d frontend.D
 }
 
 func (i *instance) deviceViewer(r *http.Request) (*frontend.Viewer, string, error) {
-	a := strings.Fields(r.Header.Get("Authorization"))
-	if len(a) != 2 || !strings.EqualFold(a[0], "Bearer") || a[1] == "" {
+	token, ok := authhdr.Bearer(r.Header.Get("Authorization"))
+	if !ok {
 		return nil, "", errors.New("missing credential")
 	}
-	v, _, err := i.resolveDevice(r.Context(), a[1], device(r))
+	v, _, err := i.resolveDevice(r.Context(), token, device(r))
 	if err != nil {
 		return nil, "", err
 	}
@@ -80,14 +80,14 @@ func (i *instance) deviceViewer(r *http.Request) (*frontend.Viewer, string, erro
 		return nil, "", errors.New("profile mismatch")
 	}
 	support.Seen(r, i.host.Support, "silo", v, device(r))
-	return v, a[1], nil
+	return v, token, nil
 }
 func (i *instance) viewer(r *http.Request) (*frontend.Viewer, string, error) {
-	a := strings.Fields(r.Header.Get("Authorization"))
-	if len(a) != 2 || !strings.EqualFold(a[0], "Bearer") || a[1] == "" {
+	token, ok := authhdr.Bearer(r.Header.Get("Authorization"))
+	if !ok {
 		return nil, "", errors.New("missing credential")
 	}
-	v, err := i.host.Identity.Resolve(r.Context(), a[1])
+	v, err := i.host.Identity.Resolve(r.Context(), token)
 	if err == nil && v != nil {
 		if i.viewerWireID(r.Context(), v.ID) == "" {
 			return nil, "", errors.New("profile ID unavailable")
@@ -99,7 +99,7 @@ func (i *instance) viewer(r *http.Request) (*frontend.Viewer, string, error) {
 	if err == nil && v != nil && i.host.ClientSeen != nil {
 		i.host.ClientSeen(device(r).ID)
 	}
-	return v, a[1], err
+	return v, token, err
 }
 func (i *instance) user(r *http.Request, v *frontend.Viewer) map[string]any {
 	role := "user"

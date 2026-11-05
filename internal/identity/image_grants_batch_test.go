@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -477,5 +478,52 @@ func TestBatchListedPageRotatesARevokedTag(t *testing.T) {
 		if err != nil || fresh[0].Images[0].Secret == secret || fresh[1].Images[0].Secret != first[1].Images[0].Secret {
 			t.Fatalf("revoked tag not rotated, or a live one changed: %v", fresh)
 		}
+	}
+}
+
+// A revocation that cannot be persisted is reported (it would otherwise come
+// back after a restart or on another node), while this node keeps denying it.
+func TestImagePageRevokeReportsAFailedPersist(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	if store.DialectOf(db) != store.SQLite {
+		t.Skip("uses a SQLite trigger to fail the write")
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO auth_users(id,plex_id,created_at,updated_at) VALUES(1,123,0,0)`); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 0)
+	grants, err := identity.NewGrants(db, members{db}, time.Hour, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := grants.Issue(ctx, 1, nil, "jellyfin", core.Device{ID: "tv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed, calls := true, 0
+	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience {
+		return pageArtworkBatch{&pageArtwork{allow: &allowed, calls: &calls}}
+	}, &imageFixture{}, 10*time.Minute, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.SetImageKey([]byte("test-image-page-key"))
+	req := frontend.ImagePageRequest{Credential: credential, Device: core.Device{ID: "tv"}, Titles: []core.Title{{Key: core.MovieKey(9), Type: core.TypeMovie}}, Kinds: []string{frontend.ImagePoster}}
+	page, err := service.SignPage(ctx, req)
+	if err != nil || len(page) != 1 {
+		t.Fatalf("sign %v %v", page, err)
+	}
+	secret := page[0].Images[0].Secret
+	if _, err := db.ExecContext(ctx, `CREATE TRIGGER fail_revoke BEFORE UPDATE OF revoked ON frontend_image_grants BEGIN SELECT RAISE(ABORT,'disk gone'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Revoke(ctx, credential, secret); err == nil {
+		t.Fatal("a revocation that was not persisted reported success")
+	}
+	rec := httptest.NewRecorder()
+	service.Serve(rec, httptest.NewRequest("GET", "/Items/9/Images/Primary", nil), secret)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("revoked grant served %d on the revoking node", rec.Code)
 	}
 }

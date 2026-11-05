@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/numutil"
 	"io"
 	"math"
 	"net/url"
@@ -157,13 +158,13 @@ func detectPictureBars(data []byte, w, h int, v *core.StreamInfo, c *videoContra
 			return nil
 		}
 		// Changing edge positions indicate content, not fixed pillarboxing.
-		if f > 0 && (absInt(fl-left) > 2 || absInt(fr-right) > 2) {
+		if f > 0 && (numutil.Abs(fl-left) > 2 || numutil.Abs(fr-right) > 2) {
 			return nil
 		}
 		left = min(left, fl)
 		right = max(right, fr)
 	}
-	if left < w/25 || w-1-right < w/25 || absInt(left-(w-1-right)) > 3 {
+	if left < w/25 || w-1-right < w/25 || numutil.Abs(left-(w-1-right)) > 3 {
 		return nil
 	}
 	// Round outwards: do not remove any demonstrated picture pixels.
@@ -178,11 +179,4 @@ func detectPictureBars(data []byte, w, h int, v *core.StreamInfo, c *videoContra
 		return nil
 	}
 	return &pictureCrop{x: x, width: width, height: v.Height}
-}
-
-func absInt(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
 }

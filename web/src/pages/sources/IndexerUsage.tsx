@@ -3,10 +3,10 @@ import { Meter } from "../../components/charts";
 import { formatNumber, formatPercent } from "../../lib/format";
 
 /** GET /indexer-usage: real API requests per indexer, as the indexer counts them. */
-export type UsageCount = { purpose: string; hits: number; grabs: number };
-export type UsageWindow = { hits: number; grabs: number; purposes: UsageCount[] | null };
-export type UsageDay = { day: string; hits: number; grabs: number };
-export type IndexerUsage = {
+type UsageCount = { purpose: string; hits: number; grabs: number };
+type UsageWindow = { hits: number; grabs: number; purposes: UsageCount[] | null };
+type UsageDay = { day: string; hits: number; grabs: number };
+type IndexerUsage = {
   id: string;
   name: string;
   enabled: boolean;
@@ -85,7 +85,7 @@ const PURPOSES = localized((): Record<string, { label: string; detail: string }>
   },
 }));
 
-export function purposeInfo(purpose: string) {
+function purposeInfo(purpose: string) {
   return PURPOSES[purpose] ?? PURPOSES.other!;
 }
 

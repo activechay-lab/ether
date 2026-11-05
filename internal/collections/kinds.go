@@ -285,16 +285,6 @@ func (s *Service) KindRegistry() *KindRegistry { return s.kindRegistry() }
 // SourceDescriptors returns extend descriptors for every registered kind.
 func (s *Service) SourceDescriptors() []extend.Descriptor { return s.kindRegistry().Descriptors() }
 
-// WithKindRegistry swaps the source-kind registry (shared registries let
-// the app register kinds once and serve the same set as descriptors).
-func WithKindRegistry(r *KindRegistry) Option {
-	return func(s *Service) {
-		if r != nil {
-			s.kinds = r
-		}
-	}
-}
-
 // BuiltinDescriptors returns descriptors for the built-in kinds, without a
 // Service (app startup registers these before services exist).
 func BuiltinDescriptors() []extend.Descriptor { return defaultKinds.Descriptors() }

@@ -11,7 +11,7 @@ import (
 func TestInvalidateTitleDropsWarmResolution(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("r1", 2<<30, 90*time.Minute)}, []string{"r1"})
 	caps := defaultCaps("client")
-	if !h.m.PreResolve(context.Background(), owner, movieKey, caps) {
+	if !h.m.Prewarm(context.Background(), owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("warm skipped")
 	}
 	h.m.mu.Lock()

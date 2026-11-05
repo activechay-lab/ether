@@ -239,11 +239,16 @@ func (r *Runner) Replay(ctx context.Context, req ReplayRequest) (ReplayReport, e
 
 	select {
 	case r.sem <- struct{}{}:
-		defer func() { <-r.sem }()
+		defer func(sem chan struct{}) { <-sem }(r.sem)
 	case <-runCtx.Done():
 		return ReplayReport{}, errors.New("another replay is already running; try again in a moment")
 	}
 
+	// Each replay owns its lazily created engine. Caller-supplied engines
+	// remain caller-owned; the shared runner retains admission control.
+	worker := NewRunner(r.deps)
+	defer worker.Close()
+	r = worker
 	start := time.Now()
 	target, err := r.resolveTarget(runCtx, req)
 	if err != nil {
@@ -288,56 +293,6 @@ func (r *Runner) Replay(ctx context.Context, req ReplayRequest) (ReplayReport, e
 		report.TimedOut = true
 	}
 	return report, nil
-}
-
-// Handler returns an http.Handler serving POST /api/plugins/studio/replay
-// (and POST /replay when mounted under /api/plugins/studio).
-func (r *Runner) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/plugins/studio/replay", r.HandleReplay)
-	mux.HandleFunc("POST /studio/replay", r.HandleReplay)
-	mux.HandleFunc("POST /replay", r.HandleReplay)
-	return mux
-}
-
-// HandleReplay is the HTTP handler for POST /api/plugins/studio/replay.
-func (r *Runner) HandleReplay(w http.ResponseWriter, req *http.Request) {
-	defer req.Body.Close() //nolint:errcheck
-	var body ReplayRequest
-	dec := json.NewDecoder(io.LimitReader(req.Body, maxRequestBytes))
-	if err := dec.Decode(&body); err != nil {
-		writeStudioErr(w, http.StatusBadRequest, "invalid", "The replay request could not be read.")
-		return
-	}
-	report, err := r.Replay(req.Context(), body)
-	if err != nil {
-		var ve *plugins.ValidationError
-		switch {
-		case errors.Is(err, plugins.ErrNotFound):
-			writeStudioErr(w, http.StatusNotFound, "not_found", "That plugin is not installed.")
-		case errors.As(err, &ve):
-			writeStudioErr(w, http.StatusBadRequest, "validation", ve.Error())
-		default:
-			writeStudioErr(w, http.StatusBadRequest, "replay_failed", err.Error())
-		}
-		return
-	}
-	writeStudioJSON(w, http.StatusOK, report)
-}
-
-func writeStudioJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeStudioErr(w http.ResponseWriter, status int, code, message string) {
-	writeStudioJSON(w, status, map[string]any{
-		"error": map[string]any{
-			"code":    code,
-			"message": message,
-		},
-	})
 }
 
 // resolvedTarget holds the manifest, dry-run host, and loaded runtime for one

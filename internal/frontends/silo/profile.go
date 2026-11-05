@@ -154,7 +154,7 @@ func (i *instance) patchProfile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	p, err := i.profileData(r, v)
+	_, err = i.profileData(r, v)
 	if err != nil {
 		http.Error(w, "Unavailable", 503)
 		return
@@ -335,7 +335,7 @@ func (i *instance) patchProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unavailable", 503)
 		return
 	}
-	p, err = i.profileData(r, v)
+	p, err := i.profileData(r, v)
 	if err != nil {
 		http.Error(w, "Unavailable", 503)
 		return

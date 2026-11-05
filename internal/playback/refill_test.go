@@ -92,7 +92,7 @@ func TestRememberedDetailRefillTriggerAdmission(t *testing.T) {
 			}
 			if wantAdmitted {
 				waitWarm(t, h, owner.ID, caps.ClientID, key)
-				if mode == "already-warm" && h.m.PreResolve(t.Context(), owner, key, caps) {
+				if mode == "already-warm" && h.m.Prewarm(t.Context(), owner, key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 					t.Fatal("existing warm re-admitted")
 				}
 			}

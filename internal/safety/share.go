@@ -23,7 +23,6 @@ type PlexShare struct {
 const LabelMapNote = "TMDB collection name only. Titles without a collection name are not hidden. Owner collections and Plex item labels are not on the title row."
 
 type shareClause struct {
-	field  string
 	negate bool
 	lte    bool
 	gte    bool
@@ -310,16 +309,6 @@ func (s *Service) AllowDownloads(u *core.User) bool {
 		return fn()
 	}
 	return true
-}
-
-// FormatShareFilter turns a plex.tv filter spec into owner-readable parts.
-func FormatShareFilter(spec string) []ShareFilterPart {
-	parts := sharefilter.Format(spec)
-	out := make([]ShareFilterPart, len(parts))
-	for i, p := range parts {
-		out[i] = ShareFilterPart{Kind: p.Kind, Values: p.Values}
-	}
-	return out
 }
 
 // ShareFilterPart is one owner-readable clause of a plex.tv share filter.

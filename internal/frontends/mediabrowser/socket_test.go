@@ -215,7 +215,7 @@ func TestSocketAuthenticationAndKeepAlive(t *testing.T) {
 	defer cancel()
 	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/socket"
 	_, resp, err := websocket.Dial(ctx, url, nil)
-	if err == nil || resp == nil || resp.StatusCode != 403 {
+	if err == nil || resp == nil || resp.StatusCode != 401 {
 		t.Fatalf("unauthenticated: %v %v", resp, err)
 	}
 	c, _, err := websocket.Dial(ctx, url+"?api_key=grant", nil)

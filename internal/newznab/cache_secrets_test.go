@@ -116,9 +116,9 @@ func TestLegacyCacheRowsPurged(t *testing.T) {
 	}
 	c := New(config.Indexer{ID: "idx1", URL: "https://x", APIKey: "legacy-key"}, db, Options{})
 	c.cachePut(ctx, "new", []core.Release{{ID: "2", NZBURL: "https://x/api?t=get&apikey=legacy-key"}})
-	// Legacy rows still read (an older node may have written them).
-	if got, ok := c.cacheGet(ctx, "old"); !ok || got[0].NZBURL != "https://x/api?t=get&apikey=legacy-key" {
-		t.Fatal("legacy row unreadable")
+	// Bare arrays must never be returned to callers, even before startup purge.
+	if _, ok := c.decodeCached(`[{"id":"1","nzbUrl":"https://x/api?t=get&apikey=legacy-key"}]`); ok {
+		t.Fatal("legacy cache row accepted")
 	}
 	m := NewManager(db, nil, Options{})
 	if n, err := m.PurgeLegacyCache(ctx); err != nil || n != 1 {

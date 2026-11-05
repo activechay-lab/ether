@@ -39,19 +39,16 @@ func newStagingDir(dataDir string) string {
 	return filepath.Join(dataDir, StagedPrefix+time.Now().UTC().Format("20060102T150405.000000000"))
 }
 
-// StageUpload validates an uploaded bundle (encrypted with password, or a
-// legacy plaintext bundle when password is empty) into a new staging folder
+// StageUpload validates an encrypted uploaded bundle into a new staging folder
 // in dataDir.
 func StageUpload(ctx context.Context, dataDir string, r io.Reader, password, source string) (Staged, error) {
 	body := bufio.NewReaderSize(r, 64<<10)
 	head, _ := body.Peek(len(encMagic))
 	dest := newStagingDir(dataDir)
-	var err error
-	if IsEncrypted(head) {
-		err = RestoreEncrypted(ctx, body, password, dest)
-	} else {
-		err = RestoreBundle(ctx, body, dest)
+	if !IsEncrypted(head) {
+		return Staged{}, errors.New("upload an encrypted backup")
 	}
+	err := RestoreEncrypted(ctx, body, password, dest)
 	if err != nil {
 		return Staged{}, err
 	}

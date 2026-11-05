@@ -55,13 +55,6 @@ type TimeMap struct {
 	Points []IndexPoint
 }
 
-// TimeMapFor builds the TimeMap of a probed source from its MediaInfo,
-// including the container keyframe index when one was read, so callers
-// outside playback (resume prefetch, trickplay) map with the same points.
-func TimeMapFor(info core.MediaInfo) TimeMap {
-	return TimeMap{Size: info.Size, Duration: info.Duration, Points: indexPointsOf(info.Keyframes)}
-}
-
 // Valid reports whether the map has enough information to convert.
 func (m TimeMap) Valid() bool { return m.Size > 0 && m.Duration > 0 }
 

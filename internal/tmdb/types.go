@@ -1,5 +1,7 @@
 package tmdb
 
+import "cmp"
+
 // Paged is a TMDB paged list response.
 type Paged[T any] struct {
 	Page         int `json:"page"`
@@ -305,20 +307,14 @@ type MultiResult struct {
 }
 
 func (m MultiResult) AsMovie() Movie {
-	return Movie{ID: m.ID, Title: firstNonEmpty(m.Title, m.Name), OriginalTitle: firstNonEmpty(m.OriginalTitle, m.OriginalName),
+	return Movie{ID: m.ID, Title: cmp.Or(m.Title, m.Name), OriginalTitle: cmp.Or(m.OriginalTitle, m.OriginalName),
 		Overview: m.Overview, PosterPath: m.PosterPath, BackdropPath: m.BackdropPath, ReleaseDate: m.ReleaseDate,
 		GenreIDs: m.GenreIDs, OriginalLanguage: m.OriginalLanguage, Popularity: m.Popularity, VoteAverage: m.VoteAverage, VoteCount: m.VoteCount, MediaType: m.MediaType}
 }
 func (m MultiResult) AsTV() TVShow {
-	return TVShow{ID: m.ID, Name: firstNonEmpty(m.Name, m.Title), OriginalName: firstNonEmpty(m.OriginalName, m.OriginalTitle),
+	return TVShow{ID: m.ID, Name: cmp.Or(m.Name, m.Title), OriginalName: cmp.Or(m.OriginalName, m.OriginalTitle),
 		Overview: m.Overview, PosterPath: m.PosterPath, BackdropPath: m.BackdropPath, FirstAirDate: m.FirstAirDate,
 		GenreIDs: m.GenreIDs, OriginalLanguage: m.OriginalLanguage, Popularity: m.Popularity, VoteAverage: m.VoteAverage, VoteCount: m.VoteCount, MediaType: m.MediaType}
-}
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }
 
 // FindResult is /find/{id}.

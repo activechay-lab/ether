@@ -5,9 +5,10 @@ import "context"
 // Indexer purposes say why an indexer API request was made. The owner
 // console breaks each indexer's real API hits and grabs down by purpose, so
 // an owner comparing Ether with the indexer's own counter can see what
-// spent the quota. A purpose never changes how a search behaves; warm-up
-// (and availability grabs) share a small daily slice of each indexer's
-// limit, so work nobody is waiting on leaves the rest to playback.
+// spent the quota. Speculative work (SpeculativeIndexerWork: warm-ups,
+// detail discovery, availability) shares a small daily slice of each
+// indexer's limit and searches narrowly, so work nobody is waiting on
+// leaves the rest to playback.
 const (
 	IndexerPurposeFeed         = "feed"         // release-feed polls
 	IndexerPurposeAvailability = "availability" // background availability checks
@@ -25,7 +26,7 @@ type indexerPurposeKey struct{}
 
 // WithIndexerPurpose tags ctx's indexer requests with purpose. The
 // innermost tag wins, so a rescue fan-out started by playback counts as
-// rescue.
+// rescue; speculative work is never re-tagged out of its class.
 func WithIndexerPurpose(ctx context.Context, purpose string) context.Context {
 	if purpose == "" {
 		return ctx
@@ -49,4 +50,22 @@ func InheritIndexerPurpose(dst, src context.Context) context.Context {
 		return context.WithValue(dst, indexerPurposeKey{}, p)
 	}
 	return dst
+}
+
+// SpeculativeIndexerWork reports whether ctx's indexer requests are work no
+// viewer pressed Play on: a warm-up not yet promoted to Play, a preload,
+// prefetch, watchlist or cache-fill search (WithUnattendedSearch), a
+// detail-page version discovery, or a background availability check. Such
+// work shares a small slice of each indexer's daily limit, asks only the
+// primary query and never fans out into rescue searches. Play and the
+// owner's own console actions are not speculative.
+func SpeculativeIndexerWork(ctx context.Context) bool {
+	if IsUnattendedSearch(ctx) {
+		return true
+	}
+	switch IndexerPurpose(ctx) {
+	case IndexerPurposeDetail, IndexerPurposeAvailability:
+		return true
+	}
+	return false
 }

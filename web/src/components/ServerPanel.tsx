@@ -11,7 +11,7 @@ import { Meter } from "./charts";
 import { LiveChart, type LiveSeries } from "./LiveChart";
 
 /** How often the Overview refreshes load; the server samples every 2 s. */
-export const LOAD_POLL_MS = 2_000;
+const LOAD_POLL_MS = 2_000;
 
 function pct(v: number | undefined): string {
   return v === undefined || !Number.isFinite(v) ? "—" : formatPercent(v / 100);

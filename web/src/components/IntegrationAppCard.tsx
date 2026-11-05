@@ -34,14 +34,14 @@ import { t } from "../i18n";
  * }
  * ```
  */
-export interface IntegrationAppIdentity {
+interface IntegrationAppIdentity {
   /** Stable key. Not displayed. */
   id: string;
   /** Visible product name. */
   name: string;
 }
 
-export interface IntegrationAppCardProps {
+interface IntegrationAppCardProps {
   identity: IntegrationAppIdentity;
   /**
    * Caller-supplied brand mark. Never derived from `identity.id`.
@@ -117,6 +117,7 @@ export function IntegrationAppCard({
       aria-label={label ?? identity.name}
       aria-busy={busy || undefined}
       data-app-id={identity.id}
+      data-setting={identity.id}
       className="flex h-full flex-col rounded-xl border border-border bg-surface p-5"
     >
       <div className="flex items-start gap-3">

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+
 	"os"
 	"path/filepath"
 	"sync"
@@ -114,14 +115,6 @@ func (r *recReader) ReadAt(p []byte, off int64) (int, error) {
 	r.reads = append(r.reads, [2]int64{off, int64(len(p))})
 	r.mu.Unlock()
 	return r.r.ReadAt(p, off)
-}
-
-func (r *recReader) bytesRead() int64 {
-	var n int64
-	for _, rd := range r.reads {
-		n += rd[1]
-	}
-	return n
 }
 
 // maxEnd returns the highest offset touched by any read.

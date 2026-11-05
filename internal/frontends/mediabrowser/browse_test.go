@@ -6,12 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
@@ -45,16 +44,9 @@ func TestItemDetailPassesVerifiedPeer(t *testing.T) {
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"GenreItems":[{"Id":7,"Name":"Drama"}]`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", "emby", "")
-	if os.IsNotExist(err) {
+	doc := spectest.Document(t, "emby")
+	if doc == nil {
 		return
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := openapi.Parse(spec)
-	if err != nil {
-		t.Fatal(err)
 	}
 	if err := doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 		t.Fatal(err)
@@ -117,14 +109,7 @@ func TestBrowseUsesExperienceAndValidatesSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	var doc *openapi.Document
-	if err == nil {
-		doc, err = openapi.Parse(spec)
-	}
-	if err != nil && !os.IsNotExist(err) {
-		t.Fatal(err)
-	}
+	doc := spectest.Document(t, "jellyfin")
 	for _, path := range []string{"/Items/" + ids.RatingKeyGUID(5), "/Shows/NextUp"} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("GET", path, nil)
@@ -173,18 +158,11 @@ func TestUserDataMutationIsViewerScoped(t *testing.T) {
 	if w.Code != 200 || !played || !strings.Contains(w.Body.String(), `"Played":true`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	if os.IsNotExist(err) {
+	doc := spectest.Document(t, "jellyfin")
+	if doc == nil {
 		return
 	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := openapi.Parse(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = doc.Validate("POST", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
+	if err := doc.Validate("POST", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 	wrong, _ := ids.GUID(ids.User, 8)
@@ -218,18 +196,11 @@ func TestSearchHintsUsesExperience(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Found") {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	if os.IsNotExist(err) {
+	doc := spectest.Document(t, "jellyfin")
+	if doc == nil {
 		return
 	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := openapi.Parse(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
+	if err := doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -258,18 +229,11 @@ func TestLibraryQueriesUseNeutralFilters(t *testing.T) {
 	if w.Code != 200 || !called || !strings.Contains(w.Body.String(), `"TotalRecordCount":9`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	if os.IsNotExist(e) {
+	doc := spectest.Document(t, "jellyfin")
+	if doc == nil {
 		return
 	}
-	if e != nil {
-		t.Fatal(e)
-	}
-	doc, e := openapi.Parse(spec)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e = doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
+	if e := doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
 		t.Fatal(e)
 	}
 }
@@ -340,18 +304,11 @@ func TestViewResponseMatchesSpec(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	if os.IsNotExist(e) {
+	doc := spectest.Document(t, "jellyfin")
+	if doc == nil {
 		return
 	}
-	if e != nil {
-		t.Fatal(e)
-	}
-	doc, e := openapi.Parse(spec)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e = doc.Validate("GET", "/UserViews", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
+	if e := doc.Validate("GET", "/UserViews", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
 		t.Fatal(e)
 	}
 }

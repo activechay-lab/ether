@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/httpclient"
 	"io"
 	"log/slog"
 	"net"
@@ -135,13 +136,6 @@ var (
 	_ core.Engine        = (*Engine)(nil)
 	_ core.HealthChecker = (*Engine)(nil)
 )
-
-// NewStreamingTransport is an HTTP transport tuned for media streaming:
-// keep-alive, HTTP/2 when offered, many idle connections per host and
-// connect/TLS timeouts that tolerate a busy CDN edge.
-func NewStreamingTransport() *http.Transport {
-	return newStreamingTransport(nil)
-}
 
 // Busy debrid CDN edges can take several seconds to accept a connection and
 // finish the TLS handshake (5.08s was observed). Failing at 5s threw away
@@ -1541,7 +1535,7 @@ func (e *Engine) send(ctx context.Context, hc *http.Client, u string, start, end
 		return nil, timing{}, fmt.Errorf("debrid: bad media URL: %w", core.ErrSourceUnavailable)
 	}
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
-	req.Header.Set("User-Agent", "Ether")
+	req.Header.Set("User-Agent", httpclient.UserAgent)
 	if p, ok := ctx.Value(directKey{}).(Payload); ok {
 		// Addon links go through the SSRF guard, never the CDN pools.
 		e.svc.direct.init()

@@ -13,7 +13,7 @@ import { normalizeSpec } from "../../lib/rules";
 import { GENRES } from "../data";
 import type { ExtendHandler } from "./index";
 
-export interface MockAgentMessage {
+interface MockAgentMessage {
   id: string;
   role: "user" | "assistant" | "system";
   parts: unknown[];

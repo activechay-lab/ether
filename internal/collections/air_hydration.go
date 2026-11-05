@@ -3,8 +3,8 @@ package collections
 import (
 	"context"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/store"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -45,7 +45,7 @@ func (s *Service) hydrateAirDates(ctx context.Context, cs []*cand, mode string, 
 	}
 	for start := 0; start < len(keys); start += 300 {
 		chunk := keys[start:min(start+300, len(keys))]
-		placeholders := strings.TrimRight(strings.Repeat("?,", len(chunk)), ",")
+		placeholders := store.Placeholders(len(chunk))
 		rows, err := s.db.QueryContext(ctx, `SELECT show_key,episode_ts,premiere_ts,fetched_at,attempted_at,failed FROM collections_air_dates WHERE show_key IN (`+placeholders+`)`, chunk...)
 		if err != nil {
 			return 0, 0, err

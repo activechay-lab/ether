@@ -91,7 +91,6 @@ type plan struct {
 	// RAR: the member name every continuation header must carry, and
 	// whether volumes use RAR5 headers.
 	member string
-	rar5   bool
 	// 7z: the member's extents in the concatenated archive.
 	concatExt []archive.Extent
 

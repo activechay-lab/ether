@@ -61,7 +61,7 @@ func TestConnectAppsFailsBeforeMintingWhenHTTPSUnavailable(t *testing.T) {
 	}
 	grants, _ := identity.NewGrants(db, users, time.Hour, nil)
 	portal, _ := grants.Issue(ctx, viewerID, nil, "viewer-portal", core.Device{})
-	h := admin.New(admin.Deps{Config: newStore(t, nil), IdentityGrants: grants, Frontends: connectFrontends{},
+	h := admin.NewHandler(admin.Deps{Config: newStore(t, nil), IdentityGrants: grants, Frontends: connectFrontends{},
 		ViewerPortalURL:  func(context.Context, *http.Request) (string, error) { return "http://192.168.1.5/ether/me", nil },
 		StremioPortalURL: func(context.Context, *http.Request) (string, error) { return "", errors.New("no certificate") },
 	})
@@ -100,7 +100,7 @@ func TestConnectAppsGrantScopeAndAuthorization(t *testing.T) {
 	grants, _ := identity.NewGrants(db, users, time.Hour, nil)
 	portal, _ := grants.Issue(ctx, viewerID, nil, "viewer-portal", core.Device{})
 	owner, _ := grants.Issue(ctx, ownerID, nil, "owner", core.Device{})
-	h := admin.New(admin.Deps{Config: newStore(t, nil), IdentityGrants: grants, Frontends: connectFrontends{}, ActiveViewer: users.ActiveUser,
+	h := admin.NewHandler(admin.Deps{Config: newStore(t, nil), IdentityGrants: grants, Frontends: connectFrontends{}, ActiveViewer: users.ActiveUser,
 		ViewerPortalURL: func(context.Context, *http.Request) (string, error) {
 			return "https://ether.example/prefix/ether/me", nil
 		},
@@ -218,7 +218,7 @@ func TestConnectAppsPlexViewerWithoutLocalPasswordMintsJellyfinEmbySilo(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := admin.New(admin.Deps{
+	h := admin.NewHandler(admin.Deps{
 		Config:         newStore(t, nil),
 		IdentityGrants: grants,
 		Frontends:      allConnectFrontends{},

@@ -3,7 +3,7 @@ package silo
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/conform"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -74,10 +74,8 @@ func TestAppleCorpusPlaysBeforeItemRead(t *testing.T) {
 }
 
 func TestSchemaValidatedExtraFieldsRemainInformational(t *testing.T) {
-	if _, err := openapi.CachedSpec("../specs/manifest.json", "silo", ""); os.IsNotExist(err) {
-		t.Skip("Silo OpenAPI cache is empty")
-	} else if err != nil {
-		t.Fatal(err)
+	if spectest.Document(t, "silo") == nil {
+		t.Skip("Silo OpenAPI spec is not cached")
 	}
 	p, err := Load("../profiles/silo")
 	if err != nil {

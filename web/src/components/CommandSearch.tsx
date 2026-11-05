@@ -80,7 +80,7 @@ export function CommandSearch() {
           type: "setting",
           title: s.title,
           subtitle: s.where,
-          href: settingHref(s.href, s.title, s.more),
+          href: settingHref(s.href, s.key, s.more),
         }));
       if (settings.length) groups.push({ id: "settings", label: t("Settings"), hits: settings });
       const actions = commands

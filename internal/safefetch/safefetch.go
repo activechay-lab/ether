@@ -382,22 +382,6 @@ func (g *Guard) DialContext(ctx context.Context, network, addr string) (net.Conn
 	return g.dialChecked(ctx, network, addr, false)
 }
 
-// publicDialContext is the public pool's dialer: it refuses non-public
-// addresses unconditionally, even if the request context marks a
-// trusted origin — the public pool must never open (or lend) a
-// connection to a private address.
-func (g *Guard) publicDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	return g.dialChecked(ctx, network, addr, false)
-}
-
-// trustedDialContext is the trusted pool's dialer: it only dials addr
-// when addr is exactly the context's trusted origin, and refuses
-// everything else outright (the routing in transport.RoundTrip should
-// already guarantee this; the dialer re-checks as defence in depth).
-func (g *Guard) trustedDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	return g.dialChecked(ctx, network, addr, true)
-}
-
 func (g *Guard) dialChecked(ctx context.Context, network, addr string, trustedPool bool) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {

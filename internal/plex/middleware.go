@@ -13,11 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/identity"
-
 	"github.com/braedonsaunders/ether/internal/auth"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/faillog"
+	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
@@ -522,7 +521,7 @@ func (s *Server) writeErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, core.ErrStreamLimit), errors.Is(err, transcode.ErrTooManyTranscodes):
 		w.Header().Set("Retry-After", "5")
 		writeHTTPError(w, http.StatusServiceUnavailable)
-	case errors.Is(err, core.ErrNotAvailable), errors.Is(err, core.ErrUnreleased), errors.Is(err, core.ErrDebridAuth):
+	case errors.Is(err, core.ErrNotAvailable), errors.Is(err, core.ErrUnreleased), errors.Is(err, core.ErrDebridAuth), errors.Is(err, core.ErrSourceUnavailable), errors.Is(err, context.DeadlineExceeded), errors.Is(err, core.ErrPrepareSlow):
 		// The title exists; nothing can play it right now (no release yet,
 		// nothing cached, no sources, a rejected debrid key). A 404 here
 		// reads as "this item is gone" and Plex apps show a bare "404

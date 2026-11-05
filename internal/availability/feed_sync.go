@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/store"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -53,7 +54,7 @@ func (s *Service) saveCheckpoint(ctx context.Context, f core.ReleaseFeed, c feed
  synced_at=CASE WHEN excluded.synced_at>0 THEN excluded.synced_at WHEN availability_feeds.generation<>excluded.generation THEN 0 ELSE availability_feeds.synced_at END,
  gap=excluded.gap,message=excluded.message,discovered=availability_feeds.discovered+excluded.discovered,
  catchup_target=excluded.catchup_target,catchup_tail=excluded.catchup_tail,catchup_offset=excluded.catchup_offset,
- catchup_oldest=excluded.catchup_oldest,catchup_started=excluded.catchup_started`, f.ID, f.Generation, c.head, s.now().Unix(), synced, boolInt(c.target != ""), message, count, c.target, c.tail, c.offset, c.oldest, c.started)
+ catchup_oldest=excluded.catchup_oldest,catchup_started=excluded.catchup_started`, f.ID, f.Generation, c.head, s.now().Unix(), synced, store.BoolInt(c.target != ""), message, count, c.target, c.tail, c.offset, c.oldest, c.started)
 	return err
 }
 

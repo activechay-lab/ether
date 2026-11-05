@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
@@ -78,20 +77,14 @@ func TestNotInterestedListsAuthorizedEntriesAndRealTimestamp(t *testing.T) {
 	if w := call("/api/v2/capabilities/not-interested"); w.Code != 200 || !strings.Contains(w.Body.String(), `"allowed":true`) {
 		t.Fatalf("capability: %d %s", w.Code, w.Body.String())
 	}
-	if data, e := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", ""); e == nil {
-		doc, e := openapi.Parse(data)
-		if e != nil {
-			t.Fatal(e)
-		}
+	if doc := spectest.Document(t, "silo"); doc != nil {
 		for _, test := range []struct {
 			path     string
 			response *httptest.ResponseRecorder
 		}{{path, w}, {"/api/v2/not-interested", list}} {
-			if e = doc.Validate("GET", test.path, test.response.Code, test.response.Header().Get("Content-Type"), test.response.Body.Bytes()); e != nil {
+			if e := doc.Validate("GET", test.path, test.response.Code, test.response.Header().Get("Content-Type"), test.response.Body.Bytes()); e != nil {
 				t.Errorf("%s spec: %v", test.path, e)
 			}
 		}
-	} else if !os.IsNotExist(e) {
-		t.Fatal(e)
 	}
 }

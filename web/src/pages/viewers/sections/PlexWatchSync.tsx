@@ -11,6 +11,7 @@ import { useState } from "react";
 import { ErrorPanel } from "../../../components/feedback";
 import { SettingsRow } from "../../../components/SettingsRow";
 import { t, tn } from "../../../i18n";
+import { formatDateTime } from "../../../lib/format";
 import { apiFetch } from "../../../lib/api";
 import { useAsync } from "../../../lib/hooks";
 
@@ -128,7 +129,7 @@ export function PlexWatchSync({ viewerId, plexId }: { viewerId: number; plexId: 
     );
   }
   const date = (seconds: number) =>
-    seconds ? new Date(seconds * 1000).toLocaleString() : t("Never");
+    seconds ? formatDateTime(new Date(seconds * 1000)) : t("Never");
   const problem =
     st.problem === "consent"
       ? t("Turn on Sync My Watch State and Ratings in Plex")

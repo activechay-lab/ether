@@ -49,11 +49,7 @@ function toParams(
   return out;
 }
 
-export function pluginViewPath(
-  plugin: string,
-  page: string,
-  params: Record<string, string>,
-): string {
+function pluginViewPath(plugin: string, page: string, params: Record<string, string>): string {
   // The server resolves the plugin's "$t:" text in the console's language.
   const q = new URLSearchParams({ ...params, locale: getLocale() });
   const base = `/plugins/${encodeURIComponent(plugin)}/views/${encodeURIComponent(page)}`;

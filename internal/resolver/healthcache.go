@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -177,7 +176,7 @@ func (s *Service) verifiedAmong(ctx context.Context, ids []string) map[string]bo
 		for i, id := range batch {
 			args[i] = id
 		}
-		rows, err := s.db.QueryContext(ctx, `SELECT release_id, checked_at FROM resolver_verified WHERE release_id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")+`)`, args...)
+		rows, err := s.db.QueryContext(ctx, `SELECT release_id, checked_at FROM resolver_verified WHERE release_id IN (`+store.Placeholders(len(batch))+`)`, args...)
 		if err != nil {
 			continue
 		}

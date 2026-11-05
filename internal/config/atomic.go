@@ -1,25 +1,15 @@
 package config
 
 import (
-	"log/slog"
+	"github.com/braedonsaunders/ether/internal/atomicfile"
 	"os"
-	"path/filepath"
-	"runtime"
 )
 
 // syncDirAfterRename is the production post-rename step: fsync dir so the
 // rename itself is durable. It is a no-op on Windows, where directory fsync
 // is unsupported and rename is already journalled by NTFS.
 func syncDirAfterRename(dir string) error {
-	if runtime.GOOS == "windows" {
-		return nil
-	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
+	return atomicfile.SyncDir(dir)
 }
 
 // writeFileAtomic replaces path with data so that a crash or power loss
@@ -37,44 +27,5 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 // syncDirAfterRename entirely, so tests exercise it on every platform,
 // including Windows, without changing production Windows behaviour.
 func writeFileAtomicWithDirSync(path string, data []byte, perm os.FileMode, syncDir func(string) error) error {
-	dir := filepath.Dir(path)
-	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	ok := false
-	defer func() {
-		if !ok {
-			_ = os.Remove(tmp)
-		}
-	}()
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Chmod(perm); err != nil && runtime.GOOS != "windows" {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return err
-	}
-	ok = true
-	// The rename already committed the new file, so a dir-sync failure
-	// must not be returned: callers would roll back in-memory state to
-	// a version the disk no longer holds. Best-effort, with a warning.
-	if syncDir != nil {
-		if err := syncDir(dir); err != nil {
-			slog.Warn("config: fsync directory after rename; new file is live but the rename may not be durable", "path", path, "err", err)
-		}
-	}
-	return nil
+	return atomicfile.WriteWithDirSync(path, data, perm, syncDir)
 }

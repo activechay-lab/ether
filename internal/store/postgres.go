@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/dburl"
 	"log/slog"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -23,64 +23,12 @@ const minServerVersion = 140000
 // schemas (test runs) do not serialise on each other.
 const migrationLockKey int32 = 0x45746872
 
-var reQueryPassword = regexp.MustCompile(`(?i)((?:^|[?&])(?:ssl)?password=)[^&]*`)
-
-func isPostgresURL(u string) bool {
-	u = strings.ToLower(strings.TrimSpace(u))
-	return strings.HasPrefix(u, "postgres://") || strings.HasPrefix(u, "postgresql://")
-}
-
-// RedactURL hides the password (and any password query parameter) in a
-// database URL so it can be logged or shown. Non-URL text that looks like a
-// key=value DSN has its password value masked.
-func RedactURL(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	// A database URL has no fragment: one means a password holding an
-	// unencoded '#' (or '@' and '#') that url.Parse split off, leaving
-	// part or all of the password outside the userinfo it would mask.
-	if u, err := url.Parse(raw); err == nil && u.Scheme != "" && u.Fragment == "" && !strings.Contains(raw, "#") {
-		if u.User != nil {
-			if _, has := u.User.Password(); has {
-				u.User = url.UserPassword(u.User.Username(), "xxxxx")
-			}
-		}
-		q := u.Query()
-		for k := range q {
-			if strings.EqualFold(k, "password") || strings.EqualFold(k, "sslpassword") {
-				q.Set(k, "xxxxx")
-			}
-		}
-		u.RawQuery = q.Encode()
-		return u.String()
-	}
-	if i := strings.Index(raw, "://"); i >= 0 {
-		// Unparseable: mask everything between the user name's ':' and the
-		// last '@', which may itself be part of the password.
-		rest := raw[i+3:]
-		if at := strings.LastIndexByte(rest, '@'); at >= 0 {
-			if c := strings.IndexByte(rest[:at], ':'); c >= 0 && !strings.ContainsAny(rest[:c], "/?#") {
-				rest = rest[:c+1] + "xxxxx" + rest[at:]
-			}
-		}
-		return raw[:i+3] + reQueryPassword.ReplaceAllString(rest, "${1}xxxxx")
-	}
-	fields := strings.Fields(raw)
-	for i, f := range fields {
-		if k, _, ok := strings.Cut(f, "="); ok && strings.Contains(strings.ToLower(k), "password") {
-			fields[i] = k + "=xxxxx"
-		}
-	}
-	return strings.Join(fields, " ")
-}
-
 // parsePostgresConfig requires verified TLS unless the owner explicitly selects
 // another mode in the connection string. pgx otherwise defaults to "prefer",
 // which silently retries without encryption. A default supplied in the DSN also
 // takes precedence over ambient PGSSLMODE, keeping service behavior predictable.
 func parsePostgresConfig(raw string) (*pgx.ConnConfig, error) {
-	if isPostgresURL(raw) {
+	if dburl.IsPostgres(raw) {
 		u, err := url.Parse(strings.TrimSpace(raw))
 		if err != nil {
 			return nil, err
@@ -113,7 +61,7 @@ func openPostgres(ctx context.Context, rawURL string, log *slog.Logger, gate Mig
 	cfg, err := parsePostgresConfig(rawURL)
 	if err != nil {
 		// pgx errors can echo the connection string; never surface it.
-		return nil, fmt.Errorf("store: invalid postgres URL %s", RedactURL(rawURL))
+		return nil, fmt.Errorf("store: invalid postgres URL %s", dburl.Redact(rawURL))
 	}
 	if cfg.RuntimeParams == nil {
 		cfg.RuntimeParams = map[string]string{}
@@ -125,7 +73,7 @@ func openPostgres(ctx context.Context, rawURL string, log *slog.Logger, gate Mig
 	db.SetMaxOpenConns(16)
 	db.SetMaxIdleConns(8)
 	db.SetConnMaxIdleTime(5 * time.Minute)
-	if err := preparePostgres(ctx, db, log.With("database", RedactURL(rawURL)), gate, progress); err != nil {
+	if err := preparePostgres(ctx, db, log.With("database", dburl.Redact(rawURL)), gate, progress); err != nil {
 		db.Close()
 		return nil, err
 	}

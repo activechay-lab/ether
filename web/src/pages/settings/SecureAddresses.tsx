@@ -1,3 +1,4 @@
+import { copyText } from "../../components/CopyButton";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { useRef, useState } from "react";
 import { SettingsRow } from "../../components/SettingsRow";
@@ -37,8 +38,7 @@ function Address({ uri, label }: { uri: string; label: string }) {
   const [message, setMessage] = useState<"copied" | "select" | null>(null);
   const copy = async () => {
     try {
-      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
-      await navigator.clipboard.writeText(uri);
+      if (!(await copyText(uri))) throw new Error("copy failed");
       setMessage("copied");
     } catch {
       // The dashboard can be opened over HTTP, where clipboard access is unavailable.

@@ -77,6 +77,7 @@ export function SkipButtons({ hidden = false }: { hidden?: boolean }) {
         description={t("Each switch turns that button on or off. The app still has to show it.")}
       >
         <SettingsRow
+          setting="skip-intro"
           title={t("Skip intro")}
           description={t("Shows a button to skip the opening and a recap.")}
           control={
@@ -88,6 +89,7 @@ export function SkipButtons({ hidden = false }: { hidden?: boolean }) {
           }
         />
         <SettingsRow
+          setting="skip-credits"
           title={t("Skip credits")}
           description={t("Shows a button to skip the credits.")}
           control={

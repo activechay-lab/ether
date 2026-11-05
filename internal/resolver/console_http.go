@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/paging"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -194,7 +195,7 @@ func (h *consoleAPI) title(w http.ResponseWriter, ctx context.Context, key core.
 func pageParams(r *http.Request) (limit, offset int) {
 	q := r.URL.Query()
 	limit, _ = strconv.Atoi(q.Get("limit"))
-	offset, _ = strconv.Atoi(q.Get("offset"))
+	offset, _ = paging.ParseOffset(q.Get("offset"), max(0, limit))
 	return limit, offset
 }
 

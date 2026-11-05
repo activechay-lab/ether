@@ -29,7 +29,7 @@ func TestFailedWarmIsNotRepeatedOnEveryPageOpen(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("r1", 2<<30, 90*time.Minute)}, nil)
 	caps := defaultCaps("client")
 	id := identity{userID: owner.ID, clientID: caps.ClientID, key: movieKey, surface: playbackSurface(string(caps.Protocol))}
-	if !h.m.PreResolve(context.Background(), owner, movieKey, caps) {
+	if !h.m.Prewarm(context.Background(), owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("first warm skipped")
 	}
 	waitWarmGone(t, h, id)
@@ -38,7 +38,7 @@ func TestFailedWarmIsNotRepeatedOnEveryPageOpen(t *testing.T) {
 	}
 	for i := 0; i < 5; i++ {
 		h.clock.Advance(time.Minute)
-		if h.m.PreResolve(context.Background(), owner, movieKey, caps) {
+		if h.m.Prewarm(context.Background(), owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 			t.Fatal("a failed warm-up was repeated on the next page open")
 		}
 	}
@@ -47,7 +47,7 @@ func TestFailedWarmIsNotRepeatedOnEveryPageOpen(t *testing.T) {
 	}
 	// The memo expires.
 	h.clock.Advance(warmMissTTL)
-	if !h.m.PreResolve(context.Background(), owner, movieKey, caps) {
+	if !h.m.Prewarm(context.Background(), owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("the warm-up memo did not expire")
 	}
 	waitWarmGone(t, h, id)

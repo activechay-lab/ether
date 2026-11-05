@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/dburl"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -37,6 +38,7 @@ type migration struct {
 	component   string
 	version     int
 	sql         string
+	registered  bool
 	overrides   map[Dialect]string
 	sqliteApply func(context.Context, *sql.Tx) error
 	pgApply     func(context.Context, *sql.Tx) error
@@ -66,18 +68,23 @@ func RegisterAfter(component string, dependsOn ...string) {
 // Register adds a migration written in SQLite's dialect. Versions are per
 // component and start at 1. Call from init(); a migration must never change
 // after release. On PostgreSQL the DDL is translated by TranslateDDL unless
-// RegisterDialect supplied an override.
+// RegisterDialect supplied an override. Register panics if the base migration
+// for a component/version was already registered.
 func Register(component string, version int, sql string) {
 	regMu.Lock()
 	defer regMu.Unlock()
 	for i := range migrations {
-		// Fill a placeholder left by an earlier RegisterDialect.
-		if migrations[i].component == component && migrations[i].version == version && migrations[i].sql == "" {
+		if migrations[i].component == component && migrations[i].version == version {
+			// RegisterDialect may reserve the version before its base SQL.
+			if migrations[i].registered || migrations[i].sql != "" {
+				panic("store: Register " + component + "/" + strconv.Itoa(version) + " already registered")
+			}
 			migrations[i].sql = sql
+			migrations[i].registered = true
 			return
 		}
 	}
-	migrations = append(migrations, migration{component: component, version: version, sql: sql})
+	migrations = append(migrations, migration{component: component, version: version, sql: sql, registered: true})
 }
 
 // RegisterDialect overrides one registered migration for dialect d, for DDL
@@ -228,28 +235,6 @@ type MigrationGate func(ctx context.Context, q Querier, pending []string) error
 // migrations and the owner asked to wait for it).
 var ErrMigrationDeferred = errors.New("store: schema migration deferred")
 
-// HasDependency reports whether component declared a RegisterAfter dependency
-// that is present. Absent dependencies are ignored, matching Migrate.
-func HasDependency(component, dependency string) bool {
-	regMu.Lock()
-	defer regMu.Unlock()
-	return dependencies[component][dependency]
-}
-
-// ComponentOrder is the migration component sequence Migrate will apply.
-func ComponentOrder() []string {
-	var order []string
-	seen := map[string]bool{}
-	for _, m := range registered() {
-		if seen[m.component] {
-			continue
-		}
-		seen[m.component] = true
-		order = append(order, m.component)
-	}
-	return order
-}
-
 // KnownMigrations is the highest migration version this binary registers
 // for each component.
 func KnownMigrations() map[string]int {
@@ -291,7 +276,7 @@ func UnknownApplied(ctx context.Context, db *sql.DB) ([]string, error) {
 
 // Dialect is the backend these options select.
 func (o Options) Dialect() Dialect {
-	if isPostgresURL(o.URL) {
+	if dburl.IsPostgres(o.URL) {
 		return Postgres
 	}
 	return ParseDialect(o.Driver)

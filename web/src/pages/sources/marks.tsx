@@ -26,7 +26,7 @@ function BrandMark({ src, color }: { src: string; color: string }) {
   );
 }
 
-export function DebridLinkMark() {
+function DebridLinkMark() {
   return <BrandMark src={debridlink} color="#264E70" />;
 }
 

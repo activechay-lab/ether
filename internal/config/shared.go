@@ -446,7 +446,7 @@ func (s *Store) updateClustered(fn func(*Config) error) error {
 }
 
 func (s *Store) sealShared(plain []byte) (string, error) {
-	b, err := sealDocument(plain, s.credentialKey, s.bound.Load())
+	b, err := sealDocument(plain, s.credentialKey)
 	return string(b), err
 }
 
@@ -455,16 +455,9 @@ func (s *Store) mergeDoc(base Config, doc SharedDoc) (Config, error) {
 	if fp := s.KeyFingerprint(); doc.KeyFingerprint != fp {
 		return Config{}, fmt.Errorf("%w (cluster %.12s, this node %.12s); add this node with `ether cluster join <token>`", ErrKeyMismatch, doc.KeyFingerprint, fp)
 	}
-	plain, stats, err := openDocument([]byte(doc.Doc), s.credentialKey)
+	plain, _, err := openDocument([]byte(doc.Doc), s.credentialKey)
 	if err != nil {
 		return Config{}, fmt.Errorf("config: open shared settings: %w", err)
-	}
-	if stats.strict {
-		// Another node upgraded the cluster's credentials, so every live
-		// node already reads v2: seal database fields and shared settings
-		// now rather than at this node's next upgrade pass. config.json
-		// waits for UpgradeCredentials (this node's rollback gate).
-		s.bound.Store(true)
 	}
 	return MergeShared(base, plain)
 }

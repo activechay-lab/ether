@@ -146,7 +146,7 @@ func studioHandler(t *testing.T) (http.Handler, *fakeStudio, *fakeImages) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
 	st := newFakeStudio()
 	im := &fakeImages{}
-	return admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Collections: st, CatalogHelper: fakeHelper{}, Images: im}), st, im
+	return admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Collections: st, CatalogHelper: fakeHelper{}, Images: im}), st, im
 }
 
 func authed(r *http.Request) *http.Request {
@@ -338,7 +338,7 @@ func TestCollectionsListSkipsUnencodableCollection(t *testing.T) {
 	st := newFakeStudio()
 	bad := time.Unix(1_790_000_000_000_000_000, 0)
 	list := []core.CollectionSpec{st.specs["1"], {ID: "7", Name: "Imported", UpdatedAt: &bad}, st.specs["top-rated-movie"]}
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Collections: listStudio{st, list}, CatalogHelper: fakeHelper{}, Images: &fakeImages{}})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), Collections: listStudio{st, list}, CatalogHelper: fakeHelper{}, Images: &fakeImages{}})
 	rec := serve(h, authed(req(http.MethodGet, "/ether/api/collections", "")))
 	var got struct {
 		Collections []struct {

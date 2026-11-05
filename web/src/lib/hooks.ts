@@ -47,7 +47,6 @@ export function useAsync<T>(
   useEffect(() => {
     void run();
     return () => controller.current?.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
   const setData = useCallback((next: T | ((prev: T | undefined) => T)) => {

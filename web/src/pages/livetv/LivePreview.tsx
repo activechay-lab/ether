@@ -3,7 +3,7 @@ import { Loader2, Maximize2, RotateCcw, Volume2, VolumeX, X } from "lucide-react
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
 import { API_BASE, errorMessage, sessionXhrSetup } from "../../lib/api";
-import { fixed } from "../../lib/format";
+import { formatBitrate } from "../../lib/format";
 import { ChannelLogo } from "./ChannelLogo";
 import { tv, type Channel, type PreviewSession } from "./model";
 
@@ -84,7 +84,7 @@ export function LivePreview({ channel, onClose }: { channel: Channel; onClose: (
           const l = h.levels?.[h.currentLevel ?? 0];
           if (l)
             setQuality(
-              [l.height ? `${l.height}p` : "", l.bitrate ? `${fixed(l.bitrate / 1e6, 1)} Mbps` : ""]
+              [l.height ? `${l.height}p` : "", l.bitrate ? formatBitrate(l.bitrate) : ""]
                 .filter(Boolean)
                 .join(" · "),
             );

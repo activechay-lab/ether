@@ -283,11 +283,20 @@ func buildFile(xf xmlFile) *File {
 		}
 		dedup = append(dedup, s)
 	}
+	// Reject wildly sparse indexes before any consumer sizes a per-part table.
+	// A small allowance preserves ordinary incomplete posts without permitting
+	// a single listed article to claim a million missing parts.
+	if len(dedup) == 0 || dedup[len(dedup)-1].Number > len(dedup)*2+10 {
+		return nil
+	}
 	f.Segments = dedup
 
 	f.Name = NameFromSubject(f.Subject)
 	f.SubjectIndex, f.SubjectCount = subjectFileCounter(f.Subject)
 	f.ExpectedSegments = subjectSegmentCount(f.Subject)
+	if f.ExpectedSegments > len(dedup)*2+10 {
+		return nil
+	}
 	f.Info = Classify(f.Name)
 	f.Obfuscated = IsObfuscated(f.Name)
 	return f

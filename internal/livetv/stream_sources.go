@@ -179,6 +179,15 @@ func (s *Service) sourceStatus(channelID string, src StreamSource) StreamSourceS
 func (s *Service) recordStreamFailure(ss *session, rctx context.Context, err error) {
 	if rctx.Err() == nil {
 		s.recordSourceHealth(ss.info.Channel.ID, ss.inputSource, err, false)
+		ss.mu.Lock()
+		warn := ss.lastMediaWarning.IsZero() || time.Since(ss.lastMediaWarning) >= 5*time.Second
+		if warn {
+			ss.lastMediaWarning = time.Now()
+		}
+		ss.mu.Unlock()
+		if warn {
+			s.sessionLog(ss).Warn("live upstream media failed", Diagnose("media_fetch", err).LogAttrs()...)
+		}
 	}
 }
 
@@ -297,13 +306,29 @@ func (s *Service) startIPTV(ctx context.Context, ss *session) error {
 		return err
 	}
 	var candidates []StreamSource
+	var earliestRetry time.Time
 	for _, src := range c.StreamSources {
-		if src.Enabled && !s.sourceStatus(c.ID, src).RetryAfter.After(s.o.Now()) {
-			candidates = append(candidates, src)
+		if !src.Enabled {
+			continue
 		}
+		retry := s.sourceStatus(c.ID, src).RetryAfter
+		if retry.After(s.o.Now()) {
+			if earliestRetry.IsZero() || retry.Before(earliestRetry) {
+				earliestRetry = retry
+			}
+			s.sessionLog(ss).Debug("live source skipped", "input", src.ID, "reason", "cooldown", "retry_after", retry.Sub(s.o.Now()))
+			continue
+		}
+		candidates = append(candidates, src)
 	}
 	var last error = core.ErrNotAvailable
-	for _, src := range candidates {
+	if len(candidates) == 0 && !earliestRetry.IsZero() {
+		return &TuneError{Code: "source_cooldown", Stage: "source_selection", RetryAfter: earliestRetry.Sub(s.o.Now()), cause: core.ErrNotAvailable}
+	}
+	for index, src := range candidates {
+		started := time.Now()
+		log := s.sessionLog(ss).With("input", src.ID, "attempt", index+1, "candidates", len(candidates))
+		log.Debug("live source attempt started")
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -317,7 +342,8 @@ func (s *Service) startIPTV(ctx context.Context, ss *session) error {
 		resolvedURL, headers, err := s.ResolveStreamSource(attemptCtx, c, src)
 		if err != nil {
 			cancel()
-			last = err
+			last = Diagnose("source_resolve", err)
+			log.Warn("live source resolve failed", append(Diagnose("source_resolve", err).LogAttrs(), "elapsed", time.Since(started))...)
 			if !errors.Is(ctx.Err(), context.Canceled) {
 				s.recordSourceHealth(c.ID, src, err, false)
 			}
@@ -339,6 +365,7 @@ func (s *Service) startIPTV(ctx context.Context, ss *session) error {
 		if err == nil {
 			ss.info.ActiveSourceID = src.ID
 			s.recordSourceHealth(c.ID, src, nil, false)
+			log.Info("live source ready", "elapsed", time.Since(started))
 			return nil
 		}
 		if ss.relay != nil {
@@ -350,9 +377,16 @@ func (s *Service) startIPTV(ctx context.Context, ss *session) error {
 			ss.relayCancel = nil
 		}
 		s.revokeInput(ss)
-		last = err
+		last = Diagnose("source_start", err)
 		if !errors.Is(ctx.Err(), context.Canceled) {
 			s.recordSourceHealth(c.ID, src, err, false)
+		}
+		health := s.sourceStatus(c.ID, src)
+		attrs := append(Diagnose("source_start", err).LogAttrs(), "elapsed", time.Since(started), "next_candidate", index+1 < len(candidates), "cooldown_until", health.RetryAfter)
+		if errors.Is(err, context.Canceled) {
+			log.Debug("live source attempt cancelled", attrs...)
+		} else {
+			log.Warn("live source attempt failed", attrs...)
 		}
 	}
 	return last

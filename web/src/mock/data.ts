@@ -184,7 +184,7 @@ export function posterFor(key: string, title: string, year?: number): string {
   );
 }
 
-export function backdropFor(key: string, title: string): string {
+function backdropFor(key: string, title: string): string {
   const h = hash(key) % 360;
   return svgData(
     `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0.6"><stop offset="0" stop-color="hsl(${(h + 30) % 360},45%,30%)"/><stop offset="1" stop-color="hsl(${h},55%,10%)"/></linearGradient></defs><rect width="640" height="360" fill="url(#g)"/><circle cx="480" cy="140" r="120" fill="white" fill-opacity="0.08"/><text x="36" y="320" font-family="Georgia,serif" font-size="34" font-weight="700" fill="white" fill-opacity="0.85">${esc(title)}</text></svg>`,

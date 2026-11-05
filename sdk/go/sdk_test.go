@@ -584,7 +584,8 @@ func TestServerPackagesDoNotImportSDKGo(t *testing.T) {
 			if walkErr != nil {
 				return walkErr
 			}
-			if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			// Offline server fixtures may use the public SDK harness; shipped code may not.
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return nil
 			}
 			fset := token.NewFileSet()

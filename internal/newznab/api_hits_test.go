@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
@@ -39,26 +40,36 @@ func TestSearchCacheTTLScalesWithTitleAge(t *testing.T) {
 	}
 }
 
-// A search nobody waits on tries fallbacks one at a time and stops at the
-// first hit; a Play search on an uncapped indexer fires them together.
-func TestUnattendedSearchStopsAtFirstFallbackHit(t *testing.T) {
-	req := core.SearchRequest{Type: core.TypeMovie, IDs: core.IDs{IMDB: "tt0133093", TMDB: 603}, Title: "The Signal", Year: 1999}
-	run := func(ctx context.Context) *fakeIndexer {
+// Speculative work (warm-ups, detail discovery, availability) asks only the
+// primary query and remembers its miss; it never fans out into fallbacks or
+// a rescue. Play on the same title still runs the fallback burst.
+func TestSpeculativeSearchAsksPrimaryQueryOnly(t *testing.T) {
+	req := core.SearchRequest{Type: core.TypeMovie, IDs: core.IDs{IMDB: "tt0133093", TMDB: 603}, Title: "The Signal", OriginalTitle: "La Señal", Year: 1999}
+	for _, ctx := range []context.Context{
+		core.WithIndexerPurpose(core.WithUnattendedSearch(context.Background()), core.IndexerPurposeWarmup),
+		core.WithIndexerPurpose(context.Background(), core.IndexerPurposeDetail),
+		core.WithIndexerPurpose(context.Background(), core.IndexerPurposeAvailability),
+	} {
 		f := newFakeIndexer(t, "emptyimdb")
-		c := NewClient(testConfig(f.server.URL), nil, Options{})
-		if res, err := c.Search(ctx, req); err != nil || len(res) == 0 {
-			t.Fatalf("search: %v %v", res, err)
+		m := NewManager(nil, []config.Indexer{testConfig(f.server.URL)}, Options{})
+		sent := func() int { f.mu.Lock(); defer f.mu.Unlock(); return f.hits["movie"] + f.hits["search"] }
+		for range 3 {
+			if res, err := m.Search(ctx, req); err != nil || len(res) != 0 {
+				t.Fatalf("%s: speculative search %v %v", core.IndexerPurpose(ctx), res, err)
+			}
 		}
-		return f
-	}
-	play := run(context.Background())
-	quiet := run(core.WithUnattendedSearch(context.Background()))
-	playHits := play.hitsFor("movie") + play.hitsFor("search")
-	quietHits := quiet.hitsFor("movie") + quiet.hitsFor("search")
-	if quietHits != 2 {
-		t.Errorf("unattended search sent %d queries, want 2 (the id miss, then the first fallback that hit)", quietHits)
-	}
-	if playHits <= quietHits {
-		t.Errorf("play search sent %d queries, want the parallel fan-out (more than %d)", playHits, quietHits)
+		if _, err := m.SearchRescue(ctx, req); err != nil {
+			t.Fatal(err)
+		}
+		if n := sent(); n != 1 {
+			t.Fatalf("%s: speculative work sent %d queries, want the primary query once", core.IndexerPurpose(ctx), n)
+		}
+		play := core.WithIndexerPurpose(context.Background(), core.IndexerPurposePlayback)
+		if res, err := m.Search(play, req); err != nil || len(res) == 0 {
+			t.Fatalf("play search: %v %v", res, err)
+		}
+		if n := sent(); n <= 2 {
+			t.Fatalf("Play sent %d queries in all, want its fallback burst after the primary", n)
+		}
 	}
 }

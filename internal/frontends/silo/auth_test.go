@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -72,14 +71,7 @@ func TestPasswordAndRefresh(t *testing.T) {
 		inst.Handler().ServeHTTP(w, r)
 		return w
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", "")
-	var doc *openapi.Document
-	if e == nil {
-		doc, e = openapi.Parse(spec)
-	}
-	if e != nil && !os.IsNotExist(e) {
-		t.Fatal(e)
-	}
+	doc := spectest.Document(t, "silo")
 	w := call("/api/v2/auth/login", `{"username":"alice","password":"pw"}`, "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"refresh_token":"refresh"`) {
 		t.Fatalf("login: %d %s", w.Code, w.Body.String())
@@ -123,15 +115,7 @@ func TestCurrentClientCapabilityDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var doc *openapi.Document
-	if data, e := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", ""); e == nil {
-		doc, e = openapi.Parse(data)
-		if e != nil {
-			t.Fatal(e)
-		}
-	} else if !os.IsNotExist(e) {
-		t.Fatal(e)
-	}
+	doc := spectest.Document(t, "silo")
 	for _, tc := range []struct {
 		path, expected string
 		authenticated  bool

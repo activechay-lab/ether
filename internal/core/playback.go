@@ -11,6 +11,9 @@ import (
 // Transcoder (internal/transcode)
 
 type HLSRequest struct {
+	// SlateText is trusted server-generated copy for a looping silent card.
+	// It is never decoded from client requests. Info.Duration bounds the slot.
+	SlateText []string `json:"-"`
 	// SoftSubtitleStream, when set, asks the encoder to expose this embedded
 	// text stream as ASS alongside its ordinary media output.
 	SoftSubtitleStream *int

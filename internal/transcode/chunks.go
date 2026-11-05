@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/container/ebml"
 	"io"
 	"os"
 	"path/filepath"
@@ -307,24 +308,7 @@ func emptyCluster(at time.Duration) []byte {
 // chunkVint reads an EBML variable-length integer: an element ID (marker
 // kept) or a size (marker stripped). It returns its length, 0 if invalid.
 func chunkVint(b []byte, keepMarker bool) (uint64, int) {
-	if len(b) == 0 || b[0] == 0 {
-		return 0, 0
-	}
-	l := 1
-	for mask := byte(0x80); b[0]&mask == 0; mask >>= 1 {
-		l++
-	}
-	if l > 8 || len(b) < l {
-		return 0, 0
-	}
-	v := uint64(b[0])
-	if !keepMarker {
-		v &= uint64(0xFF >> l)
-	}
-	for _, c := range b[1:l] {
-		v = v<<8 | uint64(c)
-	}
-	return v, l
+	return ebml.Vint(b, keepMarker)
 }
 
 // assembleChunks makes dst one segment from consecutive chunk files: the

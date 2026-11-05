@@ -24,7 +24,7 @@ function niceMax(v: number): number {
   return step * p;
 }
 
-export interface BarDatum {
+interface BarDatum {
   key: string;
   label: string;
   value: number;
@@ -168,7 +168,7 @@ export function TimeBars({
   );
 }
 
-export interface WeightDatum {
+interface WeightDatum {
   key: string;
   label: string;
   weight: number;
@@ -381,7 +381,7 @@ export function Meter({
 
 /** The validated chart palette (styles.css --viz-1..5), as literal classes. */
 export type Viz = "viz-1" | "viz-2" | "viz-3" | "viz-4" | "viz-5";
-export const VIZ: Record<Viz, { bg: string; fill: string; stroke: string }> = {
+const VIZ: Record<Viz, { bg: string; fill: string; stroke: string }> = {
   "viz-1": { bg: "bg-viz-1", fill: "fill-viz-1", stroke: "stroke-viz-1" },
   "viz-2": { bg: "bg-viz-2", fill: "fill-viz-2", stroke: "stroke-viz-2" },
   "viz-3": { bg: "bg-viz-3", fill: "fill-viz-3", stroke: "stroke-viz-3" },
@@ -389,9 +389,9 @@ export const VIZ: Record<Viz, { bg: string; fill: string; stroke: string }> = {
   "viz-5": { bg: "bg-viz-5", fill: "fill-viz-5", stroke: "stroke-viz-5" },
 };
 /** Categorical order for parts with no fixed colour of their own. */
-export const VIZ_ORDER: Viz[] = ["viz-4", "viz-2", "viz-3", "viz-5", "viz-1"];
+const VIZ_ORDER: Viz[] = ["viz-4", "viz-2", "viz-3", "viz-5", "viz-1"];
 
-export interface RankDatum {
+interface RankDatum {
   key: string;
   label: string;
   value: number;
@@ -449,7 +449,7 @@ export function RankedBars({
   );
 }
 
-export interface SplitDatum {
+interface SplitDatum {
   key: string;
   label: string;
   value: number;
@@ -536,7 +536,7 @@ export function SplitBar({
   );
 }
 
-export interface HeatCell {
+interface HeatCell {
   weekday: number;
   hour: number;
   value: number;
@@ -553,14 +553,12 @@ export function WeekHeatmap({
   cells,
   valueFormat = (v) => String(v),
   ariaLabel,
-  weekStartsOn = 1,
   fill = false,
 }: {
   cells: HeatCell[];
   valueFormat?: (v: number) => string;
   ariaLabel: string;
   /** 0 = Sunday, 1 = Monday. */
-  weekStartsOn?: 0 | 1;
   /** Stretch the rows to the container's height. */
   fill?: boolean;
 }) {
@@ -572,7 +570,7 @@ export function WeekHeatmap({
     return m;
   }, [cells]);
   const max = Math.max(0, ...grid.values());
-  const days = Array.from({ length: 7 }, (_, i) => (i + weekStartsOn) % 7);
+  const days = Array.from({ length: 7 }, (_, i) => (i + 1) % 7);
   // 2023-01-01 was a Sunday: weekday n is that date plus n days.
   const dayName = (n: number) =>
     new Date(Date.UTC(2023, 0, 1 + n)).toLocaleDateString(getLocale(), {
@@ -646,7 +644,7 @@ export function WeekHeatmap({
   );
 }
 
-export interface StackDatum {
+interface StackDatum {
   key: string;
   label: string;
   a: number;
@@ -664,8 +662,6 @@ export function StackedColumns({
   height = 180,
   ariaLabel,
   valueFormat = (v) => String(v),
-  aColor = "viz-1",
-  bColor = "viz-3",
 }: {
   data: StackDatum[];
   aLabel: string;
@@ -673,8 +669,6 @@ export function StackedColumns({
   height?: number;
   ariaLabel: string;
   valueFormat?: (v: number) => string;
-  aColor?: Viz;
-  bColor?: Viz;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [ref, size] = useElementSize<HTMLDivElement>();
@@ -753,13 +747,13 @@ export function StackedColumns({
                         ? `M${x},${base}V${base - ah}H${x + barW}V${base}Z`
                         : roundedTopBar(x, base - ah, barW, ah, 4)
                     }
-                    className={cn("pointer-events-none", VIZ[aColor].fill)}
+                    className={cn("pointer-events-none", VIZ["viz-1"].fill)}
                   />
                 ) : null}
                 {bh > 0 ? (
                   <path
                     d={roundedTopBar(x, base - ah - bh - (ah > 0 ? 2 : 0), barW, bh, 4)}
-                    className={cn("pointer-events-none", VIZ[bColor].fill)}
+                    className={cn("pointer-events-none", VIZ["viz-3"].fill)}
                   />
                 ) : null}
               </g>
@@ -804,11 +798,11 @@ export function StackedColumns({
       </div>
       <ul className="mt-2 flex gap-4 text-xs">
         <li className="flex items-center gap-1.5">
-          <span className={cn("size-2.5 rounded-sm", VIZ[aColor].bg)} />
+          <span className={cn("size-2.5 rounded-sm", VIZ["viz-1"].bg)} />
           <span className="text-fg">{aLabel}</span>
         </li>
         <li className="flex items-center gap-1.5">
-          <span className={cn("size-2.5 rounded-sm", VIZ[bColor].bg)} />
+          <span className={cn("size-2.5 rounded-sm", VIZ["viz-3"].bg)} />
           <span className="text-fg">{bLabel}</span>
         </li>
       </ul>
@@ -816,7 +810,7 @@ export function StackedColumns({
   );
 }
 
-export interface LineSeries {
+interface LineSeries {
   key: string;
   label: string;
   color: Viz;

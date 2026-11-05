@@ -11,23 +11,26 @@ import {
 } from "@braedonsaunders/appkit-ui";
 import { ChevronLeft, ChevronRight, Film, Pin, Search } from "lucide-react";
 import { Fragment, useState } from "react";
-import { getLocale, t, tn } from "../../i18n";
+import { getLocale, localized, t, tn } from "../../i18n";
 import { formatBytes, formatPercent } from "../../lib/format";
 import type { CacheSnapshot } from "./Cache";
 import { causeDescription, causeLabel, pinLabel, retentionLabel } from "./reasons";
 
-const FILTERS = [
-  ["all", "All releases"],
-  ["watching", "Watching now"],
-  ["paused", "Paused"],
-  ["unfinished", "Unfinished"],
-  ["shelf", "Shelf"],
-  ["prefetched", "Prefetched"],
-  ["checked", "Checked"],
-  ["owner", "Kept by you"],
-  ["unexplained", "Unexplained"],
-  ["reclaimable", "Reclaimable"],
-] as const;
+const FILTERS = localized(
+  () =>
+    [
+      ["all", t("All releases")],
+      ["watching", t("Watching now")],
+      ["paused", t("Paused")],
+      ["unfinished", t("Unfinished")],
+      ["shelf", t("Shelf")],
+      ["prefetched", t("Prefetched")],
+      ["checked", t("Checked")],
+      ["owner", t("Kept by you")],
+      ["unexplained", t("Unexplained")],
+      ["reclaimable", t("Reclaimable")],
+    ] as const,
+);
 
 const PREFETCHED = [
   "next-episode",
@@ -148,7 +151,7 @@ export function CacheExplorer({
         >
           {FILTERS.map(([value, label]) => (
             <option key={value} value={value}>
-              {t(label)}
+              {label}
             </option>
           ))}
         </select>

@@ -7,7 +7,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
-	"github.com/braedonsaunders/ether/internal/plex/model"
+
 	"github.com/braedonsaunders/ether/internal/tmdb"
 )
 
@@ -75,9 +75,6 @@ func (s *Server) artworkTitle(ctx context.Context, key core.RatingKey) (*core.Ti
 		}
 	}
 	return s.d.Catalog.Get(ctx, key)
-}
-func renderUltraBlur(c model.UltraBlurColors, tr frontend.ArtworkTransform) ([]byte, string, error) {
-	return artworkservice.RenderUltraBlur(artworkservice.Palette{TopLeft: c.TopLeft, TopRight: c.TopRight, BottomLeft: c.BottomLeft, BottomRight: c.BottomRight}, tr)
 }
 
 var _ frontend.Artwork = FrontendArtwork{}

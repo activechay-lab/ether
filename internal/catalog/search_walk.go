@@ -62,7 +62,7 @@ func (c *Catalog) searchByPopularity(ctx context.Context, query string, n int, u
 		// Count matches through the trigram index, up to the threshold.
 		fts, args := c.titleMatch("", query)
 		var count int
-		if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT 1 FROM catalog_titles WHERE type IN ('movie','show','season','episode')`+adult+` AND `+fts+` LIMIT ?)`, append(args, searchDenseMatches)...).Scan(&count); err != nil {
+		if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT 1 FROM catalog_titles WHERE type IN ('movie','show','season','episode')`+adult+` AND `+fts+` LIMIT ?) AS matches`, append(args, searchDenseMatches)...).Scan(&count); err != nil {
 			return nil, false, err
 		}
 		if count < searchDenseMatches {

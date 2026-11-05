@@ -744,8 +744,6 @@ func (w *fakeWAN) Detect(ctx context.Context) (net.IP, error) {
 	return net.ParseIP(w.ip), nil
 }
 
-func (w *fakeWAN) set(ip string) { w.mu.Lock(); w.ip = ip; w.mu.Unlock() }
-
 type fakeMapper struct {
 	mu      sync.Mutex
 	st      remote.MappingStatus

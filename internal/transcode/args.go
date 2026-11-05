@@ -19,6 +19,7 @@ type runSpec struct {
 	NormalizeNegativeDTS bool
 	SoftSubtitlePath     string
 	SoftSubtitleIndex    int
+	LoopInput            bool
 	LiveInput            bool
 	CopyTimestamps       bool
 	// RTXTimeline preserves the native session's clock and rendition-local
@@ -224,6 +225,17 @@ func matroskaCopyParameterSets(d core.Decision, codec string) string {
 // buildCodecArgs is the input, stream mapping and codec part of a run's
 // command line, shared by HLS and DASH.
 func buildCodecArgs(s runSpec) []string {
+	// A card has no changing content: start its loop at zero, then place it
+	// on the programme clock. Never seek through hours of repeated input.
+	loopStart := s.Start
+	if s.LoopInput {
+		s.Start = 0
+		keys := make([]time.Duration, len(s.KeyTimes))
+		for i, k := range s.KeyTimes {
+			keys[i] = k - loopStart
+		}
+		s.KeyTimes = keys
+	}
 	d := s.Decision
 	v := s.Info.Video()
 	a := findStream(s.Info, d.AudioStream, "audio")
@@ -293,6 +305,9 @@ func buildCodecArgs(s runSpec) []string {
 	vp := planVideo(s, v)
 	args = append(args, vp.inputArgs...)
 	args = append(args, inputTimestampArgs(s)...)
+	if s.LoopInput {
+		args = append(args, "-stream_loop", "-1")
+	}
 	if s.Start > 0 && !pceOutputSeek {
 		args = append(args, "-ss", secs(s.Start))
 	}
@@ -303,6 +318,9 @@ func buildCodecArgs(s runSpec) []string {
 		args = append(args, "-f", "concat", "-safe", "0", "-i", pceInput)
 	} else {
 		args = append(args, "-i", s.Input)
+	}
+	if s.LoopInput {
+		args = append(args, "-t", secs(s.Info.Duration-loopStart))
 	}
 	textSub := matroskaTextSubtitle(s)
 	if textSub != nil && textSub.External && textSub.ExternalURL != "" {
@@ -481,6 +499,9 @@ func buildCodecArgs(s runSpec) []string {
 		}
 	}
 
+	if s.LoopInput {
+		args = append(args, "-output_ts_offset", secs(loopStart))
+	}
 	return args
 }
 
@@ -752,7 +773,6 @@ func subtitleOrdinal(info core.MediaInfo, idx int) int {
 type picturePlan struct {
 	w, h     int
 	scaling  bool
-	keepHDR  bool
 	tonemap  bool
 	tenBit   bool
 	outRange string
@@ -773,7 +793,7 @@ func planPicture(s runSpec, v *core.StreamInfo, codec string) picturePlan {
 	keepHDR := keepsHDR(v) && !d.ToneMap && codec == "hevc"
 	pic := picturePlan{
 		w: w, h: h, scaling: v.Height > 0 && h < v.Height,
-		keepHDR: keepHDR, tonemap: encodedRange(v) != rangeSDR && !keepHDR,
+		tonemap: encodedRange(v) != rangeSDR && !keepHDR,
 		// tenBit and outRange describe the encoded picture; without a
 		// contract they follow keepHDR.
 		tenBit: keepHDR, outRange: rangeSDR,

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/frontend/kit/mediasafety"
 	"math"
 	"net/http"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/caps"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/mediasafety"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/quality"
 )
 
@@ -137,6 +137,7 @@ func (i *instance) playbackStart(w http.ResponseWriter, r *http.Request) {
 		pos = 0
 	} else {
 		pos = i.skipIntroAtStart(r, v, scope, key, versionHandle, pos)
+		b.Position = float64(pos) / float64(time.Second)
 	}
 	plan, err := i.host.Sessions.Plan(r.Context(), frontend.PlanRequest{Viewer: v, Device: d, Protocol: "silo", Item: key, Channel: channel, Version: versionHandle, DetailSource: offer.Target.DetailSource, ExpectedSourceETag: offer.Target.ETag, Caps: cap.Client, Intent: frontend.PlayIntent{ExactVersion: versionHandle != "", Options: options, AllowTranscoding: &hls, AudioOrdinal: b.Audio, SubtitleStreamIndex: b.Subtitle, Position: pos, PlaybackID: b.Attempt, ClientSessionID: b.InstallationID}})
 	if err != nil {

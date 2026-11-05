@@ -8,7 +8,7 @@
  */
 import { isFieldRef } from "@braedonsaunders/appkit-viewspec";
 
-export const ETHER_WIDGETS = [
+const ETHER_WIDGETS = [
   "ether.posterGrid",
   "ether.posterShelf",
   "ether.titleCard",
@@ -21,10 +21,10 @@ export const ETHER_WIDGETS = [
   "ether.badge",
 ] as const;
 
-export const ETHER_FRAMES = ["ether.section", "ether.tabs", "ether.drawer"] as const;
+const ETHER_FRAMES = ["ether.section", "ether.tabs", "ether.drawer"] as const;
 
-export type EtherWidget = (typeof ETHER_WIDGETS)[number];
-export type EtherFrame = (typeof ETHER_FRAMES)[number];
+type EtherWidget = (typeof ETHER_WIDGETS)[number];
+type EtherFrame = (typeof ETHER_FRAMES)[number];
 
 export function isEtherWidget(name: string): name is EtherWidget {
   return (ETHER_WIDGETS as readonly string[]).includes(name);
@@ -47,7 +47,7 @@ export const CLASS_FIELDS = new Set([
 
 type JsonKind = "string" | "number" | "bool" | "array" | "object";
 
-export interface PropShape {
+interface PropShape {
   required?: string[];
   optional?: string[];
   /** Groups where at least one name must be present. */

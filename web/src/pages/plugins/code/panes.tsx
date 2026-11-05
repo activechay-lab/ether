@@ -11,7 +11,7 @@ interface Panes {
 
 const KEY = "ether-studio-panes";
 const DEFAULTS: Panes = { left: 224, right: 420, collapsed: false };
-export const RAIL_WIDTH = 44;
+const RAIL_WIDTH = 44;
 const LEFT = { min: 160, max: 480 };
 const RIGHT = { min: 300, max: 760 };
 /** The editor never gets narrower than this while a pane is dragged. */

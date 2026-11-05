@@ -49,10 +49,6 @@ func httpInputArgs(input string, reconnect bool) []string {
 	return args
 }
 
-func probeArgs(input string, a probeAttempt) []string {
-	return probeArgsMode(input, a, false)
-}
-
 func probeArgsMode(input string, a probeAttempt, live bool) []string {
 	args := []string{"-hide_banner", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", "-show_data",
 		"-probesize", strconv.FormatInt(a.probesize, 10),
@@ -114,12 +110,6 @@ func probeOnceMode(ctx context.Context, r Runner, ffprobe, input string, a probe
 		return nil, fmt.Errorf("transcode: ffprobe: %w: %s", err, tail(stderr.String(), 400))
 	}
 	return ParseProbe(stdout.Bytes())
-}
-
-// probeComplete reports whether every stream ffmpeg needs parameters for has
-// them; otherwise a larger probe is worth the time.
-func probeComplete(m *core.MediaInfo) bool {
-	return probeCompleteMode(m, false)
 }
 
 func probeCompleteMode(m *core.MediaInfo, live bool) bool {

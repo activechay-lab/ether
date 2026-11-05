@@ -26,14 +26,13 @@ import (
 
 // rung is one ladder variant.
 type rung struct {
-	id         string
-	decision   core.Decision
-	width      int
-	height     int
-	avgKbps    int // average total bitrate
-	peakKbps   int
-	codecs     string // RFC 6381, video,audio
-	videoCodec string
+	id       string
+	decision core.Decision
+	width    int
+	height   int
+	avgKbps  int // average total bitrate
+	peakKbps int
+	codecs   string // RFC 6381, video,audio
 }
 
 // ladderSteps are the candidate rungs below the source (id, height,
@@ -138,23 +137,18 @@ const minRungVideoKbps = 200
 func buildRungs(info core.MediaInfo, primary core.Decision, adapt adaptiveSettings) []rung {
 	v := info.Video()
 	pw, ph := 0, 0
-	codec := ""
 	if v != nil {
-		codec = primary.VideoCodec
 		if primary.VideoCopy {
-			pw, ph, codec = v.Width, v.Height, v.Codec
+			pw, ph = v.Width, v.Height
 		} else {
 			pw, ph = decisionOutputSize(v, primary)
-			if codec == "" {
-				codec = "h264"
-			}
 		}
 	}
 	avg := decisionTotalKbps(info, primary)
 	base := rung{
 		id: "base", decision: primary, width: pw, height: ph,
-		avgKbps: avg, videoCodec: codec,
-		codecs: rungCodecs(info, primary, ph),
+		avgKbps: avg,
+		codecs:  rungCodecs(info, primary, ph),
 	}
 	base.peakKbps = peakKbps(avg)
 	rungs := []rung{base}
@@ -201,7 +195,7 @@ func buildRungs(info core.MediaInfo, primary core.Decision, adapt adaptiveSettin
 		rungs = append(rungs, rung{
 			id: step.id, decision: d, width: w, height: h,
 			avgKbps: total, peakKbps: peakKbps(total),
-			videoCodec: d.VideoCodec, codecs: rungCodecs(info, d, h),
+			codecs: rungCodecs(info, d, h),
 		})
 		below = total
 	}

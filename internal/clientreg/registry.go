@@ -19,9 +19,6 @@ import (
 //go:embed registry.json
 var registryJSON []byte
 
-// Version is the embedded registry generation.
-func Version() int { return loaded.Version }
-
 // Identity is the client a match rule sees.
 type Identity struct {
 	Product, Platform, Device, Model, Version string
@@ -109,9 +106,6 @@ func mustLoad() document {
 	}
 	return doc
 }
-
-// Matches reports whether m matches id.
-func Matches(m Match, id Identity) bool { return m.ok(id) }
 
 func (m Match) ok(id Identity) bool {
 	if m.Field != "" {
@@ -350,7 +344,7 @@ func OverrideApplies(o core.ClientCapabilityOverride, recordIDs []string, id Ide
 		return false
 	}
 	if o.Product != "" {
-		if o.ID == "" && o.Device == "" && o.Platform == "" && o.ProductMatch != "contains" {
+		if o.ID == "" && o.Device == "" && o.Platform == "" {
 			if !strings.EqualFold(strings.TrimSpace(id.Product), strings.TrimSpace(o.Product)) {
 				return false
 			}
@@ -377,19 +371,7 @@ func applyOverrides(base Result, playbackID, policyID string, id Identity, overr
 	if policyID != "" && policyID != playbackID {
 		ids = append(ids, policyID)
 	}
-	// A product-specific edit replaces the entire legacy app edit, including
-	// fields the owner cleared. Device and record overrides remain independent.
-	hasExactApp := false
 	for _, o := range overrides {
-		if o.Product != "" && o.ID == "" && o.Device == "" && o.Platform == "" && o.ProductMatch != "contains" && OverrideApplies(o, ids, id) {
-			hasExactApp = true
-			break
-		}
-	}
-	for _, o := range overrides {
-		if hasExactApp && o.ProductMatch == "contains" && o.ID == "" && o.Device == "" && o.Platform == "" {
-			continue
-		}
 		if !OverrideApplies(o, ids, id) {
 			continue
 		}
@@ -427,25 +409,4 @@ func applyOverrides(base Result, playbackID, policyID string, id Identity, overr
 		}
 	}
 	return base
-}
-
-// Definitions returns the embedded records for the owner console.
-func Definitions(role string) []Result {
-	var out []Result
-	seen := map[string]bool{}
-	for i := range loaded.Definitions {
-		d := &loaded.Definitions[i]
-		if role != "" && d.Role != role {
-			continue
-		}
-		if d.Role == "patch" || d.Role == "quirk" {
-			continue
-		}
-		if seen[d.Role+"\x00"+d.ID] {
-			continue
-		}
-		seen[d.Role+"\x00"+d.ID] = true
-		out = append(out, d.result())
-	}
-	return out
 }

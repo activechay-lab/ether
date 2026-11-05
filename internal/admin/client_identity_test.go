@@ -22,7 +22,7 @@ func TestClientIdentitySection(t *testing.T) {
 	if err := store.Update(func(c *config.Config) error { seededConfig(c); c.SetupComplete = true; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
 	put := func(body string) *httptest.ResponseRecorder {
 		r := req(http.MethodPut, "/ether/api/config/clientIdentity", body)
 		r.Header.Set("X-Plex-Token", ownerToken)
@@ -112,7 +112,7 @@ func TestClientIdentitySection(t *testing.T) {
 
 func TestIndexerClientIdentityOverrideValidation(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
 	body := `[{"id":"i1","name":"Idx","url":"https://idx.example.com","apiKey":"ix-key","dailyLimit":0,"dailyGrabs":0,"priority":0,"enabled":true,"movieCategories":null,"tvCategories":null,"clientIdentity":"sabnzbd"}]`
 	r := req(http.MethodPut, "/ether/api/config/indexers", body)
 	r.Header.Set("X-Plex-Token", ownerToken)

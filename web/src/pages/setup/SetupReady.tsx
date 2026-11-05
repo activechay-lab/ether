@@ -32,7 +32,7 @@ function enabledFrontendIds(cfg: EtherConfig | null): string[] {
  *   Ether Continuum mark (`brand-art.json`), so no two primary strokes ever stack or
  *   toggle opacity against one another during settle.
  */
-export interface ContinuumRibbonSpec {
+interface ContinuumRibbonSpec {
   id: string;
   role: "primary" | "secondary";
   approachD: string;
@@ -45,7 +45,7 @@ export interface ContinuumRibbonSpec {
   peakOpacity?: number;
 }
 
-export const ETHER_READY_RIBBONS: readonly ContinuumRibbonSpec[] = [
+const ETHER_READY_RIBBONS: readonly ContinuumRibbonSpec[] = [
   // 1. Outer Continuum U-curve (top half of `M80 17H43C24 17 11 30 11 48S24 79 43 79H80`):
   //    sweeps in from top-right into the open top-right mouth (80, 17), glides left to (43, 17),
   //    and curves down to the left apex (11, 48).
@@ -213,7 +213,7 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-export interface SetupReadyProps {
+interface SetupReadyProps {
   initialConfig?: EtherConfig | null;
   tmdbAvailable?: boolean;
 }
@@ -820,4 +820,3 @@ function SetupReadyInner({ initialConfig = null, tmdbAvailable }: SetupReadyProp
 }
 
 export const SetupReady = memo(SetupReadyInner);
-export default SetupReady;

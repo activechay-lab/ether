@@ -99,7 +99,11 @@ export function WatchlistAlerts() {
         )}
       >
         <SettingsRow
-          title={<label htmlFor="watchlist-enabled">{t("Watchlist monitoring")}</label>}
+          title={
+            <label htmlFor="watchlist-enabled" data-setting="watchlist-monitoring">
+              {t("Watchlist monitoring")}
+            </label>
+          }
           description={t("Check viewers' watchlists for titles that have become available.")}
           control={
             <Switch
@@ -113,6 +117,9 @@ export function WatchlistAlerts() {
         {SOURCES.map((o) => (
           <SettingsRow
             key={o.key}
+            setting={
+              { plex: "plex-watchlists", trakt: "trakt-watchlists", notify: "tell-me-too" }[o.key]
+            }
             title={<label htmlFor={`watchlist-${o.key}`}>{o.label}</label>}
             description={o.hint}
             control={
@@ -127,7 +134,11 @@ export function WatchlistAlerts() {
           />
         ))}
         <SettingsRow
-          title={<label htmlFor="watchlist-hours">{t("Check every")}</label>}
+          title={
+            <label htmlFor="watchlist-hours" data-setting="check-every">
+              {t("Check every")}
+            </label>
+          }
           description={t("Minimum time between checks of the same watchlist.")}
           control={
             <span className="flex items-center gap-2">

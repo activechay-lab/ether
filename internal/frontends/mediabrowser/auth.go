@@ -19,7 +19,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/route"
-	"github.com/braedonsaunders/ether/internal/frontend/kit/support"
 )
 
 // errViewerScope means the request named a viewer other than the grant holder.
@@ -76,7 +75,14 @@ func device(r *http.Request) frontend.Device {
 	return frontend.Device{ID: get("DeviceId", "X-Emby-Device-Id"), Client: client, Product: client, Version: get("Version", "X-Emby-Client-Version"), DeviceName: get("Device", "X-Emby-Device-Name")}
 
 }
-func (i *instance) viewer(r *http.Request) (*frontend.Viewer, string, error) {
+
+type principalKey struct{}
+type principal struct {
+	viewer *frontend.Viewer
+	token  string
+}
+
+func (i *instance) authenticate(r *http.Request) (*frontend.Viewer, string, error) {
 	token := authhdr.MediaBrowserToken(r)
 	if token == "" {
 		return nil, "", errors.New("missing credential")
@@ -102,31 +108,31 @@ func (i *instance) viewer(r *http.Request) (*frontend.Viewer, string, error) {
 			v = boundViewer
 		}
 	}
-	if err == nil && v != nil {
-		scoped := r.PathValue("userId")
-		if scoped == "" {
-			values := route.Query(r.URL.Query(), "userId")
-			if len(values) > 1 {
-				return nil, "", errors.New("ambiguous user")
-			}
-			if len(values) == 1 {
-				scoped = values[0]
-			}
-		}
-		if scoped != "" {
-			id, e := ids.ParseGUID(ids.User, scoped)
-			if e != nil || id != v.ID {
-				return nil, "", errViewerScope
-			}
-		}
-	}
-	if err == nil && v != nil && i.host.ClientSeen != nil {
-		i.host.ClientSeen(device(r).ID)
-	}
-	if _, ok := i.host.Identity.(frontend.GrantDeviceIdentity); ok && err == nil && v != nil {
-		support.Seen(r, i.host.Support, string(i.protocol), v, device(r))
-	}
 	return v, token, err
+}
+func (i *instance) viewer(r *http.Request) (*frontend.Viewer, string, error) {
+	p, ok := r.Context().Value(principalKey{}).(principal)
+	if !ok || p.viewer == nil {
+		return nil, "", errors.New("missing credential")
+	}
+	v, token := p.viewer, p.token
+	scoped := r.PathValue("userId")
+	if scoped == "" {
+		values := route.Query(r.URL.Query(), "userId")
+		if len(values) > 1 {
+			return nil, "", errors.New("ambiguous user")
+		}
+		if len(values) == 1 {
+			scoped = values[0]
+		}
+	}
+	if scoped != "" {
+		id, e := ids.ParseGUID(ids.User, scoped)
+		if e != nil || id != v.ID {
+			return nil, "", errViewerScope
+		}
+	}
+	return v, token, nil
 }
 func (i *instance) syncPlayAccess() string {
 	if i.protocol == "jellyfin" && i.host.WatchParty != nil {
@@ -244,63 +250,6 @@ func (i *instance) userDTO(r *http.Request, v *frontend.Viewer) map[string]any {
 	}
 	return result
 }
-func (i *instance) sessionDTO(r *http.Request, v *frontend.Viewer) map[string]any {
-	d := device(r)
-	userID, _ := ids.GUID(ids.User, v.ID)
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%s", i.protocol, v.ID, d.ID)))
-	sessionID := hex.EncodeToString(sum[:16])
-	peer := ""
-	if i.host.ClientIP != nil {
-		if ip, ok := i.host.ClientIP(r); ok {
-			peer = ip.String()
-		}
-	}
-	now := time.Now().UTC()
-	state := map[string]any{"CanSeek": false, "IsPaused": false, "IsMuted": false, "RepeatMode": "RepeatNone"}
-	session := map[string]any{"Id": sessionID, "UserId": userID, "UserName": v.Username, "ServerId": i.info.ID, "Client": d.Client, "DeviceId": d.ID, "DeviceName": d.DeviceName, "ApplicationVersion": d.Version, "LastActivityDate": wireTime(now), "RemoteEndPoint": peer, "AdditionalUsers": []any{}, "PlayableMediaTypes": []any{}, "SupportedCommands": []any{}, "SupportsRemoteControl": false, "PlayState": state}
-	if i.protocol == "jellyfin" {
-		// This sign-in response precedes any playback check-in.
-		session["LastPlaybackCheckIn"] = wireTime(time.Time{})
-		state["PlaybackOrder"] = "Default"
-		session["IsActive"] = true
-		session["HasCustomDeviceName"] = false
-		session["SupportsMediaControl"] = false
-		session["NowPlayingQueue"] = []any{}
-		session["Capabilities"] = map[string]any{"PlayableMediaTypes": []any{}, "SupportedCommands": []any{}, "SupportsMediaControl": false, "SupportsPersistentIdentifier": d.ID != ""}
-	} else {
-		state["PlaybackRate"] = 1
-		state["Shuffle"] = false
-		state["SleepTimerMode"] = "None"
-		state["SubtitleOffset"] = 0
-		session["Protocol"] = r.Proto
-		session["PlaylistIndex"] = 0
-		session["PlaylistLength"] = 0
-	}
-	if i.host.Sessions != nil {
-		caps, err := i.host.Sessions.Capabilities(r.Context(), frontend.SessionAccess{Viewer: v, Device: d, Protocol: i.protocol})
-		if err == nil {
-			c := i.sessionCapabilitiesDTO(caps)
-			if i.protocol == "jellyfin" {
-				session["Capabilities"] = c
-			}
-			for _, key := range []string{"PlayableMediaTypes", "SupportedCommands", "SupportsRemoteControl", "SupportsMediaControl"} {
-				if i.protocol == "emby" && key == "SupportsMediaControl" {
-					continue
-				}
-				if value, ok := c[key]; ok {
-					session[key] = value
-				}
-			}
-			if caps.SupportsRemoteControl != nil {
-				session["SupportsRemoteControl"] = *caps.SupportsRemoteControl
-			}
-		}
-	}
-	if i.protocol == "emby" {
-		i.embySessionDTO(r.Context(), session, d.ID)
-	}
-	return session
-}
 
 // jellyfinMediaTypes and jellyfinCommands are Jellyfin's MediaType and
 // GeneralCommandType enums. The broker lists sessions from every surface, and
@@ -359,19 +308,6 @@ func knownValues(values []string, known map[string]bool) []string {
 		}
 	}
 	return out
-}
-func (i *instance) result(w http.ResponseWriter, r *http.Request, token string) {
-	v, err := i.host.Identity.Resolve(r.Context(), token)
-	if err != nil || v == nil {
-		http.Error(w, "Unauthorized", 401)
-		return
-	}
-	if warm, ok := i.host.VirtualPaths.(interface {
-		Warm(context.Context, *frontend.Viewer, frontend.Device)
-	}); ok {
-		warm.Warm(context.WithoutCancel(r.Context()), v, device(r))
-	}
-	jsonReply(w, map[string]any{"AccessToken": token, "ServerId": i.info.ID, "User": i.userDTOWithTimes(r, v, token), "SessionInfo": i.sessionDTO(r, v)})
 }
 
 // fastResult answers a sign-in with the token and a small user. Home rows,

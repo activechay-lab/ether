@@ -1,5 +1,6 @@
 import { SubtabNav } from "../../components/layout";
 import { parseDuration, formatDuration, type DurationUnit } from "./duration";
+import { SettingAnchor } from "../../components/SettingFocus";
 import { SettingsRow } from "../../components/SettingsRow";
 import {
   Button,
@@ -117,7 +118,7 @@ export type LoadOptions = (field: string) => Promise<{ value: string; label: str
 // plugin settings arrive in this shape; fieldGroupsFromServed localises them
 // into the FieldDef the renderers below take.
 
-export type ServedFieldKind =
+type ServedFieldKind =
   | "group"
   | "text"
   | "secret"
@@ -139,7 +140,7 @@ export type ServedFieldKind =
   | "url"
   | "title";
 
-export interface ServedField {
+interface ServedField {
   key: string;
   label: ExtendText;
   help?: ExtendText;
@@ -157,7 +158,7 @@ export interface ServedField {
   fields?: ServedField[];
 }
 
-export interface ServedGroup {
+interface ServedGroup {
   id?: string;
   title?: ExtendText;
   description?: ExtendText;
@@ -179,7 +180,7 @@ function servedOptions(f: ServedField): { value: string; label: string }[] {
   return (f.options ?? []).map((o) => ({ value: o.value, label: textOf(o.label) }));
 }
 
-export function fieldDefFromServed(f: ServedField): FieldDef {
+function fieldDefFromServed(f: ServedField): FieldDef {
   const label = textOf(f.label);
   const help = f.help ? textOf(f.help) : undefined;
   const base = { key: f.key, label, help };
@@ -260,7 +261,7 @@ export function useSettingsSchema(id: string): {
     () => (meta ? fieldGroupsFromServed(meta.schema) : undefined),
     // textOf reads the active catalogue; locale is the dependency that
     // changes when the language does.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     [meta, locale],
   );
   return { groups, meta, loading, error };
@@ -289,7 +290,6 @@ export function useSettingsSchemas(ids: readonly string[]): {
     }
     return out;
     // textOf reads the active catalogue; locale changes with the language.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [descriptors, idsKey, locale]);
   return { groups, loading, error };
 }
@@ -306,7 +306,7 @@ function pointerKey(seg: string): string {
  * Looks up a field error by full dotted path (`server.port`), relative dotted
  * path (`port`, `rtxVideo.mode`), or JSON pointer (`/port`, `/rtxVideo/mode`).
  */
-export function errorForPath(
+function errorForPath(
   errors: Record<string, string> | undefined,
   path: string,
 ): string | undefined {
@@ -337,40 +337,30 @@ export function hasFieldError(
   return false;
 }
 
-export function SchemaForm({
-  schema,
-  value,
-  onChange,
-  errors = {},
-  prefix = "settings",
-  loadOptions,
-}: {
-  schema: ServedSchema;
-  value: Obj;
-  onChange: (v: Obj) => void;
+const UNIT_BYTES = { GiB: 1024 ** 3, MiB: 1024 ** 2 } as const;
+
+/**
+ * Renders one field as an AppKit SettingsRow. `errors` is keyed by the
+ * field's dotted path; the row carries `data-setting` so ⌘K can jump to it.
+ */
+export function SchemaField(props: {
+  def: FieldDef;
+  value: unknown;
+  onChange: (v: unknown) => void;
+  error?: string;
   errors?: Record<string, string>;
-  prefix?: string;
+  path: string;
   loadOptions?: LoadOptions;
 }) {
-  const { locale } = useLocale();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const groups = useMemo(() => fieldGroupsFromServed(schema), [schema, locale]);
+  if (props.def.kind === "hidden") return null;
   return (
-    <SchemaGroups
-      groups={groups}
-      value={value}
-      onChange={onChange}
-      errors={errors}
-      prefix={prefix}
-      loadOptions={loadOptions}
-    />
+    <SettingAnchor id={props.def.key}>
+      <SchemaFieldBody {...props} />
+    </SettingAnchor>
   );
 }
 
-const UNIT_BYTES = { GiB: 1024 ** 3, MiB: 1024 ** 2 } as const;
-
-/** Renders one field as an AppKit SettingsRow. `errors` is keyed by the field's dotted path. */
-export function SchemaField({
+function SchemaFieldBody({
   def,
   value,
   onChange,
@@ -1058,10 +1048,12 @@ function TitleRow({
 /** A group's advanced (more) fields, collapsed until asked or in error. */
 function MoreFields({
   title,
+  setting,
   children,
   hasError,
 }: {
   title?: string;
+  setting?: string;
   children: ReactNode;
   hasError: boolean;
 }) {
@@ -1076,6 +1068,7 @@ function MoreFields({
         className="w-full px-4 py-3 text-left text-sm font-medium text-primary"
         aria-expanded={open}
         aria-label={title ? t("More options: {title}", { title }) : t("More options")}
+        data-more={setting}
         onClick={() => setOpen((v) => !v)}
       >
         {t("More options")}
@@ -1148,6 +1141,7 @@ export function SchemaGroups({
             {g.more?.length ? (
               <MoreFields
                 title={g.title}
+                setting={g.id}
                 hasError={g.more.some((f) => hasFieldError(f, errors, prefix))}
               >
                 {g.more.map((f) => (
@@ -1208,7 +1202,7 @@ function advancedFieldMeta(key: string): { label: string; help?: string } | unde
 }
 
 /** A field definition guessed from a value, for options the UI has no schema for. */
-export function inferField(key: string, value: unknown): FieldDef {
+function inferField(key: string, value: unknown): FieldDef {
   const meta = advancedFieldMeta(key);
   const label = meta?.label ?? humanizeKey(key);
   if (typeof value === "boolean") return { key, label, kind: "bool", help: meta?.help };

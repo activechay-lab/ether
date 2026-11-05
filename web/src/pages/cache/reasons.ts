@@ -1,4 +1,5 @@
 import { t, tn } from "../../i18n";
+import { formatDate } from "../../lib/format";
 import type { CacheRetention } from "./Cache";
 
 /** Human labels for the closed cache-cause vocabulary. */
@@ -93,13 +94,6 @@ export function pinLabel(code: string): string {
   }
 }
 
-export function causeLabels(codes: string[] | undefined, limit = 2): string {
-  const labels = (codes ?? []).map(causeLabel);
-  if (!labels.length) return causeLabel("unrecorded");
-  if (labels.length <= limit) return labels.join(" · ");
-  return `${labels.slice(0, limit).join(" · ")} +${labels.length - limit}`;
-}
-
 export function retentionLabel(retention?: CacheRetention): string {
   if (!retention) return t("Reclaimable anytime");
   switch (retention.kind) {
@@ -109,10 +103,7 @@ export function retentionLabel(retention?: CacheRetention): string {
       const days = tn(retention.days ?? 0, "{count} inactive day", "{count} inactive days");
       return retention.until
         ? `${t("Expires {when}", {
-            when: new Date(retention.until).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            }),
+            when: formatDate(retention.until),
           })} · ${days}`
         : days;
     }

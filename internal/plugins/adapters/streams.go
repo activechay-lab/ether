@@ -6,8 +6,7 @@ package adapters
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
+
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -848,39 +847,12 @@ func countSince(ts []time.Time, cutoff time.Time) int {
 	return n
 }
 
-func releaseIDFor(pluginID, guid string) string {
-	sum := sha1.Sum([]byte(pluginID + "|" + guid))
-	return hex.EncodeToString(sum[:])
-}
-
 func pluginOrigin(rawURL string) string {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return ""
 	}
 	return u.Scheme + "://" + u.Host
-}
-
-func validHTTPURL(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return ""
-	}
-	return u.String()
-}
-
-func firstReleaseLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			return line
-		}
-	}
-	return ""
 }
 
 func mergeLanguages(existing, extra []string) []string {
@@ -898,16 +870,6 @@ func mergeLanguages(existing, extra []string) []string {
 			}
 			seen[key] = true
 			out = append(out, l)
-		}
-	}
-	return out
-}
-
-func extractTrackers(sources []string) []string {
-	var out []string
-	for _, s := range sources {
-		if tr, ok := strings.CutPrefix(strings.TrimSpace(s), "tracker:"); ok && tr != "" {
-			out = append(out, tr)
 		}
 	}
 	return out

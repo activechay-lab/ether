@@ -10,26 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/cluster"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
-// Credential upgrade (config.UpgradeCredentials).
-//
-// Database secrets are sealed and config.json moves to v2 credentials only
-// once no older release can read this node's data:
-//
-//   - the running release is confirmed (a self-update still confirming may
-//     roll back to the previous binary, which cannot read v2); and
-//   - on a cluster, every live node reports the "credentials" migration,
-//     i.e. runs a release that reads sealed columns. During a rolling
-//     update older nodes keep reading plaintext rows and v1 settings.
-//
-// Then config.json and the shared settings are rewritten in v2 and each
-// component seals the plaintext rows it finds (MigrateSecrets). The pass
-// repeats hourly: a restored pre-upgrade backup or a row written by an
-// older node during the update is sealed on the next run. Rows that do not
-// open are never rewritten; they are reported.
+// v0.3.4 startup conversion seals secrets from older installations before
+// listeners open. Restarts resume interrupted conversions and handle
+// restored backups. All new credentials are always written in v2.
 
 func init() {
 	// Heartbeated by every node (store.KnownMigrations): a release that
@@ -42,14 +28,6 @@ func init() {
   key_fingerprint TEXT NOT NULL DEFAULT ''
 );`)
 }
-
-// credentialsMigration is the migration a node must know to read v2.
-const credentialsMigration = "credentials"
-
-const (
-	credentialCheckEvery = time.Minute
-	credentialPassEvery  = time.Hour
-)
 
 // sealedTables are the database columns that hold sealed values.
 var sealedTables = []struct{ table, column string }{
@@ -64,6 +42,8 @@ var sealedTables = []struct{ table, column string }{
 	{"cardigann_sessions", "cookies"},
 	{"ratings_settings", "value"},
 	{"clusterconfig_secrets", "value"},
+	{"availability_releases", "payload"},
+	{"availability_feed_items", "payload"},
 }
 
 // credentialKeyRejectedFile records, in the data directory, the
@@ -126,94 +106,20 @@ func (a *App) checkCredentialKey(ctx context.Context) error {
 	return nil
 }
 
-// credentialUpgradeReady reports whether v2 may be written, with the
-// reason when not.
-func (a *App) credentialUpgradeReady(ctx context.Context) (bool, string) {
-	if a.updates != nil && a.updates.mgr != nil && a.updates.mgr.Status().Confirming {
-		return false, "the running update is not confirmed yet"
-	}
-	if !a.clustered() {
-		return true, ""
-	}
-	nodes, err := a.cluster.AllNodes(ctx)
-	if err != nil {
-		return false, "cluster membership unavailable"
-	}
-	if older := nodesWithoutMigration(nodes, credentialsMigration, 1); len(older) > 0 {
-		return false, "live node(s) " + strings.Join(older, ", ") + " run a release without sealed credentials"
-	}
-	return true, ""
-}
-
-// nodesWithoutMigration names the live nodes whose binary does not know
-// component's migration version (nodes that predate the report count).
-func nodesWithoutMigration(nodes []cluster.Node, component string, version int) []string {
-	var out []string
-	for _, n := range nodes {
-		if n.Live && n.Migrations[component] < version {
-			name := n.Name
-			if name == "" {
-				name = n.ID
-			}
-			out = append(out, fmt.Sprintf("%s (%s)", name, n.Version))
-		}
-	}
-	return out
-}
-
-// runCredentialUpgrade waits until the upgrade is safe, performs it, then
-// repeats the database pass hourly.
-func (a *App) runCredentialUpgrade(ctx context.Context) {
-	var waitingFor string
-	// The first pass already ran before the listener opened. Repeating it
-	// here would hold the database across the first play.
-	t := time.NewTimer(credentialCheckEvery)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
-		t.Reset(a.credentialPass(ctx, &waitingFor))
-	}
-}
-
-// credentialPass is one run of runCredentialUpgrade; it returns the delay
-// until the next. waitingFor holds the last logged deferral reason.
-func (a *App) credentialPass(ctx context.Context, waitingFor *string) time.Duration {
-	log := a.log.With("component", "credentials")
-	upgraded := a.cfg.CredentialsUpgraded()
-	if !upgraded {
-		if ok, why := a.credentialUpgradeReady(ctx); !ok {
-			if why != *waitingFor {
-				log.Info("credentials: v2 upgrade deferred", "reason", why)
-				*waitingFor = why
-			}
-			return credentialCheckEvery
-		}
-	}
-	// Record which key the database is sealed with before anything is
-	// sealed, so a later start with another key is refused.
+// migrateCredentials converts old stored secrets once before background work
+// and listeners start. An interrupted pass resumes safely at the next startup.
+func (a *App) migrateCredentials(ctx context.Context) error {
 	if err := a.recordCredentialFormat(ctx); err != nil {
-		log.Warn("credentials: record the credential key fingerprint", "err", err)
-		return credentialCheckEvery
+		return err
 	}
-	// Also when already upgraded: completes a shared-settings rewrite an
-	// earlier run did not finish (a no-op otherwise).
 	if err := a.cfg.UpgradeCredentials(ctx); err != nil {
-		log.Warn("credentials: upgrade", "err", err)
-		return credentialCheckEvery
+		return err
 	}
-	if !upgraded {
-		log.Info("credentials: configuration upgraded to path- and destination-bound credentials")
+	n, err := a.migrateStoredSecrets(ctx)
+	if n > 0 {
+		a.log.Info("credentials: sealed stored secrets", "rows", n)
 	}
-	if n, err := a.migrateStoredSecrets(ctx); err != nil {
-		log.Warn("credentials: some stored secrets were not sealed", "sealed", n, "err", err)
-	} else if n > 0 {
-		log.Info("credentials: sealed stored secrets", "rows", n)
-	}
-	return credentialPassEvery
+	return err
 }
 
 // recordCredentialFormat records the v2 upgrade and the fingerprint of the
@@ -262,4 +168,68 @@ func (a *App) migrateStoredSecrets(ctx context.Context) (int, error) {
 		})
 	}
 	return total, errors.Join(errs...)
+}
+
+// migrateCredentialBlobs converts old identity blobs and cached releases in one
+// transaction before consumers can read them. Completed conversions are no-ops.
+func (a *App) migrateCredentialBlobs(ctx context.Context) error {
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	changed := 0
+	for _, spec := range []struct{ table, column, name string }{
+		{"clusterconfig_secrets", "value", ""},
+		{"availability_releases", "payload", "availability-release"},
+		{"availability_feed_items", "payload", "availability-release"},
+	} {
+		nameExpr := "'" + spec.name + "'"
+		if spec.name == "" {
+			nameExpr = "name"
+		}
+		rows, err := tx.QueryContext(ctx, "SELECT DISTINCT "+nameExpr+","+spec.column+" FROM "+spec.table+" WHERE "+spec.column+" NOT LIKE 'ether-sealed:v2:%'")
+		if err != nil {
+			return err
+		}
+		type row struct{ name, value string }
+		var all []row
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(&r.name, &r.value); err != nil {
+				rows.Close()
+				return err
+			}
+			all = append(all, r)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, r := range all {
+			sealed, err := a.cfg.ConvertLegacyBlob(r.name, r.value)
+			if err != nil {
+				return fmt.Errorf("convert %s: %w", spec.table, err)
+			}
+			query := "UPDATE " + spec.table + " SET " + spec.column + "=? WHERE " + spec.column + "=?"
+			args := []any{sealed, r.value}
+			if spec.name == "" {
+				query += " AND name=?"
+				args = append(args, r.name)
+			}
+			res, err := tx.ExecContext(ctx, query, args...)
+			if err != nil {
+				return err
+			}
+			n, _ := res.RowsAffected()
+			changed += int(n)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if changed > 0 {
+		a.log.Info("credentials: converted stored blobs to v2", "rows", changed)
+	}
+	return nil
 }

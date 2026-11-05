@@ -54,9 +54,9 @@ const rank = (items: Bucket[] | undefined, leading?: (b: Bucket) => React.ReactN
 const TV: Viz = "viz-1";
 const MOVIES: Viz = "viz-2";
 
-const noPlays = (
-  <p className="py-4 text-sm text-fg-muted">{t("No recorded plays in this period.")}</p>
-);
+function NoPlays() {
+  return <p className="py-4 text-sm text-fg-muted">{t("No recorded plays in this period.")}</p>;
+}
 
 /** What people watched, when, and who watched most, for the period and viewer. */
 export function Viewing({
@@ -155,7 +155,7 @@ export function Viewing({
             }))}
           />
         ) : (
-          noPlays
+          <NoPlays />
         )}
       </DashboardPanel>
 
@@ -183,7 +183,7 @@ export function Viewing({
                 ariaLabel={t("Top genres")}
                 data={rank(s.genres).slice(0, 6)}
                 valueFormat={h}
-                empty={noPlays}
+                empty={<NoPlays />}
               />
             </DashboardPanel>
           ) : null}
@@ -199,7 +199,7 @@ export function Viewing({
               <TitleThumb ratingKey={b.key} label={b.label} />
             ))}
             valueFormat={h}
-            empty={noPlays}
+            empty={<NoPlays />}
           />
         </DashboardPanel>
         {s.shows ? (
@@ -211,7 +211,7 @@ export function Viewing({
                 <TitleThumb ratingKey={b.key} label={b.label} />
               ))}
               valueFormat={h}
-              empty={noPlays}
+              empty={<NoPlays />}
             />
           </DashboardPanel>
         ) : null}
@@ -223,7 +223,7 @@ export function Viewing({
               <ViewerAvatar user={b.key ? userById.get(b.key) : undefined} label={b.label} />
             ))}
             valueFormat={h}
-            empty={noPlays}
+            empty={<NoPlays />}
           />
         </DashboardPanel>
       </div>

@@ -19,7 +19,7 @@ import (
 // A reverse proxy can use loopback and Host: localhost. Neither grants access.
 func TestLoopbackStillRequiresOwner(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
 	for _, tc := range []struct {
 		remote, host string
 		want         int
@@ -124,7 +124,7 @@ func TestSignInWithPlex(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
 	si := &fakeSignIn{tokens: map[string]string{}}
 	sessions := newFakeSessions(store)
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: sessions.owner, SignIn: si, Sessions: sessions})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: sessions.owner, SignIn: si, Sessions: sessions})
 
 	start := func() string {
 		r := req(http.MethodPost, "/ether/api/auth/pin", "{}")
@@ -204,7 +204,7 @@ func TestSignInWithPlex(t *testing.T) {
 func TestConsoleSessionExchangeAndSignOut(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
 	sessions := newFakeSessions(store)
-	h := admin.New(admin.Deps{Config: store, IsOwnerToken: sessions.owner, Sessions: sessions})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: sessions.owner, Sessions: sessions})
 	exchange := func(cred string, csrf bool) (int, map[string]any) {
 		r := req(http.MethodPost, "/ether/api/auth/session", "{}")
 		if cred != "" {

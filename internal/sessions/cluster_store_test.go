@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -213,5 +214,35 @@ func TestClusterBrokerListsStopsAndOrdersReportsAcrossNodes(t *testing.T) {
 	list, err = a.Sessions(ctx, owner)
 	if err != nil || len(list) != 0 {
 		t.Fatalf("owner remote stop: %+v %v", list, err)
+	}
+}
+
+func TestClusterSnapshotStartupConversionPreservesSessions(t *testing.T) {
+	db := store.OpenTest(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	writer := clusterStore{db: db, node: "writer"}
+	session := frontend.Session{ID: "old-session", ViewerID: 7, Protocol: "jellyfin", Item: core.MovieKey(42), Device: core.Device{ID: "phone"}, StartedAt: now}
+	if err := writer.put(ctx, session, "source-session", core.Viewer{ID: 7}, now); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(map[string]any{"id": session.ID, "user": map[string]any{"id": 7}, "key": session.Item, "startedAt": now, "sourceID": "source-session"})
+	if _, err := db.Exec("UPDATE plex_sessions SET data=? WHERE id=?", string(raw), session.ID); err != nil {
+		t.Fatal(err)
+	}
+	reader := clusterStore{db: db, node: "reader"}
+	if n, err := reader.migrateEntries(ctx); err != nil || n != 1 {
+		t.Fatalf("convert: %d %v", n, err)
+	}
+	if n, err := reader.migrateEntries(ctx); err != nil || n != 0 {
+		t.Fatalf("repeat: %d %v", n, err)
+	}
+	rows, err := reader.list(ctx, now.Add(-time.Minute), nil)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("remote: %v %+v", err, rows)
+	}
+	got := rows[0]
+	if got.session.ID != session.ID || got.session.Item != session.Item || got.session.ViewerID != 7 || got.session.Device.ID != "phone" || got.sourceID != "source-session" || !got.session.StartedAt.Equal(now) {
+		t.Fatalf("session changed: %+v", got)
 	}
 }

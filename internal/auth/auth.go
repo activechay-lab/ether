@@ -1058,7 +1058,7 @@ INSERT INTO auth_users (plex_id, uuid, username, title, email, thumb, is_home, r
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
 ON CONFLICT(plex_id) DO UPDATE SET uuid=excluded.uuid, username=excluded.username, title=excluded.title,
 	email=excluded.email, thumb=excluded.thumb, updated_at=excluded.updated_at`,
-		a.ID, a.UUID, a.Username, a.DisplayName(), a.Email, a.Thumb, b2i(a.Home), b2i(a.Restricted), originValidated, now, now)
+		a.ID, a.UUID, a.Username, a.DisplayName(), a.Email, a.Thumb, store.BoolInt(a.Home), store.BoolInt(a.Restricted), originValidated, now, now)
 	if err != nil {
 		return 0, fmt.Errorf("auth: save user: %w", err)
 	}
@@ -1075,13 +1075,6 @@ ON CONFLICT(plex_id) DO UPDATE SET uuid=excluded.uuid, username=excluded.usernam
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.byPlex[a.ID], nil
-}
-
-func b2i(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 // BootstrapOwner creates the owner from config without network access (on
@@ -1174,7 +1167,7 @@ ON CONFLICT(plex_id) DO UPDATE SET
 	thumb=CASE WHEN excluded.thumb<>'' THEN excluded.thumb ELSE auth_users.thumb END,
 	is_owner=1, active=1, owner_enabled=1, plex_shared=1, origin='owner', updated_at=excluded.updated_at
 WHERE auth_users.origin<>'dlna_guest'`,
-		a.ID, a.UUID, a.Username, title, a.Email, a.Thumb, b2i(a.Home), now, now); err != nil {
+		a.ID, a.UUID, a.Username, title, a.Email, a.Thumb, store.BoolInt(a.Home), now, now); err != nil {
 		return fmt.Errorf("auth: save owner: %w", err)
 	}
 	if err := upsertPlexLink(ctx, tx, a.ID, title, now); err != nil {
@@ -1261,8 +1254,8 @@ ON CONFLICT(plex_id) DO UPDATE SET
 	plex_sections=excluded.plex_sections, updated_at=excluded.updated_at
 WHERE auth_users.origin<>'dlna_guest'
 RETURNING id`,
-				f.PlexID, f.UUID, f.Username, f.DisplayName(), f.Email, f.Thumb, b2i(f.Home), b2i(f.Restricted),
-				b2i(!f.Pending), b2i(!f.Pending), string(secs), now, now, f.Title, f.Title).Scan(&uid); err != nil {
+				f.PlexID, f.UUID, f.Username, f.DisplayName(), f.Email, f.Thumb, store.BoolInt(f.Home), store.BoolInt(f.Restricted),
+				store.BoolInt(!f.Pending), store.BoolInt(!f.Pending), string(secs), now, now, f.Title, f.Title).Scan(&uid); err != nil {
 				return fmt.Errorf("auth: save friend %d: %w", f.PlexID, err)
 			}
 			if !f.Pending {

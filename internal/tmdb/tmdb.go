@@ -76,14 +76,9 @@ type options struct {
 // Option customises a Client.
 type Option func(*options)
 
-func WithBaseURL(u string) Option          { return func(o *options) { o.baseURL = strings.TrimRight(u, "/") } }
-func WithHTTPClient(c *http.Client) Option { return func(o *options) { o.httpClient = c } }
-func WithRateLimit(perSec float64, burst int) Option {
-	return func(o *options) { o.ratePerSec, o.burst = perSec, burst }
-}
-func WithCacheTTL(d time.Duration) Option { return func(o *options) { o.cacheTTL = d } }
-func WithMaxRetries(n int) Option         { return func(o *options) { o.maxRetries = n } }
-func WithUserAgent(s string) Option       { return func(o *options) { o.userAgent = s } }
+func WithBaseURL(u string) Option { return func(o *options) { o.baseURL = strings.TrimRight(u, "/") } }
+
+func WithMaxRetries(n int) Option { return func(o *options) { o.maxRetries = n } }
 
 // Client is a TMDB API client. Safe for concurrent use.
 type Client struct {

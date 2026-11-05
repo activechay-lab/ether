@@ -5,7 +5,7 @@ import { REDACTED } from "../../../lib/types";
 import { SchemaGroups, type FieldDef, type FieldGroup } from "../../settings/SchemaForm";
 
 /** A setting read from a plugin's own settings page (see formJS in Go). */
-export interface LiveField {
+interface LiveField {
   id: string;
   kind: "text" | "number" | "secret" | "bool" | "select" | "multiSelect";
   label: string;
@@ -18,7 +18,7 @@ export interface LiveField {
   step?: number;
 }
 
-export interface LiveForm {
+interface LiveForm {
   /** The hidden page; render it anywhere. */
   frame: ReactNode;
   status: "off" | "loading" | "ready" | "failed";
@@ -90,7 +90,6 @@ export function useLiveForm(
       window.clearTimeout(timer);
     };
     // openPage is a fresh closure per render; the page opens once per enable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
 
   useEffect(() => {

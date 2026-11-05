@@ -23,7 +23,7 @@ import { createElement, Fragment, type ReactNode } from "react";
  */
 
 export type Locale = AppLocale;
-export type Values = MessageValues;
+type Values = MessageValues;
 
 /** Every shipped language; English first, the rest by their own names. */
 export const LOCALES = [

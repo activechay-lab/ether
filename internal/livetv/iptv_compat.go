@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -58,10 +59,13 @@ func (s *Service) startIPTVRelay(ctx context.Context, ss *session, info core.Med
 	if err != nil {
 		return err
 	}
+	started := time.Now()
+	s.sessionLog(ss).Info("live playback path selected", "path", string(dec.Kind), "video_copy", dec.VideoCopy, "audio_copy", dec.AudioCopy, "container", dec.Container, "video_codec", dec.VideoCodec, "audio_codec", dec.AudioCodec)
 	relay, cancel, err := s.startOwnedHLS(ctx, ss, core.HLSRequest{SessionID: "livetv-" + ss.info.ID, InputURL: input, LiveInput: true, Info: info, Decision: dec, SegmentDuration: segmentDuration})
 	if err != nil {
-		return err
+		return Diagnose("relay_start", err)
 	}
+	s.sessionLog(ss).Debug("live relay started", "elapsed", time.Since(started))
 	ss.relay = relay
 	ss.relayCancel = cancel
 	output := liveRelayInfo(info, dec)

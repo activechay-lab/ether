@@ -388,10 +388,3 @@ func contains(list []string, want string) bool {
 	}
 	return false
 }
-
-// ParseResources reads a resources JSON array (tests and fixtures).
-func ParseResources(raw string) Resources {
-	var rs Resources
-	_ = json.Unmarshal([]byte(raw), &rs)
-	return rs
-}

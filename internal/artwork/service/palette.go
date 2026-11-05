@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"math"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -187,10 +186,7 @@ func (c *PaletteCache) Preload(ctx context.Context, wants []PaletteWant) {
 }
 
 func placeholders(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	return strings.Repeat("?,", n-1) + "?"
+	return store.Placeholders(n)
 }
 
 func (c *PaletteCache) loadOne(ctx context.Context, key core.RatingKey, path string) (Palette, bool) {

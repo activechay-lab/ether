@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 )
@@ -55,17 +54,10 @@ func TestDisplayPreferences(t *testing.T) {
 	if _, ok := fresh["CustomPrefs"].(map[string]any)["chromecastVersion"]; ok {
 		t.Fatal(fresh["CustomPrefs"])
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	if e == nil {
-		doc, e := openapi.Parse(spec)
-		if e != nil {
+	if doc := spectest.Document(t, "jellyfin"); doc != nil {
+		if e := doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
 			t.Fatal(e)
 		}
-		if e = doc.Validate("GET", path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
-			t.Fatal(e)
-		}
-	} else if !os.IsNotExist(e) {
-		t.Fatal(e)
 	}
 	if w = call("POST", `{"Id":"home","SortBy":"Name"}`); w.Code != 204 {
 		t.Fatal(w.Code, w.Body.String())

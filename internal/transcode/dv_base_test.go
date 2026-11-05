@@ -131,3 +131,44 @@ func TestHDR10BaseFailoverDoesNotStripProfile5(t *testing.T) {
 		})
 	}
 }
+
+// A compatible base is an output contract: the decision, metadata and bytes
+// must agree, regardless of the segmented container requested by the client.
+func TestUnsupportedDVProfileDeliversHDR10Base(t *testing.T) {
+	for _, profile := range []int{7, 8} {
+		for _, container := range []string{ContainerMatroska, ContainerFMP4, ContainerMPEGTS} {
+			info := mustParse(t, "mkv_dv_p8.json")
+			info.Video().DolbyVisionProfile = profile
+			if profile == 7 {
+				info.Video().DolbyVisionCompatibilityID = 6
+			}
+			caps := hdr10TV
+			caps.HLSContainers = []string{container}
+			d := Decide(info, caps, allow(), Policy{})
+			if d.Kind != core.DecisionRemux || !d.VideoCopy || !d.StripDolbyVision || d.ToneMap {
+				t.Fatalf("profile=%d container=%s: %+v", profile, container, d)
+			}
+			mustContain(t, buildArgs(baseSpec(info, d)), "dovi_rpu=strip=1")
+			attrs := HLSVariantAttributes(info, d)
+			if strings.Contains(attrs, "dvh1") || strings.Contains(attrs, "SUPPLEMENTAL-CODECS") || !strings.Contains(attrs, "VIDEO-RANGE=PQ") {
+				t.Fatal(attrs)
+			}
+		}
+	}
+	info := mustParse(t, "mkv_dv_p8.json")
+	caps := hdr10TV
+	caps.Device, caps.DolbyVision = "SHIELD Android TV", true
+	for _, profile := range []int{5, 8} {
+		info.Video().DolbyVisionProfile = profile
+		d := Decide(info, caps, allow(), Policy{})
+		if d.Kind != core.DecisionDirectPlay || d.StripDolbyVision {
+			t.Fatalf("supported profile %d: %+v", profile, d)
+		}
+	}
+	caps.DolbyVision = false
+	info.Video().DolbyVisionProfile = 5
+	d := Decide(info, caps, allow(), Policy{})
+	if d.VideoCopy || d.StripDolbyVision || !d.ToneMap {
+		t.Fatalf("DV5 cannot strip to HDR10: %+v", d)
+	}
+}

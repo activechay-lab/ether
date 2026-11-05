@@ -83,10 +83,6 @@ func rounded(dst *image.RGBA, rect image.Rectangle, radius int, c color.NRGBA) {
 	draw.DrawMask(dst, rect, image.NewUniform(c), image.Point{}, mask, rect.Min, draw.Over)
 }
 
-// paintBadges is the standalone offline helper; production reuses the parsed font.
-func paintBadges(dst *image.RGBA, labels []string, cfg Settings) error {
-	return New(nil, Options{}).paintBadges(dst, labels, cfg)
-}
 func (s *Service) paintBadges(dst *image.RGBA, labels []string, cfg Settings) error {
 	if len(labels) == 0 {
 		return nil

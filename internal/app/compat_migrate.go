@@ -26,7 +26,7 @@ func splitAppOverrides(in []core.ClientCapabilityOverride) ([]core.ClientCapabil
 	out := make([]core.ClientCapabilityOverride, 0, len(in))
 	changed := 0
 	for _, o := range in {
-		if o.ProductExact || o.ProductMatch == "contains" || o.ID != "" || o.Device != "" || o.Platform != "" || o.Product == "" {
+		if (o.ProductExact && o.ProductMatch != "contains") || o.ID != "" || o.Device != "" || o.Platform != "" || o.Product == "" {
 			out = append(out, o)
 			continue
 		}
@@ -38,13 +38,10 @@ func splitAppOverrides(in []core.ClientCapabilityOverride) ([]core.ClientCapabil
 			}
 		}
 		changed++
-		// Preserve the old selector for products outside the catalogue.
-		legacy := o
-		legacy.ProductMatch = "contains"
-		out = append(out, legacy)
 		// The original name can also be a real product, such as older Android.
 		original := o
 		original.ProductExact = true
+		original.ProductMatch = ""
 		original.CopiedFrom = o.Product
 		out = append(out, original)
 		for _, product := range matches {
@@ -54,6 +51,7 @@ func splitAppOverrides(in []core.ClientCapabilityOverride) ([]core.ClientCapabil
 			copy := o
 			copy.Product = product
 			copy.ProductExact = true
+			copy.ProductMatch = ""
 			copy.CopiedFrom = o.Product
 			out = append(out, copy)
 		}

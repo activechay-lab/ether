@@ -33,8 +33,6 @@ func setArtworkHeaders(h http.Header, contentType string) {
 // Artwork cache: an in-memory LRU of fetched TMDB images, with request
 // coalescing so a grid of posters is fetched once.
 
-const maxImageBytes = artworkservice.MaxImageBytes
-
 var errImageNotFound = artworkservice.ErrRemoteImageNotFound
 
 func tmdbSize(w int) string { return artworkservice.TMDBSize(w) }

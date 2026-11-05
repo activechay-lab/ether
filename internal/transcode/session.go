@@ -65,6 +65,7 @@ type sessionInput struct {
 	rtxConfig              config.RTXVideo
 	rtxTimeline            bool
 	rtxDiscontinuities     map[int]bool
+	loopInput              bool
 	liveInput              bool
 	inputLease             core.EncoderInputLease
 	inputHeaders           map[string]string
@@ -170,8 +171,6 @@ type sessionAdaptation struct {
 	goodput        goodputEstimator
 	segSizes       map[int]int64 // primary-track segment sizes (spike governor)
 	governorOn     bool          // plan may change ahead of the player
-	lastGovSeg     int           // last segment the governor evaluated from
-	govCooldown    time.Time     // no new clamp planning before this
 	seekRampSeg    int           // segment a seek restarted at (preset ramp); -1 none
 }
 
@@ -261,22 +260,6 @@ func (s *Session) Decision() core.Decision {
 	return s.decision
 }
 
-// encoding reports whether the session counts against the transcode cap:
-// it is a transcode by decision, or a copy session whose current run
-// encodes (a fast-start ramp, a governor clamp or a lower rung).
-func (s *Session) encoding() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.decision.VideoCopy {
-		return true
-	}
-	r := s.cur
-	if r == nil || r.finished || r.stopped || r.err != nil {
-		return false
-	}
-	return r.mode != ModeCopy || r.track != 0
-}
-
 // Info is the media info of the current input.
 func (s *Session) Info() core.MediaInfo {
 	s.mu.Lock()
@@ -364,9 +347,6 @@ func (s *Session) Protocol() string { return s.proto }
 func (s *Session) isDASH() bool { return s.proto == core.ProtocolDASH }
 
 func (s *Session) segName(n int) string { return s.m.opts.segmentURI(n, s.container) }
-
-// segPath is the file of segment n of the first track.
-func (s *Session) segPath(n int) string { return s.trackSegPath(0, n) }
 
 // runDirLocked is where the wanted track's ffmpeg run writes segments:
 // the session dir for the primary rung, a rung subdir for other rungs

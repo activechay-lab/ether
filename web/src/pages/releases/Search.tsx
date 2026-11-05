@@ -135,7 +135,7 @@ export function TitlePicker({
   );
 }
 
-export function HealthBadge({ health }: { health?: HealthResult | null }) {
+function HealthBadge({ health }: { health?: HealthResult | null }) {
   if (!health) return <span className="text-xs text-fg-subtle">{t("Not checked")}</span>;
   if (health.source === "blocked")
     return (

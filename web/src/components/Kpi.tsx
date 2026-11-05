@@ -1,7 +1,7 @@
 import { cn } from "@braedonsaunders/appkit-ui";
 import type { ReactNode } from "react";
 
-export type KpiTone = "primary" | "info" | "success" | "warning" | "danger";
+type KpiTone = "primary" | "info" | "success" | "warning" | "danger";
 
 const TONE: Record<KpiTone, string> = {
   primary: "bg-primary-subtle text-primary",

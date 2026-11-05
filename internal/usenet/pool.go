@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -378,12 +379,6 @@ func (p *pool) liveCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.live
-}
-
-func (p *pool) dropLive() {
-	p.mu.Lock()
-	p.live--
-	p.mu.Unlock()
 }
 
 // put returns a connection and its slot. Broken connections are closed.

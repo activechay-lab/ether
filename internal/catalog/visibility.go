@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/store"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/libraryfilter"
@@ -82,8 +83,8 @@ func (c *Catalog) FilterVisibility(ctx context.Context, ts []core.Title) []core.
 		{"catalog_studios", "studio", func(i int, v string) { out[i].Studios = appendUnique(out[i].Studios, v) }},
 		{"catalog_keywords", "keyword", func(i int, v string) { out[i].Keywords = appendUnique(out[i].Keywords, v) }},
 	} {
-		for start := 0; start < len(ts); start += batch {
-			part := ts[start:min(start+batch, len(ts))]
+		for chunk := range store.Chunks(ts, batch) {
+			part := chunk
 			if err := c.scanPairs(ctx, "SELECT key,"+p.col+" FROM "+p.table+" WHERE key IN ("+placeholders(len(part))+")", keyArgs(part), p.set, idx); err != nil {
 				return nil
 			}
@@ -95,8 +96,8 @@ func (c *Catalog) FilterVisibility(ctx context.Context, ts []core.Title) []core.
 		out[i].Studios = uniqueStrings(out[i].Studios)
 		out[i].Countries = uniqueStrings(out[i].Countries)
 	}
-	for start := 0; start < len(ts); start += batch {
-		part := ts[start:min(start+batch, len(ts))]
+	for chunk := range store.Chunks(ts, batch) {
+		part := chunk
 		if err := c.scanPairs(ctx, "SELECT key, content_rating FROM catalog_titles WHERE key IN ("+placeholders(len(part))+") AND content_rating<>''", keyArgs(part), func(i int, v string) {
 			out[i].ContentRating = v
 		}, idx); err != nil {

@@ -32,7 +32,7 @@ func TestDeliveredMainMigrationBoundary(t *testing.T) {
 		"watchlist_episodes":     1,
 		"notify_once":            1,
 		"plexwatch":              5,
-		"state_plexwatch":        4,
+		"state_plexwatch":        5,
 		"watchsend":              1,
 	}
 	for component, version := range want {

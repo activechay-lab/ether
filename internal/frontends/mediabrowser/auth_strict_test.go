@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 )
@@ -17,17 +16,11 @@ import (
 // required, even when OpenAPI's required list omits them. Derive those fields
 // from the pinned schema so newly added SDK requirements fail this test.
 func TestJellyfinAuthenticationStrictRequiredFields(t *testing.T) {
-	spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", "jellyfin", "")
-	if os.IsNotExist(err) {
-		t.Skip("pinned Jellyfin spec is not cached")
+	spec := spectest.Bytes(t, "jellyfin")
+	if spec == nil {
+		return
 	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := openapi.Parse(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
+	doc := spectest.Document(t, "jellyfin")
 	var raw struct {
 		Components struct {
 			Schemas map[string]struct {
@@ -42,7 +35,7 @@ func TestJellyfinAuthenticationStrictRequiredFields(t *testing.T) {
 			} `json:"schemas"`
 		} `json:"components"`
 	}
-	if err = json.Unmarshal(spec, &raw); err != nil {
+	if err := json.Unmarshal(spec, &raw); err != nil {
 		t.Fatal(err)
 	}
 	viewer := &frontend.Viewer{ID: 1, Username: "viewer"}

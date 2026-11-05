@@ -12,7 +12,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/livetv"
 )
 
-const maxLiveChannels = 4096
 const maxLiveProgrammes = 10000
 
 var errLiveQuery = errors.New("invalid live guide query")
@@ -54,9 +53,6 @@ func (s surfaceLiveTV) Channels(ctx context.Context, v *core.Viewer) ([]frontend
 	if err != nil {
 		return nil, err
 	}
-	if len(channels) > maxLiveChannels {
-		return nil, errLiveQuery
-	}
 	out := make([]frontend.LiveChannel, 0, len(channels))
 	for _, c := range channels {
 		out = append(out, s.liveChannel(viewer, c))
@@ -64,7 +60,7 @@ func (s surfaceLiveTV) Channels(ctx context.Context, v *core.Viewer) ([]frontend
 	return out, nil
 }
 func (s surfaceLiveTV) Guide(ctx context.Context, v *core.Viewer, q frontend.LiveGuideQuery) ([]frontend.LiveProgramme, error) {
-	if !q.Until.After(q.From) || q.Until.Sub(q.From) > 7*24*time.Hour || len(q.Channels) > maxLiveChannels || q.Limit < 0 || q.Limit > maxLiveProgrammes {
+	if !q.Until.After(q.From) || q.Until.Sub(q.From) > 7*24*time.Hour || q.Limit < 0 || q.Limit > maxLiveProgrammes {
 		return nil, errLiveQuery
 	}
 	viewer, err := s.viewer(ctx, v)
@@ -90,7 +86,12 @@ func (s surfaceLiveTV) Guide(ctx context.Context, v *core.Viewer, q frontend.Liv
 	}
 	// TODO: bound upstream guide materialization after policy filtering; retain
 	// the existing Plex scheduling semantics while applying a response cap here.
-	programmes, err := s.app.livetv.Guide(ctx, viewer, q.From, q.Until)
+	var programmes []livetv.Programme
+	if len(q.Channels) > 0 {
+		programmes, err = s.app.livetv.GuideForChannels(ctx, viewer, q.From, q.Until, q.Channels)
+	} else {
+		programmes, err = s.app.livetv.Guide(ctx, viewer, q.From, q.Until)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -154,9 +155,6 @@ func (s surfaceLiveTV) ResolveChannelGUID(ctx context.Context, v *core.Viewer, g
 	channels, err := s.app.livetv.Channels(ctx)
 	if err != nil {
 		return frontend.LiveChannel{}, err
-	}
-	if len(channels) > maxLiveChannels {
-		return frontend.LiveChannel{}, errLiveQuery
 	}
 	var matched []livetv.Channel
 	for _, c := range channels {

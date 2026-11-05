@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/container/ebml"
 	"github.com/braedonsaunders/ether/internal/core"
 	"io"
 	"sort"
@@ -495,24 +496,9 @@ type ebmlElement struct {
 }
 
 func vint(b []byte, id bool) (uint64, int, error) {
-	if len(b) == 0 || b[0] == 0 {
+	v, n := ebml.Vint(b, id)
+	if n == 0 || (id && n > 4) {
 		return 0, 0, errIndex
-	}
-	n := 1
-	mask := byte(0x80)
-	for b[0]&mask == 0 {
-		n++
-		mask >>= 1
-	}
-	if n > 8 || n > len(b) || (id && n > 4) {
-		return 0, 0, errIndex
-	}
-	v := uint64(b[0])
-	if !id {
-		v &= uint64(mask - 1)
-	}
-	for i := 1; i < n; i++ {
-		v = v<<8 | uint64(b[i])
 	}
 	return v, n, nil
 }

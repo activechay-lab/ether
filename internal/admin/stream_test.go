@@ -329,7 +329,7 @@ func TestStreamAuthBehindExtensionsMount(t *testing.T) {
 		t.Fatal(err)
 	}
 	isOwner := func(_ context.Context, tok string) bool { return tok == "owner-secret-token" }
-	mux := New(Deps{Config: store, IsOwnerToken: isOwner, Extensions: map[string]http.Handler{
+	mux := NewHandler(Deps{Config: store, IsOwnerToken: isOwner, Extensions: map[string]http.Handler{
 		"stream": StreamHandler(hub),
 	}})
 

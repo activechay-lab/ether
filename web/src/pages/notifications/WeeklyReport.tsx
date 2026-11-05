@@ -195,6 +195,7 @@ export function WeeklyReport({ notifications }: { notifications: NotificationsDa
         footer={<p className="text-xs text-fg-muted">{scheduleSummary(settings.data!)}</p>}
       >
         <SettingsRow
+          setting="email-the-weekly-report"
           title={t("Email the weekly report")}
           description={t("Queued reports appear in Delivery history.")}
           control={
@@ -206,6 +207,7 @@ export function WeeklyReport({ notifications }: { notifications: NotificationsDa
           }
         />
         <SettingsRow
+          setting="day"
           title={t("Day")}
           control={
             <div className="w-44">
@@ -224,6 +226,7 @@ export function WeeklyReport({ notifications }: { notifications: NotificationsDa
           }
         />
         <SettingsRow
+          setting="time"
           title={t("Time")}
           description={t("Your local time.")}
           control={
@@ -243,6 +246,7 @@ export function WeeklyReport({ notifications }: { notifications: NotificationsDa
           }
         />
         <SettingsRow
+          setting="report-viewer"
           title={t("Report viewer")}
           description={t("Whose viewing the report covers.")}
           control={

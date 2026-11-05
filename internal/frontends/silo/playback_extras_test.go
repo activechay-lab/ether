@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
@@ -43,7 +42,7 @@ func TestWatchMarkersStayOnTheirFileAndHonourIntroSkip(t *testing.T) {
 	phase := "watch"
 	exp := frontendtest.Experience{ItemFunc: func(context.Context, frontend.ItemRequest) (frontend.ItemDetail, error) {
 		if phase == "seek" {
-			return frontend.ItemDetail{Title: frontend.Title{Key: key}, Versions: []frontend.Version{{ID: "one", Markers: []frontend.Marker{{Type: "intro", Start: 0, End: 10 * time.Second}}}}}, nil
+			return frontend.ItemDetail{Title: frontend.Title{Key: key}, Versions: []frontend.Version{{ID: "one", Markers: []frontend.Marker{{Type: "intro", Start: 0, End: 10 * time.Second}, {Type: "recap", Start: 10 * time.Second, End: 20 * time.Second}, {Type: "credits", Start: 50 * time.Second, End: 55 * time.Second}}}}}, nil
 		}
 		return frontend.ItemDetail{Title: frontend.Title{Key: key, Type: core.TypeMovie, Title: "Film", Released: time.Unix(10000, 0)}, Markers: []frontend.Marker{{Type: "intro", Start: 50 * time.Second, End: 55 * time.Second}}, Versions: []frontend.Version{
 			{ID: "one", Media: media, Markers: []frontend.Marker{{Type: "intro", Start: time.Second, End: 10 * time.Second}, {Type: "credits", Start: 50 * time.Second, End: 55 * time.Second}}},
@@ -64,16 +63,10 @@ func TestWatchMarkersStayOnTheirFileAndHonourIntroSkip(t *testing.T) {
 	if w.Code != 200 || strings.Contains(body, `"kind":"intro"`) || !strings.Contains(body, `"kind":"credits"`) || !strings.Contains(body, `"kind":"recap"`) {
 		t.Fatalf("markers %d %s", w.Code, body)
 	}
-	if spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", ""); err == nil {
-		doc, err := openapi.Parse(spec)
-		if err != nil {
+	if doc := spectest.Document(t, "silo"); doc != nil {
+		if err := doc.Validate(http.MethodGet, req.URL.Path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 			t.Fatal(err)
 		}
-		if err = doc.Validate(http.MethodGet, req.URL.Path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
-			t.Fatal(err)
-		}
-	} else if !os.IsNotExist(err) {
-		t.Fatal(err)
 	}
 	lookups := 0
 	previous := exp.ItemFunc
@@ -94,6 +87,13 @@ func TestWatchMarkersStayOnTheirFileAndHonourIntroSkip(t *testing.T) {
 	if got := handler.skipIntroAtStart(ask, viewer, frontend.VersionScope{}, key, "", time.Second); got != 10*time.Second || lookups != 1 {
 		t.Fatalf("always seek %s lookups %d", got, lookups)
 	}
+	handler.host.Preferences = skipPreferences{values: map[string]string{"playback.auto_skip_recap": `true`, "playback.auto_skip_credits": `true`}}
+	for position, want := range map[time.Duration]time.Duration{time.Second: time.Second, 11 * time.Second: 20 * time.Second, 51 * time.Second: 55 * time.Second} {
+		if got := handler.skipIntroAtStart(ask, viewer, frontend.VersionScope{}, key, "", position); got != want {
+			t.Fatalf("skip at %s = %s want %s", position, got, want)
+		}
+	}
+
 }
 
 type siloSubtitles struct {
@@ -152,11 +152,7 @@ func TestSiloSubtitleSearchDoesNotDownloadUntilSelection(t *testing.T) {
 	if hidden.Code != 404 || catalog.downloads != 1 {
 		t.Fatalf("hidden %d downloads %d", hidden.Code, catalog.downloads)
 	}
-	if spec, err := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", ""); err == nil {
-		doc, err := openapi.Parse(spec)
-		if err != nil {
-			t.Fatal(err)
-		}
+	if doc := spectest.Document(t, "silo"); doc != nil {
 		for _, tc := range []struct {
 			method, path string
 			w            *httptest.ResponseRecorder
@@ -165,11 +161,9 @@ func TestSiloSubtitleSearchDoesNotDownloadUntilSelection(t *testing.T) {
 			{http.MethodGet, "/api/v2/subtitles/providers/status", status},
 			{http.MethodPost, "/api/v2/subtitles/download", download},
 		} {
-			if err = doc.Validate(tc.method, tc.path, tc.w.Code, tc.w.Header().Get("Content-Type"), tc.w.Body.Bytes()); err != nil {
+			if err := doc.Validate(tc.method, tc.path, tc.w.Code, tc.w.Header().Get("Content-Type"), tc.w.Body.Bytes()); err != nil {
 				t.Fatalf("%s %s: %v\n%s", tc.method, tc.path, err, tc.w.Body.String())
 			}
 		}
-	} else if !os.IsNotExist(err) {
-		t.Fatal(err)
 	}
 }

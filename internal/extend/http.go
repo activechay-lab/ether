@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/braedonsaunders/ether/internal/httpjson"
 	"net/http"
 	"strconv"
 	"strings"
@@ -141,7 +142,5 @@ func isTextObject(m map[string]any) bool {
 }
 
 func writeError(w http.ResponseWriter, status int, code, msg string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": code, "message": msg}})
+	httpjson.Write(w, status, map[string]any{"error": map[string]any{"code": code, "message": msg}})
 }

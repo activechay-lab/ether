@@ -51,7 +51,7 @@ import {
 import { EtherFrame, EtherWidget } from "./widgets";
 
 /** Plugin tables show at most this many rows per page (SPEC §5.6). */
-export const MAX_TABLE_ROWS = 100;
+const MAX_TABLE_ROWS = 100;
 
 function WidgetRefView({
   refSpec,
@@ -472,7 +472,7 @@ function BlockView({ block, scope, root }: { block: Block; scope: unknown; root:
 }
 
 /** A list of blocks in one scope. Nested lists keep their parent's spacing. */
-export function Blocks({
+function Blocks({
   blocks,
   scope,
   root,

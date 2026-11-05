@@ -337,15 +337,6 @@ func TitleMatches(parsed core.ReleaseInfo, want string) bool {
 	return TitlesMatch(parsed.Title, want)
 }
 
-// TitleYearMatches is TitleMatches plus a year check with ±1 tolerance.
-// A zero year on either side skips the year check.
-func TitleYearMatches(parsed core.ReleaseInfo, want string, wantYear int) bool {
-	if !TitleMatches(parsed, want) {
-		return false
-	}
-	return YearMatches(parsed.Year, wantYear)
-}
-
 // YearMatches reports whether two years agree within ±1 (zero = unknown).
 func YearMatches(got, want int) bool {
 	if got == 0 || want == 0 {

@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"github.com/braedonsaunders/ether/internal/conform"
 	"github.com/braedonsaunders/ether/internal/conform/openapi"
-	"github.com/braedonsaunders/ether/internal/conform/specs"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
 	"net/http"
 	"net/http/httptest"
@@ -357,13 +357,9 @@ func TestJellyfinLatestBlurHashKeysAreContent(t *testing.T) {
 }
 
 func TestPinnedJellyfinUserRoutesDemoteSchemaExtras(t *testing.T) {
-	data, err := openapi.CachedSpecManifest(specs.Manifest, "jellyfin", "")
-	if err != nil {
-		t.Skipf("pinned spec cache unavailable: %v", err)
-	}
-	doc, err := openapi.Parse(data)
-	if err != nil {
-		t.Fatal(err)
+	doc := spectest.Document(t, "jellyfin")
+	if doc == nil {
+		t.Skip("pinned jellyfin spec is not cached")
 	}
 	p := &Protocol{Dialect: "jellyfin", spec: doc}
 	p.specOnce.Do(func() {})
@@ -393,13 +389,9 @@ func TestPinnedJellyfinUserRoutesDemoteSchemaExtras(t *testing.T) {
 }
 
 func TestPinnedEmbySchemaRecognizesRouteExtras(t *testing.T) {
-	data, err := openapi.CachedSpecManifest(specs.Manifest, "emby", "")
-	if err != nil {
-		t.Skipf("pinned spec cache unavailable: %v", err)
-	}
-	doc, err := openapi.Parse(data)
-	if err != nil {
-		t.Fatal(err)
+	doc := spectest.Document(t, "emby")
+	if doc == nil {
+		t.Skip("pinned emby spec is not cached")
 	}
 	tests := []struct{ method, path, body, field string }{
 		{"GET", "/Users/123/Items/456", `{"Overview":"text"}`, "$/Overview"},

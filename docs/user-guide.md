@@ -724,12 +724,12 @@ titles a detail page has already prepared.
 
 ## Bring your library and history
 
-Use **Libraries & backups** to add existing media or preview a Plex import. Map
+Use **Maintenance › Backups & import › Import & export** to preview a Plex import. Map
 each source viewer to the correct Ether viewer and review unmatched titles
 before importing.
 
-To download a snapshot, sign in as the owner and open **Backups & import ›
-Snapshots** after setup is complete. Enter a backup password of at least 12
+To download a snapshot, sign in as the owner and open **Maintenance › Backups & import ›
+Backups** after setup is complete. Enter a backup password of at least 12
 characters, then choose **Download**. The downloaded `.etherbackup` file is
 encrypted. Ether does not keep this password; save it somewhere safe because
 it is needed to restore the file.
@@ -872,7 +872,7 @@ Plex issues for it works only inside Plex Media Server, and Plex's watch-state
 service refuses it from any other server. Ether therefore cannot send watched
 state or ratings to a Plex account, or import them from one.
 
-In **Viewers › Limits & preferences**, the **Plex account watch state** section
+In **Viewers › viewer › Limits**, the **Plex account watch state** section
 says so plainly. A Plex account connected in an earlier version stays listed and
 can still be removed with **Disconnect**; its sync settings are kept. Changes
 that were waiting to be sent are kept as they are and are not retried, so
@@ -940,7 +940,7 @@ higher-priority provider is busy, a viewer's request goes to the next provider
 that has a free connection instead of waiting. Background work does this only
 when that provider is otherwise idle. Backfill (block) accounts are used only
 for articles the other providers lack, so a busy primary never spends block
-data. **Sources › Usage** shows how many requests each provider took over from
+data. **Sources › Stats** shows how many requests each provider took over from
 a busy one this month.
 
 If a server refuses connections because the account is at its limit, Ether
@@ -1003,7 +1003,7 @@ only updates the draft until you review and save.
 
 ## Catalog
 
-Open **In Plex → Catalog** to browse the released movies and shows in your
+Open **Library › Catalog** to browse the released movies and shows in your
 library. Switch between posters and a list, search by title, filter by genre
 or decade, and sort by popularity, release date, rating, date added, or title.
 Results are paginated across the full local catalog. Select a title to inspect
@@ -1082,7 +1082,7 @@ because an unrestricted feed needs several pages to cover what one filtered page
 covers. The learned format survives restarts and is reset when the indexer
 configuration changes. Empty feeds are not repeatedly probed on every poll.
 Monitoring defaults on for new installs. Existing
-owners can enable it under Sources > Availability. Turning monitoring off stops
+owners can enable it under Catalog › Settings › General › New releases. Turning monitoring off stops
 polling, but local evidence and the recent-release visibility rules still apply.
 
 Before the release or air date, titles remain hidden unless you turn on
@@ -1311,7 +1311,7 @@ The viewer can revoke the connection under **Devices** and create another one
 if needed.
 
 Stremio requires an HTTPS address. If the portal cannot create an install
-link, add a certificate under **Apps › Overview › Away from home › Use your own
+link, add a certificate under **Apps › Away from home › Use your own
 certificate** and try again.
 Catalogue items and streams follow the viewer's library and safety settings.
 

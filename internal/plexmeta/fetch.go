@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/retryafter"
 )
 
 type providerItem struct {
@@ -212,19 +213,8 @@ func (s *Service) getItems(ctx context.Context, path string, q url.Values, start
 }
 
 func retryAfter(raw string) time.Duration {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0
-	}
-	if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-		return time.Duration(n) * time.Second
-	}
-	if when, err := http.ParseTime(raw); err == nil {
-		if d := time.Until(when); d > 0 {
-			return d
-		}
-	}
-	return 0
+	d, _ := retryafter.Parse(raw, time.Now(), 24*time.Hour)
+	return d
 }
 
 // ImageHost reports whether host is a Plex artwork CDN Ether may proxy.

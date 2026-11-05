@@ -1,6 +1,7 @@
 package experience
 
 import (
+	"cmp"
 	"context"
 	"strings"
 
@@ -81,7 +82,7 @@ func viewerBrowseFilter(filter core.Filter, v *core.User, ex LibraryPageExclusio
 func MergeShareFilter(filter, share core.Filter) (out core.Filter, none bool) {
 	filter.ContentRatings, none = intersectFold(filter.ContentRatings, share.ContentRatings)
 	filter.ExcludeContentRatings = append(append([]string{}, share.ExcludeContentRatings...), filter.ExcludeContentRatings...)
-	filter.MinContentRating = firstNonEmpty(filter.MinContentRating, share.MinContentRating)
+	filter.MinContentRating = cmp.Or(filter.MinContentRating, share.MinContentRating)
 	filter.MaxContentRating = tightenRating(filter.MaxContentRating, share.MaxContentRating)
 	filter.IncludeCollectionNames = append(append([]string{}, share.IncludeCollectionNames...), filter.IncludeCollectionNames...)
 	filter.ExcludeCollectionNames = append(append([]string{}, share.ExcludeCollectionNames...), filter.ExcludeCollectionNames...)
@@ -115,15 +116,6 @@ func tightenRating(current, extra string) string {
 		return extra
 	}
 	return current
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func (s *Service) indexedPageHolds(ctx context.Context, v *core.User, items []core.Title, q frontend.ItemQuery, availabilityInSQL bool) bool {

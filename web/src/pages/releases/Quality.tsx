@@ -126,7 +126,7 @@ const HEIGHTS = localized(() => [
 
 const heightLabel = (h: number) => HEIGHTS.find((x) => x.value === String(h))?.label ?? `${h}p`;
 
-export function profileSummary(p: QualityProfile) {
+function profileSummary(p: QualityProfile) {
   const range =
     p.minHeight === p.maxHeight
       ? heightLabel(p.maxHeight)
@@ -321,7 +321,7 @@ function PreferenceList({
 /** Anchor of the profile drawer's custom scoring section. */
 const CUSTOM_SCORES_ID = "profile-custom-scores";
 
-export function hasImportedRules(draft: QualityProfile, resolver: ResolverPolicy | null): boolean {
+function hasImportedRules(draft: QualityProfile, resolver: ResolverPolicy | null): boolean {
   const gates = draft.allowedQualities ?? [];
   const ownScores = Object.keys(draft.customFormatScores ?? {}).length;
   const sharedFormats = (resolver?.customFormats ?? []).length;

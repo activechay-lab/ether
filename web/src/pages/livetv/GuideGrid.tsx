@@ -48,6 +48,7 @@ export function GuideGrid({
   onSelect,
   onShift,
   onNow: jumpNow,
+  onRange,
   loading,
   head,
   covered,
@@ -56,7 +57,8 @@ export function GuideGrid({
   selection,
   bulkActions,
 }: {
-  channels: Channel[];
+  /** Sparse by design: only rows near the viewport have been fetched. */
+  channels: (Channel | undefined)[];
   guide: Map<string, Programme[]>;
   from: Date;
   until: Date;
@@ -65,6 +67,7 @@ export function GuideGrid({
   onSelect: (id: string) => void;
   onShift: (hours: number) => void;
   onNow: () => void;
+  onRange?: (first: number, last: number) => void;
   loading: boolean;
   /**
    * The lineup view: the channel column becomes the page's lineup (a third
@@ -81,6 +84,10 @@ export function GuideGrid({
   bulkActions?: ReactNode;
 }) {
   const lineup = head !== undefined;
+  const loadedChannels = useMemo(
+    () => channels.filter((c): c is Channel => c !== undefined),
+    [channels],
+  );
   const [zoom, setZoom] = useState<Zoom>("normal");
   const ppm = ZOOM[zoom];
   const start = from.getTime();
@@ -128,6 +135,9 @@ export function GuideGrid({
 
   const first = Math.max(0, Math.floor((view.top - HEADER) / ROW) - 6);
   const last = Math.min(channels.length, Math.ceil((view.top + view.height) / ROW) + 6);
+  useEffect(() => {
+    onRange?.(first, last);
+  }, [first, last, onRange]);
 
   const ticks = useMemo(() => {
     const out: number[] = [];
@@ -191,13 +201,13 @@ export function GuideGrid({
         ) : null}
         <div className={cn("flex min-w-0 flex-1", lineup && "h-[104px]")}>
           {lineup ? (
-            <OnNowStrip channels={channels} guide={guide} now={now} onSelect={onSelect} />
+            <OnNowStrip channels={loadedChannels} guide={guide} now={now} onSelect={onSelect} />
           ) : null}
           <div
             className={cn(
               "flex min-w-0 flex-wrap items-center gap-1 bg-surface px-2 py-1.5",
               lineup
-                ? "w-44 shrink-0 content-center justify-center border-l border-border"
+                ? "ml-auto w-44 shrink-0 content-center justify-center border-l border-border"
                 : "flex-1 border-b border-border sm:px-4",
             )}
           >
@@ -359,6 +369,25 @@ export function GuideGrid({
 
           {channels.slice(first, last).map((c, k) => {
             const i = first + k;
+            if (!c)
+              return (
+                <div
+                  key={`pending-${i}`}
+                  role="row"
+                  aria-busy="true"
+                  aria-rowindex={i + 1}
+                  className="absolute left-0 flex border-b border-border/60 bg-bg-subtle/40"
+                  style={{ top: HEADER + i * ROW, height: ROW, width: chCol + width }}
+                >
+                  <div
+                    className="sticky left-0 z-20 flex shrink-0 items-center border-r border-border bg-surface px-4"
+                    style={{ width: chCol }}
+                    aria-hidden
+                  >
+                    <div className="h-3 w-2/3 animate-pulse rounded bg-fg-subtle/15" />
+                  </div>
+                </div>
+              );
             const ps = guide.get(c.id) ?? [];
             const on = c.id === selected;
             const live = onNow(ps, now);

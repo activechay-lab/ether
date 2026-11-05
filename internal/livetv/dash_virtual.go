@@ -351,22 +351,30 @@ func (s *Service) startProgrammeDASH(ctx context.Context, ss *session, p Program
 	if closed {
 		return nil, core.ErrNotFound
 	}
-	if p.Item.Slate == offAirSlate {
-		return nil, &VirtualDASHError{Err: core.ErrNotAvailable, Message: "This channel is off air."}
-	}
 	if !s.allowed(ctx, &user, channel, &p) {
 		return nil, &VirtualDASHError{Err: core.ErrUnauthorized}
 	}
 	caps.ClientID = "livetv-dash-" + ss.info.ID + "-" + strconv.FormatInt(p.Start.UnixMilli(), 10)
 	var ps *core.PlaySession
+	var slateText []string
+	var input string
 	var err error
-	if grouped, ok := s.o.Playback.(core.ChannelPreparer); ok {
-		ps, err = grouped.PrepareChannel(ctx, &user, p.Item.Key, caps, ss.info.ID)
+	if p.Item.Slate == offAirSlate {
+		ss.mu.Lock()
+		previous := ss.info.MediaInfo
+		ss.mu.Unlock()
+		slateText = offAirCopy(channel, p)
+		ps = &core.PlaySession{Info: s.slateInfo(previous, caps, p.End.Sub(p.Start))}
 	} else {
-		ps, err = s.o.Playback.Prepare(ctx, &user, p.Item.Key, caps)
-	}
-	if err != nil {
-		return nil, &VirtualDASHError{Err: err}
+		if grouped, ok := s.o.Playback.(core.ChannelPreparer); ok {
+			ps, err = grouped.PrepareChannel(ctx, &user, p.Item.Key, caps, ss.info.ID)
+		} else {
+			ps, err = s.o.Playback.Prepare(ctx, &user, p.Item.Key, caps)
+		}
+		if err != nil {
+			return nil, &VirtualDASHError{Err: err}
+		}
+		input = s.o.Playback.InputURL(ps.ID)
 	}
 	info := ps.Info
 	info.Duration = p.End.Sub(p.Start)
@@ -381,11 +389,13 @@ func (s *Service) startProgrammeDASH(ctx context.Context, ss *session, p Program
 	}
 	sid := "livetv-dash-" + ss.info.ID + "-" + strconv.FormatInt(p.Start.UnixMilli(), 10)
 	hs, lifetime, err := s.startOwnedHLS(ctx, ss, core.HLSRequest{
-		SessionID: sid, InputURL: s.o.Playback.InputURL(ps.ID), Info: info, Decision: decision,
+		SessionID: sid, InputURL: input, SlateText: slateText, Info: info, Decision: decision,
 		StartOffset: offset, SegmentDuration: segmentDuration, Protocol: core.ProtocolDASH,
 	})
 	if err != nil {
-		s.o.Playback.Stop(ps.ID)
+		if ps.ID != "" {
+			s.o.Playback.Stop(ps.ID)
+		}
 		return nil, &VirtualDASHError{Err: err}
 	}
 	if _, ok := hs.(core.DASHSession); !ok {
@@ -393,7 +403,9 @@ func (s *Service) startProgrammeDASH(ctx context.Context, ss *session, p Program
 			lifetime()
 		}
 		hs.Close()
-		s.o.Playback.Stop(ps.ID)
+		if ps.ID != "" {
+			s.o.Playback.Stop(ps.ID)
+		}
 		return nil, &VirtualDASHError{Err: core.ErrNotAvailable, Message: "This live channel cannot be played as DASH."}
 	}
 	tr := &track{
@@ -404,7 +416,9 @@ func (s *Service) startProgrammeDASH(ctx context.Context, ss *session, p Program
 		tr.count = 1
 	}
 	s.transMu.Lock()
-	s.transcodes[ps.ID] = hs
+	if ps.ID != "" {
+		s.transcodes[ps.ID] = hs
+	}
 	s.transMu.Unlock()
 	return &virtualProgram{tr: tr, info: info}, nil
 }

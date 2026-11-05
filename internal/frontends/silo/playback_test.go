@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/braedonsaunders/ether/internal/conform/openapi"
+	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
 	"github.com/braedonsaunders/ether/internal/core"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -93,16 +92,10 @@ func TestPlaybackAdmissionBusyReturnsRetryableProblem(t *testing.T) {
 	if w.Code != http.StatusServiceUnavailable || w.Header().Get("Retry-After") != "2" || w.Header().Get("Content-Type") != "application/problem+json" || strings.Contains(w.Body.String(), "transcode") {
 		t.Fatalf("busy response: %d %v %s", w.Code, w.Header(), w.Body.String())
 	}
-	if data, err := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", ""); err == nil {
-		doc, err := openapi.Parse(data)
-		if err != nil {
+	if doc := spectest.Document(t, "silo"); doc != nil {
+		if err := doc.Validate("POST", "/api/v2/playback/start", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 			t.Fatal(err)
 		}
-		if err = doc.Validate("POST", "/api/v2/playback/start", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
-			t.Fatal(err)
-		}
-	} else if !os.IsNotExist(err) {
-		t.Fatal(err)
 	}
 }
 
@@ -112,16 +105,10 @@ func TestTranscodeCapacityReturnsValidRetryableProblem(t *testing.T) {
 	if w.Code != http.StatusServiceUnavailable || w.Header().Get("Retry-After") != "2" || w.Header().Get("X-Request-ID") == "" || !strings.Contains(w.Body.String(), "transcode_capacity") {
 		t.Fatalf("transcode response: %d %v %s", w.Code, w.Header(), w.Body.String())
 	}
-	if data, err := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", ""); err == nil {
-		doc, err := openapi.Parse(data)
-		if err != nil {
+	if doc := spectest.Document(t, "silo"); doc != nil {
+		if err := doc.Validate("POST", "/api/v2/playback/start", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 			t.Fatal(err)
 		}
-		if err = doc.Validate("POST", "/api/v2/playback/start", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
-			t.Fatal(err)
-		}
-	} else if !os.IsNotExist(err) {
-		t.Fatal(err)
 	}
 }
 
@@ -322,17 +309,11 @@ func TestPlaybackUsesScopedBroker(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"dynamic_range":"hdr10_plus"`) || strings.Contains(w.Body.String(), `"dynamic_range":"sdr"`) {
 		t.Fatalf("positive HDR10+ mislabeled as SDR: %s", w.Body.String())
 	}
-	spec, e := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", "")
-	if e == nil {
-		doc, e := openapi.Parse(spec)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if e = doc.Validate("POST", "/api/v2/playback/start", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
+	doc := spectest.Document(t, "silo")
+	if doc != nil {
+		if e := doc.Validate("POST", "/api/v2/playback/start", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); e != nil {
 			t.Errorf("play spec: %v", e)
 		}
-	} else if !os.IsNotExist(e) {
-		t.Fatal(e)
 	}
 	wantMedia := "/api/v2/playback/transcode/" + sessionID + "/master.m3u8"
 	if !strings.Contains(w.Body.String(), `"url":"`+wantMedia+`"`) || strings.Contains(w.Body.String(), "/scoped/") || !strings.Contains(w.Body.String(), `"session_id":"`+sessionID+`"`) {
@@ -417,11 +398,7 @@ func TestPlaybackUsesScopedBroker(t *testing.T) {
 	if w.Code != 200 || timeline.Position != time.Minute || timeline.State != "playing" || timeline.Sequence != 1 {
 		t.Fatalf("progress %d %+v", w.Code, timeline)
 	}
-	if e == nil {
-		doc, parseErr := openapi.Parse(spec)
-		if parseErr != nil {
-			t.Fatal(parseErr)
-		}
+	if doc != nil {
 		if err := doc.Validate("POST", "/api/v2/playback/"+sessionID+"/progress", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 			t.Errorf("progress spec: %v", err)
 		}
@@ -628,18 +605,11 @@ func TestOnNowLiveCardFullAppleTVSequence(t *testing.T) {
 		return w
 	}
 
-	rawSpec, specErr := openapi.CachedSpec("../../conform/specs/manifest.json", "silo", "")
-	if specErr != nil && !os.IsNotExist(specErr) {
-		t.Fatal(specErr)
-	}
+	doc := spectest.Document(t, "silo")
 	validate := func(method, path string, w *httptest.ResponseRecorder) {
 		t.Helper()
-		if specErr != nil {
+		if doc == nil {
 			return
-		}
-		doc, err := openapi.Parse(rawSpec)
-		if err != nil {
-			t.Fatal(err)
 		}
 		if err := doc.Validate(method, path, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes()); err != nil {
 			t.Fatalf("%s %s spec validation failed: %v\nbody: %s", method, path, err, w.Body.String())

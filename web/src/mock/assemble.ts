@@ -2,7 +2,7 @@
 import type { HomeLayout, HomeRow, LayoutSection } from "../lib/contract";
 import { effectiveLength, effectivePolicy, whenMatches, type Effective } from "../lib/layout";
 
-export interface AssembleContext {
+interface AssembleContext {
   viewer: { id: number; title: string } | null;
   section: LayoutSection;
   device: "tv" | "mobile" | "web" | "desktop";

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/store"
 	"log/slog"
 	"math/rand/v2"
 	"os"
@@ -268,7 +269,7 @@ func (s *Service) Update(ctx context.Context, id string, in Input) (Preroll, err
 	rules, _ := json.Marshal(in.Rules)
 	freq, _ := json.Marshal(in.Frequency)
 	if _, err := s.db.ExecContext(ctx, `UPDATE prerolls SET name=?,enabled=?,rules_json=?,frequency_json=?,priority=?,play_order=?,updated_at=? WHERE seq=?`,
-		in.Name, boolInt(enabled), string(rules), string(freq), in.Priority, in.Order, s.now().UnixNano(), cur.seq); err != nil {
+		in.Name, store.BoolInt(enabled), string(rules), string(freq), in.Priority, in.Order, s.now().UnixNano(), cur.seq); err != nil {
 		return Preroll{}, err
 	}
 	s.invalidate()
@@ -290,13 +291,6 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	s.invalidate()
 	s.removeFiles(cur.seq)
 	return nil
-}
-
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 // PlayRow is one entry of a pre-roll's play log.

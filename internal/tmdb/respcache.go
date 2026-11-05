@@ -61,5 +61,3 @@ func (c *respCache) sweep(now time.Time) {
 	cutoff := now.Add(-staleRetention)
 	c.lru.RemoveFunc(func(_ string, e cacheEntry) bool { return e.expires.Before(cutoff) })
 }
-
-func (c *respCache) len() int { return c.lru.Len() }

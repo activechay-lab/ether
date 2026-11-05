@@ -66,7 +66,10 @@ export function ServerProtection() {
             <LoadingRows rows={2} />
           ) : (
             <>
-              <label className="flex items-center justify-between gap-3 text-sm font-medium text-fg">
+              <label
+                className="flex items-center justify-between gap-3 text-sm font-medium text-fg"
+                data-setting="send-uptime-heartbeat"
+              >
                 {t("Send uptime heartbeat")}
                 <Switch
                   aria-label={t("Send uptime heartbeat")}
@@ -75,7 +78,7 @@ export function ServerProtection() {
                 />
               </label>
               <Field
-                label={t("Secret heartbeat URL")}
+                label={<span data-setting="secret-heartbeat-url">{t("Secret heartbeat URL")}</span>}
                 htmlFor={`${id}-heartbeat`}
                 hint={t("Kept private. Leave [configured] unchanged to retain the saved URL.")}
               >

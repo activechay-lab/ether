@@ -24,7 +24,7 @@ export type ExtendHandler = (
   body: unknown,
 ) => Response | Promise<Response> | null;
 
-export function builtinDescriptors(): Descriptor[] {
+function builtinDescriptors(): Descriptor[] {
   return [
     ...ranking,
     ...collections,

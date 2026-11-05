@@ -17,6 +17,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/resolver"
+	"github.com/braedonsaunders/ether/internal/textclip"
 )
 
 // Deps are the services the built-in tools call. The app adapts its real
@@ -481,7 +482,7 @@ func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return textclip.Bytes(s, n) + "…"
 }
 
 func paged[T any](items []T, page, pageSize int) ([]T, int) {

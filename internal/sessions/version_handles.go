@@ -32,17 +32,6 @@ func NewVersionHandles(db *sql.DB, b *Broker, protocol frontend.Protocol) (front
 	return &versionHandles{db: db, broker: b, protocol: protocol, limits: capability.Limits{PerScope: 100000, PerShard: 400000}}, nil
 }
 
-func (v *versionHandles) validate(ctx context.Context, scope frontend.VersionScope, item core.RatingKey, release string) (*core.Viewer, error) {
-	viewer, offered, err := v.allowedOffers(ctx, scope, item)
-	if err != nil {
-		return nil, err
-	}
-	if release == "" || len(release) > 512 || !offered[release] {
-		return nil, core.ErrNotFound
-	}
-	return viewer, nil
-}
-
 func (v *versionHandles) allowedOffers(ctx context.Context, scope frontend.VersionScope, item core.RatingKey) (*core.Viewer, map[string]bool, error) {
 	if scope.Protocol != v.protocol || scope.Device.ID == "" || len(scope.Device.ID) > 512 || item == 0 || v.broker.deps.Variants == nil {
 		return nil, nil, core.ErrNotFound

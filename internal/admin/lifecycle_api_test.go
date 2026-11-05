@@ -89,7 +89,7 @@ func TestViewerLifecycleAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := newStore(t, func(c *config.Config) { c.SetupComplete = true })
-	h := admin.New(admin.Deps{
+	h := admin.NewHandler(admin.Deps{
 		Config: cfg, LocalIdentity: local, IdentityGrants: grants, IdentityLimiter: limiter,
 		RefreshViewers: users.RefreshViewers, Lifecycle: users, Users: users,
 		ViewerDirectory: lifecycleDirectory(users), Personalization: &fakeEngine{},

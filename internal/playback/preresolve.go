@@ -113,12 +113,6 @@ type probeCache struct {
 	nzbHash string
 }
 
-// PreResolve schedules detail-page warming; it is the core.PrewarmDetail
-// form of Prewarm, kept for existing callers.
-func (m *Manager) PreResolve(ctx context.Context, user *core.User, key core.RatingKey, caps core.ClientCaps) bool {
-	return m.Prewarm(ctx, user, key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail})
-}
-
 // Prewarm implements core.Prewarmer: it resolves, opens, probes (including
 // the container keyframe index) and pre-buffers a title ahead of Play, so
 // the later Prepare for the same user, client and title needs no resolver
@@ -714,16 +708,11 @@ func (m *Manager) hasActivePlaybackLocked() bool {
 // 1920x800 or 3840x1600) to their nominal vertical tier so profile MinHeight
 // checks (such as 1080p) do not reject wide-aspect 1080p/4K releases.
 func warmResolutionHeight(w, h int) int {
-	switch {
-	case (w >= 3200 || h >= 1800) && h < 2160:
-		return 2160
-	case (w >= 1700 || h >= 1000) && h < 1080:
-		return 1080
-	case (w >= 1200 || h >= 700) && h < 720:
-		return 720
-	default:
-		return h
+	tier := core.ResolutionTier(w, h)
+	if tier >= 720 {
+		return max(tier, h)
 	}
+	return h
 }
 
 // recordWarmMissLocked remembers a warm-up that ended without a source.

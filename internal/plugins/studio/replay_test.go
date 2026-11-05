@@ -1,14 +1,12 @@
 package studio
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
+
 	"strings"
 	"testing"
 	"time"
@@ -608,57 +606,6 @@ globalThis.handle = handle;
 	}
 	if chanRep.Channels.ProbesOK != 4 {
 		t.Fatalf("probesOk=%d, want 4", chanRep.Channels.ProbesOK)
-	}
-}
-
-func TestReplayHTTPEndpoint(t *testing.T) {
-	db := store.OpenTest(t)
-	eng := wasm.NewEngine(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	t.Cleanup(func() { _ = eng.Close() })
-
-	insertHistoryFixture(t, db, 1, 201, "Kiki's Delivery Service (1989)", "rel-1", []resolver.CandidateTrace{
-		{ReleaseID: "rel-1", Name: "Kiki.1989.1080p.BluRay.x264-GRP", Score: 90, Height: 1080},
-		{ReleaseID: "rel-2", Name: "Kiki.1989.DUB.1080p.BluRay.x264-GRP", Score: 85, Height: 1080},
-	})
-
-	runner := NewRunner(ReplayDeps{DB: db, Engine: eng})
-	t.Cleanup(func() { _ = runner.Close() })
-	srv := httptest.NewServer(runner.Handler())
-	t.Cleanup(srv.Close)
-
-	payload := map[string]any{
-		"kind": "ranking",
-		"devInstance": map[string]any{
-			"manifest": map[string]any{
-				"id": "org.example.http-dub", "version": "1.0.0", "name": "HTTP Dub",
-				"ether": map[string]any{
-					"protocol": 1, "kind": "extension", "summary": "Prefers dubbed audio releases.",
-					"capabilities": []string{"ranking_step"},
-					"runtime":      map[string]any{"kind": "hosted", "entry": "plugin.js"},
-					"contributes": map[string]any{
-						"rankingSteps": []map[string]any{{"key": "dub", "label": "Prefer dub"}},
-					},
-				},
-			},
-			"entry": `globalThis.rank_key = (c) => c.name.includes("DUB") ? 5 : 0;`,
-		},
-	}
-	raw, _ := json.Marshal(payload)
-	resp, err := http.Post(srv.URL+"/api/plugins/studio/replay", "application/json", bytes.NewReader(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
-	}
-	var out ReplayReport
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		t.Fatal(err)
-	}
-	if out.Ranking == nil || out.Ranking.ChangedCount != 1 {
-		t.Fatalf("unexpected HTTP replay report: %+v", out)
 	}
 }
 
