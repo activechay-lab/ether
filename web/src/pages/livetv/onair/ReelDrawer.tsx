@@ -1,3 +1,4 @@
+import { LinkImport } from "./LinkImport";
 import { Badge, Button, Input, Popover, Select, Switch } from "@braedonsaunders/appkit-ui";
 import { MoreHorizontal, Play, UploadCloud } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -83,7 +84,9 @@ export function ReelDrawer({
     },
     [],
   );
-  const converting = draft.clips.some((c) => c.status === "converting");
+  const converting = draft.clips.some(
+    (c) => c.status === "converting" || c.status === "queued" || c.status === "downloading",
+  );
   useEffect(() => {
     if (!converting || !draft.id) return;
     let active = true;
@@ -94,10 +97,17 @@ export function ReelDrawer({
           if (!active) return;
           setDraft((d) => ({
             ...d,
-            clips: d.clips.map((c) => {
-              const fresh = r.clips.find((v) => v.id === c.id);
-              return fresh ? { ...c, status: fresh.status, progress: fresh.progress } : c;
-            }),
+            clips: [
+              ...d.clips
+                .filter((c) => c.status !== "queued" && c.status !== "downloading")
+                .map((c) => ({ ...c, ...r.clips.find((v) => v.id === c.id) })),
+              ...r.clips.filter(
+                (c) =>
+                  !d.clips.some(
+                    (v) => v.id === c.id && v.status !== "queued" && v.status !== "downloading",
+                  ),
+              ),
+            ],
           }));
         })
         .catch((e) => setError(errorMessage(e)));
@@ -218,6 +228,24 @@ export function ReelDrawer({
             {busy ? t("Uploading…") : t("Choose files")}
           </Button>
         </div>
+        <LinkImport
+          reelId={draft.id || undefined}
+          ensureReel={async () => {
+            if (current.current.id) return current.current.id;
+            const reel = await onair.saveReel({
+              ...current.current,
+              name: current.current.name.trim() || t("New reel"),
+            });
+            current.current = reel;
+            setDraft(reel);
+            setSaved(reel);
+            return reel.id;
+          }}
+          onImported={async () => {
+            const r = await onair.reel(current.current.id);
+            setDraft((d) => ({ ...d, clips: r.clips }));
+          }}
+        />
         {error ? (
           <p role="alert" className="text-sm text-danger">
             {error}
@@ -284,13 +312,29 @@ export function ReelDrawer({
                       <p className="truncate text-sm font-medium text-fg">{c.name}</p>
                     )}
                     <p className="text-xs text-fg-muted">
-                      {c.status === "converting"
-                        ? t("Converting {progress}%", { progress: c.progress || 0 })
-                        : c.status === "error"
-                          ? t("Conversion failed")
-                          : t("Ready")}
+                      {c.status === "queued" || c.status === "downloading"
+                        ? t("Importing…")
+                        : c.status === "converting"
+                          ? t("Converting {progress}%", { progress: c.progress || 0 })
+                          : c.status === "error"
+                            ? t("Conversion failed")
+                            : t("Ready")}
                     </p>
-                    {c.status === "converting" ? (
+                    {c.source ? (
+                      <a
+                        className="block truncate text-xs text-primary"
+                        href={c.source}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {t("Source")}
+                      </a>
+                    ) : null}
+                    {c.attribution ? (
+                      <p className="text-xs text-fg-muted">{c.attribution}</p>
+                    ) : null}
+                    {c.error ? <p className="text-xs text-danger">{c.error}</p> : null}
+                    {c.status === "converting" || c.status === "downloading" ? (
                       <progress
                         className="mt-1 h-1 w-full accent-primary"
                         value={c.progress || 0}
