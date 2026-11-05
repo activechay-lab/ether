@@ -7302,5 +7302,29 @@
   "m_1ffceea1081742": "dvd absoluuttinen esitys järjestys",
   "m_1ffd579fb6c1db": "Suurin osa katselusta on kodin ulkopuolella ({share}) korkealla bittinopeudella ({rate}). Aseta {away} tai Mbps-raja kohdassa {limits}.",
   "m_1ffe73d99814f5": "Hub-tunnukset, lajit tai glob-mallit",
-  "m_1ffeee0f0cedfc": "Tietokannan URL-osoitteen ohitus (valinnainen)"
+  "m_1ffeee0f0cedfc": "Tietokannan URL-osoitteen ohitus (valinnainen)",
+  "m_0065e717956476": "Poista sääntö {title}",
+  "m_009b07f9887d54": "Valitut rivit",
+  "m_01609b7d026e66": "Palauta valitut rivit kaikkien asetukseen",
+  "m_039a2921ce98a3": "Palauta valitut rivit oletukseen",
+  "m_03b06978a0c496": "Aseta valituille riveille {status}",
+  "m_09bedf60e4e7b5": {
+    "one": "Koskee {count} riviä",
+    "other": "Koskee {count} riviä"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} rivi",
+    "other": "{count} riviä"
+  },
+  "m_181492ead9b6c6": "Määritetty säännöllä {pattern}. Muutos tässä antaa riville oman asetuksen.",
+  "m_1847745b140186": "Näytä rivit tilan mukaan",
+  "m_18c2043580fa97": {
+    "one": "{count} pois",
+    "other": "{count} pois"
+  },
+  "m_18e96a529e967d": "Valitse kaikki rivit ryhmästä {group}",
+  "m_1963891cbada94": "säännön {pattern} kautta",
+  "m_1ab663d0bd937a": "Valitse {title}",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Ohitettu"
 }

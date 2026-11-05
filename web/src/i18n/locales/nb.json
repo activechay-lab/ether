@@ -7302,5 +7302,29 @@
   "m_1ffceea1081742": "dvd absolutt sendt rekkefølge",
   "m_1ffd579fb6c1db": "Mesteparten ses borte fra hjemmet ({share}) med høy bithastighet ({rate}). Angi en {away} eller en Mbps-grense under {limits}.",
   "m_1ffe73d99814f5": "Hub-ID-er, typer eller glob-mønstre",
-  "m_1ffeee0f0cedfc": "Overstyring av database-URL (valgfritt)"
+  "m_1ffeee0f0cedfc": "Overstyring av database-URL (valgfritt)",
+  "m_0065e717956476": "Fjern regelen {title}",
+  "m_009b07f9887d54": "Valgte rader",
+  "m_01609b7d026e66": "Tilbakestill de valgte radene til Alle",
+  "m_039a2921ce98a3": "Tilbakestill de valgte radene til standard",
+  "m_03b06978a0c496": "Sett de valgte radene til {status}",
+  "m_09bedf60e4e7b5": {
+    "one": "Gjelder {count} rad",
+    "other": "Gjelder {count} rader"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} rad",
+    "other": "{count} rader"
+  },
+  "m_181492ead9b6c6": "Satt av regelen {pattern}. Endrer du den her, får raden sin egen innstilling.",
+  "m_1847745b140186": "Vis rader etter status",
+  "m_18c2043580fa97": {
+    "one": "{count} av",
+    "other": "{count} av"
+  },
+  "m_18e96a529e967d": "Velg alle rader i {group}",
+  "m_1963891cbada94": "via {pattern}",
+  "m_1ab663d0bd937a": "Velg {title}",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Overstyrt"
 }

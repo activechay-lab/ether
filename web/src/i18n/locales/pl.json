@@ -7717,5 +7717,35 @@
   "m_1ffceea1081742": "dvd absolute aired ordering kolejność emisji bezwzględna",
   "m_1ffd579fb6c1db": "Większość oglądania odbywa się poza domem ({share}) z wysoką przepływnością ({rate}). Ustaw {away} lub limit Mb/s w sekcji „{limits}”.",
   "m_1ffe73d99814f5": "Identyfikatory hubów, rodzaje lub wzorce glob",
-  "m_1ffeee0f0cedfc": "Nadpisanie adresu URL bazy danych (opcjonalnie)"
+  "m_1ffeee0f0cedfc": "Nadpisanie adresu URL bazy danych (opcjonalnie)",
+  "m_0065e717956476": "Usuń regułę {title}",
+  "m_009b07f9887d54": "Zaznaczone wiersze",
+  "m_01609b7d026e66": "Przywróć ustawienia dla wszystkich w zaznaczonych wierszach",
+  "m_039a2921ce98a3": "Przywróć domyślne dla zaznaczonych wierszy",
+  "m_03b06978a0c496": "Ustaw zaznaczone wiersze na {status}",
+  "m_09bedf60e4e7b5": {
+    "one": "Dotyczy {count} wiersza",
+    "few": "Dotyczy {count} wierszy",
+    "many": "Dotyczy {count} wierszy",
+    "other": "Dotyczy {count} wiersza"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} wiersz",
+    "few": "{count} wiersze",
+    "many": "{count} wierszy",
+    "other": "{count} wiersza"
+  },
+  "m_181492ead9b6c6": "Ustawione przez regułę {pattern}. Zmiana tutaj nada temu wierszowi własne ustawienie.",
+  "m_1847745b140186": "Pokaż wiersze według stanu",
+  "m_18c2043580fa97": {
+    "one": "Wyłączone: {count}",
+    "few": "Wyłączone: {count}",
+    "many": "Wyłączone: {count}",
+    "other": "Wyłączone: {count}"
+  },
+  "m_18e96a529e967d": "Zaznacz wszystkie wiersze w {group}",
+  "m_1963891cbada94": "przez {pattern}",
+  "m_1ab663d0bd937a": "Zaznacz {title}",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Nadpisane"
 }

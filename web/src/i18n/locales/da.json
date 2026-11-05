@@ -7302,5 +7302,29 @@
   "m_1ffceea1081742": "dvd absolut sendt rækkefølge",
   "m_1ffd579fb6c1db": "Det meste ses uden for hjemmet ({share}) med høj bitrate ({rate}). Angiv en {away} eller en Mbps-grænse under deres {limits}.",
   "m_1ffe73d99814f5": "Hub-id’er, typer eller globs",
-  "m_1ffeee0f0cedfc": "Tilsidesæt database-URL (valgfrit)"
+  "m_1ffeee0f0cedfc": "Tilsidesæt database-URL (valgfrit)",
+  "m_0065e717956476": "Fjern reglen {title}",
+  "m_009b07f9887d54": "Valgte rækker",
+  "m_01609b7d026e66": "Nulstil de valgte rækker til Alle",
+  "m_039a2921ce98a3": "Nulstil de valgte rækker til standard",
+  "m_03b06978a0c496": "Sæt de valgte rækker til {status}",
+  "m_09bedf60e4e7b5": {
+    "one": "Gælder {count} række",
+    "other": "Gælder {count} rækker"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} række",
+    "other": "{count} rækker"
+  },
+  "m_181492ead9b6c6": "Angivet af reglen {pattern}. Ændrer du den her, får rækken sin egen indstilling.",
+  "m_1847745b140186": "Vis rækker efter status",
+  "m_18c2043580fa97": {
+    "one": "{count} fra",
+    "other": "{count} fra"
+  },
+  "m_18e96a529e967d": "Vælg alle rækker i {group}",
+  "m_1963891cbada94": "via {pattern}",
+  "m_1ab663d0bd937a": "Vælg {title}",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Tilsidesat"
 }

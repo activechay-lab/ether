@@ -7302,5 +7302,29 @@
   "m_1ffceea1081742": "dvd absolut ausgestrahlt Reihenfolge",
   "m_1ffd579fb6c1db": "Meist wird außer Haus geschaut ({share}), mit hoher Bitrate ({rate}). Lege ein {away} oder eine Mbps-Grenze in den {limits} fest.",
   "m_1ffe73d99814f5": "Hub-IDs, Arten oder Globs",
-  "m_1ffeee0f0cedfc": "Datenbank-URL überschreiben (optional)"
+  "m_1ffeee0f0cedfc": "Datenbank-URL überschreiben (optional)",
+  "m_0065e717956476": "Regel {title} entfernen",
+  "m_009b07f9887d54": "Ausgewählte Reihen",
+  "m_01609b7d026e66": "Ausgewählte Reihen auf „Alle“ zurücksetzen",
+  "m_039a2921ce98a3": "Ausgewählte Reihen auf Standard zurücksetzen",
+  "m_03b06978a0c496": "Ausgewählte Reihen auf {status} setzen",
+  "m_09bedf60e4e7b5": {
+    "one": "Gilt für {count} Reihe",
+    "other": "Gilt für {count} Reihen"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} Reihe",
+    "other": "{count} Reihen"
+  },
+  "m_181492ead9b6c6": "Festgelegt durch die Regel {pattern}. Eine Änderung hier gibt dieser Reihe eine eigene Einstellung.",
+  "m_1847745b140186": "Reihen nach Status anzeigen",
+  "m_18c2043580fa97": {
+    "one": "{count} aus",
+    "other": "{count} aus"
+  },
+  "m_18e96a529e967d": "Alle Reihen in {group} auswählen",
+  "m_1963891cbada94": "über {pattern}",
+  "m_1ab663d0bd937a": "{title} auswählen",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Überschrieben"
 }

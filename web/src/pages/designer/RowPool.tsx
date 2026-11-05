@@ -159,6 +159,14 @@ export function RowPool({
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [folded, setFolded] = useState<Partial<Record<PoolGroup, boolean>>>({});
+  // A selection belongs to what it was made in: switching layer or page, or
+  // changing what the list shows, clears it so no hidden row gets a bulk edit.
+  const scope = JSON.stringify([layer, section, q, filter]);
+  const [pickScope, setPickScope] = useState(scope);
+  if (pickScope !== scope) {
+    setPickScope(scope);
+    setPicked(new Set());
+  }
   const [insights, setInsights] = useState<RowInsight[]>([]);
   useEffect(() => {
     let live = true;
@@ -255,7 +263,7 @@ export function RowPool({
   const bulk = (status: RowStatus | null) => {
     onChange(
       status
-        ? setStatuses(draft, layer, section, pickedRows, status)
+        ? setStatuses(draft, layer, section, pickedRows, status, (row) => resolved.get(row)?.policy)
         : removePolicies(draft, layer, section, pickedRows),
     );
     setPicked(new Set());
@@ -316,7 +324,7 @@ export function RowPool({
           className="sticky top-0 z-10 flex flex-wrap items-center gap-1.5 rounded-lg border border-primary/40 bg-surface p-2 shadow-sm"
         >
           <span className="text-xs font-medium text-fg">
-            {tn(pickedRows.length, "{count} selected", "{count} selected")}
+            {t("{count} selected", { count: formatNumber(pickedRows.length) })}
           </span>
           <span className="flex-1" />
           {statuses.map((s) => (
@@ -366,10 +374,9 @@ export function RowPool({
         if (!rows.length) return null;
         const selectable = rows.filter((e) => !e.collectionSource).map((e) => e.row);
         const allPicked = selectable.length > 0 && selectable.every((r) => picked.has(r));
-        const open =
-          filtering ||
-          rows.some((e) => e.row === focusRow) ||
-          !(folded[g.key] ?? (g.key === "collections" && rows.length > FOLD_AT));
+        // A search, a filter or the focused row holds a group open.
+        const held = filtering || rows.some((e) => e.row === focusRow);
+        const open = held || !(folded[g.key] ?? (g.key === "collections" && rows.length > FOLD_AT));
         const off = rows.filter((e) => !e.collectionSource && statusOf(e) === "off").length;
         return (
           <div key={g.key} className="space-y-1.5 pt-1" role="group" aria-label={g.label}>
@@ -384,8 +391,12 @@ export function RowPool({
               <button
                 type="button"
                 aria-expanded={open}
-                onClick={() => setFolded({ ...folded, [g.key]: open })}
-                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                disabled={held}
+                onClick={() => {
+                  setFolded({ ...folded, [g.key]: open });
+                  if (open) pick(selectable, false);
+                }}
+                className="flex min-w-0 flex-1 items-center gap-1.5 text-left disabled:cursor-default"
               >
                 <ChevronRight
                   size={13}
@@ -398,8 +409,12 @@ export function RowPool({
                   {g.label}
                 </h3>
                 <span className="truncate text-[11px] text-fg-subtle/80">
-                  {tn(rows.length, "{count} row", "{count} rows")}
-                  {off ? ` · ${t("{count} off", { count: off })}` : ""}
+                  {off
+                    ? t("{rows} · {off}", {
+                        rows: tn(rows.length, "{count} row", "{count} rows"),
+                        off: tn(off, "{count} off", "{count} off"),
+                      })
+                    : tn(rows.length, "{count} row", "{count} rows")}
                 </span>
               </button>
             </div>

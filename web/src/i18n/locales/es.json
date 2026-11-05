@@ -7508,5 +7508,32 @@
   "m_1ffceea1081742": "dvd absoluto emisión ordenación",
   "m_1ffd579fb6c1db": "La mayor parte se ve fuera de casa ({share}) con una tasa de bits alta ({rate}). Configura un {away} o un límite en Mbps en sus {limits}.",
   "m_1ffe73d99814f5": "ID de hub, tipos o patrones glob",
-  "m_1ffeee0f0cedfc": "URL de base de datos alternativa (opcional)"
+  "m_1ffeee0f0cedfc": "URL de base de datos alternativa (opcional)",
+  "m_0065e717956476": "Quitar la regla {title}",
+  "m_009b07f9887d54": "Filas seleccionadas",
+  "m_01609b7d026e66": "Restablecer las filas seleccionadas a Todos",
+  "m_039a2921ce98a3": "Restablecer las filas seleccionadas al valor predeterminado",
+  "m_03b06978a0c496": "Cambiar las filas seleccionadas a {status}",
+  "m_09bedf60e4e7b5": {
+    "one": "Se aplica a {count} fila",
+    "many": "Se aplica a {count} filas",
+    "other": "Se aplica a {count} filas"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} fila",
+    "many": "{count} filas",
+    "other": "{count} filas"
+  },
+  "m_181492ead9b6c6": "Definido por la regla {pattern}. Cambiarlo aquí da a esta fila su propio ajuste.",
+  "m_1847745b140186": "Mostrar filas por estado",
+  "m_18c2043580fa97": {
+    "one": "{count} desactivada",
+    "many": "{count} desactivadas",
+    "other": "{count} desactivadas"
+  },
+  "m_18e96a529e967d": "Seleccionar todas las filas de {group}",
+  "m_1963891cbada94": "mediante {pattern}",
+  "m_1ab663d0bd937a": "Seleccionar {title}",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Anulado"
 }

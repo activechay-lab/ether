@@ -7302,5 +7302,29 @@
   "m_1ffceea1081742": "dvd absolut sänd ordning",
   "m_1ffd579fb6c1db": "Det mesta ses utanför hemmet ({share}) med hög bithastighet ({rate}). Ange en {away} eller en Mbps-gräns under {limits}.",
   "m_1ffe73d99814f5": "Hub-ID:n, typer eller globmönster",
-  "m_1ffeee0f0cedfc": "Åsidosätt databas-URL (valfritt)"
+  "m_1ffeee0f0cedfc": "Åsidosätt databas-URL (valfritt)",
+  "m_0065e717956476": "Ta bort regeln {title}",
+  "m_009b07f9887d54": "Valda rader",
+  "m_01609b7d026e66": "Återställ de valda raderna till Alla",
+  "m_039a2921ce98a3": "Återställ de valda raderna till standard",
+  "m_03b06978a0c496": "Sätt de valda raderna till {status}",
+  "m_09bedf60e4e7b5": {
+    "one": "Gäller {count} rad",
+    "other": "Gäller {count} rader"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} rad",
+    "other": "{count} rader"
+  },
+  "m_181492ead9b6c6": "Satt av regeln {pattern}. Ändrar du den här får raden en egen inställning.",
+  "m_1847745b140186": "Visa rader efter status",
+  "m_18c2043580fa97": {
+    "one": "{count} av",
+    "other": "{count} av"
+  },
+  "m_18e96a529e967d": "Välj alla rader i {group}",
+  "m_1963891cbada94": "via {pattern}",
+  "m_1ab663d0bd937a": "Välj {title}",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Åsidosatt"
 }

@@ -7508,5 +7508,32 @@
   "m_1ffceea1081742": "dvd absoluta exibição ordenação",
   "m_1ffd579fb6c1db": "A maior parte é assistida fora de casa ({share}) com taxa de bits alta ({rate}). Defina um {away} ou um limite em Mbps nos {limits} dele.",
   "m_1ffe73d99814f5": "IDs de hub, tipos ou globs",
-  "m_1ffeee0f0cedfc": "URL alternativa do banco de dados (opcional)"
+  "m_1ffeee0f0cedfc": "URL alternativa do banco de dados (opcional)",
+  "m_0065e717956476": "Remover a regra {title}",
+  "m_009b07f9887d54": "Linhas selecionadas",
+  "m_01609b7d026e66": "Redefinir as linhas selecionadas para Todos",
+  "m_039a2921ce98a3": "Redefinir as linhas selecionadas para o padrão",
+  "m_03b06978a0c496": "Definir as linhas selecionadas como {status}",
+  "m_09bedf60e4e7b5": {
+    "one": "Aplica-se a {count} linha",
+    "many": "Aplica-se a {count} linhas",
+    "other": "Aplica-se a {count} linhas"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} linha",
+    "many": "{count} linhas",
+    "other": "{count} linhas"
+  },
+  "m_181492ead9b6c6": "Definido pela regra {pattern}. Alterar aqui dá a esta linha sua própria configuração.",
+  "m_1847745b140186": "Mostrar linhas por status",
+  "m_18c2043580fa97": {
+    "one": "{count} desativada",
+    "many": "{count} desativadas",
+    "other": "{count} desativadas"
+  },
+  "m_18e96a529e967d": "Selecionar todas as linhas em {group}",
+  "m_1963891cbada94": "via {pattern}",
+  "m_1ab663d0bd937a": "Selecionar {title}",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Substituído"
 }

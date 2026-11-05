@@ -7320,5 +7320,29 @@
   "m_1ffceea1081742": "dvd absolute aired ordering",
   "m_1ffd579fb6c1db": "Most viewing is away from home ({share}) at a high bitrate ({rate}). Set an {away} or a Mbps cap in their {limits}.",
   "m_1ffe73d99814f5": "Hub ids, kinds or globs",
-  "m_1ffeee0f0cedfc": "Database URL override (optional)"
+  "m_1ffeee0f0cedfc": "Database URL override (optional)",
+  "m_0065e717956476": "Remove the rule {title}",
+  "m_009b07f9887d54": "Selected rows",
+  "m_01609b7d026e66": "Reset the selected rows to Everyone",
+  "m_039a2921ce98a3": "Set the selected rows back to default",
+  "m_03b06978a0c496": "Set the selected rows to {status}",
+  "m_09bedf60e4e7b5": {
+    "one": "Applies to {count} row",
+    "other": "Applies to {count} rows"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} row",
+    "other": "{count} rows"
+  },
+  "m_181492ead9b6c6": "Set by the rule {pattern}. Changing it here gives this row its own setting.",
+  "m_1847745b140186": "Show rows by status",
+  "m_18c2043580fa97": {
+    "one": "{count} off",
+    "other": "{count} off"
+  },
+  "m_18e96a529e967d": "Select every row in {group}",
+  "m_1963891cbada94": "via {pattern}",
+  "m_1ab663d0bd937a": "Select {title}",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Overridden"
 }

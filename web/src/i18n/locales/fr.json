@@ -7508,5 +7508,32 @@
   "m_1ffceea1081742": "dvd absolu diffusion ordre",
   "m_1ffd579fb6c1db": "La plupart du visionnage se fait hors du domicile ({share}) à un débit élevé ({rate}). Définissez un {away} ou un plafond en Mbps dans ses {limits}.",
   "m_1ffe73d99814f5": "ID de hubs, types ou motifs glob",
-  "m_1ffeee0f0cedfc": "URL de base de données de remplacement (facultatif)"
+  "m_1ffeee0f0cedfc": "URL de base de données de remplacement (facultatif)",
+  "m_0065e717956476": "Supprimer la règle {title}",
+  "m_009b07f9887d54": "Rangées sélectionnées",
+  "m_01609b7d026e66": "Rétablir les rangées sélectionnées sur Tout le monde",
+  "m_039a2921ce98a3": "Rétablir les rangées sélectionnées par défaut",
+  "m_03b06978a0c496": "Passer les rangées sélectionnées à {status}",
+  "m_09bedf60e4e7b5": {
+    "one": "S’applique à {count} rangée",
+    "many": "S’applique à {count} de rangées",
+    "other": "S’applique à {count} rangées"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} rangée",
+    "many": "{count} de rangées",
+    "other": "{count} rangées"
+  },
+  "m_181492ead9b6c6": "Défini par la règle {pattern}. Le modifier ici donne à cette rangée son propre réglage.",
+  "m_1847745b140186": "Afficher les rangées par état",
+  "m_18c2043580fa97": {
+    "one": "{count} désactivée",
+    "many": "{count} de désactivées",
+    "other": "{count} désactivées"
+  },
+  "m_18e96a529e967d": "Sélectionner toutes les rangées de {group}",
+  "m_1963891cbada94": "via {pattern}",
+  "m_1ab663d0bd937a": "Sélectionner {title}",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Remplacé"
 }

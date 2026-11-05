@@ -7302,5 +7302,29 @@
   "m_1ffceea1081742": "dvd mutlak yayın sıralama",
   "m_1ffd579fb6c1db": "İzlemenin çoğu ev dışında ({share}) ve yüksek bit hızında ({rate}). {limits} bölümünde bir {away} veya Mbps sınırı ayarlayın.",
   "m_1ffe73d99814f5": "Hub kimlikleri, türleri veya glob desenleri",
-  "m_1ffeee0f0cedfc": "Veritabanı URL'si geçersiz kılma (isteğe bağlı)"
+  "m_1ffeee0f0cedfc": "Veritabanı URL'si geçersiz kılma (isteğe bağlı)",
+  "m_0065e717956476": "{title} kuralını kaldır",
+  "m_009b07f9887d54": "Seçili satırlar",
+  "m_01609b7d026e66": "Seçili satırları Herkes ayarına sıfırla",
+  "m_039a2921ce98a3": "Seçili satırları varsayılana sıfırla",
+  "m_03b06978a0c496": "Seçili satırları {status} yap",
+  "m_09bedf60e4e7b5": {
+    "one": "{count} satıra uygulanır",
+    "other": "{count} satıra uygulanır"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} satır",
+    "other": "{count} satır"
+  },
+  "m_181492ead9b6c6": "{pattern} kuralıyla ayarlandı. Burada değiştirmek bu satıra kendi ayarını verir.",
+  "m_1847745b140186": "Satırları duruma göre göster",
+  "m_18c2043580fa97": {
+    "one": "{count} kapalı",
+    "other": "{count} kapalı"
+  },
+  "m_18e96a529e967d": "{group} içindeki tüm satırları seç",
+  "m_1963891cbada94": "{pattern} üzerinden",
+  "m_1ab663d0bd937a": "{title} öğesini seç",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Geçersiz kılındı"
 }

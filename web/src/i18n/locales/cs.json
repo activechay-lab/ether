@@ -7717,5 +7717,35 @@
   "m_1ffceea1081742": "dvd absolutní odvysílané řazení pořadí",
   "m_1ffd579fb6c1db": "Většina sledování probíhá mimo domov ({share}) s vysokým datovým tokem ({rate}). Nastavte {away} nebo limit v Mb/s v části „{limits}“.",
   "m_1ffe73d99814f5": "ID hubů, druhy nebo vzory glob",
-  "m_1ffeee0f0cedfc": "Přepsání URL databáze (volitelné)"
+  "m_1ffeee0f0cedfc": "Přepsání URL databáze (volitelné)",
+  "m_0065e717956476": "Odebrat pravidlo {title}",
+  "m_009b07f9887d54": "Vybrané řádky",
+  "m_01609b7d026e66": "Vrátit vybrané řádky na nastavení pro všechny",
+  "m_039a2921ce98a3": "Vrátit vybrané řádky na výchozí",
+  "m_03b06978a0c496": "Nastavit vybrané řádky na {status}",
+  "m_09bedf60e4e7b5": {
+    "one": "Platí pro {count} řádek",
+    "few": "Platí pro {count} řádky",
+    "many": "Platí pro {count} řádku",
+    "other": "Platí pro {count} řádků"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} řádek",
+    "few": "{count} řádky",
+    "many": "{count} řádku",
+    "other": "{count} řádků"
+  },
+  "m_181492ead9b6c6": "Nastaveno pravidlem {pattern}. Změna zde dá tomuto řádku vlastní nastavení.",
+  "m_1847745b140186": "Zobrazit řádky podle stavu",
+  "m_18c2043580fa97": {
+    "one": "Vypnuto: {count}",
+    "few": "Vypnuto: {count}",
+    "many": "Vypnuto: {count}",
+    "other": "Vypnuto: {count}"
+  },
+  "m_18e96a529e967d": "Vybrat všechny řádky v {group}",
+  "m_1963891cbada94": "přes {pattern}",
+  "m_1ab663d0bd937a": "Vybrat {title}",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Přepsáno"
 }

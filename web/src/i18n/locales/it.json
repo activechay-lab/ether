@@ -7508,5 +7508,32 @@
   "m_1ffceea1081742": "dvd assoluto messa in onda ordinamento",
   "m_1ffd579fb6c1db": "Gran parte della visione avviene fuori casa ({share}) con un bitrate alto ({rate}). Imposta un {away} o un limite in Mbps nei suoi {limits}.",
   "m_1ffe73d99814f5": "ID di hub, tipi o glob",
-  "m_1ffeee0f0cedfc": "URL del database alternativo (facoltativo)"
+  "m_1ffeee0f0cedfc": "URL del database alternativo (facoltativo)",
+  "m_0065e717956476": "Rimuovi la regola {title}",
+  "m_009b07f9887d54": "Righe selezionate",
+  "m_01609b7d026e66": "Riporta le righe selezionate a Tutti",
+  "m_039a2921ce98a3": "Riporta le righe selezionate al predefinito",
+  "m_03b06978a0c496": "Imposta le righe selezionate su {status}",
+  "m_09bedf60e4e7b5": {
+    "one": "Si applica a {count} riga",
+    "many": "Si applica a {count} righe",
+    "other": "Si applica a {count} righe"
+  },
+  "m_0fd513828cede5": {
+    "one": "{count} riga",
+    "many": "{count} righe",
+    "other": "{count} righe"
+  },
+  "m_181492ead9b6c6": "Impostato dalla regola {pattern}. Modificarlo qui dà a questa riga un'impostazione propria.",
+  "m_1847745b140186": "Mostra le righe per stato",
+  "m_18c2043580fa97": {
+    "one": "{count} disattivata",
+    "many": "{count} disattivate",
+    "other": "{count} disattivate"
+  },
+  "m_18e96a529e967d": "Seleziona tutte le righe in {group}",
+  "m_1963891cbada94": "tramite {pattern}",
+  "m_1ab663d0bd937a": "Seleziona {title}",
+  "m_1afc90744313a9": "{rows} · {off}",
+  "m_1f2d67f2aa05b6": "Sostituito"
 }
