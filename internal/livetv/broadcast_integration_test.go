@@ -98,7 +98,13 @@ func TestBroadcastRealContinuity(t *testing.T) {
 		t.Fatalf("only %d segments", len(segments))
 	}
 	for i, seg := range segments {
-		if seg.Seq != int64(i) || seg.Duration != 4*time.Second {
+		expected := 4 * time.Second
+		if i < 2 {
+			expected = time.Second
+		} else if i == 2 {
+			expected = 2 * time.Second
+		}
+		if seg.Seq != int64(i) || seg.Duration != expected {
 			t.Fatal("non-contiguous timeline", segments)
 		}
 		if i > 0 && !seg.Start.Equal(segments[i-1].Start.Add(segments[i-1].Duration)) {
@@ -131,6 +137,10 @@ func TestBroadcastRealContinuity(t *testing.T) {
 	if strings.Count(mpd.Body.String(), "<Period ") != 1 || !strings.Contains(mpd.Body.String(), "test-grant") {
 		t.Fatal("DASH view", mpd.Body.String())
 	}
+	if !strings.Contains(mpd.Body.String(), `availabilityStartTime="`+segments[0].Start.UTC().Format(time.RFC3339Nano)+`"`) {
+		t.Fatal("DASH origin shifted after variable openings or DVR eviction", mpd.Body.String())
+	}
+
 	var ts, mp4 bytes.Buffer
 	init := httptest.NewRecorder()
 	index.ServeInit(init, httptest.NewRequest("GET", "/", nil))

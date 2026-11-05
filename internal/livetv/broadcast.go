@@ -27,12 +27,15 @@ type broadcastPlanner interface {
 	plans(time.Time) (broadcastPlan, *broadcastPlan)
 }
 type broadcastRendition struct {
-	height  int
-	id      string
-	encoder transcode.ContinuousEncoder
-	queue   chan transcode.RawFrame
-	cancel  context.CancelFunc
-	viewers int
+	origin     time.Time
+	originErr  error
+	originDone chan struct{}
+	height     int
+	id         string
+	encoder    transcode.ContinuousEncoder
+	queue      chan transcode.RawFrame
+	cancel     context.CancelFunc
+	viewers    int
 }
 type broadcastInput struct {
 	started                 time.Time
@@ -192,7 +195,7 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 		encoder.Close()
 		return nil, context.Canceled
 	}
-	r := &broadcastRendition{height: decision.MaxHeight, id: id, encoder: encoder, queue: make(chan transcode.RawFrame, 2), cancel: cancel, viewers: 1}
+	r := &broadcastRendition{originDone: make(chan struct{}), height: decision.MaxHeight, id: id, encoder: encoder, queue: make(chan transcode.RawFrame, 2), cancel: cancel, viewers: 1}
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -203,7 +206,7 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 	b.renditions[id] = r
 	b.viewers++
 	b.lastViewer = time.Now()
-	b.wg.Add(1)
+	b.wg.Add(2)
 	b.mu.Unlock()
 	go func() {
 		defer b.wg.Done()
@@ -219,6 +222,25 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 				}
 			}
 		}
+	}()
+	go func() {
+		defer b.wg.Done()
+		index := encoder.Segments()
+		var first transcode.Segment
+		var err error
+		if segments := index.Since(-1, 1); len(segments) > 0 {
+			first = segments[0]
+		} else {
+			first, err = index.Wait(lifetime, -1)
+		}
+		if err == nil && first.Seq != 0 {
+			err = fmt.Errorf("continuous encoder did not expose its first segment")
+		}
+		b.mu.Lock()
+		r.origin = first.Start
+		r.originErr = err
+		close(r.originDone)
+		b.mu.Unlock()
 	}()
 	return encoder.Segments(), nil
 }

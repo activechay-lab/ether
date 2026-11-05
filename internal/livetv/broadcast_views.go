@@ -131,7 +131,16 @@ func (s *Service) serveBroadcastDASH(w http.ResponseWriter, r *http.Request, ss 
 	}
 	codecs, width, height, bandwidth := index.Format()
 	first := segments[0]
-	origin := first.Start.Add(-time.Duration(first.Seq) * first.Duration)
+	ss.mu.Lock()
+	lease := ss.broadcast
+	ss.mu.Unlock()
+	if lease == nil {
+		return core.ErrNotAvailable
+	}
+	origin, err := lease.timelineOrigin(r.Context())
+	if err != nil {
+		return err
+	}
 	init := withAuth(fmt.Sprintf("/livetv/sessions/%s/0/dash/0/header", ss.info.ID), ss.streamGrant)
 	media := withAuth(fmt.Sprintf("/livetv/sessions/%s/0/dash/0/$Number$.m4s", ss.info.ID), ss.streamGrant)
 	var b strings.Builder

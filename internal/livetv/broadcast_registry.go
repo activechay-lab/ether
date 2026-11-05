@@ -140,3 +140,37 @@ func (r *broadcastRegistry) invalidate(channelID string, all bool) {
 		b.close()
 	}
 }
+
+// timelineOrigin is the timestamp of the first finished segment, retained for
+// the rendition's lifetime even after that segment leaves the DVR window.
+// Seq*Duration cannot recover this with variable opening GOPs.
+func (l *broadcastLease) timelineOrigin(ctx context.Context) (time.Time, error) {
+	l.mu.Lock()
+	id := l.rendition
+	closed := l.closed
+	l.mu.Unlock()
+	if closed {
+		return time.Time{}, core.ErrNotFound
+	}
+	b := l.broadcast
+	b.mu.Lock()
+	r := b.renditions[id]
+	if r == nil {
+		b.mu.Unlock()
+		return time.Time{}, core.ErrNotAvailable
+	}
+	done := r.originDone
+	b.mu.Unlock()
+	if done == nil {
+		return time.Time{}, core.ErrNotAvailable
+	}
+	select {
+	case <-ctx.Done():
+		return time.Time{}, ctx.Err()
+	case <-done:
+	}
+	b.mu.Lock()
+	origin, err := r.origin, r.originErr
+	b.mu.Unlock()
+	return origin, err
+}
