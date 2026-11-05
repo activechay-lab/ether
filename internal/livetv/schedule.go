@@ -105,7 +105,7 @@ func weeklySchedule(c Channel, from, until time.Time) []Programme {
 	}
 	recent := map[core.RatingKey]time.Time{}
 	for ; day.Before(until); day = day.AddDate(0, 0, 1) {
-		if c.momentHistory != nil && (c.Look == nil || c.Look.BreakPattern == nil) {
+		if c.momentHistory != nil && c.Look != nil && c.Look.BreakPattern == nil {
 			c.momentHistory.lastBreak = day
 		}
 		var daily []Programme
