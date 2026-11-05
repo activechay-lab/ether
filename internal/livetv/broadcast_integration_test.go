@@ -138,6 +138,10 @@ func TestBroadcastRealContinuity(t *testing.T) {
 	if strings.Count(mpd.Body.String(), "<Period ") != 1 || !strings.Contains(mpd.Body.String(), "test-grant") {
 		t.Fatal("DASH view", mpd.Body.String())
 	}
+	if !strings.Contains(mpd.Body.String(), `availabilityStartTime="`+segments[0].Start.UTC().Format(time.RFC3339Nano)+`"`) {
+		t.Fatal("DASH origin shifted after variable openings or DVR eviction", mpd.Body.String())
+	}
+
 	var ts, mp4 bytes.Buffer
 	init := httptest.NewRecorder()
 	index.ServeInit(init, httptest.NewRequest("GET", "/", nil))
