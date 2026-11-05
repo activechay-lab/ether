@@ -111,6 +111,28 @@ export function remixMock(
   if (seg[0] !== "onair") return null;
   const [, kind, id, action] = seg;
   if (kind === "templates") return { body: templates };
+  if (kind === "packs" && method === "POST") {
+    const file = body instanceof FormData ? body.get("file") : null;
+    if (!(file instanceof File) || !file.name.toLowerCase().endsWith(".etherpkg"))
+      return { status: 400, body: { message: "Choose an .etherpkg style pack." } };
+    // Offline fixture: model the server's imported owned-style response, without
+    // executing or decoding uploaded plugin packages in the mock browser.
+    const template = templates.find((entry) => entry.id === "retro")!;
+    const style = structuredClone(template.style);
+    style.id = crypto.randomUUID();
+    style.name =
+      file.name
+        .replace(/\.etherpkg$/i, "")
+        .replace(/[_-]+/g, " ")
+        .trim() || "Imported style";
+    style.brand.tagline = "Stay tuned to the future";
+    style.channelIds = [];
+    style.channelCount = 0;
+    style.scenes = style.scenes.map((scene) => ({ ...scene, id: crypto.randomUUID() }));
+    styles.push(style);
+    return { status: 201, body: style };
+  }
+
   if (kind === "looks" && !["duplicate", "detach", "pack"].includes(action ?? "")) {
     if (method === "GET") return { body: id ? styles.find((s) => s.id === id) : styles };
     if (method === "DELETE") {
