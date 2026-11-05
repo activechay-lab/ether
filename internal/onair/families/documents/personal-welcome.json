@@ -11,7 +11,8 @@
       "y": 0,
       "w": 1920,
       "h": 1080,
-      "fill": "{bg}"
+      "fill": "{bg}",
+      "name": "Background"
     },
     {
       "id": "aurora0",
@@ -49,7 +50,8 @@
           ]
         ]
       },
-      "blend": "screen"
+      "blend": "screen",
+      "name": "Aurora0"
     },
     {
       "id": "aurora1",
@@ -87,7 +89,8 @@
           ]
         ]
       },
-      "blend": "screen"
+      "blend": "screen",
+      "name": "Aurora1"
     },
     {
       "id": "aurora2",
@@ -125,72 +128,85 @@
           ]
         ]
       },
-      "blend": "screen"
+      "blend": "screen",
+      "name": "Aurora2"
     },
     {
-      "id": "Title-weight0",
-      "type": "text",
-      "text": "Welcome back, {viewer.name}.",
-      "x": 958.2,
-      "y": 400,
-      "size": 104,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "maxWidth": 1600,
-      "fit": "shrink",
-      "align": "center"
-    },
-    {
-      "id": "Title-weight1",
-      "type": "text",
-      "text": "Welcome back, {viewer.name}.",
-      "x": 961.8,
-      "y": 400,
-      "size": 104,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "maxWidth": 1600,
-      "fit": "shrink",
-      "align": "center"
-    },
-    {
-      "id": "Title-weight2",
-      "type": "text",
-      "text": "Welcome back, {viewer.name}.",
-      "x": 960,
-      "y": 398.2,
-      "size": 104,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "maxWidth": 1600,
-      "fit": "shrink",
-      "align": "center"
-    },
-    {
-      "id": "Title-weight3",
-      "type": "text",
-      "text": "Welcome back, {viewer.name}.",
-      "x": 960,
-      "y": 401.8,
-      "size": 104,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "maxWidth": 1600,
-      "fit": "shrink",
-      "align": "center"
-    },
-    {
-      "id": "Title",
-      "type": "text",
-      "text": "Welcome back, {viewer.name}.",
-      "x": 960,
-      "y": 400,
-      "size": 104,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "maxWidth": 1600,
-      "fit": "shrink",
-      "align": "center"
+      "id": "Title-group",
+      "name": "Title",
+      "type": "group",
+      "layers": [
+        {
+          "id": "Title-weight0",
+          "type": "text",
+          "text": "Welcome back, {viewer.name}.",
+          "x": 958.2,
+          "y": 400,
+          "size": 104,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 1600,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Title edge 1"
+        },
+        {
+          "id": "Title-weight1",
+          "type": "text",
+          "text": "Welcome back, {viewer.name}.",
+          "x": 961.8,
+          "y": 400,
+          "size": 104,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 1600,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Title edge 2"
+        },
+        {
+          "id": "Title-weight2",
+          "type": "text",
+          "text": "Welcome back, {viewer.name}.",
+          "x": 960,
+          "y": 398.2,
+          "size": 104,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 1600,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Title edge 3"
+        },
+        {
+          "id": "Title-weight3",
+          "type": "text",
+          "text": "Welcome back, {viewer.name}.",
+          "x": 960,
+          "y": 401.8,
+          "size": 104,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 1600,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Title edge 4"
+        },
+        {
+          "id": "Title",
+          "type": "text",
+          "text": "Welcome back, {viewer.name}.",
+          "x": 960,
+          "y": 400,
+          "size": 104,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 1600,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Channel title"
+        }
+      ]
     },
     {
       "id": "subtitle",
@@ -203,7 +219,8 @@
       "fill": "{text}",
       "maxWidth": 1600,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Subtitle"
     },
     {
       "id": "resume-card",
@@ -214,7 +231,8 @@
       "h": 280,
       "fill": "{text}@0.06",
       "stroke": "{text}@0.16",
-      "strokeWidth": 2
+      "strokeWidth": 2,
+      "name": "Resume card"
     },
     {
       "id": "art-illustration",
@@ -247,7 +265,8 @@
                 "#bd794f"
               ]
             ]
-          }
+          },
+          "name": "Art sky"
         },
         {
           "id": "art-moon",
@@ -256,29 +275,34 @@
           "y": 78.0,
           "w": 86.4,
           "h": 86.4,
-          "fill": "#efdbaa"
+          "fill": "#efdbaa",
+          "name": "Art moon"
         },
         {
           "id": "art-ridge0",
           "type": "path",
           "path": "M 0 338.0 L 108.0 195.0 L 189.0 325.0 L 351.0 175.5 L 540 312.0 L 540 650 L 0 650 Z",
-          "fill": "#384762"
+          "fill": "#384762",
+          "name": "Art ridge0"
         },
         {
           "id": "art-ridge1",
           "type": "path",
           "path": "M 0 416.0 L 108.0 299.0 L 189.0 390.0 L 351.0 286.00000000000006 L 540 377.0 L 540 650 L 0 650 Z",
-          "fill": "#293248"
+          "fill": "#293248",
+          "name": "Art ridge1"
         },
         {
           "id": "art-ridge2",
           "type": "path",
           "path": "M 0 494.0 L 108.0 403.0 L 189.0 454.99999999999994 L 351.0 396.50000000000006 L 540 441.99999999999994 L 540 650 L 0 650 Z",
-          "fill": "#172139"
+          "fill": "#172139",
+          "name": "Art ridge2"
         }
       ],
       "scaleX": 0.7407407407407407,
-      "scaleY": 0.3384615384615385
+      "scaleY": 0.3384615384615385,
+      "name": "Art illustration"
     },
     {
       "id": "programme",
@@ -290,7 +314,8 @@
       "font": "{type.display}",
       "fill": "{text}",
       "maxWidth": 520,
-      "fit": "shrink"
+      "fit": "shrink",
+      "name": "Programme"
     },
     {
       "id": "reason",
@@ -302,7 +327,8 @@
       "font": "{type.mono}",
       "fill": "{text}",
       "maxWidth": 520,
-      "fit": "shrink"
+      "fit": "shrink",
+      "name": "Reason"
     },
     {
       "id": "progress",
@@ -311,7 +337,8 @@
       "y": 770,
       "w": 520,
       "h": 8,
-      "fill": "#ffffff@0.14"
+      "fill": "#ffffff@0.14",
+      "name": "Progress"
     },
     {
       "id": "elapsed",
@@ -320,7 +347,8 @@
       "y": 770,
       "w": 310,
       "h": 8,
-      "fill": "{accent}"
+      "fill": "{accent}",
+      "name": "Elapsed"
     },
     {
       "id": "resume",
@@ -333,7 +361,8 @@
       "fill": "{accent}",
       "maxWidth": 1600,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Resume"
     }
   ],
   "post": [

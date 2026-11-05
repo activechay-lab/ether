@@ -11,115 +11,134 @@
       "y": 0,
       "w": 1920,
       "h": 1080,
-      "fill": "#ff3e8a"
+      "fill": "#ff3e8a",
+      "name": "Background"
     },
     {
       "id": "ray0",
       "type": "path",
       "path": "M 960 540 L 3360.00 540.00 L 3351.34 743.75 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray0"
     },
     {
       "id": "ray1",
       "type": "path",
       "path": "M 960 540 L 3215.26 1360.85 L 3137.43 1549.35 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray1"
     },
     {
       "id": "ray2",
       "type": "path",
       "path": "M 960 540 L 2798.51 2082.69 L 2660.90 2233.21 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray2"
     },
     {
       "id": "ray3",
       "type": "path",
       "path": "M 960 540 L 2160.00 2618.46 L 1979.21 2712.83 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray3"
     },
     {
       "id": "ray4",
       "type": "path",
       "path": "M 960 540 L 1376.76 2903.54 L 1174.59 2930.39 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray4"
     },
     {
       "id": "ray5",
       "type": "path",
       "path": "M 960 540 L 543.24 2903.54 L 344.09 2859.62 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray5"
     },
     {
       "id": "ray6",
       "type": "path",
       "path": "M 960 540 L -240.00 2618.46 L -412.12 2509.08 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray6"
     },
     {
       "id": "ray7",
       "type": "path",
       "path": "M 960 540 L -878.51 2082.69 L -1002.84 1921.04 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray7"
     },
     {
       "id": "ray8",
       "type": "path",
       "path": "M 960 540 L -1295.26 1360.85 L -1356.81 1166.42 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray8"
     },
     {
       "id": "ray9",
       "type": "path",
       "path": "M 960 540 L -1440.00 540.00 L -1431.34 336.25 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray9"
     },
     {
       "id": "ray10",
       "type": "path",
       "path": "M 960 540 L -1295.26 -280.85 L -1217.43 -469.35 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray10"
     },
     {
       "id": "ray11",
       "type": "path",
       "path": "M 960 540 L -878.51 -1002.69 L -740.90 -1153.21 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray11"
     },
     {
       "id": "ray12",
       "type": "path",
       "path": "M 960 540 L -240.00 -1538.46 L -59.21 -1632.83 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray12"
     },
     {
       "id": "ray13",
       "type": "path",
       "path": "M 960 540 L 543.24 -1823.54 L 745.41 -1850.39 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray13"
     },
     {
       "id": "ray14",
       "type": "path",
       "path": "M 960 540 L 1376.76 -1823.54 L 1575.91 -1779.62 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray14"
     },
     {
       "id": "ray15",
       "type": "path",
       "path": "M 960 540 L 2160.00 -1538.46 L 2332.12 -1429.08 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray15"
     },
     {
       "id": "ray16",
       "type": "path",
       "path": "M 960 540 L 2798.51 -1002.69 L 2922.84 -841.04 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray16"
     },
     {
       "id": "ray17",
       "type": "path",
       "path": "M 960 540 L 3215.26 -280.85 L 3276.81 -86.42 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray17"
     },
     {
       "id": "confetti",
@@ -128,7 +147,8 @@
       "h": 1080,
       "count": 55,
       "fill": "{glow}",
-      "seed": 17
+      "seed": 17,
+      "name": "Confetti"
     },
     {
       "id": "mascot",
@@ -154,7 +174,8 @@
           "h": 350,
           "fill": "{accent}",
           "stroke": "#1b0b3a",
-          "strokeWidth": 12
+          "strokeWidth": 12,
+          "name": "Goo"
         },
         {
           "id": "eye0",
@@ -203,7 +224,8 @@
               "h": 120,
               "fill": "#ffffff",
               "stroke": "#1b0b3a",
-              "strokeWidth": 8
+              "strokeWidth": 8,
+              "name": "White0"
             },
             {
               "id": "pupil0",
@@ -212,9 +234,11 @@
               "y": -22,
               "w": 40,
               "h": 60,
-              "fill": "#1b0b3a"
+              "fill": "#1b0b3a",
+              "name": "Pupil0"
             }
-          ]
+          ],
+          "name": "Eye0"
         },
         {
           "id": "eye1",
@@ -263,7 +287,8 @@
               "h": 120,
               "fill": "#ffffff",
               "stroke": "#1b0b3a",
-              "strokeWidth": 8
+              "strokeWidth": 8,
+              "name": "White1"
             },
             {
               "id": "pupil1",
@@ -272,9 +297,11 @@
               "y": -22,
               "w": 40,
               "h": 60,
-              "fill": "#1b0b3a"
+              "fill": "#1b0b3a",
+              "name": "Pupil1"
             }
-          ]
+          ],
+          "name": "Eye1"
         },
         {
           "id": "smile",
@@ -282,9 +309,11 @@
           "path": "M -65 30 Q 0 105 65 30",
           "stroke": "#1b0b3a",
           "strokeWidth": 12,
-          "cap": "round"
+          "cap": "round",
+          "name": "Smile"
         }
-      ]
+      ],
+      "name": "Mascot"
     },
     {
       "id": "kicker-outline0",
@@ -297,7 +326,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Kicker outline0"
     },
     {
       "id": "kicker-outline1",
@@ -310,7 +340,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Kicker outline1"
     },
     {
       "id": "kicker-outline2",
@@ -323,7 +354,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Kicker outline2"
     },
     {
       "id": "kicker-outline3",
@@ -336,7 +368,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Kicker outline3"
     },
     {
       "id": "kicker-outline4",
@@ -349,7 +382,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Kicker outline4"
     },
     {
       "id": "kicker",
@@ -362,7 +396,8 @@
       "fill": "{text}",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Kicker"
     },
     {
       "id": "Title-outline0",
@@ -375,7 +410,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Title outline0"
     },
     {
       "id": "Title-outline1",
@@ -388,7 +424,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Title outline1"
     },
     {
       "id": "Title-outline2",
@@ -401,7 +438,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Title outline2"
     },
     {
       "id": "Title-outline3",
@@ -414,7 +452,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Title outline3"
     },
     {
       "id": "Title-outline4",
@@ -427,7 +466,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Title outline4"
     },
     {
       "id": "Title",
@@ -440,7 +480,8 @@
       "fill": "{text}",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Channel title"
     },
     {
       "id": "back-outline0",
@@ -453,7 +494,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Back outline0"
     },
     {
       "id": "back-outline1",
@@ -466,7 +508,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Back outline1"
     },
     {
       "id": "back-outline2",
@@ -479,7 +522,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Back outline2"
     },
     {
       "id": "back-outline3",
@@ -492,7 +536,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Back outline3"
     },
     {
       "id": "back-outline4",
@@ -505,7 +550,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Back outline4"
     },
     {
       "id": "back",
@@ -518,7 +564,8 @@
       "fill": "#ffd23f",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Back"
     },
     {
       "id": "next-outline0",
@@ -531,7 +578,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Next outline0"
     },
     {
       "id": "next-outline1",
@@ -544,7 +592,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Next outline1"
     },
     {
       "id": "next-outline2",
@@ -557,7 +606,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Next outline2"
     },
     {
       "id": "next-outline3",
@@ -570,7 +620,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Next outline3"
     },
     {
       "id": "next-outline4",
@@ -583,7 +634,8 @@
       "fill": "#1b0b3a",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Next outline4"
     },
     {
       "id": "next",
@@ -596,7 +648,8 @@
       "fill": "{text}",
       "maxWidth": 950,
       "fit": "shrink",
-      "align": "center"
+      "align": "center",
+      "name": "Next"
     }
   ],
   "post": [

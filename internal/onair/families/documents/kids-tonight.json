@@ -11,115 +11,134 @@
       "y": 0,
       "w": 1920,
       "h": 1080,
-      "fill": "{bg}"
+      "fill": "{bg}",
+      "name": "Background"
     },
     {
       "id": "ray0",
       "type": "path",
       "path": "M 960 540 L 3360.00 540.00 L 3351.34 743.75 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray0"
     },
     {
       "id": "ray1",
       "type": "path",
       "path": "M 960 540 L 3215.26 1360.85 L 3137.43 1549.35 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray1"
     },
     {
       "id": "ray2",
       "type": "path",
       "path": "M 960 540 L 2798.51 2082.69 L 2660.90 2233.21 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray2"
     },
     {
       "id": "ray3",
       "type": "path",
       "path": "M 960 540 L 2160.00 2618.46 L 1979.21 2712.83 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray3"
     },
     {
       "id": "ray4",
       "type": "path",
       "path": "M 960 540 L 1376.76 2903.54 L 1174.59 2930.39 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray4"
     },
     {
       "id": "ray5",
       "type": "path",
       "path": "M 960 540 L 543.24 2903.54 L 344.09 2859.62 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray5"
     },
     {
       "id": "ray6",
       "type": "path",
       "path": "M 960 540 L -240.00 2618.46 L -412.12 2509.08 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray6"
     },
     {
       "id": "ray7",
       "type": "path",
       "path": "M 960 540 L -878.51 2082.69 L -1002.84 1921.04 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray7"
     },
     {
       "id": "ray8",
       "type": "path",
       "path": "M 960 540 L -1295.26 1360.85 L -1356.81 1166.42 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray8"
     },
     {
       "id": "ray9",
       "type": "path",
       "path": "M 960 540 L -1440.00 540.00 L -1431.34 336.25 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray9"
     },
     {
       "id": "ray10",
       "type": "path",
       "path": "M 960 540 L -1295.26 -280.85 L -1217.43 -469.35 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray10"
     },
     {
       "id": "ray11",
       "type": "path",
       "path": "M 960 540 L -878.51 -1002.69 L -740.90 -1153.21 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray11"
     },
     {
       "id": "ray12",
       "type": "path",
       "path": "M 960 540 L -240.00 -1538.46 L -59.21 -1632.83 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray12"
     },
     {
       "id": "ray13",
       "type": "path",
       "path": "M 960 540 L 543.24 -1823.54 L 745.41 -1850.39 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray13"
     },
     {
       "id": "ray14",
       "type": "path",
       "path": "M 960 540 L 1376.76 -1823.54 L 1575.91 -1779.62 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray14"
     },
     {
       "id": "ray15",
       "type": "path",
       "path": "M 960 540 L 2160.00 -1538.46 L 2332.12 -1429.08 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray15"
     },
     {
       "id": "ray16",
       "type": "path",
       "path": "M 960 540 L 2798.51 -1002.69 L 2922.84 -841.04 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray16"
     },
     {
       "id": "ray17",
       "type": "path",
       "path": "M 960 540 L 3215.26 -280.85 L 3276.81 -86.42 Z",
-      "fill": "#ffffff@0.06"
+      "fill": "#ffffff@0.06",
+      "name": "Ray17"
     },
     {
       "id": "confetti",
@@ -128,7 +147,8 @@
       "h": 1080,
       "count": 55,
       "fill": "{glow}",
-      "seed": 17
+      "seed": 17,
+      "name": "Confetti"
     },
     {
       "id": "Title-shadow",
@@ -158,7 +178,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title shadow"
     },
     {
       "id": "Title-outline3",
@@ -188,7 +209,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title outline3"
     },
     {
       "id": "Title-outline2",
@@ -218,7 +240,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title outline2"
     },
     {
       "id": "Title-outline1",
@@ -248,7 +271,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title outline1"
     },
     {
       "id": "Title-outline0",
@@ -278,7 +302,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title outline0"
     },
     {
       "id": "Title",
@@ -308,7 +333,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Channel title"
     },
     {
       "id": "card0",
@@ -318,7 +344,8 @@
       "fill": "{accent}",
       "path": "M 60 0 H 1340 Q 1400 0 1400 60 V 72 Q 1400 132 1340 132 H 60 Q 0 132 0 72 V 60 Q 0 0 60 0 Z",
       "stroke": "#1b0b3a",
-      "strokeWidth": 10
+      "strokeWidth": 10,
+      "name": "Card0"
     },
     {
       "id": "clock0",
@@ -329,7 +356,8 @@
       "h": 180,
       "fill": "#ffd23f",
       "stroke": "#1b0b3a",
-      "strokeWidth": 10
+      "strokeWidth": 10,
+      "name": "Clock0"
     },
     {
       "id": "time0",
@@ -360,7 +388,8 @@
           ]
         ]
       },
-      "align": "center"
+      "align": "center",
+      "name": "Time0"
     },
     {
       "id": "item0-shadow",
@@ -389,7 +418,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item0 shadow"
     },
     {
       "id": "item0-outline3",
@@ -418,7 +448,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item0 outline3"
     },
     {
       "id": "item0-outline2",
@@ -447,7 +478,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item0 outline2"
     },
     {
       "id": "item0-outline1",
@@ -476,7 +508,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item0 outline1"
     },
     {
       "id": "item0-outline0",
@@ -505,7 +538,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item0 outline0"
     },
     {
       "id": "item0",
@@ -534,7 +568,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item0"
     },
     {
       "id": "meta0",
@@ -563,7 +598,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Meta0"
     },
     {
       "id": "card1",
@@ -573,7 +609,8 @@
       "fill": "{glow}",
       "path": "M 60 0 H 1340 Q 1400 0 1400 60 V 72 Q 1400 132 1340 132 H 60 Q 0 132 0 72 V 60 Q 0 0 60 0 Z",
       "stroke": "#1b0b3a",
-      "strokeWidth": 10
+      "strokeWidth": 10,
+      "name": "Card1"
     },
     {
       "id": "clock1",
@@ -584,7 +621,8 @@
       "h": 180,
       "fill": "#ffd23f",
       "stroke": "#1b0b3a",
-      "strokeWidth": 10
+      "strokeWidth": 10,
+      "name": "Clock1"
     },
     {
       "id": "time1",
@@ -615,7 +653,8 @@
           ]
         ]
       },
-      "align": "center"
+      "align": "center",
+      "name": "Time1"
     },
     {
       "id": "item1-shadow",
@@ -644,7 +683,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item1 shadow"
     },
     {
       "id": "item1-outline3",
@@ -673,7 +713,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item1 outline3"
     },
     {
       "id": "item1-outline2",
@@ -702,7 +743,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item1 outline2"
     },
     {
       "id": "item1-outline1",
@@ -731,7 +773,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item1 outline1"
     },
     {
       "id": "item1-outline0",
@@ -760,7 +803,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item1 outline0"
     },
     {
       "id": "item1",
@@ -789,7 +833,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item1"
     },
     {
       "id": "meta1",
@@ -818,7 +863,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Meta1"
     },
     {
       "id": "card2",
@@ -828,7 +874,8 @@
       "fill": "#ff3e8a",
       "path": "M 60 0 H 1340 Q 1400 0 1400 60 V 72 Q 1400 132 1340 132 H 60 Q 0 132 0 72 V 60 Q 0 0 60 0 Z",
       "stroke": "#1b0b3a",
-      "strokeWidth": 10
+      "strokeWidth": 10,
+      "name": "Card2"
     },
     {
       "id": "clock2",
@@ -839,7 +886,8 @@
       "h": 180,
       "fill": "#ffd23f",
       "stroke": "#1b0b3a",
-      "strokeWidth": 10
+      "strokeWidth": 10,
+      "name": "Clock2"
     },
     {
       "id": "time2",
@@ -870,7 +918,8 @@
           ]
         ]
       },
-      "align": "center"
+      "align": "center",
+      "name": "Time2"
     },
     {
       "id": "item2-shadow",
@@ -899,7 +948,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item2 shadow"
     },
     {
       "id": "item2-outline3",
@@ -928,7 +978,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item2 outline3"
     },
     {
       "id": "item2-outline2",
@@ -957,7 +1008,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item2 outline2"
     },
     {
       "id": "item2-outline1",
@@ -986,7 +1038,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item2 outline1"
     },
     {
       "id": "item2-outline0",
@@ -1015,7 +1068,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item2 outline0"
     },
     {
       "id": "item2",
@@ -1044,7 +1098,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item2"
     },
     {
       "id": "meta2",
@@ -1073,7 +1128,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Meta2"
     },
     {
       "id": "card3",
@@ -1083,7 +1139,8 @@
       "fill": "{accent}",
       "path": "M 60 0 H 1340 Q 1400 0 1400 60 V 72 Q 1400 132 1340 132 H 60 Q 0 132 0 72 V 60 Q 0 0 60 0 Z",
       "stroke": "#1b0b3a",
-      "strokeWidth": 10
+      "strokeWidth": 10,
+      "name": "Card3"
     },
     {
       "id": "clock3",
@@ -1094,7 +1151,8 @@
       "h": 180,
       "fill": "#ffd23f",
       "stroke": "#1b0b3a",
-      "strokeWidth": 10
+      "strokeWidth": 10,
+      "name": "Clock3"
     },
     {
       "id": "time3",
@@ -1125,7 +1183,8 @@
           ]
         ]
       },
-      "align": "center"
+      "align": "center",
+      "name": "Time3"
     },
     {
       "id": "item3-shadow",
@@ -1154,7 +1213,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item3 shadow"
     },
     {
       "id": "item3-outline3",
@@ -1183,7 +1243,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item3 outline3"
     },
     {
       "id": "item3-outline2",
@@ -1212,7 +1273,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item3 outline2"
     },
     {
       "id": "item3-outline1",
@@ -1241,7 +1303,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item3 outline1"
     },
     {
       "id": "item3-outline0",
@@ -1270,7 +1333,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item3 outline0"
     },
     {
       "id": "item3",
@@ -1299,7 +1363,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Item3"
     },
     {
       "id": "meta3",
@@ -1328,7 +1393,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Meta3"
     },
     {
       "id": "small-mascot",
@@ -1354,7 +1420,8 @@
           "h": 400,
           "fill": "{glow}",
           "stroke": "#1b0b3a",
-          "strokeWidth": 12
+          "strokeWidth": 12,
+          "name": "Mini body"
         },
         {
           "id": "mini-eye0",
@@ -1363,7 +1430,8 @@
           "y": -80,
           "w": 80,
           "h": 100,
-          "fill": "#ffffff"
+          "fill": "#ffffff",
+          "name": "Mini eye0"
         },
         {
           "id": "mini-eye1",
@@ -1372,7 +1440,8 @@
           "y": -80,
           "w": 80,
           "h": 100,
-          "fill": "#ffffff"
+          "fill": "#ffffff",
+          "name": "Mini eye1"
         },
         {
           "id": "mini-p0",
@@ -1381,7 +1450,8 @@
           "y": -40,
           "w": 25,
           "h": 40,
-          "fill": "#1b0b3a"
+          "fill": "#1b0b3a",
+          "name": "Mini p0"
         },
         {
           "id": "mini-p1",
@@ -1390,16 +1460,19 @@
           "y": -40,
           "w": 25,
           "h": 40,
-          "fill": "#1b0b3a"
+          "fill": "#1b0b3a",
+          "name": "Mini p1"
         },
         {
           "id": "mini-smile",
           "type": "path",
           "path": "M -55 60 Q 0 120 55 60",
           "stroke": "#1b0b3a",
-          "strokeWidth": 12
+          "strokeWidth": 12,
+          "name": "Mini smile"
         }
-      ]
+      ],
+      "name": "Small mascot"
     }
   ],
   "post": [

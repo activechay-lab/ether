@@ -28,7 +28,8 @@
             "{bg}"
           ]
         ]
-      }
+      },
+      "name": "Background"
     },
     {
       "id": "stars",
@@ -37,7 +38,8 @@
       "w": 1920,
       "h": 650,
       "fill": "#ffffff@0.8",
-      "seed": 73
+      "seed": 73,
+      "name": "Stars"
     },
     {
       "id": "crescent",
@@ -45,7 +47,8 @@
       "x": 1450,
       "y": 120,
       "path": "M 180 0 A 120 120 0 1 0 180 240 A 105 120 0 0 1 180 0 Z",
-      "fill": "#ffd23f"
+      "fill": "#ffd23f",
+      "name": "Crescent"
     },
     {
       "id": "confetti",
@@ -54,7 +57,8 @@
       "h": 1080,
       "count": 55,
       "fill": "{glow}",
-      "seed": 17
+      "seed": 17,
+      "name": "Confetti"
     },
     {
       "id": "mascot",
@@ -80,7 +84,8 @@
           "h": 350,
           "fill": "{accent}",
           "stroke": "#1b0b3a",
-          "strokeWidth": 12
+          "strokeWidth": 12,
+          "name": "Goo"
         },
         {
           "id": "eye0",
@@ -98,7 +103,8 @@
               "h": 120,
               "fill": "#ffffff",
               "stroke": "#1b0b3a",
-              "strokeWidth": 8
+              "strokeWidth": 8,
+              "name": "White0"
             },
             {
               "id": "pupil0",
@@ -107,9 +113,11 @@
               "y": -22,
               "w": 40,
               "h": 60,
-              "fill": "#1b0b3a"
+              "fill": "#1b0b3a",
+              "name": "Pupil0"
             }
-          ]
+          ],
+          "name": "Eye0"
         },
         {
           "id": "eye1",
@@ -127,7 +135,8 @@
               "h": 120,
               "fill": "#ffffff",
               "stroke": "#1b0b3a",
-              "strokeWidth": 8
+              "strokeWidth": 8,
+              "name": "White1"
             },
             {
               "id": "pupil1",
@@ -136,9 +145,11 @@
               "y": -22,
               "w": 40,
               "h": 60,
-              "fill": "#1b0b3a"
+              "fill": "#1b0b3a",
+              "name": "Pupil1"
             }
-          ]
+          ],
+          "name": "Eye1"
         },
         {
           "id": "smile",
@@ -146,9 +157,11 @@
           "path": "M -65 30 Q 0 105 65 30",
           "stroke": "#1b0b3a",
           "strokeWidth": 12,
-          "cap": "round"
+          "cap": "round",
+          "name": "Smile"
         }
-      ]
+      ],
+      "name": "Mascot"
     },
     {
       "id": "Title-shadow",
@@ -178,7 +191,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title shadow"
     },
     {
       "id": "Title-outline3",
@@ -208,7 +222,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title outline3"
     },
     {
       "id": "Title-outline2",
@@ -238,7 +253,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title outline2"
     },
     {
       "id": "Title-outline1",
@@ -268,7 +284,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title outline1"
     },
     {
       "id": "Title-outline0",
@@ -298,7 +315,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Title outline0"
     },
     {
       "id": "Title",
@@ -328,7 +346,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Channel title"
     },
     {
       "id": "subtitle-outline3",
@@ -358,7 +377,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Subtitle outline3"
     },
     {
       "id": "subtitle-outline2",
@@ -388,7 +408,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Subtitle outline2"
     },
     {
       "id": "subtitle-outline1",
@@ -418,7 +439,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Subtitle outline1"
     },
     {
       "id": "subtitle-outline0",
@@ -448,7 +470,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Subtitle outline0"
     },
     {
       "id": "subtitle",
@@ -478,7 +501,8 @@
             "out"
           ]
         ]
-      }
+      },
+      "name": "Subtitle"
     }
   ],
   "post": [
