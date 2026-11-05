@@ -71,6 +71,11 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if !r.Supports(q) {
 		return nil, remotetranscode.ErrUnsupported
 	}
+	if q.RecoveryStart != nil && (q.RecoveryStart.Audio == nil || q.RecoveryStart.Audio.SourceRevision != revision) {
+		// A transported expectation cannot substitute another immutable source.
+		// Actual same-lease AU validation and held output proof remain mandatory.
+		return nil, remotetranscode.ErrUnsupported
+	}
 	if r.o.Decide == nil || viewer <= 0 || revision == "" {
 		return nil, ErrDenied
 	}
