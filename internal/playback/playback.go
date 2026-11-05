@@ -1744,16 +1744,17 @@ func (m *Manager) expire() {
 	}
 }
 
-// BackgroundReadBytes counts source bytes delivered to background loopback
-// consumers; it excludes viewer bytes and does not open or resolve a source.
-func (m *Manager) BackgroundReadBytes(id string) int64 {
+// BackgroundReadMeter snapshots one source generation's byte counter. The
+// meter remains readable after source retirement without keeping source I/O open.
+func (m *Manager) BackgroundReadMeter(id string) func() int64 {
 	s := m.lookup(id)
 	if s == nil {
-		return 0
+		return func() int64 { return 0 }
 	}
 	g := s.current()
 	if g == nil {
-		return 0
+		return func() int64 { return 0 }
 	}
-	return g.backgroundReadBytes.Load()
+	counter := &g.backgroundReadBytes
+	return counter.Load
 }

@@ -42,7 +42,7 @@ func (a *App) channelBreakInput(ctx context.Context, key core.RatingKey, admitte
 	input := markers.PlaybackBreakInput(&snapshot)
 	input.URL = a.playback.InputURL(ps.ID) + "?background=1"
 	input.Close = closePinned
-	input.BytesRead = func() int64 { return a.playback.BackgroundReadBytes(ps.ID) }
+	input.BytesRead = a.playback.BackgroundReadMeter(ps.ID)
 	return input, nil
 }
 
