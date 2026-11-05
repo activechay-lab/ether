@@ -17,7 +17,8 @@ import (
 // Handler must be mounted behind the application's owner authentication and CSRF
 // guard, like livetv.Handler. MCP exclusions: these routes are console designer
 // transport. Binary assets, multipart clips and previews cannot be represented by
-// JSON MCP tools; look/reel edits require the visual stage and explicit Save.
+// JSON MCP tools; look/reel transport accompanies the visual stage and explicit Save.
+// Agent look drafts/saves use the separate proposal-backed builtin tools.
 // Bindings is an ephemeral stage preview; it does not mutate server state.
 // ResourceRoutes mounts W6's font and family resource handlers on this router.
 func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {

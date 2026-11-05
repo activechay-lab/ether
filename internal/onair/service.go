@@ -11,6 +11,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/onair/encode"
 	"github.com/braedonsaunders/ether/internal/onair/families"
+	"github.com/braedonsaunders/ether/internal/onair/fonts"
 	"github.com/braedonsaunders/ether/internal/onair/raster"
 	"github.com/braedonsaunders/ether/internal/onair/scene"
 	"golang.org/x/image/font/opentype"
@@ -59,6 +60,7 @@ type renderJob struct {
 	convert func(context.Context) error
 }
 type Service struct {
+	resources string
 	o         Options
 	db        *sql.DB
 	mu        sync.Mutex
@@ -93,7 +95,7 @@ func New(o Options) (*Service, error) {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 16), ctx: ctx, cancel: cancel}
+	s := &Service{resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 16), ctx: ctx, cancel: cancel}
 	if e := s.seed(ctx); e != nil {
 		cancel()
 		return nil, e
@@ -241,7 +243,7 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		}
 	}
 
-	h := encode.Hash(raster.Version, d, struct {
+	h := encode.Hash(raster.Version+":"+s.resources, d, struct {
 		Brand  Brand
 		Layers map[string]map[string]any
 	}{l.Brand, l.Layers}, struct {
