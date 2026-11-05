@@ -432,7 +432,9 @@ func TestPlaylists(t *testing.T) {
 	if rec := f.request(t, http.MethodGet, "/playlists/"+key, map[string]string{"X-Plex-Token": friendToken}); rec.Code != http.StatusNotFound {
 		t.Fatalf("friend sees playlist: %d", rec.Code)
 	}
-	f.request(t, http.MethodDelete, "/playlists/"+key, nil)
+	if rec := f.request(t, http.MethodDelete, "/playlists/"+key, nil); rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+		t.Fatalf("playlist delete: status=%d body=%q", rec.Code, rec.Body.String())
+	}
 	if _, err := f.pls.Get(context.Background(), ownerUser.ID, mustKey(key)); err == nil {
 		t.Fatal("not deleted")
 	}
