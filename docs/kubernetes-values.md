@@ -37,7 +37,7 @@ Every supported global value is listed below. Kubernetes-native objects accept t
 | `podAnnotations` | `{}` | Additional annotations; avoid reserved checksum/deployment. |
 | `podSecurityContext` | `{"runAsNonRoot":true,"runAsUser":999,"runAsGroup":999,"fsGroup":999,"fsGroupChangePolicy":"OnRootMismatch","seccompProfile":{"type":"RuntimeDefault"}}` | Native pod security context; volume driver must honor fsGroup. |
 | `securityContext` | `{"allowPrivilegeEscalation":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}}` | Native container security context. |
-| `terminationGracePeriodSeconds` | `120` | Kubernetes termination grace; does not prove work retirement. |
+| `terminationGracePeriodSeconds` | `180` | Kubernetes termination grace; does not prove work retirement. |
 | `probes.startup.periodSeconds` | `5` | Positive integer kubelet probe setting; routes/port are fixed by the runtime contract. |
 | `probes.startup.failureThreshold` | `120` | Positive integer kubelet probe setting; routes/port are fixed by the runtime contract. |
 | `probes.startup.timeoutSeconds` | `2` | Positive integer kubelet probe setting; routes/port are fixed by the runtime contract. |

@@ -80,7 +80,7 @@ securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
   capabilities: {drop: [ALL]}
-terminationGracePeriodSeconds: 120
+terminationGracePeriodSeconds: 180
 probes:
   startup: {periodSeconds: 5, failureThreshold: 120, timeoutSeconds: 2}
   readiness: {periodSeconds: 3, failureThreshold: 1, timeoutSeconds: 2}

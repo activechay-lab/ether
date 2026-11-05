@@ -16,7 +16,7 @@ else
   echo 'drain failed; pod retained, unresolved work must remain fenced' >&2
   exit "$drain_status"
 fi
-"$kubectl" -n "$namespace" delete pod "$pod" --wait=true --timeout=180s
+"$kubectl" -n "$namespace" delete pod "$pod" --wait=true --timeout=240s
 # wait Ready may observe the old pod or a gap unless we check replacement UID.
 for ((i=0; i<120; i++)); do
   new_uid=$("$kubectl" -n "$namespace" get pod "$pod" -o 'jsonpath={.metadata.uid}' 2>/dev/null || true)

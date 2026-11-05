@@ -157,9 +157,13 @@ returns failure and the helper does **not** delete the pod; unresolved ownership
 must remain fenced. If a backend's Close blocks, the runtime keeps service,
 private membership and cleanup alive; a drain deadline does not report successful
 retirement. Investigate a timeout rather than forcing deletion to advance a
-rollout. SIGTERM requests bounded runtime drain and is not a substitute for
-explicit proof before deletion. The chart sets a 120s termination grace period.
-When that grace expires, Kubernetes eventually forces remaining container
+rollout. After SIGTERM, reaching the runtime's drain deadline with unresolved
+work logs that state and continues membership, existing-media service and cleanup
+until proof arrives or external termination occurs. SIGTERM cannot cancel an
+arbitrary backend Close and is not a substitute for explicit proof before
+deletion. The chart sets a 180s termination grace period, above the default 120s
+runtime drain deadline with additional shutdown overhead. When that grace
+expires, Kubernetes eventually forces remaining container
 processes to stop with SIGKILL. That kill does not prove source/encoder retirement
 or free uncertain durable capacity; ownership remains uncertain until authority
 and fencing evidence resolve it. Increase the grace period for your workload,
