@@ -193,7 +193,8 @@ func TestConsolePreviewBroadcast(t *testing.T) {
 				}
 				base, _ := url.Parse(path)
 				count := 0
-				for _, line := range strings.Split(text, "\n") {
+				parserLines := strings.Split(text, "\n")
+				for i, line := range parserLines {
 					if line == "" || strings.HasPrefix(line, "#") {
 						continue
 					}
@@ -209,7 +210,8 @@ func TestConsolePreviewBroadcast(t *testing.T) {
 					if res.StatusCode != 200 || !strings.Contains(res.Header.Get("Content-Type"), "video/mp2t") {
 						t.Fatalf("TS %s: %d %s", uri, res.StatusCode, data)
 					}
-					capture := filepath.Join(dir, "capture.ts")
+					capture := filepath.Join(dir, fmt.Sprintf("segment-%d.ts", count))
+					parserLines[i] = filepath.Base(capture)
 					if err := os.WriteFile(capture, data, 0600); err != nil {
 						t.Fatal(err)
 					}
@@ -221,6 +223,18 @@ func TestConsolePreviewBroadcast(t *testing.T) {
 				}
 				if count == 0 {
 					t.Fatal("empty window")
+				}
+				// Independently demux the live playlist with the fetched owner
+				// segments. Only URI locations change; tags and timing are exact.
+				manifest := filepath.Join(dir, "parsed.m3u8")
+				if err := os.WriteFile(manifest, []byte(strings.Join(parserLines, "\n")), 0600); err != nil {
+					t.Fatal(err)
+				}
+				parseContext, parseCancel := context.WithTimeout(ctx, 20*time.Second)
+				parsed, err := exec.CommandContext(parseContext, fp, "-v", "error", "-analyzeduration", "500000", "-probesize", "1000000", "-read_intervals", "%+0.1", "-show_entries", "stream=codec_name", "-of", "csv=p=0", manifest).CombinedOutput()
+				parseCancel()
+				if err != nil || !strings.Contains(string(parsed), "h264") || !strings.Contains(string(parsed), "aac") {
+					t.Fatalf("HLS parser: %v %s", err, parsed)
 				}
 				res, _ = request("DELETE", "/ether/api/livetv/sessions/"+session.ID)
 				if res.StatusCode != 200 {
