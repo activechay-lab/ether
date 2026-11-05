@@ -1719,7 +1719,12 @@ func (s *httpSource) read(ctx context.Context, p []byte, off int64, mode fetchMo
 			runLen = min(maxRun, 4)
 		}
 		s.last = lastBlock
-		liveRun = s.raCtx
+		// Urgent bytes belong to this active ReadAt request. A concurrent
+		// Matroska header/tail/seek range may retire the source's speculative
+		// epoch, but cannot cancel another live HTTP response's producer.
+		// Request cancellation still retires the urgent run; joined readers
+		// retry an abandoned flight under their own request context.
+		liveRun = ctx
 		s.mu.Unlock()
 		// Start read-ahead past this read before blocking, so the burst
 		// runs in parallel with the request for the bytes asked for.
