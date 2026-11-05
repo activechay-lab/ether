@@ -78,7 +78,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	c.cacheMu.RUnlock()
 
 	if q.Filter.LocalOnly && q.NoTotal {
-		empty, err := c.consoleYearEmpty(ctx, q.Filter)
+		empty, err := c.consoleDomainEmpty(ctx, q.Filter)
 		if err != nil {
 			return core.Page{}, err
 		}
@@ -160,7 +160,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	query := `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t WHERE ` + pageWhere + ` ORDER BY ` + order + `, t.key ASC LIMIT ? OFFSET ?`
 	if q.Filter.LocalOnly && q.NoTotal && !computedAdded && q.Filter.Type != "" {
 		hint := ""
-		if store.DialectOf(c.db) != store.Postgres {
+		if store.DialectOf(c.db) != store.Postgres && !consoleHasSparseCandidates(q.Filter) {
 			if len(q.Filter.Languages) == 1 && q.Filter.MinVotes > 0 {
 				hint = " INDEXED BY catalog_titles_console_language_votes_page"
 			} else if q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 {
@@ -613,7 +613,11 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		if k == "" {
 			continue
 		}
-		conds = append(conds, `EXISTS (SELECT 1 FROM catalog_keywords kw WHERE kw.key=t.key AND LOWER(kw.keyword)=?)`)
+		if f.LocalOnly {
+			conds = append(conds, `t.key IN (SELECT key FROM catalog_keywords WHERE LOWER(keyword)=?)`)
+		} else {
+			conds = append(conds, `EXISTS (SELECT 1 FROM catalog_keywords kw WHERE kw.key=t.key AND LOWER(kw.keyword)=?)`)
+		}
 		args = append(args, k)
 	}
 	if len(f.ExcludeGenres) > 0 {
@@ -1127,7 +1131,7 @@ func (c *Catalog) mergedTypeKeys(ctx context.Context, where string, args []any, 
 	var all []sortedKey
 	for _, typ := range []core.MediaType{core.TypeMovie, core.TypeShow} {
 		hint := ""
-		if q.Filter.LocalOnly && q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 && store.DialectOf(c.db) != store.Postgres {
+		if q.Filter.LocalOnly && q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 && store.DialectOf(c.db) != store.Postgres && !consoleHasSparseCandidates(q.Filter) {
 			hint = " INDEXED BY catalog_titles_console_pop_page"
 		}
 		rows, err := c.db.QueryContext(ctx, `SELECT t.key, `+col+` FROM catalog_titles t`+hint+` WHERE `+where+` AND t.type=? ORDER BY `+order+`, t.key ASC LIMIT ?`, append(append([]any{}, args...), string(typ), offset+limit)...)

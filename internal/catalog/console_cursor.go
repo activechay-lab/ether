@@ -26,7 +26,7 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 	if limit > 101 {
 		limit = 101
 	}
-	if empty, err := c.consoleYearEmpty(ctx, q.Filter); err != nil {
+	if empty, err := c.consoleDomainEmpty(ctx, q.Filter); err != nil {
 		return core.Page{}, err
 	} else if empty {
 		return core.Page{Items: []core.Title{}}, nil
@@ -90,7 +90,7 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 		// Availability projections can be much smaller than the title domain;
 		// let the planner drive those key sets before ordering the candidates.
 		selectiveEvidence := typed.Playable != "" || typed.DebridCached != "" || len(typed.Qualities) > 0 || typed.ReleaseGate != ""
-		if store.DialectOf(c.db) != store.Postgres && !selectiveEvidence {
+		if store.DialectOf(c.db) != store.Postgres && !selectiveEvidence && !consoleHasSparseCandidates(typed) {
 			if specs[0].Sort == core.SortPopularity && specs[0].Desc && len(specs) == 1 {
 				hint = " INDEXED BY catalog_titles_console_pop_page"
 			}
