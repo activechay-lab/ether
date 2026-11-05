@@ -156,7 +156,7 @@
       "x": 120,
       "y": 140,
       "fill": "{bg}@0.75",
-      "stroke": "#1b0b3a",
+      "stroke": "{control.detail1}",
       "strokeWidth": 10,
       "path": "M 60 0 H 1620 Q 1680 0 1680 60 V 740 Q 1680 800 1620 800 H 60 Q 0 800 0 740 V 60 Q 0 0 60 0 Z",
       "name": "Panel"
@@ -259,7 +259,7 @@
           "y": 279.5,
           "w": 35.1,
           "h": 65.0,
-          "fill": "#ffffff",
+          "fill": "{control.detail2}",
           "name": "Art eye00"
         },
         {
@@ -269,7 +269,7 @@
           "y": 299.0,
           "w": 13.5,
           "h": 32.5,
-          "fill": "#152443",
+          "fill": "{control.detail4}",
           "name": "Art pupil00"
         },
         {
@@ -279,7 +279,7 @@
           "y": 279.5,
           "w": 35.1,
           "h": 65.0,
-          "fill": "#ffffff",
+          "fill": "{control.detail2}",
           "name": "Art eye01"
         },
         {
@@ -289,7 +289,7 @@
           "y": 299.0,
           "w": 13.5,
           "h": 32.5,
-          "fill": "#152443",
+          "fill": "{control.detail4}",
           "name": "Art pupil01"
         },
         {
@@ -319,7 +319,7 @@
           "y": 279.5,
           "w": 35.1,
           "h": 65.0,
-          "fill": "#ffffff",
+          "fill": "{control.detail2}",
           "name": "Art eye10"
         },
         {
@@ -329,7 +329,7 @@
           "y": 299.0,
           "w": 13.5,
           "h": 32.5,
-          "fill": "#152443",
+          "fill": "{control.detail4}",
           "name": "Art pupil10"
         },
         {
@@ -339,7 +339,7 @@
           "y": 279.5,
           "w": 35.1,
           "h": 65.0,
-          "fill": "#ffffff",
+          "fill": "{control.detail2}",
           "name": "Art eye11"
         },
         {
@@ -349,7 +349,7 @@
           "y": 299.0,
           "w": 13.5,
           "h": 32.5,
-          "fill": "#152443",
+          "fill": "{control.detail4}",
           "name": "Art pupil11"
         }
       ],
@@ -405,7 +405,7 @@
       "y": 469,
       "size": 112,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "wrap",
       "maxWidth": 920,
       "maxLines": 2,
@@ -436,7 +436,7 @@
       "y": 465,
       "size": 112,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "wrap",
       "maxWidth": 920,
       "maxLines": 2,
@@ -467,7 +467,7 @@
       "y": 455,
       "size": 112,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "wrap",
       "maxWidth": 920,
       "maxLines": 2,
@@ -498,7 +498,7 @@
       "y": 460,
       "size": 112,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "wrap",
       "maxWidth": 920,
       "maxLines": 2,
@@ -529,7 +529,7 @@
       "y": 460,
       "size": 112,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "wrap",
       "maxWidth": 920,
       "maxLines": 2,

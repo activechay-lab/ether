@@ -21,7 +21,7 @@
         "stops": [
           [
             0,
-            "#1b0b3a"
+            "{control.detail1}"
           ],
           [
             1,
@@ -47,7 +47,7 @@
       "x": 1450,
       "y": 120,
       "path": "M 180 0 A 120 120 0 1 0 180 240 A 105 120 0 0 1 180 0 Z",
-      "fill": "#ffd23f",
+      "fill": "{control.detail3}",
       "name": "Crescent"
     },
     {
@@ -83,7 +83,7 @@
           "w": 600,
           "h": 350,
           "fill": "{accent}",
-          "stroke": "#1b0b3a",
+          "stroke": "{control.detail1}",
           "strokeWidth": 12,
           "name": "Goo"
         },
@@ -101,8 +101,8 @@
               "y": -60,
               "w": 100,
               "h": 120,
-              "fill": "#ffffff",
-              "stroke": "#1b0b3a",
+              "fill": "{control.detail2}",
+              "stroke": "{control.detail1}",
               "strokeWidth": 8,
               "name": "White0"
             },
@@ -113,7 +113,7 @@
               "y": -22,
               "w": 40,
               "h": 60,
-              "fill": "#1b0b3a",
+              "fill": "{control.detail1}",
               "name": "Pupil0"
             }
           ],
@@ -133,8 +133,8 @@
               "y": -60,
               "w": 100,
               "h": 120,
-              "fill": "#ffffff",
-              "stroke": "#1b0b3a",
+              "fill": "{control.detail2}",
+              "stroke": "{control.detail1}",
               "strokeWidth": 8,
               "name": "White1"
             },
@@ -145,7 +145,7 @@
               "y": -22,
               "w": 40,
               "h": 60,
-              "fill": "#1b0b3a",
+              "fill": "{control.detail1}",
               "name": "Pupil1"
             }
           ],
@@ -155,7 +155,7 @@
           "id": "smile",
           "type": "path",
           "path": "M -65 30 Q 0 105 65 30",
-          "stroke": "#1b0b3a",
+          "stroke": "{control.detail1}",
           "strokeWidth": 12,
           "cap": "round",
           "name": "Smile"
@@ -171,7 +171,7 @@
       "y": 479,
       "size": 100,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -202,7 +202,7 @@
       "y": 475,
       "size": 100,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -233,7 +233,7 @@
       "y": 465,
       "size": 100,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -264,7 +264,7 @@
       "y": 470,
       "size": 100,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -295,7 +295,7 @@
       "y": 470,
       "size": 100,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -357,7 +357,7 @@
       "y": 655,
       "size": 54,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -388,7 +388,7 @@
       "y": 645,
       "size": 54,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -419,7 +419,7 @@
       "y": 650,
       "size": 54,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -450,7 +450,7 @@
       "y": 650,
       "size": 54,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",

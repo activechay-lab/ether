@@ -198,7 +198,7 @@
     },
     {
       "type": "scanlines",
-      "amount": 0.16
+      "amount": "{control.effect-scanlines}"
     }
   ],
   "slots": [

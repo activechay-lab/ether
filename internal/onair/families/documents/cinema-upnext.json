@@ -87,7 +87,7 @@
             "stops": [
               [
                 0,
-                "#152443"
+                "{control.detail4}"
               ],
               [
                 1,
@@ -111,7 +111,7 @@
           "id": "art-roof",
           "type": "path",
           "path": "M 153.6 367.20000000000005 L 960.0 108.0 L 1766.4 367.20000000000005 Z",
-          "fill": "#121b2b",
+          "fill": "{control.detail3}",
           "name": "Art roof"
         },
         {
@@ -121,7 +121,7 @@
           "y": 432.0,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#50656b",
+          "fill": "{control.detail2}",
           "name": "Art window00"
         },
         {
@@ -131,7 +131,7 @@
           "y": 432.0,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window01"
         },
         {
@@ -141,7 +141,7 @@
           "y": 432.0,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window02"
         },
         {
@@ -151,7 +151,7 @@
           "y": 432.0,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#50656b",
+          "fill": "{control.detail2}",
           "name": "Art window03"
         },
         {
@@ -161,7 +161,7 @@
           "y": 615.6,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window10"
         },
         {
@@ -171,7 +171,7 @@
           "y": 615.6,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window11"
         },
         {
@@ -181,7 +181,7 @@
           "y": 615.6,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#50656b",
+          "fill": "{control.detail2}",
           "name": "Art window12"
         },
         {
@@ -191,7 +191,7 @@
           "y": 615.6,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window13"
         },
         {
@@ -201,7 +201,7 @@
           "y": 799.2,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window20"
         },
         {
@@ -211,7 +211,7 @@
           "y": 799.2,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#50656b",
+          "fill": "{control.detail2}",
           "name": "Art window21"
         },
         {
@@ -221,7 +221,7 @@
           "y": 799.2,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window22"
         },
         {
@@ -231,7 +231,7 @@
           "y": 799.2,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window23"
         }
       ],
@@ -436,7 +436,7 @@
     },
     {
       "type": "vignette",
-      "amount": 0.45
+      "amount": "{control.effect-vignette}"
     }
   ],
   "slots": [

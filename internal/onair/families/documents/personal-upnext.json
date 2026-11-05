@@ -193,11 +193,11 @@
             "stops": [
               [
                 0,
-                "#152443"
+                "{control.detail1}"
               ],
               [
                 1,
-                "#bd794f"
+                "{control.detail2}"
               ]
             ]
           },
@@ -210,14 +210,14 @@
           "y": 78.0,
           "w": 86.4,
           "h": 86.4,
-          "fill": "#efdbaa",
+          "fill": "{control.detail3}",
           "name": "Art moon"
         },
         {
           "id": "art-ridge0",
           "type": "path",
           "path": "M 0 338.0 L 108.0 195.0 L 189.0 325.0 L 351.0 175.5 L 540 312.0 L 540 650 L 0 650 Z",
-          "fill": "#384762",
+          "fill": "{control.detail4}",
           "name": "Art ridge0"
         },
         {

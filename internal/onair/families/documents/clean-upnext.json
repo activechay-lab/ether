@@ -58,11 +58,11 @@
             "stops": [
               [
                 0,
-                "#152443"
+                "{control.detail3}"
               ],
               [
                 1,
-                "#bd794f"
+                "{control.detail4}"
               ]
             ]
           },

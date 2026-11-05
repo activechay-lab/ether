@@ -25,7 +25,7 @@
           ],
           [
             1,
-            "#004d77"
+            "{control.detail2}"
           ]
         ]
       },
@@ -48,11 +48,11 @@
         "stops": [
           [
             0,
-            "#ffffff"
+            "{control.detail1}"
           ],
           [
             0.18,
-            "#b9fcff"
+            "{control.detail3}"
           ],
           [
             0.48,
@@ -64,7 +64,7 @@
           ],
           [
             1,
-            "#002c61"
+            "{control.detail4}"
           ]
         ]
       },
@@ -153,7 +153,7 @@
       "id": "Lens",
       "type": "path",
       "path": "M 1320 130 L 1336 320 L 1540 340 L 1336 356 L 1320 550 L 1303 356 L 1110 340 L 1303 320 Z",
-      "fill": "#ffffff",
+      "fill": "{control.detail1}",
       "opacity": {
         "keys": [
           [

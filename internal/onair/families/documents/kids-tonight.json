@@ -158,7 +158,7 @@
       "y": 199,
       "size": 86,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -189,7 +189,7 @@
       "y": 195,
       "size": 86,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -220,7 +220,7 @@
       "y": 185,
       "size": 86,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -251,7 +251,7 @@
       "y": 190,
       "size": 86,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -282,7 +282,7 @@
       "y": 190,
       "size": 86,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -313,7 +313,7 @@
       "y": 190,
       "size": 86,
       "font": "{type.display}",
-      "fill": "#ffd23f",
+      "fill": "{control.detail3}",
       "fit": "shrink",
       "maxWidth": 1600,
       "align": "center",
@@ -343,7 +343,7 @@
       "y": 268,
       "fill": "{accent}",
       "path": "M 60 0 H 1340 Q 1400 0 1400 60 V 72 Q 1400 132 1340 132 H 60 Q 0 132 0 72 V 60 Q 0 0 60 0 Z",
-      "stroke": "#1b0b3a",
+      "stroke": "{control.detail1}",
       "strokeWidth": 10,
       "name": "Card0"
     },
@@ -354,8 +354,8 @@
       "y": 250,
       "w": 180,
       "h": 180,
-      "fill": "#ffd23f",
-      "stroke": "#1b0b3a",
+      "fill": "{control.detail3}",
+      "stroke": "{control.detail1}",
       "strokeWidth": 10,
       "name": "Clock0"
     },
@@ -367,7 +367,7 @@
       "y": 350,
       "size": 38,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 165,
       "maxLines": 1,
@@ -399,7 +399,7 @@
       "y": 349,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -429,7 +429,7 @@
       "y": 345,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -459,7 +459,7 @@
       "y": 335,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -489,7 +489,7 @@
       "y": 340,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -519,7 +519,7 @@
       "y": 340,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -608,7 +608,7 @@
       "y": 438,
       "fill": "{glow}",
       "path": "M 60 0 H 1340 Q 1400 0 1400 60 V 72 Q 1400 132 1340 132 H 60 Q 0 132 0 72 V 60 Q 0 0 60 0 Z",
-      "stroke": "#1b0b3a",
+      "stroke": "{control.detail1}",
       "strokeWidth": 10,
       "name": "Card1"
     },
@@ -619,8 +619,8 @@
       "y": 420,
       "w": 180,
       "h": 180,
-      "fill": "#ffd23f",
-      "stroke": "#1b0b3a",
+      "fill": "{control.detail3}",
+      "stroke": "{control.detail1}",
       "strokeWidth": 10,
       "name": "Clock1"
     },
@@ -632,7 +632,7 @@
       "y": 520,
       "size": 38,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 165,
       "maxLines": 1,
@@ -664,7 +664,7 @@
       "y": 519,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -694,7 +694,7 @@
       "y": 515,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -724,7 +724,7 @@
       "y": 505,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -754,7 +754,7 @@
       "y": 510,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -784,7 +784,7 @@
       "y": 510,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -873,7 +873,7 @@
       "y": 608,
       "fill": "#ff3e8a",
       "path": "M 60 0 H 1340 Q 1400 0 1400 60 V 72 Q 1400 132 1340 132 H 60 Q 0 132 0 72 V 60 Q 0 0 60 0 Z",
-      "stroke": "#1b0b3a",
+      "stroke": "{control.detail1}",
       "strokeWidth": 10,
       "name": "Card2"
     },
@@ -884,8 +884,8 @@
       "y": 590,
       "w": 180,
       "h": 180,
-      "fill": "#ffd23f",
-      "stroke": "#1b0b3a",
+      "fill": "{control.detail3}",
+      "stroke": "{control.detail1}",
       "strokeWidth": 10,
       "name": "Clock2"
     },
@@ -897,7 +897,7 @@
       "y": 690,
       "size": 38,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 165,
       "maxLines": 1,
@@ -929,7 +929,7 @@
       "y": 689,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -959,7 +959,7 @@
       "y": 685,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -989,7 +989,7 @@
       "y": 675,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -1019,7 +1019,7 @@
       "y": 680,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -1049,7 +1049,7 @@
       "y": 680,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -1138,7 +1138,7 @@
       "y": 778,
       "fill": "{accent}",
       "path": "M 60 0 H 1340 Q 1400 0 1400 60 V 72 Q 1400 132 1340 132 H 60 Q 0 132 0 72 V 60 Q 0 0 60 0 Z",
-      "stroke": "#1b0b3a",
+      "stroke": "{control.detail1}",
       "strokeWidth": 10,
       "name": "Card3"
     },
@@ -1149,8 +1149,8 @@
       "y": 760,
       "w": 180,
       "h": 180,
-      "fill": "#ffd23f",
-      "stroke": "#1b0b3a",
+      "fill": "{control.detail3}",
+      "stroke": "{control.detail1}",
       "strokeWidth": 10,
       "name": "Clock3"
     },
@@ -1162,7 +1162,7 @@
       "y": 860,
       "size": 38,
       "font": "{type.display}",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 165,
       "maxLines": 1,
@@ -1194,7 +1194,7 @@
       "y": 859,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -1224,7 +1224,7 @@
       "y": 855,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -1254,7 +1254,7 @@
       "y": 845,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -1284,7 +1284,7 @@
       "y": 850,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -1314,7 +1314,7 @@
       "y": 850,
       "size": 58,
       "font": "bungee",
-      "fill": "#1b0b3a",
+      "fill": "{control.detail1}",
       "fit": "shrink",
       "maxWidth": 1060,
       "opacity": {
@@ -1419,7 +1419,7 @@
           "w": 400,
           "h": 400,
           "fill": "{glow}",
-          "stroke": "#1b0b3a",
+          "stroke": "{control.detail1}",
           "strokeWidth": 12,
           "name": "Mini body"
         },
@@ -1430,7 +1430,7 @@
           "y": -80,
           "w": 80,
           "h": 100,
-          "fill": "#ffffff",
+          "fill": "{control.detail2}",
           "name": "Mini eye0"
         },
         {
@@ -1440,7 +1440,7 @@
           "y": -80,
           "w": 80,
           "h": 100,
-          "fill": "#ffffff",
+          "fill": "{control.detail2}",
           "name": "Mini eye1"
         },
         {
@@ -1450,7 +1450,7 @@
           "y": -40,
           "w": 25,
           "h": 40,
-          "fill": "#1b0b3a",
+          "fill": "{control.detail1}",
           "name": "Mini p0"
         },
         {
@@ -1460,14 +1460,14 @@
           "y": -40,
           "w": 25,
           "h": 40,
-          "fill": "#1b0b3a",
+          "fill": "{control.detail1}",
           "name": "Mini p1"
         },
         {
           "id": "mini-smile",
           "type": "path",
           "path": "M -55 60 Q 0 120 55 60",
-          "stroke": "#1b0b3a",
+          "stroke": "{control.detail1}",
           "strokeWidth": 12,
           "name": "Mini smile"
         }

@@ -79,7 +79,7 @@
           "y": 432.0,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#50656b",
+          "fill": "{control.detail3}",
           "name": "Art window00"
         },
         {
@@ -89,7 +89,7 @@
           "y": 432.0,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window01"
         },
         {
@@ -99,7 +99,7 @@
           "y": 432.0,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window02"
         },
         {
@@ -109,7 +109,7 @@
           "y": 432.0,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#50656b",
+          "fill": "{control.detail3}",
           "name": "Art window03"
         },
         {
@@ -119,7 +119,7 @@
           "y": 615.6,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window10"
         },
         {
@@ -129,7 +129,7 @@
           "y": 615.6,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window11"
         },
         {
@@ -139,7 +139,7 @@
           "y": 615.6,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#50656b",
+          "fill": "{control.detail3}",
           "name": "Art window12"
         },
         {
@@ -149,7 +149,7 @@
           "y": 615.6,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window13"
         },
         {
@@ -159,7 +159,7 @@
           "y": 799.2,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window20"
         },
         {
@@ -169,7 +169,7 @@
           "y": 799.2,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#50656b",
+          "fill": "{control.detail3}",
           "name": "Art window21"
         },
         {
@@ -179,7 +179,7 @@
           "y": 799.2,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window22"
         },
         {
@@ -189,7 +189,7 @@
           "y": 799.2,
           "w": 124.80000000000001,
           "h": 118.8,
-          "fill": "#edbf78",
+          "fill": "{control.detail1}",
           "name": "Art window23"
         }
       ],
@@ -426,7 +426,7 @@
     },
     {
       "type": "flicker",
-      "amount": 0.09
+      "amount": "{control.effect-flicker}"
     },
     {
       "type": "vignette",
