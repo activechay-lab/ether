@@ -20,6 +20,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/hoststat"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 // privatePlayback separates the app lifecycle from remote operation ownership.
@@ -33,6 +34,7 @@ type privatePlayback interface {
 }
 
 type deploymentRuntime struct {
+	encoder       *transcode.Manager
 	placement     *placement.Service
 	settings      clusterconfig.Deployment
 	guard         *nodewire.Guard

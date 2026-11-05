@@ -172,6 +172,10 @@ func (a *App) nodeCaps() cluster.Caps {
 	if a.transcoder != nil {
 		caps.Transcode, caps.HWAccel = true, a.transcoder.HWAccel().Name
 	}
+	if a.deployment != nil && a.deployment.encoder != nil {
+		caps.Transcode = true
+		caps.HWAccel = a.deployment.encoder.HWAccel().Name
+	}
 	return caps
 }
 

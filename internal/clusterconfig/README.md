@@ -107,3 +107,13 @@ without stopping the runtime. Kubernetes terminationGracePeriod may ultimately
 kill the process; that does not retire its durable reservations. Planned upgrades
 must require a successful explicit drain before deletion. Set the external grace
 period above the intended drain window, allowing control and shutdown overhead.
+
+The supported deployment topology uses full servers as frontend/source/delivery
+coordinators and transcode-only nodes as remote execution targets. Full servers
+keep their historical local encoder but are EXCLUDED from private transcode
+placement: local legacy sessions do not yet participate in the durable placement
+budget, so admitting private encodes there could double-book hardware. This does
+not disable their existing local capabilities. Transcode-only nodes use a
+separate fixed-plan encoder manager with adaptive ladders/governor/enhancement and
+automatic source mutation disabled. Unified local+private physical accounting is
+required before full servers can become remote encoding targets.

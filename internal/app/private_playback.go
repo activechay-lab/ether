@@ -25,6 +25,15 @@ func (a *App) buildClusterPlayback(_ context.Context, _ config.Config) error {
 	}
 	self := a.cluster.Self()
 	o := clusterplayback.Options{DB: a.db, Guard: p.guard, Self: nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: self.ID, Boot: self.Incarnation}, Roles: p.settings.Roles, Placement: ledger, Endpoint: a.privateEndpoint, MemberRole: a.privateMemberRole, Eligible: a.privateEligible, Capacity: p.settings.Capacity, ClockSkew: time.Duration(p.settings.ClockSkewMillis) * time.Millisecond, ClockBoundKnown: p.settings.ClockBoundKnown}
+	if p.settings.Roles.FullServer() {
+		o.Roles = config.NodeRoles{config.RoleServer, config.RoleSource, config.RoleDelivery, config.RoleBackground}
+		if local := a.activeTranscoder(); local != nil {
+			o.Decide = local.Decide
+			o.Hardware = local.HWAccel()
+		} else {
+			o.Decide = directOnly{}.Decide
+		}
+	}
 	if p.settings.Roles.Has(config.RoleSource) {
 		if a.playback == nil || a.users == nil {
 			return errors.New("source role requires playback and viewer authority")
@@ -37,9 +46,12 @@ func (a *App) buildClusterPlayback(_ context.Context, _ config.Config) error {
 			return err
 		}
 	}
-	if p.settings.Roles.Has(config.RoleTranscode) {
-		if tc := a.activeTranscoder(); tc != nil {
-			o.Encoder, _ = tc.(core.OwnedTranscoder)
+	if p.settings.Roles.Has(config.RoleTranscode) && !p.settings.Roles.FullServer() {
+		if err := a.buildPrivateEncoder(a.cfg.Get()); err != nil {
+			return err
+		}
+		if tc := p.encoder; tc != nil {
+			o.Encoder = tc
 			o.Decide = tc.Decide
 			o.Hardware = tc.HWAccel()
 		}
@@ -65,7 +77,7 @@ func (a *App) privateMemberRole(ctx context.Context, id nodewire.Identity, role 
 	if err != nil {
 		return err
 	}
-	if !n.Caps.Roles.Has(role) || role == config.RoleTranscode && !n.Caps.Transcode || !n.RemoteCompatible(1) {
+	if !n.Caps.Roles.Has(role) || role == config.RoleTranscode && (!n.Caps.Transcode || n.Caps.Roles.FullServer()) || !n.RemoteCompatible(1) {
 		return nodewire.ErrDenied
 	}
 	return nil
@@ -75,7 +87,7 @@ func (a *App) privateEligible(ctx context.Context, id nodewire.Identity, role co
 	if err != nil {
 		return err
 	}
-	if n.Draining || id.NodeID == a.cluster.Self().ID && a.nodeDraining() || !n.Caps.Roles.Has(role) || role == config.RoleTranscode && !n.Caps.Transcode || !n.RemoteCompatible(1) {
+	if n.Draining || id.NodeID == a.cluster.Self().ID && a.nodeDraining() || !n.Caps.Roles.Has(role) || role == config.RoleTranscode && (!n.Caps.Transcode || n.Caps.Roles.FullServer()) || !n.RemoteCompatible(1) {
 		return nodewire.ErrDenied
 	}
 	return nil
@@ -92,7 +104,7 @@ func (a *App) reconcilePrivatePlacement(ctx context.Context) error {
 	}
 	var roles config.NodeRoles
 	scopes := map[config.NodeRole][]string{}
-	if p.settings.Roles.Has(config.RoleTranscode) && !a.nodeDraining() && p.playback.Ready() {
+	if p.settings.Roles.Has(config.RoleTranscode) && !p.settings.Roles.FullServer() && !a.nodeDraining() && p.playback.Ready() {
 		scope := p.settings.ResourceScope
 		if scope == "" {
 			scope = "node:" + self.ID
