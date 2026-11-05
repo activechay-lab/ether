@@ -36,7 +36,7 @@ func (r *Runtime) beginPreparationUse(peer nodewire.Identity, operation string) 
 	entry.operations++
 	prepared := entry.result
 	prepared.Info = core.CloneMediaInfo(prepared.Info)
-	use := preparationUse{Prepared: prepared, Viewer: entry.viewer, ActivityMu: entry.activityMu, ActivityVersion: &entry.activityVersion}
+	use := preparationUse{Prepared: prepared, Viewer: entry.viewer, ActivityMu: entry.activityMu, ActivityVersion: entry.activityVersion}
 	r.mu.Unlock()
 	var once sync.Once
 	end := func() { once.Do(func() { r.mu.Lock(); entry.operations--; r.mu.Unlock() }) }

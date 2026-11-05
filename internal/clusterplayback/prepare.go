@@ -32,9 +32,10 @@ type preparation struct {
 	lifetimeID       string
 	capturedRevision string
 	capturedSize     int64
+	noAcquisition    bool
 	receipt          bool
 	activityMu       *sync.Mutex
-	activityVersion  uint64
+	activityVersion  *uint64
 	request          PrepareRequest
 	viewer           int64
 	retiring         bool
@@ -124,17 +125,32 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 		r.mu.Unlock()
 		return sourceResponse{}, tokenErr
 	}
-	entry := &preparation{request: *q, viewer: q.Viewer, peer: peer, hash: hash, running: true, lifetimeID: lifetimeID, activityMu: &sync.Mutex{}}
+	entry := &preparation{request: *q, viewer: q.Viewer, peer: peer, hash: hash, running: true, lifetimeID: lifetimeID, activityMu: &sync.Mutex{}, activityVersion: new(uint64)}
 	r.preparations[key] = entry
 	r.mu.Unlock()
 	defer func() { r.mu.Lock(); entry.running = false; r.mu.Unlock() }()
 	viewer, e := r.o.ActiveViewer(ctx, q.Viewer)
 	if e != nil || viewer == nil || viewer.ID != q.Viewer {
+		r.mu.Lock()
+		entry.noAcquisition = true // The real source provider was never invoked.
+		r.mu.Unlock()
 		return sourceResponse{}, ErrDenied
 	}
 	ps, life, e := r.o.Playback.PrepareSurfaceSource(ctx, viewer, q.Key, q.Caps, q.ReleaseID, q.Exact)
+	var captured PreparedSource
+	var capturedSize int64
+	if ps != nil {
+		captured = PreparedSource{Owner: r.o.Self, PlayID: ps.ID, Revision: core.SourceRevision(ps), ReleaseID: ps.SourceReleaseID(), Info: core.CloneMediaInfo(ps.Info)}
+		if ps.Source != nil {
+			capturedSize = ps.Source.Size()
+		}
+	}
 	r.mu.Lock()
 	entry.life = life
+	// This concrete OwnedSourcePlayback provider returns nil ownership only for
+	// rejection before acquisition. Record that outcome now, never infer it from
+	// a missing later map entry or terminal status response.
+	entry.noAcquisition = life == nil && ps == nil
 	for _, other := range r.preparations {
 		if other != entry && life != nil && other.life == life && other.lifetimeID != "" {
 			entry.lifetimeID = other.lifetimeID
@@ -142,11 +158,9 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 		}
 	}
 	if ps != nil {
-		entry.result = PreparedSource{Owner: r.o.Self, PlayID: ps.ID, Revision: core.SourceRevision(ps), ReleaseID: ps.SourceReleaseID(), Info: core.CloneMediaInfo(ps.Info)}
-		entry.capturedRevision = core.SourceRevision(ps)
-		if ps.Source != nil {
-			entry.capturedSize = ps.Source.Size()
-		}
+		entry.result = captured
+		entry.capturedRevision = captured.Revision
+		entry.capturedSize = capturedSize
 	}
 	r.mu.Unlock()
 	if e != nil || ps == nil {
@@ -222,7 +236,7 @@ func (r *Runtime) retirePreparation(ctx context.Context, peer nodewire.Identity,
 			r.mu.Unlock()
 			return sourceResponse{}, e
 		}
-		entry = &preparation{peer: peer, retiring: true, lifetimeID: lifetimeID, request: PrepareRequest{Operation: q.Operation}, activityMu: &sync.Mutex{}}
+		entry = &preparation{peer: peer, retiring: true, noAcquisition: true, lifetimeID: lifetimeID, request: PrepareRequest{Operation: q.Operation}, activityMu: &sync.Mutex{}, activityVersion: new(uint64)}
 		r.preparations[key] = entry
 	}
 	if entry.peer != peer {

@@ -110,7 +110,11 @@ func (r *Runtime) publishPreparationReceipt(ctx context.Context, entry *preparat
 		return ErrPending
 	}
 	life := entry.life
+	negative := entry.noAcquisition
 	r.mu.Unlock()
+	if life == nil && !negative {
+		return ErrPending
+	}
 	if life != nil {
 		select {
 		case <-life.Done():
