@@ -81,20 +81,13 @@ func (s *Server) visibility() experience.Visibility {
 // openableTitles is the common row/detail admission decision. A pinned shelf
 // retains its availability cut, but never bypasses current authorization.
 func (s *Server) openableTitles(ctx context.Context, u *core.User, ts []core.Title, pinned bool) []core.Title {
-	if !pinned {
-		if catalog, ok := s.d.Catalog.(interface {
-			OpenableTitles(context.Context, []core.Title) []core.Title
-		}); ok {
-			ts = catalog.OpenableTitles(ctx, ts)
-		}
-	}
 	ts = s.visibleTitles(u, ts)
 	if !pinned {
 		ts = s.availableForViewer(ctx, u, ts)
 	}
 	out := make([]core.Title, 0, len(ts))
 	for _, t := range ts {
-		if !t.IsFutureRelease(s.now()) && s.playableTitle(ctx, u, &t) {
+		if s.admittedTitle(&t) && s.playableTitle(ctx, u, &t) {
 			out = append(out, t)
 		}
 	}
@@ -105,9 +98,26 @@ func (s *Server) visibleTitle(ctx context.Context, u *core.User, t *core.Title) 
 	if t == nil {
 		return false
 	}
-	_, pinned := shelfMember(ctx, t.Key)
-	return len(s.openableTitles(ctx, u, []core.Title{*t}, pinned)) == 1
+	if !s.admittedTitle(t) {
+		return false
+	}
+	if _, pinned := shelfMember(ctx, t.Key); pinned {
+		return s.titleAllowed(u, t)
+	}
+	return s.visibility().Visible(ctx, u, t) && s.plexMetaRatingAllowed(u, t)
 }
+
+// admittedTitle shares a cheap predicate over facts the source already loaded.
+func (s *Server) admittedTitle(t *core.Title) bool {
+	if t == nil || t.IsFutureRelease(s.now()) {
+		return false
+	}
+	if catalog, ok := s.d.Catalog.(interface{ TitleOpenable(*core.Title) bool }); ok {
+		return catalog.TitleOpenable(t)
+	}
+	return !t.Adult
+}
+
 func (s *Server) playableTitle(ctx context.Context, u *core.User, t *core.Title) bool {
 	return s.visibility().Playable(ctx, u, t) && s.plexMetaRatingAllowed(u, t)
 }

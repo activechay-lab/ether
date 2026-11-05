@@ -16,14 +16,9 @@ const listMirrorEvery = 24 * time.Hour
 // listMirrorMax bounds the remembered list stamps.
 const listMirrorMax = 4096
 
-// mirrorListSummaries saves the summaries of a related list (recommendations,
-// similar titles, a franchise) that a read is about to show. Titles the
-// mirror lacks are saved now in one transaction: the read needs their rows.
-// Titles it already holds are served as stored and saved again behind the
-// read at most once per listMirrorEvery, so a detail page or post-play
-// request that shows a known list writes nothing. Saving every list on every
-// view rewrote thirty to a hundred rows per request and moved the catalogue
-// generation, which dropped every cached browse page and total.
+// mirrorListSummaries publishes summaries in memory and batches the source
+// refresh behind the read. Neither missing nor known items write on this path.
+// Full details and mirror facts still take precedence when already present.
 //
 // browsable is how the titles are saved: search results join the browsable
 // set, so for them a stored row that is not browsable yet counts as missing.
@@ -31,6 +26,7 @@ func (c *Catalog) mirrorListSummaries(ctx context.Context, list string, titles [
 	if len(titles) == 0 {
 		return nil
 	}
+	c.rememberListSummaries(titles)
 	stored, err := c.storedKeys(ctx, titles, browsable)
 	if err != nil {
 		return err
@@ -42,21 +38,9 @@ func (c *Catalog) mirrorListSummaries(ctx context.Context, list string, titles [
 		}
 	}
 	save := func(ctx context.Context, titles []core.Title) error {
-		if browsable {
-			return c.upsertMany(ctx, titles, upsertOpts{browsable: true})
-		}
-		return c.upsertSummaries(ctx, titles, false)
+		return c.upsertSummaryBatch(ctx, titles, browsable, true)
 	}
-	if len(missing) > 0 {
-		if err := save(ctx, missing); err != nil {
-			return err
-		}
-	}
-	if len(missing) == len(titles) {
-		c.stampListMirrored(list)
-		return nil
-	}
-	if !c.listMirrorDue(list) {
+	if len(missing) == 0 && !c.listMirrorDue(list) {
 		return nil
 	}
 	all := append([]core.Title(nil), titles...)

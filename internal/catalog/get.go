@@ -123,6 +123,11 @@ func (c *Catalog) CachedGet(ctx context.Context, key core.RatingKey) (*core.Titl
 func (c *Catalog) StoredTitle(ctx context.Context, key core.RatingKey) (*core.Title, error) {
 	st, err := c.loadByKey(ctx, key)
 	if err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			if summary, ok := c.listSummary(key); ok {
+				return &summary, nil
+			}
+		}
 		return nil, err
 	}
 	return &st.t, nil
@@ -158,6 +163,12 @@ func (c *Catalog) getMovie(ctx context.Context, id int64) (*core.Title, error) {
 	if err == nil && c.fresh(st) {
 		return &st.t, nil
 	}
+	// A list summary is a read-through fallback, never a foreground mirror.
+	summary, fromList := c.listSummary(key)
+	if errors.Is(err, core.ErrNotFound) && fromList {
+		st = &storedTitle{t: summary}
+		err = nil
+	}
 	if c.tmdb() == nil {
 		if err != nil {
 			return nil, err
@@ -182,7 +193,7 @@ func (c *Catalog) getMovie(ctx context.Context, id int64) (*core.Title, error) {
 		c.harvestMovieCrowd(ctx, key, d.Recommendations)
 		return nil
 	}
-	if ferr := c.hydrate(ctx, movieRefreshKey(id), c.readWait(err == nil && st.detail), fetch); ferr != nil {
+	if ferr := c.hydrate(ctx, movieRefreshKey(id), c.listReadWait(err == nil && st.detail, fromList), fetch); ferr != nil {
 		if err == nil {
 			return &st.t, nil // serve stored details while the refresh runs or after it failed
 		}
@@ -244,6 +255,12 @@ func (c *Catalog) getShow(ctx context.Context, id int64) (*core.Title, error) {
 	if err == nil && c.showFresh(st) {
 		return &st.t, nil
 	}
+	// A list summary is a read-through fallback, never a foreground mirror.
+	summary, fromList := c.listSummary(key)
+	if errors.Is(err, core.ErrNotFound) && fromList {
+		st = &storedTitle{t: summary}
+		err = nil
+	}
 	if c.tmdb() == nil {
 		if err != nil {
 			return nil, err
@@ -268,7 +285,7 @@ func (c *Catalog) getShow(ctx context.Context, id int64) (*core.Title, error) {
 		c.harvestTVCrowd(ctx, key, d.Recommendations)
 		return nil
 	}
-	if ferr := c.hydrate(ctx, showRefreshKey(id), c.readWait(err == nil && st.detail), fetch); ferr != nil {
+	if ferr := c.hydrate(ctx, showRefreshKey(id), c.listReadWait(err == nil && st.detail, fromList), fetch); ferr != nil {
 		if err == nil {
 			return &st.t, nil
 		}
@@ -1067,3 +1084,12 @@ func (c *Catalog) RefreshTitle(ctx context.Context, key core.RatingKey, persist 
 }
 
 var _ core.AuthoritativeTitleRefresher = (*Catalog)(nil)
+
+// List titles serve loaded summaries immediately while details hydrate behind
+// the request. Other direct lookups retain their existing bounded fetch budget.
+func (c *Catalog) listReadWait(details, fromList bool) time.Duration {
+	if fromList {
+		return 0
+	}
+	return c.readWait(details)
+}

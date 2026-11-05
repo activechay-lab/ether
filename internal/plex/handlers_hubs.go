@@ -70,6 +70,12 @@ func hubItemsKey(h core.Hub, hc hubCtx) string {
 func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubCtx) model.Hub {
 	h := hs.Hub
 	build := func() []core.Title {
+		if loader, ok := s.d.Catalog.(interface {
+			LoadRowFacts(context.Context, []core.Title) []core.Title
+		}); ok {
+			h.Items = loader.LoadRowFacts(ctx, h.Items)
+		}
+
 		return (experience.RowSelection{Visibility: s.visibility(), PrioritizeAvailable: s.d.PrioritizeAvailable,
 			SameDayUnavailable: func(ctx context.Context, t *core.Title) bool { return s.sameDayUnavailable(ctx, pr, t) },
 		}).Items(ctx, pr.User, h)
@@ -124,7 +130,7 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 		stampIncluded(md)
 	}
 	keys := make([]string, 0, len(md))
-	// hubKey must name exactly the cards that survived admission.
+	// Recorded PMS Home and related hubs name exactly their rendered cards.
 	for _, item := range md {
 		keys = append(keys, item.RatingKey)
 	}

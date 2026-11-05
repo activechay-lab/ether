@@ -3,8 +3,11 @@ package catalog_test
 import (
 	"context"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/catalog"
+	"github.com/braedonsaunders/ether/internal/store"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -52,21 +55,84 @@ func TestListAndDetailAdmissionInvariant(t *testing.T) {
 			missing := summary
 			missing.Key = core.MovieKey(1662860)
 			missing.PosterPath = "/list.jpg"
-			got := c.OpenableTitles(ctx, []core.Title{*movie, summary, missing})
-			// In digital mode the unknown home date remains hidden (no permissive fallback
-			// for recent/unknown cinema dates is introduced by list admission).
+			loaded := c.LoadRowFacts(ctx, []core.Title{*movie, summary, missing})
+			var got []core.Title
+			for _, title := range loaded {
+				if c.TitleOpenable(&title) {
+					got = append(got, title)
+				}
+			}
+			// The known future title is hidden; the old missing summary retains age admission.
 			if len(got) != 2 || got[0].Key != key || got[1].Key != missing.Key {
 				t.Fatalf("row admission: %+v", got)
 			}
+			opened, err := c.Get(ctx, missing.Key)
+			if err != nil || opened == nil {
+				t.Fatalf("read-through detail: %+v %v", opened, err)
+			}
+			c.WaitRefreshes()
 			mirrored, err := c.StoredTitle(ctx, missing.Key)
-			if err != nil || mirrored.PosterPath != "/list.jpg" {
+			if err != nil || mirrored.PosterPath == "" {
 				t.Fatalf("missing list summary not mirrored: %+v %v", mirrored, err)
 			}
-			opened, err := c.Get(ctx, missing.Key)
+			opened, err = c.Get(ctx, missing.Key)
+			c.WaitRefreshes()
+			opened, err = c.Get(ctx, missing.Key)
 			if err != nil || opened == nil || opened.PosterPath != "/eb.jpg" {
 				t.Fatalf("on-demand detail: %+v %v", opened, err)
 			}
-
 		})
+	}
+}
+
+// Holding SQLite's writer must not block rendering or opening an unmirrored
+// source title, and neither the read nor its pure predicate can write.
+func TestListSummaryReadThroughWithoutWriter(t *testing.T) {
+	db, err := store.OpenPath(context.Background(), filepath.Join(t.TempDir(), "summary.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	c, err := catalog.New(db, nil, config.Catalog{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`INSERT INTO catalog_meta(k,v) VALUES('writer-held','1')`); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	ctx, stats := store.WithQueryStats(ctx)
+	titles := []core.Title{{Key: core.MovieKey(1662858), Type: core.TypeMovie, Title: "EB", Released: time.Date(2001, 5, 14, 0, 0, 0, 0, time.UTC), PosterPath: "/list.jpg"}, {Key: core.ShowKey(55), Type: core.TypeShow, Title: "Series", Released: time.Date(2001, 5, 14, 0, 0, 0, 0, time.UTC)}}
+	loaded := c.LoadRowFacts(ctx, titles)
+	if len(loaded) != len(titles) {
+		t.Fatalf("missing summaries: %+v", loaded)
+	}
+	for _, title := range loaded {
+		before := stats.Queries()
+		if !c.TitleOpenable(&title) || stats.Queries() != before {
+			t.Fatal("predicate performs IO or rejected source summary")
+		}
+		opened, err := c.Get(ctx, title.Key)
+		if err != nil || opened.Title != title.Title {
+			t.Fatalf("summary lookup: %+v %v", opened, err)
+		}
+	}
+	if stats.Writes() != 0 {
+		t.Fatalf("foreground writes=%d", stats.Writes())
+	}
+	if err = tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	c.WaitRefreshes()
+	for _, title := range titles {
+		if _, err = c.StoredTitle(context.Background(), title.Key); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
