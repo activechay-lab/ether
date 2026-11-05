@@ -99,6 +99,8 @@ func (r *continuousTSReader) Close() error {
 }
 
 type continuousSegmentIndex struct {
+	policySeq                int64
+	policyTags               map[int64][]any
 	enc                      *continuousEncoder
 	mu                       sync.Mutex
 	segments                 []Segment
@@ -189,7 +191,10 @@ func (s *continuousSegmentIndex) refresh() {
 		}
 		// Both muxers use atomic temp-file publication. Only their shared finished
 		// prefix is visible, so a viewer can change delivery format at any boundary.
-		s.segments = append(s.segments, s.segment(s.next))
+		segment := s.segment(s.next)
+		segment.PolicyTags = s.policyTags[s.next]
+		delete(s.policyTags, s.next)
+		s.segments = append(s.segments, segment)
 		s.next++
 		for len(s.segments) > 1 {
 			evict := len(s.segments) > 6
@@ -348,4 +353,30 @@ func continuousWindow(window, duration time.Duration) int {
 		return 6
 	}
 	return max(1, int((window+duration-1)/duration))
+}
+
+// recordPolicy follows the encoder tick clock, including short startup GOPs.
+// Tags are accumulated before media can publish and released with DVR eviction.
+func (s *continuousSegmentIndex) recordPolicy(tick int64, tags []any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	start, frames := continuousSegmentFrames(s.enc.req.Source, s.policySeq)
+	if tick >= start+frames {
+		s.policySeq++
+	}
+	if s.policyTags == nil {
+		s.policyTags = make(map[int64][]any)
+	}
+	for _, tag := range tags {
+		found := false
+		for _, old := range s.policyTags[s.policySeq] {
+			if old == tag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			s.policyTags[s.policySeq] = append(s.policyTags[s.policySeq], tag)
+		}
+	}
 }
