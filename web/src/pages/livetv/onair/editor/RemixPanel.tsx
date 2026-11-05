@@ -275,7 +275,7 @@ export function RemixPanel(p: {
           }}
           onClose={() => setPicker(false)}
         />
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(80px,1fr))] gap-2">
           {(Object.keys(s.brand.palette) as (keyof Brand["palette"])[]).map((key) => (
             <ColorPicker
               key={key}
@@ -291,7 +291,7 @@ export function RemixPanel(p: {
           {t("Text contrast: {ratio}:1", { ratio: contrast.toFixed(2) })}{" "}
           {contrast >= 4.5 ? t("Good readability") : t("Increase text contrast")}
         </p>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(128px,1fr))] gap-2">
           {[
             { label: t("Complementary"), angles: [180] },
             { label: t("Analogous"), angles: [-30, 30] },
@@ -331,7 +331,7 @@ export function RemixPanel(p: {
           <Shuffle size={16} />
           {t("Shuffle palette")}
         </Button>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-4">
           {(["display", "body"] as const).map((key) => (
             <FontPicker
               key={key}
@@ -604,10 +604,13 @@ function FontPicker({
             className="h-auto min-h-20 w-full justify-between p-3 text-left"
             onClick={() => setOpen(!open)}
           >
-            <span className="space-y-2">
+            <span className="min-w-0 flex-1 space-y-2">
               <span className="block text-xs text-fg-muted">{name}</span>
-              <span className="block text-2xl font-normal" style={{ fontFamily: `onair-${value}` }}>
-                {t("On air tonight")}
+              <span
+                className="block truncate text-2xl font-normal"
+                style={{ fontFamily: `onair-${value}` }}
+              >
+                {t("Aa 012")}
               </span>
             </span>
             <ChevronDown size={16} />

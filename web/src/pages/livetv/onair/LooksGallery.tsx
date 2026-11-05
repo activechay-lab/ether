@@ -3,6 +3,7 @@ import { Badge, Button, Popover } from "@braedonsaunders/appkit-ui";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { Drawer } from "../../../components/Drawer";
 import { t, tn } from "../../../i18n";
+import { tv, type ChannelSummary } from "../model";
 import { onair, type Reel, type Bindings } from "./model";
 import { studio, type Style, type Template } from "./studio-model";
 import { StyleThumbnail } from "./editor/RemixPanel";
@@ -33,9 +34,19 @@ function useTemplates() {
 function useSlots(channel?: string) {
   const [b, setB] = useState<Bindings>({});
   useEffect(() => {
-    void onair.bindings({ channel }).then(setB);
+    let live = true;
+    void (async () => {
+      const channels = await tv.channelSummaries();
+      const selected = channels.find((c) => c.id === channel) ?? channels[0];
+      if (live && selected) setB({ channel: { name: selected.name } });
+      const bindings = await onair.bindings({ channel: selected?.id });
+      if (live) setB(bindings);
+    })().catch(() => {});
+    return () => {
+      live = false;
+    };
   }, [channel]);
-  return {
+  const slots: Record<string, string> = {
     "channel.name": b.channel?.name ?? "",
     "next.title": b.next?.title ?? "",
     "next.poster": b.next?.backdrop ?? "",
@@ -44,6 +55,7 @@ function useSlots(channel?: string) {
     "now.title": b.now?.title ?? "",
     "viewer.name": b.viewer?.name ?? "",
   };
+  return Object.fromEntries(Object.entries(slots).filter(([, value]) => value.length > 0));
 }
 export function blankStyle(): Style {
   return {
@@ -123,8 +135,12 @@ export function LooksGallery({
     [error, setError] = useState(""),
     [deleted, setDeleted] = useState<string[]>([]),
     [deleting, setDeleting] = useState<Style | null>(null),
+    [channels, setChannels] = useState<ChannelSummary[]>([]),
     [menu, setMenu] = useState<string | null>(null),
     file = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    void tv.channelSummaries().then(setChannels);
+  }, []);
   const create = async (style: Style) => {
     setWorking(true);
     setError("");
@@ -241,7 +257,9 @@ export function LooksGallery({
                         "Used by {count} channels",
                       )}
                     </span>
-                    {(l.channelCount ?? l.channelIds.length) > 0 ? (
+                    {channels.some(
+                      (c) => c.enabled && (c.look?.lookId === l.id || l.channelIds.includes(c.id)),
+                    ) ? (
                       <Badge>
                         <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-success" />
                         {t("On air")}
