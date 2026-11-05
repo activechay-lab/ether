@@ -110,7 +110,8 @@ type Filter struct {
 	UpdatedBefore         int64           `json:"-"`              // inclusive Unix timestamp bound on metadata update time
 	Type                  MediaType       `json:"type,omitempty"` // movie or show
 	Genres                []string        `json:"genres,omitempty"`
-	Playable              string          `json:"playable,omitempty"` // yes or unknown from fresh local evidence
+	ReleaseGate           string          `json:"releaseGate,omitempty"` // admitted, held, unknown in current policy snapshot
+	Playable              string          `json:"playable,omitempty"`    // yes or unknown from fresh local evidence
 	DebridCached          string          `json:"debridCached,omitempty"`
 	Qualities             []string        `json:"qualities,omitempty"` // known 4k, hdr, dv, atmos release facts
 	Anime                 bool            `json:"anime,omitempty"`     // positive canonical anime keyword

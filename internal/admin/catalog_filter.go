@@ -107,6 +107,9 @@ func decodeCatalogFilter(raw string, f *core.Filter) error {
 				return errors.New("Invalid numeric range")
 			}
 		}
+		if v.ReleaseGate != "" && v.ReleaseGate != "admitted" && v.ReleaseGate != "held" && v.ReleaseGate != "unknown" {
+			return errors.New("Unknown release gate state")
+		}
 		for _, evidence := range []string{v.Playable, v.DebridCached} {
 			if evidence != "" && evidence != "yes" && evidence != "unknown" {
 				return errors.New("Choose verified or unknown availability")
