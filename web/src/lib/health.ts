@@ -370,8 +370,11 @@ export function catalogHealth(v: unknown, now = new Date()): HealthItem {
   ];
   const yearLine = yearCorrectionDetail(v.yearCorrection);
   if (yearLine) details.push(yearLine);
-  if (typeof sync.error === "string" && sync.error)
-    details.push(t("Last sync error: {error}", { error: sync.error }));
+  if (typeof sync.lastError === "string" && sync.lastError) {
+    const message = t("Last sync error: {error}", { error: sync.lastError });
+    details.push(message);
+    return { ...base, level: "warn", summary: message, details };
+  }
   if (sync.running === true) {
     return {
       ...base,
@@ -382,8 +385,7 @@ export function catalogHealth(v: unknown, now = new Date()): HealthItem {
   }
   if (!last) return toSetUp({ ...base, level: "warn", summary: t("Not synced yet"), details });
   const ageDays = (now.getTime() - last.getTime()) / 86400000;
-  const level: HealthLevel =
-    typeof sync.error === "string" && sync.error ? "warn" : ageDays > 3 ? "warn" : "ok";
+  const level: HealthLevel = ageDays > 3 ? "warn" : "ok";
   return {
     ...base,
     level,

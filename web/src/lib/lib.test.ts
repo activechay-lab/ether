@@ -515,6 +515,14 @@ describe("health", () => {
     expect(authFail.statusLabel).toBe("Needs attention");
     expect(authFail.summary).toBe("Login rejected. Check the username and password.");
     expect(catalogHealth({ lastSync: "2026-10-01T00:00:00Z" }, now).level).toBe("warn");
+    for (const running of [false, true]) {
+      const failed = catalogHealth(
+        { lastSync: now.toISOString(), sync: { running, lastError: "fixture: page failed" } },
+        now,
+      );
+      expect(failed.level).toBe("warn");
+      expect(failed.details.some((line) => line.includes("fixture: page failed"))).toBe(true);
+    }
     const correcting = catalogHealth(
       {
         lastSync: "2026-10-30T00:00:00Z",
