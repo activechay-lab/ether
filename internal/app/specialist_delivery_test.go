@@ -7,8 +7,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/braedonsaunders/ether/internal/auth"
 	"github.com/braedonsaunders/ether/internal/clusterconfig"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/plextv"
+	"github.com/braedonsaunders/ether/internal/safety"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -51,5 +54,57 @@ func TestDeliveryRoleConstructionBoundary(t *testing.T) {
 	}
 	if a.privateProtocol() != 0 {
 		t.Fatal("delivery advertised before listeners bound")
+	}
+}
+
+func TestDeliveryPlexUsesShippingTokenParserAndLiveReceipt(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	primary, err := auth.New(ctx, db, auth.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer primary.Close()
+	account := plextv.Account{ID: 142, Username: "lab-owner"}
+	if err = primary.SetOwner(ctx, account, "old-lab-token"); err != nil {
+		t.Fatal(err)
+	}
+	users, err := auth.New(ctx, db, auth.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer users.Close()
+	policy, err := safety.New(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer policy.Close()
+	cfg, err := config.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cfg.Close()
+	a := &App{db: db, cfg: cfg, users: users, safety: policy}
+	for _, uri := range []string{
+		"/video/:/transcode/universal/session/id/base/init.mp4?X-Plex-Token=old-lab-token",
+		"/video/:/transcode/universal/session/id/base/init.mp4?x-plex-token=old-lab-token",
+	} {
+		r := httptest.NewRequest("GET", uri, nil)
+		r.RemoteAddr = "127.0.0.1:12345"
+		if err := a.authorizeDeliveryPlex(ctx, r, "id"); err != nil {
+			t.Fatalf("shipping query token denied: %v", err)
+		}
+		r.Header.Set("X-Plex-Token", "invalid-header-token")
+		if err := a.authorizeDeliveryPlex(ctx, r, "id"); err == nil {
+			t.Fatal("query token overrode invalid header")
+		}
+	}
+	if err = primary.SetOwner(ctx, account, "new-lab-token"); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("GET", "/video/:/transcode/universal/session/id/base/init.mp4?X-Plex-Token=old-lab-token", nil)
+	r.RemoteAddr = "127.0.0.1:12345"
+	if err := a.authorizeDeliveryPlex(ctx, r, "id"); err == nil {
+		t.Fatal("revoked cached query token admitted")
 	}
 }

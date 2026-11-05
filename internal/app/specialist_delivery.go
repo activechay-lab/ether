@@ -4,15 +4,14 @@ import (
 	"context"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/auth"
 	"github.com/braedonsaunders/ether/internal/clusterplayback"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"github.com/braedonsaunders/ether/internal/identity"
+	"github.com/braedonsaunders/ether/internal/plex"
 	"github.com/braedonsaunders/ether/internal/plextv"
 	"github.com/braedonsaunders/ether/internal/safety"
 )
@@ -51,12 +50,9 @@ func (a *App) buildDeliveryRole(ctx context.Context, cfg config.Config) error {
 	return err
 }
 func (a *App) authorizeDeliveryPlex(ctx context.Context, r *http.Request, _ string) error {
-	token := strings.TrimSpace(r.Header.Get("X-Plex-Token"))
-	if token == "" {
-		if bearer, ok := authhdr.Bearer(r.Header.Get("Authorization")); ok {
-			token = strings.TrimSpace(bearer)
-		}
-	}
+	// Use the shipping Plex parser: native media loaders may retain only the
+	// query credential, including its established case-insensitive spelling.
+	token := plex.ParseRequest(r, a.trustedProxyPrefixes()...).Token
 	if token == "" || core.IsGrantCredential(token) || auth.IsOwnerSession(token) {
 		return core.ErrUnauthorized
 	}
@@ -67,6 +63,16 @@ func (a *App) authorizeDeliveryPlex(ctx context.Context, r *http.Request, _ stri
 	if err = a.users.ReceiptCurrent(ctx, receipt); err != nil {
 		return core.ErrUnauthorized
 	}
+	// This reader has no upstream token validator: nondelegated acceptance is
+	// exclusively an enrolled durable credential. Recheck it in the authority,
+	// because another process can rotate it before our cache receives the bus.
+	// Delegation receipts already check their exact durable row and expiry.
+	if !user.Delegated {
+		var viewer int64
+		if err := a.db.QueryRowContext(ctx, `SELECT user_id FROM auth_tokens WHERE token_hash=?`, auth.HashToken(token)).Scan(&viewer); err != nil || viewer != user.ID {
+			return core.ErrUnauthorized
+		}
+	}
 	fresh, err := a.users.PolicyUser(ctx, user.ID)
 	if err != nil || fresh == nil || fresh.ID != user.ID {
 		return core.ErrUnauthorized
@@ -75,7 +81,7 @@ func (a *App) authorizeDeliveryPlex(ctx context.Context, r *http.Request, _ stri
 	if !ip.IsValid() || ip.IsUnspecified() || ip.IsMulticast() {
 		return core.ErrUnauthorized
 	}
-	if _, err := a.safety.ConfirmPlayback(ctx, user, !lan, time.Now()); err != nil {
+	if _, err := a.safety.ConfirmPlayback(ctx, fresh, !lan, time.Now()); err != nil {
 		return core.ErrUnauthorized
 	}
 	// The owner receives the ORIGINAL credential and repeats the complete public
