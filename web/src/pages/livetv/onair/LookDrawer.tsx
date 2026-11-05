@@ -174,6 +174,22 @@ export function LookDrawer({
   }, [channel, at, viewer, scene?.role]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const editing = (e.target as HTMLElement).closest(
+        'input,textarea,select,button,[contenteditable="true"]',
+      );
+      if (!editing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (e.code === "Space") {
+          e.preventDefault();
+          clock.setPlaying((value) => !value);
+          return;
+        }
+        if (e.key === "-" || e.key === "+" || e.key === "=") {
+          e.preventDefault();
+          setZoom((value) => Math.max(0.25, Math.min(3, value + (e.key === "-" ? -0.1 : 0.1))));
+          return;
+        }
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();

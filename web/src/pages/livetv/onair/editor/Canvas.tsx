@@ -76,6 +76,12 @@ export function Canvas(p: CanvasProps) {
   );
   const [penPreview, setPenPreview] = useState("");
   const penPoints = useRef<{ x: number; y: number; cx?: number; cy?: number }[]>([]);
+  useEffect(() => {
+    if (!p.pen) {
+      penPoints.current = [];
+      setPenPreview("");
+    }
+  }, [p.pen]);
   const gesture = useRef<
     { x: number; y: number; doc: Scene; ids: string[]; mode: string } | undefined
   >(undefined);
