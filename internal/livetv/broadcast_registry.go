@@ -49,6 +49,7 @@ func (r *broadcastRegistry) acquire(ctx context.Context, key broadcastKey, id st
 			b = nil
 		}
 	}
+	running := b != nil
 	if b == nil {
 		var err error
 		b, err = create()
@@ -63,6 +64,7 @@ func (r *broadcastRegistry) acquire(ctx context.Context, key broadcastKey, id st
 	if _, err := b.addRendition(ctx, id, decision); err != nil {
 		return nil, err
 	}
+	b.logger.Debug("broadcast viewer attached", "running", running, "rendition", id)
 	return &broadcastLease{registry: r, broadcast: b, rendition: id, height: decision.MaxHeight}, nil
 }
 func (l *broadcastLease) output() (transcode.SegmentIndex, error) {

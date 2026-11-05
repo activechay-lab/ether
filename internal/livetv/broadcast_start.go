@@ -213,8 +213,7 @@ func (p *scheduleBroadcastPlanner) introPlan(now time.Time) (broadcastPlan, time
 	if !ok || clip.Duration <= 0 || clip.Duration%segmentDuration != 0 {
 		return broadcastPlan{}, 0
 	}
-	p.joinAt = now.Add(clip.Duration)
-	return broadcastPlan{id: "intro-" + c.ID, open: func(ctx context.Context) (transcode.Decoder, func(), error) {
+	return broadcastPlan{id: "intro-" + c.ID, fill: true, open: func(ctx context.Context) (transcode.Decoder, func(), error) {
 		return p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, false)
-	}}, clip.Duration
+	}}, min(clip.Duration, 4*time.Second)
 }

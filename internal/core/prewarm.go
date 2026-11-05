@@ -25,6 +25,9 @@ const (
 // PrewarmOptions tune a speculative warm-up of a title before the viewer
 // presses Play.
 type PrewarmOptions struct {
+	// StartOffset warms a bounded indexed window around a known linear-channel
+	// join point. Trusted host hint; never accepted from frontend JSON.
+	StartOffset time.Duration `json:"-"`
 	// Reason labels the trigger for logs and budgets (Prewarm* constants).
 	Reason string `json:"reason"`
 	// PrefetchBytes is how much of the opening of the file to pre-buffer at
