@@ -4,8 +4,10 @@ import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
+	"math"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -131,6 +133,22 @@ func TestConsole600K(t *testing.T) {
 		name string
 		q    core.BrowseQuery
 	}{"viewer-watchlist-cached4k", core.BrowseQuery{Filter: core.Filter{Playable: "yes", DebridCached: "yes", Qualities: []string{"4k"}, Group: &core.FilterGroup{OnWatchlist: &onWatchlist, UserID: 7}}, Sort: core.SortPopularity, Desc: true, Limit: 49, NoTotal: true}})
+	cases = append(cases, struct {
+		name string
+		q    core.BrowseQuery
+	}{"unknown-genre-valid-years", core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie, YearFrom: 1990, YearTo: 1999, Genres: []string{"Nonexistent genre"}}, Sort: core.SortPopularity, Desc: true, Limit: 49, NoTotal: true}})
+	cases = append(cases, struct {
+		name string
+		q    core.BrowseQuery
+	}{"disjoint-genre-and-valid-years", core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie, YearFrom: 1990, YearTo: 1999, Genres: []string{"Comedy"}, Group: &core.FilterGroup{Filter: &core.Filter{Genres: []string{"Thriller"}}}}, Sort: core.SortPopularity, Desc: true, Limit: 49, NoTotal: true}})
+	samples := 31
+	if raw := os.Getenv("ETHER_CATALOG_SAMPLES"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 3 || n > 101 {
+			t.Fatal("ETHER_CATALOG_SAMPLES must be 3..101")
+		}
+		samples = n
+	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.q.Filter.LocalOnly = true
@@ -138,7 +156,7 @@ func TestConsole600K(t *testing.T) {
 			if os.Getenv("ETHER_CATALOG_PLAN") == "1" && len(normalizeConsoleFilter(tc.q.Filter).Qualities) > 0 {
 				consoleEvidencePlan(t, c, tc.q)
 			}
-			times := make([]time.Duration, 31)
+			times := make([]time.Duration, samples)
 			for i := range times {
 				c.cacheMu.Lock()
 				c.browseCache = map[string]cachedBrowse{}
@@ -151,8 +169,8 @@ func TestConsole600K(t *testing.T) {
 				}
 			}
 			sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
-			p50, p95 := times[15], times[29]
-			t.Logf("600k cold-result-cache n=31 p50=%s p95=%s target=150ms", p50, p95)
+			p50, p95 := times[len(times)/2], times[int(math.Ceil(float64(len(times))*.95))-1]
+			t.Logf("600k cold-result-cache n=%d p50=%s p95=%s target=150ms", samples, p50, p95)
 			if p95 > 150*time.Millisecond {
 				t.Errorf("p95 exceeds interactive budget: %s", p95)
 			}
