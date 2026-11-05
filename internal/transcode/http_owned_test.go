@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,6 +70,9 @@ func TestOwnedHTTPRetirementFencesLazyStartAndWriter(t *testing.T) {
 			}
 			if _, ok := m.Session("owned-http"); ok {
 				t.Fatal("retired HTTP registry entry retained")
+			}
+			if !strings.Contains(strings.Join(fr.lastStart(), " "), core.EncoderInputScopeHeader+":") {
+				t.Fatal("scoped HTTP encoder omitted gateway capability header")
 			}
 			count := fr.startCount()
 			late := httptest.NewRecorder()

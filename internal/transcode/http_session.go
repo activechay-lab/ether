@@ -223,6 +223,13 @@ func (s *httpSession) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			accel = core.HWAccel{Name: AccelNone}
 		}
 		spec := runSpec{LiveInput: s.req.LiveInput, CopyTimestamps: s.req.CopyTimestamps, InputHeaders: s.req.InputHeaders, Input: s.req.InputURL, Info: s.req.Info, Decision: s.req.Decision, Start: s.req.StartOffset, Accel: accel, Features: s.m.feat, Protocol: core.ProtocolHTTP, InputTimeout: s.m.opts.stallTimeout}
+		scopeHeaders, err := encoderScopeHeaders(s.req.InputLease, s.req.InputURL)
+		if err != nil {
+			s.mu.Unlock()
+			http.Error(w, "input authority unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		spec.InputScopeHeaders = scopeHeaders
 		pr, pw := io.Pipe()
 		stderr := newTailBuffer(40)
 		cmd := Command{Path: s.m.ffmpeg, Args: buildArgs(spec), Stdout: pw, Stderr: &lineWriter{fn: stderr.add}}
