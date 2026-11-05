@@ -32,6 +32,7 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 }
 
 type Service struct {
+	reelSnapshots      map[string]*ReelSnapshot
 	graphicsSkips      map[string]time.Time
 	personalDirty      map[int64]uint64
 	personalRecipes    map[personalKey]string
@@ -207,6 +208,7 @@ func liveSessionID() string {
 
 func (s *Service) maintain() {
 	defer s.wg.Done()
+	s.refreshReels()
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
 	warmed := map[core.RatingKey]time.Time{}
@@ -217,6 +219,7 @@ func (s *Service) maintain() {
 		case <-t.C:
 			s.expireSessions()
 			s.broadcasts.expire(s.o.Now())
+			s.refreshReels()
 			s.ensureGraphics()
 			if s.o.Warm != nil {
 				cs, err := s.virtualChannels(s.ctx)

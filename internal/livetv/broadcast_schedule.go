@@ -24,7 +24,7 @@ func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until 
 	var out []Programme
 	var advance time.Duration
 	for _, p := range ps {
-		if interstitial(p.Item) && check {
+		if interstitial(p.Item) && p.Item.ReelClipID == "" && check {
 			request := s.clipRequest(c, p)
 			p.graphicsRequest = &request
 		}
@@ -33,8 +33,25 @@ func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until 
 		s.mu.Unlock()
 		if skip.IsZero() && check && interstitial(p.Item) && p.End.Add(-advance).After(from) && p.Start.Add(-advance).Before(until) {
 			request := s.clipRequest(c, p)
-			if _, ok := s.o.Graphics.Clip(ctx, request); !ok {
-				s.o.Graphics.Ensure(ctx, request)
+			ready := false
+			if p.Item.ReelClipID == "" {
+				_, ready = s.o.Graphics.Clip(ctx, request)
+			}
+			if p.Item.ReelClipID != "" {
+				ready = false
+				if c.reel != nil {
+					for _, clip := range c.reel.Clips {
+						if clip.ID == p.Item.ReelClipID && clip.Path != "" {
+							ready = true
+							break
+						}
+					}
+				}
+			}
+			if !ready {
+				if p.Item.ReelClipID == "" {
+					s.o.Graphics.Ensure(ctx, request)
+				}
 				s.mu.Lock()
 				if s.graphicsSkips == nil {
 					s.graphicsSkips = map[string]time.Time{}

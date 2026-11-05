@@ -38,6 +38,7 @@ type broadcastRendition struct {
 	viewers    int
 }
 type broadcastInput struct {
+	overlays                *programmeOverlays
 	started                 time.Time
 	plan                    broadcastPlan
 	decoder                 transcode.Decoder
@@ -406,6 +407,7 @@ func (b *broadcast) run() {
 	}
 }
 func (b *broadcast) step(now time.Time) {
+	fresh := false
 	previousPCM := b.lastFrame.PCM
 	current, next := b.planner.plans(now)
 	if planner, ok := b.planner.(interface{ screen(time.Time) broadcastPlan }); ok {
@@ -423,6 +425,10 @@ func (b *broadcast) step(now time.Time) {
 		}
 		delete(b.retry, current.id)
 	default:
+	}
+	if b.fallback != nil && b.fallback.plan.id != b.screenPlan.id {
+		b.fallback.close()
+		b.fallback = nil
 	}
 	b.accept(now, current, next)
 	if b.current != nil && b.current.plan.id != current.id {
@@ -455,6 +461,7 @@ func (b *broadcast) step(now time.Time) {
 			if ok && validRawFrame(b.format, f) {
 				frame = f
 				b.freshAt = now
+				fresh = true
 				mode = current.id
 			}
 		default:
@@ -516,6 +523,10 @@ func (b *broadcast) step(now time.Time) {
 	}
 	b.fade.apply(frame.PCM, b.format.Channels)
 	b.lastFrame = frame
+	if b.current != nil && b.current.overlays != nil && (fresh || mode == "hold") {
+		frame.Video = append([]byte(nil), frame.Video...)
+		b.current.overlays.blend(frame.Video, b.format, now, current.start, current.end)
+	}
 	b.mu.Lock()
 	for id, r := range b.renditions {
 		select {
@@ -530,7 +541,11 @@ func (b *broadcast) step(now time.Time) {
 
 func newBroadcastInput(parent context.Context, plan broadcastPlan, d transcode.Decoder, release func()) *broadcastInput {
 	ctx, cancel := context.WithCancel(parent)
-	return &broadcastInput{ctx: ctx, cancel: cancel, decoder: d, release: release, plan: plan, frames: make(chan transcode.RawFrame, 1), errs: make(chan error, 1), activate: make(chan struct{})}
+	input := &broadcastInput{ctx: ctx, cancel: cancel, decoder: d, release: release, plan: plan, frames: make(chan transcode.RawFrame, 1), errs: make(chan error, 1), activate: make(chan struct{})}
+	if decoder, ok := d.(*overlayDecoder); ok {
+		input.overlays = decoder.overlays
+	}
+	return input
 }
 
 func (b *broadcast) requestRetry() {

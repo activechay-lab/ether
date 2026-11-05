@@ -14,17 +14,20 @@ import (
 // scheduleBroadcastPlanner snapshots the channel recipe. An edited recipe gets
 // a new planner when P4 replaces the channel output after lineup invalidation.
 type scheduleBroadcastPlanner struct {
-	joinAt  time.Time
-	caps    core.ClientCaps
-	s       *Service
-	channel Channel
-	user    core.User
-	format  transcode.RawFormat
-	runner  transcode.ContinuousRunner
-	mu      sync.Mutex
-	at      time.Time
-	current broadcastPlan
-	next    *broadcastPlan
+	overlayMu    sync.Mutex
+	overlayCards map[string]*programmeOverlays
+	overlayBug   *videoOverlay
+	joinAt       time.Time
+	caps         core.ClientCaps
+	s            *Service
+	channel      Channel
+	user         core.User
+	format       transcode.RawFormat
+	runner       transcode.ContinuousRunner
+	mu           sync.Mutex
+	at           time.Time
+	current      broadcastPlan
+	next         *broadcastPlan
 }
 
 func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadcastPlan) {
@@ -64,28 +67,42 @@ func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan {
 	plan := broadcastPlan{id: programme.ID, start: programme.Start, end: programme.End}
 	plan.open = func(ctx context.Context) (transcode.Decoder, func(), error) {
-		c := p.s.personalChannel(ctx, p.channel, &p.user)
+		c := p.s.graphicsChannel(p.s.personalChannel(ctx, p.channel, &p.user))
 		if p.s.o.Playback == nil && programme.Item.Slate == "" {
 			return nil, nil, core.ErrNotAvailable
 		}
-		if programme.Item.Slate != "" {
-			request := p.s.screenRequest(c, programme.Item.Slate)
-			if programme.Item.Slate == offAirSlate {
-				for _, next := range Schedule(p.s.graphicsChannel(c), programme.End, programme.End.Add(24*time.Hour)) {
-					if next.Item.Key != 0 {
-						request.Bind["screen.back"] = next.Start.In(zoneOf(c.Timezone)).Format("3:04 PM")
+		if programme.Item.ReelClipID != "" {
+			var path string
+			if c.reel != nil {
+				for _, clip := range c.reel.Clips {
+					if clip.ID == programme.Item.ReelClipID {
+						path = clip.Path
 						break
 					}
 				}
 			}
-			loop := programme.Item.Slate == offAirSlate
-			if interstitial(programme.Item) || (c.Look != nil && loop && c.Look.OffAir) {
-				request = p.s.clipRequest(c, programme)
-				if programme.graphicsRequest != nil {
-					request = *programme.graphicsRequest
-				}
+			if path == "" {
+				return nil, nil, core.ErrNotAvailable
 			}
-			return p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, loop)
+			decoder, err := p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: "reel-" + programme.Item.ReelClipID, InputURL: path, Format: p.format})
+			return decoder, nil, err
+		}
+		if programme.Item.Slate != "" {
+			if programme.Item.Slate == offAirSlate && (c.Look == nil || !c.Look.OffAir) {
+				back := ""
+				for _, next := range Schedule(p.s.graphicsChannel(c), programme.End, programme.End.Add(24*time.Hour)) {
+					if next.Item.Key != 0 {
+						back = next.Start.In(zoneOf(c.Timezone)).Format("3:04 PM")
+						break
+					}
+				}
+				return p.s.openSignalDecoder(ctx, p.s.screenRequestWithBack(c, offAirSlate, back), p.format)
+			}
+			request := p.s.clipRequest(c, programme)
+			if programme.graphicsRequest != nil {
+				request = *programme.graphicsRequest
+			}
+			return p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, programme.Item.Slate == offAirSlate)
 		}
 
 		now := p.s.o.Now()
@@ -135,7 +152,7 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 				last = err
 				continue
 			}
-			return decoder, func() { p.s.o.Playback.Stop(ps.ID) }, nil
+			return &overlayDecoder{Decoder: decoder, overlays: p.prepareProgrammeOverlays(ctx, programme)}, func() { p.s.o.Playback.Stop(ps.ID) }, nil
 		}
 		return nil, nil, last
 	}

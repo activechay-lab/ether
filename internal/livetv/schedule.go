@@ -27,6 +27,10 @@ func Schedule(c Channel, from, until time.Time) []Programme {
 	if len(c.Clock) > 0 && c.clipDuration != nil {
 		return clockSchedule(c, from, until)
 	}
+	if c.Look != nil && c.clipDuration != nil {
+		c.momentHistory = &momentHistory{last: map[string]time.Time{}}
+	}
+
 	if c.Epoch.IsZero() {
 		c.Epoch = time.Unix(0, 0).UTC()
 	}
@@ -101,14 +105,6 @@ func emitCycle(out *[]Programme, c Channel, items, filler []Item, shuffle bool, 
 		emitSlate(out, c, anchor, end, from, until)
 		return
 	}
-	if c.Look != nil && c.Look.Placement == "insert" && c.clipDuration != nil {
-		var expanded []Item
-		for _, it := range ordered {
-			expanded = append(expanded, it)
-			expanded = append(expanded, c.moments(anchor)...)
-		}
-		ordered = expanded
-	}
 	var cycle time.Duration
 	for _, item := range ordered {
 		if item.DurationMS <= 0 || item.Slate == offAirSlate {
@@ -144,7 +140,7 @@ func weeklySchedule(c Channel, from, until time.Time) []Programme {
 	if c.Look != nil {
 		plain := c
 		plain.Look = nil
-		if legacyCalendar(plain) {
+		if legacyCalendar(plain) && c.Look.Placement != "insert" {
 			return legacySchedule(c, from, until)
 		}
 	}
@@ -153,6 +149,9 @@ func weeklySchedule(c Channel, from, until time.Time) []Programme {
 	// Repeat gaps remember what aired before the query window. Simulating
 	// that lookback (and no further) keeps two overlapping queries equal.
 	origin := from.Add(-lookback(c))
+	if c.reel != nil && !c.reel.Anchor.IsZero() && c.reel.Anchor.Before(from) {
+		origin = c.reel.Anchor.Add(-lookback(c))
+	}
 	day := dayStart(origin, loc)
 	if day.After(origin) {
 		day = day.AddDate(0, 0, -1)
@@ -160,6 +159,9 @@ func weeklySchedule(c Channel, from, until time.Time) []Programme {
 	recent := map[core.RatingKey]time.Time{}
 	for ; day.Before(until); day = day.AddDate(0, 0, 1) {
 		weekday := int(day.Weekday())
+		if c.momentHistory != nil {
+			c.momentHistory.lastBreak = day
+		}
 		blocks := make([]Block, 0, len(c.Blocks))
 		for _, b := range c.Blocks {
 			if blockOnDay(b, weekday) {
@@ -220,7 +222,7 @@ func emitSegment(out *[]Programme, c Channel, seg segment, day time.Time, startM
 		}
 		return
 	}
-	if needsWalk(seg) {
+	if needsWalk(seg) || (c.Look != nil && c.Look.Placement == "insert") {
 		emitWalk(out, c, items, seg, anchor, end, from, until, loc, salt, recent)
 		return
 	}
@@ -316,7 +318,7 @@ func emitWalk(out *[]Programme, c Channel, items []Item, seg segment, anchor, en
 		cursor = finish
 		step++
 		if alignStep == 0 && c.Look != nil && c.Look.Placement == "insert" {
-			for _, clip := range c.moments(cursor) {
+			for _, clip := range c.momentsWithin(cursor, end.Sub(cursor)) {
 				finish := cursor.Add(time.Duration(clip.DurationMS) * time.Millisecond)
 				if finish.After(end) {
 					break
@@ -423,7 +425,7 @@ func earliestReady(units [][]Item, recent map[core.RatingKey]time.Time, gap time
 func fillGap(out *[]Programme, c Channel, filler []Item, fromCursor, end, winFrom, winUntil time.Time) {
 	cursor := fromCursor
 	if c.Look != nil && c.Look.Placement != "insert" {
-		for _, item := range c.moments(fromCursor) {
+		for _, item := range c.momentsWithin(fromCursor, end.Sub(fromCursor)) {
 			finish := cursor.Add(time.Duration(item.DurationMS) * time.Millisecond)
 			if finish.After(end) {
 				break
