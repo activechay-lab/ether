@@ -51,7 +51,7 @@ These are tiny synthetic fixtures, **not real-episode accuracy estimates**. Timi
 | Scene cuts alone (grouped by black interval) | 1 | 1 | 0 | 50% | 100% |
 | Black + silence, scene corroboration | 1 | 0 | 0 | 100% | 100% |
 
-Synthetic timeline: [synthetic-timeline.json](synthetic-timeline.json). Stills: [before](synthetic-69s.png), [at break](synthetic-70.5s.png), [after](synthetic-72s.png). Black-with-audio candidate is rejected. Persist/reuse, source revision isolation, empty-result reuse, K-best spacing, background-only request invariant and nested complete override inheritance have lasting tests.
+Synthetic timeline: [synthetic-timeline.json](synthetic-timeline.json). Stills: [before](/Users/braedonsaunders/.bb/thread-storage/thr_cp7svgfc62/v035/dev/pass/breakpoints/synthetic/synthetic-69s.png), [at break](/Users/braedonsaunders/.bb/thread-storage/thr_cp7svgfc62/v035/dev/pass/breakpoints/synthetic/synthetic-70.5s.png), [after](/Users/braedonsaunders/.bb/thread-storage/thr_cp7svgfc62/v035/dev/pass/breakpoints/synthetic/synthetic-72s.png). Black-with-audio candidate is rejected. Persist/reuse, source revision isolation, empty-result reuse, K-best spacing, background-only request invariant and nested complete override inheritance have lasting tests.
 
 Measured FFV1 fixture decoder cost on this shared worker: **7.50 CPU seconds per video hour; 3.17 wall seconds per video hour**, excluding fixture generation and still extraction. This is low-resolution synthetic data, not an HD/HEVC benchmark. Full release decode and network cost remain dependent on configured source/codec.
 
@@ -111,3 +111,6 @@ New lasting tests cover remux rejection, daily reservation exhaustion, chapter b
 Snapshot activation adds optional `Item.breakAvailableAfterMs`: freshly learned points apply only to programme starts after this saved boundary. Existing known-point airings defer replacement, and new facts do not insert cuts into the programme currently being watched. Full and partial caches are merged so later interrupted viewings cannot erase earlier verified acts. Tests cover stable current-airing metadata and later-airing reuse.
 
 Opportunistic sampler microbenchmark on the Linux Ryzen 7 2700X worker (720p Y, stereo 48 kHz PCM, 30 fps): **5264 ns/frame, 0 B/frame, 0 allocations/frame**, approximately **0.57 core-seconds per video hour** for sampling. This excludes the already-required playout decoder and uses zero additional source bytes. Command: `nice -n 10 go test ./internal/markers -run '^$' -bench BenchmarkBreakTap -benchtime=200ms -count=1`.
+
+
+Evidence media live only in thread storage. W17 copied synthetic stills to `/Users/braedonsaunders/.bb/thread-storage/thr_cp7svgfc62/v035/dev/pass/breakpoints/synthetic/`; local worker copies and a full report are at `/data/bb/thread-storage/thr_cv85pewpp2/w24-breakpoints/`. Only text reports and JSON measurements remain in the repository.
