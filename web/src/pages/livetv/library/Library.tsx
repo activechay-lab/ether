@@ -41,7 +41,10 @@ export function Waveform({ asset }: { asset: LibraryAsset }) {
 function useMediaURL(url: string, enabled = true) {
   const [resolved, setResolved] = useState("");
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      setResolved("");
+      return;
+    }
     if (!url.startsWith("/ether/api/")) {
       setResolved(url);
       return;
@@ -66,7 +69,7 @@ function Preview({ asset: a, full = false }: { asset: LibraryAsset; full?: boole
   const [hovered, setHovered] = useState(false);
   const preview = useMediaURL(
     (a as LibraryAsset & { url?: string }).url ?? studio.media(a.digest),
-    a.kind !== "video" || full || hovered,
+    a.kind === "image" ? full : a.kind !== "video" || full || hovered,
   );
   const thumbnail = useMediaURL(
     (a as LibraryAsset & { thumbnail?: string }).thumbnail ?? studio.thumb(a.digest),
@@ -107,6 +110,7 @@ function Preview({ asset: a, full = false }: { asset: LibraryAsset; full?: boole
           if (!full) void e.currentTarget.play().catch(() => {});
         }}
         onMouseLeave={(e) => {
+          setHovered(false);
           if (!full) e.currentTarget.pause();
         }}
         onFocus={(e) => {
@@ -114,6 +118,7 @@ function Preview({ asset: a, full = false }: { asset: LibraryAsset; full?: boole
           if (!full) void e.currentTarget.play().catch(() => {});
         }}
         onBlur={(e) => {
+          setHovered(false);
           if (!full) e.currentTarget.pause();
         }}
       />
@@ -173,6 +178,7 @@ export function LibraryGrid({
   onPick?: (a: LibraryAsset) => void;
 }) {
   const [params, setParams] = useSearchParams();
+  const [loading, setLoading] = useState(true);
   const [assets, setAssets] = useState<(LibraryAsset & { readOnly?: boolean })[]>([]),
     [error, setError] = useState("");
   const [selected, setSelected] = useState<string[]>([]),
@@ -213,6 +219,8 @@ export function LibraryGrid({
       setError("");
     } catch (e) {
       setError(errorMessage(e));
+    } finally {
+      setLoading(false);
     }
   };
   useEffect(() => {
@@ -262,6 +270,10 @@ export function LibraryGrid({
                 ),
               );
           };
+          xhr.upload.onload = () =>
+            setUploads((p) =>
+              p.map((x) => (x.name === file.name ? { ...x, status: t("Processing media…") } : x)),
+            );
           xhr.onload = () =>
             xhr.status >= 200 && xhr.status < 300
               ? resolve()
@@ -449,6 +461,9 @@ export function LibraryGrid({
           <span>{tn(selected.length, "{count} selected", "{count} selected")}</span>
           <Button
             variant="outline"
+            disabled={
+              !assets.some((a) => selected.includes(a.digest) && !a.usedBy.length && !a.readOnly)
+            }
             onClick={() =>
               void remove(assets.filter((a) => selected.includes(a.digest) && !a.usedBy.length))
             }
@@ -460,7 +475,8 @@ export function LibraryGrid({
           </Button>
         </div>
       )}
-      {!visible.length && (
+      {loading && <p role="status">{t("Loading Library…")}</p>}
+      {!loading && !visible.length && (
         <div className="rounded-2xl border border-dashed border-border p-12 text-center">
           <h3 className="text-lg font-semibold">
             {assets.length ? t("No matching assets") : t("Give your station its signature")}
@@ -478,7 +494,13 @@ export function LibraryGrid({
           return (
             <article
               key={a.digest}
-              className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm"
+              onClick={(e) => {
+                if (!(e.target as HTMLElement).closest("button,input,a,audio,video")) {
+                  if (onPick) onPick(a);
+                  else change("asset", a.digest);
+                }
+              }}
+              className="cursor-pointer overflow-hidden rounded-xl border border-border bg-surface shadow-sm"
             >
               <div className="aspect-video overflow-hidden bg-bg-subtle">
                 <Preview asset={a} />
@@ -506,12 +528,14 @@ export function LibraryGrid({
                 </div>
                 <div className="flex justify-between text-xs text-fg-muted">
                   <span>
-                    {a.durationMs
-                      ? t("{seconds} s · {size}", {
-                          seconds: (a.durationMs / 1000).toFixed(1),
-                          size: formatBytes(a.size),
-                        })
-                      : formatBytes(a.size)}
+                    {a.readOnly
+                      ? t("{seconds} s", { seconds: ((a.durationMs ?? 0) / 1000).toFixed(1) })
+                      : a.durationMs
+                        ? t("{seconds} s · {size}", {
+                            seconds: (a.durationMs / 1000).toFixed(1),
+                            size: formatBytes(a.size),
+                          })
+                        : formatBytes(a.size)}
                   </span>
                   <span className="rounded-full bg-bg-subtle px-2">
                     {tn(a.usedBy.length, "Used by {count}", "Used by {count}")}
