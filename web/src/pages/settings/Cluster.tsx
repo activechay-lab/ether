@@ -1,3 +1,7 @@
+import { DashboardPanel } from "@braedonsaunders/appkit-dashboard/primitives";
+import { HealthPanel } from "../Home";
+import type { HealthItem } from "../../lib/health";
+import { SubtabNav } from "../../components/layout";
 import { copyText } from "../../components/CopyButton";
 import {
   Alert,
@@ -15,8 +19,6 @@ import {
 } from "@braedonsaunders/appkit-ui";
 import { Copy, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router-dom";
-import { MoreOptions } from "../../components/ConfigSection";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
 import { Field, Segmented } from "../../components/fields";
@@ -24,12 +26,13 @@ import { ClusterSetup } from "./ClusterSetup";
 import { Section } from "../../components/layout";
 import { SettingsRow } from "../../components/SettingsRow";
 import { pagedTableLabels } from "../../i18n/appkit-labels";
-import { localized, t, tn, tx } from "../../i18n";
+import { localized, t, tn } from "../../i18n";
 import { api, errorMessage } from "../../lib/api";
 import { formatDateTime, parseTime, relativeTime } from "../../lib/format";
 import { useAsync, useInterval, type AsyncState } from "../../lib/hooks";
 import type {
   ClusterNode,
+  ClusterControl,
   ClusterSettings,
   ClusterStatus,
   CreatedJoinToken,
@@ -239,6 +242,9 @@ function copyToken(text: string) {
 export function ClusterOverview() {
   const status = useAsync((signal) => api.clusterStatus(signal), []);
   const clustered = isClustered(status.data);
+  const [tab, setTab] = useState("overview");
+  const [, tick] = useState(0);
+  useInterval(() => tick((n) => n + 1), 1000);
   const [addingNode, setAddingNode] = useState(false);
   const setup = useAsync((signal) => api.clusterSetupStatus(signal), []);
   const settings = useAsync(
@@ -256,47 +262,272 @@ export function ClusterOverview() {
   if (!s) return <LoadingRows rows={3} />;
   if (!clustered)
     return (
-      <Standalone
-        status={s}
-        available={setup.data?.available ?? false}
-        message={setup.data?.state === "failed" ? setup.data.message : undefined}
-        onComplete={() => {
-          void status.reload();
-          void setup.reload();
-        }}
-      />
+      <div className="min-h-0 flex-1 space-y-5 overflow-auto p-4 sm:p-6">
+        <h1 className="text-xl font-semibold">{t("Cluster")}</h1>
+        <Standalone
+          status={s}
+          available={setup.data?.available ?? false}
+          message={setup.data?.state === "failed" ? setup.data.message : undefined}
+          onComplete={() => {
+            void status.reload();
+            void setup.reload();
+          }}
+        />
+      </div>
     );
 
-  const warnings = clusterWarnings(s);
+  const cached = !!status.error || !!s.error;
   return (
-    <>
-      {warnings.length ? (
-        <Alert variant="warning" role="status">
-          <AlertTitle>{t("Cluster needs attention")}</AlertTitle>
-          <AlertDescription>
-            <ul className="list-disc space-y-1 pl-5">
-              {warnings.map((w) => (
-                <li key={w}>{w}</li>
-              ))}
-            </ul>
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      <Nodes
-        status={s}
-        cached={!!status.error || !!s.error}
-        onChanged={() => void status.reload()}
-        onAdd={() => setAddingNode(true)}
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 sm:p-6">
+      <header>
+        <h1 className="text-xl font-semibold">{t("Cluster")}</h1>
+        <p className="text-sm text-fg-muted">{t("Servers that share one database.")}</p>
+      </header>
+      <SubtabNav
+        ariaLabel={t("Cluster")}
+        active={tab}
+        onSelect={setTab}
+        tabs={[
+          { key: "overview", label: t("Overview") },
+          { key: "nodes", label: t("Nodes") },
+          { key: "tokens", label: t("Join tokens") },
+        ]}
       />
-      <SharedSettings status={s} settings={settings} />
-      <JoinTokens settings={settings} />
+      {tab === "overview" ? (
+        <FleetOverview status={s} cached={cached} />
+      ) : (
+        <div className="min-h-0 flex-1 space-y-4 overflow-auto">
+          {tab === "nodes" ? (
+            <Nodes
+              status={s}
+              cached={cached}
+              onChanged={() => void status.reload()}
+              onAdd={() => setAddingNode(true)}
+            />
+          ) : (
+            <JoinTokens settings={settings} />
+          )}
+        </div>
+      )}
       {addingNode ? (
         <JoinTokenDrawer
           onClose={() => setAddingNode(false)}
           onCreated={() => void settings.reload()}
         />
       ) : null}
-    </>
+    </div>
+  );
+}
+
+/** Mock observations are opt-in at the mock-build boundary, never peer runtime evidence. */
+export function clusterNodeHealth(
+  s: ClusterStatus,
+  n: ClusterNode,
+  cached: boolean,
+  mockHealth?: NonNullable<ClusterStatus["mockConsole"]>["health"],
+) {
+  if (cached) return "unknown";
+  const observation = mockHealth?.[n.id];
+  if (
+    observation?.nodeId === n.id &&
+    !!n.incarnation &&
+    observation.boot === n.incarnation &&
+    runtimeFresh(observation.sampledAt)
+  )
+    return observation.level;
+  const runtime = nodeRuntime(s, n);
+  return runtime && runtimeFresh(runtime.runtimeSampledAt)
+    ? runtime.readyExisting
+      ? "ok"
+      : "error"
+    : "unknown";
+}
+
+function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: boolean }) {
+  const [panel, setPanel] = useState("nodes");
+  const nodes = sortNodes(s.nodes ?? []);
+  const fresh = !cached && runtimeFresh(s.health?.lastHeartbeat ?? "");
+  const preview = import.meta.env.MODE === "mock" ? s.mockConsole : undefined;
+  const healthOf = (n: ClusterNode) => clusterNodeHealth(s, n, cached, preview?.health);
+  const items: HealthItem[] = [
+    {
+      id: "database",
+      label: t("Database"),
+      level: cached ? "error" : fresh ? "ok" : "unknown",
+      summary: "PostgreSQL",
+      details: [],
+      href: "/cluster",
+    },
+    {
+      id: "remote",
+      label: t("Event bus"),
+      level: !fresh
+        ? "unknown"
+        : s.health?.busConnected === true
+          ? "ok"
+          : s.health?.busConnected === false
+            ? "error"
+            : "unknown",
+      summary: t("This node"),
+      details: [],
+      href: "/cluster",
+    },
+    ...clusterWarnings(s).map((summary): HealthItem => ({
+      id: "storage",
+      label: t("Needs attention"),
+      level: "warn",
+      summary,
+      details: [],
+      href: "/cluster",
+    })),
+  ];
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="lg:hidden">
+        <Segmented
+          size="sm"
+          ariaLabel={t("Overview")}
+          value={panel}
+          onChange={setPanel}
+          options={[
+            { value: "nodes", label: t("Nodes") },
+            { value: "health", label: t("Health") },
+            { value: "activity", label: t("Recent activity") },
+          ]}
+        />
+      </div>
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className={`${panel === "nodes" ? "flex" : "hidden"} min-h-0 flex-col gap-4 lg:flex`}>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 rounded-xl border border-border bg-surface p-3 text-sm">
+            <div>
+              <span className="text-fg-muted">{t("Leader")}</span>
+              <strong className="ml-2">
+                {!cached
+                  ? nodes.find((n) => n.id === s.leader)?.name || t("Unknown")
+                  : t("Unknown")}
+              </strong>
+            </div>
+            <div>
+              {t("Nodes")} <strong>{nodes.length}</strong>
+            </div>
+            {preview ? <Badge variant="warning">{t("Mock preview")}</Badge> : null}
+            <div>
+              {t("Health")}: {t("Healthy")}{" "}
+              <strong>{nodes.filter((n) => healthOf(n) === "ok").length}</strong> · {t("Failing")}{" "}
+              <strong>{nodes.filter((n) => healthOf(n) === "error").length}</strong> ·{" "}
+              {t("Unknown")}{" "}
+              <strong>{nodes.filter((n) => healthOf(n) === "unknown").length}</strong>
+            </div>
+            <div>
+              {t("Heartbeat")}: {t("Online")}{" "}
+              <strong>{nodes.filter((n) => !cached && nodeStatusFresh(n)).length}</strong> ·{" "}
+              {t("Unknown")}{" "}
+              <strong>{nodes.filter((n) => cached || !nodeStatusFresh(n)).length}</strong>
+            </div>
+          </div>
+          <DashboardPanel
+            title={t("Nodes")}
+            className="min-h-0 flex-1"
+            bodyClassName="overflow-auto p-3"
+          >
+            <div className="mb-3 flex flex-wrap gap-2">
+              {[...new Set(nodes.flatMap(nodeRoles))].map((role) => (
+                <Badge key={role} variant="outline">
+                  {role} · {nodes.filter((n) => nodeRoles(n).includes(role)).length}
+                </Badge>
+              ))}
+            </div>
+            <div className="space-y-2">
+              {nodes.map((n) => (
+                <article key={n.id} className="rounded-lg border border-border px-3 py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <strong className="text-sm">{nodeName(n)}</strong>
+                    <span className="ml-auto">
+                      <Badge
+                        variant={
+                          healthOf(n) === "error"
+                            ? "destructive"
+                            : healthOf(n) === "ok"
+                              ? "success"
+                              : "outline"
+                        }
+                      >
+                        {healthOf(n) === "error"
+                          ? t("Failing")
+                          : healthOf(n) === "ok"
+                            ? t("Healthy")
+                            : t("Unknown")}
+                      </Badge>
+                    </span>
+                    <Badge variant={n.draining ? "warning" : "outline"}>
+                      {n.draining ? t("Draining") : nodeRoles(n).join(" · ")}
+                    </Badge>
+                  </div>
+                  <dl className="mt-2 grid grid-cols-4 gap-2 text-[11px] sm:text-xs">
+                    {[
+                      [t("Streams"), !cached && nodeStatusFresh(n) ? n.load : t("Unknown")],
+                      [
+                        t("Transcoding"),
+                        n.live && preview
+                          ? (preview.metrics[n.id]?.transcodes ?? t("Unknown"))
+                          : t("Unknown"),
+                      ],
+                      [
+                        t("Capacity"),
+                        n.live && preview
+                          ? (preview.metrics[n.id]?.capacity ?? t("Unknown"))
+                          : t("Unknown"),
+                      ],
+                      [
+                        t("Load"),
+                        n.live && preview ? `${preview.metrics[n.id]?.load}%` : t("Unknown"),
+                      ],
+                    ].map(([label, value]) => (
+                      <div key={label}>
+                        <dt className="text-fg-muted">{label}</dt>
+                        <dd className="font-medium tabular-nums">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </article>
+              ))}
+            </div>
+          </DashboardPanel>
+        </div>
+        <div
+          className={`${panel !== "nodes" ? "grid" : "hidden"} min-h-0 gap-3 lg:grid lg:grid-rows-[minmax(0,1fr)_minmax(0,0.65fr)]`}
+        >
+          <div
+            className={`${panel === "health" ? "block" : "hidden"} min-h-0 overflow-auto lg:block`}
+          >
+            <HealthPanel loading={false} items={items} />
+          </div>
+          <DashboardPanel
+            title={t("Recent activity")}
+            className={`${panel === "activity" ? "flex" : "hidden"} min-h-0 lg:flex`}
+            bodyClassName="overflow-auto p-3"
+          >
+            {preview ? (
+              <ul className="space-y-3 text-xs">
+                {preview.events.map((e, i) => (
+                  <li key={i}>
+                    <strong>{e.node}</strong> ·{" "}
+                    {e.kind === "join"
+                      ? t("Join cluster")
+                      : e.kind === "drain"
+                        ? t("Draining")
+                        : t("Failover")}
+                    <span className="block text-fg-muted">{relativeTime(e.at)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-fg-muted">{t("Not reported")}</p>
+            )}
+          </DashboardPanel>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -366,24 +597,20 @@ function Nodes({
   onChanged: () => void;
   onAdd: () => void;
 }) {
-  const [manage, setManage] = useState(false);
+  const [manage, setManage] = useState<ClusterNode | null>(null);
   const nodes = sortNodes(status.nodes ?? []);
-  const live = nodes.filter((n) => n.live).length;
   return (
     <Section
       title={t("Nodes")}
-      description={tn(
-        nodes.length,
-        "{live} of {count} node online. Open a node’s manager to change its local settings.",
-        "{live} of {count} nodes online. Open a node’s manager to change its local settings.",
-        { live },
+      description={t(
+        "Manage nodes here. Remote weight changes require node support; other controls may be unavailable.",
       )}
       actions={
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={onAdd}>
             <Plus size={14} /> {t("Add node")}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setManage(true)}>
+          <Button size="sm" variant="outline" onClick={() => setManage(status.self)}>
             {t("Manage this node")}
           </Button>
         </div>
@@ -523,20 +750,11 @@ function Nodes({
             {
               key: "manage",
               header: "",
-              cell: (n) =>
-                n.id === status.self.id ? null : managerURL(n) ? (
-                  <a
-                    className="text-sm text-primary underline"
-                    href={managerURL(n)!}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={t("Open manager for {node}", { node: nodeName(n) })}
-                  >
-                    {t("Open manager")}
-                  </a>
-                ) : (
-                  <span className="text-xs text-fg-muted">{t("No address reported")}</span>
-                ),
+              cell: (n) => (
+                <Button size="sm" variant="outline" onClick={() => setManage(n)}>
+                  {t("Manage")}
+                </Button>
+              ),
             },
             {
               key: "ip",
@@ -559,8 +777,9 @@ function Nodes({
       {manage ? (
         <NodeDrawer
           status={status}
+          node={status.nodes?.find((n) => n.id === manage.id) ?? manage}
           cached={cached}
-          onClose={() => setManage(false)}
+          onClose={() => setManage(null)}
           onChanged={onChanged}
         />
       ) : null}
@@ -570,27 +789,128 @@ function Nodes({
 
 function NodeDrawer({
   status,
+  node,
   cached,
   onClose,
   onChanged,
 }: {
   status: ClusterStatus;
+  node: ClusterNode;
   cached: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const [weight, setWeight] = useState(status.self.caps.weight || 1);
-  const [draining, setDraining] = useState(status.self.draining ?? false);
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("Manage")}
+      description={nodeName(node)}
+      footer={
+        <Button variant="outline" onClick={onClose}>
+          {t("Done")}
+        </Button>
+      }
+    >
+      <div className="space-y-5">
+        <SettingsSection title={t("Configured roles")}>
+          <SettingsRow
+            title={nodeRoles(node).join(", ")}
+            description={t(
+              "Roles come from this node’s startup settings. Change them in its deployment or settings file.",
+            )}
+          />
+        </SettingsSection>
+        <RuntimeObservation status={status} node={node} cached={cached} />
+        <NodeControls node={node} cached={cached} onChanged={onChanged} />
+        <RolePlan status={status} node={node} />
+        {managerURL(node) ? (
+          <a
+            className="text-sm underline"
+            href={managerURL(node)!}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t("Open manager")}
+          </a>
+        ) : null}
+      </div>
+    </Drawer>
+  );
+}
+
+export function controlFresh(
+  control: ClusterControl | null | undefined,
+  node: ClusterNode,
+  now = Date.now(),
+) {
+  const at = parseTime(control?.updatedAt)?.getTime();
+  return (
+    !!control &&
+    !!node.incarnation &&
+    control.nodeId === node.id &&
+    control.boot === node.incarnation &&
+    at !== undefined &&
+    at <= now &&
+    now - at <= 30_000
+  );
+}
+
+function NodeControls({
+  node,
+  cached,
+  onChanged,
+}: {
+  node: ClusterNode;
+  cached: boolean;
+  onChanged: () => void;
+}) {
+  const control = useAsync(
+    (signal) =>
+      node.incarnation
+        ? api.clusterControl(node.id, node.incarnation, signal)
+        : Promise.resolve(null),
+    [node.id, node.incarnation],
+  );
+  const [weight, setWeight] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const save = async (body: { weight?: number; draining?: boolean }) => {
+  const [submitted, setSubmitted] = useState<ClusterControl | null>(null);
+  const [, tick] = useState(0);
+  useInterval(() => tick((n) => n + 1), 1000);
+  useInterval(() => void control.reload(), 3000);
+  const c =
+    submitted &&
+    (!control.data ||
+      control.data.requestedVersion < submitted.requestedVersion ||
+      (control.data.requestedVersion === submitted.requestedVersion &&
+        control.data.requestId !== submitted.requestId))
+      ? submitted
+      : control.data;
+  const draftWeight = weight ?? c?.observed.weight ?? node.caps.weight ?? 1;
+  const fresh = !cached && !control.error && controlFresh(c, node);
+  const pending =
+    c?.state === "pending" ||
+    (!!c && c.requestedVersion > c.appliedVersion && c.state !== "failed");
+  const can = (key: string) =>
+    fresh &&
+    !busy &&
+    !pending &&
+    c?.capabilities.some((x) => x.key === key && x.scope === "node" && x.supported);
+  const save = async (patch: { weight?: number; draining?: boolean }) => {
+    if (!c || !controlFresh(c, node) || pending) return;
     setBusy(true);
     setError("");
     try {
-      const result = await api.updateClusterNode(body);
-      setDraining(result.draining);
+      const result = await api.updateClusterControl(node.id, {
+        requestId: crypto.randomUUID(),
+        boot: node.incarnation!,
+        expectedVersion: c.requestedVersion,
+        patch,
+      });
+      setSubmitted(result);
+      void control.reload();
       onChanged();
-      toast.success(t("Node updated"));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -598,158 +918,263 @@ function NodeDrawer({
     }
   };
   return (
-    <Drawer
-      open
-      onClose={onClose}
-      title={t("Manage this node")}
-      description={nodeName(status.self)}
-      footer={
-        <Button variant="outline" onClick={onClose}>
-          {t("Done")}
-        </Button>
-      }
-    >
-      <div className="space-y-6">
-        {error ? (
-          <Alert variant="destructive" role="alert">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
+    <SettingsSection title={t("Settings")}>
+      <div className="space-y-4 p-4">
+        {c ? (
+          <div className="flex flex-wrap gap-2">
+            <Badge
+              variant={
+                !fresh
+                  ? "warning"
+                  : pending
+                    ? "info"
+                    : c.state === "failed"
+                      ? "destructive"
+                      : "secondary"
+              }
+            >
+              {!fresh
+                ? t("Stale status")
+                : pending
+                  ? t("Pending")
+                  : c.state === "failed"
+                    ? t("Failed")
+                    : t("Applied")}
+            </Badge>
+            <span className="text-xs text-fg-muted">
+              {t("Settings version")}: {c.appliedVersion} / {c.requestedVersion}
+            </span>
+          </div>
+        ) : (
+          <p className="text-sm text-fg-muted">
+            {t("Remote controls are not available from this server.")}
+          </p>
+        )}
+        {error ? <ErrorPanel error={error} /> : null}
+        {c?.errorCode ? (
+          <p className="text-sm text-danger">
+            {t("Failed")} · <code>{c.errorCode}</code>
+          </p>
         ) : null}
-        <SettingsSection title={t("Configured roles")}>
-          <SettingsRow
-            title={nodeRoles(status.self).join(", ")}
-            description={t(
-              "Roles come from this node’s startup settings. Change them in its deployment or settings file.",
-            )}
-          />
-        </SettingsSection>
-        {status.selfRuntime ? (
-          <RuntimeObservation status={status} node={status.self} cached={cached} />
-        ) : null}
-        <Field
-          label={t("Node weight")}
-          htmlFor="cluster-weight"
-          hint={t(
-            "This computer's share of each provider's connections and request limits, relative to the others. 2 gets twice the share of a computer at 1; 0 means 1.",
-          )}
-        >
+        <Field label={t("Node weight")} htmlFor="cluster-weight">
           <Input
             id="cluster-weight"
             type="number"
             min={1}
             max={100}
-            value={weight}
+            value={draftWeight}
+            disabled={!can("weight")}
             onChange={(e) => setWeight(e.target.valueAsNumber)}
           />
         </Field>
+        <p className="text-xs text-fg-muted">
+          {t("Applied")}: {fresh ? c?.observed.weight : t("Unknown")}
+        </p>
         <Button
-          disabled={busy || !Number.isInteger(weight) || weight < 1 || weight > 100}
-          onClick={() => void save({ weight })}
+          disabled={
+            !can("weight") || !Number.isInteger(draftWeight) || draftWeight < 1 || draftWeight > 100
+          }
+          onClick={() => void save({ weight: draftWeight })}
         >
           {t("Save weight")}
         </Button>
-        <SettingsSection title={t("New streams")}>
-          <SettingsRow
-            title={draining ? t("Paused") : t("Not reported")}
-            description={t(
-              "Pausing keeps current streams playing, hands scheduled work to another node and removes this node from published connections. It resumes automatically after a server restart.",
-            )}
-          />
-        </SettingsSection>
-        <Alert variant="warning">
-          <AlertDescription>
-            {t("Pausing the only available node prevents new playback until you resume it.")}
-          </AlertDescription>
-        </Alert>
+        <SettingsRow
+          title={t("New streams")}
+          description={t(
+            "Pausing keeps current streams playing, hands scheduled work to another node and removes this node from published connections. It resumes automatically after a server restart.",
+          )}
+          control={
+            <Badge variant="outline">
+              {fresh ? (c?.observed.draining ? t("Paused") : t("Not reported")) : t("Unknown")}
+            </Badge>
+          }
+        />
         <Button
           variant="outline"
-          disabled={busy}
-          onClick={() => void save({ draining: !draining })}
+          disabled={!can("draining")}
+          onClick={() => void save({ draining: !c?.observed.draining })}
         >
-          {draining ? t("Resume new streams") : t("Pause new streams")}
+          {c?.observed.draining ? t("Resume new streams") : t("Pause new streams")}
         </Button>
-        <p className="text-sm text-fg-muted">
-          {tx(
-            "Change this node’s port, cache and transcoding hardware from {general}. Use {updates} for rolling cluster updates.",
-            {
-              general: (
-                <Link className="underline" to="/server">
-                  {t("General settings")}
-                </Link>
-              ),
-              updates: (
-                <Link className="underline" to="/maintenance/updates">
-                  {t("Updates")}
-                </Link>
-              ),
-            },
-          )}
-        </p>
+        <div className="divide-y divide-border">
+          {[
+            ["maxStreams", t("Streams")],
+            ["defaultStreamLimit", t("Per viewer")],
+            ["maxTranscodes", t("Transcoding")],
+            ["hwAccel", t("Hardware acceleration")],
+          ].map(([key, label]) => {
+            const cap = c?.capabilities.find((x) => x.key === key);
+            return (
+              <div key={key} className="py-2 text-sm">
+                <div className="flex justify-between gap-2">
+                  <span>{label}</span>
+                  <Badge variant="outline">
+                    {cap?.scope === "fleet" ? t("Shared settings") : t("Unavailable")}
+                  </Badge>
+                </div>
+                <p className="mt-1 break-words text-xs text-fg-muted">
+                  {cap?.reason === "restart_required"
+                    ? t("Restart required")
+                    : cap?.reason === "fleet_setting"
+                      ? t("Shared settings")
+                      : t("Remote controls are not available from this server.")}
+                </p>
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </Drawer>
+    </SettingsSection>
+  );
+}
+
+function RolePlan({ status, node }: { status: ClusterStatus; node: ClusterNode }) {
+  const preflight = useAsync(
+    (signal) =>
+      node.incarnation
+        ? api.clusterRolePreflight(node.id, node.incarnation, signal).catch(() => null)
+        : Promise.resolve(null),
+    [node.id, node.incarnation],
+  );
+  const evidence =
+    preflight.data?.nodeId === node.id &&
+    preflight.data.boot === node.incarnation &&
+    runtimeFresh(preflight.data.observedAt)
+      ? preflight.data
+      : null;
+  const mock = import.meta.env.MODE === "mock" && !!status.mockConsole;
+  const [role, setRole] = useState("transcode");
+  const [phase, setPhase] = useState(
+    status.mockConsole?.transition.node === node.id && mock ? "drain" : "",
+  );
+  const [impact, setImpact] = useState(false);
+  const snippet = `pools:\n  ${role}:\n    replicas: 1\n    bootstrap: false`;
+  return (
+    <SettingsSection title={t("Role")}>
+      <div className="space-y-3 p-4">
+        <p className="text-sm text-fg-muted">
+          {t("Role changes require deployment controls and verified safety checks.")}
+        </p>
+        {evidence ? (
+          <details className="text-sm">
+            <summary className="cursor-pointer">{t("Details")}</summary>
+            <dl className="my-2 grid grid-cols-2 gap-2">
+              <dt>{t("Streams")}</dt>
+              <dd>{t("Unknown")}</dd>
+              <dt>{t("Restart required")}</dt>
+              <dd>{t("Unavailable")}</dd>
+            </dl>
+            <ul className="space-y-1 text-xs text-fg-muted">
+              {evidence.reasons.map((reason) => (
+                <li key={reason}>
+                  <code>{reason}</code>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+        <Field label={t("Role")}>
+          <select
+            className="w-full rounded-lg border border-border bg-surface p-2"
+            disabled={!!phase}
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+          >
+            <option value="full">{t("Full server")}</option>
+            <option value="server">{t("Server")}</option>
+            <option value="source">{t("Source")}</option>
+            <option value="transcode">{t("Transcoding")}</option>
+            <option value="delivery">{t("Delivery")}</option>
+          </select>
+        </Field>
+        <Button variant="outline" onClick={() => setImpact(!impact)}>
+          {t("Review impact")}
+        </Button>
+        {impact ? (
+          <div className="space-y-3 rounded-lg border border-border p-3">
+            <p className="text-sm">
+              {t(
+                "Pool-wide Helm values example. Adjust replica counts for the whole deployment; this does not change one node.",
+              )}
+            </p>
+            <pre className="overflow-auto rounded bg-bg-subtle p-3 text-xs">{snippet}</pre>
+            <Button size="sm" variant="outline" onClick={() => void copyText(snippet)}>
+              <Copy size={14} />
+              {t("Copy")}
+            </Button>
+            <p className="text-sm text-fg-muted">
+              {t(
+                "Pausing keeps current streams playing, hands scheduled work to another node and removes this node from published connections. It resumes automatically after a server restart.",
+              )}
+            </p>
+            <p className="text-sm">
+              {t("Live role changes are unavailable. No Kubernetes changes are made here.")}
+            </p>
+            {mock ? (
+              <Button
+                disabled={!!phase || node.leader || !nodeStatusFresh(node)}
+                onClick={async () => {
+                  if (
+                    await confirmDialog({
+                      title: t("Review impact"),
+                      message: t(
+                        "Mock only: drain {node}, restart it, then verify its new role ({role}). No live changes are made.",
+                        {
+                          node: nodeName(node),
+                          role: nodeRoles({
+                            ...node,
+                            caps: { ...node.caps, roles: role === "full" ? [] : [role] },
+                          }).join(", "),
+                        },
+                      ),
+                      confirmLabel: t("Mock preview"),
+                      tone: "danger",
+                    })
+                  )
+                    setPhase("drain");
+                }}
+              >
+                {t("Mock preview")}
+              </Button>
+            ) : (
+              <Button disabled>{t("Unavailable")}</Button>
+            )}
+          </div>
+        ) : null}
+        {mock && phase ? (
+          <div className="space-y-2 rounded-lg border border-border p-3">
+            <Badge variant="warning">{t("Mock preview")}</Badge>
+            <ol className="flex flex-wrap gap-3 text-sm">
+              <li className={phase === "drain" ? "font-bold" : "text-fg-muted"}>
+                1. {t("Draining")}
+              </li>
+              <li className={phase === "restart" ? "font-bold" : "text-fg-muted"}>
+                2. {t("Restarting…")}
+              </li>
+              <li className={phase === "role" ? "font-bold" : "text-fg-muted"}>
+                3. {t("Role")}:{" "}
+                {nodeRoles({
+                  ...node,
+                  caps: { ...node.caps, roles: role === "full" ? [] : [role] },
+                }).join(", ")}
+              </li>
+            </ol>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={phase === "role"}
+              onClick={() => setPhase(phase === "drain" ? "restart" : "role")}
+            >
+              {t("Next")}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </SettingsSection>
   );
 }
 
 type SettingsState = AsyncState<ClusterSettings | null>;
-
-function SharedSettings({ status, settings }: { status: ClusterStatus; settings: SettingsState }) {
-  const st = settings.data;
-  const self = status.self;
-  return (
-    <SettingsSection title={t("Shared settings")}>
-      <SettingsRow
-        title={t("This node")}
-        description={
-          self?.id === status.leader
-            ? t("Leads the cluster: it publishes the server to plex.tv and runs scheduled work.")
-            : t("A cluster member. Scheduled work runs on the leader.")
-        }
-        control={<Badge variant="info">{nodeName(self)}</Badge>}
-      />
-      <MoreOptions
-        setting="shared-settings"
-        label={t("More options: {title}", { title: t("Shared settings") })}
-      >
-        <SettingsRow
-          title={t("Settings version")}
-          description={t(
-            "Settings are stored in the database. A change on any node reaches the others within 30 seconds.",
-          )}
-          control={
-            st?.sharedVersion !== undefined ? (
-              <span className="tabular-nums text-sm text-fg">v{st.sharedVersion}</span>
-            ) : null
-          }
-        />
-        <SettingsRow
-          title={t("Credential key")}
-          description={t(
-            "Fingerprint of the key that encrypts stored credentials. It's the same on every node.",
-          )}
-          control={st?.keyFingerprint ? <code className="text-xs">{st.keyFingerprint}</code> : null}
-        />
-      </MoreOptions>
-      <SettingsRow
-        title={t("Settings each node keeps")}
-        description={tx(
-          "Port, listen address, log level, cache, transcoding hardware, the public port for its port forward and the node's weight are set on each node, on that node's own {general} page.",
-          {
-            general: (
-              <Link to="/server" className="underline">
-                {t("General")}
-              </Link>
-            ),
-          },
-        )}
-      />
-      {settings.error ? (
-        <div className="px-5 pb-4">
-          <ErrorPanel error={settings.error} onRetry={() => void settings.reload()} />
-        </div>
-      ) : null}
-    </SettingsSection>
-  );
-}
 
 const TOKEN_STATE: Record<
   TokenState,
@@ -763,7 +1188,11 @@ const TOKEN_STATE: Record<
 function JoinTokens({ settings }: { settings: SettingsState }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const tokens = settings.data?.joinTokens ?? [];
+  const [, tick] = useState(0);
+  useInterval(() => tick((n) => n + 1), 1000);
+  const tokens = (settings.data?.joinTokens ?? []).filter(
+    (token) => tokenState(token) === "unused",
+  );
 
   const revoke = async (token: JoinTokenInfo) => {
     const ok = await confirmDialog({
@@ -800,87 +1229,101 @@ function JoinTokens({ settings }: { settings: SettingsState }) {
         </Button>
       }
     >
-      {!settings.data && !settings.error ? (
+      {settings.error ? (
+        <ErrorPanel error={settings.error} onRetry={() => void settings.reload()} />
+      ) : !settings.data ? (
         <LoadingRows rows={2} />
       ) : (
-        <PagedTable<JoinTokenInfo>
-          rows={tokens}
-          rowKey={(token) => token.id}
-          pageSize={10}
-          searchable={false}
-          labels={pagedTableLabels()}
-          empty={
-            <EmptyState
-              icon={<KeyRound />}
-              title={t("No join tokens")}
-              description={t("Create one when you're ready to add a node.")}
-            />
-          }
-          columns={[
-            {
-              key: "id",
-              header: t("Token"),
-              cell: (token) => <code className="text-xs">{token.id}</code>,
-            },
-            {
-              key: "created",
-              header: t("Created"),
-              cell: (token) => (
-                <span className="text-fg-muted" title={formatDateTime(token.createdAt)}>
-                  {relativeTime(token.createdAt)}
-                </span>
-              ),
-            },
-            {
-              key: "expires",
-              header: t("Expires"),
-              cell: (token) => (
-                <span className="text-fg-muted" title={formatDateTime(token.expiresAt)}>
-                  {tokenState(token) === "used" ? "—" : relativeTime(token.expiresAt)}
-                </span>
-              ),
-            },
-            {
-              key: "state",
-              header: t("Status"),
-              cell: (token) => {
-                const state = tokenState(token);
-                return (
-                  <span className="flex flex-col items-start gap-0.5">
-                    <Badge variant={TOKEN_STATE[state].variant}>{TOKEN_STATE[state].label}</Badge>
-                    {state === "used" ? (
-                      <span className="text-xs text-fg-muted" title={formatDateTime(token.usedAt)}>
-                        {token.usedBy
-                          ? t("by {node}, {when}", {
-                              node: token.usedBy,
-                              when: relativeTime(token.usedAt),
-                            })
-                          : relativeTime(token.usedAt)}
-                      </span>
-                    ) : null}
-                  </span>
-                );
-              },
-            },
-            {
-              key: "actions",
-              header: "",
-              align: "right",
-              cell: (token) =>
-                tokenState(token) === "used" ? null : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy === token.id}
-                    aria-label={t("Revoke token {id}", { id: token.id })}
-                    onClick={() => void revoke(token)}
-                  >
-                    {t("Revoke")}
-                  </Button>
+        <div className="max-sm:[&_thead]:hidden max-sm:[&_tr]:grid max-sm:[&_tr]:grid-cols-2 max-sm:[&_td]:whitespace-normal max-sm:[&_td]:text-left">
+          <PagedTable<JoinTokenInfo>
+            rows={tokens}
+            rowKey={(token) => token.id}
+            pageSize={10}
+            searchable={false}
+            labels={pagedTableLabels()}
+            empty={
+              <EmptyState
+                icon={<KeyRound />}
+                title={t("No join tokens")}
+                description={t("Create one when you're ready to add a node.")}
+              />
+            }
+            columns={[
+              {
+                key: "id",
+                header: t("Token"),
+                cell: (token) => (
+                  <div>
+                    <span className="block text-xs text-fg-muted sm:hidden">{t("Token")}</span>
+                    <code className="text-xs">{token.id}</code>
+                  </div>
                 ),
-            },
-          ]}
-        />
+              },
+              {
+                key: "created",
+                header: t("Created"),
+                cell: (token) => (
+                  <span className="text-fg-muted" title={formatDateTime(token.createdAt)}>
+                    <span className="block text-xs sm:hidden">{t("Created")}</span>
+                    {relativeTime(token.createdAt)}
+                  </span>
+                ),
+              },
+              {
+                key: "expires",
+                header: t("Expires"),
+                cell: (token) => (
+                  <span className="text-fg-muted" title={formatDateTime(token.expiresAt)}>
+                    <span className="block text-xs sm:hidden">{t("Expires")}</span>
+                    {tokenState(token) === "used" ? "—" : relativeTime(token.expiresAt)}
+                  </span>
+                ),
+              },
+              {
+                key: "state",
+                header: t("Status"),
+                cell: (token) => {
+                  const state = tokenState(token);
+                  return (
+                    <span className="flex flex-col items-start gap-0.5">
+                      <Badge variant={TOKEN_STATE[state].variant}>{TOKEN_STATE[state].label}</Badge>
+                      {state === "used" ? (
+                        <span
+                          className="text-xs text-fg-muted"
+                          title={formatDateTime(token.usedAt)}
+                        >
+                          {token.usedBy
+                            ? t("by {node}, {when}", {
+                                node: token.usedBy,
+                                when: relativeTime(token.usedAt),
+                              })
+                            : relativeTime(token.usedAt)}
+                        </span>
+                      ) : null}
+                    </span>
+                  );
+                },
+              },
+              {
+                key: "actions",
+                header: "",
+                align: "right",
+                cell: (token) =>
+                  tokenState(token) === "used" ? null : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy === token.id}
+                      aria-label={t("Revoke token {id}", { id: token.id })}
+                      onClick={() => void revoke(token)}
+                    >
+                      {t("Revoke")}
+                    </Button>
+                  ),
+              },
+            ]}
+          />
+        </div>
       )}
       {open ? (
         <JoinTokenDrawer onClose={() => setOpen(false)} onCreated={() => void settings.reload()} />
