@@ -33,7 +33,8 @@ fonttools is required). Special Elite is Apache 2.0; the other faces are OFL.
 Phase 0, Apple M4 Pro: final eight-second Late night ident encoded in 12.749 s
 with four workers (1.594×; Mac target 1.5× was missed). Late night ident WASM
 rendered at 4.43 fps at 960×540 in host Chrome, well below the 45 fps gate.
-Decision 4 recommendation is the TypeScript Canvas2D fallback with Go golden
-parity, pending owner approval. Cropped scratch buffers, per-job prepared
+Decision 4 uses the TypeScript Canvas2D fallback with Go golden parity in the
+console (`web/src/pages/livetv/onair/scene-renderer.ts`). Reproduce its browser
+gates with `tools/onair/README.md`. Cropped scratch buffers, per-job prepared
 fonts/masks and a measured TinyGo spike are possible improvements; none has
 been demonstrated to close the gap. HYPERV03 and Windows were not tested.

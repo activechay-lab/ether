@@ -1,0 +1,423 @@
+{
+  "v": 1,
+  "moment": "upnext",
+  "duration": 8,
+  "poster": 5.5,
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": {
+        "radial": [
+          960,
+          480,
+          0,
+          1300
+        ],
+        "stops": [
+          [
+            0,
+            "{glow}"
+          ],
+          [
+            1,
+            "{bg}"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "beam",
+      "type": "path",
+      "path": "M 150 0 L 520 0 L 1500 1080 L 700 1080 Z",
+      "fill": {
+        "linear": [
+          0,
+          0,
+          0,
+          1080
+        ],
+        "stops": [
+          [
+            0,
+            "{accent}@0.06"
+          ],
+          [
+            1,
+            "{accent}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "dust",
+      "type": "particles",
+      "count": 70,
+      "fill": "{accent}@0.4",
+      "seed": 11
+    },
+    {
+      "id": "art-illustration",
+      "type": "group",
+      "x": 0,
+      "y": 0,
+      "clip": "M 16 0 H 1904 Q 1920 0 1920 16 V 1064 Q 1920 1080 1904 1080 H 16 Q 0 1080 0 1064 V 16 Q 0 0 16 0 Z",
+      "layers": [
+        {
+          "id": "art-sky",
+          "type": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 1920,
+          "h": 1080,
+          "fill": {
+            "linear": [
+              0,
+              0,
+              0,
+              1080
+            ],
+            "stops": [
+              [
+                0,
+                "#152443"
+              ],
+              [
+                1,
+                "#bd794f"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "art-house",
+          "type": "rect",
+          "x": 345.59999999999997,
+          "y": 345.6,
+          "w": 1228.8,
+          "h": 734.4000000000001,
+          "fill": "#22313a"
+        },
+        {
+          "id": "art-roof",
+          "type": "path",
+          "path": "M 153.6 367.20000000000005 L 960.0 108.0 L 1766.4 367.20000000000005 Z",
+          "fill": "#121b2b"
+        },
+        {
+          "id": "art-window00",
+          "type": "rect",
+          "x": 460.79999999999995,
+          "y": 432.0,
+          "w": 124.80000000000001,
+          "h": 118.8,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art-window01",
+          "type": "rect",
+          "x": 729.6,
+          "y": 432.0,
+          "w": 124.80000000000001,
+          "h": 118.8,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art-window02",
+          "type": "rect",
+          "x": 998.4000000000001,
+          "y": 432.0,
+          "w": 124.80000000000001,
+          "h": 118.8,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art-window03",
+          "type": "rect",
+          "x": 1267.2,
+          "y": 432.0,
+          "w": 124.80000000000001,
+          "h": 118.8,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art-window10",
+          "type": "rect",
+          "x": 460.79999999999995,
+          "y": 615.6,
+          "w": 124.80000000000001,
+          "h": 118.8,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art-window11",
+          "type": "rect",
+          "x": 729.6,
+          "y": 615.6,
+          "w": 124.80000000000001,
+          "h": 118.8,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art-window12",
+          "type": "rect",
+          "x": 998.4000000000001,
+          "y": 615.6,
+          "w": 124.80000000000001,
+          "h": 118.8,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art-window13",
+          "type": "rect",
+          "x": 1267.2,
+          "y": 615.6,
+          "w": 124.80000000000001,
+          "h": 118.8,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art-window20",
+          "type": "rect",
+          "x": 460.79999999999995,
+          "y": 799.2,
+          "w": 124.80000000000001,
+          "h": 118.8,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art-window21",
+          "type": "rect",
+          "x": 729.6,
+          "y": 799.2,
+          "w": 124.80000000000001,
+          "h": 118.8,
+          "fill": "#50656b"
+        },
+        {
+          "id": "art-window22",
+          "type": "rect",
+          "x": 998.4000000000001,
+          "y": 799.2,
+          "w": 124.80000000000001,
+          "h": 118.8,
+          "fill": "#edbf78"
+        },
+        {
+          "id": "art-window23",
+          "type": "rect",
+          "x": 1267.2,
+          "y": 799.2,
+          "w": 124.80000000000001,
+          "h": 118.8,
+          "fill": "#edbf78"
+        }
+      ]
+    },
+    {
+      "id": "art",
+      "type": "art",
+      "src": "{next.backdrop}",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fit": "cover"
+    },
+    {
+      "id": "scrim",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": {
+        "linear": [
+          0,
+          0,
+          1920,
+          0
+        ],
+        "stops": [
+          [
+            0,
+            "{bg}@0.95"
+          ],
+          [
+            1,
+            "{bg}@0.1"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "kicker",
+      "type": "text",
+      "text": "{words.upNext}",
+      "x": 180,
+      "y": 290,
+      "size": 40,
+      "font": "{type.display}",
+      "fill": "{accent}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "track": 6,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "Title",
+      "type": "text",
+      "text": "{next.title}",
+      "x": 180,
+      "y": 460,
+      "size": 112,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "wrap",
+      "maxWidth": 920,
+      "maxLines": 2,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "meta",
+      "type": "text",
+      "text": "{next.meta}",
+      "x": 180,
+      "y": 680,
+      "size": 32,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "logline",
+      "type": "text",
+      "text": "{next.logline}",
+      "x": 180,
+      "y": 770,
+      "size": 38,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "wrap",
+      "maxWidth": 900,
+      "maxLines": 2,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "time",
+      "type": "text",
+      "text": "{next.time}",
+      "x": 180,
+      "y": 930,
+      "size": 38,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": "{textures.grain}"
+    },
+    {
+      "type": "vignette",
+      "amount": 0.45
+    }
+  ],
+  "slots": [
+    "next.backdrop",
+    "next.logline",
+    "next.meta",
+    "next.time",
+    "next.title"
+  ]
+}

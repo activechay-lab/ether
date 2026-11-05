@@ -108,10 +108,18 @@ export type PersonalRecipe = {
 };
 export type Bindings = {
   channel?: { name: string };
-  viewer?: { name: string };
+  viewer?: { name: string; greeting?: string };
   now?: { title: string };
-  next?: { title: string; time?: string; reason?: string };
-  list?: { title: string; time: string; reason?: string }[];
+  next?: {
+    title: string;
+    time?: string;
+    reason?: string;
+    meta?: string;
+    logline?: string;
+    backdrop?: string;
+  };
+  offair?: { message: string };
+  list?: { title: string; time: string; reason?: string; meta?: string; poster?: string }[];
   greeting?: string;
 };
 export type OnAirAsset = {

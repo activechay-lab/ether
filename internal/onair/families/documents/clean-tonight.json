@@ -1,0 +1,469 @@
+{
+  "v": 1,
+  "moment": "tonight",
+  "duration": 8,
+  "poster": 5.5,
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": "{bg}"
+    },
+    {
+      "id": "rail",
+      "type": "rect",
+      "x": 120,
+      "y": 140,
+      "w": 6,
+      "h": 800,
+      "fill": "{accent}"
+    },
+    {
+      "id": "toprule",
+      "type": "rect",
+      "x": 160,
+      "y": 140,
+      "w": 1640,
+      "h": 2,
+      "fill": "{text}@0.18"
+    },
+    {
+      "id": "Title",
+      "type": "text",
+      "text": "{words.tonight}",
+      "x": 180,
+      "y": 190,
+      "size": 86,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "align": "left",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "card0",
+      "type": "path",
+      "x": 360,
+      "y": 268,
+      "fill": "{accent}@0.14",
+      "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z"
+    },
+    {
+      "id": "time0",
+      "type": "text",
+      "text": "{list[0].time}",
+      "x": 180,
+      "y": 350,
+      "size": 42,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "maxLines": 1,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "item0",
+      "type": "text",
+      "text": "{list[0].title}",
+      "x": 420,
+      "y": 340,
+      "size": 58,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "meta0",
+      "type": "text",
+      "text": "{list[0].meta}",
+      "x": 420,
+      "y": 382,
+      "size": 28,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "card1",
+      "type": "path",
+      "x": 360,
+      "y": 438,
+      "fill": "{accent}@0.14",
+      "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z"
+    },
+    {
+      "id": "time1",
+      "type": "text",
+      "text": "{list[1].time}",
+      "x": 180,
+      "y": 520,
+      "size": 42,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "maxLines": 1,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "item1",
+      "type": "text",
+      "text": "{list[1].title}",
+      "x": 420,
+      "y": 510,
+      "size": 58,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "meta1",
+      "type": "text",
+      "text": "{list[1].meta}",
+      "x": 420,
+      "y": 552,
+      "size": 28,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "card2",
+      "type": "path",
+      "x": 360,
+      "y": 608,
+      "fill": "{accent}@0.14",
+      "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z"
+    },
+    {
+      "id": "time2",
+      "type": "text",
+      "text": "{list[2].time}",
+      "x": 180,
+      "y": 690,
+      "size": 42,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "maxLines": 1,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "item2",
+      "type": "text",
+      "text": "{list[2].title}",
+      "x": 420,
+      "y": 680,
+      "size": 58,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "meta2",
+      "type": "text",
+      "text": "{list[2].meta}",
+      "x": 420,
+      "y": 722,
+      "size": 28,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "card3",
+      "type": "path",
+      "x": 360,
+      "y": 778,
+      "fill": "{accent}@0.14",
+      "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z"
+    },
+    {
+      "id": "time3",
+      "type": "text",
+      "text": "{list[3].time}",
+      "x": 180,
+      "y": 860,
+      "size": 42,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "maxLines": 1,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "item3",
+      "type": "text",
+      "text": "{list[3].title}",
+      "x": 420,
+      "y": 850,
+      "size": 58,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "meta3",
+      "type": "text",
+      "text": "{list[3].meta}",
+      "x": 420,
+      "y": 892,
+      "size": 28,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1600,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            1.8,
+            1,
+            "out"
+          ]
+        ]
+      }
+    }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": "{textures.grain}"
+    }
+  ],
+  "slots": [
+    "list[0].meta",
+    "list[0].time",
+    "list[0].title",
+    "list[1].meta",
+    "list[1].time",
+    "list[1].title",
+    "list[2].meta",
+    "list[2].time",
+    "list[2].title",
+    "list[3].meta",
+    "list[3].time",
+    "list[3].title"
+  ]
+}
