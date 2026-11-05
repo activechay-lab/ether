@@ -39,7 +39,7 @@ type deploymentRuntime struct {
 	sourceAdmin   http.Handler
 	publicReady   atomic.Bool
 	quotaOpen     atomic.Bool
-	quota         atomic.Pointer[placement.QuotaStatus]
+	quota         atomic.Pointer[runtimeQuotaSnapshot]
 	encoder       *transcode.Manager
 	placement     *placement.Service
 	settings      clusterconfig.Deployment
@@ -85,13 +85,13 @@ func (a *App) prepareDeployment(ctx context.Context) error {
 	mux.HandleFunc("GET /readyz", probe(p.ready.Load))
 	mux.HandleFunc("GET /admissionz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if !p.ready.Load() || !p.quotaOpen.Load() || a.nodeDraining() {
+		if !a.privateAdmissionReady() {
 			w.WriteHeader(503)
 		}
 		_ = json.NewEncoder(w).Encode(struct {
 			Accepting bool                   `json:"accepting"`
 			Ledger    *placement.QuotaStatus `json:"ledger,omitempty"`
-		}{p.ready.Load() && p.quotaOpen.Load() && !a.nodeDraining(), p.quota.Load()})
+		}{a.privateAdmissionReady(), p.quotaStatus()})
 	})
 	p.probes = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	p.probeListener, err = net.Listen("tcp", d.ProbeListen)

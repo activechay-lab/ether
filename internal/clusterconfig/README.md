@@ -176,3 +176,15 @@ Independent source selection prefers currently eligible source-only peers before
 full-server peers. Once preparation has an operation identity, an uncertain result
 retains that exact owner and operation until proof; it never retries on another
 source merely because a connection failed.
+
+The existing owner-authenticated `GET /ether/api/cluster/` optionally includes
+`selfRuntime` for a deployment process only. `nodeId` and `boot` match the same
+response's captured `self`; `runtimeSampledAt` timestamps its local cached atomic
+state (`protocol`, `started`, `readyExisting`, `acceptingNew`, `draining`).
+`quota.sampledAt` retains the last successful quota observation time and
+`quota.status` its measured ledger status. A failed current quota read closes
+admission without refreshing the retained observation. Optional `resources`
+retains each metric's own `at` and `state`; these are resource sample times, not
+response times. Missing runtime/quota/resources are unknown, not measured zero.
+This is local process diagnostics, not fleet readiness, placement or retirement
+proof. Drain can leave `readyExisting:true` with `acceptingNew:false`.
