@@ -25,6 +25,7 @@ func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 	caps := Supported()
 	caps.ABR, caps.DASH, caps.HTTP = true, true, true
 	caps.SoftSubtitles, caps.Controls = true, true
+	caps.Observations = true
 	w.opts.Capabilities = caps
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -75,6 +76,7 @@ func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 		t.Fatalf("proxy lost representation: %v", out)
 	}
 	remote := hs.(*Session)
+	checkObservation(t, w, f, remote)
 	n := renewal(start)
 	lease, err := remote.Renew(context.Background(), n)
 	if err != nil || lease.Version != 1 || !sameRenewal(*lease.Accepted, n) {
@@ -125,6 +127,12 @@ func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 		}
 	}
 	server.Close()
+	if _, err := remote.Observe(context.Background()); err == nil {
+		t.Fatal("disconnected inspection supplied cached values")
+	}
+	if _, ok := a.Session(remote.ID()); !ok {
+		t.Fatal("inspection failure erased session ownership")
+	}
 	if err := hs.Close(); !errors.Is(err, ErrUncertain) {
 		t.Fatalf("disconnect reported retirement: %v", err)
 	}
