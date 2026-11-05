@@ -1,142 +1,15 @@
-import type { Look, Moment } from "./model";
-import { Button, Input, Select } from "@braedonsaunders/appkit-ui";
-import { Eye, EyeOff } from "lucide-react";
-import { Field } from "../../../components/fields";
-import { t } from "../../../i18n";
-import { documentFor, type Layer } from "./scene-renderer";
-export function sceneLayers(look: Look, moment: Moment): Layer[] {
-  const out: Layer[] = [];
-  const walk = (layers: Layer[]) => {
-    for (const layer of layers) {
-      out.push(layer);
-      if (layer.layers) walk(layer.layers);
-    }
-  };
-  walk(documentFor(look.family, moment)?.layers ?? []);
-  return out;
-}
-export function LayersPanel({
-  selected,
-  onSelect,
-  look,
-  onChange,
-  moment,
-}: {
-  look: Look;
-  onChange: (l: Look) => void;
-  selected: string;
-  onSelect: (s: string) => void;
-  moment: Moment;
-}) {
-  const layers = sceneLayers(look, moment);
-  const source = layers.find((l) => l.id === selected) ?? layers.find((l) => l.type === "text");
-  const selectedId = source?.id ?? selected;
-  const layer = look.layers?.[selectedId] ?? {};
-  const patch = (p: NonNullable<Look["layers"]>[string]) =>
-    onChange({ ...look, layers: { ...look.layers, [selectedId]: { ...layer, ...p } } });
-  return (
-    <div className="space-y-5">
-      <h3 className="text-sm font-semibold">{t("Layers")}</h3>
-      <div className="max-h-48 space-y-1 overflow-y-auto">
-        {layers.map((l) => (
-          <div
-            key={l.id}
-            className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-surface-hover"
-          >
-            <button
-              aria-pressed={l.id === selected}
-              className="min-w-0 flex-1 truncate text-left text-sm"
-              onClick={() => onSelect(l.id)}
-            >
-              {l.id}
-            </button>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={t("Toggle visibility for {name}", { name: l.id })}
-              aria-pressed={!look.layers?.[l.id]?.hidden}
-              onClick={() =>
-                onChange({
-                  ...look,
-                  layers: {
-                    ...look.layers,
-                    [l.id]: { ...look.layers?.[l.id], hidden: !look.layers?.[l.id]?.hidden },
-                  },
-                })
-              }
-            >
-              {look.layers?.[l.id]?.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
-            </Button>
-          </div>
-        ))}
-      </div>
-      {source ? (
-        <>
-          <h4 className="text-sm font-medium">{t("Layer · {name}", { name: selectedId })}</h4>
-          {source.type === "text" ? (
-            <>
-              <Field label={t("Text")}>
-                <Input
-                  aria-label={t("Text")}
-                  value={layer.text ?? (typeof source.text === "string" ? source.text : "")}
-                  onChange={(e) => patch({ text: e.currentTarget.value })}
-                />
-              </Field>
-              {source.maxWidth ? (
-                <Field label={t("Fit mode")}>
-                  <Select
-                    aria-label={t("Fit mode")}
-                    value={layer.fit ?? source.fit ?? "shrink"}
-                    onChange={(e) => patch({ fit: e.currentTarget.value })}
-                  >
-                    {["shrink", "wrap"].map((v) => (
-                      <option key={v} value={v}>
-                        {t({ shrink: "Shrink", wrap: "Wrap", clip: "Clip" }[v]!)}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              ) : null}
-            </>
-          ) : null}
-          <div className="grid grid-cols-2 gap-3">
-            {(["x", "y", "opacity", ...(source.type === "text" ? ["size"] : [])] as const).map(
-              (key) => (
-                <Field
-                  key={key}
-                  label={t(
-                    { x: "Position X", y: "Position Y", opacity: "Opacity", size: "Size" }[
-                      key as "x"
-                    ],
-                  )}
-                >
-                  <Input
-                    type="number"
-                    aria-label={t(
-                      { x: "Position X", y: "Position Y", opacity: "Opacity", size: "Size" }[
-                        key as "x"
-                      ],
-                    )}
-                    min={key === "opacity" ? 0 : undefined}
-                    max={key === "opacity" ? 100 : undefined}
-                    value={
-                      layer[key as "x"] ??
-                      (key === "opacity"
-                        ? 100
-                        : typeof source[key as "x"] === "number"
-                          ? (source[key as "x"] as number)
-                          : 0)
-                    }
-                    onChange={(e) => patch({ [key]: Number(e.currentTarget.value) })}
-                  />
-                </Field>
-              ),
-            )}
-          </div>
-        </>
-      ) : (
-        <p className="text-sm text-fg-muted">{t("Select a layer to edit it.")}</p>
-      )}
-    </div>
-  );
+import {useState} from 'react';
+import {Button,Input} from '@braedonsaunders/appkit-ui';
+import {t} from '../../../i18n';
+import type {Scene,Layer} from './scene-renderer';
+import {updateLayer,moveLayer,duplicateLayers,removeLayers} from './editor/scene-edit';
+export function LayersPanel(p:{document:Scene;selected:string[];onSelect(ids:string[]):void;onChange(doc:Scene):void}){
+ const [collapsed,setCollapsed]=useState<string[]>([]),[rename,setRename]=useState(''),[menu,setMenu]=useState('');
+ const rows=(layers:Layer[],parent?:string,depth=0):React.ReactNode=>[...layers].reverse().map(l=><div key={l.id}>
+ <div draggable onDragStart={e=>e.dataTransfer.setData('text/plain',l.id)} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const id=e.dataTransfer.getData('text/plain');p.onChange(moveLayer(p.document,id,e.shiftKey&&l.type==='group'?l.id:parent,e.shiftKey?l.layers?.length??0:layers.indexOf(l)));}} onContextMenu={e=>{e.preventDefault();setMenu(l.id)}} className={`flex items-center gap-1 rounded p-1 ${p.selected.includes(l.id)?'bg-primary-subtle':'hover:bg-surface-hover'}`} style={{paddingLeft:depth*16+4}}>
+ {l.type==='group'&&<Button size="sm" variant="ghost" aria-label={t('Expand group')} onClick={()=>setCollapsed(c=>c.includes(l.id)?c.filter(id=>id!==l.id):[...c,l.id])}>{collapsed.includes(l.id)?'▸':'▾'}</Button>}
+ {rename===l.id?<Input autoFocus aria-label={t('Layer name')} value={l.name??l.id} onChange={e=>p.onChange(updateLayer(p.document,l.id,{name:e.target.value}))} onBlur={()=>setRename('')} onKeyDown={e=>{if(e.key==='Enter')setRename('')}}/>:<button className="min-w-0 flex-1 truncate text-left text-sm" onDoubleClick={()=>setRename(l.id)} onClick={e=>p.onSelect(e.shiftKey?[...new Set([...p.selected,l.id])]:[l.id])}>{l.name||t(l.type)}</button>}
+ <Button size="sm" variant="ghost" aria-label={t('Toggle visibility')} aria-pressed={!l.hidden} onClick={()=>p.onChange(updateLayer(p.document,l.id,{hidden:!l.hidden}))}>{l.hidden?'○':'●'}</Button><Button size="sm" variant="ghost" aria-label={t('Lock layer')} aria-pressed={!!l.locked} onClick={()=>p.onChange(updateLayer(p.document,l.id,{locked:!l.locked}))}>{l.locked?'▣':'□'}</Button>
+ </div>{menu===l.id&&<div className="flex flex-wrap gap-1 p-1"><Button size="sm" variant="ghost" onClick={()=>{setRename(l.id);setMenu('')}}>{t('Rename')}</Button><Button size="sm" variant="ghost" onClick={()=>{p.onChange(duplicateLayers(p.document,[l.id]));setMenu('')}}>{t('Duplicate')}</Button><Button size="sm" variant="ghost" onClick={()=>{p.onChange(removeLayers(p.document,[l.id]));setMenu('')}}>{t('Delete')}</Button></div>}{l.layers&&!collapsed.includes(l.id)&&rows(l.layers,l.id,depth+1)}</div>);
+ return <section aria-label={t('Layers')} className="space-y-2"><h3 className="text-sm font-semibold">{t('Layers')}</h3>{rows(p.document.layers)}</section>;
 }
