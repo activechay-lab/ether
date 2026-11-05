@@ -1,3 +1,4 @@
+import { styleCopy } from "./naming";
 import { AgentPanel } from "@braedonsaunders/appkit-ai/react";
 import { Alert, AlertDescription, Button, Textarea } from "@braedonsaunders/appkit-ui";
 import { Check } from "lucide-react";
@@ -160,7 +161,7 @@ export function DescribeLook({ look, onChange }: { look: Look; onChange: (l: Loo
         }}
       >
         <label className="block text-sm font-medium" htmlFor="style-description">
-          {t("Describe your style")}
+          {styleCopy("Describe your style")}
         </label>
         <Textarea
           id="style-description"
@@ -173,7 +174,7 @@ export function DescribeLook({ look, onChange }: { look: Look; onChange: (l: Loo
           {t("Use description template")}
         </Button>
         <p className="text-xs text-fg-muted">
-          {t("Matches mood keywords to a complete built-in style. No AI required.")}
+          {styleCopy("Matches mood keywords to a complete built-in style. No AI required.")}
         </p>
       </form>
       {enabled ? (
@@ -188,8 +189,8 @@ export function DescribeLook({ look, onChange }: { look: Look; onChange: (l: Loo
             disabledTitle: t("Connect a model"),
           }}
           suggestions={[
-            t("A late-night style for {name}", { name: look.name }),
-            t("Match the style to this channel’s programming"),
+            styleCopy("A late-night style for {name}", { name: look.name }),
+            styleCopy("Match the style to this channel’s programming"),
             t("Make it feel like a 90s kids network"),
             t("Give it a calmer motion"),
           ]}

@@ -1,5 +1,5 @@
+import { styleCopy } from "./naming";
 import { MomentVideoPicker } from "./MomentVideoPicker";
-import { BreakPatternEditor } from "./BreakPatternEditor";
 import { useUnsavedGuard } from "../../../components/SaveBar";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Input, Popover, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
@@ -75,6 +75,7 @@ export function LookDrawer({
   useUnsavedGuard(dirty);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (saving) return;
       if ((e.metaKey || e.ctrlKey) && e.key === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -83,7 +84,7 @@ export function LookDrawer({
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, []);
+  }, [saving]);
   useEffect(() => {
     void tv
       .channelSummaries()
@@ -113,7 +114,7 @@ export function LookDrawer({
       !dirty ||
       (await confirmDialog({
         title: t("Discard unsaved changes?"),
-        message: t("Your changes to this style haven’t been saved."),
+        message: styleCopy("Your changes to this style haven’t been saved."),
         confirmLabel: t("Discard"),
         tone: "danger",
       }))
@@ -129,7 +130,7 @@ export function LookDrawer({
       setRender(0);
       onSaved(result);
     } catch {
-      toast.error(t("Couldn’t save style"));
+      toast.error(styleCopy("Couldn’t save style"));
     } finally {
       setSaving(false);
     }
@@ -155,7 +156,7 @@ export function LookDrawer({
       panelClassName="max-sm:[&>header]:flex-wrap max-sm:[&>header]:gap-2 max-sm:[&>header>div:first-child]:w-full max-sm:[&>header>div:last-child]:w-full max-sm:[&>header>div:last-child]:justify-end"
       title={
         <Input
-          aria-label={t("Style name")}
+          aria-label={styleCopy("Style name")}
           className="w-full sm:max-w-48 border-transparent bg-transparent font-semibold"
           value={draft.name}
           onChange={(e) => change({ ...draft, name: e.target.value })}
@@ -170,7 +171,7 @@ export function LookDrawer({
             {t("Discard")}
           </Button>
           <Button size="sm" disabled={saving} onClick={() => void save()}>
-            {t("Save style")}
+            {styleCopy("Save style")}
           </Button>
           <Popover
             open={menu}
@@ -181,7 +182,7 @@ export function LookDrawer({
               <Button
                 variant="ghost"
                 size="sm"
-                aria-label={t("Style actions")}
+                aria-label={styleCopy("Style actions")}
                 onClick={() => setMenu(!menu)}
               >
                 <MoreHorizontal size={16} />
@@ -204,7 +205,9 @@ export function LookDrawer({
                   if (
                     await confirmDialog({
                       title: t("Delete {name}?", { name: draft.name }),
-                      message: t("Channels using this style will lose their on-air graphics."),
+                      message: styleCopy(
+                        "Channels using this style will lose their on-air graphics.",
+                      ),
                       confirmLabel: t("Delete"),
                       tone: "danger",
                     })
@@ -219,13 +222,13 @@ export function LookDrawer({
         </div>
       }
     >
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-3">
+      <div inert={saving} className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-3">
         <aside className="order-2 min-w-0 border-t border-border bg-surface lg:order-1 lg:overflow-y-auto lg:border-r lg:border-t-0">
           <div className="sticky top-0 z-10 bg-surface px-5 pt-3">
             <SubtabNav
               active={tab}
               onSelect={setTab}
-              ariaLabel={t("Style inspector")}
+              ariaLabel={styleCopy("Style inspector")}
               tabs={["describe", "design", "layers", "screens", "assets"].map((key) => ({
                 key,
                 label: t(
@@ -242,7 +245,10 @@ export function LookDrawer({
           </div>
           <div className="p-5">
             {tab === "design" ? (
-              <div className="space-y-5"><DesignPanel look={draft} onChange={change}/><MomentVideoPicker look={draft} moment={moment} onChange={change}/><BreakPatternEditor value={draft.breakPattern} onChange={breakPattern=>change({...draft,breakPattern})}/></div>
+              <div className="space-y-5">
+                <DesignPanel look={draft} onChange={change} />
+                <MomentVideoPicker look={draft} moment={moment} onChange={change} />
+              </div>
             ) : tab === "describe" ? (
               <DescribeLook look={draft} onChange={change} />
             ) : tab === "layers" ? (
@@ -317,7 +323,9 @@ export function LookDrawer({
               </Button>
             </div>
           </div>
-          <p className="mb-3 text-sm text-fg-muted">{t("Style · {name}", { name: draft.name })}</p>
+          <p className="mb-3 text-sm text-fg-muted">
+            {styleCopy("Style · {name}", { name: draft.name })}
+          </p>
           <LookStage
             look={draft}
             compact={tab === "layers"}
@@ -352,10 +360,10 @@ export function LookDrawer({
                   });
                 }
                 setUseOpen(false);
-                toast.success(t("Style applied"));
+                toast.success(styleCopy("Style applied"));
               }}
             >
-              {t("Apply style")}
+              {styleCopy("Apply style")}
             </Button>
           }
         >

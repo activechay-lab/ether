@@ -40,6 +40,7 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
         <>
           <Field label={t("Name")}>
             <Input
+              aria-label={t("Name")}
               value={look.name}
               onChange={(e) => onChange({ ...look, name: e.target.value })}
             />
@@ -82,7 +83,11 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
               </span>
             }
           >
-            <Input value={b.tagline} onChange={(e) => set({ tagline: e.target.value })} />
+            <Input
+              aria-label={t("Tagline")}
+              value={b.tagline}
+              onChange={(e) => set({ tagline: e.target.value })}
+            />
           </Field>
         </>,
       )}

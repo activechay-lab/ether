@@ -107,6 +107,8 @@ export function LookStage({
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [selected, setSelected] = useState(moment);
+  const video = useRef<HTMLVideoElement>(null);
+  const authoredVideoSource = useAssetAudio(look.moments[selected]?.assetDigest ?? "");
   const [playing, setPlaying] = useState(
     () => !matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
@@ -116,6 +118,7 @@ export function LookStage({
   const [slow, setSlow] = useState(false);
   const [safe, setSafe] = useState(false);
   const audioSource = useAssetAudio(look.brand.sting);
+  const sting = useRef<HTMLAudioElement | null>(null);
   const [sound, setSound] = useState(false);
   const [corner, setCorner] = useState(false);
   const [hover, setHover] = useState<string | null>(null);
@@ -125,13 +128,22 @@ export function LookStage({
     if (!sound) return;
     if (!audioSource) return;
     const audio = new Audio(audioSource);
+    sting.current = audio;
     audio.volume = look.brand.volume;
-    void audio.play().catch(() => {});
+    audio.playbackRate = slow ? 0.5 : 1;
+    const sync = () => {
+      if (!Number.isFinite(audio.duration)) return;
+      audio.currentTime = Math.min(clock.current, audio.duration);
+      if (playing && clock.current < audio.duration) void audio.play().catch(() => {});
+    };
+    audio.addEventListener("loadedmetadata", sync, { once: true });
+    if (audio.readyState >= 1) sync();
     return () => {
+      sting.current = null;
       audio.pause();
       audio.removeAttribute("src");
     };
-  }, [sound, selected, audioSource, look.brand.volume]);
+  }, [sound, selected, audioSource, look.brand.volume, playing, slow]);
   useEffect(() => {
     let frame = 0,
       last = performance.now(),
@@ -145,6 +157,13 @@ export function LookStage({
           clock.current = loop ? 0 : duration;
           if (!loop) setPlaying(false);
         }
+      }
+      const audio = sting.current;
+      if (audio && playing && audio.readyState >= 1 && Number.isFinite(audio.duration)) {
+        if (Math.abs(audio.currentTime - clock.current) > 0.2)
+          audio.currentTime = Math.min(clock.current, audio.duration);
+        if (clock.current < audio.duration && audio.paused) void audio.play().catch(() => {});
+        if (clock.current >= audio.duration) audio.pause();
       }
       if (!playing && clock.current === lastDrawTime) {
         frame = requestAnimationFrame(draw);
@@ -185,10 +204,20 @@ export function LookStage({
       if (ctx) releaseRenderer(ctx);
     };
   }, [look, selected, bindings, playing, slow, loop, safe, corner, duration, at, viewer]);
+  useEffect(() => {
+    const v = video.current;
+    if (!v) return;
+    v.playbackRate = slow ? 0.5 : 1;
+    v.volume = look.brand.volume;
+    v.loop = loop;
+    if (playing) void v.play().catch(() => {});
+    else v.pause();
+  }, [playing, slow, loop, authoredVideoSource, look.brand.volume]);
   const step = (n: number) => {
     setPlaying(false);
     clock.current = Math.max(0, Math.min(duration, clock.current + n));
     setTime(clock.current);
+    if (video.current) video.current.currentTime = clock.current;
   };
   return (
     <div
@@ -230,6 +259,21 @@ export function LookStage({
           className="aspect-video w-full"
           aria-label={t("On-air stage")}
         />
+        {authoredVideoSource ? (
+          <video
+            ref={video}
+            src={authoredVideoSource}
+            muted={!sound}
+            playsInline
+            aria-label={t("Bumper video")}
+            className="absolute inset-0 h-full w-full object-contain"
+            style={{
+              opacity: look.moments[selected]?.crossfade
+                ? Math.max(0, Math.min(1, time / 0.25, (duration - time) / 0.25))
+                : 1,
+            }}
+          />
+        ) : null}
         {hover && onSelectLayer ? (
           <div
             className="pointer-events-none absolute border border-primary"

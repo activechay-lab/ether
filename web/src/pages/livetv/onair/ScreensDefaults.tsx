@@ -1,3 +1,4 @@
+import { styleCopy } from "./naming";
 import { Select, Switch, Tooltip } from "@braedonsaunders/appkit-ui";
 import { useState } from "react";
 import { SaveBar, useDraft } from "../../../components/SaveBar";
@@ -26,12 +27,12 @@ export function ScreensDefaults() {
     setDraft({ ...draft, liveTV: { ...draft.liveTV, screens: { ...screens, ...patch } } });
   return (
     <section className="space-y-5 rounded-xl border border-border bg-surface p-4">
-      <h2 className="text-base font-semibold text-fg">{t("Default style")}</h2>
+      <h2 className="text-base font-semibold text-fg">{styleCopy("Default style")}</h2>
       <SettingsRow
         title={t("Applies to every channel without an override")}
         control={
           <Select
-            aria-label={t("Default style")}
+            aria-label={styleCopy("Default style")}
             value={draft.liveTV?.defaultStyleId ?? ""}
             onChange={(e) =>
               setDraft({
@@ -40,7 +41,7 @@ export function ScreensDefaults() {
               })
             }
           >
-            <option value="">{t("No style")}</option>
+            <option value="">{styleCopy("No style")}</option>
             {styles.data?.map((l) => (
               <option key={l.id} value={l.id}>
                 {l.name}
@@ -51,7 +52,7 @@ export function ScreensDefaults() {
       />
       <details>
         <summary className="cursor-pointer text-sm">
-          {t("Fallback screens without a style")}
+          {styleCopy("Fallback screens without a style")}
         </summary>
         <div className="grid gap-6 xl:grid-cols-2">
           <ScreenPicker

@@ -1,3 +1,4 @@
+import { styleCopy } from "./naming";
 import { api } from "../../../lib/api";
 import { useAsync } from "../../../lib/hooks";
 import { onair, type Look } from "./model";
@@ -170,7 +171,7 @@ export function ScreenPicker({
 }) {
   const options: { value: ScreenStyle; label: string }[] = [
     ...(defaultLabel
-      ? [{ value: "" as const, label: t("Default ({style})", { style: defaultLabel }) }]
+      ? [{ value: "" as const, label: styleCopy("Default ({style})", { style: defaultLabel }) }]
       : []),
     { value: "card", label: t("Modern card") },
     { value: "static", label: t("Analogue static") },
@@ -235,7 +236,11 @@ export function ChannelScreens({
         label={t("When a channel is off air")}
         value={channel.screens?.offAir || ""}
         onChange={(offAir) => onChange({ screens: { ...channel.screens, offAir } })}
-        station={channel.name}
+        station={
+          (look?.screens?.stationId ?? config.data?.liveTV?.screens?.stationId ?? true)
+            ? channel.name
+            : ""
+        }
         look={look}
         fallback={look?.screens?.offAir || config.data?.liveTV?.screens?.offAir || "card"}
         defaultLabel={
@@ -246,7 +251,11 @@ export function ChannelScreens({
         label={t("When a channel can't play")}
         value={channel.screens?.noSignal || ""}
         onChange={(noSignal) => onChange({ screens: { ...channel.screens, noSignal } })}
-        station={channel.name}
+        station={
+          (look?.screens?.stationId ?? config.data?.liveTV?.screens?.stationId ?? true)
+            ? channel.name
+            : ""
+        }
         look={look}
         fallback={look?.screens?.noSignal || config.data?.liveTV?.screens?.noSignal || "card"}
         defaultLabel={

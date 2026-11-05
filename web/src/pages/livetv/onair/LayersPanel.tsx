@@ -85,6 +85,7 @@ export function LayersPanel({
               {source.maxWidth ? (
                 <Field label={t("Fit mode")}>
                   <Select
+                    aria-label={t("Fit mode")}
                     value={layer.fit ?? source.fit ?? "shrink"}
                     onChange={(e) => patch({ fit: e.currentTarget.value })}
                   >

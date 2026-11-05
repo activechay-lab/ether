@@ -587,7 +587,7 @@ export function createAgentMock(): { handle: ExtendHandler } {
               look.brand.energy = 0.28;
               return {
                 text: t(
-                  "The draft uses a calmer palette and motion. Save the look when you’re ready.",
+                  "The draft uses a calmer palette and motion. Save the style when you’re ready.",
                 ),
                 tools: [
                   {

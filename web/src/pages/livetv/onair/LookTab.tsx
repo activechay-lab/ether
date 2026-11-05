@@ -1,3 +1,4 @@
+import { styleCopy } from "./naming";
 import { BreakPatternEditor } from "./BreakPatternEditor";
 import { Button, Input, Select, Switch } from "@braedonsaunders/appkit-ui";
 import { textOf, useRegistry } from "../../../lib/extend";
@@ -67,7 +68,7 @@ export function LookTab({
       <h3 className="text-sm font-semibold">
         {settings.lookId
           ? t("Override for {name}", { name: channel.name })
-          : t("Default style · {name}", { name: look?.name ?? t("No style") })}
+          : styleCopy("Default style · {name}", { name: look?.name ?? styleCopy("No style") })}
       </h3>
       {looks.error ? <ErrorPanel error={looks.error} onRetry={() => void looks.reload()} /> : null}
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
@@ -88,12 +89,12 @@ export function LookTab({
           />
         ) : (
           <div className="grid aspect-video place-items-center rounded-lg border border-dashed border-border bg-surface text-sm text-fg-muted">
-            {t("Choose a style")}
+            {styleCopy("Choose a style")}
           </div>
         )}
         <div className="flex min-w-0 flex-col items-start gap-3">
           <ToolbarPicker
-            ariaLabel={t("Style")}
+            ariaLabel={styleCopy("Style")}
             value={settings.lookId}
             onChange={(id) => (id === "new" ? navigateLook("new") : set({ lookId: id }))}
             className="w-full"
@@ -107,7 +108,7 @@ export function LookTab({
               </>
             }
             options={[
-              { value: "", label: t("Use default style") },
+              { value: "", label: styleCopy("Use default style") },
               ...(looks.data ?? []).map((v) => ({
                 value: v.id,
                 label: v.name,
@@ -120,12 +121,12 @@ export function LookTab({
                   />
                 ),
               })),
-              { value: "new", label: t("New style…") },
+              { value: "new", label: styleCopy("New style…") },
             ]}
           />
           {look ? (
             <Button variant="outline" onClick={() => navigateLook(look.id)}>
-              {t("Edit style")}
+              {styleCopy("Edit style")}
             </Button>
           ) : null}
         </div>
@@ -222,7 +223,7 @@ export function LookTab({
                     })
                   }
                 >
-                  <option value="look">{t("Style's break screen")}</option>
+                  <option value="look">{styleCopy("Style's break screen")}</option>
                   <option value="reel">{t("Clips from a reel")}</option>
                   <option value="segments">{t("Plugin segments")}</option>
                 </Select>

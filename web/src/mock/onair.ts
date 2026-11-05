@@ -55,14 +55,14 @@ export function createOnAirMock(
       name: "Station wordmark.svg",
       kind: "image",
       size: 18400,
-      usedBy: ["Corner logo"],
+      usedBy: ["nocturne", "meridian"],
     },
     {
       digest: "sting",
       name: "Midnight sting.wav",
       kind: "audio",
       size: 284000,
-      usedBy: ["Ident", "Back from break"],
+      usedBy: ["nocturne"],
     },
   ];
   // Deterministic layout states for the On Air visual acceptance sweep.

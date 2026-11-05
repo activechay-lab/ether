@@ -1,3 +1,4 @@
+import { styleCopy } from "./naming";
 import { stylesName } from "./naming";
 import { useEffect, useState } from "react";
 import { Badge, Button, EmptyState } from "@braedonsaunders/appkit-ui";
@@ -93,9 +94,9 @@ export function LooksGallery({
       {!looks.length ? (
         <EmptyState
           icon={<Palette />}
-          title={t("Give your channels a style")}
+          title={styleCopy("Give your channels a style")}
           description={t("Choose a family to get started.")}
-          action={<Button onClick={onNew}>{t("New style")}</Button>}
+          action={<Button onClick={onNew}>{styleCopy("New style")}</Button>}
         />
       ) : null}
       {!looks.length ? (
@@ -107,7 +108,7 @@ export function LooksGallery({
               onClick={async () => {
                 const saved = await onair.saveLook({
                   ...f.look,
-                  name: t("Untitled style"),
+                  name: styleCopy("Untitled style"),
                   channelIds: [],
                 });
                 onSelect(saved.id);
@@ -145,7 +146,7 @@ export function LooksGallery({
           className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-surface/50 text-fg-muted hover:border-primary hover:text-primary"
         >
           <Plus size={26} />
-          <span className="text-sm font-medium">{t("New style")}</span>
+          <span className="text-sm font-medium">{styleCopy("New style")}</span>
         </button>
       </div>
       <ScreensDefaults />
@@ -177,7 +178,7 @@ export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => v
     setCreating({
       ...structuredClone(l),
       id: "",
-      name: t("Untitled style"),
+      name: styleCopy("Untitled style"),
       pack: undefined,
       channelIds: [],
     });
@@ -190,7 +191,7 @@ export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => v
           open
           stacked={params.has("channel")}
           size="lg"
-          title={t("New style")}
+          title={styleCopy("New style")}
           onClose={close}
         >
           <div className="space-y-6">
@@ -219,7 +220,7 @@ export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => v
             <section className="space-y-3">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <Copy size={15} />
-                {t("Duplicate a style")}
+                {styleCopy("Duplicate a style")}
               </h3>
               <div className="flex flex-wrap gap-2">
                 {looks.map((l) => (
