@@ -37,7 +37,7 @@ func decodeCatalogFilter(raw string, f *core.Filter) error {
 	if dec.Decode(new(any)) != io.EOF {
 		return errors.New("Invalid filter expression")
 	}
-	nodes := 0
+	nodes, conditions := 0, 0
 	var walk func(*core.Filter, int) error
 	var group func(*core.FilterGroup, int) error
 	group = func(g *core.FilterGroup, depth int) error {
@@ -45,8 +45,14 @@ func decodeCatalogFilter(raw string, f *core.Filter) error {
 			return nil
 		}
 		nodes++
-		if depth > 5 || nodes > 32 {
+		if depth > 5 || nodes > 96 {
 			return errors.New("Use at most 32 conditions and five group levels")
+		}
+		if g.Filter != nil || g.StateField != "" || g.Unwatched != nil || g.InProgress != nil || g.OnWatchlist != nil {
+			conditions++
+			if conditions > 32 {
+				return errors.New("Use at most 32 conditions and five group levels")
+			}
 		}
 		if g.UserID < 0 {
 			return errors.New("Invalid viewer")
