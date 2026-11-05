@@ -216,6 +216,7 @@ type Metadata struct {
 	Summary               string  `plex:"summary"`
 	Smart                 *bool   `plex:"smart"`
 	PlaylistType          string  `plex:"playlistType,omitempty"`
+	Content               string  `plex:"content,omitempty"`
 	Index                 *int    `plex:"index"`
 	ParentIndex           *int    `plex:"parentIndex"`
 	Rating                float64 `plex:"rating,omitempty"`

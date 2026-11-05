@@ -29,6 +29,9 @@ func (m Metadata) AttrOrder() (bool, []string, []string) {
 	if m.onDeck {
 		return false, []string{"allowSync", "librarySectionID", "librarySectionTitle", "librarySectionUUID"}, nil
 	}
+	if m.Type == "playlist" && !m.alpha {
+		return true, []string{"allowSync", "ratingKey", "key", "guid", "type", "title", "titleSort", "summary", "smart", "playlistType", "composite", "viewCount", "lastViewedAt", "viewOffset", "userRating", "duration", "leafCount", "addedAt", "updatedAt", "content", "icon"}, nil
+	}
 	return m.alpha, nil, decisionTrailing
 }
 

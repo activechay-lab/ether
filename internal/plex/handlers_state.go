@@ -512,7 +512,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			md = s.playlistMetadata(withRequest(ctx, viewer), pl)
+			md = s.playlistMetadata(withRequest(ctx, viewer), pl, false)
 		} else {
 			t, err := s.d.Catalog.Get(ctx, e.key)
 			if err != nil {

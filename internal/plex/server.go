@@ -313,6 +313,10 @@ func NewServer(d Deps) *Server {
 	go s.writeShelves()
 	s.sections = s.buildSections()
 	s.queues.now = d.Now
+	if d.DB != nil && d.Cluster == nil {
+		// Standalone queues share the durable store without starting cluster sessions.
+		s.queues.cl = newClusterState(s, d.DB, clusterbus.NewHub().Node("standalone-queues"))
+	}
 	if d.Cluster != nil && d.DB != nil {
 		s.cl = newClusterState(s, d.DB, d.Cluster)
 		s.versionFlows = newVersionFlowStore(s, d.DB)

@@ -456,7 +456,7 @@ func urlEsc(s string) string {
 func TestPlayQueueOps(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	rec := f.request(t, http.MethodPost, "/playQueues?type=video&uri="+urlEsc("server://m/com.plexapp.plugins.library/library/metadata/"+breakingBad.Key.String())+"&key="+urlEsc("/library/metadata/"+bbE2.Key.String()), map[string]string{"Accept": "application/json"})
+	rec := f.request(t, http.MethodPost, "/playQueues?type=video&uri="+urlEsc("server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/"+breakingBad.Key.String())+"&key="+urlEsc("/library/metadata/"+bbE2.Key.String()), map[string]string{"Accept": "application/json"})
 	mc := decodeJSON(t, rec)
 	if mc["playQueueTotalCount"].(float64) != 2 || mc["playQueueSelectedMetadataItemID"] != bbE2.Key.String() {
 		t.Fatalf("pq: %v", mc)
@@ -472,7 +472,7 @@ func TestPlayQueueOps(t *testing.T) {
 	}
 	rec = f.request(t, http.MethodDelete, fmt.Sprintf("/playQueues/%s/items/%d", id, first), map[string]string{"Accept": "application/json"})
 	mc = decodeJSON(t, rec)
-	if mc["playQueueTotalCount"].(float64) != 2 || mc["playQueueSelectedMetadataItemID"] != bbE2.Key.String() {
+	if mc["playQueueTotalCount"].(float64) != 3 || mc["playQueueSelectedMetadataItemID"] != bbE2.Key.String() {
 		t.Fatalf("remove: %v", mc)
 	}
 	// Other users can't read it.
@@ -854,12 +854,14 @@ func TestPlayQueueUnshuffleAfterRemovingEverything(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	js := map[string]string{"Accept": "application/json"}
-	rec := f.request(t, http.MethodPost, "/playQueues?type=video&uri="+urlEsc("server://m/com.plexapp.plugins.library/library/metadata/"+bbS1.Key.String()), js)
+	rec := f.request(t, http.MethodPost, "/playQueues?type=video&uri="+urlEsc("server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/"+bbS1.Key.String()), js)
 	mc := decodeJSON(t, rec)
 	id := fmt.Sprint(int64(mc["playQueueID"].(float64)))
-	if rec := f.request(t, http.MethodPut, "/playQueues/"+id+"/shuffle", nil); rec.Code != http.StatusOK {
+	rec = f.request(t, http.MethodPut, "/playQueues/"+id+"/shuffle", js)
+	if rec.Code != http.StatusOK {
 		t.Fatalf("shuffle %d", rec.Code)
 	}
+	mc = decodeJSON(t, rec)
 	for _, it := range mc["Metadata"].([]any) {
 		itemID := int64(it.(map[string]any)["playQueueItemID"].(float64))
 		if rec := f.request(t, http.MethodDelete, fmt.Sprintf("/playQueues/%s/items/%d", id, itemID), nil); rec.Code != http.StatusOK {

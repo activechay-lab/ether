@@ -151,6 +151,11 @@ type Filter struct {
 }
 
 type BrowseQuery struct {
+	// PlaylistSource evaluates a saved smart membership before applying this
+	// query's filters and optional episode-to-parent projection.
+	PlaylistSource      *BrowseQuery
+	PlaylistSourceLimit int
+
 	SortLastViewed bool
 	SortViewerID   int64
 	Filter         Filter
@@ -360,8 +365,33 @@ type Playlist struct {
 	Title     string      `json:"title"`
 	Smart     bool        `json:"smart"`
 	SmartURI  string      `json:"-"`
+	GUID      string      `json:"-"`
+	Summary   string      `json:"summary,omitempty"`
+	AddedAt   time.Time   `json:"addedAt"`
+	ItemIDs   []int64     `json:"-"`
 	Items     []RatingKey `json:"items"`
 	UpdatedAt time.Time   `json:"updatedAt"`
+}
+
+// PlaylistEdit updates only explicitly supplied fields.
+type PlaylistEdit struct {
+	Title    *string
+	Summary  *string
+	SmartURI *string
+}
+type PlaylistEditor interface {
+	EditPlaylist(context.Context, int64, RatingKey, PlaylistEdit) (*Playlist, error)
+}
+
+// PlaylistMutation addresses members by stable item identity.
+type PlaylistMutation struct {
+	Operation string
+	Items     []RatingKey
+	ItemID    int64
+	AfterID   int64
+}
+type PlaylistMutator interface {
+	MutatePlaylist(context.Context, int64, RatingKey, PlaylistMutation) (*Playlist, int, error)
 }
 
 // SmartPlaylists persists a section query for evaluation at read time.

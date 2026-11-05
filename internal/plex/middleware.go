@@ -493,6 +493,25 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 		}
 		applyInlineOnDeckExclusions(mc, excludedElements(r.URL.Query()))
 	}
+	if strings.HasPrefix(r.URL.Path, "/playlists") || strings.HasPrefix(r.URL.Path, "/playQueues") {
+		if mc, ok := v.(*model.MediaContainer); ok && strings.HasPrefix(r.URL.Path, "/playlists") && r.Method != http.MethodGet && r.Method != http.MethodHead && pr.HasPage {
+			total := len(mc.Metadata)
+			lo, hi := pr.window(total)
+			mc.Metadata = mc.Metadata[lo:hi]
+			mc.Size = len(mc.Metadata)
+			mc.SetPage(lo, total)
+		}
+		names := func(key string) map[string]bool {
+			out := map[string]bool{}
+			for _, raw := range r.URL.Query()[key] {
+				for _, name := range strings.Split(raw, ",") {
+					out[name] = true
+				}
+			}
+			return out
+		}
+		return model.MarshalWithExclusions(v, pr.Format, names("excludeFields"), names("excludeElements"))
+	}
 	return model.Marshal(v, pr.Format)
 }
 
