@@ -17,7 +17,12 @@ import (
 )
 
 func (a *App) buildOnAir() error {
-	o := onair.Options{DB: a.db, Dir: filepath.Join(a.opts.DataDir, "cache", "onair"), Logger: a.log.With("component", "onair"), Bindings: a.onairBindings}
+	o := onair.Options{Changed: func(ctx context.Context) error {
+		if a.livetv != nil {
+			return a.livetv.RefreshGuide(ctx)
+		}
+		return nil
+	}, DB: a.db, Dir: filepath.Join(a.opts.DataDir, "cache", "onair"), Logger: a.log.With("component", "onair"), Bindings: a.onairBindings}
 	a.pluginContent = onair.NewPluginContentCache()
 	o.PluginSegment = a.pluginContent.Lookup
 	chat := llm.NewClient(llm.ClientOptions{Config: a.cfg.Read().LLM, Logger: a.log.With("component", "onair-llm")})

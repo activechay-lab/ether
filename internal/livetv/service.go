@@ -729,6 +729,9 @@ func (s *Service) DeleteChannel(ctx context.Context, id string) error {
 	_, err := s.o.DB.ExecContext(ctx, `DELETE FROM livetv_channels WHERE id=?`, id)
 	if err == nil {
 		s.invalidate(id, "")
+		if err = s.refreshVirtualGuide(ctx); err != nil {
+			return err
+		}
 		s.bumpLineup()
 	}
 	return err

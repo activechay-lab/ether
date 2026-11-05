@@ -28,6 +28,8 @@ import (
 )
 
 type Options struct {
+	// Changed runs after an owner style save has committed and locks are released.
+	Changed        func(context.Context) error
 	PluginSegment  func(string) (PluginSegment, bool)
 	StaticRequests func(context.Context, string) []core.ClipRequest
 	DB             *sql.DB

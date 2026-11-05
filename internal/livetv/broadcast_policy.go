@@ -32,6 +32,7 @@ func (s *Service) programmePolicy(ctx context.Context, p Programme) *broadcastPo
 
 type broadcastViewerPolicy struct {
 	epoch     int64
+	revision  uint64
 	raw       string
 	user      core.User
 	channel   Channel
@@ -54,8 +55,11 @@ func (s *Service) broadcastPolicyContext(ctx context.Context, ss *session, u *co
 	if err != nil {
 		return ctx, err
 	}
+	s.virtualGuide.mu.RLock()
+	revision := s.virtualGuide.revision
+	s.virtualGuide.mu.RUnlock()
 	cache := &ss.broadcastPolicy
-	if cache.decisions == nil || cache.epoch != epoch || cache.raw != raw || !reflect.DeepEqual(cache.user, *u) {
+	if cache.decisions == nil || cache.epoch != epoch || cache.revision != revision || cache.raw != raw || !reflect.DeepEqual(cache.user, *u) {
 		c := ss.info.Channel
 		if cache.decisions != nil && cache.epoch != epoch {
 			var data []byte
@@ -71,7 +75,7 @@ func (s *Service) broadcastPolicyContext(ctx context.Context, ss *session, u *co
 			return ctx, err
 		}
 		pol.indexChannels()
-		*cache = broadcastViewerPolicy{epoch: epoch, raw: raw, user: *u, channel: c, policy: pol, decisions: map[*broadcastPolicyTag]bool{}}
+		*cache = broadcastViewerPolicy{epoch: epoch, revision: revision, raw: raw, user: *u, channel: c, policy: pol, decisions: map[*broadcastPolicyTag]bool{}}
 	}
 	ss.user = *u
 	ctx = context.WithValue(ctx, loadedPolicyKey{}, loadedPolicy{id: u.ID, user: u, pol: cache.policy})
