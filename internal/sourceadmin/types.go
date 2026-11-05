@@ -92,11 +92,25 @@ type Stream struct {
 	ActiveSources int64 `json:"activeSources"`
 	OpenReleases  int   `json:"openReleases"`
 }
+type Protocol string
+
+const (
+	Usenet  Protocol = "usenet"
+	Torrent Protocol = "torrent"
+)
+
+type SourceStartup struct {
+	Protocol      Protocol `json:"protocol"`
+	AverageMillis int64    `json:"averageMillis"`
+	LastMillis    int64    `json:"lastMillis"`
+	Samples       int64    `json:"samples"`
+}
 type Diagnostics struct {
-	Providers []Provider `json:"providers"`
-	Indexers  []Indexer  `json:"indexers"`
-	Cache     *Cache     `json:"cache,omitempty"`
-	Stream    *Stream    `json:"stream,omitempty"`
+	Providers []Provider      `json:"providers"`
+	Indexers  []Indexer       `json:"indexers"`
+	Cache     *Cache          `json:"cache,omitempty"`
+	Stream    *Stream         `json:"stream,omitempty"`
+	Sources   []SourceStartup `json:"sources,omitempty"`
 }
 
 // Trace excludes raw candidate names, URLs, routing descriptions and errors.

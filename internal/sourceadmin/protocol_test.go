@@ -57,8 +57,12 @@ func guards(t *testing.T, policy nodewire.Policy) (*nodewire.Guard, *nodewire.Gu
 // real TLS, per-operation owner/current-role checks, secret isolation, bounds,
 // missing dependencies and cooperative cancellation.
 func TestPrivateProtocol(t *testing.T) {
-	var revoked, rolesDenied atomic.Bool
-	cg, sg, caller, local := guards(t, func(context.Context, nodewire.Identity, *x509.Certificate) error {
+	var revoked, rolesDenied, policyBlocked atomic.Bool
+	cg, sg, caller, local := guards(t, func(ctx context.Context, _ nodewire.Identity, _ *x509.Certificate) error {
+		if policyBlocked.Load() {
+			<-ctx.Done()
+			return ctx.Err()
+		}
 		if revoked.Load() {
 			return ErrDenied
 		}
@@ -136,6 +140,14 @@ func TestPrivateProtocol(t *testing.T) {
 		t.Fatal("revoked peer received credential", e)
 	}
 	revoked.Store(false)
+	policyBlocked.Store(true)
+	policyCtx, policyCancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	startPolicy := time.Now()
+	if _, e := c.Call(policyCtx, "original-owner-secret", r); e != ErrUnavailable || time.Since(startPolicy) > 500*time.Millisecond || owners.Load() != before {
+		t.Fatal("policy cancellation lost or headers released", e)
+	}
+	policyCancel()
+	policyBlocked.Store(false)
 	mode.Store(2)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()

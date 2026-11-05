@@ -81,6 +81,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), h.o.Timeout)
 	defer cancel()
 	r = r.WithContext(ctx)
+	// Context deadlines alone do not interrupt a stalled incoming Body.Read.
+	// Require the real HTTP server's deadline support (wrappers must Unwrap).
+	controller := http.NewResponseController(w)
+	deadline, _ := ctx.Deadline()
+	defer controller.SetReadDeadline(time.Time{})
+	defer controller.SetWriteDeadline(time.Time{})
+	if controller.SetReadDeadline(deadline) != nil || controller.SetWriteDeadline(deadline) != nil {
+		writeError(w, ErrUnavailable)
+		return
+	}
 	caller, err := h.o.Guard.Request(r)
 	if err != nil {
 		writeError(w, ErrDenied)
@@ -205,11 +215,16 @@ func validResponse(r Request, v Response) bool {
 		}
 	}
 	if d := v.Diagnostics; d != nil {
-		if len(d.Providers) > limit || len(d.Indexers) > limit {
+		if len(d.Providers) > limit || len(d.Indexers) > limit || len(d.Sources) > limit {
 			return false
 		}
 		for _, p := range d.Providers {
 			if !stateValid(p.State) {
+				return false
+			}
+		}
+		for _, s := range d.Sources {
+			if s.Protocol != Usenet && s.Protocol != Torrent {
 				return false
 			}
 		}

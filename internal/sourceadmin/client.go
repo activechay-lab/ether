@@ -45,6 +45,11 @@ func NewClient(o ClientOptions) (*Client, error) {
 	if err != nil {
 		return nil, ErrInvalid
 	}
+	// outbound performs the mandatory Guard check before releasing the TLS
+	// connection to HTTP. Use that operation-context check rather than the
+	// ClientTLS background-context convenience hook, so policy IO can cancel.
+	// Ordinary chain/hostname verification remains enabled in the TLS config.
+	tc.VerifyConnection = nil
 	tr, err := outbound.New(o.Endpoint, tc, o.Timeout, func(ctx context.Context, cs tls.ConnectionState) error {
 		return o.Guard.RecheckServer(ctx, cs, o.Peer, u.Hostname())
 	})
