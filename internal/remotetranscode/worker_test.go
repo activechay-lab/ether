@@ -35,9 +35,12 @@ func (l *fakeLease) InputErr() error {
 }
 
 type fakeSession struct {
-	done    chan struct{}
-	stopped bool
-	input   *fakeLease
+	soft     *int
+	touched  bool
+	playback string
+	done     chan struct{}
+	stopped  bool
+	input    *fakeLease
 }
 
 func (s *fakeSession) ID() string { return "backend" }
@@ -79,7 +82,7 @@ func (f *fakeEncoder) StartHLSOwned(ctx context.Context, r core.HLSRequest) (cor
 		close(f.entered)
 		<-f.release
 	}
-	f.session = &fakeSession{done: make(chan struct{}), input: r.InputLease.(*fakeLease)}
+	f.session = &fakeSession{soft: r.SoftSubtitleStream, done: make(chan struct{}), input: r.InputLease.(*fakeLease)}
 	return f.session, f.session, nil
 }
 func fixture(t *testing.T) (*Worker, *fakeEncoder, Start) {

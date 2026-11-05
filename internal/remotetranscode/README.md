@@ -8,7 +8,14 @@ may enable ABR, DASH and HTTP only when trusted composition supplies the real
 backend contracts. These are host-negotiated promises, not peer discovery. Placement
 must call `Adapter.SupportsRequest` before reservation. The same side-effect-free
 `SupportsRequest(request, capabilities)` predicate is available to broker selectors.
-Probe, source swaps and subtitles cannot be enabled.
+Probe, source swaps and full subtitle extraction cannot be enabled.
+`SoftSubtitles` separately enables selected embedded text ASS output on HLS/DASH
+through the same encoder input; selected decision track must match that exact
+stream. No external/burned track or auxiliary source read is admitted.
+`Controls` enables bounded per-operation Touch and HLS/DASH PlaybackState RPCs
+(playing/paused/stopped). HTTP has Touch only, matching its local session.
+Control methods have the existing void signatures: transport loss cannot report
+success, does not retry, and never discards execution responsibility.
 
 ## Integration dependencies
 
@@ -72,7 +79,7 @@ unresolved ownership. Durable fenced retention/compaction is a subsequent increm
 
 Without explicit opt-in starts reject DASH/HTTP Matroska. All starts reject
 live/slate inputs, input headers and caller leases,
-soft/burned/selected subtitles, external subtitle URLs, audio filter expressions,
+burned/selected subtitles without the exact soft-output opt-in, external subtitle URLs, audio filter expressions,
 enhancement, and nonserialized keyframe indexes before assignment. Remote `Probe`
 and `SwapInput` return `ErrUnsupported`; source-change/release failover is unsupported.
 Segment seeks delegate to the existing backend and may restart that exact encoder;
@@ -85,7 +92,8 @@ These methods reject operations outside the configured capability and execution
 protocol. Start.Protocol is immutable and included in generation idempotence.
 The worker verifies the returned backend interfaces and retires on any mismatch;
 a misconfigured promise is a failed owned start, never a local fallback.
-Representation RPCs retain per-operation mTLS authorization, exact fences,
+IndependentSegments reflects only the exact backend session-wide proof (false
+when the backend cannot prove it). Representation RPCs retain per-operation mTLS authorization, exact fences,
 HEAD/range/cache forwarding, streaming backpressure and cancellation. HLS rung IDs
 must be advertised; indexes and DTOs are bounded. No media is buffered or retried.
 An HTTP backend must implement OwnedEncoderSession in addition to HTTPSession;
@@ -93,8 +101,8 @@ blocking Close is not an acceptable retirement implementation.
 
 Still absent: SubtitleExtractor, ProbeLive/ProbeLiveWithHeaders, cached/streamed/soft
 subtitles, PrepareSwap/CheckSwap, SwapInputBuffered/SwapWouldCopyVideo,
-CurrentSwapInput/WaitForReplacementOutput, RecoveryBuffer, PlaybackState/Touch,
-IndependentSegments, Info/Decision/EncoderStatus, Progress/GoodputKbps,
+CurrentSwapInput/WaitForReplacementOutput, RecoveryBuffer,
+Info/Decision/EncoderStatus, Progress/GoodputKbps,
 HWAccelerated, SegmentDuration/RequestedPosition/Container/Protocol,
 and manager-specific policy/capability/download/enhancement introspection.
 Consumers must not substitute missing values or select workflows needing these.

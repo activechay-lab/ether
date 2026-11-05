@@ -13,7 +13,7 @@ func (a *Adapter) SupportsRequest(r core.HLSRequest) bool {
 
 func mediaOperation(op string) bool {
 	switch op {
-	case "playlist", "segment", "rung-playlist", "rung-segment", "manifest", "init", "media", "http":
+	case "playlist", "segment", "rung-playlist", "rung-segment", "manifest", "init", "media", "http", "soft-subtitle":
 		return true
 	}
 	return false
@@ -96,6 +96,14 @@ func (w *Worker) serveMedia(out http.ResponseWriter, r *http.Request, m message,
 				return
 			}
 		}
+	case "soft-subtitle":
+		if w.opts.Capabilities.SoftSubtitles && protocol != core.ProtocolHTTP {
+			if v, ok := s.(interface {
+				ServeSoftSubtitle(http.ResponseWriter, *http.Request, int) bool
+			}); ok && v.ServeSoftSubtitle(out, r, m.Subtitle) {
+				return
+			}
+		}
 	case "http":
 		if w.opts.Capabilities.HTTP && protocol == core.ProtocolHTTP {
 			if stream, ok := s.(core.HTTPSession); ok {
@@ -121,3 +129,8 @@ func (w flushingWriter) Write(p []byte) (int, error) {
 	}
 	return n, err
 }
+
+// The exact backend owns this session-wide claim, including every advertised rung.
+func (s *Session) IndependentSegments() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.independent }
+
+var _ core.HLSIndependentSegments = (*Session)(nil)

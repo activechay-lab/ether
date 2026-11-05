@@ -98,7 +98,7 @@ func (a *Adapter) StartHLSOwned(ctx context.Context, r core.HLSRequest) (core.HL
 	if !validIdentity(assignment.Identity) || assignment.Identity.Session != r.SessionID || len(assignment.Grant) == 0 || len(assignment.Grant) > 4096 || !assignment.Expires.After(time.Now()) {
 		return nil, nil, errors.New("remotetranscode: invalid assignment")
 	}
-	start := Start{Protocol: r.Protocol, ReleaseID: r.ReleaseID, Identity: assignment.Identity, Grant: assignment.Grant, Expires: assignment.Expires, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof}
+	start := Start{SoftSubtitleStream: r.SoftSubtitleStream, Protocol: r.Protocol, ReleaseID: r.ReleaseID, Identity: assignment.Identity, Grant: assignment.Grant, Expires: assignment.Expires, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof}
 	b, err := json.Marshal(start)
 	if err != nil || len(b) > MaxMessage-1024 {
 		return nil, nil, ErrUnsupported
@@ -199,17 +199,18 @@ func (a *Adapter) call(ctx context.Context, m message, headers http.Header) (*ht
 }
 
 type Session struct {
-	adapter  *Adapter
-	id       Identity
-	start    []byte
-	mu       sync.Mutex
-	done     chan struct{}
-	lease    LeaseState
-	state    string
-	terminal error
-	stopped  bool
-	access   atomic.Int64
-	rungs    []core.HLSRung
+	adapter     *Adapter
+	id          Identity
+	start       []byte
+	mu          sync.Mutex
+	done        chan struct{}
+	lease       LeaseState
+	state       string
+	terminal    error
+	stopped     bool
+	access      atomic.Int64
+	rungs       []core.HLSRung
+	independent bool
 }
 
 func (s *Session) ID() string                                { return s.id.Session }
@@ -278,6 +279,7 @@ func (s *Session) observe(r *http.Response) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.independent = st.IndependentSegments
 	if st.Rungs != nil {
 		s.rungs = append([]core.HLSRung(nil), st.Rungs...)
 	}
@@ -349,7 +351,7 @@ func (s *Session) serveRepresentation(w http.ResponseWriter, r *http.Request, m 
 	w.WriteHeader(response.StatusCode)
 	// io.Copy applies downstream backpressure; request context cancels upstream.
 	if r.Method != http.MethodHead {
-		if m.Op == "http" {
+		if m.Op == "http" || m.Op == "soft-subtitle" {
 			_, _ = io.Copy(flushingWriter{w}, response.Body)
 		} else {
 			_, _ = io.Copy(w, response.Body)
