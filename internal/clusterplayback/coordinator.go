@@ -363,6 +363,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	}
 	r.mu.Unlock()
 	result := r.tickReopenLives(ctx)
+	if err := r.persistPreparationReceipts(ctx); err != nil {
+		result = err
+	}
 	r.mu.Lock()
 	remote := r.remotePlayback
 	r.mu.Unlock()

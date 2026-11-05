@@ -200,3 +200,49 @@ proof rejection, atomic receipt insert failure with capacity retained, and a
 committed write whose local acknowledgement is lost while both remote endpoints
 are unavailable. Historical receipts remain exact and readable after replacement;
 they never restore current execution authority.
+
+## Preparation retirement across source boots
+
+The source publishes exact immutable preparation receipts before PendingDetails
+can acknowledge quiescence. The key is configured cluster, original source node
+and boot, original controller node and boot, and a domain-separated operation
+hash. Receipts bind the original request hash and an opaque identity assigned to
+the actual retained source lifetime. Media revision/size are captured from the
+actual source when available. A preparation that fails before returning media
+can still prove its exact owned lifetime Done+nil; missing media facts are not
+invented, and this receipt cannot serve as a placement/source-media/reopen proof.
+An authentic no-source barrier is explicit and sealed, never inferred from a
+missing operation or expired lease.
+
+Publication seals preparation replay/use admission, joins preparation and policy,
+activity, Range, binding, issuance, Verify and Acquire callbacks, and requires the
+actual lifetime Done+nil plus associated source producers drained. The source
+marks bound handles retiring before revocation; late binds must finish and revoke
+before publication. Policy/backend callbacks and SQL run outside the runtime
+mutex. Failed/unknown writes retain the same payload and pending barrier until a
+fresh exact immutable read confirms publication. Source Tick and PendingDetails
+perform this publication; source rollout must use this implementation before it
+can preserve proof for controllers that outlive the source boot.
+
+RetirePreparedSource and the read-only PreparedSourceRetired first read the exact
+receipt for Self as controller. Unknown is not proof. Exact historical source
+membership need not remain live after a confirmed receipt, so a source-first
+replacement can complete the controller's retained lifetime without pretending to
+be the old boot. No wildcard boot seal, retroactive receipt, TTL or map compaction
+exists. The old 982 lab process predates these records and cannot be cleared by
+this implementation without independent, valid original-boot fencing evidence.
+
+The receipt admission barrier follows Manager's native source identity: blank and
+Plex surfaces coincide; different real surfaces stay independent. A nonexact
+stale preferred release can normalize to the automatic variant or join its
+original picked flight, so differing nonexact preferences can share one lifetime
+and are excluded while a predecessor operation remains unreceipted. Exact-release
+variants remain distinct. Registration/exclusion is atomic before Manager source
+acquisition; retries of the same immutable operation retain their own identity.
+Retained receipts are bounded per source boot by HistoryCapacity independently
+of concurrent encoder capacity. There is no rolling history release policy yet.
+
+PendingDetails reports numeric barrier categories, including PreparationReceipts
+and SourceCallbacks. The total is not a count of distinct sessions; a source,
+its placement and its encoder can independently require proof. No raw operation,
+viewer identity, grant, provider URL or private address is exposed by that DTO.

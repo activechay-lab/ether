@@ -6,15 +6,15 @@ import "context"
 // addresses or viewer identity. These are outstanding barriers, not a count of
 // distinct playbacks. A placement and its encoder may appear independently.
 type ResponsibilityCounts struct {
-	SourcePreparations, PreparationLifetimes    int
-	SourceLifetimes, SourceCallbacks            int
-	EncoderStarts, EncoderTokens, Inputs        int
-	RemotePreparing, RemoteLive, RemoteRetiring int
-	Executions, Reopens, Placements             int
+	SourcePreparations, PreparationLifetimes, PreparationReceipts int
+	SourceLifetimes, SourceCallbacks                              int
+	EncoderStarts, EncoderTokens, Inputs                          int
+	RemotePreparing, RemoteLive, RemoteRetiring                   int
+	Executions, Reopens, Placements                               int
 }
 
 func (c ResponsibilityCounts) Total() int {
-	return c.SourcePreparations + c.PreparationLifetimes + c.SourceLifetimes + c.SourceCallbacks + c.EncoderStarts + c.EncoderTokens + c.Inputs + c.RemotePreparing + c.RemoteLive + c.RemoteRetiring + c.Executions + c.Reopens + c.Placements
+	return c.SourcePreparations + c.PreparationLifetimes + c.PreparationReceipts + c.SourceLifetimes + c.SourceCallbacks + c.EncoderStarts + c.EncoderTokens + c.Inputs + c.RemotePreparing + c.RemoteLive + c.RemoteRetiring + c.Executions + c.Reopens + c.Placements
 }
 
 // Pending counts unresolved barriers, including expired reservations and joined

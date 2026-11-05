@@ -284,6 +284,7 @@ func (r *Runtime) sourcePolicy(ctx context.Context, owner placement.Target, s no
 // Categories can describe the same playback; totals are not unique sessions.
 // Errors or any outstanding category must keep drain blocked.
 func (r *Runtime) PendingDetails(ctx context.Context) (ResponsibilityCounts, error) {
+	publicationErr := r.persistPreparationReceipts(ctx)
 	r.mu.Lock()
 	sources := make([]ownedSource, 0, len(r.sources))
 	for _, s := range r.sources {
@@ -326,6 +327,10 @@ func (r *Runtime) PendingDetails(ctx context.Context) (ResponsibilityCounts, err
 		counts.RemotePreparing, counts.RemoteLive, counts.RemoteRetiring = remote.responsibilities()
 	}
 	for _, entry := range preps {
+		if !entry.receipt {
+			counts.PreparationReceipts++
+		}
+		counts.SourceCallbacks += entry.operations
 		if entry.running {
 			counts.SourcePreparations++
 		}
@@ -383,6 +388,9 @@ func (r *Runtime) PendingDetails(ctx context.Context) (ResponsibilityCounts, err
 	var reserved int
 	err := r.o.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM placement_sessions WHERE retired=0 AND ((controller=? AND controller_boot=?) OR (node=? AND boot=?))`, r.o.Self.NodeID, r.o.Self.Boot, r.o.Self.NodeID, r.o.Self.Boot).Scan(&reserved)
 	counts.Placements = reserved
+	if publicationErr != nil {
+		return counts, publicationErr
+	}
 	return counts, err
 }
 
