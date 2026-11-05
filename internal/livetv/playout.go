@@ -24,6 +24,7 @@ type channelLimiter interface {
 }
 
 type session struct {
+	broadcastPolicy     broadcastViewerPolicy
 	broadcast           *broadcastLease
 	inputURL            string // selected upstream, immutable once the tune is ready
 	inputSource         StreamSource
@@ -423,21 +424,34 @@ func (s *Service) getSession(ctx context.Context, id string, u *core.User) (*ses
 	if u == nil || ss.info.UserID != u.ID || s.o.CanPlay != nil && !s.o.CanPlay(u, ss.caps.Remote, s.o.Now()) {
 		return nil, core.ErrUnauthorized
 	}
-	c, err := s.Channel(ctx, ss.info.Channel.ID)
-	if err != nil {
-		return nil, err
-	}
-	c = s.personalChannel(ctx, c, u)
-	ps, err := s.programmes(ctx, c, s.o.Now(), s.o.Now().Add(time.Second))
-	if err != nil {
-		return nil, err
-	}
-	var p *Programme
-	if len(ps) > 0 {
-		p = &ps[0]
-	}
-	if !s.allowed(ctx, u, c, p) {
-		return nil, core.ErrUnauthorized
+	ss.mu.Lock()
+	shared := ss.broadcast != nil
+	ss.mu.Unlock()
+	if shared {
+		ctx, err := s.broadcastPolicyContext(ctx, ss, u)
+		if err != nil {
+			return nil, err
+		}
+		if !s.broadcastTagsAllowed(ctx, ss, nil) {
+			return nil, core.ErrUnauthorized
+		}
+	} else {
+		c, err := s.Channel(ctx, ss.info.Channel.ID)
+		if err != nil {
+			return nil, err
+		}
+		c = s.personalChannel(ctx, c, u)
+		ps, err := s.programmes(ctx, c, s.o.Now(), s.o.Now().Add(time.Second))
+		if err != nil {
+			return nil, err
+		}
+		var p *Programme
+		if len(ps) > 0 {
+			p = &ps[0]
+		}
+		if !s.allowed(ctx, u, c, p) {
+			return nil, core.ErrUnauthorized
+		}
 	}
 	ss.mu.Lock()
 	defer ss.mu.Unlock()

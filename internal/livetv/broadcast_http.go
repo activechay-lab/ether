@@ -39,41 +39,32 @@ func (s *Service) openBroadcastHTTPSource(ss *session) (*broadcastHTTPSource, er
 			writeStreamError(w, err)
 			return
 		}
-		reader, err := index.AttachTS(r.Context())
-		if err != nil {
-			writeStreamError(w, err)
-			return
+
+		latest, ok := index.Latest()
+		after := int64(-1)
+		if ok {
+			after = latest.Seq - 1
 		}
-		defer reader.Close()
 		w.Header().Set("Content-Type", "video/mp2t")
-		buffer := make([]byte, 32<<10)
 		for {
+			seg, err := index.Wait(r.Context(), after)
+			if err != nil || !s.broadcastSegmentAllowed(r.Context(), ss, seg) {
+				return
+			}
 			ss.mu.Lock()
-			user, c, closed := ss.user, ss.info.Channel, ss.closed
+			closed := ss.closed
 			ss.mu.Unlock()
 			if closed || ss.ctx.Err() != nil {
 				return
 			}
-			ps, err := s.programmes(r.Context(), c, s.o.Now(), s.o.Now().Add(time.Second))
-			var current *Programme
-			if len(ps) > 0 {
-				current = &ps[0]
+			partRequest := r.Clone(r.Context())
+			partRequest.Header = r.Header.Clone()
+			partRequest.Header.Del("Range")
+			index.ServeTS(&broadcastTSWriter{ResponseWriter: w, header: make(http.Header)}, partRequest, seg.Seq)
+			if flush, ok := w.(http.Flusher); ok {
+				flush.Flush()
 			}
-			if err != nil || !s.allowed(r.Context(), &user, c, current) {
-				return
-			}
-			n, err := reader.Read(buffer)
-			if n > 0 {
-				if _, writeErr := w.Write(buffer[:n]); writeErr != nil {
-					return
-				}
-				if flush, ok := w.(http.Flusher); ok {
-					flush.Flush()
-				}
-			}
-			if err != nil {
-				return
-			}
+			after = seg.Seq
 		}
 	})}
 	go func() { defer close(source.done); _ = source.server.Serve(listener) }()
@@ -191,3 +182,13 @@ func (s *Service) serveBroadcastHTTPMedia(w http.ResponseWriter, r *http.Request
 	defer observed.done()
 	stream.ServeHTTP(&broadcastHTTPObservation{observed}, r)
 }
+
+// Segment serving uses ServeContent. Its per-file Content-Length and status
+// must not become the headers of the continuous Matroska input stream.
+type broadcastTSWriter struct {
+	http.ResponseWriter
+	header http.Header
+}
+
+func (w *broadcastTSWriter) Header() http.Header { return w.header }
+func (w *broadcastTSWriter) WriteHeader(int)     {}

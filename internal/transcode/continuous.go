@@ -24,6 +24,9 @@ type RawFormat struct {
 // floor((n+1)*SR*FPSDen/FPSNum) - floor(n*SR*FPSDen/FPSNum) samples per channel,
 // so audio never drifts (1600 every tick at 48 kHz / 30 fps).
 type RawFrame struct {
+	// PolicyTags are immutable comparable identities supplied by the planner.
+	// Every identity represented in a segment survives encoder publication.
+	PolicyTags []any
 	// SourcePTS is the original live input presentation time, before re-timing
 	// onto the output clock. Live decoders always set SourcePTSValid; encoders
 	// ignore this metadata. It detects stale media across provider reconnects.
@@ -82,9 +85,10 @@ type ContinuousEncoder interface {
 // encoder's life; Start is the wall-clock time of its first frame
 // (PROGRAM-DATE-TIME); Duration is exact (120 frames at 30000/1001 = 4.004 s).
 type Segment struct {
-	Seq      int64
-	Start    time.Time
-	Duration time.Duration
+	PolicyTags []any
+	Seq        int64
+	Start      time.Time
+	Duration   time.Duration
 }
 
 // SegmentIndex is safe for concurrent use. Only finished segments are listed.

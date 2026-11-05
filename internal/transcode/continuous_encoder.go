@@ -213,7 +213,8 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 	return append(args, "-f", "tee", strings.Join(outputs, "|"))
 }
 func (e *continuousEncoder) Write(ctx context.Context, f RawFrame) error {
-	f = RawFrame{Video: append([]byte(nil), f.Video...), PCM: append([]byte(nil), f.PCM...)}
+	f.Video = append([]byte(nil), f.Video...)
+	f.PCM = append([]byte(nil), f.PCM...)
 	return e.WriteShared(ctx, f)
 }
 
@@ -232,6 +233,7 @@ func (e *continuousEncoder) WriteShared(ctx context.Context, f RawFrame) error {
 	if len(f.Video) != e.req.Source.Width*e.req.Source.Height*3/2 || len(f.PCM) != tickPCM(e.req.Source, e.tick) {
 		return errors.New("transcode: raw tick size mismatch")
 	}
+	e.index.recordPolicy(e.tick, f.PolicyTags)
 	select {
 	case <-ctx.Done():
 		return ctx.Err()

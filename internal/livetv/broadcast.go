@@ -25,6 +25,7 @@ const broadcastDVR = 30 * time.Minute
 // broadcastPlan is immutable. Open performs blocking resolution away from the
 // frame clock. Its release closes the playback/provider reservation exactly once.
 type broadcastPlan struct {
+	policy     *broadcastPolicyTag
 	fill       bool
 	programme  bool
 	id         string
@@ -659,7 +660,7 @@ func (b *broadcast) step(now time.Time) {
 		b.current = nil
 	}
 	if frame.Video == nil && !introActive && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
-		frame = transcode.RawFrame{Video: b.lastFrame.Video}
+		frame = transcode.RawFrame{Video: b.lastFrame.Video, PolicyTags: b.lastFrame.PolicyTags}
 		mode = "hold"
 	}
 	if frame.Video == nil {
@@ -685,7 +686,7 @@ func (b *broadcast) step(now time.Time) {
 			}
 		}
 		if frame.Video == nil {
-			frame = transcode.RawFrame{Video: b.lastFrame.Video}
+			frame = transcode.RawFrame{Video: b.lastFrame.Video, PolicyTags: b.lastFrame.PolicyTags}
 			if frame.Video == nil {
 				frame = transcode.RawFrame{Video: b.black}
 			}
@@ -710,6 +711,7 @@ func (b *broadcast) step(now time.Time) {
 	if fresh && b.current != nil && b.current.overlays != nil {
 		b.current.overlays.blend(frame.Video, b.format, now, current.start, current.end)
 	}
+	frame.PolicyTags = mergeBroadcastTags(frame.PolicyTags, []any{current.policy})
 	b.blendIntro(now, &frame, fresh)
 	b.lastFrame = frame
 	b.mu.Lock()

@@ -279,6 +279,7 @@ type SourceGroup struct {
 	Excluded bool `json:"excluded,omitempty"`
 }
 type Programme struct {
+	policyTag       *broadcastPolicyTag
 	sourceOffset    time.Duration
 	graphicsRequest *core.ClipRequest
 	graphicsID      string

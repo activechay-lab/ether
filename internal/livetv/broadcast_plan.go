@@ -57,7 +57,10 @@ func (p *scheduleBroadcastPlanner) planWorker() {
 					ps = append([]Programme{welcome}, ps...)
 				}
 			} else {
-				ps = p.s.broadcastSchedule(p.workerCtx, c, now, now.Add(2*time.Minute), true)
+				ps = p.s.broadcastSchedule(p.workerCtx, p.s.guideChannel(p.workerCtx, c), now, now.Add(2*time.Minute), true)
+			}
+			for i := range ps {
+				ps[i].policyTag = p.s.programmePolicy(p.workerCtx, ps[i])
 			}
 			p.mu.Lock()
 			p.window = ps
@@ -109,7 +112,7 @@ func (p *scheduleBroadcastPlanner) prewarmPlans(now time.Time) []broadcastPlan {
 }
 
 func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan {
-	plan := broadcastPlan{programme: programme.Item.Key != 0, id: programme.ID, start: programme.Start, end: programme.End}
+	plan := broadcastPlan{policy: programme.policyTag, programme: programme.Item.Key != 0, id: programme.ID, start: programme.Start, end: programme.End}
 	if interstitial(programme.Item) {
 		plan.failed = func(err error) time.Time {
 			p.s.recordGraphicsSkip(p.channel, programme, err)
