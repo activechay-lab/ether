@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	store.Register("markers_breaks", 3, `CREATE TABLE markers_breaks_observed(release_key TEXT PRIMARY KEY,duration_ms INTEGER NOT NULL,points TEXT NOT NULL,updated_at INTEGER NOT NULL);`)
+	store.Register("markers_breaks", 3, `CREATE TABLE markers_breaks_observed(release_key TEXT NOT NULL,version INTEGER NOT NULL,duration_ms INTEGER NOT NULL,points TEXT NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(release_key,version));`)
 }
 
 // PlaybackBreakInput binds playout observations to the same immutable release
@@ -118,12 +118,12 @@ func (a *BreakAnalyzer) ObservePoints(ctx context.Context, in BreakInput, points
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `INSERT INTO markers_breaks_observed VALUES(?,?,?,?) ON CONFLICT(release_key) DO UPDATE SET updated_at=excluded.updated_at`, in.ReleaseKey, in.Info.Duration.Milliseconds(), "[]", time.Now().Unix())
+	_, err = tx.ExecContext(ctx, `INSERT INTO markers_breaks_observed VALUES(?,?,?,?,?) ON CONFLICT(release_key,version) DO UPDATE SET updated_at=excluded.updated_at`, in.ReleaseKey, breakVersion, in.Info.Duration.Milliseconds(), "[]", time.Now().Unix())
 	if err != nil {
 		return err
 	}
 	var raw string
-	if err = tx.QueryRowContext(ctx, `SELECT points FROM markers_breaks_observed WHERE release_key=?`, in.ReleaseKey).Scan(&raw); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT points FROM markers_breaks_observed WHERE release_key=? AND version=?`, in.ReleaseKey, breakVersion).Scan(&raw); err != nil {
 		return err
 	}
 	var prior []BreakPoint
@@ -135,7 +135,7 @@ func (a *BreakAnalyzer) ObservePoints(ctx context.Context, in BreakInput, points
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE markers_breaks_observed SET points=? WHERE release_key=?`, string(b), in.ReleaseKey)
+	_, err = tx.ExecContext(ctx, `UPDATE markers_breaks_observed SET points=? WHERE release_key=? AND version=?`, string(b), in.ReleaseKey, breakVersion)
 	if err != nil {
 		return err
 	}
@@ -149,7 +149,7 @@ func (a *BreakAnalyzer) CachedBreakPoints(ctx context.Context, in BreakInput) ([
 	return points, err
 }
 func (a *BreakAnalyzer) cachedBreakFacts(ctx context.Context, in BreakInput) ([]BreakPoint, bool, bool, error) {
-	rows, err := a.DB.QueryContext(ctx, `SELECT points,1 FROM markers_breaks_cache WHERE release_key=? AND version=? AND duration_ms=? UNION ALL SELECT points,0 FROM markers_breaks_observed WHERE release_key=? AND duration_ms=?`, in.ReleaseKey, breakVersion, in.Info.Duration.Milliseconds(), in.ReleaseKey, in.Info.Duration.Milliseconds())
+	rows, err := a.DB.QueryContext(ctx, `SELECT points,1 FROM markers_breaks_cache WHERE release_key=? AND version=? AND duration_ms=? UNION ALL SELECT points,0 FROM markers_breaks_observed WHERE release_key=? AND version=? AND duration_ms=?`, in.ReleaseKey, breakVersion, in.Info.Duration.Milliseconds(), in.ReleaseKey, breakVersion, in.Info.Duration.Milliseconds())
 	if err != nil {
 		return nil, false, false, err
 	}
