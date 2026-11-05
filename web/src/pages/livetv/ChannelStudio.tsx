@@ -1,3 +1,4 @@
+import { rundownPreview } from "./onair/rundown";
 import { ClockRows } from "./onair/ClockRows";
 import { LookTab } from "./onair/LookTab";
 import { RecipeTab } from "./onair/RecipeTab";
@@ -260,8 +261,19 @@ export function ChannelStudio({
       });
     return () => ctl.abort();
   }, [c.id, Boolean(c.personal), viewer, previewKey]);
-  const schedule = c.personal ? rundown : virtual ? (preview ?? (isNew ? [] : guide)) : guide;
-  const live = onNow(schedule, now);
+  const schedule = c.personal
+    ? rundownPreview(rundown, c.look)
+    : virtual
+      ? (preview ?? (isNew ? [] : guide))
+      : guide;
+  const live =
+    onNow(
+      schedule.filter((p) => !p.slate),
+      now,
+    ) ??
+    (onNow(schedule, now)?.slate
+      ? schedule.filter((p) => !p.slate && Date.parse(p.end) <= now).at(-1)
+      : undefined);
   const next = upNext(
     schedule.filter((p) => !p.slate),
     now,
