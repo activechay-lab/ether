@@ -43,7 +43,13 @@ type pcmFade struct {
 }
 
 func (f *pcmFade) start(previous []byte, format transcode.RawFormat) {
-	f.from = append(f.from[:0], previous...)
+	// Continue from the last emitted sample, never replay an old PCM block.
+	// The outgoing endpoint decays while the new source fades in.
+	width := format.Channels * 2
+	f.from = f.from[:0]
+	if len(previous) >= width {
+		f.from = append(f.from, previous[len(previous)-width:]...)
+	}
 	f.at = 0
 	f.total = format.SampleRate * 40 / 1000
 }

@@ -108,7 +108,7 @@ func TestMissingBroadcastClipFallsBackAndCorrectsInsertGuide(t *testing.T) {
 				t.Fatal("empty fallback")
 			}
 			for _, p := range ps {
-				if interstitial(p.Item) {
+				if interstitial(p.Item) && !p.Start.After(now) {
 					t.Fatal("uncached clip aired")
 				}
 			}
