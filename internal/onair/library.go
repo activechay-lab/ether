@@ -238,7 +238,7 @@ func (s *Service) libraryDerived(ctx context.Context, a LibraryAsset, wave bool)
 		if wave {
 			args = append(args, "-t", "30", "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1")
 		} else {
-			args = append(args, "-ss", "1", "-frames:v", "1", "-vf", "scale=480:-2", "-threads", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1")
+			args = append(args, "-ss", fmt.Sprint(math.Min(1, math.Max(0, float64(a.DurationMs)/1000-0.05))), "-frames:v", "1", "-vf", "scale=480:-2", "-threads", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1")
 		}
 		cmd := exec.CommandContext(cctx, s.o.FFmpeg(), args...)
 		cmd.Stdout = &out
@@ -313,6 +313,10 @@ func (s *Service) LibraryRoutes(r chi.Router) {
 		license, attribution := a.License, a.Attribution
 		if p.License != nil {
 			license = *p.License
+		}
+		if a.Kind == "font" && strings.TrimSpace(license) == "" {
+			result(w, nil, fmt.Errorf("font licence required"))
+			return
 		}
 		if p.Attribution != nil {
 			attribution = *p.Attribution
@@ -465,6 +469,10 @@ func (s *Service) trimLibraryAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	asset, e := s.UploadAsset(r.Context(), name, a.Kind, a.License, io.LimitReader(file, assetLimit+1))
 	if e != nil {
+		result(w, nil, e)
+		return
+	}
+	if _, e = s.db.ExecContext(r.Context(), "UPDATE onair_assets SET source=?,attribution=? WHERE digest=?", a.Source, a.Attribution, asset.Digest); e != nil {
 		result(w, nil, e)
 		return
 	}
