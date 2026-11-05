@@ -149,6 +149,8 @@ type ffprobeOutput struct {
 }
 
 type ffprobeStream struct {
+	ID             string            `json:"id"`
+	CodedHeight    int               `json:"coded_height"`
 	FieldOrder     string            `json:"field_order"`
 	Extradata      string            `json:"extradata"`
 	Index          int               `json:"index"`
@@ -204,7 +206,7 @@ func ParseProbe(b []byte) (*core.MediaInfo, error) {
 		Container:   NormalizeContainer(out.Format.FormatName),
 		Duration:    parseSeconds(out.Format.Duration),
 		Size:        atoi64(out.Format.Size),
-		BitrateKbps: int(atoi64(out.Format.BitRate) / 1000),
+		BitrateKbps: int((atoi64(out.Format.BitRate) + 500) / 1000),
 	}
 	for _, c := range out.Chapters {
 		start, e1 := strconv.ParseFloat(c.Start, 64)
@@ -296,16 +298,20 @@ func mapStream(s ffprobeStream) (core.StreamInfo, bool) {
 	if tag := s.CodecTagString; tag != "" && tag != "[0][0][0][0]" && tag != "0x0000" {
 		si.CodecTag = tag
 	}
+	si.CodedHeight = s.CodedHeight
+	if id, err := strconv.ParseInt(s.ID, 0, 64); err == nil {
+		si.StreamIdentifier = strconv.FormatInt(id, 10)
+	}
 	si.TimeBase = probedTimeBase(s.TimeBase)
 	if n, err := strconv.Atoi(strings.TrimSpace(s.BitsPerRaw)); err == nil && n > 0 {
 		si.BitsPerRawSample = &n
 	}
-	si.BitrateKbps = int(atoi64(s.BitRate) / 1000)
+	si.BitrateKbps = int((atoi64(s.BitRate) + 500) / 1000)
 	if si.BitrateKbps == 0 {
 		// mkvmerge statistics tags
 		for _, k := range []string{"BPS", "BPS-eng"} {
 			if v := tag(s.Tags, k); v != "" {
-				si.BitrateKbps = int(atoi64(v) / 1000)
+				si.BitrateKbps = int((atoi64(v) + 500) / 1000)
 				break
 			}
 		}
