@@ -278,9 +278,16 @@ func (s *Service) personalProgrammes(ctx context.Context, c Channel, u *core.Use
 	}
 	shift := time.Duration(0)
 	if c.Personal.PauseWhenAway {
-		cursor := r.cursor
-		cursor = s.personalCursor(personalKey{u.ID, c.ID}, cursor, s.o.Now())
-		shift = time.Duration(s.o.Now().UnixMilli()-cursor) * time.Millisecond
+		now := s.o.Now()
+		k := personalKey{u.ID, c.ID}
+		s.personalMu.Lock()
+		if clock := s.personalClocks[k]; clock != nil && clock.active && now.Before(clock.welcomeUntil) {
+			// The programme begins after welcome, not at each planner refresh.
+			now = clock.welcomeUntil
+		}
+		s.personalMu.Unlock()
+		cursor := s.personalCursor(k, r.cursor, now)
+		shift = time.Duration(now.UnixMilli()-cursor) * time.Millisecond
 	}
 	for _, p := range r.programmes {
 		p.Start = p.Start.Add(shift)
@@ -386,7 +393,7 @@ func (s *Service) advancePersonal(now time.Time) {
 			if clock.welcomeUntil.After(start) {
 				start = clock.welcomeUntil
 			}
-			clock.cursor += now.Sub(start).Milliseconds()
+			clock.cursor += now.UnixMilli() - start.UnixMilli()
 		}
 		if clock.active && !active[k] {
 			clock.timeAway = now
@@ -464,7 +471,7 @@ func (s *Service) endPersonal(c Channel, viewer int64) {
 		if clock.welcomeUntil.After(start) {
 			start = clock.welcomeUntil
 		}
-		clock.cursor += now.Sub(start).Milliseconds()
+		clock.cursor += now.UnixMilli() - start.UnixMilli()
 	}
 	clock.active = false
 	clock.timeAway = now
@@ -540,7 +547,7 @@ func (s *Service) personalCursor(k personalKey, cursor int64, now time.Time) int
 			if clock.welcomeUntil.After(start) {
 				start = clock.welcomeUntil
 			}
-			cursor += now.Sub(start).Milliseconds()
+			cursor += now.UnixMilli() - start.UnixMilli()
 		}
 	}
 	return cursor

@@ -2,6 +2,7 @@ package livetv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"math"
@@ -33,6 +34,9 @@ func (s *Service) broadcastWindow(ctx context.Context, ss *session, r *http.Requ
 		wait, cancel := context.WithTimeout(ctx, 8*time.Second)
 		defer cancel()
 		latest, err = index.Wait(wait, -1)
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, nil, core.ErrNotAvailable
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -79,12 +83,40 @@ func (s *Service) broadcastSegmentAllowed(ctx context.Context, ss *session, seg 
 	return true
 }
 func (s *Service) serveBroadcastPlaylist(w http.ResponseWriter, r *http.Request, ss *session) {
-	_, segments, err := s.broadcastWindow(r.Context(), ss, r)
+	index, segments, err := s.broadcastWindow(r.Context(), ss, r)
 	if err != nil {
+		if errors.Is(err, core.ErrNotAvailable) {
+			w.Header().Set("Retry-After", "1")
+		}
 		writeStreamError(w, err)
 		return
 	}
-	target := 1
+	// A cold encoder publishes short opening fragments. Do not start a player
+	// on its first one-second fragment: its buffer would run dry before the
+	// first full GOP is published. Two full GOPs leave a publication margin;
+	// warm joins already have the normal six-segment window.
+	if r.URL.Query().Get("offset") == "" {
+		ctx, cancel := context.WithTimeout(r.Context(), 16*time.Second)
+		defer cancel()
+		for segments[len(segments)-1].Start.Add(segments[len(segments)-1].Duration).Sub(segments[0].Start) < 8*time.Second {
+			if _, err = index.Wait(ctx, segments[len(segments)-1].Seq); err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					w.Header().Set("Retry-After", "1")
+					err = core.ErrNotAvailable
+				}
+				writeStreamError(w, err)
+				return
+			}
+			_, segments, err = s.broadcastWindow(ctx, ss, r)
+			if err != nil {
+				writeStreamError(w, err)
+				return
+			}
+		}
+	}
+	// TARGETDURATION is a property of the rendition, including its short
+	// startup segments, and must not change as the window advances.
+	target := 4
 	for _, seg := range segments {
 		target = max(target, int(math.Ceil(seg.Duration.Seconds())))
 	}
