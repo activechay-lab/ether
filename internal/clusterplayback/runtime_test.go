@@ -10,6 +10,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
@@ -21,6 +22,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync"
 	"testing"
@@ -293,9 +295,21 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	// Plex representation forwarding is a separate typed media scope; the
 	// original owner handler still validates its public token/grant.
 	if err = front.BindPlexDelivery(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
-		if q.Header.Get("X-Plex-Token") != "offline-plex-token" {
+		token := q.Header.Get("X-Plex-Token")
+		if token != "offline-plex-token" && token != "offline-restricted-plex-token" {
 			http.Error(w, "denied", 401)
 			return
+		}
+		if q.Host != "public" || q.URL.Scheme != "https" {
+			http.Error(w, "origin changed", 400)
+			return
+		}
+		if token == "offline-restricted-plex-token" {
+			_, lan := identity.ClientNet(q, netip.MustParsePrefix("10.1.0.0/16"))
+			if !lan {
+				http.Error(w, "remote restricted", 403)
+				return
+			}
 		}
 		h.ServeSegment(w, q, 0)
 	})); err != nil {
@@ -314,6 +328,22 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	}
 	if worker.ForwardPlexMedia(httptest.NewRecorder(), httptest.NewRequest("GET", "https://public/video/:/transcode/universal/start.m3u8?session=public-session", nil), request.SessionID) {
 		t.Fatal("control URI admitted to media scope")
+	}
+	for _, test := range []struct {
+		name, remote, xff string
+		status            int
+	}{{"directWAN", "203.0.113.7:1234", "", 403}, {"directLAN", "192.168.1.7:1234", "", 200}, {"trustedproxyWAN", "10.1.0.2:1234", "203.0.113.7", 403}, {"trustedproxyLAN", "10.1.0.2:1234", "192.168.1.7", 200}, {"untrustedproxyspoof", "203.0.113.7:1234", "192.168.1.7", 403}} {
+		req := httptest.NewRequest("GET", "https://public/video/:/transcode/universal/session/public-session/base/0.ts", nil)
+		req.RemoteAddr = test.remote
+		req.Header.Set("X-Plex-Token", "offline-restricted-plex-token")
+		if test.xff != "" {
+			req.Header.Set("X-Forwarded-For", test.xff)
+		}
+		req.Header.Set(deliveryOrigin, `{"RemoteAddr":"127.0.0.1:1","Host":"private","Scheme":"http"}`)
+		response := httptest.NewRecorder()
+		if !worker.ForwardPlexMedia(response, req, request.SessionID) || response.Code != test.status {
+			t.Fatalf("provenance %s %d %q", test.name, response.Code, response.Body.String())
+		}
 	}
 	deliveryOptions := base
 	deliveryOptions.Self = deliveryID

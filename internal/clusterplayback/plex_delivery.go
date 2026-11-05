@@ -93,9 +93,11 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "unavailable", 503)
 		return
 	}
-	clone := q.Clone(q.Context())
-	clone.URL = u
-	clone.RequestURI = raw
+	clone, e := restoreOrigin(q, u, raw)
+	if e != nil {
+		http.Error(w, "scope", 400)
+		return
+	}
 	handler.ServeHTTP(w, clone)
 }
 
@@ -136,6 +138,12 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 	for _, h := range plexForwardHeaders {
 		request.Header[h] = append([]string(nil), q.Header.Values(h)...)
 	}
+	origin, e := captureOrigin(q)
+	if e != nil {
+		http.Error(w, "invalid request origin", 400)
+		return true
+	}
+	request.Header.Set(deliveryOrigin, origin)
 	request.Header.Set(deliveryHop, "1")
 	request.Header.Set(deliveryURI, q.URL.RequestURI())
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
