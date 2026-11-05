@@ -119,6 +119,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		mc.Directory = append(mc.Directory, model.Directory{Count: 1, Key: d, Title: d})
 	}
 	mc.Size = len(mc.Directory)
+	applyLegacyServerVersion(r, mc)
 	s.write(w, r, mc)
 }
 
@@ -183,6 +184,14 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 		ID: "playlists", Key: "/playlists", Type: "playlist", Title: "Playlists",
 		Pivot: []model.Pivot{{ID: "playlists.video", Key: "/playlists?playlistType=video", Type: "list", Title: "Video", Context: "content.playlists.video", Symbol: "playlist"}},
 	})
+	if legacyRoku(FromContext(r.Context())) {
+		for i := range dirs {
+			dirs[i].Pivot = nil
+			if dirs[i].ID != "playlists" {
+				dirs[i].ID = ""
+			}
+		}
+	}
 	provider := model.MediaProvider{
 		Identifier: model.LibraryIdentifier,
 		Title:      "Library",
@@ -211,7 +220,61 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 		mc.MediaProvider = append(mc.MediaProvider, *p)
 		mc.Size++
 	}
+	applyLegacyServerVersion(r, mc)
 	s.write(w, r, mc)
+}
+
+// Older Roku clients cannot consume provider pivots. PMS compares only the
+// numeric components supplied by the client, so 6.4 satisfies 6.4.2.
+func legacyRoku(pr *Request) bool {
+	if pr.Platform != "Roku" {
+		return false
+	}
+	parts := strings.Split(pr.Version, ".")
+	if len(parts) < 2 || len(parts) > 3 {
+		return true
+	}
+	values := make([]int, len(parts))
+	for i, part := range parts {
+		if part == "" || strings.IndexFunc(part, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+			return true
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return true
+		}
+		values[i] = n
+	}
+	minimum := []int{6, 4, 2}
+	for i, n := range values {
+		if n != minimum[i] {
+			return n < minimum[i]
+		}
+	}
+	return false
+}
+
+func applyLegacyServerVersion(r *http.Request, mc *model.MediaContainer) {
+	if FromContext(r.Context()).Product != "Plex Home Theater" {
+		return
+	}
+	for i := range mc.Extra {
+		if mc.Extra[i].Name != "version" {
+			continue
+		}
+		version, ok := mc.Extra[i].Value.(string)
+		if !ok {
+			continue
+		}
+		number, build, hasBuild := strings.Cut(version, "-")
+		if strings.Count(number, ".") == 3 {
+			number += ".0"
+			if hasBuild {
+				number += "-" + build
+			}
+			mc.Extra[i].Value = number
+		}
+	}
 }
 
 func (s *Server) handleMyPlexAccount(w http.ResponseWriter, r *http.Request) {
@@ -239,9 +302,9 @@ func (s *Server) handleMyPlexAccount(w http.ResponseWriter, r *http.Request) {
 			acct.PublicPort = c.Server.Port
 		}
 	}
-	acct.PrivatePort = c.Server.Port
-	if host, _, err := net.SplitHostPort(r.Host); err == nil {
+	if host, _, err := net.SplitHostPort(r.Host); err == nil && host != "" {
 		acct.PrivateAddress = host
+		acct.PrivatePort = c.Server.Port
 	}
 	s.write(w, r, &acct)
 }

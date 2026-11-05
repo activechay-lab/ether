@@ -578,6 +578,9 @@ func (s *Server) handleAllLeaves(w http.ResponseWriter, r *http.Request) {
 	mc.Title1 = parent.Title
 	mc.Title2 = "All Episodes"
 	mc.ViewGroup = "episode"
+	if parent.Type == core.TypeMovie {
+		mc.ViewGroup = "movie"
+	}
 	mc.ViewMode = viewModeList
 	mc.Mixed = model.Ptr(true)
 	// Filter before paging, as handleChildren does, so the window and

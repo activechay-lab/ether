@@ -1847,6 +1847,16 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 		viaRegistry = rel != ""
 	}
 	q := r.URL.Query()
+	// These two selection parameters deliberately have different PMS grammars.
+	audioID, audioErr := strconv.ParseInt(q.Get("audioStreamID"), 10, 64)
+	subID, subErr := strconv.ParseInt(q.Get("subtitleStreamID"), 10, 64)
+	if (q.Has("audioStreamID") && audioErr == nil && (audioID == 0 || audioID < -1)) ||
+		(q.Has("subtitleStreamID") && subErr == nil && subID < -1) {
+		writeHTTPError(w, http.StatusBadRequest)
+		return
+	}
+	audioDefault := q.Has("audioStreamID") && audioErr == nil && audioID == -1
+	subDefault := q.Has("subtitleStreamID") && subErr == nil && subID == -1
 	ctx := sessions.WithPlexServe(r.Context(), pr.Remote, "")
 	var audio *sessions.PlexStreamBinding
 	if v := q.Get("audioStreamID"); v != "" {
@@ -1867,7 +1877,7 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 			audio = &binding
 		}
 	}
-	clearSub := false
+	clearSub := q.Has("subtitleStreamID") && (subErr != nil || subID == 0)
 	var sub *sessions.PlexStreamBinding
 	if v := q.Get("subtitleStreamID"); v != "" {
 		if sid, err := strconv.ParseInt(v, 10, 64); err == nil {
@@ -1888,6 +1898,12 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.selections.update(pr.User.ID, id, func(sel *selection) {
+		if audioDefault {
+			sel.audio, sel.audioSet, sel.audioStream = 0, false, nil
+		}
+		if subDefault {
+			sel.subtitle, sel.subtitleSet, sel.subtitleStream = 0, false, nil
+		}
 		if audio != nil {
 			info := audio.Info
 			sel.audio, sel.audioSet, sel.audioStream = audio.Index, true, &info

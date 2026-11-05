@@ -782,8 +782,8 @@ type MyPlex struct {
 	SignInState          string `plex:"signInState"`
 	PublicAddress        string `plex:"publicAddress,omitempty"`
 	PublicPort           int    `plex:"publicPort,omitempty"`
-	PrivateAddress       string `plex:"privateAddress,omitempty"`
-	PrivatePort          int    `plex:"privatePort,omitempty"`
+	PrivateAddress       string `plex:"privateAddress"`
+	PrivatePort          int    `plex:"privatePort"`
 	SubscriptionFeatures string `plex:"subscriptionFeatures,omitempty"`
 	SubscriptionActive   bool   `plex:"subscriptionActive"`
 	SubscriptionState    string `plex:"subscriptionState"`
