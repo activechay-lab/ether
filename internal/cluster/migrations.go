@@ -42,4 +42,11 @@ CREATE TABLE cluster_update_lease (
 	expires_at INTEGER NOT NULL DEFAULT 0,
 	failed_version TEXT NOT NULL DEFAULT ''
 );`)
+	// Private transport metadata is independent of public Plex connections.
+	// Zero protocol means unknown; never infer compatibility from software version.
+	store.Register("cluster", 3, `
+ALTER TABLE cluster_nodes ADD COLUMN internal_address TEXT NOT NULL DEFAULT '';
+ALTER TABLE cluster_nodes ADD COLUMN protocol_version INTEGER NOT NULL DEFAULT 0;
+`)
+
 }

@@ -75,7 +75,9 @@ var mixedSections = map[string]map[string]Scope{
 		"defaultStreamLimit": Shared,
 		"maxStreams":         Shared,
 		// This node's part of account-wide budgets in a cluster.
-		"clusterWeight": Local,
+		"clusterWeight":   Local,
+		"nodeRoles":       Local,
+		"internalAddress": Local,
 	},
 	"plex": {
 		"compatibilityVersion":       Shared,
