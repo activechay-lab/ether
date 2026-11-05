@@ -49,10 +49,13 @@ func (a *App) buildSourceRole(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 	a.resolver.SetBus(bus)
-	var tc core.Transcoder = directOnly{}
-	if active := a.activeTranscoder(); active != nil {
-		tc = active
+	a.sourceProber, err = transcode.NewSourceProber(transcode.SourceProbeOptions{FFprobePath: cfg.Transcode.FFprobePath, FFmpegPath: cfg.Transcode.FFmpegPath})
+	if err != nil {
+		return err
 	}
+	probeCloser := len(a.closers)
+	a.closers = append(a.closers, func() { _ = a.sourceProber.Close() })
+	var tc core.Transcoder = sourceProbeOnly{prober: a.sourceProber}
 	a.playback, err = playback.New(playback.Deps{
 		Resolver: a.resolver, Engine: playbackEngine(a), Transcoder: tc, Catalog: a.catalog, Cache: a.cache, DB: a.db, Logger: a.log, Cluster: a.clusterNode(), Availability: a.dbAvail,
 		NativeProbe: func(ctx context.Context, src core.MediaSource) (*core.MediaInfo, error) {
@@ -69,7 +72,10 @@ func (a *App) buildSourceRole(ctx context.Context, cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	a.closers = append(a.closers, func() { _ = a.playback.Close() })
+	// Cancel and join probe children before closing their source manager. If
+	// New failed above, the provisional probe closer still owns that service.
+	manager := a.playback
+	a.closers[probeCloser] = func() { _ = a.sourceProber.Close(); _ = manager.Close() }
 	a.cache.Protect(a.protectedReleases)
 	a.cfg.Subscribe(a.applySourceConfig)
 	// Stop shared settings callbacks before tearing down their source services.
@@ -94,4 +100,15 @@ func (a *App) applySourceConfig(c config.Config) {
 	c.Cache = a.runningCacheConfig()
 	a.engine.UpdatePlaybackReadAhead(c.Cache.PlaybackReadAhead())
 	a.playback.SetConfig(c)
+}
+
+// Source ownership needs actual metadata fallback, without constructing an
+// encoder, worker inventory, session manager or public listener.
+type sourceProbeOnly struct {
+	directOnly
+	prober *transcode.SourceProber
+}
+
+func (s sourceProbeOnly) Probe(ctx context.Context, input string) (*core.MediaInfo, error) {
+	return s.prober.Probe(ctx, input)
 }

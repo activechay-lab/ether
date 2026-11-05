@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
 	"testing"
 	"time"
 
@@ -65,7 +66,13 @@ func testSpecialistExecutableSupervisor(t *testing.T, role config.NodeRole) {
 					return nil, err
 				}
 				a.cluster = supervisorMembership{a.cluster}
-				if err := a.buildSourceRole(ctx, cfg.Get()); err != nil {
+				probePath, err := os.Executable()
+				if err != nil {
+					return nil, err
+				}
+				sourceCfg := cfg.Get()
+				sourceCfg.Transcode.FFprobePath = probePath
+				if err := a.buildSourceRole(ctx, sourceCfg); err != nil {
 					return nil, err
 				}
 				if err := a.buildPrivateCredentials(); err != nil {

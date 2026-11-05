@@ -206,6 +206,7 @@ type App struct {
 	sources             *debrid.Indexer // core.Indexer over indexers
 	resolver            *resolver.Service
 	transcoder          *transcode.Manager
+	sourceProber        *transcode.SourceProber
 	trickplay           *trickplay.Owner
 	load                *sysload.Sampler // machine load for the Overview
 	playback            *playback.Manager
