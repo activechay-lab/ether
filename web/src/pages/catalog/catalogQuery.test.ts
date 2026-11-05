@@ -15,6 +15,19 @@ describe("catalogue query language", () => {
     );
     expect(chips).toHaveLength(5);
   });
+  it("understands the unwatched playable 4K persona without a model", () => {
+    const chips = parseNatural(
+      "find unwatched 90s thrillers under 2 hours rated above 7 that are playable in 4K",
+    );
+    expect(chips).toHaveLength(7);
+    expect(chips).toEqual(
+      expect.arrayContaining([
+        { field: "playable", op: "is", value: "yes" },
+        { field: "quality", op: "is", value: "4k" },
+      ]),
+    );
+    expect(chips.some((c) => c.field === "title")).toBe(false);
+  });
   it("compiles nested groups and viewer context without applying metadata filters to state", () => {
     const query = compileQuery(
       {

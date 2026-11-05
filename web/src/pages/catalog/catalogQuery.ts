@@ -90,8 +90,8 @@ export function chipFilter(c: Chip, viewer: string): Record<string, unknown> {
     keyword: "keywords",
   };
   if (arrays[c.field]) return { [arrays[c.field]!]: [c.value] };
-  if (c.field === "tag") return {tags:[c.value]};
-  if (c.field === "anime" || c.field === "kids") return {[c.field]:true};
+  if (c.field === "tag") return { tags: [c.value] };
+  if (c.field === "anime" || c.field === "kids") return { [c.field]: true };
   if (c.field === "collection") return { collections: [number] };
   if (["cast", "director", "writer", "composer"].includes(c.field))
     return {
@@ -187,6 +187,23 @@ export function parseNatural(text: string): Chip[] {
     op: "max",
     value: String(Number(m[1]!) * (m[2]!.startsWith("h") ? 60 : 1)),
   }));
+  take(/\b(?:playable(?: now)?(?: in)?|available now)\b/i, () => ({
+    field: "playable",
+    op: "is",
+    value: "yes",
+  }));
+  take(/\bcached(?: on debrid)?\b/i, () => ({ field: "cached", op: "is", value: "yes" }));
+  for (const [phrase, value] of [
+    ["4k|2160p", "4k"],
+    ["hdr", "hdr"],
+    ["dolby vision|dv", "dv"],
+    ["dolby atmos|atmos", "atmos"],
+  ])
+    take(new RegExp(`\\b(?:${phrase})\\b`, "i"), () => ({
+      field: "quality",
+      op: "is",
+      value: value!,
+    }));
   take(/\b(unwatched|watched)\b/i, (m) => ({
     field: "watched",
     op: "is",
