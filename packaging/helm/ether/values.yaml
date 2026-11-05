@@ -101,6 +101,9 @@ service:
 # the private media Service; all other paths remain on the API Service.
 ingress:
   enabled: false
+  # Temporary broad-Prefix split is ONLY for isolated canonical HLS acceptance.
+  # It misroutes unsupported session resources (.ass/index.mpd) to delivery.
+  canonicalHLSLabOnly: false
   className: ""
   annotations: {}
   hosts: []

@@ -24,4 +24,5 @@ pools:
 # Replace this hostname and select the installed IngressClass before deployment.
 ingress:
   enabled: true
+  canonicalHLSLabOnly: true
   hosts: [ether.example.test]

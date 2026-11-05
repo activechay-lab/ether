@@ -63,6 +63,11 @@ def check(docs, persistent=False):
     for path in ['/sessions/media/id/grant/file','/sessions/media/id/grant/master.m3u8',
                  '/video/:/transcode/universal/session/id/base/00001.ts']:
         assert backend(path)=='contract-ether-media'
+    # Known Prefix limitation: app exclusions do NOT make these API routes.
+    # Mixed-role rendering therefore requires the explicit HLS-lab-only gate.
+    for path in ['/video/:/transcode/universal/session/id/subtitles/1.ass',
+                 '/video/:/transcode/universal/session/id/base/index.mpd']:
+        assert backend(path)=='contract-ether-media'
     for path in ['/video/:/transcode/universal/decision','/video/:/transcode/universal/start.m3u8',
                  '/video/:/transcode/universal/start.mpd','/video/:/transcode/universal/start',
                  '/video/:/transcode/universal/start.mkv','/video/:/transcode/universal/ping',
@@ -106,6 +111,7 @@ for kind in ['ClusterIP','LoadBalancer','NodePort']:
 full_ingress=render('--set','pools.server.replicas=0','--set','pools.delivery.replicas=0')
 assert [p['path'] for d in full_ingress if d['kind']=='Ingress' for p in d['spec']['rules'][0]['http']['paths']]==['/']
 for flags,expected in [
+    (['--set','ingress.canonicalHLSLabOnly=false'],'canonical HLS LAB ONLY'),
     (['--set','ingress.enabled=false'],'require ingress.enabled=true'),
     (['--set','pools.server.replicas=1','--set','service.type=LoadBalancer'],'service.type=ClusterIP'),
     (['--set','pools.server.replicas=1','--set','service.type=NodePort'],'service.type=ClusterIP'),

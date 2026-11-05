@@ -237,8 +237,10 @@ The API Service defaults to ClusterIP on 32400 and selects full/server pods.
 With full nodes as the only public role, its existing LoadBalancer/NodePort option
 and catch-all `/` Ingress remain unchanged. If server or delivery pools are
 enabled, rendering requires an enabled Ingress with a nonempty hostname list,
-API Service type ClusterIP, at least one API node (full/server), and at least one
-media node (full/delivery). Direct L4 API exposure would bypass representation
+API Service type ClusterIP, at least one API node (full/server), at least one
+media node (full/delivery), and the explicit temporary
+`ingress.canonicalHLSLabOnly=true` acknowledgement. That flag defaults false and
+permits only isolated canonical-HLS lab staging, not mixed-client deployment. Direct L4 API exposure would bypass representation
 routing and is rejected. Installing an Ingress object is not sufficient: provide
 an actual controller, DNS/TLS and an externally reachable shared origin.
 
@@ -248,7 +250,7 @@ host, preserving paths and query strings:
 
 | Prefix | Backend | Contract |
 | --- | --- | --- |
-| `/video/:/transcode/universal/session` | media (full/delivery) | Pure Plex representations: GET/HEAD only. |
+| `/video/:/transcode/universal/session` | media (full/delivery) | Broad Prefix for the canonical-HLS lab; includes unsupported session resources too. |
 | `/sessions/media` | media (full/delivery) | Canonical grant-bearing representations: GET/HEAD only. |
 | `/` and every other path | API (full/server) | Browse, admission, control and control-coupled responses. |
 
@@ -263,8 +265,18 @@ server nodes may proxy those bytes through real remote adapters without local
 providers or encoders. This topology does not claim that every byte path runs
 on a delivery-only node or rewrites a client to a different media origin.
 
-The initial typed sender covers only its actual supported representations. Its
-Plex resource scope excludes ASS. Jellyfin/Emby media aliases require the explicit
+The broad Prefix has a known mismatch with the current typed sender:
+`/video/:/transcode/universal/session/id/subtitles/1.ass` and
+`/video/:/transcode/universal/session/id/base/index.mpd` both route to the media
+Service, where current typed delivery rejects them. They do **not** fall back to
+API because an application matcher excludes them. Standard Prefix routing cannot
+express those suffix exceptions. General mixed-client parity is blocked until
+typed authenticated delivery covers the actual authored representations and real
+same-origin controller tests pass. The preferred production strategy is that
+application coverage; the chart does not introduce a Traefik CRD/controller
+requirement or promise a regex fix. Full-only public pools remain supported.
+
+Jellyfin/Emby media aliases require the explicit
 auth-preserving runtime adapter and matching approved routing before being
 claimed; the chart currently leaves `/jellyfin/sessions/media` and
 `/emby/sessions/media` on API. Silo playback paths likewise remain on API until a
@@ -274,8 +286,8 @@ the same returned path from server pod to delivery pod proves that role path
 only; it does not replace a real client test through the shared Ingress origin.
 
 Select the controller class, hostname, TLS Secret and controller-specific stream
-timeouts. The controller must accept the literal colon in Plex paths and honor
-longest Prefix routing without URL rewriting. Test actual range/HEAD requests,
+timeouts. For the explicitly gated HLS lab, the controller must accept the literal colon
+in Plex paths and honor longest Prefix routing without URL rewriting. Test actual range/HEAD requests,
 WebSockets, long streams, auth/policy and proxy buffering against that controller.
 Console routing remains separate from this public Plex listener; this chart does
 not publish a console service.

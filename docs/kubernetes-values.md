@@ -53,6 +53,7 @@ Every supported global value is listed below. Kubernetes-native objects accept t
 | `service.type` | `"ClusterIP"` | ClusterIP, LoadBalancer or NodePort for full-only public pools; mixed server/delivery pools require ClusterIP behind Ingress. |
 | `service.port` | `32400` | Public service port; target always 32400. |
 | `service.annotations` | `{}` | Controller/provider annotations. |
+| `ingress.canonicalHLSLabOnly` | `false` | Temporary explicit acknowledgement for isolated canonical-HLS mixed-role staging. Required when server/delivery pools are enabled. Broad Prefix misroutes unsupported session ASS/MPD resources; this is not final mixed-client parity. |
 | `ingress.enabled` | `false` | Expose one shared public origin; required for server/delivery pools, with fixed API/media Prefix routing. |
 | `ingress.className` | `""` | Ingress controller class. |
 | `ingress.annotations` | `{}` | Controller-specific annotations. |
