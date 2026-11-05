@@ -1270,6 +1270,21 @@ func (s *Service) programmes(ctx context.Context, c Channel, from, until time.Ti
 		return s.personalProgrammes(ctx, c, c.personalViewer, from, until)
 	}
 	if c.Kind == "virtual" {
+		s.virtualGuide.mu.RLock()
+		materialized := s.virtualGuide.entries[c.ID] != nil
+		s.virtualGuide.mu.RUnlock()
+		if !materialized {
+			var saved bool
+			if err := s.o.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM livetv_channels WHERE id=?)`, c.ID).Scan(&saved); err != nil {
+				return nil, err
+			}
+			if !saved {
+				// Trusted callers may preview a recipe before saving it. Public
+				// viewer paths resolve a persisted channel first and can never
+				// reach this owner/draft scheduling path.
+				return Schedule(s.guideChannel(ctx, c), from, until), nil
+			}
+		}
 		if _, err := s.withVirtualGuide(ctx, []Channel{c}); err != nil {
 			return nil, err
 		}

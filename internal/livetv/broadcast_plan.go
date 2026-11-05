@@ -308,10 +308,9 @@ type providerBroadcastPlanner struct {
 
 func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadcastPlan) {
 	p.mu.Lock()
+	ready := !now.Before(p.guideFrom) && now.Before(p.guideUntil)
 	var tag *broadcastPolicyTag
-	if now.Before(p.guideFrom) || !now.Before(p.guideUntil) {
-		tag = &broadcastPolicyTag{deny: true}
-	} else {
+	if ready {
 		for _, programme := range p.guide {
 			if !now.Before(programme.Start) && now.Before(programme.End) {
 				tag = programme.policyTag
@@ -320,6 +319,12 @@ func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 		}
 	}
 	p.mu.Unlock()
+	if !ready {
+		// Hold on a neutral signal screen until the background EPG snapshot is
+		// ready. A placeholder denial must never poison a published screen segment.
+		// Changing identity also retires an active source if its policy expires.
+		return broadcastPlan{id: "provider-policy-wait-" + p.channel.ID}, nil
+	}
 	return broadcastPlan{policy: tag, programme: true, id: "provider-" + p.channel.ID, open: p.open, failed: p.failed}, nil
 }
 func (p *providerBroadcastPlanner) failed(err error) time.Time {
