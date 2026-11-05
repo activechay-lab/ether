@@ -762,8 +762,15 @@ func (s *Service) SaveChannel(ctx context.Context, c Channel) (Channel, error) {
 			c.LogoMatched = false
 		}
 	}
-	if err := s.expand(ctx, &c); err != nil {
-		return c, err
+	// A metadata save must not re-query collections or personal providers.
+	s.virtualGuide.mu.RLock()
+	previous := s.virtualGuide.entries[c.ID]
+	s.virtualGuide.mu.RUnlock()
+	sameProgramming := previous != nil && snapshotInputFingerprint(c, 0) == snapshotInputFingerprint(previous.channel, 0)
+	if !sameProgramming {
+		if err := s.expand(ctx, &c); err != nil {
+			return c, err
+		}
 	}
 	if err := validateChannel(&c); err != nil {
 		return c, err
@@ -1370,6 +1377,21 @@ func (s *Service) programmes(ctx context.Context, c Channel, from, until time.Ti
 		return s.personalProgrammes(ctx, c, c.personalViewer, from, until)
 	}
 	if c.Kind == "virtual" {
+		s.virtualGuide.mu.RLock()
+		materialized := s.virtualGuide.entries[c.ID] != nil
+		s.virtualGuide.mu.RUnlock()
+		if !materialized {
+			var saved bool
+			if err := s.o.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM livetv_channels WHERE id=?)`, c.ID).Scan(&saved); err != nil {
+				return nil, err
+			}
+			if !saved {
+				// Trusted callers may preview a recipe before saving it. Public
+				// viewer paths resolve a persisted channel first and can never
+				// reach this owner/draft scheduling path.
+				return Schedule(s.guideChannel(ctx, c), from, until), nil
+			}
+		}
 		if _, err := s.withVirtualGuide(ctx, []Channel{c}); err != nil {
 			return nil, err
 		}

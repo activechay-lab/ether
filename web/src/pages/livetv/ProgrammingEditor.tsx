@@ -984,7 +984,7 @@ function Creative({
           control={
             <Switch
               aria-label={x.label}
-              checked={!!value?.[x.key]}
+              checked={x.key === "tonight" ? (value?.tonight ?? !!value?.upNext) : !!value?.[x.key]}
               onChange={(e) => set({ [x.key]: e.currentTarget.checked })}
             />
           }

@@ -2,7 +2,6 @@ package livetv
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
@@ -19,7 +18,7 @@ type virtualGuideSnapshot struct {
 	channel              Channel
 	playbackChannel      Channel
 	from, until          time.Time
-	raw, playback, guide []Programme
+	raw, playback, guide *compactProgrammes
 }
 type virtualGuideCache struct {
 	mu       sync.RWMutex
@@ -79,7 +78,17 @@ func (s *Service) refreshVirtualGuide(ctx context.Context) error {
 	s.virtualGuide.mu.RLock()
 	revision := s.virtualGuide.revision
 	s.virtualGuide.mu.RUnlock()
-	entries := map[string]*virtualGuideSnapshot{}
+	seen := map[string]bool{}
+	compiled := &guideCompileCache{}
+	publish := func(id string, entry *virtualGuideSnapshot) {
+		s.virtualGuide.mu.Lock()
+		if s.virtualGuide.entries == nil {
+			s.virtualGuide.entries = map[string]*virtualGuideSnapshot{}
+		}
+		s.virtualGuide.entries[id] = entry
+		s.virtualGuide.mu.Unlock()
+		seen[id] = true
+	}
 	for _, c := range cs {
 		if c.Kind != "virtual" {
 			continue
@@ -93,62 +102,39 @@ func (s *Service) refreshVirtualGuide(ctx context.Context) error {
 					}
 				}
 			}
-			entries[c.ID] = &virtualGuideSnapshot{channel: c}
+			publish(c.ID, &virtualGuideSnapshot{channel: c})
 			continue
 		}
-		recipe, _ := json.Marshal(c)
-		s.virtualGuide.mu.RLock()
-		prior := s.virtualGuide.entries[c.ID]
-		s.virtualGuide.mu.RUnlock()
-		if prior != nil && prior.recipe == string(recipe) && prior.revision == revision && !now.Before(prior.built) && now.Sub(prior.built) < 30*time.Second {
-			entries[c.ID] = prior
-			continue
-		}
-		from, until := now.Add(-24*time.Hour), now.Add(8*24*time.Hour+time.Hour)
-		gated := s.guideChannel(ctx, c)
-		entry := &virtualGuideSnapshot{channel: c, playbackChannel: gated, recipe: string(recipe), built: now, from: from, until: until, raw: Schedule(c, from, until), revision: revision}
-		entry.playback = entry.raw
-		if !reflect.DeepEqual(c, gated) {
-			entry.playback = Schedule(gated, from, until)
-		}
-		entry.guide = entry.playback
-		if gated.clipDuration != nil {
-			entry.guide = s.broadcastGuide(gated, from, until)
-		}
-		tags := map[struct {
-			key           core.RatingKey
-			rating, slate string
-		}]*broadcastPolicyTag{}
-		facts := map[core.RatingKey]*core.Title{}
-		loaded := map[core.RatingKey]bool{}
-		for _, ps := range [][]Programme{entry.raw, entry.playback, entry.guide} {
-			for i := range ps {
-				p := ps[i]
-				if p.Item.Key != 0 && !loaded[p.Item.Key] && s.o.Catalog != nil {
-					title, err := s.o.Catalog.Get(ctx, p.Item.Key)
-					if err == nil && title != nil {
-						copy := *title
-						facts[p.Item.Key] = &copy
-					}
-					loaded[p.Item.Key] = true
-				}
-				identity := struct {
-					key           core.RatingKey
-					rating, slate string
-				}{p.Item.Key, p.Item.Rating, p.Item.Slate}
-				if tags[identity] == nil {
-					tags[identity] = &broadcastPolicyTag{programme: Programme{Item: Item{Key: p.Item.Key, Rating: p.Item.Rating, Slate: p.Item.Slate}}, title: facts[p.Item.Key], catalog: s.o.Catalog != nil}
-				}
-				ps[i].policyTag = tags[identity]
+		recipe, reuse := s.virtualGuideFingerprint(c, now, revision, compiled)
+		if reuse {
+			s.virtualGuide.mu.RLock()
+			prior := s.virtualGuide.entries[c.ID]
+			s.virtualGuide.mu.RUnlock()
+			updated := *prior
+			updated.channel = c
+			updated.playbackChannel = refreshSnapshotMetadata(prior.playbackChannel, c)
+			publish(c.ID, &updated)
+			if shareableGuide(c) {
+				compiled.remember(recipe, &updated)
 			}
+			continue
 		}
-		entries[c.ID] = entry
+		entry, err := s.buildVirtualGuideSnapshot(ctx, c, now, revision, compiled)
+		if err != nil {
+			return err
+		}
+		publish(c.ID, entry)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 	}
 	s.virtualGuide.mu.Lock()
-	s.virtualGuide.epoch, s.virtualGuide.entries = epoch, entries
+	for id := range s.virtualGuide.entries {
+		if !seen[id] {
+			delete(s.virtualGuide.entries, id)
+		}
+	}
+	s.virtualGuide.epoch = epoch
 	s.virtualGuide.mu.Unlock()
 	return nil
 }
@@ -175,7 +161,7 @@ func (s *Service) virtualProgrammes(c Channel, from, until time.Time, kind strin
 	if kind == "guide" {
 		ps = entry.guide
 	}
-	return programmeSlice(ps, from, until)
+	return ps.slice(c.ID, from, until)
 }
 func (s *Service) allowedProgramme(ctx context.Context, u *core.User, c Channel, p *Programme) bool {
 	if p != nil && p.policyTag != nil {
@@ -314,4 +300,132 @@ func (s *Service) plannedChannel(c Channel) Channel {
 		return entry.playbackChannel
 	}
 	return c
+}
+
+func sameProgrammeStorage(a, b []Programme) bool {
+	return len(a) == len(b) && (len(a) == 0 || &a[0] == &b[0])
+}
+
+func refreshSnapshotMetadata(playback, current Channel) Channel {
+	playback.ID = current.ID
+	playback.Name = current.Name
+	playback.Number = current.Number
+	playback.Logo = current.Logo
+	playback.LogoMatched = current.LogoMatched
+	playback.Favorite = current.Favorite
+	playback.Enabled = current.Enabled
+	playback.Private = current.Private
+	playback.Group = current.Group
+	playback.CustomGroup = current.CustomGroup
+	playback.Health = current.Health
+	return playback
+}
+
+// buildVirtualGuideSnapshot compiles one channel without publishing it. A pass
+// shares its thread-safe cache across workers, so identical recipes expand once.
+func (s *Service) buildVirtualGuideSnapshot(ctx context.Context, c Channel, now time.Time, revision uint64, compiled *guideCompileCache) (*virtualGuideSnapshot, error) {
+	if compiled == nil {
+		compiled = &guideCompileCache{}
+	}
+	recipe := compiled.fingerprint(s, c, revision, now)
+	build := func() (*virtualGuideSnapshot, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		from, until := now.Add(-24*time.Hour), now.Add(8*24*time.Hour+time.Hour)
+		gated := s.guideChannel(ctx, c)
+		entry := &virtualGuideSnapshot{channel: c, playbackChannel: gated, recipe: recipe, built: now, from: from, until: until, revision: revision}
+		raw := Schedule(c, from, until)
+		playback := raw
+		if !reflect.DeepEqual(c, gated) {
+			playback = Schedule(gated, from, until)
+		}
+		guide := playback
+		if gated.clipDuration != nil {
+			guide = s.broadcastGuide(gated, from, until)
+		}
+		tags := map[struct {
+			key           core.RatingKey
+			rating, slate string
+		}]*broadcastPolicyTag{}
+		facts := map[core.RatingKey]*core.Title{}
+		loaded := map[core.RatingKey]bool{}
+		for _, ps := range [][]Programme{raw, playback, guide} {
+			for i := range ps {
+				p := ps[i]
+				if p.Item.Key != 0 && !loaded[p.Item.Key] && s.o.Catalog != nil {
+					title, err := s.o.Catalog.Get(ctx, p.Item.Key)
+					if err == nil && title != nil {
+						copy := *title
+						facts[p.Item.Key] = &copy
+					}
+					loaded[p.Item.Key] = true
+				}
+				identity := struct {
+					key           core.RatingKey
+					rating, slate string
+				}{p.Item.Key, p.Item.Rating, p.Item.Slate}
+				if tags[identity] == nil {
+					tags[identity] = &broadcastPolicyTag{programme: Programme{Item: Item{Key: p.Item.Key, Rating: p.Item.Rating, Slate: p.Item.Slate}}, title: facts[p.Item.Key], catalog: s.o.Catalog != nil}
+				}
+				ps[i].policyTag = tags[identity]
+			}
+		}
+		items := &compactItemTable{}
+		entry.raw = compactProgrammeSlice(c.ID, raw, items)
+		entry.playback = entry.raw
+		if !sameProgrammeStorage(raw, playback) {
+			entry.playback = compactProgrammeSlice(c.ID, playback, items)
+		}
+		entry.guide = entry.playback
+		if !sameProgrammeStorage(playback, guide) {
+			entry.guide = compactProgrammeSlice(c.ID, guide, items)
+		}
+		items.index = nil
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return entry, nil
+	}
+	if !shareableGuide(c) || (s.o.DefaultStyle != nil && s.o.DefaultStyle() != "") {
+		return build()
+	}
+	shared, err := compiled.build(ctx, recipe, build)
+	if err != nil {
+		return nil, err
+	}
+	if shared.channel.ID == c.ID {
+		return shared, nil
+	}
+	entry := *shared
+	entry.channel = c
+	entry.playbackChannel = refreshSnapshotMetadata(shared.playbackChannel, c)
+	return &entry, nil
+}
+
+// virtualGuideFingerprint makes the skip decision before a build is admitted.
+// The stored fingerprint belongs to the immutable snapshot, not lineup epoch.
+func (s *Service) virtualGuideFingerprint(c Channel, now time.Time, revision uint64, compiled *guideCompileCache) (string, bool) {
+	recipe := compiled.fingerprint(s, c, revision, now)
+	s.virtualGuide.mu.RLock()
+	prior := s.virtualGuide.entries[c.ID]
+	s.virtualGuide.mu.RUnlock()
+	return recipe, prior != nil && prior.recipe == recipe && !now.Before(prior.built) && !prior.until.Before(now.Add(8*24*time.Hour))
+}
+
+func shareableGuide(c Channel) bool {
+	if c.Personal != nil || c.Look != nil || len(c.Clock) > 0 {
+		return false
+	}
+	for _, b := range c.Blocks {
+		if b.Breaks != nil {
+			return false
+		}
+	}
+	for _, p := range c.Pins {
+		if p.Breaks != nil {
+			return false
+		}
+	}
+	return true
 }

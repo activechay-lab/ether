@@ -580,6 +580,7 @@ func (s *Service) execute(j renderJob) (err error) {
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, 15*time.Minute)
 	defer cancel()
+	started := time.Now()
 	if s.o.Acquire != nil {
 		jobCtx, release, e := s.o.Acquire(ctx)
 		if e != nil {
@@ -596,7 +597,6 @@ func (s *Service) execute(j renderJob) (err error) {
 	if j.convert != nil {
 		return j.convert(ctx)
 	}
-	started := time.Now()
 	defer func() {
 		elapsed := time.Since(started)
 		s.mu.Lock()
@@ -607,7 +607,7 @@ func (s *Service) execute(j renderJob) (err error) {
 		previous := s.renderTimes[key]
 		s.renderTimes[key] = max(elapsed, (previous*3+elapsed)/4)
 		s.mu.Unlock()
-		s.o.Logger.Debug("onair master rendered", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed, "cached", err == nil)
+		s.o.Logger.Debug("onair master rendered", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed, "success", err == nil)
 	}()
 	if e := s.loadAssets(ctx, &j); e != nil {
 		return e

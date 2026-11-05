@@ -175,8 +175,14 @@ func weeklySchedule(c Channel, from, until time.Time) []Programme {
 		}
 		for _, p := range daily {
 			if p.End.After(from) && p.Start.Before(until) {
+				if len(out) >= 20000 {
+					return out
+				}
 				out = append(out, p)
 			}
+		}
+		if len(out) >= 20000 {
+			return out
 		}
 	}
 	return out
