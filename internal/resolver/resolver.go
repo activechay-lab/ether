@@ -575,8 +575,10 @@ func (s *Service) Resolve(ctx context.Context, req core.ResolveRequest) (*core.R
 	if s.indexer == nil {
 		return nil, fmt.Errorf("resolver: no indexer configured")
 	}
-	req.Client = ApplyClientRules(s.qualityCfg(), req.Client, req.User)
-	profile := s.ProfileFor(req.Client, req.User)
+	media := titleMedia(req.Title)
+	q := s.qualityCfg()
+	req.Client, _ = applyClientRules(q, req.Client, req.User, media)
+	profile := SelectProfileForMedia(q, req.Client, req.User, media)
 	key := flightKey(req, profile)
 
 	for {
@@ -1684,8 +1686,9 @@ func rejectPolicy(rel core.Release, t *core.Title, profile core.QualityProfile, 
 	if !ceilingBypass && len(profile.AllowedQualities) > 0 {
 		allowed := false
 		for _, q := range profile.AllowedQualities {
-			if q == releaseQuality(rel.Info) {
+			if qualityGateMatch(q, rel.Info) {
 				allowed = true
+				break
 			}
 		}
 		if !allowed {

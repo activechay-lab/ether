@@ -39,6 +39,9 @@ type ConsoleDeps struct {
 	// path: it applies mutate to the current settings (again if they changed
 	// meanwhile), validates and saves them. nil disables imports.
 	SaveConfig func(mutate func(*config.Config) error) error
+	// SyncQuality runs one imported-profile sync now, updating the saved
+	// profiles and reporting what changed. nil disables the sync button.
+	SyncQuality func(ctx context.Context) (QualitySyncReport, error)
 }
 
 // ConsoleHandler serves the release console under the owner API (mounted
@@ -61,6 +64,7 @@ type ConsoleDeps struct {
 //	GET    /dictionarry/{app}/profiles   Profilarr (Dictionarry) quality profiles (radarr, sonarr)
 //	POST   /quality-import/preview       {app, source, profile | json}
 //	POST   /quality-import               {app, source, profile | json, name}
+//	POST   /quality/sync                 sync imported profiles from their guides
 func (s *Service) ConsoleHandler(deps ConsoleDeps) http.Handler {
 	if deps.Logger == nil {
 		deps.Logger = s.log
@@ -91,6 +95,7 @@ func (s *Service) ConsoleHandler(deps ConsoleDeps) http.Handler {
 	mux.HandleFunc("GET /dictionarry/{app}/profiles", h.dictionarryProfiles)
 	mux.HandleFunc("POST /quality-import/preview", h.previewImport)
 	mux.HandleFunc("POST /quality-import", h.applyImport)
+	mux.HandleFunc("POST /quality/sync", h.syncQuality)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		consoleError(w, http.StatusNotFound, "not_found", "no such release console endpoint")
 	})
@@ -195,7 +200,7 @@ func pageParams(r *http.Request) (limit, offset int) {
 }
 
 func (h *consoleAPI) profiles(w http.ResponseWriter, r *http.Request) {
-	def, names := h.s.ConsoleProfiles()
+	def, names := h.s.ConsoleProfilesFor(r.URL.Query().Get("media"))
 	if names == nil {
 		names = []string{}
 	}

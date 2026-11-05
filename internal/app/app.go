@@ -205,6 +205,9 @@ type App struct {
 	media               *debrid.Engine  // core.Engine + core.HealthChecker over engine
 	sources             *debrid.Indexer // core.Indexer over indexers
 	resolver            *resolver.Service
+	guides              *resolver.TrashGuides
+	dictionarry         *resolver.Dictionarry
+	qualitySync         *resolver.QualitySyncer
 	transcoder          *transcode.Manager
 	sourceProber        *transcode.SourceProber
 	trickplay           *trickplay.Owner
@@ -534,6 +537,18 @@ func (a *App) build(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 	a.support = diagnostics.New(a.supportDeps())
+	// One guide client serves the import console and the background sync,
+	// so a listing fetched by either is cached for the other.
+	ua := "Ether/" + a.opts.Version + " (+https://github.com/braedonsaunders/ether)"
+	a.guides = resolver.NewTrashGuides(resolver.TrashOptions{UserAgent: ua})
+	a.dictionarry = resolver.NewDictionarry(resolver.DictionarryOptions{UserAgent: ua})
+	a.qualitySync = resolver.NewQualitySyncer(resolver.QualitySyncDeps{
+		Guides:      a.guides,
+		Dictionarry: a.dictionarry,
+		Config:      a.cfg.Get,
+		Save:        a.saveValidated,
+		Logger:      a.log.With("component", "quality-sync"),
+	})
 	cfg.Cache = cfg.EffectiveCache()
 	var err error
 	if a.safety, err = safety.New(ctx, a.db); err != nil {
@@ -757,6 +772,7 @@ func (a *App) Run(ctx context.Context) error {
 	background.start(func() { a.cluster.RunAsLeader(ctx, "notification delivery", a.notifications.Run) })
 	background.start(func() { a.cluster.RunAsLeader(ctx, "favorite episode alerts", a.runFavoriteEpisodeAlerts) })
 	background.start(func() { a.cluster.RunAsLeader(ctx, "viewer push delivery", a.runViewerPush) })
+	background.start(func() { a.cluster.RunAsLeader(ctx, "quality profile sync", a.runQualitySync) })
 	if a.clustered() {
 		background.start(func() { a.sampleHealth(ctx) })
 	}
@@ -877,6 +893,56 @@ func (a *App) Run(ctx context.Context) error {
 		return runErr
 	}
 	return a.runResult()
+}
+
+// runQualitySync checks once a minute whether the owner's interval is due
+// and syncs imported profiles. The guide clients are shared with the import
+// console; LastRun and LastError are written by the sync's own save.
+func (a *App) runQualitySync(ctx context.Context) {
+	if a.qualitySync == nil {
+		return
+	}
+	var lastAttempt time.Time
+	run := func(now time.Time) {
+		sync := a.cfg.Get().Quality.Sync
+		due := resolver.SyncDue(sync, now)
+		if !due {
+			// A run where a profile failed still advances LastRun so the
+			// cadence stays sane; retry those sooner without hammering the
+			// guide every minute.
+			retry := sync.Enabled && sync.LastError != "" && (lastAttempt.IsZero() || now.Sub(lastAttempt) >= 15*time.Minute)
+			if !retry {
+				return
+			}
+		}
+		lastAttempt = now
+		report, err := a.qualitySync.Sync(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				a.log.Warn("quality profile sync failed", "err", err)
+			}
+			return
+		}
+		if len(report.Warnings) > 0 {
+			a.log.Warn("quality profile sync skipped some profiles", "warnings", report.Warnings,
+				"profilesUpdated", report.ProfilesUpdated)
+			return
+		}
+		a.log.Info("quality profiles synced", "profilesUpdated", report.ProfilesUpdated,
+			"formatsAdded", report.FormatsAdded, "formatsUpdated", report.FormatsUpdated,
+			"formatsRemoved", report.FormatsRemoved)
+	}
+	run(time.Now())
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			run(now)
+		}
+	}
 }
 
 func (a *App) housekeeping(ctx context.Context) {

@@ -385,19 +385,37 @@ type Quality struct {
 	// Profiles by name. Rules pick a profile per client.
 	Profiles []core.QualityProfile `json:"profiles"`
 	Rules    []QualityRule         `json:"rules"`
-	Default  string                `json:"default"`
-	Remote   string                `json:"remote"` // profile for remote clients, "" = same as default
+	// Default and Remote are the media-neutral fallbacks. A media-specific
+	// value, when set, wins for that media; legacy configs keep working.
+	Default      string      `json:"default"`
+	Remote       string      `json:"remote"` // profile for remote clients, "" = same as default
+	DefaultMovie string      `json:"defaultMovie,omitempty"`
+	DefaultTV    string      `json:"defaultTv,omitempty"`
+	RemoteMovie  string      `json:"remoteMovie,omitempty"`
+	RemoteTV     string      `json:"remoteTv,omitempty"`
+	Sync         QualitySync `json:"sync,omitempty"`
+}
+
+// QualitySync keeps imported profiles and their format definitions aligned
+// with their source guide on a cadence.
+type QualitySync struct {
+	Enabled   bool      `json:"enabled"`
+	Interval  Duration  `json:"interval,omitempty"` // default 24h
+	LastRun   time.Time `json:"lastRun,omitempty"`
+	LastError string    `json:"lastError,omitempty"`
 }
 
 // QualityRule selects a profile when all non-empty matchers match.
 type QualityRule struct {
-	Protocol             core.Protocol `json:"protocol,omitempty"`
-	Product              string        `json:"product,omitempty"`  // substring of X-Plex-Product
-	Platform             string        `json:"platform,omitempty"` // substring of X-Plex-Platform
-	UserID               int64         `json:"userId,omitempty"`
-	Profile              string        `json:"profile"`
-	MaxHeight            int           `json:"maxHeight,omitempty"`            // optional max-height override (2160, 1080, 720, 480; 0 = profile ceiling)
-	ConvertSurroundAudio bool          `json:"convertSurroundAudio,omitempty"` // convert Dolby/DTS/TrueHD audio to AAC for players that do not decode surround formats
+	Protocol core.Protocol `json:"protocol,omitempty"`
+	Product  string        `json:"product,omitempty"`  // substring of X-Plex-Product
+	Platform string        `json:"platform,omitempty"` // substring of X-Plex-Platform
+	UserID   int64         `json:"userId,omitempty"`
+	// MediaType scopes the rule to movies or shows; empty matches both.
+	MediaType            string `json:"mediaType,omitempty"`
+	Profile              string `json:"profile"`
+	MaxHeight            int    `json:"maxHeight,omitempty"`            // optional max-height override (2160, 1080, 720, 480; 0 = profile ceiling)
+	ConvertSurroundAudio bool   `json:"convertSurroundAudio,omitempty"` // convert Dolby/DTS/TrueHD audio to AAC for players that do not decode surround formats
 }
 
 // ClientCompatibility stores owner edits of the capability registry.

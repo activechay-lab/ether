@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -254,5 +255,87 @@ func TestConsoleImportRejectsBadRequests(t *testing.T) {
 	readOnly := newImportFixture(t, false)
 	if code := readOnly.do(t, "POST", "/quality-import", body(importRequest{App: AppRadarr, Profile: "sqp-1-2160p"}), nil); code != 501 {
 		t.Fatalf("without a saver: %d", code)
+	}
+}
+
+func TestConsoleProfileListSurfacesPartialFailure(t *testing.T) {
+	f := newImportFixture(t, false)
+	f.gh.fail = map[string]bool{"radarr/quality-profiles/sqp-1-2160p.json": true}
+	var out struct {
+		Items   []TrashProfile `json:"items"`
+		Warning string         `json:"warning"`
+	}
+	if code := f.do(t, "GET", "/trash/radarr/profiles", "", &out); code != 200 {
+		t.Fatalf("partial list status %d", code)
+	}
+	if len(out.Items) != 1 || !strings.Contains(out.Warning, "partial") {
+		t.Fatalf("partial list %+v", out)
+	}
+}
+
+func TestConsoleImportRejectsUnusableProfile(t *testing.T) {
+	f := newImportFixture(t, true)
+	pasted := `{"name":"Impossible","minFormatScore":5000,"items":[{"name":"WEBDL-1080p","allowed":true}],
+		"formatItems":{"WEB Tier 01":"cf-web1"}}`
+	var plan QualityImportPlan
+	if code := f.do(t, "POST", "/quality-import/preview", body(importRequest{App: AppRadarr, JSON: pasted}), &plan); code != 200 {
+		t.Fatalf("preview status %d", code)
+	}
+	if plan.Unusable == "" || !strings.Contains(plan.Unusable, "at most 1700") {
+		t.Fatalf("plan unusable %q", plan.Unusable)
+	}
+	var e apiError
+	if code := f.do(t, "POST", "/quality-import", body(importRequest{App: AppRadarr, JSON: pasted}), &e); code != 400 || e.Error.Code != "unusable" {
+		t.Fatalf("apply unusable profile: %d %+v", code, e)
+	}
+	if f.saves != 0 || len(f.cfg.Quality.Profiles) != len(testCfg().Quality.Profiles) {
+		t.Fatalf("unusable import was saved: %d saves", f.saves)
+	}
+}
+
+func TestConsoleSyncEndpoint(t *testing.T) {
+	f := newImportFixture(t, false)
+	var e apiError
+	if code := f.do(t, "POST", "/quality/sync", "", &e); code != 501 {
+		t.Fatalf("sync without a syncer: %d %+v", code, e)
+	}
+	want := QualitySyncReport{ProfilesUpdated: 1, FormatsAdded: 2, FormatsUpdated: 3, FormatsRemoved: 4, Warnings: []string{"kept"}}
+	h := f.svc.ConsoleHandler(ConsoleDeps{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		SyncQuality: func(context.Context) (QualitySyncReport, error) {
+			return want, nil
+		},
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	res, err := http.Post(srv.URL+"/quality/sync", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var got QualitySyncReport
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != 200 || got.ProfilesUpdated != 1 || got.FormatsAdded != 2 || got.FormatsUpdated != 3 || got.FormatsRemoved != 4 || len(got.Warnings) != 1 {
+		t.Fatalf("sync response %d %+v", res.StatusCode, got)
+	}
+}
+
+func TestConsoleImportWarnsOnPartialGroupRead(t *testing.T) {
+	f := newImportFixtureTree(t, false, trashGroupTree())
+	f.gh.fail = map[string]bool{"radarr/cf-groups/release-groups.json": true}
+	var plan QualityImportPlan
+	if code := f.do(t, "POST", "/quality-import/preview", body(importRequest{App: AppRadarr, Profile: "base-profile"}), &plan); code != 200 {
+		t.Fatalf("preview %d", code)
+	}
+	found := false
+	for _, f := range plan.Formats {
+		if f.ID == "cf-grp1" {
+			found = true
+		}
+	}
+	if !found || !strings.Contains(strings.Join(plan.Warnings, " "), "default format group") {
+		t.Fatalf("partial group read not reported: %+v", plan)
 	}
 }

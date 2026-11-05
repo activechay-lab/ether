@@ -1,59 +1,65 @@
 import { SearchSelect, SettingsSection, toast } from "@braedonsaunders/appkit-ui";
 import { useMemo, useState } from "react";
 import { useApp } from "../../app-context";
-import { NumberInput } from "../../components/fields";
 import { SaveBar, useDraft } from "../../components/SaveBar";
 import { SettingsRow } from "../../components/SettingsRow";
 import { t } from "../../i18n";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
 import { api } from "../../lib/api";
-import { useAsync } from "../../lib/hooks";
+import {
+  MEDIA_MOVIE,
+  compatibleProfiles,
+  mediaApplies,
+  mediaLabel,
+  type ProfileMedia,
+} from "../../lib/releases";
 import type { Quality } from "./useQuality";
 
-type Draft = { remote: string; capMbps: number };
+/** quality.remoteMovie/remoteTv, falling back to the legacy field when it fits. */
+function awayProfile(quality: Quality, media: ProfileMedia): string {
+  const scoped = media === MEDIA_MOVIE ? quality.remoteMovie : quality.remoteTv;
+  if (scoped) return scoped;
+  const legacy = quality.remote ?? "";
+  if (!legacy) return "";
+  const profile = (quality.profiles ?? []).find((p) => p.name === legacy);
+  return !profile || mediaApplies(profile.mediaType, media) ? legacy : "";
+}
 
 /**
- * Quality away from home: an optional Away profile (quality.remote) and an
- * optional bitrate cap (transcode.remoteMaxBitrateKbps). Neither is set by
- * default; device and viewer rules still win over the Away profile.
+ * The Away profile for the selected media. The remote bitrate cap is shared
+ * by both media and lives in RemoteBitrateSection.
  */
 export function AwaySection({
   quality,
+  media,
   onSaved,
 }: {
   quality: Quality;
+  media: ProfileMedia;
   onSaved: () => Promise<void>;
 }) {
   const { refreshDashboard } = useApp();
-  const config = useAsync(() => api.getConfig(), []);
-  const kbps = config.data?.transcode?.remoteMaxBitrateKbps;
-  const saved = useMemo<Draft | null>(
-    () =>
-      kbps === undefined
-        ? null
-        : { remote: quality.remote ?? "", capMbps: Math.round((kbps ?? 0) / 100) / 10 },
-    [kbps, quality.remote],
-  );
+  const saved = useMemo(() => awayProfile(quality, media), [quality, media]);
   const { draft, setDraft, dirty, reset } = useDraft(saved);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  if (!draft || !saved) return null;
+  if (draft === null) return null;
+  const field = media === MEDIA_MOVIE ? "remoteMovie" : "remoteTv";
   const options = [
     { value: "", label: t("Same as at home") },
-    ...(quality.profiles ?? []).map((p) => ({ value: p.name, label: p.name })),
+    ...compatibleProfiles(quality.profiles, media).map((p) => ({
+      value: p.name,
+      label: p.name,
+    })),
   ];
   async function submit() {
-    if (!draft || !saved) return;
+    if (draft === null) return;
     setSaving(true);
     setError(null);
     try {
-      if (draft.remote !== saved.remote) await api.putSection("quality", { remote: draft.remote });
-      if (draft.capMbps !== saved.capMbps)
-        await api.putSection("transcode", {
-          remoteMaxBitrateKbps: Math.round(Math.max(0, draft.capMbps) * 1000),
-        });
+      if (draft !== saved) await api.putSection("quality", { [field]: draft });
       toast.success(t("Settings saved"), { description: t("Away from home") });
-      await Promise.all([config.reload(), onSaved()]);
+      await onSaved();
       void refreshDashboard();
     } catch (e) {
       setError(e);
@@ -66,39 +72,21 @@ export function AwaySection({
       <SettingsRow
         setting="away-profile"
         title={t("Away profile")}
-        description={t("Used away from home. Device and viewer rules still win.")}
+        description={t(
+          "Used away from home for {media}. Device and viewer rules still win.",
+          { media: mediaLabel(media) },
+        )}
         control={
           <div className="w-52">
             <SearchSelect
               {...searchSelectLabels()}
-              value={draft.remote}
-              onChange={(remote) => setDraft({ ...draft, remote })}
+              value={draft}
+              onChange={setDraft}
               options={options}
               ariaLabel={t("Away profile")}
               searchable={false}
             />
           </div>
-        }
-      />
-      <SettingsRow
-        title={
-          <label htmlFor="away-bitrate-cap" data-setting="bitrate-limit">
-            {t("Bitrate limit")}
-          </label>
-        }
-        description={t("Caps the stream for people away from home. 0 means no limit.")}
-        control={
-          <span className="flex items-center gap-2">
-            <NumberInput
-              id="away-bitrate-cap"
-              className="w-24"
-              min={0}
-              step={0.5}
-              value={draft.capMbps}
-              onChange={(capMbps) => setDraft({ ...draft, capMbps })}
-            />
-            <span className="text-sm text-fg-muted">{t("Mbps")}</span>
-          </span>
         }
       />
       <SaveBar

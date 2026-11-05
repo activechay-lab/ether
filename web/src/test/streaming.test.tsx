@@ -270,7 +270,7 @@ describe("Releases", () => {
     expect(within(drawer).getByLabelText("Maximum MB per minute")).toHaveValue(1000);
     expect(within(drawer).getByLabelText("Episode maximum MB per minute")).toHaveValue(0);
     expect(within(drawer).getByRole("switch", { name: "Larger file" })).not.toBeChecked();
-    expect(within(drawer).queryByText("Imported from TRaSH / Radarr / Sonarr")).toBeNull();
+    expect(within(drawer).queryByText("Imported profile")).toBeNull();
     // The Custom score step links to the scoring editor, even before any import.
     expect(within(drawer).getByText("Custom score")).toBeInTheDocument();
     fireEvent.click(within(drawer).getByRole("button", { name: "Edit scores" }));
@@ -312,8 +312,8 @@ describe("Releases", () => {
     fireEvent.click(within(drawer).getByRole("button", { name: "Save profile" }));
     await waitFor(() => expect(calls(fake, "PUT", "/config/quality")).toHaveLength(1));
     expect(calls(fake, "PUT", "/config/quality")[0]!.body).toMatchObject({
-      default: "4K",
-      remote: "1080p",
+      defaultMovie: "4K",
+      default: "1080p",
     });
   });
 

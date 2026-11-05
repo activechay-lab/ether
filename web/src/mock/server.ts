@@ -351,6 +351,7 @@ function defaultConfig(): EtherConfig {
       profiles: [
         {
           name: "4K",
+          mediaType: "movie",
           maxHeight: 2160,
           minHeight: 1080,
           allowHdr: true,
@@ -381,6 +382,7 @@ function defaultConfig(): EtherConfig {
       rules: [{ product: "Plex for Apple TV", profile: "4K" }],
       default: "1080p",
       remote: "1080p",
+      sync: { enabled: false, interval: "24h0m0s" },
     },
     transcode: {
       ffmpegPath: "",

@@ -49,6 +49,9 @@ func (a *App) buildPlayback(ctx context.Context, cfg config.Config) error {
 		SelectProfile: func(caps core.ClientCaps, u *core.User) core.QualityProfile {
 			return resolver.SelectProfile(a.cfg.Read().Quality, caps, u)
 		},
+		SelectProfileFor: func(caps core.ClientCaps, u *core.User, media string) core.QualityProfile {
+			return resolver.SelectProfileForMedia(a.cfg.Read().Quality, caps, u, media)
+		},
 		FetchNZB: playbackFetchNZB(a, dataDir),
 		Aligner: func() core.TimelineAligner {
 			if a.subtitles == nil {

@@ -12,7 +12,7 @@ import (
 // DiscoveryCandidate is local, name-based negative evidence only. It does not
 // certify quality or fetch a provider. Feed and playback share this policy.
 func (s *Service) DiscoveryCandidate(t *core.Title, r core.Release) string {
-	return sourceSuitability(r, t, s.ProfileFor(core.ClientCaps{HDR10: true, DolbyVision: true}, nil), false)
+	return sourceSuitability(r, t, SelectProfileForMedia(s.qualityCfg(), core.ClientCaps{HDR10: true, DolbyVision: true}, nil, titleMedia(t)), false)
 }
 
 func sourceSuitability(r core.Release, t *core.Title, p core.QualityProfile, explicit bool) string {

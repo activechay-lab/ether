@@ -11,6 +11,7 @@ import { TitlePicker } from "./Search";
 import { api } from "../../lib/api";
 import { formatNumber } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
+import { MEDIA_MOVIE, MEDIA_TV, mediaLabel } from "../../lib/releases";
 import type { QualityAnswer, QualityLayer } from "../../lib/types";
 
 type Where = "home" | "away";
@@ -81,6 +82,11 @@ function Answer({ answer, viewer }: { answer: QualityAnswer; viewer: string }) {
         <MonitorCheck size={36} className="shrink-0 text-primary" />
         <div className="space-y-2">
           <p className="text-xs font-medium text-fg-muted">{t("Available quality")}</p>
+          <div className="flex flex-wrap items-center gap-2" data-testid="quality-media">
+            {answer.mediaType ? (
+              <Badge variant="secondary">{mediaLabel(answer.mediaType)}</Badge>
+            ) : null}
+          </div>
           <div data-testid="quality-headline" className="flex flex-wrap items-center gap-2">
             <span className="text-3xl font-semibold tracking-tight">
               {answer.blocked ? t("Can't play away from home") : heightName(answer.maxHeight)}
@@ -190,6 +196,7 @@ export function WhoGetsWhat() {
   const [pickedClient, setClient] = useState("");
   const [where, setWhere] = useState<Where>("home");
   const [title, setTitle] = useState<{ key: string; name: string } | null>(null);
+  const [media, setMedia] = useState<"" | "movie" | "tv">("");
 
   const viewerId = pickedViewer || viewers?.find((v) => v.isOwner)?.id || viewers?.[0]?.id || 0;
   const clientId = pickedClient || clients.data?.[0]?.id || "";
@@ -202,12 +209,13 @@ export function WhoGetsWhat() {
               userId: viewerId,
               ...(clientId ? { clientId } : {}),
               ...(title ? { titleKey: title.key } : {}),
+              ...(!title && media ? { mediaType: media } : {}),
               remote,
             },
             signal,
           )
         : Promise.resolve(null),
-    [viewerId, clientId, remote, title?.key],
+    [viewerId, clientId, remote, title?.key, media],
   );
   const viewer = viewers?.find((v) => v.id === viewerId);
 
@@ -281,6 +289,22 @@ export function WhoGetsWhat() {
             ) : (
               <TitlePicker onPick={(key, name) => setTitle({ key, name })} />
             )}
+            {!title ? (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-xs text-fg-muted">{t("Media")}</span>
+                <Segmented
+                  ariaLabel={t("Media")}
+                  size="sm"
+                  value={media}
+                  onChange={setMedia}
+                  options={[
+                    { value: "", label: t("Both") },
+                    { value: MEDIA_MOVIE, label: t("Movies") },
+                    { value: MEDIA_TV, label: t("Shows") },
+                  ]}
+                />
+              </div>
+            ) : null}
             {title && (
               <p className="text-xs text-fg-muted">
                 {t("Quality limits apply to this title; available releases may differ.")}

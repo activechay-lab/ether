@@ -158,6 +158,50 @@ interface ConsoleProfiles {
 
 export type StarrApp = "radarr" | "sonarr";
 
+/** Profile media scopes (core.MediaAny/Movie/TV). */
+export const MEDIA_ANY = "";
+export const MEDIA_MOVIE = "movie";
+export const MEDIA_TV = "tv";
+export type ProfileMedia = typeof MEDIA_MOVIE | typeof MEDIA_TV;
+
+/** A profile's media scope; absent means both. */
+export function profileMediaType(profile: { mediaType?: string }): string {
+  return profile.mediaType ?? MEDIA_ANY;
+}
+
+/** Whether a profile or rule scope applies when choosing for media ("" = unknown). */
+export function mediaApplies(scope: string | undefined, media: string | undefined): boolean {
+  if (!media) return true;
+  return !scope || scope === media;
+}
+
+/** "Movies", "Shows", or "Movies & shows" for a media scope. */
+export function mediaLabel(media: string | undefined): string {
+  if (media === MEDIA_MOVIE) return t("Movies");
+  if (media === MEDIA_TV) return t("Shows");
+  return t("Movies & shows");
+}
+
+/** The media an import app's profiles describe. */
+export function mediaTypeForApp(app: StarrApp): ProfileMedia {
+  return app === "sonarr" ? MEDIA_TV : MEDIA_MOVIE;
+}
+
+/** The Starr app whose guide describes this media, or null for both. */
+export function appForMedia(media: string | undefined): StarrApp | null {
+  if (media === MEDIA_MOVIE) return "radarr";
+  if (media === MEDIA_TV) return "sonarr";
+  return null;
+}
+
+/** Profiles that apply to media, in their original order. */
+export function compatibleProfiles<T extends { mediaType?: string }>(
+  profiles: T[] | null | undefined,
+  media: string | undefined,
+): T[] {
+  return (profiles ?? []).filter((p) => mediaApplies(p.mediaType, media));
+}
+
 /** A TRaSH Guides or Profilarr (Dictionarry) quality profile offered for import. */
 export interface TrashProfile {
   /** File/profile slug; what the import endpoints take. */
@@ -170,7 +214,16 @@ export interface TrashProfile {
   /** The guide page (https://trash-guides.info or https://dictionarry.dev). */
   url?: string;
   scoreSet?: string;
+  /** Formats the profile itself names. */
   formats: number;
+  /** Formats its default-on groups add. */
+  defaultFormats?: number;
+}
+
+/** The import picker's list; `warning` reports guide groups that failed to load. */
+export interface TrashProfileList {
+  items: TrashProfile[];
+  warning?: string;
 }
 
 /** present: already saved; add: added by the import. */
@@ -187,11 +240,29 @@ export interface ImportFormat {
 /** A previewed import: the profile as it will be saved and its custom formats. */
 export interface QualityImportPlan {
   app: StarrApp;
+  /** "trash", "dictionarry", or "" for pasted JSON. */
+  source?: "trash" | "dictionarry" | "";
+  /** Source profile id/slug used to fetch it. */
+  profileId?: string;
+  trashId?: string;
+  /** The media the source app's profile describes. */
+  mediaType?: ProfileMedia;
+  /** Non-empty when the profile cannot work (e.g. minimum score unreachable). */
+  unusable?: string;
   profile: QualityProfile;
   scoreSet?: string;
   formats: ImportFormat[];
   skippedQualities: string[];
   warnings: string[];
+}
+
+/** POST /releases/quality/sync: what the automatic guide sync changed. */
+export interface QualitySyncReport {
+  profilesUpdated: number;
+  formatsAdded: number;
+  formatsUpdated: number;
+  formatsRemoved: number;
+  warnings?: string[] | null;
 }
 
 /** A TRaSH or Profilarr (Dictionarry) profile by id, or pasted profile JSON. */
@@ -217,7 +288,8 @@ const post = <T>(path: string, body: unknown) =>
 const del = (path: string) => apiFetch<null>(base + path, { method: "DELETE" });
 
 export const releaseConsole = {
-  profiles: () => apiFetch<ConsoleProfiles>(`${base}/profiles`),
+  profiles: (media?: string) =>
+    apiFetch<ConsoleProfiles>(`${base}/profiles${media ? `?media=${encodeURIComponent(media)}` : ""}`),
   search: (key: string, opts: { profile?: string; fresh?: boolean } = {}, signal?: AbortSignal) =>
     apiFetch<ConsoleSearch>(
       `${base}/search${qs({ key, profile: opts.profile, fresh: opts.fresh ? 1 : undefined })}`,
@@ -267,15 +339,10 @@ export const releaseConsole = {
     return { items: res.items ?? [], total: res.total ?? 0 };
   },
   historyEntry: (id: number) => apiFetch<HistoryRecord>(`${base}/history/${id}`),
-  trashProfiles: async (app: StarrApp, signal?: AbortSignal) =>
-    (await apiFetch<{ items: TrashProfile[] | null }>(`${base}/trash/${app}/profiles`, { signal }))
-      .items ?? [],
-  dictionarryProfiles: async (app: StarrApp, signal?: AbortSignal) =>
-    (
-      await apiFetch<{ items: TrashProfile[] | null }>(`${base}/dictionarry/${app}/profiles`, {
-        signal,
-      })
-    ).items ?? [],
+  trashProfiles: (app: StarrApp, signal?: AbortSignal) =>
+    apiFetch<TrashProfileList>(`${base}/trash/${app}/profiles`, { signal }),
+  dictionarryProfiles: (app: StarrApp, signal?: AbortSignal) =>
+    apiFetch<TrashProfileList>(`${base}/dictionarry/${app}/profiles`, { signal }),
   previewImport: (source: QualityImportSource, signal?: AbortSignal) =>
     apiFetch<QualityImportPlan>(`${base}/quality-import/preview`, {
       method: "POST",
@@ -284,6 +351,8 @@ export const releaseConsole = {
     }),
   importProfile: (source: QualityImportSource, name: string) =>
     post<{ name: string; formatsAdded: number }>("/quality-import", { ...source, name }),
+  /** Run the automatic guide sync once and return what it changed. */
+  syncQuality: () => post<QualitySyncReport>("/quality/sync", {}),
 };
 
 /** "WEB-DL 1080p" for an imported quality gate such as "webdl-1080"; DVD has no resolution. */
