@@ -35,6 +35,9 @@ func (r *Runtime) authorizeWorker(ctx context.Context, peer, op string, id remot
 	if op == "stop" || op == "status" {
 		return nil
 	}
+	if op == "start" && r.o.Eligible(ctx, r.o.Self, config.RoleTranscode) != nil {
+		return ErrDenied
+	}
 	if r.o.MemberRole(ctx, r.o.Self, config.RoleTranscode) != nil {
 		return ErrDenied
 	}
@@ -97,15 +100,19 @@ func (r *Runtime) renewInput(ctx context.Context, peer string, s remotetranscode
 	}
 	r.mu.Lock()
 	v := r.inputs[s.Identity]
+	var input *nodeinput.Input
+	if v != nil {
+		input = v.input
+	}
 	r.mu.Unlock()
-	if v == nil || v.input == nil {
+	if v == nil || input == nil {
 		return remotetranscode.RenewalReceipt{}, ErrDenied
 	}
 	rec, e := r.o.Placement.Lookup(ctx, s.Identity.Session)
 	if e != nil || rec.Fence != v.route.Fence || !rec.Authority || rec.Deadline.Add(-r.o.ClockSkew).Before(n.Deadline) {
 		return remotetranscode.RenewalReceipt{}, ErrDenied
 	}
-	evidence, e := v.input.Renew(ctx, n, func(c context.Context, old nodesource.Grant) (nodesource.Grant, error) {
+	evidence, e := input.Renew(ctx, n, func(c context.Context, old nodesource.Grant) (nodesource.Grant, error) {
 		reply, e := r.sourceCall(c, v.route, sourceRequest{Op: "renew", Stable: s.Grant, Old: old, Expires: n.Deadline.Add(r.o.ClockSkew)})
 		if e != nil {
 			return nodesource.Grant{}, e

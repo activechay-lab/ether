@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"net/http"
 	"os"
 	"slices"
 	"sync"
@@ -184,9 +185,6 @@ type Broker struct {
 }
 
 func NewBroker(d BrokerDeps) (*Broker, error) {
-	if d.DistributedHLS != nil && d.Transcoder != nil {
-		d.Transcoder = &distributedTranscoder{local: d.Transcoder, remote: d.DistributedHLS}
-	}
 	if d.Lookup == nil || d.Playback == nil || d.ActiveViewer == nil || d.Events == nil || d.CanPlay == nil || d.BitrateLimit == nil || d.Progress == nil || d.OnTimeline == nil {
 		return nil, errors.New("sessions: missing required dependency")
 	}
@@ -221,6 +219,13 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 		b.historyQueue = make(chan sourceHistorySample, 256)
 		b.historyDone = make(chan struct{})
 		go func() { defer close(b.historyDone); b.runSourceHistory(ctx) }()
+	}
+	if d, ok := b.deps.DistributedHLS.(interface {
+		BindDelivery(func(http.ResponseWriter, *http.Request, string)) error
+	}); ok {
+		if err := d.BindDelivery(func(w http.ResponseWriter, r *http.Request, p string) { b.ServeMediaFor(frontend.Protocol(p), w, r) }); err != nil {
+			return nil, err
+		}
 	}
 	return b, nil
 }

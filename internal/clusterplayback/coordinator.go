@@ -15,13 +15,14 @@ import (
 )
 
 type execution struct {
-	route      Route
-	request    placement.Request
-	adapter    *remotetranscode.Adapter
-	session    *remotetranscode.Session
-	retirement core.EncoderRetirement
-	stopping   bool
-	reserved   bool
+	busy, reservePending, retired bool
+	route                         Route
+	request                       placement.Request
+	adapter                       *remotetranscode.Adapter
+	session                       *remotetranscode.Session
+	retirement                    core.EncoderRetirement
+	stopping                      bool
+	reserved                      bool
 }
 
 // Supports is a side-effect-free admission gate. Unsupported requests must use
@@ -54,27 +55,50 @@ func Supports(q core.HLSRequest) bool {
 // StartDistributedHLS starts from the exact source already prepared by the
 // authenticated broker. ErrUnsupported is returned exclusively before side effects.
 func (r *Runtime) StartDistributedHLS(ctx context.Context, viewer int64, playID, revision string, q core.HLSRequest) (core.HLSSession, error) {
+	return r.StartPreparedHLS(ctx, viewer, PreparedSource{Owner: r.o.Self, PlayID: playID, Revision: revision}, q)
+}
+
+// StartPreparedHLS composes a concrete remote source-owner preparation with the
+// same durable encoder placement. The broker's remote planning seam can use it.
+func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared PreparedSource, q core.HLSRequest) (core.HLSSession, error) {
+	playID, revision := prepared.PlayID, prepared.Revision
+	if r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil || r.o.Eligible(ctx, prepared.Owner, config.RoleSource) != nil {
+		return nil, ErrDenied
+	}
 	if !Supports(q) {
 		return nil, remotetranscode.ErrUnsupported
 	}
-	if r.o.Playback == nil || r.o.Decide == nil || viewer <= 0 || revision == "" {
+	if r.o.Decide == nil || viewer <= 0 || revision == "" {
 		return nil, ErrDenied
 	}
 	r.mu.Lock()
-	if r.closed || r.executions[q.SessionID] != nil || len(r.executions) >= r.o.Capacity {
+	if r.closed || (r.executions[q.SessionID] != nil && !r.executions[q.SessionID].retired) || (r.executions[q.SessionID] == nil && len(r.executions) >= r.o.Capacity) {
 		r.mu.Unlock()
 		return nil, ErrPending
 	}
-	x := &execution{}
+	x := &execution{busy: true}
 	r.executions[q.SessionID] = x
 	r.mu.Unlock()
+	running := false
+	defer func() {
+		r.mu.Lock()
+		x.busy = false
+		if !running && x.reserved {
+			x.stopping = true
+		}
+		if !x.reserved && !x.reservePending && r.executions[q.SessionID] == x {
+			delete(r.executions, q.SessionID)
+		}
+		r.mu.Unlock()
+	}()
+
 	// The durable session index is checked even after coordinator reboot. An old
 	// generation may not be replaced without exact retirement proof.
 	old, e := r.o.Placement.Lookup(ctx, q.SessionID)
 	if e == nil && !old.Retired {
 		return nil, ErrPending
 	}
-	if e != nil && !errors.Is(e, sql.ErrNoRows) {
+	if e != nil && !errors.Is(e, sql.ErrNoRows) && !errors.Is(e, placement.ErrFenced) {
 		return nil, e
 	}
 	expected := int64(0)
@@ -92,15 +116,24 @@ func (r *Runtime) StartDistributedHLS(ctx context.Context, viewer int64, playID,
 	request := placement.Request{Session: q.SessionID, Operation: operation, ExpectedGeneration: expected, Controller: placement.Controller{ID: r.o.Self.NodeID, Boot: r.o.Self.Boot}, Target: target, Role: config.RoleTranscode, Claims: claims, Lease: 2 * time.Minute}
 	r.mu.Lock()
 	x.request = request
+	x.route = Route{Fence: placement.Fence{Session: q.SessionID, Generation: expected + 1, Controller: request.Controller, Target: target}, Source: prepared.Owner, Viewer: viewer, PlayID: playID, Revision: revision}
+	x.reservePending = true
 	r.mu.Unlock()
 	rec, e := r.o.Placement.Reserve(ctx, request)
 	if e != nil {
+		var unknown *placement.UnknownOutcome
+		if !errors.As(e, &unknown) {
+			r.mu.Lock()
+			x.reservePending = false
+			r.mu.Unlock()
+		}
 		return nil, e
 	}
-	rt := Route{Fence: rec.Fence, Source: r.o.Self, Viewer: viewer, PlayID: playID, Revision: revision}
+	rt := Route{Fence: rec.Fence, Source: prepared.Owner, Viewer: viewer, PlayID: playID, Revision: revision}
 	r.mu.Lock()
 	x.route = rt
 	x.reserved = true
+	x.reservePending = false
 	r.mu.Unlock()
 	if e = r.putRoute(ctx, rt); e != nil {
 		return nil, e
@@ -122,7 +155,11 @@ func (r *Runtime) StartDistributedHLS(ctx context.Context, viewer int64, playID,
 	}
 	r.mu.Lock()
 	x.adapter = adapter
+	blocked := r.closed || x.stopping
 	r.mu.Unlock()
+	if blocked {
+		return nil, ErrPending
+	}
 	q.InputURL = "" // No local URL crosses the execution protocol.
 	hs, token, e := adapter.StartHLSOwned(ctx, q)
 	r.mu.Lock()
@@ -132,6 +169,14 @@ func (r *Runtime) StartDistributedHLS(ctx context.Context, viewer int64, playID,
 	}
 	r.mu.Unlock()
 	if e != nil || hs == nil {
+		return nil, ErrPending
+	}
+	running = true
+	r.mu.Lock()
+	stopped := x.stopping || r.closed
+	r.mu.Unlock()
+	if stopped {
+		r.Stop(q.SessionID)
 		return nil, ErrPending
 	}
 	return hs, nil
@@ -210,17 +255,54 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		if e := ctx.Err(); e != nil {
 			return e
 		}
+		if x.busy || x.retired {
+			continue
+		}
+		if x.reservePending {
+			rec, e := r.o.Placement.Reserve(ctx, x.request)
+			if e != nil {
+				result = e
+				continue
+			}
+			x.route.Fence = rec.Fence
+			x.reserved = true
+			x.reservePending = false
+			x.stopping = true
+			r.mu.Lock()
+			current := r.executions[x.route.Fence.Session]
+			if current != nil && current.request.Operation == x.request.Operation {
+				current.route = x.route
+				current.reserved = true
+				current.reservePending = false
+				current.stopping = true
+			}
+			r.mu.Unlock()
+		}
 		if !x.reserved {
 			continue
 		}
-		if x.session == nil {
-			result = ErrPending
+		if e := r.putRoute(ctx, x.route); e != nil {
+			result = e
 			continue
 		}
 		if x.stopping {
 			if e := r.retire(ctx, x); e != nil {
 				result = e
+			} else {
+				r.mu.Lock()
+				current := r.executions[x.route.Fence.Session]
+				if current != nil && current.route == x.route {
+					current.retired = true
+				}
+				r.mu.Unlock()
+				if x.adapter != nil {
+					x.adapter.Close()
+				}
 			}
+			continue
+		}
+		if x.session == nil {
+			result = ErrPending
 			continue
 		}
 		lease := x.session.Lease()
@@ -237,7 +319,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		if _, e := x.session.Renew(ctx, n); e != nil {
 			_ = x.session.Reconcile(ctx)
 			accepted := x.session.Lease().Accepted
-			if accepted == nil || *accepted != n {
+			if accepted == nil || !equalRenewal(*accepted, n) {
 				r.Stop(x.route.Fence.Session)
 				result = ErrPending
 			}
@@ -246,13 +328,14 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	return result
 }
 func (r *Runtime) retire(ctx context.Context, x *execution) error {
-	if x.session == nil {
+	if x.session != nil {
+		_ = x.session.RetireEncoder()
+		_ = x.session.Reconcile(ctx)
+		if e := x.session.EncoderErr(); e != nil {
+			return e
+		}
+	} else if x.retirement != nil {
 		return ErrPending
-	}
-	_ = x.session.RetireEncoder()
-	_ = x.session.Reconcile(ctx)
-	if e := x.session.EncoderErr(); e != nil {
-		return e
 	}
 	source, e := r.sourceCall(ctx, x.route, sourceRequest{Op: "retire"})
 	if e != nil || !source.Retired {
@@ -263,14 +346,14 @@ func (r *Runtime) retire(ctx context.Context, x *execution) error {
 func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
 	r.mu.Lock()
 	x := r.executions[f.Session]
-	if x == nil || x.route.Fence != f || x.session == nil {
+	if x == nil || x.route.Fence != f || x.busy || !x.stopping {
 		r.mu.Unlock()
 		return ErrPending
 	}
 	s := x.session
 	rt := x.route
 	r.mu.Unlock()
-	if s.EncoderErr() != nil {
+	if s != nil && s.EncoderErr() != nil {
 		return ErrPending
 	}
 	reply, e := r.sourceCall(ctx, rt, sourceRequest{Op: "status"})
@@ -285,4 +368,8 @@ func (r *Runtime) Allocated(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.executions[id] != nil
+}
+
+func equalRenewal(a, b remotetranscode.Renewal) bool {
+	return a.Identity == b.Identity && a.Operation == b.Operation && a.PreviousVersion == b.PreviousVersion && a.PreviousDeadline.Equal(b.PreviousDeadline) && a.Deadline.Equal(b.Deadline)
 }

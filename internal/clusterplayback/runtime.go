@@ -24,7 +24,9 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
-	MemberRole func(context.Context, nodewire.Identity, config.NodeRole) error
+	// SourcePolicy rechecks live viewer/title/source rights from local facts.
+	SourcePolicy func(context.Context, *core.Viewer, *core.PlaySession) error
+	MemberRole   func(context.Context, nodewire.Identity, config.NodeRole) error
 	// Eligible checks live exact boot membership, role, protocol and drain policy.
 	Eligible        func(context.Context, nodewire.Identity, config.NodeRole) error
 	DB              *sql.DB
@@ -44,25 +46,29 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
-	o          Options
-	mu         sync.Mutex
-	closed     bool
-	mux        *http.ServeMux
-	authority  *nodeauthority.Authority
-	bytes      *nodesource.Handler
-	sources    map[string]*ownedSource
-	worker     *remotetranscode.Worker
-	inputs     map[remotetranscode.Identity]*workerInput
-	executions map[string]*execution
+	preparations   map[string]*preparation
+	delivery       func(http.ResponseWriter, *http.Request, string)
+	workerStarting int
+	encoderTokens  []core.EncoderRetirement
+	o              Options
+	mu             sync.Mutex
+	closed         bool
+	mux            *http.ServeMux
+	authority      *nodeauthority.Authority
+	bytes          *nodesource.Handler
+	sources        map[string]*ownedSource
+	worker         *remotetranscode.Worker
+	inputs         map[remotetranscode.Identity]*workerInput
+	executions     map[string]*execution
 }
 
 func NewRuntime(o Options) (*Runtime, error) {
 	if o.DB == nil || o.Guard == nil || o.Placement == nil || o.Endpoint == nil || o.Eligible == nil || o.MemberRole == nil || o.Self.Cluster == "" || o.Self.NodeID == "" || o.Self.Boot == "" || !o.ClockBoundKnown || o.ClockSkew < 0 || o.ClockSkew > time.Minute || o.Capacity < 1 || o.Capacity > 4096 {
 		return nil, ErrDenied
 	}
-	r := &Runtime{o: o, mux: http.NewServeMux(), sources: map[string]*ownedSource{}, inputs: map[remotetranscode.Identity]*workerInput{}, executions: map[string]*execution{}}
+	r := &Runtime{preparations: map[string]*preparation{}, o: o, mux: http.NewServeMux(), sources: map[string]*ownedSource{}, inputs: map[remotetranscode.Identity]*workerInput{}, executions: map[string]*execution{}}
 	if o.Playback != nil {
-		if o.SourceAccess == nil || o.ActiveViewer == nil {
+		if o.SourceAccess == nil || o.ActiveViewer == nil || o.SourcePolicy == nil {
 			return nil, ErrDenied
 		}
 		a, e := nodeauthority.New(nodeauthority.Options{Lookup: o.Placement, Policy: r.sourcePolicy, Owner: placement.Target{NodeID: o.Self.NodeID, Boot: o.Self.Boot}, Now: time.Now, ClockBoundKnown: true, ClockSkew: o.ClockSkew, MaxLifetime: 10 * time.Minute, MaxBindings: o.Capacity, MaxGrants: min(4096, o.Capacity*4), MaxGrantsPerBinding: 4})
@@ -79,20 +85,33 @@ func NewRuntime(o Options) (*Runtime, error) {
 		r.mux.HandleFunc(SourcePath, r.sourceHTTP)
 	}
 	if o.Encoder != nil {
-		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Boot: o.Self.Boot, Capacity: o.Capacity, MaxLease: 10 * time.Minute, Encoder: o.Encoder, Security: remotetranscode.Security{Authenticate: o.Guard.RemoteAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
+		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Boot: o.Self.Boot, Capacity: o.Capacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: o.Guard.RemoteAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
 		if e != nil {
 			return nil, e
 		}
 		r.worker = w
 		r.mux.Handle(WorkerPath, w)
 	}
+	r.mux.HandleFunc(DeliveryPath, r.deliveryHTTP)
 	return r, nil
 }
 func (r *Runtime) Handler() http.Handler { return r.mux }
 func (r *Runtime) Ready() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return !r.closed && (r.worker != nil || r.authority != nil)
+	if r.closed {
+		return false
+	}
+	if r.o.Roles.Has(config.RoleSource) && r.authority == nil {
+		return false
+	}
+	if r.o.Roles.Has(config.RoleTranscode) && r.worker == nil {
+		return false
+	}
+	if r.o.Roles.Has(config.RoleDelivery) && r.delivery == nil {
+		return false
+	}
+	return r.worker != nil || r.authority != nil || r.delivery != nil
 }
 func (r *Runtime) peer(ctx context.Context, id nodewire.Identity, path string) (string, *tls.Config, func(context.Context, tls.ConnectionState) error, error) {
 	origin, e := r.o.Endpoint(ctx, id)
@@ -126,12 +145,6 @@ func (r *Runtime) controlClient(ctx context.Context, id nodewire.Identity) (*htt
 
 // Cleanup may block in backend Close. Never run it on the lease/control executor.
 func (r *Runtime) Cleanup() {
-	if r.bytes != nil {
-		r.bytes.Reconcile()
-	}
-	if r.o.SourceAccess != nil {
-		r.o.SourceAccess.Reconcile()
-	}
 	r.mu.Lock()
 	list := make([]*workerInput, 0, len(r.inputs))
 	for _, v := range r.inputs {
@@ -141,7 +154,14 @@ func (r *Runtime) Cleanup() {
 	for _, v := range list {
 		v.gateway.Reconcile()
 	}
+	if r.bytes != nil {
+		r.bytes.Reconcile()
+	}
+	if r.o.SourceAccess != nil {
+		r.o.SourceAccess.Reconcile()
+	}
 }
+
 func (r *Runtime) Close() error {
 	r.mu.Lock()
 	r.closed = true
@@ -189,5 +209,98 @@ func (r *Runtime) sourcePolicy(ctx context.Context, owner placement.Target, s no
 	if e != nil || v == nil || v.ID != route.Viewer {
 		return ErrDenied
 	}
+	ps, ok := r.o.Playback.Session(route.PlayID)
+	if !ok || ps == nil || ps.UserID != route.Viewer || r.o.SourcePolicy(ctx, v, ps) != nil {
+		return ErrDenied
+	}
 	return nil
+}
+
+// Pending counts unresolved responsibility, including expired reservations.
+// It is conservative: errors are returned and must keep drain blocked.
+func (r *Runtime) Pending(ctx context.Context) (int, error) {
+	r.mu.Lock()
+	sources := make([]*ownedSource, 0, len(r.sources))
+	for _, s := range r.sources {
+		sources = append(sources, s)
+	}
+	inputs := make([]*workerInput, 0, len(r.inputs))
+	for _, v := range r.inputs {
+		inputs = append(inputs, v)
+	}
+	r.mu.Unlock()
+	r.mu.Lock()
+	tokens := append([]core.EncoderRetirement(nil), r.encoderTokens...)
+	starting := r.workerStarting
+	r.mu.Unlock()
+	r.mu.Lock()
+	preps := make([]preparation, 0, len(r.preparations))
+	for _, entry := range r.preparations {
+		preps = append(preps, *entry)
+	}
+	r.mu.Unlock()
+	n := starting
+	for _, entry := range preps {
+		if entry.running {
+			n++
+		}
+		if entry.life != nil {
+			select {
+			case <-entry.life.Done():
+				if entry.life.Err() != nil {
+					n++
+				}
+			default:
+				n++
+			}
+		}
+	}
+	for _, token := range tokens {
+		if token.EncoderErr() != nil {
+			n++
+		}
+	}
+	for _, s := range sources {
+		select {
+		case <-s.life.Done():
+			if s.life.Err() != nil {
+				n++
+			}
+		default:
+			n++
+		}
+	}
+	for _, v := range inputs {
+		if v.input == nil {
+			n++
+			continue
+		}
+		select {
+		case <-v.input.InputDone():
+			if v.input.InputErr() != nil {
+				n++
+			}
+		default:
+			n++
+		}
+	}
+	var reserved int
+	err := r.o.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM placement_sessions WHERE retired=0 AND ((controller=? AND controller_boot=?) OR (node=? AND boot=?))`, r.o.Self.NodeID, r.o.Self.Boot, r.o.Self.NodeID, r.o.Self.Boot).Scan(&reserved)
+	return n + reserved, err
+}
+
+type recordingEncoder struct{ r *Runtime }
+
+func (e recordingEncoder) StartHLSOwned(ctx context.Context, q core.HLSRequest) (core.HLSSession, core.EncoderRetirement, error) {
+	e.r.mu.Lock()
+	e.r.workerStarting++
+	e.r.mu.Unlock()
+	s, t, err := e.r.o.Encoder.StartHLSOwned(ctx, q)
+	e.r.mu.Lock()
+	e.r.workerStarting--
+	if t != nil {
+		e.r.encoderTokens = append(e.r.encoderTokens, t)
+	}
+	e.r.mu.Unlock()
+	return s, t, err
 }

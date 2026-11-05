@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodeauthority"
 	"github.com/braedonsaunders/ether/internal/nodesource"
@@ -28,6 +29,7 @@ type ownedSource struct {
 	retiring bool
 }
 type sourceRequest struct {
+	Prepare *PrepareRequest
 	Version int
 	Op      string
 	Route   Route
@@ -36,10 +38,11 @@ type sourceRequest struct {
 	Old     nodesource.Grant
 }
 type sourceResponse struct {
-	Stable  string
-	Grant   nodesource.Grant
-	Size    int64
-	Retired bool
+	Prepared PreparedSource
+	Stable   string
+	Grant    nodesource.Grant
+	Size     int64
+	Retired  bool
 }
 
 func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
@@ -69,6 +72,12 @@ func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
 }
 func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m sourceRequest) (sourceResponse, error) {
 	deny := func() (sourceResponse, error) { return sourceResponse{}, ErrDenied }
+	if m.Op == "prepare-retire" {
+		return r.retirePreparation(ctx, peer, m.Prepare)
+	}
+	if m.Op == "prepare" {
+		return r.prepare(ctx, peer, m.Prepare)
+	}
 	rt, e := r.route(ctx, m.Route.Fence.Session)
 	if e != nil || rt != m.Route || rt.Source != r.o.Self {
 		return deny()
@@ -86,15 +95,21 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 		return deny()
 	}
 	r.mu.Lock()
-	s := r.sources[f.Session]
+	s := r.sources[sourceKey(f)]
 	closed := r.closed
 	r.mu.Unlock()
 	if m.Op == "bind" {
+		if r.o.Eligible(ctx, peer, config.RoleServer) != nil || r.o.Eligible(ctx, r.o.Self, config.RoleSource) != nil {
+			return deny()
+		}
 		if closed {
 			return deny()
 		}
 		if s != nil {
-			if s.route != rt || s.retiring {
+			r.mu.Lock()
+			retiring := s.retiring
+			r.mu.Unlock()
+			if s.route != rt || retiring {
 				return deny()
 			}
 			return sourceResponse{Stable: s.handle.Value()}, nil
@@ -114,14 +129,31 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 		}
 		s = &ownedSource{route: rt, handle: handle, life: life, playID: rt.PlayID}
 		r.mu.Lock()
-		if r.closed || r.sources[f.Session] != nil || len(r.sources) >= r.o.Capacity {
+		if r.closed || r.sources[sourceKey(f)] != nil || len(r.sources) >= r.o.Capacity {
 			r.mu.Unlock()
 			_ = r.authority.Revoke(handle)
 			return deny()
 		}
-		r.sources[f.Session] = s
+		r.sources[sourceKey(f)] = s
 		r.mu.Unlock()
 		return sourceResponse{Stable: handle.Value()}, nil
+	}
+	if s == nil && (m.Op == "retire" || m.Op == "status") {
+		ps, ok := r.o.Playback.Session(rt.PlayID)
+		if !ok || ps == nil || ps.UserID != rt.Viewer || core.SourceRevision(ps) != rt.Revision {
+			return deny()
+		}
+		life, ok := r.o.Playback.SourceRetirement(rt.PlayID)
+		if !ok {
+			return deny()
+		}
+		candidate := &ownedSource{route: rt, life: life, playID: rt.PlayID}
+		r.mu.Lock()
+		if s = r.sources[sourceKey(f)]; s == nil && len(r.sources) < r.o.Capacity {
+			r.sources[sourceKey(f)] = candidate
+			s = candidate
+		}
+		r.mu.Unlock()
 	}
 	if s == nil || s.route != rt {
 		return deny()
@@ -218,3 +250,7 @@ func randomToken() (string, error) {
 }
 
 var _ = placement.ErrFenced
+
+func sourceKey(f placement.Fence) string {
+	return f.Session + "/" + strconv.FormatInt(f.Generation, 10)
+}
