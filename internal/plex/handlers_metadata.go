@@ -139,7 +139,10 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
-			md = s.playlistMetadata(ctx, pl)
+			md = s.playlistListingMetadata(ctx, pl)
+			if pl.SmartURI != "" {
+				md.Content = "library://x/directory/" + url.QueryEscape(pl.SmartURI)
+			}
 			if mc == nil {
 				mc = libraryContainer()
 			}
