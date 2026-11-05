@@ -102,8 +102,10 @@ type ChannelScreens struct {
 }
 
 type Channel struct {
-	DVRMinutes int             `json:"dvrMinutes,omitempty"`
-	Screens    *ChannelScreens `json:"screens,omitempty"`
+	DVRMinutes     int             `json:"dvrMinutes,omitempty"`
+	Personal       *PersonalRecipe `json:"personal,omitempty"`
+	personalViewer *core.User
+	Screens        *ChannelScreens `json:"screens,omitempty"`
 
 	Look *ChannelLook `json:"look,omitempty"`
 	// clipDuration is supplied on a channel copy; scheduling performs no I/O.
@@ -261,6 +263,8 @@ type SourceGroup struct {
 }
 type Programme struct {
 	graphicsRequest *core.ClipRequest
+	Reason          string    `json:"reason,omitempty"`
+	Lens            string    `json:"lens,omitempty"`
 	ID              string    `json:"id"`
 	ChannelID       string    `json:"channelId"`
 	Start           time.Time `json:"start"`
@@ -281,8 +285,9 @@ func (p Programme) Offset(at time.Time) time.Duration {
 // Policy is one viewer's Live TV access. It is the only channel allow-list:
 // the owner edits it from the viewer's page and from each channel.
 type Policy struct {
-	UserID   int64 `json:"userId"`
-	Disabled bool  `json:"disabled"`
+	Personal *PersonalPolicy `json:"personal,omitempty"`
+	UserID   int64           `json:"userId"`
+	Disabled bool            `json:"disabled"`
 	// Restricted limits the viewer to Channels (none when empty), private
 	// ones included. Unrestricted viewers see every public channel, including
 	// ones added later, plus the private channels in Granted; Channels is
@@ -296,11 +301,18 @@ type Policy struct {
 	channelSet map[string]struct{} // Channels as a set for long lists; see indexChannels
 }
 type Options struct {
-	InputUser      func(context.Context) (*core.User, error)
-	Screens        func() config.LiveTVScreens
-	Graphics       core.ChannelGraphics
-	PlexGuideToken func() string
-	PlexGuideURL   string // test endpoint
+	InputUser func(context.Context) (*core.User, error)
+	Screens   func() config.LiveTVScreens
+	Watchlist interface{ Generation() uint64 }
+	Picker    core.PersonalPicker
+	State     core.State
+	Users     interface {
+		Users(context.Context) ([]core.User, error)
+	}
+	PersonalChanged func(int64)
+	Graphics        core.ChannelGraphics
+	PlexGuideToken  func() string
+	PlexGuideURL    string // test endpoint
 
 	CanPlay            func(*core.User, bool, time.Time) bool
 	StreamLimit        func(*core.User) int

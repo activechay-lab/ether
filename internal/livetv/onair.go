@@ -11,7 +11,7 @@ func interstitial(it Item) bool {
 		return false
 	}
 	switch it.Slate {
-	case "ident", "upnext", "break", "back", "tonight":
+	case "ident", "upnext", "break", "back", "tonight", "welcome":
 		return true
 	}
 	return false
@@ -72,6 +72,16 @@ func guideSchedule(c Channel, from, until time.Time) []Programme {
 
 func (s *Service) clipRequest(c Channel, p Programme) core.ClipRequest {
 	r := core.ClipRequest{LookID: c.Look.LookID, Moment: p.Item.Slate, ChannelID: c.ID, Bind: map[string]string{"channel.name": c.Name, "channel.tagline": c.Look.Tagline, "channel.accent": c.Look.Accent}, Art: map[string]string{}}
+	if c.Personal != nil && c.personalViewer != nil {
+		r.ViewerID = c.personalViewer.ID
+		r.Bind["viewer.name"] = viewerName(c.personalViewer)
+		r.Bind["viewer.greeting"] = "Welcome back"
+		r.Bind["next.reason"] = p.Reason
+		if p.Item.Slate == "welcome" {
+			r.Bind["resume.title"] = p.Item.Title
+			r.Bind["resume.minutes"] = p.Item.Summary
+		}
+	}
 	if p.Item.Slate != "upnext" && p.Item.Slate != "tonight" && p.Item.Slate != "back" {
 		return r
 	}

@@ -3,6 +3,7 @@ package livetv
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -34,10 +35,22 @@ func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 	}
 	p.at = now
 	c := p.s.graphicsChannel(p.channel)
-	ps := p.s.broadcastSchedule(context.Background(), c, now, now.Add(broadcastPrewarm+time.Second), true)
+	c = p.s.personalChannel(p.s.ctx, c, &p.user)
+	var ps []Programme
+	if c.Personal != nil {
+		ps, _ = p.s.programmes(p.s.ctx, c, now, now.Add(broadcastPrewarm+time.Second))
+		if welcome, ok := p.s.personalWelcome(c, now); ok {
+			ps = append([]Programme{welcome}, ps...)
+		}
+	} else {
+		ps = p.s.broadcastSchedule(p.s.ctx, c, now, now.Add(broadcastPrewarm+time.Second), true)
+	}
 	p.current = broadcastPlan{id: "screen-" + c.ID}
 	p.next = nil
 	for _, programme := range ps {
+		if p.current.id != "screen-"+c.ID && programme.Start.Before(p.current.end) {
+			continue
+		}
 		plan := p.programme(programme)
 		if !now.Before(programme.Start) && now.Before(programme.End) {
 			p.current = plan
@@ -51,7 +64,7 @@ func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan {
 	plan := broadcastPlan{id: programme.ID, start: programme.Start, end: programme.End}
 	plan.open = func(ctx context.Context) (transcode.Decoder, func(), error) {
-		c := p.channel
+		c := p.s.personalChannel(ctx, p.channel, &p.user)
 		if p.s.o.Playback == nil && programme.Item.Slate == "" {
 			return nil, nil, core.ErrNotAvailable
 		}
@@ -95,6 +108,9 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 			var err error
 			attempt, cancel := context.WithTimeout(ctx, virtualAttemptBudget)
 			group := "broadcast-" + c.ID
+			if c.Personal != nil {
+				group += "-viewer-" + strconv.FormatInt(p.user.ID, 10)
+			}
 			if grouped, ok := p.s.o.Playback.(core.ChannelPreparer); ok {
 				ps, err = grouped.PrepareChannel(attempt, &p.user, candidate.Item.Key, p.caps, group)
 			} else {

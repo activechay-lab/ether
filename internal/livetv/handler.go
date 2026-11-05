@@ -20,6 +20,15 @@ import (
 // tokens on its own. Streaming uses the separately authenticated Plex adapter.
 func (s *Service) Handler() http.Handler {
 	r := chi.NewRouter()
+	r.Get("/channels/{id}/rundown", func(w http.ResponseWriter, r *http.Request) {
+		viewer, err := strconv.ParseInt(r.URL.Query().Get("viewer"), 10, 64)
+		if err != nil {
+			ownerResult(w, nil, fmt.Errorf("viewer must be positive"))
+			return
+		}
+		v, e := s.Rundown(r.Context(), chi.URLParam(r, "id"), viewer)
+		ownerResult(w, v, e)
+	})
 	owner := &core.User{IsOwner: true}
 	r.Patch("/channels/bulk", func(w http.ResponseWriter, r *http.Request) {
 		var change ChannelBatch
