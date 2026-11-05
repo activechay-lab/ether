@@ -8,6 +8,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/langtag"
 	"github.com/braedonsaunders/ether/internal/plex/model"
+	"golang.org/x/text/collate"
 	"golang.org/x/text/language"
 	"golang.org/x/text/language/display"
 )
@@ -34,6 +35,7 @@ func (s *Server) itemTrackPreferences(ctx context.Context, pr *Request, t *core.
 		languageNames = display.Languages(language.Make(pr.Language)).Name
 	}
 	seen := map[string]bool{}
+	ordering := collate.New(language.Make(pr.Language))
 	info, _ := s.mediaInfoFor(ctx, pr, t)
 	for _, kind := range []string{"audio", "subtitle"} {
 		var codes []string
@@ -45,13 +47,19 @@ func (s *Server) itemTrackPreferences(ctx context.Context, pr *Request, t *core.
 				codes = append(codes, code)
 			}
 		}
-		sort.Strings(codes)
+		sort.SliceStable(codes, func(i, j int) bool {
+			return ordering.CompareString(languageNames(language.Make(codes[i])), languageNames(language.Make(codes[j]))) < 0
+		})
 		for _, code := range codes {
 			entries = append(entries, code+":"+languageNames(language.Make(code)))
 		}
 	}
 	// Regional tags are the server's finite language-choice vocabulary.
-	for _, code := range strings.Fields("ca-ES cs-CZ da-DK de-DE et-EE en-US en-AU en-CA en-GB es-ES es-MX fr-FR fr-CA hr-HR id-ID is-IS it-IT lv-LV lt-LT hu-HU nl-NL nb-NO pl-PL pt-BR pt-PT ro-RO sk-SK fi-FI sv-SE vi-VN tr-TR el-GR bg-BG ru-RU uk-UA he-IL ar-SA fa-IR hi-IN th-TH ko-KR zh-CN zh-HK zh-TW ja-JP") {
+	regional := strings.Fields("ca-ES cs-CZ da-DK de-DE et-EE en-US en-AU en-CA en-GB es-ES es-MX fr-FR fr-CA hr-HR id-ID is-IS it-IT lv-LV lt-LT hu-HU nl-NL nb-NO pl-PL pt-BR pt-PT ro-RO sk-SK fi-FI sv-SE vi-VN tr-TR el-GR bg-BG ru-RU uk-UA he-IL ar-SA fa-IR hi-IN th-TH ko-KR zh-CN zh-HK zh-TW ja-JP")
+	sort.SliceStable(regional, func(i, j int) bool {
+		return ordering.CompareString(languageNames(language.Make(regional[i])), languageNames(language.Make(regional[j]))) < 0
+	})
+	for _, code := range regional {
 		entries = append(entries, code+":"+languageNames(language.Make(code)))
 	}
 	enum := strings.Join(entries, "|")
@@ -64,6 +72,28 @@ func (s *Server) itemTrackPreferences(ctx context.Context, pr *Request, t *core.
 
 // Protocol setting labels are independent of console messages.
 var preferenceInheritance = map[string][2]string{
+	"en": {"Account default", "Series default"},
+	"af": {"Rekeningverstek", "Reeksverstek"},
+	"ar": {"افتراضي الحساب", "افتراضي المسلسل"},
+	"bg": {"Account default", "Series default"},
+	"el": {"Account default", "Series default"},
+	"et": {"Konto vaikeväärtus", "Sarja vaikeväärtus"},
+	"fa": {"Account default", "Series default"},
+	"he": {"ברירת מחדל לחשבון", "ברירת מחדל לסדרה"},
+	"hr": {"Zadano za račun", "Zadano za seriju"},
+	"id": {"Default akun", "Default serial"},
+	"is": {"Account default", "Series default"},
+	"lt": {"Paskyros numatytoji", "Serialo numatytoji"},
+	"lv": {"Konta noklusējums", "Seriāla noklusējums"},
+	"ms": {"Lalai akaun", "Lalai siri"},
+	"my": {"Account default", "Series default"},
+	"no": {"Kontostandard", "Seriestandard"},
+	"nn": {"Kontostandard", "Seriestandard"},
+	"ca": {"Predeterminado de la cuenta", "Predeterminado de la serie"},
+	"sk": {"Predvolené pre účet", "Predvolené pre seriál"},
+	"sr": {"Подразумевано за налог", "Подразумевано за серију"},
+	"th": {"Account default", "Series default"},
+	"vi": {"Account default", "Series default"},
 	"de": {"Kontostandard", "Serienstandard"},
 	"fr": {"Valeur par défaut du compte", "Valeur par défaut de la série"},
 	"es": {"Predeterminado de la cuenta", "Predeterminado de la serie"},
@@ -81,7 +111,7 @@ var preferenceInheritance = map[string][2]string{
 	"ja": {"アカウントのデフォルト", "シリーズのデフォルト"},
 	"ko": {"계정 기본값", "시리즈 기본값"},
 	"zh": {"帐户默认值", "剧集默认值"},
-	"tr": {"Hesap varsayılanı", "Dizi varsayılanı"},
+	"tr": {"Account default", "Series default"},
 	"hu": {"Fiók alapértelmezése", "Sorozat alapértelmezése"},
 	"ro": {"Implicit pentru cont", "Implicit pentru serial"},
 }

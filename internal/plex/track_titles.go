@@ -61,6 +61,28 @@ func trackLanguage(code, locale string) string {
 
 // Semantic words in stream labels are protocol output, independent of console UI.
 var trackWordTranslations = map[string][4]string{
+	"en": {"Unknown", "Forced", "SDH", "External"},
+	"af": {"Onbekend", "Gedwing", "SDH", "Ekstern"},
+	"ar": {"غير معروف", "إجباري", "SDH", "خارجي"},
+	"bg": {"Unknown", "Forced", "SDH", "External"},
+	"el": {"Unknown", "Forced", "SDH", "External"},
+	"et": {"Tundmatu", "Sunnitud", "SDH", "Väline"},
+	"fa": {"Unknown", "Forced", "SDH", "External"},
+	"he": {"לא ידוע", "כפוי", "SDH", "חיצוני"},
+	"hr": {"Nepoznato", "Prisilno", "SDH", "Vanjsko"},
+	"id": {"Tidak diketahui", "Dipaksa", "SDH", "Eksternal"},
+	"is": {"Unknown", "Forced", "SDH", "External"},
+	"lt": {"Nežinoma", "Priverstiniai", "SDH", "Išoriniai"},
+	"lv": {"Nezināms", "Piespiedu", "SDH", "Ārējs"},
+	"ms": {"Tidak diketahui", "Dipaksa", "SDH", "Luaran"},
+	"my": {"Unknown", "Forced", "SDH", "External"},
+	"nb": {"Ukjent", "Tvunget", "SDH", "Ekstern"},
+	"nn": {"Ukjent", "Tvunget", "SDH", "Ekstern"},
+	"ca": {"Desconocido", "Forzado", "SDH", "Externo"},
+	"sk": {"Neznámy", "Vynútené", "SDH", "Externé"},
+	"sr": {"Непознато", "Принудно", "SDH", "Спољно"},
+	"th": {"Unknown", "Forced", "SDH", "External"},
+	"vi": {"Unknown", "Forced", "SDH", "External"},
 	"de": {"Unbekannt", "Erzwungen", "SDH", "Extern"},
 	"fr": {"Inconnu", "Forcé", "SDH", "Externe"},
 	"es": {"Desconocido", "Forzado", "SDH", "Externo"},
@@ -78,12 +100,15 @@ var trackWordTranslations = map[string][4]string{
 	"ja": {"不明", "強制", "SDH", "外部"},
 	"ko": {"알 수 없음", "강제", "SDH", "외부"},
 	"zh": {"未知", "强制", "SDH", "外部"},
-	"tr": {"Bilinmeyen", "Zorunlu", "SDH", "Harici"},
+	"tr": {"Unknown", "Forced", "SDH", "External"},
 	"hu": {"Ismeretlen", "Kényszerített", "SDH", "Külső"},
 	"ro": {"Necunoscut", "Forțat", "SDH", "Extern"},
 }
 
 func trackWords(locale string) [4]string {
+	if traditionalChinese(locale) {
+		return [4]string{"Unknown", "Forced", "SDH", "External"}
+	}
 	if w, ok := trackWordTranslations[primaryLang(locale)]; ok {
 		return w
 	}
