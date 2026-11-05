@@ -206,13 +206,6 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 		return nil, errors.New("sessions: max pending starts exceeds 4096")
 	}
 	b := &Broker{sampleLimit: 100000, deps: d, startSlots: make(chan struct{}, limit), shutdownTimeout: 10 * time.Second, lazyCleanupWait: 5 * time.Second, planSweepEvery: 5 * time.Second, plans: make(map[string]brokerPlan), pendingByViewer: make(map[int64]int), sourceLeases: make(map[string]*sourceLease), sessions: make(map[string]*brokerSession), plexActivities: make(map[string]*PlexActivity), retired: make(map[string]retiredSession), devices: make(map[deviceKey]frontend.SessionCapabilities), owners: coord.Owners, gates: coord.Gates, bindings: NewBindingTable[frontend.PlayIntent](), plexStreams: NewPlexStreamTable()}
-	if d.DB != nil && d.Cluster != nil {
-		var err error
-		b.cluster, err = startBrokerCluster(b, d.DB, d.Cluster)
-		if err != nil {
-			return nil, err
-		}
-	}
 	if d, ok := b.deps.DistributedHLS.(interface {
 		BindDelivery(func(http.ResponseWriter, *http.Request, string)) error
 	}); ok {
@@ -220,6 +213,14 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 			return nil, err
 		}
 	}
+	if d.DB != nil && d.Cluster != nil {
+		var err error
+		b.cluster, err = startBrokerCluster(b, d.DB, d.Cluster)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if d.SourceHistory != nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		b.historyCancel = cancel

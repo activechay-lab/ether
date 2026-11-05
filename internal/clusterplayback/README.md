@@ -99,3 +99,32 @@ forwarding, source renewal/worker acceptance replay and exact source+encoder
 retirement. It also verifies no-target retryability and unknown committed Reserve
 reconciliation without a second encoder. Application/coordinator owns full gates,
 PG14 matrix extension and real encoder/deployment acceptance.
+
+## Specialist broker source adapter
+
+NewRemotePlayback explicitly implements the neutral broker's core.Playback,
+SurfaceScopedPlayback, OwnedSourcePlayback, revision pin and source snapshot
+contracts. It is injected only into the specialist server graph. The existing
+full-server/Plex Manager remains unchanged. Its Estimate and source selector are
+explicit local metadata/membership dependencies; it constructs no provider or
+encoder. DecisionTranscoder supplies only the trusted decision function; actual
+encoding remains owned by DistributedHLS.
+
+Ordinary Plan prepares the exact source owner through concrete authenticated RPC,
+returns only media facts and a trusted in-process source revision facade, and
+retains an exact remote lifetime even after an uncertain response. Tick reconciles
+that same immutable preparation operation before retirement. Remote Session map
+presence is metadata, not fresh authorization. Pin/CurrentSource call authenticated
+prepare-status and source owner policy; Range additionally checks current policy
+at source admission. PreparedBytesPath proxies normal Manager Range/HEAD/cache
+semantics through verified Go mTLS with no whole-stream client timeout. Sources
+are pinned to their captured revision; source failover is unavailable until the
+explicit recovery/continuity contracts are connected. No forced remux decision
+hides direct playback capability gaps. BindClientSession records the public ID's
+controller for indexed delivery, with generation zero before encoder reservation.
+
+The broker's optional EncoderRetirement lookup is independent of Session serving
+availability and retains a token through pending reservation/start and stopped
+executions. It closes only after exact terminal reconciliation, including a fresh
+proof that a failed reservation had no side effect. Stop/expired lease/network
+errors never close this token on their own.
