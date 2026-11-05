@@ -58,8 +58,11 @@ func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until 
 				if p.Item.ReelClipID == "" {
 					s.o.Graphics.Ensure(ctx, request)
 				}
-				s.recordGraphicsSkip(c, p, fmt.Errorf("clip not cached"))
-				skip = p.End
+				// Upcoming elements are render jobs, not skipped airings.
+				if !p.Start.Add(-advance).After(from) {
+					s.recordGraphicsSkip(c, p, fmt.Errorf("clip not cached"))
+					skip = p.End
+				}
 			}
 		}
 		if !skip.IsZero() {

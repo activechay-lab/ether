@@ -154,7 +154,7 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir string) []string {
 	f := r.Source
 	rate := fmt.Sprintf("%d/%d", f.FPSNum, f.FPSDen)
-	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-filter_threads", "1"}
+	args := []string{"-hide_banner", "-loglevel", "warning", "-stats_period", "1", "-progress", "pipe:2", "-nostdin", "-y", "-filter_threads", "1"}
 	for i := range 2 {
 		args = append(args, "-thread_queue_size", "8", "-probesize", "32", "-analyzeduration", "0")
 		if i == 0 {
@@ -188,8 +188,11 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 	spec.Rate = rateControl{TargetKbps: budget * 9 / 10, MaxrateKbps: budget * 9 / 10, BufsizeKbps: budget / 10}
 
 	args = append(args, planEncodeArgs(spec, picturePlan{w: w, h: h, outRange: rangeSDR}, enc, codec, false)...)
+	if strings.HasSuffix(enc, "_videotoolbox") {
+		args = append(args, "-realtime", "1")
+	}
 	if enc == "libx264" {
-		args = append(args, "-x264-params", "vbv-init=0.1:rc-lookahead=20:sync-lookahead=0:aq-mode=3:psy-rd=1.0,0.15")
+		args = append(args, "-tune", "zerolatency", "-x264-params", "vbv-init=0.1:rc-lookahead=0:sync-lookahead=0:aq-mode=3:psy-rd=1.0,0.15")
 	}
 	g := int((int64(r.SegmentDuration)*int64(f.FPSNum) + int64(time.Second*time.Duration(f.FPSDen))/2) / int64(time.Second*time.Duration(f.FPSDen)))
 	pix := "yuv420p"
@@ -210,7 +213,7 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 	return append(args, "-f", "tee", strings.Join(outputs, "|"))
 }
 func (e *continuousEncoder) Write(ctx context.Context, f RawFrame) error {
-	timer := time.NewTimer(frameDuration(e.req.Source))
+	timer := time.NewTimer(time.Second)
 	defer timer.Stop()
 	select {
 	case e.writeMu <- struct{}{}:
@@ -219,7 +222,7 @@ func (e *continuousEncoder) Write(ctx context.Context, f RawFrame) error {
 	case <-e.ctx.Done():
 		return e.writeError()
 	case <-timer.C:
-		return ErrEncoderBehind
+		return fmt.Errorf("%w: %s", ErrEncoderBehind, e.stderr.String())
 	}
 	defer func() { <-e.writeMu }()
 	if len(f.Video) != e.req.Source.Width*e.req.Source.Height*3/2 || len(f.PCM) != tickPCM(e.req.Source, e.tick) {
@@ -232,7 +235,7 @@ func (e *continuousEncoder) Write(ctx context.Context, f RawFrame) error {
 	case <-e.ctx.Done():
 		return e.writeError()
 	case <-timer.C:
-		return ErrEncoderBehind
+		return fmt.Errorf("%w: %s", ErrEncoderBehind, e.stderr.String())
 	case e.frames <- copyFrame:
 		if e.tick == 0 {
 			e.index.setStart(time.Now())

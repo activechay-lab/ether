@@ -25,7 +25,7 @@ func (b *broadcast) blendIntro(now time.Time, target *transcode.RawFrame, fresh 
 	const duration = 300 * time.Millisecond
 	age := now.Sub(b.introFadeStart)
 	if age >= duration {
-		b.introFade.close()
+		b.closeInput(b.introFade)
 		b.introFade = nil
 		b.introFadeFrame = transcode.RawFrame{}
 		return

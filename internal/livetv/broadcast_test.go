@@ -375,3 +375,24 @@ func (f *fakeTranscoder) StartEncoder(context.Context, transcode.EncoderRequest)
 func (f *fakeTranscoder) StartDecoder(_ context.Context, r transcode.DecoderRequest) (transcode.Decoder, error) {
 	return &broadcastFakeDecoder{format: r.Format, origin: time.Now(), closed: make(chan struct{})}, nil
 }
+
+// A splice starts at the last emitted sample even if the previous PCM block
+// starts at the opposite phase. Replaying that block introduces a click.
+func TestPCMFadeContinuesEmittedEndpoint(t *testing.T) {
+	f := smallBroadcastFormat()
+	old := make([]byte, 1600*4)
+	for i := 0; i < len(old); i += 2 {
+		binary.LittleEndian.PutUint16(old[i:], uint16(i))
+	}
+	next := make([]byte, len(old))
+	fade := pcmFade{}
+	fade.start(old, f)
+	fade.apply(next, 2)
+	for ch := 0; ch < 2; ch++ {
+		got := binary.LittleEndian.Uint16(next[ch*2:])
+		want := binary.LittleEndian.Uint16(old[len(old)-4+ch*2:])
+		if got != want {
+			t.Fatalf("splice channel %d: first sample %d, endpoint %d", ch, got, want)
+		}
+	}
+}
