@@ -19,7 +19,7 @@ func TestConsoleReleaseGateUsesCurrentPolicyGeneration(t *testing.T) {
 	// No availability service means no evidence, with no dependency on its tables.
 	run("unknown", 3)
 	run("admitted", 0)
-	if _, err := c.db.ExecContext(ctx, `CREATE TABLE availability_hidden_current(kind TEXT PRIMARY KEY,generation TEXT NOT NULL,policy TEXT NOT NULL); CREATE TABLE availability_hidden(kind TEXT NOT NULL,generation TEXT NOT NULL,rating_key INTEGER NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(kind,generation,rating_key)); INSERT INTO availability_hidden_current VALUES('movie','gen-one','policy-one')`); err != nil {
+	if _, err := c.db.ExecContext(ctx, `CREATE TABLE availability_hidden_current(kind TEXT PRIMARY KEY,generation TEXT NOT NULL,policy TEXT NOT NULL); CREATE TABLE availability_hidden(kind TEXT NOT NULL,generation TEXT NOT NULL,rating_key BIGINT NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(kind,generation,rating_key)); INSERT INTO availability_hidden_current VALUES('movie','gen-one','policy-one')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.db.ExecContext(ctx, `INSERT INTO availability_hidden VALUES('movie','gen-one',?,0),('movie','gen-two',?,0)`, int64(core.MovieKey(2)), int64(core.MovieKey(3))); err != nil {

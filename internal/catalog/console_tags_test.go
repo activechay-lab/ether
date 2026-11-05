@@ -30,7 +30,10 @@ func TestOwnerTagsAndMetadataFlags(t *testing.T) {
 	if err := c.SetTitleTags(ctx, core.MovieKey(999), []string{"tag"}); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("unknown title: %v", err)
 	}
-	if _, err := c.db.ExecContext(ctx, `INSERT INTO catalog_keywords(key,keyword) VALUES(?,'anime'); INSERT INTO catalog_genres(key,genre) VALUES(?,'Kids')`, int64(key), int64(key)); err != nil {
+	if _, err := c.db.ExecContext(ctx, `INSERT INTO catalog_keywords(key,keyword) VALUES(?,'anime')`, int64(key)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.db.ExecContext(ctx, `INSERT INTO catalog_genres(key,genre) VALUES(?,'Kids')`, int64(key)); err != nil {
 		t.Fatal(err)
 	}
 	// Kids must combine with the selected genre, rather than widening its OR list.

@@ -60,7 +60,10 @@ func TestConsoleFacetsColdReadIsDeferred(t *testing.T) {
 func TestConsoleWatchlistAndRatedFilters(t *testing.T) {
 	c := largeCatalogue(t, 3)
 	ctx := context.Background()
-	if _, err := c.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS watchlist_items(user_id INTEGER,item_key INTEGER,PRIMARY KEY(user_id,item_key)); INSERT INTO watchlist_items(user_id,item_key) VALUES(7,?)`, int64(core.MovieKey(2))); err != nil {
+	if _, err := c.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS watchlist_items(user_id BIGINT,item_key BIGINT,PRIMARY KEY(user_id,item_key))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.db.ExecContext(ctx, `INSERT INTO watchlist_items(user_id,item_key) VALUES(7,?)`, int64(core.MovieKey(2))); err != nil {
 		t.Fatal(err)
 	}
 	want := true
