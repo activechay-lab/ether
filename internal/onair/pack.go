@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/plugins/pkgdigest"
 
 	"github.com/go-chi/chi/v5"
 	"io"
@@ -86,7 +87,7 @@ func (s *Service) ExportStylePack(ctx context.Context, id string) ([]byte, []str
 	files["warnings.json"], _ = json.Marshal(warnings)
 	manifest := map[string]any{"id": "ether.style." + id, "name": l.Name, "version": "1.0.0", "description": "Channel style pack", "ether": map[string]any{"protocol": 1, "kind": "extension", "runtime": map[string]string{"kind": "data"}, "capabilities": []string{"livetv_pack"}, "contributes": map[string]any{"looks": []map[string]string{{"id": "style", "file": "looks/style.json"}}}}}
 	files["manifest.json"], _ = json.Marshal(manifest)
-	files["digest"] = []byte(stylePackDigest(files))
+	files["digest"] = []byte(pkgdigest.Sum(files))
 	var buf bytes.Buffer
 	z := zip.NewWriter(&buf)
 	names := []string{}
@@ -139,7 +140,7 @@ func (s *Service) ImportStylePack(ctx context.Context, raw []byte) (Look, error)
 		}
 		files[f.Name] = b
 	}
-	if string(files["digest"]) != stylePackDigest(files) {
+	if string(files["digest"]) != pkgdigest.Sum(files) {
 		return Look{}, fmt.Errorf("package digest does not match its contents")
 	}
 	var manifest struct {
@@ -243,23 +244,4 @@ func (s *Service) StudioRoutes(r chi.Router) {
 		l, e := s.ImportStylePack(r.Context(), b)
 		result(w, l, e)
 	})
-}
-
-// Same canonical file digest as plugins.PkgDigest. onair cannot import plugins:
-// the plugin manager imports onair to install data contributions.
-func stylePackDigest(files map[string][]byte) string {
-	names := []string{}
-	for n := range files {
-		if n != "digest" {
-			names = append(names, n)
-		}
-	}
-	sort.Strings(names)
-	lines := []string{}
-	for _, n := range names {
-		sum := sha256.Sum256(files[n])
-		lines = append(lines, n+"="+hex.EncodeToString(sum[:]))
-	}
-	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
-	return hex.EncodeToString(sum[:])
 }
