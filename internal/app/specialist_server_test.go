@@ -46,6 +46,9 @@ func TestServerRoleConstructionBoundary(t *testing.T) {
 	if response.Code != 200 {
 		t.Fatalf("owner console bootstrap unavailable: %d", response.Code)
 	}
+	if sessions := (ownerPlayback{Playback: a.playback, app: a}).Sessions(); len(sessions) != 0 {
+		t.Fatal("unexpected fresh server sessions")
+	}
 	if a.privateProtocol() != 0 {
 		t.Fatal("constructed graph advertised before listeners")
 	}

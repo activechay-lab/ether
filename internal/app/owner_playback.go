@@ -16,7 +16,7 @@ type ownerPlayback struct {
 
 func (p ownerPlayback) Sessions() []*core.PlaySession {
 	var live []*core.PlaySession
-	if p.app.livetv != nil {
+	if p.app != nil && p.app.livetv != nil {
 		live = p.app.livetv.ViewingSessions()
 	}
 	groups := map[string]bool{}
@@ -24,7 +24,19 @@ func (p ownerPlayback) Sessions() []*core.PlaySession {
 		groups[s.ID] = true
 	}
 	out := make([]*core.PlaySession, 0, len(live))
-	for _, s := range p.Playback.Sessions() {
+	backend := p.Playback
+	if p.app != nil {
+		if p.app.brokerPlayback != nil {
+			backend = p.app.brokerPlayback
+		} else if p.app.playback == nil {
+			backend = nil
+		}
+	}
+	var local []*core.PlaySession
+	if backend != nil {
+		local = backend.Sessions()
+	}
+	for _, s := range local {
 		if !s.PreparedOnly && (s.PlaybackGroup == "" || !groups[s.PlaybackGroup]) {
 			out = append(out, s)
 		}
@@ -66,7 +78,9 @@ func (a *App) stopOwnerSession(id string) error {
 	}
 	// Broker retirement can leave the source on the owner list. The named
 	// session still has to stop.
-	if a.playback != nil {
+	if a.brokerPlayback != nil {
+		a.brokerPlayback.Stop(id)
+	} else if a.playback != nil {
 		a.playback.Stop(id)
 	}
 	return nil
