@@ -7,6 +7,8 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/onair/raster"
+	"github.com/braedonsaunders/ether/internal/onair/signal"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -102,6 +104,15 @@ func (s *Service) screenRequest(c Channel, reason string) core.ClipRequest {
 func (s *Service) openGraphicsDecoder(ctx context.Context, runner transcode.ContinuousRunner, request core.ClipRequest, format transcode.RawFormat, loop bool) (transcode.Decoder, func(), error) {
 	if s.o.Graphics == nil {
 		return nil, nil, core.ErrNotAvailable
+	}
+	// A static scene owns a live phosphor engine, never a looping cached clip.
+	if source, ok := s.o.Graphics.(overlaySource); ok {
+		if doc, bindings, found := source.Overlay(ctx, request); found {
+			if foreground, live := doc.StaticForeground(); live {
+				overlay := compactOverlay(raster.Render(foreground, bindings, doc.Poster, format.Width, format.Height), format)
+				return &signalInputDecoder{engine: signal.NewStatic(format.Width, format.Height, int64Hash(request.ChannelID+request.LookID)), overlay: overlay, format: format, tick: s.o.Now().Unix() * 30, audio: make([]int16, 3200), closed: make(chan struct{})}, nil, nil
+			}
+		}
 	}
 	clip, ok := s.o.Graphics.Clip(ctx, request)
 	if !ok {

@@ -17,6 +17,10 @@ import (
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
+type liveStaticSource interface {
+	LiveStatic(context.Context, core.ClipRequest) bool
+}
+
 // Signal is a live generator, not a decoded looping master. State and plate/
 // typography are prepared once away from the clock; only Render/blend run per tick.
 type signalInputDecoder struct {
@@ -52,15 +56,7 @@ func (s *Service) openSignalDecoder(ctx context.Context, request core.ClipReques
 		return nil, nil, fmt.Errorf("live Signal requires the channel's 30 fps working clock")
 	}
 	style := strings.TrimPrefix(request.Moment, "screen.")
-	variant := ""
-	switch strings.ToLower(style) {
-	case "static", "static-b", "staticb", "classic":
-		variant = "classic"
-	case "static-a", "statica", "shimmer":
-		variant = "shimmer"
-	case "static-c", "staticc", "ghost":
-		variant = "ghost"
-	}
+	isStatic := style == "static"
 	var doc scene.Document
 	var bindings raster.Bindings
 	var ok bool
@@ -69,7 +65,7 @@ func (s *Service) openSignalDecoder(ctx context.Context, request core.ClipReques
 	}
 	if !ok {
 		moment := "screen." + style
-		if variant != "" {
+		if isStatic {
 			moment = "screen.static"
 		}
 		var err error
@@ -101,8 +97,8 @@ func (s *Service) openSignalDecoder(ctx context.Context, request core.ClipReques
 	var engine *signal.Engine
 	var overlay *videoOverlay
 	seed := int64Hash(request.ChannelID + request.LookID)
-	if variant != "" {
-		engine = signal.NewStatic(f.Width, f.Height, variant, seed)
+	if isStatic {
+		engine = signal.NewStatic(f.Width, f.Height, seed)
 		text := doc
 		text.Layers = signalTextLayers(doc.Layers)
 		text.Post = nil

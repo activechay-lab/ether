@@ -40,6 +40,17 @@ func (s *Service) Overlay(ctx context.Context, r core.ClipRequest) (scene.Docume
 	return j.Doc, j.Bind, true
 }
 
+// LiveStatic reports readiness without requiring a rendered clip for a scene
+// whose analogue background is supplied continuously by the Signal engine.
+func (s *Service) LiveStatic(ctx context.Context, r core.ClipRequest) bool {
+	j, ok := s.plan(r)
+	if !ok {
+		return false
+	}
+	_, live := j.Doc.StaticForeground()
+	return live
+}
+
 // ReelSnapshot reads the durable owner clip ordering and conversion states.
 func (s *Service) ReelSnapshot(ctx context.Context, id string) (Reel, error) { return s.Reel(ctx, id) }
 

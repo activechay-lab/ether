@@ -159,7 +159,7 @@ func weeklySchedule(c Channel, from, until time.Time) []Programme {
 	recent := map[core.RatingKey]time.Time{}
 	for ; day.Before(until); day = day.AddDate(0, 0, 1) {
 		weekday := int(day.Weekday())
-		if c.momentHistory != nil {
+		if c.momentHistory != nil && (c.Look == nil || c.Look.BreakPattern == nil) {
 			c.momentHistory.lastBreak = day
 		}
 		blocks := make([]Block, 0, len(c.Blocks))
@@ -312,12 +312,12 @@ func emitWalk(out *[]Programme, c Channel, items []Item, seg segment, anchor, en
 		if !finish.After(cursor) {
 			return
 		}
-		appendProgramme(out, c, item, cursor, finish, from, until)
+		finish = emitProgrammeWithPods(out, c, item, cursor, finish, from, until, end)
 		recent[item.Key] = cursor
 		last = item.Key
 		cursor = finish
 		step++
-		if alignStep == 0 && c.Look != nil && c.Look.Placement == "insert" {
+		if alignStep == 0 && c.Look != nil && (c.Look.Placement == "insert" || c.Look.BreakPattern != nil) && (c.Look.BreakPattern == nil || cursor.Before(end)) {
 			for _, clip := range c.momentsWithin(cursor, end.Sub(cursor)) {
 				finish := cursor.Add(time.Duration(clip.DurationMS) * time.Millisecond)
 				if finish.After(end) {

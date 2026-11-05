@@ -1,3 +1,5 @@
+import { MomentVideoPicker } from "./MomentVideoPicker";
+import { BreakPatternEditor } from "./BreakPatternEditor";
 import { useUnsavedGuard } from "../../../components/SaveBar";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Input, Popover, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
@@ -240,7 +242,7 @@ export function LookDrawer({
           </div>
           <div className="p-5">
             {tab === "design" ? (
-              <DesignPanel look={draft} onChange={change} />
+              <div className="space-y-5"><DesignPanel look={draft} onChange={change}/><MomentVideoPicker look={draft} moment={moment} onChange={change}/><BreakPatternEditor value={draft.breakPattern} onChange={breakPattern=>change({...draft,breakPattern})}/></div>
             ) : tab === "describe" ? (
               <DescribeLook look={draft} onChange={change} />
             ) : tab === "layers" ? (

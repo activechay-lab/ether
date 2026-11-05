@@ -1,3 +1,4 @@
+import { LinkImport } from "./LinkImport";
 import { useEffect, useState } from "react";
 import { Button, Input, Select, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
 import { Upload, FileType, Image, AudioLines, Trash2 } from "lucide-react";
@@ -28,6 +29,7 @@ export function AssetsPanel({
     void onair.reels().then(setReels);
     void onair.looks().then(setLooks);
   }, [params.get("reel"), params.get("look")]);
+  useEffect(()=>{if(!assets.some(a=>a.status==="queued"||a.status==="downloading"))return;const timer=setInterval(()=>void onair.assets().then(setAssets),1000);return()=>clearInterval(timer);},[assets]);
   const upload = async (files: FileList | null, kind: string) => {
     if (!files) return;
     try {
@@ -111,6 +113,7 @@ export function AssetsPanel({
         </section>
       ) : null}
       {podsSlot}
+      <LinkImport onImported={async()=>setAssets(await onair.assets())}/>
 
       <div className="grid grid-cols-2 gap-2">
         {[
@@ -203,6 +206,8 @@ export function AssetsPanel({
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{a.name}</p>
+{a.source ? <a href={a.source} target="_blank" rel="noreferrer" className="text-xs text-primary">{t("Source")}</a> : null}
+{a.status && a.status!=="ready" ? <p className="text-xs text-fg-muted">{a.status==="error"?a.error:t("Importing…")}</p>:null}
                   <p className="text-xs text-fg-muted">
                     {t("{size} KB", { size: Math.round(a.size / 1024) })}
                   </p>

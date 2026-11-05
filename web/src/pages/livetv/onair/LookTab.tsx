@@ -1,3 +1,4 @@
+import { BreakPatternEditor } from "./BreakPatternEditor";
 import { Button, Input, Select, Switch } from "@braedonsaunders/appkit-ui";
 import { textOf, useRegistry } from "../../../lib/extend";
 import { useState } from "react";
@@ -194,7 +195,9 @@ export function LookTab({
                 size="sm"
                 className="w-full flex-nowrap justify-between [&>button]:px-1"
                 value={settings.breaks || ""}
-                onChange={(breaks) => set({ breaks })}
+                onChange={(breaks) =>
+                  set({ breaks, ...(!breaks ? { breakPattern: undefined } : {}) })
+                }
                 options={[
                   { value: "", label: t("Off") },
                   { value: "between", label: t("Between programmes") },
@@ -213,7 +216,10 @@ export function LookTab({
                   aria-label={t("During breaks")}
                   value={settings.breakContent || "look"}
                   onChange={(e) =>
-                    set({ breakContent: e.currentTarget.value as ChannelLook["breakContent"] })
+                    set({
+                      breakContent: e.currentTarget.value as ChannelLook["breakContent"],
+                      breakPattern: undefined,
+                    })
                   }
                 >
                   <option value="look">{t("Style's break screen")}</option>
@@ -303,22 +309,33 @@ export function LookTab({
                 ) : null}
               </>
             ) : null}
-            <SettingsRow
-              title={t("Break length")}
-              control={
-                <Segmented
-                  ariaLabel={t("Break length")}
-                  value={String(settings.breakSeconds || 60)}
-                  onChange={(v) => set({ breakSeconds: Number(v) })}
-                  options={[
-                    { value: "30", label: t("30 s") },
-                    { value: "60", label: t("1 min") },
-                    { value: "120", label: t("2 min") },
-                    { value: "180", label: t("3 min") },
-                  ]}
-                />
+            <BreakPatternEditor
+              value={settings.breakPattern}
+              onChange={(breakPattern) =>
+                set({
+                  breakPattern,
+                  ...(breakPattern ? { breakContent: "reel", placement: "insert" } : {}),
+                })
               }
             />
+            {!settings.breakPattern ? (
+              <SettingsRow
+                title={t("Break length")}
+                control={
+                  <Segmented
+                    ariaLabel={t("Break length")}
+                    value={String(settings.breakSeconds || 60)}
+                    onChange={(v) => set({ breakSeconds: Number(v) })}
+                    options={[
+                      { value: "30", label: t("30 s") },
+                      { value: "60", label: t("1 min") },
+                      { value: "120", label: t("2 min") },
+                      { value: "180", label: t("3 min") },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
           </>
         ) : null}
         <SettingsRow

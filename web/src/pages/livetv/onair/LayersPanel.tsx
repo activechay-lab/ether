@@ -77,6 +77,7 @@ export function LayersPanel({
             <>
               <Field label={t("Text")}>
                 <Input
+                  aria-label={t("Text")}
                   value={layer.text ?? (typeof source.text === "string" ? source.text : "")}
                   onChange={(e) => patch({ text: e.currentTarget.value })}
                 />

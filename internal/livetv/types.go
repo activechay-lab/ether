@@ -16,23 +16,24 @@ import (
 const Provider = "tv.plex.providers.epg.xmltv:1"
 
 type Item struct {
-	ReelID       string         `json:"reelId,omitempty"`
-	ReelClipID   string         `json:"reelClipId,omitempty"`
-	EpisodeTitle string         `json:"episodeTitle,omitempty"`
-	ShowTitle    string         `json:"showTitle,omitempty"`
-	Art          string         `json:"art,omitempty"`
-	Genres       []string       `json:"genres,omitempty"`
-	GUID         string         `json:"guid,omitempty"`
-	ShowGUID     string         `json:"showGuid,omitempty"`
-	MediaType    string         `json:"mediaType,omitempty"`
-	Premiere     bool           `json:"premiere,omitempty"`
-	Live         bool           `json:"live,omitempty"`
-	Key          core.RatingKey `json:"key"`
-	Title        string         `json:"title"`
-	DurationMS   int64          `json:"durationMs"`
-	Summary      string         `json:"summary,omitempty"`
-	Rating       string         `json:"rating,omitempty"`
-	Thumb        string         `json:"thumb,omitempty"`
+	BreakPointsMS []int64        `json:"breakPointsMs,omitempty"`
+	ReelID        string         `json:"reelId,omitempty"`
+	ReelClipID    string         `json:"reelClipId,omitempty"`
+	EpisodeTitle  string         `json:"episodeTitle,omitempty"`
+	ShowTitle     string         `json:"showTitle,omitempty"`
+	Art           string         `json:"art,omitempty"`
+	Genres        []string       `json:"genres,omitempty"`
+	GUID          string         `json:"guid,omitempty"`
+	ShowGUID      string         `json:"showGuid,omitempty"`
+	MediaType     string         `json:"mediaType,omitempty"`
+	Premiere      bool           `json:"premiere,omitempty"`
+	Live          bool           `json:"live,omitempty"`
+	Key           core.RatingKey `json:"key"`
+	Title         string         `json:"title"`
+	DurationMS    int64          `json:"durationMs"`
+	Summary       string         `json:"summary,omitempty"`
+	Rating        string         `json:"rating,omitempty"`
+	Thumb         string         `json:"thumb,omitempty"`
 	// Show metadata keeps episodes in season order inside a shuffle,
 	// marathon or newest-first playout. Zero values are movies and items
 	// saved before weekly scheduling, which stay in their stored order.
@@ -81,6 +82,7 @@ type Block struct {
 }
 type ChannelLook struct {
 	Bug                  *core.BugSettings `json:"bug,omitempty"`
+	BreakPattern         *BreakPattern     `json:"breakPattern,omitempty"`
 	LookID               string            `json:"lookId"`
 	Ident                bool              `json:"ident"`
 	UpNext               bool              `json:"upNext"`

@@ -48,26 +48,29 @@ func clockSchedule(c Channel, from, until time.Time) []Programme {
 		// Calendar boundaries are independent of the caller's query window.
 		cursor := day
 		end := day.AddDate(0, 0, 1)
+		// Compute the underlying day once. Every clock window clips the same
+		// deterministic timeline; rebuilding it per reservation is quadratic.
+		programmes := Schedule(plain, day, end)
 		for _, slot := range slots {
 			start := time.Date(day.Year(), day.Month(), day.Day(), slot.at/60, slot.at%60, 0, 0, loc)
 			stop := start.Add(time.Duration(slot.item.DurationMS) * time.Millisecond)
 			if start.Before(cursor) || stop.After(end) {
 				continue
 			}
-			out = appendClockWindow(out, plain, cursor, start, from, until)
+			out = appendClockWindow(out, plain, programmes, cursor, start, from, until)
 			appendProgramme(&out, c, slot.item, start, stop, from, until)
 			cursor = stop
 		}
-		out = appendClockWindow(out, plain, cursor, end, from, until)
+		out = appendClockWindow(out, plain, programmes, cursor, end, from, until)
 	}
 	return out
 }
-func appendClockWindow(out []Programme, c Channel, start, end, from, until time.Time) []Programme {
-	if !end.After(start) {
+func appendClockWindow(out []Programme, c Channel, programmes []Programme, start, end, from, until time.Time) []Programme {
+	if !end.After(start) || !end.After(from) || !start.Before(until) {
 		return out
 	}
 	// Reserve calendar spans, bounding a crossing programme as an owner block does.
-	for _, p := range Schedule(c, start, end) {
+	for _, p := range programmes {
 		a, b := p.Start, p.End
 		if a.Before(start) {
 			a = start

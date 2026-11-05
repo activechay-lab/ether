@@ -1,3 +1,4 @@
+import { warmStatic } from "./warm-static";
 import { resolveBug } from "./bug";
 import { getToken, SESSION_HEADER } from "../../../lib/api";
 import type { Bindings, Look, Moment } from "./model";
@@ -65,8 +66,6 @@ export type Layer = {
   count?: number;
   seed?: number;
   repeat?: number;
-  grainSize?: number;
-  noiseFps?: number;
   behave?: Record<string, Params>[];
   reveal?: { wipe: string; from: number; to: number; ease?: string };
   layers?: Layer[];
@@ -441,67 +440,9 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
             draw.restore();
           }
         } else if (l.type === "noise") {
-          const inv = draw.getTransform().inverse(),
-            pixels = draw.getImageData(0, 0, width, height),
-            data = pixels.data;
-          const grain = l.grainSize || 1,
-            fx = l.grainSize ? width / 1920 : 1,
-            fy = l.grainSize ? height / 1080 : 1;
-          const frame = Math.trunc(t * (l.noiseFps || 24)) * 100003;
-          if (inv.b === 0 && inv.c === 0) {
-            const xs = new Int32Array(width),
-              valid = new Uint8Array(width);
-            for (let xx = 0; xx < width; xx++) {
-              const px = inv.a * xx + inv.e;
-              valid[xx] = px >= 0 && px < w ? 1 : 0;
-              xs[xx] = Math.trunc(Math.trunc(px * fx) / grain);
-            }
-            let previous = -2147483648,
-              previousRow = -1;
-            for (let yy = 0; yy < height; yy++) {
-              const py = inv.d * yy + inv.f;
-              if (py < 0 || py >= h) continue;
-              const iy = Math.trunc(Math.trunc(py * fy) / grain),
-                row = yy * width * 4;
-              if (iy === previous && previousRow >= 0) {
-                data.copyWithin(row, previousRow, previousRow + width * 4);
-                continue;
-              }
-              previous = iy;
-              previousRow = row;
-              const base = iy * 1920 + frame;
-              for (let xx = 0; xx < width; xx++) {
-                if (!valid[xx]) continue;
-                const v = Math.floor(random(seed, xs[xx]! + base) * 255),
-                  i = row + xx * 4;
-                data[i] = v;
-                data[i + 1] = v;
-                data[i + 2] = v;
-                data[i + 3] = 255;
-              }
-            }
-          } else {
-            for (let yy = 0; yy < height; yy++)
-              for (let xx = 0; xx < width; xx++) {
-                const px = inv.a * xx + inv.c * yy + inv.e,
-                  py = inv.b * xx + inv.d * yy + inv.f;
-                if (px < 0 || py < 0 || px >= w || py >= h) continue;
-                const v = Math.floor(
-                    random(
-                      seed,
-                      Math.trunc(Math.trunc(px * fx) / grain) +
-                        Math.trunc(Math.trunc(py * fy) / grain) * 1920 +
-                        frame,
-                    ) * 255,
-                  ),
-                  i = (yy * width + xx) * 4;
-                data[i] = v;
-                data[i + 1] = v;
-                data[i + 2] = v;
-                data[i + 3] = 255;
-              }
-          }
-          draw.putImageData(pixels, 0, 0);
+          draw.imageSmoothingEnabled = true;
+          draw.imageSmoothingQuality = "high";
+          draw.drawImage(warmStatic(seed, Math.max(0, Math.floor(t * 30))), 0, 0, w, h);
         } else {
           const path = new Path2D(l.type === "path" ? l.path : undefined);
           if (["rect", "gradient"].includes(l.type)) path.rect(0, 0, w, h);
@@ -625,7 +566,9 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
         if (a === 1 && (common || vhs)) {
           const grain = effects[0]!,
             offset =
-              (random(grain.seed, x + y * width + frame * 100003) - 0.5) * grain.amount * 255;
+              (random(grain.seed, x + y * width + frame * 100003) - 0.5) *
+              Math.min(grain.amount, 1) *
+              24;
           r = quantize(r + offset);
           g = quantize(g + offset);
           b = quantize(b + offset);
@@ -652,7 +595,8 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
             offset = 0;
           switch (e.type) {
             case "grain":
-              offset = (random(e.seed, x + y * width + frame * 100003) - 0.5) * e.amount * 255;
+              offset =
+                (random(e.seed, x + y * width + frame * 100003) - 0.5) * Math.min(e.amount, 1) * 24;
               break;
             case "scanlines":
               if (y % 3 === 0) v = 1 - e.amount;

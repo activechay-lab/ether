@@ -4,23 +4,29 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/onair/scene"
+	"github.com/braedonsaunders/ether/internal/onair/signal"
 	"io"
 	"math"
 )
 
-// PCM returns deterministic stereo 48 kHz signed PCM. Periodic sine components
-// meet at zero, including band-limited noise (80–8000 Hz). No random stream seam.
+// PCM returns deterministic stereo 48 kHz signed PCM. Static masters use the
+// same warm hiss as the live Signal engine; tone and bed remain periodic.
 func PCM(a scene.Audio, seconds int) ([]int16, error) {
-	if seconds < 1 || seconds > 30 {
+	if seconds < 1 || seconds > 600 {
 		return nil, fmt.Errorf("invalid audio duration")
 	}
 	if a.Generator != "tone" && a.Generator != "static" && a.Generator != "bed" {
 		return nil, fmt.Errorf("unknown generator")
 	}
 	n := seconds * 48000
+	if a.Generator == "static" {
+		out := make([]int16, n*2)
+		for tick := 0; tick < seconds*30; tick++ {
+			signal.WarmAudio(out[tick*3200:(tick+1)*3200], int64(tick), int64(a.Seed))
+		}
+		return out, nil
+	}
 	mono := make([]float64, n)
-	state := a.Seed + 7
-	rand := func() float64 { state = state*1664525 + 1013904223; return float64(state) / 4294967296 }
 	oscillator := func(freq, gain float64) {
 		step := 2 * math.Pi * freq * float64(seconds) / float64(n-1)
 		co, si := math.Cos(step), math.Sin(step)
@@ -37,20 +43,7 @@ func PCM(a scene.Audio, seconds int) ([]int16, error) {
 		for _, hz := range []float64{110, 165, 220, 330} {
 			oscillator(hz, .012)
 		}
-	case "static":
-		for j := 0; j < 192; j++ {
-			hz := float64(320+int(rand()*31680)) / float64(seconds) // quantize to integer loop harmonics
-			oscillator(hz, rand()*2-1)
-		}
-		sum := 0.0
-		for _, v := range mono {
-			sum += v * v
-		}
-		gain := math.Pow(10, -30.0/20) / math.Sqrt(sum/float64(n))
-		for i := range mono {
-			mono[i] *= gain
-		}
-		oscillator(60, math.Pow(10, -42.0/20)*math.Sqrt2)
+
 	}
 	mono[0] = 0
 	mono[n-1] = 0

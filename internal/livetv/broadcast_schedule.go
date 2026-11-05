@@ -36,7 +36,12 @@ func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until 
 			request := s.clipRequest(c, p)
 			ready := false
 			if p.Item.ReelClipID == "" {
-				_, ready = s.o.Graphics.Clip(ctx, request)
+				if live, ok := s.o.Graphics.(liveStaticSource); ok {
+					ready = live.LiveStatic(ctx, request)
+				}
+				if !ready {
+					_, ready = s.o.Graphics.Clip(ctx, request)
+				}
 			}
 			if p.Item.ReelClipID != "" {
 				ready = false
@@ -106,6 +111,10 @@ func (s *Service) broadcastGuide(c Channel, from, until time.Time) []Programme {
 			if len(out) > 0 {
 				out[len(out)-1].End = p.End
 			}
+			continue
+		}
+		if c.Look.BreakPattern != nil && len(out) > 0 && p.Item.Key != 0 && out[len(out)-1].Item.Key == p.Item.Key && p.sourceOffset > 0 {
+			out[len(out)-1].End = p.End
 			continue
 		}
 		out = append(out, p)

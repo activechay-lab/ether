@@ -18,7 +18,7 @@ func (s *Service) Draft(ctx context.Context, l Look) (Look, error) {
 	if l.Moments == nil {
 		l.Moments = map[string]Moment{}
 		for _, m := range strings.Fields("ident upnext tonight break back offair welcome bug lowerthird") {
-			l.Moments[m] = Moment{8, 4}
+			l.Moments[m] = Moment{Duration: 8, Poster: 4}
 		}
 	}
 	if l.ChannelIDs == nil {

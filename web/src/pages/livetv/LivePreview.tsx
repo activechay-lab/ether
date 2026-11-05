@@ -1,3 +1,4 @@
+import type { LoadPolicy, RetryConfig } from "hls.js";
 import { cn } from "@braedonsaunders/appkit-ui";
 import { Loader2, Maximize2, RotateCcw, Volume2, VolumeX, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -22,8 +23,17 @@ type HlsLike = {
  * saved channel exactly like a Plex client would (same source selection and
  * failover), plays it with hls.js, and stops the session when closed.
  */
-export function LivePreview({ channel, onClose }: { channel: Channel; onClose: () => void }) {
+export function LivePreview({
+  channel,
+  viewer,
+  onClose,
+}: {
+  channel: Channel;
+  viewer?: string;
+  onClose: () => void;
+}) {
   const video = useRef<HTMLVideoElement>(null);
+  const stopped = useRef<Promise<unknown>>(Promise.resolve());
   const [phase, setPhase] = useState<Phase>("tuning");
   const [error, setError] = useState("");
   const [session, setSession] = useState<PreviewSession | null>(null);
@@ -33,11 +43,21 @@ export function LivePreview({ channel, onClose }: { channel: Channel; onClose: (
 
   useEffect(() => {
     let hls: HlsLike | null = null;
-    let id = "";
+    const previousStop = stopped.current;
+    let tune: Promise<PreviewSession> | undefined;
     let live = true;
     setPhase("tuning");
     setError("");
     setQuality("");
+    setSession(null);
+    const el = video.current;
+    const resetMedia = () => {
+      if (!el) return;
+      el.pause();
+      el.removeAttribute("src");
+      el.load();
+    };
+    resetMedia();
     const fail = (message: string) => {
       if (!live) return;
       setError(message);
@@ -45,12 +65,11 @@ export function LivePreview({ channel, onClose }: { channel: Channel; onClose: (
     };
     (async () => {
       try {
-        const s = await tv.play(channel.id);
-        id = s.id;
-        if (!live) {
-          void tv.stopPreview(s.id).catch(() => undefined);
-          return;
-        }
+        await previousStop;
+        if (!live) return;
+        tune = tv.play(channel.id, viewer);
+        const s = await tune;
+        if (!live) return;
         setSession(s);
         const { default: Hls } = await import("hls.js");
         const el = video.current;
@@ -59,12 +78,40 @@ export function LivePreview({ channel, onClose }: { channel: Channel; onClose: (
           fail(t("This browser can't play HLS through Media Source Extensions."));
           return;
         }
+        const deadline = performance.now() + 30_000;
+        let manifestLoaded = false;
+        const retry: RetryConfig = {
+          maxNumRetry: 8,
+          retryDelayMs: 1000,
+          maxRetryDelayMs: 4000,
+          shouldRetry: (_config, count, timeout, response) =>
+            count < (manifestLoaded ? 3 : 8) &&
+            (manifestLoaded || performance.now() < deadline) &&
+            (timeout || response?.code === 502 || response?.code === 503),
+        };
+        const loadPolicy: LoadPolicy = {
+          default: {
+            maxTimeToFirstByteMs: 10_000,
+            maxLoadTimeMs: 10_000,
+            timeoutRetry: retry,
+            errorRetry: retry,
+          },
+        };
         const h = new Hls({
+          manifestLoadPolicy: loadPolicy,
+          playlistLoadPolicy: loadPolicy,
+          // Three target durations behind the edge (12s for shared output).
           liveSyncDurationCount: 3,
+          maxBufferLength: 24,
+          maxMaxBufferLength: 24,
+          backBufferLength: 8,
           // Never hands the session to a channel's own (cross-origin) media host.
           xhrSetup: sessionXhrSetup,
         }) as unknown as HlsLike;
         hls = h;
+        h.on(Hls.Events.MANIFEST_PARSED, () => {
+          manifestLoaded = true;
+        });
         h.on(Hls.Events.ERROR, (...args: unknown[]) => {
           const data = args[1] as {
             fatal?: boolean;
@@ -104,9 +151,14 @@ export function LivePreview({ channel, onClose }: { channel: Channel; onClose: (
     return () => {
       live = false;
       hls?.destroy();
-      if (id) void tv.stopPreview(id).catch(() => undefined);
+      resetMedia();
+      stopped.current = (async () => {
+        await previousStop;
+        const s = await tune;
+        if (s) await tv.stopPreview(s.id);
+      })().catch(() => undefined);
     };
-  }, [channel.id, attempt]);
+  }, [channel.id, viewer, attempt]);
 
   // Stop the stream when the tab is closed, not only when React unmounts.
   useEffect(() => {

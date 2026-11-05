@@ -31,8 +31,10 @@ type Brand struct {
 	Logo     string            `json:"logo,omitempty"`
 }
 type Moment struct {
-	Duration float64 `json:"duration"`
-	Poster   float64 `json:"poster"`
+	Crossfade   bool    `json:"crossfade,omitempty"`
+	AssetDigest string  `json:"assetDigest,omitempty"`
+	Duration    float64 `json:"duration"`
+	Poster      float64 `json:"poster"`
 }
 type Look struct {
 	Screens    *config.LiveTVScreens     `json:"screens,omitempty"`
@@ -57,14 +59,19 @@ type Progress struct {
 	Total int `json:"total"`
 }
 type Asset struct {
-	Digest  string   `json:"digest"`
-	Name    string   `json:"name"`
-	Kind    string   `json:"kind"`
-	Size    int64    `json:"size"`
-	License string   `json:"license,omitempty"`
-	UsedBy  []string `json:"usedBy"`
-	URL     string   `json:"url,omitempty"`
-	MIME    string   `json:"-"`
+	Source      string   `json:"source,omitempty"`
+	Attribution string   `json:"attribution,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	Progress    float64  `json:"progress,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	Digest      string   `json:"digest"`
+	Name        string   `json:"name"`
+	Kind        string   `json:"kind"`
+	Size        int64    `json:"size"`
+	License     string   `json:"license,omitempty"`
+	UsedBy      []string `json:"usedBy"`
+	URL         string   `json:"url,omitempty"`
+	MIME        string   `json:"-"`
 }
 type Reel struct {
 	Anchor        time.Time  `json:"-"`
@@ -78,6 +85,8 @@ type Reel struct {
 	ChannelIDs    []string   `json:"channelIds"`
 }
 type ReelClip struct {
+	Source       string  `json:"source,omitempty"`
+	Attribution  string  `json:"attribution,omitempty"`
 	ID           string  `json:"id"`
 	Name         string  `json:"name"`
 	DurationMS   int64   `json:"durationMs"`

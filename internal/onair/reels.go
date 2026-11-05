@@ -71,7 +71,7 @@ func (s *Service) Reel(ctx context.Context, id string) (Reel, error) {
 		}
 	}
 	r.Clips = sorted
-	return r, nil
+	return s.importClips(ctx, r)
 }
 func (s *Service) Reels(ctx context.Context) ([]Reel, error) {
 	rows, e := s.db.QueryContext(ctx, "SELECT id FROM onair_reels ORDER BY id")
@@ -135,6 +135,9 @@ func (s *Service) DeleteReel(ctx context.Context, id string) error {
 		return e
 	}
 	defer tx.Rollback()
+	if _, e = tx.ExecContext(ctx, "DELETE FROM onair_imports WHERE reel_id=?", id); e != nil {
+		return e
+	}
 	if _, e = tx.ExecContext(ctx, "DELETE FROM onair_reel_clips WHERE reel_id=?", id); e != nil {
 		return e
 	}
@@ -168,6 +171,9 @@ func (s *Service) setClip(ctx context.Context, reel string, c ReelClip) error {
 	return e
 }
 func (s *Service) UploadClip(ctx context.Context, reel, name string, r io.Reader) (ReelClip, error) {
+	return s.uploadClip(ctx, reel, name, "", "", r)
+}
+func (s *Service) uploadClip(ctx context.Context, reel, name, source, attribution string, r io.Reader, importID ...string) (ReelClip, error) {
 	if _, e := s.Reel(ctx, reel); e != nil {
 		return ReelClip{}, e
 	}
@@ -192,10 +198,13 @@ func (s *Service) UploadClip(ctx context.Context, reel, name string, r io.Reader
 	if e != nil {
 		return ReelClip{}, e
 	}
-	c := ReelClip{ID: newID(), Name: name, SourceDigest: a.Digest, Status: "converting", Size: n}
+	c := ReelClip{Source: source, Attribution: attribution, ID: newID(), Name: name, SourceDigest: a.Digest, Status: "converting", Size: n}
+	if len(importID) > 0 {
+		c.ID = importID[0]
+	}
 	c.Preview = "/ether/api/onair/reels/" + reel + "/clips/" + c.ID + "/preview"
 	data, _ := json.Marshal(c)
-	_, e = s.db.ExecContext(ctx, "INSERT INTO onair_reel_clips(id,reel_id,name,duration_ms,source_digest,status,created_at,data) VALUES(?,?,?,0,?,'converting',?,?)", c.ID, reel, c.Name, a.Digest, time.Now().UnixNano(), string(data))
+	_, e = s.db.ExecContext(ctx, "INSERT INTO onair_reel_clips(id,reel_id,name,duration_ms,source_digest,status,created_at,data) VALUES(?,?,?,0,?,'converting',?,?) ON CONFLICT(id) DO NOTHING", c.ID, reel, c.Name, a.Digest, time.Now().UnixNano(), string(data))
 	if e != nil {
 		return c, e
 	}
@@ -398,6 +407,13 @@ func (s *Service) silenceEdges(ctx context.Context, path string, duration time.D
 }
 
 func (s *Service) DeleteClip(ctx context.Context, reel, id string) error {
+	res, e := s.db.ExecContext(ctx, "DELETE FROM onair_imports WHERE id=? AND reel_id=?", id, reel)
+	if e != nil {
+		return e
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return nil
+	}
 	r, e := s.Reel(ctx, reel)
 	if e != nil {
 		return e

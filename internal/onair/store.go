@@ -18,6 +18,9 @@ import (
 )
 
 func init() {
+	store.Register("onair", 3, `CREATE TABLE onair_imports(id TEXT PRIMARY KEY,reel_id TEXT NOT NULL,data TEXT NOT NULL);
+ ALTER TABLE onair_assets ADD COLUMN source TEXT NOT NULL DEFAULT '';
+ ALTER TABLE onair_assets ADD COLUMN attribution TEXT NOT NULL DEFAULT '';`)
 	store.Register("onair", 1, `
 CREATE TABLE onair_looks(id TEXT PRIMARY KEY,data TEXT NOT NULL,pack_id TEXT NOT NULL DEFAULT '',updated_at INTEGER NOT NULL);
 CREATE TABLE onair_families(id TEXT PRIMARY KEY,data TEXT NOT NULL,pack_id TEXT NOT NULL);
@@ -113,6 +116,12 @@ func (s *Service) validateLook(ctx context.Context, l Look) error {
 		return fmt.Errorf("energy and volume must be between 0 and 1")
 	}
 	for m, v := range l.Moments {
+		if v.AssetDigest != "" {
+			var n int
+			if e := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM onair_assets WHERE digest=? AND kind='video'", v.AssetDigest).Scan(&n); e != nil || n == 0 {
+				return fmt.Errorf("moment video asset missing")
+			}
+		}
 		d := scene.Document{V: 1, Moment: m, Duration: v.Duration, Poster: v.Poster}
 		if e := d.Validate(); e != nil {
 			return e
@@ -256,7 +265,7 @@ func (s *Service) seed(ctx context.Context) error {
 		l.Brand.Textures = []string{"Grain"}
 		l.Brand.Words = map[string]string{}
 		for _, m := range strings.Fields("ident tonight upnext break back offair welcome bug lowerthird") {
-			l.Moments[m] = Moment{8, 4}
+			l.Moments[m] = Moment{Duration: 8, Poster: 4}
 		}
 		b, _ := json.Marshal(l)
 		if _, e = tx.ExecContext(ctx, "INSERT INTO onair_looks(id,data,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING", l.ID, string(b), time.Now().Unix()); e != nil {
