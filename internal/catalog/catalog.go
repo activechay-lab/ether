@@ -444,8 +444,8 @@ func (c *Catalog) UpdateConfig(cfg config.Catalog) {
 	c.cfgVersion = &configVersion{}
 	c.writeGen.Add(1)
 	c.cfgMu.Unlock()
-	if err := c.reloadViewerRules(context.Background()); err != nil {
-		c.log.Error("catalog: reload viewer rules", "err", err)
+	if err := c.recompileViewerRules(cfg.Exclusions, cfg.VisibilityDefault); err != nil {
+		c.log.Error("catalog: recompile viewer rules", "err", err)
 	}
 	c.listMu.Lock()
 	c.listCache = map[string]listEntry{}

@@ -68,6 +68,25 @@ func compileViewerRules(p ViewerRules, global []core.LibraryExclusion, fallback 
 		return nil, fmt.Errorf("invalid catalogue rule mode")
 	}
 }
+
+// recompileViewerRules follows a global config change using the already-loaded
+// documents. Config callbacks must never wait for a database connection.
+func (c *Catalog) recompileViewerRules(global []core.LibraryExclusion, fallback string) error {
+	c.viewerRules.Lock()
+	defer c.viewerRules.Unlock()
+	entries := make(map[int64]compiledViewerRules, len(c.viewerRules.entries))
+	for id, v := range c.viewerRules.entries {
+		f, err := compileViewerRules(v.document, global, fallback)
+		if err != nil {
+			return err
+		}
+		v.browse, v.search = f, f.ForSearch()
+		entries[id] = v
+	}
+	c.viewerRules.entries = entries
+	return nil
+}
+
 func (c *Catalog) reloadViewerRules(ctx context.Context) error {
 	rows, err := c.db.QueryContext(ctx, `SELECT viewer_id,document,revision FROM catalog_viewer_rules`)
 	if err != nil {
