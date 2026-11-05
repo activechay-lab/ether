@@ -34,11 +34,10 @@ func (s *Service) broadcastWindow(ctx context.Context, ss *session, r *http.Requ
 		wait, cancel := context.WithTimeout(ctx, 8*time.Second)
 		defer cancel()
 		latest, err = index.Wait(wait, -1)
-		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, nil, core.ErrNotAvailable
-		}
 		if err != nil {
-			return nil, nil, err
+			// No playlist exists yet, including when a cold encoder exits before
+			// publishing. Tell clients to retry rather than report a bad gateway.
+			return nil, nil, core.ErrNotAvailable
 		}
 	}
 	end := latest.Start.Add(latest.Duration)
@@ -100,11 +99,8 @@ func (s *Service) serveBroadcastPlaylist(w http.ResponseWriter, r *http.Request,
 		defer cancel()
 		for segments[len(segments)-1].Start.Add(segments[len(segments)-1].Duration).Sub(segments[0].Start) < 8*time.Second {
 			if _, err = index.Wait(ctx, segments[len(segments)-1].Seq); err != nil {
-				if errors.Is(err, context.DeadlineExceeded) {
-					w.Header().Set("Retry-After", "1")
-					err = core.ErrNotAvailable
-				}
-				writeStreamError(w, err)
+				w.Header().Set("Retry-After", "1")
+				writeStreamError(w, core.ErrNotAvailable)
 				return
 			}
 			_, segments, err = s.broadcastWindow(ctx, ss, r)
