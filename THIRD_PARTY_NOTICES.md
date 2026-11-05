@@ -311,4 +311,7 @@ All modified primary/PostScript font names are renamed EtherAir01 through
 EtherAir11 (mapping in the subset script), respecting the Reserved Font
 Names **Playfair Display**, **Orbitron** and **Plex**. Stable API IDs and
 filenames identify the source family; original licence metadata is retained.
-Archivo Black and Monoton are not bundled because shipped scenes do not use them.
+Archivo Black is also bundled under SIL Open Font License 1.1 for the Grunge 90
+family, with its complete licence in `internal/onair/fonts/data/archivoblack-OFL.txt`.
+It is subset with the same script and renamed EtherAir12, retaining its
+original licence metadata. Monoton is not bundled.
