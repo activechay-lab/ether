@@ -1,3 +1,4 @@
+import type { ChannelLook } from "../pages/livetv/onair/model";
 /**
  * Live TV for the mock backend: a few virtual channels built from the fake
  * catalogue, an IPTV source with a guide, a guide-only source, and channels
@@ -27,7 +28,15 @@ type Channel = Record<string, unknown> & {
   group?: string;
 };
 type Source = Record<string, unknown> & { id: string; name: string };
-type Programme = { id: string; channelId: string; start: string; end: string; item: Item };
+type Programme = {
+  id: string;
+  channelId: string;
+  start: string;
+  end: string;
+  item: Item;
+  reason?: string;
+  slate?: { kind: string };
+};
 /** A viewer's Live TV access: the only channel allow-list (see livetv.Policy). */
 type Policy = {
   userId: number;
@@ -38,6 +47,7 @@ type Policy = {
   granted?: string[];
   favorites?: string[];
   maxRating?: string;
+  personal?: { enabled: boolean | null; name: string };
 };
 
 const NEWS = ["Morning Brief", "World Report", "Market Watch", "Evening News", "Late Edition"];
@@ -132,6 +142,45 @@ export function createLiveTVMock(titles: FakeTitle[]) {
   const slice = (seed: number, n: number) =>
     Array.from({ length: n }, (_, i) => movies[(seed * 7 + i * 3) % movies.length]!).map(item);
 
+  function interstitials(programmes: Programme[], look?: ChannelLook) {
+    if (!look) return programmes;
+    return programmes.flatMap((p, i) => {
+      const kinds = [
+        ...(i === 0 && look.ident ? ["ident"] : []),
+        ...(look.upNext ? ["upnext"] : []),
+        ...(look.breaks ? ["break", "back"] : []),
+      ];
+      if (!kinds.length) return [p];
+      const boundary = Date.parse(p.end);
+      let at = boundary - kinds.length * 12000;
+      return [
+        { ...p, end: new Date(at).toISOString() },
+        ...kinds.map((kind) => {
+          const start = at;
+          at += 12000;
+          return {
+            id: `${p.id}-${kind}`,
+            channelId: p.channelId,
+            start: new Date(start).toISOString(),
+            end: new Date(at).toISOString(),
+            item: {
+              key: 0,
+              title:
+                kind === "upnext"
+                  ? "Up next"
+                  : kind === "back"
+                    ? "Back from break"
+                    : kind === "break"
+                      ? "Break"
+                      : "Ident",
+              durationMs: 12000,
+            },
+            slate: { kind },
+          };
+        }),
+      ];
+    });
+  }
   const sources: Source[] = [
     {
       id: "demo-fast",
@@ -236,6 +285,66 @@ export function createLiveTVMock(titles: FakeTitle[]) {
       items: [],
     })),
   ];
+  channels[0]!.look = {
+    lookId: "nocturne",
+    ident: true,
+    upNext: true,
+    offAir: true,
+    breaks: "between",
+    breakContent: "reel",
+    reelId: "saturday",
+    breakSeconds: 60,
+  };
+  channels[1]!.look = {
+    lookId: "blorp",
+    ident: true,
+    upNext: true,
+    offAir: true,
+    breaks: "between",
+    breakContent: "segments",
+    segmentIds: ["plugin:weather/forecast"],
+    allowUnratedSegments: false,
+  };
+  channels[1]!.rating = "PG";
+  channels[1]!.clock = [
+    {
+      segmentId: "plugin:weather/forecast",
+      minute: 58,
+      everyMinutes: 60,
+      from: 360,
+      until: 1380,
+      days: [],
+    },
+  ];
+  channels.push({
+    id: "v-personal",
+    number: "5",
+    name: "Personal TV",
+    kind: "virtual",
+    enabled: true,
+    favorite: false,
+    epoch: "2026-01-01T00:00:00Z",
+    seed: 1,
+    shuffle: false,
+    items: [],
+    personal: {
+      ingredients: [
+        "continue",
+        "nextEpisodes",
+        "picked",
+        "watchlist",
+        "comfort",
+        "newReleases",
+        "collections",
+      ].map((kind, i) => ({ kind, share: [25, 25, 30, 10, 10, 10, 10][i], enabled: i < 5 })),
+      pauseWhenAway: true,
+      nameFormat: "{viewer} TV",
+      repeatHours: 24,
+      maxShowShare: 30,
+      nightMaxMinutes: 60,
+    },
+    look: { lookId: "personal", ident: true, upNext: true, offAir: true, breaks: "between" },
+  });
   // Two channels have a guide id their own source doesn't carry.
   const unlisted = new Set(["iptv-4", "iptv-10", "iptv-11", "iptv-16"]);
 
@@ -260,7 +369,7 @@ export function createLiveTVMock(titles: FakeTitle[]) {
         t += it.durationMs;
         i++;
       }
-      return out;
+      return interstitials(out, c.look as ChannelLook | undefined);
     }
     if (!c.enabled || unlisted.has(c.id) || !c.guideId) return out;
     const names = c.group === "News" ? NEWS : SHOWS;
@@ -355,6 +464,77 @@ export function createLiveTVMock(titles: FakeTitle[]) {
     if (seg[0] !== "livetv") return null;
     const route = `${method} /${seg.slice(1).join("/")}`;
     const now = Date.now();
+    if (method === "GET" && seg[1] === "channels" && seg[3] === "rundown") {
+      const viewer = Number(q.get("viewer") || 1);
+      const picks = slice(viewer + 3, 14);
+      let at = now - 20 * 60000;
+      return {
+        body: interstitials(
+          picks.map((it, i) => {
+            const start = at;
+            at += it.durationMs;
+            return {
+              id: `personal-${viewer}-${i}`,
+              channelId: seg[2]!,
+              start: new Date(start).toISOString(),
+              end: new Date(at).toISOString(),
+              item: it,
+              reason: i % 2 ? "Next episode in your queue" : "Because you rated Annihilation 5★",
+            };
+          }),
+          channels.find((c) => c.id === seg[2])?.look as ChannelLook | undefined,
+        ),
+      };
+    }
+    if (route === "GET /channels/summary") return { body: channels };
+    if (route === "GET /channels/page") {
+      const needle = (q.get("q") || "").toLowerCase();
+      const filter = q.get("filter") || "all";
+      const matches = (c: Channel) =>
+        filter === "all" ||
+        (filter === "virtual" || filter === "iptv"
+          ? c.kind === filter
+          : filter === "favorites"
+            ? c.favorite
+            : filter === "off"
+              ? !c.enabled
+              : filter === "missing"
+                ? !c.guideId && c.kind === "iptv"
+                : c.enabled);
+      const all = channels.filter(
+        (c) => matches(c) && `${c.name} ${c.number}`.toLowerCase().includes(needle),
+      );
+      const offset = Number(q.get("offset") || 0),
+        limit = Number(q.get("limit") || 200);
+      const groups = [...new Set(all.map((c) => c.kind))].map((kind) => ({
+        key: kind,
+        kind,
+        count: all.filter((c) => c.kind === kind).length,
+        start: all.findIndex((c) => c.kind === kind),
+      }));
+      return {
+        body: {
+          channels: all.slice(offset, offset + limit),
+          total: all.length,
+          counts: {
+            all: channels.length,
+            live: channels.filter((c) => c.enabled).length,
+            favorites: channels.filter((c) => c.favorite).length,
+            virtual: channels.filter((c) => c.kind === "virtual").length,
+            iptv: channels.filter((c) => c.kind === "iptv").length,
+            off: channels.filter((c) => !c.enabled).length,
+            missing: channels.filter((c) => !c.guideId && c.kind === "iptv").length,
+          },
+          groups,
+          coverage: Object.fromEntries(
+            channels.map((c) => [c.id, c.kind === "virtual" || Boolean(c.guideId)]),
+          ),
+          nextNumber: String(Math.max(...channels.map((c) => Number(c.number))) + 1),
+        },
+      };
+    }
+    if (method === "GET" && seg[1] === "channels" && seg.length === 3)
+      return { body: channels.find((c) => c.id === seg[2]) };
     if (route === "GET /channels") return { body: channels };
     if (route === "GET /sources") return { body: sources.map(source) };
     if (route === "GET /guide") {
