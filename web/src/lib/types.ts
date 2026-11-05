@@ -711,6 +711,8 @@ export interface SourceStartup {
 
 /** One Ether node (internal/cluster.Node). */
 export interface ClusterNode {
+  /** Exact process boot; absent on older servers. */
+  incarnation?: string;
   id: string;
   name: string;
   version: string;
@@ -740,9 +742,22 @@ interface ClusterHealth {
   clockSkewNs: number;
 }
 
+/** Local process observation only. Quota/resources are deliberately not consumed here. */
+export interface ClusterSelfRuntime {
+  nodeId: string;
+  boot: string;
+  runtimeSampledAt: string;
+  protocol: number;
+  started: boolean;
+  readyExisting: boolean;
+  acceptingNew: boolean;
+  draining: boolean;
+}
+
 export interface ClusterStatus {
   mode: "solo" | "postgres";
   self: ClusterNode;
+  selfRuntime?: ClusterSelfRuntime;
   leader?: string;
   epoch: number;
   nodes: ClusterNode[] | null;

@@ -94,6 +94,74 @@ export function nodeStatusFresh(n: ClusterNode, now = Date.now()): boolean {
   return n.live && !!seen && Math.abs(now - seen.getTime()) <= HEARTBEAT_STALE_MS;
 }
 
+/** Never attach a local observation to a peer or to a replaced process boot. */
+export function nodeRuntime(s: ClusterStatus, n: ClusterNode) {
+  const r = s.selfRuntime;
+  return r &&
+    !!r.nodeId &&
+    !!r.boot &&
+    r.nodeId === s.self.id &&
+    r.boot === s.self.incarnation &&
+    r.nodeId === n.id &&
+    r.boot === n.incarnation
+    ? r
+    : undefined;
+}
+
+// Two polling intervals, independent of membership and retained metric clocks.
+export function runtimeFresh(at: string, now = Date.now()): boolean {
+  const sampled = parseTime(at)?.getTime();
+  return sampled !== undefined && sampled <= now && now - sampled <= 2 * CLUSTER_POLL_MS;
+}
+
+function RuntimeObservation({
+  status,
+  node,
+  cached,
+}: {
+  status: ClusterStatus;
+  node: ClusterNode;
+  cached: boolean;
+}) {
+  const [, tick] = useState(0);
+  useInterval(() => tick((n) => n + 1), 1_000);
+  const now = Date.now();
+  const runtime = nodeRuntime(status, node);
+  const fresh = !!runtime && !cached && runtimeFresh(runtime.runtimeSampledAt, now);
+  const value = (v: boolean | undefined) =>
+    !fresh || typeof v !== "boolean" ? t("Unknown") : v ? t("Yes") : t("No");
+  const sampled = runtime && parseTime(runtime.runtimeSampledAt);
+  return (
+    <dl className="min-w-0 max-w-64 space-y-1 whitespace-normal text-xs">
+      <div>
+        <dt className="text-fg-muted">{t("Serving existing work")}</dt>
+        <dd>{value(runtime?.readyExisting)}</dd>
+      </div>
+      <div>
+        <dt className="text-fg-muted">{t("Accepting new work")}</dt>
+        <dd>{value(runtime?.acceptingNew)}</dd>
+      </div>
+      <div>
+        <dt className="text-fg-muted">{t("Draining")}</dt>
+        <dd>{value(runtime?.draining)}</dd>
+      </div>
+      <div>
+        <dt className="text-fg-muted">{t("Runtime observed at")}</dt>
+        <dd>
+          {sampled ? (
+            <time dateTime={runtime!.runtimeSampledAt} title={formatDateTime(sampled)}>
+              {relativeTime(sampled, new Date(now))}
+            </time>
+          ) : (
+            t("Unknown")
+          )}
+        </dd>
+      </div>
+      {runtime && !fresh ? <Badge variant="warning">{t("Stale status")}</Badge> : null}
+    </dl>
+  );
+}
+
 function translateClusterWarning(w: string): string {
   const m = /^nodes reach providers from different public addresses \(([^)]*)\)/.exec(w);
   if (m) {
@@ -393,21 +461,26 @@ function Nodes({
             {
               key: "admission",
               header: t("New streams"),
-              cell: (n) => (
-                <div className="space-y-1">
-                  <span className="block text-xs text-fg-muted sm:hidden">{t("New streams")}</span>
-                  <Badge variant={n.draining ? "warning" : "secondary"}>
-                    {cached || !nodeStatusFresh(n)
-                      ? t("Unknown")
-                      : n.draining
-                        ? t("Paused")
-                        : t("Not reported")}
-                  </Badge>
-                  <p className="max-w-48 text-xs text-fg-muted">
-                    {t("Playback readiness is not reported.")}
-                  </p>
-                </div>
-              ),
+              cell: (n) =>
+                status.selfRuntime ? (
+                  <RuntimeObservation status={status} node={n} cached={cached} />
+                ) : (
+                  <div className="space-y-1">
+                    <span className="block text-xs text-fg-muted sm:hidden">
+                      {t("New streams")}
+                    </span>
+                    <Badge variant={n.draining ? "warning" : "secondary"}>
+                      {cached || !nodeStatusFresh(n)
+                        ? t("Unknown")
+                        : n.draining
+                          ? t("Paused")
+                          : t("Not reported")}
+                    </Badge>
+                    <p className="max-w-48 text-xs text-fg-muted">
+                      {t("Playback readiness is not reported.")}
+                    </p>
+                  </div>
+                ),
             },
             {
               key: "load",
@@ -484,7 +557,12 @@ function Nodes({
         />
       </div>
       {manage ? (
-        <NodeDrawer status={status} onClose={() => setManage(false)} onChanged={onChanged} />
+        <NodeDrawer
+          status={status}
+          cached={cached}
+          onClose={() => setManage(false)}
+          onChanged={onChanged}
+        />
       ) : null}
     </Section>
   );
@@ -492,10 +570,12 @@ function Nodes({
 
 function NodeDrawer({
   status,
+  cached,
   onClose,
   onChanged,
 }: {
   status: ClusterStatus;
+  cached: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -543,6 +623,9 @@ function NodeDrawer({
             )}
           />
         </SettingsSection>
+        {status.selfRuntime ? (
+          <RuntimeObservation status={status} node={status.self} cached={cached} />
+        ) : null}
         <Field
           label={t("Node weight")}
           htmlFor="cluster-weight"
