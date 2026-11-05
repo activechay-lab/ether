@@ -691,6 +691,9 @@ func partFileName(t *core.Title, ext string) string {
 func buildMedia(t *core.Title, info core.MediaInfo, stamp int64) model.Media {
 	container := plexContainer(info.Container)
 	ext := containerExt(container)
+	if strings.EqualFold(info.Container, "webm") {
+		ext = "webm"
+	}
 	dur := ms(info.Duration)
 	if dur <= 0 {
 		dur = ms(t.Runtime)
@@ -745,6 +748,9 @@ func buildMedia(t *core.Title, info core.MediaInfo, stamp int64) model.Media {
 		AudioProfile: m.AudioProfile,
 		Container:    container,
 		VideoProfile: m.VideoProfile,
+	}
+	if container == "mpegts" {
+		p.PacketLength = 188
 	}
 	if isMP4 {
 		p.Has64bitOffsets = model.Ptr(false)
@@ -837,6 +843,7 @@ func (s *Server) renderStreams(key core.RatingKey, info core.MediaInfo, sel sele
 			ps.Width, ps.Height = st.Width, st.Height
 			ps.FrameRate = math.Round(st.FrameRate*1000) / 1000
 			ps.BitDepth, ps.Level = st.BitDepth, st.Level
+			ps.ColorRange = st.ColorRange
 			ps.Profile = strings.ToLower(st.Profile)
 			ps.ChromaSubsampling = "4:2:0"
 			switch st.ColorTransfer {
