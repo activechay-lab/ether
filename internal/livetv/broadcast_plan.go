@@ -193,7 +193,28 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 			if c.Personal != nil {
 				group += "-viewer-" + strconv.FormatInt(p.user.ID, 10)
 			}
-			if grouped, ok := p.s.o.Playback.(core.ChannelPreparer); ok {
+			if c.Look != nil && c.Look.BreakPattern != nil && c.Look.BreakPattern.Inside && c.Look.BreakPlacement != "even" && c.Look.BreakPlacement != "between" && candidate.Item.BreakReleaseID != "" && len(candidate.Item.BreakPointsMS) > 0 {
+				planned, ok := p.s.o.Playback.(interface {
+					PrepareChannelRelease(context.Context, *core.User, core.RatingKey, core.ClientCaps, string, string) (*core.PlaySession, error)
+				})
+				if !ok {
+					cancel()
+					last = core.ErrSourceChanged
+					continue
+				}
+				ps, err = planned.PrepareChannelRelease(attempt, &p.user, candidate.Item.Key, p.caps, group, candidate.Item.BreakReleaseID)
+				if err == nil {
+					pin, ok := p.s.o.Playback.(core.PlaybackRevisionPin)
+					if !ok {
+						err = core.ErrSourceChanged
+					} else {
+						err = pin.PinSourceRevision(attempt, ps.ID, candidate.Item.BreakRevision)
+					}
+					if err != nil {
+						p.s.o.Playback.Stop(ps.ID)
+					}
+				}
+			} else if grouped, ok := p.s.o.Playback.(core.ChannelPreparer); ok {
 				ps, err = grouped.PrepareChannel(attempt, &p.user, candidate.Item.Key, p.caps, group)
 			} else {
 				ps, err = p.s.o.Playback.Prepare(attempt, &p.user, candidate.Item.Key, p.caps)
