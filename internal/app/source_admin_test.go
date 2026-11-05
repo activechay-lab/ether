@@ -8,6 +8,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/auth"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/identity"
+	"github.com/braedonsaunders/ether/internal/plextv"
 	"github.com/braedonsaunders/ether/internal/sourceadmin"
 	"github.com/braedonsaunders/ether/internal/store"
 )
@@ -60,5 +61,39 @@ func TestSourceAdminOwnerUsesDurableAuthority(t *testing.T) {
 	}
 	if err = a.verifySourceOwner(ctx, ""); err != sourceadmin.ErrDenied {
 		t.Fatalf("tokenless setup admitted: %v", err)
+	}
+}
+
+func TestSourceAdminSameOwnerTokenRotation(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	primary, err := auth.New(ctx, db, auth.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer primary.Close()
+	account := plextv.Account{ID: 142, Username: "lab-owner"}
+	if err = primary.SetOwner(ctx, account, "old-lab-token"); err != nil {
+		t.Fatal(err)
+	}
+	source, err := auth.New(ctx, db, auth.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	a := &App{db: db, users: source}
+	if err = a.verifySourceOwner(ctx, "old-lab-token"); err != nil {
+		t.Fatal(err)
+	}
+	if err = primary.SetOwner(ctx, account, "new-lab-token"); err != nil {
+		t.Fatal(err)
+	}
+	// The source process cache intentionally has not refreshed. Raw-token
+	// authority must follow the durable credential row, not the unchanged owner.
+	if err = a.verifySourceOwner(ctx, "old-lab-token"); err == nil {
+		t.Fatal("revoked cached owner credential authorized a private operation")
+	}
+	if err = a.verifySourceOwner(ctx, "new-lab-token"); err != nil {
+		t.Fatalf("current durable owner credential denied: %v", err)
 	}
 }

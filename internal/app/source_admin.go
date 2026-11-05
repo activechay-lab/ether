@@ -59,7 +59,7 @@ func (a *App) verifySourceOwner(ctx context.Context, credential string) error {
 		if auth.IsOwnerSession(credential) {
 			user, err = a.users.OwnerSession(ctx, credential)
 		} else {
-			user, err = a.users.Authenticate(ctx, credential)
+			user, err = a.users.DurableOwnerToken(ctx, credential)
 		}
 	}
 	if err != nil || user == nil || !user.IsOwner || user.Delegated {
