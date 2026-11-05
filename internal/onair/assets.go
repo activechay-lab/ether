@@ -137,7 +137,11 @@ func (s *Service) UploadAsset(ctx context.Context, name, kind, license string, r
 	default:
 		return Asset{}, fmt.Errorf("unknown asset kind")
 	}
-	return s.putAsset(ctx, name, kind, license, mime, b)
+	a, e := s.putAsset(ctx, name, kind, license, mime, b)
+	if e == nil {
+		s.recordFacts(ctx, a, b)
+	}
+	return a, e
 }
 func (s *Service) Assets(ctx context.Context) ([]Asset, error) {
 	rows, e := s.db.QueryContext(ctx, "SELECT digest,name,kind,size,license,mime,source,attribution FROM onair_assets ORDER BY created_at")
