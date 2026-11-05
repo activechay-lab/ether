@@ -1,0 +1,278 @@
+package transcode
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+var _ ContinuousRunner = (*Manager)(nil)
+
+type continuousEncoder struct {
+	*continuousProcess
+	req     EncoderRequest
+	dir     string
+	frames  chan RawFrame
+	writeMu chan struct{}
+	tick    int64
+	workers sync.WaitGroup
+	index   *continuousSegmentIndex
+	stream  *continuousFanout
+}
+
+// AcquireTranscodeSlot reserves one encoder against the same admission budget
+// as VOD transcodes. The returned release is idempotent.
+func (m *Manager) AcquireTranscodeSlot() (func(), error) {
+	m.mu.Lock()
+	closed := m.closed
+	m.mu.Unlock()
+	if closed {
+		return nil, errors.New("transcode: manager closed")
+	}
+	release, e := m.acquireTranscodeSlot()
+	if e != nil {
+		return nil, e
+	}
+	var once sync.Once
+	return func() { once.Do(release) }, nil
+}
+
+// StartEncoder starts a fixed rendition. Scaling stays in ffmpeg (one scale per
+// rendition); callers send the same largest working frame to every rendition.
+func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (ContinuousEncoder, error) {
+	if e := validateRaw(r.Source); e != nil {
+		return nil, e
+	}
+	if r.SegmentDuration == 0 {
+		r.SegmentDuration = 4 * time.Second
+	}
+	if r.SegmentDuration != 4*time.Second || r.DVRWindow < 0 {
+		return nil, errors.New("transcode: invalid segment or DVR duration")
+	}
+	if r.Decision.VideoCodec != "" && r.Decision.VideoCodec != "h264" && r.Decision.VideoCodec != "hevc" {
+		return nil, errors.New("transcode: unsupported continuous codec")
+	}
+	if r.Decision.AudioCodec != "" && r.Decision.AudioCodec != "aac" {
+		return nil, errors.New("transcode: continuous output requires AAC")
+	}
+	release, e := m.AcquireTranscodeSlot()
+	if e != nil {
+		return nil, e
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			release()
+		}
+	}()
+	dir, e := os.MkdirTemp(m.tempDir, "continuous-")
+	if e != nil {
+		return nil, e
+	}
+	clean := true
+	defer func() {
+		if clean {
+			os.RemoveAll(dir)
+		}
+	}()
+	sockets := make([]*rawSocket, 0, 2)
+	for range 2 {
+		s, e := newRawSocket()
+		if e != nil {
+			for _, s := range sockets {
+				s.close()
+			}
+			return nil, e
+		}
+		sockets = append(sockets, s)
+	}
+	defer func() {
+		if !ok {
+			for _, s := range sockets {
+				s.close()
+			}
+		}
+	}()
+	if r.SessionID == "" {
+		r.SessionID = randomHex(12)
+	}
+	enc := &continuousEncoder{req: r, dir: dir, frames: make(chan RawFrame, 8), writeMu: make(chan struct{}, 1), stream: newContinuousFanout()}
+	args := m.continuousEncodeArgs(r, sockets, dir)
+	p, e := m.startContinuous(ctx, args, dir, false, sockets, enc.stream, func() { release(); enc.stream.close(); _ = removeAllRetry(dir) })
+	if e != nil {
+		return nil, e
+	}
+	enc.continuousProcess = p
+	enc.index = newContinuousSegmentIndex(enc)
+	go enc.index.watch()
+	// Separate writers are essential: ffmpeg probes inputs serially, and later
+	// demuxes audio/video independently. A single socket pump can deadlock.
+	video := make(chan []byte, 8)
+	audio := make(chan []byte, 8)
+	for i, ch := range []chan []byte{video, audio} {
+		enc.workers.Add(1)
+		go func(s *rawSocket, ch chan []byte) {
+			defer enc.workers.Done()
+			c, e := s.accept()
+			if e != nil {
+				return
+			}
+			for {
+				select {
+				case <-p.ctx.Done():
+					return
+				case b, ok := <-ch:
+					if !ok {
+						return
+					}
+					if _, e := io.Copy(c, bytes.NewReader(b)); e != nil {
+						p.cancel()
+						return
+					}
+				}
+			}
+		}(sockets[i], ch)
+	}
+	enc.workers.Add(1)
+	go func() {
+		defer enc.workers.Done()
+		defer close(video)
+		defer close(audio)
+		for {
+			select {
+			case <-p.ctx.Done():
+				return
+			case f := <-enc.frames:
+				vch, ach := video, audio
+				for vch != nil || ach != nil {
+					select {
+					case vch <- f.Video:
+						vch = nil
+					case ach <- f.PCM:
+						ach = nil
+					case <-p.ctx.Done():
+						return
+					}
+				}
+			}
+		}
+	}()
+	ok = true
+	clean = false
+	return enc, nil
+}
+func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir string) []string {
+	f := r.Source
+	rate := fmt.Sprintf("%d/%d", f.FPSNum, f.FPSDen)
+	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-filter_threads", "1"}
+	for i := range 2 {
+		args = append(args, "-thread_queue_size", "8", "-probesize", "32", "-analyzeduration", "0")
+		if i == 0 {
+			args = append(args, "-f", "rawvideo", "-pixel_format", "yuv420p", "-video_size", fmt.Sprintf("%dx%d", f.Width, f.Height), "-framerate", rate)
+		} else {
+			args = append(args, "-f", "s16le", "-ar", "48000", "-ac", "2")
+		}
+		args = append(args, "-i", s[i].url())
+	}
+	codec := r.Decision.VideoCodec
+	if codec == "" {
+		codec = "h264"
+	}
+	enc, _ := videoEncoder(codec, m.hw, m.feat)
+	w, h := outputSize(f.Width, f.Height, r.Decision.MaxHeight)
+	vf := fmt.Sprintf("scale=%d:%d,setsar=1", w, h)
+	if strings.HasSuffix(enc, "_vaapi") {
+		args = append(args, "-vaapi_device", m.hw.Device)
+		vf += ",format=nv12,hwupload"
+	}
+	args = append(args, "-map", "0:v:0", "-map", "1:a:0", "-vf", vf)
+	spec := runSpec{Decision: r.Decision, Accel: m.hw, Features: m.feat}
+	spec.Decision.VideoCodec = codec
+	args = append(args, planEncodeArgs(spec, picturePlan{w: w, h: h, outRange: rangeSDR}, enc, codec, false)...)
+	g := int((int64(r.SegmentDuration)*int64(f.FPSNum) + int64(time.Second*time.Duration(f.FPSDen))/2) / int64(time.Second*time.Duration(f.FPSDen)))
+	pix := "yuv420p"
+	if strings.HasSuffix(enc, "_vaapi") {
+		pix = "vaapi"
+	}
+	if strings.HasSuffix(enc, "_qsv") {
+		pix = "nv12"
+	}
+	args = append(args, "-pix_fmt", pix, "-bf", "0", "-g", strconv.Itoa(g), "-keyint_min", strconv.Itoa(g), "-sc_threshold", "0", "-force_key_frames", fmt.Sprintf("expr:gte(n,n_forced*%d)", g), "-flags", "+global_header+cgop", "-c:a", "aac", "-b:a", fmt.Sprintf("%dk", max(r.Decision.AudioBitrateKbps, 128)), "-ar", "48000", "-ac", "2")
+	// Tee encodes once and muxes the identical packets into all delivery forms.
+	duration := float64(g*f.FPSDen) / float64(f.FPSNum)
+	ds := strconv.FormatFloat(duration, 'f', 6, 64)
+	window := continuousWindow(r.DVRWindow, time.Second*time.Duration(g*f.FPSDen)/time.Duration(f.FPSNum))
+	outputs := []string{fmt.Sprintf("[f=hls:hls_time=%s:hls_list_size=%d:hls_flags=delete_segments+independent_segments+temp_file:hls_segment_filename=%s]%s", ds, window, "seg-%09d.ts", "index.m3u8"), fmt.Sprintf("[f=hls:hls_time=%s:hls_list_size=%d:hls_segment_type=fmp4:hls_fmp4_init_filename=init.mp4:hls_flags=delete_segments+independent_segments+temp_file:hls_segment_filename=fragment-%%09d.m4s]fragments.m3u8", ds, window)}
+	outputs = append(outputs, "[f=mpegts:mpegts_flags=resend_headers]pipe:1")
+	return append(args, "-f", "tee", strings.Join(outputs, "|"))
+}
+func (e *continuousEncoder) Write(ctx context.Context, f RawFrame) error {
+	timer := time.NewTimer(frameDuration(e.req.Source))
+	defer timer.Stop()
+	select {
+	case e.writeMu <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-e.ctx.Done():
+		return e.writeError()
+	case <-timer.C:
+		return ErrEncoderBehind
+	}
+	defer func() { <-e.writeMu }()
+	if len(f.Video) != e.req.Source.Width*e.req.Source.Height*3/2 || len(f.PCM) != tickPCM(e.req.Source, e.tick) {
+		return errors.New("transcode: raw tick size mismatch")
+	}
+	copyFrame := RawFrame{Video: append([]byte(nil), f.Video...), PCM: append([]byte(nil), f.PCM...)}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-e.ctx.Done():
+		return e.writeError()
+	case <-timer.C:
+		return ErrEncoderBehind
+	case e.frames <- copyFrame:
+		if e.tick == 0 {
+			e.index.setStart(time.Now())
+		}
+		e.tick++
+		return nil
+	}
+}
+func (e *continuousEncoder) Segments() SegmentIndex { return e.index }
+func (e *continuousEncoder) Close() error {
+	e.continuousProcess.close()
+	e.workers.Wait()
+	e.stream.close()
+	return nil
+}
+
+// StartRenditions starts encoders sharing one switcher working format. Each
+// encoder performs its own native scale; no Go image scaling or extra decoder
+// is needed. Failure closes every encoder already started by this call.
+func (m *Manager) StartRenditions(ctx context.Context, requests []EncoderRequest) ([]ContinuousEncoder, error) {
+	var out []ContinuousEncoder
+	for i, r := range requests {
+		if i > 0 && r.Source != requests[0].Source {
+			for _, e := range out {
+				e.Close()
+			}
+			return nil, errors.New("transcode: renditions must share a working format")
+		}
+		e, err := m.StartEncoder(ctx, r)
+		if err != nil {
+			for _, e := range out {
+				e.Close()
+			}
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, nil
+}

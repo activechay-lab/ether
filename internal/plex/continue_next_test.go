@@ -16,9 +16,33 @@ type completedEpisodeState struct {
 func (s *completedEpisodeState) History(context.Context, int64, time.Time, int) ([]core.HistoryEntry, error) {
 	return s.entries, nil
 }
+
+// Home must use the local recovery capability for both batch selection and
+// walking past watched episodes, rather than the provider-waiting API.
+type continueCatalog struct {
+	*fakeCatalog
+	calls int
+}
+
+func (c *continueCatalog) ContinueEpisodes(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]*core.Title, error) {
+	c.calls++
+	out := map[core.RatingKey]*core.Title{}
+	for _, key := range keys {
+		if next, err := c.fakeCatalog.NextEpisode(ctx, key); err == nil {
+			out[key] = next
+		}
+	}
+	return out, nil
+}
+func (c *continueCatalog) NextEpisode(context.Context, core.RatingKey) (*core.Title, error) {
+	panic("Home called provider-waiting NextEpisode")
+}
+
 func TestContinueWatchingAdvancesCompletedEpisode(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
+	local := &continueCatalog{fakeCatalog: f.catalog}
+	f.srv.d.Catalog = local
 	f.state.set(ownerUser.ID, ws(bbE1.Key, 0, 1))
 	history := &completedEpisodeState{f.state, []core.HistoryEntry{{Key: bbE1.Key, ViewedAt: fixedNow, Completed: true}}}
 	f.srv.d.State = history
@@ -31,6 +55,9 @@ func TestContinueWatchingAdvancesCompletedEpisode(t *testing.T) {
 		if off, ok := rows[0].(map[string]any)["viewOffset"]; ok && off != float64(0) {
 			t.Fatal("next episode inherited resume offset", off)
 		}
+	}
+	if local.calls == 0 {
+		t.Fatal("Home bypassed local recovery")
 	}
 	f.state.set(ownerUser.ID, ws(bbE2.Key, 30000, 0))
 	mc := decodeJSON(t, f.get(t, "/hubs/continueWatching/items", jsonAccept...))

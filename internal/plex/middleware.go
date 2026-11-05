@@ -223,6 +223,7 @@ func (s *Server) parse(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pr := ParseRequest(r, identity.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs)...)
 		ctx := withRequest(r.Context(), pr)
+		ctx = core.WithBrowseScope(ctx, browseScope(r, pr))
 		if s.plexMetaOn() {
 			ctx = core.WithPlexSaferRating(ctx)
 		}

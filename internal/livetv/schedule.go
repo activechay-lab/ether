@@ -21,6 +21,9 @@ func Schedule(c Channel, from, until time.Time) []Programme {
 	if !until.After(from) || c.Kind != "virtual" {
 		return nil
 	}
+	if c.clipDuration == nil {
+		c.Look = nil
+	}
 	if c.Epoch.IsZero() {
 		c.Epoch = time.Unix(0, 0).UTC()
 	}
@@ -35,7 +38,7 @@ func Schedule(c Channel, from, until time.Time) []Programme {
 // repeat gaps opt into weeklySchedule. A timezone names the clock for painted
 // blocks; with no blocks a 24/7 channel stays on the original epoch loop.
 func legacyCalendar(c Channel) bool {
-	if c.Mode != "" || c.Align != "" || c.Fit != "" || c.RepeatDays > 0 || len(c.Filler) > 0 || c.MarathonKey != 0 {
+	if c.Look != nil || c.Mode != "" || c.Align != "" || c.Fit != "" || c.RepeatDays > 0 || len(c.Filler) > 0 || c.MarathonKey != 0 {
 		return false
 	}
 	// Fallback and off-air only change a channel that has nothing else to play.
@@ -95,6 +98,14 @@ func emitCycle(out *[]Programme, c Channel, items, filler []Item, shuffle bool, 
 		emitSlate(out, c, anchor, end, from, until)
 		return
 	}
+	if c.Look != nil && c.Look.Placement == "insert" && c.clipDuration != nil {
+		var expanded []Item
+		for _, it := range ordered {
+			expanded = append(expanded, it)
+			expanded = append(expanded, c.moments(anchor)...)
+		}
+		ordered = expanded
+	}
 	var cycle time.Duration
 	for _, item := range ordered {
 		if item.DurationMS <= 0 || item.Slate == offAirSlate {
@@ -125,6 +136,15 @@ func emitCycle(out *[]Programme, c Channel, items, filler []Item, shuffle bool, 
 }
 
 func weeklySchedule(c Channel, from, until time.Time) []Programme {
+	// A look must not reset an epoch-based channel at midnight. Reuse the
+	// same calendar anchors; emitCycle adds inserted slots when requested.
+	if c.Look != nil {
+		plain := c
+		plain.Look = nil
+		if legacyCalendar(plain) {
+			return legacySchedule(c, from, until)
+		}
+	}
 	loc := zoneOf(c.Timezone)
 	var out []Programme
 	// Repeat gaps remember what aired before the query window. Simulating
@@ -292,6 +312,16 @@ func emitWalk(out *[]Programme, c Channel, items []Item, seg segment, anchor, en
 		last = item.Key
 		cursor = finish
 		step++
+		if alignStep == 0 && c.Look != nil && c.Look.Placement == "insert" {
+			for _, clip := range c.moments(cursor) {
+				finish := cursor.Add(time.Duration(clip.DurationMS) * time.Millisecond)
+				if finish.After(end) {
+					break
+				}
+				appendProgramme(out, c, clip, cursor, finish, from, until)
+				cursor = finish
+			}
+		}
 		if alignStep == 0 && len(seg.filler) > 0 && cursor.Before(end) {
 			bump := seg.filler[int(step)%len(seg.filler)]
 			bd := time.Duration(bump.DurationMS) * time.Millisecond
@@ -389,6 +419,16 @@ func earliestReady(units [][]Item, recent map[core.RatingKey]time.Time, gap time
 
 func fillGap(out *[]Programme, c Channel, filler []Item, fromCursor, end, winFrom, winUntil time.Time) {
 	cursor := fromCursor
+	if c.Look != nil && c.Look.Placement != "insert" {
+		for _, item := range c.moments(fromCursor) {
+			finish := cursor.Add(time.Duration(item.DurationMS) * time.Millisecond)
+			if finish.After(end) {
+				break
+			}
+			appendProgramme(out, c, item, cursor, finish, winFrom, winUntil)
+			cursor = finish
+		}
+	}
 	if len(filler) == 0 {
 		emitSlate(out, c, cursor, end, winFrom, winUntil)
 		return

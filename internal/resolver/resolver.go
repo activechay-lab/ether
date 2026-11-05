@@ -1621,7 +1621,8 @@ func rejectIdentity(rel core.Release, t *core.Title, sreq core.SearchRequest, ca
 			if rel.Protocol != core.ProtocolTorrent {
 				return "season pack (skipped in v1)"
 			}
-			if !packCoversSeason(rel.Info, sreq.Season) {
+			if !packCoversSeason(rel.Info, sreq.Season) ||
+				(len(rel.Info.Episodes) > 0 && !slices.Contains(rel.Info.Episodes, sreq.Episode)) {
 				return "season/episode mismatch"
 			}
 		} else if miniseriesPart > 0 {

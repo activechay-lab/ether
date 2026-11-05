@@ -77,7 +77,29 @@ type Block struct {
 	Sources     []ProgramSource `json:"sources,omitempty"`
 	Watched     string          `json:"watched,omitempty"`
 }
+type ChannelLook struct {
+	LookID               string   `json:"lookId"`
+	Ident                bool     `json:"ident"`
+	UpNext               bool     `json:"upNext"`
+	Placement            string   `json:"placement,omitempty"`
+	Breaks               string   `json:"breaks,omitempty"`
+	BreakEvery           int      `json:"breakEvery,omitempty"`
+	BreakContent         string   `json:"breakContent,omitempty"`
+	ReelID               string   `json:"reelId,omitempty"`
+	SegmentIDs           []string `json:"segmentIds,omitempty"`
+	BreakSeconds         int      `json:"breakSeconds,omitempty"`
+	OffAir               bool     `json:"offAir"`
+	Overlays             string   `json:"overlays,omitempty"`
+	AllowUnratedSegments bool     `json:"allowUnratedSegments,omitempty"`
+	Tagline              string   `json:"tagline,omitempty"`
+	Accent               string   `json:"accent,omitempty"`
+}
+
 type Channel struct {
+	Look *ChannelLook `json:"look,omitempty"`
+	// clipDuration is supplied on a channel copy; scheduling performs no I/O.
+	clipDuration func(string, string) (time.Duration, bool)
+
 	sweepKey      string
 	numberMissing bool
 	Health        string `json:"health,omitempty"`
@@ -264,6 +286,7 @@ type Policy struct {
 	channelSet map[string]struct{} // Channels as a set for long lists; see indexChannels
 }
 type Options struct {
+	Graphics       core.ChannelGraphics
 	PlexGuideToken func() string
 	PlexGuideURL   string // test endpoint
 

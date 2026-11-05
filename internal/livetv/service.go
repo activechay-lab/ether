@@ -32,28 +32,30 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 }
 
 type Service struct {
-	chanSnap      channelSnapshot // decoded lineup shared by request paths (channel_cache.go)
-	plexGate      plexGuideGate
-	plexPreviewMu sync.Mutex
-	plexPreview   map[string]plexPreviewEntry
-	authCache     authCache  // provider credentials for the stream path (auth.go)
-	inputRelay    inputRelay // loopback ffmpeg input relay (input_relay.go)
-	probeMu       sync.Mutex
-	probeCache    map[string]liveProbeEntry
-	probeWait     map[string]*liveProbeFlight
-	healthMu      sync.RWMutex
-	channelHealth map[string]sweepResult
-	sourceMu      sync.Mutex
-	sourceHealth  map[string]streamSourceHealth
-	transMu       sync.RWMutex
-	transcodes    map[string]core.HLSSession
-	o             Options
-	kinds         *KindRegistry
-	policyReads   atomic.Uint64
-	mu            sync.Mutex
-	lineupUnix    int64
-	onChange      func()
-	sessions      map[string]*session
+	broadcasts         broadcastRegistry
+	broadcastProviders map[string]map[string]string
+	chanSnap           channelSnapshot // decoded lineup shared by request paths (channel_cache.go)
+	plexGate           plexGuideGate
+	plexPreviewMu      sync.Mutex
+	plexPreview        map[string]plexPreviewEntry
+	authCache          authCache  // provider credentials for the stream path (auth.go)
+	inputRelay         inputRelay // loopback ffmpeg input relay (input_relay.go)
+	probeMu            sync.Mutex
+	probeCache         map[string]liveProbeEntry
+	probeWait          map[string]*liveProbeFlight
+	healthMu           sync.RWMutex
+	channelHealth      map[string]sweepResult
+	sourceMu           sync.Mutex
+	sourceHealth       map[string]streamSourceHealth
+	transMu            sync.RWMutex
+	transcodes         map[string]core.HLSSession
+	o                  Options
+	kinds              *KindRegistry
+	policyReads        atomic.Uint64
+	mu                 sync.Mutex
+	lineupUnix         int64
+	onChange           func()
+	sessions           map[string]*session
 	// watched is when each channel was last tuned or playing (guarded by
 	// mu): only channels watched lately are pre-warmed.
 	watched map[string]time.Time
@@ -147,6 +149,7 @@ func sourceOrigin(src Source) string {
 }
 func (s *Service) Close() error {
 	s.cancel()
+	s.broadcasts.close()
 	s.wg.Wait()
 	s.mu.Lock()
 	all := s.sessions
@@ -217,6 +220,8 @@ func (s *Service) maintain() {
 			return
 		case <-t.C:
 			s.expireSessions()
+			s.broadcasts.expire(s.o.Now())
+			s.ensureGraphics()
 			if s.o.Warm != nil {
 				cs, err := s.virtualChannels(s.ctx)
 				if err != nil {
@@ -1076,6 +1081,7 @@ SELECT ch.source_id, ch.channel_id, (SELECT p.data FROM livetv_programmes p WHER
 // titles keep their saved order, so a channel with no availability cache
 // schedules exactly as it did before.
 func (s *Service) guideChannel(ctx context.Context, c Channel) Channel {
+	c = s.graphicsChannel(c)
 	src := s.o.Availability
 	if src == nil {
 		return c
@@ -1259,7 +1265,13 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 				}
 				continue
 			}
-			ps, err := s.programmes(ctx, c, from, until)
+			var ps []Programme
+			var err error
+			if c.Kind == "virtual" {
+				ps = guideSchedule(s.guideChannel(ctx, c), from, until)
+			} else {
+				ps, err = s.programmes(ctx, c, from, until)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -1278,7 +1290,7 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 		}
 		orderIndex[c.ID] = len(orderIndex)
 		if c.Kind == "virtual" {
-			for _, p := range Schedule(s.guideChannel(ctx, c), from, until) {
+			for _, p := range guideSchedule(s.guideChannel(ctx, c), from, until) {
 				if s.allowed(ctx, u, c, &p) {
 					out = append(out, p)
 				}

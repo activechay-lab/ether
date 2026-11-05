@@ -366,6 +366,10 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		})
 		cfg = a.cfg.Get()
 	}
+	dbCfg := cfg.Database.Effective(os.Getenv)
+	if err := validateNodeSettings(cfg.Server, dbCfg); err != nil {
+		return nil, startFail(startup.FailConfig, fmt.Errorf("node settings: %w", err))
+	}
 	dirs := []string{cfg.Transcode.TempDir}
 	if cfg.Cache.Storage != "shared" {
 		dirs = append(dirs, cfg.Cache.Dir)
@@ -377,7 +381,6 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 			}
 		}
 	}
-	dbCfg := cfg.Database.Effective(os.Getenv)
 	a.tracker.SetDatabase(trackedDatabase(dbCfg))
 	var dialect store.Dialect
 	// A clustered node whose PostgreSQL server is briefly unreachable at
@@ -455,6 +458,11 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		return nil, fmt.Errorf("migrate app overrides: %w", err)
 	}
 	cfg = a.cfg.Get()
+	// Recheck after the shared settings overlay and override migration, before
+	// constructing services. Role/address settings remain node-local.
+	if err := validateNodeSettings(cfg.Server, dbCfg); err != nil {
+		return nil, startFail(startup.FailConfig, fmt.Errorf("node settings: %w", err))
+	}
 	a.tracker.Set(startup.PhaseStartingServices)
 	cfg = a.adoptMountedCache(cfg)
 	if err := a.build(ctx, cfg); err != nil {

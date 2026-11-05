@@ -30,6 +30,7 @@ func NormalizeTitle(s string) string {
 		s = collapseDottedInitialisms(s)
 	}
 	s = strings.ToLower(s)
+	s = strings.ReplaceAll(s, "ё", "е")
 	s = strings.ReplaceAll(s, "&", " and ")
 	s = strings.ReplaceAll(s, "'", "")
 	s = strings.ReplaceAll(s, "’", "")
@@ -241,6 +242,30 @@ func TitlesMatch(a, b string) bool {
 	cb := strings.Join(canonicalTokens(nb), " ")
 	if ca != "" && ca == cb {
 		return true
+	}
+	// Compare exact romanisations without relaxing sequel or word identity.
+	if strings.ContainsAny(a+b, "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя") {
+		for _, foldYo := range []bool{false, true} {
+			ra, rb := transliterateRussian(a, foldYo), transliterateRussian(b, foldYo)
+			if TitlesMatch(ra, rb) {
+				return true
+			}
+		}
+	}
+	// Tracker dual titles pair a Cyrillic original with a Latin title.
+	// Keep slashes in ordinary titles ("Face / Off") meaningful.
+	for _, pair := range [][2]string{{a, b}, {b, a}} {
+		if !strings.ContainsFunc(pair[0], func(r rune) bool { return unicode.In(r, unicode.Cyrillic) }) ||
+			!strings.ContainsFunc(pair[0], func(r rune) bool { return unicode.In(r, unicode.Latin) }) {
+			continue
+		}
+		if parts := strings.Split(pair[0], " / "); len(parts) > 1 {
+			for _, part := range parts {
+				if TitlesMatch(part, pair[1]) {
+					return true
+				}
+			}
+		}
 	}
 	// AKA dual-title releases ("Le.Samourai.AKA.The.Godson.1967").
 	if parts := splitAKA(a); len(parts) > 0 {

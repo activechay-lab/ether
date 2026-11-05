@@ -863,6 +863,54 @@ func (c *Catalog) NextStoredEpisodes(ctx context.Context, episodes []core.Rating
 	return out, nil
 }
 
+// ContinueEpisodes returns locally available next episodes and schedules recovery
+// for missing metadata. A Home read must never wait for a provider: hydration
+// is bounded, deduplicated and detached by the ordinary catalogue read path.
+// Keep NextStoredEpisodes strictly local for other snapshot consumers.
+func (c *Catalog) ContinueEpisodes(ctx context.Context, episodes []core.RatingKey) (map[core.RatingKey]*core.Title, error) {
+	next, err := c.NextStoredEpisodes(ctx, episodes)
+	if err != nil || c == nil || c.db == nil || c.tmdb() == nil {
+		return next, err
+	}
+	ctx = WithReadWaitBudget(ctx, 0)
+	for _, key := range episodes {
+		if ctx.Err() != nil {
+			break
+		}
+		if key.Kind() != core.KindEpisode {
+			continue
+		}
+		t := next[key]
+		// A contiguous stored successor needs no provider work. A gap or season
+		// boundary can conceal an unmirrored earlier episode in the current season.
+		if t != nil && t.Season == key.Season() && t.Episode == key.Episode()+1 {
+			continue
+		}
+		show, _ := c.ensureShow(ctx, key.TMDB())
+		if key.Season() > 0 {
+			force := false
+			if show != nil && strings.EqualFold(show.Status, "Returning Series") {
+				if st, err := c.loadByKey(ctx, core.SeasonKey(key.TMDB(), key.Season())); err == nil {
+					force = c.now().Sub(st.detailAt) >= min(c.staleAfter, caughtUpRefreshTTL)
+				}
+			}
+			_, _ = c.fetchSeasonOpts(ctx, key.TMDB(), key.Season(), force, false)
+		}
+		// Do not use seasonsOfShow: its aired-episode counts hide exactly
+		// the unmirrored seasons we need to hydrate. Read dated summaries.
+		seasons, err := c.scanTitleKeys(ctx, `SELECT `+titleCols+` FROM catalog_titles WHERE type='season' AND show_key=? AND season>? AND season>0 ORDER BY season LIMIT 8`, int64(core.ShowKey(key.TMDB())), key.Season())
+		if err != nil {
+			return next, err
+		}
+		for _, season := range seasons {
+			if !season.Adult && season.IsReleased(c.now()) {
+				_, _ = c.fetchSeason(ctx, key.TMDB(), season.Season)
+			}
+		}
+	}
+	return next, nil
+}
+
 // scanTitleKeys reads title rows without hydrating them.
 func (c *Catalog) scanTitleKeys(ctx context.Context, q string, args ...any) ([]core.Title, error) {
 	rows, err := c.db.QueryContext(ctx, q, args...)

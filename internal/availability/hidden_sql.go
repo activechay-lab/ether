@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -50,6 +51,11 @@ func (s *Service) publishHidden(ctx context.Context, kind, policy string, keys [
 	return tx.Commit()
 }
 
+type pagingCut struct {
+	at                   time.Time
+	movie, show, episode string
+}
+
 // PagingFilter captures the current immutable SQL generations once. On a new
 // installation the first set is computed before it can be used for a page.
 func (s *Service) PagingFilter(ctx context.Context, f core.Filter) (core.Filter, error) {
@@ -59,11 +65,27 @@ func (s *Service) PagingFilter(ctx context.Context, f core.Filter) (core.Filter,
 	input := s.snapshotFor(ctx)
 	f.DigitalDiscovery = input.availability.EffectiveMode() == config.ModeDigital
 	f.DigitalDateEvidence = input.availability.DigitalDateEvidence
+	// A tokenless client shares this cut with all requests for the same filter.
+	// Adapters supply a client/section/sort scope; callers without one share
+	// a cut by filter. Policy changes select a new cut immediately.
+	cutKey := core.BrowseScope(ctx) + ":" + hiddenKey("paging", input) + ":" + pagingFilterKey(f)
+	s.visibilityMu.Lock()
+	cut, pinned := s.pagingCuts[cutKey]
+	s.visibilityMu.Unlock()
+	if pinned && input.now.Sub(cut.at) < 5*time.Minute && !input.now.Before(cut.at) {
+		f.HiddenMovieGeneration, f.HiddenShowGeneration, f.HiddenEpisodeGeneration = cut.movie, cut.show, cut.episode
+		for kind, gen := range map[string]string{hiddenMovies: cut.movie, hiddenShows: cut.show, hiddenEpisodes: cut.episode} {
+			if gen != "" {
+				s.currentHidden(kind, input)
+			}
+		}
+		return f, nil
+	}
 	var kinds []string
 	if f.Type != core.TypeMovie {
 		kinds = append(kinds, hiddenShows)
 	}
-	if (f.Type == "" || f.Type == core.TypeMovie) && !f.DigitalDiscovery && !input.availability.DisableMovieEvidenceGate {
+	if (f.Type == "" || f.Type == core.TypeMovie) && (f.DigitalDiscovery || !input.availability.DisableMovieEvidenceGate) {
 		kinds = append(kinds, hiddenMovies)
 	}
 	if f.Type == core.TypeEpisode {
@@ -105,10 +127,41 @@ func (s *Service) PagingFilter(ctx context.Context, f core.Filter) (core.Filter,
 			f.HiddenEpisodeGeneration = gen
 		}
 	}
+
+	s.visibilityMu.Lock()
+	if s.pagingCuts == nil {
+		s.pagingCuts = map[string]pagingCut{}
+	}
+	for key, old := range s.pagingCuts {
+		if input.now.Sub(old.at) >= 5*time.Minute {
+			delete(s.pagingCuts, key)
+		}
+	}
+	// Concurrent first pages must converge on the same cut.
+	if old, ok := s.pagingCuts[cutKey]; ok && input.now.Sub(old.at) < 5*time.Minute {
+		f.HiddenMovieGeneration, f.HiddenShowGeneration, f.HiddenEpisodeGeneration = old.movie, old.show, old.episode
+	} else {
+		s.pagingCuts[cutKey] = pagingCut{input.now, f.HiddenMovieGeneration, f.HiddenShowGeneration, f.HiddenEpisodeGeneration}
+	}
+	s.visibilityMu.Unlock()
 	return f, nil
 }
 
 func hiddenPolicy(kind string, input discoverySnapshot) string {
 	sum := sha256.Sum256([]byte(hiddenKey(kind, input)))
 	return hex.EncodeToString(sum[:])
+}
+
+// Runtime pointer addresses and previously attached generations are not filter
+// identity. Nested groups are serialized by value, including their SQL filters.
+func pagingFilterKey(f core.Filter) string {
+	group, child := f.Group, f.ChildVisibility
+	f.Group, f.ChildVisibility = nil, nil
+	f.HiddenMovieGeneration, f.HiddenShowGeneration, f.HiddenEpisodeGeneration = "", "", ""
+	raw, _ := json.Marshal(group)
+	childKey := ""
+	if child != nil {
+		childKey = pagingFilterKey(*child)
+	}
+	return fmt.Sprintf("%+v|%s|%s", f, raw, childKey)
 }

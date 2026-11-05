@@ -39,7 +39,11 @@ func (a *App) buildCluster(dialect store.Dialect) error {
 	if err != nil {
 		return err
 	}
+	server := a.cfg.Get().Server
 	local := cluster.Local{Identity: id, Version: a.opts.Version, Addrs: a.nodeAddrs, Caps: a.nodeCaps, Load: a.nodeLoad,
+		Roles: slices.Clone(server.NodeRoles), InternalAddress: server.InternalAddress,
+		// ProtocolVersion stays zero until a compatible private service is
+		// registered and usable; an address alone is not remote capability.
 		Draining: a.nodeDraining, Migrations: store.KnownMigrations()}
 	log := a.log.With("component", "cluster")
 	a.peers = &peerSet{}

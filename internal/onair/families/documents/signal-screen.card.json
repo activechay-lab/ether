@@ -1,0 +1,72 @@
+{
+  "v": 1,
+  "moment": "screen.card",
+  "duration": 4,
+  "poster": 1.5,
+  "slots": [
+    "channel.name",
+    "screen.line1",
+    "screen.line2",
+    "station.id"
+  ],
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": "#0b1320"
+    },
+    {
+      "id": "rule",
+      "type": "rect",
+      "x": 860,
+      "y": 350,
+      "w": 200,
+      "h": 4,
+      "fill": "#78b9e8"
+    },
+    {
+      "id": "channel",
+      "type": "text",
+      "text": "{channel.name}",
+      "x": 960,
+      "y": 490,
+      "size": 100,
+      "font": "inter",
+      "fill": "#f2f5fa",
+      "align": "center",
+      "fit": "shrink",
+      "maxWidth": 1600
+    },
+    {
+      "id": "line1",
+      "type": "text",
+      "text": "{screen.line1}",
+      "x": 960,
+      "y": 625,
+      "size": 52,
+      "font": "inter",
+      "fill": "#f2f5fa",
+      "align": "center",
+      "fit": "wrap",
+      "maxWidth": 1500,
+      "maxLines": 2
+    },
+    {
+      "id": "line2",
+      "type": "text",
+      "text": "{screen.line2}",
+      "x": 960,
+      "y": 790,
+      "size": 32,
+      "font": "inter",
+      "fill": "#a8b9c8",
+      "align": "center",
+      "fit": "shrink",
+      "maxWidth": 1500
+    }
+  ]
+}
