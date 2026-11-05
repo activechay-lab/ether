@@ -1,3 +1,4 @@
+import { matchesCatalogFilter } from "./catalogFilter";
 import { createOnAirMock } from "./onair";
 /**
  * In-memory fake of the Ether admin API. Used by `vite --mode mock` and by the
@@ -3428,6 +3429,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
       }
       case "GET /catalog/browse": {
         const needle = (q.get("q") ?? "").toLowerCase();
+        const advanced = JSON.parse(q.get("filter") || "{}");
         const type = q.get("type");
         const genre = q.get("genre");
         const decade = q.get("decade");
@@ -3440,6 +3442,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
             (!ruleVisibility ||
               hiddenByRules(t, ruleGroups, q.get("ruleFallback") ?? "show") ===
                 (ruleVisibility === "hidden")) &&
+            matchesCatalogFilter(t, advanced) &&
             t.title.toLowerCase().includes(needle) &&
             (!type || t.type === type) &&
             (!waiting || t.type === "movie") &&
@@ -3461,6 +3464,8 @@ export function createFakeServer(opts: FakeOptions = {}) {
         return json({
           items: items.slice(offset, offset + Number(q.get("limit") ?? 48)).map(card),
           total: items.length,
+          totalExact: true,
+          hasMore: offset + Number(q.get("limit") ?? 48) < items.length,
         });
       }
       case "GET /catalog/search": {
