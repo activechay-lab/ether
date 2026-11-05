@@ -1,3 +1,5 @@
+import { RecipeTab } from "./onair/RecipeTab";
+import { apiFetch } from "../../lib/api";
 import { SubtabNav } from "../../components/layout";
 import {
   Avatar,
@@ -103,7 +105,7 @@ export function compose(d: StudioDraft): Channel {
       !Object.keys(c.filter || {}).some((key) => key !== "genres" && key !== "type")
     )
       throw new Error(t("Enter at least one genre for this channel."));
-    if (d.mode === "movies" && !c.items.length && !c.offAir && !c.fallback?.length)
+    if (!c.personal && d.mode === "movies" && !c.items.length && !c.offAir && !c.fallback?.length)
       throw new Error(t("Add at least one movie to this channel."));
     if (d.mode === "mix" && !c.sources?.length)
       throw new Error(t("Add at least one programming source."));
@@ -129,7 +131,7 @@ export function compose(d: StudioDraft): Channel {
           );
       }
       const sourced = block.filter || block.collection || block.sources?.length;
-      if (!block.items.length && !sourced && !c.offAir && !c.fallback?.length)
+      if (!c.personal && !block.items.length && !sourced && !c.offAir && !c.fallback?.length)
         throw new Error(t("Add at least one movie to each time block, or remove the empty block."));
     }
     return {
@@ -240,7 +242,23 @@ export function ChannelStudio({
     return () => ctl.abort();
   }, [previewKey, horizon]);
 
-  const schedule = virtual ? (preview ?? (isNew ? [] : guide)) : guide;
+  const [viewer, setViewer] = useState(String(users[0]?.id ?? "1"));
+  const [rundown, setRundown] = useState<Programme[]>([]);
+  useEffect(() => {
+    if (!c.personal) return;
+    const ctl = new AbortController();
+    setRundown([]);
+    apiFetch<Programme[]>(
+      `/livetv/channels/${encodeURIComponent(c.id || "draft")}/rundown?viewer=${viewer}`,
+      { signal: ctl.signal },
+    )
+      .then(setRundown)
+      .catch((e) => {
+        if (!isAbort(e)) setPreviewError(errorMessage(e));
+      });
+    return () => ctl.abort();
+  }, [c.id, Boolean(c.personal), viewer, previewKey]);
+  const schedule = c.personal ? rundown : virtual ? (preview ?? (isNew ? [] : guide)) : guide;
   const live = onNow(schedule, now);
   const next = upNext(schedule, now);
   const windowFrom = now - 30 * MINUTE;
@@ -250,7 +268,7 @@ export function ChannelStudio({
 
   const tabs = virtual
     ? [
-        { key: "programming", label: t("Programming") },
+        { key: "programming", label: c.personal ? t("Recipe") : t("Programming") },
         { key: "schedule", label: t("Schedule"), count: c.blocks?.length || undefined },
         { key: "viewers", label: t("Viewers") },
         { key: "details", label: t("Details") },
@@ -400,7 +418,28 @@ export function ChannelStudio({
         </div>
         <div className="relative space-y-2 px-4 pb-4 sm:px-6">
           {virtual ? (
-            <div className="flex justify-end gap-1" role="group" aria-label={t("Preview window")}>
+            <div
+              className="flex flex-wrap items-center justify-end gap-2"
+              role="group"
+              aria-label={t("Preview window")}
+            >
+              {c.personal ? (
+                <>
+                  <span className="text-xs text-fg-muted">{t("Preview as")}</span>
+                  <ToolbarPicker
+                    value={viewer}
+                    onChange={setViewer}
+                    ariaLabel={t("Preview as")}
+                    searchable
+                    searchPlaceholder={t("Find a viewer…")}
+                    options={users.map((u) => ({
+                      value: String(u.id),
+                      label: u.title || u.username,
+                      icon: <Avatar name={u.title || u.username} src={u.thumb} size={22} />,
+                    }))}
+                  />
+                </>
+              ) : null}
               {(
                 [
                   [1, t("Next 24 hours")],
@@ -440,7 +479,16 @@ export function ChannelStudio({
 
       <div className="space-y-5 p-4 sm:p-6">
         {tab === "programming" && virtual ? (
-          <Programming draft={draft} onChange={onChange} collections={collections} />
+          c.personal ? (
+            <RecipeTab
+              recipe={c.personal}
+              onChange={(personal) => set({ personal })}
+              rundown={rundown}
+              collections={collections}
+            />
+          ) : (
+            <Programming draft={draft} onChange={onChange} collections={collections} />
+          )
         ) : null}
         {tab === "schedule" && virtual ? <Schedule channel={c} onChange={set} /> : null}
         {tab === "stream" && !virtual ? (
@@ -1481,11 +1529,40 @@ function Schedule({
                     <X size={14} /> {t("Remove")}
                   </Button>
                 </div>
-                <ProgrammePicker
-                  label={t("Time block {number} programming", { number: index + 1 })}
-                  items={block.items}
-                  onChange={(items) => update({ items })}
-                />
+                <Field label={c.personal ? t("Lens name") : t("Name")}>
+                  <Input
+                    aria-label={t("Block name")}
+                    value={block.name || ""}
+                    placeholder={c.personal ? t("Heist night") : t("Name")}
+                    onChange={(e) => update({ name: e.currentTarget.value })}
+                  />
+                </Field>
+                {c.personal ? (
+                  <Field label={t("Lens")}>
+                    <Select
+                      aria-label={t("Lens")}
+                      value={String(block.filter?.genres?.toString() || "")}
+                      onChange={(e) =>
+                        update({
+                          filter: {
+                            ...block.filter,
+                            genres: e.currentTarget.value ? [e.currentTarget.value] : [],
+                          },
+                        })
+                      }
+                    >
+                      <option value="">{t("All their picks")}</option>
+                      <option value="Crime">{t("Picked for them · Crime")}</option>
+                      <option value="Comedy">{t("Comfort rewatches · Comedy")}</option>
+                    </Select>
+                  </Field>
+                ) : (
+                  <ProgrammePicker
+                    label={t("Time block {number} programming", { number: index + 1 })}
+                    items={block.items}
+                    onChange={(items) => update({ items })}
+                  />
+                )}
               </section>
             );
           })()}

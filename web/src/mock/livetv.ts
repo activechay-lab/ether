@@ -38,6 +38,7 @@ type Policy = {
   granted?: string[];
   favorites?: string[];
   maxRating?: string;
+  personal?: { enabled: boolean | null; name: string };
 };
 
 const NEWS = ["Morning Brief", "World Report", "Market Watch", "Evening News", "Late Edition"];
@@ -355,6 +356,36 @@ export function createLiveTVMock(titles: FakeTitle[]) {
     if (seg[0] !== "livetv") return null;
     const route = `${method} /${seg.slice(1).join("/")}`;
     const now = Date.now();
+    if (method === "GET" && seg[1] === "channels" && seg[3] === "rundown") {
+      const viewer = Number(q.get("viewer") || 1);
+      const picks = slice(viewer + 3, 14);
+      let at = now - 20 * 60000;
+      return {
+        body: picks.map((it, i) => {
+          const start = at;
+          at += it.durationMs;
+          return {
+            id: `personal-${viewer}-${i}`,
+            channelId: seg[2],
+            start: new Date(start).toISOString(),
+            end: new Date(at).toISOString(),
+            item: it,
+            reason: i % 2 ? "Next episode in your queue" : "Because you rated Annihilation 5★",
+          };
+        }),
+      };
+    }
+    if (route === "GET /channels/summary") return { body: channels };
+    if (route === "GET /channels/page") {
+      const needle = (q.get("q") || "").toLowerCase();
+      const filter = q.get("filter") || "all";
+      const matches = (c: Channel) => filter === "all" || (filter === "virtual" || filter === "iptv" ? c.kind === filter : filter === "favorites" ? c.favorite : filter === "off" ? !c.enabled : filter === "missing" ? !c.guideId && c.kind === "iptv" : c.enabled);
+      const all = channels.filter(c => matches(c) && `${c.name} ${c.number}`.toLowerCase().includes(needle));
+      const offset = Number(q.get("offset") || 0), limit = Number(q.get("limit") || 200);
+      const groups = [...new Set(all.map(c => c.kind))].map(kind => ({ key: kind, kind, count: all.filter(c => c.kind === kind).length, start: all.findIndex(c => c.kind === kind) }));
+      return { body: { channels: all.slice(offset, offset + limit), total: all.length, counts: { all: channels.length, live: channels.filter(c => c.enabled).length, favorites: channels.filter(c => c.favorite).length, virtual: channels.filter(c => c.kind === "virtual").length, iptv: channels.filter(c => c.kind === "iptv").length, off: channels.filter(c => !c.enabled).length, missing: channels.filter(c => !c.guideId && c.kind === "iptv").length }, groups, coverage: Object.fromEntries(channels.map(c => [c.id, c.kind === "virtual" || Boolean(c.guideId)])), nextNumber: String(Math.max(...channels.map(c => Number(c.number))) + 1) } };
+    }
+    if (method === "GET" && seg[1] === "channels" && seg.length === 3) return { body: channels.find(c => c.id === seg[2]) };
     if (route === "GET /channels") return { body: channels };
     if (route === "GET /sources") return { body: sources.map(source) };
     if (route === "GET /guide") {

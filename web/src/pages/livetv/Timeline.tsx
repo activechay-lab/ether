@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { cn } from "@braedonsaunders/appkit-ui";
+import { Tooltip, cn } from "@braedonsaunders/appkit-ui";
 import { t } from "../../i18n";
 import { MINUTE, clock, hueOf, type Programme } from "./model";
 
@@ -64,30 +64,42 @@ export function Timeline({
             const width = pct(e) - left;
             const hue = hueOf(p.item.title || p.id);
             const past = e <= now;
+            const interstitial = p.slate?.kind;
             return (
-              <div
+              <Tooltip
                 key={p.id}
-                title={`${p.item.title}\n${clock(p.start)} – ${clock(p.end)}`}
-                className={cn(
-                  "absolute inset-y-0 overflow-hidden border-r border-bg/80 px-2 py-1.5",
-                  past && "opacity-45",
-                )}
-                style={{
-                  left: `${left}%`,
-                  width: `${width}%`,
-                  background: `linear-gradient(180deg, hsl(${hue} 55% 50% / 0.22), hsl(${hue} 55% 45% / 0.12))`,
-                  boxShadow: `inset 0 2px 0 hsl(${hue} 60% 50%)`,
-                }}
+                content={[p.item.title, p.reason, `${clock(p.start)} – ${clock(p.end)}`]
+                  .filter(Boolean)
+                  .join(" · ")}
               >
-                {width > 7 ? (
-                  <>
-                    <p className="truncate text-xs font-medium text-fg">{p.item.title}</p>
-                    <p className="truncate text-[10.5px] tabular-nums text-fg-muted">
-                      {clock(p.start)}
-                    </p>
-                  </>
-                ) : null}
-              </div>
+                <div
+                  tabIndex={0}
+                  aria-label={[p.item.title, p.reason].filter(Boolean).join(" · ")}
+                  title={`${p.item.title}\n${clock(p.start)} – ${clock(p.end)}`}
+                  className={cn(
+                    "absolute inset-y-0 overflow-hidden border-r border-bg/80 px-2 py-1.5",
+                    past && "opacity-45",
+                  )}
+                  style={{
+                    left: `${left}%`,
+                    width: interstitial ? `max(4px, ${width}%)` : `${width}%`,
+                    zIndex: interstitial ? 2 : undefined,
+                    background: interstitial
+                      ? "repeating-linear-gradient(135deg, rgb(var(--ch-fg) / .3) 0 2px, rgb(var(--ch-surface)) 2px 5px)"
+                      : `linear-gradient(180deg, hsl(${hue} 55% 50% / 0.22), hsl(${hue} 55% 45% / 0.12))`,
+                    boxShadow: `inset 0 2px 0 hsl(${hue} 60% 50%)`,
+                  }}
+                >
+                  {width > 7 ? (
+                    <>
+                      <p className="truncate text-xs font-medium text-fg">{p.item.title}</p>
+                      <p className="truncate text-[10.5px] tabular-nums text-fg-muted">
+                        {clock(p.start)}
+                      </p>
+                    </>
+                  ) : null}
+                </div>
+              </Tooltip>
             );
           })}
           {now > from && now < until ? (

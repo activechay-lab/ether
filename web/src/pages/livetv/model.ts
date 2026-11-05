@@ -1,3 +1,4 @@
+import { personalRecipe, type PersonalRecipe } from "./onair/channel-draft";
 import { getLocale, localized, t, tn } from "../../i18n";
 import { apiFetch } from "../../lib/api";
 import { unit } from "../../lib/format";
@@ -43,6 +44,7 @@ export type Block = {
   watched?: "" | "watched" | "unwatched";
 };
 export type Channel = {
+  personal?: PersonalRecipe;
   health?: "unchecked" | "available" | "unavailable";
   id: string;
   number: string;
@@ -251,7 +253,15 @@ export type SourceProgress = {
   started: string;
   updated: string;
 };
-export type Programme = { id: string; channelId: string; start: string; end: string; item: Item };
+export type Programme = {
+  id: string;
+  channelId: string;
+  start: string;
+  end: string;
+  item: Item;
+  reason?: string;
+  slate?: { kind: string };
+};
 export function plexLineupName(title: string): string {
   return title.replace(/\s*\([\d,]+\s+channels?\)$/i, "").trim();
 }
@@ -309,6 +319,7 @@ export type LiveTVPolicy = {
   granted?: string[];
   favorites?: string[];
   maxRating?: string;
+  personal?: { enabled: boolean | null; name: string };
 };
 
 /**
@@ -485,6 +496,13 @@ export type Template = {
 
 /** Starting points for a virtual channel; each is an ordinary editable draft. */
 export const TEMPLATES: Template[] = localized<Template[]>(() => [
+  {
+    key: "personal",
+    name: t("Made for each viewer"),
+    tagline: t("Their favourites, their next episodes, their channel"),
+    hue: 180,
+    apply: (c) => ({ ...c, name: t("Personal TV"), personal: personalRecipe() }),
+  },
   {
     key: "blank",
     name: t("Blank channel"),
