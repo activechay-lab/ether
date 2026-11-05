@@ -77,6 +77,9 @@ func random(seed uint32, i int) float64 {
 }
 func (r *render) layers(dst *image.RGBA, ls []scene.Layer, parent matrix, opacity float64, clip *image.Alpha) {
 	for _, l := range ls {
+		if l.Hidden || (l.Start > 0 && r.t < l.Start) || (l.End > 0 && r.t >= l.End) {
+			continue
+		}
 		for rep := 0; rep < max(1, l.Repeat); rep++ {
 			x, y := r.n(l.X, 0), r.n(l.Y, 0)
 			sx, sy := r.n(l.Scale, 1)*r.n(l.ScaleX, 1), r.n(l.Scale, 1)*r.n(l.ScaleY, 1)

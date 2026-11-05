@@ -30,6 +30,11 @@ export type Params = {
 };
 export type Layer = {
   id: string;
+  name?: string;
+  hidden?: boolean;
+  locked?: boolean;
+  start?: number;
+  end?: number;
   type: string;
   x?: Value;
   y?: Value;
@@ -202,49 +207,10 @@ const blend = (s?: string): GlobalCompositeOperation =>
 // Static scene plates (including text) are reused; deterministic post effects
 // still run at the requested time. No asset copies or animation approximations.
 const staticFrames = new Map<string, ReturnType<typeof surface>>();
-export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t: number) {
-  const width = ctx.canvas.width,
-    height = ctx.canvas.height;
+/** Shared text layout used by drawing and editor geometry. Measurements use loaded fonts. */
+export function measureText(c: Context, l: Layer, bindings: SceneBindings, t: number) {
   const n = (v: Value | undefined, fallback = 0) => number(evaluate(v, bindings, t), fallback);
   const s = (v: Value | undefined) => String(evaluate(v, bindings, t) ?? "");
-  const energy = number(lookup(bindings.tokens, "energy"), 1);
-  const paint = (c: Context, v: Value | undefined): string | CanvasGradient => {
-    const p = evaluate(v, bindings, t);
-    if (p && typeof p === "object" && "stops" in p) {
-      const g = p as { linear?: number[]; radial?: number[]; stops: [number, string][] };
-      const a = (g.linear ?? g.radial)!;
-      const gradient = g.linear
-        ? c.createLinearGradient(a[0]!, a[1]!, a[2]!, a[3]!)
-        : c.createRadialGradient(
-            a[0]!,
-            a[1]!,
-            Math.max(0, a[2]!),
-            a[0]!,
-            a[1]!,
-            Math.max(0, a[3]!),
-          );
-      for (let j = 0; j < g.stops.length - 1; j++) {
-        const [from, first] = g.stops[j]!,
-          [to, last] = g.stops[j + 1]!;
-        const a = rgba(resolve(first, bindings)),
-          b = rgba(resolve(last, bindings));
-        for (let k = 0; k < 32; k++) {
-          const u = k / 32,
-            c = a.map((v, i) => v + (b[i]! - v) * u),
-            alpha = c[3]! / 255;
-          gradient.addColorStop(
-            from + (to - from) * u,
-            `rgba(${alpha ? c[0]! / alpha : 0},${alpha ? c[1]! / alpha : 0},${alpha ? c[2]! / alpha : 0},${alpha})`,
-          );
-        }
-      }
-      const final = g.stops.at(-1)!;
-      gradient.addColorStop(final[0], color(resolve(final[1], bindings)));
-      return gradient;
-    }
-    return color(String(p ?? "#000000@0"));
-  };
-  function text(c: Context, l: Layer) {
     let value = s(l.text),
       size = n(l.size, 60);
     let track = n(l.track);
@@ -292,34 +258,16 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
       while (last.length && measure(last.join("") + "…") > (l.maxWidth ?? Infinity)) last.pop();
       lines[lines.length - 1] = last.join("") + "…";
     }
-    c.textBaseline = "alphabetic";
-    c.textAlign = "left";
-    if (l.maxWidth && l.align !== "center" && l.align !== "right") {
-      c.beginPath();
-      c.rect(0, -size * 2, l.maxWidth, size * (lines.length + 3));
-      c.clip();
-    }
-    lines.forEach((line, i) => {
-      let x = l.align === "center" ? -measure(line) / 2 : l.align === "right" ? -measure(line) : 0;
-      if (!track) c.fillText(line, x, i * size * 1.15);
-      else {
-        const chars = [...line];
-        chars.forEach((ch, j) => {
-          c.fillText(ch, x, i * size * 1.15);
-          const next = chars[j + 1];
-          x +=
-            c.measureText(ch).width +
-            track +
-            (next
-              ? c.measureText(ch + next).width - c.measureText(ch).width - c.measureText(next).width
-              : 0);
-        });
-      }
-    });
-  }
-  function layers(c: Context, ls: Layer[]) {
-    for (const l of ls)
-      for (let rep = 0; rep < Math.max(1, l.repeat ?? 1); rep++) {
+  const widths = lines.map(measure);
+  const w = Math.max(0, ...widths);
+  const metrics = c.measureText("Mg");
+  const ascent = metrics.actualBoundingBoxAscent || size * .8;
+  const descent = metrics.actualBoundingBoxDescent || size * .2;
+  return { lines, widths, size, track, font: c.font, x: l.align === "center" ? -w / 2 : l.align === "right" ? -w : 0, y: -ascent, w, h: ascent + descent + Math.max(0, lines.length - 1) * size * 1.15 };
+}
+export function resolvedTransform(l: Layer, bindings: SceneBindings, t: number) {
+  const n = (v: Value | undefined, fallback = 0) => number(evaluate(v, bindings, t), fallback);
+  const energy = number(lookup(bindings.tokens, "energy"), 1);
         let x = n(l.x),
           y = n(l.y),
           sx = n(l.scale, 1) * n(l.scaleX, 1),
@@ -357,6 +305,106 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
                 break;
             }
           }
+  return { x, y, scaleX: sx, scaleY: sy, rotate: rot, opacity: alpha };
+}
+export type LayerGeometry = { id: string; x: number; y: number; w: number; h: number; rotate: number; scaleX: number; scaleY: number; anchor: { x: number; y: number }; matrix: number[]; text?: ReturnType<typeof measureText> };
+/** Geometry in 1920×1080 document coordinates, with inherited group transforms. */
+export function layerGeometry(doc: Scene, bindings: SceneBindings, t: number): LayerGeometry[] {
+  const out: LayerGeometry[] = [];
+  const c = surface(1, 1).getContext("2d") as Context;
+  const visit = (ls: Layer[], parent: DOMMatrix) => {
+    for (const l of ls) {
+      if (l.hidden || (l.start && t < l.start) || (l.end && t >= l.end)) continue;
+      const r = resolvedTransform(l, bindings, t);
+      const m = parent.translate(r.x, r.y).rotate(r.rotate * 180 / Math.PI).scale(r.scaleX, r.scaleY);
+      const text = l.type === "text" ? measureText(c, l, bindings, t) : undefined;
+      const n = (v: Value | undefined, fallback: number) => number(evaluate(v, bindings, t), fallback);
+      const anchor = { x: m.e, y: m.f };
+      const origin = m.transformPoint({ x: text?.x ?? 0, y: text?.y ?? 0 });
+      out.push({ id: l.id, x: origin.x, y: origin.y, w: text?.w ?? n(l.w, 1920), h: text?.h ?? n(l.h, 1080), rotate: Math.atan2(m.b, m.a), scaleX: Math.hypot(m.a, m.b), scaleY: (m.a * m.d - m.b * m.c) / Math.max(1e-12, Math.hypot(m.a, m.b)), anchor, matrix: [m.a,m.b,m.c,m.d,m.e,m.f], text });
+      if (l.layers) visit(l.layers, m);
+    }
+  };
+  visit(doc.layers, new DOMMatrix());
+  return out;
+}
+
+export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t: number) {
+  const width = ctx.canvas.width,
+    height = ctx.canvas.height;
+  const n = (v: Value | undefined, fallback = 0) => number(evaluate(v, bindings, t), fallback);
+  const s = (v: Value | undefined) => String(evaluate(v, bindings, t) ?? "");
+  const energy = number(lookup(bindings.tokens, "energy"), 1);
+  const paint = (c: Context, v: Value | undefined): string | CanvasGradient => {
+    const p = evaluate(v, bindings, t);
+    if (p && typeof p === "object" && "stops" in p) {
+      const g = p as { linear?: number[]; radial?: number[]; stops: [number, string][] };
+      const a = (g.linear ?? g.radial)!;
+      const gradient = g.linear
+        ? c.createLinearGradient(a[0]!, a[1]!, a[2]!, a[3]!)
+        : c.createRadialGradient(
+            a[0]!,
+            a[1]!,
+            Math.max(0, a[2]!),
+            a[0]!,
+            a[1]!,
+            Math.max(0, a[3]!),
+          );
+      for (let j = 0; j < g.stops.length - 1; j++) {
+        const [from, first] = g.stops[j]!,
+          [to, last] = g.stops[j + 1]!;
+        const a = rgba(resolve(first, bindings)),
+          b = rgba(resolve(last, bindings));
+        for (let k = 0; k < 32; k++) {
+          const u = k / 32,
+            c = a.map((v, i) => v + (b[i]! - v) * u),
+            alpha = c[3]! / 255;
+          gradient.addColorStop(
+            from + (to - from) * u,
+            `rgba(${alpha ? c[0]! / alpha : 0},${alpha ? c[1]! / alpha : 0},${alpha ? c[2]! / alpha : 0},${alpha})`,
+          );
+        }
+      }
+      const final = g.stops.at(-1)!;
+      gradient.addColorStop(final[0], color(resolve(final[1], bindings)));
+      return gradient;
+    }
+    return color(String(p ?? "#000000@0"));
+  };
+  function text(c: Context, l: Layer) {
+    const { lines, widths, size, track, font } = measureText(c, l, bindings, t);
+    c.font = font;
+    const measure = (line: string) => widths[lines.indexOf(line)] ?? 0;
+    c.textBaseline = "alphabetic";
+    c.textAlign = "left";
+    if (l.maxWidth && l.align !== "center" && l.align !== "right") {
+      c.beginPath();
+      c.rect(0, -size * 2, l.maxWidth, size * (lines.length + 3));
+      c.clip();
+    }
+    lines.forEach((line, i) => {
+      let x = l.align === "center" ? -measure(line) / 2 : l.align === "right" ? -measure(line) : 0;
+      if (!track) c.fillText(line, x, i * size * 1.15);
+      else {
+        const chars = [...line];
+        chars.forEach((ch, j) => {
+          c.fillText(ch, x, i * size * 1.15);
+          const next = chars[j + 1];
+          x +=
+            c.measureText(ch).width +
+            track +
+            (next
+              ? c.measureText(ch + next).width - c.measureText(ch).width - c.measureText(next).width
+              : 0);
+        });
+      }
+    });
+  }
+  function layers(c: Context, ls: Layer[]) {
+    for (const l of ls)
+      for (let rep = 0; rep < Math.max(1, l.repeat ?? 1); rep++) {
+        if (l.hidden || (l.start && t < l.start) || (l.end && t >= l.end)) continue;
+        const { x, y, scaleX: sx, scaleY: sy, rotate: rot, opacity: alpha } = resolvedTransform(l, bindings, t);
         if (alpha <= 0 || sx === 0 || sy === 0) continue;
         c.save();
         c.translate(x, y);
