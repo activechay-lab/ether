@@ -109,6 +109,9 @@ export type BreakPattern = {
   clockAlignment: string;
 };
 export type ChannelLook = {
+  momentAssets?: Record<string, string>;
+  breakPlacement?: "natural" | "even" | "between";
+  tonight?: boolean;
   bug?: BugSettings;
   breakPattern?: BreakPattern;
   lookId: string;
