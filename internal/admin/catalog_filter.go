@@ -107,6 +107,18 @@ func decodeCatalogFilter(raw string, f *core.Filter) error {
 				return errors.New("Invalid numeric range")
 			}
 		}
+		for _, evidence := range []string{v.Playable, v.DebridCached} {
+			if evidence != "" && evidence != "yes" && evidence != "no" && evidence != "unknown" {
+				return errors.New("Choose yes, no, or unknown availability")
+			}
+		}
+		for _, quality := range v.Qualities {
+			switch quality {
+			case "4k", "hdr", "dv", "atmos":
+			default:
+				return errors.New("Unknown release quality")
+			}
+		}
 		for _, c := range v.Credits {
 			if len(c.People)+len(c.Names) > 32 {
 				return errors.New("Too many people")

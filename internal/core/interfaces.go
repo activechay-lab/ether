@@ -110,7 +110,12 @@ type Filter struct {
 	UpdatedBefore         int64           `json:"-"`              // inclusive Unix timestamp bound on metadata update time
 	Type                  MediaType       `json:"type,omitempty"` // movie or show
 	Genres                []string        `json:"genres,omitempty"`
-	Keywords              []string        `json:"keywords,omitempty"` // every keyword must match (case-insensitive)
+	Playable              string          `json:"playable,omitempty"` // yes, no, or unknown from fresh local evidence
+	DebridCached          string          `json:"debridCached,omitempty"`
+	Qualities             []string        `json:"qualities,omitempty"` // known 4k, hdr, dv, atmos release facts
+	Anime                 bool            `json:"anime,omitempty"`     // positive canonical anime keyword
+	Kids                  bool            `json:"kids,omitempty"`      // positive canonical Kids genre
+	Keywords              []string        `json:"keywords,omitempty"`  // every keyword must match (case-insensitive)
 	YearFrom              int             `json:"yearFrom,omitempty"`
 	YearTo                int             `json:"yearTo,omitempty"`
 	Years                 []int           `json:"years,omitempty"`
@@ -164,6 +169,9 @@ type Filter struct {
 }
 
 type BrowseQuery struct {
+	// CursorPage is the console-only keyset path; AfterKey is the last returned title.
+	CursorPage bool
+	AfterKey   RatingKey
 	// PlaylistSource evaluates a saved smart membership before applying this
 	// query's filters and optional episode-to-parent projection.
 	PlaylistSource      *BrowseQuery
