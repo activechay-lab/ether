@@ -18,11 +18,13 @@ export function LookDrawer({
   onClose,
   onSaved,
   initialTab = "design",
+  stacked,
 }: {
   look: Look;
   onClose: () => void;
   onSaved: (l?: Look) => void;
   initialTab?: string;
+  stacked?: boolean;
 }) {
   const [draft, setDraft] = useState(look),
     [saved, setSaved] = useState(look),
@@ -142,6 +144,7 @@ export function LookDrawer({
   );
   return (
     <Drawer
+      stacked={stacked}
       open
       onClose={() => void close()}
       size="full"

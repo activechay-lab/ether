@@ -47,7 +47,10 @@ export function RecipeTab({
         {recipe.ingredients.map((v, i) => {
           const pick = rundown[i % Math.max(1, rundown.length)];
           return (
-            <div key={v.kind} className="flex flex-wrap items-center gap-3 p-3 sm:flex-nowrap">
+            <div
+              key={v.kind}
+              className={`flex flex-wrap items-center gap-3 p-3 ${v.kind === "collections" && v.enabled ? "" : "sm:flex-nowrap"}`}
+            >
               <Artwork
                 src={pick?.item.thumb}
                 title={pick?.item.title || labels[v.kind] || ""}
@@ -80,19 +83,21 @@ export function RecipeTab({
                 onChange={(e) => ingredient(i, { enabled: e.currentTarget.checked })}
               />
               {v.kind === "collections" && v.enabled ? (
-                <MultiSelect
-                  ariaLabel={t("Your picks (collections)")}
-                  value={(v.collections ?? []).map(String)}
-                  onChange={(values) => ingredient(i, { collections: values.map(Number) })}
-                  placeholder={t("Choose collections…")}
-                  searchPlaceholder={t("Search…")}
-                  noMatchesLabel={t("No matches")}
-                  clearLabel={t("Clear")}
-                  selectAllLabel={t("Select all")}
-                  options={collections
-                    .filter((c) => c.ratingKey && Number.isFinite(Number(c.ratingKey)))
-                    .map((c) => ({ value: c.ratingKey!, label: c.name }))}
-                />
+                <div className="w-full min-w-0">
+                  <MultiSelect
+                    ariaLabel={t("Your picks (collections)")}
+                    value={(v.collections ?? []).map(String)}
+                    onChange={(values) => ingredient(i, { collections: values.map(Number) })}
+                    placeholder={t("Choose collections…")}
+                    searchPlaceholder={t("Search…")}
+                    noMatchesLabel={t("No matches")}
+                    clearLabel={t("Clear")}
+                    selectAllLabel={t("Select all")}
+                    options={collections
+                      .filter((c) => c.ratingKey && Number.isFinite(Number(c.ratingKey)))
+                      .map((c) => ({ value: c.ratingKey!, label: c.name }))}
+                  />
+                </div>
               ) : null}
             </div>
           );
