@@ -319,7 +319,7 @@ func paintCatalogArtwork(r *http.Request, granted []frontend.GrantedImage, out m
 		if _, exists := out[field]; exists {
 			continue
 		}
-		out[field] = prefix + "/api/v2/images/" + grant.Secret
+		out[field] = siloImageURL(r, prefix+"/api/v2/images/"+grant.Secret, grant.Image.Kind)
 		if hash := hashes[grant.Image.Kind]; hash != "" && grant.Image.ThumbHash != "" {
 			out[hash] = grant.Image.ThumbHash
 		}

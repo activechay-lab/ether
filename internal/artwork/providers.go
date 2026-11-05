@@ -10,8 +10,6 @@ import (
 	"image"
 	"image/jpeg"
 	_ "image/png"
-	"io"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -51,11 +49,26 @@ func (im *Images) GetPoster(ctx context.Context, t *core.Title, fallback string,
 	p := im.posterSettings()
 	if p.Enabled && p.Validate() == nil {
 		if raw, ok := providerURL(p, t); ok {
-			h := sha256.Sum256([]byte(raw))
-			key := "provider-v1/" + posterVersion(p) + "/" + hex.EncodeToString(h[:]) + "/" + strconv.Itoa(clampWidth(w))
-			data, ct, err := im.get(ctx, key, func(ctx context.Context) ([]byte, string, error) { return im.fetchPoster(ctx, raw, w) })
+			original, err := im.providerOriginal(ctx, raw)
 			if err == nil {
-				return data, ct, nil
+				// Content identity keeps local variants valid across a 304 and
+				// replaces them immediately when the upstream poster changes.
+				sum := sha256.Sum256(original.Data)
+				key := "provider-resize-v2/" + hex.EncodeToString(sum[:]) + "/" + strconv.Itoa(clampWidth(w))
+				load := func(context.Context) ([]byte, string, error) {
+					data, err := ResizePoster(original.Data, w)
+					return data, "image/jpeg", err
+				}
+				var data []byte
+				var ct string
+				if original.NoStore {
+					data, ct, err = load(ctx)
+				} else {
+					data, ct, err = im.get(ctx, key, load)
+				}
+				if err == nil {
+					return data, ct, nil
+				}
 			}
 		}
 	}
@@ -140,41 +153,6 @@ func providerURL(p config.Posters, t *core.Title) (string, bool) {
 		return u.String(), true
 	}
 	return "", false
-}
-
-func (im *Images) fetchPoster(ctx context.Context, raw string, w int) ([]byte, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-	select {
-	case im.posterSlots <- struct{}{}:
-		defer func() { <-im.posterSlots }()
-	case <-ctx.Done():
-		return nil, "", errProvider
-	}
-	client := *im.o.HTTPClient
-	// No redirects: prevents credential forwarding, HTTPS downgrade and LAN pivots.
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
-	if err != nil {
-		return nil, "", errProvider
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, "", errProvider
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, "", errProvider
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20+1))
-	if err != nil || len(data) > 8<<20 {
-		return nil, "", errProvider
-	}
-	data, err = ResizePoster(data, w)
-	if err != nil {
-		return nil, "", errProvider
-	}
-	return data, "image/jpeg", nil
 }
 
 // ResizePoster validates the decode budget before allocating pixels. Raster

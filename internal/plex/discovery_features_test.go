@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/overlays"
 	"github.com/braedonsaunders/ether/internal/personalize"
@@ -152,5 +153,35 @@ func TestDiscoveryPlexRatingNormalizationAndStickyDismissal(t *testing.T) {
 	other := &core.User{ID: 2}
 	if got := personal.FilterContinue(ctx, other, []core.Title{fightClub}); len(got) != 1 {
 		t.Fatal("dismissal crossed viewers")
+	}
+}
+
+// Explicit backdrop dimensions must select a covering source, with independent
+// validators so a previously cached smaller response cannot satisfy the request.
+func TestDiscoveryBackdropResolutionValidator(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	var fetched string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetched = r.URL.Path
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write([]byte("backdrop"))
+	}))
+	defer upstream.Close()
+	f.srv.images = artworkservice.NewRemoteCache(1024, http.DefaultClient)
+	f.srv.d.ImageURL = func(path, size string) string { return upstream.URL + "/" + size + path }
+	f.srv.d.Discovery = &DiscoveryFeatures{Overlays: overlays.New(discoveryDB(t), overlays.Options{})}
+	path := "/library/metadata/" + fightClub.Key.String() + "/discoveryPoster/version?kind=backdrop&width=2688"
+	first := f.request(t, "GET", path, nil)
+	if first.Code != 200 || !strings.HasPrefix(fetched, "/original/") || !strings.HasSuffix(first.Header().Get("ETag"), "w2688\"") {
+		t.Fatalf("%d %s %s", first.Code, fetched, first.Header().Get("ETag"))
+	}
+	cached := f.request(t, "GET", path, map[string]string{"If-None-Match": first.Header().Get("ETag")})
+	if cached.Code != 304 {
+		t.Fatal("lost conditional GET", cached.Code)
+	}
+	smaller := f.request(t, "GET", strings.Replace(path, "2688", "1920", 1), map[string]string{"If-None-Match": first.Header().Get("ETag")})
+	if smaller.Code != 200 {
+		t.Fatal("cross-size validator reused", smaller.Code)
 	}
 }

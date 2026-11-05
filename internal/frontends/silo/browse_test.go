@@ -138,7 +138,7 @@ func TestArtworkThumbhashMatchesGrantedImage(t *testing.T) {
 	i := &instance{host: frontend.Host{Experience: exp, ImageGrants: grants}}
 	out := map[string]any{}
 	i.artwork(httptest.NewRequest("GET", "/", nil), viewer, "token", key, out)
-	if out["poster_url"] != "/api/v2/images/first" || out["backdrop_url"] != "/api/v2/images/backdrop" || out["backdrop_thumbhash"] != "AQID" {
+	if out["poster_url"] != "/api/v2/images/first" || out["backdrop_url"] != "/api/v2/images/backdrop?w=1920" || out["backdrop_thumbhash"] != "AQID" {
 		t.Fatalf("artwork: %+v", out)
 	}
 	if _, ok := out["poster_thumbhash"]; ok {
@@ -173,7 +173,7 @@ func TestRelatedArtworkUsesAuthorizedOwnerGrants(t *testing.T) {
 	r.Header.Set("X-Silo-Device-Id", "tv")
 	out := map[string]any{}
 	i.artwork(r, viewer, "credential", episode, out)
-	if out["season_poster_url"] != "/api/v2/images/season" || out["season_poster_thumbhash"] != "season-hash" || out["series_poster_thumbhash"] != "series-hash" || out["series_backdrop_url"] != "/api/v2/images/backdrop" {
+	if out["season_poster_url"] != "/api/v2/images/season" || out["season_poster_thumbhash"] != "season-hash" || out["series_poster_thumbhash"] != "series-hash" || out["series_backdrop_url"] != "/api/v2/images/backdrop?w=1920" {
 		t.Fatalf("parent artwork: %+v", out)
 	}
 	if _, ok := out["series_backdrop_thumbhash"]; ok {
@@ -276,7 +276,7 @@ func TestHomeSectionItemsIncludeArtwork(t *testing.T) {
 	w := httptest.NewRecorder()
 	inst.Handler().ServeHTTP(w, r)
 	body := w.Body.String()
-	if w.Code != 200 || !strings.Contains(body, `"poster_url":"/api/v2/images/poster-token"`) || !strings.Contains(body, `"backdrop_url":"/api/v2/images/backdrop-token"`) || !strings.Contains(body, `"logo_url":"/api/v2/images/logo-token"`) {
+	if w.Code != 200 || !strings.Contains(body, `"poster_url":"/api/v2/images/poster-token"`) || !strings.Contains(body, `"backdrop_url":"/api/v2/images/backdrop-token?w=1920"`) || !strings.Contains(body, `"logo_url":"/api/v2/images/logo-token"`) {
 		t.Fatalf("home artwork: %d %s", w.Code, body)
 	}
 	if len(signed) != 1 {
@@ -307,7 +307,7 @@ func TestStoredCardGrantUsesArtworkIdentity(t *testing.T) {
 	}
 	out := map[string]any{}
 	i.paintCardArtwork(httptest.NewRequest("GET", "/", nil), got, out)
-	if out["poster_url"] != "/api/v2/images/ref-poster" || out["backdrop_url"] != "/api/v2/images/ref-backdrop" || out["logo_url"] != "/api/v2/images/ref-logo" {
+	if out["poster_url"] != "/api/v2/images/ref-poster" || out["backdrop_url"] != "/api/v2/images/ref-backdrop?w=1920" || out["logo_url"] != "/api/v2/images/ref-logo" {
 		t.Fatalf("card urls: %+v", out)
 	}
 }
@@ -648,7 +648,7 @@ func TestCatalogPageSignsArtworkOnce(t *testing.T) {
 	w := httptest.NewRecorder()
 	inst.Handler().ServeHTTP(w, r)
 	body := w.Body.String()
-	if w.Code != 200 || !strings.Contains(body, fmt.Sprintf(`"poster_url":"/api/v2/images/poster-%d"`, movie)) || !strings.Contains(body, `"poster_thumbhash":"hash"`) || !strings.Contains(body, `"backdrop_url":"/api/v2/images/backdrop"`) || strings.Contains(body, "second-backdrop") {
+	if w.Code != 200 || !strings.Contains(body, fmt.Sprintf(`"poster_url":"/api/v2/images/poster-%d"`, movie)) || !strings.Contains(body, `"poster_thumbhash":"hash"`) || !strings.Contains(body, `"backdrop_url":"/api/v2/images/backdrop?w=1920"`) || strings.Contains(body, "second-backdrop") {
 		t.Fatalf("catalogue artwork: %d %s", w.Code, body)
 	}
 	if pages != 1 || editions != 1 {
@@ -666,4 +666,23 @@ func (b batchEditions) Editions(context.Context, *frontend.Viewer, frontend.Devi
 
 func (b batchEditions) EditionsMany(ctx context.Context, _ *frontend.Viewer, _ frontend.Device, keys []frontend.RatingKey) (map[frontend.RatingKey][]frontend.Version, error) {
 	return b.many(ctx, keys)
+}
+
+// Browse sizing must survive grant URL construction, with a bounded hero size.
+func TestSiloImageSizing(t *testing.T) {
+	for _, tc := range []struct{ query, kind, want string }{
+		{"backdrop_width=2688&image_size=medium", "backdrop", "?w=2688"},
+		{"image_size=medium", "backdrop", "?w=1920"},
+		{"image_size=large", "backdrop", "?w=2560"},
+		{"image_size=original", "backdrop", "?w=3840"},
+		{"backdrop_width=999999", "backdrop", "?w=3840"},
+		{"image_size=small", "backdrop", "?w=300"},
+		{"poster_width=300", "poster", "?w=300"},
+		{"", "poster", ""},
+	} {
+		r := httptest.NewRequest("GET", "/?"+tc.query, nil)
+		if got := siloImageURL(r, "/image", tc.kind); got != "/image"+tc.want {
+			t.Errorf("%s %s: %s", tc.query, tc.kind, got)
+		}
+	}
 }

@@ -41,7 +41,7 @@ func (i *instance) creditPortraits(r *http.Request, viewer *frontend.Viewer, cre
 		if r.Context().Value(sharedPrefix{}) != nil {
 			prefix = "/silo"
 		}
-		urls[id] = creditPortrait{url: prefix + "/api/v2/images/" + grant, thumbHash: img.ThumbHash}
+		urls[id] = creditPortrait{url: siloImageURL(r, prefix+"/api/v2/images/"+grant, frontend.ImagePerson), thumbHash: img.ThumbHash}
 	}
 	return urls
 }
@@ -92,7 +92,7 @@ func (i *instance) paintCardArtwork(r *http.Request, granted []frontend.GrantedI
 			continue
 		}
 		seen[field] = true
-		out[field] = prefix + "/api/v2/images/" + grant.Secret
+		out[field] = siloImageURL(r, prefix+"/api/v2/images/"+grant.Secret, grant.Image.Kind)
 	}
 }
 
@@ -155,7 +155,7 @@ func (i *instance) artwork(r *http.Request, viewer *frontend.Viewer, credential 
 		if r.Context().Value(sharedPrefix{}) != nil {
 			prefix = "/silo"
 		}
-		path := prefix + "/api/v2/images/" + token
+		path := siloImageURL(r, prefix+"/api/v2/images/"+token, img.Kind)
 		if _, exists := out[field]; !exists {
 			out[field] = path
 			if img.ThumbHash != "" {
@@ -213,7 +213,7 @@ func (i *instance) artwork(r *http.Request, viewer *frontend.Viewer, credential 
 			if r.Context().Value(sharedPrefix{}) != nil {
 				prefix = "/silo"
 			}
-			out[field+"_url"] = prefix + "/api/v2/images/" + token
+			out[field+"_url"] = siloImageURL(r, prefix+"/api/v2/images/"+token, img.Kind)
 			if img.ThumbHash != "" {
 				out[field+"_thumbhash"] = img.ThumbHash
 			}
@@ -260,4 +260,42 @@ func (i *instance) imageRoutes() error {
 		}
 	}
 	return nil
+}
+
+// Keep browse slot widths on the signed image URL. The grant authorizes the
+// image identity independently of the requested, bounded output dimensions.
+func siloImageURL(r *http.Request, path, kind string) string {
+	slot := kind
+	if slot == frontend.ImagePerson {
+		slot = "photo"
+	}
+	width, _ := strconv.Atoi(r.URL.Query().Get(slot + "_width"))
+	if width <= 0 {
+		switch r.URL.Query().Get("image_size") {
+		case "original":
+			width = 3840
+		case "large":
+			if kind == frontend.ImageBackdrop {
+				width = 2560
+			} else if kind == frontend.ImageLogo || kind == frontend.ImageStill || kind == frontend.ImageThumb {
+				width = 1280
+			} else if kind == frontend.ImagePerson {
+				width = 500
+			} else {
+				width = 1000
+			}
+		case "small":
+			width = 300
+			if kind == frontend.ImageLogo {
+				width = 500
+			}
+		default:
+			if kind == frontend.ImageBackdrop {
+				width = 1920
+			} else {
+				return path
+			}
+		}
+	}
+	return path + "?w=" + strconv.Itoa(min(width, 3840))
 }
