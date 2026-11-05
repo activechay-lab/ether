@@ -1,4 +1,4 @@
-import { Switch } from "@braedonsaunders/appkit-ui";
+import { Select, Switch, Tooltip } from "@braedonsaunders/appkit-ui";
 import { useState } from "react";
 import { SaveBar, useDraft } from "../../../components/SaveBar";
 import { SettingsRow } from "../../../components/SettingsRow";
@@ -18,6 +18,7 @@ export function ScreensDefaults() {
     offAir: "card" as const,
     noSignal: "card" as const,
     stationId: true,
+    applyTo: "converted" as "converted" | "all",
   };
   const set = (patch: Partial<typeof screens>) =>
     setDraft({ ...draft, liveTV: { ...draft.liveTV, screens: { ...screens, ...patch } } });
@@ -39,6 +40,31 @@ export function ScreensDefaults() {
           station={screens.stationId ? draft.server.friendlyName : ""}
         />
       </div>
+      <SettingsRow
+        title={
+          <span>
+            {t("Apply to")}{" "}
+            <Tooltip
+              content={t(
+                "Every stream adds video conversion for channels Ether would otherwise relay.",
+              )}
+            >
+              <span tabIndex={0} aria-label={t("About stream conversion")}>
+                ⓘ
+              </span>
+            </Tooltip>
+          </span>
+        }
+        control={
+          <Select
+            value={screens.applyTo ?? "converted"}
+            onChange={(e) => set({ applyTo: e.currentTarget.value as "converted" | "all" })}
+          >
+            <option value="converted">{t("Streams Ether already converts")}</option>
+            <option value="all">{t("Every stream")}</option>
+          </Select>
+        }
+      />
       <SettingsRow
         title={t("Show station ID")}
         control={

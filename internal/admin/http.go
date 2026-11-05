@@ -151,7 +151,7 @@ func csrfOK(r *http.Request) bool {
 			if csvUploads[r.URL.Path] && (strings.EqualFold(ct, "text/csv") || strings.EqualFold(ct, "application/octet-stream")) {
 				return true
 			}
-			if prerollVideoUpload(r.URL.Path) && strings.EqualFold(ct, "multipart/form-data") {
+			if (prerollVideoUpload(r.URL.Path) || onairUpload(r.URL.Path)) && strings.EqualFold(ct, "multipart/form-data") {
 				return true
 			}
 		}
@@ -184,4 +184,17 @@ func sameOrigin(r *http.Request) bool {
 	}
 	u, err := url.Parse(origin)
 	return err == nil && u.Host != "" && strings.EqualFold(u.Host, r.Host)
+}
+
+// onairUpload grants multipart only to the two owner upload endpoints.
+func onairUpload(path string) bool {
+	if path == "/api/onair/assets" {
+		return true
+	}
+	rest, ok := strings.CutPrefix(path, "/api/onair/reels/")
+	if !ok {
+		return false
+	}
+	id, tail, ok := strings.Cut(rest, "/")
+	return ok && id != "" && tail == "clips"
 }

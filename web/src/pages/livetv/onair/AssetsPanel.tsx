@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
-import { Button, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
+import { Button, Select, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
 import { Upload, FileType, Image, AudioLines, Film, Trash2 } from "lucide-react";
 import { t } from "../../../i18n";
 import { onair, type OnAirAsset } from "./model";
 export function AssetsPanel() {
   const [assets, setAssets] = useState<OnAirAsset[]>([]);
+  const [pending, setPending] = useState<
+    { id: string; file: File; license: string; busy: boolean }[]
+  >([]);
   useEffect(() => {
     void onair.assets().then(setAssets);
   }, []);
@@ -12,6 +15,10 @@ export function AssetsPanel() {
     if (!files) return;
     try {
       for (const file of Array.from(files)) {
+        if (kind === "font") {
+          setPending((s) => [...s, { id: crypto.randomUUID(), file, license: "", busy: false }]);
+          continue;
+        }
         const a = await onair.uploadAsset(file, kind);
         setAssets((s) => [...s, a]);
       }
@@ -51,6 +58,53 @@ export function AssetsPanel() {
         ))}
       </div>
       <div className="space-y-3">
+        {pending.map((p) => (
+          <div key={p.id} className="space-y-2 rounded-lg border border-border bg-surface p-3">
+            <p className="truncate text-sm font-medium">{p.file.name}</p>
+            <Select
+              aria-label={t("Font licence")}
+              value={p.license}
+              disabled={p.busy}
+              onChange={(e) =>
+                setPending((s) =>
+                  s.map((x) => (x.id === p.id ? { ...x, license: e.target.value } : x)),
+                )
+              }
+            >
+              <option value="">{t("Choose a licence")}</option>
+              {["OFL", "Apache", "Owned by me", "Other"].map((s) => (
+                <option key={s} value={s}>
+                  {t(s)}
+                </option>
+              ))}
+            </Select>
+            <Button
+              size="sm"
+              disabled={!p.license || p.busy}
+              onClick={async () => {
+                setPending((s) => s.map((x) => (x.id === p.id ? { ...x, busy: true } : x)));
+                try {
+                  const a = await onair.uploadAsset(p.file, "font", p.license);
+                  setAssets((s) => [...s, a]);
+                  setPending((s) => s.filter((x) => x.id !== p.id));
+                } catch {
+                  toast.error(t("Upload failed"));
+                  setPending((s) => s.map((x) => (x.id === p.id ? { ...x, busy: false } : x)));
+                }
+              }}
+            >
+              {t("Upload")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={p.busy}
+              onClick={() => setPending((s) => s.filter((x) => x.id !== p.id))}
+            >
+              {t("Cancel")}
+            </Button>
+          </div>
+        ))}
         {assets.map((a) => (
           <div key={a.digest} className="rounded-lg border border-border bg-surface p-3">
             <div className="flex items-center gap-3">
@@ -93,15 +147,10 @@ export function AssetsPanel() {
                 ? t("Used by {layers}", { layers: a.usedBy.join(", ") })
                 : t("Not used yet")}
             </p>
-            {a.kind === "font" ? (
-              <select
-                className="mt-2 w-full rounded-md border border-border bg-bg p-2 text-xs"
-                aria-label={t("Font licence")}
-              >
-                {["OFL", "Apache", "Owned by me", "Other"].map((s) => (
-                  <option key={s}>{t(s)}</option>
-                ))}
-              </select>
+            {a.kind === "font" && a.license ? (
+              <p className="mt-2 text-xs text-fg-subtle">
+                {t("Font licence")}: {a.license}
+              </p>
             ) : null}
           </div>
         ))}

@@ -1333,9 +1333,6 @@ function AddMenu({
         {item(<ListVideo size={16} />, t("Break reel"), t("Clips to play between programmes"), () =>
           navigate("/livetv/looks?reel=new"),
         )}
-        {item(<Puzzle size={16} />, t("Channel pack"), t("Channels, looks and reels"), () =>
-          toast.info(t("Channel packs arrive in a later build")),
-        )}
       </div>
     </Popover>
   );

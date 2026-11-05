@@ -1,0 +1,126 @@
+package onair
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/onair/encode"
+	"github.com/braedonsaunders/ether/internal/onair/families"
+	"github.com/braedonsaunders/ether/internal/onair/raster"
+	"github.com/braedonsaunders/ether/internal/onair/scene"
+	"github.com/braedonsaunders/ether/internal/store"
+	"os"
+	"strings"
+	"testing"
+	"time"
+)
+
+func testService(t *testing.T, o Options) *Service {
+	t.Helper()
+	db, e := store.Open(context.Background(), t.TempDir())
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { db.Close() })
+	o.DB = db
+	o.Dir = t.TempDir()
+	s, e := New(o)
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(s.Close)
+	return s
+}
+func TestAssetAddressAndUsage(t *testing.T) {
+	s := testService(t, Options{})
+	ctx := context.Background()
+	b := []byte("font fixture used directly at storage boundary")
+	a, e := s.putAsset(ctx, "one", "image", "", "image/png", b)
+	if e != nil {
+		t.Fatal(e)
+	}
+	sum := sha256.Sum256(b)
+	if a.Digest != hex.EncodeToString(sum[:]) {
+		t.Fatal("wrong digest")
+	}
+	a2, e := s.putAsset(ctx, "two", "image", "", "image/png", b)
+	if e != nil || a2.Digest != a.Digest {
+		t.Fatal("not deduplicated", e)
+	}
+	l, e := s.Look(ctx, "nocturne")
+	if e != nil {
+		t.Fatal(e)
+	}
+	l.Brand.Logo = a.Digest
+	if _, e = s.SaveLook(ctx, l); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.DeleteAsset(ctx, a.Digest); e != ErrUsed {
+		t.Fatalf("deleted referenced asset: %v", e)
+	}
+	if e = s.DeleteLook(ctx, l.ID); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.DeleteAsset(ctx, a.Digest); e != nil {
+		t.Fatal(e)
+	}
+	as, e := s.Assets(ctx)
+	if e != nil || len(as) != 0 {
+		t.Fatal("asset retained", e)
+	}
+}
+func TestHashEveryInput(t *testing.T) {
+	inputs := []any{"renderer", map[string]any{"duration": 8}, map[string]any{"accent": "red"}, map[string]string{"title": "one"}, map[string]string{"logo": "abc"}, encode.Profile}
+	hash := func(v []any) string { return encode.Hash(v[0].(string), v[1], v[2], v[3], v[4], v[5]) }
+	base := hash(inputs)
+	for i := range inputs {
+		v := append([]any{}, inputs...)
+		v[i] = "changed"
+		if hash(v) == base {
+			t.Fatalf("input %d missing", i)
+		}
+	}
+	a := encode.Hash("v", nil, nil, map[string]int{"a": 1, "b": 2}, nil, nil)
+	b := encode.Hash("v", nil, nil, map[string]int{"b": 2, "a": 1}, nil, nil)
+	if a != b {
+		t.Fatal("map order affected content address")
+	}
+}
+func TestEnsureQueuesOnly(t *testing.T) {
+	gate := make(chan struct{})
+	entered := make(chan struct{}, 20)
+	s := testService(t, Options{Render: func(ctx context.Context, d scene.Document, b raster.Bindings, out string) error {
+		entered <- struct{}{}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-gate:
+		}
+		return os.WriteFile(out, []byte("mp4"), 0600)
+	}})
+	done := make(chan struct{})
+	go func() {
+		s.Ensure(context.Background(), core.ClipRequest{LookID: "nocturne", Moment: "ident", Bind: map[string]string{"channel.name": "unique"}})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Ensure blocked on renderer")
+	}
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not start")
+	}
+	close(gate)
+	_, e := families.Get("signal", "screen.card")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.UploadAsset(context.Background(), "bad.ttf", "font", "", bytes.NewBufferString(strings.Repeat("x", 20))); e == nil {
+		t.Fatal("font without licence accepted")
+	}
+}

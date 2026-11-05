@@ -399,6 +399,7 @@ export interface EtherConfig {
       offAir: import("../pages/livetv/onair/ScreenPicker").ScreenStyle;
       noSignal: import("../pages/livetv/onair/ScreenPicker").ScreenStyle;
       stationId: boolean;
+      applyTo?: "converted" | "all";
     };
   };
   subtitles?: {

@@ -114,8 +114,8 @@ export function ReelDrawer({
     try {
       if (files.some((f) => !/\.(mp4|mov|mkv|webm)$/i.test(f.name)))
         throw new Error(t("Choose MP4, MOV, MKV or WebM videos."));
-      if (files.some((f) => f.size > 256 * 1024 * 1024))
-        throw new Error(t("Each video must be 256 MB or smaller."));
+      if (files.some((f) => f.size > 500 * 1024 * 1024))
+        throw new Error(t("Each video must be 500 MB or smaller."));
       let reel = current.current;
       if (!reel.id) {
         reel = await onair.saveReel({ ...reel, name: reel.name.trim() || t("New reel") });
@@ -205,7 +205,7 @@ export function ReelDrawer({
           <UploadCloud size={28} className="text-primary" />
           <p className="text-sm font-medium text-fg">{t("Drop videos here, or choose files")}</p>
           <p className="text-xs text-fg-muted">
-            {t("MP4, MOV, MKV, WebM · up to 3 min and 256 MB each")}
+            {t("MP4, MOV, MKV, WebM · up to 3 min and 500 MB each")}
           </p>
           <Button
             variant="outline"

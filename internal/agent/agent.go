@@ -105,7 +105,8 @@ func New(opts Options) *Service {
 
 // TurnContext is where the owner is in the console.
 type TurnContext struct {
-	Route string `json:"route"`
+	Route string          `json:"route"`
+	Draft json.RawMessage `json:"draft,omitempty"`
 	// MediaType is the kind of titles the owner picked on pages that ask
 	// (movie, show or mixed); empty elsewhere.
 	MediaType string `json:"mediaType,omitempty"`

@@ -192,20 +192,6 @@ export function LookDrawer({
                   onClose();
                 }),
             )}
-            {action(t("Export as pack…"), () =>
-              toast.info(t("Channel packs arrive in a later build")),
-            )}
-            {draft.pack
-              ? action(
-                  t("Make it mine"),
-                  () =>
-                    void onair.detachLook(saved.id).then((l) => {
-                      setDraft(l);
-                      setSaved(l);
-                      onSaved(l);
-                    }),
-                )
-              : null}
             {action(
               t("Delete"),
               () =>
