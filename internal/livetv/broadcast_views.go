@@ -54,20 +54,20 @@ func (s *Service) broadcastWindow(ctx context.Context, ss *session, r *http.Requ
 	if len(segments) == 0 {
 		return nil, nil, core.ErrNotAvailable
 	}
-	var visible []transcode.Segment
-	for _, seg := range segments {
-		if !s.broadcastSegmentAllowed(ctx, ss, seg) {
-			return nil, nil, core.ErrUnauthorized
-		}
-		visible = append(visible, seg)
+	last := segments[len(segments)-1]
+	if !s.broadcastIntervalAllowed(ctx, ss, segments[0].Start, last.Start.Add(last.Duration)) {
+		return nil, nil, core.ErrUnauthorized
 	}
-	return index, visible, nil
+	return index, segments, nil
 }
 func (s *Service) broadcastSegmentAllowed(ctx context.Context, ss *session, seg transcode.Segment) bool {
+	return s.broadcastIntervalAllowed(ctx, ss, seg.Start, seg.Start.Add(seg.Duration))
+}
+func (s *Service) broadcastIntervalAllowed(ctx context.Context, ss *session, from, until time.Time) bool {
 	ss.mu.Lock()
 	c, user := ss.info.Channel, ss.user
 	ss.mu.Unlock()
-	ps, err := s.programmes(ctx, c, seg.Start, seg.Start.Add(seg.Duration))
+	ps, err := s.programmes(ctx, c, from, until)
 	if err != nil {
 		return false
 	}

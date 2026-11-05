@@ -92,6 +92,22 @@ func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 	return current, next
 }
 
+// A short ident must not hide the programme after it from prewarming.
+func (p *scheduleBroadcastPlanner) prewarmPlans(now time.Time) []broadcastPlan {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var plans []broadcastPlan
+	for _, programme := range p.window {
+		if programme.Start.After(now) && !programme.Start.After(now.Add(broadcastPrewarm)) {
+			plans = append(plans, p.programme(programme))
+			if len(plans) == 8 {
+				break
+			}
+		}
+	}
+	return plans
+}
+
 func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan {
 	plan := broadcastPlan{programme: programme.Item.Key != 0, id: programme.ID, start: programme.Start, end: programme.End}
 	if interstitial(programme.Item) {
@@ -138,9 +154,11 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 				}
 				return p.s.openSignalDecoder(ctx, p.s.screenRequestWithBack(c, offAirSlate, back), p.format)
 			}
-			request := p.s.clipRequest(c, programme)
+			var request core.ClipRequest
 			if programme.graphicsRequest != nil {
 				request = *programme.graphicsRequest
+			} else {
+				request = p.s.clipRequest(c, programme)
 			}
 			decoder, release, err := p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, programme.Item.Slate == offAirSlate)
 			if err != nil && programme.Item.Slate == offAirSlate {

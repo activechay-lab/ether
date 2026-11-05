@@ -25,15 +25,12 @@ func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until 
 	var advance time.Duration
 	for _, p := range ps {
 		p.graphicsID = p.ID
-		if interstitial(p.Item) && p.Item.ReelClipID == "" && check {
-			request := s.clipRequest(c, p)
-			p.graphicsRequest = &request
-		}
 		s.mu.Lock()
 		skip := s.graphicsSkips[c.ID+"/"+p.ID]
 		s.mu.Unlock()
 		if skip.IsZero() && check && interstitial(p.Item) && p.End.Add(-advance).After(from) && p.Start.Add(-advance).Before(until) {
 			request := s.clipRequest(c, p)
+			p.graphicsRequest = &request
 			ready := false
 			if p.Item.ReelClipID == "" {
 				_, ready = s.o.Graphics.Clip(ctx, request)
