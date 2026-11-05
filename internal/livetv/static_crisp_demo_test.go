@@ -69,7 +69,10 @@ func TestStaticCrispDemo(t *testing.T) {
 				b.current.frames <- raw
 				b.tick = int64(n)
 				b.step(b.origin.Add(time.Duration(n) * time.Second / 30))
-				frame, _ := q.pop(ctx)
+				frame, ok := q.pop(ctx)
+				if !ok {
+					t.Fatal("evidence queue closed")
+				}
 				if e = enc.Write(ctx, frame); e != nil {
 					t.Fatal(e)
 				}

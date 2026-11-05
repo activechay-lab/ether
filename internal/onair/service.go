@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/artwork"
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/onair/encode"
 	"github.com/braedonsaunders/ether/internal/onair/families"
@@ -287,6 +288,9 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	}
 	if v := r.Bind["channel.tagline"]; v != "" {
 		b.Tokens["words.tagline"] = v
+	}
+	if r.Moment == "ident" || r.Moment == "offair" || r.Moment == "welcome" {
+		bindStyleTagline(d.Layers)
 	}
 	applyLayers(d.Layers, l.Layers)
 	if f != "signal" && r.Moment != "bug" && r.Moment != "lowerthird" && l.Brand.Logo != "" {
@@ -626,9 +630,7 @@ func applyLayers(ls []scene.Layer, patches map[string]map[string]any) {
 				}
 			}
 		}
-		if v, ok := p["hidden"].(bool); ok && v {
-			l.Opacity = 0
-		}
+
 		if v, ok := p["text"].(string); ok {
 			l.Text = v
 		}
@@ -646,6 +648,9 @@ func applyLayers(ls []scene.Layer, patches map[string]map[string]any) {
 		}
 		if v, ok := p["fit"].(string); ok {
 			l.Fit = v
+		}
+		if v, ok := p["hidden"].(bool); ok && v {
+			l.Opacity = 0
 		}
 		applyLayers(l.Layers, patches)
 	}
@@ -725,4 +730,28 @@ func (s *Service) SegmentInfo(moment string) (name, rating string, ok bool) {
 	}
 	v, ok := s.o.PluginSegment(moment)
 	return v.Name, v.Rating, ok
+}
+
+// StyleScreens reads the cached owner style; it performs no rendering or database work.
+func (s *Service) StyleScreens(id string) *config.LiveTVScreens {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v := s.looks[id].Screens; v != nil {
+		cp := *v
+		return &cp
+	}
+	return nil
+}
+
+func bindStyleTagline(layers []scene.Layer) {
+	for i := range layers {
+		l := &layers[i]
+		if l.ID == "tag" && l.Type == "text" {
+			l.Text = "{words.tagline}"
+		}
+		bindStyleTagline(l.Layers)
+	}
 }

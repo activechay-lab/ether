@@ -1,22 +1,37 @@
 import { LinkImport } from "./LinkImport";
 import { useEffect, useState } from "react";
-import { Button, Select, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
+import { Button, Input, Select, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
 import { Upload, FileType, Image, AudioLines, Film, Trash2 } from "lucide-react";
-import { t } from "../../../i18n";
-import { onair, type OnAirAsset } from "./model";
-export function AssetsPanel() {
+import type { ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
+import { t, tn } from "../../../i18n";
+import { onair, type OnAirAsset, type Reel, type Look } from "./model";
+// Import and pod slots accept W16 components without adding a top-level tab.
+export function AssetsPanel({
+  importSlot,
+  podsSlot,
+}: {
+  importSlot?: ReactNode;
+  podsSlot?: ReactNode;
+}) {
+  const [params, setParams] = useSearchParams();
+  const [looks, setLooks] = useState<Look[]>([]);
+  const [reels, setReels] = useState<Reel[]>([]);
+  const [kind, setKind] = useState("");
+  const [query, setQuery] = useState("");
+
   const [assets, setAssets] = useState<OnAirAsset[]>([]);
   const [pending, setPending] = useState<
     { id: string; file: File; license: string; busy: boolean }[]
   >([]);
   useEffect(() => {
     void onair.assets().then(setAssets);
-  }, []);
+    void onair.reels().then(setReels);
+    void onair.looks().then(setLooks);
+  }, [params.get("reel"), params.get("look")]);
   useEffect(() => {
     if (!assets.some((a) => a.status === "queued" || a.status === "downloading")) return;
-    const timer = setInterval(() => {
-      void onair.assets().then(setAssets);
-    }, 1000);
+    const timer = setInterval(() => void onair.assets().then(setAssets), 1000);
     return () => clearInterval(timer);
   }, [assets]);
   const upload = async (files: FileList | null, kind: string) => {
@@ -36,17 +51,83 @@ export function AssetsPanel() {
   };
   return (
     <div className="space-y-5">
+      <div className="flex flex-wrap gap-2">
+        <Input
+          aria-label={t("Search assets")}
+          placeholder={t("Search assets")}
+          value={query}
+          onChange={(e) => setQuery(e.currentTarget.value)}
+        />
+        <Select
+          aria-label={t("Asset kind")}
+          value={kind}
+          onChange={(e) => setKind(e.currentTarget.value)}
+        >
+          {[
+            ["", t("All kinds")],
+            ["image", t("Images")],
+            ["font", t("Fonts")],
+            ["audio", t("Audio")],
+            ["clips", t("Clips")],
+            ["collections", t("Collections")],
+          ].map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </Select>
+        {importSlot}
+      </div>
+      {!kind || kind === "collections" || kind === "clips" ? (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">{t("Clip collections")}</h3>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                setParams((p) => {
+                  p.set("reel", "new");
+                  return p;
+                })
+              }
+            >
+              {t("New collection")}
+            </Button>
+          </div>
+          {reels
+            .filter((r) => r.name.toLowerCase().includes(query.toLowerCase()))
+            .map((r) => (
+              <button
+                key={r.id}
+                className="flex w-full items-center justify-between rounded-lg border border-border p-3 text-left"
+                onClick={() =>
+                  setParams((p) => {
+                    p.set("reel", r.id);
+                    return p;
+                  })
+                }
+              >
+                <span className="text-sm font-medium">{r.name}</span>
+                <span className="text-xs text-fg-muted">
+                  {tn(r.clips.length, "{count} clip", "{count} clips")}
+                </span>
+              </button>
+            ))}
+        </section>
+      ) : null}
+      {podsSlot}
       <LinkImport onImported={async () => setAssets(await onair.assets())} />
+
       <div className="grid grid-cols-2 gap-2">
         {[
-          { kind: "font", label: t("Fonts"), Icon: FileType, accept: ".ttf,.otf,.woff2" },
+          { kind: "font", label: t("Fonts"), Icon: FileType, accept: ".ttf,.otf" },
           { kind: "image", label: t("Images"), Icon: Image, accept: "image/*" },
           { kind: "audio", label: t("Audio"), Icon: AudioLines, accept: "audio/*" },
-          { kind: "video", label: t("Video loops"), Icon: Film, accept: "video/*" },
         ].map(({ kind, label, Icon, accept }) => (
           <label
             key={kind}
-            className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-bg-subtle p-4 text-sm text-fg-muted hover:border-primary hover:text-primary"
+            className="focus-within:ring-2 focus-within:ring-primary flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-bg-subtle p-4 text-sm text-fg-muted hover:border-primary hover:text-primary"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -57,8 +138,9 @@ export function AssetsPanel() {
             {label}
             <Upload size={12} />
             <input
-              className="hidden"
+              className="sr-only"
               type="file"
+              aria-label={label}
               multiple
               accept={accept}
               onChange={(e) => void upload(e.target.files, kind)}
@@ -66,6 +148,33 @@ export function AssetsPanel() {
           </label>
         ))}
       </div>
+      {!kind || kind === "clips" ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {reels
+            .flatMap((r) => r.clips.map((clip) => ({ r, clip })))
+            .filter(({ clip, r }) =>
+              (clip.name + " " + r.name).toLowerCase().includes(query.toLowerCase()),
+            )
+            .map(({ r, clip }) => (
+              <button
+                key={r.id + clip.id}
+                className="flex items-center gap-3 rounded-lg border border-border p-3 text-left"
+                onClick={() =>
+                  setParams((p) => {
+                    p.set("reel", r.id);
+                    return p;
+                  })
+                }
+              >
+                <Film size={18} className="shrink-0 text-fg-muted" />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm">{clip.name}</span>
+                  <span className="block truncate text-xs text-fg-muted">{r.name}</span>
+                </span>
+              </button>
+            ))}
+        </div>
+      ) : null}
       <div className="space-y-3">
         {pending.map((p) => (
           <div key={p.id} className="space-y-2 rounded-lg border border-border bg-surface p-3">
@@ -114,71 +223,94 @@ export function AssetsPanel() {
             </Button>
           </div>
         ))}
-        {assets.map((a) => (
-          <div key={a.digest} className="rounded-lg border border-border bg-surface p-3">
-            <div className="flex items-center gap-3">
-              {a.kind === "audio" ? (
-                <AudioLines size={24} className="text-primary" />
-              ) : (
-                <FileType size={24} className="text-fg-muted" />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{a.name}</p>
-                {a.source ? (
-                  <a
-                    className="text-xs text-primary"
-                    href={a.source}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {t("Source")}
-                  </a>
-                ) : null}
-                {a.attribution ? <p className="text-xs text-fg-muted">{a.attribution}</p> : null}
-                {a.status ? (
+        {assets
+          .filter(
+            (a) =>
+              (!kind || a.kind === kind || (kind === "clips" && a.kind === "video")) &&
+              a.name.toLowerCase().includes(query.toLowerCase()),
+          )
+          .map((a) => (
+            <div key={a.digest} className="rounded-lg border border-border bg-surface p-3">
+              <div className="flex items-center gap-3">
+                {a.kind === "audio" ? (
+                  <AudioLines size={24} className="text-primary" />
+                ) : (
+                  <FileType size={24} className="text-fg-muted" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{a.name}</p>
+                  {a.source ? (
+                    <a
+                      href={a.source}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-primary"
+                    >
+                      {t("Source")}
+                    </a>
+                  ) : null}
+                  {a.status && a.status !== "ready" ? (
+                    <p className="text-xs text-fg-muted">
+                      {a.status === "error" ? a.error : t("Importing…")}
+                    </p>
+                  ) : null}
                   <p className="text-xs text-fg-muted">
-                    {a.status === "error" ? a.error : t("Importing…")}
+                    {t("{size} KB", { size: Math.round(a.size / 1024) })}
                   </p>
-                ) : null}
-                <p className="text-xs text-fg-muted">
-                  {t("{size} KB", { size: Math.round(a.size / 1024) })}
-                </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={t("Remove asset")}
+                  disabled={a.usedBy.length > 0}
+                  onClick={async () => {
+                    if (
+                      await confirmDialog({
+                        title: t("Remove {name}?", { name: a.name }),
+                        message: a.usedBy.length
+                          ? t("Used by: {layers}", {
+                              layers: a.usedBy
+                                .map(
+                                  (id) =>
+                                    looks.find((l) => l.id === id)?.name ??
+                                    reels.find((r) => r.id === id)?.name ??
+                                    id,
+                                )
+                                .join(", "),
+                            })
+                          : t("This asset will be removed from the library."),
+                        confirmLabel: t("Remove"),
+                        tone: "danger",
+                      })
+                    ) {
+                      await onair.deleteAsset(a.digest);
+                      setAssets((s) => s.filter((x) => x.digest !== a.digest));
+                    }
+                  }}
+                >
+                  <Trash2 size={13} />
+                </Button>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label={t("Remove asset")}
-                onClick={async () => {
-                  if (
-                    await confirmDialog({
-                      title: t("Remove {name}?", { name: a.name }),
-                      message: a.usedBy.length
-                        ? t("Used by: {layers}", { layers: a.usedBy.join(", ") })
-                        : t("This asset will be removed from the look."),
-                      confirmLabel: t("Remove"),
-                      tone: "danger",
-                    })
-                  ) {
-                    await onair.deleteAsset(a.digest);
-                    setAssets((s) => s.filter((x) => x.digest !== a.digest));
-                  }
-                }}
-              >
-                <Trash2 size={13} />
-              </Button>
-            </div>
-            <p className="mt-2 text-xs text-fg-subtle">
-              {a.usedBy.length
-                ? t("Used by {layers}", { layers: a.usedBy.join(", ") })
-                : t("Not used yet")}
-            </p>
-            {a.kind === "font" && a.license ? (
               <p className="mt-2 text-xs text-fg-subtle">
-                {t("Font licence")}: {a.license}
+                {a.usedBy.some((id) => looks.some((l) => l.id === id))
+                  ? t("Used by {layers}", {
+                      layers: tn(
+                        a.usedBy.filter((id) => looks.some((l) => l.id === id)).length,
+                        "{count} style",
+                        "{count} styles",
+                      ),
+                    })
+                  : a.usedBy.length
+                    ? t("Used by {layers}", { layers: a.usedBy.join(", ") })
+                    : t("Not used yet")}
               </p>
-            ) : null}
-          </div>
-        ))}
+              {a.kind === "font" && a.license ? (
+                <p className="mt-2 text-xs text-fg-subtle">
+                  {t("Font licence")}: {a.license}
+                </p>
+              ) : null}
+            </div>
+          ))}
       </div>
     </div>
   );

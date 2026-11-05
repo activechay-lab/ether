@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/llm"
 	"strings"
 )
@@ -15,6 +16,9 @@ type Chatter interface {
 }
 
 func (s *Service) Draft(ctx context.Context, l Look) (Look, error) {
+	if l.Screens == nil {
+		l.Screens = &config.LiveTVScreens{OffAir: "card", NoSignal: "card", StationID: true}
+	}
 	if l.Moments == nil {
 		l.Moments = map[string]Moment{}
 		for _, m := range strings.Fields("ident upnext tonight break back offair welcome bug lowerthird") {
@@ -64,4 +68,40 @@ func (s *Service) Generate(ctx context.Context, prompt, summary string, base Loo
 		msgs = append(msgs, llm.Message{Role: "assistant", Content: raw}, llm.Message{Role: "user", Content: "Correct the draft: " + err.Error()})
 	}
 	return Look{}, fmt.Errorf("model returned an invalid look: %w", err)
+}
+
+// Template is an explicit, deterministic alternative to a connected model.
+func (s *Service) Template(ctx context.Context, prompt string, base Look) (Look, error) {
+	if len(strings.TrimSpace(prompt)) == 0 || len(prompt) > 2000 {
+		return Look{}, fmt.Errorf("describe the style in 1 to 2000 characters")
+	}
+	words := strings.ToLower(prompt)
+	family := "clean"
+	for _, rule := range []struct {
+		family   string
+		keywords []string
+	}{
+		{"lateNight", []string{"night", "cosy", "cozy", "horror"}}, {"cinema", []string{"cinema", "movie", "gold"}}, {"retro", []string{"neon", "retro", "80", "vhs", "synth"}}, {"kids", []string{"kids", "cartoon", "playful"}}, {"personal", []string{"personal", "aurora"}},
+	} {
+		for _, k := range rule.keywords {
+			if strings.Contains(words, k) {
+				family = rule.family
+				break
+			}
+		}
+		if family != "clean" {
+			break
+		}
+	}
+	name := []rune(strings.TrimSpace(prompt))
+	if len(name) > 80 {
+		name = name[:80]
+	}
+	l := familyLook(family, string(name))
+	l.ID = base.ID
+	l.ChannelIDs = base.ChannelIDs
+	if strings.Contains(words, "calm") || strings.Contains(words, "cosy") || strings.Contains(words, "cozy") {
+		l.Brand.Energy = .2
+	}
+	return s.Draft(ctx, l)
 }

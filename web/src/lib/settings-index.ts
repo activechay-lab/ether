@@ -78,10 +78,10 @@ export function settingsIndex(): SettingHit[] {
   return [
     {
       key: "looks",
-      title: t("Looks"),
+      title: t("Styles"),
       where: t("Live TV"),
       href: "/livetv/looks",
-      keywords: "on air graphics brand reels",
+      keywords: "on air graphics brand styles themes assets media collections reels",
     },
     {
       key: "personal-channel",

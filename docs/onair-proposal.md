@@ -4,11 +4,11 @@ Status: in build for v0.3.5 (integration branch `feat/035-virtual-channels`). Pr
 [§13](#13-owner-decisions-needed) before Phase 0 starts.
 
 This spec covers three features:
-- **Looks:** a generated on-air presentation layer for virtual channels (idents, up-next, breaks, back-from-break, off-air, tonight cards, and optional corner logo and lower thirds), designed in the console.
+- **Styles:** a generated on-air presentation layer for virtual channels (idents, up-next, breaks, back-from-break, off-air, tonight cards, and optional corner logo and lower thirds), designed in the console.
 - **Personal channels:** one channel that each viewer sees programmed for them.
-- **Channel packs:** shareable bundles of channels, looks, break reels and assets that use the existing plugin package format.
+- **Channel packs:** shareable bundles of channels, styles, break reels and assets that use the existing plugin package format.
 - **Break reels:** owner-uploaded short videos (commercials, promos) that play in breaks.
-- **Plugin content:** user-authored plugins that feed live data and segments (weather, headlines) into channels, styled by each channel's look.
+- **Plugin content:** user-authored plugins that feed live data and segments (weather, headlines) into channels, styled by each channel's style.
 
 Every customization is done in the console. No code is needed.
 
@@ -26,22 +26,22 @@ All references are to `main` at v0.3.3.
 | Schedule | `livetv.Schedule(c, from, until)` is stateless and deterministic (`schedule.go:20`). Programme IDs are `<channel>-<startMs>` (`schedule.go:423`), and Plex metadata lookups parse that ms (`plex/livetv_api.go:345`). `legacyCalendar` keeps old channels' guides identical (`schedule.go:37`). | Interstitials must be deterministic, opt-in per channel, and must not change real programmes' IDs except when the owner saves a change. |
 | Playout | One viewer session per HLS playlist, built from at most 3 per-programme ffmpeg tracks (`playout.go:28,638,696`). Boundaries are `#EXT-X-DISCONTINUITY` (`playout.go:754`). Segments are 4 s (`playout.go:21`). Plex Web uses a single-Period dynamic MPD (`dash_virtual.go:532`). Plex for Mac's Matroska path has no programme rollover (`http.go:96`). | A clip is another track, so splicing is native to HLS. The 3-track cap must become a budget. Clip durations must be multiples of 4 s. DASH clips must match the hard-coded representation. |
 | Off air | v0.3.4 renders a real off-air card: `HLSRequest.SlateText` makes `transcode.Manager.slate` (`transcode/slate.go`) draw a card in Go, encode a 4 s MP4 whose codecs, size and audio layout follow the previous programme's negotiated output (`livetv.slateInfo`, `livetv/slate.go`), and loop it as the HLS input (`loopInput`). Copy comes from `offAirCopy`. | This is the path every generated clip reuses: render a clip that matches the stream contract, then hand it to `StartHLS` as the input. A clip is never a codec change mid-stream. |
-| Tune time | `tuneVirtual` has a 12 s budget (`virtual_tune.go:23`) and the playlist can't be served until `Playback.Prepare` succeeds. | A cached ident track can be served immediately while the programme prepares: an instant first frame on every channel with a look. |
+| Tune time | `tuneVirtual` has a 12 s budget (`virtual_tune.go:23`) and the playlist can't be served until `Playback.Prepare` succeeds. | A cached ident track can be served immediately while the programme prepares: an instant first frame on every channel with a style. |
 | Video generation | Nothing renders video from frames. Pre-rolls convert uploads to H.264/AAC MP4 (`prerolls/media.go:294`). Subtitle burn-in already builds an `overlay` filter chain (`transcode/args.go:1063-1130`). | The encode profile and the burn-in chain are reusable. The renderer is new work. |
 | Go 2D | `golang.org/x/image` (vector, opentype, draw) and `srwiley/oksvg`+`rasterx`. Poster compositing lives in `artwork/poster.go`; generated channel logos in `artwork/svg.go:322`. No TTF files are bundled. | The renderer is built on `x/image`, with no new CGO. Fonts are new embedded assets. |
 | Per-viewer | Lineup, guide and tune are already computed per request user for Plex, Jellyfin, Emby and M3U (`plex/livetv_api.go:204,280,310`, `app/frontend_livetv.go:66`). `Schedule` takes no user. | A personal channel is one channel ID whose programmes are resolved per viewer. The model already fits. |
 | Personalize | `Engine.PreviewHome` returns rows with `ItemReasons` ("Because you watched X", "Next episode of Y") (`personalize/owner.go:31`). `Taste.Fit` returns a score and a reason (`taste.go:619`). There's no core interface for "N picks with reasons". | Add a narrow `core.PersonalPicker`, implemented by reusing the home assembly. |
 | Trailers | `extras.List` and `Resolve` return direct URLs through an owner-configured yt-dlp (`extras/extras.go:208,344`). Live TV playout only plays catalogue keys. | Watchlist trailer breaks need a URL input path into `StartHLS`. When extras aren't configured, they degrade to generated cards. |
-| AI | Describe-a-collection is the pattern: an xl drawer, a live result on top, `AgentPanel` below, a route-scoped agent with a `*_draft` tool (`collections/DescribeDialog.tsx`, `agent/loop.go:17-35`). There's no TTS and no image generation. | The look and channel describers copy that pattern exactly. An announcer voice is a later, opt-in phase. |
-| Plugins | `.etherpkg` is a zip with a manifest (a Stremio superset) and digest integrity, installed from upload, URL, GitHub or the signed catalogue (`plugins/install.go`). A runtime is required (`manifest.go:209`). The only record-creating contribution is `collections.upsert` with links (`app/plugin_collections.go:54`). No asset route exists. Studio has no export. | A channel pack is a plugin with a new `data` runtime. It needs contributions for looks and channels, link tables, an asset store, and an export endpoint. |
+| AI | Describe-a-collection is the pattern: an xl drawer, a live result on top, `AgentPanel` below, a route-scoped agent with a `*_draft` tool (`collections/DescribeDialog.tsx`, `agent/loop.go:17-35`). There's no TTS and no image generation. | The style and channel describers copy that pattern exactly. An announcer voice is a later, opt-in phase. |
+| Plugins | `.etherpkg` is a zip with a manifest (a Stremio superset) and digest integrity, installed from upload, URL, GitHub or the signed catalogue (`plugins/install.go`). A runtime is required (`manifest.go:209`). The only record-creating contribution is `collections.upsert` with links (`app/plugin_collections.go:54`). No asset route exists. Studio has no export. | A channel pack is a plugin with a new `data` runtime. It needs contributions for styles and channels, link tables, an asset store, and an export endpoint. |
 | Cluster | Live TV sessions and caches are per node. The schedule is identical on every node. | Clips are content-addressed and rendered on whichever node serves the session. No leader is needed. |
 | Console | Live TV is a `Workspace` (1/3 aside, 2/3 guide). Channels open `ChannelStudio` in a `Drawer size="lg"` with tabs Programming, Schedule, Viewers, Details. Home Designer has the canvas↔inspector focus pattern. The only animated canvas is Studio's `TestCard` (`plugins/Stage.tsx:550`). There's no colour picker and no web-font loading. | Reuse Workspace, Drawer (full size), SubtabNav, ToolbarPicker, Segmented, ChipGroup, MoreOptions, SaveBar and AgentPanel. Build a canvas stage. Build a palette editor in AppKit. |
 
 **The Live TV page is protected** (owner rule, 2026-10-31). Only the Add flow
 and the virtual channel creator are unlocked. This spec adds three things and
 redesigns nothing:
-- a **Looks** sub-tab in the aside;
-- a **Look** tab in the virtual channel drawer;
+- a **Styles** sub-tab in the aside;
+- a **Style** tab in the virtual channel drawer;
 - two Add-menu entries.
 
 The owner has to approve these additions ([§13](#13-owner-decisions-needed)).
@@ -50,7 +50,7 @@ The owner has to approve these additions ([§13](#13-owner-decisions-needed)).
 
 ## 2. Concepts
 
-- **Look:** a record. It holds a brand (name, logo, palette, type, texture, motion energy, sound, copy) plus one **moment** template for each on-air moment. Looks are edited in a full-size drawer. Many channels can share a look.
+- **Style:** a record. It holds a brand (name, logo, palette, type, texture, motion energy, sound, copy) plus one **moment** template for each on-air moment. Styles are edited in a full-size drawer. Many channels can share a style.
 - **Family:** a built-in set of moment templates with a design language. v1 ships with:
   - *Clean*: the neutral default;
   - *Kids*: goo, mascot, squash and stretch;
@@ -66,8 +66,8 @@ The owner has to approve these additions ([§13](#13-owner-decisions-needed)).
 - **Interstitial:** a schedule entry that plays a clip. It's an `Item` with `Key == 0` and a `Slate` kind.
 - **Personal channel:** a virtual channel with a `Personal` recipe instead of fixed programming. Each viewer gets their own rundown.
 - **Signal screen:** what a channel shows when it is off air or can't be tuned: Modern card, Analogue static, Colour bars, We'll be right back or Test card (§3.4a, §4.9).
-- **Break reel:** a record holding owner-uploaded short videos (commercials, station promos, old ads, anything) that play during a channel's breaks. Ether never generates these. A reel works with or without a look, and many channels can share one.
-- **Channel pack:** a plugin (`.etherpkg`, `runtime: data`) that holds channels, looks, families, reels and assets.
+- **Break reel:** a record holding owner-uploaded short videos (commercials, station promos, old ads, anything) that play during a channel's breaks. Ether never generates these. A reel works with or without a style, and many channels can share one.
+- **Channel pack:** a plugin (`.etherpkg`, `runtime: data`) that holds channels, styles, families, reels and assets.
 - **Plugin segment / feed:** a programme piece or a bindable data field supplied by a code plugin's `onair_content` capability (§7a).
 
 ---
@@ -84,162 +84,64 @@ Help text is one line at most. Explanations go behind ⓘ. There are no
 decorative subtitles. All copy is wrapped in `t()`/`tn()`/`tx()`, and every
 string goes through `pnpm i18n sync` and all 20 locales.
 
-### 3.1 Live TV: a Looks sub-tab in the aside (addition)
+### 3.1 Live TV: Styles and Assets
 
-The aside's `SubtabNav` goes from **Channels | Sources** to
-**Channels | Sources | Looks**. It is URL-backed: `/livetv/looks`, with
-`?look=<id|new>` selecting a look. The main pane shows the looks gallery while
-this tab is active, the same way Guide data swaps the main pane today.
+The URL-backed aside remains one third of the workspace, with Channels, Sources,
+Guide and **Styles**. The stable route is `/livetv/looks`; `?look=<id|new>` opens
+an editor. **Styles** is the recommended owner-facing name. The review gallery
+also shows Themes, Branding and On-air package as real tab/title variants.
+`onair/naming.ts` centralizes the tab, page name and editor terminology; record/API identifiers remain
+`Look`, `lookId` and `/onair/looks`.
 
-```
-┌ Live TV  21 channels on air                                          [+ Add ▾] ┐
-├────────────────────────┬────────────────────────────────────────────────────────┤
-│ [Search looks…]        │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐    │
-│ Channels│Sources│Looks │  │ ▶ ident loop │ │ ▶ ident loop │ │ ▶ ident loop │    │
-│                        │  │  (live tile) │ │              │ │              │    │
-│ ▣ Nocturne   Late night│  └──────────────┘ └──────────────┘ └──────────────┘    │
-│   3 channels           │   Nocturne         Meridian         BLORP!             │
-│ ▣ Meridian   Cinema    │   Late night · 3   Cinema · 1       Kids · 2           │
-│   1 channel            │                                                        │
-│ ▣ BLORP!     Kids      │  ┌──────────────┐ ┌──────────────┐ ┌ ─ ─ ─ ─ ─ ─ ─┐    │
-│   2 channels  [pack]   │  │              │ │              │   + New look        │
-│ ▣ Personal   Personal  │  └──────────────┘ └──────────────┘ └ ─ ─ ─ ─ ─ ─ ─┘    │
-└────────────────────────┴────────────────────────────────────────────────────────┘
-```
+Style cards come first in the main pane. Each opens its full drawer and names
+its family and explicit channel usage. The aside contains styles only.
 
-- **Tiles:** 16:9 canvases that render the look's ident on the channel it's used on.
-  - At rest a tile shows a still taken at the template's `poster` time.
-  - It plays on hover or focus. With reduced motion it stays still.
-  - Only the tile under the pointer animates, so the gallery stays cheap.
-- **Aside rows:** follow the `ChannelList` row style: a thumbnail, the name, the family as a muted label, a "Used by N channels" count, and a `Badge` "From <pack>" for pack records.
-- **Empty state:** an `EmptyState` with the six built-in families as tiles. Choosing one creates a look and opens its drawer.
+Below the cards, **Default style** selects the owner default and saves through
+one SaveBar. It applies to virtual channels without an explicit style. An empty
+default preserves existing channels. **Fallback screens without a style** is a
+collapsed singleton section. Below it, **Assets** is the shared media library:
+kind filter, search, image/logo/font/audio uploads, usage, and clip collections.
+Reels are collections inside Assets, never a main sub-tab or an aside footer.
+The reel storage/API names remain stable. Collection records use a drawer.
 
-**Add menu** (unlocked). Two entries are added below "Guide source":
-- **Look:** opens the new-look chooser (Describe it, a family, or Duplicate).
-- **Channel pack:** opens the plugin install drawer in its "From a file or link" state, filtered to packs. It is the same component as the Plugins page (see [§13](#13-owner-decisions-needed), decision 3).
+### 3.2 The style drawer
 
-### 3.2 The look drawer: the designer
+The full-size drawer has a one-third inspector and two-thirds live stage. Narrow
+screens stack the stage above the inspector. Save and Discard are in the header;
+changes are drafts until Save. Existing styles, family starts and duplicates all
+use the same editor. Describe is primary when creating a style.
 
-A look is a record, so it opens in a `Drawer` (owner rule). It opens at
-`size="full"` with the built-in fullscreen toggle. The body is a Workspace-style
-split: the inspector takes 1/3 and the stage 2/3, each scrolling on its own.
-Below `lg` they stack, with the stage on top.
+Inspector tabs:
 
-```
-┌ Nocturne                                   [Unsaved]  [Discard]  [Save look]  ⤢  ✕ ┐
-├──────────── inspector ──────────────┬────────────────── stage ─────────────────────┤
-│ Describe │ Design │ Layers │ Assets │  ┌──────────────────────────────────────────┐│
-│─────────────────────────────────────│  │                                          ││
-│ BRAND                               │  │                                          ││
-│  Name        [Nocturne        ]     │  │          16:9 canvas, live               ││
-│  Logo        [▣ upload] [Draw one]  │  │                                          ││
-│  Tagline     [Late night · lights off]│ │                                          ││
-│                                     │  └──────────────────────────────────────────┘│
-│ COLOUR                     [⟳]      │   ▶  ━━━━━━━━●━━━━━━━━━━  2.4 / 7.0 s   ⟲   │
-│  ● Background ● Accent ● Text ● Glow│   ┌─────┬───────┬───────┬─────┬────┬───────┐│
-│  [Night ▾ presets]                  │   │Ident│Tonight│Up next│Break│Back│Off air││
-│                                     │   └─────┴───────┴───────┴─────┴────┴───────┘│
-│ TYPE                                │   Preview on [Nocturne 7 ▾]  at [Tonight ▾]  │
-│  [Aa Playfair / Elite]  [Aa …] [Aa …]│  [Safe area] [Sound] [Corner logo]          │
-│                                     │                                              │
-│ MOTION                              │                                              │
-│  Energy  calm ───●──── lively       │                                              │
-│  Texture [Grain] [Flicker] [Scanlines] [Vignette]                                  │
-│                                     │                                              │
-│ SOUND                               │                                              │
-│  Sting  [Low drone ▾]  ▶            │                                              │
-│ ▸ More options                      │                                              │
-└─────────────────────────────────────┴──────────────────────────────────────────────┘
-```
+- **Describe:** the route-scoped `/livetv/look` AgentPanel uses `look_draft` when
+  the owner has a configured model. Tool outputs update the whole stage and have
+  reversible change chips. Without a model, an explicit template form remains
+  available: mood keywords select a complete built-in family deterministically,
+  including all its supported idents, up-next, breaks, return cards, bug and
+  lower thirds. This is labeled as a template, never represented as AI. Drafting
+  never saves. The same template path is available with a model.
+- **Design:** brand name, logo upload or monogram, tagline, four role colours,
+  presets/shuffle and live contrast, bundled font pairs and uploaded fonts,
+  motion energy, grain, uploaded audio sting and volume. More options has seed,
+  per-moment words and 4/8/12-second duration buttons. Unsupported synthetic
+  stings, language switching and texture controls were removed.
+- **Layers:** lists the actual layers of the selected family/moment, including
+  nested layers. Text, fit, size, position, opacity and visibility persist as
+  patches consumed by browser and Go renderers. Text controls appear only on
+  text layers. Visibility is saved in the style. The decorative timeline,
+  keyframe counters, locks and unimplemented behaviour picker were removed.
+  This is a scene-template editor; arbitrary keyframe authoring is not exposed.
+- **Screens:** off-air, can't-play and station-ID choices belong to this named
+  style. The drawer Save persists them with the rest of the record.
+- **Assets:** opens the same shared library used on the Styles page. Font licences
+  are required. Video uploads belong to clip collections.
 
-**Header**
-- The title is the look name, editable inline the way the channel drawer does it.
-- Next to it: the "Unsaved" badge, Discard and **Save look**.
-- The kebab menu holds: Use on channels…, Duplicate, Export as pack…, Make it mine (pack records only), Delete.
-- Saving re-renders the look's static clips in the background. A small progress chip ("Rendering 4 of 7") sits next to the badge and finishes without blocking.
-
-**Stage (right)**
-- The canvas renders the selected moment, bound to real data: the channel picked in **Preview on**, at the time picked in **at** (Now, Tonight, Tomorrow morning, or a custom time). That time drives which programmes fill the slots.
-- It renders 60 fps in the browser with the same renderer as the server (§6.3), so what you see is what airs.
-- Transport: play/pause (space), a scrubber, the time readout, loop, and ½× speed. Arrow keys step one frame.
-- **Moments filmstrip:** one tile per moment. Each tile shows a still and a small dot when the moment is off on every channel using this look. Clicking a tile switches the canvas; double-clicking opens it in Layers.
-- Toggles:
-  - **Safe area** draws 90%/80% guides.
-  - **Sound** plays the sting (off by default).
-  - **Corner logo** shows the bug and lower third over a sample programme.
-- For personal looks, **Preview as** is a viewer `ToolbarPicker` (the same searchable picker as Home Designer's layer switcher).
-- **Click to focus:** clicking an element on the canvas selects that layer and switches the inspector to Layers, scrolled to its properties (the Home Designer `onEditRow` pattern). Hovering shows a thin outline and the layer name.
-
-**Inspector tabs**
-
-1. **Describe** (prompt-first, the Studio and Collections pattern).
-   - An `AgentPanel` with suggestion chips taken from the server's real state:
-     - "A late-night horror look for Nocturne"
-     - "Match the look to Meridian's programming"
-     - "Make it feel like a 90s kids network"
-     - "Give it a calmer motion".
-   - The route-scoped agent `/livetv/look` has `look_draft`, `catalog_search` and `channel_summary`.
-   - Each draft streams into the stage as it arrives: the palette, then the type, then the moments filmstrip re-rendering tile by tile. This is the "watch it assemble" moment.
-   - Nothing is saved until **Save look**.
-   - Without a language model the tab shows the standard `Alert` linking to Integrations › Language model.
-   - Each agent reply shows its change as a one-line diff chip ("Accent → #C8102E · Type → Playfair / Elite"). Clicking a chip reverts that change.
-
-2. **Design.** The whole brand on one tab, grouped by intent, with no field dumps.
-   - **Brand:**
-     - name, plus a logo upload or **Draw one** (a generated monogram from `artwork.ChannelLogo`, recoloured with the palette);
-     - tagline, with a ⓘ that lists where it appears.
-   - **Colour.** Four role swatches (Background, Accent, Text, Glow) and a presets menu per family.
-     - Clicking a swatch opens a popover colour picker (new AppKit `ColorPicker`, [§13](#13-owner-decisions-needed) decision 6): a hue/saturation plane, hex input, eyedropper where the browser has one, and swatches from the current palette.
-     - **⟳ Shuffle** derives a harmonious palette from the accent using the seed.
-     - Contrast is checked live. A pair that fails 4.5:1 at the template's text size gets an amber dot and a one-line ⓘ.
-   - **Type.** Pairing cards: display face plus body face, rendered as a live "Aa Up next" sample in the look's colours. They come from the bundled set and any uploaded fonts.
-   - **Motion.**
-     - An **Energy** slider (calm ↔ lively) scales every template's easing amplitude, overshoot and stagger.
-     - **Texture** chips: Grain, Flicker, Scanlines, Vignette, Chroma.
-   - **Sound.** A sting picker with ▶ (bundled stings and uploaded audio) and a volume. Announcer voice appears here in Phase 5.
-   - **More options:**
-     - **Seed:** a ⟳ button labelled "New shapes".
-     - **Language** for on-air words.
-     - **Lengths:** per-moment duration chips (4, 8 or 12 s).
-     - **On-air words:** each fixed phrase ("Up next", "Tonight", "We'll be right back") is editable, with the translated default shown as the placeholder.
-
-3. **Layers.** For people who want to tinker. The stage splits: the canvas on top and a timeline below.
-
-   ```
-   ├──────── inspector ─────────┬───────────── canvas (smaller) ──────────────┤
-   │ LAYER  Title               │                                             │
-   │  Text   {next.title}  [⌁]  │                                             │
-   │  Font   Playfair 900       ├─────────────────────────────────────────────┤
-   │  Size   128   Fit [Shrink▾]│ ▾ Title        ◆─────◆                  👁 🔒│
-   │  Colour ● Text             │ ▾ Underline         ◆──◆                 👁 🔒│
-   │  Position  x 140  y 440 ◆  │ ▸ Moon          ◆──────────────◆         👁 🔒│
-   │  Opacity  ───●─── ◆        │ ▸ Fog (×8)                               👁 🔒│
-   │  Behaviour [Typewriter ▾]  │ ▸ Bats (particles)    ◆──────◆           👁 🔒│
-   │  ▸ More options            │ ──────────●───────────────────── 0s … 7s     │
-   ```
-
-   - The inspector shows the selected layer's properties.
-   - Every property that can animate has a ◆ button that adds a keyframe at the playhead.
-   - Binding slots show a ⌁ chip: click it to switch between a binding (`next.title`, `channel.name`…) and fixed text.
-   - Text layers get a **Fit** mode (Shrink, Wrap, Clip) so long titles never overflow.
-   - **Behaviours** are presets with a few parameters each: Typewriter, Flicker, Wiggle, Bounce, Glint, Chroma split, Drift, Pop. They are how a template gets motion without code.
-   - The timeline lists layers with 👁 and 🔒, keyframe diamonds you can drag along the lanes, and a group disclosure.
-   - On the canvas, layers get handles to move, scale and rotate, and snap to safe areas and centres.
-   - **Add layer** offers: Text, Shape, Image, Programme artwork, Logo, Particles, Gradient, Noise.
-   - A template here is a copy of the family template inside this look. **Reset moment** returns it to the family version.
-   - Undo/redo covers every edit (⌘Z / ⇧⌘Z), like the rest of the console's drafts.
-
-4. **Assets.** The look's uploaded files.
-   - Drop zones for fonts (TTF/OTF/WOFF2), images (PNG, JPEG, WebP, SVG), audio (WAV, MP3, OGG, at most 30 s) and short video loops (MP4, at most 30 s, converted with the pre-roll profile).
-   - Each asset shows a thumbnail or waveform, its size, and where it's used.
-   - Fonts require a licence choice (OFL, Apache, Owned by me, Other), because packs carry them.
-   - Removing an asset that's in use asks first and names the layers that use it.
-
-**New-look chooser** (from Add › Look, or the gallery's + tile). A small drawer
-with three cards:
-- **Describe it:** opens the look drawer on Describe, with the composer focused.
-- **Start from a family:** six live tiles. Picking one creates the look.
-- **Duplicate a look.**
+The stage has play/pause, seek, loop, half speed, safe area, uploaded sting
+preview, moment filmstrip, and overlay preview. Reduced motion starts paused;
+focus/hover tiles stay still. Preview channel/time bind guide data. Undo/redo
+applies to draft changes. Selecting a scene element opens Layers; all real layers
+are also keyboard-accessible through the inspector. The shipped control audit
+and persona evidence are in the W15 gallery.
 
 ### 3.2a Corner logo controls
 
@@ -247,19 +149,18 @@ The Design inspector includes **Corner logo**: four-corner picker, 15–60% opac
 Monochrome / Original colour, Small / Medium / Large, Logo / Wordmark, and fades
 during breaks and credits. Defaults: bottom right, 30%, monochrome, medium, logo
 (wordmark when absent), break fades on and credit fades off. No badge or disc.
-The channel Look tab has **Customize corner logo**; off inherits the look, on edits
-the same controls over a programme preview. Channel fields override look fields.
+The channel Style tab has **Customize corner logo**; off inherits the style, on edits
+the same controls over a programme preview. Channel fields override style fields.
 
-### 3.3 The channel drawer: a Look tab (addition)
+### 3.3 The channel drawer: a Style tab (addition)
 
 Virtual channel tabs go from **Programming | Schedule | Viewers | Details** to
-**Programming | Schedule | Look | Viewers | Details**. IPTV channels get no Look
-tab, because we don't splice into third-party streams (§12).
+**Programming | Schedule | Style | Viewers | Details**. IPTV channels keep a screens-only Style tab; virtual-channel graphics controls do not apply to third-party programming.
 
 ```
-│ Look                                                                          │
+│ Style                                                                          │
 │  ┌──────────────── live tile 16:9 ────────────────┐  [Nocturne ▾]             │
-│  │  ident on this channel, tonight's programmes   │  [Edit look]              │
+│  │  ident on this channel, tonight's programmes   │  [Edit style]              │
 │  └────────────────────────────────────────────────┘                           │
 │  [Ident][Tonight][Up next][Break][Back][Off air]   (filmstrip, click to view) │
 │                                                                               │
@@ -272,16 +173,16 @@ tab, because we don't splice into third-party streams (§12).
 │ ▸ More options   (break length, how often, tagline and accent for this channel)│
 ```
 
-- **Look picker:** a `ToolbarPicker` with a still per look, plus **None** and **New look…**.
-- **Edit look** opens the look drawer stacked over the channel drawer, using the Drawer's automatic `stacked` nesting.
+- **Style picker:** a `ToolbarPicker` with a still per style, plus **Use default style** and **New style…**.
+- **Edit style** opens the style drawer stacked over the channel drawer, using the Drawer's automatic `stacked` nesting.
 - **Hero timeline:** interstitials show as thin hatched segments between programmes, so the owner sees exactly where clips land. The 500 ms debounced draft preview already in `ChannelStudio` covers this.
-- **Break contents.** When Breaks is on, a second row appears: **During breaks** [ Look's break screen | Clips from a reel ]. Choosing clips shows a reel `ToolbarPicker` (with **New reel…**) and **Break length** chips (30 s, 1 min, 2 min, 3 min). With a look, a break plays the look's `break` clip, then reel clips up to the break length, then `back`. Without a look, the reel plays on its own.
+- **Break contents.** When Breaks is on, a second row appears: **During breaks** [ Style's break screen | Clips from a reel ]. Choosing clips shows a reel `ToolbarPicker` (with **New reel…**) and **Break length** chips (30 s, 1 min, 2 min, 3 min). With a style, a break plays the style's `break` clip, then reel clips up to the break length, then `back`. Without a style, the reel plays on its own.
 - **"Inside programmes"** is disabled with a one-line ⓘ until Phase 5's break-point analysis exists. It is hidden in Phase 2 if the owner prefers ([§13](#13-owner-decisions-needed), decision 2).
 - **Corner logo ⓘ:** "Needs transcoding. Ether only adds it when the stream is already being converted, unless you choose Always."
 
 ### 3.4a Signal screens (off air and can't play)
 
-Era break pods do not change signal screens. Station ID uses the look's `ident`
+Era break pods do not change signal screens. Station ID uses the style's `ident`
 moment; `break`, `back` and `ident` can select a video asset through the additive
 `Moment.assetDigest`. Authored sound stays with its video, and the background
 master conversion matches the requested moment duration and output contract.
@@ -296,17 +197,17 @@ retune), instead of an error.
 
 | Style | Picture | Sound |
 | --- | --- | --- |
-| **Modern card** (default) | A clean card in the channel's look; without a look, the v0.3.4 slate card. Says "Back at 6:00 PM", "Reconnecting…" or "Waiting for a free connection". | Silent |
+| **Modern card** (default) | A clean card in the channel's style; without a style, the v0.3.4 slate card. Says "Back at 6:00 PM", "Reconnecting…" or "Waiting for a free connection". | Silent |
 | **Analogue static** | Old-TV snow, a slow rolling bar, slight horizontal tear. | Hiss with a low mains hum |
 | **Colour bars** | Classic SMPTE-style bars, optional station ID (channel number and name). | Silent (owner decision: no tone) |
-| **We'll be right back** | A card in the channel's look. | A soft generated bed |
+| **We'll be right back** | A card in the channel's style. | A soft generated bed |
 | **Test card** | An original geometric test card with the channel name. | Silent |
 
 The set is open: more styles are scene documents in a built-in "Signal" family (§5), so packs and later releases can add them.
 
 **Where it's set**
-- **Owner default:** an inline **Screens** section at the top of the Live TV › Looks pane, edited in place with the page's one save bar. It has two pickers, **When a channel is off air** and **When a channel can't play** (which also offers **Show an error**), plus **Show station ID**. v0.3.4 removed the old Live TV options drawer, so this is the only Live TV-wide setting.
-- **Per channel:** a **Screens** section in the channel Look tab, with the same two pickers. Each has a first option, **Default (Modern card)**, that names the current owner default. IPTV channels get a Look tab that contains only this section.
+- **Owner default:** selects a shared style below the style cards. Each style owns its screens in the full drawer. Server fallback screens are collapsed below the default selector and use the singleton SaveBar.
+- **Per channel:** the Style tab states Default style or Override for the channel. Screen overrides win over the selected style, which wins over server fallback. Each screen picker names its effective default. IPTV channels retain their screens-only tab.
 - **The pickers:** a row of 16:9 style cards. Each card plays its own animated preview on hover, with a ▶ button for its sound (muted by default). The selected card has the primary ring. There is one line of ⓘ help per picker.
 
 ### 3.4 Break reels (owner-uploaded commercials)
@@ -360,8 +261,8 @@ Guide rows fold pods and resumed pieces into one programme slot.
 
 Reels are records, so they open in a `Drawer size="lg"`, modelled on the
 pre-roll drawer (`pages/playback/PrerollDrawer.tsx`). They're reached three ways:
-- the Looks sub-tab, in a **Reels** group under the looks;
-- the reel picker's **New reel…** in the channel Look tab;
+- **Styles › Assets › Clip collections**;
+- the reel picker's **New reel…** in the channel Style tab;
 - **Add › Break reel**.
 
 ```
@@ -403,8 +304,8 @@ This mirrors `DescribeDialog.tsx`. Examples:
 - "Thursday-night film noir with Hitchcock in colour on Sundays."
 
 The footer has Discard, **Open in editor** (a full channel drawer with the
-draft), and **Create channel**. The agent can also propose a look; that appears
-as a filmstrip under the grid with a **Use this look** chip.
+draft), and **Create channel**. The agent can also propose a style; that appears
+as a filmstrip under the grid with a **Use this style** chip.
 
 ### 3.6 Personal channels
 
@@ -432,7 +333,7 @@ with recipe-aware blocks.
 **The recipe**
 - Each ingredient card shows a still from the selected viewer's next pick.
 - The slider sets its share.
-- **Preview as** re-renders the hero timeline and the Look preview for that viewer: their name, their reasons ("Because you rated Annihilation 5★"), their watchlist trailer.
+- **Preview as** re-renders the hero timeline and the Style preview for that viewer: their name, their reasons ("Because you rated Annihilation 5★"), their watchlist trailer.
 - Weekly blocks can name a lens: "Fridays 8 pm · Heist night · Picked for them, Crime". The block's `Name` shows on the viewer's guide.
 
 **Pause when they leave** (on-demand mode): the channel's clock advances only
@@ -449,7 +350,7 @@ Nothing else is added to the profile.
 
 ### 3.7 Packs: export and install
 
-**Export:** from the channel drawer kebab (**Export as pack…**) or the look
+**Export:** from the channel drawer kebab (**Export as pack…**) or the style
 drawer kebab. It opens a `Drawer size="md"`:
 
 ```
@@ -458,7 +359,7 @@ drawer kebab. It opens a `Drawer size="md"`:
 │  Author    [Braedon]                                               │
 │  Includes                                                          │
 │   ☑ Nocturne 7          channel · schedule, 4 blocks               │
-│   ☑ Nocturne            look · 7 moments                           │
+│   ☑ Nocturne            style · 7 moments                           │
 │   ☑ Assets              6 files · 3.1 MB                           │
 │   ☐ Programming as smart rules instead of fixed titles  ⓘ          │
 │  Never included: viewers, access, favourites, numbers, history.    │
@@ -467,7 +368,7 @@ drawer kebab. It opens a `Drawer size="md"`:
 
 **Install:** the existing plugin install flow (Plugins page, Marketplace, or the
 Add › Channel pack shortcut that opens the same component). The install preview
-renders the pack: live tiles of its looks, channel cards with tonight's guide
+renders the pack: live tiles of its styles, channel cards with tonight's guide
 resolved on this server, and three plain status rows:
 - "142 of 150 titles available here";
 - "Numbers 7, 8 → 31, 32";
@@ -478,7 +379,7 @@ highlighted (the Studio "install lands where it appears" rule).
 
 **Pack records**
 - Pack records show a `Badge` "From Nocturne Late Night 1.0".
-- Programming, look and assets come from the pack and update with it.
+- Programming, style and assets come from the pack and update with it.
 - Number, on air, viewers and favourite stay the owner's.
 - **Make it mine** (kebab) detaches a copy that the owner owns completely. The pack then stops updating that record.
 
@@ -492,7 +393,7 @@ The canonical JSON field names for `Channel.look`, `Channel.clock`, `Channel.per
 
 | Package | Responsibility |
 | --- | --- |
-| `internal/onair` (new) | Looks and families (CRUD, validation, built-ins); the scene document model; bindings; the asset store; clip planning and cache; the render queue. Implements `core.ChannelGraphics`. |
+| `internal/onair` (new) | Styles and families (CRUD, validation, built-ins); the scene document model; bindings; the asset store; clip planning and cache; the render queue. Implements `core.ChannelGraphics`. |
 | `internal/onair/raster` (new) | The pure-Go 2D renderer: scene document plus bindings plus t → `*image.RGBA`. It has no dependencies outside `x/image`, so it also compiles to WASM for the console (§6.3). |
 | `internal/onair/encode` (new) | Pipes frames to the bundled ffmpeg and writes the master MP4 (and, in Phase 5, alpha overlays). |
 | `internal/livetv` | Interstitials in `Schedule`, guide coalescing, the switcher and per-channel broadcast outputs (§4.5), personal rundowns and the on-demand cursor, a viewing log. |
@@ -501,7 +402,7 @@ The canonical JSON field names for `Channel.look`, `Channel.clock`, `Channel.per
 | `internal/plugins` | The `data` runtime, `looks`/`virtualChannels`/`families`/`reels` contributions, pack export, link tables; the `onair_content` capability with `onairFeeds`/`onairSegments`, the feed fetch schedule and `onair_feed_values`. |
 | `internal/agent`, `internal/agent/builtin` | The `/livetv/look` and `/livetv/describe` routes; the `look_draft`, `channel_draft`, `channel_summary` and write-proposal tools. |
 | `internal/transcode` | An exported encode-slot API, and an overlay input on `Decision` (Phase 5). |
-| `web/src/pages/livetv/onair/` (new) | The stage, the gallery, the look drawer, the Look tab, the recipe, the WASM renderer loader. |
+| `web/src/pages/livetv/onair/` (new) | The stage, the gallery, the style drawer, the Style tab, the recipe, the WASM renderer loader. |
 
 ### 4.2 Core contract (additive)
 
@@ -568,7 +469,7 @@ type PersonalRecipe struct {
     NameFormat string         `json:"nameFormat"` // "{viewer} TV"
     MaxPerShow int            `json:"maxPerShow,omitempty"`
 }
-// Channel gains: Look *ChannelLook; Personal *PersonalRecipe; Pack *PackLink (read-only)
+// Channel gains: Style *ChannelLook; Personal *PersonalRecipe; Pack *PackLink (read-only)
 ```
 
 Migrations:
@@ -586,8 +487,8 @@ Migrations:
 
 ### 4.4 Schedule and guide
 
-- **Interstitials.** When `c.Look != nil` and a moment is on, `weeklySchedule` emits `Item{Key: 0, Slate: "upnext"|"break"|"back"|"tonight", DurationMS: Graphics.Duration(...)}` around real items. Lengths come from the template, never from a render, so `Schedule` stays pure.
-  - `legacyCalendar` returns false when `Look` is set.
+- **Interstitials.** When `c.Style != nil` and a moment is on, `weeklySchedule` emits `Item{Key: 0, Slate: "upnext"|"break"|"back"|"tonight", DurationMS: Graphics.Duration(...)}` around real items. Lengths come from the template, never from a render, so `Schedule` stays pure.
+  - `legacyCalendar` returns false when `Style` is set.
   - `emitCycle`'s rule that slates abort a cycle (`schedule.go:100`) is relaxed only for interstitials.
 - **Placement, in order of preference:**
   1. **Gaps first.** With `Align` (hour or half hour), `fillGap` already makes dead air. Interstitials take that gap before filler or slate, so the guide doesn't move at all.
@@ -694,7 +595,7 @@ The CPU figures include decode. Decode is the variable part: a 1080p H.264 relea
   - Silent clips get `anullsrc`, as pre-rolls do.
 - **Slots.** Renders take the shared transcode slot limit. `acquireTranscodeSlot` is exported as `Manager.AcquireSlot(ctx, priority)`, so a viewer's transcode always preempts a background render.
 - **When renders happen** (never on a request path):
-  - **On look save:** each channel's `ident`, `offair` and `break`, and for personal looks a viewer-agnostic `welcome`.
+  - **On style save:** each channel's `ident`, `offair` and `break`, and for personal styles a viewer-agnostic `welcome`.
   - **On reel upload:** each clip is converted once with the pre-roll pipeline (`prerolls/media.go` profile, plus loudness normalization to −23 LUFS when on, scaled to the live resolution, and segmented to 4 s TS and fMP4). It reuses the pre-roll limits: 3 minutes per clip, 500 MB per upload, plus a 5 GB reel budget set in **More options**.
   - **In `maintain()`** (every 30 s, per node): `upnext`, `back` and `tonight` for programmes in the next 3 h on channels watched in the last 2 h; the next 24 h for channels marked "Always ready"; personal moments for viewers active in the last 7 days.
 - **Cache.** An LRU like `overlays/cache.go`, at `<data>/cache/onair`. The default budget is 2 GB, set in **More options**. Clips referenced by the next 3 h of any watched channel are pinned. A 6 s clip is about 3 MB at 1080p.
@@ -789,14 +690,14 @@ live Signal frames + PCM (non-repeating) ▶ │ (frame sync)  │ raw  │ (one
 
 - **`look_draft`** (route `/livetv/look`).
   - Input: a prompt, plus a channel summary (top genres, decades, sample titles, block names).
-  - Output: look tokens (family, palette roles, type pairing from installed faces, energy, textures, tagline, on-air words).
+  - Output: style tokens (family, palette roles, type pairing from installed faces, energy, textures, tagline, on-air words).
   - It is validated: palette contrast, known faces, a 40-character tagline. Then it is rendered into the stage.
   - One retry with the validation error, as `collections/generate.go` does.
 - **`channel_draft`** (route `/livetv/describe`).
-  - Prompt → `Channel` with blocks, sources (smart filters, collections, TMDB lists), timezone, alignment, and an optional look draft.
+  - Prompt → `Channel` with blocks, sources (smart filters, collections, TMDB lists), timezone, alignment, and an optional style draft.
   - Previewed through the existing `/livetv/preview`.
 - **Loglines and block names** are generated once per title and language into `onair_copy` when a clip is first planned, never at render time. Without a language model, the TMDB overview is used, trimmed to one sentence.
-- **MCP coverage:** `livetv_look_draft` and `livetv_channel_draft` (read); `livetv_look_save`, `livetv_channel_look` and `livetv_channel_create` (write proposals); `livetv_pack_export` (returns a console link). The tool counts in `builtin_test.go` and `app/mcp_test.go` are bumped. Ask Ether suggestions for `/livetv` gain "Give Nocturne a late-night look".
+- **MCP coverage:** `livetv_look_draft` and `livetv_channel_draft` (read); `livetv_look_save`, `livetv_channel_look` and `livetv_channel_create` (write proposals); `livetv_pack_export` (returns a console link). The tool counts in `builtin_test.go` and `app/mcp_test.go` are bumped. Ask Ether suggestions for `/livetv` gain "Give Nocturne a late-night style".
 - **Announcer voice** (Phase 5) needs a speech-synthesis client on the one Language model integration (`config.LLM.Speech*`). It is off by default and generated once per clip text.
 
 ---
@@ -832,7 +733,7 @@ shipped in packs, and none of it runs code.
   - Eases: `linear`, `in`, `out`, `inOut`, `back`, `elastic`, `spring`.
   - The energy token scales the overshoot and the amplitude of the `back`, `elastic` and `spring` eases, plus behaviours.
 - **Behaviours:** `typewriter`, `flicker`, `wiggle`, `bounce`, `glint`, `chroma`, `drift`, `pop`, `squash`. Each has a few typed parameters and is seeded and deterministic.
-- **Post effects:** `grain`, `scanlines`, `vignette` and `flicker`, driven by the look's texture tokens.
+- **Post effects:** `grain`, `scanlines`, `vignette` and `flicker`, driven by the style's texture tokens.
 - **Blend modes:** `normal`, `multiply`, `screen`, `overlay`. **Filters:** Gaussian `blur` and `glow`.
 - **Validation:** a JSON Schema at `schemas/onair-scene.v1.json` plus the §4.6 cost estimate. Unknown fields are rejected.
 - **Fixed size:** documents are 1920×1080. Other resolutions are rendered by scaling.
@@ -847,13 +748,13 @@ designs, rebuilt as documents.
 Bugs use title safe: 10% inset on every edge (192/108 at 1080p, 128/72 at 720p).
 Medium occupies 288×100 reference pixels; small is 75%, large 130%. Wordmarks
 use the display face, weight 600 and two pixels of tracking. Channel artwork
-precedes look artwork. Monochrome uses alpha for transparent artwork, luminance
+precedes style artwork. Monochrome uses alpha for transparent artwork, luminance
 for opaque artwork (inverted for light backing), and a faint soft shadow.
-The mask, raster and compact YUV planes are prepared once per channel/look/size;
+The mask, raster and compact YUV planes are prepared once per channel/style/size;
 frame ticks only alpha-blend compact bounds with a scalar fade.
 Scene image `tintBlend: "silhouette"` colours the alpha mask; the TS preparer uses
 the same alpha/luminance rule. Missing artwork falls back to a wordmark.
-Break and look boundaries use 500ms smoothstep ramps. Credit fades use prepared
+Break and style boundaries use 500ms smoothstep ramps. Credit fades use prepared
 media chapters whose names include “credit”; without cues the bug stays visible.
 Lower thirds stay within title safe with dark-to-transparent panels and a shared
 fade envelope. Idents retain their family design with 400ms boundary fades.
@@ -882,7 +783,7 @@ total:
 - Noto Sans.
 
 Noto Sans CJK is downloaded on demand into `<data>/tools/fonts` the first time
-a look renders CJK text. The console loads the same files through
+a style renders CJK text. The console loads the same files through
 `GET /ether/api/onair/fonts/{id}`. It is the first font loading in the console,
 and it's scoped to the On Air screens. Licences are listed in
 `THIRD_PARTY_NOTICES.md`.
@@ -901,7 +802,7 @@ drift.
 
 - **Server:** a 6 s 1080p30 clip renders in 6 s or less with 4 workers on the HYPERV03 production box. On the Mac lab: 1.5× real time or better.
 - **No request path renders or reads a template.** `Duration()` is served from memory.
-- **Tune with a cached ident:** first frame within 1 s, measured in the perf harness. Channels without a look don't regress against today.
+- **Tune with a cached ident:** first frame within 1 s, measured in the perf harness. Channels without a style don't regress against today.
 
 ---
 
@@ -909,7 +810,7 @@ drift.
 
 - **Package:** the normal `.etherpkg` (`manifest.json` plus files, with a digest).
 - **Runtime.** The new `ether.runtime.kind: "data"` has no entry or module, and nothing is executed. `Validate` allows it only when the manifest contributes nothing but `looks`, `families`, `reels` and `virtualChannels`.
-- **Permissions.** None are required. The install permission sheet reads "Adds channels and looks. Runs no code."
+- **Permissions.** None are required. The install permission sheet reads "Adds channels and styles. Runs no code."
 - **Contributions:**
 
   ```jsonc
@@ -930,11 +831,11 @@ drift.
   - Collections are exported as their smart rules (`core.Filter`). Hand-picked collections become fixed lists.
   - Viewers, policies, numbers, favourites, history and source credentials are never exported.
 - **Install:** `PreviewInstall` renders the §3.7 preview. `Install` creates records through `livetv_pack_links`, like `plugin_collection_links`.
-- **Updates:** when an update arrives, pack-owned fields are replaced and owner fields (number, enabled, viewers, favourite, chosen look) are kept.
+- **Updates:** when an update arrives, pack-owned fields are replaced and owner fields (number, enabled, viewers, favourite, chosen style) are kept.
 - **Undo:** installs and updates go into the undo journal, as `collections.upsert` does.
-- **Make it mine:** copies the record into an owner record with no link. Used looks, families and reels are copied with it.
+- **Make it mine:** copies the record into an owner record with no link. Used styles, families and reels are copied with it.
 - **Export:** `POST /ether/api/onair/packs/export` streams a `.etherpkg` built by a new `kit.PackData`, which shares digest code with `kit.Pack`. Packs share through the Marketplace by the existing route: a signed catalogue entry pointing at a GitHub release. **Share to Marketplace** in the export drawer is a later addition.
-- **Families from packs** appear in the new-look chooser with the pack badge.
+- **Families from packs** appear in the new-style chooser with the pack badge.
 - **Dynamic content** (weather, headlines, scores) comes from code plugins, not packs. See §7a.
 
 ---
@@ -948,8 +849,8 @@ as normal JSON; dynamic plugin segment scheduling remains independent.
 
 User-authored plugins can feed live content into virtual channels. A weather
 plugin, for example, can put a two-minute forecast on the :58 of every hour, in
-the channel's own look. The code lives in Studio, where Ether's only code editor
-is; the channel and the look stay no-code.
+the channel's own style. The code lives in Studio, where Ether's only code editor
+is; the channel and the style stay no-code.
 
 ### What a plugin can contribute
 
@@ -962,8 +863,8 @@ runtime. A plugin can contribute either or both of these:
 2. **Segments:** whole programme pieces, such as "Local forecast · 2 min" or "Top headlines · 1 min".
    - A segment is a scene document (§5), shipped as a file in the plugin package, plus the feed it binds to.
    - Its duration is fixed and declared in the manifest (a multiple of 4 s), so `Schedule` stays pure.
-   - Segment templates are written against look tokens (`{accent}`, `{type.display}`, `{bg}`), so one weather plugin automatically matches Nocturne, Meridian and BLORP!.
-   - Owners can restyle a segment per look in the Layers tab, like any built-in moment, and **Reset moment** returns it to the plugin's version.
+   - Segment templates are written against style tokens (`{accent}`, `{type.display}`, `{bg}`), so one weather plugin automatically matches Nocturne, Meridian and BLORP!.
+   - Owners can restyle a segment per style in the Layers tab, like any built-in moment, and **Reset moment** returns it to the plugin's version.
 
 ```jsonc
 "ether": {
@@ -1000,9 +901,9 @@ Data never reaches a request path.
 - **Channel Schedule tab.** A block's programming source picker gains a **From plugins** group, for example "Local forecast · Weather · 2 min". Owners place a segment:
   - in a block (a "News at 6" block made of segments);
   - on a repeating clock slot, using new **On the clock** rows: "Local forecast at :58 every hour, 6 am to 11 pm";
-  - inside breaks, through the Look tab's **During breaks** choices (Look's break screen, Clips from a reel, Plugin segments).
-- **Look drawer.** Installed plugin segments appear in the moments filmstrip after the built-in moments, marked with the plugin's icon. They preview with the plugin's live feed values, or its sample values before the first fetch. Feed fields appear in the Layers binding picker.
-- **Studio.** New starter templates **Channel segment** and **Data for channel graphics**. Studio's preview pane uses the same `Stage` component, so a builder sees their segment playing in a real channel's look on real data while they write it ("Make me a weather segment for Toronto" → a forecast playing in Nocturne's look within a minute). Install lands on the channel Schedule tab with the segment highlighted.
+  - inside breaks, through the Style tab's **During breaks** choices (Style's break screen, Clips from a reel, Plugin segments).
+- **Style drawer.** Installed plugin segments appear in the moments filmstrip after the built-in moments, marked with the plugin's icon. They preview with the plugin's live feed values, or its sample values before the first fetch. Feed fields appear in the Layers binding picker.
+- **Studio.** New starter templates **Channel segment** and **Data for channel graphics**. Studio's preview pane uses the same `Stage` component, so a builder sees their segment playing in a real channel's style on real data while they write it ("Make me a weather segment for Toronto" → a forecast playing in Nocturne's style within a minute). Install lands on the channel Schedule tab with the segment highlighted.
 - **Plugins page.** The plugin's drawer lists where its segments air ("Nocturne 7, hourly at :58"). Uninstalling asks first and names those channels. Their slots fall back to filler.
 
 ### Safety and limits
@@ -1019,9 +920,9 @@ mock-server handlers in `web/src/mock/livetv.ts`.
 
 | Route | Purpose |
 | --- | --- |
-| `GET/POST /onair/looks`, `GET/PUT/DELETE /onair/looks/{id}` | Look CRUD. `PUT` triggers background renders. |
+| `GET/POST /onair/looks`, `GET/PUT/DELETE /onair/looks/{id}` | Style CRUD. `PUT` triggers background renders. |
 | `GET /onair/families` | Built-in and pack families, with their documents. |
-| `POST /onair/looks/{id}/duplicate`, `POST /onair/looks/{id}/detach` | Duplicate a look; Make it mine. |
+| `POST /onair/looks/{id}/duplicate`, `POST /onair/looks/{id}/detach` | Duplicate a style; Make it mine. |
 | `GET /onair/bindings?channel&at&viewer&moment` | Resolved slot values for previews (titles, times, reasons, artwork URLs). |
 | `POST /onair/clips/render` (`look, moment, channel, at, viewer`) | Renders one real clip on demand and returns an HLS URL: the **Render real clip** button. |
 | `GET/POST/DELETE /onair/assets[/{digest}]` | Asset upload (multipart, with progress like pre-rolls), serving and delete. |
@@ -1045,12 +946,12 @@ There's no new viewer route; viewers see results through their apps.
   - `Stage.tsx` (canvas, transport, filmstrip, hit testing), `Timeline.tsx`
   - `LookTab.tsx` (channel drawer), `RecipeTab.tsx`
   - `renderer.ts` (WASM loader with an `OffscreenCanvas` worker), `model.ts` (the `onair` API client).
-- **Stage rendering** runs in a Web Worker with `OffscreenCanvas`, so scrubbing never blocks React. Tiles share one worker and render stills on idle, caching them by look hash in memory.
-- **Drafts:** `useDraft(saved)` for the look. Every edit is a pure document patch, which gives undo/redo for free (a patch stack). `useUnsavedGuard` covers drawer close.
+- **Stage rendering** runs in a Web Worker with `OffscreenCanvas`, so scrubbing never blocks React. Tiles share one worker and render stills on idle, caching them by style hash in memory.
+- **Drafts:** `useDraft(saved)` for the style. Every edit is a pure document patch, which gives undo/redo for free (a patch stack). `useUnsavedGuard` covers drawer close.
 - **Motion and accessibility:** AppKit motion tokens for UI chrome. `prefers-reduced-motion` stops tile autoplay and keeps the stage paused at the poster frame until Play. Keyboard: space, ←/→, ⇧←/→ (1 s), K (keyframe), ⌘D (duplicate layer), Delete.
 - **Navigation:**
   - Live TV's Go descriptor sections (`internal/app/extend_console.go` `consolePages()`) gain `looks`.
-  - `settings-index.ts` and `sitemap.ts` gain Looks and Personal channel entries.
+  - `settings-index.ts` and `sitemap.ts` gain Styles and Personal channel entries.
   - Ask Ether suggestions are added for `/livetv/looks`.
 - **New AppKit pieces (AppKit first):** `ColorPicker` (popover), `PaletteEditor` (role swatches), and `Timeline` primitives if they're generic enough. They are upstreamed to `appkit-ui` and consumed from the release.
 - **Review:** screenshots for every new surface at 1440×900, light and dark, plus 390 px, against the mock console. The tiles and the stage are also recorded as short videos for the owner. Owner screenshot approval comes **before** deep build (the Studio rule).
@@ -1073,13 +974,13 @@ Each phase ships on its own and leaves Ether better than it was.
 | Phase | Scope | Exit criteria |
 | --- | --- | --- |
 | **0 · Spike** (1 week) | `raster` with paths, gradients, text, blur and blend; one family as a document; Go render benchmark; WASM build in a throwaway stage. | §6.3/§6.4 gates measured on HYPERV03 and the Mac lab. Go/no-go on WASM ([§13](#13-owner-decisions-needed), decision 4). |
-| **1 · Looks foundation** | `onair` package, built-in Clean family plus the five reel families, look CRUD, render cache, **continuous channel output** (§4.5: switcher, shared encoders, fan-out, renditions, DVR window), ident and off-air as switcher inputs, Looks sub-tab plus gallery, look drawer Design tab, channel Look tab (Ident, Off-air). | Looked off-air plays on HLS and DASH. Tune-to-first-frame ≤ 1 s with an ident. Owner screenshot approval. |
-| **2 · Moments** | Interstitials in `Schedule` (gap and inserted), guide coalescing, `upnext`/`back`/`break`/`tonight`, **break reels** (upload, conversion, reel drawer, break contents in the Look tab), Layers tab, Assets tab, Describe a look, DASH clip encode. | Guide IDs stable in gap mode. 24 h soak on the lab with no stalls. Owner approval of the designer. |
+| **1 · Styles foundation** | `onair` package, built-in Clean family plus the five reel families, style CRUD, render cache, **continuous channel output** (§4.5: switcher, shared encoders, fan-out, renditions, DVR window), ident and off-air as switcher inputs, Styles sub-tab plus gallery, style drawer Design tab, channel Style tab (Ident, Off-air). | Looked off-air plays on HLS and DASH. Tune-to-first-frame ≤ 1 s with an ident. Owner screenshot approval. |
+| **2 · Moments** | Interstitials in `Schedule` (gap and inserted), guide coalescing, `upnext`/`back`/`break`/`tonight`, **break reels** (upload, conversion, reel drawer, break contents in the Style tab), Layers tab, Assets tab, Describe a style, DASH clip encode. | Guide IDs stable in gap mode. 24 h soak on the lab with no stalls. Owner approval of the designer. |
 | **2b · Signal screens** | Signal family (card, static, bars, brb, testcard) with synthesized audio; owner default and per-channel pickers; off-air styles; can't-play screens with a continuous-output switcher (decoder → Go frame sync → one long-lived encoder) so a stalled, failed or recovering source never interrupts the stream on HLS, DASH or HTTP; background retry inside the connection limit. | Provider outage simulated on the lab: Apple TV, Plex Web and Android show the screen with sound and then the real feed, with no discontinuity, spinner or reconnect; continuity and real-decoder tests green; the account limit never exceeded; per-session cost measured on the lab and HYPERV03. Owner approval of the pickers. |
 | **3 · Personal channels** | `PersonalPicker`, recipe tab, rundowns, on-demand cursor, `welcome`, watchlist trailers in breaks, viewer profile row, per-viewer lineup naming. | Tested on two viewers on Apple TV and Plex Web, with policy-filter checks. |
-| **4 · Packs and describe-a-channel** | `data` runtime, contributions, links, export drawer, install preview, Make it mine, `channel_draft` describer. | Export → import round-trip on a second server reproduces the channel and look. |
-| **4b · Plugin content** | `onair_content` capability, feeds and segments contributions, `onair_feed_values`, segment placement (blocks, On the clock, breaks), binding picker, Studio templates and stage preview, one sample weather plugin built in Studio. | A Studio-built weather plugin airs hourly in two different looks on the lab, survives a feed outage without stalling, and uninstalls cleanly. |
-| **5 · Extras** | Corner logo and lower thirds (alpha overlay through the transcode chain), offline black/silence break-point analysis enabling "Inside programmes", announcer voice, viewing impact on the look drawer. | Burn-in only when allowed; impact numbers are truthful. |
+| **4 · Packs and describe-a-channel** | `data` runtime, contributions, links, export drawer, install preview, Make it mine, `channel_draft` describer. | Export → import round-trip on a second server reproduces the channel and style. |
+| **4b · Plugin content** | `onair_content` capability, feeds and segments contributions, `onair_feed_values`, segment placement (blocks, On the clock, breaks), binding picker, Studio templates and stage preview, one sample weather plugin built in Studio. | A Studio-built weather plugin airs hourly in two different styles on the lab, survives a feed outage without stalling, and uninstalls cleanly. |
+| **5 · Extras** | Corner logo and lower thirds (alpha overlay through the transcode chain), offline black/silence break-point analysis enabling "Inside programmes", announcer voice, viewing impact on the style drawer. | Burn-in only when allowed; impact numbers are truthful. |
 
 v0.3.4 already ships the plain off-air card, so Phase 1 starts from a working slate path.
 
@@ -1087,10 +988,10 @@ v0.3.4 already ships the plain off-air card, so Phase 1 starts from a working sl
 
 ## 11. Tests (lasting ones only, per the test budget)
 
-- **Schedule determinism with interstitials:** two overlapping windows return the same programmes. Gap mode leaves real programme IDs unchanged. Coalesced guide equals the guide without a look in gap mode.
+- **Schedule determinism with interstitials:** two overlapping windows return the same programmes. Gap mode leaves real programme IDs unchanged. Coalesced guide equals the guide without a style in gap mode.
 - **Renderer goldens:** one frame at 3 times for each built-in moment, compared within a perceptual tolerance. These run in Go CI.
 - **WASM parity:** a single Go test that runs `raster` under the same inputs used by the console loader smoke test.
-- **Pack round-trip:** export, install into a fresh store, and the records are equal apart from IDs, numbers and links (looks, channels and reels).
+- **Pack round-trip:** export, install into a fresh store, and the records are equal apart from IDs, numbers and links (styles, channels and reels).
 - **Reel breaks:** the selected clips are the same for overlapping windows, respect the repeat window, and never cut a clip.
 - **Plugin feeds:** malformed or oversized feed output is rejected field by field, and a stale feed past `maxAge` skips its segment without affecting the schedule.
 - **Personal policy:** no pick exceeds the viewer's rating cap or blocked genres, including trailer breaks.
@@ -1114,7 +1015,7 @@ Everything else is verified once by hand and recorded in the acceptance doc.
 
 ## 13. Owner decisions needed
 
-1. **Protected Live TV page.** May I add a **Looks** sub-tab to the aside, a **Look** tab to the virtual channel drawer, and **Look** / **Channel pack** to the Add menu? Nothing else changes. (Recommended: yes.)
+1. **Protected Live TV page.** May I add a **Styles** sub-tab to the aside, a **Style** tab to the virtual channel drawer, and **Style** / **Channel pack** to the Add menu? Nothing else changes. (Recommended: yes.)
 2. **Break placement default.**
    - Recommended: *gaps only*, so the guide never moves. Breaks then need the channel to use alignment; otherwise the Breaks control explains that.
    - Alternative: *insert* slots, so breaks work everywhere but guide times shift a few seconds per programme.
@@ -1141,11 +1042,11 @@ Everything else is verified once by hand and recorded in the acceptance doc.
 This supersedes spec §4.3 where they differ. The JSON names are camelCase and
 identical in Go (`internal/livetv`) and TypeScript (`web/src/pages/livetv/onair/model.ts`).
 
-## Channel.look (`ChannelLook`, optional; null or absent = feature off, byte-identical to today)
+## Channel.style (`ChannelLook`, optional; null follows an explicitly configured default style; no default preserves existing behaviour)
 
 | JSON | Type | Values / default |
 | --- | --- | --- |
-| `lookId` | string | look id |
+| `lookId` | string | style id |
 | `ident` | bool | ident when someone tunes in |
 | `upNext` | bool | up next before each programme |
 | `placement` | string | `gap` (default) \| `insert` |
@@ -1188,7 +1089,7 @@ identical in Go (`internal/livetv`) and TypeScript (`web/src/pages/livetv/onair/
 
 ## Appendix A addition: station bug settings
 
-Optional `Look.bug` and `Channel.look.bug` share this sparse JSON object:
+Optional `Style.bug` and `Channel.look.bug` share this sparse JSON object:
 
 ```json
 {"position":"bottomRight","opacity":0.3,"style":"monochrome","size":"medium","source":"logo","fadeBreaks":true,"fadeCredits":false}
@@ -1197,11 +1098,23 @@ Optional `Look.bug` and `Channel.look.bug` share this sparse JSON object:
 `position`: `topLeft|topRight|bottomLeft|bottomRight`; `opacity`: finite 0.15–0.60;
 `style`: `monochrome|original`; `size`: `small|medium|large`;
 `source`: `logo|wordmark`; fade fields: booleans. Absent fields resolve through
-channel override → look → defaults above. Explicit `false` is preserved.
+channel override → style → defaults above. Explicit `false` is preserved.
 This is additive JSON. Existing records use the new defaults without migration
 or legacy styling. `core.ClipRequest.Bug` carries overrides to background
 preparation; no server configuration setting is added.
 
+### W15 shipped hierarchy and patch contract (2026-11-05)
+
+`config.LiveTV.defaultStyleId` is optional and empty by default. Style records
+add optional `screens` with offAir, noSignal, stationId and applyTo. These are
+JSON additions; no table migration. Live TV reads cached style screens and
+resolves default → channel style → channel screen. No rendering occurs on that
+path. Scene documents retain the §5 schema; manual layer patches change only
+text, fit, size, opacity, x/y and hidden. Animation stays in family documents.
+
+The protected-page addition in §13.1 is named Styles / Style. All unrelated
+Live TV layout remains unchanged. Owner-facing terminology is independent of
+stable API identifiers.
 ### Appendix A addendum: era channels (v0.3.5)
 
 All additions are optional. Absent `Channel.look.breakPattern` retains existing
@@ -1219,14 +1132,14 @@ schedules, guides and Plex behaviour. No core/config schema changes are needed.
 | `podsPerHalfHour` | int | 1–6; frequency ceiling |
 | `inside` | bool | use saved programme break points when available |
 | `noRepeatMinutes` | int | 0–1440; also never repeat a spot inside a pod |
-| `stationId` | bool | add the look's ident after the back bumper |
+| `stationId` | bool | add the style's ident after the back bumper |
 | `bumperStyle` | string | `break-back` |
 | `clockAlignment` | string | `none` or `half` (pod cannot cross half-hour) |
 
 `Item.breakPointsMs`: optional sorted positive integer media offsets in
 milliseconds, strictly before the programme duration. `Moment.assetDigest`:
 optional SHA-256 reference to a video asset; `Moment.crossfade` is an optional
-boolean request for a creative transition. Deletion remains guarded by look
+boolean request for a creative transition. Deletion remains guarded by style
 usage. ReelClip and Asset add optional `source` and `attribution` strings.
 Pending assets also expose `status`, `progress`, `error`; pending clips reuse
 the existing status/progress/error fields, adding `queued` and `downloading`.
@@ -1234,7 +1147,7 @@ The `onair/3` migration adds durable `onair_imports` jobs and asset attribution
 columns. Imports never fetch local files or ship any commercials with Ether.
 
 Console integration components: `BreakPatternEditor` in channel Look › Breaks,
-`LinkImport` in `ReelDrawer` and `AssetsPanel`, and `MomentVideoPicker` for the look
+`LinkImport` in `ReelDrawer` and `AssetsPanel`, and `MomentVideoPicker` for the style
 inspector's selected moment (props `look`, `moment`, `onChange`). All changes use
 the owning drawer/page save bar except import actions, which queue immediately
 like uploads.
