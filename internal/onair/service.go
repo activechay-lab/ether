@@ -530,7 +530,7 @@ func (s *Service) execute(j renderJob) (err error) {
 		previous := s.renderTimes[key]
 		s.renderTimes[key] = max(elapsed, (previous*3+elapsed)/4)
 		s.mu.Unlock()
-		s.o.Logger.Debug("onair master rendered", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed, "cached", err == nil)
+		s.o.Logger.Debug("onair master rendered", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed, "success", err == nil)
 	}()
 	if e := s.loadAssets(ctx, &j); e != nil {
 		return e
