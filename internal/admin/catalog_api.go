@@ -90,8 +90,19 @@ func (h *Handler) handleCatalogBrowse(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	q.Filter.Type = mediaTypeParam(p.Get("type"))
-	q.Filter.Query = strings.TrimSpace(p.Get("q"))
+	if err := decodeCatalogFilter(p.Get("filter"), &q.Filter); err != nil {
+		writeError(w, 400, "invalid_filter", err.Error())
+		return
+	}
+	if p.Has("type") {
+		q.Filter.Type = mediaTypeParam(p.Get("type"))
+	}
+	q.NoTotal = p.Get("noTotal") == "1"
+	q.Filter.LocalOnly = true
+
+	if p.Has("q") {
+		q.Filter.Query = strings.TrimSpace(p.Get("q"))
+	}
 	if genre := p.Get("genre"); genre != "" {
 		q.Filter.Genres = []string{genre}
 	}
@@ -116,13 +127,23 @@ func (h *Handler) handleCatalogBrowse(w http.ResponseWriter, r *http.Request) {
 	}
 	if sort := p.Get("sort"); sort != "" {
 		switch core.SortOrder(sort) {
-		case core.SortPopularity, core.SortRating, core.SortReleased, core.SortAdded, core.SortTitle:
+		case core.SortPopularity, core.SortRating, core.SortReleased, core.SortAdded, core.SortTitle, core.SortYear, core.SortDuration, core.SortUpdated:
 			q.Sort = core.SortOrder(sort)
 			q.Desc = q.Sort != core.SortTitle
 		default:
 			writeValidationError(w, []FieldError{{Field: "sort", Message: "Unknown catalog sort"}})
 			return
 		}
+	}
+	if p.Has("desc") {
+		q.Desc = p.Get("desc") == "1"
+	}
+	if secondary := p.Get("secondarySort"); secondary != "" {
+		if !catalogSortValid(core.SortOrder(secondary)) {
+			writeError(w, 400, "invalid_filter", "Unknown secondary sort")
+			return
+		}
+		q.SecondarySorts = []core.SortSpec{{Sort: core.SortOrder(secondary), Desc: p.Get("secondaryDesc") == "1"}}
 	}
 	for _, field := range []string{"offset", "limit"} {
 		if raw := p.Get(field); raw != "" {
@@ -138,12 +159,39 @@ func (h *Handler) handleCatalogBrowse(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	page, err := browser.BrowseTitles(r.Context(), q)
+	if p.Get("countOnly") == "1" {
+		if c, ok := h.deps.CatalogHelper.(interface {
+			ConsoleCount(context.Context, core.Filter) (int, bool, error)
+		}); ok {
+			total, pending, err := c.ConsoleCount(r.Context(), q.Filter)
+			if err != nil {
+				h.writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, 200, map[string]any{"total": total, "pending": pending, "totalExact": !pending})
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	requestedLimit := q.Limit
+	if q.NoTotal {
+		q.Limit++
+	} // one lookahead row; counts run separately
+	page, err := browser.BrowseTitles(ctx, q)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": cardsFor(page.Items), "total": page.Total})
+	hasMore := q.Offset+len(page.Items) < page.Total
+	if q.NoTotal {
+		hasMore = len(page.Items) > requestedLimit
+		if hasMore {
+			page.Items = page.Items[:requestedLimit]
+		}
+		page.Total = q.Offset + len(page.Items)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": cardsFor(page.Items), "total": page.Total, "totalExact": !q.NoTotal, "hasMore": hasMore})
 }
 
 // ImageProxy serves TMDB artwork by path at the TMDB size covering w.
@@ -242,6 +290,19 @@ func (h *Handler) handleCatalogFacets(w http.ResponseWriter, r *http.Request) {
 	if facet == "" {
 		writeValidationError(w, []FieldError{{Field: "facet", Message: "facet is required"}})
 		return
+	}
+	if q.Get("deferred") == "1" {
+		if c, ok := h.deps.CatalogHelper.(interface {
+			ConsoleFacets(context.Context, core.MediaType, string) ([]core.FacetValue, bool, error)
+		}); ok {
+			vals, pending, err := c.ConsoleFacets(r.Context(), mediaTypeParam(q.Get("type")), facet)
+			if err != nil {
+				writeError(w, 400, "invalid_filter", "Unknown facet")
+				return
+			}
+			writeJSON(w, 200, map[string]any{"values": vals, "pending": pending})
+			return
+		}
 	}
 	vals, err := h.deps.CatalogHelper.Facets(r.Context(), mediaTypeParam(q.Get("type")), facet)
 	if err != nil {

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/admin"
 	"github.com/braedonsaunders/ether/internal/config"
@@ -99,5 +101,52 @@ func TestCatalogBrowseWaitingFilter(t *testing.T) {
 	q = helper.queries[1]
 	if q.Filter.Type != core.TypeMovie || q.Filter.IncludeKeys == nil || len(q.Filter.IncludeKeys) != 0 {
 		t.Fatalf("empty waiting: %+v", q)
+	}
+}
+
+func TestCatalogAdvancedBrowse(t *testing.T) {
+	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
+	helper := &browseHelper{}
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), CatalogHelper: helper})
+	filter := `{"type":"movie","minRating":7,"yearFrom":1990,"yearTo":1999,"maxRuntime":7200000000000,"minVotes":500,"group":{"operator":"or","children":[{"filter":{"genres":["Thriller"]}},{"unwatched":true,"userId":3}]}}`
+	rec := serve(h, authed(req(http.MethodGet, "/ether/api/catalog/browse?filter="+url.QueryEscape(filter)+"&noTotal=1&secondarySort=title&desc=0", "")))
+	if rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	q := helper.queries[0]
+	if !q.NoTotal || q.Limit != 49 || q.Desc || !q.Filter.LocalOnly || q.Filter.MaxRuntime != 2*time.Hour || q.Filter.MinVotes != 500 || q.Filter.Group.Children[1].UserID != 3 || len(q.SecondarySorts) != 1 {
+		t.Fatalf("query: %+v", q)
+	}
+	var body struct {
+		TotalExact bool `json:"totalExact"`
+		HasMore    bool `json:"hasMore"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.TotalExact || body.HasMore {
+		t.Fatalf("bad progressive state: %+v", body)
+	}
+}
+
+func TestCatalogAdvancedBrowseRejectsInvalidExpressions(t *testing.T) {
+	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
+	helper := &browseHelper{}
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), CatalogHelper: helper})
+	for _, filter := range []string{
+		`{"yearFrom":2000,"yearTo":1990}`, `{"minRating":11}`, `{"maxRuntime":-1}`, `{"type":"episode"}`,
+		`{"CatalogCandidates":true}`, `{"group":{"operator":"xor","children":[{}]}}`,
+		`{"group":{"unwatched":true}}`, `{"credits":[{"kind":"sql"}]}`, `{"releasedFilters":[{"op":"sql"}]}`,
+		`{"group":{"operator":"and","children":[]}}`, `{"group":{"stateField":"viewedLeafCount","stateOperator":">","stateValue":0}}`,
+	} {
+		t.Run(filter, func(t *testing.T) {
+			rec := serve(h, authed(req(http.MethodGet, "/ether/api/catalog/browse?filter="+url.QueryEscape(filter), "")))
+			if rec.Code != 400 {
+				t.Fatalf("%d %s", rec.Code, rec.Body)
+			}
+		})
+	}
+	if len(helper.queries) != 0 {
+		t.Fatal("invalid requests reached SQL")
 	}
 }

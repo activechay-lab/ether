@@ -63,6 +63,7 @@ type FilterGroup struct {
 	ParentOnly       bool          `json:"-"`
 	LastViewedAfter  int64         `json:"lastViewedAfter,omitempty"`
 	LastViewedBefore int64         `json:"lastViewedBefore,omitempty"`
+	OnWatchlist      *bool         `json:"onWatchlist,omitempty"`
 	Unwatched        *bool         `json:"unwatched,omitempty"`
 	InProgress       *bool         `json:"inProgress,omitempty"`
 	UserID           int64         `json:"userId,omitempty"`
@@ -73,6 +74,7 @@ type FilterGroup struct {
 
 // Filter narrows a browse or a smart collection. Zero values mean "any".
 type Filter struct {
+	LocalOnly           bool         `json:"-"` // console filtering never hydrates remote credits on the request path
 	CatalogCandidates   bool         `json:"-"`
 	CatalogViewerID     int64        `json:"-"`
 	CatalogRuleRevision int64        `json:"-"`
@@ -113,6 +115,17 @@ type Filter struct {
 	YearTo                int             `json:"yearTo,omitempty"`
 	Years                 []int           `json:"years,omitempty"`
 	ExcludeYears          []int           `json:"excludeYears,omitempty"`
+	MinVotes              int             `json:"minVotes,omitempty"`
+	MaxVotes              int             `json:"maxVotes,omitempty"`
+	MinPopularity         float64         `json:"minPopularity,omitempty"`
+	MaxPopularity         float64         `json:"maxPopularity,omitempty"`
+	EtherAddedFrom        int64           `json:"etherAddedFrom,omitempty"`
+	EtherAddedTo          int64           `json:"etherAddedTo,omitempty"`
+	Statuses              []string        `json:"statuses,omitempty"`
+	MinSeasons            int             `json:"minSeasons,omitempty"`
+	MaxSeasons            int             `json:"maxSeasons,omitempty"`
+	MinEpisodes           int             `json:"minEpisodes,omitempty"`
+	MaxEpisodes           int             `json:"maxEpisodes,omitempty"`
 	MinRating             float64         `json:"minRating,omitempty"`
 	MaxRating             float64         `json:"maxRating,omitempty"`
 	ExcludeRatings        []float64       `json:"excludeRatings,omitempty"`

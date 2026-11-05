@@ -29,12 +29,12 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	case core.TypeSeason:
 		return c.BrowseStoredSeasons(ctx, q)
 	}
-	if q.Filter.Person > 0 {
+	if !q.Filter.LocalOnly && q.Filter.Person > 0 {
 		c.ensurePersonCredits(ctx, q.Filter.Person)
 	}
 	for _, cf := range q.Filter.Credits {
 		for _, p := range cf.People {
-			if p > 0 {
+			if !q.Filter.LocalOnly && p > 0 {
 				c.ensurePersonCredits(ctx, p)
 			}
 		}
@@ -344,7 +344,7 @@ func browseFilterKey(f core.Filter) string {
 			return ""
 		}
 		if groupHasOwnState(g) {
-			return fmt.Sprintf("state:%d:%v:%v:%d:%d:%v:%s:%s:%d", g.UserID, boolValue(g.Unwatched), boolValue(g.InProgress), g.LastViewedAfter, g.LastViewedBefore, g.ParentOnly, g.StateField, g.StateOperator, g.StateValue)
+			return fmt.Sprintf("state:%d:%v:%v:%d:%d:%v:%s:%s:%d", g.UserID, boolValue(g.Unwatched), boolValue(g.InProgress), g.LastViewedAfter, g.LastViewedBefore, g.ParentOnly, g.StateField, g.StateOperator, g.StateValue) + fmt.Sprintf("|watchlist:%s", boolValue(g.OnWatchlist))
 		}
 		if g.Filter != nil {
 			return fmt.Sprintf("leaf:%v(", g.ParentOnly) + browseFilterKey(*g.Filter) + ")"
@@ -373,7 +373,7 @@ func boolValue(v *bool) string {
 }
 
 func groupHasOwnState(g *core.FilterGroup) bool {
-	return g.StateField != "" || g.Unwatched != nil || g.InProgress != nil || g.LastViewedAfter != 0 || g.LastViewedBefore != 0
+	return g.OnWatchlist != nil || g.StateField != "" || g.Unwatched != nil || g.InProgress != nil || g.LastViewedAfter != 0 || g.LastViewedBefore != 0
 }
 
 func groupHasState(g *core.FilterGroup) bool {
@@ -588,6 +588,35 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 			args = append(args, y)
 		}
 	}
+	for _, bound := range []struct {
+		column, op string
+		value      any
+		active     bool
+	}{
+		{"vote_count", ">=", f.MinVotes, f.MinVotes > 0}, {"vote_count", "<=", f.MaxVotes, f.MaxVotes > 0},
+		{"popularity", ">=", f.MinPopularity, f.MinPopularity > 0}, {"popularity", "<=", f.MaxPopularity, f.MaxPopularity > 0},
+		{"child_count", ">=", f.MinSeasons, f.MinSeasons > 0}, {"child_count", "<=", f.MaxSeasons, f.MaxSeasons > 0},
+		{"leaf_count", ">=", f.MinEpisodes, f.MinEpisodes > 0}, {"leaf_count", "<=", f.MaxEpisodes, f.MaxEpisodes > 0},
+	} {
+		if bound.active {
+			conds = append(conds, "t."+bound.column+bound.op+"?")
+			args = append(args, bound.value)
+		}
+	}
+	if f.EtherAddedFrom > 0 {
+		conds = append(conds, "t.added_at>=?")
+		args = append(args, f.EtherAddedFrom)
+	}
+	if f.EtherAddedTo > 0 {
+		conds = append(conds, "t.added_at<=?")
+		args = append(args, f.EtherAddedTo)
+	}
+	if len(f.Statuses) > 0 {
+		conds = append(conds, "t.status IN ("+placeholders(len(f.Statuses))+")")
+		for _, status := range f.Statuses {
+			args = append(args, status)
+		}
+	}
 	if f.MinRating > 0 {
 		conds = append(conds, "t.rating>=?")
 		args = append(args, f.MinRating)
@@ -722,8 +751,12 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		}
 		predicate := "(" + strings.Join(matches, " OR ") + ")"
 		if cf.Kind != "" {
-			predicate += " AND kind=?"
-			creditArgs = append(creditArgs, cf.Kind)
+			if cf.Kind == "composer" {
+				predicate += " AND kind='crew' AND role='Composer'"
+			} else {
+				predicate += " AND kind=?"
+				creditArgs = append(creditArgs, cf.Kind)
+			}
 		}
 		op := " IN "
 		if cf.Exclude {
