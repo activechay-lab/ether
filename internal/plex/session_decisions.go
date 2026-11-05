@@ -9,6 +9,7 @@ import (
 
 func init() {
 	store.Register("plex_decision_arms", 1, `CREATE TABLE plex_decision_arms(user_id BIGINT NOT NULL,client_id TEXT NOT NULL,session_id TEXT NOT NULL,title_key BIGINT NOT NULL,expires BIGINT NOT NULL,PRIMARY KEY(user_id,client_id,session_id,title_key)); CREATE INDEX plex_decision_arms_expiry ON plex_decision_arms(expires);`)
+	store.Register("plex_decision_arms", 2, `ALTER TABLE plex_decision_arms ADD COLUMN node_id TEXT NOT NULL DEFAULT ''; CREATE INDEX plex_decision_arms_node ON plex_decision_arms(node_id);`)
 	store.RegisterViewerTable("plex_decision_arms", "plex_decision_arms", "user_id", store.ViewerMergeDrop)
 }
 

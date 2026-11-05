@@ -731,6 +731,9 @@ func (s *Server) setTermination(tid, reason string) {
 	if s.terms == nil {
 		s.terms = map[string]termination{}
 	}
+	if current, ok := s.terms[tid]; ok && current.ownerKill && s.now().Sub(current.at) <= terminationTTL {
+		return
+	}
 	s.terms[tid] = termination{reason: reason, at: s.now()}
 }
 

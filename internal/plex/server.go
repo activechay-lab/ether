@@ -335,6 +335,7 @@ func NewServer(d Deps) *Server {
 	if d.ArtworkPalettes != nil {
 		s.ultra = d.ArtworkPalettes
 	}
+	s.clearOwnDecisionArms()
 	s.loadDownloads()
 	s.wg.Add(1)
 	go s.writeDownloads()
@@ -376,6 +377,7 @@ func (s *Server) Close() error {
 
 		s.notifier.close()
 		s.wg.Wait()
+		s.clearOwnDecisionArms()
 		if err := s.saveDownloads(); err != nil {
 			s.log.Warn("persist downloads on close", "err", err)
 		}

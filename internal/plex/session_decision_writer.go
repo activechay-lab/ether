@@ -57,7 +57,7 @@ func (s *Server) writeDecisionArms() {
 			tx, err := s.d.DB.BeginTx(ctx, nil)
 			if err == nil {
 				for _, cmd := range batch {
-					_, err = tx.ExecContext(ctx, `INSERT INTO plex_decision_arms(user_id,client_id,session_id,title_key,expires) VALUES(?,?,?,?,?) ON CONFLICT(user_id,client_id,session_id,title_key) DO UPDATE SET expires=excluded.expires`, cmd.user, cmd.client, cmd.session, cmd.key, cmd.expires)
+					_, err = tx.ExecContext(ctx, `INSERT INTO plex_decision_arms(user_id,client_id,session_id,title_key,expires,node_id) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,client_id,session_id,title_key) DO UPDATE SET expires=CASE WHEN plex_decision_arms.expires>excluded.expires THEN plex_decision_arms.expires ELSE excluded.expires END,node_id=CASE WHEN plex_decision_arms.expires>excluded.expires THEN plex_decision_arms.node_id ELSE excluded.node_id END`, cmd.user, cmd.client, cmd.session, cmd.key, cmd.expires, s.decisionNode())
 					if err != nil {
 						break
 					}
@@ -107,7 +107,7 @@ func (s *Server) refreshDecisionArms(now time.Time) {
 	}
 	defer tx.Rollback()
 	for _, row := range rows {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO plex_decision_arms(user_id,client_id,session_id,title_key,expires) VALUES(?,?,?,?,?) ON CONFLICT(user_id,client_id,session_id,title_key) DO UPDATE SET expires=excluded.expires`, row.user, row.client, row.session, row.key, row.expires); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO plex_decision_arms(user_id,client_id,session_id,title_key,expires,node_id) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,client_id,session_id,title_key) DO UPDATE SET expires=CASE WHEN plex_decision_arms.expires>excluded.expires THEN plex_decision_arms.expires ELSE excluded.expires END,node_id=CASE WHEN plex_decision_arms.expires>excluded.expires THEN plex_decision_arms.node_id ELSE excluded.node_id END`, row.user, row.client, row.session, row.key, row.expires, s.decisionNode()); err != nil {
 			return
 		}
 	}
@@ -116,5 +116,23 @@ func (s *Server) refreshDecisionArms(now time.Time) {
 	}
 	if err = tx.Commit(); err != nil {
 		s.log.Warn("refresh playback decision arms", "err", err)
+	}
+}
+
+func (s *Server) decisionNode() string {
+	if s.cl != nil {
+		return s.cl.self
+	}
+	return "standalone"
+}
+
+func (s *Server) clearOwnDecisionArms() {
+	if s.d.DB == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	defer cancel()
+	if _, err := s.d.DB.ExecContext(ctx, `DELETE FROM plex_decision_arms WHERE node_id=?`, s.decisionNode()); err != nil {
+		s.log.Warn("clear playback decision arms", "err", err)
 	}
 }

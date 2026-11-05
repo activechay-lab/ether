@@ -1,8 +1,11 @@
 package plex
 
 import (
+	"encoding/xml"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plex/model"
+	"github.com/braedonsaunders/ether/internal/store"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -193,6 +196,10 @@ func TestPMSTerminationBlocksOwnerKillsOnly(t *testing.T) {
 	if !f.srv.playbackTerminated(pr) {
 		t.Fatal("notice consumption allowed reopen")
 	}
+	f.srv.setTermination(id, "late source failure")
+	if !f.srv.playbackTerminated(pr) {
+		t.Fatal("late failure erased owner stop")
+	}
 }
 
 // decisionPath preserves the player's session and request options while selecting
@@ -201,4 +208,51 @@ func decisionPath(startPath string) string {
 	path, query, _ := strings.Cut(startPath, "?")
 	i := strings.LastIndex(path, "/")
 	return path[:i+1] + "decision?" + query
+}
+
+func TestPMSDecisionArmsAreProcessScoped(t *testing.T) {
+	db := store.OpenTest(t)
+	f := newFixture(func(d *Deps) { d.DB = db })
+	defer f.srv.Close()
+	pr := &Request{User: &ownerUser, ClientID: "client", SessionID: "play"}
+	f.srv.armDecision(pr, fightClub.Key)
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM plex_decision_arms WHERE node_id='standalone'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("arm not durable: %d %v", n, err)
+	}
+	if _, err := db.Exec(`INSERT INTO plex_decision_arms(user_id,client_id,session_id,title_key,expires,node_id) VALUES(1,'remote','remote',?,?,'other-node')`, fightClub.Key, time.Now().Add(time.Minute).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	f.srv.Close()
+	if err := db.QueryRow(`SELECT count(*) FROM plex_decision_arms`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("process cleanup removed another node or left own arms: %d %v", n, err)
+	}
+}
+
+func TestPMSPlayerIdentityAttributeOrder(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	headers := []string{"X-Plex-Client-Identifier", "identity-client", "X-Plex-Session-Identifier", "identity-session", "X-Plex-Product", "Player Product", "X-Plex-Version", "2.0", "X-Plex-Platform", "Chrome", "X-Plex-Platform-Version", "10", "X-Plex-Device", "Device", "X-Plex-Device-Name", "Living Room", "X-Plex-Model", "Model", "X-Plex-Device-Vendor", "Ignored Vendor", "X-Plex-Client-Profile-Name", "Chrome"}
+	f.get(t, "/:/timeline?ratingKey=1000000000000550&state=playing&time=1000&duration=10000", headers...)
+	rec := f.get(t, "/status/sessions")
+	decoder := xml.NewDecoder(rec.Body)
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			t.Fatalf("missing Player: %v", err)
+		}
+		element, ok := tok.(xml.StartElement)
+		if !ok || element.Name.Local != "Player" {
+			continue
+		}
+		var names []string
+		for _, attr := range element.Attr {
+			names = append(names, attr.Name.Local)
+		}
+		want := []string{"address", "device", "machineIdentifier", "model", "platform", "platformVersion", "product", "profile", "state", "title", "version", "local", "relayed", "secure", "userID"}
+		if !reflect.DeepEqual(names, want) {
+			t.Fatalf("Player attributes %v want %v", names, want)
+		}
+		break
+	}
 }

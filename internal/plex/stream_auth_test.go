@@ -40,6 +40,7 @@ func TestStreamGrantIsolation(t *testing.T) {
 		}
 	}
 	// A viewer cannot replace another viewer's client-chosen session ID.
+	f.get(t, decisionPath(startPath), "X-Plex-Token", friendToken)
 	before := f.playback.prepared
 	rec := f.get(t, startPath, "X-Plex-Token", friendToken)
 	if rec.Code != 403 || f.playback.prepared != before {
@@ -275,6 +276,7 @@ func TestTranscodeSessionPathEscapingCannotCrossSessions(t *testing.T) {
 	defer f.srv.Close()
 	f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts"}
 	// The owner's running stream.
+	f.get(t, "/video/:/transcode/universal/decision?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=a2Fb")
 	if rec := f.get(t, "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=a2Fb"); rec.Code != 200 {
 		t.Fatal(rec.Code, rec.Body.String())
 	}
