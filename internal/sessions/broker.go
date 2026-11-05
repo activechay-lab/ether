@@ -26,7 +26,9 @@ import (
 
 // BrokerDeps are the explicit dependencies shared by all protocol surfaces.
 type BrokerDeps struct {
-	Coordination *Coordination
+	// DistributedHLS is opt-in; unsupported plans stay local before reservation.
+	DistributedHLS DistributedHLS
+	Coordination   *Coordination
 	// MaxPendingStarts bounds active or waiting neutral stream starts.
 	// Zero selects the default; the broker rejects values above 4096.
 	MaxPendingStarts int
@@ -182,6 +184,9 @@ type Broker struct {
 }
 
 func NewBroker(d BrokerDeps) (*Broker, error) {
+	if d.DistributedHLS != nil && d.Transcoder != nil {
+		d.Transcoder = &distributedTranscoder{local: d.Transcoder, remote: d.DistributedHLS}
+	}
 	if d.Lookup == nil || d.Playback == nil || d.ActiveViewer == nil || d.Events == nil || d.CanPlay == nil || d.BitrateLimit == nil || d.Progress == nil || d.OnTimeline == nil {
 		return nil, errors.New("sessions: missing required dependency")
 	}

@@ -173,11 +173,21 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 		return "", core.ErrNotAvailable
 	}
 	b.deps.Transcoder.Stop(id)
-	lease, leaseErr := b.mintEncoderInput(ctx, s.playID)
-	if leaseErr != nil {
-		return "", leaseErr
+	request := core.HLSRequest{RequireIndependentProof: s.public.Protocol == "emby" || s.public.Protocol == "jellyfin", SessionID: id, ReleaseID: ps.SourceReleaseID(), InputURL: b.deps.Playback.InputURL(s.playID), Info: ps.Info, Decision: dec, StartOffset: req.Position, SegmentDuration: req.SegmentDuration, Protocol: proto}
+	var hs core.HLSSession
+	var lease core.EncoderInputLease
+	if remote := b.deps.DistributedHLS; remote != nil && remote.Supports(request) {
+		hs, err = remote.StartDistributedHLS(context.WithoutCancel(ctx), viewer.ID, s.playID, sourceRevision(ps), request)
+	} else {
+		var leaseErr error
+		lease, leaseErr = b.mintEncoderInput(ctx, s.playID)
+		if leaseErr != nil {
+			return "", leaseErr
+		}
+		request.InputLease = lease
+		hs, err = b.deps.Transcoder.StartHLS(context.WithoutCancel(ctx), request)
 	}
-	hs, err := b.deps.Transcoder.StartHLS(context.WithoutCancel(ctx), core.HLSRequest{RequireIndependentProof: s.public.Protocol == "emby" || s.public.Protocol == "jellyfin", SessionID: id, ReleaseID: ps.SourceReleaseID(), InputURL: b.deps.Playback.InputURL(s.playID), InputLease: lease, Info: ps.Info, Decision: dec, StartOffset: req.Position, SegmentDuration: req.SegmentDuration, Protocol: proto})
+
 	if err != nil || hs == nil {
 		if lease != nil {
 			lease.SealInput()
