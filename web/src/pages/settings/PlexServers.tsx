@@ -13,39 +13,14 @@ import { ErrorPanel, MutationError } from "../../components/feedback";
 import { Field, SecretInput } from "../../components/fields";
 import { IntegrationAppCard } from "../../components/IntegrationAppCard";
 import { PlexMark } from "../../components/integration-brands";
-import { IntegrationTab } from "../../components/IntegrationTab";
+import { useLocation } from "react-router-dom";
 import { SettingsRow } from "../../components/SettingsRow";
 import { t, tn } from "../../i18n";
 import { formatDateTime } from "../../lib/format";
 import { api, apiFetch } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 
-interface PMSMapping {
-  accountId: number;
-  accountName: string;
-  owner: boolean;
-  userId: number;
-  direction: number;
-  interval: number;
-  canSend: boolean;
-  lastImport: number;
-  lastSend: number;
-  nextSync: number;
-  problem: string;
-  unmatched: number;
-}
-
-interface PMSServer {
-  id: number;
-  name: string;
-  url: string;
-  machineId: string;
-  version: string;
-  owner: string;
-  checkedAt: number;
-  problem: string;
-  viewers: PMSMapping[];
-}
+import { listPlexServers, type PMSServer } from "../../lib/plex-servers";
 
 interface PMSAccount {
   id: number;
@@ -74,9 +49,6 @@ type MappingDraft = {
 };
 
 const INTERVALS = [5, 10, 30, 60];
-
-const listPlexServers = (signal?: AbortSignal) =>
-  apiFetch<PMSServer[]>("/plex-servers", { signal });
 
 function problemText(code: string): string {
   switch (code) {
@@ -165,14 +137,15 @@ export function PlexServersCard({
   disabled: boolean;
   onToggle: (next: boolean) => void;
 }) {
-  const servers = useAsync((signal) => listPlexServers(signal), []);
+  const { pathname } = useLocation();
+  const servers = useAsync((signal) => listPlexServers(signal), [pathname]);
   const list = servers.data ?? [];
   const attention = list.some((s) => s.problem || s.viewers.some((v) => v.problem));
   return (
     <IntegrationAppCard
-      identity={{ id: "plexservers", name: t("Plex Media Servers") }}
+      identity={{ id: "plexservers", name: t("Plex watch sync") }}
       logo={<PlexMark />}
-      description={t("Keep watched marks in step with Plex Media Servers you run.")}
+      description={t("Sync watched marks with other Plex Media Servers you run alongside Ether.")}
       enabled={enabled}
       busy={busy || servers.loading}
       disabled={disabled || !!servers.error}
@@ -191,22 +164,15 @@ export function PlexServersCard({
         )
       }
       configureHref="/services/plexservers"
-      configureLabel={list.length ? t("Manage Plex Media Servers") : t("Set up Plex Media Servers")}
+      configureLabel={list.length ? t("Manage Plex watch sync") : t("Set up Plex watch sync")}
     />
   );
 }
 
 /** Integrations › Plex Media Servers: server-to-server watch sync. */
-export function PlexServers({
-  enabled,
-  disabled,
-  onToggle,
-}: {
-  enabled: boolean;
-  disabled: boolean;
-  onToggle: (next: boolean) => void;
-}) {
-  const servers = useAsync((signal) => listPlexServers(signal), []);
+export function PlexServers({ enabled }: { enabled: boolean }) {
+  const { pathname } = useLocation();
+  const servers = useAsync((signal) => listPlexServers(signal), [pathname]);
   const viewers = useAsync(() => api.viewers(), []);
   const [server, setServer] = useState<ServerDraft | null>(null);
   const [mapping, setMapping] = useState<MappingDraft | null>(null);
@@ -372,15 +338,7 @@ export function PlexServers({
   const list = servers.data;
   const canSend = mapping ? mapping.account.owner || mapping.hasToken || !!mapping.token : false;
   return (
-    <IntegrationTab
-      id="plexservers"
-      name={t("Plex Media Servers")}
-      enabled={enabled}
-      disabled={disabled}
-      onToggle={onToggle}
-      href="/viewers"
-      usage={t("Each Plex account is matched to one viewer above.")}
-    >
+    <div className="space-y-5">
       <SettingsSection
         description={t(
           "Add a Plex Media Server you run, then choose which of its people match which viewers. Watched and unwatched marks, and resume points sent to Plex, follow each person's direction. Nothing syncs for people you don't match.",
@@ -394,7 +352,7 @@ export function PlexServers({
               setServer({ name: "", url: "", token: "" });
             }}
           >
-            {t("Add a Plex Media Server")}
+            {t("Add server")}
           </Button>
         }
       >
@@ -527,7 +485,7 @@ export function PlexServers({
         onClose={() => {
           if (!busy) setServer(null);
         }}
-        title={server?.id ? t("Edit Plex Media Server") : t("Add a Plex Media Server")}
+        title={server?.id ? t("Edit Plex Media Server") : t("Add server")}
         footer={
           <div className="flex w-full justify-between gap-2">
             {server?.id ? (
@@ -759,6 +717,6 @@ export function PlexServers({
           </div>
         ) : null}
       </Drawer>
-    </IntegrationTab>
+    </div>
   );
 }

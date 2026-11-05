@@ -3844,7 +3844,16 @@ export function createFakeServer(opts: FakeOptions = {}) {
           accountMatch: true,
         };
         const action = seg[3];
-        if (!action && method === "GET") return json(cur);
+        if (!action && method === "GET")
+          return json({
+            ...cur,
+            eligibility: "unsupported",
+            problem: "unsupported",
+            direction: 0,
+            importInterval: 10,
+            skipped: 0,
+            held: 0,
+          });
         if (action === "pin" && !seg[4] && method === "POST") {
           const next = {
             ...cur,

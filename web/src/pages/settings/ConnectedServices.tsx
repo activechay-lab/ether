@@ -63,7 +63,6 @@ const TAB_ORDER: ServiceTab[] = [
   "tmdb",
   "trakt",
   "simkl",
-  "plexservers",
   "llm",
   "opensubtitles",
   "ratings",
@@ -84,19 +83,14 @@ export function integrationTabs(
     tmdb: "TMDB",
     trakt: "Trakt",
     simkl: "Simkl",
-    plexservers: t("Plex Media Servers"),
+    plexservers: t("Plex watch sync"),
     llm: t("Language model"),
     opensubtitles: "OpenSubtitles",
     ratings: t("Ratings"),
     introdb: "TheIntroDB",
   };
   return TAB_ORDER.filter(
-    (key) =>
-      key === "overview" ||
-      key === "tmdb" ||
-      key === "introdb" ||
-      key === "plexservers" ||
-      enabled[key],
+    (key) => key === "overview" || key === "tmdb" || key === "introdb" || enabled[key],
   ).map((key) => ({
     key,
     label: labels[key],
@@ -132,7 +126,7 @@ const SERVICES: Service[] = localized(() => [
     configKey: "plexServers",
     endpoint: "plexservers",
     flag: "enabled",
-    label: t("Plex Media Servers"),
+    label: t("Plex watch sync"),
     groups: [],
   },
   {
@@ -481,6 +475,8 @@ export function ConnectedServices({
       skipSetupOffer.current = false;
       return;
     }
+    // The server registry is a drawer route, not a service tab.
+    if (requested === "plexservers") return;
     const key = TAB_ORDER.find((item) => item === requested);
     if (key && enabled[key]) return;
     navigate("/services/overview", { replace: true });
@@ -967,20 +963,21 @@ export function ConnectedServices({
           </div>
         );
       })}
-      {tab === "plexservers" || visited.has("plexservers") ? (
-        <div hidden={tab !== "plexservers"}>
-          <PlexServers
-            enabled={cfg?.plexServers?.enabled ?? true}
-            disabled={locked}
-            onToggle={(next) =>
-              void toggleService(
-                SERVICES.find((s) => s.tab === "plexservers")!,
-                next,
-              )
-            }
-          />
-        </div>
-      ) : null}
+      <Drawer
+        open={requested === "plexservers"}
+        onClose={() => navigate("/services/overview")}
+        title={
+          <span className="block whitespace-normal">
+            {t("Sync watch state with your Plex servers")}
+          </span>
+        }
+        description={t("Sync watched marks with other Plex Media Servers you run alongside Ether.")}
+        size="xl"
+      >
+        {requested === "plexservers" ? (
+          <PlexServers enabled={cfg?.plexServers?.enabled ?? true} />
+        ) : null}
+      </Drawer>
       {tab === "ratings" || visited.has("ratings") ? (
         <div hidden={tab !== "ratings"}>
           <IntegrationTab
