@@ -208,7 +208,10 @@ func TestDASHDecisionUnselectedAudioIsNotASegment(t *testing.T) {
 func TestStartDASH(t *testing.T) {
 	f, dt := dashFixture()
 	defer f.srv.Close()
-	rec := f.get(t, "/video/:/transcode/universal/start.mpd?"+dashQuery+"&offset=62.5", "X-Plex-Product", "Plex Web", "X-Plex-Platform", "Chrome")
+	headers := []string{"X-Plex-Product", "Plex Web", "X-Plex-Platform", "Chrome", "X-Plex-Client-Profile-Extra", "add-transcode-target(type=videoProfile&context=streaming&protocol=dash&container=mp4&videoCodec=h264&audioCodec=aac)"}
+	startPath := "/video/:/transcode/universal/start.mpd?" + dashQuery + "&offset=62.5"
+	f.get(t, decisionPath(startPath), headers...)
+	rec := f.get(t, startPath, headers...)
 	if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/dash+xml" || rec.Body.String() != `<MPD session="web-1"/>` {
 		t.Fatalf("start.mpd: %d %q %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
 	}
@@ -244,13 +247,13 @@ func TestStartDASH(t *testing.T) {
 
 	// A repeated start (Plex Web after a seek) keeps the session: the MPD
 	// covers the whole title.
-	f.get(t, "/video/:/transcode/universal/start.mpd?"+dashQuery+"&offset=600")
+	f.get(t, "/video/:/transcode/universal/start.mpd?"+dashQuery+"&offset=600", headers...)
 	if len(dt.stopped) != 0 || dt.session("web-1") != d {
 		t.Fatalf("session restarted: %v", dt.stopped)
 	}
 	// A new decision request means new settings: the next start restarts.
-	f.get(t, "/video/:/transcode/universal/decision?"+dashQuery)
-	f.get(t, "/video/:/transcode/universal/start.mpd?"+dashQuery+"&offset=600")
+	f.get(t, "/video/:/transcode/universal/decision?"+dashQuery, headers...)
+	f.get(t, "/video/:/transcode/universal/start.mpd?"+dashQuery+"&offset=600", headers...)
 	if len(dt.stopped) != 1 || dt.session("web-1") == d || dt.session("web-1").req.StartOffset != 600*time.Second {
 		t.Fatalf("restart after decision: %v", dt.stopped)
 	}

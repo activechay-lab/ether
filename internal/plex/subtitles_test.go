@@ -1023,7 +1023,7 @@ func TestSubtitleChoiceSurvivesVariantReorder(t *testing.T) {
 	assertSpanishSRT("/library/metadata/" + key)
 	assertSpanishSRT("/library/metadata/" + partID)
 
-	dec := f.get(t, "/video/:/transcode/universal/decision?path=/library/metadata/"+key+"&directPlay=1&directStream=1&protocol=hls&session=reorder-sub", appleTV...)
+	dec := f.get(t, "/video/:/transcode/universal/decision?path=/library/metadata/"+key+"&mediaIndex=0&directPlay=1&directStream=1&protocol=hls&session=reorder-sub", appleTV...)
 	if dec.Code != http.StatusOK {
 		t.Fatalf("decision: %d %s", dec.Code, dec.Body.String())
 	}
