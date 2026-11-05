@@ -61,6 +61,7 @@ type renderJob struct {
 }
 type Service struct {
 	resources string
+	reelReady map[string]bool
 	o         Options
 	db        *sql.DB
 	mu        sync.Mutex
@@ -95,7 +96,7 @@ func New(o Options) (*Service, error) {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 16), ctx: ctx, cancel: cancel}
+	s := &Service{reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 16), ctx: ctx, cancel: cancel}
 	if e := s.seed(ctx); e != nil {
 		cancel()
 		return nil, e
@@ -109,6 +110,7 @@ func New(o Options) (*Service, error) {
 		s.looks[l.ID] = l
 	}
 	s.loadCache()
+	s.loadReels()
 
 	s.resumeConversions()
 	for _, l := range ls {
@@ -159,7 +161,14 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	d, custom := l.Documents[r.Moment]
 	var e error
 	if !custom {
-		d, e = families.Get(f, r.Moment)
+		moment := r.Moment
+		if f == "personal" && moment == "offair" {
+			moment = "welcome"
+		}
+		d, e = families.Get(f, moment)
+		if e == nil {
+			d.Moment = r.Moment
+		}
 	}
 	if e != nil {
 		return renderJob{}, false

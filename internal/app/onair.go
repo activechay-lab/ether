@@ -8,6 +8,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/llm"
 	"github.com/braedonsaunders/ether/internal/onair"
+	"github.com/braedonsaunders/ether/internal/transcode"
 	"image"
 	"path/filepath"
 	"strconv"
@@ -33,6 +34,9 @@ func (a *App) buildOnAir() error {
 		}
 	}
 	if a.transcoder != nil {
+		o.Acquire = func(ctx context.Context) (context.Context, func(), error) {
+			return a.transcoder.AcquireTranscodeSlot(ctx, transcode.SlotBackground)
+		}
 		o.FFmpeg = a.transcoder.FFmpegPath
 		o.Probe = a.transcoder.Probe
 		o.WorkingSize = func() (int, int) {

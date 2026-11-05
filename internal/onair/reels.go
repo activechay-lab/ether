@@ -142,6 +142,9 @@ func (s *Service) DeleteReel(ctx context.Context, id string) error {
 	e = tx.Commit()
 	if e == nil {
 		for _, c := range r.Clips {
+			s.mu.Lock()
+			delete(s.reelReady, c.ID)
+			s.mu.Unlock()
 			os.Remove(filepath.Join(s.o.Dir, "reel-"+c.ID+".mp4"))
 		}
 	}
@@ -324,6 +327,9 @@ func (s *Service) convertClip(ctx context.Context, reel string, c ReelClip) (err
 	if err = os.Rename(tmp, out); err != nil {
 		return err
 	}
+	s.mu.Lock()
+	s.reelReady[c.ID] = true
+	s.mu.Unlock()
 	c.Status = "ready"
 	c.Progress = 100
 	return s.clipProgress(ctx, reel, c)
@@ -398,10 +404,29 @@ func (s *Service) DeleteClip(ctx context.Context, reel, id string) error {
 		if c.ID == id {
 			_, e = s.db.ExecContext(ctx, "DELETE FROM onair_reel_clips WHERE reel_id=? AND id=?", reel, id)
 			if e == nil {
+				s.mu.Lock()
+				delete(s.reelReady, c.ID)
+				s.mu.Unlock()
 				os.Remove(filepath.Join(s.o.Dir, "reel-"+c.ID+".mp4"))
 			}
 			return e
 		}
 	}
 	return ErrNotFound
+}
+
+func (s *Service) loadReels() {
+	rs, e := s.Reels(s.ctx)
+	if e != nil {
+		return
+	}
+	for _, r := range rs {
+		for _, c := range r.Clips {
+			if c.Status == "ready" {
+				if st, e := os.Stat(filepath.Join(s.o.Dir, "reel-"+c.ID+".mp4")); e == nil && st.Size() > 0 {
+					s.reelReady[c.ID] = true
+				}
+			}
+		}
+	}
 }
