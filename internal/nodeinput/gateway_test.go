@@ -463,3 +463,138 @@ func TestCapabilityParsingAndFailedAdmission(t *testing.T) {
 		t.Fatal("failed open did not retire")
 	}
 }
+
+func TestRenewalHistoryAndRevokedWorkerRetry(t *testing.T) {
+	t.Run("revoked-before-worker-retry", func(t *testing.T) {
+		f := setup(t)
+		enc := &encoder{t: t, in: f.in}
+		calls := 0
+		w, err := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Boot: "wb", Capacity: 8, MaxLease: time.Minute, Encoder: enc,
+			Security: remotetranscode.Security{Authenticate: func(*http.Request) (string, error) { return "cb", nil }, Authorize: func(context.Context, string, string, remotetranscode.Identity, *remotetranscode.Start) error {
+				return nil
+			}},
+			Resolve: func(context.Context, string, remotetranscode.Start) (remotetranscode.Source, error) {
+				return remotetranscode.Source{Gateway: f.in}, nil
+			},
+			ValidateRenewal: func(ctx context.Context, _ string, _ remotetranscode.Start, n remotetranscode.Renewal) (remotetranscode.RenewalReceipt, error) {
+				evidence, e := f.in.Renew(ctx, n, func(_ context.Context, old nodesource.Grant) (nodesource.Grant, error) {
+					calls++
+					next := old
+					next.Credential = "renewed"
+					next.Expires = time.Now().Add(50 * time.Second)
+					f.a.mu.Lock()
+					f.a.grants[next.Credential] = next
+					f.a.mu.Unlock()
+					return next, nil
+				})
+				if e != nil {
+					if evidence.InputLease != nil {
+						t.Fatal("error returned historical evidence")
+					}
+					return remotetranscode.RenewalReceipt{}, e
+				}
+				// Source authority disappears before placement validation/worker acceptance.
+				f.a.mu.Lock()
+				delete(f.a.grants, "renewed")
+				f.a.mu.Unlock()
+				return remotetranscode.RenewalReceipt{}, errors.New("placement rejected after source extension")
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer w.Close()
+		if out := rpc(t, w, f, "start", nil); out.Code != 200 {
+			t.Fatal(out.Code)
+		}
+		n := remotetranscode.Renewal{Identity: f.start.Identity, Operation: 1, PreviousDeadline: f.start.Expires.UTC(), Deadline: time.Now().Add(40 * time.Second).UTC()}
+		if out := rpc(t, w, f, "renew", &n); out.Code != 403 {
+			t.Fatal(out.Code)
+		}
+		if out := rpc(t, w, f, "renew", &n); out.Code != 403 {
+			t.Fatal("revoked replay supplied stale evidence", out.Code)
+		}
+		if calls != 1 {
+			t.Fatal("successful replay performed another extension")
+		}
+		out := rpc(t, w, f, "status", nil)
+		var state struct{ Lease remotetranscode.LeaseState }
+		if e := json.Unmarshal(out.Body.Bytes(), &state); e != nil {
+			t.Fatal(e)
+		}
+		if state.Lease.Version != 0 || !state.Lease.Deadline.Equal(f.start.Expires) {
+			t.Fatal("source extension manufactured worker acceptance")
+		}
+	})
+	t.Run("operation-history", func(t *testing.T) {
+		f := setup(t)
+		calls := 0
+		authority := func(_ context.Context, old nodesource.Grant) (nodesource.Grant, error) {
+			calls++
+			next := old
+			next.Credential = old.Credential + "x"
+			next.Expires = old.Expires.Add(10 * time.Second)
+			f.a.mu.Lock()
+			f.a.grants[next.Credential] = next
+			f.a.mu.Unlock()
+			return next, nil
+		}
+		n1 := remotetranscode.Renewal{Identity: f.start.Identity, Operation: 1, PreviousDeadline: f.start.Expires.UTC(), Deadline: f.start.Expires.Add(5 * time.Second).UTC()}
+		if _, e := f.in.Renew(context.Background(), n1, authority); e != nil {
+			t.Fatal(e)
+		}
+		n2 := remotetranscode.Renewal{Identity: n1.Identity, Operation: 2, PreviousVersion: 1, PreviousDeadline: n1.Deadline, Deadline: n1.Deadline.Add(5 * time.Second)}
+		changed := n2
+		changed.PreviousDeadline = changed.PreviousDeadline.Add(time.Nanosecond)
+		if _, e := f.in.Renew(context.Background(), changed, authority); e == nil {
+			t.Fatal("wrong prior deadline admitted")
+		}
+		if _, e := f.in.Renew(context.Background(), n2, authority); e != nil {
+			t.Fatal(e)
+		}
+		changed = n2
+		changed.Deadline = changed.Deadline.Add(time.Nanosecond)
+		for _, n := range []remotetranscode.Renewal{n1, n2, changed} {
+			evidence, e := f.in.Renew(context.Background(), n, authority)
+			if e == nil || evidence.InputLease != nil {
+				t.Fatal("historical/changed replay admitted")
+			}
+		}
+		if calls != 2 || !equalRenewal(*f.in.renewal, n2) {
+			t.Fatal("rejected replay mutated source history")
+		}
+	})
+	t.Run("concurrent-validation-and-stop", func(t *testing.T) {
+		f := setup(t)
+		entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+		n := remotetranscode.Renewal{Identity: f.start.Identity, Operation: 1, PreviousDeadline: f.start.Expires.UTC(), Deadline: f.start.Expires.Add(time.Second).UTC()}
+		go func() {
+			defer close(finished)
+			evidence, e := f.in.Renew(context.Background(), n, func(c context.Context, old nodesource.Grant) (nodesource.Grant, error) {
+				close(entered)
+				<-release
+				return nodesource.Grant{}, c.Err()
+			})
+			if e == nil || evidence.InputLease != nil {
+				t.Error("stopped renewal returned evidence")
+			}
+		}()
+		<-entered
+		_, e := f.in.Renew(context.Background(), n, func(context.Context, nodesource.Grant) (nodesource.Grant, error) {
+			t.Error("concurrent authority invoked")
+			return nodesource.Grant{}, ErrDenied
+		})
+		if e == nil {
+			t.Fatal("concurrent operation admitted")
+		}
+		f.in.SealInput()
+		if f.g.Reconcile().Pending != 1 {
+			t.Fatal("blocked authority producer forgotten")
+		}
+		close(release)
+		<-finished
+		if f.g.Reconcile().Pending != 0 {
+			t.Fatal("renewal did not drain")
+		}
+	})
+}

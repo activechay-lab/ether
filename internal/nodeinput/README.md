@@ -55,9 +55,15 @@ Returned `RenewalEvidence` echoes the exact request, identity, handle, Scope, si
 SourceUntil and lease for composing `ValidateRenewal`. Placement must be separately
 verified using its authoritative clock and skew policy. Successful source extension
 can outlive rejected worker acceptance or stop and is never evidence of worker
-CAS acceptance. Exact latest source-renewal replay reuses successful evidence;
-concurrent duplicate validators may do redundant authority work and converge or
-fail closed through Reader's compare-and-swap. No raw expiry setter/source swap/
+CAS acceptance. Successful source-operation replays fail closed: historical evidence
+is never returned as current source authority. Reconcile the worker's accepted
+history after uncertainty; if the source operation succeeded but worker acceptance
+did not, retire the generation. Source-validation replay support is unavailable.
+Only one renewal validates at a time; contention returns an error without waiting.
+Operation/version and preceding deadline must match source history exactly; lower
+or changed same-operation payloads fail before authority work. A failed attempt
+can retry its exact payload using fresh authority. Commit rechecks the captured
+Reader, history and seal after external validation. No raw expiry setter/source swap/
 encoder start is available. Parent owns schedule, worker renewal and reconciliation.
 
 Limitations: host still supplies authority, stable-handle lookup, placement and

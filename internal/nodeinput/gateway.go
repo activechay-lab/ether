@@ -61,6 +61,9 @@ type Input struct {
 	sealed, claimed, complete bool
 	callback                  func(error)
 	renewal                   *remotetranscode.Renewal
+	attempt                   *remotetranscode.Renewal
+	renewing                  bool
+	initialDeadline           time.Time
 	sourceUntil               time.Time
 }
 
@@ -121,7 +124,7 @@ func (g *Gateway) Admit(ctx context.Context, s remotetranscode.Start, grant node
 	}
 	key := hex.EncodeToString(random[:])
 	life, cancel := context.WithCancel(context.Background())
-	in := &Input{g: g, id: s.Identity, handle: s.Grant, scope: grant.Scope, size: size, key: key, ctx: life, cancel: cancel, done: make(chan struct{})}
+	in := &Input{g: g, id: s.Identity, handle: s.Grant, scope: grant.Scope, size: size, key: key, initialDeadline: s.Expires, ctx: life, cancel: cancel, done: make(chan struct{})}
 	in.url = "http://" + g.listener.Addr().String() + "/input/" + key
 	g.mu.Lock()
 	if g.closed || len(g.entries) >= g.o.Capacity {
@@ -258,27 +261,39 @@ type RenewalEvidence struct {
 
 // Renew may conservatively extend source authority even if stop or worker CAS
 // later rejects acceptance. It never attests worker acceptance or placement.
-// Concurrent validators may perform redundant authority work: exact successful
-// latest replays converge on the same evidence; stale/different requests fail
-// closed via Reader.Renew. There is no automatic renewal loop.
+// One operation may validate at a time; contention fails closed without waiting.
+// Successful source operations are never replayed as current authority evidence:
+// if worker acceptance is uncertain, reconcile worker history. If unaccepted,
+// retire this generation; source-validation replay is deliberately unsupported.
+// Failed attempts may retry only their exact payload against fresh authority.
 func (in *Input) Renew(ctx context.Context, n remotetranscode.Renewal, authority func(context.Context, nodesource.Grant) (nodesource.Grant, error)) (RenewalEvidence, error) {
 	g := in.g
 	g.mu.Lock()
-	if in.sealed || in.reader == nil || n.Identity != in.id || authority == nil || n.Operation == 0 || n.PreviousVersion == ^uint64(0) || n.Operation != n.PreviousVersion+1 || !n.Deadline.After(n.PreviousDeadline) {
+	if in.sealed || in.reader == nil || in.renewing || ctx.Err() != nil || n.Identity != in.id || authority == nil || n.Operation == 0 || n.PreviousVersion == ^uint64(0) || n.Operation != n.PreviousVersion+1 || !n.Deadline.After(n.PreviousDeadline) {
 		g.mu.Unlock()
 		return RenewalEvidence{}, ErrDenied
 	}
-	if in.renewal != nil && equalRenewal(*in.renewal, n) && time.Now().Before(in.sourceUntil) {
-		evidence := in.evidence(n)
+	previous := in.renewal
+	version, deadline := uint64(0), in.initialDeadline
+	if previous != nil {
+		version, deadline = previous.Operation, previous.Deadline
+	}
+	// Strict history includes the exact preceding deadline. A Reader bearer CAS
+	// alone cannot fence remote operation versions or changed retry payloads.
+	if n.PreviousVersion != version || !n.PreviousDeadline.Equal(deadline) || (in.attempt != nil && n.Operation <= in.attempt.Operation && !equalRenewal(*in.attempt, n)) {
 		g.mu.Unlock()
-		return evidence, nil
+		return RenewalEvidence{}, ErrDenied
 	}
 	end, ok := in.tracker.Begin()
-	reader := in.reader
-	g.mu.Unlock()
 	if !ok {
+		g.mu.Unlock()
 		return RenewalEvidence{}, ErrDenied
 	}
+	attempt := n
+	in.attempt = &attempt
+	in.renewing = true
+	reader := in.reader
+	g.mu.Unlock()
 	defer end()
 	combined, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(in.ctx, cancel)
@@ -295,15 +310,18 @@ func (in *Input) Renew(ctx context.Context, n remotetranscode.Renewal, authority
 	})
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if !in.sealed && in.reader == reader && in.renewal != nil && equalRenewal(*in.renewal, n) && time.Now().Before(in.sourceUntil) {
-		return in.evidence(n), nil
-	}
-	if err != nil || in.sealed || in.reader != reader {
+	in.renewing = false
+	if err != nil || in.sealed || in.reader != reader || in.renewal != previous {
 		return RenewalEvidence{}, ErrDenied
 	}
+	// Record successful source history even if caller cancellation means we cannot
+	// issue evidence. Its source mutation cannot safely be forgotten or replayed.
 	accepted := n
 	in.renewal = &accepted
 	in.sourceUntil = until
+	if combined.Err() != nil {
+		return RenewalEvidence{}, ErrDenied
+	}
 	return in.evidence(n), nil
 }
 
