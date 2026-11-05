@@ -33,6 +33,8 @@ type sample struct {
 }
 
 func main() {
+	input := flag.String("input", "", "master input for stream batch")
+	budget := flag.Int("bitrate", 3000, "continuous session total bitrate kbps")
 	batch := flag.String("batch", "signal", "signal, families, overlay or one")
 	family := flag.String("family", "late-night", "family for one")
 	moment := flag.String("moment", "ident", "moment for one")
@@ -45,6 +47,14 @@ func main() {
 	flag.Parse()
 	if *width != 1920 && *width != 1280 {
 		panic("width must be 1920 or 1280")
+	}
+	if *batch == "stream" {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer cancel()
+		if err := streamSample(ctx, *input, *out, *width, *seconds, *budget); err != nil {
+			panic(err)
+		}
+		return
 	}
 	if *batch == "plates" {
 		if err := plates(*out); err != nil {
