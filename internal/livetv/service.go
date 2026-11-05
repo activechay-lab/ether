@@ -325,6 +325,9 @@ func itemFromTitle(t core.Title) Item {
 	return Item{Key: t.Key, Title: t.Title, DurationMS: t.Runtime.Milliseconds(), Summary: t.Summary, Rating: t.ContentRating, Thumb: t.PosterPath, ShowKey: t.ShowKey, Season: t.Season, Episode: t.Episode, ReleasedMS: released}
 }
 func (s *Service) expand(ctx context.Context, c *Channel) error {
+	if c.Personal != nil {
+		return nil
+	}
 	items, err := s.resolveProgramming(ctx, c.Items, c.Collection, c.Filter, c.Sources, c.Watched)
 	if err != nil {
 		return err
@@ -534,6 +537,9 @@ func blocksOverlap(a, b Block) bool {
 }
 
 func validateChannel(c *Channel) error {
+	if err := validatePersonal(*c); err != nil {
+		return err
+	}
 	c.Name = strings.TrimSpace(c.Name)
 	c.Number = strings.TrimSpace(c.Number)
 	if c.Name == "" || c.Number == "" || len(c.Name) > 200 || len(c.Number) > 32 {
@@ -707,6 +713,13 @@ func (s *Service) allowed(ctx context.Context, u *core.User, c Channel, p *Progr
 	var lookup func(context.Context, core.RatingKey) (*core.Title, error)
 	if s.o.Catalog != nil {
 		lookup = s.o.Catalog.Get
+		if c.Personal != nil {
+			if cached, ok := s.o.Catalog.(interface {
+				CachedGet(context.Context, core.RatingKey) (*core.Title, error)
+			}); ok {
+				lookup = cached.CachedGet
+			}
+		}
 	}
 	return s.allowedWithLookup(ctx, u, c, p, lookup, false)
 }

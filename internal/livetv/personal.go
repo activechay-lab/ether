@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/core"
+	"math"
 	"strings"
 	"time"
 )
@@ -123,4 +124,41 @@ func (s *Service) viewerGuide(ctx context.Context, c Channel, from, until time.T
 		return s.broadcastGuide(s.guideChannel(ctx, c), from, until)
 	}
 	return s.viewerSchedule(ctx, c, from, until)
+}
+
+// ChannelForViewer resolves channel identity for metadata after guide filtering.
+func (s *Service) ChannelForViewer(ctx context.Context, u *core.User, id string) (Channel, error) {
+	c, err := s.Channel(ctx, id)
+	if err != nil {
+		return c, err
+	}
+	c = s.personalChannel(ctx, c, u)
+	if !s.allowed(ctx, u, c, nil) {
+		return Channel{}, core.ErrNotFound
+	}
+	return c, nil
+}
+
+func validatePersonal(c Channel) error {
+	r := c.Personal
+	if r == nil {
+		return nil
+	}
+	if c.Kind != "virtual" {
+		return fmt.Errorf("personal recipe requires a virtual channel")
+	}
+	if len(r.Ingredients) > 32 || r.RepeatHours < 0 || r.RepeatHours > 720 || r.MaxShowShare < 0 || r.MaxShowShare > 100 || r.NightMaxMinutes < 0 || r.NightMaxMinutes > 1440 || len(r.NameFormat) > 200 {
+		return fmt.Errorf("invalid personal recipe limits")
+	}
+	for _, i := range r.Ingredients {
+		switch i.Kind {
+		case "continue", "nextEpisodes", "picked", "watchlist", "comfort", "newReleases", "collections":
+		default:
+			return fmt.Errorf("unknown personal ingredient %q", i.Kind)
+		}
+		if math.IsNaN(i.Share) || math.IsInf(i.Share, 0) || i.Share < 0 || i.Share > 100 || len(i.Collections) > 100 {
+			return fmt.Errorf("invalid ingredient share or collections")
+		}
+	}
+	return nil
 }

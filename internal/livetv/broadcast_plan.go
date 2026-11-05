@@ -3,6 +3,7 @@ package livetv
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -107,6 +108,9 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 			var err error
 			attempt, cancel := context.WithTimeout(ctx, virtualAttemptBudget)
 			group := "broadcast-" + c.ID
+			if c.Personal != nil {
+				group += "-viewer-" + strconv.FormatInt(p.user.ID, 10)
+			}
 			if grouped, ok := p.s.o.Playback.(core.ChannelPreparer); ok {
 				ps, err = grouped.PrepareChannel(attempt, &p.user, candidate.Item.Key, p.caps, group)
 			} else {

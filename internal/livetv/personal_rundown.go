@@ -154,7 +154,7 @@ func composePersonal(c Channel, old []Programme, picks []core.PersonalPick, now 
 			continue
 		}
 		pick := picks[best]
-		it := itemFromTitle(*pick.Title)
+		it := personalItem(*pick.Title)
 		end := at.Add(time.Duration(it.DurationMS) * time.Millisecond)
 		out = append(out, Programme{ID: fmt.Sprintf("%s-%d", c.ID, at.UnixMilli()), ChannelID: c.ID, Start: at, End: end, Item: it, Reason: pick.Reason, Lens: lens})
 		last[it.Key] = at
@@ -224,6 +224,13 @@ func (s *Service) buildPersonal(ctx context.Context, c Channel, u *core.User) er
 			safe = append(safe, p)
 		}
 	}
+	// Picking may wait for the home model. Freeze against the clock after
+	// that wait, so the next thirty minutes cannot move during a slow build.
+	if c.Personal.PauseWhenAway {
+		cursor = s.personalCursor(k, cursor, s.o.Now())
+	} else {
+		cursor = s.o.Now().UnixMilli()
+	}
 	ps := composePersonal(c, old.programmes, safe, time.UnixMilli(cursor))
 	b, err := json.Marshal(ps)
 	if err != nil {
@@ -272,18 +279,7 @@ func (s *Service) personalProgrammes(ctx context.Context, c Channel, u *core.Use
 	shift := time.Duration(0)
 	if c.Personal.PauseWhenAway {
 		cursor := r.cursor
-		s.personalMu.Lock()
-		if clock := s.personalClocks[personalKey{u.ID, c.ID}]; clock != nil {
-			cursor = clock.cursor
-			if clock.active && s.o.Now().After(clock.welcomeUntil) {
-				start := clock.at
-				if clock.welcomeUntil.After(start) {
-					start = clock.welcomeUntil
-				}
-				cursor += s.o.Now().Sub(start).Milliseconds()
-			}
-		}
-		s.personalMu.Unlock()
+		cursor = s.personalCursor(personalKey{u.ID, c.ID}, cursor, s.o.Now())
 		shift = time.Duration(s.o.Now().UnixMilli()-cursor) * time.Millisecond
 	}
 	for _, p := range r.programmes {
@@ -397,7 +393,7 @@ func (s *Service) advancePersonal(now time.Time) {
 		}
 		clock.active = active[k]
 		clock.at = now
-		_, _ = s.o.DB.ExecContext(s.ctx, `UPDATE livetv_personal SET cursor_ms=? WHERE viewer_id=? AND channel_id=?`, clock.cursor, k.viewer, k.channel)
+		_, _ = s.o.DB.ExecContext(s.ctx, `UPDATE livetv_personal SET cursor_ms=?,away_ms=? WHERE viewer_id=? AND channel_id=?`, clock.cursor, now.UnixMilli(), k.viewer, k.channel)
 	}
 }
 
@@ -420,7 +416,10 @@ func (s *Service) beginPersonal(c Channel, u *core.User) {
 	if clock == nil {
 		var away int64
 		_ = s.o.DB.QueryRowContext(s.ctx, `SELECT away_ms FROM livetv_personal WHERE viewer_id=? AND channel_id=?`, u.ID, c.ID).Scan(&away)
-		clock = &personalClock{cursor: r.cursor, timeAway: time.UnixMilli(away)}
+		clock = &personalClock{cursor: r.cursor}
+		if away > 0 {
+			clock.timeAway = time.UnixMilli(away)
+		}
 		s.personalClocks[k] = clock
 	}
 	if clock.active {
@@ -517,4 +516,32 @@ func (s *Service) PersonalChanged(viewer int64) {
 		s.personalDirty = map[int64]uint64{}
 	}
 	s.personalDirty[viewer]++
+}
+
+func personalItem(t core.Title) Item {
+	it := itemFromTitle(t)
+	it.MediaType = string(t.Type)
+	it.Genres = t.Genres
+	it.Art = t.BackdropPath
+	it.ShowTitle = t.ShowTitle
+	if t.Type == core.TypeEpisode {
+		it.EpisodeTitle = t.Title
+	}
+	return it
+}
+
+func (s *Service) personalCursor(k personalKey, cursor int64, now time.Time) int64 {
+	s.personalMu.Lock()
+	defer s.personalMu.Unlock()
+	if clock := s.personalClocks[k]; clock != nil {
+		cursor = clock.cursor
+		if clock.active && now.After(clock.welcomeUntil) {
+			start := clock.at
+			if clock.welcomeUntil.After(start) {
+				start = clock.welcomeUntil
+			}
+			cursor += now.Sub(start).Milliseconds()
+		}
+	}
+	return cursor
 }

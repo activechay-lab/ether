@@ -309,6 +309,9 @@ func liveProgrammeMetadata(c livetv.Channel, p livetv.Programme) model.Metadata 
 		mediaType = "movie"
 	}
 	md := model.Metadata{RatingKey: p.ID, Key: liveProviderPath + "/metadata/" + url.PathEscape(p.ID), GUID: "ether://livetv/" + p.ID, Type: mediaType, Title: p.Item.Title, Summary: p.Item.Summary, ContentRating: rating, Thumb: p.Item.Thumb, Duration: dur, Media: []model.Media{{ID: p.Start.Unix(), Duration: dur, Protocol: "livetv", Extra: []model.Attr{model.A("beginsAt", p.Start.Unix()), model.A("endsAt", p.End.Unix()), model.A("channelIdentifier", c.ID), model.A("channelID", c.ID), model.A("channelTitle", c.Name), model.A("channelCallSign", c.Name), model.A("channelVcn", c.Number), model.A("channelThumb", liveLogo(c)), model.A("gridKey", c.ID)}}}}
+	if p.Lens != "" {
+		md.Summary = p.Lens + "\n\n" + md.Summary
+	}
 	if strings.HasPrefix(p.Item.GUID, "plex://") {
 		md.GUID = p.Item.GUID
 		if p.Item.EpisodeTitle != "" {
@@ -405,7 +408,7 @@ func (s *Server) liveGuideMetadataCapture(r *http.Request, captured *[]livetv.Pr
 	}
 	byID := map[string]livetv.Channel{}
 	if gridKey != "" {
-		c, err := s.d.LiveTV.Channel(r.Context(), gridKey)
+		c, err := s.d.LiveTV.ChannelForViewer(r.Context(), FromContext(r.Context()).User, gridKey)
 		if errors.Is(err, core.ErrNotFound) {
 			return []model.Metadata{}, nil
 		}
@@ -419,6 +422,12 @@ func (s *Server) liveGuideMetadataCapture(r *http.Request, captured *[]livetv.Pr
 			return nil, err
 		}
 		for _, c := range cs {
+			if c.Personal != nil {
+				c, err = s.d.LiveTV.ChannelForViewer(r.Context(), FromContext(r.Context()).User, c.ID)
+				if err != nil {
+					continue
+				}
+			}
 			byID[c.ID] = c
 		}
 	}

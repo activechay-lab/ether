@@ -111,6 +111,9 @@ func (e *Engine) Picks(ctx context.Context, u *core.User, kinds map[string]float
 			if seen[t.Key] || excluded.contains(&t) || t.Adult || !contentrating.Allowed(t.ContentRating, u.MaxContentRating) || (e.opts.Allowed != nil && !e.opts.Allowed(u, &t)) {
 				continue
 			}
+			if t.Runtime > 24*60*60*1000000000 {
+				continue
+			}
 			if t.Type != core.TypeMovie && t.Type != core.TypeEpisode {
 				continue
 			}

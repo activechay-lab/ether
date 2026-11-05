@@ -12,8 +12,8 @@ import (
 
 type personalTestPicker struct{}
 
-func (personalTestPicker) Picks(context.Context, *core.User, map[string]float64, int) ([]core.PersonalPick, error) {
-	return nil, nil
+func (personalTestPicker) Picks(_ context.Context, u *core.User, _ map[string]float64, _ int) ([]core.PersonalPick, error) {
+	return []core.PersonalPick{{Title: &core.Title{Key: core.MovieKey(u.ID), Type: core.TypeMovie, Title: u.Title + " pick", Runtime: time.Hour}, Kind: "picked", Reason: u.Title + " reason", Score: 1}}, nil
 }
 
 func TestPersonalRecomposeFrozenWindow(t *testing.T) {
@@ -43,18 +43,17 @@ func TestPersonalViewersIsolated(t *testing.T) {
 	ctx := context.Background()
 	c := testChannel()
 	c.Items = nil
-	c.Personal = &PersonalRecipe{NameFormat: "{viewer} TV"}
+	c.Personal = &PersonalRecipe{NameFormat: "{viewer} TV", Ingredients: []PersonalIngredient{{Kind: "picked", Share: 100, Enabled: true}}}
 	if _, err := s.SaveChannel(ctx, c); err != nil {
 		t.Fatal(err)
 	}
 	viewers := []core.User{{ID: 1, Title: "Alice"}, {ID: 2, Title: "Bob"}}
-	for i, u := range viewers {
-		p := Programme{ID: fmt.Sprintf("%s-%d", c.ID, now.UnixMilli()), ChannelID: c.ID, Start: now, End: now.Add(time.Hour), Item: Item{Key: core.MovieKey(int64(i + 1)), Title: u.Title + " pick", DurationMS: 3600000}, Reason: u.Title + " reason"}
-		b, _ := json.Marshal([]Programme{p})
-		if _, err := s.o.DB.Exec(`INSERT INTO livetv_personal(viewer_id,channel_id,day,rundown,cursor_ms,built_at) VALUES(?,?,?,?,?,?)`, u.ID, c.ID, "current", b, now.UnixMilli(), now.UnixMilli()); err != nil {
+	for _, u := range viewers {
+		if err := s.buildPersonal(ctx, c, &u); err != nil {
 			t.Fatal(err)
 		}
 	}
+
 	for i := range viewers {
 		u := &viewers[i]
 		cs, err := s.AllowedChannels(ctx, u)
@@ -72,5 +71,39 @@ func TestPersonalViewersIsolated(t *testing.T) {
 	}
 	if cs, err := s.AllowedChannels(ctx, &viewers[1]); err != nil || len(cs) != 0 {
 		t.Fatal("disabled personal channel visible", cs, err)
+	}
+}
+
+func TestPersonalCursorOnlyAdvancesDuringSessions(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	s := testService(t, Options{Picker: personalTestPicker{}, Now: func() time.Time { return now }})
+	c := testChannel()
+	c.Personal = &PersonalRecipe{PauseWhenAway: true}
+	u := &core.User{ID: 7, Title: "Alice"}
+	p := Programme{ID: "p", Start: now, End: now.Add(time.Hour), Item: Item{Key: core.MovieKey(1), Title: "Resume", DurationMS: 3600000}}
+	b, _ := json.Marshal([]Programme{p})
+	if _, err := s.o.DB.Exec(`INSERT INTO livetv_personal(viewer_id,channel_id,day,rundown,cursor_ms,built_at) VALUES(?,?,?,?,?,?)`, u.ID, c.ID, "current", b, now.UnixMilli(), now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	c = s.personalChannel(context.Background(), c, u)
+	s.beginPersonal(c, u)
+	start := now
+	now = now.Add(5 * time.Minute)
+	s.endPersonal(c, u.ID)
+	row, err := s.readPersonal(context.Background(), personalKey{u.ID, c.ID})
+	if err != nil || row.cursor != start.Add(5*time.Minute).UnixMilli() {
+		t.Fatal("watched time not persisted", row.cursor, err)
+	}
+	now = now.Add(time.Hour)
+	ps, err := s.personalProgrammes(context.Background(), c, u, now, now.Add(time.Hour))
+	if err != nil || len(ps) != 1 || ps[0].Offset(now) != 5*time.Minute {
+		t.Fatal("away time advanced rundown", ps, err)
+	}
+	s.beginPersonal(c, u)
+	now = now.Add(2 * time.Minute)
+	s.endPersonal(c, u.ID)
+	row, err = s.readPersonal(context.Background(), personalKey{u.ID, c.ID})
+	if err != nil || row.cursor != start.Add(7*time.Minute).UnixMilli() {
+		t.Fatal("resume time wrong", row.cursor, err)
 	}
 }

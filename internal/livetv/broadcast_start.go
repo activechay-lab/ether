@@ -157,7 +157,7 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 	// Resolve a shared catalogue source as the owner, then enforce every viewer's
 	// channel/title policy again at playlist and segment boundaries.
 	inputUser := user
-	if s.o.InputUser != nil {
+	if c.Personal == nil && s.o.InputUser != nil {
 		owner, err := s.o.InputUser(ctx)
 		if err != nil {
 			return err
@@ -181,7 +181,12 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 		return b, nil
 	}
 	id := "channel-" + c.ID + "-" + strconv.Itoa(outputHeight) + "-" + strconv.Itoa(bitrate)
-	lease, err := s.broadcasts.acquire(ctx, broadcastKey{channelID: c.ID}, id, decision, create)
+	key := broadcastKey{channelID: c.ID}
+	if c.Personal != nil {
+		key.viewerID = user.ID
+		id += "-viewer-" + strconv.FormatInt(user.ID, 10)
+	}
+	lease, err := s.broadcasts.acquire(ctx, key, id, decision, create)
 	if err != nil {
 		return err
 	}
@@ -198,7 +203,11 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 }
 
 func (p *scheduleBroadcastPlanner) introPlan(now time.Time) (broadcastPlan, time.Duration) {
-	c := p.channel
+	c := p.s.personalChannel(p.s.ctx, p.channel, &p.user)
+	if welcome, ok := p.s.personalWelcome(c, now); ok {
+		p.joinAt = welcome.End
+		return p.programme(welcome), welcome.End.Sub(now)
+	}
 	if c.Look == nil || !c.Look.Ident || p.s.o.Graphics == nil {
 		return broadcastPlan{}, 0
 	}
