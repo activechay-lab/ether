@@ -36,6 +36,7 @@ def check(docs, persistent=False):
             assert config['clusterKeyFile'] == '/run/ether/cluster/key'
             assert config['internalAddress'].startswith('https://__ETHER_POD_NAME__.')
             assert config['clockBoundKnown'] is True
+            assert config['ledgerCapacity'] == 1000000
             assert config['tempDir'] == '/scratch/transcode'
     public = next(d for d in docs if d['kind']=='Service' and d['metadata']['name']=='contract-ether')
     assert public['spec']['selector']['ether.plex/public'] == 'true'
@@ -48,7 +49,7 @@ check(render(*common, '--set','cache.type=persistent','--set','networkPolicy.ena
              '--set','ingress.enabled=true','--set','ingress.hosts[0]=ether.example.test'), True)
 check(render(*common, '-f', str(chart.parents[1]/'kubernetes/nvidia.values.yaml')))
 for key,value in [('pools.typo.replicas','1'),('pools.source.bootstrap','true'),('cache.type','shared'),
-                  ('runtime.capacity','0'),('service.port','0'),('secrets.database.existingSecret','')]:
+                  ('runtime.capacity','0'),('runtime.ledgerCapacity','4095'),('runtime.ledgerCapacity','10000001'),('runtime.ledgerCapacity','1.5'),('pools.full.ledgerCapacity','4096'),('service.port','0'),('secrets.database.existingSecret','')]:
     result=subprocess.run([helm,'template','invalid',str(chart),'-f',str(base),'--set',f'{key}={value}'],capture_output=True)
     assert result.returncode, f'accepted invalid {key}'
 print('chart role, identity, secret, probe, policy, GPU, ingress and invalid-value contracts passed')
