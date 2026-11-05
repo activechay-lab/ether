@@ -135,3 +135,43 @@ func TestConsoleYearEmptyGuardRespectsBooleanAlternatives(t *testing.T) {
 		}
 	}
 }
+
+func TestConsoleConjunctionNormalizationPreservesMembership(t *testing.T) {
+	c := largeCatalogue(t, 400)
+	ctx := context.Background()
+	if _, err := c.db.ExecContext(ctx, `UPDATE catalog_titles SET year=1980+(tmdb_id%40),rating=(tmdb_id%100)/10.0,runtime_sec=3600+(tmdb_id%100)*60`); err != nil {
+		t.Fatal(err)
+	}
+	original := core.Filter{Group: &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{
+		{Filter: &core.Filter{YearFrom: 1990, YearTo: 1999}}, {Filter: &core.Filter{MinRating: 5}}, {Filter: &core.Filter{MaxRuntime: 2 * time.Hour}},
+	}}}
+	flat := normalizeConsoleFilter(original)
+	if flat.Group != nil || flat.YearFrom != 1990 || flat.MinRating != 5 {
+		t.Fatalf("not flattened: %+v", flat)
+	}
+	a, err := c.Browse(ctx, core.BrowseQuery{Filter: original, Sort: core.SortTitle, Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := c.Browse(ctx, core.BrowseQuery{Filter: flat, Sort: core.SortTitle, Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Total != b.Total || len(a.Items) != len(b.Items) {
+		t.Fatal("normalization changed membership")
+	}
+	for i := range a.Items {
+		if a.Items[i].Key != b.Items[i].Key {
+			t.Fatal("normalization changed order")
+		}
+	}
+	// Two genre chips mean BOTH genres; flattening their slices would mean OR.
+	conflict := core.Filter{Group: &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{{Filter: &core.Filter{Genres: []string{"Comedy"}}}, {Filter: &core.Filter{Genres: []string{"Drama"}}}}}}
+	if normalizeConsoleFilter(conflict).Group == nil {
+		t.Fatal("conflicting fields were flattened")
+	}
+	original.Group.Operator = "or"
+	if normalizeConsoleFilter(original).Group == nil {
+		t.Fatal("OR was flattened")
+	}
+}

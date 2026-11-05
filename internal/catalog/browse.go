@@ -22,6 +22,9 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	if q.PlaylistSource != nil {
 		return c.browsePlaylist(ctx, q)
 	}
+	if q.Filter.LocalOnly {
+		q.Filter = normalizeConsoleFilter(q.Filter)
+	}
 	q.Filter = c.viewerPaging(ctx, q.Filter)
 	switch q.Filter.Type {
 	case core.TypeEpisode:
