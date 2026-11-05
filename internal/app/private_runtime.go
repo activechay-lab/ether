@@ -268,7 +268,7 @@ func (a *App) privateErrors() <-chan error {
 }
 
 func (a *App) runSpecialist(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	a.bindRestart(ctx, cancel)
 	if err := a.startCluster(ctx); err != nil {
