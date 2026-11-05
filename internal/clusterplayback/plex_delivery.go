@@ -33,7 +33,7 @@ func plexMediaSession(u *url.URL) (string, bool) {
 		return "", false
 	}
 	for _, part := range parts {
-		if part == "." || part == ".." || len(part) > 256 {
+		if part == "." || part == ".." || len(part) > 128 {
 			return "", false
 		}
 		for _, c := range part {
