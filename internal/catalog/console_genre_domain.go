@@ -136,13 +136,14 @@ func (c *Catalog) consoleDomainEmpty(ctx context.Context, f core.Filter) (bool, 
 			}
 		}
 	}
-	// The genre index proves unknown values empty; pair witnesses prove disjoint conjunctions.
+	// Ordered probes keep generic PostgreSQL plans on the covering indexes even
+	// when common genres make an unordered LIMIT look cheap as a sequential scan.
 	for i, left := range genres {
 		args := make([]any, 0, len(left))
 		for _, v := range left {
 			args = append(args, v)
 		}
-		ok, err := exists("SELECT 1 FROM catalog_genres WHERE genre IN("+placeholders(len(left))+")", args...)
+		ok, err := exists("SELECT 1 FROM catalog_genres WHERE genre IN("+placeholders(len(left))+") ORDER BY genre,key", args...)
 		if err != nil || !ok {
 			return !ok, err
 		}
@@ -151,7 +152,7 @@ func (c *Catalog) consoleDomainEmpty(ctx context.Context, f core.Filter) (bool, 
 			for _, v := range right {
 				values = append(values, v)
 			}
-			ok, err := exists("SELECT 1 FROM catalog_genre_pairs WHERE a IN("+placeholders(len(left))+") AND b IN("+placeholders(len(right))+")", values...)
+			ok, err := exists("SELECT 1 FROM catalog_genre_pairs WHERE a IN("+placeholders(len(left))+") AND b IN("+placeholders(len(right))+") ORDER BY a,b,key", values...)
 			if err != nil || !ok {
 				return !ok, err
 			}
