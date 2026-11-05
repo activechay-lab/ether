@@ -65,6 +65,7 @@ The owner has to approve these additions ([§13](#13-owner-decisions-needed)).
 - **Clip:** a rendered moment for specific data: a high-quality H.264/AAC master MP4 at 1080p30, content-addressed and cached per node. Each viewer session plays it through the v0.3.4 slate path, which encodes it to that session's stream contract.
 - **Interstitial:** a schedule entry that plays a clip. It's an `Item` with `Key == 0` and a `Slate` kind.
 - **Personal channel:** a virtual channel with a `Personal` recipe instead of fixed programming. Each viewer gets their own rundown.
+- **Signal screen:** what a channel shows when it is off air or can't be tuned: Modern card, Analogue static, Colour bars, We'll be right back or Test card (§3.4a, §4.9).
 - **Break reel:** a record holding owner-uploaded short videos (commercials, station promos, old ads, anything) that play during a channel's breaks. Ether never generates these. A reel works with or without a look, and many channels can share one.
 - **Channel pack:** a plugin (`.etherpkg`, `runtime: data`) that holds channels, looks, families, reels and assets.
 - **Plugin segment / feed:** a programme piece or a bindable data field supplied by a code plugin's `onair_content` capability (§7a).
@@ -269,6 +270,29 @@ tab, because we don't splice into third-party streams (§12).
 - **"Inside programmes"** is disabled with a one-line ⓘ until Phase 5's break-point analysis exists. It is hidden in Phase 2 if the owner prefers ([§13](#13-owner-decisions-needed), decision 2).
 - **Corner logo ⓘ:** "Needs transcoding. Ether only adds it when the stream is already being converted, unless you choose Always."
 
+### 3.4a Signal screens (off air and can't play)
+
+The owner picks what a channel shows when it is off air, or when it cannot be
+tuned (IPTV provider down, tune failure, connection limit reached, failed
+retune), instead of an error.
+
+**Styles** (each a built-in clip with real audio):
+
+| Style | Picture | Sound |
+| --- | --- | --- |
+| **Modern card** (default) | A clean card in the channel's look; without a look, the v0.3.4 slate card. Says "Back at 6:00 PM", "Reconnecting…" or "Waiting for a free connection". | Silent |
+| **Analogue static** | Old-TV snow, a slow rolling bar, slight horizontal tear. | Hiss with a low mains hum |
+| **Colour bars** | Classic SMPTE-style bars, optional station ID (channel number and name). | 1 kHz tone |
+| **We'll be right back** | A card in the channel's look. | A soft generated bed |
+| **Test card** | An original geometric test card with the channel name. | Silent, or a 1 kHz tone |
+
+The set is open: more styles are scene documents in a built-in "Signal" family (§5), so packs and later releases can add them.
+
+**Where it's set**
+- **Owner default:** in Live TV's existing **Channel options** drawer (`LiveTVOptions.tsx`), a **Screens** section with two pickers: **When a channel is off air** and **When a channel can't play**, plus **Show station ID**.
+- **Per channel:** a **Screens** section in the channel Look tab, with the same two pickers. Each has a first option, **Default (Modern card)**, that names the current owner default. IPTV channels get a Look tab that contains only this section.
+- **The pickers:** a row of 16:9 style cards. Each card plays its own animated preview on hover, with a ▶ button for its sound (muted by default). The selected card has the primary ring. There is one line of ⓘ help per picker.
+
 ### 3.4 Break reels (owner-uploaded commercials)
 
 Reels are records, so they open in a `Drawer size="lg"`, modelled on the
@@ -396,6 +420,8 @@ highlighted (the Studio "install lands where it appears" rule).
 - **Make it mine** (kebab) detaches a copy that the owner owns completely. The pack then stops updating that record.
 
 ---
+
+The canonical JSON field names for `Channel.look`, `Channel.clock`, `Channel.personal`, `Channel.screens` and the viewer `personal` policy are in Appendix A, which supersedes §4.3 where they differ.
 
 ## 4. Server design
 
@@ -566,6 +592,41 @@ Migrations:
 - **Every pick passes the safety checks** for that viewer: `Allowed(viewer, title)` (rating, blocked genres and keywords, share filter) and the not-interested list. Next-episode picks skip unreleased and already-watched episodes, as `genUpNext` does.
 - **Pause when they leave.** The rundown's clock is `cursor_ms`, which advances only while the viewer has a session open on the channel. The guide shows the rundown from the cursor onward, anchored at now. Tuning in after more than 10 min away plays `welcome` first.
 - **Lineup and name.** One channel ID; `AllowedChannels(user)` returns it with the formatted name ("Braedon TV") for that viewer only. Other viewers never see someone else's personal channel in their lineup.
+
+### 4.9 Signal screens
+
+**What renders the screens**
+- **Clips.** Each style is a built-in moment of the "Signal" family: `screen.card`, `screen.static`, `screen.bars`, `screen.brb`, `screen.testcard`. Each is rendered by `internal/onair` into a 4 s master MP4 loop and played through the slate path (`ClipPath`, `ClipLoop: true`). That gives the same stream-contract matching as v0.3.4's slate, on HLS and DASH.
+- **Audio.** Audio is synthesized in pure Go as PCM and muxed in the same ffmpeg pass:
+  - static: band-limited noise at about −30 dBFS RMS, plus a 60 Hz hum at about −42 dBFS;
+  - bars: a 1 kHz sine at −24 dBFS (line-up level is −20; this is gentler for living rooms);
+  - loops are cut at zero crossings, so there's no click at the seam.
+- **Bitrate.** Static is generated at a third of the output resolution with 2×2 grain at 15 noise frames a second, then scaled. It is encoded under the session's negotiated bitrate ceiling, so snow never demands more bandwidth than the programme did.
+- **Cache.** Clips are cached per style, copy and stream contract, like any clip. Copy depends on the reason: "Back at …", "Reconnecting…" or "Waiting for a free connection".
+
+**Settings.** `config.LiveTV.Screens{OffAir, NoSignal string; StationID bool}` holds the owner default. `Channel.Screens{OffAir, NoSignal string}` is the per-channel override, where `""` follows the default. The style IDs are `card`, `static`, `bars`, `brb` and `testcard`.
+
+**Off air** (virtual channels, scheduled gaps). The `offAir` slate plays the chosen style instead of the plain card. The guide is unchanged.
+
+**Can't play** (IPTV, and virtual channels whose candidates all fail within the tune budget):
+- **What triggers it.** Any tune or retune failure that today returns an error: `source_unavailable`, `provider_http`, `source_cooldown`, `no_video`, `ErrProviderBusy` (the account's connection limit), and a stream that drops mid-play.
+- **Tune.** The tune still succeeds. The session's first track is the chosen screen. The session is marked `waiting` and holds **no provider connection**. The playlist (or MPD) serves the screen immediately.
+- **Background retry.**
+  - The session retries its inputs on the existing per-input cooldown schedule: 15 s, doubling to 2 min (`stream_sources.go`).
+  - It honours the source's tune gap and streams-per-hour cap, and runs at most one attempt at a time per session.
+  - Before each attempt it takes a provider slot under `s.mu`, using the same check tune uses today (`playout.go:330`). A `waiting` session doesn't count as playing, so it never holds a slot, and an attempt never exceeds the account's connection limit.
+  - When the limit is the cause, the screen says "Waiting for a free connection" and the attempt waits for a slot instead of failing.
+  - Retrying continues while the viewer stays on the channel. When they leave, the session expires through the normal session TTL and the retry stops with it.
+- **Recovery.** On success, the real feed is appended as a new track after `#EXT-X-DISCONTINUITY` (HLS), exactly like a programme boundary today, and the screen track ends. The session leaves `waiting` and counts against the provider limit as usual.
+  - **DASH (Plex Web):** the feed is encoded to the representation the screen advertised, keeping the single Period valid.
+  - **HTTP/Matroska (Plex for Mac):** this path has no rollover. Ether ends the stream on recovery so the app reconnects, which needs verifying on device; if it doesn't, the Mac app keeps today's error.
+- **Mid-play drop.** When the active input fails while someone is watching, the session splices the screen in after a discontinuity, then follows the same retry and recovery flow.
+- **What the Plex app sees.**
+  - A failed tune no longer shows Plex's "could not tune" error. The app tunes normally and plays the screen with sound, the guide and Now Playing show the channel's scheduled programme as they do today, and the real picture replaces the screen within seconds of recovery. Some apps may show a brief buffering spinner at the switch.
+  - **No Plex response shape changes.** The tune response, decision, playlists and MPD are the same shapes Ether already sends for a successful tune; only the outcome changes, from HTTP 503 to success. This is a deliberate behaviour change and needs the owner's approval.
+  - Jellyfin, Emby and M3U clients see the same thing through the sessions broker.
+  - With **Can't play** set to **Off**, behaviour is exactly today's. That option exists in the owner default only, as **Show an error**, for owners who prefer apps to report the failure.
+- **Diagnostics are unchanged.** Source health, cooldowns and failure logs record every failed attempt exactly as now, and Activity shows the session as "No signal, retrying".
 
 ### 4.8 AI
 
@@ -827,6 +888,7 @@ Each phase ships on its own and leaves Ether better than it was.
 | **0 · Spike** (1 week) | `raster` with paths, gradients, text, blur and blend; one family as a document; Go render benchmark; WASM build in a throwaway stage. | §6.3/§6.4 gates measured on HYPERV03 and the Mac lab. Go/no-go on WASM ([§13](#13-owner-decisions-needed), decision 4). |
 | **1 · Looks foundation** | `onair` package, built-in Clean family plus the five reel families, look CRUD, render cache, clip tracks on the slate path, **looked off-air clip on the v0.3.4 slate path**, **tune-in ident**, Looks sub-tab plus gallery, look drawer Design tab, channel Look tab (Ident, Off-air). | Looked off-air plays on HLS and DASH. Tune-to-first-frame ≤ 1 s with an ident. Owner screenshot approval. |
 | **2 · Moments** | Interstitials in `Schedule` (gap and inserted), guide coalescing, track budget, `upnext`/`back`/`break`/`tonight`, **break reels** (upload, conversion, reel drawer, break contents in the Look tab), Layers tab, Assets tab, Describe a look, DASH clip encode. | Guide IDs stable in gap mode. 24 h soak on the lab with no stalls. Owner approval of the designer. |
+| **2b · Signal screens** | Signal family (card, static, bars, brb, testcard) with synthesized audio; owner default and per-channel pickers; off-air styles; can't-play screens with background retry inside the connection limit and recovery onto the real feed on HLS, DASH and (if the app reconnects) HTTP. | Provider outage simulated on the lab: Apple TV, Plex Web and Android show the screen with sound, then the real feed after recovery, with the account limit never exceeded. Owner approval of the pickers. |
 | **3 · Personal channels** | `PersonalPicker`, recipe tab, rundowns, on-demand cursor, `welcome`, watchlist trailers in breaks, viewer profile row, per-viewer lineup naming. | Tested on two viewers on Apple TV and Plex Web, with policy-filter checks. |
 | **4 · Packs and describe-a-channel** | `data` runtime, contributions, links, export drawer, install preview, Make it mine, `channel_draft` describer. | Export → import round-trip on a second server reproduces the channel and look. |
 | **4b · Plugin content** | `onair_content` capability, feeds and segments contributions, `onair_feed_values`, segment placement (blocks, On the clock, breaks), binding picker, Studio templates and stage preview, one sample weather plugin built in Studio. | A Studio-built weather plugin airs hourly in two different looks on the lab, survives a feed outage without stalling, and uninstalls cleanly. |
@@ -878,4 +940,57 @@ Everything else is verified once by hand and recorded in the acceptance doc.
 6. **AppKit additions:** `ColorPicker` and `PaletteEditor` upstreamed to `appkit-ui` first. (Recommended: yes.)
 7. **Font bundle:** about 4 MB added to the binary for 13 OFL families, with CJK downloaded on demand. (Recommended: yes.)
 8. **Unrated plugin segments** on channels with a rating cap: hidden unless the owner allows them per channel (recommended), or always allowed?
-9. **Release:** v0.3.5 (decided by the release coordinator, 2026-11-05).
+9. **Can't-play screens:** tunes that fail today with HTTP 503 succeed and play the chosen screen while Ether retries. Plex response shapes don't change; only the outcome does. (Recommended: approve, with an owner-default option **Show an error** that keeps today's behaviour.)
+10. **Screen defaults:** Modern card for both situations, with the colour-bars tone at −24 dBFS. (Recommended.)
+11. **Release:** v0.3.5 (decided by the release coordinator, 2026-11-05).
+
+---
+
+## Appendix A. Canonical channel schema (2026-11-05)
+This supersedes spec §4.3 where they differ. The JSON names are camelCase and
+identical in Go (`internal/livetv`) and TypeScript (`web/src/pages/livetv/onair/model.ts`).
+
+## Channel.look (`ChannelLook`, optional; null or absent = feature off, byte-identical to today)
+
+| JSON | Type | Values / default |
+| --- | --- | --- |
+| `lookId` | string | look id |
+| `ident` | bool | ident when someone tunes in |
+| `upNext` | bool | up next before each programme |
+| `placement` | string | `gap` (default) \| `insert` |
+| `breaks` | string | `""` (off) \| `between` \| `inside` |
+| `breakEvery` | int | minutes; 0 = once per programme |
+| `breakContent` | string | `look` (default) \| `reel` \| `segments` |
+| `reelId` | string | when `breakContent` = `reel` |
+| `segmentIds` | string[] | plugin segment ids (`plugin:<id>/<segment>`) when `breakContent` = `segments` |
+| `breakSeconds` | int | target break length: 30, 60, 120 or 180 |
+| `offAir` | bool | off-air screen |
+| `overlays` | string | `""` (off) \| `whenTranscoding` \| `always` |
+| `allowUnratedSegments` | bool | default false; only shown on rating-capped channels |
+| `tagline` | string | per-channel override |
+| `accent` | string | per-channel override, `#rrggbb` |
+
+## Channel.clock (`[]ClockSlot`, optional; plugin segments "on the clock")
+
+`{ "segmentId": "plugin:weather/forecast", "minute": 58, "everyMinutes": 60, "from": 360, "until": 1380, "days": [] }`
+
+`from` and `until` are minutes after midnight in the channel timezone. Empty `days` means every day (Go weekdays, 0 = Sunday).
+
+## Channel.personal (`PersonalRecipe`, optional; present = personal channel)
+
+| JSON | Type | Notes |
+| --- | --- | --- |
+| `ingredients` | `{kind, share, enabled, collections?}[]` | `kind`: `continue` \| `nextEpisodes` \| `picked` \| `watchlist` \| `comfort` \| `newReleases` \| `collections`; `share` 0–100; `collections`: rating keys, only for kind `collections`. The array order is the display order. |
+| `pauseWhenAway` | bool | on-demand mode |
+| `nameFormat` | string | default `{viewer} TV` |
+| `repeatHours` | int | don't repeat a title within N hours |
+| `maxShowShare` | int | percent of a day one show may take |
+| `nightMaxMinutes` | int | 0 = no limit; caps programme runtime late at night |
+
+## Channel.screens (`ChannelScreens`, optional; signal screens §3.4a)
+
+`{ "offAir": "", "noSignal": "" }`. Each value is `""` (follow the owner default) or `card` \| `static` \| `bars` \| `brb` \| `testcard`. The owner default lives in `config.LiveTV.Screens{offAir, noSignal, stationId}`, where `noSignal` may also be `error` (today's behaviour).
+
+## Viewer policy addition (`livetv_policies` JSON)
+
+`personal`: `{ "enabled": bool | null, "name": string }`. `null` follows the channel's audience; `name` overrides `nameFormat` for this viewer.
