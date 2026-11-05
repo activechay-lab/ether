@@ -233,12 +233,12 @@ export function LookDrawer({
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="hidden min-w-0 gap-2 sm:inline-flex"
+                  className="inline-flex min-w-0 gap-2"
                   onClick={() => setScenePicker(!scenePicker)}
                 >
                   <span className="text-fg-muted">{roleNames[scene.role]}</span>
-                  <span className="text-fg-muted">·</span>
-                  <span className="max-w-48 truncate">
+                  <span className="hidden text-fg-muted sm:inline">·</span>
+                  <span className="hidden max-w-48 truncate sm:inline">
                     {scene.name === scene.role ? draft.name : scene.name}
                   </span>
                   <ChevronDown size={12} />
@@ -603,11 +603,12 @@ export function LookDrawer({
                 <Button
                   size="sm"
                   className="ml-auto h-8 shrink-0 gap-2"
+                  aria-label={t("Play the sequence")}
                   disabled={!channel || !Number.isFinite(Date.parse(at))}
                   onClick={() => setSequence(true)}
                 >
                   <Play size={13} fill="currentColor" />
-                  <span className="hidden xl:inline">{t("Play the sequence")}</span>
+                  <span className="hidden min-[1400px]:inline">{t("Play the sequence")}</span>
                 </Button>
               </InsertBar>
             </div>

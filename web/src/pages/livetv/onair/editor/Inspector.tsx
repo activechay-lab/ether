@@ -558,12 +558,12 @@ export function Inspector(p: {
               {choice("font", t("Font"), [
                 ["{type.display}", t("Brand display")],
                 ["{type.body}", t("Brand body")],
-                ["notosans", "Noto Sans"],
-                ["bebasneue", "Bebas Neue"],
-                ["orbitron", "Orbitron"],
-                ["bungee", "Bungee"],
-                ["pressstart2p", "Press Start 2P"],
-                ["rajdhani", "Rajdhani"],
+                ["notosans", t("Noto Sans")],
+                ["bebasneue", t("Bebas Neue")],
+                ["orbitron", t("Orbitron")],
+                ["bungee", t("Bungee")],
+                ["pressstart2p", t("Press Start 2P")],
+                ["rajdhani", t("Rajdhani")],
                 ...assets
                   .filter((a) => a.kind === "font")
                   .map((a) => [a.digest, a.name] as [string, string]),
