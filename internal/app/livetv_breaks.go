@@ -2,9 +2,7 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
-	"fmt"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/markers"
@@ -32,14 +30,15 @@ func (a *App) channelBreakInput(ctx context.Context, key core.RatingKey, admitte
 	}
 	closePinned := func() { a.playback.UnpinSourceRevision(ps.ID); closeInput() }
 	info := ps.Info
+	info.Size = ps.Source.Size()
 	transcode.ProbeTrailer(ctx, ps.Source, ps.Source.Size(), &info)
-	payload := ""
-	releaseID := ps.Source.ReleaseID()
-	if ps.Resolution != nil {
-		releaseID = ps.Resolution.Release.ID
-		payload = fmt.Sprintf("%x", sha256.Sum256(ps.Resolution.NZB))
-	}
-	return markers.BreakInput{Key: key, ReleaseID: releaseID, Revision: revision, ReleaseKey: fmt.Sprintf("%s:%s:%d", revision, payload, info.Duration.Milliseconds()), URL: a.playback.InputURL(ps.ID) + "?background=1", Info: info, Close: closePinned}, nil
+	snapshot := *ps
+	snapshot.Info = info
+	input := markers.PlaybackBreakInput(&snapshot)
+	input.URL = a.playback.InputURL(ps.ID) + "?background=1"
+	input.Close = closePinned
+	input.BytesRead = func() int64 { return a.playback.BackgroundReadBytes(ps.ID) }
+	return input, nil
 }
 
 // Background analysis may reuse only the identity of an admitted save. Always

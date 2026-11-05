@@ -497,6 +497,9 @@ func (m *Manager) serveLoopback(w http.ResponseWriter, r *http.Request) {
 	}
 	background := r.URL.Query().Get("background") == "1"
 	count := func(n int) {
+		if background {
+			g.backgroundReadBytes.Add(int64(n))
+		}
 		if registered && !background {
 			s.addBytes(n, m.now())
 		}

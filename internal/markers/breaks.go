@@ -37,6 +37,7 @@ type BreakPoint struct {
 // the source revision, payload, file and duration, never just a catalogue key.
 // Close releases the source even when a cached analysis is reused.
 type BreakInput struct {
+	budgetDay  string
 	Key        core.RatingKey `json:"key"`
 	ReleaseKey string
 	ReleaseID  string
@@ -44,12 +45,14 @@ type BreakInput struct {
 	URL        string         `json:"-"`
 	Info       core.MediaInfo `json:"-"`
 	Close      func()         `json:"-"`
+	BytesRead  func() int64   `json:"-"`
 }
 
 type BreakAnalyzer struct {
-	DB     *sql.DB
-	FFmpeg string
-	OnCost func(video, cpu, wall time.Duration)
+	DB         *sql.DB
+	FFmpeg     string
+	OnCost     func(video, cpu, wall time.Duration)
+	ScanPolicy func() BreakScanPolicy
 	// OnEvidence is a trusted local diagnostic observer. The source lease remains
 	// open during this synchronous call; observers must not close or retain it.
 	// Nil performs no export and installs no HTTP endpoint.
@@ -81,12 +84,39 @@ func (a *BreakAnalyzer) Analyze(ctx context.Context, in BreakInput) (points []Br
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
+	var observed string
+	if lookupErr := a.DB.QueryRowContext(ctx, `SELECT points FROM markers_breaks_observed WHERE release_key=? AND duration_ms=?`, in.ReleaseKey, in.Info.Duration.Milliseconds()).Scan(&observed); lookupErr == nil {
+		if json.Unmarshal([]byte(observed), &points) == nil && len(points) > 0 {
+			evidence.CacheHit = true
+			evidence.Partial = true
+			return points, nil
+		}
+	} else if !errors.Is(lookupErr, sql.ErrNoRows) {
+		return nil, lookupErr
+	}
 	points = ChapterBreaks(in.Info)
 	if len(points) == 0 {
 		if a.FFmpeg == "" || !hasBreakAudio(in.Info) {
 			return nil, fmt.Errorf("act-break decoder unavailable")
 		}
+		in.budgetDay = time.Now().UTC().Format("2006-01-02")
+		reservation, reserveErr := a.reserveScan(ctx, in)
+		if reserveErr != nil {
+			return nil, reserveErr
+		}
+		evidence.ReservedBytes = reservation
+		before := int64(0)
+		if in.BytesRead != nil {
+			before = in.BytesRead()
+		}
 		points, err = a.decodeEvidence(ctx, in, &evidence)
+		if in.BytesRead != nil {
+			evidence.ReadBytesKnown = true
+			evidence.ReadBytes = max(int64(0), in.BytesRead()-before)
+		}
+		accounting, stop := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		_, _ = a.DB.ExecContext(accounting, `UPDATE markers_breaks_budget SET read_bytes=read_bytes+? WHERE day=?`, evidence.ReadBytes, in.budgetDay)
+		stop()
 		if err != nil {
 			return nil, err
 		}
@@ -243,6 +273,32 @@ func (a *BreakAnalyzer) decode(ctx context.Context, in BreakInput) ([]BreakPoint
 	return a.decodeEvidence(ctx, in, &evidence)
 }
 func (a *BreakAnalyzer) decodeEvidence(ctx context.Context, in BreakInput, evidence *BreakEvidence) ([]BreakPoint, error) {
+	if evidence.ReservedBytes > 0 && in.BytesRead != nil {
+		limited, cancel := context.WithCancel(ctx)
+		defer cancel()
+		ctx = limited
+		baseline := in.BytesRead()
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			tick := time.NewTicker(50 * time.Millisecond)
+			defer tick.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+					if in.BytesRead()-baseline >= evidence.ReservedBytes {
+						cancel()
+						return
+					}
+				}
+			}
+		}()
+	}
+
 	// One decoder thread and filter thread, with Unix scheduling priority lowered.
 	// URLs are trusted loopback playback leases, never owner-entered provider URLs.
 	args := []string{"-n", "10", a.FFmpeg, "-hide_banner", "-nostdin", "-nostats", "-threads", "1", "-filter_threads", "1", "-i", in.URL, "-t", strconv.FormatFloat(in.Info.Duration.Seconds(), 'f', 3, 64), "-map", "0:v:0", "-map", "0:a:0", "-vf", "fps=10,scale=160:90,blackdetect=d=0.3:pix_th=0.08:pic_th=0.98,scdet=threshold=8", "-af", "silencedetect=noise=-45dB:d=0.2", "-threads", "1", "-f", "null", "-"}

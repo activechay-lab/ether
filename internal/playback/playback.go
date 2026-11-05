@@ -1742,3 +1742,17 @@ func (m *Manager) expire() {
 		}
 	}
 }
+
+// BackgroundReadBytes counts source bytes delivered to background loopback
+// consumers; it excludes viewer bytes and does not open or resolve a source.
+func (m *Manager) BackgroundReadBytes(id string) int64 {
+	s := m.lookup(id)
+	if s == nil {
+		return 0
+	}
+	g := s.current()
+	if g == nil {
+		return 0
+	}
+	return g.backgroundReadBytes.Load()
+}
