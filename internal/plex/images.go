@@ -265,19 +265,13 @@ var discoveryImageRe = regexp.MustCompile(`^/library/metadata/(\d+)/discoveryPos
 // variant closest to the requested width.
 func (s *Server) handlePhotoTranscode(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	// PMS validates dimensions and binary options before resolving the image.
+	// PMS validates dimensions before resolving the image.
 	for _, name := range []string{"width", "height"} {
 		if q.Has(name) {
 			if _, err := strconv.Atoi(photoQueryValue(q, name)); err != nil {
 				writeHTTPError(w, http.StatusBadRequest)
 				return
 			}
-		}
-	}
-	for _, name := range []string{"minSize", "upscale"} {
-		if q.Has(name) && !photoBinaryValue(photoQueryValue(q, name)) {
-			writeHTTPError(w, http.StatusBadRequest)
-			return
 		}
 	}
 	raw := photoQueryValue(q, "url")
@@ -403,15 +397,4 @@ func photoQueryValue(q url.Values, name string) string {
 		return ""
 	}
 	return vs[len(vs)-1]
-}
-
-// photoBinaryValue accepts an optional plus and zero padding around a binary
-// integer, without accepting whitespace or textual booleans.
-func photoBinaryValue(v string) bool {
-	v = strings.TrimPrefix(v, "+")
-	if v == "" {
-		return false
-	}
-	v = strings.TrimLeft(v, "0")
-	return v == "" || v == "1"
 }
