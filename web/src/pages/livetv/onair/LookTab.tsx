@@ -162,19 +162,19 @@ export function LookTab({
             </span>
           }
           control={
-            <div className="space-y-2">
+            <div className="min-w-0">
               <Segmented
                 ariaLabel={t("Breaks")}
+                size="sm"
+                className="w-full flex-nowrap justify-between"
                 value={settings.breaks || ""}
                 onChange={(breaks) => set({ breaks })}
                 options={[
                   { value: "", label: t("Off") },
                   { value: "between", label: t("Between programmes") },
+                  { value: "inside", label: t("Inside programmes"), disabled: true },
                 ]}
               />
-              <button type="button" disabled className="block text-xs text-fg-subtle">
-                {t("Inside programmes")}
-              </button>
             </div>
           }
         />
