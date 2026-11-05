@@ -29,6 +29,7 @@ func (a *App) runPublicRole(ctx context.Context) error {
 	var background backgroundGroup
 	defer background.Wait()
 	defer cancel()
+	background.start(func() { a.runNodeControl(ctx) })
 	if a.certs != nil {
 		background.start(func() { a.certs.RunSharedSync(ctx, plextv.DefaultCertSyncInterval) })
 	}

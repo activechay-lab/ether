@@ -346,6 +346,8 @@ func (a *App) clusterHandler() http.Handler {
 		_ = json.NewEncoder(w).Encode(st)
 	})
 	mux.Handle("/node", a.clusterManageHandler())
+	mux.Handle("GET /nodes/{id}/control", a.nodeControlHandler())
+	mux.Handle("POST /nodes/{id}/control", a.nodeControlHandler())
 	setup := a.clusterSetupHandler()
 	mux.Handle("/setup", setup)
 	mux.Handle("/setup/", setup)
