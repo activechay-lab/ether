@@ -202,6 +202,13 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}
+				if androidTVClient(pr) {
+					if err := s.probeDetailTracks(ctx, pr, t); err != nil {
+						w.Header().Set("Retry-After", "1")
+						writeHTTPError(w, http.StatusServiceUnavailable)
+						return
+					}
+				}
 				s.warmDetail(ctx, pr, t)
 			}
 			if len(keys) == 1 {
@@ -927,4 +934,19 @@ func (s *Server) placeholderMetadata(ctx context.Context, pr *Request, t *core.T
 	md.Image = nil
 	md.Summary = "Scheduled release: " + t.Released.Format("2006-01-02") + ". " + md.Summary
 	return md
+}
+
+// Do not let the TV picker cache an estimated, empty subtitle list when a
+// cold probe takes longer than speculative warm-up's four-second wait.
+func (s *Server) probeDetailTracks(ctx context.Context, pr *Request, t *core.Title) error {
+	if pr == nil || pr.User == nil || s.d.Playback == nil {
+		return nil
+	}
+	if _, _, exact := s.mediaInfoWithSource(ctx, pr, t); exact {
+		return nil
+	}
+	if prober, ok := s.d.Playback.(core.MetadataProber); ok {
+		return prober.ProbeMetadata(ctx, pr.User, t.Key, s.clientCaps(pr))
+	}
+	return nil
 }
