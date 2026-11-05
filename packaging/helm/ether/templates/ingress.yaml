@@ -23,6 +23,22 @@ spec:
     - host: {{ . | quote }}
       http:
         paths:
+          {{- if or (gt (int $.Values.pools.server.replicas) 0) (gt (int $.Values.pools.delivery.replicas) 0) }}
+          # Pure representation namespaces only. Delivery rejects non-GET/HEAD;
+          # never broaden this to /video/:/transcode/universal or /library/parts.
+          - path: /video/:/transcode/universal/session
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ether.name" $ }}-media
+                port: {name: public}
+          - path: /sessions/media
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ether.name" $ }}-media
+                port: {name: public}
+          {{- end }}
           - path: /
             pathType: Prefix
             backend:

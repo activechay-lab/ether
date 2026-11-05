@@ -1,0 +1,17 @@
+{{- $full := int .Values.pools.full.replicas -}}
+{{- $server := int .Values.pools.server.replicas -}}
+{{- $delivery := int .Values.pools.delivery.replicas -}}
+{{- if or (gt $server 0) (gt $delivery 0) -}}
+{{- if not .Values.ingress.enabled -}}
+{{- fail "server/delivery pools require ingress.enabled=true for same-origin API/media path routing; a shared L4 Service cannot mix these roles" -}}
+{{- end -}}
+{{- if ne .Values.service.type "ClusterIP" -}}
+{{- fail "mixed public roles require service.type=ClusterIP behind the same-origin Ingress; exposing the API Service directly bypasses media routing" -}}
+{{- end -}}
+{{- if lt (add $full $server) 1 -}}
+{{- fail "mixed public roles require an API pool (full or server)" -}}
+{{- end -}}
+{{- if lt (add $full $delivery) 1 -}}
+{{- fail "server pools require a media pool (full or delivery)" -}}
+{{- end -}}
+{{- end -}}

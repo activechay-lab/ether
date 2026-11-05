@@ -50,10 +50,10 @@ Every supported global value is listed below. Kubernetes-native objects accept t
 | `probes.liveness.timeoutSeconds` | `2` | Positive integer kubelet probe setting; routes/port are fixed by the runtime contract. |
 | `disruptionBudget.enabled` | `true` | Create one PDB per active role. |
 | `disruptionBudget.maxUnavailable` | `1` | Integer or percentage unavailable during voluntary evictions. |
-| `service.type` | `"ClusterIP"` | ClusterIP, LoadBalancer or NodePort. |
+| `service.type` | `"ClusterIP"` | ClusterIP, LoadBalancer or NodePort for full-only public pools; mixed server/delivery pools require ClusterIP behind Ingress. |
 | `service.port` | `32400` | Public service port; target always 32400. |
 | `service.annotations` | `{}` | Controller/provider annotations. |
-| `ingress.enabled` | `false` | Expose the public Service through Ingress. |
+| `ingress.enabled` | `false` | Expose one shared public origin; required for server/delivery pools, with fixed API/media Prefix routing. |
 | `ingress.className` | `""` | Ingress controller class. |
 | `ingress.annotations` | `{}` | Controller-specific annotations. |
 | `ingress.hosts` | `[]` | DNS hostname list, required when ingress enabled. |

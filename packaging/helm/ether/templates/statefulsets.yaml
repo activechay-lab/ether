@@ -31,6 +31,7 @@ spec:
         {{- include "ether.selector" $root | nindent 8 }}
         ether.plex/role: {{ $role }}
         ether.plex/public: {{ has $role (list "full" "server") | quote }}
+        ether.plex/media: {{ has $role (list "full" "delivery") | quote }}
       annotations:
         checksum/deployment: {{ include (print $root.Template.BasePath "/configmap.yaml") $root | sha256sum }}
         {{- with (mergeOverwrite (deepCopy $root.Values.podAnnotations) (default dict $pool.podAnnotations)) }}
@@ -92,7 +93,7 @@ spec:
             - {name: NVIDIA_DRIVER_CAPABILITIES, value: "compute,video,utility"}
             {{- end }}
           ports:
-            {{- if has $role (list "full" "server") }}
+            {{- if has $role (list "full" "server" "delivery") }}
             - {name: public, containerPort: 32400}
             {{- end }}
             - {name: private, containerPort: 32401}

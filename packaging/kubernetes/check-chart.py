@@ -26,7 +26,9 @@ def check(docs, persistent=False):
         assert c['readinessProbe']['httpGet']['path'] == ('/admissionz' if role in ('full','server') else '/readyz')
         assert c['startupProbe']['httpGet']['path'] == '/startupz'
         assert c['livenessProbe']['httpGet']['path'] == '/livez'
-        assert ('public' in [p['name'] for p in c['ports']]) == (role in ('full','server'))
+        assert ('public' in [p['name'] for p in c['ports']]) == (role in ('full','server','delivery'))
+        assert s['template']['metadata']['labels']['ether.plex/public'] == str(role in ('full','server')).lower()
+        assert s['template']['metadata']['labels']['ether.plex/media'] == str(role in ('full','delivery')).lower()
         assert [v['metadata']['name'] for v in s['volumeClaimTemplates']] == (['data','cache'] if persistent else ['data'])
         assert len([v for v in pod['volumes'] if 'secret' in v]) == 3
         if 'nvidia.com/gpu' in c['resources'].get('limits',{}):
@@ -43,6 +45,35 @@ def check(docs, persistent=False):
             assert config['tempDir'] == '/scratch/transcode'
     public = next(d for d in docs if d['kind']=='Service' and d['metadata']['name']=='contract-ether')
     assert public['spec']['selector']['ether.plex/public'] == 'true'
+    media = next(d for d in docs if d['kind']=='Service' and d['metadata']['name']=='contract-ether-media')
+    assert media['spec']['type']=='ClusterIP'
+    assert media['spec']['selector']['ether.plex/media']=='true'
+    for service,roles in [(public,{'full','server'}),(media,{'full','delivery'})]:
+        selector=service['spec']['selector']
+        matches={d['spec']['template']['metadata']['labels']['ether.plex/role'] for d in sts
+                 if all(d['spec']['template']['metadata']['labels'].get(k)==v for k,v in selector.items())}
+        assert matches==roles,(service['metadata']['name'],matches)
+    ingress=next(d for d in docs if d['kind']=='Ingress')
+    paths=ingress['spec']['rules'][0]['http']['paths']
+    assert {p['path'] for p in paths}=={'/','/sessions/media','/video/:/transcode/universal/session'}
+    def backend(path):
+        # Kubernetes Prefix matches whole path elements; longer prefix wins.
+        matches=[p for p in paths if p['path']=='/' or path==p['path'] or path.startswith(p['path']+'/')]
+        return max(matches,key=lambda p:len(p['path']))['backend']['service']['name']
+    for path in ['/sessions/media/id/grant/file','/sessions/media/id/grant/master.m3u8',
+                 '/video/:/transcode/universal/session/id/base/00001.ts']:
+        assert backend(path)=='contract-ether-media'
+    for path in ['/video/:/transcode/universal/decision','/video/:/transcode/universal/start.m3u8',
+                 '/video/:/transcode/universal/start.mpd','/video/:/transcode/universal/start',
+                 '/video/:/transcode/universal/start.mkv','/video/:/transcode/universal/ping',
+                 '/video/:/transcode/universal/stop','/transcode/sessions',
+                 '/video/:/transcode/universal/subtitles','/subtitles/:/transcode/universal/start',
+                 '/library/parts/1/file.mp4','/library/parts/1','/library/streams/1','/downloadQueue/1',
+                 '/jellyfin/sessions/media/id/grant/file','/emby/sessions/media/id/grant/file',
+                 '/silo/sessions/media/id/grant/file','/sessions/mediaevil/id',
+                 '/video/:/transcode/universal/sessionevil/id/base/00001.ts']:
+        assert backend(path)=='contract-ether',path
+
     private = next(d for d in docs if d['kind']=='Service' and d['metadata']['name'].endswith('-private'))
     assert private['spec']['publishNotReadyAddresses']
 
@@ -65,6 +96,25 @@ check(render(*common))
 check(render(*common, '--set','cache.type=persistent','--set','networkPolicy.enabled=true',
              '--set','ingress.enabled=true','--set','ingress.hosts[0]=ether.example.test'), True)
 check(render(*common, '-f', str(chart.parents[1]/'kubernetes/nvidia.values.yaml')))
+# Full-only retains the original single L4 service and catch-all Ingress.
+for kind in ['ClusterIP','LoadBalancer','NodePort']:
+    full=render('--set','pools.full.replicas=1','--set','pools.server.replicas=0',
+        '--set','pools.source.replicas=0','--set','pools.transcode.replicas=0',
+        '--set','pools.delivery.replicas=0','--set',f'service.type={kind}','--set','ingress.enabled=false')
+    assert {d['metadata']['name'] for d in full if d['kind']=='Service'}=={'contract-ether','contract-ether-private'}
+    assert not any(d['kind']=='Ingress' for d in full)
+full_ingress=render('--set','pools.server.replicas=0','--set','pools.delivery.replicas=0')
+assert [p['path'] for d in full_ingress if d['kind']=='Ingress' for p in d['spec']['rules'][0]['http']['paths']]==['/']
+for flags,expected in [
+    (['--set','ingress.enabled=false'],'require ingress.enabled=true'),
+    (['--set','pools.server.replicas=1','--set','service.type=LoadBalancer'],'service.type=ClusterIP'),
+    (['--set','pools.server.replicas=1','--set','service.type=NodePort'],'service.type=ClusterIP'),
+    (['--set','pools.full.replicas=0','--set','pools.server.replicas=0'],'require an API pool'),
+    (['--set','pools.full.replicas=0','--set','pools.server.replicas=1','--set','pools.delivery.replicas=0'],'require a media pool'),
+    (['--set-json','ingress.hosts=[]'],'ingress.hosts must be nonempty')]:
+    invalid=subprocess.run([helm,'template','invalid',str(chart),'-f',str(base),*flags],capture_output=True,text=True)
+    assert invalid.returncode and expected in invalid.stderr,(flags,invalid.stderr)
+
 for key,value in [('pools.typo.replicas','1'),('pools.source.bootstrap','true'),('cache.type','shared'),
                   ('runtime.capacity','0'),('runtime.ledgerCapacity','4095'),('runtime.ledgerCapacity','10000001'),('runtime.ledgerCapacity','1.5'),('pools.full.ledgerCapacity','4096'),('service.port','0'),('secrets.database.existingSecret','')]:
     result=subprocess.run([helm,'template','invalid',str(chart),'-f',str(base),'--set',f'{key}={value}'],capture_output=True)

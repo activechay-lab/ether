@@ -1,7 +1,12 @@
 Ether {{ .Chart.AppVersion }} configuration rendered.
 
 This chart requires the deployment runtime contract; do not use an older image.
-Public Service: {{ include "ether.name" . }}:{{ .Values.service.port }}
+API Service (full/server): {{ include "ether.name" . }}:{{ .Values.service.port }}
+{{- if or (gt (int .Values.pools.server.replicas) 0) (gt (int .Values.pools.delivery.replicas) 0) }}
+Media Service (full/delivery, ClusterIP): {{ include "ether.name" . }}-media:{{ .Values.service.port }}
+Mixed roles require the shared-origin Ingress and an actual controller. Only the
+approved pure representation prefixes route to media; all controls stay on API.
+{{- end }}
 Private identity DNS: POD.{{ include "ether.name" . }}-private.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}
 
 StatefulSets use OnDelete. An upgrade changes the pod template but does not

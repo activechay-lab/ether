@@ -72,9 +72,13 @@ helm upgrade --install ether packaging/helm/ether -n ether \
 kubectl -n ether get pods,pvc,svc
 ```
 
-`full` maps to the runtime’s empty roles array and runs all roles; `server` exposes the public frontend; `source`, `transcode`
-and `delivery` are specialists without public Plex listeners. Enable the pools
-needed for your topology. Public service selectors only match full/server pods.
+`full` maps to the runtime’s empty roles array and runs all roles. `server`
+provides browse/control and responses that combine admission with streaming;
+`delivery` provides the fixed public representation sender. `source` and
+`transcode` have no public Plex listeners. Enabling a pool in values does not
+remove a runtime guard or establish that its shipping graph passes acceptance.
+The API Service selects only full/server pods; the separate media Service selects
+only full/delivery pods. See the same-origin routing requirements below.
 Specialists are runtime roles, not separate products; changing role mix does not
 change Plex server identifiers, rows, personalization or policy.
 
@@ -229,12 +233,52 @@ been positively fenced. Do not delete a namespace/PVC as a rollback method.
 
 ## Reachability and GPUs
 
-The public Service defaults to ClusterIP on 32400. A LoadBalancer or an optional
-Ingress exposes only full/server pods. Ingress routes `/` with Prefix; select a
-controller class, hostname, TLS Secret and controller-specific streaming timeout
-annotations. Test range requests, WebSockets, long streams and proxy buffering
-against that controller. Console routing remains separate from this public
-Plex listener; this chart does not publish a console service.
+The API Service defaults to ClusterIP on 32400 and selects full/server pods.
+With full nodes as the only public role, its existing LoadBalancer/NodePort option
+and catch-all `/` Ingress remain unchanged. If server or delivery pools are
+enabled, rendering requires an enabled Ingress with a nonempty hostname list,
+API Service type ClusterIP, at least one API node (full/server), and at least one
+media node (full/delivery). Direct L4 API exposure would bypass representation
+routing and is rejected. Installing an Ingress object is not sufficient: provide
+an actual controller, DNS/TLS and an externally reachable shared origin.
+
+For mixed public roles the chart creates a ClusterIP-only `RELEASE-ether-media`
+Service and configures these literal Kubernetes Prefix routes under that same
+host, preserving paths and query strings:
+
+| Prefix | Backend | Contract |
+| --- | --- | --- |
+| `/video/:/transcode/universal/session` | media (full/delivery) | Pure Plex representations: GET/HEAD only. |
+| `/sessions/media` | media (full/delivery) | Canonical grant-bearing representations: GET/HEAD only. |
+| `/` and every other path | API (full/server) | Browse, admission, control and control-coupled responses. |
+
+The delivery handler rejects non-GET/HEAD requests; they are not alternate API
+control routes. Prefix matching uses complete path elements, so similarly named
+paths such as `/sessions/mediaevil` remain API traffic. Do not broaden either
+prefix to `/video/:/transcode/universal` or `/library/parts`. Plex decision,
+start/start.m3u8/start.mpd/start.mkv, ping/stop, `/transcode/sessions`, direct parts
+and part-track PUT, streams, download queues and query-based subtitle endpoints
+remain on API. Some GET endpoints both admit and stream bytes in one response;
+server nodes may proxy those bytes through real remote adapters without local
+providers or encoders. This topology does not claim that every byte path runs
+on a delivery-only node or rewrites a client to a different media origin.
+
+The initial typed sender covers only its actual supported representations. Its
+Plex resource scope excludes ASS. Jellyfin/Emby media aliases require the explicit
+auth-preserving runtime adapter and matching approved routing before being
+claimed; the chart currently leaves `/jellyfin/sessions/media` and
+`/emby/sessions/media` on API. Silo playback paths likewise remain on API until a
+typed authenticated seam is implemented. Do not add stripping/rewrite annotations
+or generic alias prefixes to imply unverified compatibility. Manual lab replay of
+the same returned path from server pod to delivery pod proves that role path
+only; it does not replace a real client test through the shared Ingress origin.
+
+Select the controller class, hostname, TLS Secret and controller-specific stream
+timeouts. The controller must accept the literal colon in Plex paths and honor
+longest Prefix routing without URL rewriting. Test actual range/HEAD requests,
+WebSockets, long streams, auth/policy and proxy buffering against that controller.
+Console routing remains separate from this public Plex listener; this chart does
+not publish a console service.
 
 Kubernetes bridge networking does not supply LAN GDM UDP discovery or UPnP router
 mapping. Configure reachable advertised connections and explicit router/firewall

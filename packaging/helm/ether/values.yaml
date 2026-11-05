@@ -91,10 +91,14 @@ probes:
 disruptionBudget:
   enabled: true
   maxUnavailable: 1
+# Direct L4 exposure remains available for full-only public pools.
+# Server/delivery pools require ClusterIP plus the shared-origin Ingress.
 service:
   type: ClusterIP
   port: 32400
   annotations: {}
+# Mixed public roles route only the two fixed representation namespaces to
+# the private media Service; all other paths remain on the API Service.
 ingress:
   enabled: false
   className: ""
