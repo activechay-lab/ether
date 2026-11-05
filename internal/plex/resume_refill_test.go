@@ -326,9 +326,7 @@ func TestResumedDetailRefillDoesNotWaitOrChangeSource(t *testing.T) {
 	close(x.idx.release)
 	waitResumeRefill(t, done)
 	media := x.detail(t, "search-completed")
-	// The refill must not replace a singleton already issued to this client
-	// with a multi-version list while its playback settings are open (#339).
-	if len(media) != 1 || x.idx.searches.Load() != 1 || x.idx.fetches.Load() != 0 {
+	if len(media) != 4 || x.idx.searches.Load() != 1 || x.idx.fetches.Load() != 0 {
 		t.Fatalf("background refill media=%d searches=%d fetches=%d", len(media), x.idx.searches.Load(), x.idx.fetches.Load())
 	}
 	rp, err := x.mgr.ResumePoint(context.Background(), ownerUser.ID, x.title.Key)

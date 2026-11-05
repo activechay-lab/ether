@@ -417,7 +417,7 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *core.Title, o ren
 
 	if o.media && isPlayable(t.Type) {
 		var editionTitle string
-		m.Media, editionTitle = s.mediaFor(ctx, pr, t, detail, o.session)
+		m.Media, editionTitle = s.mediaFor(ctx, pr, t, detail, o.detail, o.session)
 		applyEditionTitle(&m, editionTitle)
 		if s.downloadsAllowed(pr.User) {
 			m.AllowSync = model.Ptr(true)
@@ -592,11 +592,11 @@ func (s *Server) resumedTracks(ctx context.Context, pr *Request, t *core.Title) 
 }
 
 // mediaFor renders the virtual Media/Part of a playable title: one per
-// release variant on listings, detail pages and play queues (driving the
-// "Play Version" picker). The second return value
-// is the item's editionTitle, or "". The list stays stable before and during
-// playback; /status/sessions alone projects the admitted version.
-func (s *Server) mediaFor(ctx context.Context, pr *Request, t *core.Title, withStreams, sessionMedia bool) ([]model.Media, string) {
+// release variant on detail pages (withVariants, driving the "Play
+// Version" picker), otherwise the single Media. The second return value
+// is the item's editionTitle, or "". Detail and queue versions retain their
+// flow identity; /status/sessions projects only the admitted version.
+func (s *Server) mediaFor(ctx context.Context, pr *Request, t *core.Title, withStreams, withVariants, sessionMedia bool) ([]model.Media, string) {
 	info, ps, probedSource := s.mediaInfoWithSource(ctx, pr, t)
 	stamp := unixOrZero(t.UpdatedAt)
 	if ps != nil && !ps.StartedAt.IsZero() {
@@ -606,7 +606,7 @@ func (s *Server) mediaFor(ctx context.Context, pr *Request, t *core.Title, withS
 		stamp = 1
 	}
 	// VIDAA has always received a single version, including before playback.
-	if !sessionMedia && !strings.EqualFold(strings.TrimSpace(pr.Product), "Plex for VIDAA") {
+	if withVariants && withStreams && !sessionMedia && !strings.EqualFold(strings.TrimSpace(pr.Product), "Plex for VIDAA") {
 		probed, probedRelease := core.MediaInfo{Estimated: true}, ""
 		if ps != nil {
 			// A client keeps the Media index it chose before playback
@@ -627,7 +627,7 @@ func (s *Server) mediaFor(ctx context.Context, pr *Request, t *core.Title, withS
 		} else if !info.Estimated && len(info.Streams) > 0 && info.Video() != nil {
 			probed = info
 		}
-		if media, edition := s.mediaForVariants(ctx, pr, t, stamp, probed, probedRelease, ps, withStreams); len(media) > 0 {
+		if media, edition := s.mediaForVariants(ctx, pr, t, stamp, probed, probedRelease, ps); len(media) > 0 {
 			return media, edition
 		}
 	}
@@ -636,7 +636,7 @@ func (s *Server) mediaFor(ctx context.Context, pr *Request, t *core.Title, withS
 	// issued (play_identity.go); /status/sessions names the Media the
 	// session was admitted on.
 	var ik playIdentityKey
-	if !sessionMedia || ps != nil {
+	if withStreams || ps != nil {
 		ik = s.playIdentityFor(pr, t.Key)
 		pin := s.playIDs.pinned(ik, ps != nil, s.now())
 		if sessionMedia && ps != nil && pin.selected != 0 && pin.selected != int64(t.Key) {

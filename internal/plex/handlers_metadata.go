@@ -200,6 +200,12 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 			// renderTitles uses verified cached GUIDs and queues missing identities.
 			// Remote identity enrichment must not hold detail or Play requests.
 
+			if len(keys) == 1 {
+				pr.versionItemKey = t.Key
+			}
+			if len(keys) == 1 && (q.Get("checkFiles") == "1" || q.Get("asyncCheckFiles") == "1") {
+				pr.versionFlowKey = t.Key
+			}
 			md = s.detail(ctx, pr, t, q.Get("includeChildren") == "1", q.Get("includeOnDeck") == "1", q.Get("includeRelated") == "1", q.Get("includeExtras") == "1", q.Get("extraTypes"))
 			if mc == nil {
 				mc = s.itemContainer(t.Type)

@@ -396,6 +396,11 @@ func (s *Server) write(w http.ResponseWriter, r *http.Request, v any) {
 }
 
 func (s *Server) writeStatus(w http.ResponseWriter, r *http.Request, status int, v any) {
+	if err := FromContext(r.Context()).versionErr; err != nil {
+		s.log.Warn("version flow unavailable", "err", err)
+		writeHTTPError(w, http.StatusServiceUnavailable)
+		return
+	}
 	body, err := s.encodeResponse(r, v)
 	if err != nil {
 		s.log.Error("encode response", "path", r.URL.Path, "err", err)

@@ -1511,6 +1511,7 @@ func (s *Server) handleTranscodeStop(w http.ResponseWriter, r *http.Request) {
 		// Broker Stop would release it. The last encoder stops the broker
 		// session that owns the source.
 		if !superseded && !shared {
+			s.endVersionFlow(r.Context(), playIdentityKey{userID: e.userID, clientID: e.clientID, key: e.key})
 			if lookup, ok := s.playbackBroker.(plexPlaybackLookup); ok && pr.User != nil {
 				sid, lookupErr := lookup.PlexSessionForPlayback(r.Context(), s.plexAccess(pr), e.key, pr.SessionID, id)
 				if lookupErr == nil && sid != "" {

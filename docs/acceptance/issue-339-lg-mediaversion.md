@@ -1,104 +1,184 @@
-# LG playback settings identity (#339, v0.3.5)
-
-## Evidence and scope
+# LG MediaVersion (#339): revised fix and measurements
 
 Issue: https://github.com/braedonsaunders/ether/issues/339 (paustin316-cell).
-The supplied screenshot reports a lookup of missing `MediaVersion`, while the
-settings dictionary contains Quality, Direct Play/Stream and subtitle settings.
-The reporter's Ether and Plex app versions remain unknown. No LG hardware or
-reporter support ZIP was available for end-to-end confirmation.
+Base: release/0.3.5 at b4d8d5827. This revision supersedes the broad behavior in
+35b8c5ada. The reporter's server/app versions remain unknown; no physical LG
+retest or reporter support ZIP was available.
 
-The requested older conformance paths have moved: this release uses
-`testdata/conform/plex`, `internal/conform`, `internal/conform/plex`, and
-`internal/plex/conform_test.go`. The recorded PMS 1.43.4 decision corpus returns
-only the selected Media, with its source identity; start returns a playlist or
-bytes, not an item. These are projections/transport responses, not new version
-catalogues. Do not expand decisions to multiple Media merely to equalize counts.
+## Cause and reference limits
 
-Checked `~/Documents/.ether-ref/research` and `rex` for client references:
-no checked-out client bundle or `MediaVersion` implementation is present.
-rex documents an optional ignored `webclient/` directory, absent here.
-The official hosted desktop main bundle (Plex Web 4.163.0) has no literal
-`MediaVersion` or the screenshot's error string; the hosted `/tv/` URL is 404.
-Thus the exact TV creation/lookup branches cannot be independently established
-from this checkout. The supplied shared-client behavior is the working
-explanation: version-dependent settings creation followed by a lookup using
-state from a different response. No proprietary code or assets were copied.
-Indie's pre-load Web settings error is consistent with this class, not proven
-to be the identical client failure.
+The prior flow could change version membership between ordinary detail,
+pre-play, queue and admission. A singleton was treated as "no issued list" for
+mediaIndex, so a stored position could select a newly discovered release.
+The #267 stream/identity work on this base began freezing only at admission.
 
-## Reproduction
+This release's reference paths are `testdata/conform/plex`, `internal/conform`,
+`internal/conform/plex`, and `internal/plex/conform_test.go` (the earlier
+`testdata/pms`/`internal/pmsconform` paths have moved). Recorded PMS decisions
+project only the selected Media; start returns a playlist/bytes, not a new
+version catalogue. Equal Media counts across those transport responses would
+be a protocol regression.
 
-`TestVersionIdentityAcrossPlayFlow` drives the HTTP handlers for LG, Samsung,
-Android TV and Web, with zero, one and three cached variants. It uses an offline
-catalogue/resolver/playback fixture, not an account-claimed benchmark server.
-On the unmodified release branch all 12 cases fail:
+No client bundle containing MediaVersion exists in the requested `.ether-ref`
+research/rex trees. rex's optional ignored webclient directory is absent. The
+official hosted desktop main bundle (4.163.0) contains neither MediaVersion nor
+the screenshot's error literal; the hosted /tv/ URL returns 404. The exact TV
+creation/lookup branches therefore remain unverified. The screenshot and the
+supplied shared-client behavior support the failure mechanism, but do not prove
+Indie's Web error is identical. No proprietary code/assets were copied.
 
-- Cold or single-version hub: `[1000000000000550]`; after refill the pre-play
-  response becomes `[1000000000000550, 9002600922596233, 9003529759870400]`.
-- Three cached versions: the hub still emits only `[1000000000000550]`, while
-  the details page emits three.
-- `playIdentities` previously protected lists only after admission. An issued
-  singleton was treated as no list when resolving `mediaIndex`, allowing an
-  old nonzero preference to select a candidate discovered after that response.
-- With no issued list, recomputing a positional choice against current results
-  could also identify a different release after restart or idle expiry.
+## Browse measurements
 
-The #267 stream/identity work is present on this base, but did not cover these
-pre-admission transitions.
+Opt-in offline harness: `ETHER_339_MEASURE=1 go test ./internal/plex -run
+'^TestVersionBrowseMeasurement$' -v -count=1`.
 
-## Change
+Same Mac and harness for release base, 35b8c5ada, and revision. Production
+resolver; 200 catalogue films, five shelves of 40 candidate titles; 24 release
+candidates cached for 80% of titles. Cache seeding is outside timed requests.
+Normal section/discovery shelf composition remains enabled. Library page has
+50 films. Cold means first render with empty Plex play identities and warm
+resolver search cache, not a cold indexer search. Warm p50/p95 are 15 repeated
+requests. JSON payload sizes are uncompressed bytes. These are local fixture
+measurements, not real-network/client timing; p95 is the maximum of 15 samples.
 
-Hubs, library listings, detail metadata (including checkFiles/includeChapters)
-and queues reuse the first ordered version list per viewer/device/title. Both
-unresolved Auto and a resolved singleton are authoritative. Cached search
-completion, reordering and expiry cannot change that list during the flow.
-Existing stable release-derived Media/Part IDs remain in use. Stream rendering
-still belongs to detail responses; browsing does not start per-title searches
-or variant watchers. A concurrent render reads back the retained winning list.
+| Endpoint | Version | Cold ms | Warm p50 ms | Warm p95 ms | Bytes |
+|---|---|---:|---:|---:|---:|
+| /hubs/sections/1?count=40 | release base | 11.138 | 9.721 | 12.805 | 404280 |
+| same | 35b8c5ada | 129.302 | 14.966 | 16.010 | 726648 |
+| same | revised | 9.577 | 8.884 | 13.887 | 404280 |
+| /hubs?count=40 | release base | 7.228 | 7.092 | 10.852 | 336708 |
+| same | 35b8c5ada | 128.584 | 11.836 | 13.004 | 605348 |
+| same | revised | 7.193 | 7.075 | 9.395 | 336708 |
+| 50-item library page | release base | 2.347 | 1.961 | 2.492 | 78697 |
+| same | 35b8c5ada | 30.221 | 3.458 | 4.188 | 145857 |
+| same | revised | 1.919 | 1.957 | 2.417 | 78697 |
 
-A positional version choice resolves only against the issued list. Missing or
-out-of-range positions use Auto; explicit stable Part IDs still name releases.
-The existing one-Part model ignores stale partIndex values. Decisions retain
-PMS's single selected Media projection and must name an issued identity. Start
-is followed by metadata checks to verify that admission/probing retained the
-list. Existing stream/probe/failover and VIDAA behavior remains covered.
+The first patch grew section/home payloads by 79.7%/79.8%, and library by
+85.3%. Revised payload growth is **0%**. Release base and revision both make
+**zero Variants calls** on all three endpoints. The first patch made 200,
+200 and 50 calls respectively on cold renders. Every measured version made
+**zero indexer searches and zero descriptor fetches** during all timed requests.
 
-Tradeoff: versions discovered after an unresolved singleton was issued appear
-in a later flow after the existing 30-minute idle identity TTL, rather than
-changing settings beneath an open client. Version notifications can refresh
-facts, but do not replace that client's list. Active sessions retain their list.
+The production `resolver.Service.Variants` uses `peekSearchCache`, then cached
+ranking/picking; it never calls searchCached, Resolve or RefillSearchCache.
+`TestVariantsCacheOnlyNoIndexerCalls` and
+`TestVariantsAlternativesFromStrictPoolCacheOnly` verify that behavior.
+The revised browse path does not enter Variants at all. Existing explicit
+single-detail discovery/warm-up remains unchanged; browsing starts no searches
+or per-title variant watchers.
 
-## Verification
+## Revised flow and cluster behavior
 
-One lasting flow invariant test covers hub → pre-play → queue → decision →
-start → metadata, checks ordered Media IDs/count and matching Part IDs, and
-verifies selected-release admission and stale choices across the 12 cases.
-Existing list, refill and missing-list tests were updated for the new invariant.
+Ordinary details may gain the version picker immediately when discovery
+finishes. Auto-only/unresolved ordinary details are not retained as resolved
+lists and create no shared rows. Hubs/library listings keep their original
+single Auto Media ID, equal to the first Media ID in a detail/flow list. They
+are browse projections, not full version lists; demanding equal counts there
+caused the reviewed performance and picker regressions.
 
-Gates: package tests and vet only; no full repository, race or web suites.
-The full Plex package run exposed the old expectation that a blocked refill
-should expand an already-issued singleton; that assertion now requires the
-singleton to remain stable. Final gates passed:
+A single-title checkFiles/asyncCheckFiles pre-play request or the selected
+play-queue item starts the stable flow. It adopts a previously offered real
+version list, or the current list if none was offered. That flow retains its
+ordered list (including an unresolved Auto if pre-play actually starts cold)
+for 90 seconds pending admission. This is distinct from pinning Auto during
+browsing for 30 minutes. Queued, unselected items do not enter the new shared
+store. A stale mediaIndex falls back to Auto; a stable explicit Part ID still
+names its release. A positional list lost after restart is not recomputed
+against a different current search answer.
 
-- `CGO_ENABLED=0 go test ./internal/plex -count=1`
-- `go test ./internal/conform/plex -count=1`
-- `go vet ./internal/plex`
-- `git diff --check`
+A live flow ends at terminal timeline/encoder stop or failed preparation.
+An abandoned pre-play expires after 90 seconds; live cluster rows use the
+existing 30-minute identity retention, refreshed by playing/paused timelines
+only when less than 20 minutes remain. No title-wide cached search is frozen.
+
+Membership is **not** assumed deterministic across nodes. Only release-derived
+Media/Part IDs are deterministic; node-local cached candidate lists can differ.
+Clustered single-detail/selected-queue boundaries use `plex_version_flows`:
+a primary-keyed viewer/device/title row containing bounded variant render facts
+(no full releases, URLs or credentials). Rows are capped at MaxVariants and
+64 KiB. A per-server worker drains up to 64 operations into one transaction;
+its queue is bounded at 128, queries use the primary key, and expiry cleanup is
+indexed and bounded to 128 rows per sweep. There are no shared-store calls on
+hub/library renders or for unselected queue items.
+
+Writes run on the batching worker, outside the HTTP goroutine. Publication is
+awaited before returning the chosen list: fire-and-forget writes cannot protect
+an immediate next-node request. Atomic SQL preserves the first frozen list even
+when another node offers different candidates. A shared-store failure returns
+503 for metadata/queue or a playback error before preparation, rather than
+silently emitting a node-local replacement list. Local stream aliases remain
+local; the new store's scope is version membership and ordering.
+
+The older shelf_cut/home_shared code on this exact release base is itself
+process-local; it cannot be reused to claim HA guarantees. This uses a separate
+compact shared table rather than copying those local caches.
+
+## Every Plex-visible change versus release base
+
+- Hubs/library listings: **no count or payload change**; still one Auto Media,
+  same deterministic ID as the first item version. No new resolver calls.
+- Ordinary details: original immediate picker discovery restored; no 30-minute
+  singleton freeze. New shared offered lists allow pre-play on another node to
+  identify the versions already shown.
+- Explicit pre-play and selected queue item: retain the same version IDs/order
+  through discovery, node changes, admission and start. Pending cold singleton
+  retention is limited to the actual flow, not browsing.
+- Non-Web live metadata: **no new projection change**. The release base already
+  retains multiple detail versions for all clients except VIDAA (see
+  TestNonWebClientsSeeThePlayingVersionDuringPlayback). The earlier comment
+  claiming other apps always see one version was stale. /status/sessions keeps
+  its admitted single-Media projection. VIDAA remains single-version.
+- Decisions: unchanged PMS-selected single-Media projection, with an identity
+  drawn from the issued list. Start: unchanged playlist/byte transport.
+- Stale/unknown positional choice: Auto instead of recomputing against today's
+  candidates. Explicit Part ID choices remain supported; the one-Part model
+  still ignores stale partIndex. This prevents a choice from naming an unissued
+  version. It does not invent a client-facing MediaVersion setting.
+- Cluster snapshot outage: fail closed at the item/play boundary rather than
+  expose inconsistent versions. Stopping releases the flow for immediate picker
+  discovery on the next detail page.
+
+Recorded conformance covers field types, shapes and the selected projection;
+this corpus has no measured multi-version LG flow. The cross-response identity
+invariant is inferred from stable PMS file identities and the supplied client
+behavior. We do not claim the recorded single-file corpus proves LG hardware
+compatibility or every multi-version selection condition.
+
+## Gates and lasting checks
+
+`TestVersionIdentityAcrossPlayFlow`: LG/Samsung/Android TV/Web, zero/one/three
+initial variants; hub Auto identity, explicit pre-play → queue → decision →
+start → metadata; stale position and Part IDs. `TestVersionFlowSharedAcrossNodes`
+uses different node caches and shared SQL, switches nodes through that flow,
+and checks terminal cleanup/picker recovery. Its fake playback is routed to
+one broker owner to isolate version publication from encoder transport.
+`TestVersionFlowPendingExpiry` checks that an abandoned cold pre-play stops
+hiding the picker. Existing refill/picker tests retain their original immediate
+upgrade expectations. The opt-in measurement is skipped in normal package runs.
+
+Passed gates:
+
+- `go test ./internal/plex -count=1` (38.326 s).
+- `CGO_ENABLED=0 go test ./internal/plex -run 'Test(VersionIdentityAcrossPlayFlow|VersionFlowSharedAcrossNodes|VersionFlowPendingExpiry|PlayIdentity|ResumedDetail|DetailPageRefreshesWhenVersionsArrive|MediaIndex)' -count=1` (3.448 s, after the final expiry cleanup change).
+- Focused decision/detail/TV conformance, VIDAA and non-Web playback checks.
+- `go test ./internal/resolver -run '^TestVariants(CacheOnlyNoIndexerCalls|AlternativesFromStrictPoolCacheOnly)$' -count=1` (0.538 s).
+- `go vet ./internal/plex` and `git diff --check`.
+
+No repository-wide, race or web suites were run. Cross-node storage tests use
+shared SQLite and an in-memory cluster bus; PostgreSQL was not exercised here.
 
 ## GitHub reply draft (not posted)
 
 A fix for this version-list inconsistency is prepared for v0.3.5. Ether could
-show one version in a row and a different list in the details/play queue, or
-change that list when a background search completed. That can invalidate the
-LG app's playback settings.
+change the list between pre-play, the play queue and playback admission, leaving
+the LG app with playback settings that referenced a version no longer listed.
 
-The fix keeps the same version IDs and order throughout the play flow, and
-prevents old version preferences from selecting a newly discovered release.
-An automated flow test covers unresolved, single-version and multi-version
-titles for LG, Samsung, Android TV and Plex Web. PMS playback decisions still
-identify only the chosen version, as expected by Plex clients.
+The fix keeps the version IDs and order stable within a play flow and prevents
+stale version preferences from choosing a newly discovered release. Ordinary
+detail pages can still gain the version picker as discovery finishes. Automated
+checks cover unresolved, single-version and multi-version titles, including
+requests switching between server nodes.
 
-Please retry after installing v0.3.5. If the error remains, the Ether version,
-LG/webOS and Plex app versions, affected title, and a support ZIP captured
-while reproducing it will help confirm what is happening on your TV.
+Please retry on v0.3.5. If the error remains, the Ether version, LG/webOS and
+Plex app versions, affected title, and a support ZIP captured while reproducing
+it will help confirm the remaining cause on your TV.

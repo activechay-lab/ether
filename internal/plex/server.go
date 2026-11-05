@@ -205,6 +205,7 @@ type Server struct {
 	boundStreams      sessions.PlexStreamAPI
 	variantIDs        *variantIDRegistry
 	playIDs           *playIdentities
+	versionFlows      *versionFlowStore
 	variantWatch      variantWatches
 	downloads         *downloadStore
 	queues            *playQueueStore
@@ -301,6 +302,7 @@ func NewServer(d Deps) *Server {
 	s.queues.now = d.Now
 	if d.Cluster != nil && d.DB != nil {
 		s.cl = newClusterState(s, d.DB, d.Cluster)
+		s.versionFlows = newVersionFlowStore(s, d.DB)
 		s.queues.cl = s.cl
 	}
 	if !d.DisableEnrichment && d.Catalog != nil {

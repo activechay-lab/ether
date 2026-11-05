@@ -272,17 +272,17 @@ func TestDetailEditionTitleFromAutoVariant(t *testing.T) {
 	}
 }
 
-func TestListResponsesShareVersionMedia(t *testing.T) {
+func TestListResponsesStaySingleMedia(t *testing.T) {
 	f, _ := newVariantPlaybackFixture(t)
 	rec := f.get(t, "/library/sections/1/all?type=1")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
-	if n := strings.Count(rec.Body.String(), "<Media "); n != 5 {
-		t.Errorf("list media count %d, want 5 (all versions of both movies)", n)
+	if n := strings.Count(rec.Body.String(), "<Media "); n != 2 {
+		t.Errorf("list media count %d, want 2 (one per movie)", n)
 	}
-	if f.resolver.calls != 2 {
-		t.Errorf("list rendering consulted cached variants %d times, want 2", f.resolver.calls)
+	if f.resolver.calls != 0 {
+		t.Errorf("list rendering consulted variants %d times", f.resolver.calls)
 	}
 }
 
@@ -773,8 +773,8 @@ func TestAutoScope1080pAndSecondRowReleaseConsistency(t *testing.T) {
 }
 
 // A detail page opened before the title's search finished shows one
-// version. Once the search lands a library timeline entry refreshes facts,
-// but the open client retains its version identities until idle expiry (#339).
+// version. Once discovery finishes, an ordinary detail gains the picker
+// immediately. Only explicit pre-play/queue flows retain a version list.
 func TestDetailPageRefreshesWhenVersionsArrive(t *testing.T) {
 	saved := variantWatchSchedule
 	variantWatchSchedule = []time.Duration{10 * time.Millisecond, 10 * time.Millisecond, 10 * time.Millisecond, 10 * time.Millisecond}
@@ -802,14 +802,8 @@ func TestDetailPageRefreshesWhenVersionsArrive(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no refresh after the versions arrived")
 	}
-	if n := strings.Count(f.get(t, "/library/metadata/"+fightClub.Key.String()).Body.String(), "<Media "); n != 1 {
-		t.Fatalf("media count %d after notification, client still holds one", n)
-	}
-	// A notification can refresh facts, but must not change settings that
-	// the open client already built. A later idle flow can see new versions.
-	f.srv.d.Now = func() time.Time { return fixedNow.Add(playIdentityTTL + time.Second) }
 	if n := strings.Count(f.get(t, "/library/metadata/"+fightClub.Key.String()).Body.String(), "<Media "); n != 3 {
-		t.Fatalf("media count %d after idle expiry, want 3", n)
+		t.Fatalf("media count %d after refill without a play flow, want 3", n)
 	}
 }
 

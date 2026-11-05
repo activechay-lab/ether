@@ -193,31 +193,65 @@ func (s *Server) partTitle(partID int64) (key core.RatingKey, releaseID string, 
 // ---------------------------------------------------------------------------
 // Rendering
 
-// mediaForVariants renders the same ordered versions on hubs, listings,
-// detail pages and queues. It returns (nil, "") to fall back to the single virtual Media:
+// mediaForVariants renders versions on detail pages and queues only. It returns (nil, "") to fall back to the single virtual Media:
 // no variant resolver wired, nothing cached yet, or only Auto exists.
 // The second value is the item's editionTitle, or "".
 //
 // The list is pinned per viewer, client and title (play_identity.go).
-// The first issued list is reused until idle expiry, including before a
-// session exists. The admitted Media stays selected through probes/failovers.
-func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Title, stamp int64, probed core.MediaInfo, probedRelease string, ps *core.PlaySession, withStreams bool) ([]model.Media, string) {
+// Ordinary details can gain versions as discovery completes. Explicit
+// pre-play and the selected queue item freeze a short-lived flow. Clustered
+// flows adopt the committed snapshot before returning metadata.
+func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Title, stamp int64, probed core.MediaInfo, probedRelease string, ps *core.PlaySession) ([]model.Media, string) {
 	if s.d.Variants == nil || pr.User == nil {
 		return nil, ""
 	}
 	ik := s.playIdentityFor(pr, t.Key)
 	live := ps != nil
 	now := s.now()
+	if s.versionFlows != nil && pr.versionItemKey == t.Key {
+		snap, err := s.versionFlows.call(ctx, ik, nil, versionRead, now, 0)
+		if err != nil {
+			pr.versionErr = err
+			return nil, ""
+		}
+		if snap.frozen {
+			s.playIDs.installVersionFlow(ik, snap.variants, snap.until, now)
+		} else if !live {
+			s.playIDs.mu.Lock()
+			if e := s.playIDs.m[ik]; e != nil && e.admitting == 0 {
+				if e.frozen {
+					e.resolved = false
+					e.variants = nil
+				}
+				e.frozen = false
+				e.flowUntil = time.Time{}
+			}
+			s.playIDs.mu.Unlock()
+		}
+	}
 	pin := s.playIDs.pinned(ik, live, now)
 	var vs []core.ReleaseVariant
-	if pin.resolved {
+	if (pin.frozen || pr.versionFlowKey == t.Key) && pin.resolved {
 		if len(pin.variants) < 2 {
-			if withStreams && !live {
+			if !live {
 				s.watchVariants(pr, t)
 			}
 			return nil, ""
 		}
 		vs = cloneVariants(pin.variants)
+		if pr.versionFlowKey == t.Key && !pin.frozen {
+			if s.versionFlows != nil && pr.versionItemKey == t.Key {
+				snap, err := s.versionFlows.call(ctx, ik, vs, versionFreeze, now, versionPreplayTTL)
+				if err != nil {
+					pr.versionErr = err
+					return nil, ""
+				}
+				vs = snap.variants
+				s.playIDs.installVersionFlow(ik, vs, snap.until, now)
+			} else {
+				s.playIDs.installVersionFlow(ik, vs, now.Add(versionPreplayTTL), now)
+			}
+		}
 		// The resolver names Auto after the release Auto actually opened.
 		// Ask once for the admitted release, not again after a failover.
 		rel := pin.admittedRelease
@@ -244,6 +278,25 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 			s.log.Debug("variants unavailable", "key", t.Key, "err", err)
 			resolved = nil
 		}
+		if s.versionFlows != nil && pr.versionItemKey == t.Key {
+			mode := versionOffer
+			if pr.versionFlowKey == t.Key {
+				mode = versionFreeze
+			}
+			snap, err := s.versionFlows.call(ctx, ik, resolved, mode, now, versionPreplayTTL)
+			if err != nil {
+				pr.versionErr = err
+				return nil, ""
+			}
+			if snap.frozen {
+				s.playIDs.installVersionFlow(ik, snap.variants, snap.until, now)
+				resolved = snap.variants
+			} else if len(resolved) < 2 && len(snap.variants) >= 2 {
+				resolved = snap.variants
+			}
+		} else if pr.versionFlowKey == t.Key {
+			s.playIDs.installVersionFlow(ik, resolved, now.Add(versionPreplayTTL), now)
+		}
 		s.playIDs.issueList(ik, resolved, live, now)
 		// Read back the winner: a hub/detail render may have issued its
 		// list concurrently. Never return a list we did not retain.
@@ -252,7 +305,7 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 			resolved = pin.variants
 		}
 		if len(resolved) < 2 {
-			if withStreams && !live {
+			if !live {
 				s.watchVariants(pr, t)
 			}
 			return nil, ""
@@ -326,7 +379,7 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 		// playing Part's streams: without a video stream it adds no "None"
 		// subtitle track, and its player settings panel then reads the id
 		// of an undefined selected subtitle and ends playback (#267).
-		if withStreams {
+		{
 			info := s.withCachedSidecars(ctx, pr.User, t, variant.Info)
 			if stored.subtitleSet {
 				info = infoWithSelectedSidecar(info, stored.subtitleStream)
@@ -676,9 +729,21 @@ func plexAudioPhrase(info core.ReleaseInfo) string {
 // preparePlayback prepares a play session, honouring a "Play Version"
 // pick when the playback manager supports it.
 func (s *Server) preparePlayback(ctx context.Context, pr *Request, p *playRequest) (*core.PlaySession, error) {
+	if s.versionFlows != nil {
+		ik := s.playIdentityFor(pr, p.key)
+		snap, err := s.versionFlows.call(ctx, ik, nil, versionFreeze, s.now(), playIdentityTTL)
+		if err != nil {
+			return nil, err
+		}
+		s.playIDs.installVersionFlow(ik, snap.variants, snap.until, s.now())
+	}
 	releaseID := s.resolveVariantSelection(ctx, pr, p)
 	p.variantRelease = releaseID
-	return s.prepareForRelease(ctx, pr.User, p.key, p.caps, releaseID)
+	ps, err := s.prepareForRelease(ctx, pr.User, p.key, p.caps, releaseID)
+	if err != nil {
+		s.endVersionFlow(ctx, s.playIdentityFor(pr, p.key))
+	}
+	return ps, err
 }
 
 // admittedMedia is the Media id a prepared request plays: the Part it
