@@ -615,6 +615,11 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		d = dashDecision(req.Info, d)
 	}
 	v := req.Info.Video()
+	// Profile 5 has no HDR10 fallback. Refuse when this ffmpeg cannot reshape
+	// IPTPQc2 through the RPU, rather than delivering a green/purple encode.
+	if v != nil && v.DolbyVision && v.DolbyVisionProfile == 5 && !d.VideoCopy && !m.feat.hasFilter("tonemapx") {
+		return nil, errors.New("transcode: DoVi (Profile 5) color space is not supported")
+	}
 	if v == nil {
 		d.VideoCopy = true // audio-only: nothing to encode
 	}

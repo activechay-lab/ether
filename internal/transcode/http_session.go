@@ -31,6 +31,7 @@ type httpSession struct {
 	requestSeq uint64
 	closed     bool
 	forceCPU   bool
+	delivered  atomic.Bool
 	lastAccess time.Time
 }
 
@@ -413,6 +414,9 @@ func (w flushWriter) Write(p []byte) (int, error) {
 		w.s.Touch()
 	}
 	n, err := w.ResponseWriter.Write(p)
+	if n > 0 && w.s != nil {
+		w.s.delivered.Store(true)
+	}
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
@@ -451,3 +455,6 @@ func (s *httpSession) detachOwnedHTTP() {
 	}
 	s.m.mu.Unlock()
 }
+
+// PlaybackDelivered reports output bytes, not source reads by ffmpeg.
+func (s *httpSession) PlaybackDelivered() bool { return s.delivered.Load() }

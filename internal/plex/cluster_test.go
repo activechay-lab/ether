@@ -239,7 +239,7 @@ func TestClusterNotificationsReachOtherNodes(t *testing.T) {
 	a, b, _ := twoServers(t)
 	subA, _ := a.srv.notifier.subscribe(nil, &ownerUser)
 	subB, _ := b.srv.notifier.subscribe(nil, &ownerUser)
-	a.get(t, "/:/scrobble?key="+fightClub.Key.String()+"&identifier=com.plexapp.plugins.library")
+	a.srv.WatchStateChanged(ownerUser.ID, fightClub.Key)
 	select {
 	case msg := <-subB.ch:
 		if msg.typ != "timeline" || !strings.Contains(string(msg.data), fightClub.Key.String()) {

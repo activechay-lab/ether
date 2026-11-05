@@ -70,6 +70,7 @@ func (s *Server) playlistListingMetadata(ctx context.Context, pl *core.Playlist)
 			md.LastViewedAt = unixOrZero(st.LastViewedAt)
 			md.ViewOffset = st.ViewOffset.Milliseconds()
 			md.UserRating = st.UserRating
+			md.LastRatedAt = unixOrZero(st.LastRatedAt)
 		}
 	}
 	return md

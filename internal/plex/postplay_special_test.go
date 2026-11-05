@@ -47,7 +47,7 @@ func TestShowQueueAndUnverifiedNextTimeline(t *testing.T) {
 	}
 	f.get(t, fmt.Sprintf("/:/timeline?ratingKey=%s&state=stopped&time=3300000&duration=3361000", episode))
 	rec = f.get(t, fmt.Sprintf("/:/timeline?ratingKey=%s&state=playing&time=3300000&duration=540000", special))
-	if rec.Code != http.StatusOK || recordedAt(f.state.progress, special, 3300*time.Second) {
+	if rec.Code != http.StatusBadRequest || recordedAt(f.state.progress, special, 3300*time.Second) {
 		t.Fatalf("stale playhead recorded: %+v", f.state.progress)
 	}
 	// A real position for the same item still counts, with or without a

@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/identity"
@@ -51,6 +52,7 @@ type Request struct {
 	// the refill was not admitted (or the search cache was already warm).
 	detailRefillRequested bool
 	detailRefill          <-chan struct{}
+	detailWaitUntil       time.Time // shared Android TV detail probe/version wait budget
 
 	// Capability is set when authentication used a stream grant or other
 	// session-scoped credential, not a user token. Only transcode

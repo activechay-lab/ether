@@ -344,7 +344,7 @@ func browseFilterKey(f core.Filter) string {
 			return ""
 		}
 		if groupHasOwnState(g) {
-			return fmt.Sprintf("state:%d:%v:%v:%d:%d:%v", g.UserID, boolValue(g.Unwatched), boolValue(g.InProgress), g.LastViewedAfter, g.LastViewedBefore, g.ParentOnly)
+			return fmt.Sprintf("state:%d:%v:%v:%d:%d:%v:%s:%s:%d", g.UserID, boolValue(g.Unwatched), boolValue(g.InProgress), g.LastViewedAfter, g.LastViewedBefore, g.ParentOnly, g.StateField, g.StateOperator, g.StateValue)
 		}
 		if g.Filter != nil {
 			return fmt.Sprintf("leaf:%v(", g.ParentOnly) + browseFilterKey(*g.Filter) + ")"
@@ -373,7 +373,7 @@ func boolValue(v *bool) string {
 }
 
 func groupHasOwnState(g *core.FilterGroup) bool {
-	return g.Unwatched != nil || g.InProgress != nil || g.LastViewedAfter != 0 || g.LastViewedBefore != 0
+	return g.StateField != "" || g.Unwatched != nil || g.InProgress != nil || g.LastViewedAfter != 0 || g.LastViewedBefore != 0
 }
 
 func groupHasState(g *core.FilterGroup) bool {
