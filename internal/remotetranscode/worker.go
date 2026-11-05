@@ -30,6 +30,7 @@ type execution struct {
 	session                   core.OwnedEncoderSession
 	retirement                core.EncoderRetirement
 	input                     core.EncoderInputLease
+	gatewayInput              core.EncoderInputLease
 	starting, stopped, failed bool
 	cancel                    context.CancelFunc
 	timer                     *time.Timer
@@ -74,6 +75,9 @@ func (w *Worker) stop(e *execution) {
 	if e.input != nil {
 		e.input.SealInput()
 	}
+	if e.gatewayInput != nil {
+		e.gatewayInput.SealInput()
+	}
 	if e.session != nil {
 		_ = e.session.RetireEncoder()
 	}
@@ -97,14 +101,16 @@ func result(e *execution) string {
 	} else if !e.stopped {
 		return "pending"
 	}
-	if e.input != nil {
-		select {
-		case <-e.input.InputDone():
-			if e.input.InputErr() != nil {
-				return "unverified"
+	for _, input := range []core.EncoderInputLease{e.input, e.gatewayInput} {
+		if input != nil {
+			select {
+			case <-input.InputDone():
+				if input.InputErr() != nil {
+					return "unverified"
+				}
+			default:
+				return "pending"
 			}
-		default:
-			return "pending"
 		}
 	}
 	return "retired"
@@ -267,11 +273,27 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	var session core.HLSSession
 	var retirement core.EncoderRetirement
 	invoked := false
-	if err == nil && (!privateURL(source.URL) || source.Lease == nil) {
+	var gatewayLease core.EncoderInputLease
+	if source.Gateway != nil {
+		// Outside worker mutex. Preserve responsibility even when Resolve or the
+		// gateway fails, or when a resolver violates the mutually exclusive contract.
+		raw, lease, gatewayErr := source.Gateway.GatewayInput(s.Identity, s.Grant)
+		gatewayLease = lease
+		if err == nil && gatewayErr == nil && source.URL == "" && source.Lease == nil && gatewayURL(raw) && lease != nil {
+			source.URL = raw
+		} else {
+			err = errors.New("invalid trusted gateway input")
+		}
+	} else if err == nil && (!privateURL(source.URL) || source.Lease == nil) {
 		err = errors.New("invalid authorized source")
 	}
 	w.mu.Lock()
 	e.input = source.Lease
+	e.gatewayInput = gatewayLease
+	input := source.Lease
+	if source.Gateway != nil {
+		input = gatewayLease
+	}
 	w.expire(e)
 	stopped := e.stopped
 	w.mu.Unlock()
@@ -280,7 +302,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	}
 	if err == nil {
 		invoked = true
-		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), InputURL: source.URL, InputLease: source.Lease, Info: s.Info, Decision: s.Decision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, Protocol: core.ProtocolHLS})
+		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), InputURL: source.URL, InputLease: input, Info: s.Info, Decision: s.Decision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, Protocol: core.ProtocolHLS})
 	}
 	w.mu.Lock()
 	w.expire(e)

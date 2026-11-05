@@ -109,13 +109,24 @@ type Security struct {
 	Authorize    func(context.Context, string, string, Identity, *Start) error
 }
 
+// TrustedGatewayInput is a trusted, injected composition boundary, never a wire
+// DTO. It must bind the exact execution and immutable grant handle to an existing
+// loopback listener capability. Return the acquired lease even on error. Arbitrary
+// implementations are not made safe by this interface; host composition owns trust.
+type TrustedGatewayInput interface {
+	GatewayInput(Identity, string) (string, core.EncoderInputLease, error)
+}
+
 // Source is produced by trusted source-grant validation, never by a wire URL.
-// URL must be a private literal-IP HTTPS range endpoint. Resolver must ensure no
-// redirects, nested fetches, or scope/header escape and bind grant to this exact
-// worker/controller/session/generation/expiry. Lease tracks worker input producers.
+// Ordinary URL/Lease uses the existing private literal-IP HTTPS contract, with
+// redirects/nested fetches forbidden and exact identity/expiry binding. Gateway
+// is an exclusive trusted local capability. Interface implementations must bind
+// identity, origin/path, and lease, and must never redirect or substitute input.
 type Source struct {
-	URL   string
-	Lease core.EncoderInputLease
+	// Gateway excludes URL/Lease. Resolver must never acquire an unused second lease.
+	Gateway TrustedGatewayInput
+	URL     string
+	Lease   core.EncoderInputLease
 }
 type ResolveSource func(context.Context, string, Start) (Source, error)
 
@@ -140,6 +151,14 @@ func privateURL(raw string) bool {
 	}
 	ip, e := netip.ParseAddr(u.Hostname())
 	return e == nil && ip.IsPrivate() && !ip.IsLoopback() && !ip.Is4In6() && !strings.Contains(u.Host, "%")
+}
+func gatewayURL(raw string) bool {
+	u, e := url.Parse(raw)
+	if e != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.Opaque != "" || u.RawPath != "" || u.ForceQuery || u.Path == "" || u.Port() == "" {
+		return false
+	}
+	ip, e := netip.ParseAddr(u.Hostname())
+	return e == nil && ip.IsLoopback() && !ip.Is4In6() && !strings.Contains(u.Host, "%")
 }
 func supported(r core.HLSRequest) bool {
 	if r.Protocol != "" && r.Protocol != core.ProtocolHLS {
