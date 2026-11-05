@@ -203,31 +203,44 @@ func consoleTitleName(t *core.Title) string {
 // ConsoleProfiles lists the profiles interactive search can rank with:
 // the configured profiles, plus ProfileNone and ProfileDownload.
 func (s *Service) ConsoleProfiles() (def string, names []string) {
+	return s.ConsoleProfilesFor(core.MediaAny)
+}
+
+// ConsoleProfilesFor is ConsoleProfiles with a title's media: its default
+// is the media's default rather than the other media's.
+func (s *Service) ConsoleProfilesFor(media string) (def string, names []string) {
 	q := s.qualityCfg()
+	media = normalizeMedia(media)
 	for _, p := range q.Profiles {
-		names = append(names, p.Name)
-	}
-	def = q.Default
-	if _, ok := profileByName(q.Profiles, def); !ok {
-		def = ""
-		if len(q.Profiles) > 0 {
-			def = q.Profiles[0].Name
+		if core.MediaApplies(p.MediaType, media) {
+			names = append(names, p.Name)
 		}
 	}
-	return def, names
+	if p, ok := profileByName(q.Profiles, defaultProfileName(q, media)); ok && core.MediaApplies(p.MediaType, media) {
+		return p.Name, names
+	}
+	if len(names) > 0 {
+		return names[0], names
+	}
+	return "", names
 }
 
 // consoleProfile resolves an interactive-search profile name. "" is the
-// owner's default profile. Profiles are not clamped to any client: the
-// console ranks as a capable client would; client gates apply at play.
+// owner's default profile for media. Profiles are not clamped to any client:
+// the console ranks as a capable client would; client gates apply at play.
 func (s *Service) consoleProfile(name string) (core.QualityProfile, core.ClientCaps, error) {
+	return s.consoleProfileForMedia(name, core.MediaAny)
+}
+
+func (s *Service) consoleProfileForMedia(name, media string) (core.QualityProfile, core.ClientCaps, error) {
 	q := s.qualityCfg()
+	media = normalizeMedia(media)
 	switch name {
 	case ProfileNone:
 		return core.QualityProfile{Name: ProfileNone, AllowHDR: true, AllowDolbyVision: true, AllowCam: true}, core.ClientCaps{}, nil
 	case ProfileDownload:
-		base := SelectProfile(q, core.ClientCaps{}, nil)
-		if p, ok := profileByName(q.Profiles, q.Default); ok {
+		base := SelectProfileForMedia(q, core.ClientCaps{}, nil, media)
+		if p, ok := profileByName(q.Profiles, defaultProfileName(q, media)); ok && core.MediaApplies(p.MediaType, media) {
 			base = p
 		}
 		caps := core.ClientCaps{Download: true}
@@ -235,15 +248,20 @@ func (s *Service) consoleProfile(name string) (core.QualityProfile, core.ClientC
 		// ceiling here too, before the download reshape lowers it.
 		return downloadProfile(snapshotConfiguredMaxHeight(copyProfile(base)), caps), caps, nil
 	case "":
-		if p, ok := profileByName(q.Profiles, q.Default); ok {
+		if p, ok := profileByName(q.Profiles, defaultProfileName(q, media)); ok && core.MediaApplies(p.MediaType, media) {
 			return copyProfile(p), core.ClientCaps{}, nil
 		}
-		if len(q.Profiles) > 0 {
-			return copyProfile(q.Profiles[0]), core.ClientCaps{}, nil
+		for _, p := range q.Profiles {
+			if core.MediaApplies(p.MediaType, media) {
+				return copyProfile(p), core.ClientCaps{}, nil
+			}
 		}
 		return defaultProfile(), core.ClientCaps{}, nil
 	}
 	if p, ok := profileByName(q.Profiles, name); ok {
+		if !core.MediaApplies(p.MediaType, media) {
+			return core.QualityProfile{}, core.ClientCaps{}, fmt.Errorf("%w: %q does not apply to this title", ErrUnknownProfile, name)
+		}
 		return copyProfile(p), core.ClientCaps{}, nil
 	}
 	return core.QualityProfile{}, core.ClientCaps{}, fmt.Errorf("%w: %q", ErrUnknownProfile, name)
@@ -360,7 +378,7 @@ func (s *Service) SearchReleases(ctx context.Context, t *core.Title, opts Search
 	if s.indexer == nil {
 		return nil, fmt.Errorf("resolver: no indexer configured")
 	}
-	profile, caps, err := s.consoleProfile(opts.Profile)
+	profile, caps, err := s.consoleProfileForMedia(opts.Profile, titleMedia(t))
 	if err != nil {
 		return nil, err
 	}

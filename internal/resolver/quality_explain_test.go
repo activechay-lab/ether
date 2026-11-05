@@ -60,10 +60,19 @@ func sameKinds(got []string, want ...string) bool {
 	return true
 }
 
+// questionMedia is the media scope the question asks about: the title's,
+// else the explicit hint, else unknown.
+func questionMedia(in QualityQuestion) string {
+	if media := titleMedia(in.Title); media != core.MediaAny {
+		return media
+	}
+	return normalizeMedia(in.MediaType)
+}
+
 // The checker must agree with SelectProfile, the function playback uses.
 func assertMatchesPlayback(t *testing.T, in QualityQuestion, a QualityAnswer) {
 	t.Helper()
-	p := SelectProfile(in.Quality, in.Caps, in.User)
+	p := SelectProfileForMedia(in.Quality, in.Caps, in.User, questionMedia(in))
 	if a.Profile != p.Name || a.MaxHeight != p.MaxHeight || a.HDR != p.AllowHDR || a.DolbyVision != p.AllowDolbyVision {
 		t.Fatalf("explain %+v disagrees with SelectProfile %s %d hdr=%v dv=%v", a, p.Name, p.MaxHeight, p.AllowHDR, p.AllowDolbyVision)
 	}

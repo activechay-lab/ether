@@ -252,7 +252,7 @@ func (m *Manager) Prewarm(_ context.Context, user *core.User, key core.RatingKey
 		return false
 	}
 	m.warmRequests[bk] = append(recent, now)
-	profileObj := m.deps.SelectProfile(caps, user)
+	profileObj := m.selectProfile(caps, user, key)
 	e := &warmEntry{profileKey: profileKey(profileObj), profileObj: profileObj, caps: caps, done: make(chan struct{}), opened: make(chan struct{}), foreground: make(chan context.Context, 1), started: now, expires: now.Add(preResolveTTL)}
 	m.warm[id] = e
 	u := *user
@@ -307,7 +307,7 @@ func (m *Manager) Prewarm(_ context.Context, user *core.User, key core.RatingKey
 		}
 		m.noteWarmCause(res, src, reason, cacheTitle(*title))
 		generation, err := m.probeGeneration(ctx, session, res, src, finish, func(size int64) core.MediaInfo {
-			info := EstimateInfo(title, caps, m.deps.SelectProfile(caps, &u))
+			info := EstimateInfo(title, caps, m.selectProfile(caps, &u, title.Key))
 			info.Size = size
 			return info
 		})
@@ -480,10 +480,10 @@ func (m *Manager) findWarmEntryLocked(user *core.User, caps core.ClientCaps, key
 			return e
 		}
 	}
-	if m.deps.SelectProfile == nil {
+	if m.deps.SelectProfile == nil && m.deps.SelectProfileFor == nil {
 		return nil
 	}
-	pk := profileKey(m.deps.SelectProfile(caps, user))
+	pk := profileKey(m.selectProfile(caps, user, key))
 	for ident, e := range m.warm {
 		if ident.userID == user.ID && ident.key == key && now.Before(e.expires) && e.profileKey == pk {
 			return e

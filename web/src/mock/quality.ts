@@ -87,6 +87,12 @@ export function createQualityMock() {
     const quality = config.quality;
     const profiles = quality.profiles ?? [];
     const byName = new Map(profiles.map((p) => [p.name, p]));
+    const media = q.mediaType === "movie" || q.mediaType === "tv" ? (q.mediaType as string) : "";
+    const applies = (scope: string | undefined) => !media || !scope || scope === media;
+    const pick = (name: string | undefined) => {
+      const found = name ? byName.get(name) : undefined;
+      return found && applies(found.mediaType) ? found : undefined;
+    };
     const rules = quality.rules ?? [];
     const ruleIndex = rules.findIndex(
       (r) =>
@@ -95,20 +101,41 @@ export function createQualityMock() {
         contains(client.product, r.product) &&
         contains(client.platform, r.platform) &&
         (!r.userId || r.userId === q.userId) &&
+        applies(r.mediaType) &&
+        applies(byName.get(r.profile)?.mediaType) &&
         byName.has(r.profile),
     );
     const rule = ruleIndex >= 0 ? rules[ruleIndex] : undefined;
     let source: NonNullable<QualityLayer["source"]> = "first";
-    let profile = profiles[0];
+    let profile = profiles.find((p) => applies(p.mediaType));
+    const scoped = media
+      ? media === "movie"
+        ? quality.defaultMovie
+        : quality.defaultTv
+      : undefined;
+    const scopedRemote = media
+      ? media === "movie"
+        ? quality.remoteMovie
+        : quality.remoteTv
+      : undefined;
     if (rule) {
-      source = "rule";
-      profile = byName.get(rule.profile);
-    } else if (q.remote && byName.has(quality.remote)) {
-      source = "remote";
-      profile = byName.get(quality.remote);
-    } else if (byName.has(quality.default)) {
-      source = "default";
-      profile = byName.get(quality.default);
+      const found = pick(rule.profile);
+      if (found) {
+        source = "rule";
+        profile = found;
+      }
+    } else if (q.remote) {
+      const found = pick(scopedRemote || quality.remote);
+      if (found) {
+        source = "remote";
+        profile = found;
+      }
+    } else {
+      const found = pick(scoped || quality.default);
+      if (found) {
+        source = "default";
+        profile = found;
+      }
     }
     const name = profile?.name ?? "default";
     const configured = profile?.maxHeight ?? 1080;
@@ -168,6 +195,7 @@ export function createQualityMock() {
     if (blocked) layers.push({ kind: "remote-blocked", reason: "", decisive: true });
     const answer: QualityAnswer = {
       profile: name,
+      ...(media ? { mediaType: media } : {}),
       maxHeight,
       hdr: Boolean(profile?.allowHdr) && client.hdr,
       dolbyVision: Boolean(profile?.allowDolbyVision) && client.dolbyVision,

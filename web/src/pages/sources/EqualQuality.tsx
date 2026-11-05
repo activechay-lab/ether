@@ -97,12 +97,17 @@ export function SourceOrderSection() {
         setting="source-order"
         title={t("Source order")}
         description={
-          <QualityHelp
-            summary={t("Prefer speed or a source.")}
-            detail={t(
-              "Start fastest picks whichever source has been quicker to start. Usenet first and Debrid first only decide between equal releases. The Always choices prefer that source regardless of quality, with fallback when nothing plays.",
-            )}
-          />
+          <div className="space-y-1">
+            <QualityHelp
+              summary={t("Prefer speed or a source.")}
+              detail={t(
+                "Start fastest picks whichever source has been quicker to start. Usenet first and Debrid first only decide between equal releases. The Always choices prefer that source regardless of quality, with fallback when nothing plays.",
+              )}
+            />
+            <span className="block text-xs text-fg-muted">
+              <SourceStartupNote />
+            </span>
+          </div>
         }
         control={
           <div className="w-52">
@@ -117,9 +122,6 @@ export function SourceOrderSection() {
           </div>
         }
       />
-      <p className="px-5 pb-4 text-xs text-fg-muted">
-        <SourceStartupNote />
-      </p>
       <SaveBar
         dirty={dirty}
         saving={saving}

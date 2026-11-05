@@ -48,9 +48,25 @@ var (
 	ErrTrashNotFound = errors.New("TRaSH Guides has no such profile")
 	// ErrTrashUnavailable wraps failures to reach TRaSH Guides.
 	ErrTrashUnavailable = errors.New("TRaSH Guides is unavailable")
+	// ErrTrashPartial marks a listing that still has usable entries but
+	// could not read every file.
+	ErrTrashPartial = errors.New("some TRaSH Guides files could not be read")
 
 	trashFileName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,150}\.json$`)
 )
+
+// trashPartial marks a usable-but-incomplete guide listing. It matches
+// ErrTrashPartial as well as whatever failed (not-found, unavailable), so a
+// caller can tell "nothing there" from "some of it worked".
+type trashPartial struct{ err error }
+
+func (p *trashPartial) Error() string { return ErrTrashPartial.Error() + ": " + p.err.Error() }
+func (p *trashPartial) Unwrap() error { return p.err }
+func (p *trashPartial) Is(target error) bool {
+	return target == ErrTrashPartial
+}
+
+func partialTrash(err error) error { return &trashPartial{err: err} }
 
 // TrashOptions configures a TrashGuides client. Zero values use GitHub.
 type TrashOptions struct {
@@ -109,7 +125,10 @@ type TrashProfile struct {
 	Group       int    `json:"group,omitempty"`
 	URL         string `json:"url,omitempty"` // the guide page, always https://trash-guides.info
 	ScoreSet    string `json:"scoreSet,omitempty"`
-	Formats     int    `json:"formats"`
+	// Formats counts the profile's own formatItems; DefaultFormats counts
+	// the formats its default-on groups add on top.
+	Formats        int `json:"formats"`
+	DefaultFormats int `json:"defaultFormats"`
 }
 
 func validApp(app string) bool { return app == AppRadarr || app == AppSonarr }
@@ -149,9 +168,29 @@ func (g *TrashGuides) Profiles(ctx context.Context, app string) ([]TrashProfile,
 	if len(list) == 0 && firstErr != nil {
 		return nil, firstErr
 	}
+	// Default-on groups are what most profiles rely on; a picker that
+	// showed 0 of them would understate the import. Their failure is a
+	// warning, not a failed listing.
+	var groups []trashCFGroup
+	if gerr := func() error {
+		var err error
+		groups, err = g.cfGroups(ctx, app)
+		if errors.Is(err, ErrTrashNotFound) {
+			return nil // the guide publishes no groups for this app
+		}
+		return err
+	}(); gerr != nil {
+		firstErr = errors.Join(firstErr, fmt.Errorf("default format groups: %w", gerr))
+	}
+	for i := range list {
+		list[i].DefaultFormats = len(groupDefaultFormats(groups, list[i].TrashID))
+	}
 	slices.SortFunc(list, func(a, b TrashProfile) int {
 		return cmp.Or(cmp.Compare(a.Group, b.Group), strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)))
 	})
+	if firstErr != nil {
+		return list, partialTrash(firstErr)
+	}
 	return list, nil
 }
 
@@ -220,6 +259,11 @@ func (g *TrashGuides) cfGroups(ctx context.Context, app string) ([]trashCFGroup,
 	}
 	if len(groups) == 0 && firstErr != nil {
 		return nil, firstErr
+	}
+	// Some groups are still useful (the owner can import the profile's own
+	// formats), so a partial read is an error with the list attached.
+	if firstErr != nil {
+		return groups, partialTrash(firstErr)
 	}
 	return groups, nil
 }

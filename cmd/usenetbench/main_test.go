@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -106,7 +107,7 @@ func TestServeBackfillFixtureRoundTrip(t *testing.T) {
 		Manifest string `json:"manifest"`
 		Backup   string `json:"backup"`
 	}
-	if err := json.NewDecoder(reader).Decode(&ready); err != nil {
+	if err := json.NewDecoder(bufio.NewReader(reader)).Decode(&ready); err != nil {
 		t.Fatal(err)
 	}
 	if !ready.Ready || ready.Backup == "" {

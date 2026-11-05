@@ -1,4 +1,7 @@
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   EmptyState,
@@ -7,25 +10,53 @@ import {
   Switch,
   Textarea,
   confirmDialog,
+  toast,
 } from "@braedonsaunders/appkit-ui";
-import { ChevronDown, Download, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
-import { useState } from "react";
+import {
+  Check,
+  ChevronDown,
+  Download,
+  Film,
+  Plus,
+  RefreshCw,
+  SlidersHorizontal,
+  Trash2,
+  Tv,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { MoreOptions } from "../../components/ConfigSection";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
-import { ChipGroup, ListInput, NumberInput } from "../../components/fields";
+import { ChipGroup, ListInput, NumberInput, Segmented } from "../../components/fields";
 import { Section } from "../../components/layout";
+import { SaveBar, useDraft } from "../../components/SaveBar";
 import { SettingsRow } from "../../components/SettingsRow";
 import { DragHandle, SortableList, type DragHandleProps } from "../../components/Sortable";
 import { localized, t, tn, tx } from "../../i18n";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
 import { api } from "../../lib/api";
 import { isPluginDescriptor, textOf } from "../../lib/extend";
-import { qualityGateLabel } from "../../lib/releases";
-import type { QualityProfile, ReleaseRule } from "../../lib/types";
+import { relativeTime } from "../../lib/format";
+import {
+  MEDIA_MOVIE,
+  MEDIA_TV,
+  appForMedia,
+  compatibleProfiles,
+  mediaApplies,
+  mediaLabel,
+  mediaTypeForApp,
+  profileMediaType,
+  qualityGateLabel,
+  releaseConsole,
+  type ProfileMedia,
+  type QualitySyncReport,
+} from "../../lib/releases";
+import type { CustomFormatDefinition, QualityProfile, ReleaseRule } from "../../lib/types";
+import { parseDuration } from "../settings/duration";
 import { QUALITY_AUDIO, QUALITY_CODECS, QUALITY_SOURCES } from "../settings/schema";
 import { SourceOrderSection } from "../sources/EqualQuality";
 import { AwaySection } from "./AwaySection";
+import { RemoteBitrateSection } from "./RemoteBitrateSection";
 import { ConfigSection } from "../../components/ConfigSection";
 import { PLAY_VERSIONS } from "../settings/schema";
 import {
@@ -52,13 +83,21 @@ import {
   releaseRuleConflict,
   syncRulesWithRanking,
 } from "./ReleasePreferences";
-import { parseScoring, scoringText, type ResolverPolicy } from "./resolverDraft";
+import {
+  mergeCustomFormats,
+  parseScoring,
+  sameFormats,
+  scoringText,
+  type ParsedScoring,
+  type ResolverPolicy,
+} from "./resolverDraft";
 import { TrashImport } from "./TrashImport";
 import { useQuality, type Quality } from "./useQuality";
 
-function blankProfile(n: number): QualityProfile {
+function blankProfile(n: number, media: ProfileMedia): QualityProfile {
   return {
     name: t("Profile {n}", { n }),
+    mediaType: media,
     ranking: [],
     maxHeight: 1080,
     minHeight: 720,
@@ -101,6 +140,151 @@ function profileSummary(p: QualityProfile) {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+const APPLIES_OPTIONS = localized(() => [
+  { value: "" as const, label: t("Both") },
+  { value: "movie" as const, label: t("Movies") },
+  { value: "tv" as const, label: t("Shows") },
+]);
+
+/** Movies / Shows / Movies & shows badge for a profile or rule scope. */
+export function MediaBadge({ media }: { media?: string }) {
+  return <Badge variant={media ? "info" : "secondary"}>{mediaLabel(media)}</Badge>;
+}
+
+/**
+ * The page-level scope choice. Two large, filled tabs make the selected
+ * media obvious before the dependent profile/default/Away sections.
+ */
+function MediaScopeToggle({
+  media,
+  onChange,
+}: {
+  media: ProfileMedia;
+  onChange: (media: ProfileMedia) => void;
+}) {
+  const options = [
+    { value: MEDIA_MOVIE as ProfileMedia, label: t("Movies"), Icon: Film },
+    { value: MEDIA_TV as ProfileMedia, label: t("Shows"), Icon: Tv },
+  ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label={t("Media")}
+      className="grid w-full max-w-sm grid-cols-2 gap-1 rounded-xl border border-border bg-bg-subtle p-1"
+    >
+      {options.map(({ value, label, Icon }, i) => {
+        const on = value === media;
+        return (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            aria-label={label}
+            tabIndex={on ? 0 : -1}
+            onClick={() => onChange(value)}
+            onKeyDown={(e) => {
+              if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+              e.preventDefault();
+              const next =
+                options[(i + (e.key === "ArrowRight" ? 1 : options.length - 1)) % options.length];
+              if (!next) return;
+              onChange(next.value);
+              (
+                e.currentTarget.parentElement?.children[options.indexOf(next)] as
+                  HTMLElement | undefined
+              )?.focus();
+            }}
+            className={[
+              "flex h-12 items-center justify-center gap-2 rounded-lg px-4 text-base font-semibold transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+              on
+                ? "bg-primary text-primary-fg shadow-sm shadow-primary/30"
+                : "text-fg-muted hover:bg-surface hover:text-fg",
+            ].join(" ")}
+          >
+            <Icon size={18} aria-hidden />
+            {label}
+            {on ? <Check size={16} aria-hidden className="ml-0.5" /> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The stored default for a media, falling back to the legacy field only when it fits. */
+function mediaDefault(quality: Quality, media: ProfileMedia, away: boolean): string {
+  const scoped = away
+    ? media === MEDIA_MOVIE
+      ? quality.remoteMovie
+      : quality.remoteTv
+    : media === MEDIA_MOVIE
+      ? quality.defaultMovie
+      : quality.defaultTv;
+  if (scoped) return scoped;
+  const legacy = (away ? quality.remote : quality.default) ?? "";
+  if (!legacy) return "";
+  const profile = (quality.profiles ?? []).find((p) => p.name === legacy);
+  return !profile || mediaApplies(profile.mediaType, media) ? legacy : "";
+}
+
+function defaultField(
+  media: string,
+  away: boolean,
+): "default" | "defaultMovie" | "defaultTv" | "remote" | "remoteMovie" | "remoteTv" {
+  if (media === MEDIA_MOVIE) return away ? "remoteMovie" : "defaultMovie";
+  if (media === MEDIA_TV) return away ? "remoteTv" : "defaultTv";
+  return away ? "remote" : "default";
+}
+
+/** First profile (optionally other than `exclude`) that applies to media. */
+function mediaFallback(profiles: QualityProfile[], media: string, exclude?: string): string {
+  return profiles.find((p) => p.name !== exclude && mediaApplies(p.mediaType, media))?.name ?? "";
+}
+
+const DEFAULT_FIELDS = [
+  "default",
+  "defaultMovie",
+  "defaultTv",
+  "remote",
+  "remoteMovie",
+  "remoteTv",
+] as const;
+
+function withRenamedDefaults(quality: Quality, from: string, to: string): Quality {
+  const next: Quality = { ...quality };
+  for (const field of DEFAULT_FIELDS) {
+    if (next[field] === from) next[field] = to;
+  }
+  return next;
+}
+
+/**
+ * Keep every stored default pointing at a profile that exists and applies to
+ * its media. A media default that outlives its profile falls back to the
+ * first compatible profile (or none).
+ */
+function settleDefaults(next: Quality): Quality {
+  const profiles = next.profiles ?? [];
+  const exists = (name: string, media: string) =>
+    profiles.some((p) => p.name === name && mediaApplies(p.mediaType, media));
+  for (const media of [MEDIA_MOVIE, MEDIA_TV] as const) {
+    const home = media === MEDIA_MOVIE ? "defaultMovie" : "defaultTv";
+    const away = media === MEDIA_MOVIE ? "remoteMovie" : "remoteTv";
+    if (next[home] && !exists(next[home]!, media)) next[home] = mediaFallback(profiles, media);
+    if (next[away] && !exists(next[away]!, media)) next[away] = "";
+    // The legacy default must not decide for a media it cannot serve.
+    if (!next[home]) {
+      const legacy = profiles.find((p) => p.name === next.default);
+      if (legacy && !mediaApplies(legacy.mediaType, media)) {
+        next[home] = mediaFallback(profiles, media);
+      }
+    }
+  }
+  return next;
 }
 
 /** Ordered multi-pick: chips toggle membership; the order picked is the preference order. */
@@ -177,10 +361,10 @@ function ImportedSection({
   const scored = Object.keys(draft.customFormatScores ?? {}).length;
   return (
     <SettingsSection
-      title={imported ? t("Imported from TRaSH / Radarr / Sonarr") : t("Custom scores")}
+      title={imported ? t("Imported profile") : t("Custom scores")}
       description={
         imported
-          ? t("Carried over from a Radarr or Sonarr profile.")
+          ? t("Carried over from a guide or Starr profile.")
           : t("Give custom formats points. Higher totals rank first at the Custom score step.")
       }
     >
@@ -693,12 +877,179 @@ function WhatMattersMostSection({
   );
 }
 
-/**
- * Profiles tab: the profile cards, then the choices that apply to every
- * profile: away from home, which source goes first, and the version menu.
- */
+const SYNC_INTERVALS = localized(() => [
+  { value: "6", label: t("Every 6 hours") },
+  { value: "12", label: t("Every 12 hours") },
+  { value: "24", label: t("Every 24 hours") },
+  { value: "72", label: t("Every 3 days") },
+  { value: "168", label: t("Every 7 days") },
+]);
+
+/** Hours in a Go duration string, defaulting to 24. */
+function syncHours(raw: string | undefined): string {
+  if (!raw) return "24";
+  const { amount, unit } = parseDuration(raw);
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return "24";
+  const hours = unit === "d" ? n * 24 : unit === "h" ? n : n / 60;
+  return hours > 0 ? String(hours) : "24";
+}
+
+/** Automatic update of imported profiles and their format definitions. */
+function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Promise<void> }) {
+  const sync = quality.sync;
+  const hasRun = Boolean(sync?.lastRun) && !sync!.lastRun!.startsWith("0001-");
+  const { draft, setDraft, dirty, reset } = useDraft({
+    enabled: sync?.enabled ?? false,
+    hours: syncHours(sync?.interval),
+  });
+  const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [report, setReport] = useState<QualitySyncReport | null>(null);
+  if (!draft) return null;
+  const hours = draft.hours;
+  const options = SYNC_INTERVALS.some((o) => o.value === hours)
+    ? SYNC_INTERVALS
+    : [...SYNC_INTERVALS, { value: hours, label: t("Every {hours} hours", { hours }) }];
+
+  async function save() {
+    if (!draft) return;
+    setSaving(true);
+    setError(null);
+    try {
+      // The admin endpoint patches the quality section, so omitted run
+      // state stays whatever the server recorded while this form was open.
+      await api.putSection("quality", {
+        sync: { enabled: draft.enabled, interval: `${draft.hours}h` },
+      });
+      toast.success(t("Sync settings saved"));
+      await onSaved();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function syncNow() {
+    setSyncing(true);
+    setError(null);
+    try {
+      setReport(await releaseConsole.syncQuality());
+      toast.success(t("Guide sync finished"));
+      await onSaved();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  return (
+    <Section
+      title={t("Keep imported profiles in sync")}
+      description={t(
+        "Update profiles imported from a guide when its quality definition or custom format scores change.",
+      )}
+      actions={
+        <Button variant="outline" size="sm" disabled={syncing} onClick={() => void syncNow()}>
+          <RefreshCw size={14} className={syncing ? "animate-spin" : undefined} />
+          {syncing ? t("Syncing…") : t("Sync now")}
+        </Button>
+      }
+    >
+      <SettingsSection>
+        <SettingsRow
+          title={t("Keep imported profiles in sync")}
+          description={t("Only profiles imported from TRaSH Guides or Profilarr are updated.")}
+          control={
+            <Switch
+              aria-label={t("Keep imported profiles in sync")}
+              checked={draft.enabled}
+              onChange={(e) => setDraft({ ...draft, enabled: e.currentTarget.checked })}
+            />
+          }
+        />
+        <SettingsRow
+          title={t("Check for changes")}
+          description={t("How often Ether fetches the guide's current profile and formats.")}
+          control={
+            <div className="w-52">
+              <SearchSelect
+                {...searchSelectLabels()}
+                ariaLabel={t("Check for changes")}
+                value={hours}
+                onChange={(value) => setDraft({ ...draft, hours: value })}
+                options={options}
+                searchable={false}
+              />
+            </div>
+          }
+        />
+        <SettingsRow
+          title={t("Last sync")}
+          description={
+            sync?.lastError ? (
+              <span className="text-danger">{sync.lastError}</span>
+            ) : (
+              t("The last time the guide sync ran.")
+            )
+          }
+          control={
+            <span className="text-sm text-fg">
+              {hasRun ? t("Ran {when}", { when: relativeTime(sync!.lastRun!) }) : t("Never run")}
+            </span>
+          }
+        />
+      </SettingsSection>
+      {error ? <ErrorPanel error={error} /> : null}
+      {report ? (
+        <Alert variant="success" role="status">
+          <AlertTitle>{t("Guide sync finished")}</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>
+                {tn(report.profilesUpdated, "{count} profile updated", "{count} profiles updated")}
+              </li>
+              <li>{tn(report.formatsAdded, "{count} format added", "{count} formats added")}</li>
+              <li>
+                {tn(report.formatsUpdated, "{count} format updated", "{count} formats updated")}
+              </li>
+              <li>
+                {tn(report.formatsRemoved, "{count} format removed", "{count} formats removed")}
+              </li>
+              {(report.warnings ?? []).map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      <SaveBar
+        dirty={dirty}
+        saving={saving}
+        error={error}
+        onSave={() => void save()}
+        onDiscard={() => {
+          reset();
+          setError(null);
+        }}
+      />
+    </Section>
+  );
+}
+
 export function QualityTab() {
   const { config, quality, commit, refresh } = useQuality();
+  const [media, setMedia] = useState<ProfileMedia>(MEDIA_MOVIE);
+  useEffect(() => {
+    if (!quality) return;
+    const has = (m: ProfileMedia) => compatibleProfiles(quality.profiles, m).length > 0;
+    if (!has(media) && has(media === MEDIA_MOVIE ? MEDIA_TV : MEDIA_MOVIE)) {
+      setMedia(media === MEDIA_MOVIE ? MEDIA_TV : MEDIA_MOVIE);
+    }
+  }, [quality, media]);
   if (config.error) return <ErrorPanel error={config.error} onRetry={() => void config.reload()} />;
   if (!quality) return <LoadingRows rows={4} />;
   return (
@@ -708,8 +1059,21 @@ export function QualityTab() {
         resolver={config.data?.resolver ?? null}
         commit={commit}
         refresh={refresh}
+        media={media}
+        onMediaChange={setMedia}
       />
-      <AwaySection quality={quality} onSaved={refresh} />
+      <AwaySection quality={quality} media={media} onSaved={refresh} />
+      <div className="pt-1">
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-border" />
+          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
+            {t("Shared for movies and shows")}
+          </span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+      </div>
+      <SyncSection quality={quality} onSaved={refresh} />
+      <RemoteBitrateSection />
       <SourceOrderSection />
       <ConfigSection
         configKey="resolver"
@@ -728,14 +1092,23 @@ function ProfileList({
   resolver,
   commit,
   refresh,
+  media,
+  onMediaChange,
 }: {
   quality: Quality;
   resolver: ResolverPolicy | null;
   commit: Commit;
   refresh: () => Promise<void>;
+  media: ProfileMedia;
+  onMediaChange: (media: ProfileMedia) => void;
 }) {
   const { steps, fields } = useRankingRegistry();
   const profiles = quality.profiles ?? [];
+  const visible = profiles
+    .map((profile, index) => ({ profile, index }))
+    .filter(({ profile }) => mediaApplies(profile.mediaType, media));
+  const homeDefault = mediaDefault(quality, media, false);
+  const awayDefault = mediaDefault(quality, media, true);
   const [importing, setImporting] = useState(false);
   const rules = quality.rules ?? [];
   const [editing, setEditing] = useState<{ index: number; draft: QualityProfile } | null>(null);
@@ -745,6 +1118,10 @@ function ProfileList({
   });
   const [scoring, setScoring] = useState<{ formats: string; scores: string } | null>(null);
   const [scoringShown, setScoringShown] = useState(false);
+  /** The definitions editor text when the drawer opened; unchanged means no PUT. */
+  const [formatBaseline, setFormatBaseline] = useState("");
+  /** The shared definitions as they were when the drawer opened (for merging). */
+  const [formatSnapshot, setFormatSnapshot] = useState<CustomFormatDefinition[]>([]);
   const [errors, setErrors] = useState<Errors>({});
   const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
@@ -756,12 +1133,18 @@ function ProfileList({
     cloned.ranking = normalizeRanking(cloned, steps);
     setEditing({ index, draft: cloned });
     const isExisting = index < profiles.length;
+    const scope = profileMediaType(cloned);
+    const home = defaultField(scope, false);
+    const away = defaultField(scope, true);
     setDefaultFor({
-      home: isExisting ? quality.default === draft.name : profiles.length === 0,
-      away: isExisting && quality.remote === draft.name,
+      home: isExisting ? quality[home] === cloned.name : profiles.length === 0,
+      away: isExisting && quality[away] === cloned.name,
     });
-    setScoring(scoringText(resolver, draft));
+    const text = scoringText(resolver, draft);
+    setScoring(text);
+    setFormatBaseline(text.formats);
     setScoringShown(false);
+    setFormatSnapshot(structuredClone(resolver?.customFormats ?? []));
   };
 
   function editScores() {
@@ -781,7 +1164,7 @@ function ProfileList({
       ...profileDraft,
       ranking: normalizeRanking(profileDraft, steps),
     };
-    let parsed: ReturnType<typeof parseScoring> | null = null;
+    let parsed: ParsedScoring | null = null;
     if (scoring && (scoringShown || hasImportedRules(profileDraft, resolver))) {
       try {
         parsed = parseScoring(scoring.formats, scoring.scores);
@@ -792,38 +1175,51 @@ function ProfileList({
       draft = { ...draft, customFormatScores: parsed.customFormatScores };
     }
     const old = profiles[index];
+    const oldScope = old ? profileMediaType(old) : null;
+    const scope = profileMediaType(draft);
     const list =
       index < profiles.length
         ? profiles.map((p, j) => (j === index ? draft : p))
         : [...profiles, draft];
     const renamed = old && old.name !== draft.name ? old.name : null;
-    const fallbackOther = list.find((_, j) => j !== index)?.name ?? draft.name;
+    const otherProfile = list.find((_, j) => j !== index)?.name ?? draft.name;
 
-    let nextDefault = quality.default === renamed ? draft.name : quality.default;
-    if (defaultFor.home) {
-      nextDefault = draft.name;
-    } else if (old && quality.default === old.name) {
-      nextDefault = fallbackOther;
-    }
-
-    // Away is optional: with no Away profile, people away from home get
-    // the At home one.
-    let nextRemote = quality.remote === renamed ? draft.name : quality.remote;
-    if (defaultFor.away) {
-      nextRemote = draft.name;
-    } else if (old && quality.remote === old.name) {
-      nextRemote = "";
-    }
-
-    const next: Quality = {
+    let next: Quality = {
       ...quality,
       profiles: list,
-      default: nextDefault || draft.name,
-      remote: nextRemote ?? "",
       rules: renamed
         ? rules.map((r) => (r.profile === renamed ? { ...r, profile: draft.name } : r))
         : rules,
     };
+    if (renamed) next = withRenamedDefaults(next, renamed, draft.name);
+
+    // The checkboxes belong to the profile's media (legacy fields for Both).
+    const homeField = defaultField(scope, false);
+    const awayField = defaultField(scope, true);
+    if (defaultFor.home) {
+      next[homeField] = draft.name;
+    } else if (old && quality[homeField] === old.name) {
+      next[homeField] = scope === "" ? otherProfile : mediaFallback(list, scope, draft.name);
+    }
+    // Away is optional: with no Away profile, people away from home get
+    // the At home one.
+    if (defaultFor.away) {
+      next[awayField] = draft.name;
+    } else if (old && quality[awayField] === old.name) {
+      next[awayField] = "";
+    }
+    // Moving a profile to another media must not leave its old default behind.
+    if (old && oldScope !== scope) {
+      const oldHome = defaultField(oldScope!, false);
+      const oldAway = defaultField(oldScope!, true);
+      if (oldHome !== homeField && quality[oldHome] === old.name) {
+        next[oldHome] = oldScope === "" ? otherProfile : mediaFallback(list, oldScope!, draft.name);
+      }
+      if (oldAway !== awayField && quality[oldAway] === old.name) next[oldAway] = "";
+    }
+    if (!next.default) next.default = draft.name;
+    next = settleDefaults(next);
+
     const conflict = releaseRuleConflict(draft.releaseRules ?? [], fields);
     if (conflict) {
       setErrors({ releaseRules: conflict });
@@ -834,10 +1230,20 @@ function ProfileList({
     setErrors({});
     try {
       await commit(next, index < profiles.length ? t("Profile saved") : t("Profile added"));
-      if (parsed) {
-        const previous = JSON.stringify(resolver?.customFormats ?? []);
-        if (previous !== JSON.stringify(parsed.customFormats)) {
-          await api.putSection("resolver", { customFormats: parsed.customFormats });
+      // Only touch the shared definitions when this drawer actually edited
+      // them; otherwise a stale snapshot must not be sent back.
+      const formatsChanged = scoring !== null && scoring.formats !== formatBaseline;
+      if (parsed && formatsChanged) {
+        const latestConfig = await api.getConfig();
+        const latest = latestConfig.resolver.customFormats ?? [];
+        const merged = mergeCustomFormats({
+          original: formatSnapshot,
+          edited: parsed.customFormats,
+          latest,
+          app: appForMedia(scope),
+        });
+        if (!sameFormats(merged, latest)) {
+          await api.putSection("resolver", { customFormats: merged });
           await refresh();
         }
       }
@@ -858,7 +1264,8 @@ function ProfileList({
     const rest = profiles.filter((_, j) => j !== index);
     const fallback = rest[0]?.name ?? "";
     const usedBy = rules.filter((r) => r.profile === name).length;
-    const moves = quality.default === name;
+    const moves =
+      quality.default === name || quality.defaultMovie === name || quality.defaultTv === name;
     const consequences = [
       name ? t("{name} will be removed.", { name }) : t("This profile will be removed."),
       usedBy
@@ -884,16 +1291,20 @@ function ProfileList({
     setSaving(true);
     setError(null);
     try {
-      await commit(
-        {
-          ...quality,
-          profiles: rest,
-          rules: rules.filter((r) => r.profile !== name),
-          default: quality.default === name ? fallback : quality.default,
-          remote: quality.remote === name ? "" : quality.remote,
-        },
-        t("Profile removed"),
-      );
+      let next: Quality = {
+        ...quality,
+        profiles: rest,
+        rules: rules.filter((r) => r.profile !== name),
+        default: quality.default === name ? fallback : quality.default,
+      };
+      for (const field of DEFAULT_FIELDS) {
+        if (field === "default" || next[field] !== name) continue;
+        if (field === "defaultMovie") next.defaultMovie = mediaFallback(rest, MEDIA_MOVIE);
+        else if (field === "defaultTv") next.defaultTv = mediaFallback(rest, MEDIA_TV);
+        else next[field] = "";
+      }
+      next = settleDefaults(next);
+      await commit(next, t("Profile removed"));
       setEditing(null);
     } catch (e) {
       setError(e);
@@ -903,36 +1314,89 @@ function ProfileList({
   }
 
   const draft = editing?.draft;
+  const draftScope = draft ? profileMediaType(draft) : "";
   const isNew = editing ? editing.index >= profiles.length : false;
   const patch = (p: Partial<QualityProfile>) =>
     setEditing((e) => (e ? { ...e, draft: { ...e.draft, ...p } } : e));
 
+  /** Change "Applies to" and point the default checkboxes at the new media's fields. */
+  function changeApplies(media: "" | ProfileMedia) {
+    const existing = editing ? profiles[editing.index] : undefined;
+    patch({ mediaType: media || undefined });
+    if (existing) {
+      const home = defaultField(media, false);
+      const away = defaultField(media, true);
+      setDefaultFor({
+        home: quality[home] === existing.name,
+        away: quality[away] === existing.name,
+      });
+    }
+  }
+
   return (
     <>
+      <div className="rounded-xl border border-primary/30 bg-primary/5 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+              {t("Profile scope")}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-4">
+              <MediaScopeToggle media={media} onChange={onMediaChange} />
+              <p className="max-w-md text-sm text-fg-muted">
+                {t(
+                  "Profiles, At home and Away defaults, and Away settings below apply to {media}.",
+                  { media: mediaLabel(media) },
+                )}
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => open(profiles.length, blankProfile(profiles.length + 1, media))}
+          >
+            <Plus size={14} /> {t("Add profile")}
+          </Button>
+        </div>
+      </div>
+
       <Section
         title={t("Profiles")}
         description={t("Resolution, HDR, release type and language rules used to rank releases.")}
-        actions={
-          <>
-            <Button
-              size="sm"
-              onClick={() => open(profiles.length, blankProfile(profiles.length + 1))}
-            >
-              <Plus size={14} /> {t("Add profile")}
-            </Button>
-          </>
-        }
         bodyClassName=""
       >
-        {profiles.length === 0 ? (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-border bg-bg-subtle/40 px-5 py-3 text-sm">
+          <span className="flex items-center gap-2">
+            <span className="text-xs font-medium text-fg-muted">{t("At home default")}</span>
+            <Badge variant="info">{homeDefault || t("First compatible profile")}</Badge>
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="text-xs font-medium text-fg-muted">{t("Away default")}</span>
+            <Badge variant="info">{awayDefault || t("Same as at home")}</Badge>
+          </span>
+          <span className="text-xs text-fg-muted">{t("Set these from a profile’s editor.")}</span>
+        </div>
+        {visible.length === 0 ? (
           <EmptyState
             icon={<SlidersHorizontal />}
-            title={t("No profiles")}
-            description={t("Add a profile so Ether knows which releases to prefer.")}
+            title={
+              profiles.length
+                ? media === MEDIA_MOVIE
+                  ? t("No movie profiles")
+                  : t("No show profiles")
+                : t("No profiles")
+            }
+            description={
+              profiles.length
+                ? t("Switch to {media} to see its profiles.", {
+                    media: mediaLabel(media === MEDIA_MOVIE ? MEDIA_TV : MEDIA_MOVIE),
+                  })
+                : t("Add a profile so Ether knows which releases to prefer.")
+            }
           />
         ) : (
           <ul className="divide-y divide-border">
-            {profiles.map((p, i) => {
+            {visible.map(({ profile: p, index: i }) => {
               const usedBy = rules.filter((r) => r.profile === p.name).length;
               return (
                 <RecordItem
@@ -941,10 +1405,11 @@ function ProfileList({
                   description={profileSummary(p)}
                   meta={
                     <>
-                      {quality.default === p.name ? (
+                      <MediaBadge media={profileMediaType(p)} />
+                      {homeDefault === p.name ? (
                         <Badge variant="info">{t("Default at home")}</Badge>
                       ) : null}
-                      {quality.remote === p.name ? (
+                      {awayDefault === p.name ? (
                         <Badge variant="info">{t("Default away")}</Badge>
                       ) : null}
                       {usedBy ? (
@@ -989,7 +1454,7 @@ function ProfileList({
                 }}
               >
                 <Download size={16} />
-                {t("Import from TRaSH Guides")}
+                {t("Import a quality profile")}
               </Button>
             ) : null}
             <SettingsSection title={t("Profile")}>
@@ -1000,10 +1465,52 @@ function ProfileList({
                 onChange={(v) => patch({ name: v })}
               />
               <SettingsRow
+                title={t("Applies to")}
+                description={
+                  draft.import
+                    ? t("Set by the {app} profile it was imported from.", {
+                        app: draft.import.app === "sonarr" ? "Sonarr" : "Radarr",
+                      })
+                    : t("Which titles this profile can rank.")
+                }
+                control={
+                  draft.import ? (
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <Badge variant="secondary">
+                        {mediaLabel(
+                          draft.mediaType ||
+                            mediaTypeForApp(draft.import.app === "sonarr" ? "sonarr" : "radarr"),
+                        )}
+                      </Badge>
+                      <Badge variant="outline">
+                        {draft.import.source === "dictionarry"
+                          ? "Profilarr (Dictionarry)"
+                          : "TRaSH Guides"}
+                      </Badge>
+                    </span>
+                  ) : (
+                    <Segmented
+                      ariaLabel={t("Applies to")}
+                      size="sm"
+                      value={profileMediaType(draft) as "" | ProfileMedia}
+                      options={APPLIES_OPTIONS}
+                      onChange={changeApplies}
+                    />
+                  )
+                }
+              />
+              <SettingsRow
                 title={t("Default for")}
-                description={t(
-                  "Used when no device rule matches. With no profile for Away, people away from home get the At home profile.",
-                )}
+                description={
+                  draftScope === ""
+                    ? t(
+                        "Used when no device rule matches, for both movies and shows. With no profile for Away, people away from home get the At home profile.",
+                      )
+                    : t(
+                        "Used when no device rule matches for {media}. With no profile for Away, people away from home get the At home profile.",
+                        { media: mediaLabel(draftScope) },
+                      )
+                }
                 control={
                   <ChipGroup
                     ariaLabel={t("Default for")}

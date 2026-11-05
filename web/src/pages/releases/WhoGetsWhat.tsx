@@ -11,16 +11,17 @@ import { TitlePicker } from "./Search";
 import { api } from "../../lib/api";
 import { formatNumber } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
+import { MEDIA_MOVIE, MEDIA_TV, mediaLabel } from "../../lib/releases";
 import type { QualityAnswer, QualityLayer } from "../../lib/types";
 
 type Where = "home" | "away";
 
-function heightName(h: number | undefined): string {
+export function heightName(h: number | undefined): string {
   if (!h) return t("Any resolution");
   return h === 2160 ? t("4K") : `${h}p`;
 }
 
-function rateName(kbps: number): string {
+export function rateName(kbps: number): string {
   return t("{rate} Mbps", { rate: formatNumber(kbps / 1000, 1) });
 }
 
@@ -81,6 +82,11 @@ function Answer({ answer, viewer }: { answer: QualityAnswer; viewer: string }) {
         <MonitorCheck size={36} className="shrink-0 text-primary" />
         <div className="space-y-2">
           <p className="text-xs font-medium text-fg-muted">{t("Available quality")}</p>
+          <div className="flex flex-wrap items-center gap-2" data-testid="quality-media">
+            {answer.mediaType ? (
+              <Badge variant="secondary">{mediaLabel(answer.mediaType)}</Badge>
+            ) : null}
+          </div>
           <div data-testid="quality-headline" className="flex flex-wrap items-center gap-2">
             <span className="text-3xl font-semibold tracking-tight">
               {answer.blocked ? t("Can't play away from home") : heightName(answer.maxHeight)}
@@ -181,15 +187,17 @@ function Answer({ answer, viewer }: { answer: QualityAnswer; viewer: string }) {
 /**
  * "Who gets what": pick a viewer, an app and At home or Away, and see the
  * quality ceiling that combination gets and which setting decided it. The
- * answer comes from the server's playback code.
+ * answer comes from the server's playback code. Pass `refreshKey` (such as
+ * the saved quality settings) to check again after a save.
  */
-export function WhoGetsWhat() {
+export function WhoGetsWhat({ refreshKey }: { refreshKey?: unknown }) {
   const { viewers, error: viewersError } = useViewers();
   const clients = useAsync(() => api.qualityClients(), []);
   const [pickedViewer, setViewer] = useState(0);
   const [pickedClient, setClient] = useState("");
   const [where, setWhere] = useState<Where>("home");
   const [title, setTitle] = useState<{ key: string; name: string } | null>(null);
+  const [media, setMedia] = useState<"" | "movie" | "tv">("");
 
   const viewerId = pickedViewer || viewers?.find((v) => v.isOwner)?.id || viewers?.[0]?.id || 0;
   const clientId = pickedClient || clients.data?.[0]?.id || "";
@@ -202,12 +210,13 @@ export function WhoGetsWhat() {
               userId: viewerId,
               ...(clientId ? { clientId } : {}),
               ...(title ? { titleKey: title.key } : {}),
+              ...(!title && media ? { mediaType: media } : {}),
               remote,
             },
             signal,
           )
         : Promise.resolve(null),
-    [viewerId, clientId, remote, title?.key],
+    [viewerId, clientId, remote, title?.key, media, refreshKey],
   );
   const viewer = viewers?.find((v) => v.id === viewerId);
 
@@ -223,7 +232,7 @@ export function WhoGetsWhat() {
         <LoadingRows rows={3} />
       ) : (
         <>
-          <div data-setting="check-quality" className="grid gap-4 px-5 py-4 sm:grid-cols-3">
+          <div className="grid gap-4 px-5 py-4 sm:grid-cols-3">
             <div className="min-w-0 space-y-2">
               <p className="text-xs font-medium text-fg-muted">{t("Viewer")}</p>{" "}
               <div className="w-full">
@@ -281,6 +290,22 @@ export function WhoGetsWhat() {
             ) : (
               <TitlePicker onPick={(key, name) => setTitle({ key, name })} />
             )}
+            {!title ? (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-xs text-fg-muted">{t("Media")}</span>
+                <Segmented
+                  ariaLabel={t("Media")}
+                  size="sm"
+                  value={media}
+                  onChange={setMedia}
+                  options={[
+                    { value: "", label: t("Both") },
+                    { value: MEDIA_MOVIE, label: t("Movies") },
+                    { value: MEDIA_TV, label: t("Shows") },
+                  ]}
+                />
+              </div>
+            ) : null}
             {title && (
               <p className="text-xs text-fg-muted">
                 {t("Quality limits apply to this title; available releases may differ.")}

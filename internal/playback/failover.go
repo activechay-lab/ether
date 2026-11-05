@@ -1463,7 +1463,7 @@ func (m *Manager) Remember(ctx context.Context, user *core.User, key core.Rating
 	if m.resume == nil || user == nil || res == nil || len(res.NZB) == 0 {
 		return nil
 	}
-	prof := m.deps.SelectProfile(caps, user)
+	prof := m.selectProfile(caps, user, key)
 	profile := profileKey(prof)
 	// Profiles that do not compare original-language audio keep the
 	// previous resume path: no catalogue read, and the language column
@@ -1509,7 +1509,7 @@ func (m *Manager) resumeFor(ctx context.Context, user *core.User, key core.Ratin
 	if err != nil || rp == nil {
 		return nil, err
 	}
-	prof := m.deps.SelectProfile(caps, user)
+	prof := m.selectProfile(caps, user, key)
 	current := ""
 	if releasepolicy.UsesOriginalAudio(prof.ReleaseRules) {
 		lang, err := m.catalogueLanguage(ctx, key)
