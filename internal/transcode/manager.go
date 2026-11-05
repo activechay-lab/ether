@@ -129,8 +129,9 @@ func WithTracePlayback(on bool) Option { return func(o *options) { o.tracePlayba
 
 // Manager runs ffmpeg for Ether. It implements core.Transcoder.
 type Manager struct {
-	slateMu   sync.Mutex
-	subtitles subtitleCache
+	continuousWG sync.WaitGroup
+	slateMu      sync.Mutex
+	subtitles    subtitleCache
 	// subtitleSlotsCh bounds concurrent StreamSubtitle readers.
 	subtitleSlotsCh   chan struct{}
 	subtitleSlotsOnce sync.Once
@@ -990,6 +991,9 @@ func (m *Manager) reapIdle(now time.Time) {
 func (m *Manager) acquireTranscodeSlot() (func(), error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed {
+		return nil, errors.New("transcode: manager closed")
+	}
 	if m.cfg.MaxTranscodes > 0 && m.encodingLocked("") >= m.cfg.MaxTranscodes {
 		return nil, fmt.Errorf("%w (%d running)", ErrTooManyTranscodes, m.encodingLocked(""))
 	}
@@ -1051,7 +1055,9 @@ func (m *Manager) Close() error {
 		}
 		err = errors.Join(err, life.legacyResult())
 	}
-	if !wait(reaperDone) || !wait(setupDone) {
+	continuousDone := make(chan struct{})
+	go func() { m.continuousWG.Wait(); close(continuousDone) }()
+	if !wait(continuousDone) || !wait(reaperDone) || !wait(setupDone) {
 		return errors.Join(err, core.ErrEncoderPending)
 	}
 	return err
