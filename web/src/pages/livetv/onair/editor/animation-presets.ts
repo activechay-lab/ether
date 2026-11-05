@@ -54,6 +54,7 @@ export function applyAnimation(layer: Layer, preset: AnimationPreset, duration: 
       from: preset === "wipe-out" ? end - span : start,
       to: preset === "wipe-out" ? end : start + span,
       ease: "out",
+      ...(preset === "wipe-out" ? { out: true } : {}),
     };
   else if (preset === "pulse" || preset === "float") {
     const prop = preset === "pulse" ? "scale" : "y";
