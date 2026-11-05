@@ -62,6 +62,7 @@ type MediaContainer struct {
 	// play queues) in order, after the common ones above.
 	Extra []Attr `plex:",attrs"`
 
+	Profile             []ClientProfile       `plex:"Profile"`
 	Meta                *Meta                 `plex:"Meta,object"`
 	Directory           []Directory           `plex:"Directory"`
 	Metadata            []Metadata            `plex:"Metadata"`
@@ -420,6 +421,7 @@ type Media struct {
 }
 
 type Part struct {
+	PacketLength          int `plex:"packetLength,omitempty"`
 	alpha                 bool
 	lead                  []string // decision: attributes before the alphabetical rest
 	ID                    int64    `plex:"id"`
@@ -846,3 +848,10 @@ type StatusNotification struct {
 
 // A builds an Attr.
 func A(name string, value any) Attr { return Attr{Name: name, Value: value} }
+
+// ClientProfile identifies a server playback profile.
+type ClientProfile struct {
+	Key      string `plex:"key"`
+	Title    string `plex:"title"`
+	Selected *bool  `plex:"selected"`
+}

@@ -30,6 +30,8 @@ func (s *Server) routes() chi.Router {
 	get("/media/providers", s.handleProviders)
 	get("/myplex/account", s.handleMyPlexAccount)
 	get("/servers", s.handleServers)
+	get("/clients/profiles", s.handleClientProfiles)
+	get("/clients/profiles/", s.handleClientProfiles)
 	get("/clients", func(w http.ResponseWriter, r *http.Request) { s.writeEmpty(w, r) })
 	get("/devices", s.ownerOnly(s.handleDevices))
 	get("/devices/{id}", s.ownerOnly(s.handleDevice))
