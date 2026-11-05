@@ -2,6 +2,9 @@ import { Button, Input } from "@braedonsaunders/appkit-ui";
 import { Plus, Search, Sparkles, Undo2, X, Bookmark, ChevronDown } from "lucide-react";
 import { useRef, useState } from "react";
 import { t } from "../../i18n";
+import { useNavigate } from "react-router-dom";
+import { newCollectionHref } from "../collections/links";
+import { collectionDraft } from "./catalogSavedView";
 import { api, apiFetch } from "../../lib/api";
 import { useAsync, useDebouncedValue } from "../../lib/hooks";
 import {
@@ -102,6 +105,7 @@ export function CatalogFilterBar({
   viewers: { id: number; title?: string; username?: string }[];
   collection?: boolean;
 }) {
+  const navigate = useNavigate();
   const naturalRef = useRef<HTMLDetailsElement>(null);
   const savedRef = useRef<HTMLDetailsElement>(null);
   const closeMenus = () => {
@@ -133,7 +137,7 @@ export function CatalogFilterBar({
   const [name, setName] = useState("");
   const definitions = fields();
   const field = definitions.find((f) => f.key === draft.field)!;
-  const search = useDebouncedValue(draft.value, 250);
+  const search = useDebouncedValue(draft.label || draft.value, 250);
   const suggestions = useAsync(
     async (signal) => {
       if (editing === null) return [];
@@ -416,6 +420,18 @@ export function CatalogFilterBar({
                 >
                   {view.name}
                 </button>
+                {collectionDraft(view.name, new URLSearchParams(view.query)) ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      const spec = collectionDraft(view.name, new URLSearchParams(view.query));
+                      if (spec) navigate(newCollectionHref(), { state: { spec } });
+                    }}
+                  >
+                    {t("Create collection")}
+                  </Button>
+                ) : null}
                 <button
                   aria-label={t("Delete {name}", { name: view.name })}
                   onClick={() => {
@@ -597,7 +613,7 @@ export function CatalogFilterBar({
                         setDraft({
                           ...draft,
                           value:
-                            field.kind === "person" || field.key === "collection"
+                            field.facet || field.kind === "person" || field.key === "collection"
                               ? value
                               : item.title,
                           label: item.title,
@@ -635,7 +651,7 @@ export function CatalogFilterBar({
           </select>
         </label>
       ) : null}
-      {state.chips.length ? (
+      {state.chips.some((c) => ["released", "etherAdded"].includes(c.field)) ? (
         <p className="catalog-query-note">{t("Date added follows the release or air date.")}</p>
       ) : null}
     </section>

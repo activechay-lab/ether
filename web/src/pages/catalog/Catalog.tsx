@@ -262,9 +262,8 @@ export function CatalogBrowser({
       .map((v) => v.id)
       .slice(0, 1) ??
     [];
-  const keys = Array.from(
-    new Set([...items.map((item) => item.key), ...(selected ? [selected] : [])]),
-  );
+  const [visibleKeys, setVisibleKeys] = useState<string[]>([]);
+  const keys = Array.from(new Set([...visibleKeys, ...(selected ? [selected] : [])]));
   const membership = useAsync(
     async (signal) => {
       const pairs = await Promise.all(
@@ -585,6 +584,7 @@ export function CatalogBrowser({
               onLoadMore={() => update("page", String(page + 1))}
               onInspect={(key) => update("title", key)}
               renderAction={watchButton}
+              onVisibleKeys={setVisibleKeys}
               onBulkWatchlist={targets.length ? addBulkWatchlist : undefined}
             />
           )}

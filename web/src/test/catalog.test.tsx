@@ -108,6 +108,41 @@ describe("Catalog workspace", () => {
     });
   });
 
+  it("uses canonical facet keys for language and decade suggestions", async () => {
+    const { fake } = renderAppWith("/catalog", (_method, path, _body, query) => {
+      if (path === "/catalog/browse") return { items: [title], total: 1 };
+      if (path === "/catalog/facets")
+        return {
+          pending: false,
+          values:
+            query.get("facet") === "language"
+              ? [{ key: "en", title: "English", count: 1 }]
+              : [{ key: "1980", title: "1980s", count: 1 }],
+        };
+    });
+    await screen.findByRole("button", { name: "Inspect Seven" });
+    for (const [field, label] of [
+      ["Original language", "English"],
+      ["Decade", "1980s"],
+    ] as const) {
+      fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+      fireEvent.click(screen.getByRole("button", { name: field }));
+      fireEvent.click(await screen.findByRole("button", { name: new RegExp(label!) }));
+      fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    }
+    await waitFor(() => {
+      const url = new URL(
+        calls(fake, "GET", "/catalog/browse")
+          .filter((c) => !c.path.includes("countOnly"))
+          .at(-1)?.path || "",
+        "http://localhost",
+      );
+      expect(url.searchParams.get("filter")).toContain('"languages":["en"]');
+      expect(url.searchParams.get("filter")).toContain('"yearFrom":1980');
+      expect(url.searchParams.get("filter")).toContain('"yearTo":1989');
+    });
+  });
+
   it("keeps all catalog settings and saves changes from the new page", async () => {
     const { fake } = renderAppWith("/catalog/settings", () => undefined);
     const language = await screen.findByLabelText("Language");
