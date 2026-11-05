@@ -46,7 +46,21 @@ func TestConsole600K(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := c.db.Exec(`INSERT INTO catalog_genres(key,genre) SELECT key,CASE WHEN tmdb_id%2=0 THEN 'Thriller' ELSE 'Comedy' END FROM catalog_titles; ANALYZE;`); err != nil {
+	genreSeed := `INSERT INTO catalog_genres(key,genre) SELECT key,CASE WHEN tmdb_id%2=0 THEN 'Thriller' ELSE 'Comedy' END FROM catalog_titles`
+	if sqlite {
+		if _, err := c.db.Exec(genreSeed); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		// Production metadata transactions are bounded per batch. Keep the same
+		// trigger/advisory-lock behavior instead of enlarging PG's lock table.
+		for start := 0; start < 600000; start += 2000 {
+			if _, err := c.db.ExecContext(context.Background(), genreSeed+` WHERE key>? AND key<=?`, int64(core.MovieKey(int64(start))), int64(core.MovieKey(int64(min(start+2000, 600000))))); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if _, err := c.db.Exec(`ANALYZE`); err != nil {
 		t.Fatal(err)
 	}
 	c.SetConsoleAvailabilityPolicy(func() string { return "perf-policy" })
