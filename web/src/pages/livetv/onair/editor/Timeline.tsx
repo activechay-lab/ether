@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Input, Select } from "@braedonsaunders/appkit-ui";
 import { t } from "../../../../i18n";
 import { studio, type StyleScene, type LibraryAsset } from "../studio-model";
-import type { Layer, Value } from "../scene-renderer";
+import { renderScene, type Layer, type Value } from "../scene-renderer";
 import {
   isAnimated,
   moveKeyframe,
@@ -16,6 +16,7 @@ import { applyAnimation, presets, type AnimationPreset } from "./animation-prese
 import { SoundLane } from "./SoundLane";
 
 import { onair } from "../model";
+import { LibraryPicker } from "../../library/LibraryPicker";
 type Timed = Layer & { name?: string; start?: number; end?: number };
 export function Timeline(p: {
   scene: StyleScene;
@@ -38,7 +39,6 @@ export function Timeline(p: {
     [zoom, setZoom] = useState(1),
     [expanded, setExpanded] = useState<string[]>([]),
     [prop, setProp] = useState<keyof Layer>("opacity"),
-    [assets, setAssets] = useState<LibraryAsset[]>([]),
     [picker, setPicker] = useState(false),
     [muted, setMuted] = useState<string[]>([]),
     [solo, setSolo] = useState(""),
@@ -299,30 +299,32 @@ export function Timeline(p: {
         <output>{p.time.toFixed(2)}</output>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Select
-          aria-label={t("Animation preset")}
-          value=""
-          disabled={!p.selected.length}
-          onChange={(e) => {
-            const preset = e.target.value as AnimationPreset;
-            const visit = (layers: Layer[]): Layer[] =>
-              layers.map((l) => ({
-                ...(p.selected.includes(l.id) ? applyAnimation(l, preset, p.duration) : l),
-                layers: l.layers ? visit(l.layers) : undefined,
-              }));
-            p.onChange({
-              ...p.scene,
-              document: { ...p.scene.document, layers: visit(p.scene.document.layers) },
-            });
-          }}
-        >
-          <option value="">{t("Add animation")}</option>
-          {presets.map((id) => (
-            <option key={id} value={id}>
-              {id}
-            </option>
-          ))}
-        </Select>
+        <details className="w-full">
+          <summary>{t("Animation presets")}</summary>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            {presets.map((id) => (
+              <Button
+                key={id}
+                disabled={!p.selected.length}
+                className="flex flex-col h-auto p-2"
+                onClick={() => {
+                  const visit = (layers: Layer[]): Layer[] =>
+                    layers.map((l) => ({
+                      ...(p.selected.includes(l.id) ? applyAnimation(l, id, p.duration) : l),
+                      layers: l.layers ? visit(l.layers) : undefined,
+                    }));
+                  p.onChange({
+                    ...p.scene,
+                    document: { ...p.scene.document, layers: visit(p.scene.document.layers) },
+                  });
+                }}
+              >
+                <PresetPreview preset={id} />
+                {presetName(id)}
+              </Button>
+            ))}
+          </div>
+        </details>
         <Select
           aria-label={t("Animated property")}
           value={prop}
@@ -423,39 +425,84 @@ export function Timeline(p: {
         disabled={p.scene.sounds.length >= 4}
         onClick={() => {
           setPicker(!picker);
-          void studio
-            .library()
-            .then(setAssets)
-            .catch((e) => setError(String(e)));
         }}
       >
         {t("Add sound")}
       </Button>
-      {picker && (
-        <div>
-          {assets
-            .filter((a) => a.kind === "audio")
-            .map((a) => (
-              <Button key={a.digest} onClick={() => addSound(a)}>
-                {a.name}
-              </Button>
-            ))}
-          <Input
-            aria-label={t("Upload sound")}
-            type="file"
-            accept="audio/*"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file)
-                void onair
-                  .uploadAsset(file, "audio")
-                  .then((a) => addSound(a as LibraryAsset))
-                  .catch((e) => setError(String(e)));
-            }}
-          />
-        </div>
-      )}
+      <LibraryPicker
+        open={picker}
+        kinds={["audio"]}
+        onPick={addSound}
+        onClose={() => setPicker(false)}
+      />
+      <Input
+        aria-label={t("Upload sound")}
+        type="file"
+        accept="audio/*"
+        disabled={p.scene.sounds.length >= 4}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file)
+            void onair
+              .uploadAsset(file, "audio")
+              .then((a) => studio.asset(a.digest))
+              .then(addSound)
+              .catch((e) => setError(String(e)));
+        }}
+      />
       {error && <p role="alert">{error}</p>}
     </section>
+  );
+}
+
+function presetName(id: AnimationPreset) {
+  return {
+    "fade-in": t("Fade in"),
+    pop: t("Pop"),
+    "slide-left": t("Slide from left"),
+    "slide-right": t("Slide from right"),
+    "slide-up": t("Slide from above"),
+    "slide-down": t("Slide from below"),
+    typewriter: t("Typewriter"),
+    "wipe-in": t("Wipe in"),
+    glitch: t("Glitch"),
+    float: t("Float"),
+    pulse: t("Pulse"),
+    flicker: t("Flicker"),
+    glint: t("Glint"),
+    wiggle: t("Wiggle"),
+    drift: t("Drift"),
+    "fade-out": t("Fade out"),
+    drop: t("Drop"),
+    "wipe-out": t("Wipe out"),
+  }[id];
+}
+function PresetPreview({ preset }: { preset: AnimationPreset }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const ctx = canvas.current?.getContext("2d");
+    if (!ctx) return;
+    let frame = 0;
+    const layer = applyAnimation(
+      { id: "sample", type: "text", text: "Aa", x: 780, y: 650, size: 420, fill: "#60a5fa" },
+      preset,
+      2,
+    );
+    const doc = { v: 1, moment: "ident", duration: 2, poster: 0, layers: [layer] };
+    const tick = (now: number) => {
+      renderScene(ctx, doc, { tokens: {}, slots: {} }, (now / 1000) % 2);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [preset]);
+  return (
+    <canvas
+      ref={canvas}
+      width={160}
+      height={90}
+      className="w-full rounded bg-black/10"
+      aria-hidden="true"
+    />
   );
 }

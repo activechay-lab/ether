@@ -8,7 +8,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/plugins"
+	"github.com/braedonsaunders/ether/internal/plugins/pkgdigest"
+
 	"github.com/go-chi/chi/v5"
 	"io"
 	"net/http"
@@ -73,6 +74,7 @@ func (s *Service) ExportStylePack(ctx context.Context, id string) ([]byte, []str
 		}
 		if a.Kind == "font" && !redistributable(a.License) {
 			warnings = append(warnings, fmt.Sprintf("Font %s excluded: its licence does not permit redistribution. Select a bundled font before sharing.", a.Name))
+			b = bytes.ReplaceAll(b, []byte(digest), []byte("inter"))
 			continue
 		}
 		// Source and attribution are held by the Library when available.
@@ -85,7 +87,7 @@ func (s *Service) ExportStylePack(ctx context.Context, id string) ([]byte, []str
 	files["warnings.json"], _ = json.Marshal(warnings)
 	manifest := map[string]any{"id": "ether.style." + id, "name": l.Name, "version": "1.0.0", "description": "Channel style pack", "ether": map[string]any{"protocol": 1, "kind": "extension", "runtime": map[string]string{"kind": "data"}, "capabilities": []string{"livetv_pack"}, "contributes": map[string]any{"looks": []map[string]string{{"id": "style", "file": "looks/style.json"}}}}}
 	files["manifest.json"], _ = json.Marshal(manifest)
-	files["digest"] = []byte(plugins.PkgDigest(files))
+	files["digest"] = []byte(pkgdigest.Sum(files))
 	var buf bytes.Buffer
 	z := zip.NewWriter(&buf)
 	names := []string{}
@@ -138,7 +140,7 @@ func (s *Service) ImportStylePack(ctx context.Context, raw []byte) (Look, error)
 		}
 		files[f.Name] = b
 	}
-	if string(files["digest"]) != plugins.PkgDigest(files) {
+	if string(files["digest"]) != pkgdigest.Sum(files) {
 		return Look{}, fmt.Errorf("package digest does not match its contents")
 	}
 	var manifest struct {

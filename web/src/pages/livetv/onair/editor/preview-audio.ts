@@ -14,6 +14,7 @@ export function usePreviewAudio(
     last: number;
     wall: number;
     signature: string;
+    rate: number;
   } | null>(null);
   useEffect(
     () => () => {
@@ -32,6 +33,7 @@ export function usePreviewAudio(
         last: time,
         wall: performance.now(),
         signature: "",
+        rate: 1,
       };
     const s = state.current;
     if (!s) return;
@@ -58,9 +60,10 @@ export function usePreviewAudio(
       s.signature = "";
       return;
     }
-    if (s.sources.length && !seek && signature === s.signature) return;
+    if (s.sources.length && !seek && signature === s.signature && rate === s.rate) return;
     stop();
     s.signature = signature;
+    s.rate = rate;
     let cancelled = false;
     void s.context.resume();
     void Promise.all(
