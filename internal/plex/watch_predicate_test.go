@@ -37,3 +37,44 @@ func TestWatchFilterBooleanGrammar(t *testing.T) {
 		}
 	}
 }
+
+func TestChildWatchQueryBeforePageAndFlagValidation(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	f.state.set(ownerUser.ID, core.WatchStatus{Key: bbS1.Key, ViewCount: 7})
+	f.state.set(ownerUser.ID, core.WatchStatus{Key: bbE1.Key, ViewCount: 1})
+	f.state.set(ownerUser.ID, core.WatchStatus{Key: bbE2.Key, UserRating: 7})
+	base := "/library/metadata/" + breakingBad.Key.String()
+	for _, tc := range []struct {
+		path         string
+		status, size int
+		key          string
+	}{
+		{base + "/children?skipCount=0", 200, 1, bbS1.Key.String()},
+		{base + "/children?viewCount=0", 200, 0, ""},
+		{base + "/children?sort=invalid", 500, 0, ""},
+		{base + "/allLeaves?unwatched=01", 200, 1, bbE2.Key.String()},
+		{base + "/allLeaves?unwatched=abc", 400, 0, ""},
+		{base + "/allLeaves?viewCount=0", 200, 1, bbE2.Key.String()},
+	} {
+		r := f.get(t, tc.path, "Accept", "application/json", "X-Plex-Container-Start", "0", "X-Plex-Container-Size", "1")
+		if r.Code != tc.status {
+			t.Fatalf("%s status%d want%d: %s", tc.path, r.Code, tc.status, r.Body.String())
+		}
+		if tc.status != 200 {
+			continue
+		}
+		var out struct {
+			MediaContainer struct{ Metadata []struct{ RatingKey string } }
+		}
+		if err := json.Unmarshal(r.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		if len(out.MediaContainer.Metadata) != tc.size {
+			t.Fatalf("%s got%s", tc.path, r.Body.String())
+		}
+		if tc.size > 0 && out.MediaContainer.Metadata[0].RatingKey != tc.key {
+			t.Fatalf("%s selected wrong scoped row: %s", tc.path, r.Body.String())
+		}
+	}
+}

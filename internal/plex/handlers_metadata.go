@@ -289,7 +289,9 @@ func (s *Server) detail(ctx context.Context, pr *Request, t *core.Title, childre
 		if ep, st := s.showOnDeck(ctx, pr, show, memo); ep != nil && (t.Type != core.TypeSeason || ep.Season == t.Season) {
 			// The show page's Play button plays this episode: resolve,
 			// open and probe it so OnDeck and the following Play have its tracks.
-			s.warmDetail(ctx, pr, ep)
+			if noWarm, _ := ctx.Value(structuralProjectionKey{}).(bool); !noWarm {
+				s.warmDetail(ctx, pr, ep)
+			}
 			if items := s.renderTitles(ctx, pr, []core.Title{*ep}, renderOpts{media: true, state: st}); len(items) > 0 {
 				if extras {
 					items[0].Extras = &model.Extras{}
@@ -520,6 +522,19 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	childQ := r.URL.Query()
+	if parent.Type == core.TypeShow {
+		for name := range childQ {
+			if strings.TrimRight(name, "!<>=") == "unwatched" {
+				childQ.Del(name)
+			}
+		}
+	}
+	kids, err = s.childQuery(ctx, pr, kids, childQ)
+	if err != nil {
+		s.writeErr(w, r, err)
+		return
+	}
 	future := s.scheduledEpisodes(ctx, pr, k)
 	kids = appendScheduled(kids, future)
 	lo, hi := pr.window(len(kids))
@@ -639,6 +654,13 @@ func (s *Server) handleAllLeaves(w http.ResponseWriter, r *http.Request) {
 			}
 			eps = filtered
 		}
+	}
+	leafQ := r.URL.Query()
+	leafQ.Del("unwatched")
+	eps, err = s.childQuery(ctx, pr, eps, leafQ)
+	if err != nil {
+		s.writeErr(w, r, err)
+		return
 	}
 	lo, hi := pr.window(len(eps))
 	mc.Metadata = s.renderTitles(ctx, pr, eps[lo:hi], renderOpts{media: true, inSection: true})
