@@ -293,15 +293,49 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	ctx = watchstate.WithOrigin(ctx, watchstate.Origin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
-	key := stateKey(r)
-	if key == 0 || pr.User == nil || s.d.State == nil {
-		writeHTTPError(w, http.StatusBadRequest)
+	q := r.URL.Query()
+	if q.Get("key") == "" || q.Get("identifier") == "" || pr.User == nil || s.d.State == nil {
+		writeHTTPError(w, 400)
 		return
 	}
-	q := r.URL.Query()
+	raw, err := strconv.ParseInt(q.Get("key"), 10, 64)
+	if err != nil {
+		writeHTTPError(w, 500)
+		return
+	}
+	if q.Get("identifier") != "com.plexapp.plugins.library" {
+		writeHTTPError(w, 404)
+		return
+	}
+	key := core.RatingKey(raw)
 	n, err := strconv.ParseInt(q.Get("time"), 10, 64)
-	if err != nil || n < 0 || n > math.MaxInt64/int64(time.Millisecond) {
-		writeHTTPError(w, http.StatusInternalServerError)
+	if err != nil || n > math.MaxInt64/int64(time.Millisecond) {
+		writeHTTPError(w, 500)
+		return
+	}
+	if n < 0 {
+		writeStateMutationOK(w)
+		return
+	}
+	// Unknown integer keys are accepted by this legacy writer but create no row.
+	known := false
+	switch key.Kind() {
+	case core.KindPlaylist:
+		if s.d.Playlists != nil {
+			_, err = s.d.Playlists.Get(ctx, pr.User.ID, key)
+			known = err == nil
+		}
+	case core.KindCollection, core.KindSmart:
+		_, err = s.collectionRaw(ctx, pr.User, key)
+		known = err == nil
+	default:
+		if s.d.Catalog != nil {
+			title, e := s.d.Catalog.Get(ctx, key)
+			known = e == nil && title != nil && s.titleVisible(pr.User, title)
+		}
+	}
+	if !known {
+		writeStateMutationOK(w)
 		return
 	}
 	offset := time.Duration(n) * time.Millisecond
@@ -317,7 +351,7 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.observePlaybackReported(pr)
-	w.WriteHeader(http.StatusOK)
+	writeStateMutationOK(w)
 }
 
 func (s *Server) handleScrobble(w http.ResponseWriter, r *http.Request)   { s.scrobble(w, r, true) }

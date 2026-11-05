@@ -263,3 +263,42 @@ func TestPlexTimelineCrossingIsolatedByClientAndValidation(t *testing.T) {
 		t.Fatal("invalid offline value changed viewed count")
 	}
 }
+
+func TestLegacyProgressGrammarAndRawPersistence(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	watch := state.New(store.OpenTest(t), state.Options{})
+	f.srv.d.State = watch
+	k := fightClub.Key.String()
+	for _, tc := range []struct {
+		q      string
+		status int
+	}{
+		{"key=" + k + "&time=120000", 400},
+		{"key=" + k + "&identifier=foreign&time=oops", 404},
+		{"key=/library/metadata/" + k + "&identifier=com.plexapp.plugins.library&time=120000", 500},
+		{"key=" + k + "&identifier=com.plexapp.plugins.library&time=-1", 200},
+		{"key=1000000000999999&identifier=com.plexapp.plugins.library&time=120000", 200},
+		{"key=" + k + "&identifier=com.plexapp.plugins.library&time=%2B999999999", 200},
+	} {
+		rec := f.get(t, "/:/progress?"+tc.q)
+		if rec.Code != tc.status {
+			t.Fatalf("%s: %d %s", tc.q, rec.Code, rec.Body.String())
+		}
+		if tc.status == 200 && (rec.Body.Len() != 0 || rec.Header().Get("Content-Type") != "text/html") {
+			t.Fatal("legacy write response shape")
+		}
+	}
+	got, _ := watch.Get(context.Background(), ownerUser.ID, fightClub.Key)
+	if got.ViewOffset != 999999999*time.Millisecond || got.ViewCount != 0 {
+		t.Fatalf("legacy position clamped/completed: %+v", got)
+	}
+	rows, err := watch.History(context.Background(), ownerUser.ID, time.Time{}, 100)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("legacy created history: %+v %v", rows, err)
+	}
+	unknown, _ := watch.Get(context.Background(), ownerUser.ID, core.MovieKey(999999999))
+	if unknown.ViewOffset != 0 {
+		t.Fatal("unknown key wrote state")
+	}
+}

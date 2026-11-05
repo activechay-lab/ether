@@ -43,10 +43,6 @@ var loadBearingSkips = func() []loadBearingSkip {
 	add("section-all-allowSync-xml", sectionAll, "/MediaContainer/@allowSync", allowSyncReason)
 	add("section-all-allowSync-json", sectionAll, "$/MediaContainer/allowSync", allowSyncReason)
 
-	for _, ep := range []string{"/hubs", "/hubs/promoted", "/hubs/sections/{{section}}", "/hubs/continueWatching"} {
-		add(ep+"-allowSync-xml", ep, "/MediaContainer/@allowSync", allowSyncReason)
-		add(ep+"-allowSync-json", ep, "$/MediaContainer/allowSync", allowSyncReason)
-	}
 	hubPaths := [][2]string{
 		{"/MediaContainer/Hub/@hubIdentifier", "$/MediaContainer/Hub[]/hubIdentifier"},
 		{"/MediaContainer/Hub/@context", "$/MediaContainer/Hub[]/context"},
