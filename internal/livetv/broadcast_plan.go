@@ -235,7 +235,7 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 				last = err
 				continue
 			}
-			return &overlayDecoder{Decoder: decoder, wallStart: sourceWall, format: p.format, overlays: p.prepareProgrammeOverlays(ctx, programme)}, func() { p.s.o.Playback.Stop(ps.ID) }, nil
+			return &overlayDecoder{Decoder: decoder, wallStart: sourceWall, format: p.format, overlays: p.prepareProgrammeOverlays(ctx, programme, ps.Info.Chapters)}, func() { p.s.o.Playback.Stop(ps.ID) }, nil
 		}
 		return nil, nil, last
 	}

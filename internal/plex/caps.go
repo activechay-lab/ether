@@ -417,7 +417,7 @@ func applyLimitation(c *core.ClientCaps, a map[string]string) {
 				c.DolbyVision = false
 			} else if numErr == nil && n > 0 {
 				// A profile-specific refusal must not disable other supported
-				// Dolby Vision profiles (Rex's 2026-10-17 PMS measurement).
+				// Dolby Vision profiles (recorded PMS measurement, 2026-10-17).
 				profiles := transcode.ClientPolicyFor(*c).DolbyVisionProfiles
 				c.DVProfiles = slices.DeleteFunc(profiles, func(profile int) bool { return profile == n })
 				if len(c.DVProfiles) == 0 {

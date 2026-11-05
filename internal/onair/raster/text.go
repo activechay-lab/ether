@@ -131,6 +131,19 @@ func (r *render) text(dst *image.RGBA, l scene.Layer, m matrix) {
 			prev = ch
 		}
 	}
+	if l.Weight >= 600 {
+		radius := max(1, int(math.Round(size*density*.012)))
+		original := append([]byte(nil), mask.Pix...)
+		for y := 0; y < mask.Rect.Dy(); y++ {
+			for x := 0; x < mask.Rect.Dx(); x++ {
+				a := original[y*mask.Stride+x]
+				for dx := 1; dx <= radius && x >= dx; dx++ {
+					a = max(a, original[y*mask.Stride+x-dx])
+				}
+				mask.Pix[y*mask.Stride+x] = a
+			}
+		}
+	}
 	ox := -size / 2
 	if l.Align == "center" {
 		ox -= maxW / 2

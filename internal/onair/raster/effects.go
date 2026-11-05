@@ -217,7 +217,7 @@ func (r *render) post(dst *image.RGBA, effects []scene.Effect) {
 				offset := 0.0
 				switch e.Type {
 				case "grain":
-					offset = (random(seed, x+y*r.w+frame*100003) - .5) * amount * 255
+					offset = (random(seed, x+y*r.w+frame*100003) - .5) * min(amount, 1) * 24
 				case "scanlines":
 					if y%3 == 0 {
 						v = 1 - amount
@@ -269,7 +269,11 @@ func (r *render) sample(dst *image.RGBA, l scene.Layer, m matrix, w, h float64) 
 				continue
 			}
 			c := bilinear(src, xx, yy)
-			if l.Tint != nil {
+			if l.TintBlend == "silhouette" {
+				c.R = uint8(uint16(c.A) * uint16(tint.R) / 255)
+				c.G = uint8(uint16(c.A) * uint16(tint.G) / 255)
+				c.B = uint8(uint16(c.A) * uint16(tint.B) / 255)
+			} else if l.Tint != nil {
 				c.R = uint8(uint16(c.R) * uint16(tint.R) / 255)
 				c.G = uint8(uint16(c.G) * uint16(tint.G) / 255)
 				c.B = uint8(uint16(c.B) * uint16(tint.B) / 255)

@@ -241,6 +241,15 @@ with three cards:
 - **Start from a family:** six live tiles. Picking one creates the look.
 - **Duplicate a look.**
 
+### 3.2a Corner logo controls
+
+The Design inspector includes **Corner logo**: four-corner picker, 15–60% opacity,
+Monochrome / Original colour, Small / Medium / Large, Logo / Wordmark, and fades
+during breaks and credits. Defaults: bottom right, 30%, monochrome, medium, logo
+(wordmark when absent), break fades on and credit fades off. No badge or disc.
+The channel Look tab has **Customize corner logo**; off inherits the look, on edits
+the same controls over a programme preview. Channel fields override look fields.
+
 ### 3.3 The channel drawer: a Look tab (addition)
 
 Virtual channel tabs go from **Programming | Schedule | Viewers | Details** to
@@ -272,6 +281,13 @@ tab, because we don't splice into third-party streams (§12).
 
 ### 3.4a Signal screens (off air and can't play)
 
+Era break pods do not change signal screens. Station ID uses the look's `ident`
+moment; `break`, `back` and `ident` can select a video asset through the additive
+`Moment.assetDigest`. Authored sound stays with its video, and the background
+master conversion matches the requested moment duration and output contract.
+Scene documents remain the default; the empty asset digest preserves them.
+
+
 The owner picks what a channel shows when it is off air, or when it cannot be
 tuned (IPTV provider down, tune failure, connection limit reached, failed
 retune), instead of an error.
@@ -294,6 +310,53 @@ The set is open: more styles are scene documents in a built-in "Signal" family (
 - **The pickers:** a row of 16:9 style cards. Each card plays its own animated preview on hover, with a ▶ button for its sound (muted by default). The selected card has the primary ring. There is one line of ⓘ help per picker.
 
 ### 3.4 Break reels (owner-uploaded commercials)
+
+**v0.3.5 additive era extension.** Reels and the asset library have an **Add
+from link** action accepting one public media URL per line (up to 50). A single
+link uses `url`; a batch uses `urls`. `POST /onair/reels/{id}/clips/import` and
+`POST /onair/assets/import` return HTTP 202 with import jobs. Both accept optional
+`name`; assets require `kind` (`image`, `audio`, `video`). Jobs appear in the
+normal clip/asset list with queued/downloading/error status and download
+progress; a downloaded clip continues through UploadClip's converting/ready
+states. Jobs survive restarts. The original source and attribution remain on
+the result. Archive details links resolve through the public metadata API,
+preferring an h.264 MP4 derivative; title and license URL form attribution.
+No media or network work runs on the request path. Outbound requests use Ether's
+plugin egress policy, reject non-public addresses at every redirect and direct
+connection, validate MIME and probe content. Reel imports retain the existing
+500 MiB/3 minute limits; library assets retain 32 MiB/30 second limits.
+
+The channel Look tab's Breaks section offers **Fixed length** (the unchanged
+default), four era presets and **Custom**. Opting in plans an out-bumper (`break`),
+whole reel commercials, an in-bumper (`back`), and optionally a station ID
+(`ident`). Target seconds or spot count can be zero to use the other target;
+minimum/maximum seconds and spots constrain the whole pod, including bumpers
+for time bounds. If available material cannot meet minimums, the pod is skipped
+without consuming repeat history. Whole spots never overrun the maximum.
+
+| Preset | Target seconds | Spots | Min–max seconds | Min–max spots | Pods/half-hour | Clock | Station ID |
+| --- | ---: | ---: | --- | --- | ---: | --- | --- |
+| 1980s | 120 | 4 | 60–180 | 2–6 | 2 | half | yes |
+| 1990s | 150 | 5 | 60–180 | 2–6 | 2 | none | yes |
+| 2000s | 180 | 6 | 60–240 | 2–8 | 3 | none | no |
+| 2010s | 210 | 7 | 60–270 | 2–9 | 3 | none | no |
+
+These are editable design approximations of the progression from shorter,
+fewer commercial interruptions to longer, more frequent pods, rather than
+claims about every network or jurisdiction. Every preset uses break/back
+bumpers, inside-programme placement when saved points exist, and a 60 minute
+spot cooldown. Shuffle is seeded by channel seed and channel-local day; pod
+clock rotation varies selection within that daily ordering. Frequency is a
+ceiling with evenly spaced minimum intervals. `half` also prevents a pod from
+crossing the next half-hour boundary. Sparse points or material can reduce the
+actual frequency. Existing reel cooldown applies when it is longer.
+
+Inside-programme pods use the additive sorted `Item.breakPointsMs` offline
+chapter/black/silence timestamps; no analysis runs while scheduling. This
+checkout has no offline analysis producer, so a source without saved points
+uses between-programme pods. Each resumed piece retains its media offset.
+Guide rows fold pods and resumed pieces into one programme slot.
+
 
 Reels are records, so they open in a `Drawer size="lg"`, modelled on the
 pre-roll drawer (`pages/playback/PrerollDrawer.tsx`). They're reached three ways:
@@ -530,10 +593,19 @@ Migrations:
   1. **Gaps first.** With `Align` (hour or half hour), `fillGap` already makes dead air. Interstitials take that gap before filler or slate, so the guide doesn't move at all.
   2. **Inserted.** Without alignment, an interstitial adds a slot. Later programmes shift by its length. This happens only when the owner saves the channel. The save toast says "Guide times shift by up to 12 s per programme."
 - **Guide coalescing.** `Guide()`, XMLTV and the Plex grid fold every interstitial into the preceding real programme's end time. Viewers never see 8-second programmes, and real programme IDs stay `<ch>-<startMs>` of the real start. Playout uses the uncoalesced list. Inserted mode changes guide times only, never by more than the interstitial's own length.
-- **Off-air** keeps today's guide entry; playout now plays the `offair` clip, looped.
+- **Off-air** keeps today's guide entry. Designed `offair` clips loop; analogue-static scenes composite a prepared foreground over the continuously running warm Signal engine (§4.9).
 - **Tune-in ident** is not a schedule entry. It is a session prefix (§4.5), so the guide is unaffected.
 
 ### 4.5 Playout: one continuous stream per channel
+
+**Era pods:** every bumper and spot is an ordinary scheduled switcher input,
+prepared by the existing background planner before its boundary. Programme
+pieces resume through `Programme.Offset`, as clock-interrupted programmes do.
+The broadcast guide coalesces resumed pieces and pod spans into the programme.
+Pod boundaries preserve the unconditional 40 ms PCM anti-click ramp. This is
+not a creative crossfade. `Moment.crossfade` requests a creative transition;
+the continuous switcher owns visual and longer audio crossfades.
+
 
 **Owner decision (2026-11-05).** Every virtual channel, and every IPTV channel with a can't-play screen enabled, plays as **one continuous stream** carrying every show, break, interstitial, ident and screen. There is no discontinuity, new playlist or MPD, retune or spinner at programme boundaries, on HLS, DASH and Plex for Mac's HTTP stream. This replaces the per-programme tracks, the three-track cap, clip tracks on the slate path and the per-session ident prefix described in earlier drafts.
 
@@ -640,13 +712,11 @@ The CPU figures include decode. Decode is the variable part: a 1080p H.264 relea
 ### 4.9 Signal screens
 
 **What renders the screens**
-- **Clips.** Each style is a built-in moment of the "Signal" family: `screen.card`, `screen.static`, `screen.bars`, `screen.brb`, `screen.testcard`. Each is rendered by `internal/onair` into a 4 s master MP4 loop and played through the slate path (`ClipPath`, `ClipLoop: true`). That gives the same stream-contract matching as v0.3.4's slate, on HLS and DASH.
-- **Audio.** Audio is synthesized in pure Go as PCM and muxed in the same ffmpeg pass:
-  - static: band-limited noise at about −30 dBFS RMS, plus a 60 Hz hum at about −42 dBFS;
-  - bars: a 1 kHz sine at −24 dBFS (line-up level is −20; this is gentler for living rooms);
-  - loops are cut at zero crossings, so there's no click at the seam.
-- **Bitrate.** Static is generated at a third of the output resolution with 2×2 grain at 15 noise frames a second, then scaled. It is encoded under the session's negotiated bitrate ceiling, so snow never demands more bandwidth than the programme did.
-- **Cache.** Clips are cached per style, copy and stream contract, like any clip. Copy depends on the reason: "Back at …", "Reconnecting…" or "Waiting for a free connection".
+- **Live Signal engine.** Analogue static is the approved warm, soft phosphor generator (`internal/onair/signal`), rendered at the full negotiated output size at 30 Hz. Its temporally integrated, Gaussian-bloomed 320×180 field is deliberate bandwidth limiting, sampled smoothly into native 1080p; it is not a low-resolution encoded clip. The continuous channel tick drives the rolling bar, tracking, hiss and hum. There is no video or audio loop.
+- **One static.** Signal screens, cold-tune fill, and scene `noise` backgrounds use this same generator. Nocturne's off-air card composites its prepared foreground over live static in the switcher. Scene masters and console previews use the same warm phosphor model; designed cards retain only subtle native-resolution film grain.
+- **Other screens.** Modern card, bars, BRB and test card use prepared native-resolution plates with live phosphor effects. All are silent. Typography is prepared away from the frame clock.
+- **Bitrate.** The existing shared encoder enforces the session's negotiated ceiling. Softness controls entropy; no coarse snow is substituted to meet the budget.
+- **Cache.** The renderer version participates in the content hash, invalidating old grey-snow masters. Live static never reads a looping master from that cache.
 
 **Settings.** `config.LiveTV.Screens{OffAir, NoSignal string; StationID bool}` holds the owner default. `Channel.Screens{OffAir, NoSignal string}` is the per-channel override, where `""` follows the default. The style IDs are `card`, `static`, `bars`, `brb` and `testcard`.
 
@@ -661,7 +731,7 @@ The CPU figures include decode. Decode is the variable part: a 1080p H.264 relea
 ```
 provider ─▶ ffmpeg decoder ──raw frames + PCM──▶ ┌───────────────┐      ┌──────────────────────┐
              (restartable)                       │  Go switcher  │─────▶│ ffmpeg encoder       │─▶ HLS / DASH / HTTP
-generated screen frames + PCM (cached, looped) ▶ │ (frame sync)  │ raw  │ (one per session,    │   (the same output
+live Signal frames + PCM (non-repeating) ▶ │ (frame sync)  │ raw  │ (one per session,    │   (the same output
                                                  └───────────────┘      │  never restarted)    │    the whole time)
                                                                         └──────────────────────┘
 ```
@@ -673,7 +743,7 @@ generated screen frames + PCM (cached, looped) ▶ │ (frame sync)  │ raw  �
   - **Stall detection.** If no decoded frame arrives for 1.5 s, or the decoder exits, or the provider closes or errors, the switcher repeats the last frame until the 1.5 s threshold, then switches to the screen. Audio crossfades over 40 ms. The output never gaps.
   - **Recovery.** A background retry (cooldown, tune gap, per-hour cap and provider-slot rules exactly as above) starts a new decoder. The first decoded frame is always a keyframe, because the decoder starts there. The switcher cuts back on the next tick, re-timed onto the continuous clock, with a 40 ms audio crossfade.
   - **Starting down.** A tune whose source is down from the start begins on the screen at the channel's last known contract (the cached probe from its last session or health sweep, otherwise 1080p30 H.264 / AAC stereo). It becomes the real feed later with the same continuity. If the feed arrives at a different size or rate, it is scaled into the fixed contract for the rest of the session.
-- **The screens** are cached master clips (the Signal family) decoded once into a looping in-memory frame and PCM ring, so filling costs no extra decoder.
+- **The screens** come directly from the live Signal engine; prepared foreground plates are composited over the non-repeating generator, so filling costs no extra decoder.
 
 **HLS, DASH and HTTP.**
 - The encoder writes the session's output (HLS segments; fMP4 for Plex Web's DASH; a continuous Matroska/TS byte stream for Plex for Mac's HTTP path) from one uninterrupted stream.
@@ -772,6 +842,22 @@ designs, rebuilt as documents.
 
 ---
 
+### 5.1 Broadcast overlay preparation
+
+Bugs use title safe: 10% inset on every edge (192/108 at 1080p, 128/72 at 720p).
+Medium occupies 288×100 reference pixels; small is 75%, large 130%. Wordmarks
+use the display face, weight 600 and two pixels of tracking. Channel artwork
+precedes look artwork. Monochrome uses alpha for transparent artwork, luminance
+for opaque artwork (inverted for light backing), and a faint soft shadow.
+The mask, raster and compact YUV planes are prepared once per channel/look/size;
+frame ticks only alpha-blend compact bounds with a scalar fade.
+Scene image `tintBlend: "silhouette"` colours the alpha mask; the TS preparer uses
+the same alpha/luminance rule. Missing artwork falls back to a wordmark.
+Break and look boundaries use 500ms smoothstep ramps. Credit fades use prepared
+media chapters whose names include “credit”; without cues the bug stays visible.
+Lower thirds stay within title safe with dark-to-transparent panels and a shared
+fade envelope. Idents retain their family design with 400ms boundary fades.
+
 ## 6. Rendering engine
 
 ### 6.1 Primitives
@@ -854,6 +940,11 @@ drift.
 ---
 
 ## 7a. Plugin content for channels
+
+Era commercials are owner-imported reel clips, not plugin-provided executable
+content. Packs can carry the additive break-pattern and moment asset references
+as normal JSON; dynamic plugin segment scheduling remains independent.
+
 
 User-authored plugins can feed live content into virtual channels. A weather
 plugin, for example, can put a two-minute forecast on the :58 of every hour, in
@@ -1094,3 +1185,56 @@ identical in Go (`internal/livetv`) and TypeScript (`web/src/pages/livetv/onair/
 ## Viewer policy addition (`livetv_policies` JSON)
 
 `personal`: `{ "enabled": bool | null, "name": string }`. `null` follows the channel's audience; `name` overrides `nameFormat` for this viewer.
+
+## Appendix A addition: station bug settings
+
+Optional `Look.bug` and `Channel.look.bug` share this sparse JSON object:
+
+```json
+{"position":"bottomRight","opacity":0.3,"style":"monochrome","size":"medium","source":"logo","fadeBreaks":true,"fadeCredits":false}
+```
+
+`position`: `topLeft|topRight|bottomLeft|bottomRight`; `opacity`: finite 0.15–0.60;
+`style`: `monochrome|original`; `size`: `small|medium|large`;
+`source`: `logo|wordmark`; fade fields: booleans. Absent fields resolve through
+channel override → look → defaults above. Explicit `false` is preserved.
+This is additive JSON. Existing records use the new defaults without migration
+or legacy styling. `core.ClipRequest.Bug` carries overrides to background
+preparation; no server configuration setting is added.
+
+### Appendix A addendum: era channels (v0.3.5)
+
+All additions are optional. Absent `Channel.look.breakPattern` retains existing
+schedules, guides and Plex behaviour. No core/config schema changes are needed.
+
+`Channel.look.breakPattern` (`BreakPattern`):
+
+| JSON | Type | Constraint / meaning |
+| --- | --- | --- |
+| `preset` | string | `1980s`, `1990s`, `2000s`, `2010s`, `custom`; saved numeric values are authoritative |
+| `seconds` | int | 0–maxSeconds; zero selects count target |
+| `minSeconds`, `maxSeconds` | int | whole-pod bounds, 0–600 / 1–600, min ≤ max |
+| `spots` | int | 0–maxSpots; zero selects seconds target |
+| `minSpots`, `maxSpots` | int | 0–30 / 1–30, min ≤ max |
+| `podsPerHalfHour` | int | 1–6; frequency ceiling |
+| `inside` | bool | use saved programme break points when available |
+| `noRepeatMinutes` | int | 0–1440; also never repeat a spot inside a pod |
+| `stationId` | bool | add the look's ident after the back bumper |
+| `bumperStyle` | string | `break-back` |
+| `clockAlignment` | string | `none` or `half` (pod cannot cross half-hour) |
+
+`Item.breakPointsMs`: optional sorted positive integer media offsets in
+milliseconds, strictly before the programme duration. `Moment.assetDigest`:
+optional SHA-256 reference to a video asset; `Moment.crossfade` is an optional
+boolean request for a creative transition. Deletion remains guarded by look
+usage. ReelClip and Asset add optional `source` and `attribution` strings.
+Pending assets also expose `status`, `progress`, `error`; pending clips reuse
+the existing status/progress/error fields, adding `queued` and `downloading`.
+The `onair/3` migration adds durable `onair_imports` jobs and asset attribution
+columns. Imports never fetch local files or ship any commercials with Ether.
+
+Console integration components: `BreakPatternEditor` in channel Look › Breaks,
+`LinkImport` in `ReelDrawer` and `AssetsPanel`, and `MomentVideoPicker` for the look
+inspector's selected moment (props `look`, `moment`, `onChange`). All changes use
+the owning drawer/page save bar except import actions, which queue immediately
+like uploads.

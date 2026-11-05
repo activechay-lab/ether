@@ -5,45 +5,8 @@
   "poster": 5.5,
   "layers": [
     {
-      "id": "bg",
-      "type": "rect",
-      "x": 0,
-      "y": 0,
-      "w": 1920,
-      "h": 1080,
-      "fill": "{bg}"
-    },
-    {
-      "id": "rail",
-      "type": "rect",
-      "x": 120,
-      "y": 140,
-      "w": 6,
-      "h": 800,
-      "fill": "{accent}"
-    },
-    {
-      "id": "toprule",
-      "type": "rect",
-      "x": 160,
-      "y": 140,
-      "w": 1640,
-      "h": 2,
-      "fill": "{text}@0.18"
-    },
-    {
-      "id": "Title",
-      "type": "text",
-      "text": "{channel.name}",
-      "x": 180,
-      "y": 570,
-      "size": 160,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "left",
-      "track": 12,
+      "id": "ident-envelope",
+      "type": "group",
       "opacity": {
         "keys": [
           [
@@ -52,46 +15,111 @@
           ],
           [
             0.4,
-            0
+            1,
+            "inOut"
           ],
           [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Tagline",
-      "type": "text",
-      "text": "{words.tagline}",
-      "x": 180,
-      "y": 720,
-      "size": 42,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "left",
-      "track": 4,
-      "opacity": {
-        "keys": [
+            7.6,
+            1
+          ],
           [
+            8,
             0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
+            "inOut"
           ]
         ]
-      }
+      },
+      "layers": [
+        {
+          "id": "bg",
+          "type": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 1920,
+          "h": 1080,
+          "fill": "{bg}"
+        },
+        {
+          "id": "rail",
+          "type": "rect",
+          "x": 120,
+          "y": 140,
+          "w": 6,
+          "h": 800,
+          "fill": "{accent}"
+        },
+        {
+          "id": "toprule",
+          "type": "rect",
+          "x": 160,
+          "y": 140,
+          "w": 1640,
+          "h": 2,
+          "fill": "{text}@0.18"
+        },
+        {
+          "id": "Title",
+          "type": "text",
+          "text": "{channel.name}",
+          "x": 180,
+          "y": 570,
+          "size": 160,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "left",
+          "track": 12,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Tagline",
+          "type": "text",
+          "text": "{words.tagline}",
+          "x": 180,
+          "y": 720,
+          "size": 42,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "left",
+          "track": 4,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        }
+      ]
     }
   ],
   "post": [

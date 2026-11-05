@@ -13,7 +13,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-func TestRexShortVideoDiagnostic(t *testing.T) {
+func TestShortVideoTailDiagnostic(t *testing.T) {
 	e := newRealEnv(t, WithoutHWDetection(), WithSegmentTimeout(8*time.Second))
 	path := filepath.Join(e.dir, "short.mkv")
 	cmd := exec.CommandContext(t.Context(), e.ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-t", "9", "-i", "testsrc2=size=320x180:rate=25", "-f", "lavfi", "-t", "11", "-i", "sine=frequency=440:sample_rate=48000", "-c:v", "libx264", "-preset", "ultrafast", "-g", "50", "-c:a", "aac", path)

@@ -36,7 +36,7 @@ func familyLook(id, name string) Look {
 	for _, m := range families.Names()[server] {
 		d, e := families.Get(server, m)
 		if e == nil {
-			l.Moments[m] = Moment{d.Duration, d.Poster}
+			l.Moments[m] = Moment{Duration: d.Duration, Poster: d.Poster}
 		}
 	}
 	return l

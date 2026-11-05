@@ -103,14 +103,14 @@ func (s *Service) UploadAsset(ctx context.Context, name, kind, license string, r
 	return s.putAsset(ctx, name, kind, license, mime, b)
 }
 func (s *Service) Assets(ctx context.Context) ([]Asset, error) {
-	rows, e := s.db.QueryContext(ctx, "SELECT digest,name,kind,size,license,mime FROM onair_assets ORDER BY created_at")
+	rows, e := s.db.QueryContext(ctx, "SELECT digest,name,kind,size,license,mime,source,attribution FROM onair_assets ORDER BY created_at")
 	if e != nil {
 		return nil, e
 	}
 	out := []Asset{}
 	for rows.Next() {
 		var a Asset
-		if e = rows.Scan(&a.Digest, &a.Name, &a.Kind, &a.Size, &a.License, &a.MIME); e != nil {
+		if e = rows.Scan(&a.Digest, &a.Name, &a.Kind, &a.Size, &a.License, &a.MIME, &a.Source, &a.Attribution); e != nil {
 			rows.Close()
 			return nil, e
 		}
@@ -128,7 +128,7 @@ func (s *Service) Assets(ctx context.Context) ([]Asset, error) {
 			return nil, e
 		}
 	}
-	return out, nil
+	return s.importAssets(ctx, out)
 }
 func (s *Service) assetUsage(ctx context.Context, d string) ([]string, error) {
 	rows, e := s.db.QueryContext(ctx, `SELECT id FROM onair_looks WHERE data LIKE ? UNION SELECT id FROM onair_families WHERE data LIKE ? UNION SELECT reel_id FROM onair_reel_clips WHERE source_digest=?`, "%"+d+"%", "%"+d+"%", d)
@@ -147,6 +147,13 @@ func (s *Service) assetUsage(ctx context.Context, d string) ([]string, error) {
 	return out, rows.Err()
 }
 func (s *Service) DeleteAsset(ctx context.Context, d string) error {
+	pending, e := s.db.ExecContext(ctx, "DELETE FROM onair_imports WHERE id=? AND reel_id=''", d)
+	if e != nil {
+		return e
+	}
+	if n, _ := pending.RowsAffected(); n > 0 {
+		return nil
+	}
 	s.assetMu.Lock()
 	defer s.assetMu.Unlock()
 	res, e := s.db.ExecContext(ctx, `DELETE FROM onair_assets WHERE digest=? AND NOT EXISTS(SELECT 1 FROM onair_looks WHERE data LIKE ?) AND NOT EXISTS(SELECT 1 FROM onair_families WHERE data LIKE ?) AND NOT EXISTS(SELECT 1 FROM onair_reel_clips WHERE source_digest=?)`, d, "%"+d+"%", "%"+d+"%", d)

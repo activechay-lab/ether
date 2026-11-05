@@ -52,13 +52,14 @@ type entry struct {
 	Pin  time.Time
 }
 type renderJob struct {
-	Hash    string
-	Look    string
-	Doc     scene.Document
-	Bind    raster.Bindings
-	Request core.ClipRequest
-	prepare func(context.Context) error
-	convert func(context.Context) error
+	AssetDigest string
+	Hash        string
+	Look        string
+	Doc         scene.Document
+	Bind        raster.Bindings
+	Request     core.ClipRequest
+	prepare     func(context.Context) error
+	convert     func(context.Context) error
 }
 type Service struct {
 	resources string
@@ -114,6 +115,7 @@ func New(o Options) (*Service, error) {
 	s.loadReels()
 
 	s.resumeConversions()
+	s.resumeImports()
 	for _, l := range ls {
 		s.enqueueLook(l)
 	}
@@ -214,6 +216,9 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	_ = json.Unmarshal(raw, &d)
 	if v, ok := l.Moments[r.Moment]; ok && f != "signal" {
 		d.Duration = v.Duration
+		if r.Moment == "ident" && len(d.Layers) > 0 && d.Layers[0].ID == "ident-envelope" {
+			d.Layers[0].Opacity = map[string]any{"keys": []any{[]any{0.0, 0.0}, []any{.4, 1.0, "inOut"}, []any{v.Duration - .4, 1.0}, []any{v.Duration, 0.0, "inOut"}}}
+		}
 		d.Poster = v.Poster
 	}
 	if isPlugin {
@@ -284,7 +289,7 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		b.Tokens["words.tagline"] = v
 	}
 	applyLayers(d.Layers, l.Layers)
-	if f != "signal" && l.Brand.Logo != "" {
+	if f != "signal" && r.Moment != "bug" && r.Moment != "lowerthird" && l.Brand.Logo != "" {
 		if utf8.RuneCountInString(l.Brand.Logo) <= 3 {
 			d.Layers = append(d.Layers, scene.Layer{ID: "owner-logo", Type: "text", Text: l.Brand.Logo, X: 95.0, Y: 130.0, Font: normalizeFont(l.Brand.Type.Display), Size: 72.0, Fill: l.Brand.Palette.Accent})
 		} else {
@@ -293,13 +298,14 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	}
 
 	h := encode.Hash(raster.Version+":"+s.resources, d, struct {
-		Brand  Brand
-		Layers map[string]map[string]any
-	}{l.Brand, l.Layers}, struct {
+		Brand       Brand
+		AssetDigest string
+		Layers      map[string]map[string]any
+	}{l.Brand, l.Moments[r.Moment].AssetDigest, l.Layers}, struct {
 		Bindings scene.Bindings
 		Request  core.ClipRequest
 	}{b, r}, r.Art, encode.Profile)
-	return renderJob{Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b, Assets: plugin.Images}, Request: r}, h != ""
+	return renderJob{AssetDigest: l.Moments[r.Moment].AssetDigest, Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b, Assets: plugin.Images}, Request: r}, h != ""
 }
 func (s *Service) Clip(_ context.Context, r core.ClipRequest) (core.ClipRef, bool) {
 	j, ok := s.plan(r)
@@ -516,7 +522,9 @@ func (s *Service) execute(j renderJob) (err error) {
 		}
 		audio = f.Name()
 	}
-	if s.o.Render != nil {
+	if j.AssetDigest != "" {
+		e = s.renderMomentVideo(ctx, j, out)
+	} else if s.o.Render != nil {
 		e = s.o.Render(ctx, j.Doc, j.Bind, out)
 	} else {
 		if s.o.FFmpeg == nil {
@@ -668,6 +676,9 @@ func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 			if d != "" && s.o.Artwork != nil {
 				im, e := s.o.Artwork(ctx, d)
 				if e != nil {
+					if j.Request.Moment == "bug" && slot == "channel.logo" {
+						continue
+					}
 					return e
 				}
 				j.Bind.Assets[d] = im

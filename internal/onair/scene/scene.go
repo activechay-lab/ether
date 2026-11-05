@@ -29,8 +29,6 @@ type Audio struct {
 }
 
 type Layer struct {
-	GrainSize   int        `json:"grainSize,omitempty"`
-	NoiseFPS    int        `json:"noiseFps,omitempty"`
 	ID          string     `json:"id"`
 	Type        string     `json:"type"`
 	X           Value      `json:"x,omitempty"`
@@ -169,9 +167,6 @@ func (d Document) Validate() error {
 			if !one(l.Type, "rect ellipse path text image art logo blob particles gradient noise grid group") {
 				return fmt.Errorf("unknown layer %q", l.Type)
 			}
-			if l.GrainSize < 0 || l.GrainSize > 64 || l.NoiseFPS < 0 || l.NoiseFPS > 60 {
-				return fmt.Errorf("invalid noise sampling")
-			}
 			if l.Repeat < 0 || l.Repeat > 200 || l.Count < 0 || l.Count > 2000 {
 				return fmt.Errorf("invalid repeat/particles")
 			}
@@ -181,7 +176,7 @@ func (d Document) Validate() error {
 			if total > 200 || particles > 2000 || l.Blur < 0 || l.Blur > 64 || l.Glow < 0 || l.Glow > 64 {
 				return fmt.Errorf("scene exceeds render cost limit")
 			}
-			if !one(l.Blend, " normal multiply screen overlay") || !one(l.TintBlend, " normal multiply screen overlay") || !one(l.Fit, " shrink wrap clip cover contain") || !one(l.FillRule, " nonzero evenodd") || !one(l.Join, " miter round bevel") || !one(l.Cap, " butt round square") || l.MaxLines < 0 || l.MaxLines > 100 {
+			if !one(l.Blend, " normal multiply screen overlay") || !one(l.TintBlend, " normal multiply screen overlay silhouette") || !one(l.Fit, " shrink wrap clip cover contain") || !one(l.FillRule, " nonzero evenodd") || !one(l.Join, " miter round bevel") || !one(l.Cap, " butt round square") || l.MaxLines < 0 || l.MaxLines > 100 {
 				return fmt.Errorf("invalid layer option")
 			}
 			for _, v := range []Value{l.X, l.Y, l.W, l.H, l.Scale, l.ScaleX, l.ScaleY, l.Rotate, l.Opacity, l.Fill, l.Stroke, l.StrokeWidth, l.Text, l.Font, l.Size, l.Track, l.Src, l.Tint} {
@@ -477,4 +472,51 @@ func interpolateColor(a, b string, u float64) (string, bool) {
 		}
 	}
 	return fmt.Sprintf("#%02x%02x%02x%02x", int(z[0]+.5), int(z[1]+.5), int(z[2]+.5), int(z[3]+.5)), true
+}
+
+// StaticForeground separates a full-frame analogue background from its prepared
+// foreground. Such scenes air over a live Signal engine instead of a clip loop.
+func (d Document) StaticForeground() (Document, bool) {
+	if len(d.Layers) == 0 || len(d.Post) != 0 {
+		return d, false
+	}
+	l := d.Layers[0]
+	if l.Type != "noise" || l.Blend != "" && l.Blend != "normal" || l.Clip != "" || l.Repeat > 1 || len(l.Behave) > 0 || l.Blur != 0 || l.Glow != 0 {
+		return d, false
+	}
+	for _, v := range []struct {
+		value Value
+		want  float64
+	}{{l.W, 1920}, {l.H, 1080}, {l.X, 0}, {l.Y, 0}, {l.Scale, 1}, {l.ScaleX, 1}, {l.ScaleY, 1}, {l.Rotate, 0}, {l.Opacity, 1}} {
+		if v.value != nil && Number(v.value, math.NaN()) != v.want {
+			return d, false
+		}
+	}
+	// Only fixed foreground geometry can be prepared once. Procedural layers,
+	// reveals and keyframes must keep their ordinary scene animation.
+	var fixed func([]Layer) bool
+	fixed = func(layers []Layer) bool {
+		for _, l := range layers {
+			if one(l.Type, "noise blob particles grid") || len(l.Behave) > 0 || l.Reveal != nil {
+				return false
+			}
+			for _, v := range []Value{l.X, l.Y, l.W, l.H, l.Scale, l.ScaleX, l.ScaleY, l.Rotate, l.Opacity, l.Fill, l.Stroke, l.StrokeWidth, l.Text, l.Font, l.Size, l.Track, l.Src, l.Tint} {
+				if m, ok := v.(map[string]any); ok {
+					if _, animated := m["keys"]; animated {
+						return false
+					}
+				}
+			}
+			if !fixed(l.Layers) {
+				return false
+			}
+		}
+		return true
+	}
+	if !fixed(d.Layers[1:]) {
+		return d, false
+	}
+	out := d
+	out.Layers = append([]Layer(nil), d.Layers[1:]...)
+	return out, true
 }

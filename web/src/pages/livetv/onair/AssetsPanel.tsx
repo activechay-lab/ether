@@ -1,3 +1,4 @@
+import { LinkImport } from "./LinkImport";
 import { useEffect, useState } from "react";
 import { Button, Select, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
 import { Upload, FileType, Image, AudioLines, Film, Trash2 } from "lucide-react";
@@ -11,6 +12,13 @@ export function AssetsPanel() {
   useEffect(() => {
     void onair.assets().then(setAssets);
   }, []);
+  useEffect(() => {
+    if (!assets.some((a) => a.status === "queued" || a.status === "downloading")) return;
+    const timer = setInterval(() => {
+      void onair.assets().then(setAssets);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [assets]);
   const upload = async (files: FileList | null, kind: string) => {
     if (!files) return;
     try {
@@ -28,6 +36,7 @@ export function AssetsPanel() {
   };
   return (
     <div className="space-y-5">
+      <LinkImport onImported={async () => setAssets(await onair.assets())} />
       <div className="grid grid-cols-2 gap-2">
         {[
           { kind: "font", label: t("Fonts"), Icon: FileType, accept: ".ttf,.otf,.woff2" },
@@ -115,6 +124,22 @@ export function AssetsPanel() {
               )}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{a.name}</p>
+                {a.source ? (
+                  <a
+                    className="text-xs text-primary"
+                    href={a.source}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {t("Source")}
+                  </a>
+                ) : null}
+                {a.attribution ? <p className="text-xs text-fg-muted">{a.attribution}</p> : null}
+                {a.status ? (
+                  <p className="text-xs text-fg-muted">
+                    {a.status === "error" ? a.error : t("Importing…")}
+                  </p>
+                ) : null}
                 <p className="text-xs text-fg-muted">
                   {t("{size} KB", { size: Math.round(a.size / 1024) })}
                 </p>

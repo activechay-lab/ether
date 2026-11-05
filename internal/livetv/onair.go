@@ -24,6 +24,9 @@ func interstitial(it Item) bool {
 
 func (c Channel) moments(at time.Time) []Item { return c.momentsWithin(at, 0) }
 func (c Channel) momentsWithin(at time.Time, budget time.Duration) []Item {
+	if c.Look != nil && c.Look.BreakPattern != nil {
+		return c.podItems(at, budget)
+	}
 	if c.Look == nil || c.clipDuration == nil {
 		return nil
 	}
@@ -111,7 +114,7 @@ func guideSchedule(c Channel, from, until time.Time) []Programme {
 	if c.Look == nil || c.clipDuration == nil {
 		return Schedule(c, from, until)
 	}
-	if c.Look.Placement != "insert" {
+	if c.Look.Placement != "insert" && c.Look.BreakPattern == nil {
 		if len(c.Clock) > 0 {
 			// Suppress look interstitials while retaining the clock's channel policy.
 			look := *c.Look
@@ -133,6 +136,10 @@ func guideSchedule(c Channel, from, until time.Time) []Programme {
 			}
 			continue
 		}
+		if c.Look.BreakPattern != nil && len(out) > 0 && p.Item.Key != 0 && out[len(out)-1].Item.Key == p.Item.Key && p.sourceOffset > 0 {
+			out[len(out)-1].End = p.End
+			continue
+		}
 		out = append(out, p)
 	}
 	var visible []Programme
@@ -151,8 +158,12 @@ func (s *Service) clipRequest(c Channel, p Programme) core.ClipRequest {
 	}
 	r := core.ClipRequest{LookID: lookID, Moment: p.Item.Slate, ChannelID: c.ID, Bind: map[string]string{"channel.name": c.Name}, Art: map[string]string{}}
 	if c.Look != nil {
+		r.Bug = c.Look.Bug
 		r.Bind["channel.tagline"] = c.Look.Tagline
 		r.Bind["channel.accent"] = c.Look.Accent
+	}
+	if p.Item.Slate == "bug" && c.Logo != "" {
+		r.Art["channel.logo"] = c.Logo
 	}
 	if c.Personal != nil && c.personalViewer != nil {
 		r.ViewerID = c.personalViewer.ID

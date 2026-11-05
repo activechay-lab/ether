@@ -131,7 +131,7 @@ func TestParity(t *testing.T) {
 	}
 	im := raster.Render(d, raster.Bindings{Bindings: families.Defaults("late-night")}, 3, 960, 540)
 	got := fmt.Sprintf("%x", sha256.Sum256(im.Pix))
-	if got != "c143f8bbc5368db4387a323d082b8f988c354e7cf9969c60b6e2e4d170558933" {
+	if got != "79a1ac849149cd8c5290d3f5be1cfd4e6aac3fe6a95b30f751873e3af2789c5f" {
 		t.Fatalf("parity hash: %s", got)
 	}
 }

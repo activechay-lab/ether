@@ -1,3 +1,4 @@
+import { BreakPatternEditor } from "./BreakPatternEditor";
 import { Button, Input, Select, Switch } from "@braedonsaunders/appkit-ui";
 import { textOf, useRegistry } from "../../../lib/extend";
 import { useState } from "react";
@@ -16,6 +17,7 @@ import { InfoTip } from "./RecipeTab";
 import { ReelDrawer } from "./ReelDrawer";
 import { ChannelScreens } from "./ScreenPicker";
 
+import { BugControls, resolveBug } from "./BugControls";
 export function LookTab({
   channel,
   onChange,
@@ -62,14 +64,18 @@ export function LookTab({
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
         {look ? (
           <LookTile
-            look={look}
+            look={{ ...look, bug: resolveBug(look.bug, settings.bug) }}
             channel={
               channel.personal
                 ? channel.personal.nameFormat.replace("{viewer}", viewerName || "")
                 : channel.name
             }
-            moment={moment}
-            bindings={{ ...bindings.data, viewer: { name: viewerName || "" } }}
+            moment={settings.bug ? "bug" : moment}
+            bindings={{
+              ...bindings.data,
+              channel: { name: channel.name, logo: channel.logo },
+              viewer: { name: viewerName || "" },
+            }}
           />
         ) : (
           <div className="grid aspect-video place-items-center rounded-lg border border-dashed border-border bg-surface text-sm text-fg-muted">
@@ -180,7 +186,9 @@ export function LookTab({
                 size="sm"
                 className="w-full flex-nowrap justify-between [&>button]:px-1"
                 value={settings.breaks || ""}
-                onChange={(breaks) => set({ breaks })}
+                onChange={(breaks) =>
+                  set({ breaks, ...(!breaks ? { breakPattern: undefined } : {}) })
+                }
                 options={[
                   { value: "", label: t("Off") },
                   { value: "between", label: t("Between programmes") },
@@ -199,7 +207,10 @@ export function LookTab({
                   aria-label={t("During breaks")}
                   value={settings.breakContent || "look"}
                   onChange={(e) =>
-                    set({ breakContent: e.currentTarget.value as ChannelLook["breakContent"] })
+                    set({
+                      breakContent: e.currentTarget.value as ChannelLook["breakContent"],
+                      breakPattern: undefined,
+                    })
                   }
                 >
                   <option value="look">{t("Look's break screen")}</option>
@@ -289,22 +300,33 @@ export function LookTab({
                 ) : null}
               </>
             ) : null}
-            <SettingsRow
-              title={t("Break length")}
-              control={
-                <Segmented
-                  ariaLabel={t("Break length")}
-                  value={String(settings.breakSeconds || 60)}
-                  onChange={(v) => set({ breakSeconds: Number(v) })}
-                  options={[
-                    { value: "30", label: t("30 s") },
-                    { value: "60", label: t("1 min") },
-                    { value: "120", label: t("2 min") },
-                    { value: "180", label: t("3 min") },
-                  ]}
-                />
+            <BreakPatternEditor
+              value={settings.breakPattern}
+              onChange={(breakPattern) =>
+                set({
+                  breakPattern,
+                  ...(breakPattern ? { breakContent: "reel", placement: "insert" } : {}),
+                })
               }
             />
+            {!settings.breakPattern ? (
+              <SettingsRow
+                title={t("Break length")}
+                control={
+                  <Segmented
+                    ariaLabel={t("Break length")}
+                    value={String(settings.breakSeconds || 60)}
+                    onChange={(v) => set({ breakSeconds: Number(v) })}
+                    options={[
+                      { value: "30", label: t("30 s") },
+                      { value: "60", label: t("1 min") },
+                      { value: "120", label: t("2 min") },
+                      { value: "180", label: t("3 min") },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
           </>
         ) : null}
         <SettingsRow
@@ -341,6 +363,29 @@ export function LookTab({
           }
         />
       </section>
+      {look ? (
+        <section className="space-y-4 border-t border-border pt-4">
+          <label className="flex items-center justify-between gap-3 text-sm font-medium">
+            {t("Customize corner logo")}
+            <Switch
+              aria-label={t("Customize corner logo")}
+              checked={settings.bug !== undefined}
+              onChange={(e) => {
+                set({ bug: e.currentTarget.checked ? resolveBug(look.bug) : undefined });
+                setMoment("bug");
+              }}
+            />
+          </label>
+          {settings.bug ? (
+            <BugControls
+              value={resolveBug(look.bug, settings.bug)}
+              onChange={(bug) => set({ bug })}
+            />
+          ) : (
+            <p className="text-sm text-fg-muted">{t("Uses the look’s corner logo.")}</p>
+          )}
+        </section>
+      ) : null}
       <MoreOptions label={t("More options")}>
         <div className="grid gap-4 p-4 sm:grid-cols-3">
           <Field label={t("Break frequency (minutes)")}>

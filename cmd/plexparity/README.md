@@ -57,7 +57,7 @@ per half.
   Since #191 only Plex Web gets that sidecar: every other client keeps
   `location="direct"` with no key, the PMS shape, and reads the track from
   the file it plays (extracting it first meant reading the whole release).
-  The second #191 pass follows PMS 1.42 per `subtitles=` mode (rex
+  The second #191 pass follows PMS 1.42 per `subtitles=` mode (recorded
   `decision_streams_selected.json`, `subtitles_s1422.json`): the selected
   track stays selected under `none` with `decision="ignore"` and no
   location (Plex for Android and Android TV send it), `sidecar` is
@@ -124,7 +124,7 @@ world are the documented set, now exact pairs in `approved_v0258.json` and
 - Content-rating label text, Play Version labels, timeout playback (#198),
   pre-1970 date strings, section filter operators (`bd55103ff`), iOS Home
   hero art gating (`b1ad78851`, #210), and `guid=` library lookups
-  (`ad2cd3c50`, Rex T1-4): 0.
+  (`ad2cd3c50`, audit T1-4): 0.
 
 This note does not allowlist a route.
 
@@ -205,7 +205,7 @@ A request that does not send one of those operators is unchanged. The
 v0.2.58 corpus does not send them, so that fixture has 0 pairs and there
 is no signature to store. This note does not allowlist any response.
 
-Search hubs and indexed people search (`b5e6074c3`, Rex T1-5):
+Search hubs and indexed people search (`b5e6074c3`, audit T1-5):
 `/hubs/search?query=fixture&limit=10&includeCollections=1` and
 `/hubs/search/voice?query=fixture` return PMS's 17-hub set in recorded order
 (`show`, `artist`, `album`, `movie`, `episode`, `track`, `collection`,
@@ -235,7 +235,7 @@ seconds; that range is a studio card, not a title sequence. An intro that
 starts later, and every episode intro, stays. This note does not allowlist
 any response.
 
-Rex batch (`32e51bfaf`, merge of `64ab75605`, plus `eda0de766` and
+Conformance batch (`32e51bfaf`, merge of `64ab75605`, plus `eda0de766` and
 `91f5756f6`):
 1. `/devices` (50 pairs per world, 100 total across both worlds in
    `approved_v0258.json`): the owner receives the 7-device list stamped with
@@ -260,7 +260,7 @@ Also intended in `32e51bfaf` and not probed by the corpus:
 - the Plex-metadata toggle is off by default (byte-identical off).
 This note does not allowlist a route.
 
-DASH startup buffer (`76e1dbce3` / `5773afc59`, Rex T1-2):
+DASH startup buffer (`76e1dbce3` / `5773afc59`, audit T1-2):
 `playback:dash:manifest` changes MPD `minBufferTime` from `PT10S` to `PT5S`
 (one segment, so Plex Web/Shaka starts after one segment instead of two; live
 MPD `timeShiftBufferDepth` stays `PT120S`). Recorded as 25 pairs per world (50
@@ -268,7 +268,7 @@ across both worlds) in `approved_v0258_token.json` (`76e1dbce3` against
 `32e51bfaf`, and `76e1dbce3+32e51bfaf` against `v0.2.58`). This note does not
 allowlist a route.
 
-Library `guid=` lookup (`ad2cd3c50`, Rex T1-4):
+Library `guid=` lookup (`ad2cd3c50`, audit T1-4):
 `/library/sections/{id}/all` and `/library/all` with
 `?guid=<plex://|tmdb://|imdb://|tvdb://|legacy agent guid>` (including
 `type=3` season and `type=4` episode forms) return only the matching item, or
