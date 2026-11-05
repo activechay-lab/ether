@@ -148,10 +148,11 @@ export function LookDrawer({
       open
       onClose={() => void close()}
       size="full"
+      panelClassName="max-sm:[&>header]:flex-wrap max-sm:[&>header]:gap-2 max-sm:[&>header>div:first-child]:w-full max-sm:[&>header>div:last-child]:w-full max-sm:[&>header>div:last-child]:justify-end"
       title={
         <Input
           aria-label={t("Look name")}
-          className="max-w-48 border-transparent bg-transparent font-semibold"
+          className="w-full sm:max-w-48 border-transparent bg-transparent font-semibold"
           value={draft.name}
           onChange={(e) => change({ ...draft, name: e.target.value })}
         />
@@ -248,6 +249,7 @@ export function LookDrawer({
             <span>{t("Preview on")}</span>
             <ToolbarPicker
               ariaLabel={t("Preview on")}
+              className="max-w-full"
               value={channel}
               onChange={setChannel}
               options={

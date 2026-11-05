@@ -148,7 +148,7 @@ export function ReelDrawer({
       title={draft.name || t("New reel")}
       size="lg"
       footer={
-        <div className="flex w-full items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2">
           {dirty ? <Badge variant="warning">{t("Unsaved changes")}</Badge> : null}
           <div className="ml-auto flex gap-2">
             <Button variant="outline" onClick={onClose}>
@@ -310,6 +310,7 @@ export function ReelDrawer({
                         variant="ghost"
                         size="sm"
                         aria-label={t("Clip actions for {name}", { name: c.name })}
+                        onClick={() => setMenu(menu === c.id ? null : c.id)}
                       >
                         <MoreHorizontal size={16} />
                       </Button>

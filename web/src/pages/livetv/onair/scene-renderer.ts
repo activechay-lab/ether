@@ -199,6 +199,9 @@ function surface(w: number, h: number) {
 }
 const blend = (s?: string): GlobalCompositeOperation =>
   !s || s === "normal" ? "source-over" : (s as GlobalCompositeOperation);
+// Static scene plates (including text) are reused; deterministic post effects
+// still run at the requested time. No asset copies or animation approximations.
+const staticFrames = new Map<string, ReturnType<typeof surface>>();
 export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t: number) {
   const width = ctx.canvas.width,
     height = ctx.canvas.height;
@@ -244,7 +247,7 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
   function text(c: Context, l: Layer) {
     let value = s(l.text),
       size = n(l.size, 60);
-    const track = n(l.track);
+    let track = n(l.track);
     for (const b of l.behave ?? [])
       if (b.typewriter)
         value = [...value]
@@ -265,7 +268,9 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
     const measure = (line: string) =>
       c.measureText(line).width + Math.max(0, [...line].length - 1) * track;
     if (l.fit === "shrink" && l.maxWidth && measure(value) > l.maxWidth) {
-      size *= l.maxWidth / measure(value);
+      const ratio = l.maxWidth / measure(value);
+      size *= ratio;
+      track *= ratio;
       setFont();
     }
     let lines = [value];
@@ -546,7 +551,26 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
   ctx.globalCompositeOperation = "source-over";
   ctx.filter = "none";
   ctx.scale(width / 1920, height / 1080);
-  layers(ctx, doc.layers);
+  const layerJSON = JSON.stringify(doc.layers);
+  const stationary =
+    !/"(?:keys|behave|src)":/.test(layerJSON) &&
+    !/"type":"(?:noise|particles|blob|grid)"/.test(layerJSON);
+  if (stationary) {
+    const key = JSON.stringify([width, height, layerJSON, bindings.tokens, bindings.slots]);
+    let cached = staticFrames.get(key);
+    if (!cached) {
+      cached = surface(width, height);
+      const prepared = cached.getContext("2d", { willReadFrequently: true }) as Context;
+      prepared.scale(width / 1920, height / 1080);
+      layers(prepared, doc.layers);
+      if (staticFrames.size >= 8) staticFrames.delete(staticFrames.keys().next().value!);
+      staticFrames.set(key, cached);
+    }
+    ctx.save();
+    ctx.resetTransform();
+    ctx.drawImage(cached, 0, 0);
+    ctx.restore();
+  } else layers(ctx, doc.layers);
   ctx.restore();
   if (doc.post?.some((e) => n(e.amount) !== 0)) {
     const pixels = ctx.getImageData(0, 0, width, height),
@@ -565,6 +589,12 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
       x2[x] = dx * dx;
     }
     const flickers = effects.map((e) => 1 - e.amount * random(e.seed, frame));
+    const pattern = effects.map((e) => e.type).join(",");
+    const common =
+      pattern === "grain,flicker,vignette" && effects.every((e) => e.amount >= 0 && e.amount <= 1);
+    const vhs =
+      pattern === "grain,scanlines" && effects.every((e) => e.amount >= 0 && e.amount <= 1);
+    const quantize = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v | 0);
     for (let y = 0; y < height; y++) {
       const dy = (y / height - 0.5) * 1.4,
         y2 = dy * dy;
@@ -574,6 +604,30 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
         let r = data[i]! * a,
           g = data[i + 1]! * a,
           b = data[i + 2]! * a;
+        if (a === 1 && (common || vhs)) {
+          const grain = effects[0]!,
+            offset =
+              (random(grain.seed, x + y * width + frame * 100003) - 0.5) * grain.amount * 255;
+          r = quantize(r + offset);
+          g = quantize(g + offset);
+          b = quantize(b + offset);
+          if (common) {
+            const flicker = flickers[1]!,
+              vignette = 1 - effects[2]!.amount * Math.min(1, x2[x]! + y2);
+            r = (((r * flicker) | 0) * vignette) | 0;
+            g = (((g * flicker) | 0) * vignette) | 0;
+            b = (((b * flicker) | 0) * vignette) | 0;
+          } else if (y % 3 === 0) {
+            const v = 1 - effects[1]!.amount;
+            r = (r * v) | 0;
+            g = (g * v) | 0;
+            b = (b * v) | 0;
+          }
+          data[i] = r;
+          data[i + 1] = g;
+          data[i + 2] = b;
+          continue;
+        }
         for (let j = 0; j < effects.length; j++) {
           const e = effects[j]!;
           let v = 1,
@@ -615,12 +669,12 @@ function pixelBehaviours(ctx: Context, l: Layer, t: number, w: number, h: number
         center = ((Math.max(0, t - (p.start ?? 0)) * (p.speed || 1) * 0.3) % 1.5) - 0.25;
       for (let y = 0; y < h; y++)
         for (let x = 0; x < w; x++) {
-          const i = (y * w + x) * 4,
-            k = Math.min(
-              1,
-              Math.max(0, 1 - Math.abs(x / w + (y / h) * 0.2 - center) / 0.06) *
-                (p.amplitude || 0.5),
-            );
+          const i = (y * w + x) * 4;
+          if (!d[i + 3]) continue;
+          const k = Math.min(
+            1,
+            Math.max(0, 1 - Math.abs(x / w + (y / h) * 0.2 - center) / 0.06) * (p.amplitude || 0.5),
+          );
           for (let ch = 0; ch < 3; ch++)
             d[i + ch] = Math.floor(d[i + ch]! + (255 - d[i + ch]!) * k);
         }
@@ -778,7 +832,24 @@ export function lookBindings(look: Look, bindings: Bindings): SceneBindings {
   flatten(bindings, "");
   return { tokens, slots };
 }
-type WorkerState = { id: number; ctx: Context; busy: boolean; failed?: boolean };
+type WorkerRequest = {
+  id: number;
+  sessionToken: string;
+  document: Scene;
+  bindings: SceneBindings;
+  time: number;
+  width: number;
+  height: number;
+};
+type WorkerState = {
+  id: number;
+  ctx: Context;
+  busy: boolean;
+  painted?: boolean;
+  failed?: boolean;
+  pending?: WorkerRequest;
+};
+
 const workers = new WeakMap<object, WorkerState>();
 const consumers = new Map<number, WorkerState>();
 let sharedWorker: Worker | undefined;
@@ -830,6 +901,13 @@ function workerFrame(
         c.restore();
         bitmap.close();
       }
+      // Continue with the latest requested frame without another main-thread RAF gap.
+      if (state.pending && sharedWorker) {
+        const pending = state.pending;
+        state.pending = undefined;
+        state.busy = true;
+        sharedWorker.postMessage(pending);
+      }
     };
     sharedWorker.onerror = () => {
       for (const state of consumers.values()) {
@@ -847,17 +925,23 @@ function workerFrame(
     consumers.set(state.id, state);
   }
   if (state.failed) return false;
+  const request: WorkerRequest = {
+    id: state.id,
+    sessionToken: getToken(),
+    document,
+    bindings,
+    time,
+    width: ctx.canvas.width,
+    height: ctx.canvas.height,
+  };
   if (!state.busy) {
     state.busy = true;
-    sharedWorker.postMessage({
-      id: state.id,
-      sessionToken: getToken(),
-      document,
-      bindings,
-      time,
-      width: ctx.canvas.width,
-      height: ctx.canvas.height,
-    });
+    sharedWorker.postMessage(request);
+  } else state.pending = request;
+  // Paint a poster immediately while the shared worker loads its fonts/modules.
+  if (!state.painted) {
+    state.painted = true;
+    return false;
   }
   return true;
 }

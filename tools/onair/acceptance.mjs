@@ -39,7 +39,27 @@ try {
         const meanMs=durations.reduce((a,b)=>a+b,0)/durations.length;
         performance.push({family:entry.family,moment:entry.moment,meanMs,renderFps:1000/meanMs,fps:30*1000/(globalThis.performance.now()-wallStart)});
       }
-      return {scores,performance,tolerance:.02,parityPass:scores.every(s=>s.error<=.02),performancePass:performance.every(s=>s.fps>=45)};
+      const workerPerformance=[];
+      if(typeof OffscreenCanvas!=='undefined') {
+        const worker=new Worker('/ether/src/pages/livetv/onair/scene-worker.ts',{type:'module'});
+        let id=0;
+        const frame=(entry,time)=>new Promise((resolve,reject)=>{
+          worker.onmessage=e=>{if(e.data.error){reject(new Error(e.data.error));return;}ctx.clearRect(0,0,960,540);ctx.drawImage(e.data.bitmap,0,0);e.data.bitmap.close();resolve();};
+          worker.onerror=e=>reject(new Error(e.message));
+          worker.postMessage({id:++id,document:renderer.documentFor(entry.family,entry.moment),bindings:entry.bindings,time,width:960,height:540});
+        });
+        try {
+          for(const family of [...new Set(entries.map(e=>e.family))]) {
+            const peak=performance.filter(e=>e.family===family).sort((a,b)=>b.meanMs-a.meanMs)[0];
+            const entry=entries.find(e=>e.family===family&&e.moment===peak.moment);
+            for(let i=0;i<3;i++)await frame(entry,i*.1);
+            const start=globalThis.performance.now();
+            for(let i=0;i<30;i++){await frame(entry,.5+i*.17);}
+            workerPerformance.push({family,moment:entry.moment,fps:30000/(globalThis.performance.now()-start)});
+          }
+        }finally{worker.terminate();}
+      }
+      return {scores,performance,workerPerformance,tolerance:.02,parityPass:scores.every(s=>s.error<=.02),performancePass:performance.every(s=>s.fps>=45)&&workerPerformance.every(s=>s.fps>=45)};
     });
   }`;
   const result = cli('run-code', code);

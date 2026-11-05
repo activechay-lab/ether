@@ -161,3 +161,36 @@ test("scene evaluation preserves Go boundary, slot, premultiplied-colour and ene
   expect(random(7, 0)).not.toBe(random(8, 0));
   expect(random(7, 0)).toBe(random(7, 4294967296));
 });
+
+test("a tile paints immediately while its worker starts, and releases its worker", async () => {
+  const sent: unknown[] = [];
+  const terminate = vi.fn();
+  vi.stubGlobal(
+    "Worker",
+    class {
+      postMessage(value: unknown) {
+        sent.push(value);
+      }
+      terminate = terminate;
+    },
+  );
+  vi.stubGlobal("OffscreenCanvas", class {});
+  vi.stubGlobal(
+    "Path2D",
+    class {
+      rect() {}
+    },
+  );
+  const { renderLook, releaseRenderer } = await import("./scene-renderer");
+  const look = { ...referenceLooks[1]!, family: "clean" };
+  const a = context();
+  renderLook(a.ctx, look, "ident", {}, 5.5);
+  expect(sent).toHaveLength(1);
+  expect(a.calls.length).toBeGreaterThan(5);
+  const first = a.calls.length;
+  renderLook(a.ctx, look, "ident", {}, 5.5);
+  expect(a.calls).toHaveLength(first);
+  releaseRenderer(a.ctx);
+  expect(terminate).toHaveBeenCalledOnce();
+  vi.unstubAllGlobals();
+});

@@ -1,14 +1,18 @@
+import type { Programme } from "../pages/livetv/model";
 import clipPreview from "./clip-preview.mp4?url";
 import { referenceLooks, families } from "../pages/livetv/onair/fixtures";
 import type { Look, Reel, OnAirAsset } from "../pages/livetv/onair/model";
-export function createOnAirMock(tv: {
-  handle: (
-    method: string,
-    seg: string[],
-    q: URLSearchParams,
-    body: unknown,
-  ) => { body: unknown } | null;
-}) {
+export function createOnAirMock(
+  tv: {
+    handle: (
+      method: string,
+      seg: string[],
+      q: URLSearchParams,
+      body: unknown,
+    ) => { body: unknown } | null;
+  },
+  layout = "",
+) {
   let looks = structuredClone(referenceLooks);
   let serial = 0;
   let reels: Reel[] = [
@@ -61,6 +65,41 @@ export function createOnAirMock(tv: {
       usedBy: ["Ident", "Back from break"],
     },
   ];
+  // Deterministic layout states for the On Air visual acceptance sweep.
+  if (layout === "empty") {
+    looks = [];
+    reels = [];
+    assets = [];
+  }
+  if (layout === "one") {
+    looks = looks.slice(0, 1);
+    reels = reels.slice(0, 1).map((r) => ({ ...r, clips: r.clips.slice(0, 1) }));
+    assets = assets.slice(0, 1);
+  }
+  if (layout === "long" || layout === "many") {
+    looks = Array.from({ length: layout === "many" ? 32 : 5 }, (_, i) => ({
+      ...structuredClone(referenceLooks[i % referenceLooks.length]!),
+      id: i < referenceLooks.length ? referenceLooks[i]!.id : `look-${i}`,
+      name:
+        i % 2
+          ? `TheEveningCollectionOfRemarkableAdventuresAndFamiliarFavourites${i + 1}`
+          : `The evening collection of remarkable adventures and familiar favourites ${i + 1}`,
+    }));
+    reels = reels.map((r) => ({
+      ...r,
+      name: "The nostalgic evening station promos and family favourites reel",
+      clips: Array.from({ length: layout === "many" ? 24 : 4 }, (_, i) => ({
+        ...structuredClone(r.clips[i % r.clips.length]!),
+        id: `clip-${i}`,
+        name: `A wonderfully long station promotion and intermission title number ${i + 1}`,
+      })),
+    }));
+    assets = Array.from({ length: layout === "many" ? 24 : 2 }, (_, i) => ({
+      ...structuredClone(assets[i % assets.length]!),
+      digest: `asset-${i}`,
+      name: `The very long original station artwork and music asset title ${i + 1}`,
+    }));
+  }
   const renders = new Map<string, number>();
   for (const reel of reels)
     for (const [i, clip] of reel.clips.entries()) {
@@ -80,7 +119,22 @@ export function createOnAirMock(tv: {
       body: unknown,
     ): { body: unknown; status?: number } | null {
       if (seg[0] === "livetv" && seg[3] === "rundown") {
-        return tv.handle(method, seg, q, body);
+        const result = tv.handle(method, seg, q, body);
+        if (!result || !Array.isArray(result.body)) return result;
+        const rows = result.body as Programme[];
+        if (layout === "empty") return { body: [] };
+        if (layout === "one") return { body: rows.slice(0, 1) };
+        if (layout === "long" || layout === "many")
+          return {
+            body: rows.map((p, i) => ({
+              ...p,
+              item: {
+                ...p.item,
+                title: `The extraordinarily long evening programme and familiar favourite number ${i + 1}`,
+              },
+            })),
+          };
+        return result;
       }
       if (seg[0] !== "onair") return null;
       const [, kind, id, action, clipId] = seg;

@@ -59,7 +59,7 @@ export function LookTab({
   return (
     <div className="space-y-6">
       {looks.error ? <ErrorPanel error={looks.error} onRetry={() => void looks.reload()} /> : null}
-      <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
+      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
         {look ? (
           <LookTile
             look={look}
@@ -76,33 +76,43 @@ export function LookTab({
             {t("Choose a look")}
           </div>
         )}
-        <div className="space-y-3">
+        <div className="flex min-w-0 flex-col items-start gap-3">
           <ToolbarPicker
             ariaLabel={t("Look")}
             value={settings.lookId}
             onChange={(id) => (id === "new" ? navigateLook("new") : set({ lookId: id }))}
             className="w-full"
+            menuClassName="max-w-[calc(100vw-2rem)]"
+            trigger={
+              <>
+                {look ? (
+                  <LookTile look={look} size="h-5 w-9 shrink-0 rounded-sm" playOnHover={false} />
+                ) : null}
+                <span className="min-w-0 flex-1 truncate text-left">{look?.name || t("None")}</span>
+              </>
+            }
             options={[
               { value: "", label: t("None") },
               ...(looks.data ?? []).map((v) => ({
                 value: v.id,
                 label: v.name,
                 icon: (
-                  <div className="w-16">
-                    <LookTile
-                      look={v}
-                      bindings={{ ...bindings.data, viewer: { name: viewerName || "" } }}
-                      playOnHover={false}
-                    />
-                  </div>
+                  <LookTile
+                    look={v}
+                    size="h-7 w-12 rounded-sm"
+                    bindings={{ ...bindings.data, viewer: { name: viewerName || "" } }}
+                    playOnHover={false}
+                  />
                 ),
               })),
               { value: "new", label: t("New look…") },
             ]}
           />
-          <Button variant="outline" disabled={!look} onClick={() => look && navigateLook(look.id)}>
-            {t("Edit look")}
-          </Button>
+          {look ? (
+            <Button variant="outline" onClick={() => navigateLook(look.id)}>
+              {t("Edit look")}
+            </Button>
+          ) : null}
         </div>
       </div>
       {look ? (
@@ -204,6 +214,8 @@ export function LookTab({
                 control={
                   <div className="flex flex-wrap items-center gap-2">
                     <ToolbarPicker
+                      className="max-w-full"
+                      menuClassName="max-w-[calc(100vw-2rem)]"
                       value={settings.reelId || ""}
                       ariaLabel={t("Reel")}
                       onChange={(id) => (id === "new" ? setReel("new") : set({ reelId: id }))}

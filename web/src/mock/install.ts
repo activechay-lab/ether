@@ -18,6 +18,7 @@ export function installMockBackend(): void {
   const fake = createFakeServer({
     latencyMs: 120,
     liveTVEmpty: params.get("livetv") === "empty",
+    onAirLayout: params.get("onair") ?? undefined,
     householdAudio: true,
     cluster,
     startup: params.get("startup") ?? undefined,
