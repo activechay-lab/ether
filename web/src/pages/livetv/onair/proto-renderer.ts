@@ -102,7 +102,35 @@ function wrap(c, s, maxW, o) {
   return out;
 }
 /* text: o = {f,s,w,i,a,b,c,alpha,track,sw,sc,glow,gb} ; returns width */
+function tokenText(c, s, o) {
+  const look = c.__look;
+  if (!look) return [s, o];
+  const original = {
+    kids: "BLORP!",
+    lateNight: "NOCTURNE",
+    cinema: "MERIDIAN",
+    retro: "NEON 84",
+    clean: "MERIDIAN",
+  }[look.family];
+  if (original) s = s.replaceAll(original, look.name.toUpperCase());
+  const words = {
+    upnext: "Up next",
+    tonight: "Tonight",
+    break: "We’ll be right back",
+    back: "Welcome back",
+    offair: "Back soon",
+  };
+  for (const [key, value] of Object.entries(look.brand.words)) {
+    if (value && words[key]) s = s.replace(new RegExp(words[key], "ig"), value);
+  }
+  if (s === "totally gooey TV" || s === "Late night. Lights off.") s = look.brand.tagline;
+  const display = ["Bungee", "Playfair", "Fraunces", "Monoton", "Orbitron", "Grotesk"].includes(
+    o.f,
+  );
+  return [s, { ...o, f: display ? look.brand.type.display : look.brand.type.body }];
+}
 function T(c, s, x, y, o = {}) {
+  [s, o] = tokenText(c, s, o);
   c.save();
   c.font = fnt(o);
   c.textBaseline = o.b || "alphabetic";
@@ -148,6 +176,7 @@ function T(c, s, x, y, o = {}) {
 }
 /* per-character animated text; fn(i,n) -> {dx,dy,sc,sx,sy,rot,al,c} */
 function TA(c, s, x, y, o, fn) {
+  [s, o] = tokenText(c, s, o);
   c.save();
   c.font = fnt(o);
   const chars = [...s],
@@ -199,33 +228,42 @@ function TA(c, s, x, y, o, fn) {
   return total;
 }
 /* noise + post */
-const NOISE = [0, 1, 2, 3].map((k) => {
-  const n = document.createElement("canvas");
-  n.width = n.height = 256;
-  const x = n.getContext("2d");
-  const im = x.createImageData(256, 256);
-  let s = k * 7919 + 1;
-  for (let i = 0; i < im.data.length; i += 4) {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-    const v = s >>> 24;
-    im.data[i] = im.data[i + 1] = im.data[i + 2] = v;
-    im.data[i + 3] = 255;
-  }
-  x.putImageData(im, 0, 0);
-  return n;
-});
-const SCAN = (() => {
-  const n = document.createElement("canvas");
-  n.width = 4;
-  n.height = 6;
-  const x = n.getContext("2d");
-  x.fillStyle = "rgba(0,0,0,.55)";
-  x.fillRect(0, 0, 4, 3);
-  return n;
-})();
+let NOISE = null,
+  SCAN = null;
+function initTextures() {
+  if (NOISE) return;
+  NOISE = [0, 1, 2, 3].map((k) => {
+    const n = document.createElement("canvas");
+    n.width = n.height = 256;
+    const x = n.getContext("2d");
+    if (!x) return null;
+    const im = x.createImageData(256, 256);
+    let s = k * 7919 + 1;
+    for (let i = 0; i < im.data.length; i += 4) {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      const v = s >>> 24;
+      im.data[i] = im.data[i + 1] = im.data[i + 2] = v;
+      im.data[i + 3] = 255;
+    }
+    x.putImageData(im, 0, 0);
+    return n;
+  });
+  SCAN = (() => {
+    const n = document.createElement("canvas");
+    n.width = 4;
+    n.height = 6;
+    const x = n.getContext("2d");
+    if (!x) return null;
+    x.fillStyle = "rgba(0,0,0,.55)";
+    x.fillRect(0, 0, 4, 3);
+    return n;
+  })();
+}
 let PATS = null,
   SPAT = null;
 function grain(c, t, a, mode = "overlay") {
+  initTextures();
+  if (!NOISE?.every(Boolean)) return;
   if (!PATS) PATS = NOISE.map((n) => c.createPattern(n, "repeat"));
   const f = Math.floor(t * 24);
   c.save();
@@ -239,6 +277,8 @@ function grain(c, t, a, mode = "overlay") {
   c.restore();
 }
 function scanlines(c, a) {
+  initTextures();
+  if (!SCAN) return;
   if (!SPAT) SPAT = c.createPattern(SCAN, "repeat");
   c.save();
   c.globalAlpha = a;
@@ -3423,6 +3463,8 @@ export function renderLook(
   bindings: Bindings = {},
   t = 3,
 ) {
+  if (!c) return;
+  c.__look = look;
   const key =
     { kids: "blorp", lateNight: "nocturne", cinema: "meridian", retro: "neon", clean: "meridian" }[
       look.family

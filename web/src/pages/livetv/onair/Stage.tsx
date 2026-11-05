@@ -9,12 +9,14 @@ export function LookTile({
   look,
   moment = "ident",
   channel,
+  bindings,
   size,
   playOnHover = true,
 }: {
   look: Look;
   moment?: Moment;
   channel?: string;
+  bindings?: Bindings;
   size?: string;
   playOnHover?: boolean;
 }) {
@@ -33,7 +35,15 @@ export function LookTile({
         ctx,
         look,
         moment,
-        { channel: { name: channel || look.name } },
+        {
+          channel: { name: channel || look.name },
+          ...bindings,
+          viewer:
+            bindings?.viewer ||
+            (look.family === "personal" && channel
+              ? { name: channel.replace(/ TV$/, "") }
+              : undefined),
+        },
         hover && activeTile === c ? (still + (performance.now() - start) / 1000) % 8 : still,
       );
       if (hover && activeTile === c) frame = requestAnimationFrame(draw);
@@ -46,7 +56,7 @@ export function LookTile({
       mounted = false;
       cancelAnimationFrame(frame);
     };
-  }, [look, moment, hover, channel]);
+  }, [look, moment, hover, channel, bindings]);
   const begin = () => {
     if (playOnHover && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
       activeTile = ref.current;
@@ -253,7 +263,7 @@ export function LookStage({
             }}
             onDoubleClick={() => onSelectLayer?.("Title")}
           >
-            <LookTile look={look} moment={m} playOnHover={false} />
+            <LookTile look={look} moment={m} bindings={bindings} playOnHover={false} />
             <span className="block truncate px-1 pt-1 text-xs text-fg-muted">
               {t(
                 {
