@@ -125,6 +125,11 @@ func setup(t *testing.T) *fixture {
 			return errors.New("wrong source")
 		}
 		return nil
+	}, RecheckServer: func(_ context.Context, s tls.ConnectionState) error {
+		if s.PeerCertificates[0].Subject.CommonName != "source" {
+			return errors.New("wrong source")
+		}
+		return nil
 	}, Peer: Peer{"worker", "wboot"}, Now: time.Now, MaxLifetime: 2 * time.Minute, Timeout: time.Second})
 	if e != nil {
 		t.Fatal(e)

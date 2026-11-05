@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 )
 
 type Assignment struct {
@@ -23,11 +24,15 @@ type Assignment struct {
 }
 type AdapterOptions struct {
 	Endpoint string
-	Client   *http.Client // Transport must be *http.Transport with verified mutual TLS.
-	Assign   func(context.Context, core.HLSRequest) (Assignment, error)
-	Decide   func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision
-	Hardware core.HWAccel
-	Capacity int
+	// RecheckServer composes current Guard policy for the expected worker identity.
+	// Fresh TLS per operation; rebuild on rotation. Callback captures/opaque keys
+	// are immutable, callbacks concurrency safe and context cooperative.
+	RecheckServer func(context.Context, tls.ConnectionState) error
+	Client        *http.Client // Transport must be *http.Transport with verified mutual TLS.
+	Assign        func(context.Context, core.HLSRequest) (Assignment, error)
+	Decide        func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision
+	Hardware      core.HWAccel
+	Capacity      int
 }
 type Adapter struct {
 	opts     AdapterOptions
@@ -38,7 +43,7 @@ type Adapter struct {
 
 func NewAdapter(o AdapterOptions) (*Adapter, error) {
 	u, e := url.Parse(o.Endpoint)
-	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || o.Client == nil || o.Assign == nil || o.Decide == nil || o.Capacity < 1 {
+	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || o.Client == nil || o.RecheckServer == nil || o.Assign == nil || o.Decide == nil || o.Capacity < 1 {
 		return nil, errors.New("remotetranscode: explicit adapter dependencies required")
 	}
 	transport, ok := o.Client.Transport.(*http.Transport)
@@ -49,12 +54,15 @@ func NewAdapter(o AdapterOptions) (*Adapter, error) {
 	if tc.InsecureSkipVerify || tc.RootCAs == nil || tc.VerifyConnection == nil || (len(tc.Certificates) == 0 && tc.GetClientCertificate == nil) {
 		return nil, errors.New("remotetranscode: verified mutual TLS required")
 	}
-	t := transport.Clone()
-	t.TLSClientConfig = tc.Clone()
-	if t.TLSClientConfig.MinVersion < tls.VersionTLS12 {
-		t.TLSClientConfig.MinVersion = tls.VersionTLS12
+	// A new transport prevents caller dial/proxy/HTTP2 hooks from bypassing admission.
+	timeout := o.Client.Timeout
+	if timeout <= 0 || timeout > time.Minute {
+		timeout = time.Minute
 	}
-	t.Proxy = nil
+	t, err := outbound.New(o.Endpoint, tc, timeout, o.RecheckServer)
+	if err != nil {
+		return nil, errors.New("remotetranscode: invalid transport")
+	}
 	client := *o.Client
 	client.Transport = t
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
