@@ -5,10 +5,11 @@ import (
 	"reflect"
 )
 
-// normalizeConsoleFilter collapses the simple chip builder's conjunction to
-// one predicate set. Repeating the full browse-policy scope in every leaf
-// prevents efficient SQLite plans for otherwise identical flat filters.
-// Conflicting fields, ORs and viewer state retain their original expression.
+// normalizeConsoleFilter hoists metadata predicates out of mandatory AND
+// groups so SQLite can plan the chip builder's wire shape like a flat filter.
+// OR alternatives, viewer state and conflicting fields remain AND residuals.
+// Neither the caller's AST nor its slices are mutated (cursor signatures bind
+// the original expression at the API boundary).
 func normalizeConsoleFilter(f core.Filter) core.Filter {
 	if f.Group == nil {
 		return f
@@ -16,40 +17,54 @@ func normalizeConsoleFilter(f core.Filter) core.Filter {
 	out := f
 	out.Group = nil
 	target := reflect.ValueOf(&out).Elem()
-	var walk func(*core.FilterGroup) bool
-	walk = func(g *core.FilterGroup) bool {
-		if g == nil || groupHasOwnState(g) || g.ParentOnly {
-			return false
+	var residual []core.FilterGroup
+	changed := false
+	var walk func(*core.FilterGroup)
+	walk = func(g *core.FilterGroup) {
+		if g == nil {
+			return
+		}
+		if groupHasOwnState(g) || g.ParentOnly {
+			residual = append(residual, *g)
+			return
 		}
 		if g.Filter != nil {
 			if g.Filter.Group != nil {
-				return false
+				residual = append(residual, *g)
+				return
 			}
 			source := reflect.ValueOf(*g.Filter)
 			for i := 0; i < source.NumField(); i++ {
 				value := source.Field(i)
-				if value.IsZero() {
-					continue
+				if !value.IsZero() && !target.Field(i).IsZero() && !reflect.DeepEqual(target.Field(i).Interface(), value.Interface()) {
+					residual = append(residual, *g)
+					return
 				}
-				if !target.Field(i).IsZero() {
-					return false
-				}
-				target.Field(i).Set(value)
 			}
-			return true
+			for i := 0; i < source.NumField(); i++ {
+				if !source.Field(i).IsZero() {
+					target.Field(i).Set(source.Field(i))
+				}
+			}
+			changed = true
+			return
 		}
 		if g.Operator != "and" {
-			return false
+			residual = append(residual, *g)
+			return
 		}
 		for i := range g.Children {
-			if !walk(&g.Children[i]) {
-				return false
-			}
+			walk(&g.Children[i])
 		}
-		return true
 	}
-	if !walk(f.Group) {
+	walk(f.Group)
+	if !changed {
 		return f
+	}
+	if len(residual) == 1 {
+		out.Group = &residual[0]
+	} else if len(residual) > 1 {
+		out.Group = &core.FilterGroup{Operator: "and", Children: residual}
 	}
 	return out
 }

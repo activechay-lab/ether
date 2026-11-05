@@ -175,3 +175,15 @@ func TestConsoleConjunctionNormalizationPreservesMembership(t *testing.T) {
 		t.Fatal("OR was flattened")
 	}
 }
+
+func TestConsoleNormalizationKeepsViewerStateResidual(t *testing.T) {
+	unwatched := true
+	original := core.Filter{Group: &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{{Filter: &core.Filter{YearFrom: 1990}}, {Unwatched: &unwatched, UserID: 7}, {Filter: &core.Filter{MinRating: 7}}}}}
+	flat := normalizeConsoleFilter(original)
+	if flat.YearFrom != 1990 || flat.MinRating != 7 || flat.Group == nil || flat.Group.Unwatched == nil || flat.Group.UserID != 7 {
+		t.Fatalf("lost state or metadata: %+v", flat)
+	}
+	if original.Group.Children[0].Filter.YearFrom != 1990 || original.YearFrom != 0 || len(original.Group.Children) != 3 {
+		t.Fatal("mutated caller AST")
+	}
+}

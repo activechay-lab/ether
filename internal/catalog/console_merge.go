@@ -33,7 +33,13 @@ func (c *Catalog) consoleMergedKeys(ctx context.Context, where string, args []an
 		}
 	}
 	for _, typ := range []core.MediaType{core.TypeMovie, core.TypeShow} {
-		rows, err := c.db.QueryContext(ctx, `SELECT `+strings.Join(columns, ",")+` FROM catalog_titles t`+hint+` WHERE `+where+` AND t.type=? ORDER BY `+browseOrder(q)+`,t.key ASC LIMIT ?`, append(append([]any{}, args...), string(typ), offset+limit)...)
+		typed := q.Filter
+		typed.Type = typ
+		typedWhere, typedArgs, err := c.browseWhere(typed)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := c.db.QueryContext(ctx, `SELECT `+strings.Join(columns, ",")+` FROM catalog_titles t`+hint+` WHERE `+typedWhere+` AND t.type=? ORDER BY `+browseOrder(q)+`,t.key ASC LIMIT ?`, append(append([]any{}, typedArgs...), string(typ), offset+limit)...)
 		if err != nil {
 			return nil, err
 		}

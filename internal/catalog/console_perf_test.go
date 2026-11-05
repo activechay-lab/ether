@@ -34,6 +34,22 @@ func TestConsole600K(t *testing.T) {
       INSERT INTO catalog_genres(key,genre) SELECT key,CASE WHEN tmdb_id%2=0 THEN 'Thriller' ELSE 'Comedy' END FROM catalog_titles; ANALYZE;`); err != nil {
 		t.Fatal(err)
 	}
+	c.SetConsoleAvailabilityPolicy(func() string { return "perf-policy" })
+	until := time.Now().Add(time.Hour).Unix()
+	for _, seed := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO catalog_release_evidence(rating_key,release_id,source_id,policy,verified_until,cache_until,cached,height,hdr,dv,atmos) SELECT key,'fixture-release','fixture-source','perf-policy',?,?,1,2160,1,0,1 FROM catalog_titles WHERE tmdb_id%20=0`, []any{until, until}},
+		{`INSERT INTO state_watch(user_id,rating_key,view_count) SELECT 7,key,1 FROM catalog_titles WHERE tmdb_id%40=0`, nil},
+		{`CREATE TABLE IF NOT EXISTS watchlist_items(user_id INTEGER NOT NULL,item_key INTEGER NOT NULL,source TEXT NOT NULL,title TEXT NOT NULL,added INTEGER NOT NULL,checked INTEGER NOT NULL DEFAULT 0,available INTEGER NOT NULL DEFAULT 0,notified INTEGER NOT NULL DEFAULT 0,warmed INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,item_key,source)); CREATE INDEX IF NOT EXISTS watchlist_viewer ON watchlist_items(user_id,available,added)`, nil},
+		{`INSERT INTO watchlist_items(user_id,item_key,source,title,added) SELECT 7,key,'local',title,1600000000 FROM catalog_titles WHERE tmdb_id%20=0`, nil},
+		{`ANALYZE`, nil},
+	} {
+		if _, err := c.db.ExecContext(context.Background(), seed.sql, seed.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
 	t.Log("fixture ready")
 	cases := []struct {
 		name string
@@ -89,6 +105,19 @@ func TestConsole600K(t *testing.T) {
 		name string
 		q    core.BrowseQuery
 	}{"deep-keyset-rating-ties-540k", deepRating})
+	unwatched, onWatchlist := true, true
+	persona := wireTypical
+	persona.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{
+		*wireTypical.Group, {Filter: &core.Filter{Playable: "yes", Qualities: []string{"4k"}}}, {Unwatched: &unwatched, UserID: 7},
+	}}
+	cases = append(cases, struct {
+		name string
+		q    core.BrowseQuery
+	}{"wire-persona-unwatched-90s-thriller-7-under2h-playable4k", core.BrowseQuery{Filter: persona, Sort: core.SortPopularity, Desc: true, Limit: 49, NoTotal: true}})
+	cases = append(cases, struct {
+		name string
+		q    core.BrowseQuery
+	}{"viewer-watchlist-cached4k", core.BrowseQuery{Filter: core.Filter{Playable: "yes", DebridCached: "yes", Qualities: []string{"4k"}, Group: &core.FilterGroup{OnWatchlist: &onWatchlist, UserID: 7}}, Sort: core.SortPopularity, Desc: true, Limit: 49, NoTotal: true}})
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.q.Filter.LocalOnly = true
