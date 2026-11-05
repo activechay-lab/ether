@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/clusterplayback"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/plextv"
 )
@@ -98,7 +98,7 @@ func (a *App) publicRoleHandler() http.Handler {
 		return a.handler
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/sessions/media/") || strings.HasPrefix(r.URL.Path, "/video/:/transcode/universal/session/") {
+		if clusterplayback.IsPublicRepresentation(r) {
 			http.NotFound(w, r)
 			return
 		}
