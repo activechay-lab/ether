@@ -159,7 +159,7 @@ func TestDASHDecisionUnselectedAudioIsNotASegment(t *testing.T) {
 		},
 	}
 	rec := f.get(t, "/video/:/transcode/universal/decision?"+strings.Replace(dashQuery, "session=web-1", "session=dash-two", 1),
-		append(jsonAccept, "X-Plex-Product", "Plex for Android", "X-Plex-Platform", "Android")...)
+		append(jsonAccept, "X-Plex-Product", "Plex for Android", "X-Plex-Platform", "Android", "X-Plex-Client-Profile-Extra", "add-transcode-target(type=videoProfile&context=streaming&protocol=dash&container=mp4&videoCodec=h264&audioCodec=aac)")...)
 	if rec.Code != 200 {
 		t.Fatalf("decision: %d %s", rec.Code, rec.Body.String())
 	}

@@ -711,6 +711,16 @@ func buildMedia(t *core.Title, info core.MediaInfo, stamp int64) model.Media {
 	if isMP4 {
 		m.OptimizedForStreaming = model.Ptr(1)
 		m.Has64bitOffsets = model.Ptr(false)
+		if info.Has64bitOffsets != nil {
+			m.Has64bitOffsets = info.Has64bitOffsets
+		}
+		if info.OptimizedForStreaming != nil {
+			value := 0
+			if *info.OptimizedForStreaming {
+				value = 1
+			}
+			m.OptimizedForStreaming = &value
+		}
 	}
 	var firstAudio *core.StreamInfo
 	for i := range info.Streams {
@@ -755,6 +765,12 @@ func buildMedia(t *core.Title, info core.MediaInfo, stamp int64) model.Media {
 	if isMP4 {
 		p.Has64bitOffsets = model.Ptr(false)
 		p.OptimizedForStreaming = model.Ptr(true)
+		if info.Has64bitOffsets != nil {
+			p.Has64bitOffsets = info.Has64bitOffsets
+		}
+		if info.OptimizedForStreaming != nil {
+			p.OptimizedForStreaming = info.OptimizedForStreaming
+		}
 	}
 	m.Part = []model.Part{p}
 	return m

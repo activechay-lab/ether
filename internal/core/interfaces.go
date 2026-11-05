@@ -629,16 +629,18 @@ type Chapter struct {
 // ProbeFactsVersion is the generation of facts a probe is expected to carry,
 // including H.264/HEVC reference frames and descriptive audio handler titles.
 // Persisted probes from an older generation are cache misses.
-const ProbeFactsVersion = 5
+const ProbeFactsVersion = 6
 
 type MediaInfo struct {
-	Chapters    []Chapter     `json:"chapters,omitempty"`
-	Container   string        `json:"container"` // mkv, mp4, avi, mpegts
-	Duration    time.Duration `json:"duration"`
-	Size        int64         `json:"size"`
-	BitrateKbps int           `json:"bitrateKbps"`
-	Streams     []StreamInfo  `json:"streams"`
-	Estimated   bool          `json:"estimated"` // derived from release name, not probed
+	Has64bitOffsets       *bool         `json:"has64bitOffsets,omitempty"`
+	OptimizedForStreaming *bool         `json:"optimizedForStreaming,omitempty"`
+	Chapters              []Chapter     `json:"chapters,omitempty"`
+	Container             string        `json:"container"` // mkv, mp4, avi, mpegts
+	Duration              time.Duration `json:"duration"`
+	Size                  int64         `json:"size"`
+	BitrateKbps           int           `json:"bitrateKbps"`
+	Streams               []StreamInfo  `json:"streams"`
+	Estimated             bool          `json:"estimated"` // derived from release name, not probed
 
 	// Keyframes is the container's keyframe/cue index, sorted, when it was
 	// read on open or probe; empty when unknown. Not serialized: it can hold

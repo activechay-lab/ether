@@ -737,6 +737,14 @@ func Decide(info core.MediaInfo, caps core.ClientCaps, opts core.DecideOptions, 
 		codec = "hevc"
 	}
 
+	// Explicit protocol targets retain their declared preference order.
+	for _, preferred := range caps.TranscodeVideoCodecs {
+		if preferred == "h264" && supportsH264 && !keepHDR || preferred == "hevc" && supportsHEVC && pol.HEVCEncoder {
+			codec = preferred
+			break
+		}
+	}
+
 	audioCopy, audioCodec, audioKbps, audioNote = pceAudioPlan(a, caps, opts, info.Container, codec, audioCopy, audioCodec, audioKbps, audioNote)
 	d.AudioCopy, d.AudioCodec = audioCopy, audioCodec
 	applyAudioLimits(&d, a, caps, audioCopy, audioCodec)

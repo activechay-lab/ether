@@ -218,8 +218,12 @@ type playRequest struct {
 	// mediaIndex is the "Play Version" position the viewer picked
 	// (0 = Auto / not sent); partReleaseID names the release directly
 	// when the request addressed a variant's Part key.
-	mediaIndex    int
-	partReleaseID string
+	selectorCount   int
+	selectorValid   bool
+	decisionRequest bool
+	profileResult   *deviceProfileResult
+	mediaIndex      int
+	partReleaseID   string
 	// requestedPart is the Part id in the request path, when the client
 	// addressed a Play Version part directly.
 	requestedPart int64
@@ -322,6 +326,10 @@ func browserClient(pr *Request) bool {
 // subsequent starts). Quality limits from the query are also in opts. Keep the
 // original options since prepare adds owner limits and track preferences.
 func (p playRequest) sameSettings(other playRequest) bool {
+	p.profileResult, other.profileResult = nil, nil
+	p.selectorCount, other.selectorCount = 0, 0
+	p.selectorValid, other.selectorValid = false, false
+	p.decisionRequest, other.decisionRequest = false, false
 	p.offset, other.offset = 0, 0
 	p.caps, other.caps = core.ClientCaps{}, core.ClientCaps{}
 	p.listAllTracks, other.listAllTracks = false, false
@@ -339,6 +347,12 @@ func (p playRequest) sameSettings(other playRequest) bool {
 
 func (s *Server) parsePlayRequest(r *http.Request) (playRequest, error) {
 	pr := FromContext(r.Context())
+	if pr.ProfileName == "Raspberry PI" && resolvedPlayerProfile(pr) == "" {
+		return playRequest{}, fmt.Errorf("profile name must identify a registered client profile")
+	}
+	if strings.Count(pr.ProfileExtra, "(") != strings.Count(pr.ProfileExtra, ")") {
+		return playRequest{}, fmt.Errorf("malformed client profile directives")
+	}
 	q := r.URL.Query()
 	key := keyFromPath(q.Get("path"))
 	if key == 0 {
@@ -372,7 +386,8 @@ func (s *Server) parsePlayRequest(r *http.Request) (playRequest, error) {
 	if limit := s.cfg().Transcode.RemoteMaxBitrateKbps; caps.Remote && limit > 0 && (caps.MaxBitrateKbps == 0 || limit < caps.MaxBitrateKbps) {
 		caps.MaxBitrateKbps = limit
 	}
-	p := playRequest{copyTimestamps: q.Get("copyts") == "1", key: key, caps: caps, audioSel: -1, subSel: -1, protocol: q.Get("protocol"), mde: q.Get("hasMDE") == "1", partReleaseID: partReleaseID}
+	selector, selectorErr := strconv.Atoi(q.Get("mediaIndex"))
+	p := playRequest{selectorCount: len(q["mediaIndex"]), selectorValid: selectorErr == nil && selector >= 0, decisionRequest: strings.HasSuffix(r.URL.Path, "/decision"), copyTimestamps: q.Get("copyts") == "1", key: key, caps: caps, audioSel: -1, subSel: -1, protocol: q.Get("protocol"), mde: q.Get("hasMDE") == "1", partReleaseID: partReleaseID}
 	for _, raw := range []string{q.Get("path"), q.Get("key")} {
 		if partID, ok := partIDFromPath(raw); ok {
 			p.requestedPart = partID
@@ -576,6 +591,7 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 		resolvePlaySelection(p, ps.Info)
 		s.applyStreamPreferences(ctx, pr, p, t, ps.Info)
 		applySelections(p, ps.Info, s.audioLanguages(pr.User))
+		s.selectLegacyDecoderAudio(pr, p, ps.Info)
 		switch {
 		case p.subtitles == "none" && !matroskaCarriesText(p, ps.Info) && !tvImageSubtitle(pr, ps.Info, p.opts):
 			// The track stays selected; nothing delivers it.
@@ -609,6 +625,9 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 				}
 			}
 			p.caps.TranscodeAudioCodecs = kept
+		}
+		if err := s.applyDeviceProfile(pr, t, ps, p); err != nil {
+			return sessions.PlexAdmission{}, err
 		}
 		return sessions.PlexAdmission{
 			Source: ps, Media: ps.Info, Caps: p.caps, Options: p.opts, PreferRemux: p.mde, Protocol: p.protocol,
@@ -694,6 +713,11 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 
 	t, ps, dec, err := s.prepare(ctx, pr, &p)
 	if err != nil {
+		var profileErr *profileDecisionError
+		if errors.As(err, &profileErr) && profileErr.code == 0 {
+			writeHTTPError(w, http.StatusBadRequest)
+			return
+		}
 		if errors.Is(err, errDecisionMediaIndex) {
 			writeHTTPError(w, http.StatusBadRequest)
 			return
@@ -766,6 +790,10 @@ func (s *Server) awaitSource(ctx context.Context, r *http.Request, pr *Request) 
 // and the reason in every *DecisionText so whichever field a client shows
 // carries the message instead of a spinner.
 func (s *Server) decisionError(ctx context.Context, pr *Request, t *core.Title, err error, p playRequest) *model.MediaContainer {
+	var profileErr *profileDecisionError
+	if errors.As(err, &profileErr) {
+		return profileErrorContainer(pr, p, profileErr)
+	}
 	msg := playbackMessage(err)
 	s.setTermination(trackID(pr.User.ID, pr.ClientID, pr.SessionID), msg)
 	mc := libraryContainer()
@@ -788,7 +816,7 @@ func (s *Server) decisionError(ctx context.Context, pr *Request, t *core.Title, 
 		// *DecisionText whose code is >= 2000).
 		mc.Extra = append(mc.Extra, model.A("mdeDecisionCode", codeGeneralError), model.A("mdeDecisionText", msg))
 	}
-	mc.Extra = append(mc.Extra, model.A("resourceSession", cmp.Or(pr.ClientID, p.sessionID)))
+	mc.Extra = append(mc.Extra, model.A("resourceSession", cmp.Or(pr.SessionID, pr.ClientID)))
 	mc.Size = len(mc.Metadata)
 	mc.SetDecision()
 	return mc
@@ -874,6 +902,9 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 				dpText += " " + dec.Reason
 			}
 		}
+		if p.profileResult != nil && p.profileResult.reason != "" {
+			dpText = p.profileResult.reason
+		}
 		mc.Extra = []model.Attr{
 			model.A("directPlayDecisionCode", codeDirectPlayError),
 			model.A("directPlayDecisionText", dpText),
@@ -894,7 +925,7 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 		mc.Extra = append(mc.Extra, model.A("mdeDecisionCode", code), model.A("mdeDecisionText", text))
 	}
 	// PMS echoes the client identifier as the resource session.
-	mc.Extra = append(mc.Extra, model.A("resourceSession", cmp.Or(pr.ClientID, p.sessionID)))
+	mc.Extra = append(mc.Extra, model.A("resourceSession", cmp.Or(pr.SessionID, pr.ClientID)))
 	return mc
 }
 
@@ -1872,6 +1903,9 @@ func (s *Server) writePartErr(w http.ResponseWriter, r *http.Request, pr *Reques
 	}
 	if r.Context().Err() != nil {
 		return
+	}
+	if pr != nil && pr.User != nil {
+		s.setTermination(trackID(pr.User.ID, pr.ClientID, pr.SessionID), playbackMessage(err))
 	}
 	writePlaybackStatus(w, http.StatusBadGateway)
 }
