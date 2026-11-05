@@ -199,6 +199,9 @@ function surface(w: number, h: number) {
 }
 const blend = (s?: string): GlobalCompositeOperation =>
   !s || s === "normal" ? "source-over" : (s as GlobalCompositeOperation);
+// Static scene plates (including text) are reused; deterministic post effects
+// still run at the requested time. No asset copies or animation approximations.
+const staticFrames = new Map<string, ReturnType<typeof surface>>();
 export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t: number) {
   const width = ctx.canvas.width,
     height = ctx.canvas.height;
@@ -546,7 +549,26 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
   ctx.globalCompositeOperation = "source-over";
   ctx.filter = "none";
   ctx.scale(width / 1920, height / 1080);
-  layers(ctx, doc.layers);
+  const layerJSON = JSON.stringify(doc.layers);
+  const stationary =
+    !/"(?:keys|behave|src)":/.test(layerJSON) &&
+    !/"type":"(?:noise|particles|blob|grid)"/.test(layerJSON);
+  if (stationary) {
+    const key = JSON.stringify([width, height, layerJSON, bindings.tokens, bindings.slots]);
+    let cached = staticFrames.get(key);
+    if (!cached) {
+      cached = surface(width, height);
+      const prepared = cached.getContext("2d", { willReadFrequently: true }) as Context;
+      prepared.scale(width / 1920, height / 1080);
+      layers(prepared, doc.layers);
+      if (staticFrames.size >= 8) staticFrames.delete(staticFrames.keys().next().value!);
+      staticFrames.set(key, cached);
+    }
+    ctx.save();
+    ctx.resetTransform();
+    ctx.drawImage(cached, 0, 0);
+    ctx.restore();
+  } else layers(ctx, doc.layers);
   ctx.restore();
   if (doc.post?.some((e) => n(e.amount) !== 0)) {
     const pixels = ctx.getImageData(0, 0, width, height),

@@ -8,7 +8,7 @@ import {
 } from "./scene-renderer";
 
 let canvas: OffscreenCanvas | undefined;
-self.onmessage = async (
+async function frame(
   event: MessageEvent<{
     id: number;
     sessionToken?: string;
@@ -18,7 +18,7 @@ self.onmessage = async (
     width: number;
     height: number;
   }>,
-) => {
+) {
   try {
     setResourceToken(event.data.sessionToken ?? "");
     await loadOnAirFonts();
@@ -36,4 +36,11 @@ self.onmessage = async (
   } catch (error) {
     self.postMessage({ id: event.data.id, error: String(error) });
   }
+}
+
+// Font/artwork preparation may await I/O. Serialize jobs so another tile cannot
+// resize the shared surface between preparation and transferToImageBitmap.
+let queue = Promise.resolve();
+self.onmessage = (event) => {
+  queue = queue.then(() => frame(event));
 };
