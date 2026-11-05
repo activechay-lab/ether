@@ -14,8 +14,6 @@ type HLSRequest struct {
 	// SlateText is trusted server-generated copy for a looping silent card.
 	// It is never decoded from client requests. Info.Duration bounds the slot.
 	SlateText []string `json:"-"`
-	ClipPath  string   `json:"-"` // trusted master MP4 under the configured clip cache
-	ClipLoop  bool     `json:"-"`
 	// SoftSubtitleStream, when set, asks the encoder to expose this embedded
 	// text stream as ASS alongside its ordinary media output.
 	SoftSubtitleStream *int

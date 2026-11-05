@@ -217,6 +217,7 @@ func (s *Service) maintain() {
 			return
 		case <-t.C:
 			s.expireSessions()
+			s.ensureGraphics()
 			if s.o.Warm != nil {
 				cs, err := s.virtualChannels(s.ctx)
 				if err != nil {
@@ -1076,6 +1077,7 @@ SELECT ch.source_id, ch.channel_id, (SELECT p.data FROM livetv_programmes p WHER
 // titles keep their saved order, so a channel with no availability cache
 // schedules exactly as it did before.
 func (s *Service) guideChannel(ctx context.Context, c Channel) Channel {
+	c = s.graphicsChannel(c)
 	src := s.o.Availability
 	if src == nil {
 		return c
@@ -1259,7 +1261,13 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 				}
 				continue
 			}
-			ps, err := s.programmes(ctx, c, from, until)
+			var ps []Programme
+			var err error
+			if c.Kind == "virtual" {
+				ps = guideSchedule(s.guideChannel(ctx, c), from, until)
+			} else {
+				ps, err = s.programmes(ctx, c, from, until)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -1278,7 +1286,7 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 		}
 		orderIndex[c.ID] = len(orderIndex)
 		if c.Kind == "virtual" {
-			for _, p := range Schedule(s.guideChannel(ctx, c), from, until) {
+			for _, p := range guideSchedule(s.guideChannel(ctx, c), from, until) {
 				if s.allowed(ctx, u, c, &p) {
 					out = append(out, p)
 				}

@@ -1067,9 +1067,6 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 			e = append(e, "-x264-params", "8x8dct=1:b-pyramid=none")
 		}
 	}
-	if s.Target != nil && s.Target.frameRate > 0 {
-		e = append(e, "-r", strconv.FormatFloat(s.Target.frameRate, 'f', -1, 64))
-	}
 	if codec == "hevc" {
 		e = append(e, "-tag:v", "hvc1")
 	}
