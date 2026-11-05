@@ -154,12 +154,16 @@ The helper invokes `ether cluster drain --data-dir /config --wait 120s` through
 to the current boot and operation, not an unauthenticated network mutation. The
 command stops new placements and waits for runtime quiescence. On timeout it
 returns failure and the helper does **not** delete the pod; unresolved ownership
-must remain fenced. Private listeners, membership and retirement proofs must
-survive the drain until completion. Investigate a timeout rather than forcing
-delete to make a rollout proceed. SIGTERM uses bounded runtime drain, but is not
-a substitute for this explicit proof before deletion. The chart sets a 120s
-termination grace period and does not claim a Kubernetes grace deadline proves
-retirement. Increase it for your workload as appropriate.
+must remain fenced. If a backend's Close blocks, the runtime keeps service,
+private membership and cleanup alive; a drain deadline does not report successful
+retirement. Investigate a timeout rather than forcing deletion to advance a
+rollout. SIGTERM requests bounded runtime drain and is not a substitute for
+explicit proof before deletion. The chart sets a 120s termination grace period.
+When that grace expires, Kubernetes eventually forces remaining container
+processes to stop with SIGKILL. That kill does not prove source/encoder retirement
+or free uncertain durable capacity; ownership remains uncertain until authority
+and fencing evidence resolve it. Increase the grace period for your workload,
+but do not treat any deadline as a retirement proof.
 
 After successful drain the helper deletes only that pod, waits for a new UID and
 Ready, and leaves its PVC intact. Verify playback and authority before proceeding
