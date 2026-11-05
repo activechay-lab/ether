@@ -24,6 +24,9 @@ func interstitial(it Item) bool {
 
 func (c Channel) moments(at time.Time) []Item { return c.momentsWithin(at, 0) }
 func (c Channel) momentsWithin(at time.Time, budget time.Duration) []Item {
+	if c.Look != nil && c.Look.BreakPattern != nil {
+		return c.podItems(at, budget)
+	}
 	if c.Look == nil || c.clipDuration == nil {
 		return nil
 	}
@@ -111,7 +114,7 @@ func guideSchedule(c Channel, from, until time.Time) []Programme {
 	if c.Look == nil || c.clipDuration == nil {
 		return Schedule(c, from, until)
 	}
-	if c.Look.Placement != "insert" {
+	if c.Look.Placement != "insert" && c.Look.BreakPattern == nil {
 		if len(c.Clock) > 0 {
 			// Suppress look interstitials while retaining the clock's channel policy.
 			look := *c.Look
@@ -131,6 +134,10 @@ func guideSchedule(c Channel, from, until time.Time) []Programme {
 			if len(out) > 0 {
 				out[len(out)-1].End = p.End
 			}
+			continue
+		}
+		if c.Look.BreakPattern != nil && len(out) > 0 && p.Item.Key != 0 && out[len(out)-1].Item.Key == p.Item.Key && p.sourceOffset > 0 {
+			out[len(out)-1].End = p.End
 			continue
 		}
 		out = append(out, p)

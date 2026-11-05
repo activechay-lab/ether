@@ -556,6 +556,16 @@ func blocksOverlap(a, b Block) bool {
 }
 
 func validateChannel(c *Channel) error {
+	if c.Look != nil && c.Look.BreakPattern != nil {
+		if e := c.Look.BreakPattern.Validate(); e != nil {
+			return e
+		}
+		if c.Look.ReelID == "" {
+			return fmt.Errorf("commercial pods require a reel")
+		}
+		c.Look.BreakContent = "reel"
+		c.Look.Placement = "insert"
+	}
 	if err := validatePersonal(*c); err != nil {
 		return err
 	}
@@ -599,6 +609,16 @@ func validateChannel(c *Channel) error {
 			return fmt.Errorf("too many items")
 		}
 		for _, it := range items {
+			if len(it.BreakPointsMS) > 256 {
+				return fmt.Errorf("maximum 256 programme break points")
+			}
+			var last int64
+			for _, point := range it.BreakPointsMS {
+				if point <= last || point >= it.DurationMS {
+					return fmt.Errorf("programme break points must be sorted inside its duration")
+				}
+				last = point
+			}
 			if it.Key <= 0 || it.DurationMS < 1000 || it.DurationMS > 24*60*60*1000 {
 				return fmt.Errorf("programme needs a catalogue key and duration of 1 second to 24 hours")
 			}

@@ -105,6 +105,10 @@ func (s *Service) broadcastGuide(c Channel, from, until time.Time) []Programme {
 			}
 			continue
 		}
+		if c.Look.BreakPattern != nil && len(out) > 0 && p.Item.Key != 0 && out[len(out)-1].Item.Key == p.Item.Key && p.sourceOffset > 0 {
+			out[len(out)-1].End = p.End
+			continue
+		}
 		out = append(out, p)
 	}
 	var visible []Programme
