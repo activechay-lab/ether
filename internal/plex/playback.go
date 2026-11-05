@@ -262,6 +262,31 @@ func androidFamilyClient(pr *Request) bool {
 	return transcode.HasQuirk(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, "plex-list-all-tracks")
 }
 
+// androidTVClient limits the Shield delivery correction to Plex's TV player.
+// Plezy and the mobile/web/Apple players retain their existing contracts.
+func androidTVClient(pr *Request) bool {
+	if pr == nil {
+		return false
+	}
+	product := strings.ToLower(pr.Product)
+	return strings.HasPrefix(product, "plex for android") &&
+		(strings.Contains(product, "(tv)") || strings.Contains(strings.ToLower(pr.Device), "shield"))
+}
+
+// tvImageSubtitle is retained for native file playback, but must be burned
+// once playback is converted: our segmented muxer carries text, not images.
+func tvImageSubtitle(pr *Request, info core.MediaInfo, opts core.DecideOptions) bool {
+	if !androidTVClient(pr) {
+		return false
+	}
+	for _, st := range info.Streams {
+		if st.Type == "subtitle" && !st.External && st.Index == opts.SubtitleStream {
+			return transcode.IsImageSubtitle(st.Codec)
+		}
+	}
+	return false
+}
+
 // matroskaCarriesText reports whether a conversion for this client is
 // Matroska, whose segments carry the selected embedded text track. Plex for
 // Android and Android TV send subtitles=none ("the player draws it") with
@@ -551,14 +576,27 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 		s.applyStreamPreferences(ctx, pr, p, t, ps.Info)
 		applySelections(p, ps.Info, s.audioLanguages(pr.User))
 		switch {
-		case p.subtitles == "none" && !matroskaCarriesText(p, ps.Info):
+		case p.subtitles == "none" && !matroskaCarriesText(p, ps.Info) && !tvImageSubtitle(pr, ps.Info, p.opts):
 			// The track stays selected; nothing delivers it.
 			p.opts.SubtitleStream = -1
-		case p.opts.BurnSubtitles && browserClient(pr):
-			// Plex Web asks for a burn when it will not read a soft
-			// subtitle (an ASS track under its default setting): without
-			// one it shows nothing.
+		case p.opts.BurnSubtitles && (browserClient(pr) || androidTVClient(pr)):
+			// These players explicitly request a burn when their selected
+			// rendering mode will not draw a soft text track.
 			p.opts.BurnTextSubtitles = true
+		}
+		if tvImageSubtitle(pr, ps.Info, p.opts) {
+			// Source-change remuxing is also a conversion, even when MDE
+			// initially allowed direct play of the original file.
+			converting := !p.opts.DirectPlay || ps.RequiresRemux
+			if onDemandSession(ps) && p.mde && p.opts.DirectStream && ps.Resolution != nil {
+				protocol := ps.Resolution.Release.Protocol
+				converting = converting || (protocol != core.ProtocolHTTP && protocol != core.ProtocolTorrent)
+			}
+			// A quality/codec limit can require conversion even though the
+			// client allowed direct play.
+			if converting || transcode.Decide(ps.Info, p.caps, p.opts, transcode.Policy{}).Kind != core.DecisionDirectPlay {
+				p.opts.BurnSubtitles = true
+			}
 		}
 		s.burnOnlyShownSubtitle(pr, p, ps.Info)
 		p.caps.TranscodeAudioCodecs = streamingAudioTarget(pr.ProfileExtra, p.protocol)
@@ -788,7 +826,7 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 	// instead of "Direct play OK", whatever directStream says (#246).
 	mustConvert := dec.Kind == core.DecisionTranscode || (dec.Kind != core.DecisionDirectPlay && (!dec.VideoCopy || !dec.AudioCopy))
 	pm4k := strings.EqualFold(pr.Product, "PM4K") || strings.EqualFold(pr.Product, "Plex for Kodi")
-	mdeDirect := p.mde && p.opts.DirectPlay && (!pm4k || dec.Kind == core.DecisionDirectPlay) && len(p.opts.AudioFilters) == 0 &&
+	mdeDirect := p.mde && p.opts.DirectPlay && !(androidTVClient(pr) && dec.BurnSubtitles) && (!pm4k || dec.Kind == core.DecisionDirectPlay) && len(p.opts.AudioFilters) == 0 &&
 		!(onDemandSession(ps) && (mustConvert || (p.opts.DirectStream && dec.Kind != core.DecisionDirectPlay)))
 	shown := dec
 	if mdeDirect {
@@ -796,6 +834,9 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 	}
 	p.listAllTracks = androidFamilyClient(pr)
 	p.softText = browserClient(pr)
+	if androidTVClient(pr) && shown.BurnSubtitles && p.subtitles == "none" {
+		p.subtitles = "burn"
+	}
 	md.Media = []model.Media{s.decisionMedia(t, ps, shown, p, pr.User)}
 	s.addProbedStreamFeatures(ctx, t.Key, ps.Info, &md)
 	if md.Media[0].Duration > 0 {
@@ -902,6 +943,10 @@ func (s *Server) decisionMedia(t *core.Title, ps *core.PlaySession, dec core.Dec
 			continue
 		}
 		if shaped, keep := applyStreamDecision(st, binding.Info, dec, selectedOnly, p.subtitles, p.softText); keep {
+			if androidTVClient(&Request{Product: p.caps.Product, Device: p.caps.Device}) && shaped.Decision == "burn" && transcode.IsImageSubtitle(binding.Info.Codec) && p.protocol == core.ProtocolHLS {
+				shaped.Location = "segments-av"
+				shaped.Extra = append(shaped.Extra, model.A("burn", "1"))
+			}
 			kept = append(kept, shaped)
 		}
 	}
@@ -1241,6 +1286,18 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		applySelections(&p, ps.Info, s.audioLanguages(pr.User))
 		return s.d.Transcoder.Decide(ps.Info, p.caps, p.opts)
 	}, func(dec core.Decision) core.Decision {
+		// A client may request HLS after accepting an MDE direct-play
+		// decision (notably stable HTTP/debrid files). HLSDecision's legacy
+		// fallback is MPEG-TS, which cannot carry the selected text track.
+		// Use the TV player's negotiated target even on this late handoff.
+		if androidTVClient(pr) {
+			dec.Container = transcode.HLSContainer(entry.caps, dec.VideoCodec, dec.AudioCodec)
+			if tvImageSubtitle(pr, ps.Info, entry.opts) {
+				opts := entry.opts
+				opts.DirectPlay, opts.BurnSubtitles = false, true
+				return s.d.Transcoder.Decide(ps.Info, entry.caps, opts)
+			}
+		}
 		if len(entry.caps.TranscodeAudioCodecs) > 0 && dec.AudioCodec != "" && !slices.Contains(entry.caps.TranscodeAudioCodecs, dec.AudioCodec) {
 			opts := entry.opts
 			opts.DirectPlay = false

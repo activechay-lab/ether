@@ -838,7 +838,7 @@ func planFilterChain(s runSpec, v *core.StreamInfo, pic picturePlan, accel strin
 	// HDR, and only the explicitly probed CUDA path can feed a 10-bit
 	// tone-mapped contract. Tone mappers produce limited-range BT.709.
 	p010CUDA := accel == AccelNVENC && s.Features.cudaP010ToneMap && !pictureOf(v).full && (s.Target == nil || (s.Target.pic.prim == "bt709" && s.Target.pic.matrix == "bt709" && !s.Target.pic.full))
-	gpuOff := s.PictureCrop != nil || pic.pad || pic.convert != "" || (pic.tonemap && pic.tenBit && !p010CUDA)
+	gpuOff := v.Interlaced || s.PictureCrop != nil || pic.pad || pic.convert != "" || (pic.tonemap && pic.tenBit && !p010CUDA)
 	dv5 := pic.tonemap && v.DolbyVision && v.DolbyVisionProfile == 5
 	gpuInput, gpuFilters, gpuOK := gpuPipeline(s, accel, pic.w, pic.h, pic.tonemap, pic.tenBit, burn)
 	if dv5 {
@@ -901,6 +901,12 @@ func planFilterChain(s runSpec, v *core.StreamInfo, pic picturePlan, accel strin
 	}
 
 	if !hwFrames {
+		// PMS deinterlaces conversions before scaling. Keep these frames
+		// in the software graph until device deinterlacers are probed too;
+		// selecting a GPU scaler alone would preserve combed fields.
+		if v.Interlaced {
+			chain = append(chain, "yadif=mode=send_frame:parity=auto:deint=all")
+		}
 		switch {
 		case pic.convert != "":
 			chain = append(chain, pic.convert)
