@@ -19,7 +19,7 @@ import (
 
 // Signal is a live generator, not a decoded looping master. State and plate/
 // typography are prepared once away from the clock; only Render/blend run per tick.
-type liveSignalDecoder struct {
+type signalInputDecoder struct {
 	engine  *signal.Engine
 	overlay *videoOverlay
 	format  transcode.RawFormat
@@ -29,7 +29,7 @@ type liveSignalDecoder struct {
 	once    sync.Once
 }
 
-func (d *liveSignalDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
+func (d *signalInputDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
 	select {
 	case <-ctx.Done():
 		return transcode.RawFrame{}, ctx.Err()
@@ -46,7 +46,7 @@ func (d *liveSignalDecoder) Next(ctx context.Context) (transcode.RawFrame, error
 	d.overlay.blend(frame.Video, d.format, 255)
 	return frame, nil
 }
-func (d *liveSignalDecoder) Close() error { d.once.Do(func() { close(d.closed) }); return nil }
+func (d *signalInputDecoder) Close() error { d.once.Do(func() { close(d.closed) }); return nil }
 func (s *Service) openSignalDecoder(ctx context.Context, request core.ClipRequest, f transcode.RawFormat) (transcode.Decoder, func(), error) {
 	if f.FPSNum != 30 || f.FPSDen != 1 {
 		return nil, nil, fmt.Errorf("live Signal requires the channel's 30 fps working clock")
@@ -112,7 +112,7 @@ func (s *Service) openSignalDecoder(ctx context.Context, request core.ClipReques
 		style = normalizePlateStyle(style)
 		engine = signal.NewPlate(f.Width, f.Height, style, plate, image.Image(nil), seed)
 	}
-	return &liveSignalDecoder{engine: engine, overlay: overlay, format: f, tick: s.o.Now().Unix() * 30, audio: make([]int16, 3200), closed: make(chan struct{})}, nil, nil
+	return &signalInputDecoder{engine: engine, overlay: overlay, format: f, tick: s.o.Now().Unix() * 30, audio: make([]int16, 3200), closed: make(chan struct{})}, nil, nil
 }
 func normalizePlateStyle(style string) string {
 	switch style {

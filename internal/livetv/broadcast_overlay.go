@@ -25,7 +25,7 @@ type programmeOverlays struct{ bug, lower *videoOverlay }
 // background prepare. The clock only blends the compact non-transparent bounds.
 func (p *scheduleBroadcastPlanner) prepareProgrammeOverlays(ctx context.Context, programme Programme) *programmeOverlays {
 	c := p.channel
-	if c.Look == nil || c.Look.Overlays == "" || programme.Item.Key == 0 {
+	if c.Look == nil || programme.Item.Key == 0 {
 		return nil
 	}
 	source, ok := p.s.o.Graphics.(overlaySource)

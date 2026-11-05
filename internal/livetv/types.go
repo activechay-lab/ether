@@ -278,6 +278,7 @@ type SourceGroup struct {
 type Programme struct {
 	sourceOffset    time.Duration
 	graphicsRequest *core.ClipRequest
+	graphicsID      string
 	Reason          string    `json:"reason,omitempty"`
 	Lens            string    `json:"lens,omitempty"`
 	ID              string    `json:"id"`

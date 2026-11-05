@@ -64,11 +64,13 @@ func (r *broadcastFakeRunner) StartDecoder(ctx context.Context, req transcode.De
 }
 
 type broadcastFakePlanner struct {
-	plan broadcastPlan
-	next *broadcastPlan
+	plan       broadcastPlan
+	next       *broadcastPlan
+	screenPlan broadcastPlan
 }
 
 func (p broadcastFakePlanner) plans(time.Time) (broadcastPlan, *broadcastPlan) { return p.plan, p.next }
+func (p broadcastFakePlanner) screen(time.Time) broadcastPlan                  { return p.screenPlan }
 
 type broadcastFakeDecoder struct {
 	origin time.Time
@@ -77,6 +79,7 @@ type broadcastFakeDecoder struct {
 	once   sync.Once
 	tick   int64
 	stall  bool
+	value  byte
 }
 
 func (d *broadcastFakeDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
@@ -103,6 +106,9 @@ func (d *broadcastFakeDecoder) Next(ctx context.Context) (transcode.RawFrame, er
 	d.tick++
 	for i := range frame.Video {
 		frame.Video[i] = 80
+		if d.value != 0 {
+			frame.Video[i] = d.value
+		}
 	}
 	for i := 0; i < len(frame.PCM); i += 2 {
 		binary.LittleEndian.PutUint16(frame.PCM[i:], 10000)
@@ -124,7 +130,9 @@ func TestBroadcastStallAndRecoveryKeepsOneOutput(t *testing.T) {
 			opened++
 			return &broadcastFakeDecoder{origin: origin, format: format, closed: make(chan struct{}), stall: true}, nil, nil
 		}}
-		b, err := newBroadcast(context.Background(), runner, broadcastFakePlanner{plan: plan}, format)
+		b, err := newBroadcast(context.Background(), runner, broadcastFakePlanner{plan: plan, screenPlan: broadcastPlan{id: "screen", open: func(context.Context) (transcode.Decoder, func(), error) {
+			return &broadcastFakeDecoder{format: format, closed: make(chan struct{}), value: 16}, nil, nil
+		}}}, format)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -136,8 +144,8 @@ func TestBroadcastStallAndRecoveryKeepsOneOutput(t *testing.T) {
 		time.Sleep(40 * time.Second)
 		synctest.Wait()
 		b.close()
-		if opened != 3 {
-			t.Fatalf("decoder attempts=%d, want initial and two bounded retries", opened)
+		if opened != 2 {
+			t.Fatalf("decoder attempts=%d, want initial and one bounded retry", opened)
 		}
 		if len(runner.encoders) != 1 {
 			t.Fatal("encoder restarted")

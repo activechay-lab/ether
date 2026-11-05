@@ -3,6 +3,7 @@ package livetv
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync"
 	"time"
@@ -93,6 +94,18 @@ func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 
 func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan {
 	plan := broadcastPlan{id: programme.ID, start: programme.Start, end: programme.End}
+	if interstitial(programme.Item) {
+		plan.failed = func(err error) time.Time {
+			p.s.recordGraphicsSkip(p.channel, programme, err)
+			// Force a fresh background snapshot; it restores gap filler or advances
+			// the following programme before the next frame-clock planning pass.
+			select {
+			case p.requests <- p.s.o.Now():
+			default:
+			}
+			return programme.End
+		}
+	}
 	plan.open = func(ctx context.Context) (transcode.Decoder, func(), error) {
 		c := p.s.graphicsChannel(p.s.personalChannel(ctx, p.channel, &p.user))
 		if p.s.o.Playback == nil && programme.Item.Slate == "" {
@@ -129,7 +142,11 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 			if programme.graphicsRequest != nil {
 				request = *programme.graphicsRequest
 			}
-			return p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, programme.Item.Slate == offAirSlate)
+			decoder, release, err := p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, programme.Item.Slate == offAirSlate)
+			if err != nil && programme.Item.Slate == offAirSlate {
+				return p.s.openSignalDecoder(ctx, p.s.screenRequest(c, offAirSlate), p.format)
+			}
+			return decoder, release, err
 		}
 
 		now := p.s.o.Now()
@@ -173,6 +190,7 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 			if candidate.ID == programme.ID && now.After(programme.Start) {
 				offset = now.Sub(programme.Start)
 			}
+			p.s.o.Logger.Debug("broadcast programme decoder start", "channel", c.ID, "programme", programme.ID, "playback", ps.ID, "offset", offset)
 			decoder, err := p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: group + "-" + candidate.ID, InputURL: p.s.o.Playback.InputURL(ps.ID), Offset: offset, Format: p.format})
 			if err != nil {
 				p.s.o.Playback.Stop(ps.ID)
@@ -336,4 +354,11 @@ func (d *providerBroadcastDecoder) Next(ctx context.Context) (transcode.RawFrame
 		d.once.Do(d.ready)
 	}
 	return frame, err
+}
+
+func (p *scheduleBroadcastPlanner) broadcastLogger() *slog.Logger {
+	return p.s.o.Logger.With("channel", p.channel.ID)
+}
+func (p *providerBroadcastPlanner) broadcastLogger() *slog.Logger {
+	return p.s.o.Logger.With("channel", p.channel.ID)
 }

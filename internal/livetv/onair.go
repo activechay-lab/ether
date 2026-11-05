@@ -204,9 +204,6 @@ func (s *Service) ensureGraphics() {
 		if !c.Enabled || !recent[c.ID] {
 			continue
 		}
-		for _, reason := range []string{offAirSlate, "reconnecting", "busy"} {
-			s.o.Graphics.Ensure(s.ctx, s.screenRequest(c, reason))
-		}
 		if c.Look == nil && len(c.Clock) == 0 {
 			continue
 		}
@@ -218,7 +215,7 @@ func (s *Service) ensureGraphics() {
 			if strings.HasPrefix(p.Item.Slate, "plugin:") && p.Start.After(now.Add(15*time.Minute)) {
 				continue
 			}
-			if (interstitial(p.Item) && p.Item.ReelClipID == "") || p.Item.Slate == offAirSlate {
+			if (interstitial(p.Item) && p.Item.ReelClipID == "") || (p.Item.Slate == offAirSlate && c.Look != nil && c.Look.OffAir) {
 				s.o.Graphics.Ensure(s.ctx, s.clipRequest(c, p))
 			}
 		}
