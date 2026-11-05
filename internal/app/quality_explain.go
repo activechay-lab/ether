@@ -47,11 +47,12 @@ func qualityClients() []qualityClient {
 }
 
 type qualityExplainIn struct {
-	UserID   int64          `json:"userId"`
-	ClientID string         `json:"clientId,omitempty"`
-	Client   *qualityClient `json:"client,omitempty"`
-	Remote   bool           `json:"remote"`
-	TitleKey string         `json:"titleKey,omitempty"`
+	UserID    int64          `json:"userId"`
+	ClientID  string         `json:"clientId,omitempty"`
+	Client    *qualityClient `json:"client,omitempty"`
+	Remote    bool           `json:"remote"`
+	TitleKey  string         `json:"titleKey,omitempty"`
+	MediaType string         `json:"mediaType,omitempty"`
 }
 
 // qualityHandler serves the Quality page's "Who gets what" checker.
@@ -68,6 +69,10 @@ func (a *App) handleQualityExplain(w http.ResponseWriter, r *http.Request) {
 	var in qualityExplainIn
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&in); err != nil {
 		writeQualityError(w, http.StatusBadRequest, "bad_json", "the request body must be a JSON object")
+		return
+	}
+	if in.MediaType != core.MediaAny && in.MediaType != core.MediaMovie && in.MediaType != core.MediaTV {
+		writeQualityError(w, http.StatusBadRequest, "bad_media", "media type must be movie or tv")
 		return
 	}
 	var client qualityClient
@@ -101,17 +106,19 @@ func (a *App) handleQualityExplain(w http.ResponseWriter, r *http.Request) {
 		writeQualityError(w, http.StatusNotFound, "unknown_viewer", "no such viewer")
 		return
 	}
+	var title *core.Title
 	if in.TitleKey != "" {
 		key, err := core.ParseRatingKey(in.TitleKey)
 		if err != nil {
 			writeQualityError(w, http.StatusBadRequest, "bad_title", "invalid title")
 			return
 		}
-		title, err := a.catalog.CachedGet(r.Context(), key)
-		if err != nil || title == nil || (title.Type != core.TypeMovie && title.Type != core.TypeEpisode) {
+		loaded, err := a.catalog.CachedGet(r.Context(), key)
+		if err != nil || loaded == nil || (loaded.Type != core.TypeMovie && loaded.Type != core.TypeEpisode) {
 			writeQualityError(w, http.StatusNotFound, "unknown_title", "no such movie or episode")
 			return
 		}
+		title = loaded
 	}
 	cfg := a.cfg.Read()
 	// The Plex request path: registry, owner App compatibility edits, the
@@ -132,7 +139,7 @@ func (a *App) handleQualityExplain(w http.ResponseWriter, r *http.Request) {
 		declared, builtin = core.ClientCaps{Remote: in.Remote, HDR10: true, DolbyVision: true}, core.ClientCaps{Remote: in.Remote, HDR10: true, DolbyVision: true}
 	}
 
-	q := resolver.QualityQuestion{Quality: cfg.Quality, Caps: declared, Builtin: &builtin, User: u, RemoteMaxBitrateKbps: cfg.Transcode.RemoteMaxBitrateKbps}
+	q := resolver.QualityQuestion{Quality: cfg.Quality, Caps: declared, Builtin: &builtin, User: u, Title: title, MediaType: in.MediaType, RemoteMaxBitrateKbps: cfg.Transcode.RemoteMaxBitrateKbps}
 	if a.safety != nil {
 		policy := a.safety.ForUser(u)
 		q.ViewerMaxBitrateKbps = policy.MaxBitrateKbps

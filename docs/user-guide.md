@@ -617,12 +617,14 @@ indexers by that number for anime, meaning TMDB's "anime" keyword or
 Japanese-language animation. When an earlier season's episode count is
 unknown, only the season-and-episode numbering is used.
 
-## Import a quality profile from TRaSH Guides
+## Import a quality profile
 
-Coming from Radarr or Sonarr? Open **Quality › Profiles** and choose
-**Import from TRaSH Guides**. Pick **Radarr** for movies or **Sonarr** for
-shows, then choose a profile, such as *HD Bluray + WEB* or *[SQP] SQP-1
-(2160p)*. Ether shows what it will add before saving:
+Coming from Radarr, Sonarr, or another guide? Open **Quality › Profiles** and
+choose **Import a quality profile**. Pick **Movies (Radarr)** or
+**Shows (Sonarr)** for the guide's app, then choose a profile, such as
+*HD Bluray + WEB* or *[SQP] SQP-1 (2160p)*. Ether supports **TRaSH Guides**,
+**Profilarr (Dictionarry)**, and pasted profile JSON. It shows what it will
+add before saving:
 
 - the qualities the profile allows, its resolution range, source order and
   minimum custom format score;
@@ -635,18 +637,34 @@ shows, then choose a profile, such as *HD Bluray + WEB* or *[SQP] SQP-1
   streaming equivalent, such as Raw-HD or SDTV, are skipped. Radarr's
   "Original" language rule isn't a hard filter in Ether.
 
-Rename the profile if you like, then choose **Add profile**. Your other
-profiles keep ranking releases exactly as before: they score the newly added
-formats 0, as Radarr and Sonarr do for formats a profile doesn't list. The new
-profile's drawer shows its imported rules; **Allow all** removes the quality
-limits.
+Rename the profile if you like, then choose **Add profile**. The profile is
+scoped to the app it came from: a Radarr profile applies to movies, a Sonarr
+profile to shows. **Quality › Profiles** has a **Movies / Shows** switch and
+separate At home and Away defaults, so a movie profile and a show profile can
+each be the default for their media. A profile you create by hand can apply to
+both. Your other profiles keep ranking releases exactly as before: they score
+the newly added formats 0, as Radarr and Sonarr do for formats a profile
+doesn't list.
 
-Ether reads the profiles from TRaSH Guides on GitHub and keeps them for an
-hour. If GitHub is unreachable or its hourly request limit is used up, switch
-to **Paste JSON** and paste or upload a profile file from the guide's
-`docs/json/radarr/quality-profiles` or `docs/json/sonarr/quality-profiles`
-folder. Custom formats Ether can't fetch are marked **Not found**; paste them
-under **Custom scoring** and import the profile again.
+Ether reads the profiles from the guide and keeps them for an hour. If the
+guide is unreachable or its request limit is used up, switch to **Paste JSON**
+and paste or upload a profile file. Custom formats Ether can't fetch are
+marked **Not found**; paste them under **Custom scoring** and import the
+profile again. The preview refuses a profile whose minimum format score is
+higher than the formats it could import, because no release could ever satisfy
+it.
+
+### Keep imported profiles in sync
+
+**Quality › Profiles › Keep imported profiles in sync** updates imported
+profiles on a cadence you choose (6 hours to 7 days). A sync re-fetches the
+source profile and its default format groups and overwrites that profile's
+quality definition and custom format scores exactly, so formats the guide adds
+are added and formats it removes are removed. The shared custom format
+definitions for that profile are updated too; definitions the sync owns and no
+profile uses are removed, while formats you created by hand are left alone.
+Profiles that are not imported, or that could not be fetched completely, are
+not changed. **Sync now** runs the same update immediately.
 
 ## Rank releases by custom score
 

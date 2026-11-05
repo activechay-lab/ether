@@ -51,6 +51,11 @@ type Deps struct {
 	// SelectProfile picks the quality profile for a client and user. It is
 	// implemented by the resolver package.
 	SelectProfile func(caps core.ClientCaps, user *core.User) core.QualityProfile
+	// SelectProfileFor is SelectProfile scoped to the title's media
+	// ("movie", "tv", or "" when unknown). Optional; when set, title-aware
+	// paths (Prepare, estimates, resume, warm-up) use it so a show never
+	// borrows a movie profile or the reverse.
+	SelectProfileFor func(caps core.ClientCaps, user *core.User, media string) core.QualityProfile
 	// HLSLookup finds the HLS session fed by a playback session, for
 	// mid-stream failover. Defaults to Transcoder.Session(sessionID).
 	HLSLookup func(sessionID string) (core.HLSSession, bool)
@@ -409,7 +414,7 @@ func New(deps Deps, cfg config.Config, opts Options) (*Manager, error) {
 		return nil, errors.New("playback: Transcoder is required")
 	case deps.Catalog == nil:
 		return nil, errors.New("playback: Catalog is required")
-	case deps.SelectProfile == nil:
+	case deps.SelectProfile == nil && deps.SelectProfileFor == nil:
 		return nil, errors.New("playback: SelectProfile is required")
 	}
 	opts.defaults()
@@ -1072,7 +1077,7 @@ func (m *Manager) prepare(ctx context.Context, id identity, user *core.User, cap
 	if title.Type == core.TypeShow || title.Type == core.TypeSeason {
 		return nil, fmt.Errorf("playback: %s is a %s, not a playable item: %w", id.key, title.Type, core.ErrNotFound)
 	}
-	profile := m.deps.SelectProfile(caps, user)
+	profile := m.selectProfile(caps, user, title.Key)
 	s := newSession(randomID(16), id, user, caps, title, profileKey(profile), m.now())
 	s.sources = sources
 	defer func() {

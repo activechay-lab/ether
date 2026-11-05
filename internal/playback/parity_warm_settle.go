@@ -114,7 +114,7 @@ func (m *Manager) ParityProbeNow(ctx context.Context, user *core.User, key core.
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if m == nil || user == nil || caps.ClientID == "" || m.deps.Catalog == nil || m.deps.Engine == nil || m.deps.SelectProfile == nil {
+	if m == nil || user == nil || caps.ClientID == "" || m.deps.Catalog == nil || m.deps.Engine == nil || (m.deps.SelectProfile == nil && m.deps.SelectProfileFor == nil) {
 		return nil
 	}
 	// Plex reads look the probe up without a surface. Leaving newer identity
@@ -147,7 +147,7 @@ func (m *Manager) ParityProbeNow(ctx context.Context, user *core.User, key core.
 	if title.IsFutureRelease(m.now()) {
 		return nil
 	}
-	profile := m.deps.SelectProfile(caps, user)
+	profile := m.selectProfile(caps, user, key)
 	res := m.resumeResolution(ctx, user.ID, key, profile, caps, strings.TrimSpace(title.Language))
 	if res == nil || !releaseMatchesTitle(res.Release, title) {
 		if m.deps.Resolver == nil {
