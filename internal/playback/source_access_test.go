@@ -308,3 +308,22 @@ func TestSourceAccessRange(t *testing.T) {
 		t.Fatal("facade size/Close contract")
 	}
 }
+
+func TestSourceHandleActiveBarrier(t *testing.T) {
+	a, h, _ := accessFixture(t, 1, 1)
+	if !h.Active() {
+		t.Fatal("live handle inactive")
+	}
+	h.Revoke()
+	if h.Active() {
+		t.Fatal("revoked handle active")
+	}
+	accessSeal(a, h)
+	if h.Active() {
+		t.Fatal("sealed handle active")
+	}
+	var zero *SourceHandle
+	if zero.Active() || new(SourceHandle).Active() {
+		t.Fatal("zero handle active")
+	}
+}

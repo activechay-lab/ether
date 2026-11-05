@@ -103,6 +103,27 @@ func (a *SourceAccess) Capture(ctx context.Context, viewer int64, id string, exp
 	return h, nil
 }
 
+// Active checks exact current registration and lifetime without source callbacks.
+// It is a point-in-time observation, not acquisition or retirement proof.
+func (h *SourceHandle) Active() bool {
+	if h == nil || h.access == nil {
+		return false
+	}
+	a, s, g := h.access, h.session, h.generation
+	m := a.manager
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	h.lifetime.mu.Lock()
+	defer h.lifetime.mu.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return !m.closed && m.sessions[s.id] == s && s.sources == h.lifetime && !s.closed && s.cur == g && s.ident.userID == h.viewer && !h.lifetime.sealed && a.handles[h] && !g.retired && !g.closed && g.src != nil
+}
+
 // Revoke rejects future acquisitions and returns handle capacity. Already
 // acquired holds continue to pin their original generation until reconciliation.
 func (h *SourceHandle) Revoke() {
