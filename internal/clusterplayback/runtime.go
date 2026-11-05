@@ -268,9 +268,10 @@ func (r *Runtime) sourcePolicy(ctx context.Context, owner placement.Target, s no
 	return nil
 }
 
-// Pending counts unresolved responsibility, including expired reservations.
-// It is conservative: errors are returned and must keep drain blocked.
-func (r *Runtime) Pending(ctx context.Context) (int, error) {
+// PendingDetails is a secret-free barrier inventory for drain diagnostics.
+// Categories can describe the same playback; totals are not unique sessions.
+// Errors or any outstanding category must keep drain blocked.
+func (r *Runtime) PendingDetails(ctx context.Context) (ResponsibilityCounts, error) {
 	r.mu.Lock()
 	sources := make([]ownedSource, 0, len(r.sources))
 	for _, s := range r.sources {
@@ -308,61 +309,69 @@ func (r *Runtime) Pending(ctx context.Context) (int, error) {
 		}
 	}
 	r.mu.Unlock()
-	n := starting + reopenPending + executionPending
+	counts := ResponsibilityCounts{EncoderStarts: starting, Reopens: reopenPending, Executions: executionPending}
 	if remote != nil {
-		n += remote.pending()
+		counts.RemotePreparing, counts.RemoteLive, counts.RemoteRetiring = remote.responsibilities()
 	}
 	for _, entry := range preps {
 		if entry.running {
-			n++
+			counts.SourcePreparations++
 		}
 		if entry.life != nil {
 			select {
 			case <-entry.life.Done():
 				if entry.life.Err() != nil {
-					n++
+					counts.PreparationLifetimes++
 				}
 			default:
-				n++
+				counts.PreparationLifetimes++
 			}
 		}
 	}
 	for _, token := range tokens {
 		if token.EncoderErr() != nil {
-			n++
+			counts.EncoderTokens++
 		}
 	}
 	for _, s := range sources {
+		counts.SourceCallbacks += s.operations
+		if s.binding {
+			counts.SourceCallbacks++
+		}
+		if s.issuing && s.operations == 0 {
+			counts.SourceCallbacks++
+		}
 		if s.life == nil {
-			n++
+			counts.SourceLifetimes++
 			continue
 		}
 		select {
 		case <-s.life.Done():
 			if s.life.Err() != nil {
-				n++
+				counts.SourceLifetimes++
 			}
 		default:
-			n++
+			counts.SourceLifetimes++
 		}
 	}
 	for _, v := range inputs {
 		if v.input == nil {
-			n++
+			counts.Inputs++
 			continue
 		}
 		select {
 		case <-v.input.InputDone():
 			if v.input.InputErr() != nil {
-				n++
+				counts.Inputs++
 			}
 		default:
-			n++
+			counts.Inputs++
 		}
 	}
 	var reserved int
 	err := r.o.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM placement_sessions WHERE retired=0 AND ((controller=? AND controller_boot=?) OR (node=? AND boot=?))`, r.o.Self.NodeID, r.o.Self.Boot, r.o.Self.NodeID, r.o.Self.Boot).Scan(&reserved)
-	return n + reserved, err
+	counts.Placements = reserved
+	return counts, err
 }
 
 type recordingEncoder struct{ r *Runtime }

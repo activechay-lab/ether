@@ -480,6 +480,9 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	joinedSource := source.sources[sourceKey(record.Fence)]
 	joinedSource.operations++
 	source.mu.Unlock()
+	if details, err := source.PendingDetails(ctx); err != nil || details.SourceCallbacks != 1 || details.Total() == 0 {
+		t.Fatal("joined terminal lifetime hid outstanding source callback", details, err)
+	}
 	if front.VerifyReceipt(ctx, receipt) == nil {
 		t.Fatal("unjoined source callback attested")
 	}
@@ -760,6 +763,9 @@ func testRemoteNeutralBroker(t *testing.T, ctx context.Context, base Options, gu
 	localSources := remote.Sessions()
 	if len(localSources) != 1 {
 		t.Fatal("missing local remote-source metadata")
+	}
+	if details, err := runtime.PendingDetails(ctx); err != nil || details.RemoteLive != 1 || details.RemoteRetiring != 0 {
+		t.Fatal("live remote preparation diagnostic", details, err)
 	}
 	captured, ok := remote.prepared(localSources[0].ID)
 	if !ok {
