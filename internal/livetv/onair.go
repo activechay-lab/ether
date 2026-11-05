@@ -227,31 +227,10 @@ func (s *Service) ensureGraphics() {
 	if s.o.Graphics == nil {
 		return
 	}
-	cs, err := s.virtualChannels(s.ctx)
-	if err != nil {
-		return
-	}
-	now := s.o.Now()
-	recent := s.recentlyWatched()
-	for _, c := range cs {
-		if !c.Enabled || !recent[c.ID] {
-			continue
-		}
-		if c.Look == nil && len(c.Clock) == 0 {
-			continue
-		}
-		if c.Look != nil && c.Look.Ident {
-			s.o.Graphics.Ensure(s.ctx, s.clipRequest(c, Programme{Item: Item{Slate: "ident"}}))
-		}
-		c = s.graphicsChannel(c)
-		for _, p := range Schedule(c, now, now.Add(3*time.Hour)) {
-			if strings.HasPrefix(p.Item.Slate, "plugin:") && p.Start.After(now.Add(15*time.Minute)) {
-				continue
-			}
-			if (interstitial(p.Item) && p.Item.ReelClipID == "") || (p.Item.Slate == offAirSlate && c.Look != nil && c.Look.OffAir) {
-				s.o.Graphics.Ensure(s.ctx, s.clipRequest(c, p))
-			}
-		}
+	// Both maintenance paths share the measured lead and nearest-boundary order.
+	// A second, three-hour scan must not refill the queue with distant masters.
+	for _, request := range s.GraphicsRequests(s.ctx, "") {
+		s.o.Graphics.Ensure(s.ctx, request)
 	}
 }
 
