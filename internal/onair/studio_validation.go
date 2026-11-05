@@ -109,12 +109,61 @@ func (s *Service) validateScenes(ctx context.Context, l Look) error {
 					label = layer.ID
 				}
 				at := where + ", layer " + fmt.Sprintf("%q", label)
+
+				var checkValue func(any, string) error
+				checkValue = func(v any, field string) error {
+					switch x := v.(type) {
+					case string:
+						for _, m := range controlToken.FindAllStringSubmatch(x, -1) {
+							c, ok := controls[m[1]]
+							if !ok {
+								return fmt.Errorf("%s: control %q does not exist", at, m[1])
+							}
+							expected := "number"
+							switch field {
+							case "text":
+								expected = "text"
+							case "fill", "stroke", "tint", "stops":
+								expected = "color"
+							case "font":
+								expected = "font"
+							case "src":
+								expected = "image"
+							}
+							compatible := c.Kind == expected || (expected == "text" && (c.Kind == "number" || c.Kind == "toggle"))
+							if !compatible {
+								return fmt.Errorf("%s: %s needs a %s control; %q is %s", at, field, expected, c.Label, c.Kind)
+							}
+						}
+					case []any:
+						for _, child := range x {
+							if err := checkValue(child, field); err != nil {
+								return err
+							}
+						}
+					case map[string]any:
+						for key, child := range x {
+							next := field
+							if key != "keys" && key != "linear" && key != "radial" {
+								next = key
+							}
+							if err := checkValue(child, next); err != nil {
+								return err
+							}
+						}
+					}
+					return nil
+				}
 				raw, _ := json.Marshal(layer)
-				for _, m := range controlToken.FindAllStringSubmatch(string(raw), -1) {
-					if controls[m[1]].ID == "" {
-						return fmt.Errorf("%s: control %q does not exist", at, m[1])
+				var values map[string]any
+				_ = json.Unmarshal(raw, &values)
+				delete(values, "layers")
+				for field, value := range values {
+					if err := checkValue(value, field); err != nil {
+						return err
 					}
 				}
+
 				for _, v := range []any{layer.Src, layer.Font} {
 					if d, ok := v.(string); ok {
 						if strings.HasPrefix(d, "{control.") {
