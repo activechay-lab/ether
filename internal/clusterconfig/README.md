@@ -148,7 +148,7 @@ checks alone do not establish shipping playback or replacement continuity.
 | Graph | Local services | Public responsibilities |
 | --- | --- | --- |
 | Historical full server | Existing providers, source manager, frontends and local encoder | Existing public APIs and representations |
-| Source singleton | Providers, resolver, cache, native media probing and source manager | None; authenticated private source operations only |
+| Source singleton | Providers, resolver, cache, native/ffprobe metadata probing and source manager | None; authenticated private source operations only |
 | Transcode singleton | Dedicated fixed-plan encoder and private input gateway | None; authenticated private encoding only |
 | Server singleton | Catalogue, identity, owner console, protocol frontends and remote playback adapters | Browse/control and existing protocol routes that combine admission or authentication with response bytes |
 | Delivery singleton | Identity/policy readers and indexed authenticated representation forwarding | Bounded GET/HEAD representation routes only |
@@ -196,3 +196,16 @@ API query subtitle routes. Encoder filesystem `manifest.mpd` and subtitle ASS
 names are not authored session-namespace URLs. Do not expand the delivery grammar
 from those filenames. A canonical-HLS-only lab restriction records unproven mixed
 role playback/capability acceptance, not a demonstrated authored ASS/MPD URL gap.
+
+Source-only nodes require the existing bundled/configured `ffprobe` for genuine
+native-incomplete formats (for example MPEG-4 Visual `mp4v` in MP4). The source
+manager retains native probing first and uses a probe-only fallback without an
+encoder, hardware inventory or transcode session manager. It accepts only the
+source manager's literal-loopback HTTP capability, preserves actual parsed facts,
+and admits at most two concurrent probes with a 20-second cancellation deadline
+including queue time and a shared 2 MiB output bound. Caller cancellation and
+shutdown stop the probe; its slot and service remain owned until the runner's
+child and output readers join. Close requests cancellation and joins, never
+substitutes elapsed time for completion. Errors omit capability URLs and raw
+ffprobe stderr. Genuine failed probes remain estimated and are still rejected by
+remote encoder preflight; no estimate or capability gate is relaxed.
