@@ -1,3 +1,4 @@
+import { useAssetAudio } from "./useAssetAudio";
 import { useEffect, useRef, useState } from "react";
 import { Button, cn } from "@braedonsaunders/appkit-ui";
 import { Play, Pause, Repeat } from "lucide-react";
@@ -114,6 +115,7 @@ export function LookStage({
   const [loop, setLoop] = useState(true);
   const [slow, setSlow] = useState(false);
   const [safe, setSafe] = useState(false);
+  const audioSource = useAssetAudio(look.brand.sting);
   const [sound, setSound] = useState(false);
   const [corner, setCorner] = useState(false);
   const [hover, setHover] = useState<string | null>(null);
@@ -121,15 +123,15 @@ export function LookStage({
   useEffect(() => setSelected(moment), [moment]);
   useEffect(() => {
     if (!sound) return;
-    if (!look.brand.sting || look.brand.sting.includes(" ")) return;
-    const audio = new Audio(`/ether/api/onair/assets/${encodeURIComponent(look.brand.sting)}`);
+    if (!audioSource) return;
+    const audio = new Audio(audioSource);
     audio.volume = look.brand.volume;
     void audio.play().catch(() => {});
     return () => {
       audio.pause();
       audio.removeAttribute("src");
     };
-  }, [sound, selected, look.brand.sting, look.brand.volume]);
+  }, [sound, selected, audioSource, look.brand.volume]);
   useEffect(() => {
     let frame = 0,
       last = performance.now(),

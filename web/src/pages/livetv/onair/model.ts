@@ -21,7 +21,7 @@ export type BrandTokens = {
   volume: number;
   seed: number;
   tagline: string;
-  words: Partial<Record<Moment, string>>;
+  words: Partial<Record<Moment | "now", string>>;
   language: string;
   logo?: string;
 };

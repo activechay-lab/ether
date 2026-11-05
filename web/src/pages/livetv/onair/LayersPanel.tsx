@@ -29,16 +29,20 @@ export function LayersPanel({
   moment: Moment;
 }) {
   const layers = sceneLayers(look, moment);
-  const source = layers.find((l) => l.id === selected);
-  const layer = look.layers?.[selected] ?? {};
+  const source = layers.find((l) => l.id === selected) ?? layers.find((l) => l.type === "text");
+  const selectedId = source?.id ?? selected;
+  const layer = look.layers?.[selectedId] ?? {};
   const patch = (p: NonNullable<Look["layers"]>[string]) =>
-    onChange({ ...look, layers: { ...look.layers, [selected]: { ...layer, ...p } } });
+    onChange({ ...look, layers: { ...look.layers, [selectedId]: { ...layer, ...p } } });
   return (
     <div className="space-y-5">
       <h3 className="text-sm font-semibold">{t("Layers")}</h3>
-      <div className="space-y-1">
+      <div className="max-h-48 space-y-1 overflow-y-auto">
         {layers.map((l) => (
-          <div key={l.id} className="flex items-center gap-2 rounded-lg border border-border p-2">
+          <div
+            key={l.id}
+            className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-surface-hover"
+          >
             <button
               aria-pressed={l.id === selected}
               className="min-w-0 flex-1 truncate text-left text-sm"
@@ -68,7 +72,7 @@ export function LayersPanel({
       </div>
       {source ? (
         <>
-          <h4 className="text-sm font-medium">{t("Layer · {name}", { name: selected })}</h4>
+          <h4 className="text-sm font-medium">{t("Layer · {name}", { name: selectedId })}</h4>
           {source.type === "text" ? (
             <>
               <Field label={t("Text")}>
@@ -77,18 +81,20 @@ export function LayersPanel({
                   onChange={(e) => patch({ text: e.currentTarget.value })}
                 />
               </Field>
-              <Field label={t("Fit mode")}>
-                <Select
-                  value={layer.fit ?? source.fit ?? "shrink"}
-                  onChange={(e) => patch({ fit: e.currentTarget.value })}
-                >
-                  {["shrink", "wrap", "clip"].map((v) => (
-                    <option key={v} value={v}>
-                      {t({ shrink: "Shrink", wrap: "Wrap", clip: "Clip" }[v]!)}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+              {source.maxWidth ? (
+                <Field label={t("Fit mode")}>
+                  <Select
+                    value={layer.fit ?? source.fit ?? "shrink"}
+                    onChange={(e) => patch({ fit: e.currentTarget.value })}
+                  >
+                    {["shrink", "wrap", "clip"].map((v) => (
+                      <option key={v} value={v}>
+                        {t({ shrink: "Shrink", wrap: "Wrap", clip: "Clip" }[v]!)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              ) : null}
             </>
           ) : null}
           <div className="grid grid-cols-2 gap-3">
@@ -129,32 +135,6 @@ export function LayersPanel({
       ) : (
         <p className="text-sm text-fg-muted">{t("Select a layer to edit it.")}</p>
       )}
-    </div>
-  );
-}
-export function Timeline({
-  look,
-  moment,
-  selected,
-  onSelect,
-}: {
-  look: Look;
-  moment: Moment;
-  selected: string;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <div className="mt-5 flex flex-wrap gap-2">
-      {sceneLayers(look, moment).map((l) => (
-        <Button
-          key={l.id}
-          variant={selected === l.id ? "secondary" : "ghost"}
-          size="sm"
-          onClick={() => onSelect(l.id)}
-        >
-          {l.id}
-        </Button>
-      ))}
     </div>
   );
 }

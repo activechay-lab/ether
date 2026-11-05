@@ -13,7 +13,8 @@ export function AssetsPanel({
   importSlot?: ReactNode;
   podsSlot?: ReactNode;
 }) {
-  const [, setParams] = useSearchParams();
+  const [params, setParams] = useSearchParams();
+  const [looks, setLooks] = useState<Look[]>([]);
   const [reels, setReels] = useState<Reel[]>([]);
   const [kind, setKind] = useState("");
   const [query, setQuery] = useState("");
@@ -25,7 +26,8 @@ export function AssetsPanel({
   useEffect(() => {
     void onair.assets().then(setAssets);
     void onair.reels().then(setReels);
-  }, []);
+    void onair.looks().then(setLooks);
+  }, [params.get("reel"), params.get("look")]);
   const upload = async (files: FileList | null, kind: string) => {
     if (!files) return;
     try {
@@ -56,15 +58,15 @@ export function AssetsPanel({
           onChange={(e) => setKind(e.currentTarget.value)}
         >
           {[
-            ["", "All kinds"],
-            ["image", "Images and logos"],
-            ["font", "Fonts"],
-            ["audio", "Audio"],
-            ["clips", "Clips"],
-            ["collections", "Collections"],
+            ["", t("All kinds")],
+            ["image", t("Images")],
+            ["font", t("Fonts")],
+            ["audio", t("Audio")],
+            ["clips", t("Clips")],
+            ["collections", t("Collections")],
           ].map(([v, l]) => (
             <option key={v} value={v}>
-              {t(l!)}
+              {l}
             </option>
           ))}
         </Select>
@@ -112,13 +114,13 @@ export function AssetsPanel({
 
       <div className="grid grid-cols-2 gap-2">
         {[
-          { kind: "font", label: t("Fonts"), Icon: FileType, accept: ".ttf,.otf,.woff2" },
+          { kind: "font", label: t("Fonts"), Icon: FileType, accept: ".ttf,.otf" },
           { kind: "image", label: t("Images"), Icon: Image, accept: "image/*" },
           { kind: "audio", label: t("Audio"), Icon: AudioLines, accept: "audio/*" },
         ].map(({ kind, label, Icon, accept }) => (
           <label
             key={kind}
-            className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-bg-subtle p-4 text-sm text-fg-muted hover:border-primary hover:text-primary"
+            className="focus-within:ring-2 focus-within:ring-primary flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-bg-subtle p-4 text-sm text-fg-muted hover:border-primary hover:text-primary"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -209,12 +211,22 @@ export function AssetsPanel({
                   variant="ghost"
                   size="sm"
                   aria-label={t("Remove asset")}
+                  disabled={a.usedBy.length > 0}
                   onClick={async () => {
                     if (
                       await confirmDialog({
                         title: t("Remove {name}?", { name: a.name }),
                         message: a.usedBy.length
-                          ? t("Used by: {layers}", { layers: a.usedBy.join(", ") })
+                          ? t("Used by: {layers}", {
+                              layers: a.usedBy
+                                .map(
+                                  (id) =>
+                                    looks.find((l) => l.id === id)?.name ??
+                                    reels.find((r) => r.id === id)?.name ??
+                                    id,
+                                )
+                                .join(", "),
+                            })
                           : t("This asset will be removed from the library."),
                         confirmLabel: t("Remove"),
                         tone: "danger",
@@ -230,7 +242,16 @@ export function AssetsPanel({
               </div>
               <p className="mt-2 text-xs text-fg-subtle">
                 {a.usedBy.length
-                  ? t("Used by {layers}", { layers: a.usedBy.join(", ") })
+                  ? t("Used by {layers}", {
+                      layers: a.usedBy
+                        .map(
+                          (id) =>
+                            looks.find((l) => l.id === id)?.name ??
+                            reels.find((r) => r.id === id)?.name ??
+                            id,
+                        )
+                        .join(", "),
+                    })
                   : t("Not used yet")}
               </p>
               {a.kind === "font" && a.license ? (

@@ -11,7 +11,7 @@ import { onair, type Look, type Bindings, type Moment } from "./model";
 import { LookStage } from "./Stage";
 import { DesignPanel } from "./DesignPanel";
 import { DescribeLook } from "./DescribeLook";
-import { LayersPanel, Timeline } from "./LayersPanel";
+import { LayersPanel } from "./LayersPanel";
 import { StyleScreensEditor } from "./StyleScreens";
 import { AssetsPanel } from "./AssetsPanel";
 export function LookDrawer({
@@ -134,7 +134,8 @@ export function LookDrawer({
   };
   const action = (label: string, fn: () => void) => (
     <button
-      className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-surface-hover"
+      disabled={!saved.id}
+      className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-surface-hover disabled:opacity-50"
       onClick={() => {
         setMenu(false);
         fn();
@@ -326,9 +327,6 @@ export function LookDrawer({
               setTab("layers");
             }}
           />
-          {tab === "layers" ? (
-            <Timeline look={draft} moment={moment} selected={layer} onSelect={setLayer} />
-          ) : null}
         </section>
       </div>
       {useOpen ? (
@@ -340,11 +338,15 @@ export function LookDrawer({
           footer={
             <Button
               onClick={async () => {
-                for (const id of useChannels) {
+                for (const id of new Set([...saved.channelIds, ...useChannels])) {
                   const c = await tv.channel(id);
                   await tv.saveChannel({
                     ...c,
-                    look: { ...c.look, lookId: saved.id, ident: true, upNext: true, offAir: true },
+                    look: useChannels.includes(id)
+                      ? { ...c.look, lookId: saved.id, ident: true, upNext: true, offAir: true }
+                      : c.look?.lookId === saved.id
+                        ? undefined
+                        : c.look,
                   });
                 }
                 setUseOpen(false);

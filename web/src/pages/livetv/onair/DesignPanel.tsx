@@ -1,3 +1,4 @@
+import { useAssetAudio } from "./useAssetAudio";
 import { useEffect, useState } from "react";
 import { Button, Input, Select, Tooltip, toast } from "@braedonsaunders/appkit-ui";
 import { Info, Shuffle, RotateCcw, Upload, PenTool } from "lucide-react";
@@ -5,7 +6,7 @@ import { Field, ChipGroup } from "../../../components/fields";
 import { ColorPicker } from "../../../components/ColorPicker";
 import { t } from "../../../i18n";
 import { referenceLooks } from "./fixtures";
-import { normalizeFont } from "./scene-renderer";
+import { documentFor, normalizeFont } from "./scene-renderer";
 import { MOMENTS, onair, type Look, type OnAirAsset, type BrandTokens } from "./model";
 import { BugControls } from "./BugControls";
 export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look) => void }) {
@@ -14,6 +15,7 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
     void onair.assets().then(setAssets);
   }, []);
   const b = look.brand;
+  const audioSource = useAssetAudio(b.sting);
   const set = (p: Partial<BrandTokens>) => onChange({ ...look, brand: { ...b, ...p } });
   const section = (title: string, children: React.ReactNode) => (
     <section className="space-y-3 border-b border-border pb-5">
@@ -43,7 +45,7 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
             />
           </Field>
           <div className="flex gap-2">
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+            <label className="focus-within:ring-2 focus-within:ring-primary inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
               <Upload size={14} />
               {t("Logo")}
               <input
@@ -242,13 +244,7 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
                 ))}
             </Select>
           </Field>
-          {assets.find((a) => a.digest === b.sting)?.url ? (
-            <audio
-              controls
-              src={assets.find((a) => a.digest === b.sting)?.url}
-              aria-label={t("Play sting")}
-            />
-          ) : null}
+          {audioSource ? <audio controls src={audioSource} aria-label={t("Play sting")} /> : null}
           <Field label={t("Volume")}>
             <input
               aria-label={t("Volume")}
@@ -273,7 +269,22 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
           {t("New shapes")}
         </Button>
         {MOMENTS.map((m) => (
-          <Field key={m} label={t(m)}>
+          <Field
+            key={m}
+            label={t(
+              {
+                ident: "Ident",
+                tonight: "Tonight",
+                upnext: "Up next",
+                break: "Break",
+                back: "Back",
+                offair: "Off air",
+                welcome: "Welcome",
+                bug: "Corner logo",
+                lowerthird: "Lower third",
+              }[m],
+            )}
+          >
             <div className="flex gap-2">
               {[4, 8, 12].map((duration) => (
                 <Button
@@ -291,23 +302,30 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
                 </Button>
               ))}
             </div>
-            <Input
-              placeholder={t(
-                {
-                  ident: "You are watching",
-                  tonight: "Tonight",
-                  upnext: "Up next",
-                  break: "We’ll be right back",
-                  back: "Welcome back",
-                  offair: "Back soon",
-                  welcome: "Welcome back",
-                  bug: "",
-                  lowerthird: "Now playing",
-                }[m],
-              )}
-              value={b.words[m] || ""}
-              onChange={(e) => set({ words: { ...b.words, [m]: e.target.value } })}
-            />
+            {JSON.stringify(documentFor(look.family, m) ?? {}).includes(
+              `{words.${m === "upnext" ? "upNext" : m === "lowerthird" ? "now" : m}}`,
+            ) ? (
+              <Input
+                aria-label={t("Text")}
+                placeholder={t(
+                  {
+                    ident: "You are watching",
+                    tonight: "Tonight",
+                    upnext: "Up next",
+                    break: "We’ll be right back",
+                    back: "Welcome back",
+                    offair: "Back soon",
+                    welcome: "Welcome back",
+                    bug: "",
+                    lowerthird: "Now playing",
+                  }[m],
+                )}
+                value={b.words[m === "lowerthird" ? "now" : m] || ""}
+                onChange={(e) =>
+                  set({ words: { ...b.words, [m === "lowerthird" ? "now" : m]: e.target.value } })
+                }
+              />
+            ) : null}
           </Field>
         ))}
       </details>

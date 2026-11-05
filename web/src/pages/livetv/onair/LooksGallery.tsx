@@ -46,7 +46,7 @@ export function LooksAside({
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{l.name}</p>
-              <p className="text-xs text-fg-muted">{t(familyName(l.family))}</p>
+              <p className="text-xs text-fg-muted">{familyName(l.family)}</p>
               <p className="text-xs text-fg-subtle">
                 {tn(l.channelIds.length, "Used by {count} channel", "Used by {count} channels")}
               </p>
@@ -60,12 +60,12 @@ export function LooksAside({
 function familyName(id: string) {
   return (
     {
-      kids: "Kids",
-      lateNight: "Late night",
-      cinema: "Cinema",
-      retro: "Retro",
-      personal: "Personal",
-      clean: "Clean",
+      kids: t("Kids"),
+      lateNight: t("Late night"),
+      cinema: t("Cinema"),
+      retro: t("Retro"),
+      personal: t("Personal"),
+      clean: t("Clean"),
     }[id] || id
   );
 }
@@ -132,7 +132,7 @@ export function LooksGallery({
                 <h3 className="truncate font-semibold tracking-tight" title={l.name}>
                   {l.name}
                 </h3>
-                <p className="mt-1 text-xs text-fg-muted">{t(familyName(l.family))}</p>
+                <p className="mt-1 text-xs text-fg-muted">{familyName(l.family)}</p>
               </div>
               <span className="shrink-0 text-xs text-fg-subtle">
                 {tn(l.channelIds.length, "Used by {count} channel", "Used by {count} channels")}
