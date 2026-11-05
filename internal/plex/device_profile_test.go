@@ -135,3 +135,31 @@ func TestLegacyDecoderAudioSelectionKeepsExplicitChoice(t *testing.T) {
 		}
 	}
 }
+
+func TestMDEDecisionProjectsFirstVideoAndSelectedTracks(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	f.playback.info = core.MediaInfo{Container: "mkv", Streams: []core.StreamInfo{{Index: 0, Type: "video", Codec: "hevc", Width: 3840, Height: 2160}, {Index: 1, Type: "video", Codec: "hevc", Width: 1920, Height: 1080, DolbyVision: true, DolbyVisionProfile: 7}, {Index: 2, Type: "audio", Codec: "aac", Language: "eng", Channels: 2}, {Index: 3, Type: "audio", Codec: "ac3", Language: "fre", Channels: 6}, {Index: 4, Type: "subtitle", Codec: "subrip", Language: "eng"}, {Index: 5, Type: "subtitle", Codec: "subrip", Language: "fre"}}}
+	f.srv.selections.update(ownerUser.ID, int64(fightClub.Key), func(s *selection) { s.audio = 2; s.audioSet = true; s.subtitle = 4; s.subtitleSet = true })
+	rec := f.get(t, "/video/:/transcode/universal/decision?path=/library/metadata/"+fightClub.Key.String()+"&hasMDE=1&directPlay=1&subtitles=sidecar", append(jsonAccept, "X-Plex-Product", "Plex Web", "X-Plex-Platform", "Firefox")...)
+	if rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	mc := decodeJSON(t, rec)
+	md := mc["Metadata"].([]any)[0].(map[string]any)
+	media := md["Media"].([]any)[0].(map[string]any)
+	part := media["Part"].([]any)[0].(map[string]any)
+	streams := part["Stream"].([]any)
+	if len(streams) != 3 {
+		t.Fatalf("streams=%v", streams)
+	}
+	for _, raw := range streams {
+		st := raw.(map[string]any)
+		if st["streamType"] == float64(1) && st["index"] != float64(0) {
+			t.Fatalf("secondary video leaked: %v", st)
+		}
+		if st["streamType"] == float64(3) && st["location"] != "sidecar-subs" {
+			t.Fatalf("sidecar location=%v", st)
+		}
+	}
+}

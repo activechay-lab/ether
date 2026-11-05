@@ -949,7 +949,7 @@ func (s *Server) decisionMedia(t *core.Title, ps *core.PlaySession, dec core.Dec
 		}
 		m.Part[0].Key = s.playIDs.partKey(ik, m.ID, m.Part[0].Key, s.now())
 	}
-	if ps.Resolution != nil && s.d.Trickplay != nil && s.d.Trickplay.TrickplayAvailable(ps.Resolution.Release.ID) {
+	if ps.Resolution != nil && s.d.Trickplay != nil && s.d.Trickplay.TrickplayAvailable(core.TrickplayCacheKey(ps)) {
 		m.Part[0].Indexes = "sd"
 	}
 	m.Selected = model.Ptr(true)
@@ -970,6 +970,20 @@ func (s *Server) decisionMedia(t *core.Title, ps *core.PlaySession, dec core.Dec
 		}
 	}
 
+	// Only the first video elementary stream is played. A separate Dolby
+	// Vision enhancement stream remains probe metadata, not a second player track.
+	videoSeen := false
+	playableStreams := streams[:0]
+	for _, st := range streams {
+		if st.StreamType == 1 {
+			if videoSeen {
+				continue
+			}
+			videoSeen = true
+		}
+		playableStreams = append(playableStreams, st)
+	}
+	streams = playableStreams
 	selectedOnly := info.Estimated || !p.listAllTracks
 	if dec.Kind == core.DecisionDirectPlay {
 		return directPlayMedia(m, streams, selectedOnly, p.subtitles)
