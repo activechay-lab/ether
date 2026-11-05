@@ -253,6 +253,9 @@ export function CatalogSettings() {
                   <div className="mt-4">
                     <LevelBadge level={catalogHealth.level} />
                   </div>
+                  {catalogHealth.level === "warn" ? (
+                    <p className="mt-3 break-words text-sm text-warning">{catalogHealth.summary}</p>
+                  ) : null}
                 </section>
               ) : null}
               <CatalogActivity />

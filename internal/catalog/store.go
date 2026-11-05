@@ -636,7 +636,6 @@ const materialTitleChangeSQL = `(
  (excluded.status<>'' AND catalog_titles.status<>excluded.status) OR
  (excluded.last_air_ts<>0 AND catalog_titles.last_air_ts<>excluded.last_air_ts) OR
  (excluded.language<>'' AND catalog_titles.language<>excluded.language) OR
- (excluded.content_rating<>'' AND catalog_titles.content_rating<>excluded.content_rating) OR
  (excluded.poster<>'' AND catalog_titles.poster<>excluded.poster) OR
  (excluded.backdrop<>'' AND catalog_titles.backdrop<>excluded.backdrop) OR
  (excluded.still<>'' AND catalog_titles.still<>excluded.still) OR
@@ -735,14 +734,20 @@ ON CONFLICT(key) DO UPDATE SET
  browsable=CASE WHEN excluded.browsable>catalog_titles.browsable THEN excluded.browsable ELSE catalog_titles.browsable END,
  added_at=CASE WHEN catalog_titles.added_at<>0 THEN catalog_titles.added_at
                WHEN excluded.browsable=1 THEN excluded.added_at ELSE 0 END,
- fetched_at=CASE WHEN `+materialTitleChangeSQL+` THEN excluded.fetched_at ELSE catalog_titles.fetched_at END,
+ fetched_at=CASE WHEN `+materialTitleChangeSQL+` OR catalog_titles.content_rating<>(`+ratingPrecedence("content_rating")+`) THEN excluded.fetched_at ELSE catalog_titles.fetched_at END,
  detail=CASE WHEN excluded.detail>catalog_titles.detail THEN excluded.detail ELSE catalog_titles.detail END,
- detail_at=CASE WHEN excluded.detail=1 THEN excluded.detail_at ELSE catalog_titles.detail_at END`,
+ detail_at=CASE WHEN excluded.detail=1 THEN excluded.detail_at ELSE catalog_titles.detail_at END
+ WHERE `+materialTitleChangeSQL+` OR
+ catalog_titles.rating<>excluded.rating OR catalog_titles.vote_count<>excluded.vote_count OR catalog_titles.popularity<>excluded.popularity OR
+ catalog_titles.content_rating<>(`+ratingPrecedence("content_rating")+`) OR
+ catalog_titles.content_rating_rank<>(`+ratingPrecedence("content_rating_rank")+`) OR
+ catalog_titles.content_rating_source<>(`+ratingPrecedence("content_rating_source")+`) OR
+ (excluded.detail=1 AND catalog_titles.status='Returning Series' AND catalog_titles.detail_at<>excluded.detail_at)`,
 		int64(t.Key), string(t.Type), t.IDs.TMDB, t.IDs.IMDB, t.IDs.TVDB, int64(t.ShowKey), showTMDB, t.ShowTitle, t.SeasonTitle, t.Season, t.Episode,
 		t.Title, t.OriginalTitle, t.SortTitle, t.Tagline, t.Summary, t.Year, releasedTS, int64(t.Runtime.Seconds()), t.Status, t.Language,
 		t.ContentRating, int(contentrating.LevelOf(t.ContentRating)), t.ContentRatingSource, t.Rating, t.VoteCount, t.Popularity, t.PosterPath, t.BackdropPath, t.StillPath, t.LogoPath,
 		t.CollectionID, t.CollectionName, t.ChildCount, t.LeafCount, browsableInt, addedAtFor(browsableInt, now), now, detailInt, t.Adult, detailAtFor(detailInt, now), lastAirTS,
-		homeInt, homeInt, homeInt)
+		homeInt, homeInt, homeInt, homeInt, homeInt, homeInt, homeInt)
 	if err != nil {
 		return fmt.Errorf("catalog: upsert %d: %w", t.Key, err)
 	}
@@ -750,7 +755,7 @@ ON CONFLICT(key) DO UPDATE SET
 		return fmt.Errorf("catalog: index release name: %w", err)
 	}
 	if t.RemoteTrailerURL != "" {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_remote_trailers(key, name, url) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET name=excluded.name, url=excluded.url`, int64(t.Key), t.RemoteTrailerName, t.RemoteTrailerURL); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_remote_trailers(key, name, url) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET name=excluded.name, url=excluded.url WHERE catalog_remote_trailers.name<>excluded.name OR catalog_remote_trailers.url<>excluded.url`, int64(t.Key), t.RemoteTrailerName, t.RemoteTrailerURL); err != nil {
 			return err
 		}
 	}
@@ -760,7 +765,7 @@ ON CONFLICT(key) DO UPDATE SET
 		}
 	}
 	if o.airDates && !o.detail {
-		if _, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET fetched_at=CASE WHEN released_ts<>? OR year<>? THEN ? ELSE fetched_at END, released_ts=?, year=? WHERE key=?`, releasedTS, t.Year, now, releasedTS, t.Year, int64(t.Key)); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET fetched_at=CASE WHEN released_ts<>? OR year<>? THEN ? ELSE fetched_at END, released_ts=?, year=? WHERE key=? AND (released_ts<>? OR year<>?)`, releasedTS, t.Year, now, releasedTS, t.Year, int64(t.Key), releasedTS, t.Year); err != nil {
 			return fmt.Errorf("catalog: upsert %d air date: %w", t.Key, err)
 		}
 	}
@@ -837,7 +842,7 @@ ON CONFLICT(key) DO UPDATE SET
 			return err
 		}
 	}
-	if joinChanged || (t.Type == core.TypeMovie && len(t.Genres) > 0) {
+	if joinChanged {
 		if _, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET fetched_at=? WHERE key=?`, now, int64(t.Key)); err != nil {
 			return err
 		}

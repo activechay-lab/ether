@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/config"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/schedule"
+	"github.com/braedonsaunders/ether/internal/store"
 	"github.com/braedonsaunders/ether/internal/tmdb"
 )
 
@@ -101,6 +102,9 @@ func (c *Catalog) Stats(ctx context.Context) (Stats, error) {
 
 func (c *Catalog) finishStats(ctx context.Context, s Stats) Stats {
 	s.Sync = c.SyncProgress()
+	if s.Sync.LastError == "" && !s.Sync.Running {
+		s.Sync.LastError = c.getMeta(ctx, "sync_error")
+	}
 	s.YearCorrection = c.movieYearProgress(ctx)
 	return s
 }
@@ -200,19 +204,22 @@ func (c *Catalog) Run(ctx context.Context) {
 	}
 	warm := schedule.New(c.now(), 90*time.Second)
 	recent := schedule.New(c.now(), 4*time.Hour)
+	failures := 0
 	for ctx.Err() == nil {
 		if full.Remaining(c.now()) == 0 {
 			err := c.Sync(ctx)
 			delay := c.refreshInterval()
 			switch {
 			case err == nil || ctx.Err() != nil:
+				failures = 0
 			case errors.Is(err, tmdb.ErrNoKey):
 				// A fresh install before setup: expected, not an error.
 				c.log.Info("catalog: waiting for a TMDB API key (add it in setup or Integrations)")
 				delay = min(delay, 5*time.Minute)
 			default:
-				c.log.Error("catalog: refresh sync", "err", err)
-				delay = min(delay, 5*time.Minute)
+				failures++
+				delay = syncRetryDelay(failures)
+				c.log.Error("catalog: refresh sync", "err", err, "retry_after", delay)
 			}
 			full = schedule.New(c.now(), delay)
 		}
@@ -256,6 +263,9 @@ func (c *Catalog) refreshInterval() time.Duration {
 // untilDue is how long Run waits before its first sync: zero unless
 // resuming the recorded schedule and the last sync is recent.
 func (c *Catalog) untilDue(ctx context.Context) time.Duration {
+	if c.getMeta(ctx, "sync_resume") != "" {
+		return 0
+	}
 	if !c.resumeSchedule {
 		return 0
 	}
@@ -279,20 +289,40 @@ func (c *Catalog) Sync(ctx context.Context) error {
 	}
 	defer c.syncing.Store(false)
 	c.setProgress(func(p *SyncProgress) {
-		*p = SyncProgress{Running: true, StartedAt: c.now()}
+		*p = SyncProgress{Running: true, StartedAt: c.now(), LastError: c.getMeta(ctx, "sync_error")}
 	})
-	err := c.syncLocked(ctx)
+	resumeCtx, err := c.resumeSync(ctx)
+	if err == nil {
+		err = c.syncLocked(resumeCtx)
+	}
+	if err == nil {
+		tx, txErr := c.db.BeginTx(ctx, nil)
+		if txErr == nil {
+			_, txErr = tx.ExecContext(ctx, `DELETE FROM catalog_meta WHERE k IN ('sync_resume','sync_error')`)
+			if txErr == nil {
+				_, txErr = tx.ExecContext(ctx, `INSERT INTO catalog_meta(k,v) VALUES('last_sync',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, strconv.FormatInt(c.now().Unix(), 10))
+			}
+			if txErr == nil {
+				txErr = tx.Commit()
+			} else {
+				_ = tx.Rollback()
+			}
+		}
+		err = txErr
+	}
+	if err != nil {
+		_ = c.setMeta(ctx, "sync_error", err.Error())
+	}
 	c.setProgress(func(p *SyncProgress) {
 		p.Running = false
 		p.FinishedAt = c.now()
 		p.Phase = ""
 		if err != nil {
 			p.LastError = err.Error()
+		} else {
+			p.LastError = ""
 		}
 	})
-	if err == nil {
-		_ = c.setMeta(ctx, "last_sync", strconv.FormatInt(c.now().Unix(), 10))
-	}
 	return err
 }
 
@@ -319,7 +349,18 @@ func (c *Catalog) syncLocked(ctx context.Context) error {
 	return nil
 }
 
-func (c *Catalog) syncPass(ctx context.Context, tv bool, pass string) error {
+func (c *Catalog) syncPass(ctx context.Context, tv bool, pass string) (err error) {
+	r, _ := ctx.Value(syncResumeKey{}).(*syncResume)
+	passKey := fmt.Sprintf("%t/%s", tv, pass)
+	if r != nil && r.Passes[passKey] {
+		return nil
+	}
+	defer func() {
+		if err == nil && r != nil {
+			r.Passes[passKey] = true
+			err = c.saveSyncResume(ctx)
+		}
+	}()
 	cfg := c.config()
 	typ := "movie"
 	sortBy := "popularity.desc"
@@ -367,7 +408,13 @@ func (c *Catalog) syncPass(ctx context.Context, tv bool, pass string) error {
 // returns total_pages without storing anything.
 func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverParams, pass string, year int, probe bool) (int, error) {
 	cfg := c.config()
-	for page := 1; page <= 500; page++ {
+	r, _ := ctx.Value(syncResumeKey{}).(*syncResume)
+	sliceKey := fmt.Sprintf("%t/%s/%d", tv, pass, year)
+	first := 1
+	if !probe && r != nil && r.Pages[sliceKey] > 0 {
+		first = r.Pages[sliceKey]
+	}
+	for page := first; page <= 500; page++ {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
@@ -378,7 +425,7 @@ func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverPa
 		if tv {
 			res, err := c.tmdb().DiscoverTV(ctx, p)
 			if err != nil {
-				return 0, err
+				return 0, fmt.Errorf("catalog: discover tv=%t pass=%s year=%d page=%d: %w", tv, pass, year, page, err)
 			}
 			totalPages = res.TotalPages
 			if probe {
@@ -390,7 +437,7 @@ func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverPa
 		} else {
 			res, err := c.tmdb().DiscoverMovies(ctx, p)
 			if err != nil {
-				return 0, err
+				return 0, fmt.Errorf("catalog: discover tv=%t pass=%s year=%d page=%d: %w", tv, pass, year, page, err)
 			}
 			totalPages = res.TotalPages
 			if probe {
@@ -415,8 +462,11 @@ func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverPa
 			}
 		}
 		if len(batch) > 0 {
-			if err := c.upsertMany(ctx, batch, upsertOpts{browsable: true}); err != nil {
+			if err := store.CheckWALBudget(ctx, c.db); err != nil {
 				return totalPages, err
+			}
+			if err := c.upsertMany(ctx, batch, upsertOpts{browsable: true}); err != nil {
+				return totalPages, fmt.Errorf("catalog: store tv=%t pass=%s year=%d page=%d: %w", tv, pass, year, page, err)
 			}
 		}
 		added := len(batch)
@@ -425,7 +475,17 @@ func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverPa
 			pr.TitlesSeen += len(titles)
 			pr.TitlesAdded += added
 		})
-		if stop || page >= totalPages || len(titles) == 0 {
+		done := stop || page >= totalPages || len(titles) == 0
+		if r != nil {
+			r.Pages[sliceKey] = page + 1
+			if done {
+				r.Pages[sliceKey] = 501
+			}
+			if err := c.saveSyncResume(ctx); err != nil {
+				return totalPages, err
+			}
+		}
+		if done {
 			return totalPages, nil
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -40,11 +41,11 @@ func Checkpoint(ctx context.Context, db *sql.DB, truncate bool) error {
 	if !strings.EqualFold(mode, "wal") {
 		return nil
 	}
-	busy, logFrames, _, err := walCheckpoint(ctx, conn, "PASSIVE")
+	busy, logFrames, copied, err := walCheckpoint(ctx, conn, "PASSIVE")
 	if err != nil {
 		return err
 	}
-	if !truncate || busy != 0 || logFrames == 0 || db.Stats().InUse > 1 {
+	if !truncate || busy != 0 || copied != logFrames || logFrames == 0 || db.Stats().InUse > 1 {
 		return nil
 	}
 	if _, _, _, err := walCheckpoint(ctx, conn, "TRUNCATE"); err != nil {
@@ -84,4 +85,52 @@ func RunCheckpointer(ctx context.Context, db *sql.DB, truncate func() bool, onEr
 			onErr(err)
 		}
 	}
+}
+
+// CheckWALBudget pauses bulk imports when a long-lived reader prevents WAL
+// recycling. journal_size_limit only bounds recycled WAL, not pinned frames.
+// Interactive writes can continue; the bulk caller retries with backoff.
+func CheckWALBudget(ctx context.Context, db *sql.DB) error {
+	return checkWALBudget(ctx, db, journalSizeLimit)
+}
+
+func checkWALBudget(ctx context.Context, db *sql.DB, limit int64) error {
+	if DialectOf(db) == Postgres {
+		return nil
+	}
+	var seq int
+	var name, path string
+	if err := db.QueryRowContext(ctx, `PRAGMA database_list`).Scan(&seq, &name, &path); err != nil {
+		return err
+	}
+	if path == "" {
+		return nil
+	}
+	st, err := os.Stat(path + "-wal")
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if st.Size() <= limit {
+		return nil
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	_, frames, copied, err := walCheckpoint(ctx, conn, "PASSIVE")
+	if err != nil {
+		return err
+	}
+	var pageSize int64
+	if err := conn.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&pageSize); err != nil {
+		return err
+	}
+	if int64(frames-copied)*(pageSize+24) > limit {
+		return fmt.Errorf("sqlite: bulk writes paused: WAL checkpoint blocked by a reader (%d pending frames)", frames-copied)
+	}
+	return nil
 }
