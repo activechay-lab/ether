@@ -1087,7 +1087,11 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 	}
 	if selItem.id != 0 {
 		mc.Extra = append(mc.Extra, model.A("playQueueSelectedItemID", selItem.id))
-		if byKey[selItem.key] != nil && !pq.suppressMetadata {
+		selectedVisible := byKey[selItem.key] != nil
+		if selItem.key.Kind() == core.KindExtra {
+			_, selectedVisible = s.extraMetadataByKey(ctx, pr, selItem.key)
+		}
+		if selectedVisible && !pq.suppressMetadata {
 			mc.Extra = append(mc.Extra, model.A("playQueueSelectedMetadataItemID", selItem.key.String()))
 		}
 	}

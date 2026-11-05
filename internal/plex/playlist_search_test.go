@@ -2,6 +2,7 @@ package plex
 
 import (
 	"context"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -68,9 +69,17 @@ func TestPlaylistSearchAndRecentProjection(t *testing.T) {
 	if strings.Contains(body, `title="Night"`) {
 		t.Fatal(body)
 	}
-	rec := f.request(t, "POST", "/playlists?type=video&title=Window&uri=unresolved&X-Plex-Container-Size=0", nil)
+	rec := f.request(t, "POST", "/playlists?type=video&title=Window&uri=unresolved&X-Plex-Container-Start=0&X-Plex-Container-Size=0", nil)
 	if rec.Code != 200 || strings.Contains(rec.Body.String(), "<Playlist ") {
 		t.Fatal(rec.Code, rec.Body.String())
+	}
+	request := httptest.NewRequest("POST", "/playlists?type=video&title=QueryOnly&uri=unresolved", strings.NewReader("not-a-form"))
+	request.ContentLength = 2048
+	request.Header.Set("X-Plex-Token", ownerToken)
+	queryResponse := httptest.NewRecorder()
+	f.srv.ServeHTTP(queryResponse, request)
+	if queryResponse.Code != 200 {
+		t.Fatal(queryResponse.Code, queryResponse.Body.String())
 	}
 	for _, test := range []struct {
 		title, query string

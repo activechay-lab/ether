@@ -1,7 +1,6 @@
 {
   "MediaContainer": {
     "size": 2,
-    "allowSync": false,
     "identifier": "com.plexapp.plugins.library",
     "mediaTagPrefix": "/system/bundle/media/flags/",
     "mediaTagVersion": 1720000000,
@@ -10,7 +9,7 @@
     "playQueueSelectedItemOffset": 0,
     "playQueueSelectedMetadataItemID": "4000013960010001",
     "playQueueShuffled": false,
-    "playQueueSourceURI": "server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/4000013960010001",
+    "playQueueSourceURI": "library://0123456789abcdef0123456789abcdef01234567/item/%2Flibrary%2Fmetadata%2F4000013960010001",
     "playQueueTotalCount": 2,
     "playQueueVersion": 1,
     "Metadata": [

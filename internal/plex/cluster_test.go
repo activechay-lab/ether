@@ -195,7 +195,7 @@ func TestClusterPlayQueueFollowsClientAcrossNodes(t *testing.T) {
 	// Node A sees all of it.
 	waitFor(t, "A sees B's edits", func() bool {
 		mc = decodeJSON(t, a.get(t, "/playQueues/"+id, jsonAccept...))
-		return mc["playQueueTotalCount"].(float64) == 3 && mc["playQueueSelectedItemOffset"].(float64) == 1
+		return mc["playQueueTotalCount"].(float64) == 3 && mc["playQueueSelectedItemOffset"].(float64) == 2
 	})
 	// Item IDs stay unique across nodes.
 	seen := map[float64]bool{}

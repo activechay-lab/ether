@@ -863,9 +863,11 @@ func TestPlayQueueUnshuffleAfterRemovingEverything(t *testing.T) {
 	rec := f.request(t, http.MethodPost, "/playQueues?type=video&uri="+urlEsc("server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/"+bbS1.Key.String()), js)
 	mc := decodeJSON(t, rec)
 	id := fmt.Sprint(int64(mc["playQueueID"].(float64)))
-	if rec := f.request(t, http.MethodPut, "/playQueues/"+id+"/shuffle", nil); rec.Code != http.StatusOK {
+	rec = f.request(t, http.MethodPut, "/playQueues/"+id+"/shuffle", js)
+	if rec.Code != http.StatusOK {
 		t.Fatalf("shuffle %d", rec.Code)
 	}
+	mc = decodeJSON(t, rec)
 	for _, it := range mc["Metadata"].([]any) {
 		itemID := int64(it.(map[string]any)["playQueueItemID"].(float64))
 		if rec := f.request(t, http.MethodDelete, fmt.Sprintf("/playQueues/%s/items/%d", id, itemID), nil); rec.Code != http.StatusOK {
