@@ -93,7 +93,7 @@ func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 }
 
 func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan {
-	plan := broadcastPlan{id: programme.ID, start: programme.Start, end: programme.End}
+	plan := broadcastPlan{programme: programme.Item.Key != 0, id: programme.ID, start: programme.Start, end: programme.End}
 	if interstitial(programme.Item) {
 		plan.failed = func(err error) time.Time {
 			p.s.recordGraphicsSkip(p.channel, programme, err)
@@ -194,14 +194,30 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 				}
 				offset = programme.Offset(at)
 			}
+			sourceWall := time.Now()
+			if candidate.ID == programme.ID && programme.Start.After(now) {
+				sourceWall = sourceWall.Add(programme.Start.Sub(now))
+			}
 			p.s.o.Logger.Debug("broadcast programme decoder start", "channel", c.ID, "programme", programme.ID, "playback", ps.ID, "offset", offset)
-			decoder, err := p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: group + "-" + candidate.ID, InputURL: p.s.o.Playback.InputURL(ps.ID), Offset: offset, Format: p.format})
+			input := p.s.o.Playback.InputURL(ps.ID)
+			seeked := false
+			trim := offset
+			if index, ok := p.s.o.Playback.(interface {
+				IndexedInput(context.Context, string, time.Duration) (string, time.Duration, bool)
+			}); ok {
+				if url, remaining, ready := index.IndexedInput(ctx, input, offset); ready {
+					input = url
+					trim = remaining
+					seeked = true
+				}
+			}
+			decoder, err := p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: group + "-" + candidate.ID, InputURL: input, Offset: trim, Seeked: seeked, Format: p.format})
 			if err != nil {
 				p.s.o.Playback.Stop(ps.ID)
 				last = err
 				continue
 			}
-			return &overlayDecoder{Decoder: decoder, overlays: p.prepareProgrammeOverlays(ctx, programme)}, func() { p.s.o.Playback.Stop(ps.ID) }, nil
+			return &overlayDecoder{Decoder: decoder, wallStart: sourceWall, format: p.format, overlays: p.prepareProgrammeOverlays(ctx, programme)}, func() { p.s.o.Playback.Stop(ps.ID) }, nil
 		}
 		return nil, nil, last
 	}
@@ -260,7 +276,7 @@ type providerBroadcastPlanner struct {
 }
 
 func (p *providerBroadcastPlanner) plans(time.Time) (broadcastPlan, *broadcastPlan) {
-	return broadcastPlan{id: "provider-" + p.channel.ID, open: p.open, failed: p.failed}, nil
+	return broadcastPlan{programme: true, id: "provider-" + p.channel.ID, open: p.open, failed: p.failed}, nil
 }
 func (p *providerBroadcastPlanner) failed(err error) time.Time {
 	p.mu.Lock()

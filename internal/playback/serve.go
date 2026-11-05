@@ -478,6 +478,10 @@ func (m *Manager) serveLoopback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unverified input", http.StatusForbidden)
 		return
 	}
+	if cluster := r.URL.Query().Get("cluster"); cluster != "" {
+		m.serveIndexedLoopback(w, r, g, cluster)
+		return
+	}
 	s := g.sess
 	s.mu.Lock()
 	registered := s.registered

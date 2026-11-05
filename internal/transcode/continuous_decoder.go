@@ -71,6 +71,9 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		}
 	}()
 	f := r.Format
+	if r.Seeked && (r.Live || r.Loop) {
+		return nil, errors.New("transcode: indexed input must be non-live and non-looping")
+	}
 	args := []string{"-hide_banner", "-loglevel", "warning", "-nostdin", "-threads", "2", "-filter_threads", "1"}
 	args = append(args, inputSafetyArgs(r.InputURL, r.Live)...)
 	if r.Live {
@@ -79,14 +82,22 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 			args = append(args, "-live_start_index", "-1")
 		}
 	}
-	if !r.Live && r.Offset > 0 {
+	if !r.Live && !r.Seeked && r.Offset > 0 {
 		args = append(args, "-ss", strconv.FormatFloat(r.Offset.Seconds(), 'f', 6, 64))
 	}
 	if r.Loop {
 		args = append(args, "-stream_loop", "-1")
 	}
+	if r.Seeked {
+		args = append(args, "-probesize", "262144", "-analyzeduration", "500000")
+	}
 	videoFilter := fmt.Sprintf("scale=%d:%d,fps=%d/%d,setsar=1,", f.Width, f.Height, f.FPSNum, f.FPSDen)
 	audioFilter := "aresample=48000:async=1:first_pts=0"
+	if r.Seeked && r.Offset > 0 {
+		trim := strconv.FormatFloat(r.Offset.Seconds(), 'f', 6, 64)
+		videoFilter = "trim=start=" + trim + "," + videoFilter
+		audioFilter = "atrim=start=" + trim + ",asetpts=PTS-STARTPTS," + audioFilter
+	}
 	pts := make(chan time.Duration, 16)
 	ptsStop := make(chan struct{})
 	if r.Live {
