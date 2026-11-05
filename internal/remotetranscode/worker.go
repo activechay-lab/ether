@@ -24,6 +24,7 @@ type WorkerOptions struct {
 	Encoder         core.OwnedTranscoder
 }
 type execution struct {
+	acceptedStart             *AcceptedStartHandle
 	origin                    EvidenceOrigin
 	negativeBarrierGeneration uint64
 	backendInvoked            bool
@@ -326,6 +327,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	}
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
 	e := &execution{origin: EvidenceAcceptedStart, start: s, lease: LeaseState{Deadline: s.Expires.UTC(), Renewable: w.opts.ValidateRenewal != nil}, id: s.Identity, hash: hash, starting: true, cancel: cancel}
+	e.acceptedStart = w.newAcceptedStart(e)
 	w.records[s.Identity] = e
 	w.highest[key] = s.Identity.Generation
 	w.setMonotonicDeadline(e)
