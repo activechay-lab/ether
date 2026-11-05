@@ -1,3 +1,7 @@
+import { api } from "../../../lib/api";
+import { useAsync } from "../../../lib/hooks";
+import { onair, type Look } from "./model";
+import { renderLook } from "./proto-renderer";
 import { useEffect, useRef, useState } from "react";
 import { Volume2, VolumeX } from "lucide-react";
 import { cn } from "@braedonsaunders/appkit-ui";
@@ -12,7 +16,11 @@ function ScreenCard({
   station,
   active,
   onSelect,
+  look,
+  fallback = "card",
 }: {
+  look?: Look;
+  fallback?: ScreenStyle;
   style: ScreenStyle;
   name: string;
   station: string;
@@ -56,7 +64,18 @@ function ScreenCard({
         h = 180;
       ctx.fillStyle = "#101827";
       ctx.fillRect(0, 0, w, h);
-      if (style === "static") {
+      if ((style === "card" || !style || style === "brb") && look) {
+        ctx.save();
+        ctx.scale(320 / 1920, 180 / 1080);
+        renderLook(
+          ctx,
+          look,
+          style === "brb" ? "break" : "offair",
+          { channel: { name: station } },
+          hover ? time / 1000 : 3,
+        );
+        ctx.restore();
+      } else if ((style || fallback) === "static") {
         const pixels = ctx.createImageData(w, h);
         for (let i = 0; i < pixels.data.length; i += 4) {
           const v = Math.random() * 200;
@@ -127,7 +146,7 @@ function ScreenCard({
     };
     draw(0);
     return () => cancelAnimationFrame(frame);
-  }, [style, station, hover]);
+  }, [style, station, hover, look, fallback]);
   const audible = style === "static" || style === "bars" || style === "testcard";
   return (
     <div
@@ -177,7 +196,11 @@ export function ScreenPicker({
   station = "",
   defaultLabel,
   allowError = false,
+  look,
+  fallback,
 }: {
+  look?: Look;
+  fallback?: ScreenStyle;
   label: string;
   value: ScreenStyle;
   onChange: (value: ScreenStyle) => void;
@@ -211,6 +234,8 @@ export function ScreenPicker({
           <ScreenCard
             key={o.value}
             style={o.value}
+            look={look}
+            fallback={fallback}
             name={o.label}
             station={station}
             active={o.value === value}
@@ -228,6 +253,17 @@ export function ChannelScreens({
   channel: Channel;
   onChange: (patch: Partial<Channel>) => void;
 }) {
+  const config = useAsync(() => api.getConfig(), []);
+  const looks = useAsync(() => onair.looks(), []);
+  const look = looks.data?.find((v) => v.id === channel.look?.lookId);
+  const names: Record<string, string> = {
+    card: t("Modern card"),
+    static: t("Analogue static"),
+    bars: t("Colour bars"),
+    brb: t("We'll be right back"),
+    testcard: t("Test card"),
+    error: t("Show an error"),
+  };
   return (
     <section className="space-y-5">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
@@ -238,14 +274,18 @@ export function ChannelScreens({
         value={channel.screens?.offAir || ""}
         onChange={(offAir) => onChange({ screens: { ...channel.screens, offAir } })}
         station={channel.name}
-        defaultLabel={t("Modern card")}
+        look={look}
+        fallback={config.data?.liveTV?.screens?.offAir || "card"}
+        defaultLabel={names[config.data?.liveTV?.screens?.offAir || "card"]}
       />
       <ScreenPicker
         label={t("When a channel can't play")}
         value={channel.screens?.noSignal || ""}
         onChange={(noSignal) => onChange({ screens: { ...channel.screens, noSignal } })}
         station={channel.name}
-        defaultLabel={t("Modern card")}
+        look={look}
+        fallback={config.data?.liveTV?.screens?.noSignal || "card"}
+        defaultLabel={names[config.data?.liveTV?.screens?.noSignal || "card"]}
       />
     </section>
   );

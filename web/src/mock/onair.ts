@@ -1,3 +1,4 @@
+import clipPreview from "./clip-preview.mp4?url";
 import { referenceLooks, families } from "../pages/livetv/onair/fixtures";
 import type { Look, Reel, OnAirAsset } from "../pages/livetv/onair/model";
 export function createOnAirMock(tv: {
@@ -61,6 +62,15 @@ export function createOnAirMock(tv: {
     },
   ];
   const renders = new Map<string, number>();
+  for (const reel of reels)
+    for (const [i, clip] of reel.clips.entries()) {
+      clip.preview = clipPreview;
+      clip.thumbnail =
+        "data:image/svg+xml," +
+        encodeURIComponent(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><defs><linearGradient id="g"><stop stop-color="${["#33295e", "#143e47", "#582338", "#153858"][i % 4]}"/><stop offset="1" stop-color="#101827"/></linearGradient></defs><rect width="320" height="180" fill="url(#g)"/><circle cx="270" cy="35" r="80" fill="white" opacity=".07"/><text x="24" y="90" fill="white" font-family="sans-serif" font-size="24" font-weight="bold">${clip.name.replace(/&/g, "&amp;")}</text><text x="24" y="130" fill="#aeb7c9" font-family="sans-serif" font-size="14">STATION PROMO</text></svg>`,
+        );
+    }
   const conversions = new Map<string, number>();
   return {
     handle(

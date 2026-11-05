@@ -25,6 +25,14 @@ export function LookTab({
   viewerName?: string;
 }) {
   const looks = useAsync(() => onair.looks(), []);
+  const bindings = useAsync(
+    () =>
+      onair.bindings({
+        channel: channel.id,
+        at: new Date(new Date().setHours(20, 0, 0, 0)).toISOString(),
+      }),
+    [channel.id],
+  );
   const reels = useAsync(() => onair.reels(), []);
   const [, setParams] = useSearchParams();
   const [moment, setMoment] = useState<Moment>("ident");
@@ -59,6 +67,7 @@ export function LookTab({
                 : channel.name
             }
             moment={moment}
+            bindings={{ ...bindings.data, viewer: { name: viewerName || "" } }}
           />
         ) : (
           <div className="grid aspect-video place-items-center rounded-lg border border-dashed border-border bg-surface text-sm text-fg-muted">
@@ -78,7 +87,11 @@ export function LookTab({
                 label: v.name,
                 icon: (
                   <div className="w-16">
-                    <LookTile look={v} playOnHover={false} />
+                    <LookTile
+                      look={v}
+                      bindings={{ ...bindings.data, viewer: { name: viewerName || "" } }}
+                      playOnHover={false}
+                    />
                   </div>
                 ),
               })),
@@ -100,7 +113,12 @@ export function LookTab({
               onClick={() => setMoment(m)}
               className={`rounded-lg border p-1 text-xs ${m === moment ? "border-primary ring-1 ring-primary" : "border-border"}`}
             >
-              <LookTile look={look} moment={m} playOnHover={false} />
+              <LookTile
+                look={look}
+                moment={m}
+                bindings={{ ...bindings.data, viewer: { name: viewerName || "" } }}
+                playOnHover={false}
+              />
               <span className="block py-1">
                 {[t("Ident"), t("Tonight"), t("Up next"), t("Break"), t("Back"), t("Off air")][i]}
               </span>
