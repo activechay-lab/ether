@@ -90,7 +90,7 @@ type SegmentIndex interface {
 	ServeTS(w http.ResponseWriter, r *http.Request, seq int64)   // MPEG-TS segment (HLS)
 	ServeInit(w http.ResponseWriter, r *http.Request)            // fMP4 init (DASH)
 	ServeFMP4(w http.ResponseWriter, r *http.Request, seq int64) // fMP4 media segment (DASH)
-	OpenTS(seq int64) (io.ReadCloser, error)                     // raw TS bytes, for byte-stream viewers
+	AttachTS(ctx context.Context) (io.ReadCloser, error)         // raw TS bytes, for byte-stream viewers
 	Format() (codecs string, width, height int, bandwidth int)   // for playlists and MPD Representation attributes
 }
 
