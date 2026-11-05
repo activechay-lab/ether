@@ -1,3 +1,4 @@
+# Acceptance target: requires the integrated image to enable every role.
 # References only. Create these Secrets outside Helm, from local files.
 runtime:
   clockBoundKnown: true

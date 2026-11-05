@@ -30,6 +30,7 @@ def check(docs, persistent=False):
         assert d['kind'] != 'Secret', 'chart must never render credential bytes'
         if d['kind'] == 'ConfigMap':
             config = json.loads(d['data']['deployment.json'])
+            assert config['roles'] == ([] if d['metadata']['name'].endswith('-full') else [d['metadata']['name'].rsplit('-',1)[-1]])
             assert config['clusterKeyFile'] == '/run/ether/cluster/key'
             assert config['internalAddress'].startswith('https://__ETHER_POD_NAME__.')
             assert config['clockBoundKnown'] is True

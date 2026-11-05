@@ -2,7 +2,10 @@
 
 This chart packages the v0.3.5 deployment runtime. Use an image that implements
 `ETHER_DEPLOYMENT_FILE`, role isolation, authenticated private transport and the
-probe/drain contract below. Older Ether images are incompatible. Chart rendering
+probe/drain contract below. Older Ether images are incompatible. At the time of
+chart preparation, the runtime accepts full nodes and a guarded transcode
+implementation; source, delivery and server-only graphs remain gated. The mixed
+role example is an acceptance target, not a claim that those roles already work. Chart rendering
 checks do not establish playback continuity; that requires the acceptance run.
 
 The chart uses external PostgreSQL, one StatefulSet for each enabled role pool,
@@ -69,7 +72,7 @@ helm upgrade --install ether packaging/helm/ether -n ether \
 kubectl -n ether get pods,pvc,svc
 ```
 
-`full` runs all roles; `server` exposes the public frontend; `source`, `transcode`
+`full` maps to the runtime’s empty roles array and runs all roles; `server` exposes the public frontend; `source`, `transcode`
 and `delivery` are specialists without public Plex listeners. Enable the pools
 needed for your topology. Public service selectors only match full/server pods.
 Specialists are runtime roles, not separate products; changing role mix does not
@@ -230,3 +233,27 @@ References: [StatefulSet identity and retained volumes](https://kubernetes.io/do
 [Helm chart schemas](https://helm.sh/docs/topics/charts/),
 [Kubernetes device plugins](https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/device-plugins/),
 [NVIDIA device plugin prerequisites](https://github.com/NVIDIA/k8s-device-plugin#prerequisites).
+
+For independent API validation, create an isolated `ether035-ha` namespace, set
+`KUBECONFIG` to the lab kubeconfig, and run
+`packaging/kubernetes/api-check.sh ether035-ha`. This uses the exact mixed-role,
+persistent-cache, Ingress and NetworkPolicy fixture and applies only a server
+dry run. It does not start workloads or need credential Secret bytes.
+
+For a multi-node kind lab, `packaging/kubernetes/kind.yaml` creates one control
+plane and two workers. The explicitly isolated hard-loss harness is:
+
+```sh
+packaging/kubernetes/hard-loss.sh ether035-ha ether035-ha-worker \
+  /path/to/real-playback-verifier /tmp/ether035-hard-loss-evidence
+```
+
+It verifies the kind cluster label, records the exact container ID, stops only
+that worker, checks Docker reports `running=false` and `pid=0`, and restores it
+on exit. Its verifier stages (`before-loss`, `during-loss`, `after-loss`,
+`after-recovery`) must demonstrate ongoing playback, authority/fencing and
+retirement evidence while the node is actually stopped. Place redundant public
+and worker capacity on other nodes before running it. A single-worker GPU pool
+cannot maintain a hardware transcode when its sole device is lost. Do not
+substitute a readiness-only or fabricated response verifier. A failed verifier
+means acceptance failed, even if the node restarts.
