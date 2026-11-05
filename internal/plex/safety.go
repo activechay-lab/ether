@@ -79,6 +79,9 @@ func (s *Server) visibility() experience.Visibility {
 }
 
 func (s *Server) visibleTitle(ctx context.Context, u *core.User, t *core.Title) bool {
+	if _, ok := shelfMember(ctx, t.Key); ok {
+		return s.titleAllowed(u, t)
+	}
 	return s.visibility().Visible(ctx, u, t) && s.plexMetaRatingAllowed(u, t)
 }
 func (s *Server) playableTitle(ctx context.Context, u *core.User, t *core.Title) bool {

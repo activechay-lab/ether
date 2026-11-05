@@ -83,6 +83,7 @@ func TestDigitalLargeCatalogueLatency(t *testing.T) {
 	defer a.Close()
 	wrapped := measureCatalog{c, a}
 	f.srv.d.Catalog = wrapped
+	f.srv.d.DB = db
 	f.srv.d.FilterAvailable = a.FilterDiscovery
 	keys := make([]core.RatingKey, 200)
 	for i := range keys {
@@ -138,6 +139,24 @@ func TestDigitalLargeCatalogueLatency(t *testing.T) {
 		t.Fatal("measure row missing")
 	}
 	measure("row paging (50 items)", func(i int) {
+		u, _ := url.Parse(rowKey)
+		q := u.Query()
+		q.Set("X-Plex-Container-Start", fmt.Sprint((i%4)*50))
+		q.Set("X-Plex-Container-Size", "50")
+		u.RawQuery = q.Encode()
+		response := f.get(t, u.String(), "Accept", "application/json")
+		var page struct{ MediaContainer model.MediaContainer }
+		if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
+			t.Fatal(err)
+		}
+		if response.Code != 200 || page.MediaContainer.Size != 50 || page.MediaContainer.TotalSize == nil || *page.MediaContainer.TotalSize != 200 {
+			t.Fatalf("row: %d %s", response.Code, response.Body.String())
+		}
+	})
+	measure("row paging (shared-store recovery, 50 items)", func(i int) {
+		f.srv.shelfMu.Lock()
+		f.srv.shelfGenerations = nil
+		f.srv.shelfMu.Unlock()
 		u, _ := url.Parse(rowKey)
 		q := u.Query()
 		q.Set("X-Plex-Container-Start", fmt.Sprint((i%4)*50))

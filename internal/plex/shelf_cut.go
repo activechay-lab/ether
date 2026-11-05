@@ -12,12 +12,26 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plex/model"
+	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // The refresh interval selects a NEW generation only when building a screen.
 // Continuations name the immutable generation, never the current wall clock.
 const shelfGenerationParam = "etherShelf"
 const shelfMaxBytes = 32 << 20
+const shelfRetention = 7 * 24 * time.Hour
+
+func init() {
+	store.Register("plex_shelf_generations", 1, `
+CREATE TABLE plex_shelf_generations (
+ generation TEXT PRIMARY KEY,
+ scope TEXT NOT NULL,
+ path TEXT NOT NULL,
+ keys_json TEXT NOT NULL,
+ expires_at BIGINT NOT NULL
+);
+CREATE INDEX plex_shelf_generations_expiry ON plex_shelf_generations(expires_at);`)
+}
 
 type shelfCut struct {
 	at         time.Time
@@ -25,34 +39,35 @@ type shelfCut struct {
 	revision   string
 }
 type shelfGeneration struct {
-	scope  string
-	paths  map[string]bool
-	items  []core.Title
-	bytes  int
-	serial uint64
+	scope   string
+	path    string
+	keys    []core.RatingKey
+	expires int64
+	items   []core.Title
+	bytes   int
+	serial  uint64
 }
 
 func (s *Server) shelfScope(ctx context.Context, pr *Request) (string, string, bool) {
-	hard := fmt.Sprintf("%+v", pr.User)
+	user, _ := json.Marshal(pr.User)
 	viewerRevision := ""
+	var policy int64
 	if src := s.d.HomeCache; src != nil && src.Revision != nil {
 		rev, err := src.Revision(ctx, pr.User)
 		if err != nil {
 			return "", "", false
 		}
-		// Watch state and owner layout may rebuild a screen, but do not
-		// revoke a continuation. Only authorization/settings belong here.
 		viewerRevision = rev.Viewer
-		var settings uint64
-		if src.Config != nil {
-			settings = src.Config()
-		}
-		hard += fmt.Sprintf("|%d", settings)
 		if s.viewerRestricted(pr.User) {
-			hard += fmt.Sprintf("|%d", rev.Policy)
+			policy = rev.Policy
 		}
 	}
-	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%t", hard, pr.ClientID, pr.Language, pr.Product, pr.Version, pr.Platform, pr.PlatformVersion, pr.Device, pr.Model, pr.Remote), viewerRevision, true
+	// Local config/layout counters and timestamp formatting are not cluster
+	// identities. Authorization is the shared policy epoch and stable user data.
+	data, _ := json.Marshal([]any{json.RawMessage(user), pr.User != nil && pr.User.Delegated, policy,
+		pr.ClientID, pr.Language, pr.Product, pr.Version, pr.Platform, pr.PlatformVersion,
+		pr.Device, pr.DeviceName, pr.Model, pr.ProfileExtra, pr.ClientCapabilities, pr.Remote})
+	return fmt.Sprintf("%x", sha256.Sum256(data)), viewerRevision, true
 }
 
 func (s *Server) shelfSnapshot(ctx context.Context, pr *Request, h core.Hub, hc hubCtx, build func() ([]core.Title, []model.Metadata)) ([]core.Title, string) {
@@ -88,13 +103,18 @@ func (s *Server) shelfSnapshot(ctx context.Context, pr *Request, h core.Hub, hc 
 			unique = append(unique, byKey[item.RatingKey])
 		}
 	}
-	data, _ := json.Marshal(unique)
+	keys := make([]core.RatingKey, 0, len(unique))
+	for _, title := range unique {
+		keys = append(keys, title.Key)
+	}
+	data, _ := json.Marshal(keys)
+	footprint, _ := json.Marshal(unique)
 	generation := fmt.Sprintf("%x", sha256.Sum256(append([]byte(identity+"|"), data...)))
 	s.shelfMu.Lock()
-	defer s.shelfMu.Unlock()
 	// Concurrent screen builds must publish the same winning generation.
 	if cut, ok := s.shelfCuts[identity]; ok && cut.revision == viewerRevision && now.Sub(cut.at) < 5*time.Minute && !now.Before(cut.at) {
 		if gen, ok := s.shelfGenerations[cut.generation]; ok {
+			s.shelfMu.Unlock()
 			return gen.items, cut.generation
 		}
 	}
@@ -106,12 +126,11 @@ func (s *Server) shelfSnapshot(ctx context.Context, pr *Request, h core.Hub, hc 
 	}
 	if _, ok := s.shelfGenerations[generation]; !ok {
 		s.shelfSerial++
-		s.shelfGenerations[generation] = shelfGeneration{scope: scope, paths: map[string]bool{}, items: unique, bytes: len(data), serial: s.shelfSerial}
-		s.shelfBytes += len(data)
+		s.shelfGenerations[generation] = shelfGeneration{scope: scope, path: shelfPath(hubItemsKey(h, hc)), keys: keys, expires: now.Add(shelfRetention).Unix(), items: unique, bytes: len(footprint), serial: s.shelfSerial}
+		s.shelfBytes += len(footprint)
 	}
 	s.shelfCuts[identity] = shelfCut{now, generation, viewerRevision}
-	// Bound retained generations by memory, not idle time. Evicted URLs fail
-	// explicitly (410); they must NEVER fall through to a rebuilt listing.
+	// The memory cache is an acceleration only; shared keys survive its eviction.
 	for (s.shelfBytes > shelfMaxBytes || len(s.shelfGenerations) > 512) && len(s.shelfGenerations) > 1 {
 		oldest := generation
 		for k, g := range s.shelfGenerations {
@@ -127,7 +146,26 @@ func (s *Server) shelfSnapshot(ctx context.Context, pr *Request, h core.Hub, hc 
 			}
 		}
 	}
-	return s.shelfGenerations[generation].items, generation
+	g := s.shelfGenerations[generation]
+	g.expires = now.Add(shelfRetention).Unix()
+	s.shelfGenerations[generation] = g
+	sweep := now.Sub(s.shelfSweepAt) >= time.Hour || s.shelfSweepAt.IsZero()
+	if sweep {
+		s.shelfSweepAt = now
+	}
+	if s.d.DB != nil {
+		_, err := s.d.DB.ExecContext(ctx, `INSERT INTO plex_shelf_generations(generation,scope,path,keys_json,expires_at) VALUES(?,?,?,?,?) ON CONFLICT(generation) DO UPDATE SET expires_at=excluded.expires_at`, generation, g.scope, g.path, string(data), now.Add(shelfRetention).Unix())
+		if err != nil {
+			s.log.Warn("retain shelf generation", "err", err)
+		}
+		if sweep {
+			if _, err := s.d.DB.ExecContext(ctx, `DELETE FROM plex_shelf_generations WHERE expires_at < ?`, now.Unix()); err != nil {
+				s.log.Warn("expire shelf generations", "err", err)
+			}
+		}
+	}
+	s.shelfMu.Unlock()
+	return g.items, generation
 }
 
 func (s *Server) shelfURL(raw, generation string) string {
@@ -135,54 +173,166 @@ func (s *Server) shelfURL(raw, generation string) string {
 	if err != nil || generation == "" {
 		return raw
 	}
-	s.shelfMu.Lock()
-	g, ok := s.shelfGenerations[generation]
-	if ok {
-		g.paths[u.Path] = true
-	}
-	s.shelfMu.Unlock()
 	q := u.Query()
 	q.Set(shelfGenerationParam, generation)
 	u.RawQuery = q.Encode()
 	return u.String()
 }
 
-// Registered on the existing PMS listing routes, after authentication. The
-// opaque key is scoped to viewer policy, client and language, not a credential.
+// shelfToken performs one query lookup without constructing url.Values. The
+// overwhelmingly common no-token route (including other queries) allocates nothing.
+func shelfToken(raw string) string {
+	for raw != "" {
+		pair, rest, _ := strings.Cut(raw, "&")
+		raw = rest
+		key, value, _ := strings.Cut(pair, "=")
+		if key == shelfGenerationParam {
+			v, _ := url.QueryUnescape(value)
+			return v
+		}
+	}
+	return ""
+}
+
+func shelfPath(raw string) string { u, _ := url.Parse(raw); return u.Path }
+
+func (s *Server) recoverShelf(ctx context.Context, generation string) (shelfGeneration, bool) {
+	s.shelfMu.Lock()
+	g, ok := s.shelfGenerations[generation]
+	s.shelfMu.Unlock()
+	if ok {
+		return g, true
+	}
+	if s.d.DB == nil {
+		return shelfGeneration{}, false
+	}
+	var data string
+	err := s.d.DB.QueryRowContext(ctx, `SELECT scope,path,keys_json,expires_at FROM plex_shelf_generations WHERE generation=? AND expires_at>=?`, generation, s.now().Unix()).Scan(&g.scope, &g.path, &data, &g.expires)
+	if err != nil || json.Unmarshal([]byte(data), &g.keys) != nil {
+		return shelfGeneration{}, false
+	}
+	return g, true
+}
+
+func (s *Server) shelfTitles(ctx context.Context, pr *Request, g shelfGeneration, keys []core.RatingKey) ([]core.Title, bool) {
+	titles := g.items
+	if len(titles) == 0 && len(keys) > 0 {
+		if cached, ok := s.d.Catalog.(core.CachedTitleSource); ok {
+			var err error
+			titles, err = cached.CachedTitles(ctx, keys)
+			if err != nil {
+				return nil, false
+			}
+		} else {
+			for _, key := range keys {
+				t, err := s.metadataTitle(ctx, pr, key)
+				if err != nil {
+					return nil, false
+				}
+				titles = append(titles, *t)
+			}
+		}
+	}
+	byKey := map[core.RatingKey]core.Title{}
+	for _, t := range titles {
+		byKey[t.Key] = t
+	}
+	ordered := make([]core.Title, 0, len(keys))
+	for _, key := range keys {
+		t, ok := byKey[key]
+		if !ok {
+			return nil, false
+		}
+		ordered = append(ordered, t)
+	}
+	return ordered, true
+}
+
+type shelfMembershipKey struct{}
+
+func shelfMember(ctx context.Context, key core.RatingKey) (core.Title, bool) {
+	titles, _ := ctx.Value(shelfMembershipKey{}).(map[core.RatingKey]core.Title)
+	title, ok := titles[key]
+	return title, ok
+}
+func shelfContainsAll(ctx context.Context, titles []core.Title) bool {
+	if len(titles) == 0 {
+		return false
+	}
+	for _, t := range titles {
+		if _, ok := shelfMember(ctx, t.Key); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// Registered after authentication. Missing shared generations fall through to
+// the current route's build; scope violations still fail current authorization.
 func (s *Server) serveShelfGeneration(w http.ResponseWriter, r *http.Request) bool {
-	generation := r.URL.Query().Get(shelfGenerationParam)
+	generation := shelfToken(r.URL.RawQuery)
 	if generation == "" {
+		return false
+	}
+	g, ok := s.recoverShelf(r.Context(), generation)
+	if !ok {
 		return false
 	}
 	pr := FromContext(r.Context())
 	scope, _, valid := s.shelfScope(r.Context(), pr)
-	s.shelfMu.Lock()
-	g, ok := s.shelfGenerations[generation]
-	pathOK := ok && g.paths[r.URL.Path]
-	s.shelfMu.Unlock()
-	if !ok {
-		writeHTTPError(w, http.StatusGone)
-		return true
-	}
-	if !valid || g.scope != scope || !pathOK {
+	if !valid || g.scope != scope {
 		writeHTTPError(w, http.StatusNotFound)
 		return true
 	}
-	items := g.items
-	// PMS hubKey explicitly names just the displayed metadata, not the rest
-	// of the row. Its response must preserve that subset.
-	if strings.HasPrefix(r.URL.Path, "/library/metadata/") {
-		n := len(strings.Split(strings.TrimPrefix(r.URL.Path, "/library/metadata/"), ","))
-		items = items[:min(n, len(items))]
+	keys := g.keys
+	metadata := strings.HasPrefix(r.URL.Path, "/library/metadata/")
+	if metadata {
+		requested, err := parseKeys(strings.TrimPrefix(r.URL.Path, "/library/metadata/"))
+		if err != nil || len(requested) > len(keys) {
+			writeHTTPError(w, http.StatusNotFound)
+			return true
+		}
+		for i, key := range requested {
+			if keys[i] != key {
+				writeHTTPError(w, http.StatusNotFound)
+				return true
+			}
+		}
+		keys = requested
+	} else if r.URL.Path != g.path {
+		writeHTTPError(w, http.StatusNotFound)
+		return true
 	}
-	total := len(items)
-	start := min(max(pr.Start, 0), total)
-	size := total - start
-	if pr.HasPage {
-		size = min(max(pr.Size, 0), size)
+	total := len(keys)
+	start, end := pr.window(total)
+	if metadata {
+		start, end = 0, total
+	} // PMS hubKey names a detail subset, not a listing.
+	titles, ok := s.shelfTitles(r.Context(), pr, g, keys[start:end])
+	if !ok {
+		return false
+	}
+	if metadata {
+		members := map[core.RatingKey]core.Title{}
+		for _, t := range titles {
+			members[t.Key] = t
+		}
+		*r = *r.WithContext(context.WithValue(r.Context(), shelfMembershipKey{}, members))
+		return false // retain the existing full-detail metadata renderer and container
 	}
 	mc := hubContainer()
-	mc.Metadata = s.renderTitles(r.Context(), pr, items[start:start+size], renderOpts{media: true, availabilityInSQL: true})
+	if strings.HasPrefix(r.URL.Path, "/library/collections/") {
+		key, err := keyParam(r)
+		if err != nil {
+			return false
+		}
+		c, err := s.collectionRaw(r.Context(), pr.User, key)
+		if err != nil {
+			return false
+		}
+		mc = s.collectionItemsContainer(c, key)
+	}
+	mc.Metadata = s.renderTitles(r.Context(), pr, titles, renderOpts{media: true, availabilityInSQL: true})
 	mc.Size = len(mc.Metadata)
 	mc.SetPage(start, total)
 	s.write(w, r, mc)

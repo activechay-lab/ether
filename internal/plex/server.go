@@ -149,8 +149,9 @@ type Deps struct {
 	DirectHTTP *http.Client
 	// ImageCacheBytes bounds the in-memory artwork cache (default 128 MiB).
 	ImageCacheBytes int64
-	// DB persists derived artwork data (UltraBlurColors) in plex_* tables.
-	// Optional: without it, colours are kept in memory only.
+	// DB persists artwork data and ordered shelf-generation keys. Clustered
+	// nodes share this store so continuations survive failover and restarts.
+	// Optional: without it, these caches remain process-local.
 	DB *sql.DB
 	// DisableEnrichment turns off the background title-detail and
 	// UltraBlurColors work (the spike test library has nothing to fetch).
@@ -188,6 +189,7 @@ type Server struct {
 	shelfGenerations map[string]shelfGeneration
 	shelfBytes       int
 	shelfSerial      uint64
+	shelfSweepAt     time.Time
 	homeSharedMu     sync.Mutex
 	homeShared       map[string]*homeSharedEntry
 	home             *homeCache

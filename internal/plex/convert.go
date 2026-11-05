@@ -1177,7 +1177,7 @@ func languageTag(code string) string {
 func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []core.Title, o renderOpts) []model.Metadata {
 	ctx = withStoredPolicy(ctx)
 	ts = s.visibleTitles(pr.User, ts)
-	if !o.availabilityInSQL {
+	if !o.availabilityInSQL && !shelfContainsAll(ctx, ts) {
 		ts = s.availableForViewer(ctx, pr.User, ts)
 	}
 	if len(ts) == 0 {
