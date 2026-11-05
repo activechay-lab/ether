@@ -12,7 +12,6 @@ import (
 // Immutable local facts captured by the planner, never a request-side catalogue
 // lookup. The pointer is the policy identity carried through the encoder.
 type broadcastPolicyTag struct {
-	deny      bool
 	programme Programme
 	title     *core.Title
 	catalog   bool
@@ -117,9 +116,6 @@ func (s *Service) broadcastTagsAllowed(ctx context.Context, ss *session, tags []
 			}
 			continue
 		} // channel-only screen
-		if tag.deny {
-			return false
-		}
 		allowed, found := cache.decisions[tag]
 		if !found {
 			var lookup func(context.Context, core.RatingKey) (*core.Title, error)
