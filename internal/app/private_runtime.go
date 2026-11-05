@@ -344,6 +344,7 @@ func (a *App) runSpecialist(ctx context.Context) error {
 		return err
 	}
 	defer a.cluster.Close()
+	background.start(func() { a.runNodeControl(ctx) })
 	if a.fetcher != nil {
 		background.start(func() { a.runBudgets(ctx) })
 		background.start(func() { a.runEgress(ctx) })
