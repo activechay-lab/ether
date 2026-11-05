@@ -1078,6 +1078,12 @@ func (c *Catalog) ensureSortTitlesFolded(ctx context.Context) {
 	if c.getMeta(ctx, sortTitleFoldedKey) == sortTitleFoldedVersion {
 		return
 	}
+	var total int
+	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles`).Scan(&total); err != nil {
+		return
+	}
+	done := 0
+	store.WorkProgress(ctx, "sort_titles", done, total)
 	var updates []sortTitleUpdate
 	lastKey := int64(math.MinInt64)
 	for {
@@ -1114,6 +1120,8 @@ func (c *Catalog) ensureSortTitlesFolded(ctx context.Context) {
 				return
 			}
 		}
+		done += pageRows
+		store.WorkProgress(ctx, "sort_titles", done, total)
 		if pageRows < sortTitleFoldBatchSize {
 			break
 		}

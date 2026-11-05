@@ -1,0 +1,8 @@
+=== RUN   TestUpgradeManual
+2026/11/05 13:24:48 WARN store: this database was migrated by a newer Ether; this version keeps running on it because migrations only add, but if something misbehaves, upgrade again or restore a backup or the pre-migrate snapshot taken before that upgrade components="[cluster 3 > 2 resolver 5 > 3]" snapshot=/tmp/ether-upgrade-old/ether.db.pre-migrate.bak
+    upgrade_manual_test.go:79: STEP open 51.646292ms; schema total 51.646333ms
+    upgrade_manual_test.go:113: STEP IPTV sources 9m35.37575675s
+    upgrade_manual_test.go:115: TOTAL 9m35.43152025s
+--- PASS: TestUpgradeManual (575.44s)
+PASS
+ok  	github.com/braedonsaunders/ether/internal/app	576.209s

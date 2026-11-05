@@ -1,0 +1,25 @@
+=== RUN   TestUpgradeManual
+    upgrade_manual_test.go:45: STEP open 19.5595ms
+2026/11/05 13:20:01 INFO store: snapshot taken before applying database migrations path=/tmp/ether-upgrade-old/ether.db.pre-migrate.bak
+    upgrade_manual_test.go:45: STEP snapshot 1/11 15.421119084s
+    upgrade_manual_test.go:45: STEP migrate 1/11 5.632125ms
+2026/11/05 13:20:05 WARN sqlite writer held holder=github.com/braedonsaunders/ether/internal/app.TestUpgradeManual duration=4.152104167s
+    upgrade_manual_test.go:45: STEP migrate 2/11 4.152346084s
+    upgrade_manual_test.go:45: STEP migrate 3/11 6.524ms
+    upgrade_manual_test.go:45: STEP migrate 4/11 6.365459ms
+    upgrade_manual_test.go:45: STEP migrate 5/11 6.487333ms
+    upgrade_manual_test.go:45: STEP migrate 6/11 5.326625ms
+    upgrade_manual_test.go:45: STEP migrate 7/11 7.920458ms
+    upgrade_manual_test.go:45: STEP migrate 8/11 7.635459ms
+    upgrade_manual_test.go:45: STEP migrate 9/11 842.434ms
+    upgrade_manual_test.go:45: STEP migrate 10/11 8.515834ms
+    upgrade_manual_test.go:53: STEP migrate 11/11 399.9755ms; schema total 20.8908175s
+2026/11/05 13:20:07 INFO config: converted stored credentials to v2 legacy=0 plaintext=0
+    upgrade_manual_test.go:86: STEP credential blobs 3m17.792587625s
+    upgrade_manual_test.go:86: STEP IPTV sources 6.462606625s
+    upgrade_manual_test.go:86: STEP Trakt tokens 5.5491365s
+    upgrade_manual_test.go:86: STEP checkpoint 12.946875ms
+    upgrade_manual_test.go:88: TOTAL 3m51.377776292s
+--- PASS: TestUpgradeManual (231.38s)
+PASS
+ok  	github.com/braedonsaunders/ether/internal/app	232.287s

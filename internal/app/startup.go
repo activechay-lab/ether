@@ -230,9 +230,11 @@ func (a *App) storeProgress(p store.Progress) {
 	switch p.Stage {
 	case store.StageSnapshot:
 		a.tracker.Set(startup.PhaseBackingUp)
+		a.upgradeProgress("snapshot", 0, 0)
 	case store.StageMigrate:
 		a.tracker.Set(startup.PhaseMigrating)
 		a.tracker.Progress(p.Done+1, p.Total)
+		a.upgradeProgress(p.Name, 0, 0)
 	}
 }
 
@@ -314,4 +316,15 @@ func (a *App) recordIntegrity(res store.Integrity) {
 	}
 	a.log.Error("database integrity check failed: the database file is damaged. Ether keeps running so you can restore a backup from Maintenance → Backups",
 		"findings", res.Findings)
+}
+
+// upgradeProgress logs bounded progress without including credentials.
+func (a *App) upgradeProgress(name string, done, total int) {
+	if a.tracker == nil {
+		return
+	}
+	a.tracker.Work(name, done, total)
+	if done == 0 || done == total || done%5000 == 0 {
+		a.log.Info("startup: upgrade progress", "task", name, "done", done, "total", total)
+	}
 }

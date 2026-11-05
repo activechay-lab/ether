@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // Stored tokens are sealed per user and column (config.FieldSealer), so a
@@ -69,9 +70,12 @@ func (c *Client) MigrateSecrets(ctx context.Context) (int, error) {
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
+	batch := store.NewUpgradeBatch(c.db)
+	defer batch.Close()
 	n, failed := 0, 0
 	var firstErr error
-	for _, r := range all {
+	for i, r := range all {
+		store.WorkProgress(ctx, "tokens", i, len(all))
 		access, refresh, legacy, err := c.openTokens(r.user, r.access, r.refresh)
 		if err != nil {
 			failed++
@@ -90,7 +94,7 @@ func (c *Client) MigrateSecrets(ctx context.Context) (int, error) {
 		if sa == r.access && sr == r.refresh {
 			continue // sealing not enabled yet
 		}
-		res, err := c.db.ExecContext(ctx, `UPDATE trakt_tokens SET access_token=?, refresh_token=? WHERE user_id=? AND access_token=? AND refresh_token=?`,
+		res, err := batch.ExecContext(ctx, `UPDATE trakt_tokens SET access_token=?, refresh_token=? WHERE user_id=? AND access_token=? AND refresh_token=?`,
 			sa, sr, r.user, r.access, r.refresh)
 		if err != nil {
 			return n, err
@@ -99,6 +103,10 @@ func (c *Client) MigrateSecrets(ctx context.Context) (int, error) {
 			n++
 		}
 	}
+	if err := batch.Flush(); err != nil {
+		return n, err
+	}
+	store.WorkProgress(ctx, "tokens", len(all), len(all))
 	if failed > 0 {
 		return n, fmt.Errorf("trakt: %d stored token row(s) could not be opened and were left unchanged: %w", failed, firstErr)
 	}

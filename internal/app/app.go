@@ -334,6 +334,8 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		return nil, err
 	}
 
+	ctx = store.WithWorkProgress(ctx, a.upgradeProgress)
+	a.tracker.Work("settings", 0, 0)
 	// Opening the config may rewrite it for this version, so capture the
 	// files as they are now: a pre-migrate database snapshot stores them, so
 	// the snapshot can be restored together with its matching settings.
@@ -639,6 +641,7 @@ func (a *App) settleBeforeListen(ctx context.Context) {
 		}
 	}
 	if a.db != nil && store.DialectOf(a.db) == store.SQLite {
+		a.upgradeProgress("checkpoint", 0, 0)
 		if _, err := a.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 			a.log.Warn("startup checkpoint", "err", err)
 		}
@@ -650,6 +653,7 @@ func (a *App) Config() *config.Store { return a.cfg }
 
 // Run serves until ctx is cancelled.
 func (a *App) Run(ctx context.Context) error {
+	ctx = store.WithWorkProgress(ctx, a.upgradeProgress)
 	if a.deployment != nil && !a.cfg.Get().Server.NodeRoles.FullServer() {
 		return a.runSpecialist(ctx)
 	}

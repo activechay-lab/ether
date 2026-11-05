@@ -16,7 +16,9 @@ func (a *App) buildCatalogue(ctx context.Context, cfg config.Config) error {
 	a.tmdb = tmdb.NewFromConfig(cfg.Catalog, log.With("component", "tmdb"), parityTMDBOptions()...)
 	parityConfigureTMDB(a.tmdb)
 	a.closers = append(a.closers, a.tmdb.Close)
-	if a.catalog, err = catalog.New(a.db, a.tmdb, cfg.Catalog, log.With("component", "catalog"), append(a.catalogOptions(), parityCatalogueOptions()...)...); err != nil {
+	opts := append(a.catalogOptions(), catalog.WithStartupContext(ctx))
+	opts = append(opts, parityCatalogueOptions()...)
+	if a.catalog, err = catalog.New(a.db, a.tmdb, cfg.Catalog, log.With("component", "catalog"), opts...); err != nil {
 		return fmt.Errorf("catalog: %w", err)
 	}
 
