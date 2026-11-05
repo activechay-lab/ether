@@ -3,23 +3,12 @@ package clusterplayback
 import (
 	"encoding/json"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/remotetranscode"
 )
 
-const maxPreparedKeyframes = 1024
+const maxPreparedKeyframes = remotetranscode.MaxKeyframes
 
-// Complete indexes are transported separately because MediaInfo deliberately
-// excludes its potentially large index from ordinary JSON. Never truncate it.
-func validPreparedKeyframes(info core.MediaInfo) bool {
-	if len(info.Keyframes) > maxPreparedKeyframes {
-		return false
-	}
-	for i, point := range info.Keyframes {
-		if point.Offset < 0 || point.Time < 0 || i > 0 && (point.Offset < info.Keyframes[i-1].Offset || point.Time < info.Keyframes[i-1].Time) {
-			return false
-		}
-	}
-	return true
-}
+func validPreparedKeyframes(info core.MediaInfo) bool { return remotetranscode.ValidateKeyframes(info) }
 
 type preparedAlias PreparedSource
 
