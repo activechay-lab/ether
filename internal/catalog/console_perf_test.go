@@ -3,8 +3,10 @@ package catalog
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/store"
 	"os"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,20 +20,31 @@ func TestConsole600K(t *testing.T) {
 		t.Skip("set ETHER_CATALOG_PERF=1 for the 600k-title performance fixture")
 	}
 	c := largeCatalogue(t, 0)
-	// Bulk fixture import defers FTS maintenance, then rebuilds the same index.
-	// All production browse indexes and release-policy triggers remain active.
-	if _, err := c.db.Exec(`DROP TRIGGER catalog_titles_fts_insert`); err != nil {
-		t.Fatal(err)
+	sqlite := store.DialectOf(c.db) != store.Postgres
+	// SQLite bulk import defers FTS row triggers and rebuilds afterward;
+	// PostgreSQL maintains its production GIN index during this bulk insert.
+	if sqlite {
+		if _, err := c.db.Exec(`DROP TRIGGER catalog_titles_fts_insert`); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Log("loading 600k fixture")
-	if _, err := c.db.ExecContext(context.Background(), `WITH RECURSIVE seq(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM seq WHERE i<600000)
+	insert := `WITH RECURSIVE seq(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM seq WHERE i<600000)
       INSERT INTO catalog_titles(key,type,tmdb_id,title,sort_title,year,released_ts,popularity,rating,vote_count,runtime_sec,language,browsable,adult)
-      SELECT ?+i,'movie',i,printf('Title %06d',i),printf('Title %06d',i),1970+(i%55),1600000000,600000-i,4+(i%60)/10.0,i%10000,3600+(i%180)*60,CASE WHEN i%3=0 THEN 'fr' ELSE 'en' END,1,0 FROM seq`, int64(core.MovieKey(0))); err != nil {
+      SELECT CAST(? AS BIGINT)+i,'movie',i,printf('Title %06d',i),printf('Title %06d',i),1970+(i%55),1600000000,600000-i,4+(i%60)/10.0,i%10000,3600+(i%180)*60,CASE WHEN i%3=0 THEN 'fr' ELSE 'en' END,1,0 FROM seq`
+	if !sqlite {
+		insert = strings.ReplaceAll(insert, "printf('Title %06d',i)", "('Title ' || lpad(CAST(i AS TEXT),6,'0'))")
+	}
+	if _, err := c.db.ExecContext(context.Background(), insert, int64(core.MovieKey(0))); err != nil {
 		t.Fatal(err)
 	}
-	t.Log("rebuilding FTS")
-	if _, err := c.db.Exec(`INSERT INTO catalog_titles_fts(catalog_titles_fts) VALUES('rebuild'); CREATE TRIGGER catalog_titles_fts_insert AFTER INSERT ON catalog_titles BEGIN INSERT INTO catalog_titles_fts(rowid,title,original_title) VALUES(new.key,new.title,new.original_title); END;
-      INSERT INTO catalog_genres(key,genre) SELECT key,CASE WHEN tmdb_id%2=0 THEN 'Thriller' ELSE 'Comedy' END FROM catalog_titles; ANALYZE;`); err != nil {
+	if sqlite {
+		t.Log("rebuilding FTS")
+		if _, err := c.db.Exec(`INSERT INTO catalog_titles_fts(catalog_titles_fts) VALUES('rebuild'); CREATE TRIGGER catalog_titles_fts_insert AFTER INSERT ON catalog_titles BEGIN INSERT INTO catalog_titles_fts(rowid,title,original_title) VALUES(new.key,new.title,new.original_title); END;`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := c.db.Exec(`INSERT INTO catalog_genres(key,genre) SELECT key,CASE WHEN tmdb_id%2=0 THEN 'Thriller' ELSE 'Comedy' END FROM catalog_titles; ANALYZE;`); err != nil {
 		t.Fatal(err)
 	}
 	c.SetConsoleAvailabilityPolicy(func() string { return "perf-policy" })
@@ -42,7 +55,7 @@ func TestConsole600K(t *testing.T) {
 	}{
 		{`INSERT INTO catalog_release_evidence(rating_key,release_id,source_id,policy,verified_until,cache_until,cached,height,hdr,dv,atmos) SELECT key,'fixture-release','fixture-source','perf-policy',?,?,1,2160,1,0,1 FROM catalog_titles WHERE tmdb_id%20=0`, []any{until, until}},
 		{`INSERT INTO state_watch(user_id,rating_key,view_count) SELECT 7,key,1 FROM catalog_titles WHERE tmdb_id%40=0`, nil},
-		{`CREATE TABLE IF NOT EXISTS watchlist_items(user_id INTEGER NOT NULL,item_key INTEGER NOT NULL,source TEXT NOT NULL,title TEXT NOT NULL,added INTEGER NOT NULL,checked INTEGER NOT NULL DEFAULT 0,available INTEGER NOT NULL DEFAULT 0,notified INTEGER NOT NULL DEFAULT 0,warmed INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,item_key,source)); CREATE INDEX IF NOT EXISTS watchlist_viewer ON watchlist_items(user_id,available,added)`, nil},
+		{`CREATE TABLE IF NOT EXISTS watchlist_items(user_id BIGINT NOT NULL,item_key BIGINT NOT NULL,source TEXT NOT NULL,title TEXT NOT NULL,added BIGINT NOT NULL,checked INTEGER NOT NULL DEFAULT 0,available INTEGER NOT NULL DEFAULT 0,notified INTEGER NOT NULL DEFAULT 0,warmed INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,item_key,source)); CREATE INDEX IF NOT EXISTS watchlist_viewer ON watchlist_items(user_id,available,added)`, nil},
 		{`INSERT INTO watchlist_items(user_id,item_key,source,title,added) SELECT 7,key,'local',title,1600000000 FROM catalog_titles WHERE tmdb_id%20=0`, nil},
 		{`ANALYZE`, nil},
 	} {

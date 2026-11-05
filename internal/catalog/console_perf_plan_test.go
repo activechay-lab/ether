@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/store"
 	"testing"
 	"time"
 )
@@ -10,6 +11,9 @@ import (
 // An opt-in plan diagnostic compares covering ordered scans with evidence-led
 // primary-key lookups against the same large fixture and identical predicates.
 func consoleEvidencePlan(t *testing.T, c *Catalog, q core.BrowseQuery) {
+	if store.DialectOf(c.db) == store.Postgres {
+		return
+	}
 	f := normalizeConsoleFilter(q.Filter)
 	f.Type = core.TypeMovie
 	where, args, err := c.browseWhere(f)
