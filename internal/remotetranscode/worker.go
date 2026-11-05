@@ -14,22 +14,27 @@ import (
 )
 
 type WorkerOptions struct {
-	Boot     string
-	Capacity int // Includes all retained tombstones; never evicts unresolved work.
-	MaxLease time.Duration
-	Security Security
-	Resolve  ResolveSource
-	Encoder  core.OwnedTranscoder
+	ValidateRenewal ValidateRenewal // Nil explicitly disables renewal.
+	Boot            string
+	Capacity        int // Includes all retained tombstones; never evicts unresolved work.
+	MaxLease        time.Duration
+	Security        Security
+	Resolve         ResolveSource
+	Encoder         core.OwnedTranscoder
 }
 type execution struct {
+	start                     Start // Immutable original grant and expiry, separate from current lease.
+	lease                     LeaseState
 	id                        Identity
 	hash                      [32]byte
 	session                   core.OwnedEncoderSession
 	retirement                core.EncoderRetirement
 	input                     core.EncoderInputLease
+	gatewayInput              core.EncoderInputLease
 	starting, stopped, failed bool
 	cancel                    context.CancelFunc
 	timer                     *time.Timer
+	monotonicDeadline         time.Time // Local elapsed-time cap; never serialized.
 }
 type Worker struct {
 	mu      sync.Mutex
@@ -70,6 +75,9 @@ func (w *Worker) stop(e *execution) {
 	if e.input != nil {
 		e.input.SealInput()
 	}
+	if e.gatewayInput != nil {
+		e.gatewayInput.SealInput()
+	}
 	if e.session != nil {
 		_ = e.session.RetireEncoder()
 	}
@@ -93,14 +101,16 @@ func result(e *execution) string {
 	} else if !e.stopped {
 		return "pending"
 	}
-	if e.input != nil {
-		select {
-		case <-e.input.InputDone():
-			if e.input.InputErr() != nil {
-				return "unverified"
+	for _, input := range []core.EncoderInputLease{e.input, e.gatewayInput} {
+		if input != nil {
+			select {
+			case <-input.InputDone():
+				if input.InputErr() != nil {
+					return "unverified"
+				}
+			default:
+				return "pending"
 			}
-		default:
-			return "pending"
 		}
 	}
 	return "retired"
@@ -127,7 +137,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "invalid request", 400)
 		return
 	}
-	if m.Op != "start" && m.Op != "stop" && m.Op != "status" && m.Op != "playlist" && m.Op != "segment" {
+	if m.Op != "renew" && m.Op != "start" && m.Op != "stop" && m.Op != "status" && m.Op != "playlist" && m.Op != "segment" {
 		http.Error(out, "unsupported operation", 422)
 		return
 	}
@@ -140,12 +150,25 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "invalid request", 400)
 		return
 	}
+	if m.Op == "renew" {
+		if m.Renewal == nil || m.Renewal.Identity != m.Identity || !validRenewal(*m.Renewal) {
+			http.Error(out, "invalid renewal", 400)
+			return
+		}
+	} else if m.Renewal != nil {
+		http.Error(out, "invalid request", 400)
+		return
+	}
 	if m.Segment < -1 || m.Segment > 10000000 {
 		http.Error(out, "invalid segment", 400)
 		return
 	}
 	if w.opts.Security.Authorize(r.Context(), peer, m.Op, m.Identity, m.Start) != nil {
 		http.Error(out, "operation denied", 403)
+		return
+	}
+	if m.Op == "renew" {
+		w.renew(out, r, peer, *m.Renewal)
 		return
 	}
 	if m.Op == "start" {
@@ -168,14 +191,16 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "unknown execution", 409)
 		return
 	}
+	w.expire(e)
 	if m.Op == "stop" {
 		w.stop(e)
 	}
 	state := result(e)
 	s := e.session
 	if m.Op == "status" || m.Op == "stop" {
+		snapshot := w.snapshot(e)
 		w.mu.Unlock()
-		reply(out, state, e.id)
+		replyStatus(out, snapshot)
 		return
 	}
 	if e.stopped || state != "running" || s == nil {
@@ -209,14 +234,15 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	hash := sha256.Sum256(encoded)
 	w.mu.Lock()
 	if e := w.records[s.Identity]; e != nil {
-		state := result(e)
+		w.expire(e)
+		snapshot := w.snapshot(e)
 		same := e.hash == hash && !e.stopped
 		w.mu.Unlock()
 		if !same {
 			http.Error(out, "generation conflict", 409)
 			return
 		}
-		reply(out, state, e.id)
+		replyStatus(out, snapshot)
 		return
 	}
 	key := s.Identity.Controller + "/" + s.Identity.Session
@@ -234,10 +260,11 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 		}
 	}
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
-	e := &execution{id: s.Identity, hash: hash, starting: true, cancel: cancel}
+	e := &execution{start: s, lease: LeaseState{Deadline: s.Expires.UTC(), Renewable: w.opts.ValidateRenewal != nil}, id: s.Identity, hash: hash, starting: true, cancel: cancel}
 	w.records[s.Identity] = e
 	w.highest[key] = s.Identity.Generation
-	e.timer = time.AfterFunc(time.Until(s.Expires), func() { w.mu.Lock(); defer w.mu.Unlock(); w.stop(e) })
+	w.setMonotonicDeadline(e)
+	w.arm(e)
 	w.mu.Unlock()
 	// Request cancellation seals a late start, but never forgets its responsibility.
 	disconnect := context.AfterFunc(r.Context(), func() { w.mu.Lock(); defer w.mu.Unlock(); w.stop(e) })
@@ -246,11 +273,28 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	var session core.HLSSession
 	var retirement core.EncoderRetirement
 	invoked := false
-	if err == nil && (!privateURL(source.URL) || source.Lease == nil) {
+	var gatewayLease core.EncoderInputLease
+	if source.Gateway != nil {
+		// Outside worker mutex. Preserve responsibility even when Resolve or the
+		// gateway fails, or when a resolver violates the mutually exclusive contract.
+		raw, lease, gatewayErr := source.Gateway.GatewayInput(s.Identity, s.Grant)
+		gatewayLease = lease
+		if err == nil && gatewayErr == nil && source.URL == "" && source.Lease == nil && gatewayURL(raw) && lease != nil {
+			source.URL = raw
+		} else {
+			err = errors.New("invalid trusted gateway input")
+		}
+	} else if err == nil && (!privateURL(source.URL) || source.Lease == nil) {
 		err = errors.New("invalid authorized source")
 	}
 	w.mu.Lock()
 	e.input = source.Lease
+	e.gatewayInput = gatewayLease
+	input := source.Lease
+	if source.Gateway != nil {
+		input = gatewayLease
+	}
+	w.expire(e)
 	stopped := e.stopped
 	w.mu.Unlock()
 	if stopped {
@@ -258,10 +302,10 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	}
 	if err == nil {
 		invoked = true
-		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), InputURL: source.URL, InputLease: source.Lease, Info: s.Info, Decision: s.Decision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, Protocol: core.ProtocolHLS})
+		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), InputURL: source.URL, InputLease: input, Info: s.Info, Decision: s.Decision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, Protocol: core.ProtocolHLS})
 	}
 	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.expire(e)
 	e.starting = false
 	e.retirement = retirement
 	if session != nil {
@@ -283,11 +327,13 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 		e.failed = true
 		w.stop(e)
 	}
-	if e.failed {
+	failed, snapshot := e.failed, w.snapshot(e)
+	w.mu.Unlock()
+	if failed {
 		http.Error(out, "start failed; reconcile execution", 409)
 		return
 	}
-	reply(out, result(e), e.id)
+	replyStatus(out, snapshot)
 }
 func executionID(i Identity) string {
 	b, _ := json.Marshal(i)
@@ -299,4 +345,116 @@ func executionID(i Identity) string {
 		out[j*2+1] = hex[v&15]
 	}
 	return string(out)
+}
+
+// All lease transitions and deadline checks run under mu. Timer.Stop alone is
+// insufficient: an already queued old callback must compare the accepted lease.
+func (w *Worker) expire(e *execution) {
+	if w.expired(e, time.Now()) {
+		w.stop(e)
+	}
+}
+func (w *Worker) expired(e *execution, now time.Time) bool {
+	return (!e.lease.Deadline.IsZero() && !now.Before(e.lease.Deadline)) ||
+		(!e.monotonicDeadline.IsZero() && !now.Before(e.monotonicDeadline))
+}
+func (w *Worker) setMonotonicDeadline(e *execution) {
+	now := time.Now()
+	// Add retains now's monotonic reading; wall-clock rollback cannot extend this
+	// accepted execution's elapsed lifetime. A renewed lease gets a new bound.
+	e.monotonicDeadline = now.Add(e.lease.Deadline.Sub(now))
+}
+func (w *Worker) arm(e *execution) {
+	if e.timer != nil {
+		e.timer.Stop()
+	}
+	version, deadline, cap := e.lease.Version, e.lease.Deadline, e.monotonicDeadline
+	wait := time.Until(deadline)
+	if !e.monotonicDeadline.IsZero() {
+		wait = min(wait, time.Until(e.monotonicDeadline))
+	}
+	e.timer = time.AfterFunc(wait, func() { w.expireVersion(e, version, deadline, cap) })
+}
+func (w *Worker) expireVersion(e *execution, version uint64, deadline, cap time.Time) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if e.lease.Version == version && e.lease.Deadline.Equal(deadline) && e.monotonicDeadline == cap {
+		w.expire(e)
+		// An early callback must not lose the only timer.
+		if !e.stopped {
+			w.arm(e)
+		}
+	}
+}
+func (w *Worker) snapshot(e *execution) status {
+	lease := e.lease
+	if lease.Accepted != nil {
+		accepted := *lease.Accepted
+		lease.Accepted = &accepted
+	}
+	return status{State: result(e), Identity: e.id, Lease: lease, Stopped: e.stopped}
+}
+func replyStatus(out http.ResponseWriter, s status) {
+	out.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(out).Encode(s)
+}
+func (w *Worker) renew(out http.ResponseWriter, r *http.Request, peer string, n Renewal) {
+	if w.opts.ValidateRenewal == nil {
+		http.Error(out, "renewal unsupported", 422)
+		return
+	}
+	w.mu.Lock()
+	e := w.records[n.Identity]
+	if e == nil {
+		w.mu.Unlock()
+		http.Error(out, "unknown execution", 409)
+		return
+	}
+	w.expire(e)
+	// An exact latest replay reports history even after stop, without new authority.
+	if e.lease.Accepted != nil && sameRenewal(*e.lease.Accepted, n) {
+		snapshot := w.snapshot(e)
+		w.mu.Unlock()
+		replyStatus(out, snapshot)
+		return
+	}
+	if !w.canRenew(e, n) {
+		w.mu.Unlock()
+		http.Error(out, "lease conflict", 409)
+		return
+	}
+	original := e.start
+	w.mu.Unlock()
+	receipt, err := w.opts.ValidateRenewal(r.Context(), peer, original, n)
+	if err != nil || !sameRenewal(receipt.Renewal, n) || receipt.PlacementUntil.Before(n.Deadline) || receipt.SourceUntil.Before(n.Deadline) {
+		http.Error(out, "renewal authority denied", 403)
+		return
+	}
+	w.mu.Lock()
+	w.expire(e)
+	// Concurrent duplicate validation may complete after this operation committed.
+	if e.lease.Accepted != nil && sameRenewal(*e.lease.Accepted, n) {
+		snapshot := w.snapshot(e)
+		w.mu.Unlock()
+		replyStatus(out, snapshot)
+		return
+	}
+	if r.Context().Err() != nil || !w.canRenew(e, n) {
+		w.mu.Unlock()
+		http.Error(out, "lease conflict", 409)
+		return
+	}
+	accepted := n
+	e.lease.Deadline, e.lease.Version, e.lease.Accepted = n.Deadline.UTC(), n.Operation, &accepted
+	w.setMonotonicDeadline(e)
+	w.arm(e)
+	snapshot := w.snapshot(e)
+	w.mu.Unlock()
+	replyStatus(out, snapshot)
+}
+func (w *Worker) canRenew(e *execution, n Renewal) bool {
+	now := time.Now()
+	return !w.closed && !e.stopped && !e.failed && !e.starting && !w.expired(e, now) && e.lease.Deadline.After(now) && result(e) == "running" &&
+		e.lease.Version == n.PreviousVersion && e.lease.Deadline.Equal(n.PreviousDeadline) &&
+		n.Deadline.After(now) && n.Deadline.Sub(now) <= w.opts.MaxLease
 }

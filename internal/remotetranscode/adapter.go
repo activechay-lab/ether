@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 )
 
 type Assignment struct {
@@ -23,11 +24,15 @@ type Assignment struct {
 }
 type AdapterOptions struct {
 	Endpoint string
-	Client   *http.Client // Transport must be *http.Transport with verified mutual TLS.
-	Assign   func(context.Context, core.HLSRequest) (Assignment, error)
-	Decide   func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision
-	Hardware core.HWAccel
-	Capacity int
+	// RecheckServer composes current Guard policy for the expected worker identity.
+	// Fresh TLS per operation; rebuild on rotation. Callback captures/opaque keys
+	// are immutable, callbacks concurrency safe and context cooperative.
+	RecheckServer func(context.Context, tls.ConnectionState) error
+	Client        *http.Client // Transport must be *http.Transport with verified mutual TLS.
+	Assign        func(context.Context, core.HLSRequest) (Assignment, error)
+	Decide        func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision
+	Hardware      core.HWAccel
+	Capacity      int
 }
 type Adapter struct {
 	opts     AdapterOptions
@@ -38,7 +43,7 @@ type Adapter struct {
 
 func NewAdapter(o AdapterOptions) (*Adapter, error) {
 	u, e := url.Parse(o.Endpoint)
-	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || o.Client == nil || o.Assign == nil || o.Decide == nil || o.Capacity < 1 {
+	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || o.Client == nil || o.RecheckServer == nil || o.Assign == nil || o.Decide == nil || o.Capacity < 1 {
 		return nil, errors.New("remotetranscode: explicit adapter dependencies required")
 	}
 	transport, ok := o.Client.Transport.(*http.Transport)
@@ -49,12 +54,15 @@ func NewAdapter(o AdapterOptions) (*Adapter, error) {
 	if tc.InsecureSkipVerify || tc.RootCAs == nil || tc.VerifyConnection == nil || (len(tc.Certificates) == 0 && tc.GetClientCertificate == nil) {
 		return nil, errors.New("remotetranscode: verified mutual TLS required")
 	}
-	t := transport.Clone()
-	t.TLSClientConfig = tc.Clone()
-	if t.TLSClientConfig.MinVersion < tls.VersionTLS12 {
-		t.TLSClientConfig.MinVersion = tls.VersionTLS12
+	// A new transport prevents caller dial/proxy/HTTP2 hooks from bypassing admission.
+	timeout := o.Client.Timeout
+	if timeout <= 0 || timeout > time.Minute {
+		timeout = time.Minute
 	}
-	t.Proxy = nil
+	t, err := outbound.New(o.Endpoint, tc, timeout, o.RecheckServer)
+	if err != nil {
+		return nil, errors.New("remotetranscode: invalid transport")
+	}
 	client := *o.Client
 	client.Transport = t
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -176,6 +184,9 @@ func (a *Adapter) call(ctx context.Context, m message, headers http.Header) (*ht
 	}
 	if m.Op != "playlist" && m.Op != "segment" && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
 		resp.Body.Close()
+		if m.Op == "renew" && resp.StatusCode == http.StatusUnprocessableEntity {
+			return nil, ErrUnsupported
+		}
 		return nil, ErrUncertain
 	}
 	return resp, nil
@@ -187,6 +198,7 @@ type Session struct {
 	start    []byte
 	mu       sync.Mutex
 	done     chan struct{}
+	lease    LeaseState
 	state    string
 	terminal error
 	stopped  bool
@@ -244,7 +256,7 @@ func (s *Session) Reconcile(ctx context.Context) error {
 }
 func (s *Session) observe(r *http.Response) error {
 	var st status
-	d := json.NewDecoder(io.LimitReader(r.Body, 1025))
+	d := json.NewDecoder(io.LimitReader(r.Body, MaxMessage+1))
 	if d.Decode(&st) != nil || d.Decode(new(any)) != io.EOF {
 		return ErrUncertain
 	}
@@ -256,11 +268,28 @@ func (s *Session) observe(r *http.Response) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Do not regress accepted lease history on a delayed start/status response.
+	if st.Lease.Version > 0 {
+		n := st.Lease.Accepted
+		if n == nil || !validRenewal(*n) || n.Identity != s.id || n.Operation != st.Lease.Version || !n.Deadline.Equal(st.Lease.Deadline) {
+			return ErrUncertain
+		}
+	}
+	if st.Lease.Version == s.lease.Version && !s.lease.Deadline.IsZero() && !st.Lease.Deadline.Equal(s.lease.Deadline) {
+		return ErrUncertain
+	}
+	if st.Lease.Version == s.lease.Version && s.lease.Accepted != nil && (st.Lease.Accepted == nil || !sameRenewal(*st.Lease.Accepted, *s.lease.Accepted)) {
+		return ErrUncertain
+	}
+	if st.Lease.Version >= s.lease.Version {
+		s.lease = st.Lease
+	}
 	select {
 	case <-s.done:
 		return nil
 	default:
 	}
+	s.stopped = s.stopped || st.Stopped
 	s.state = st.State
 	if st.State == "retired" || st.State == "unverified" {
 		if st.State == "unverified" {
@@ -307,3 +336,48 @@ func (s *Session) serve(w http.ResponseWriter, r *http.Request, op string, n int
 var _ core.Transcoder = (*Adapter)(nil)
 var _ core.OwnedTranscoder = (*Adapter)(nil)
 var _ core.OwnedEncoderSession = (*Session)(nil)
+
+// Lease reports accepted history, not proof that execution remains authorized.
+// Inspect execution/retirement state and reconcile uncertainty independently.
+func (s *Session) Lease() LeaseState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	lease := s.lease
+	if lease.Accepted != nil {
+		copy := *lease.Accepted
+		lease.Accepted = &copy
+	}
+	return lease
+}
+
+// Renew is parent-driven; there are no automatic renewal/polling goroutines.
+// Reuse the identical request after a lost response, or Reconcile then inspect
+// Lease. Older operations after a newer acceptance return ErrUncertain; they
+// never extend authority. A missing worker validator returns ErrUnsupported.
+func (s *Session) Renew(ctx context.Context, n Renewal) (LeaseState, error) {
+	if n.Identity != s.id || !validRenewal(n) {
+		return s.Lease(), ErrUnsupported
+	}
+	s.mu.Lock()
+	blocked := s.stopped
+	s.mu.Unlock()
+	if blocked {
+		return s.Lease(), ErrUncertain
+	}
+	r, err := s.adapter.call(ctx, message{Op: "renew", Identity: s.id, Renewal: &n}, nil)
+	if err != nil {
+		return s.Lease(), err
+	}
+	defer r.Body.Close()
+	if err = s.observe(r); err != nil {
+		return s.Lease(), err
+	}
+	lease := s.Lease()
+	s.mu.Lock()
+	running := s.state == "running" && !s.stopped
+	s.mu.Unlock()
+	if !running || lease.Accepted == nil || !sameRenewal(*lease.Accepted, n) {
+		return lease, ErrUncertain
+	}
+	return lease, nil
+}

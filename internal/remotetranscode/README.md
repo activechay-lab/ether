@@ -44,10 +44,11 @@ supply proof. Use the owned API for integration; the legacy `StartHLS` signature
 cannot return its extra responsibility token on error, though the adapter retains
 it internally and `Stop(id)` still reaches pending execution.
 
-Each start gets a fixed, nonrenewable authority lease of at most ten minutes
-(`WorkerOptions.MaxLease`). Expiry cancels pending work and retires the exact session;
-no successful retirement is inferred. Implement authenticated fenced lease renewal
-before enabling long playback. Request cancellation seals late starts too. Media is
+Each start gets an initial authority lease of at most ten minutes
+(`WorkerOptions.MaxLease`). Explicit authenticated fenced renewal can extend an
+active lease as described below; a missing trusted validator disables renewal.
+Expiry cancels pending work and retires the exact session, without inferring
+successful retirement. Request cancellation seals late starts too. Media is
 streamed directly, with backpressure, cancellation, HEAD, range/content/cache headers;
 no media buffering, automatic retry, or local fallback is used.
 
@@ -82,6 +83,99 @@ must not silently substitute missing values or select workflows needing these.
 `RequireIndependentProof` is sent unchanged to the backend, which owns playlist
 independence claims. No Plex wire equivalence is claimed for unsupported workflows.
 
-Next increment: durable placement/source-grant integration, fenced lease renewal and
+Next increment: durable placement/source-grant integration and fenced
 retention, then explicit optional session contracts and source swaps, followed by
 DASH/HTTP/subtitles/ABR, before application wiring or compatibility acceptance.
+
+## Explicit lease renewal
+
+The immutable Start includes its original grant and expiry. Its initial execution
+lease has version zero. Renew is a separate operation, exposed through
+`Session.Renew(ctx, Renewal)`; the parent drives renewal and `Reconcile(ctx)`.
+There is no background polling or renewal goroutine in the adapter.
+
+A Renewal carries the exact Identity, PreviousVersion, PreviousDeadline, an
+absolute Deadline and Operation. Operation is the sequential next version scoped
+to that identity, not an additive duration or a reusable arbitrary token. Zero and
+uint64 overflow are rejected. Use UTC timestamps; equality compares exact
+canonical instants, with no rounding/tolerance. The deadline must advance and be
+within WorkerOptions.MaxLease of acceptance time. MaxLease remains at most ten
+minutes per acceptance; timely successive renewals can support longer playback.
+
+`WorkerOptions.ValidateRenewal` is optional and fails closed when absent: renewal
+returns HTTP 422 / ErrUnsupported. Status Lease.Renewable reports configured
+support; Supported() alone does not promise renewable playback. The callback is
+mandatory before any extension, in addition to ordinary operation authorization.
+It receives the immutable original Start and exact Renewal and returns a trusted
+RenewalReceipt echoing that request. PlacementUntil and SourceUntil must each
+independently cover Deadline. The receipt is not accepted from the wire.
+
+The validator must check durable placement using its authoritative database clock,
+all controller/worker boot and generation fences, and the authority of the SAME
+scoped source authority, worker-local gateway URL and input lease through the
+requested new deadline. Start.Grant is an immutable scoped authority/reader handle,
+not a requirement to retain an expiring source bearer. A trusted source reader may
+rotate its internal opaque bearer while preserving that handle, exact source
+scope/revision/size, gateway URL and input lease. The validator must actually
+extend or revalidate this same source authority idempotently; it cannot pretend
+an expired credential remains valid, exchange the source, or start an encoder.
+If the source implementation cannot extend access without changing input, renewal
+must fail. Missing database/source authority or
+uncertain validation must fail closed. Validation runs outside the worker lock;
+its placement/source updates may conservatively outlive a rejected worker
+extension, but can never manufacture worker acceptance or retirement proof.
+
+After validation, the worker locks and rechecks the old version/deadline,
+execution state, stop, expiry, and policy bound before committing. Stop, expiry,
+and renewal commit serialize under that same lock. A queued timer callback checks
+its captured version AND deadline under lock, so Timer.Stop races cannot retire a
+renewed execution. All responses encode immutable snapshots after releasing the
+worker mutex, so blocked network output cannot delay expiry, Stop or Close.
+Renew never resolves a source or invokes an encoder. Starts remain byte-immutable
+even after renewal.
+
+The latest exact operation replay returns the accepted snapshot without another
+extension or validation side effect. A changed payload at that version, or an
+older retry after a newer acceptance, returns conflict (adapter ErrUncertain);
+reconcile status instead. Concurrent exact retries converge on the same snapshot.
+Status reports current accepted deadline/version/latest Renewal independently of
+execution state and Stopped. An exact replay after stop/expiry may return history
+but never clears Stopped or grants current authority; Session.Renew returns
+ErrUncertain unless the observed execution is running and locally unstopped.
+After a lost response, repeat the identical request or call Reconcile and inspect
+Session.Lease(). Do not mint a later version until accepted history is known.
+
+Worker deadlines use the worker clock; placement uses the database clock. The
+trusted validator and deployment must apply a conservative clock-skew budget
+before issuing a receipt and before treating authority expiry as safe reassignment.
+Each accepted start or renewal also records a process-local monotonic cap using
+`time.Now().Add(remainingWallDuration)`, retaining time.Now's monotonic component.
+Expiry occurs at the earlier of wall deadline and that elapsed cap: a wall-clock
+rollback cannot extend the accepted local lifetime, while forward corrections may
+retire conservatively early. An early callback rearms to the earlier remaining
+bound without resetting the cap. Timer callbacks fence version, wall deadline and
+monotonic cap together. Only an authorized new renewal acceptance replaces the
+cap; retries never reset it. Status reports the wall authority deadline only;
+this monotonic cap is neither serialized nor portable across worker restarts.
+This package does not invent a cross-host clock bound. Worker expiry requests
+retirement; it does not prove the child/input have stopped. External placement
+retirement still requires exact proofs, or its separately established safe expiry
+policy. Integration must supply the validator, source extension mechanism,
+parent-driven renewal schedule, and failure/reassignment policy before enabling
+long-running remote playback. No application/core/config/placement wiring is
+included here.
+
+## Trusted worker-local input gateway
+
+`Source.Gateway TrustedGatewayInput` is an additive, injected composition boundary;
+no wire fields or caller InputURL can populate it. Its `GatewayInput(Identity,
+Start.Grant)` must return the exact locally constructed URL and input lease, even
+on error after acquisition. Gateway excludes ordinary Source.URL/Lease; resolvers
+must not mint an unused second lease. Worker invokes it outside its mutex, rejects
+mixed results, missing lease and nonliteral/nonloopback or ambiguous URL forms,
+never falls back, and retains all returned leases for seal/reconciliation on error.
+The ordinary Source.URL private-HTTPS validator is unchanged. Custom interface
+implementations remain trusted dependencies responsible for exact identity,
+listener origin/path binding, no redirects and no input substitution. `nodeinput`
+is the concrete verified-Go-Reader implementation; its README specifies lifecycle,
+renewal evidence and the separate remote source retirement requirement.

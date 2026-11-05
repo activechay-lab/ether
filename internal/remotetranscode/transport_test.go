@@ -21,6 +21,7 @@ import (
 
 func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 	w, _, start := fixture(t)
+	w.opts.ValidateRenewal = receipt
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +50,9 @@ func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 		}
 		return nil
 	}}}}
-	a, err := NewAdapter(AdapterOptions{Endpoint: server.URL, Client: client, Capacity: 4, Assign: func(context.Context, core.HLSRequest) (Assignment, error) {
+	a, err := NewAdapter(AdapterOptions{Endpoint: server.URL, Client: client, RecheckServer: func(_ context.Context, s tls.ConnectionState) error {
+		return client.Transport.(*http.Transport).TLSClientConfig.VerifyConnection(s)
+	}, Capacity: 4, Assign: func(context.Context, core.HLSRequest) (Assignment, error) {
 		return Assignment{Identity: start.Identity, Grant: start.Grant, Expires: start.Expires}, nil
 	}, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return start.Decision }})
 	if err != nil {
@@ -64,6 +67,17 @@ func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 	hs.ServeSegment(out, httptest.NewRequest("GET", "https://frontend/segment", nil), -1)
 	if out.Code != 206 || out.Body.String() != "abc" || out.Header().Get("Content-Range") != "bytes 0-2/3" {
 		t.Fatalf("proxy lost representation: %v", out)
+	}
+	remote := hs.(*Session)
+	n := renewal(start)
+	lease, err := remote.Renew(context.Background(), n)
+	if err != nil || lease.Version != 1 || !sameRenewal(*lease.Accepted, n) {
+		t.Fatalf("renew over mTLS: %v %+v", err, lease)
+	}
+	// Repeating the exact operation cannot add authority.
+	lease, err = remote.Renew(context.Background(), n)
+	if err != nil || !lease.Deadline.Equal(n.Deadline) {
+		t.Fatal("retry extended lease", err)
 	}
 	server.Close()
 	if err := hs.Close(); !errors.Is(err, ErrUncertain) {
