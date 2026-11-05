@@ -167,6 +167,11 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 			if err == nil && !s.visibleTitle(ctx, pr.User, t) {
 				err = core.ErrNotFound
 			}
+			// Policy/storage reads can fail closed on cancellation. Do not turn
+			// that interrupted lookup into a claim that the title disappeared.
+			if ctx.Err() != nil {
+				return
+			}
 			if err != nil && len(keys) == 1 && q.Get("collection") == "" {
 				if future, e := s.scheduledEpisode(ctx, pr, k); e == nil {
 					md = s.scheduledMetadata(ctx, pr, future)

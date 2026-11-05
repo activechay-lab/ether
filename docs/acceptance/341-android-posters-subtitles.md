@@ -1,9 +1,10 @@
 # Plex Android posters and subtitles — #341 / v0.3.5
 
 Base: `release/0.3.5` at `45eab97cf`. Branch:
-`fix/341-android-posters-subtitles`. Issue #341 was read in full: it has no
-comments, version, connection information or support capture. v0.3.4 is an
-investigation assumption, not a reported version.
+`fix/341-android-posters-subtitles`. At the time of the initial investigation, #341 had no version or
+connection details. Later comments and the support recording are analyzed in
+[the follow-up](341-android-followup.md), which supersedes the initial reply
+draft and reporter assumptions below.
 
 ## Evidence and limits
 
