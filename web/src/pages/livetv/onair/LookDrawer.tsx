@@ -36,7 +36,7 @@ export function LookDrawer({
     [viewer, setViewer] = useState("1"),
     [channels, setChannels] = useState<ChannelSummary[]>([]),
     [bindings, setBindings] = useState<Bindings>({}),
-    [render, setRender] = useState(7),
+    [render, setRender] = useState(look.render?.done ?? 7),
     [saving, setSaving] = useState(false);
   const [useOpen, setUseOpen] = useState(false);
   const [useChannels, setUseChannels] = useState<string[]>(look.channelIds);
@@ -66,7 +66,7 @@ export function LookDrawer({
       setDraft(next);
     }
   };
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  const dirty = !draft.id || JSON.stringify(draft) !== JSON.stringify(saved);
   useUnsavedGuard(dirty);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
