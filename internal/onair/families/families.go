@@ -3,6 +3,7 @@ package families
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/onair/scene"
 	"strings"
@@ -22,6 +23,9 @@ func Names() map[string][]string {
 	out := map[string][]string{}
 	entries, _ := documents.ReadDir("documents")
 	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".controls.json") {
+			continue
+		}
 		name := strings.TrimSuffix(entry.Name(), ".json")
 		for _, family := range []string{"grunge", "aqua", "flat", "late-night", "personal", "cinema", "retro", "kids", "clean", "signal"} {
 			if strings.HasPrefix(name, family+"-") {
@@ -127,5 +131,38 @@ func Defaults(family string) scene.Bindings {
 		b.Tokens["words.break"] = "Back in a moment"
 	}
 
+	if raw, err := Controls(family); err == nil {
+		var controls []struct {
+			ID    string `json:"id"`
+			Value any    `json:"value"`
+		}
+		if json.Unmarshal(raw, &controls) == nil {
+			for _, c := range controls {
+				b.Tokens["control."+c.ID] = c.Value
+			}
+		}
+	}
 	return b
+}
+
+func Controls(id string) ([]byte, error) {
+	return documents.ReadFile("documents/" + id + ".controls.json")
+}
+func Description(id string) (string, string, []string) {
+	data := map[string][3]string{
+		"clean":      {"Clean", "Room to breathe. Space to discover.", "Clean"},
+		"kids":       {"Kids", "Big colours for little adventures.", "Kids"},
+		"late-night": {"Late night", "Stay a little longer after dark.", "Late night"},
+		"cinema":     {"Cinema", "Every evening deserves a premiere.", "Cinema"},
+		"retro":      {"Retro 80", "Neon dreams on a midnight dial.", "80s"},
+		"grunge":     {"Grunge 90", "Turn it up. Tear the edges.", "90s"},
+		"aqua":       {"Aqua 00", "A bright new world behind glass.", "00s"},
+		"flat":       {"Flat 10", "Bold blocks. Perfect timing.", "10s"},
+		"personal":   {"Personal", "Your own corner of the airwaves.", "Personal"},
+	}
+	v, ok := data[id]
+	if !ok {
+		return id, "Make these airwaves your own.", []string{"Retro"}
+	}
+	return v[0], v[1], []string{v[2]}
 }
