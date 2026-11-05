@@ -162,7 +162,7 @@ func (s *Server) addProbedStreamFeatures(ctx context.Context, key core.RatingKey
 		if c.Start < 0 || c.End <= c.Start || c.End > info.Duration {
 			continue
 		}
-		m.Chapter = append(m.Chapter, model.Chapter{ID: c.ID, Index: i, Title: c.Title, StartTimeOffset: c.Start.Milliseconds(), EndTimeOffset: c.End.Milliseconds()})
+		m.Chapter = append(m.Chapter, model.Chapter{ID: c.ID, Index: i + 1, Title: c.Title, StartTimeOffset: c.Start.Milliseconds(), EndTimeOffset: c.End.Milliseconds()})
 	}
 	ranges := markers.FromChapters(info)
 	if s.d.Markers != nil {
