@@ -95,7 +95,7 @@ func playbackMessage(err error) string {
 }
 
 // writeStartErr answers a failed start.m3u8, start.mpd or part request.
-// A 503 alone leaves some players buffering. Queue the reason as
+// End the media request and queue the reason as
 // terminationText for the client's next timeline, as for a start stall.
 func (s *Server) writeStartErr(w http.ResponseWriter, r *http.Request, pr *Request, err error) {
 	if r.Context().Err() != nil {
@@ -105,18 +105,16 @@ func (s *Server) writeStartErr(w http.ResponseWriter, r *http.Request, pr *Reque
 	if pr != nil && pr.User != nil {
 		s.setTermination(trackID(pr.User.ID, pr.ClientID, pr.SessionID), playbackMessage(err))
 	}
-	status := http.StatusInternalServerError
+	// A completed attempt is terminal. Retry-After on a 503 makes media
+	// loaders retry while waiting for a timeline they may never send.
+	// PMS start.* documents 400/403/404 for unsuccessful starts.
+	status := http.StatusBadRequest
+	w.Header().Del("Retry-After")
 	switch {
-	case errors.Is(err, core.ErrNotFound):
+	case errors.Is(err, core.ErrNotFound), errors.Is(err, core.ErrNotAvailable):
 		status = http.StatusNotFound
 	case errors.Is(err, core.ErrUnauthorized):
-		status = http.StatusUnauthorized
-	case errors.Is(err, core.ErrStreamLimit), errors.Is(err, transcode.ErrTooManyTranscodes):
-		w.Header().Set("Retry-After", "5")
-		status = http.StatusServiceUnavailable
-	case errors.Is(err, core.ErrNotAvailable), errors.Is(err, core.ErrUnreleased), errors.Is(err, core.ErrDebridAuth), errors.Is(err, core.ErrSourceUnavailable), errors.Is(err, context.DeadlineExceeded), errors.Is(err, core.ErrPrepareSlow):
-		w.Header().Set("Retry-After", notAvailableRetryAfter)
-		status = http.StatusServiceUnavailable
+		status = http.StatusForbidden
 	}
 	writePlaybackStatus(w, status)
 }
@@ -723,6 +721,7 @@ func (s *Server) awaitSource(ctx context.Context, r *http.Request, pr *Request) 
 // carries the message instead of a spinner.
 func (s *Server) decisionError(ctx context.Context, pr *Request, t *core.Title, err error, p playRequest) *model.MediaContainer {
 	msg := playbackMessage(err)
+	s.setTermination(trackID(pr.User.ID, pr.ClientID, pr.SessionID), msg)
 	mc := libraryContainer()
 	if t != nil {
 		mc = s.itemContainer(t.Type)
@@ -1643,6 +1642,19 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 	if policy, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.ClientCaps(0).Remote, s.now()) {
 		writeHTTPError(w, http.StatusForbidden)
 		return
+	}
+	// Clients may fall back from a failed decision to the original part URL.
+	// Do not launch the same failed acquisition again during that attempt.
+	if releaseID == "" && pr.ClientID != "" {
+		for _, id := range s.transcodes.forClient(pr.User.ID, pr.ClientID, 0) {
+			if pr.SessionID != "" && id != sanitizeSessionID(pr.SessionID) {
+				continue // a distinct playback attempt must be allowed to retry
+			}
+			if err, failed := s.transcodes.takeFailure(id, pr.User.ID, key, s.now()); failed && !errors.Is(err, core.ErrPrepareSlow) {
+				s.writeStartErr(w, r, pr, err)
+				return
+			}
+		}
 	}
 	ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, key)
 	anonymousContinuation := false
