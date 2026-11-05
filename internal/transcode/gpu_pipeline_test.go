@@ -7,6 +7,41 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
+// Interlaced input must become progressive before resizing on every encoder
+// path, while clients that can decode it retain direct play.
+func TestInterlacedPictureContract(t *testing.T) {
+	info := mustParse(t, "mp4_h264_aac.json")
+	info.Streams[0].Interlaced = true
+	for _, platform := range []string{"Chrome", "Microsoft Edge", "Opera", "Safari"} {
+		caps := plexWeb
+		caps.Platform = platform
+		caps.Containers = []string{"mp4"}
+		caps.VideoCodecs = []string{"h264"}
+		caps.AudioCodecs = []string{"aac"}
+		d := Decide(info, caps, allow(), Policy{})
+		if platform == "Safari" {
+			if !d.VideoCopy {
+				t.Fatal("capable client lost video copy")
+			}
+			continue
+		}
+		if d.VideoCopy {
+			t.Fatalf("%s copied interlaced H.264", platform)
+		}
+		for _, accel := range []string{AccelNone, AccelNVENC, AccelVAAPI, AccelVideoToolbox, AccelQSV} {
+			s := baseSpec(info, d)
+			s.Accel = core.HWAccel{Name: accel, Encoders: []string{"h264_" + accel}}
+			s.Features.hwaccels = map[string]bool{"cuda": true, "videotoolbox": true, "qsv": true}
+			for _, f := range []string{"scale_cuda", "scale_vt", "vpp_qsv"} {
+				s.Features.filters[f] = true
+			}
+			args := buildArgs(s)
+			mustContain(t, args, "yadif=mode=send_frame:parity=auto:deint=all")
+			mustNotContain(t, args, "-hwaccel_output_format", "scale_vaapi=", "scale_cuda=", "scale_vt=", "vpp_qsv=")
+		}
+	}
+}
+
 func TestGPUFramePipeline(t *testing.T) {
 	for _, tc := range []struct {
 		name, accel, filter, frameFormat string
