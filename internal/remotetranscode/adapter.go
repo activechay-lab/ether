@@ -321,7 +321,7 @@ func (s *Session) ServeSegment(w http.ResponseWriter, r *http.Request, n int) {
 func (s *Session) serve(w http.ResponseWriter, r *http.Request, op string, n int) {
 	s.serveRepresentation(w, r, message{Op: op, Segment: n})
 }
-func (s *Session) serveRepresentation(w http.ResponseWriter, r *http.Request, m message) {
+func (s *Session) serveRepresentation(w http.ResponseWriter, r *http.Request, m message) (facts RepresentationCompletion) {
 	n := m.Segment
 	if n < -1 || n > 10000000 {
 		http.Error(w, "invalid segment", 400)
@@ -340,7 +340,16 @@ func (s *Session) serveRepresentation(w http.ResponseWriter, r *http.Request, m 
 		http.Error(w, "remote execution unavailable", 502)
 		return
 	}
-	defer response.Body.Close()
+	facts.StatusCode, facts.ContentLength = response.StatusCode, response.ContentLength
+	facts.BodyPresent = response.Body != nil
+	facts.EncodedOrChunked = len(response.TransferEncoding) != 0 || response.Uncompressed || response.Header.Get("Content-Encoding") != ""
+	defer func() {
+		if response.Body != nil {
+			facts.CloseError = response.Body.Close() != nil
+			facts.Closed = true
+		}
+		facts.Trailers = len(response.Trailer) != 0
+	}()
 	s.touch()
 	// Preserve representation/range/cache headers, never cookies or peer secrets.
 	for _, h := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Cache-Control", "ETag", "Last-Modified", "Content-Disposition"} {
@@ -351,12 +360,18 @@ func (s *Session) serveRepresentation(w http.ResponseWriter, r *http.Request, m 
 	w.WriteHeader(response.StatusCode)
 	// io.Copy applies downstream backpressure; request context cancels upstream.
 	if r.Method != http.MethodHead {
+		var target io.Writer = w
 		if m.Op == "http" || m.Op == "soft-subtitle" {
-			_, _ = io.Copy(flushingWriter{w}, response.Body)
-		} else {
-			_, _ = io.Copy(w, response.Body)
+			target = flushingWriter{w}
+		}
+		if response.Body != nil {
+			_, err := io.Copy(completionWriter{target: target, facts: &facts}, completionReader{source: response.Body, facts: &facts})
+			if err != nil && !facts.WriteError {
+				facts.ReadError = true
+			}
 		}
 	}
+	return
 }
 
 var _ core.Transcoder = (*Adapter)(nil)
