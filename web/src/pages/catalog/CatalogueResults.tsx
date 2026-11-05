@@ -16,6 +16,7 @@ export interface CatalogueResultsProps {
   onLoadMore: () => void;
   onInspect: (key: string) => void;
   renderAction?: (key: string) => ReactNode;
+  onVisibleKeys?: (keys: string[]) => void;
   onBulkWatchlist?: (keys: string[]) => Promise<void>;
 }
 
@@ -30,6 +31,7 @@ export function CatalogueResults({
   onLoadMore,
   onInspect,
   renderAction,
+  onVisibleKeys,
   onBulkWatchlist,
 }: CatalogueResultsProps) {
   const [pages, setPages] = useState<{ key: string; pages: Record<number, TitleCard[]> }>({
@@ -82,6 +84,10 @@ export function CatalogueResults({
   const firstRow = Math.max(0, Math.floor(size.top / rowHeight) - 2);
   const lastRow = Math.min(rowCount, Math.ceil((size.top + size.height) / rowHeight) + 2);
   const visible = titles.slice(firstRow * lanes, lastRow * lanes);
+  const visibleKey = visible.map((title) => title.key).join(",");
+  useEffect(() => {
+    onVisibleKeys?.(visibleKey ? visibleKey.split(",") : []);
+  }, [visibleKey, onVisibleKeys]);
   const nearEnd = size.top + size.height >= rowCount * rowHeight - rowHeight * 2;
   useEffect(() => {
     if (nearEnd && hasMore && !loading && titles.length && requested.current !== page) {

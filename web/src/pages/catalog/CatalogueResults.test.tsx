@@ -58,6 +58,21 @@ describe("CatalogueResults", () => {
     expect(bulk).toHaveBeenCalledWith(["1"]);
     expect(screen.getByText("1 selected")).toBeInTheDocument();
   });
+  it("reports only the virtual viewport keys for bounded membership lookups", () => {
+    const base = props();
+    const onVisibleKeys = vi.fn();
+    const { container } = render(
+      <CatalogueResults {...base} items={titles(0, 500)} list onVisibleKeys={onVisibleKeys} />,
+    );
+    const initial = onVisibleKeys.mock.calls.at(-1)![0] as string[];
+    expect(initial.length).toBeLessThan(20);
+    const viewport = container.querySelector(".catalogue-result-viewport")!;
+    fireEvent.scroll(viewport, { target: { scrollTop: 8400 } });
+    const scrolled = onVisibleKeys.mock.calls.at(-1)![0] as string[];
+    expect(scrolled).not.toContain("0");
+    expect(scrolled).toContain("100");
+    expect(scrolled.length).toBeLessThan(20);
+  });
   it("loads the next page at the viewport boundary and offers a manual fallback", () => {
     const base = props();
     render(<CatalogueResults {...base} items={titles(0, 1)} hasMore />);
