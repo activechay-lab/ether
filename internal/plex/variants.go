@@ -371,7 +371,7 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 		}
 		m := buildMediaVariant(t, variant, stamp, s.variantIDs)
 		m.Part[0].Key = s.playIDs.partKey(ik, m.ID, m.Part[0].Key, now)
-		if s.d.Trickplay != nil && s.d.Trickplay.TrickplayAvailable(v.Release.ID) {
+		if s.previewAvailable(pr, t.Key, v.Release.ID) {
 			m.Part[0].Indexes = "sd"
 		}
 		// Every version carries a stream list, as on PMS; versions not yet

@@ -181,6 +181,8 @@ func TestGoldenPlayQueue(t *testing.T) {
 func TestGoldenSessions(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
+	f.get(t, "/video/:/transcode/universal/decision?path=/library/metadata/1000000000000550&hasMDE=1&directPlay=1&session=sess-1",
+		"X-Plex-Product", "Plex Web", "X-Plex-Platform", "Chrome", "X-Plex-Device", "OSX", "X-Plex-Device-Name", "Chrome", "X-Plex-Session-Identifier", "sess-1")
 	f.get(t, "/:/timeline?ratingKey=1000000000000550&key=%2Flibrary%2Fmetadata%2F1000000000000550&state=playing&time=60000&duration=8340000",
 		"X-Plex-Product", "Plex Web", "X-Plex-Platform", "Chrome", "X-Plex-Device", "OSX", "X-Plex-Device-Name", "Chrome", "X-Plex-Session-Identifier", "sess-1")
 	checkGolden(t, "status_sessions", f.getWarm(t, "/status/sessions"))

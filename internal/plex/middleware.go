@@ -458,6 +458,11 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 	// permission; containers that don't carry the attribute keep not
 	// carrying it.
 	if mc, ok := v.(*model.MediaContainer); ok {
+		if !strings.HasSuffix(r.URL.Path, "/decision") && !metadataOptionOn(r.URL.Query().Get("includeChapters")) {
+			for i := range mc.Metadata {
+				omitChapterRows(&mc.Metadata[i])
+			}
+		}
 		if mc.AllowSync != nil {
 			if mc.HasSyncProjection() {
 				if policy, ok := s.d.AccessPolicy.(core.DownloadAccessPolicy); ok && !policy.AllowDownloads(pr.User) {

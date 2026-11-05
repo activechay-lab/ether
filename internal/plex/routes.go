@@ -104,6 +104,7 @@ func (s *Server) routes() chi.Router {
 	get("/photo/:/transcode", s.handlePhotoTranscode)
 
 	// Hubs and search
+	any("/player/*", func(w http.ResponseWriter, r *http.Request) { writeHTTPError(w, http.StatusBadRequest) })
 	get("/hubs", s.handleHubs)
 	get("/hubs/promoted", s.handlePromotedHubs)
 	get("/hubs/continueWatching", s.handleContinueWatching)

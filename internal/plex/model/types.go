@@ -468,12 +468,14 @@ type Stream struct {
 	LanguageTag          string `plex:"languageTag,omitempty"`
 	LanguageCode         string `plex:"languageCode,omitempty"`
 	// From here PMS lists the technical attributes alphabetically.
+	Anamorphic           *bool   `plex:"anamorphic"`
 	AudioChannelLayout   string  `plex:"audioChannelLayout,omitempty"`
 	BitDepth             int     `plex:"bitDepth,omitempty"`
 	ChromaLocation       string  `plex:"chromaLocation,omitempty"`
-	CodedWidth           int     `plex:"codedWidth,omitempty"`
-	CodedHeight          int     `plex:"codedHeight,omitempty"`
 	ChromaSubsampling    string  `plex:"chromaSubsampling,omitempty"`
+	CodecID              string  `plex:"codecID,omitempty"`
+	CodedHeight          int     `plex:"codedHeight,omitempty"`
+	CodedWidth           int     `plex:"codedWidth,omitempty"`
 	ColorPrimaries       string  `plex:"colorPrimaries,omitempty"`
 	ColorRange           string  `plex:"colorRange,omitempty"`
 	ColorSpace           string  `plex:"colorSpace,omitempty"`
@@ -488,11 +490,11 @@ type Stream struct {
 	DOVIVersion          string  `plex:"DOVIVersion,omitempty"`
 	Format               string  `plex:"format,omitempty"`
 	FrameRate            float64 `plex:"frameRate,omitempty"`
+	HasScalingMatrix     *bool   `plex:"hasScalingMatrix"`
 	Height               int     `plex:"height,omitempty"`
 	Level                int     `plex:"level,omitempty"`
+	PixelAspectRatio     string  `plex:"pixelAspectRatio,omitempty"`
 	Profile              string  `plex:"profile,omitempty"`
-	Anamorphic           *bool   `plex:"anamorphic"`
-	HasScalingMatrix     *bool   `plex:"hasScalingMatrix"`
 	RefFrames            int     `plex:"refFrames,omitempty"`
 	SamplingRate         int     `plex:"samplingRate,omitempty"`
 	ScanType             string  `plex:"scanType,omitempty"`
