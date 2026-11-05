@@ -50,6 +50,7 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
+	publicDelivery bool
 	reopens        map[string]*reopenRecord
 	plexDelivery   http.Handler
 	remotePlayback *RemotePlayback
@@ -134,10 +135,16 @@ func (r *Runtime) Ready() bool {
 	if r.o.Roles.Has(config.RoleTranscode) && r.worker == nil {
 		return false
 	}
-	if r.o.Roles.Has(config.RoleDelivery) && r.delivery == nil {
-		return false
+	if r.o.Roles.Has(config.RoleDelivery) {
+		if r.o.Roles.Has(config.RoleServer) {
+			if r.delivery == nil {
+				return false
+			}
+		} else if !r.publicDelivery {
+			return false
+		}
 	}
-	return r.worker != nil || r.authority != nil || r.delivery != nil
+	return r.worker != nil || r.authority != nil || r.delivery != nil || r.publicDelivery
 }
 func (r *Runtime) peer(ctx context.Context, id nodewire.Identity, path string) (string, *tls.Config, func(context.Context, tls.ConnectionState) error, error) {
 	origin, e := r.o.Endpoint(ctx, id)

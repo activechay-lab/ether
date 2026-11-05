@@ -165,7 +165,8 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	workerID := nodewire.Identity{Cluster: "offline", NodeID: "worker", Boot: "worker-boot"}
 	frontendID := nodewire.Identity{Cluster: "offline", NodeID: "frontend", Boot: "frontend-boot"}
 	brokerID := nodewire.Identity{Cluster: "offline", NodeID: "broker", Boot: "broker-boot"}
-	guards := fixtureGuards(t, sourceID, workerID, frontendID, brokerID)
+	deliveryID := nodewire.Identity{Cluster: "offline", NodeID: "delivery", Boot: "delivery-boot"}
+	guards := fixtureGuards(t, sourceID, workerID, frontendID, brokerID, deliveryID)
 	endpoints := map[nodewire.Identity]string{}
 	endpoint := func(_ context.Context, id nodewire.Identity) (string, error) {
 		s, ok := endpoints[id]
@@ -313,6 +314,37 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	}
 	if worker.ForwardPlexMedia(httptest.NewRecorder(), httptest.NewRequest("GET", "https://public/video/:/transcode/universal/start.m3u8?session=public-session", nil), request.SessionID) {
 		t.Fatal("control URI admitted to media scope")
+	}
+	deliveryOptions := base
+	deliveryOptions.Self = deliveryID
+	deliveryOptions.Guard = guards[4]
+	deliveryOptions.Roles = config.NodeRoles{config.RoleDelivery}
+	delivery, err := NewRuntime(deliveryOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer delivery.Close()
+	if delivery.Ready() {
+		t.Fatal("delivery-only ready before actual public handler")
+	}
+	public, err := delivery.NewPublicDelivery(func(_ context.Context, q *http.Request, _ string) error {
+		if q.Header.Get("X-Plex-Token") != "offline-plex-token" {
+			return ErrDenied
+		}
+		return nil
+	})
+	if err != nil || !delivery.Ready() {
+		t.Fatal("delivery-only sender not ready", err)
+	}
+	publicResponse := httptest.NewRecorder()
+	public.ServeHTTP(publicResponse, httptest.NewRequest("HEAD", "https://public/sessions/media/public-session/grant/segment", nil))
+	if publicResponse.Code != 200 || publicResponse.Body.Len() != 0 {
+		t.Fatalf("delivery-only HEAD %d %q", publicResponse.Code, publicResponse.Body.String())
+	}
+	publicResponse = httptest.NewRecorder()
+	public.ServeHTTP(publicResponse, httptest.NewRequest("GET", "https://public/video/:/transcode/universal/session/public-session/base/0.ts", nil))
+	if publicResponse.Code != 401 {
+		t.Fatal("delivery-only Plex sender skipped valid-token receipt policy")
 	}
 	// Durable capacity and exact identity survive a duplicate start.
 	if _, e = front.StartPreparedHLS(ctx, 9, prepared, request); e == nil {

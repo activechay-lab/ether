@@ -20,10 +20,11 @@ type RemotePlaybackOptions struct {
 	Capacity     int
 }
 type RemotePlayback struct {
-	r       *Runtime
-	o       RemotePlaybackOptions
-	mu      sync.Mutex
-	entries map[string]*remotePreparation
+	draining bool
+	r        *Runtime
+	o        RemotePlaybackOptions
+	mu       sync.Mutex
+	entries  map[string]*remotePreparation
 }
 type remotePreparation struct {
 	activity, sentActivity       time.Time
@@ -90,6 +91,12 @@ func (p *RemotePlayback) PrepareSurface(c context.Context, v *core.User, k core.
 	return s, e
 }
 func (p *RemotePlayback) PrepareSurfaceSource(c context.Context, v *core.User, k core.RatingKey, caps core.ClientCaps, release string, exact bool) (*core.PlaySession, core.SourceRetirement, error) {
+	p.mu.Lock()
+	draining := p.draining
+	p.mu.Unlock()
+	if draining {
+		return nil, nil, ErrDenied
+	}
 	if v == nil || v.ID <= 0 || caps.ClientID == "" {
 		return nil, nil, core.ErrUnauthorized
 	}
@@ -113,7 +120,7 @@ func (p *RemotePlayback) PrepareSurfaceSource(c context.Context, v *core.User, k
 	id := "remote-" + operation
 	entry := &remotePreparation{operation: operation, owner: owner, request: PrepareRequest{Operation: operation, Viewer: v.ID, Key: k, Caps: caps, ReleaseID: release, Exact: exact, Protocol: "hls"}, preparing: true, done: make(chan struct{})}
 	p.mu.Lock()
-	if len(p.entries) >= p.o.Capacity {
+	if p.draining || len(p.entries) >= p.o.Capacity {
 		p.mu.Unlock()
 		return nil, nil, ErrDenied
 	}
@@ -366,4 +373,10 @@ func (p *RemotePlayback) close() {
 func (p *RemotePlayback) RevalidateSession(ctx context.Context, id string) error {
 	_, err := p.CurrentSource(ctx, id)
 	return err
+}
+
+func (p *RemotePlayback) SetDraining(draining bool) {
+	p.mu.Lock()
+	p.draining = draining
+	p.mu.Unlock()
 }
