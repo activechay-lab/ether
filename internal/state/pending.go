@@ -220,6 +220,27 @@ func overlayPending(ws core.WatchStatus, w pendingWrite, counted bool, watchAt t
 		ws.ViewCount = 0
 		ws.ViewOffset = 0
 	default:
+		if len(w.progress.state) > 5 && w.progress.state[:5] == "plex-" {
+			if w.progress.duration > 0 {
+				ws.Duration = w.progress.duration
+			}
+			switch w.progress.state {
+			case "plex-resume":
+				ws.ViewOffset = w.progress.offset
+				ws.LastViewedAt = w.progress.at
+			case "plex-complete":
+				ws.ViewOffset = 0
+				ws.ViewCount++
+				ws.LastViewedAt = w.progress.at
+			case "plex-clear":
+				ws.ViewOffset = 0
+			case "plex-offline-clear":
+				ws.ViewOffset = 0
+				ws.ViewCount = 0
+			}
+			ws.UpdatedAt = w.progress.at
+			return ws
+		}
 		if w.progress.state == "progress" {
 			if w.progress.offset <= time.Minute {
 				return ws

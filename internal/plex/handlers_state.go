@@ -453,12 +453,21 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		if !pr.User.IsOwner && e.user.ID != pr.User.ID {
 			continue
 		}
-		t, err := s.d.Catalog.Get(ctx, e.key)
-		if err != nil {
-			continue
-		}
 		viewer := &Request{User: &e.user, ClientID: e.client.ClientID, Product: e.client.Product, Platform: e.client.Platform}
-		md := s.metadata(ctx, viewer, t, renderOpts{media: true, session: true})
+		var md model.Metadata
+		if e.key.Kind() == core.KindPlaylist {
+			pl, err := s.playlist(ctx, &e.user, e.key)
+			if err != nil {
+				continue
+			}
+			md = s.playlistMetadata(ctx, pl)
+		} else {
+			t, err := s.d.Catalog.Get(ctx, e.key)
+			if err != nil {
+				continue
+			}
+			md = s.metadata(ctx, viewer, t, renderOpts{media: true, session: true})
+		}
 		md.SessionKey = strconv.Itoa(e.sessionKey)
 		md.ViewOffset = ms(e.offset)
 		md.User = &model.SessionUser{ID: strconv.FormatInt(e.user.PlexID, 10), Thumb: e.user.Thumb, Title: e.user.Title}

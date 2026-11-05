@@ -131,3 +131,94 @@ func TestPlexTimelineNoopDurationAndOffline(t *testing.T) {
 		t.Fatalf("offline clear: %+v", after)
 	}
 }
+
+func TestPlexTimelineQueueResolutionAndPlaylistTrack(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	watch := state.New(store.OpenTest(t), state.Options{})
+	f.srv.d.State = watch
+	q, err := f.srv.queues.createWith(ownerUser.ID, "client-1", []core.RatingKey{fightClub.Key, alien.Key}, fixedNow, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beat := func(key core.RatingKey, position int, extra string) {
+		t.Helper()
+		rec := f.get(t, fmt.Sprintf("/:/timeline?ratingKey=%s&state=playing&duration=1000000&time=%d%s", key, position, extra))
+		if rec.Code != 200 {
+			t.Fatalf("timeline %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	beat(fightClub.Key, 3000, "")
+	beat(fightClub.Key, 920000, fmt.Sprintf("&playQueueItemID=%d", q.items[1].id))
+	a, _ := watch.Get(context.Background(), ownerUser.ID, fightClub.Key)
+	b, _ := watch.Get(context.Background(), ownerUser.ID, alien.Key)
+	if a.ViewCount != 0 || b.ViewCount != 1 {
+		t.Fatalf("queue resolution: A=%+v B=%+v", a, b)
+	}
+	selected, _ := f.srv.queues.get(q.id, ownerUser.ID)
+	if selected.selected != 1 || selected.version != q.version {
+		t.Fatalf("selection/version: %+v", selected)
+	}
+	beat(fightClub.Key, 70000, "")
+	selected, _ = f.srv.queues.get(q.id, ownerUser.ID)
+	if selected.selected != 0 {
+		t.Fatal("omitted selector did not follow owning client")
+	}
+	beat(alien.Key, 70000, "&playQueueItemID=")
+	selected, _ = f.srv.queues.get(q.id, ownerUser.ID)
+	if selected.selected != 0 {
+		t.Fatal("empty selector changed selection")
+	}
+	pl, err := f.pls.Create(context.Background(), ownerUser.ID, "Timeline list", []core.RatingKey{fightClub.Key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beat(pl.Key, 920000, "")
+	list, _ := watch.Get(context.Background(), ownerUser.ID, pl.Key)
+	if list.ViewCount != 0 {
+		t.Fatal("media beat crossed into playlist track")
+	}
+	beat(pl.Key, 3000, "")
+	beat(pl.Key, 920000, "")
+	list, _ = watch.Get(context.Background(), ownerUser.ID, pl.Key)
+	if list.ViewCount != 1 {
+		t.Fatal("playlist did not complete its own crossing")
+	}
+	history, err := watch.History(context.Background(), ownerUser.ID, time.Time{}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range history {
+		if h.Key == pl.Key {
+			t.Fatal("playlist completion created media history")
+		}
+	}
+	mc := decodeJSON(t, f.get(t, "/status/sessions", jsonAccept...))
+	rows, _ := mc["Metadata"].([]any)
+	found := false
+	for _, raw := range rows {
+		if raw.(map[string]any)["ratingKey"] == pl.Key.String() {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("playlist timeline missing Now Playing identity")
+	}
+}
+
+func TestPlexTimelineIntegerThresholdForShortContent(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	watch := state.New(store.OpenTest(t), state.Options{})
+	f.srv.d.State = watch
+	for _, position := range []int{1, 900} {
+		rec := f.get(t, fmt.Sprintf("/:/timeline?ratingKey=%s&state=playing&time=%d&duration=1001", fightClub.Key, position))
+		if rec.Code != 200 {
+			t.Fatal(rec.Code)
+		}
+	}
+	got, _ := watch.Get(context.Background(), ownerUser.ID, fightClub.Key)
+	if got.ViewCount != 1 {
+		t.Fatalf("integer threshold: %+v", got)
+	}
+}

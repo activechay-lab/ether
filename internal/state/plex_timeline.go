@@ -17,6 +17,7 @@ type PlexTimelineResult struct {
 	Completed     bool
 }
 type plexSkipKey struct{}
+type plexStatusKey struct{}
 
 // WithPlexTimelineStored keeps broker liveness reporting from writing a second watch update.
 func WithPlexTimelineStored(ctx context.Context) context.Context {
@@ -44,6 +45,7 @@ type plexTimelineStore struct {
 // The media and playlist tracks are independent. The cache has a fixed bound;
 // its cost depends on active clients, never the catalogue's size.
 func (s *State) PlexTimeline(ctx context.Context, user int64, key core.RatingKey, offset, duration time.Duration, status, queue string, offline *int) (PlexTimelineResult, error) {
+	ctx = context.WithValue(ctx, plexStatusKey{}, status)
 	s.plexTimeline.Lock()
 	defer s.plexTimeline.Unlock()
 	cur, err := s.Get(ctx, user, key)
@@ -173,7 +175,7 @@ func (s *State) plexProgressAt(ctx context.Context, user int64, key core.RatingK
 		if complete {
 			kind = EventCompleted
 		}
-		ev := Event{Kind: kind, UserID: user, Key: key, Offset: w.offset, Duration: w.duration, Completed: complete, State: w.state, At: now}
+		ev := Event{Kind: kind, UserID: user, Key: key, Offset: w.offset, Duration: w.duration, Completed: complete, State: w.timelineState, At: now}
 		if complete {
 			ev.Fraction = 1
 		}

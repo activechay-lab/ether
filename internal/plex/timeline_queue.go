@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/core"
 	"strconv"
-	"time"
 )
 
 // timelineQueue resolves an explicit queue item before watch persistence. An
@@ -63,7 +62,7 @@ func (s *playQueueStore) timelineQueue(user int64, client string, key core.Ratin
 		rows.Close()
 	}
 	if qid != 0 {
-		_, _ = s.with(qid, user, time.Now(), func(q *playQueue) {
+		_, _ = s.with(qid, user, s.now(), func(q *playQueue) {
 			if i, ok := find(q); ok {
 				q.selected = i
 			}

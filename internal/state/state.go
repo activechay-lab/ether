@@ -261,12 +261,16 @@ type progressKey struct {
 type progressWrite struct {
 	offset, duration time.Duration
 	state            string
+	timelineState    string
 	at               time.Time
 	before           *progressWrite
 	origin           Origin
 }
 
 func (w progressWrite) completes() bool {
+	if len(w.state) > 5 && w.state[:5] == "plex-" {
+		return w.state == "plex-complete"
+	}
 	return w.state != "progress" && w.duration > 0 && float64(w.offset) >= WatchedThreshold*float64(w.duration)
 }
 
@@ -386,7 +390,10 @@ func addHistoryTx(ctx context.Context, tx *sql.Tx, userID int64, key core.Rating
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO state_history(user_id, rating_key, viewed_at, completed, view_type, device_id, snapshot) VALUES(?,?,?,?,?,?,?)`,
 		userID, int64(key), at.UnixNano(), c, historyViewType(ctx), originFrom(ctx).DeviceID, historySnapshot(ctx))
- if err!=nil{return err};return addLifetimeTx(ctx,tx,userID,key,at.UnixNano())
+	if err != nil {
+		return err
+	}
+	return addLifetimeTx(ctx, tx, userID, key, at.UnixNano())
 }
 
 // Get returns the status for one key. A never-touched key returns a zero
@@ -709,6 +716,7 @@ func (s *State) Progress(ctx context.Context, userID int64, key core.RatingKey, 
 		offset = 0
 	}
 	w := progressWrite{offset: offset, duration: duration, state: state, origin: originFrom(ctx)}
+	w.timelineState, _ = ctx.Value(plexStatusKey{}).(string)
 	if s.pending != nil {
 		w.at = s.now().UTC()
 		return s.pending.put(progressKey{userID, key}, pendingWrite{kind: "progress", progress: w})
