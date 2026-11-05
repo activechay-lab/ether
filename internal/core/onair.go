@@ -40,3 +40,8 @@ type PersonalPick struct {
 type PersonalPicker interface {
 	Picks(context.Context, *User, map[string]float64, int) ([]PersonalPick, error)
 }
+
+// ChannelSegmentMetadata adds plugin policy metadata without expanding base fakes.
+type ChannelSegmentMetadata interface {
+	SegmentInfo(moment string) (name, rating string, ok bool)
+}

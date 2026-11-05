@@ -101,7 +101,17 @@ type ChannelScreens struct {
 	NoSignal string `json:"noSignal,omitempty"`
 }
 
+type ClockSlot struct {
+	SegmentID    string `json:"segmentId"`
+	Minute       int    `json:"minute"`
+	EveryMinutes int    `json:"everyMinutes"`
+	From         int    `json:"from"`
+	Until        int    `json:"until"`
+	Days         []int  `json:"days"`
+}
 type Channel struct {
+	Clock          []ClockSlot `json:"clock,omitempty"`
+	segmentInfo    func(string) (string, string, bool)
 	DVRMinutes     int             `json:"dvrMinutes,omitempty"`
 	Personal       *PersonalRecipe `json:"personal,omitempty"`
 	personalViewer *core.User
@@ -262,6 +272,7 @@ type SourceGroup struct {
 	Excluded bool `json:"excluded,omitempty"`
 }
 type Programme struct {
+	sourceOffset    time.Duration
 	graphicsRequest *core.ClipRequest
 	Reason          string    `json:"reason,omitempty"`
 	Lens            string    `json:"lens,omitempty"`
@@ -277,9 +288,9 @@ func (p Programme) Offset(at time.Time) time.Duration {
 		return 0
 	}
 	if !at.Before(p.End) {
-		return p.End.Sub(p.Start)
+		return p.sourceOffset + p.End.Sub(p.Start)
 	}
-	return at.Sub(p.Start)
+	return p.sourceOffset + at.Sub(p.Start)
 }
 
 // Policy is one viewer's Live TV access. It is the only channel allow-list:

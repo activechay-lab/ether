@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/faillog"
+	"strings"
 	"time"
 )
 
@@ -11,11 +12,11 @@ import (
 // node-local broadcast. Guide reads apply recorded decisions without cache I/O.
 func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until time.Time, check bool) []Programme {
 	c = s.graphicsChannel(c)
-	if c.Look == nil || s.o.Graphics == nil {
+	if (c.Look == nil && len(c.Clock) == 0) || s.o.Graphics == nil {
 		return Schedule(c, from, until)
 	}
 	start, end := from, until
-	if c.Look.Placement == "insert" {
+	if c.Look != nil && c.Look.Placement == "insert" {
 		start = dayStart(from, zoneOf(c.Timezone))
 		end = until.Add(24 * time.Hour)
 	}
@@ -50,19 +51,24 @@ func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until 
 				skip = p.End
 				if first {
 					faillog.New(s.o.Logger, "livetv: interstitial skipped").Fail(fmt.Errorf("clip not cached"), "programme", p.ID, "moment", p.Item.Slate)
-					if c.Look.Placement == "insert" {
+					if c.Look != nil && c.Look.Placement == "insert" {
 						s.bumpLineup()
 					}
 				}
 			}
 		}
 		if !skip.IsZero() {
-			if c.Look.Placement == "insert" {
+			if c.Look != nil && c.Look.Placement == "insert" && !strings.HasPrefix(p.Item.Slate, "plugin:") {
 				advance += p.End.Sub(p.Start)
 				continue
 			}
 			plain := c
 			plain.Look = nil
+			plain.Clock = nil
+			if strings.HasPrefix(p.Item.Slate, "plugin:") {
+				fillGap(&out, plain, c.Filler, p.Start, p.End, from, until)
+				continue
+			}
 			for _, fallback := range Schedule(plain, p.Start, p.End) {
 				a, b := p.Start, p.End
 				if fallback.Start.After(a) {

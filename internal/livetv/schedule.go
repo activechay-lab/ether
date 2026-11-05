@@ -24,6 +24,9 @@ func Schedule(c Channel, from, until time.Time) []Programme {
 	if c.clipDuration == nil {
 		c.Look = nil
 	}
+	if len(c.Clock) > 0 && c.clipDuration != nil {
+		return clockSchedule(c, from, until)
+	}
 	if c.Epoch.IsZero() {
 		c.Epoch = time.Unix(0, 0).UTC()
 	}

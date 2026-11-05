@@ -46,10 +46,12 @@ const (
 	KindSlot             Kind = "slot"
 	KindWidget           Kind = "widget"
 	KindTool             Kind = "tool"
+	KindOnAirSegment     Kind = "onairSegment"
 )
 
 var knownKinds = map[Kind]bool{
-	KindRankingStep: true, KindRuleField: true, KindCollectionSource: true, KindRowSource: true,
+	KindOnAirSegment: true,
+	KindRankingStep:  true, KindRuleField: true, KindCollectionSource: true, KindRowSource: true,
 	KindLiveTVSource: true, KindChannelKind: true, KindEventKind: true, KindSubtitleProvider: true,
 	KindMarkerSource: true, KindSourceKind: true, KindIntegration: true, KindPage: true,
 	KindNavItem: true, KindCommand: true, KindSettingsSchema: true, KindSlot: true,

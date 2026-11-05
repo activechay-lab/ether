@@ -1,6 +1,8 @@
 package livetv
 
 import (
+	"github.com/braedonsaunders/ether/internal/contentrating"
+	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -9,6 +11,9 @@ import (
 func interstitial(it Item) bool {
 	if it.Key != 0 {
 		return false
+	}
+	if strings.HasPrefix(it.Slate, "plugin:") {
+		return true
 	}
 	switch it.Slate {
 	case "ident", "upnext", "break", "back", "tonight", "welcome":
@@ -23,7 +28,12 @@ func (c Channel) moments(at time.Time) []Item {
 	}
 	var kinds []string
 	if c.Look.Breaks == "between" && (c.Look.BreakEvery <= 0 || at.Unix()/60%int64(c.Look.BreakEvery) == 0) {
-		kinds = append(kinds, "break", "back")
+		if c.Look.BreakContent == "segments" {
+			kinds = append(kinds, c.Look.SegmentIDs...)
+		} else {
+			kinds = append(kinds, "break")
+		}
+		kinds = append(kinds, "back")
 	}
 	if c.Look.UpNext {
 		kinds = append(kinds, "upnext")
@@ -33,6 +43,12 @@ func (c Channel) moments(at time.Time) []Item {
 	}
 	var items []Item
 	for _, kind := range kinds {
+		if strings.HasPrefix(kind, "plugin:") {
+			if item, ok := c.pluginItem(kind); ok {
+				items = append(items, item)
+			}
+			continue
+		}
 		if d, ok := c.clipDuration(c.Look.LookID, kind); ok && d > 0 && d%segmentDuration == 0 {
 			items = append(items, Item{Slate: kind, Title: kind, DurationMS: d.Milliseconds()})
 		}
@@ -47,7 +63,15 @@ func guideSchedule(c Channel, from, until time.Time) []Programme {
 		return Schedule(c, from, until)
 	}
 	if c.Look.Placement != "insert" {
-		c.Look = nil
+		if len(c.Clock) > 0 {
+			// Suppress look interstitials while retaining the clock's channel policy.
+			look := *c.Look
+			look.Breaks = ""
+			look.UpNext = false
+			c.Look = &look
+		} else {
+			c.Look = nil
+		}
 		return Schedule(c, from, until)
 	}
 	ps := Schedule(c, dayStart(from, zoneOf(c.Timezone)).AddDate(0, 0, -1), until.Add(24*time.Hour))
@@ -71,7 +95,15 @@ func guideSchedule(c Channel, from, until time.Time) []Programme {
 }
 
 func (s *Service) clipRequest(c Channel, p Programme) core.ClipRequest {
-	r := core.ClipRequest{LookID: c.Look.LookID, Moment: p.Item.Slate, ChannelID: c.ID, Bind: map[string]string{"channel.name": c.Name, "channel.tagline": c.Look.Tagline, "channel.accent": c.Look.Accent}, Art: map[string]string{}}
+	lookID := ""
+	if c.Look != nil {
+		lookID = c.Look.LookID
+	}
+	r := core.ClipRequest{LookID: lookID, Moment: p.Item.Slate, ChannelID: c.ID, Bind: map[string]string{"channel.name": c.Name}, Art: map[string]string{}}
+	if c.Look != nil {
+		r.Bind["channel.tagline"] = c.Look.Tagline
+		r.Bind["channel.accent"] = c.Look.Accent
+	}
 	if c.Personal != nil && c.personalViewer != nil {
 		r.ViewerID = c.personalViewer.ID
 		r.Bind["viewer.name"] = viewerName(c.personalViewer)
@@ -99,6 +131,9 @@ func (s *Service) clipRequest(c Channel, p Programme) core.ClipRequest {
 func (s *Service) graphicsChannel(c Channel) Channel {
 	if s.o.Graphics != nil {
 		c.clipDuration = s.o.Graphics.Duration
+		if meta, ok := s.o.Graphics.(core.ChannelSegmentMetadata); ok {
+			c.segmentInfo = meta.SegmentInfo
+		}
 	}
 	return c
 }
@@ -120,17 +155,53 @@ func (s *Service) ensureGraphics() {
 		for _, reason := range []string{offAirSlate, "reconnecting", "busy"} {
 			s.o.Graphics.Ensure(s.ctx, s.screenRequest(c, reason))
 		}
-		if c.Look == nil {
+		if c.Look == nil && len(c.Clock) == 0 {
 			continue
 		}
-		if c.Look.Ident {
+		if c.Look != nil && c.Look.Ident {
 			s.o.Graphics.Ensure(s.ctx, s.clipRequest(c, Programme{Item: Item{Slate: "ident"}}))
 		}
 		c = s.graphicsChannel(c)
 		for _, p := range Schedule(c, now, now.Add(3*time.Hour)) {
+			if strings.HasPrefix(p.Item.Slate, "plugin:") && p.Start.After(now.Add(15*time.Minute)) {
+				continue
+			}
 			if interstitial(p.Item) || p.Item.Slate == offAirSlate {
 				s.o.Graphics.Ensure(s.ctx, s.clipRequest(c, p))
 			}
 		}
 	}
+}
+
+func (c Channel) pluginItem(id string) (Item, bool) {
+	if c.clipDuration == nil {
+		return Item{}, false
+	}
+	look := ""
+	if c.Look != nil {
+		look = c.Look.LookID
+	}
+	d, ok := c.clipDuration(look, id)
+	if !ok || d <= 0 || d%segmentDuration != 0 {
+		return Item{}, false
+	}
+	name, rating := id, ""
+	if c.segmentInfo != nil {
+		var exists bool
+		name, rating, exists = c.segmentInfo(id)
+		if !exists {
+			return Item{}, false
+		}
+	}
+	cap := c.Rating
+	if c.Filter != nil && c.Filter.MaxContentRating != "" {
+		cap = c.Filter.MaxContentRating
+	}
+	if cap != "" && rating == "" && (c.Look == nil || !c.Look.AllowUnratedSegments) {
+		return Item{}, false
+	}
+	if rating != "" && (contentrating.Exceeds(rating, c.Rating) || (c.Filter != nil && contentrating.Exceeds(rating, c.Filter.MaxContentRating))) {
+		return Item{}, false
+	}
+	return Item{Slate: id, Title: name, Rating: rating, DurationMS: d.Milliseconds()}, true
 }

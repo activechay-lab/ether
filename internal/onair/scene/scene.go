@@ -140,11 +140,15 @@ func (d Document) Estimate() Cost {
 	return c
 }
 func (d Document) Validate() error {
-	if d.V != 1 || !one(d.Moment, "ident upnext tonight break back offair welcome bug lowerthird screen.card screen.static screen.bars screen.brb screen.testcard") {
+	if d.V != 1 || (!strings.HasPrefix(d.Moment, "plugin:") && !one(d.Moment, "ident upnext tonight break back offair welcome bug lowerthird screen.card screen.static screen.bars screen.brb screen.testcard")) {
 		return fmt.Errorf("unsupported scene version or moment")
 	}
-	if d.Duration <= 0 || d.Duration > 30 || math.Mod(d.Duration, 4) != 0 || d.Poster < 0 || d.Poster >= d.Duration {
-		return fmt.Errorf("invalid duration/poster: duration must be a multiple of 4, at most 30")
+	maxDuration := 30.0
+	if strings.HasPrefix(d.Moment, "plugin:") {
+		maxDuration = 600
+	}
+	if d.Duration <= 0 || d.Duration > maxDuration || math.Mod(d.Duration, 4) != 0 || d.Poster < 0 || d.Poster >= d.Duration {
+		return fmt.Errorf("invalid duration/poster: duration must be a multiple of 4 within the moment limit")
 	}
 	if d.Audio != nil && !one(d.Audio.Generator, "static tone bed") {
 		return fmt.Errorf("unknown audio generator")

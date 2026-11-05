@@ -41,7 +41,8 @@ type pluginRuntime struct {
 
 func (a *App) buildPlugins(ctx context.Context, cfg config.Config) (*pluginRuntime, error) {
 	mgr, err := plugins.New(plugins.Deps{
-		DB: a.db, Sealer: a.cfg,
+		OnAirContent: a.pluginContent,
+		DB:           a.db, Sealer: a.cfg,
 		CheckPackage: kit.CheckInstall,
 		Registry:     a.extendRT.registry, Tools: a.extendRT.tools, Notifications: a.notifications,
 		Logger:   a.log.With("component", "plugins"),

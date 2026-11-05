@@ -92,6 +92,7 @@ func LintCopy(s string, max int) string {
 // capabilityKinds is the SPEC §5.1.3 table. A nil set means any kind.
 var capabilityKinds = map[Capability]map[Kind]bool{
 	CapStreamSource:    {KindSource: true},
+	CapOnAirContent:    {KindExtension: true},
 	CapDebridProvider:  {KindSource: true},
 	CapListSource:      {KindIntegration: true, KindExtension: true},
 	CapPluginDirectory: {KindIntegration: true, KindExtension: true, KindSource: true},
@@ -247,6 +248,7 @@ func (m Manifest) Validate() error {
 		}
 	}
 	validateContributes(m, add)
+	validateOnAir(m, add)
 	if len(f) > 0 {
 		return &ValidationError{f}
 	}

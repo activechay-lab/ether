@@ -1,0 +1,56 @@
+{
+  "v": 1,
+  "moment": "plugin:community.example.weather/forecast",
+  "duration": 120,
+  "poster": 0,
+  "slots": ["now.temp", "now.summary"],
+  "layers": [
+    {
+      "id": "background",
+      "type": "rect",
+      "w": 1920,
+      "h": 1080,
+      "fill": "{bg}"
+    },
+    {
+      "id": "title",
+      "type": "text",
+      "text": "Local forecast",
+      "x": 120,
+      "y": 220,
+      "font": "{type.display}",
+      "size": 100,
+      "fill": "{accent}"
+    },
+    {
+      "id": "temperature",
+      "type": "text",
+      "text": "{now.temp} °C",
+      "x": 120,
+      "y": 480,
+      "font": "{type.display}",
+      "size": 180,
+      "fill": "{text}"
+    },
+    {
+      "id": "summary",
+      "type": "text",
+      "text": "{now.summary}",
+      "x": 120,
+      "y": 730,
+      "font": "{type.body}",
+      "size": 56,
+      "fill": "{text}"
+    },
+    {
+      "id": "credit",
+      "type": "text",
+      "text": "Weather data: Open-Meteo.com · CC BY 4.0",
+      "x": 120,
+      "y": 960,
+      "font": "{type.body}",
+      "size": 28,
+      "fill": "{text}"
+    }
+  ]
+}
