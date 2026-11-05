@@ -35,6 +35,7 @@ type privatePlayback interface {
 
 type deploymentRuntime struct {
 	sourceAdmin   http.Handler
+	publicReady   atomic.Bool
 	quotaOpen     atomic.Bool
 	quota         atomic.Pointer[placement.QuotaStatus]
 	encoder       *transcode.Manager
@@ -225,7 +226,10 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 				err := a.reconcilePrivatePlacement(op)
 				_ = p.playback.Tick(op) // pending retirement is healthy retained ownership, not readiness loss
 				c()
-				p.ready.Store(err == nil && p.playback.Ready())
+				p.ready.Store(err == nil && a.privateServicesReady())
+				if p.ready.Load() {
+					p.started.Store(true)
+				}
 				if p.ready.Load() {
 					p.protocol.Store(1)
 				} else {
@@ -292,9 +296,11 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		workers.Wait()
 		return nil, err
 	}
-	p.started.Store(true)
-	p.ready.Store(true)
-	p.protocol.Store(1)
+	p.ready.Store(a.privateServicesReady())
+	if p.ready.Load() {
+		p.started.Store(true)
+		p.protocol.Store(1)
+	}
 	return func() {
 		a.drainPrivate()
 		p.protocol.Store(0)
@@ -348,5 +354,26 @@ func (a *App) runSpecialist(ctx context.Context) error {
 		return err
 	case err := <-a.privateErrors():
 		return err
+	}
+}
+
+// Public-role admission becomes ready only after the actual public listener and
+// its complete handler have been installed. Private-only workers need no public
+// frontend. Transient health loss does not clear the completed startup probe.
+func (a *App) privateServicesReady() bool {
+	p := a.deployment
+	if p == nil || p.playback == nil || !p.playback.Ready() {
+		return false
+	}
+	return !(p.settings.Roles.Has(config.RoleServer) || p.settings.Roles.Has(config.RoleDelivery)) || p.publicReady.Load()
+}
+func (a *App) markPublicReady() {
+	if p := a.deployment; p != nil {
+		p.publicReady.Store(true)
+		if a.privateServicesReady() {
+			p.started.Store(true)
+			p.ready.Store(true)
+			p.protocol.Store(1)
+		}
 	}
 }

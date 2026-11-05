@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"github.com/braedonsaunders/ether/internal/identity"
+	"github.com/braedonsaunders/ether/internal/plextv"
 	"github.com/braedonsaunders/ether/internal/safety"
 )
 
@@ -37,6 +39,13 @@ func (a *App) buildDeliveryRole(ctx context.Context, cfg config.Config) error {
 	if err = a.buildClusterPlayback(ctx, cfg); err != nil {
 		return err
 	}
+	a.certs, err = plextv.NewCertManager(plextv.CertManagerOptions{Dir: filepath.Join(a.opts.DataDir, "certs"), Shared: a.sharedCerts(), CustomCertFile: cfg.Plex.CertFile, CustomKeyFile: cfg.Plex.KeyFile, Logger: a.log})
+	if err != nil {
+		return err
+	}
+	a.certs.SetRenewalAllowed(func() bool { return false })
+	a.certs.SetEventBus(a.cluster)
+	a.closers = append(a.closers, a.certs.Close)
 	runtime := a.deployment.playback.(*clusterplayback.Runtime)
 	a.handler, err = runtime.NewPublicDelivery(a.authorizeDeliveryPlex)
 	return err

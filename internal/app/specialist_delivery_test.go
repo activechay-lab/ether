@@ -46,6 +46,9 @@ func TestDeliveryRoleConstructionBoundary(t *testing.T) {
 	if response.Code != 401 {
 		t.Fatalf("unauthenticated Plex forwarding admitted: %d", response.Code)
 	}
+	if a.privateServicesReady() {
+		t.Fatal("delivery ready before public listener installation")
+	}
 	if a.privateProtocol() != 0 {
 		t.Fatal("delivery advertised before listeners bound")
 	}
