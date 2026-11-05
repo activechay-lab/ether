@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { t } from "../../../../i18n";
 import { onair, type Bindings, type Reel } from "../model";
-import { type Style } from "../studio-model";
+import { studio, type Style } from "../studio-model";
 import { StyleThumbnail } from "./RemixPanel";
-import { useAssetAudio } from "../useAssetAudio";
+import { useMediaURL } from "../useMediaURL";
 import { usePreviewAudio } from "./preview-audio";
 export function SequencePreview({
   style,
@@ -93,12 +93,11 @@ export function SequencePreview({
   }, [open, playing, total]);
   usePreviewAudio(chapter?.scene, local, open && playing, muted);
   const video = useRef<HTMLVideoElement>(null);
-  const videoSource = useAssetAudio(
-    open
-      ? (chapter?.scene?.video?.assetDigest ??
-          (chapter && "reel" in chapter ? (chapter.reel?.sourceDigest ?? "") : ""))
-      : "",
-  );
+  const videoDigest = open
+    ? (chapter?.scene?.video?.assetDigest ??
+      (chapter && "reel" in chapter ? (chapter.reel?.sourceDigest ?? "") : ""))
+    : "";
+  const videoSource = useMediaURL(videoDigest ? studio.media(videoDigest) : "");
   useEffect(() => {
     const v = video.current;
     if (!v) return;

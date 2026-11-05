@@ -1,3 +1,4 @@
+import { useMediaURL } from "../onair/useMediaURL";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Button, Checkbox, Input, Select, confirmDialog } from "@braedonsaunders/appkit-ui";
@@ -5,7 +6,7 @@ import { AudioLines, Film, Image, Type } from "lucide-react";
 import { SubtabNav } from "../../../components/layout";
 import { Drawer } from "../../../components/Drawer";
 import { t, tn } from "../../../i18n";
-import { apiFetch, apiBlob, sessionXhrSetup, errorMessage } from "../../../lib/api";
+import { apiFetch, sessionXhrSetup, errorMessage } from "../../../lib/api";
 import { formatBytes } from "../../../lib/format";
 import { studio, type LibraryAsset, type AssetKind } from "../onair/studio-model";
 import { onair } from "../onair/model";
@@ -37,32 +38,6 @@ export function Waveform({ asset }: { asset: LibraryAsset }) {
       ))}
     </svg>
   );
-}
-function useMediaURL(url: string, enabled = true) {
-  const [resolved, setResolved] = useState("");
-  useEffect(() => {
-    if (!enabled) {
-      setResolved("");
-      return;
-    }
-    if (!url.startsWith("/ether/api/")) {
-      setResolved(url);
-      return;
-    }
-    const abort = new AbortController();
-    let objectURL = "";
-    void apiBlob(url, abort.signal)
-      .then((blob) => {
-        objectURL = URL.createObjectURL(blob);
-        setResolved(objectURL);
-      })
-      .catch(() => {});
-    return () => {
-      abort.abort();
-      if (objectURL) URL.revokeObjectURL(objectURL);
-    };
-  }, [url, enabled]);
-  return resolved;
 }
 function Preview({ asset: a, full = false }: { asset: LibraryAsset; full?: boolean }) {
   const [sample, setSample] = useState(t("Aa"));
