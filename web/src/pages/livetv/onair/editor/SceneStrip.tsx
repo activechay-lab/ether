@@ -20,6 +20,17 @@ export function SceneStrip(p: {
   onSelect(id: string): void;
   onChange(style: Style): void;
 }) {
+  const roleNames = {
+    ident: t("Ident"),
+    upnext: t("Up next"),
+    tonight: t("Tonight"),
+    break: t("Break"),
+    back: t("Back"),
+    offair: t("Off air"),
+    welcome: t("Welcome"),
+    bug: t("Corner logo"),
+    lowerthird: t("Lower third"),
+  };
   const [ai, setAI] = useState("");
   const [templates, setTemplates] = useState<Template[]>([]);
   useEffect(() => {
@@ -61,7 +72,7 @@ export function SceneStrip(p: {
       {ROLES.map((role) => (
         <section key={role} className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">
-            <h3 className="text-xs font-semibold uppercase">{t(role)}</h3>
+            <h3 className="text-xs font-semibold uppercase">{roleNames[role]}</h3>
             <label className="flex items-center gap-2 text-xs">
               {t("Duration")}
               <input
@@ -155,7 +166,7 @@ export function SceneStrip(p: {
               ))}
             <div className="flex w-44 shrink-0 flex-col justify-center gap-2 rounded-lg border border-dashed border-border p-3">
               <Button size="sm" variant="ghost" onClick={() => add(role)}>
-                {t("Add {role} scene", { role: t(role) })}
+                {t("Add {role} scene", { role: roleNames[role] })}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setAI(add(role))}>
                 {t("Add with AI")}

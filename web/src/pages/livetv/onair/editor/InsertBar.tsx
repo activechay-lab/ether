@@ -12,6 +12,20 @@ export function InsertBar(p: {
   onPen?(): void;
 }) {
   const [pick, setPick] = useState<AssetKind>();
+  const names: Record<string, string> = {
+    text: t("Text"),
+    path: t("Path"),
+    rect: t("Rectangle"),
+    ellipse: t("Ellipse"),
+    line: t("Line"),
+    star: t("Star"),
+    polygon: t("Polygon"),
+    gradient: t("Gradient"),
+    grid: t("Perspective grid"),
+    particles: t("Particles"),
+    noise: t("Noise"),
+    glow: t("Glow"),
+  };
   const add = (type: string, props: Partial<Layer> = {}) => {
     const id = newLayerId(p.scene.document, type);
     p.onChange({
@@ -19,7 +33,7 @@ export function InsertBar(p: {
       document: insertLayer(p.scene.document, {
         id,
         type,
-        name: t(type),
+        name: names[type] ?? type,
         x: 760,
         y: 440,
         w: 400,
@@ -45,7 +59,12 @@ export function InsertBar(p: {
             : kind === "polygon"
               ? "M200 0 L400 100 L300 200 L100 200 L0 100 Z"
               : "M0 0 H400 V200 H0 Z";
-    add("path", { name: t(kind), path, stroke: "{text}", strokeWidth: kind === "line" ? 4 : 0 });
+    add("path", {
+      name: names[kind] ?? kind,
+      path,
+      stroke: "{text}",
+      strokeWidth: kind === "line" ? 4 : 0,
+    });
   };
   return (
     <div className="flex flex-wrap gap-2" aria-label={t("Insert layer")}>
@@ -75,7 +94,7 @@ export function InsertBar(p: {
           </option>
           {["rect", "ellipse", "line", "star", "polygon"].map((s) => (
             <option key={s} value={s}>
-              {t(s)}
+              {names[s] ?? s}
             </option>
           ))}
         </Select>
@@ -115,7 +134,7 @@ export function InsertBar(p: {
             "clock",
           ].map((s) => (
             <option key={s} value={s}>
-              {t(s)}
+              {names[s] ?? s}
             </option>
           ))}
         </Select>
@@ -126,7 +145,8 @@ export function InsertBar(p: {
           value=""
           onChange={(e) => {
             const kind = e.target.value;
-            add(kind === "gradient" ? "rect" : kind, {
+            add(kind === "gradient" ? "rect" : kind === "glow" ? "ellipse" : kind, {
+              glow: kind === "glow" ? 32 : undefined,
               w: 1920,
               h: 1080,
               x: 0,
@@ -151,9 +171,9 @@ export function InsertBar(p: {
           <option value="" disabled>
             {t("Effects")}
           </option>
-          {["gradient", "grid", "particles", "noise"].map((s) => (
+          {["gradient", "grid", "particles", "noise", "glow"].map((s) => (
             <option key={s} value={s}>
-              {t(s)}
+              {names[s] ?? s}
             </option>
           ))}
         </Select>

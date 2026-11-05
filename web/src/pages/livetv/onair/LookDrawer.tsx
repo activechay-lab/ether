@@ -39,13 +39,16 @@ export function LookDrawer({
   const [draft, setDraft] = useState(look),
     [saved, setSaved] = useState(look),
     [tab, setTab] = useState(initialTab),
+    [designTab, setDesignTab] = useState("layers"),
     [sceneId, setSceneId] = useState(look.scenes[0]?.id ?? ""),
     [selected, setSelected] = useState<string[]>([]),
     [channels, setChannels] = useState<ChannelSummary[]>([]),
     [channel, setChannel] = useState(look.channelIds[0] ?? ""),
     [viewers, setViewers] = useState<EtherUser[]>([]),
     [viewer, setViewer] = useState(""),
-    [at, setAt] = useState(() => new Date().toISOString().slice(0, 16)),
+    [at, setAt] = useState(() =>
+      new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16),
+    ),
     [bound, setBound] = useState<Bindings>({}),
     [pen, setPen] = useState(false),
     [safe, setSafe] = useState(false),
@@ -84,6 +87,9 @@ export function LookDrawer({
   };
   const scene = draft.scenes.find((s) => s.id === sceneId) ?? draft.scenes[0];
   const clock = useStageClock(scene?.document.duration ?? 8);
+  useEffect(() => {
+    clock.seek(scene?.document.poster ?? 0);
+  }, [scene?.id]);
   const bindings = useMemo(() => styleBindings(draft, bound), [draft, bound]);
   const audioScene = useMemo(
     () =>
@@ -100,7 +106,7 @@ export function LookDrawer({
   usePreviewAudio(audioScene, clock.time, clock.playing, muted);
   const updateScene = (next: StyleScene) =>
     change({ ...draft, scenes: draft.scenes.map((s) => (s.id === next.id ? next : s)) });
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  const dirty = !draft.id || JSON.stringify(draft) !== JSON.stringify(saved);
   useUnsavedGuard(dirty);
   useEffect(() => {
     void tv.channelSummaries().then((rows) => {
@@ -113,7 +119,7 @@ export function LookDrawer({
     });
   }, []);
   useEffect(() => {
-    if (channel)
+    if (channel && Number.isFinite(Date.parse(at)))
       void onair
         .bindings({
           channel,
@@ -172,6 +178,7 @@ export function LookDrawer({
           onChange={(e) => change({ ...draft, name: e.target.value })}
         />
       }
+      panelClassName="max-sm:[&>header]:flex-wrap max-sm:[&>header>div:first-child]:w-full max-sm:[&>header>div:last-child]:w-full max-sm:[&>header>div:last-child]:justify-end"
       bodyClassName="flex min-h-0 flex-1 flex-col overflow-y-auto p-0 lg:overflow-hidden"
       headerActions={
         <div className="flex flex-wrap items-center gap-2">
@@ -242,9 +249,9 @@ export function LookDrawer({
     >
       <div
         inert={saving}
-        className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)]"
+        className="flex flex-col lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[320px_minmax(0,1fr)]"
       >
-        <aside className="order-2 overflow-y-auto border-r border-border p-4 lg:order-1">
+        <aside className="order-2 lg:overflow-y-auto border-r border-border p-4 lg:order-1">
           <SubtabNav
             active={tab}
             onSelect={setTab}
@@ -258,19 +265,31 @@ export function LookDrawer({
           <div className="space-y-5 py-4">
             {tab === "design" && scene ? (
               <>
-                <LayersPanel
-                  document={scene.document}
-                  selected={selected}
-                  onSelect={setSelected}
-                  onChange={(document) => updateScene({ ...scene, document })}
+                <SubtabNav
+                  active={designTab}
+                  onSelect={setDesignTab}
+                  ariaLabel={t("Design tools")}
+                  tabs={[
+                    { key: "properties", label: t("Properties") },
+                    { key: "layers", label: t("Layers") },
+                  ]}
                 />
-                <Inspector
-                  time={clock.time}
-                  style={draft}
-                  scene={scene}
-                  selected={selected}
-                  onChange={change}
-                />
+                {designTab === "layers" ? (
+                  <LayersPanel
+                    document={scene.document}
+                    selected={selected}
+                    onSelect={setSelected}
+                    onChange={(document) => updateScene({ ...scene, document })}
+                  />
+                ) : (
+                  <Inspector
+                    time={clock.time}
+                    style={draft}
+                    scene={scene}
+                    selected={selected}
+                    onChange={change}
+                  />
+                )}
                 <VideoPicker scene={scene} onChange={updateScene} />
               </>
             ) : tab === "screens" ? (
@@ -293,7 +312,7 @@ export function LookDrawer({
             )}
           </div>
         </aside>
-        <main className="order-1 min-w-0 space-y-4 overflow-y-auto bg-bg-subtle p-4 lg:order-2">
+        <main className="order-1 min-w-0 space-y-4 lg:overflow-y-auto bg-bg-subtle p-4 lg:order-2">
           <div className="flex flex-wrap items-center gap-2">
             <ToolbarPicker
               ariaLabel={t("Preview channel")}
