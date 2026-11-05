@@ -546,7 +546,14 @@ export function CatalogBrowser({
             </p>
           ) : null}
           {results.error ? (
-            <ErrorPanel error={results.error} onRetry={() => void results.reload()} />
+            <ErrorPanel
+              error={results.error}
+              onRetry={() => {
+                if (!collection && page > 1)
+                  setCursorPage({ identity: cursorIdentity, after: "", page: 1 });
+                else void results.reload();
+              }}
+            />
           ) : busy && page === 1 ? (
             <PosterSkeletons count={12} className="catalog-grid" />
           ) : !items.length && !busy ? (

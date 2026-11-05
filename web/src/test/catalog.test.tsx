@@ -145,6 +145,40 @@ describe("Catalog workspace", () => {
     });
   });
 
+  it("restarts a failed cursor page without preserving a broken boundary", async () => {
+    const { fake } = renderAppWith("/catalog?page=999999", (_method, path, _body, query) => {
+      if (path !== "/catalog/browse" || query.has("countOnly")) return undefined;
+      if (query.has("after"))
+        return new Response(JSON.stringify({ error: { message: "Restart browsing" } }), {
+          status: 400,
+        });
+      return {
+        items: Array.from({ length: 48 }, (_, i) => ({
+          ...title,
+          key: String(i),
+          title: `Film ${i}`,
+        })),
+        total: 107,
+        hasMore: true,
+        nextCursor: "expired",
+      };
+    });
+    await screen.findByRole("button", { name: "Inspect Film 0" });
+    expect(
+      calls(fake, "GET", "/catalog/browse")
+        .filter((c) => !c.path.includes("countOnly"))
+        .at(-1)?.path,
+    ).not.toContain("offset=");
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await screen.findByRole("button", { name: "Inspect Film 0" });
+    const latest = calls(fake, "GET", "/catalog/browse")
+      .filter((c) => !c.path.includes("countOnly"))
+      .at(-1)?.path;
+    expect(latest).not.toContain("after=");
+    expect(latest).not.toContain("offset=");
+  });
+
   it("keeps all catalog settings and saves changes from the new page", async () => {
     const { fake } = renderAppWith("/catalog/settings", () => undefined);
     const language = await screen.findByLabelText("Language");
