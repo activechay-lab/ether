@@ -5,6 +5,7 @@ import { t } from "../../i18n";
 import { useNavigate } from "react-router-dom";
 import { newCollectionHref } from "../collections/links";
 import { collectionDraft } from "./catalogSavedView";
+import { catalogValueLabel } from "./catalogValueLabel";
 import { api, apiFetch } from "../../lib/api";
 import { useAsync, useDebouncedValue } from "../../lib/hooks";
 import {
@@ -331,10 +332,12 @@ export function CatalogFilterBar({
               <span className="catalog-query-op">
                 {chip.op === "min" ? "≥" : chip.op === "max" ? "≤" : "="}
               </span>
-              <strong>{chip.label || chip.value}</strong>
+              <strong>{catalogValueLabel(chip.field, chip.label || chip.value)}</strong>
             </button>
             <button
-              aria-label={t("Remove {filter} filter", { filter: chip.label || chip.value })}
+              aria-label={t("Remove {filter} filter", {
+                filter: catalogValueLabel(chip.field, chip.label || chip.value),
+              })}
               onClick={() => commit({ ...state, chips: state.chips.filter((_, i) => i !== index) })}
             >
               <X size={13} />
@@ -559,7 +562,9 @@ export function CatalogFilterBar({
                 onChange={(e) => setDraft({ ...draft, value: e.target.value })}
               >
                 {field.values.map((v) => (
-                  <option key={v}>{v}</option>
+                  <option key={v} value={v}>
+                    {catalogValueLabel(field.key, v)}
+                  </option>
                 ))}
               </select>
             ) : (
