@@ -828,7 +828,7 @@
         {
           "key": "import",
           "label": {
-            "source": "Import & export"
+            "source": "Import \u0026 export"
           },
           "keywords": {
             "source": "migrate plex csv letterboxd trakt"
@@ -1156,7 +1156,7 @@
         {
           "key": "extras",
           "label": {
-            "source": "Trailers & extras"
+            "source": "Trailers \u0026 extras"
           },
           "keywords": {
             "source": "cinema trailers yt-dlp resolver"
@@ -1480,7 +1480,7 @@
         {
           "key": "subtitles",
           "label": {
-            "source": "Audio & subtitles"
+            "source": "Audio \u0026 subtitles"
           },
           "keywords": {
             "source": "audio languages subtitles timing sync opensubtitles household"
