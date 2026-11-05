@@ -464,6 +464,7 @@ func emitSlate(out *[]Programme, c Channel, anchor, end, from, until time.Time) 
 }
 
 func appendProgramme(out *[]Programme, c Channel, item Item, cursor, finish, from, until time.Time) {
+	item = availableBreakItem(item, cursor)
 	if !naturalBreakPolicy(c.Look) {
 		item.BreakReleaseID = ""
 		item.BreakRevision = ""

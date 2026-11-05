@@ -141,3 +141,42 @@ func (a *BreakAnalyzer) ObservePoints(ctx context.Context, in BreakInput, points
 	}
 	return tx.Commit()
 }
+
+// CachedBreakPoints returns only locally stored positive evidence; no resolve,
+// probe or decode. Full analyses and partial playout facts reinforce each other.
+func (a *BreakAnalyzer) CachedBreakPoints(ctx context.Context, in BreakInput) ([]BreakPoint, error) {
+	points, _, _, err := a.cachedBreakFacts(ctx, in)
+	return points, err
+}
+func (a *BreakAnalyzer) cachedBreakFacts(ctx context.Context, in BreakInput) ([]BreakPoint, bool, bool, error) {
+	rows, err := a.DB.QueryContext(ctx, `SELECT points,1 FROM markers_breaks_cache WHERE release_key=? AND version=? AND duration_ms=? UNION ALL SELECT points,0 FROM markers_breaks_observed WHERE release_key=? AND duration_ms=?`, in.ReleaseKey, breakVersion, in.Info.Duration.Milliseconds(), in.ReleaseKey, in.Info.Duration.Milliseconds())
+	if err != nil {
+		return nil, false, false, err
+	}
+	defer rows.Close()
+	var points []BreakPoint
+	full, found := false, false
+	for rows.Next() {
+		var raw string
+		var complete int
+		if err = rows.Scan(&raw, &complete); err != nil {
+			return nil, false, false, err
+		}
+		var saved []BreakPoint
+		if err = json.Unmarshal([]byte(raw), &saved); err != nil {
+			return nil, false, false, err
+		}
+		if complete == 1 {
+			full = true
+			found = true
+		}
+		if len(saved) > 0 {
+			found = true
+		}
+		points = append(points, saved...)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, false, false, err
+	}
+	return SelectBreaks(points, in.Info.Duration.Milliseconds(), 256, 60000), found, full, nil
+}

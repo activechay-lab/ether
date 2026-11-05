@@ -74,11 +74,36 @@ func TestBreakTapPartialReuseAndSeekSafety(t *testing.T) {
 	if got, err := a.Analyze(t.Context(), in); err != nil || len(got) != 1 {
 		t.Fatal("partial verified facts not reused", got, err)
 	}
+	if _, err := db.Exec(`INSERT INTO markers_breaks_cache VALUES(?,?,?,?,?)`, in.ReleaseKey, breakVersion, 180000, "[]", 0); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := a.Analyze(t.Context(), in); err != nil || len(got) != 1 {
+		t.Fatal("full/partial fact merge lost verified act", got, err)
+	}
 	seek := NewBreakTap(3 * time.Minute)
 	for _, at := range []time.Duration{70 * time.Second, 70100 * time.Millisecond, 75 * time.Second, 75100 * time.Millisecond} {
 		seek.Frame(at, 100*time.Millisecond, dark, []byte{0, 0}, 8, 8)
 	}
 	if got := seek.Points(); len(got) != 0 {
 		t.Fatal("seek or unfinished black run invented act", got)
+	}
+}
+
+func BenchmarkBreakTap(b *testing.B) {
+	tap := NewBreakTap(24 * time.Hour)
+	y := make([]byte, 1280*720)
+	for n := range y {
+		y[n] = 120
+	}
+	pcm := make([]byte, 1600*2*2)
+	for n := 0; n < len(pcm); n += 2 {
+		pcm[n] = 0xe8
+		pcm[n+1] = 3
+	}
+	span := time.Second / 30
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		tap.Frame(time.Duration(n)*span, span, y, pcm, 1280, 720)
 	}
 }

@@ -59,13 +59,16 @@ func (s *Service) analyzeUpcomingBreaks(retry map[core.RatingKey]time.Time) {
 		ownerID := s.breakOwners[c.ID]
 		s.mu.Unlock()
 		for _, p := range Schedule(c, now, now.Add(2*time.Hour)) {
-			if p.Item.Key == 0 || !eligible[p.Item.Key] || (p.Item.Key.Kind() != core.KindEpisode && p.Item.ShowKey == 0 && p.Item.MediaType != "episode") || !p.Start.After(now.Add(time.Minute)) || now.Before(retry[p.Item.Key]) {
+			if p.Item.Key == 0 || !eligible[p.Item.Key] || (p.Item.Key.Kind() != core.KindEpisode && p.Item.ShowKey == 0 && p.Item.MediaType != "episode") || !p.Start.After(now.Add(time.Minute)) {
 				continue
 			}
 			if observed, ok := s.observedBreaks[p.Item.Key]; ok {
 				// A later airing can reuse observed points without reopening source bytes.
 				s.publishBreaks(p.Item.Key, observed.points, observed.input.Info.Duration.Milliseconds(), observed.input.ReleaseID, observed.input.Revision)
-				delete(s.observedBreaks, p.Item.Key)
+				// Retain bounded observations until all channels can publish safely.
+			}
+			if now.Before(retry[p.Item.Key]) {
+				continue
 			}
 			pending = append(pending, breakTask{programme: p, ownerID: ownerID})
 		}
@@ -145,6 +148,13 @@ func (s *Service) publishBreaks(key core.RatingKey, points []markers.BreakPoint,
 			continue
 		}
 		changed := false
+		activeKnown := false
+		for _, airing := range Schedule(s.graphicsChannel(c), s.o.Now(), s.o.Now().Add(time.Millisecond)) {
+			if airing.Item.Key == key && len(airing.Item.BreakPointsMS) > 0 {
+				activeKnown = true
+				break
+			}
+		}
 		walkNaturalBreakItems(document, c.Look, func(v map[string]any, policy *ChannelLook) {
 			id, ok := v["key"].(float64)
 			if !ok || core.RatingKey(id) != key {
@@ -161,6 +171,15 @@ func (s *Service) publishBreaks(key core.RatingKey, points []markers.BreakPoint,
 			for _, point := range selected {
 				offsets = append(offsets, point.AtMS)
 			}
+			oldJSON, _ := json.Marshal(v["breakPoints"])
+			newJSON, _ := json.Marshal(selected)
+			if string(oldJSON) == string(newJSON) && v["breakReleaseId"] == releaseID && v["breakRevision"] == revision {
+				return
+			}
+			if activeKnown {
+				return
+			}
+			v["breakAvailableAfterMs"] = s.o.Now().Add(time.Minute).UnixMilli()
 			v["breakPoints"] = selected
 			v["breakPointsMs"] = offsets
 			v["breakReleaseId"] = releaseID

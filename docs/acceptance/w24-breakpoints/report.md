@@ -107,3 +107,5 @@ Additional schemas: `markers_breaks/2` creates `markers_breaks_budget(day PRIMAR
 | W17 4.55 GB remux quality run | Full source read; deliberately diagnostic, denied by default policy. Exact normalized bytes/hour pending duration/read evidence |
 
 New lasting tests cover remux rejection, daily reservation exhaustion, chapter bypass, partial observation reuse, dark-with-audio rejection, seek gaps and unfinished fades. Config changes are exactly the four additive fields above. Further app wiring shares a single release-key helper between pre-air and live observation and attaches a byte counter to the leased background source. Playback adds one background byte counter per source generation; viewer accounting is unchanged.
+
+Snapshot activation adds optional `Item.breakAvailableAfterMs`: freshly learned points apply only to programme starts after this saved boundary. Existing known-point airings defer replacement, and new facts do not insert cuts into the programme currently being watched. Full and partial caches are merged so later interrupted viewings cannot erase earlier verified acts. Tests cover stable current-airing metadata and later-airing reuse.

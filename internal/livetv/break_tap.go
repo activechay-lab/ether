@@ -58,6 +58,11 @@ func (s *Service) storeBreakObservation(observed breakObservation) {
 	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
 	defer cancel()
 	if s.o.BreakAnalyzer.ObservePoints(ctx, observed.input, observed.points) == nil {
+		merged, err := s.o.BreakAnalyzer.CachedBreakPoints(ctx, observed.input)
+		if err != nil {
+			return
+		}
+		observed.points = merged
 		// Publishing is deferred until the next background planning pass. The current
 		// airing's guide/act slices must not change in response to its decoder frames.
 		if len(s.observedBreaks) >= 256 {

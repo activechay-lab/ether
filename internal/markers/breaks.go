@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"os/exec"
@@ -72,27 +71,14 @@ func (a *BreakAnalyzer) Analyze(ctx context.Context, in BreakInput) (points []Br
 	if in.ReleaseKey == "" || in.Info.Duration <= 0 || in.Info.Estimated {
 		return nil, fmt.Errorf("act breaks require an exact source")
 	}
-	var raw string
-	err = a.DB.QueryRowContext(ctx, `SELECT points FROM markers_breaks_cache WHERE release_key=? AND version=? AND duration_ms=?`, in.ReleaseKey, breakVersion, in.Info.Duration.Milliseconds()).Scan(&raw)
-	if err == nil {
-		evidence.CacheHit = true
-		if err = json.Unmarshal([]byte(raw), &points); err == nil {
-			return points, nil
-		}
-		return nil, err
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
-	var observed string
-	if lookupErr := a.DB.QueryRowContext(ctx, `SELECT points FROM markers_breaks_observed WHERE release_key=? AND duration_ms=?`, in.ReleaseKey, in.Info.Duration.Milliseconds()).Scan(&observed); lookupErr == nil {
-		if json.Unmarshal([]byte(observed), &points) == nil && len(points) > 0 {
-			evidence.CacheHit = true
-			evidence.Partial = true
-			return points, nil
-		}
-	} else if !errors.Is(lookupErr, sql.ErrNoRows) {
+	cached, found, full, lookupErr := a.cachedBreakFacts(ctx, in)
+	if lookupErr != nil {
 		return nil, lookupErr
+	}
+	if found {
+		evidence.CacheHit = true
+		evidence.Partial = !full
+		return cached, nil
 	}
 	points = ChapterBreaks(in.Info)
 	if len(points) == 0 {
