@@ -1,3 +1,4 @@
+import { GuideAIAction } from "./GuideAIReview";
 import { sourceImportError } from "./sourceErrors";
 import { Badge, Button, Input, Popover, cn, toast } from "@braedonsaunders/appkit-ui";
 import {
@@ -447,9 +448,6 @@ export function GuideWorkbench({
               <Button variant="outline" onClick={() => onEditSource(source.id)}>
                 <Pencil size={14} /> {t("Edit")}
               </Button>
-              <Button onClick={() => void propose()} disabled={busy || coverage === null}>
-                <Wand2 size={14} /> {t("Auto-match")}
-              </Button>
             </div>
             {source.lastError ? (
               <p
@@ -488,9 +486,6 @@ export function GuideWorkbench({
                 />
               </div>
             </div>
-            <Button size="sm" onClick={() => void propose()} disabled={busy || coverage === null}>
-              <Wand2 size={14} /> {t("Auto-match")}
-            </Button>
           </div>
         )}
       </section>
@@ -528,7 +523,7 @@ export function GuideWorkbench({
               const on = accepted.has(p.channelId);
               return (
                 <li key={p.channelId}>
-                  <label className="flex cursor-pointer flex-wrap items-center gap-3 rounded-lg bg-surface px-3 py-2 text-sm">
+                  <label className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)] rounded-lg bg-surface px-3 py-2 text-sm">
                     <input
                       type="checkbox"
                       checked={on}
@@ -544,11 +539,11 @@ export function GuideWorkbench({
                         channel: c?.name ?? p.channelId,
                       })}
                     />
-                    <span className="min-w-0 flex-1 truncate text-fg">
+                    <span className="min-w-0 break-words text-fg">
                       {c?.name ?? p.channelName ?? p.channelId}
                     </span>
-                    <ArrowRight size={13} className="shrink-0 text-fg-subtle" />
-                    <span className="min-w-0 flex-1 truncate text-fg-muted">
+                    <ArrowRight size={13} className="hidden shrink-0 text-fg-subtle sm:block" />
+                    <span className="col-start-2 min-w-0 break-words text-fg-muted sm:col-start-auto">
                       {p.guideName}{" "}
                       <span className="text-fg-subtle">
                         · {p.guideSourceName || sourceName(p.guideSourceId)}
@@ -556,7 +551,7 @@ export function GuideWorkbench({
                       </span>
                     </span>
                     {p.reviewRegion ? (
-                      <span className="basis-full pl-7 text-xs text-fg-muted">
+                      <span className="col-start-2 text-xs text-fg-muted sm:col-span-3">
                         <Badge variant="warning" className="mr-2">
                           {t("Check region")}
                         </Badge>
@@ -575,6 +570,19 @@ export function GuideWorkbench({
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
             <h2 className="text-sm font-semibold text-fg">{t("Channel mapping")}</h2>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => void propose()} disabled={busy || coverage === null}>
+                <Wand2 size={14} />
+                {t("Auto-match")}
+              </Button>
+              <GuideAIAction
+                channels={channels}
+                sources={sources}
+                coverage={coverage}
+                sourceId={sourceId}
+                onApplied={onReload}
+              />
+            </div>
             <p className="mt-1 text-xs text-fg-muted">
               {t("Map a channel from Missing or All IPTV, or run Auto-match.")}
             </p>
@@ -804,6 +812,8 @@ export function GuideMatchPanel({
   coverage,
   onUse,
   onOpenChannel,
+  sources,
+  onReload,
   setFooter,
   scopeSourceId,
   scopeName,
@@ -814,6 +824,8 @@ export function GuideMatchPanel({
   coverage?: Coverage;
   onUse: (c: Channel) => Promise<void>;
   onOpenChannel: () => void;
+  sources: Source[];
+  onReload: () => Promise<void>;
   /** When opened from a guide source, search that source first. */
   scopeSourceId?: string;
   scopeName?: string;
@@ -921,6 +933,13 @@ export function GuideMatchPanel({
           <h3 className="flex-1 text-xs font-semibold uppercase tracking-wider text-fg-subtle">
             {t("Guide channels")}
           </h3>
+          <GuideAIAction
+            channels={[channel]}
+            sources={sources}
+            coverage={new Map([[channel.id, coverage ?? { channelId: channel.id, programmes: 0 }]])}
+            sourceId={scopeSourceId}
+            onApplied={onReload}
+          />
           {scopeSourceId ? (
             <Segmented
               ariaLabel={t("Search in")}

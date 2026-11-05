@@ -1119,6 +1119,8 @@ export default function LiveTV() {
               await go({ kind: "guide" }, { force: true });
             }}
             onOpenChannel={() => void go({ kind: "channel", id: guideChannel.id })}
+            sources={sources}
+            onReload={reloadAll}
             setFooter={setGuideFooter}
             scopeSourceId={guideSource?.id}
             scopeName={

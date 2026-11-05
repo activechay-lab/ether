@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/agent/tools"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/extend"
@@ -49,13 +50,24 @@ func TestMCPBuiltinToolsAndEndToEndWorkflow(t *testing.T) {
 	}
 	t.Cleanup(a.Close)
 
-	// 1. Verify all 34 built-in tools are registered in both the tool catalogue
+	// 1. Verify all 35 built-in tools are registered in both the tool catalogue
 	// and the descriptor registry (extend.KindTool). web_search and web_fetch
 	// are among them but stay invisible to MCP principals.
 	toolDescs := a.extendRT.registry.List(extend.KindTool)
-	if len(toolDescs) != 34 {
-		t.Fatalf("expected 34 extend.KindTool descriptors, got %d", len(toolDescs))
+	if len(toolDescs) != 35 {
+		t.Fatalf("expected 35 extend.KindTool descriptors, got %d", len(toolDescs))
 	}
+
+	// Route-to-tool coverage for the existing guide match endpoint. Both MCP
+	// and Ask Ether must resolve to the same owner-gated service operation.
+	guideProbe := httptest.NewRecorder()
+	a.livetv.Handler().ServeHTTP(guideProbe, httptest.NewRequest("POST", "/guide/match", strings.NewReader(`{"ai":"estimate"}`)))
+	foundGuideRoute := guideProbe.Code == http.StatusOK
+	guideTool, foundGuideTool := a.extendRT.tools.Lookup(ctx, tools.Principal{IsOwner: true, Surface: "mcp", Scopes: []string{"full"}}, "livetv_guide_match")
+	if !foundGuideRoute || !foundGuideTool || guideTool.ReadOnly {
+		t.Fatal("guide matching route lacks an owner-gated MCP tool")
+	}
+	t.Log("GUIDE_ROUTE_TOOL_COVERAGE PASS: POST /guide/match → livetv_guide_match (owner approval required)")
 
 	// Create local owner account and issue an owner console token.
 	local, err := identity.NewLocal(a.db)

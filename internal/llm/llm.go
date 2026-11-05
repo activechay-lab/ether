@@ -82,10 +82,12 @@ func (c *Client) config() config.LLM {
 }
 
 type chatRequest struct {
-	Model          string         `json:"model"`
-	Messages       []Message      `json:"messages"`
-	Temperature    *float64       `json:"temperature,omitempty"`
-	ResponseFormat map[string]any `json:"response_format,omitempty"`
+	MaxTokens           int            `json:"max_tokens,omitempty"`
+	MaxCompletionTokens int            `json:"max_completion_tokens,omitempty"`
+	Model               string         `json:"model"`
+	Messages            []Message      `json:"messages"`
+	Temperature         *float64       `json:"temperature,omitempty"`
+	ResponseFormat      map[string]any `json:"response_format,omitempty"`
 }
 
 type chatResponse struct {
@@ -136,6 +138,13 @@ func (c *Client) Chat(ctx context.Context, msgs []Message, jsonMode bool) (strin
 // reject any temperature but the default. The prompt still asks for JSON
 // and the parsers below are tolerant.
 func (c *Client) openAIChat(ctx context.Context, base string, cfg config.LLM, msgs []Message, jsonMode bool) (string, error) {
+	// Guide calls have an explicit cost ceiling: one HTTP request per batch,
+	// no temperature negotiation or hidden retries.
+	if _, bounded := ctx.Value(chatBudgetKey{}).(int); bounded {
+		p, _ := cfg.Endpoint()
+		content, _, err := c.chatOnce(ctx, base, cfg, msgs, jsonMode && p.ID == "openai", false)
+		return content, err
+	}
 	temp := true
 	for {
 		content, status, err := c.chatOnce(ctx, base, cfg, msgs, jsonMode, temp)
@@ -175,6 +184,14 @@ func StripReasoning(content string) string {
 
 func (c *Client) chatOnce(ctx context.Context, base string, cfg config.LLM, msgs []Message, jsonMode, temp bool) (string, int, error) {
 	cr := chatRequest{Model: cfg.Model, Messages: msgs}
+	if budget, ok := ctx.Value(chatBudgetKey{}).(int); ok {
+		p, _ := cfg.Endpoint()
+		if p.ID == "openai" || strings.HasPrefix(cfg.Model, "gpt-5") || strings.HasPrefix(cfg.Model, "o1") || strings.HasPrefix(cfg.Model, "o3") || strings.HasPrefix(cfg.Model, "o4") {
+			cr.MaxCompletionTokens = budget
+		} else {
+			cr.MaxTokens = budget
+		}
+	}
 	if temp {
 		t := temperature
 		cr.Temperature = &t
@@ -611,4 +628,16 @@ func truncate(s string, n int) string {
 		return textclip.Bytes(s, n) + "…"
 	}
 	return s
+}
+
+// chatBudgetKey bounds feature calls without adding owner configuration.
+type chatBudgetKey struct{}
+
+// ChatGuide uses the shared connection with structured output and a reply budget.
+func (s *Service) ChatGuide(ctx context.Context, system, user string) (string, error) {
+	if s == nil || s.client == nil {
+		return "", fmt.Errorf("llm disabled")
+	}
+	ctx = context.WithValue(ctx, chatBudgetKey{}, 2048)
+	return s.client.Chat(ctx, []Message{{Role: "system", Content: system}, {Role: "user", Content: user}}, true)
 }

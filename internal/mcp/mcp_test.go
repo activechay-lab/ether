@@ -327,11 +327,11 @@ func TestMCPBoundaryAuthResourcesAndScopes(t *testing.T) {
 		t.Fatalf("expected error calling write tool with read scope, got %v", deniedCall)
 	}
 
-	// 5. Full scope sees all 30 tools; calling a write tool creates a pending approval without mutating state.
+	// 5. Full scope sees all 31 tools; calling a write tool creates a pending approval without mutating state.
 	_, listFullBody := postRPC(t, h, "tok-full", "tools/list", nil)
 	fullTools := listFullBody["result"].(map[string]any)["tools"].([]any)
-	if len(fullTools) != 30 {
-		t.Fatalf("expected 30 visible tools for full scope, got %d", len(fullTools))
+	if len(fullTools) != 31 {
+		t.Fatalf("expected 31 visible tools for full scope, got %d", len(fullTools))
 	}
 
 	_, propBody := postRPC(t, h, "tok-full", "tools/call", map[string]any{

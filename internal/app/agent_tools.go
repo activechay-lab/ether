@@ -94,6 +94,8 @@ func builtinToolLabel(name, fallback string) extend.Text {
 		return extend.T("Collections")
 	case "collection_preview":
 		return extend.T("Collection preview")
+	case "livetv_guide_match":
+		return extend.T("Match with AI")
 	case "livetv_channels":
 		return extend.T("Live TV channels")
 	case "sources_list":

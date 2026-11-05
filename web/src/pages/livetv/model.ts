@@ -292,10 +292,30 @@ export type MatchChange = {
   guideSourceName?: string;
   guideId: string;
   guideName: string;
-  method?: "id" | "name" | "alias";
+  method?: "id" | "name" | "alias" | "ai" | "manual";
+  confidence?: number;
+  reason?: string;
+  proposalKey?: string;
   reviewRegion?: boolean;
 };
+export type GuideCommitSelection = {
+  channelId: string;
+  guideSourceId: string;
+  guideId: string;
+  expectedGuideSourceId: string;
+  expectedGuideId: string;
+  proposalKey?: string;
+};
 export type MatchResult = {
+  undoToken?: string;
+  ai?: {
+    configured: boolean;
+    estimatedCalls: number;
+    inputTokens: number;
+    cached: number;
+    calls: number;
+    deferred: number;
+  };
   matched: number;
   unmatched: number;
   skipped?: number;
@@ -462,8 +482,19 @@ export const tv = {
     ),
   coverage: (signal?: AbortSignal) =>
     apiFetch<Coverage[] | null>("/livetv/guide/coverage", { signal }),
-  match: (body: { channelIds?: string[]; overwrite?: boolean; dryRun?: boolean }) =>
-    apiFetch<MatchResult>("/livetv/guide/match", json("POST", body)),
+  match: (
+    body: {
+      channelIds?: string[];
+      overwrite?: boolean;
+      dryRun?: boolean;
+      ai?: "estimate" | "propose" | "apply" | "commit" | "undo";
+      guideSourceId?: string;
+      proposalKeys?: Record<string, string>;
+      selections?: GuideCommitSelection[];
+      undoToken?: string;
+    },
+    signal?: AbortSignal,
+  ) => apiFetch<MatchResult>("/livetv/guide/match", { ...json("POST", body), signal }),
 };
 
 export const emptyChannel = (): Channel => ({
