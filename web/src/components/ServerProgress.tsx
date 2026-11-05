@@ -107,9 +107,11 @@ export function ServerProgress({
   const steps = reconnectSteps(kind, state);
   const status = state.status;
   // A cold start is timed by the server (it began before this page loaded).
-  const elapsed = kind === "startup" && status ? status.elapsedSeconds : (now - state.since) / 1000;
-  const migrating =
-    status?.phase === "migrating" && status.steps ? (status.step ?? 0) / status.steps : null;
+  const elapsed =
+    kind === "startup" && status
+      ? Math.max(status.elapsedSeconds, (now - Date.parse(status.started)) / 1000)
+      : (now - state.since) / 1000;
+  const migrating = status?.total ? (status.completed ?? 0) / status.total : null;
   const label =
     kind === "restore"
       ? t("Restore progress")
@@ -189,6 +191,22 @@ export function ServerProgress({
                       {kind !== "startup" ? (
                         <p className="text-xs tabular-nums text-fg-subtle">
                           {phaseText(status, now).detail}
+                        </p>
+                      ) : null}
+                      {status.task ? (
+                        <p className="text-xs tabular-nums text-fg-subtle">
+                          {t("Step elapsed: {elapsed}", {
+                            elapsed: clock(Math.max(0, (now - Date.parse(status.since)) / 1000)),
+                          })}
+                          {status.total && status.completed && status.completed < status.total
+                            ? t(" · About {remaining} remaining", {
+                                remaining: clock(
+                                  (Math.max(0, (now - Date.parse(status.since)) / 1000) *
+                                    (status.total - status.completed)) /
+                                    status.completed,
+                                ),
+                              })
+                            : null}
                         </p>
                       ) : null}
                       {status.phase === "waiting_database" ? (
