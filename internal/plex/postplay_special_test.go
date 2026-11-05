@@ -27,7 +27,7 @@ func TestShowQueueAndUnverifiedNextTimeline(t *testing.T) {
 		}
 	}
 	special := core.EpisodeKey(81723, 0, 1)
-	uri := "server://m/com.plexapp.plugins.library/library/metadata/" + show.String()
+	uri := "server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/" + show.String()
 	rec := f.request(t, http.MethodPost, "/playQueues?type=video&uri="+urlEsc(uri)+"&key="+episode.String(), map[string]string{"Accept": "application/json"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("queue: %d %s", rec.Code, rec.Body.String())
@@ -36,7 +36,7 @@ func TestShowQueueAndUnverifiedNextTimeline(t *testing.T) {
 	if queue["playQueueTotalCount"] != float64(4) {
 		t.Fatalf("show queue includes specials: %v", queue)
 	}
-	uri = "server://m/com.plexapp.plugins.library/library/metadata/" + core.SeasonKey(81723, 0).String()
+	uri = "server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/" + core.SeasonKey(81723, 0).String()
 	rec = f.request(t, http.MethodPost, "/playQueues?type=video&uri="+urlEsc(uri), map[string]string{"Accept": "application/json"})
 	if rec.Code != http.StatusOK || decodeJSON(t, rec)["playQueueTotalCount"] != float64(1) {
 		t.Fatalf("special queue: %d %s", rec.Code, rec.Body.String())

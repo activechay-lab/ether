@@ -133,8 +133,8 @@ func playlistSearchScore(title, query string) float64 {
 }
 
 func (s *Server) sectionPlaylistsHub(ctx context.Context, pr *Request, section, count int) (model.Hub, bool) {
-	h := model.Hub{Title: "Recent Playlists", Type: "playlist", HubIdentifier: "playlists.recent." + strconv.Itoa(section), Style: "shelf"}
-	h.Key = "/playlists/all?type=15&sort=lastViewedAt:desc&playlistType=video&sectionID=" + strconv.Itoa(section)
+	h := model.Hub{Title: "Recent Playlists", Type: "playlist", HubIdentifier: "recent.library.playlists." + strconv.Itoa(section), Style: "shelf"}
+	h.Key = "/playlists/all?type=15&playlistType=video&sort=lastViewedAt:desc&sectionID=" + strconv.Itoa(section)
 	if pr.User == nil || s.d.Playlists == nil {
 		return h, false
 	}
@@ -164,5 +164,5 @@ func (s *Server) sectionPlaylistsHub(ctx context.Context, pr *Request, section, 
 	if len(keys) > 0 {
 		h.HubKey = "/library/metadata/" + strings.Join(keys, ",")
 	}
-	return h, h.Size > 0
+	return h, true
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -14,6 +15,8 @@ func TestPlaylistSearchAndRecentProjection(t *testing.T) {
 	a, _ := f.pls.Create(context.Background(), ownerUser.ID, "Night", []core.RatingKey{fightClub.Key})
 	b, _ := f.pls.Create(context.Background(), ownerUser.ID, "Night Watch", []core.RatingKey{bbE1.Key})
 	_, _ = f.pls.Create(context.Background(), friendUser.ID, "Night Secret", nil)
+	f.pls.pls[a.Key].AddedAt = fixedNow.Add(-48 * time.Hour)
+	f.pls.pls[b.Key].AddedAt = fixedNow.Add(-24 * time.Hour)
 	// A recently played older list must precede a newer unplayed one.
 	if err := f.srv.d.State.Scrobble(context.Background(), ownerUser.ID, a.Key); err != nil {
 		t.Fatal(err)
@@ -29,7 +32,7 @@ func TestPlaylistSearchAndRecentProjection(t *testing.T) {
 		t.Fatal(body)
 	}
 	body = f.get(t, "/hubs/search?query=Night&contentDirectoryID=01").Body.String()
-	if strings.Contains(body, `type="playlist" size="1"`) {
+	if strings.Contains(body, a.Key.String()) || strings.Contains(body, b.Key.String()) {
 		t.Fatal(body)
 	}
 	body = f.get(t, "/hubs?contentDirectoryID=1,2").Body.String()
@@ -57,8 +60,28 @@ func TestPlaylistSearchAndRecentProjection(t *testing.T) {
 	if _, err := f.pls.Get(context.Background(), ownerUser.ID, a.Key); err != nil {
 		t.Fatal("metadata DELETE removed playlist")
 	}
+	body = f.get(t, "/hubs/sections/1?includeLibraryPlaylists=1").Body.String()
+	if !strings.Contains(body, "recent.library.playlists.1") || !strings.Contains(body, "Night") || strings.Contains(body, "Night Watch") {
+		t.Fatal(body)
+	}
+	body = f.get(t, "/playlists/"+a.Key.String()+"?excludeFields=title").Body.String()
+	if strings.Contains(body, `title="Night"`) {
+		t.Fatal(body)
+	}
+	rec := f.request(t, "POST", "/playlists?type=video&title=Window&uri=unresolved&X-Plex-Container-Size=0", nil)
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), "<Playlist ") {
+		t.Fatal(rec.Code, rec.Body.String())
+	}
+	for _, test := range []struct {
+		title, query string
+		score        float64
+	}{{"Night", "Night", .92}, {"Night Watch", "Night", .72}, {"Night Watch", "Ni Wa", .52}, {"A Night Watch", "Night", .32}} {
+		if got := playlistSearchScore(test.title, test.query); got != test.score {
+			t.Fatalf("score %s / %s = %v", test.title, test.query, got)
+		}
+	}
 	pr := &Request{User: &ownerUser}
-	h, _, ok := f.srv.playlistsHubProjection(context.Background(), pr, 1)
+	h, _, ok := f.srv.playlistsHubProjection(withRequest(context.Background(), pr), pr, 1)
 	if !ok || len(h.Metadata) != 1 || h.Metadata[0].RatingKey != a.Key.String() {
 		t.Fatalf("recent: %+v", h)
 	}

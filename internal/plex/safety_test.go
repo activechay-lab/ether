@@ -107,7 +107,7 @@ func TestBlockedShowChildrenStayHidden(t *testing.T) {
 			t.Errorf("%s: status %d body %s", path, rec.Code, rec.Body.String())
 		}
 	}
-	rec := f.request(t, http.MethodPost, "/playQueues?type=video&uri="+url.QueryEscape("server://x/com.plexapp.plugins.library/library/metadata/"+ep), map[string]string{"X-Plex-Token": friendToken})
+	rec := f.request(t, http.MethodPost, "/playQueues?type=video&uri="+url.QueryEscape("server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/"+ep), map[string]string{"X-Plex-Token": friendToken})
 	if rec.Code != 404 || strings.Contains(rec.Body.String(), "Pilot") {
 		t.Errorf("play queue of a blocked episode: %d %s", rec.Code, rec.Body.String())
 	}
@@ -125,7 +125,7 @@ func TestRestrictedViewerQueuesAndPlaylistsHideTitles(t *testing.T) {
 	pg := alien
 	pg.ContentRating = "PG"
 	f.catalog.titles[pg.Key] = pg
-	uri := url.QueryEscape("server://x/com.plexapp.plugins.library/library/metadata/" + fightClub.Key.String())
+	uri := url.QueryEscape("server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/" + fightClub.Key.String())
 	rec := f.request(t, http.MethodPost, "/playQueues?type=video&uri="+uri, map[string]string{"X-Plex-Token": "kid"})
 	if strings.Contains(rec.Body.String(), "Fjord Harbor") {
 		t.Errorf("play queue leaked a hidden title: %d %s", rec.Code, rec.Body.String())

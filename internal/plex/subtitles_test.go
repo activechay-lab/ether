@@ -206,7 +206,7 @@ func TestCachedSidecarListedBeforePlayback(t *testing.T) {
 
 	// The play queue item (what the player builds its menus from) lists
 	// the same stream under the same id.
-	uri := url.QueryEscape("server://m/com.plexapp.plugins.library/library/metadata/" + fightClub.Key.String())
+	uri := url.QueryEscape("server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/" + fightClub.Key.String())
 	rec = f.request(t, http.MethodPost, "/playQueues?type=video&uri="+uri, nil)
 	if got := subtitleTags(rec.Body.String()); len(got) != 1 || !strings.Contains(got[0], fmt.Sprintf(`id="%d"`, id)) || !strings.Contains(got[0], `external="1"`) {
 		t.Fatalf("play queue subtitle streams: %q\n%s", got, rec.Body.String())

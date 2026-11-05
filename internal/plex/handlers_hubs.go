@@ -758,12 +758,10 @@ func (s *Server) buildSectionHubs(r *http.Request, sec Section) homeBuild {
 	} else {
 		s.log.Warn("recently added hub", "section", sec.ID, "err", err)
 	}
+	var sectionPlaylist *model.Hub
 	if r.URL.Query().Get("includeLibraryPlaylists") == "1" {
 		if h, ok := s.sectionPlaylistsHub(ctx, pr, sec.ID, visibleCount); ok {
-			mc.Hub = append(mc.Hub, h)
-			hub, neutral := homeLayoutFacts(h)
-			layoutHubs = append(layoutHubs, hub)
-			layoutNeutral = append(layoutNeutral, neutral)
+			sectionPlaylist = &h
 		}
 	}
 	provisional := false
@@ -790,6 +788,19 @@ func (s *Server) buildSectionHubs(r *http.Request, sec Section) homeBuild {
 		sectionName = "shows"
 	}
 	mc.Hub = stableHomeHubs(s.arrangeHomeRows(ctx, pr, pc, sectionName, mc.Hub, layoutHubs, layoutNeutral))
+	if sectionPlaylist != nil {
+		at := 0
+		for i, h := range mc.Hub {
+			if strings.Contains(h.HubIdentifier, ".recentlyadded.") {
+				at = i + 1
+				break
+			}
+		}
+		mc.Hub = append(mc.Hub, model.Hub{})
+		copy(mc.Hub[at+1:], mc.Hub[at:])
+		mc.Hub[at] = *sectionPlaylist
+	}
+
 	s.log.Debug("section hubs rendered", "section", sec.ID, "user", pr.User.ID, "count", count, "rows", len(mc.Hub))
 	mc.Size = len(mc.Hub)
 	return homeBuild{mc: mc, served: served, section: sec.ID, provisional: provisional}
