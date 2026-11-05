@@ -216,11 +216,17 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	pqItem, _ := strconv.ParseInt(q.Get("playQueueItemID"), 10, 64)
 
 	mc := &model.MediaContainer{}
+	mc.Bandwidths = s.timelineBandwidths(pr, key, tids, ps)
+	mc.TranscodeSess = s.timelineTranscodeSessions(pr, key, tids)
+	mc.Size = len(mc.Bandwidths) + len(mc.TranscodeSess)
 	if reason, killed := s.takeTermination(tid); killed {
 		mc.Extra = []model.Attr{model.A("terminationCode", 2006), model.A("terminationText", reason)}
 		state = "stopped"
 	}
 	if state == "stopped" {
+		if q.Get("state") == "stopped" {
+			s.disarmDecision(pr, key)
+		}
 		s.endVersionFlow(ctx, s.playIdentityFor(pr, key))
 		if e, ok := s.sessions.remove(tid); ok {
 			e.offset = offset
@@ -258,6 +264,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		if fresh && s.cl != nil {
 			s.sessions.ensure(tid, s.cl.allocSessionKey())
 		}
+		armed := s.decisionArmed(pr, 0)
 		var changed bool
 		e := s.sessions.update(tid, func(e *playEntry) {
 			changed = fresh || e.key != key || e.state != state
@@ -266,6 +273,8 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 			}
 			e.user = *user
 			e.client = client
+			e.decisionSeen = e.decisionSeen || armed
+			e.playingSeen = e.playingSeen || state == "playing"
 			e.key = key
 			e.state = state
 			e.offset = offset
@@ -523,6 +532,9 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].sessionKey < entries[j].sessionKey })
 	mc := &model.MediaContainer{}
 	for _, e := range entries {
+		if !e.playingSeen {
+			continue
+		}
 		if !pr.User.IsOwner && e.user.ID != pr.User.ID {
 			continue
 		}
@@ -541,6 +553,8 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			}
 			md = s.metadata(ctx, viewer, t, renderOpts{media: true, session: true})
 		}
+		sessionItem(&md)
+
 		md.SessionKey = strconv.Itoa(e.sessionKey)
 		md.ViewOffset = ms(e.offset)
 		md.User = &model.SessionUser{ID: strconv.FormatInt(e.user.PlexID, 10), Thumb: e.user.Thumb, Title: e.user.Title}
@@ -563,9 +577,9 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			Platform:          e.client.Platform,
 			PlatformVersion:   e.client.PlatformVersion,
 			Product:           e.client.Product,
+			Profile:           resolvedPlayerProfile(&e.client),
 			State:             state,
 			Title:             title,
-			Vendor:            e.client.Vendor,
 			Version:           e.client.Version,
 			Local:             !e.client.Remote,
 			UserID:            e.user.PlexID,
@@ -576,7 +590,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		md.Session = &model.Session{ID: e.client.SessionID, Location: loc}
 		if md.Session.ID == "" {
-			md.Session.ID = e.id
+			md.Session.ID = e.client.ClientID
 		}
 		if e.node != "" {
 			md.TranscodeSession = e.remoteTS
@@ -585,6 +599,12 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 				ts := transcodeSessionModel(te)
 				md.TranscodeSession = &ts
 			}
+		}
+		md.Session.Bandwidth = s.sessionBandwidth(e, md)
+		sessionClient := e.client
+		sessionClient.User = &e.user
+		if !e.decisionSeen && !s.decisionArmed(&sessionClient, 0) {
+			md.Session = nil
 		}
 		mc.Metadata = append(mc.Metadata, md)
 	}
@@ -625,7 +645,11 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 }
 
 func matchesSession(e playEntry, sid string) bool {
-	return e.client.SessionID == sid || e.id == sid || strconv.Itoa(e.sessionKey) == sid
+	id := e.client.SessionID
+	if id == "" {
+		id = e.client.ClientID
+	}
+	return sid != "" && id == sid
 }
 
 // terminateLocal ends a session this node tracks: the stop is delivered as
@@ -643,7 +667,7 @@ func (s *Server) terminateLocal(sid, reason string) bool {
 				return true
 			}
 
-			s.setTermination(e.id, reason)
+			s.setOwnerTermination(e.id, reason)
 			if s.d.Playback != nil {
 				if ps, ok := s.d.Playback.SessionFor(e.user.ID, e.client.ClientID, e.key); ok && ps != nil {
 					if stop, ok := s.playbackBroker.(interface {
@@ -664,8 +688,10 @@ func (s *Server) terminateLocal(sid, reason string) bool {
 
 // termination is an owner stream kill awaiting the client's next timeline.
 type termination struct {
-	reason string
-	at     time.Time
+	reason    string
+	at        time.Time
+	delivered bool
+	ownerKill bool
 }
 
 // terminationTTL bounds how long a kill waits for its client: one that
@@ -679,6 +705,9 @@ func (s *Server) setTermination(tid, reason string) {
 	if s.terms == nil {
 		s.terms = map[string]termination{}
 	}
+	if current, ok := s.terms[tid]; ok && current.ownerKill && s.now().Sub(current.at) <= terminationTTL {
+		return
+	}
 	s.terms[tid] = termination{reason: reason, at: s.now()}
 }
 
@@ -686,18 +715,50 @@ func (s *Server) takeTermination(tid string) (string, bool) {
 	s.termMu.Lock()
 	defer s.termMu.Unlock()
 	t, ok := s.terms[tid]
-	if ok {
+	if !ok || t.delivered {
+		return "", false
+	}
+	if t.ownerKill {
+		t.delivered = true
+		s.terms[tid] = t
+	} else {
 		delete(s.terms, tid)
 	}
-	return t.reason, ok
+	return t.reason, true
 }
 
 func (s *Server) expireTerminations(now time.Time, ttl time.Duration) {
 	s.termMu.Lock()
 	defer s.termMu.Unlock()
+	for id, arm := range s.decisionArms {
+		if now.Sub(arm.at) > 3*time.Minute {
+			delete(s.decisionArms, id)
+		}
+	}
 	for tid, t := range s.terms {
 		if now.Sub(t.at) > ttl {
 			delete(s.terms, tid)
 		}
 	}
+}
+
+// playbackTerminated remains true after the one-shot timeline notice, preventing
+// a stopped player's byte requests from reopening the same playback session.
+func (s *Server) playbackTerminated(pr *Request) bool {
+	if pr == nil || pr.User == nil {
+		return false
+	}
+	s.termMu.Lock()
+	defer s.termMu.Unlock()
+	t, ok := s.terms[trackID(pr.User.ID, pr.ClientID, pr.SessionID)]
+	return ok && t.ownerKill && s.now().Sub(t.at) <= terminationTTL
+}
+
+func (s *Server) setOwnerTermination(tid, reason string) {
+	s.termMu.Lock()
+	defer s.termMu.Unlock()
+	if s.terms == nil {
+		s.terms = map[string]termination{}
+	}
+	s.terms[tid] = termination{reason: reason, at: s.now(), ownerKill: true}
 }

@@ -86,6 +86,7 @@ func TestClusterSessionsListedOnEveryNode(t *testing.T) {
 	a, b, hub := twoServers(t)
 	a.get(t, "/:/timeline?ratingKey=1000000000000550&state=playing&time=1000&duration=10000",
 		"X-Plex-Session-Identifier", "sx", "X-Plex-Token", friendToken, "X-Plex-Device-Name", "Den TV")
+	b.get(t, "/:/timeline?ratingKey="+alien.Key.String()+"&state=playing&time=5000&duration=10000", "X-Plex-Session-Identifier", "sy", "X-Plex-Client-Identifier", "client-2")
 	b.get(t, "/:/timeline?ratingKey="+alien.Key.String()+"&state=paused&time=5000&duration=10000",
 		"X-Plex-Session-Identifier", "sy", "X-Plex-Client-Identifier", "client-2")
 

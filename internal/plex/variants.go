@@ -31,6 +31,7 @@ package plex
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -370,7 +371,7 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 		}
 		m := buildMediaVariant(t, variant, stamp, s.variantIDs)
 		m.Part[0].Key = s.playIDs.partKey(ik, m.ID, m.Part[0].Key, now)
-		if s.d.Trickplay != nil && s.d.Trickplay.TrickplayAvailable(v.Release.ID) {
+		if s.previewAvailable(pr, t.Key, v.Release.ID) {
 			m.Part[0].Indexes = "sd"
 		}
 		// Every version carries a stream list, as on PMS; versions not yet
@@ -737,6 +738,16 @@ func (s *Server) preparePlayback(ctx context.Context, pr *Request, p *playReques
 		}
 		s.playIDs.installVersionFlow(ik, snap.variants, snap.until, s.now())
 	}
+	if p.decisionRequest && p.requestedPart == 0 {
+		if releases, issued := s.playIDs.releases(s.playIdentityFor(pr, p.key), s.now()); issued && len(releases) > 1 && (p.selectorCount != 1 || !p.selectorValid) {
+			return nil, errDecisionMediaIndex
+		}
+	}
+	if p.mediaIndex > 0 {
+		if releases, issued := s.playIDs.releases(s.playIdentityFor(pr, p.key), s.now()); !issued || p.mediaIndex >= len(releases) {
+			return nil, errDecisionMediaIndex
+		}
+	}
 	releaseID := s.resolveVariantSelection(ctx, pr, p)
 	p.variantRelease = releaseID
 	ps, err := s.prepareForRelease(ctx, pr.User, p.key, p.caps, releaseID)
@@ -855,6 +866,8 @@ func (s *Server) watchVariants(pr *Request, t *core.Title) {
 		}
 	}()
 }
+
+var errDecisionMediaIndex = errors.New("mediaIndex outside issued media list")
 
 // Foreground version discovery shares the TV detail probe's wait allowance.
 // A slow probe must not be followed by another three-second discovery wait.

@@ -803,7 +803,37 @@ func (p *fakePlayback) ServeRange(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	w.Header().Set("Content-Type", "video/x-matroska")
-	http.ServeContent(w, r, "file.mkv", fixedNow, bytes.NewReader(p.data))
+	count := &fakeRangeCounter{ResponseWriter: w}
+	http.ServeContent(count, r, "file.mkv", fixedNow, bytes.NewReader(p.data))
+	p.mu.Lock()
+	if ps := p.sessions[id]; ps != nil {
+		ps.BytesServed += count.bytes
+	}
+	p.mu.Unlock()
+}
+
+type fakeRangeCounter struct {
+	http.ResponseWriter
+	bytes  int64
+	status int
+}
+
+func (w *fakeRangeCounter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *fakeRangeCounter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	n, err := w.ResponseWriter.Write(data)
+	if w.status == http.StatusOK || w.status == http.StatusPartialContent {
+		w.bytes += int64(n)
+	}
+	return n, err
 }
 
 func (p *fakePlayback) InputURL(id string) string { return "http://127.0.0.1:1/source/" + id }

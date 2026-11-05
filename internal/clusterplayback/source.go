@@ -50,13 +50,14 @@ type sourceRequest struct {
 	Old                   nodesource.Grant
 }
 type sourceResponse struct {
-	Proof    string
-	Phase    string
-	Prepared PreparedSource
-	Stable   string
-	Grant    nodesource.Grant
-	Size     int64
-	Retired  bool
+	FileAvailable *bool `json:",omitempty"`
+	Proof         string
+	Phase         string
+	Prepared      PreparedSource
+	Stable        string
+	Grant         nodesource.Grant
+	Size          int64
+	Retired       bool
 }
 
 func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
@@ -91,6 +92,9 @@ func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
 }
 func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m sourceRequest) (sourceResponse, error) {
 	deny := func() (sourceResponse, error) { return sourceResponse{}, ErrDenied }
+	if m.Op == "file-check" {
+		return r.checkSourceFile(ctx, peer, m.Prepare)
+	}
 	if m.Op == "reopen" {
 		return r.reopenSource(ctx, peer, m.Reopen)
 	}

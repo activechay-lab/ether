@@ -61,7 +61,7 @@ func TestPostplayWatchStateEligibility(t *testing.T) {
 	if hub["Metadata"].([]any)[0].(map[string]any)["ratingKey"] != bbE2.Key.String() {
 		t.Fatal(hub)
 	}
-	if _, ok := mc["allowSync"]; ok {
+	if mc["allowSync"] != false {
 		t.Fatalf("postplay sync attribute: %v", mc)
 	}
 }

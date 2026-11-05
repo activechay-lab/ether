@@ -148,14 +148,14 @@ func TestDecisionListsAlternateTracksForAndroidOnly(t *testing.T) {
 			}
 			f.trans.decision = core.Decision{Kind: core.DecisionDirectPlay, VideoCopy: true, AudioCopy: true, Container: "mkv"}
 			slug := strings.ReplaceAll(client.name, " ", "-")
-			direct := f.get(t, "/video/:/transcode/universal/decision?path="+path+"&protocol=hls&directPlay=1&directStream=1&session=alt-direct-"+slug, hdr...)
+			direct := f.get(t, "/video/:/transcode/universal/decision?path="+path+"&hasMDE=1&protocol=hls&directPlay=1&directStream=1&session=alt-direct-"+slug, hdr...)
 			if direct.Code != http.StatusOK {
 				t.Fatalf("direct decision %d: %s", direct.Code, direct.Body.String())
 			}
 			assertAlternateTracks(t, direct.Body.String(), client.android, true)
 
 			f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mkv"}
-			remux := f.get(t, "/video/:/transcode/universal/decision?path="+path+"&protocol=hls&directPlay=0&directStream=1&session=alt-remux-"+slug, hdr...)
+			remux := f.get(t, "/video/:/transcode/universal/decision?path="+path+"&hasMDE=1&protocol=hls&directPlay=0&directStream=1&session=alt-remux-"+slug, hdr...)
 			if remux.Code != http.StatusOK {
 				t.Fatalf("remux decision %d: %s", remux.Code, remux.Body.String())
 			}

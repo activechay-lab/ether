@@ -351,6 +351,7 @@ func TestStartHLS(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts"}
+	f.get(t, decisionPath("/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=abc-123&protocol=hls&offset=30.5&directStream=1"))
 	rec := f.get(t, "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=abc-123&protocol=hls&offset=30.5&directStream=1")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("start: %d %s", rec.Code, rec.Body.String())
@@ -764,6 +765,7 @@ func TestHLSInitializationSegmentServedForNativePlayer(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "fmp4"}
+	f.get(t, decisionPath("/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=native-fmp4&directPlay=0&directStream=1"))
 	start := f.get(t, "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=native-fmp4&directPlay=0&directStream=1")
 	if start.Code != 200 {
 		t.Fatal(start.Code, start.Body.String())
