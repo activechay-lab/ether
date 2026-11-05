@@ -762,8 +762,15 @@ func (s *Service) SaveChannel(ctx context.Context, c Channel) (Channel, error) {
 			c.LogoMatched = false
 		}
 	}
-	if err := s.expand(ctx, &c); err != nil {
-		return c, err
+	// A metadata save must not re-query collections or personal providers.
+	s.virtualGuide.mu.RLock()
+	previous := s.virtualGuide.entries[c.ID]
+	s.virtualGuide.mu.RUnlock()
+	sameProgramming := previous != nil && snapshotInputFingerprint(c, 0) == snapshotInputFingerprint(previous.channel, 0)
+	if !sameProgramming {
+		if err := s.expand(ctx, &c); err != nil {
+			return c, err
+		}
 	}
 	if err := validateChannel(&c); err != nil {
 		return c, err
