@@ -280,7 +280,7 @@ func TestBrowsePrewarmOpensWithoutPrefetch(t *testing.T) {
 	}
 }
 
-func TestMetadataProbeWithoutSpeculationOrPlaybackSession(t *testing.T) {
+func TestMetadataProbeWithoutPrefetchOrPlaybackSession(t *testing.T) {
 	for _, active := range []bool{false, true} {
 		t.Run(fmt.Sprint(active), func(t *testing.T) {
 			h := newHarness(t, []*fakeRelease{mkv("r1", 2<<30, 90*time.Minute)}, []string{"r1"}, withNativeProbe(func(ctx context.Context, src core.MediaSource) (*core.MediaInfo, error) {
@@ -292,9 +292,6 @@ func TestMetadataProbeWithoutSpeculationOrPlaybackSession(t *testing.T) {
 				return info, nil
 			}, nil))
 			caps := defaultCaps("shield")
-			cfg := h.m.config()
-			cfg.Cache.DisableSpeculation = true
-			h.m.SetConfig(cfg)
 			if active {
 				if _, err := h.m.Prepare(context.Background(), owner, movie2, defaultCaps("other")); err != nil {
 					t.Fatal(err)
@@ -323,6 +320,30 @@ func TestMetadataProbeWithoutSpeculationOrPlaybackSession(t *testing.T) {
 			r, p := counts(h)
 			if r != resolves || p != probes {
 				t.Fatal("repeated metadata repeated probe")
+			}
+		})
+	}
+}
+
+func TestMetadataProbeRespectsDisabledSettings(t *testing.T) {
+	for _, mode := range []string{"detail-off", "speculation-off", "cache-off"} {
+		t.Run(mode, func(t *testing.T) {
+			h := newHarness(t, []*fakeRelease{mkv("r1", 2<<20, time.Minute)}, []string{"r1"})
+			cfg := h.m.config()
+			switch mode {
+			case "detail-off":
+				cfg.Cache.DetailWarmup = "off"
+			case "speculation-off":
+				cfg.Cache.DisableSpeculation = true
+			case "cache-off":
+				cfg.Cache.Mode = "off"
+			}
+			h.m.SetConfig(cfg)
+			if err := h.m.ProbeMetadata(t.Context(), owner, movieKey, defaultCaps("shield")); err == nil {
+				t.Fatal("uncached disabled probe reported success")
+			}
+			if r, p := counts(h); r != 0 || p != 0 {
+				t.Fatalf("disabled probe resolved/probed: %d/%d", r, p)
 			}
 		})
 	}

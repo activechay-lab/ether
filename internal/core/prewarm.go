@@ -72,8 +72,8 @@ type WarmProbeWaiter interface {
 }
 
 // MetadataProber obtains exact pre-play source facts without admitting a live
-// session. An error means facts are unavailable; callers must not claim that
-// an estimated source has no subtitles.
+// session, subject to owner warm-up settings and a bounded wait. An error
+// means facts are not ready; detail pages should render their normal fallback.
 type MetadataProber interface {
 	ProbeMetadata(context.Context, *User, RatingKey, ClientCaps) error
 }

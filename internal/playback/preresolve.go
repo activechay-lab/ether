@@ -135,9 +135,9 @@ func (m *Manager) Prewarm(ctx context.Context, user *core.User, key core.RatingK
 }
 
 // ProbeMetadata resolves and probes the detail page's source without creating a
-// playback session or prefetching video. Unlike speculation this is required
-// metadata IO, so disabling speculation or having another player is no reason
-// to publish an invented empty track list. Admission remains bounded.
+// playback session or prefetching video. Owner cache/warm-up settings and
+// admission limits apply. Slow probes finish in the background; the caller
+// can render estimated metadata until exact facts become available.
 func (m *Manager) ProbeMetadata(ctx context.Context, user *core.User, key core.RatingKey, caps core.ClientCaps) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -146,7 +146,7 @@ func (m *Manager) ProbeMetadata(ctx context.Context, user *core.User, key core.R
 		return nil
 	}
 	m.prewarm(ctx, user, key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}, true)
-	if _, ok := m.WaitWarmProbe(ctx, user, caps, key, 12*time.Second); ok {
+	if _, ok := m.WaitWarmProbe(ctx, user, caps, key, 4*time.Second); ok {
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -164,7 +164,7 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 		reason = core.PrewarmDetail
 	}
 	cfg := m.config().Cache
-	if !metadata && (cfg.DisableSpeculation || cfg.Mode == "off" || (reason == core.PrewarmDetail && cfg.DetailWarmup == "off")) {
+	if cfg.DisableSpeculation || cfg.Mode == "off" || (reason == core.PrewarmDetail && cfg.DetailWarmup == "off") {
 		return false
 	}
 	automaticReserve := reason == core.PrewarmDetail && opts.PrefetchBytes <= 0 && cfg.DetailBytes <= 0

@@ -96,6 +96,9 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey
 func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
+	if androidTVClient(pr) {
+		pr.detailWaitUntil = time.Now().Add(detailWarmWaitBudget)
+	}
 	q := r.URL.Query()
 	// Validate before any catalogue lookup or playback warm-up: these flags
 	// have a boolean integer grammar even when their work is asynchronous.
@@ -188,7 +191,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 				// Version discovery belongs to the open detail page, not to
 				// admission of the independent playback warm-up. Start it first
 				// so a warm-up that needs a search can join the same work.
-				if pr.User != nil {
+				if pr.User != nil && s.detailSearchAllowed(pr) {
 					if refiller, ok := s.d.Variants.(core.SearchCacheRefiller); ok {
 						// Repeated metadata fetches while the same page is being
 						// watched must not retry a failed search on every fetch.
@@ -200,13 +203,6 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 							pr.detailRefillRequested = true
 							pr.detailRefill = refiller.RefillSearchCache(t)
 						}
-					}
-				}
-				if androidTVClient(pr) {
-					if err := s.probeDetailTracks(ctx, pr, t); err != nil {
-						w.Header().Set("Retry-After", "1")
-						writeHTTPError(w, http.StatusServiceUnavailable)
-						return
 					}
 				}
 				s.warmDetail(ctx, pr, t)
@@ -349,6 +345,15 @@ const detailWarmWaitBudget = 4 * time.Second
 func (s *Server) warmDetail(ctx context.Context, pr *Request, t *core.Title) {
 	if t == nil || !isPlayable(t.Type) || s.d.Playback == nil {
 		return
+	}
+	if androidTVClient(pr) {
+		if _, ok := s.d.Playback.(core.MetadataProber); ok {
+			// A single wait: do not add speculative warmDetail's four seconds
+			// after the metadata probe's own bounded wait. Errors/timeouts
+			// preserve the normal detail response and background preparation.
+			_ = s.probeDetailTracks(ctx, pr, t)
+			return
+		}
 	}
 	caps := s.clientCaps(pr)
 	if warm, ok := s.d.Playback.(core.Prewarmer); ok {
@@ -936,8 +941,8 @@ func (s *Server) placeholderMetadata(ctx context.Context, pr *Request, t *core.T
 	return md
 }
 
-// Do not let the TV picker cache an estimated, empty subtitle list when a
-// cold probe takes longer than speculative warm-up's four-second wait.
+// Prefer exact facts for the TV picker, without making a slow source fail
+// the detail page. Completed background probes are visible on later reads.
 func (s *Server) probeDetailTracks(ctx context.Context, pr *Request, t *core.Title) error {
 	if pr == nil || pr.User == nil || s.d.Playback == nil {
 		return nil
@@ -946,7 +951,23 @@ func (s *Server) probeDetailTracks(ctx context.Context, pr *Request, t *core.Tit
 		return nil
 	}
 	if prober, ok := s.d.Playback.(core.MetadataProber); ok {
+		if !pr.detailWaitUntil.IsZero() {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(ctx, pr.detailWaitUntil)
+			defer cancel()
+		}
 		return prober.ProbeMetadata(ctx, pr.User, t.Key, s.clientCaps(pr))
 	}
 	return nil
+}
+
+// Disabled warming on Android TV permits cached metadata reads only: neither
+// the required probe nor version discovery may start a fresh indexer search.
+// Other clients retain their existing discovery policy.
+func (s *Server) detailSearchAllowed(pr *Request) bool {
+	if !androidTVClient(pr) {
+		return true
+	}
+	c := s.cfg().Cache
+	return !c.DisableSpeculation && c.Mode != "off" && c.DetailWarmup != "off"
 }

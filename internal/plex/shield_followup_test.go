@@ -143,12 +143,40 @@ func TestShieldTroyCaptureFollowup(t *testing.T) {
 	}
 }
 
-func TestShieldMetadataProbeFailureDoesNotPublishEmptyTracks(t *testing.T) {
+func TestShieldMetadataProbeFailureKeepsNormalResponse(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	f.srv.d.Playback = &shieldMetadataPlayback{Playback: f.playback, facts: sampleInfo, err: core.ErrPrepareSlow}
 	r := f.get(t, "/library/metadata/"+fightClub.Key.String(), "X-Plex-Product", "Plex for Android (TV)", "X-Plex-Platform", "Android")
-	if r.Code != 503 || r.Header().Get("Retry-After") != "1" {
+	if r.Code != 200 || r.Header().Get("Retry-After") != "" {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
+	}
+}
+
+func TestShieldMetadataProbeIsTVOnly(t *testing.T) {
+	for _, product := range []string{"Plex Web", "Plex for iOS", "Plex for Android (Mobile)", "Plezy"} {
+		t.Run(product, func(t *testing.T) {
+			f := newFixture()
+			defer f.srv.Close()
+			p := &shieldMetadataPlayback{Playback: f.playback, facts: sampleInfo, err: core.ErrPrepareSlow}
+			f.srv.d.Playback = p
+			r := f.get(t, "/library/metadata/"+fightClub.Key.String(), "X-Plex-Product", product)
+			if r.Code != 200 || p.probes != 0 {
+				t.Fatalf("other client changed: status=%d metadata probes=%d", r.Code, p.probes)
+			}
+		})
+	}
+}
+
+func TestShieldDisabledDetailUsesPersistedProbe(t *testing.T) {
+	x := newEtheLab(t, true, "offline-0", 3)
+	x.cfg.Cache.DisableSpeculation = true
+	x.mgr.SetConfig(x.cfg)
+	r := x.f.get(t, "/library/metadata/"+x.title.Key.String(), "X-Plex-Product", "Plex for Android (TV)", "X-Plex-Platform", "Android")
+	if r.Code != 200 || len(subtitleTags(r.Body.String())) < 1 {
+		t.Fatalf("persisted tracks missing: %d %s", r.Code, r.Body.String())
+	}
+	if x.idx.searches.Load() != 0 || x.idx.fetches.Load() != 0 {
+		t.Fatal("disabled detail fetched fresh source")
 	}
 }
