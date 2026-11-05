@@ -32,3 +32,22 @@ Development note: the host's native file watcher cached transformed files under 
 [Keyboard persona script](persona-keyboard.js) runs with the host `playwright-cli run-code --filename` against an open mock console channel (`?channel=v-80s`). It uses labelled controls, Arrow/Enter menu navigation and Space for switches. The script assigns NEON 84 before its final save.
 
 Final review also replaced smart-filter comma entry with catalogue genre chips and a live result count, exposed source order for movie pools and collections, and removed the inaccurate suggestion that a block personal source is recomputed separately for each viewer. Snapshot boundary tests cover missing, malformed and cold (503) responses, including malformed nested pod data. Per-block padding exposes a filler title picker.
+
+## Guide memory and metadata edits
+
+The unchanged 701-channel fixture uses 12-second and 20-second items. On the
+Linux worker, it represented 14,020,000 logical programme rows while storing one
+shared 20,000-row table (480,000 bytes). Immutable programme metadata is shared;
+time rows are 24 bytes versus 560 bytes for the former full `Programme` value.
+Normal IDs are reconstructed per channel, with byte-identical guide output.
+
+Measured incremental peak heap was 42,950,584 bytes (about 41 MiB), below the
+512 MiB test bound. Initial warm took 182 ms; the bulk metadata update took
+29 ms and retained the existing schedule tables. Metadata-only record saves
+also retain them. Availability changes have a separate resolver epoch, including
+expiry, so cosmetic edits do not force schedule expansion.
+
+The full Live TV package passed remotely in 57.112 seconds. The console gate
+passed 57 tests across Live TV, timeline/layout, scene rendering and all 20 locale
+catalogues; typecheck and formatting also passed. All three persona builds used
+the real console in mock mode. Preview browsers and the local server were closed.
