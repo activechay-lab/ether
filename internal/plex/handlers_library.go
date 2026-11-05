@@ -440,20 +440,7 @@ func parseFilterKeyOp(rawKey, rawVal string) (key, op, val string) {
 }
 
 func parseBoolFilter(op, val string) (bool, bool) {
-	v := strings.TrimSpace(val)
-	var b bool
-	switch {
-	case v == "1" || strings.EqualFold(v, "true"):
-		b = true
-	case v == "0" || strings.EqualFold(v, "false"):
-		b = false
-	default:
-		return false, false
-	}
-	if op == "!=" || op == "!==" {
-		b = !b
-	}
-	return b, true
+	return (op == "=" && val == "1") || (op == "!=" && val == "0"), true
 }
 
 func parseDateFilter(op, raw string, now time.Time) (core.DateFilter, bool) {
@@ -573,7 +560,7 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 				return nil
 			}
 			key := rule.Field + strings.TrimSuffix(rule.Operator, "=")
-			parsed := s.parseBrowse(ctx, sec, t, nil, url.Values{key: []string{*rule.Value}})
+			parsed := s.parseBrowse(ctx, sec, t, u, url.Values{key: []string{*rule.Value}})
 			if parsed.unwatched != nil || parsed.inProgress != nil || parsed.lastViewedAfter > 0 || parsed.lastViewedBefore > 0 {
 				var id int64
 				if u != nil && s.d.State != nil {
@@ -710,6 +697,10 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 					}
 				}
 			case "decade":
+				if _, err := strconv.ParseInt(v, 10, 32); err != nil {
+					br.invalidSort = true
+					continue
+				}
 				switch op {
 				case ">>", ">":
 					if d := (atoi(v) / 10) * 10; d > 0 {
@@ -765,9 +756,26 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 				if ts, dateOnly, ok := parseFilterTime(v, now); ok {
 					applyTimeFilter(op, ts, dateOnly, &f.UpdatedAfter, &f.UpdatedBefore)
 				}
-			case "lastViewedAt":
-				if ts, dateOnly, ok := parseFilterTime(v, now); ok {
-					applyTimeFilter(op, ts, dateOnly, &br.lastViewedAfter, &br.lastViewedBefore)
+			case "lastViewedAt", "lastRatedAt", "lastSkippedAt":
+				ts, _, ok := parseFilterTime(v, now)
+				if op == "=" {
+					n, err := strconv.ParseInt(v, 10, 32)
+					ok = err == nil
+					ts = n
+				}
+				if !ok {
+					br.invalidSort = true
+					continue
+				}
+				var id int64
+				if u != nil {
+					id = u.ID
+				}
+				state := core.FilterGroup{UserID: id, StateField: key, StateOperator: op, StateValue: ts}
+				if f.Group == nil {
+					f.Group = &state
+				} else {
+					f.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*f.Group, state}}
 				}
 			case "collection":
 				var ids []int64
@@ -886,15 +894,28 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 				if want, ok := parseBoolFilter(op, v); ok {
 					br.inProgress = &want
 				}
-			case "viewCount":
-				n := atoi(v)
-				switch {
-				case (op == "=" || op == "==" || op == "<=" || op == "<") && strings.TrimSpace(v) == "0", (op == "<<" || op == "<") && n == 1:
-					want := true
-					br.unwatched = &want
-				case (op == "!=" || op == "!==" || op == ">>" || op == ">") && strings.TrimSpace(v) == "0", (op == "=" || op == "==" || op == ">=" || op == ">>" || op == ">") && n > 0:
-					want := false
-					br.unwatched = &want
+			case "viewCount", "viewOffset", "skipCount", "viewedLeafCount", "viewedOrInProgressLeafCount", "unviewedLeafCount", "unwatchedLeaves":
+				n, err := strconv.ParseInt(v, 10, 32)
+				if key == "unwatchedLeaves" {
+					n = 0
+					if op == "=" && v == "1" || op == "!=" && v == "0" {
+						n = 1
+					}
+					err = nil
+				}
+				if err != nil {
+					br.invalidSort = true
+					continue
+				}
+				var id int64
+				if u != nil {
+					id = u.ID
+				}
+				state := core.FilterGroup{UserID: id, StateField: key, StateOperator: op, StateValue: n}
+				if f.Group == nil {
+					f.Group = &state
+				} else {
+					f.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*f.Group, state}}
 				}
 			case "limit":
 				br.limit = atoi(v)
@@ -1151,8 +1172,14 @@ func (s *Server) handleSectionSub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sub := chi.URLParam(r, "sub")
+	if (sub == "unwatched" || sub == "onDeck") && r.URL.Query().Has("type") {
+		if _, err := strconv.ParseInt(r.URL.Query().Get("type"), 10, 64); err != nil {
+			writeHTTPError(w, http.StatusInternalServerError)
+			return
+		}
+	}
 	switch sub {
-	case "all", "allLeaves", "unwatched", "newest", "recentlyAdded", "search", "autocomplete":
+	case "all", "allLeaves", "unwatched", "newest", "recentlyAdded", "recentlyViewedShows", "search", "autocomplete":
 		s.sectionList(w, r, sec, sub)
 	case "onDeck":
 		s.sectionOnDeck(w, r, sec)
@@ -1221,6 +1248,12 @@ func (s *Server) sectionList(w http.ResponseWriter, r *http.Request, sec Section
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	q := r.URL.Query()
+	if sub == "unwatched" && q.Has("type") {
+		if _, err := strconv.ParseInt(q.Get("type"), 10, 32); err != nil {
+			writeHTTPError(w, 500)
+			return
+		}
+	}
 	t := typeFromParam(q.Get("type"))
 	if t == "" {
 		if sub == "allLeaves" && sec.Type == core.TypeShow {
@@ -1228,6 +1261,17 @@ func (s *Server) sectionList(w http.ResponseWriter, r *http.Request, sec Section
 		} else {
 			t = sec.Type
 		}
+	}
+	if sub == "unwatched" && q.Has("type") && typeFromParam(q.Get("type")) != sec.Type {
+		mc := s.sectionContainer(sec)
+		mc.Title2 = "Unplayed"
+		mc.ViewGroup = string(core.TypeMovie)
+		if sec.Type == core.TypeShow {
+			mc.ViewGroup = string(core.TypeEpisode)
+		}
+		mc.SetPage(0, 0)
+		s.write(w, r, mc)
+		return
 	}
 	_, allTitle := sectionTypeTitle(sec)
 	mc := s.sectionContainer(sec)
@@ -1251,14 +1295,21 @@ func (s *Server) sectionList(w http.ResponseWriter, r *http.Request, sec Section
 	br := s.parseBrowse(ctx, sec, t, pr.User, q, r.URL.RawQuery)
 	switch sub {
 	case "unwatched":
+		br.q.Sort, br.q.Desc = core.SortTitle, false
+		br.q.SecondarySorts = nil
+		br.sortLastViewed = false
 		want := true
 		br.unwatched = &want
-		mc.Title2 = "Unwatched"
+		mc.Title2 = "Unplayed"
 	case "newest":
 		br.q.Sort, br.q.Desc = core.SortReleased, true
 		br.q.SecondarySorts = nil
 		br.sortLastViewed = false
 		mc.Title2 = "Recently Released"
+	case "recentlyViewedShows":
+		br.sortLastViewed = true
+		br.lastViewedDesc = true
+		br.lastViewedAfter = 1
 	case "recentlyAdded":
 		br.q.Sort, br.q.Desc = core.SortAdded, true
 		br.q.SecondarySorts = nil
@@ -1290,6 +1341,13 @@ func (s *Server) sectionList(w http.ResponseWriter, r *http.Request, sec Section
 		storedOnly:        storedOnly,
 		availabilityInSQL: sqlAvailability != nil && sqlAvailability.BrowseAvailabilityInSQL(),
 	})
+	if sub == "unwatched" {
+		for i := range mc.Metadata {
+			if mc.Metadata[i].Type == "show" || mc.Metadata[i].Type == "season" {
+				mc.Metadata[i].Key += "?unwatched=1"
+			}
+		}
+	}
 	if len(mc.Metadata) < len(items) && offset+len(items) >= total {
 		total = max(offset+len(mc.Metadata), 0)
 	}
@@ -1497,7 +1555,14 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 		for i := range mc.Metadata {
 			if sec, ok := s.sectionFor(items[i].Type); ok {
 				mc.Metadata[i].LibrarySectionKey = "/library/sections/" + strconv.Itoa(sec.ID)
+				mc.Metadata[i].LibrarySectionUUID = ""
 			}
+		}
+	}
+	if r.URL.Query().Get("includeMeta") == "1" {
+		mc.Meta = &model.Meta{}
+		for _, section := range s.userSections(pr.User) {
+			mc.Meta.Type = append(mc.Meta.Type, s.metaType(section, section.Type, ""))
 		}
 	}
 	total := len(mc.Metadata)
@@ -1517,8 +1582,12 @@ func (s *Server) onDeckItems(ctx context.Context, pr *Request, items []core.Titl
 	// Filter first: renderTitles drops hidden titles, and the loop below
 	// pairs its output with items by index.
 	items = s.takeVisible(pr.User, items, len(items))
-	md := s.renderTitles(ctx, pr, items, renderOpts{media: true, detailEpisodes: true, state: state})
+	md := s.renderTitles(ctx, pr, items, renderOpts{detail: true, media: true, detailEpisodes: true, state: state})
 	for i := range md {
+		md[i].Guid = nil
+		md[i].GuidLead = nil
+		md[i].Rating_ = nil
+		md[i].Producer = nil
 		md[i].SetOnDeckOrder()
 		md[i].LibrarySectionKey = ""
 		md[i].AllowSync = model.Ptr(s.downloadsAllowed(pr.User) && isPlayable(items[i].Type))
@@ -1558,9 +1627,28 @@ func (s *Server) handleRecentlyAdded(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	_, size := pr.pageOf(0)
-	size = min(size, 50)
+	size = min(size, 200)
 	var items []core.Title
 	rq := r.URL.Query()
+	unwatched := false
+	if rq.Has("unwatched") {
+		raw := strings.TrimPrefix(rq.Get("unwatched"), "+")
+		if raw == "" {
+			writeHTTPError(w, http.StatusBadRequest)
+			return
+		}
+		for _, ch := range raw {
+			if ch != '0' && ch != '1' {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
+		}
+		if strings.TrimLeft(raw, "0") != "" && strings.TrimLeft(raw, "0") != "1" {
+			writeHTTPError(w, http.StatusBadRequest)
+			return
+		}
+		unwatched = strings.TrimLeft(raw, "0") == "1"
+	}
 	// Plex leaves an unknown or combined type unfiltered, and it does not
 	// apply contentDirectoryID or pinnedContentDirectoryID on this route.
 	// sectionID still selects one library. KnownAddedDate drops titles whose
@@ -1571,7 +1659,13 @@ func (s *Server) handleRecentlyAdded(w http.ResponseWriter, r *http.Request) {
 		if wantSection > 0 && sec.ID != wantSection || wantType != "" && wantType != sec.Type {
 			continue
 		}
-		q := core.BrowseQuery{Filter: core.Filter{Type: sec.Type, KnownAddedDate: true, SaferPlexRating: s.plexMetaOn()}, Sort: core.SortAdded, Desc: true, Limit: size}
+		q := core.BrowseQuery{Filter: core.Filter{Type: sec.Type, KnownAddedDate: true, SaferPlexRating: s.plexMetaOn()}, Sort: core.SortAdded, Desc: true, Limit: 200}
+		if r.URL.Path == "/library/recentlyAdded" && sec.Type == core.TypeShow {
+			q.Filter.Type = core.TypeEpisode
+		}
+		if unwatched && pr.User != nil {
+			q.Filter.Group = &core.FilterGroup{Unwatched: &unwatched, UserID: pr.User.ID}
+		}
 		if pr.User != nil {
 			q.Filter.MaxContentRating = pr.User.MaxContentRating
 		}
@@ -1585,14 +1679,16 @@ func (s *Server) handleRecentlyAdded(w http.ResponseWriter, r *http.Request) {
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i].DateAdded(s.now()).After(items[j].DateAdded(s.now()))
 	})
-	if len(items) > size {
-		items = items[:size]
-	}
+	total := min(len(items), 200)
+	start := min(max(pr.Start, 0), total)
+	end := start + min(size, total-start)
+	items = items[start:end]
 	mc := libraryContainer()
 	mc.Title1 = "Recently Added"
 	mc.Mixed = model.Ptr(true)
 	mc.Metadata = s.renderTitles(ctx, pr, items, renderOpts{media: true})
 	mc.Size = len(mc.Metadata)
+	mc.SetPage(start, total)
 	s.write(w, r, mc)
 }
 

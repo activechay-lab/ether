@@ -471,6 +471,9 @@ func (s *State) GetMany(ctx context.Context, userID int64, keys []core.RatingKey
 	for k, w := range pending {
 		out[k] = overlayPending(out[k], w, counted[k], watchAt[k])
 	}
+	if err := s.fillParentViewed(ctx, userID, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 

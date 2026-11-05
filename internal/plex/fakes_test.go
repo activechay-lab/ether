@@ -239,6 +239,66 @@ func (c *fakeCatalog) matchGroup(t core.Title, g *core.FilterGroup) bool {
 	if g == nil {
 		return true
 	}
+	if g.StateField != "" {
+		var ws core.WatchStatus
+		if c.state != nil {
+			ws, _ = c.state.Get(context.Background(), g.UserID, t.Key)
+		}
+		n := int64(0)
+		switch g.StateField {
+		case "viewCount":
+			if ws.Key == 0 {
+				return false
+			}
+			n = int64(ws.ViewCount)
+		case "skipCount":
+			if ws.Key == 0 {
+				return false
+			}
+		case "viewOffset":
+			n = ws.ViewOffset.Milliseconds()
+		case "lastViewedAt":
+			n = unixOrZero(ws.LastViewedAt)
+		case "lastRatedAt":
+			n = unixOrZero(ws.LastRatedAt)
+		case "lastSkippedAt":
+			n = 0
+		default:
+			for _, ep := range c.titles {
+				if ep.Type != core.TypeEpisode || ep.ShowKey != t.Key && ep.ShowKey != t.ShowKey || t.Type == core.TypeSeason && ep.Season != t.Season {
+					continue
+				}
+				st, _ := c.state.Get(context.Background(), g.UserID, ep.Key)
+				if g.StateField == "viewedLeafCount" && st.ViewCount > 0 || g.StateField == "viewedOrInProgressLeafCount" && (st.ViewCount > 0 || st.ViewOffset > 0) || (g.StateField == "unviewedLeafCount" || g.StateField == "unwatchedLeaves") && st.ViewCount == 0 {
+					n++
+				}
+			}
+		}
+		target := g.StateValue
+		op := g.StateOperator
+		if g.StateField == "unwatchedLeaves" {
+			target = 0
+			op = "="
+			if g.StateValue == 1 {
+				op = ">"
+			}
+		}
+		switch op {
+		case "=", "==":
+			return n == target
+		case "!=", "!==":
+			return n != target
+		case "<", "<<":
+			return n < target
+		case "<=", "<<=":
+			return n <= target
+		case ">", ">>":
+			return n > target
+		case ">=", ">>=":
+			return n >= target
+		}
+		return false
+	}
 	if g.Filter != nil {
 		return fakeFilterMatch(t, *g.Filter) && c.matchGroup(t, g.Filter.Group)
 	}

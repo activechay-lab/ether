@@ -498,6 +498,28 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 		mc.ViewMode = viewModeList
 	}
 	kids = s.visibleTitles(pr.User, kids)
+	if parent.Type == core.TypeShow && r.URL.Query().Has("unwatched") {
+		if r.URL.Query().Get("unwatched") != "1" {
+			kids = nil
+		} else {
+			eps, _ := s.episodesOfShow(ctx, pr, nil, k)
+			states := s.stateFor(ctx, pr, eps)
+			hasUnplayed := map[int]bool{}
+			for _, ep := range eps {
+				if states[ep.Key].ViewCount == 0 {
+					hasUnplayed[ep.Season] = true
+				}
+			}
+			filtered := kids[:0]
+			for _, season := range kids {
+				if hasUnplayed[season.Season] {
+					filtered = append(filtered, season)
+				}
+			}
+			kids = filtered
+		}
+	}
+
 	future := s.scheduledEpisodes(ctx, pr, k)
 	kids = appendScheduled(kids, future)
 	lo, hi := pr.window(len(kids))
@@ -601,6 +623,23 @@ func (s *Server) handleAllLeaves(w http.ResponseWriter, r *http.Request) {
 	// Filter before paging, as handleChildren does, so the window and
 	// totalSize count only episodes the viewer may see.
 	eps = s.visibleTitles(pr.User, eps)
+	if r.URL.Query().Has("unwatched") {
+		n, err := strconv.ParseInt(r.URL.Query().Get("unwatched"), 10, 32)
+		if err != nil || n < 0 || n > 1 || strings.HasPrefix(r.URL.Query().Get("unwatched"), "-") {
+			writeHTTPError(w, 400)
+			return
+		}
+		if n == 1 {
+			states := s.stateFor(ctx, pr, eps)
+			filtered := eps[:0]
+			for _, ep := range eps {
+				if states[ep.Key].ViewCount == 0 {
+					filtered = append(filtered, ep)
+				}
+			}
+			eps = filtered
+		}
+	}
 	lo, hi := pr.window(len(eps))
 	mc.Metadata = s.renderTitles(ctx, pr, eps[lo:hi], renderOpts{media: true, inSection: true})
 	mc.Size = len(mc.Metadata)

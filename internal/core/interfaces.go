@@ -56,6 +56,9 @@ type CreditFilter struct {
 
 // FilterGroup represents a nested boolean expression of browse filters.
 type FilterGroup struct {
+	StateField    string `json:"stateField,omitempty"`
+	StateOperator string `json:"stateOperator,omitempty"`
+	StateValue    int64  `json:"stateValue,omitempty"`
 	// ParentOnly applies this subtree to the series when browsing episodes.
 	ParentOnly       bool          `json:"-"`
 	LastViewedAfter  int64         `json:"lastViewedAfter,omitempty"`
