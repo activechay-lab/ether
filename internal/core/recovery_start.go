@@ -24,12 +24,15 @@ type RecoveryStart struct {
 // lease and retained output. Missing immutable sample/AU indexing is unsupported;
 // timestamps or ordinals must never be synthesized from playlist durations.
 type RecoveryAACCursor struct {
-	SourceRevision    string
-	StreamIndex       int
-	SampleRate        int
-	Channels          int
-	SamplesPerAU      int
-	NextSample        int64
+	SourceRevision string
+	StreamIndex    int
+	SampleRate     int
+	Channels       int
+	SamplesPerAU   int
+	NextSample     int64
+	// Initial AAC-LC profile hashes the canonical two-byte AudioSpecificConfig
+	// (48 kHz, mono/stereo, 1024 samples). A known absent-SBR sync extension
+	// is normalized away; unknown extensions/configurations are unsupported.
 	CodecConfigSHA256 [32]byte
 	// Hashes cover canonical raw AAC payload, excluding ADTS transport headers.
 	PreviousRawAUSHA256 [32]byte
