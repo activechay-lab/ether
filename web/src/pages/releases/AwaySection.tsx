@@ -72,10 +72,9 @@ export function AwaySection({
       <SettingsRow
         setting="away-profile"
         title={t("Away profile")}
-        description={t(
-          "Used away from home for {media}. Device and viewer rules still win.",
-          { media: mediaLabel(media) },
-        )}
+        description={t("Used away from home for {media}. Device and viewer rules still win.", {
+          media: mediaLabel(media),
+        })}
         control={
           <div className="w-52">
             <SearchSelect

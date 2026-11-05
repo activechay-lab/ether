@@ -75,11 +75,7 @@ export function TitlePicker({
             return;
           }
           setShow(null);
-          onPick(
-            title.key,
-            title.year ? `${title.title} (${title.year})` : title.title,
-            "movie",
-          );
+          onPick(title.key, title.year ? `${title.title} (${title.year})` : title.title, "movie");
         }}
       />
       {show ? (

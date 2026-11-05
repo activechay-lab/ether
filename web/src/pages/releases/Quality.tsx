@@ -188,10 +188,14 @@ function MediaScopeToggle({
             onKeyDown={(e) => {
               if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
               e.preventDefault();
-              const next = options[(i + (e.key === "ArrowRight" ? 1 : options.length - 1)) % options.length];
+              const next =
+                options[(i + (e.key === "ArrowRight" ? 1 : options.length - 1)) % options.length];
               if (!next) return;
               onChange(next.value);
-              (e.currentTarget.parentElement?.children[options.indexOf(next)] as HTMLElement | undefined)?.focus();
+              (
+                e.currentTarget.parentElement?.children[options.indexOf(next)] as
+                  HTMLElement | undefined
+              )?.focus();
             }}
             className={[
               "flex h-12 items-center justify-center gap-2 rounded-lg px-4 text-base font-semibold transition-colors",
@@ -227,18 +231,17 @@ function mediaDefault(quality: Quality, media: ProfileMedia, away: boolean): str
   return !profile || mediaApplies(profile.mediaType, media) ? legacy : "";
 }
 
-function defaultField(media: string, away: boolean): "default" | "defaultMovie" | "defaultTv" | "remote" | "remoteMovie" | "remoteTv" {
+function defaultField(
+  media: string,
+  away: boolean,
+): "default" | "defaultMovie" | "defaultTv" | "remote" | "remoteMovie" | "remoteTv" {
   if (media === MEDIA_MOVIE) return away ? "remoteMovie" : "defaultMovie";
   if (media === MEDIA_TV) return away ? "remoteTv" : "defaultTv";
   return away ? "remote" : "default";
 }
 
 /** First profile (optionally other than `exclude`) that applies to media. */
-function mediaFallback(
-  profiles: QualityProfile[],
-  media: string,
-  exclude?: string,
-): string {
+function mediaFallback(profiles: QualityProfile[], media: string, exclude?: string): string {
   return profiles.find((p) => p.name !== exclude && mediaApplies(p.mediaType, media))?.name ?? "";
 }
 
@@ -995,9 +998,7 @@ function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Pr
           }
           control={
             <span className="text-sm text-fg">
-              {hasRun
-                ? t("Ran {when}", { when: relativeTime(sync!.lastRun!) })
-                : t("Never run")}
+              {hasRun ? t("Ran {when}", { when: relativeTime(sync!.lastRun!) }) : t("Never run")}
             </span>
           }
         />
@@ -1008,7 +1009,9 @@ function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Pr
           <AlertTitle>{t("Guide sync finished")}</AlertTitle>
           <AlertDescription>
             <ul className="list-disc space-y-1 pl-5">
-              <li>{tn(report.profilesUpdated, "{count} profile updated", "{count} profiles updated")}</li>
+              <li>
+                {tn(report.profilesUpdated, "{count} profile updated", "{count} profiles updated")}
+              </li>
               <li>{tn(report.formatsAdded, "{count} format added", "{count} formats added")}</li>
               <li>
                 {tn(report.formatsUpdated, "{count} format updated", "{count} formats updated")}
@@ -1036,7 +1039,6 @@ function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Pr
     </Section>
   );
 }
-
 
 export function QualityTab() {
   const { config, quality, commit, refresh } = useQuality();
@@ -1211,8 +1213,7 @@ function ProfileList({
       const oldHome = defaultField(oldScope!, false);
       const oldAway = defaultField(oldScope!, true);
       if (oldHome !== homeField && quality[oldHome] === old.name) {
-        next[oldHome] =
-          oldScope === "" ? otherProfile : mediaFallback(list, oldScope!, draft.name);
+        next[oldHome] = oldScope === "" ? otherProfile : mediaFallback(list, oldScope!, draft.name);
       }
       if (oldAway !== awayField && quality[oldAway] === old.name) next[oldAway] = "";
     }
@@ -1264,9 +1265,7 @@ function ProfileList({
     const fallback = rest[0]?.name ?? "";
     const usedBy = rules.filter((r) => r.profile === name).length;
     const moves =
-      quality.default === name ||
-      quality.defaultMovie === name ||
-      quality.defaultTv === name;
+      quality.default === name || quality.defaultMovie === name || quality.defaultTv === name;
     const consequences = [
       name ? t("{name} will be removed.", { name }) : t("This profile will be removed."),
       usedBy
@@ -1375,9 +1374,7 @@ function ProfileList({
             <span className="text-xs font-medium text-fg-muted">{t("Away default")}</span>
             <Badge variant="info">{awayDefault || t("Same as at home")}</Badge>
           </span>
-          <span className="text-xs text-fg-muted">
-            {t("Set these from a profile’s editor.")}
-          </span>
+          <span className="text-xs text-fg-muted">{t("Set these from a profile’s editor.")}</span>
         </div>
         {visible.length === 0 ? (
           <EmptyState

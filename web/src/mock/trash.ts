@@ -3,12 +3,7 @@
  * imports (/ether/api/releases/trash, /dictionarry and /quality-import).
  * Used by mock mode and the tests; never shipped.
  */
-import type {
-  ImportFormat,
-  QualityImportPlan,
-  StarrApp,
-  TrashProfile,
-} from "../lib/releases";
+import type { ImportFormat, QualityImportPlan, StarrApp, TrashProfile } from "../lib/releases";
 import { mediaTypeForApp } from "../lib/releases";
 import type { EtherConfig, QualityProfile } from "../lib/types";
 
@@ -470,8 +465,7 @@ export function createTrashMock() {
     if (route === "POST /quality-import") {
       const p = resolve(b, config);
       if (isReply(p)) return p;
-      if (p.unusable)
-        return fail(400, "invalid", `This profile can't be imported: ${p.unusable}`);
+      if (p.unusable) return fail(400, "invalid", `This profile can't be imported: ${p.unusable}`);
       const name = String(b.name ?? "").trim() || p.profile.name;
       const profiles = config.quality.profiles ?? [];
       if (profiles.some((x) => x.name === name))
