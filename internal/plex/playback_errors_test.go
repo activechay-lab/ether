@@ -31,7 +31,7 @@ func hideFromDiscovery(f *fixture, key core.RatingKey) {
 
 // Discovery evidence hides a recent title from browse and search, but a
 // viewer who presses Play still gets an attempt: the friendly decision, a
-// play queue, and a part request that resolves (or fails with 503).
+// play queue, and a part request that resolves (or fails with 404).
 func TestDiscoveryHiddenTitleStaysPlayable(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
@@ -52,7 +52,7 @@ func TestDiscoveryHiddenTitleStaysPlayable(t *testing.T) {
 		t.Fatalf("play queue for a discovery-hidden title: %d", rec.Code)
 	}
 
-	if rec := f.get(t, "/library/parts/1000000000000550/1759276800/file.mkv"); rec.Code != http.StatusServiceUnavailable {
+	if rec := f.get(t, "/library/parts/1000000000000550/1759276800/file.mkv"); rec.Code != http.StatusNotFound {
 		t.Fatalf("unavailable part of a discovery-hidden title: %d", rec.Code)
 	}
 	// Lists still hide it exactly as before (until the viewer has it open).
@@ -63,6 +63,7 @@ func TestDiscoveryHiddenTitleStaysPlayable(t *testing.T) {
 		}
 	}
 	delete(f.playback.failures, fightClub.Key)
+	f.srv.transcodes.remove("d1")
 	if rec := f.get(t, "/library/parts/1000000000000550/1759276800/file.mkv", "Range", "bytes=0-9"); rec.Code != http.StatusPartialContent {
 		t.Fatalf("part of a discovery-hidden title that resolves: %d", rec.Code)
 	}
@@ -85,7 +86,7 @@ func TestPlayAttemptStillEnforcesPolicy(t *testing.T) {
 }
 
 // The start request that follows a failed decision for the same session
-// gets that failure at once; it is one-shot and expires.
+// gets that failure at once; it covers retries and expires.
 func TestFailedDecisionAnswersFollowingStart(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
@@ -98,18 +99,18 @@ func TestFailedDecisionAnswersFollowingStart(t *testing.T) {
 
 	f.playback.failures[fightClub.Key] = core.ErrNotAvailable
 	f.get(t, decision)
-	// Were start to resolve again it would now succeed: the 503 proves it
+	// Were start to resolve again it would now succeed: the 404 proves it
 	// answered from the remembered decision.
 	delete(f.playback.failures, fightClub.Key)
 	rec := f.get(t, start)
-	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+	if rec.Code != http.StatusNotFound || rec.Header().Get("Retry-After") != "" {
 		t.Fatalf("start after a failed decision: %d retry-after=%q", rec.Code, rec.Header().Get("Retry-After"))
 	}
 	if f.playback.prepared != 0 {
 		t.Fatalf("start resolved again: prepared=%d", f.playback.prepared)
 	}
-	// One-shot: the next start resolves.
-	if rec := f.get(t, start); rec.Code != http.StatusOK {
+	// A media loader retry still gets the terminal failure.
+	if rec := f.get(t, start); rec.Code != http.StatusNotFound {
 		t.Fatalf("second start: %d %s", rec.Code, rec.Body.String())
 	}
 
@@ -192,16 +193,123 @@ func TestDecisionExplainsMissingSources(t *testing.T) {
 	}
 }
 
-// Both request paths must tell players that transient source failures can retry.
-func TestTransientPlaybackErrorMappingAgrees(t *testing.T) {
+// API consumers may retry a transient lookup; a player start must end this
+// attempt, with the specific text available through the timeline.
+func TestTransientPlaybackErrorMapping(t *testing.T) {
 	s := &Server{log: slog.Default()}
 	for _, err := range []error{core.ErrSourceUnavailable, context.DeadlineExceeded, core.ErrPrepareSlow} {
-		for _, write := range []func(http.ResponseWriter, *http.Request, error){s.writeErr, func(w http.ResponseWriter, r *http.Request, e error) { s.writeStartErr(w, r, nil, e) }} {
-			w := httptest.NewRecorder()
-			write(w, httptest.NewRequest("GET", "/", nil), err)
-			if w.Code != 503 || w.Header().Get("Retry-After") != notAvailableRetryAfter {
-				t.Fatalf("%v: %d %v", err, w.Code, w.Header())
-			}
+		w := httptest.NewRecorder()
+		s.writeErr(w, httptest.NewRequest("GET", "/", nil), err)
+		if w.Code != 503 || w.Header().Get("Retry-After") != notAvailableRetryAfter {
+			t.Fatalf("lookup %v: %d %v", err, w.Code, w.Header())
 		}
+		w = httptest.NewRecorder()
+		s.writeStartErr(w, httptest.NewRequest("GET", "/", nil), nil, err)
+		if w.Code != 400 || w.Header().Get("Retry-After") != "" {
+			t.Fatalf("start %v: %d %v", err, w.Code, w.Header())
+		}
+	}
+}
+
+// failureBudgetPlayback exercises the production bounded-prepare interface.
+// A failed bounded prepare must never fall through to unbounded Prepare.
+type failureBudgetPlayback struct {
+	*fakePlayback
+	err   error
+	calls int
+}
+
+func (p *failureBudgetPlayback) PrepareWithin(_ context.Context, budget time.Duration, _ *core.User, _ core.RatingKey, _ core.ClientCaps, _ string, _ bool) (*core.PlaySession, error) {
+	if budget <= 0 || budget > decisionSourceWait {
+		panic("unbounded client acquisition")
+	}
+	p.calls++
+	return nil, p.err
+}
+
+// TestPlaybackFailureClientContract protects the cross-client invariant:
+// failures have terminal decisions, media requests end without retry advice,
+// and buffering timelines carry the same specific reason. These are HTTP
+// contracts; they do not assert how proprietary apps render the dialog.
+func TestPlaybackFailureClientContract(t *testing.T) {
+	clients := []struct{ name, product, platform, format string }{
+		{"firetv", "Plex for Android (TV)", "Android", "xml"},
+		{"androidtv", "Plex for Android (TV)", "Android", "xml"},
+		{"shield", "Plex for Android (TV)", "Android", "xml"},
+		{"appletv", "Plex for Apple TV", "tvOS", "xml"},
+		{"ios", "Plex for iOS", "iOS", "json"},
+		{"web", "Plex Web", "Chrome", "json"},
+		{"lg", "Plex for LG", "webOS", "json"},
+		{"samsung", "Plex for Samsung", "Tizen", "json"},
+		{"roku", "Plex for Roku", "Roku", "xml"},
+	}
+	failures := []error{core.ErrNotAvailable, core.ErrNotCached,
+		&core.UncachedError{Err: core.ErrNotCached, CachedOnly: true},
+		core.ErrDownloadRefused, core.ErrDownloadQueued, core.ErrDownloadLimit,
+		core.ErrDebridAuth, core.ErrSourceUnavailable, core.ErrReleaseRejected,
+		context.DeadlineExceeded, core.ErrPrepareSlow, core.ErrStreamLimit,
+		core.ErrNoSources, errors.New("encoder failed")}
+	for _, client := range clients {
+		t.Run(client.name, func(t *testing.T) {
+			for i, failure := range failures {
+				t.Run(fmt.Sprint(i), func(t *testing.T) {
+					f := newFixture()
+					defer f.srv.Close()
+					p := &failureBudgetPlayback{fakePlayback: f.playback, err: failure}
+					f.srv.d.Playback = p
+					h := map[string]string{"X-Plex-Product": client.product, "X-Plex-Platform": client.platform,
+						"X-Plex-Client-Identifier": client.name, "X-Plex-Session-Identifier": "attempt",
+						"Accept": "application/" + client.format}
+					base := "?path=/library/metadata/1000000000000550&session=attempt&hasMDE=1&directPlay=1&mediaIndex=0&partIndex=0"
+					started := time.Now()
+					decision := f.request(t, "GET", "/video/:/transcode/universal/decision"+base, h)
+					attrs := containerAttrs(t, decision.Body.Bytes())
+					want := playbackMessage(failure)
+					if decision.Code != 200 || attrs["generalDecisionCode"] != "2000" || attrs["directPlayDecisionCode"] != "3000" || attrs["transcodeDecisionCode"] != "4000" || attrs["mdeDecisionCode"] != "2000" {
+						t.Fatalf("nonterminal decision: %d %v", decision.Code, attrs)
+					}
+					for _, field := range []string{"generalDecisionText", "directPlayDecisionText", "transcodeDecisionText", "mdeDecisionText"} {
+						if attrs[field] != want {
+							t.Fatalf("%s = %q want %q", field, attrs[field], want)
+						}
+					}
+					checkTimeline := func() {
+						t.Helper()
+						r := f.request(t, "GET", "/:/timeline?ratingKey=1000000000000550&state=buffering&time=0", h)
+						a := containerAttrs(t, r.Body.Bytes())
+						if a["terminationCode"] != "2006" || a["terminationText"] != want {
+							t.Fatalf("timeline: %v", a)
+						}
+					}
+					checkTimeline() // even if the client never follows decision with start
+					for _, path := range []string{"/video/:/transcode/universal/start.m3u8" + base, "/video/:/transcode/universal/start.mpd" + base, "/library/parts/1000000000000550/1/file.mkv"} {
+						for range 2 { // media loader retry must not consume the remembered error
+							r := f.request(t, "GET", path, h)
+							if r.Code < 400 || r.Code >= 500 || r.Header().Get("Retry-After") != "" || r.Body.Len() != 0 {
+								t.Fatalf("%s: %d %v %s", path, r.Code, r.Header(), r.Body.String())
+							}
+							checkTimeline()
+						}
+					}
+					if !errors.Is(failure, core.ErrPrepareSlow) && p.calls != 1 {
+						t.Fatalf("failed source was retried %d times", p.calls)
+					}
+					// Also exercise clients that skip decision: every media route must
+					// use bounded preparation rather than plain Prepare.
+					f.srv.transcodes.remove("attempt")
+					for _, path := range []string{"/video/:/transcode/universal/start.m3u8" + base, "/video/:/transcode/universal/start.mpd" + base, "/library/parts/1000000000000550/1/file.mkv"} {
+						before := p.calls
+						r := f.request(t, "GET", path, h)
+						if r.Code < 400 || r.Code >= 500 || p.calls != before+1 {
+							t.Fatalf("unbounded media route %s: %d, calls %d -> %d", path, r.Code, before, p.calls)
+						}
+						checkTimeline()
+					}
+					if time.Since(started) >= decisionSourceWait {
+						t.Fatal("client failure exceeded decision budget")
+					}
+				})
+			}
+		})
 	}
 }

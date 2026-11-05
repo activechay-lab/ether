@@ -349,7 +349,7 @@ func (e *uncachedEnv) onAccount() int {
 // check) and the owner's Cached torrents only switch, each Plex path ends
 // with the reason instead of a spinner: the decision for Plex Web (JSON,
 // mdeDecisionText) and Android TV (XML), the remembered failure for the
-// start.m3u8 that follows it, and for start.mpd and part requests a 503 plus
+// start.m3u8 that follows it, and for start.mpd and part requests a terminal status plus
 // the reason as terminationText on the client's next timeline. With the
 // switch on nothing is left on the account. With it off exactly one release
 // is sent to download, retries follow it rather than adding it again, and it
@@ -372,12 +372,12 @@ func TestEveryCandidateUncachedMatrix(t *testing.T) {
 				if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `generalDecisionText="`+want+`"`) {
 					t.Fatalf("Android TV decision: %d %s", rec.Code, rec.Body.String())
 				}
-				if rec := e.f.request(t, http.MethodGet, uncachedStart("atv", "m3u8"), android); rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+				if rec := e.f.request(t, http.MethodGet, uncachedStart("atv", "m3u8"), android); rec.Code != http.StatusNotFound || rec.Header().Get("Retry-After") != "" {
 					t.Fatalf("start.m3u8 after the failed decision: %d", rec.Code)
 				}
 				for _, path := range []string{uncachedStart("dash", "mpd"), "/library/parts/1000000000000550/1759276800/file.mkv"} {
 					client := map[string]string{"X-Plex-Client-Identifier": "c-" + path[len(path)-3:], "X-Plex-Session-Identifier": "play-" + path[len(path)-3:]}
-					if rec := e.f.request(t, http.MethodGet, path, client); rec.Code != http.StatusServiceUnavailable {
+					if rec := e.f.request(t, http.MethodGet, path, client); rec.Code != http.StatusNotFound {
 						t.Fatalf("%s: %d", path, rec.Code)
 					}
 					client["Accept"] = "application/json"
@@ -425,7 +425,7 @@ func TestUncachedReasonsAreNamed(t *testing.T) {
 	}
 	e = newUncachedEnv(t, config.DebridRealDebrid, false, false)
 	e.remote.refuse = "infringing"
-	// Exercise a single refusal; multiple refused candidates trigger the separate add-pause policy.
+	// Every blocked release is independent; none pauses the account.
 	e.ix.torrents = e.ix.torrents[1:2]
 	if _, text := e.decide(t, "refused"); text != msgDownloadRefused {
 		t.Fatalf("refused: %q", text)
