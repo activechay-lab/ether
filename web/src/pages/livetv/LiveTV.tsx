@@ -121,7 +121,15 @@ export default function LiveTV() {
   );
 
   useEffect(() => {
-    setLeftTab(tab === "looks" ? "looks" : tab === "sources" ? "sources" : "channels");
+    setLeftTab(
+      tab === "looks"
+        ? "looks"
+        : tab === "guide-data"
+          ? "guide"
+          : tab === "sources"
+            ? "sources"
+            : "channels",
+    );
   }, [tab]);
   useEffect(() => {
     if (selection.kind === "map") setLeftTab("guide");
@@ -728,11 +736,13 @@ export default function LiveTV() {
             value={q}
             onChange={(e) => setQ(e.currentTarget.value)}
             placeholder={
-              leftTab === "looks" ? t("Search looks…") : leftTab === "sources"
-                ? t("Find a channel, group or source…")
-                : leftTab === "guide"
-                  ? t("Find a channel or guide…")
-                  : t("Find a channel or group…")
+              leftTab === "looks"
+                ? t("Search looks…")
+                : leftTab === "sources"
+                  ? t("Find a channel, group or source…")
+                  : leftTab === "guide"
+                    ? t("Find a channel or guide…")
+                    : t("Find a channel or group…")
             }
             aria-label={leftTab === "looks" ? t("Search looks") : t("Search channels")}
             className="h-8 pl-7 text-sm"
