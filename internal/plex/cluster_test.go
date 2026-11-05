@@ -174,7 +174,7 @@ func TestClusterOwnerStopReachesServingNode(t *testing.T) {
 
 func TestClusterPlayQueueFollowsClientAcrossNodes(t *testing.T) {
 	a, b, _ := twoServers(t)
-	uri := urlEsc("server://m/com.plexapp.plugins.library/library/metadata/" + breakingBad.Key.String())
+	uri := urlEsc("server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/" + breakingBad.Key.String())
 	mc := decodeJSON(t, a.request(t, http.MethodPost, "/playQueues?type=video&uri="+uri, map[string]string{"Accept": "application/json"}))
 	id := fmt.Sprint(int64(mc["playQueueID"].(float64)))
 	items := mc["Metadata"].([]any)
@@ -267,21 +267,21 @@ func TestClusterNotificationsReachOtherNodes(t *testing.T) {
 	}
 }
 
-// A standalone server shares nothing and keeps play queues in memory.
-func TestStandaloneServerHasNoClusterState(t *testing.T) {
+// A standalone server keeps sessions local while persisting its play queues.
+func TestStandaloneServerKeepsSessionsLocalAndQueuesDurable(t *testing.T) {
 	f := newFixture(func(d *Deps) { d.DB = store.OpenTest(t) })
 	defer f.srv.Close()
-	if f.srv.cl != nil || f.srv.queues.cl != nil {
-		t.Fatal("standalone server built cluster state")
+	if f.srv.cl != nil || f.srv.queues.cl == nil {
+		t.Fatal("standalone session or durable queue wiring is incorrect")
 	}
-	uri := urlEsc("server://m/com.plexapp.plugins.library/library/metadata/" + breakingBad.Key.String())
+	uri := urlEsc("server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/" + breakingBad.Key.String())
 	mc := decodeJSON(t, f.request(t, http.MethodPost, "/playQueues?type=video&uri="+uri, map[string]string{"Accept": "application/json"}))
 	if mc["playQueueID"].(float64) != 1 {
 		t.Fatalf("standalone queue ids changed: %v", mc["playQueueID"])
 	}
 	var n int
-	if err := f.srv.d.DB.QueryRow(`SELECT COUNT(*) FROM plex_playqueues`).Scan(&n); err != nil || n != 0 {
-		t.Fatalf("standalone server stored queues: %d %v", n, err)
+	if err := f.srv.d.DB.QueryRow(`SELECT COUNT(*) FROM plex_playqueues`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("standalone server did not persist queue: %d %v", n, err)
 	}
 }
 

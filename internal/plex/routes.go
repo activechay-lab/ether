@@ -69,6 +69,11 @@ func (s *Server) routes() chi.Router {
 	get("/library/search", s.handleLibrarySearch)
 	get("/search", s.handleSearch)
 	get("/library/metadata/{key}", s.handleMetadata)
+	r.Delete("/library/metadata/{key}", s.handlePlaylistMetadataRefusal)
+	r.Put("/library/metadata/{key}/prefs", s.handlePlaylistMetadataRefusal)
+	r.Put("/library/metadata/{key}/analyze", s.handlePlaylistMetadataRefusal)
+	r.Put("/library/metadata/{key}/match", s.handlePlaylistMetadataRefusal)
+	get("/library/metadata/{key}/match", s.handlePlaylistMetadataRefusal)
 	get("/library/metadata/{key}/tree", s.handleMetadataTree)
 	get("/library/metadata/{key}/children", s.handleChildren)
 	get("/library/metadata/{key}/allLeaves", s.handleAllLeaves)
@@ -78,12 +83,17 @@ func (s *Server) routes() chi.Router {
 	get("/library/metadata/{key}/onDeck", s.handleItemOnDeck)
 	get("/library/metadata/{key}/parent", s.handleParent)
 	get("/library/metadata/{key}/grandparent", s.handleParent)
-	get("/library/metadata/{key}/extras", s.handleExtras)
+	get("/library/metadata/{key}/extras", s.handlePlaylistExtras)
 	r.Post("/library/metadata/{key}/extras", func(w http.ResponseWriter, r *http.Request) { writeHTTPError(w, http.StatusBadRequest) })
-	get("/library/metadata/{key}/extras/all", s.handleExtras)
+	get("/library/metadata/{key}/extras/all", s.handlePlaylistExtras)
 	get("/library/metadata/{key}/subtitles", s.handleSubtitleSearch)
 	r.Put("/library/metadata/{key}/subtitles", s.handleSubtitlePick)
 	r.Post("/library/metadata/{key}/subtitles", s.handleSubtitleUpload)
+	for _, leaf := range []string{"posters", "arts", "clearLogos", "themes"} {
+		get("/library/metadata/{key}/"+leaf, s.handlePlaylistArtworkCandidates)
+		r.Post("/library/metadata/{key}/"+leaf, s.handlePlaylistMetadataRefusal)
+		r.Put("/library/metadata/{key}/"+leaf, s.handlePlaylistMetadataRefusal)
+	}
 	get("/library/metadata/{key}/person/{kind}/{identity}", s.handlePersonImage)
 	get("/library/metadata/{key}/{element}", s.handleImage)
 	get("/library/metadata/{key}/{element}/{ts}", s.handleImage)
@@ -117,7 +127,9 @@ func (s *Server) routes() chi.Router {
 	// Playlists
 	get("/playlists", s.handlePlaylists)
 	get("/playlists/all", s.handlePlaylists)
+	get("/playlists/sorts", s.handlePlaylistSorts)
 	r.Post("/playlists", s.handlePlaylistCreate)
+	r.Post("/playlists/upload", s.handlePlaylistUpload)
 	get("/playlists/{key}", s.handlePlaylist)
 	r.Put("/playlists/{key}", s.handlePlaylistEdit)
 	r.Delete("/playlists/{key}", s.handlePlaylistDelete)
@@ -125,10 +137,18 @@ func (s *Server) routes() chi.Router {
 	r.Put("/playlists/{key}/items", s.handlePlaylistAdd)
 	r.Delete("/playlists/{key}/items", s.handlePlaylistClear)
 	r.Delete("/playlists/{key}/items/{item}", s.handlePlaylistRemove)
+	r.Put("/playlists/{key}/items/{item}", s.handlePlaylistItemRefusal)
 	r.Put("/playlists/{key}/items/{item}/move", s.handlePlaylistMove)
 	get("/playlists/{key}/{element}/{ts}", s.handleImage)
 
 	// Play queues
+	get("/playQueues", func(w http.ResponseWriter, r *http.Request) {
+		if _, present := r.URL.Query()["type"]; present {
+			writeHTTPError(w, http.StatusBadRequest)
+			return
+		}
+		s.writeEmpty(w, r)
+	})
 	r.Post("/playQueues", s.handlePlayQueueCreate)
 	get("/playQueues/{pq}", s.handlePlayQueue)
 	r.Put("/playQueues/{pq}", s.handlePlayQueueMutate("add"))
