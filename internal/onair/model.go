@@ -3,6 +3,7 @@ package onair
 
 import (
 	"encoding/json"
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/onair/scene"
 	"time"
 )
@@ -33,6 +34,7 @@ type Moment struct {
 	Poster   float64 `json:"poster"`
 }
 type Look struct {
+	Bug        *core.BugSettings         `json:"bug,omitempty"`
 	ID         string                    `json:"id"`
 	Name       string                    `json:"name"`
 	Family     string                    `json:"family"`

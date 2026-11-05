@@ -18,6 +18,25 @@ func (s *Service) Overlay(ctx context.Context, r core.ClipRequest) (scene.Docume
 	if e := s.loadAssets(ctx, &j); e != nil {
 		return scene.Document{}, raster.Bindings{}, false
 	}
+	if r.Moment == "bug" {
+		s.mu.Lock()
+		look := s.looks[r.LookID]
+		s.mu.Unlock()
+		logo := r.Art["channel.logo"]
+		if logo == "" {
+			logo = look.Brand.Logo
+		}
+		if j.Bind.Assets[logo] == nil {
+			logo = ""
+		}
+		b := core.ResolveBug(look.Bug, r.Bug)
+		if logo != "" && b.Style == "monochrome" {
+			j.Bind.Assets[logo] = raster.Silhouette(j.Bind.Assets[logo])
+		}
+		configureBug(&j.Doc, b, logo)
+		j.Bind.Tokens["bug.fadeBreaks"] = *b.FadeBreaks
+		j.Bind.Tokens["bug.fadeCredits"] = *b.FadeCredits
+	}
 	return j.Doc, j.Bind, true
 }
 
