@@ -13,6 +13,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
+	"github.com/braedonsaunders/ether/internal/playbackcontinuity"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -351,6 +352,48 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	if err != nil || !record.Retired {
 		t.Fatal("exact retirement did not release placement")
 	}
+	// Same-owner reopen requires both old retirements and fresh exact revision
+	// and size; its attestation then binds a currently authorized new fence.
+	oldBinding := playbackcontinuity.SourceBinding{Owner: placement.Target{NodeID: sourceID.NodeID, Boot: sourceID.Boot}, PlayID: prepared.PlayID, Revision: prepared.Revision, Fence: record.Fence}
+	reopened, err := front.ReopenSource(ctx, oldBinding, "same-owner-reopen")
+	if err != nil || reopened.Proof == "" || reopened.Prepared.Revision != oldBinding.Revision || reopened.Prepared.Info.Size != prepared.Info.Size {
+		t.Fatal("same-owner reopen", err)
+	}
+	restarted, err := front.StartPreparedHLS(ctx, 9, reopened.Prepared, request)
+	if err != nil {
+		t.Fatal("reopened generation", err)
+	}
+	nextRecord, err := p.Lookup(ctx, request.SessionID)
+	if err != nil || nextRecord.Generation <= record.Generation {
+		t.Fatal("missing new fence", err)
+	}
+	nextBinding := playbackcontinuity.SourceBinding{Owner: oldBinding.Owner, PlayID: reopened.Prepared.PlayID, Revision: reopened.Prepared.Revision, Fence: nextRecord.Fence}
+	if err = front.VerifyReopen(ctx, oldBinding, nextBinding, reopened.Proof); err != nil {
+		t.Fatal("reopen attestation", err)
+	}
+	changed := nextBinding
+	changed.Revision = "changed"
+	if err = front.VerifyReopen(ctx, oldBinding, changed, reopened.Proof); err == nil {
+		t.Fatal("changed revision accepted")
+	}
+	_ = restarted
+	front.Stop(request.SessionID)
+	for i := 0; i < 50; i++ {
+		worker.Cleanup()
+		source.Cleanup()
+		_ = front.Tick(ctx)
+		nextRecord, err = p.Lookup(ctx, request.SessionID)
+		if err == nil && nextRecord.Retired {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !nextRecord.Retired {
+		t.Fatal("reopened execution did not retire")
+	}
+	if err = front.VerifyReopen(ctx, oldBinding, nextBinding, reopened.Proof); err == nil {
+		t.Fatal("historical reopen proof revived retired authority")
+	}
 	// Reconcile a committed reservation whose response was lost. No encoder
 	// was contacted; retry must use the identical immutable operation.
 	prepared2, err := front.PrepareSource(ctx, sourceID, PrepareRequest{Operation: "prepare-uncertain", Viewer: 9, Key: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "uncertain-client"}, Protocol: "hls"})
@@ -368,7 +411,7 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 		source.Cleanup()
 		rec, e := p.Lookup(ctx, reserve.Session)
 		if e == nil && rec.Retired {
-			if rec.Operation != reserve.Operation || len(worker.encoderTokens) != 2 {
+			if rec.Operation != reserve.Operation || len(worker.encoderTokens) != 3 {
 				t.Fatal("reconciliation changed operation or started another encoder")
 			}
 			return

@@ -12,6 +12,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodesource"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
+	"github.com/braedonsaunders/ether/internal/playbackcontinuity"
 	"io"
 	"net/http"
 	"strconv"
@@ -30,17 +31,21 @@ type ownedSource struct {
 	binding, issuing, issued bool
 }
 type sourceRequest struct {
-	Position time.Duration
-	State    string
-	Prepare  *PrepareRequest
-	Version  int
-	Op       string
-	Route    Route
-	Stable   string
-	Expires  time.Time
-	Old      nodesource.Grant
+	Reopen                *ReopenRequest
+	OldSource, NextSource *playbackcontinuity.SourceBinding
+	Proof                 string
+	Position              time.Duration
+	State                 string
+	Prepare               *PrepareRequest
+	Version               int
+	Op                    string
+	Route                 Route
+	Stable                string
+	Expires               time.Time
+	Old                   nodesource.Grant
 }
 type sourceResponse struct {
+	Proof    string
 	Phase    string
 	Prepared PreparedSource
 	Stable   string
@@ -76,6 +81,12 @@ func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
 }
 func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m sourceRequest) (sourceResponse, error) {
 	deny := func() (sourceResponse, error) { return sourceResponse{}, ErrDenied }
+	if m.Op == "reopen" {
+		return r.reopenSource(ctx, peer, m.Reopen)
+	}
+	if m.Op == "verify-reopen" {
+		return r.verifyReopen(ctx, peer, m)
+	}
 	if m.Op == "prepare-open" || m.Op == "prepare-hidden" || m.Op == "prepare-activity" {
 		return r.sourceActivity(ctx, peer, m)
 	}
