@@ -432,6 +432,18 @@ func (s *Server) handleRemoveFromContinueWatching(w http.ResponseWriter, r *http
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
+	if title, err := s.metadataTitle(ctx, pr, key); err != nil || !s.visibleTitle(ctx, pr.User, title) {
+		writeHTTPError(w, http.StatusNotFound)
+		return
+	}
+	if hidden, ok := s.d.State.(interface {
+		HideContinue(context.Context, int64, core.RatingKey) error
+	}); ok {
+		if err := hidden.HideContinue(ctx, pr.User.ID, key); err != nil {
+			s.writeErr(w, r, err)
+			return
+		}
+	}
 	if err := s.discoveryRemoveContinue(ctx, pr, key); err != nil {
 		s.writeErr(w, r, err)
 		return
@@ -460,7 +472,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			md = s.playlistMetadata(ctx, pl)
+			md = s.playlistMetadata(withRequest(ctx, viewer), pl)
 		} else {
 			t, err := s.d.Catalog.Get(ctx, e.key)
 			if err != nil {

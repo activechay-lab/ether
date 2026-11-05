@@ -157,11 +157,13 @@ func TestBlockedShowEpisodesStayOutOfUpNextAndOnDeck(t *testing.T) {
 	if rec.Code != 404 || strings.Contains(rec.Body.String(), "Pilot") {
 		t.Errorf("show onDeck: %d %s", rec.Code, rec.Body.String())
 	}
+	// A completed episode makes the owner eligible for postplay next-up.
+	f.state.set(ownerUser.ID, ws(bbE1.Key, 0, 1))
 	// The owner still gets both.
 	if rec := f.get(t, "/hubs/metadata/"+bbE1.Key.String()+"/postplay"); !strings.Contains(rec.Body.String(), "Second Watch") {
 		t.Errorf("owner postplay lost Up Next: %s", rec.Body.String())
 	}
-	if rec := f.get(t, "/library/metadata/"+show.Key.String()+"/onDeck"); rec.Code != 200 || !strings.Contains(rec.Body.String(), "Pilot") {
+	if rec := f.get(t, "/library/metadata/"+show.Key.String()+"/onDeck"); rec.Code != 200 || !strings.Contains(rec.Body.String(), "Second Watch") {
 		t.Errorf("owner onDeck: %d %s", rec.Code, rec.Body.String())
 	}
 }

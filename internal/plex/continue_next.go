@@ -39,6 +39,38 @@ func (s *Server) continueExperience(pr *Request) experience.Continue {
 	if s.d.Discovery != nil && s.d.Discovery.Personal != nil {
 		c.Filter = s.d.Discovery.Personal.FilterContinue
 	}
+	if hidden, ok := s.d.State.(interface {
+		ContinueHidden(context.Context, int64, []core.RatingKey) (map[core.RatingKey]bool, error)
+	}); ok {
+		personal := c.Filter
+		c.Filter = func(ctx context.Context, viewer *core.User, items []core.Title) []core.Title {
+			if viewer == nil {
+				return nil
+			}
+			keys := make([]core.RatingKey, 0, len(items))
+			for _, item := range items {
+				key := item.Key
+				if item.Type == core.TypeEpisode {
+					key = core.ShowKey(item.Key.TMDB())
+				}
+				keys = append(keys, key)
+			}
+			blocked, err := hidden.ContinueHidden(ctx, viewer.ID, keys)
+			if err != nil {
+				return nil
+			}
+			out := items[:0]
+			for i, item := range items {
+				if !blocked[keys[i]] {
+					out = append(out, item)
+				}
+			}
+			if personal != nil {
+				out = personal(ctx, viewer, out)
+			}
+			return out
+		}
+	}
 	if s.d.EpisodeOrder != nil {
 		c.EpisodeOrder = s.d.EpisodeOrder
 	}

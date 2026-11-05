@@ -100,7 +100,7 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 			sourceItems = sourceItems[:hc.visible]
 			h.More = true
 		}
-		return s.renderTitles(ctx, pr, sourceItems, renderOpts{media: true, state: hs.state, inSection: related, guids: related, detailEpisodes: !hs.plain})
+		return s.renderTitles(ctx, pr, sourceItems, renderOpts{detail: related, media: true, state: hs.state, inSection: related, guids: related, detailEpisodes: !hs.plain})
 	}
 	var md []model.Metadata
 	generation := ""
@@ -758,6 +758,10 @@ func (s *Server) handleContinueWatching(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleContinueWatchingItems(w http.ResponseWriter, r *http.Request) {
 	ctx := withStoredPolicy(r.Context())
 	pr := FromContext(ctx)
+	if raw := r.URL.Query().Get("contentDirectoryID"); raw != "" && len(parseSectionList(raw)) == 0 {
+		writeHTTPError(w, http.StatusNotFound)
+		return
+	}
 	v, sec := cwGlobal, Section{}
 	if r.URL.Path == "/hubs/home/continueWatching" {
 		v = cwHome
@@ -774,10 +778,29 @@ func (s *Server) handleContinueWatchingItems(w http.ResponseWriter, r *http.Requ
 	// treats a missing totalSize as zero and removes the entire row.
 	// Keep the existing bounded 200-item resume window, then page it.
 	hs := s.continueHub(ctx, pr, v, sec, 200)
+	if raw := r.URL.Query().Get("contentDirectoryID"); raw != "" && v != cwSection {
+		allowed := map[int]bool{}
+		for _, id := range parseSectionList(raw) {
+			allowed[id] = true
+		}
+		filtered := hs.Items[:0]
+		for _, item := range hs.Items {
+			if section, ok := s.sectionFor(item.Type); ok && allowed[section.ID] {
+				filtered = append(filtered, item)
+			}
+		}
+		hs.Items = filtered
+	}
 	mc := hubContainer()
 	mc.Metadata = s.renderTitles(ctx, pr, hs.Items, renderOpts{media: true, state: hs.state, detailEpisodes: !hs.plain})
 	if hs.included {
 		stampIncluded(mc.Metadata)
+	}
+	if r.URL.Query().Get("includeMeta") == "1" {
+		mc.Meta = &model.Meta{}
+		for _, section := range s.userSections(pr.User) {
+			mc.Meta.Type = append(mc.Meta.Type, s.metaType(section, section.Type, ""))
+		}
 	}
 	total := len(mc.Metadata)
 	start := min(max(pr.Start, 0), total)
@@ -788,7 +811,9 @@ func (s *Server) handleContinueWatchingItems(w http.ResponseWriter, r *http.Requ
 	end := start + min(count, total-start)
 	mc.Metadata = mc.Metadata[start:end]
 	mc.Size = len(mc.Metadata)
-	mc.SetPage(start, total)
+	if v != cwSection || pr.HasPage {
+		mc.SetPage(start, total)
+	}
 	s.write(w, r, mc)
 }
 
@@ -1023,11 +1048,26 @@ func (s *Server) handleMetadataHubs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	k, err := keyParam(r)
+	if err == nil && !s.relatedSourceVisible(ctx, pr, k) && strings.HasPrefix(r.URL.Path, "/hubs/") {
+		// Only genuinely absent catalogue identities receive the legacy empty
+		// response; authorization failures retain a refusal.
+		if _, lookupErr := s.metadataTitle(ctx, pr, k); errors.Is(lookupErr, core.ErrNotFound) {
+			s.write(w, r, hubContainer())
+			return
+		}
+	}
 	if err != nil || !s.relatedSourceVisible(ctx, pr, k) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
 	mc := hubContainer()
+	if title, lookupErr := s.metadataTitle(ctx, pr, k); lookupErr == nil {
+		if sec, ok := s.sectionFor(title.Type); ok {
+			mc.LibrarySectionID = model.Ptr(sec.ID)
+			mc.LibrarySectionTitle = sec.Title
+			mc.LibrarySectionUUID = sec.UUID
+		}
+	}
 	if s.d.Recommender != nil {
 		hubs, err := s.detailRelated(ctx, pr).Rows(ctx, pr.User, k, countParam(r, 12))
 		if err != nil && !errors.Is(err, core.ErrNotFound) {
