@@ -53,6 +53,9 @@ func anthropicHeaders(key string) http.Header {
 // comes from the prompt alone; the parsers are tolerant.
 func (c *Client) anthropicChat(ctx context.Context, base string, cfg config.LLM, msgs []Message) (string, error) {
 	req := anthropicRequest{Model: cfg.Model, MaxTokens: anthropicMaxTokens}
+	if budget, ok := ctx.Value(chatBudgetKey{}).(int); ok {
+		req.MaxTokens = budget
+	}
 	var system []string
 	for _, m := range msgs {
 		if m.Role == "system" {

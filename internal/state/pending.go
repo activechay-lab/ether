@@ -220,6 +220,13 @@ func overlayPending(ws core.WatchStatus, w pendingWrite, counted bool, watchAt t
 		ws.ViewCount = 0
 		ws.ViewOffset = 0
 	default:
+		if w.progress.state == "progress" {
+			if w.progress.offset <= time.Minute {
+				return ws
+			}
+			ws.ViewOffset = w.progress.offset
+			break
+		}
 		if w.progress.duration > 0 {
 			ws.Duration = w.progress.duration
 		}

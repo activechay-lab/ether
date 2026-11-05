@@ -99,7 +99,9 @@ func (m *Manager) WarmInput(inputURL string, from, to time.Duration) {
 // warmSpan is the byte range covering [from, to) snapped outward to
 // keyframes when the index is known, padded by a GOP's worth otherwise.
 func (g *generation) warmSpan(from, to time.Duration) (int64, int64) {
-	tm := g.timeMapSnapshot()
+	return warmSpanFor(g.timeMapSnapshot(), from, to)
+}
+func warmSpanFor(tm TimeMap, from, to time.Duration) (int64, int64) {
 	if !tm.Valid() {
 		return 0, 0
 	}

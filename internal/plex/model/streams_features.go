@@ -11,7 +11,7 @@ type Marker struct {
 type Chapter struct {
 	ID              int64  `plex:"id"`
 	Index           int    `plex:"index"`
-	Title           string `plex:"title,omitempty"`
+	Title           string `plex:"tag,omitempty"`
 	StartTimeOffset int64  `plex:"startTimeOffset"`
 	EndTimeOffset   int64  `plex:"endTimeOffset"`
 }

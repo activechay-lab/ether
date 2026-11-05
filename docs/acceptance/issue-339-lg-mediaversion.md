@@ -19,8 +19,7 @@ project only the selected Media; start returns a playlist/bytes, not a new
 version catalogue. Equal Media counts across those transport responses would
 be a protocol regression.
 
-No client bundle containing MediaVersion exists in the requested `.ether-ref`
-research/rex trees. rex's optional ignored webclient directory is absent. The
+No client bundle containing MediaVersion was available to inspect. The
 official hosted desktop main bundle (4.163.0) contains neither MediaVersion nor
 the screenshot's error literal; the hosted /tv/ URL returns 404. The exact TV
 creation/lookup branches therefore remain unverified. The screenshot and the

@@ -40,8 +40,11 @@ type DecoderRequest struct {
 	InputHeaders http.Header
 	Format       RawFormat // decoder scales, frame-rate converts and resamples to this
 	Offset       time.Duration
-	Live         bool // IPTV/live input: no seeking, no prewarm hold
-	Loop         bool // repeat a local cached master seamlessly; incompatible with Live and URLs
+	// Seeked marks a trusted indexed projection already starting at a keyframe.
+	// Offset is then a small forward trim, without another demuxer seek.
+	Seeked bool
+	Live   bool // IPTV/live input: no seeking, no prewarm hold
+	Loop   bool // repeat a local cached master seamlessly; incompatible with Live and URLs
 }
 
 // Decoder yields frames already in Format, one per call, paced by the caller.

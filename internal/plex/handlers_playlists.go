@@ -360,10 +360,25 @@ func (s *Server) playlistMetadata(ctx context.Context, pl *core.Playlist) model.
 // the title-detail cache without blocking: it is omitted (0) until every
 // item's runtime is known, and unknown items are fetched in the background.
 func (s *Server) playlistDuration(items []core.RatingKey) int64 {
-	if s.titles == nil {
+	if s.titles == nil || len(items) > 200 {
 		return 0
 	}
-	return ms(experience.PlaylistDuration(items, s.titles.get))
+	var seconds int64
+	known := true
+	for _, key := range items {
+		title := s.titles.get(key)
+		if title == nil || title.Runtime <= 0 {
+			known = false
+			continue
+		}
+		// PMS truncates each member before summing; truncating the total
+		// instead incorrectly carries fractional seconds between members.
+		seconds += title.Runtime.Milliseconds() / 1000
+	}
+	if !known {
+		return 0
+	}
+	return seconds * 1000
 }
 
 func (s *Server) handlePlaylists(w http.ResponseWriter, r *http.Request) {
@@ -432,6 +447,7 @@ func (s *Server) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 			s.writeErr(w, r, err)
 			return
 		}
+		s.notifyPlaylistLifecycle(pl, true)
 		s.write(w, r, &model.MediaContainer{Size: 1, Metadata: []model.Metadata{s.playlistMetadata(ctx, pl)}})
 		return
 	}
@@ -456,6 +472,7 @@ func (s *Server) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, r, err)
 		return
 	}
+	s.notifyPlaylistLifecycle(pl, true)
 	mc := &model.MediaContainer{Size: 1, Metadata: []model.Metadata{s.playlistMetadata(ctx, pl)}}
 	s.write(w, r, mc)
 }
@@ -507,7 +524,8 @@ func (s *Server) handlePlaylistDelete(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	s.notifyPlaylistLifecycle(pl, false)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handlePlaylistItems(w http.ResponseWriter, r *http.Request) {

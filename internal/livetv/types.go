@@ -317,6 +317,7 @@ type Policy struct {
 	channelSet map[string]struct{} // Channels as a set for long lists; see indexChannels
 }
 type Options struct {
+	GuideAI   GuideAIClient
 	Reels     func(context.Context, string) (ReelSnapshot, error)
 	InputUser func(context.Context) (*core.User, error)
 	Screens   func() config.LiveTVScreens
@@ -348,7 +349,7 @@ type Options struct {
 	// Allowed applies additional owner title/genre policies to every surface.
 	Allowed func(*core.User, *core.Title) bool
 	// Warm resolves/primes a title without opening a viewer stream.
-	Warm func(context.Context, core.RatingKey) error
+	Warm func(context.Context, core.RatingKey, time.Duration) error
 	// Availability is the resolver's cached playability. Known-unavailable
 	// titles are left out of the guide; unknown titles stay in place.
 	Availability core.AvailabilitySource

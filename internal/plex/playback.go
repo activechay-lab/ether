@@ -95,7 +95,7 @@ func playbackMessage(err error) string {
 }
 
 // writeStartErr answers a failed start.m3u8, start.mpd or part request.
-// A 503 alone leaves some players buffering. Queue the reason as
+// End the media request and queue the reason as
 // terminationText for the client's next timeline, as for a start stall.
 func (s *Server) writeStartErr(w http.ResponseWriter, r *http.Request, pr *Request, err error) {
 	if r.Context().Err() != nil {
@@ -105,18 +105,16 @@ func (s *Server) writeStartErr(w http.ResponseWriter, r *http.Request, pr *Reque
 	if pr != nil && pr.User != nil {
 		s.setTermination(trackID(pr.User.ID, pr.ClientID, pr.SessionID), playbackMessage(err))
 	}
-	status := http.StatusInternalServerError
+	// A completed attempt is terminal. Retry-After on a 503 makes media
+	// loaders retry while waiting for a timeline they may never send.
+	// PMS start.* documents 400/403/404 for unsuccessful starts.
+	status := http.StatusBadRequest
+	w.Header().Del("Retry-After")
 	switch {
-	case errors.Is(err, core.ErrNotFound):
+	case errors.Is(err, core.ErrNotFound), errors.Is(err, core.ErrNotAvailable):
 		status = http.StatusNotFound
 	case errors.Is(err, core.ErrUnauthorized):
-		status = http.StatusUnauthorized
-	case errors.Is(err, core.ErrStreamLimit), errors.Is(err, transcode.ErrTooManyTranscodes):
-		w.Header().Set("Retry-After", "5")
-		status = http.StatusServiceUnavailable
-	case errors.Is(err, core.ErrNotAvailable), errors.Is(err, core.ErrUnreleased), errors.Is(err, core.ErrDebridAuth), errors.Is(err, core.ErrSourceUnavailable), errors.Is(err, context.DeadlineExceeded), errors.Is(err, core.ErrPrepareSlow):
-		w.Header().Set("Retry-After", notAvailableRetryAfter)
-		status = http.StatusServiceUnavailable
+		status = http.StatusForbidden
 	}
 	writePlaybackStatus(w, status)
 }
@@ -262,6 +260,31 @@ func androidFamilyClient(pr *Request) bool {
 		return false
 	}
 	return transcode.HasQuirk(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, "plex-list-all-tracks")
+}
+
+// androidTVClient limits the Shield delivery correction to Plex's TV player.
+// Plezy and the mobile/web/Apple players retain their existing contracts.
+func androidTVClient(pr *Request) bool {
+	if pr == nil {
+		return false
+	}
+	product := strings.ToLower(pr.Product)
+	return strings.HasPrefix(product, "plex for android") &&
+		(strings.Contains(product, "(tv)") || strings.Contains(strings.ToLower(pr.Device), "shield"))
+}
+
+// tvImageSubtitle is retained for native file playback, but must be burned
+// once playback is converted: our segmented muxer carries text, not images.
+func tvImageSubtitle(pr *Request, info core.MediaInfo, opts core.DecideOptions) bool {
+	if !androidTVClient(pr) {
+		return false
+	}
+	for _, st := range info.Streams {
+		if st.Type == "subtitle" && !st.External && st.Index == opts.SubtitleStream {
+			return transcode.IsImageSubtitle(st.Codec)
+		}
+	}
+	return false
 }
 
 // matroskaCarriesText reports whether a conversion for this client is
@@ -490,7 +513,7 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 		return nil, nil, core.Decision{}, errors.New("playback not configured")
 	}
 	t, err := s.d.Catalog.Get(ctx, p.key)
-	if err != nil || (t != nil && !t.Released.IsZero() && t.Released.After(s.now())) {
+	if err != nil || (t != nil && t.IsFutureRelease(s.now())) {
 		if title, _, e := s.lookupPlaceholder(ctx, pr, p.key, p.collection); e == nil {
 			return title, nil, core.Decision{}, core.ErrUnreleased
 		}
@@ -553,14 +576,27 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 		s.applyStreamPreferences(ctx, pr, p, t, ps.Info)
 		applySelections(p, ps.Info, s.audioLanguages(pr.User))
 		switch {
-		case p.subtitles == "none" && !matroskaCarriesText(p, ps.Info):
+		case p.subtitles == "none" && !matroskaCarriesText(p, ps.Info) && !tvImageSubtitle(pr, ps.Info, p.opts):
 			// The track stays selected; nothing delivers it.
 			p.opts.SubtitleStream = -1
-		case p.opts.BurnSubtitles && browserClient(pr):
-			// Plex Web asks for a burn when it will not read a soft
-			// subtitle (an ASS track under its default setting): without
-			// one it shows nothing.
+		case p.opts.BurnSubtitles && (browserClient(pr) || androidTVClient(pr)):
+			// These players explicitly request a burn when their selected
+			// rendering mode will not draw a soft text track.
 			p.opts.BurnTextSubtitles = true
+		}
+		if tvImageSubtitle(pr, ps.Info, p.opts) {
+			// Source-change remuxing is also a conversion, even when MDE
+			// initially allowed direct play of the original file.
+			converting := !p.opts.DirectPlay || ps.RequiresRemux
+			if onDemandSession(ps) && p.mde && p.opts.DirectStream && ps.Resolution != nil {
+				protocol := ps.Resolution.Release.Protocol
+				converting = converting || (protocol != core.ProtocolHTTP && protocol != core.ProtocolTorrent)
+			}
+			// A quality/codec limit can require conversion even though the
+			// client allowed direct play.
+			if converting || transcode.Decide(ps.Info, p.caps, p.opts, transcode.Policy{}).Kind != core.DecisionDirectPlay {
+				p.opts.BurnSubtitles = true
+			}
 		}
 		s.burnOnlyShownSubtitle(pr, p, ps.Info)
 		p.caps.TranscodeAudioCodecs = streamingAudioTarget(pr.ProfileExtra, p.protocol)
@@ -723,6 +759,7 @@ func (s *Server) awaitSource(ctx context.Context, r *http.Request, pr *Request) 
 // carries the message instead of a spinner.
 func (s *Server) decisionError(ctx context.Context, pr *Request, t *core.Title, err error, p playRequest) *model.MediaContainer {
 	msg := playbackMessage(err)
+	s.setTermination(trackID(pr.User.ID, pr.ClientID, pr.SessionID), msg)
 	mc := libraryContainer()
 	if t != nil {
 		mc = s.itemContainer(t.Type)
@@ -789,7 +826,7 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 	// instead of "Direct play OK", whatever directStream says (#246).
 	mustConvert := dec.Kind == core.DecisionTranscode || (dec.Kind != core.DecisionDirectPlay && (!dec.VideoCopy || !dec.AudioCopy))
 	pm4k := strings.EqualFold(pr.Product, "PM4K") || strings.EqualFold(pr.Product, "Plex for Kodi")
-	mdeDirect := p.mde && p.opts.DirectPlay && (!pm4k || dec.Kind == core.DecisionDirectPlay) && len(p.opts.AudioFilters) == 0 &&
+	mdeDirect := p.mde && p.opts.DirectPlay && !(androidTVClient(pr) && dec.BurnSubtitles) && (!pm4k || dec.Kind == core.DecisionDirectPlay) && len(p.opts.AudioFilters) == 0 &&
 		!(onDemandSession(ps) && (mustConvert || (p.opts.DirectStream && dec.Kind != core.DecisionDirectPlay)))
 	shown := dec
 	if mdeDirect {
@@ -797,6 +834,9 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 	}
 	p.listAllTracks = androidFamilyClient(pr)
 	p.softText = browserClient(pr)
+	if androidTVClient(pr) && shown.BurnSubtitles && p.subtitles == "none" {
+		p.subtitles = "burn"
+	}
 	md.Media = []model.Media{s.decisionMedia(t, ps, shown, p, pr.User)}
 	s.addProbedStreamFeatures(ctx, t.Key, ps.Info, &md)
 	if md.Media[0].Duration > 0 {
@@ -903,6 +943,10 @@ func (s *Server) decisionMedia(t *core.Title, ps *core.PlaySession, dec core.Dec
 			continue
 		}
 		if shaped, keep := applyStreamDecision(st, binding.Info, dec, selectedOnly, p.subtitles, p.softText); keep {
+			if androidTVClient(&Request{Product: p.caps.Product, Device: p.caps.Device}) && shaped.Decision == "burn" && transcode.IsImageSubtitle(binding.Info.Codec) && p.protocol == core.ProtocolHLS {
+				shaped.Location = "segments-av"
+				shaped.Extra = append(shaped.Extra, model.A("burn", "1"))
+			}
 			kept = append(kept, shaped)
 		}
 	}
@@ -1033,7 +1077,7 @@ func applyTranscodeMedia(m *model.Media, dec core.Decision, protocol string) {
 // the shape under review against a real PMS Android capture; the selected
 // stream's shape never changes.
 //
-// The selected subtitle row follows PMS 1.42 (rex subtitles_s1422 capture):
+// The selected subtitle row follows PMS 1.42 (recorded PMS 1.42.2 capture):
 // subtitles=none is decision="ignore" with nothing delivered (except a
 // text track a Matroska run carries, which keeps the copy row); a burned text
 // track is decision="burn" burn="1" location="segments-av"; Plex Web's text
@@ -1242,6 +1286,18 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		applySelections(&p, ps.Info, s.audioLanguages(pr.User))
 		return s.d.Transcoder.Decide(ps.Info, p.caps, p.opts)
 	}, func(dec core.Decision) core.Decision {
+		// A client may request HLS after accepting an MDE direct-play
+		// decision (notably stable HTTP/debrid files). HLSDecision's legacy
+		// fallback is MPEG-TS, which cannot carry the selected text track.
+		// Use the TV player's negotiated target even on this late handoff.
+		if androidTVClient(pr) {
+			dec.Container = transcode.HLSContainer(entry.caps, dec.VideoCodec, dec.AudioCodec)
+			if tvImageSubtitle(pr, ps.Info, entry.opts) {
+				opts := entry.opts
+				opts.DirectPlay, opts.BurnSubtitles = false, true
+				return s.d.Transcoder.Decide(ps.Info, entry.caps, opts)
+			}
+		}
 		if len(entry.caps.TranscodeAudioCodecs) > 0 && dec.AudioCodec != "" && !slices.Contains(entry.caps.TranscodeAudioCodecs, dec.AudioCodec) {
 			opts := entry.opts
 			opts.DirectPlay = false
@@ -1437,8 +1493,25 @@ func segmentNumber(name string) (int, bool) {
 	return n, true
 }
 
+// The control endpoints distinguish an omitted session from an empty one.
+func transcodeControlSession(w http.ResponseWriter, r *http.Request) bool {
+	q := r.URL.Query()
+	if !q.Has("session") {
+		writeHTTPError(w, http.StatusBadRequest)
+		return false
+	}
+	if q.Get("session") == "" {
+		writeHTTPError(w, http.StatusNotFound)
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleTranscodePing(w http.ResponseWriter, r *http.Request) {
 	if s.refuseCapability(w, r) {
+		return
+	}
+	if !transcodeControlSession(w, r) {
 		return
 	}
 	if id := sanitizeSessionID(r.URL.Query().Get("session")); id != "" {
@@ -1458,6 +1531,9 @@ func (s *Server) handleTranscodePing(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTranscodeStop(w http.ResponseWriter, r *http.Request) {
 	if s.refuseCapability(w, r) {
+		return
+	}
+	if !transcodeControlSession(w, r) {
 		return
 	}
 	id := sanitizeSessionID(r.URL.Query().Get("session"))
@@ -1624,6 +1700,19 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusForbidden)
 		return
 	}
+	// Clients may fall back from a failed decision to the original part URL.
+	// Do not launch the same failed acquisition again during that attempt.
+	if releaseID == "" && pr.ClientID != "" {
+		for _, id := range s.transcodes.forClient(pr.User.ID, pr.ClientID, 0) {
+			if pr.SessionID != "" && id != sanitizeSessionID(pr.SessionID) {
+				continue // a distinct playback attempt must be allowed to retry
+			}
+			if err, failed := s.transcodes.takeFailure(id, pr.User.ID, key, s.now()); failed && !errors.Is(err, core.ErrPrepareSlow) {
+				s.writeStartErr(w, r, pr, err)
+				return
+			}
+		}
+	}
 	ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, key)
 	anonymousContinuation := false
 	if pr.ClientID == "" {
@@ -1750,7 +1839,7 @@ func (s *Server) partSelectsTitle(id *int64, rawID int64, viaRegistry bool, bind
 	return true
 }
 
-// handlePartSelect is PUT /library/parts/{part}?audioStreamID=&subtitleStreamID=.
+// handlePartSelect is PUT or POST /library/parts/{part}?audioStreamID=&subtitleStreamID=.
 // The stored subtitle is the title's choice. The part id only finds that
 // title: Play Version part ids move between releases as the list reorders.
 //
@@ -1778,23 +1867,39 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 		viaRegistry = rel != ""
 	}
 	q := r.URL.Query()
+	// These two selection parameters deliberately have different PMS grammars.
+	audioID, audioErr := strconv.ParseInt(q.Get("audioStreamID"), 10, 64)
+	subID, subErr := strconv.ParseInt(q.Get("subtitleStreamID"), 10, 64)
+	if (q.Has("audioStreamID") && audioErr == nil && (audioID == 0 || audioID < -1)) ||
+		(q.Has("subtitleStreamID") && subErr == nil && subID < -1) {
+		writeHTTPError(w, http.StatusBadRequest)
+		return
+	}
+	audioDefault := q.Has("audioStreamID") && audioErr == nil && audioID == -1
+	subDefault := q.Has("subtitleStreamID") && subErr == nil && subID == -1
 	ctx := sessions.WithPlexServe(r.Context(), pr.Remote, "")
 	var audio *sessions.PlexStreamBinding
-	if v := q.Get("audioStreamID"); v != "" {
+	if v := q.Get("audioStreamID"); v != "" && !audioDefault {
 		if sid, err := strconv.ParseInt(v, 10, 64); err == nil {
+			if sid == 0 {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
 			binding, rerr := s.resolveIssuedStream(ctx, pr.User, pr.ClientID, sid)
 			if rerr != nil && !streamMiss(rerr) {
 				writeHTTPError(w, http.StatusUnauthorized)
 				return
 			}
-			if rerr == nil && binding.Info.Type == "audio" && s.partSelectsTitle(&id, rawID, viaRegistry, binding.Key) {
-				audio = &binding
+			if rerr != nil || binding.Info.Type != "audio" || !s.partSelectsTitle(&id, rawID, viaRegistry, binding.Key) {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
 			}
+			audio = &binding
 		}
 	}
-	clearSub := false
+	clearSub := q.Has("subtitleStreamID") && (subErr != nil || subID == 0)
 	var sub *sessions.PlexStreamBinding
-	if v := q.Get("subtitleStreamID"); v != "" {
+	if v := q.Get("subtitleStreamID"); v != "" && !subDefault {
 		if sid, err := strconv.ParseInt(v, 10, 64); err == nil {
 			if sid == 0 {
 				clearSub = true
@@ -1804,13 +1909,21 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 					writeHTTPError(w, http.StatusUnauthorized)
 					return
 				}
-				if rerr == nil && binding.Info.Type == "subtitle" && s.partSelectsTitle(&id, rawID, viaRegistry, binding.Key) {
-					sub = &binding
+				if rerr != nil || binding.Info.Type != "subtitle" || !s.partSelectsTitle(&id, rawID, viaRegistry, binding.Key) || (audio != nil && audio.Key != binding.Key) {
+					writeHTTPError(w, http.StatusBadRequest)
+					return
 				}
+				sub = &binding
 			}
 		}
 	}
 	s.selections.update(pr.User.ID, id, func(sel *selection) {
+		if audioDefault {
+			sel.audio, sel.audioSet, sel.audioStream = 0, false, nil
+		}
+		if subDefault {
+			sel.subtitle, sel.subtitleSet, sel.subtitleStream = 0, false, nil
+		}
 		if audio != nil {
 			info := audio.Info
 			sel.audio, sel.audioSet, sel.audioStream = audio.Index, true, &info
@@ -1850,7 +1963,11 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	raw, _, _ = strings.Cut(raw, ".")
 	id, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
-		writeHTTPError(w, http.StatusNotFound)
+		status := http.StatusNotFound
+		if r.Method == http.MethodPut || r.Method == http.MethodDelete {
+			status = http.StatusBadRequest
+		}
+		writeHTTPError(w, status)
 		return
 	}
 	if !s.acceptanceCurrent(r) {
@@ -1872,7 +1989,26 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			writeHTTPError(w, http.StatusUnauthorized)
 			return
 		}
-		writeHTTPError(w, http.StatusNotFound)
+		status := http.StatusNotFound
+		if r.Method == http.MethodPut {
+			status = http.StatusBadRequest
+		}
+		writeHTTPError(w, status)
+		return
+	}
+	// Embedded tracks cannot be removed from the media bytes. PMS accepts
+	// stream PUTs without changing the track; reads still use Ether's
+	// extraction and sidecar paths.
+	switch r.Method {
+	case http.MethodPut:
+		w.WriteHeader(http.StatusOK)
+		return
+	case http.MethodDelete:
+		if !binding.Info.External {
+			writeHTTPError(w, http.StatusForbidden)
+		} else {
+			writeHTTPError(w, http.StatusNotFound)
+		}
 		return
 	}
 	if binding.Info.Type == "subtitle" && !binding.Info.External {

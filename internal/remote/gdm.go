@@ -21,7 +21,7 @@ import (
 // GDM ("G'Day Mate") is Plex's LAN discovery protocol. Clients send
 // "M-SEARCH * HTTP/1.1" to UDP 32414 on multicast group 239.0.0.250 (and by
 // broadcast); every PMS answers unicast with an "HTTP/1.0 200 OK" block of
-// headers describing itself. PMS listens on 32410, 32412, 32413 and 32414.
+// headers describing itself. PMS answers searches on 32410 and 32414.
 const (
 	GDMMulticastGroup = "239.0.0.250"
 	GDMServerPort     = 32414
@@ -30,11 +30,12 @@ const (
 )
 
 // DefaultGDMPorts are the UDP ports PMS answers GDM on.
-var DefaultGDMPorts = []int{32410, 32412, 32413, 32414}
+var DefaultGDMPorts = []int{32410, 32414}
 
 // GDMInfo is what the responder advertises.
 type GDMInfo struct {
 	Name              string
+	Host              string // plex.direct certificate hostname, omitted until available
 	MachineIdentifier string
 	Port              int
 	Version           string
@@ -54,9 +55,12 @@ func (i GDMInfo) headers() string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Content-Type: %s\r\n", ct)
-	fmt.Fprintf(&b, "Resource-Identifier: %s\r\n", i.MachineIdentifier)
+	if i.Host != "" {
+		fmt.Fprintf(&b, "Host: %s\r\n", sanitizeHeader(i.Host))
+	}
 	fmt.Fprintf(&b, "Name: %s\r\n", sanitizeHeader(i.Name))
 	fmt.Fprintf(&b, "Port: %d\r\n", i.Port)
+	fmt.Fprintf(&b, "Resource-Identifier: %s\r\n", sanitizeHeader(i.MachineIdentifier))
 	fmt.Fprintf(&b, "Updated-At: %d\r\n", updated.Unix())
 	fmt.Fprintf(&b, "Version: %s\r\n", i.Version)
 	return b.String()
@@ -336,6 +340,10 @@ func (g *GDMResponder) serve(ctx context.Context, i int, c *net.UDPConn, rejoin 
 	defer g.wg.Done()
 	buf := make([]byte, 2048)
 	var backoff time.Duration
+	updated := g.o.Info().UpdatedAt
+	if updated.IsZero() {
+		updated = time.Now()
+	}
 	nextRejoin := time.Now().Add(g.o.rejoinInterval)
 	for {
 		if rejoin {
@@ -372,15 +380,20 @@ func (g *GDMResponder) serve(ctx context.Context, i int, c *net.UDPConn, rejoin 
 		if !isMSearch(buf[:n]) {
 			continue
 		}
-		if _, err := c.WriteToUDP(GDMResponse(g.o.Info()), src); err != nil {
+		info := g.o.Info()
+		info.UpdatedAt = updated
+		if _, err := c.WriteToUDP(GDMResponse(info), src); err != nil {
 			g.o.Logger.Debug("gdm reply failed", "to", src, "err", err)
 		}
 	}
 }
 
 func isMSearch(b []byte) bool {
-	line, _, _ := bytes.Cut(b, []byte("\n"))
-	return bytes.HasPrefix(bytes.TrimSpace(line), []byte("M-SEARCH * HTTP/1."))
+	// PMS checks only the available bytes of the search prefix; short UDP
+	// probes (including an empty datagram) are valid discovery requests.
+	const prefix = "M-SEARCH * "
+	n := min(len(b), len(prefix))
+	return bytes.Equal(b[:n], []byte(prefix[:n]))
 }
 
 func (g *GDMResponder) announce(ctx context.Context) {

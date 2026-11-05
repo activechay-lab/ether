@@ -32,6 +32,7 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 }
 
 type Service struct {
+	guideAIMu          sync.Mutex
 	graphicsWake       chan struct{}
 	reelSnapshots      map[string]*ReelSnapshot
 	graphicsSkips      map[string]time.Time
@@ -210,7 +211,7 @@ func liveSessionID() string {
 func (s *Service) maintain() {
 	defer s.wg.Done()
 	s.refreshReels()
-	t := time.NewTicker(30 * time.Second)
+	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
 	warmed := map[core.RatingKey]time.Time{}
 	for {
@@ -230,19 +231,31 @@ func (s *Service) maintain() {
 					continue
 				}
 				recent := s.recentlyWatched()
+				s.mu.Lock()
+				watchedAt := make(map[string]time.Time, len(s.watched))
+				for id, at := range s.watched {
+					watchedAt[id] = at
+				}
+				s.mu.Unlock()
+				sort.SliceStable(cs, func(i, j int) bool { return watchedAt[cs[i].ID].After(watchedAt[cs[j].ID]) })
+				admitted := 0
 				for _, c := range cs {
 					// A channel nobody has watched lately is not pre-warmed:
 					// warming resolves every scheduled item, around the clock.
 					if !c.Enabled || c.Kind != "virtual" || !recent[c.ID] {
 						continue
 					}
-					ps := Schedule(c, s.o.Now(), s.o.Now().Add(3*time.Minute))
+					if admitted >= 2 {
+						break
+					}
+					admitted++
+					ps := Schedule(s.graphicsChannel(c), s.o.Now(), s.o.Now().Add(3*time.Minute))
 					for _, p := range ps {
-						if p.Item.Key == 0 || s.o.Now().Sub(warmed[p.Item.Key]) < 10*time.Minute {
+						if p.Item.Key == 0 || s.o.Now().Sub(warmed[p.Item.Key]) < channelWarmRefresh(p, s.o.Now()) {
 							continue
 						}
 						ctx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
-						err := s.o.Warm(ctx, p.Item.Key)
+						err := s.o.Warm(ctx, p.Item.Key, p.Offset(maxTime(s.o.Now(), p.Start)))
 						cancel()
 						if err == nil {
 							warmed[p.Item.Key] = s.o.Now()

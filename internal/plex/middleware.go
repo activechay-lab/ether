@@ -166,6 +166,7 @@ func (s *Server) requestLog(next http.Handler) http.Handler {
 		sr := &statusRecorder{ResponseWriter: w, sampling: sample}
 		next.ServeHTTP(sr, r)
 		s.observeRequest(r, sr, time.Since(start))
+		s.notifyRequestLog(r, sr.status)
 		if sr.status == http.StatusUnauthorized {
 			failures.Fail(errors.New("unauthorized"))
 			return
@@ -222,6 +223,10 @@ func traceSecretQuery(k string) bool {
 func (s *Server) parse(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pr := ParseRequest(r, identity.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs)...)
+		if pr.pagingInvalid {
+			writeHTTPError(w, http.StatusInternalServerError)
+			return
+		}
 		ctx := withRequest(r.Context(), pr)
 		ctx = core.WithBrowseScope(ctx, browseScope(r, pr))
 		if s.plexMetaOn() {
@@ -447,8 +452,23 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 	// allowSync on library containers follows the viewer's download
 	// permission; containers that don't carry the attribute keep not
 	// carrying it.
-	if mc, ok := v.(*model.MediaContainer); ok && mc.AllowSync != nil {
-		*mc.AllowSync = s.downloadsAllowed(pr.User)
+	if mc, ok := v.(*model.MediaContainer); ok {
+		if mc.AllowSync != nil {
+			*mc.AllowSync = s.downloadsAllowed(pr.User)
+		}
+		// PMS exposes playlist syncing to clients that declare the sync
+		// protocol. Keep Ether's download permission as the authority.
+		if r.Header.Get("X-Plex-Sync-Version") != "" && strings.HasPrefix(r.URL.Path, "/playlists") {
+			allowed := s.downloadsAllowed(pr.User)
+			for i := range mc.Metadata {
+				if mc.Metadata[i].Type == "playlist" {
+					mc.Metadata[i].AllowSync = model.Ptr(allowed)
+				}
+			}
+			if strings.HasSuffix(r.URL.Path, "/items") {
+				mc.AllowSync = model.Ptr(allowed)
+			}
+		}
 	}
 	return model.Marshal(v, pr.Format)
 }

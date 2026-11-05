@@ -29,6 +29,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/hoststat"
 	"github.com/braedonsaunders/ether/internal/livetv"
+	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/plexguid"
 	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/sessions"
@@ -187,6 +188,8 @@ type Deps struct {
 // Server is the PMS API handler. It is an http.Handler; call Close on
 // shutdown to stop background work and notification streams.
 type Server struct {
+	activityMu       sync.Mutex
+	activities       map[string]model.Activity
 	shelfMu          sync.Mutex
 	shelfCuts        map[string]shelfCut
 	shelfGenerations map[string]shelfGeneration
@@ -279,6 +282,7 @@ func NewServer(d Deps) *Server {
 		coord = sessions.NewCoordination()
 	}
 	s := &Server{
+		activities:        map[string]model.Activity{},
 		plexEncoder:       d.PlexEncoder,
 		d:                 d,
 		log:               d.Logger.With("component", "plex"),
@@ -563,7 +567,7 @@ func (s *Server) janitor() {
 			s.extraPlay.expire(now, 2*time.Hour)
 			s.expireTerminations(now, terminationTTL)
 			s.starts.expire(now)
-			expired := s.sessions.expire(now, 2*time.Minute)
+			expired := s.sessions.expire(now, 3*time.Minute)
 			for _, e := range expired {
 				s.notifyPlaying(e, "stopped")
 			}

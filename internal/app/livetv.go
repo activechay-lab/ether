@@ -6,6 +6,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/playback"
+	"time"
 )
 
 func (a *App) buildLiveTV() error {
@@ -20,11 +21,11 @@ func (a *App) buildLiveTV() error {
 	if a.resolver != nil {
 		avail = a.resolver
 	}
-	svc, err := livetv.New(livetv.Options{Reels: a.onairReelSnapshot, Graphics: a.onair, InputUser: a.users.Owner, Screens: func() config.LiveTVScreens { return a.cfg.Read().LiveTV.Screens }, PersonalChanged: func(viewer int64) {
+	svc, err := livetv.New(livetv.Options{GuideAI: a.llm, Reels: a.onairReelSnapshot, Graphics: a.onair, InputUser: a.users.Owner, Screens: func() config.LiveTVScreens { return a.cfg.Read().LiveTV.Screens }, PersonalChanged: func(viewer int64) {
 		if srv := a.currentPlexServer(); srv != nil {
 			srv.NotifyLiveLineupFor(viewer)
 		}
-	}, Picker: a.personalize, Watchlist: a.watchlist, State: a.state, Users: a.users, Logger: a.log.With("component", "livetv"), PlexGuideToken: func() string { return a.cfg.Read().Plex.Token }, Now: parityClock(), DB: a.db, Sealer: a.cfg, Catalog: a.catalog, Collections: a.collections, Playback: a.playback, Transcoder: tc, Availability: avail, Allowed: a.safety.Allowed, CanPlay: a.safety.CanPlay, LogoIndexURL: func() string { return a.cfg.Read().LiveTV.LogoIndexURL }, HealthSweepMinutes: func() int { return a.cfg.Read().LiveTV.HealthSweepMinutes }, StreamLimit: func(u *core.User) int { return playback.UserStreamLimit(a.cfg.Read(), a.safety.UserPolicy(u)) }, Warm: func(ctx context.Context, key core.RatingKey) error {
+	}, Picker: a.personalize, Watchlist: a.watchlist, State: a.state, Users: a.users, Logger: a.log.With("component", "livetv"), PlexGuideToken: func() string { return a.cfg.Read().Plex.Token }, Now: parityClock(), DB: a.db, Sealer: a.cfg, Catalog: a.catalog, Collections: a.collections, Playback: a.playback, Transcoder: tc, Availability: avail, Allowed: a.safety.Allowed, CanPlay: a.safety.CanPlay, LogoIndexURL: func() string { return a.cfg.Read().LiveTV.LogoIndexURL }, HealthSweepMinutes: func() int { return a.cfg.Read().LiveTV.HealthSweepMinutes }, StreamLimit: func(u *core.User) int { return playback.UserStreamLimit(a.cfg.Read(), a.safety.UserPolicy(u)) }, Warm: func(ctx context.Context, key core.RatingKey, at time.Duration) error {
 		if !a.registrar.Status().PlexPass {
 			return core.ErrUnauthorized
 		}
@@ -32,7 +33,7 @@ func (a *App) buildLiveTV() error {
 		if err != nil {
 			return err
 		}
-		a.playback.Prewarm(ctx, u, key, core.ClientCaps{Product: "Ether Live TV", ClientID: "ether-channel-prewarm", MaxHeight: 1080, VideoCodecs: []string{"h264", "hevc"}, AudioCodecs: []string{"aac", "ac3", "eac3"}, Containers: []string{"mp4", "mkv"}}, core.PrewarmOptions{Reason: core.PrewarmDetail})
+		a.playback.Prewarm(ctx, u, key, core.ClientCaps{Product: "Ether Live TV", ClientID: "ether-channel-prewarm", MaxHeight: 1080, VideoCodecs: []string{"h264", "hevc"}, AudioCodecs: []string{"aac", "ac3", "eac3"}, Containers: []string{"mp4", "mkv"}}, core.PrewarmOptions{Reason: core.PrewarmDetail, StartOffset: at, DuringPlayback: true, PrefetchBytes: 32 << 20})
 		return nil
 	}})
 	if err != nil {

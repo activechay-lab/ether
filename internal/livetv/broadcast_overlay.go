@@ -186,6 +186,8 @@ func (o *programmeOverlays) blend(video []byte, f transcode.RawFormat, now, star
 }
 
 type overlayDecoder struct {
+	wallStart time.Time
+	format    transcode.RawFormat
 	transcode.Decoder
 	overlays *programmeOverlays
 }

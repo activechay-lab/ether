@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
 )
 
@@ -20,6 +21,11 @@ func init() {
 		return
 	}
 	_ = os.Unsetenv(guardianEnv)
+	// Linux ties the encoder's parent-death signal to its spawning OS
+	// thread. Keep that thread alive for this guardian's entire lifetime;
+	// a Go scheduler thread retiring must not kill a healthy encoder.
+	// This branch always exits the process below, so it never unlocks.
+	runtime.LockOSThread()
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
 	ready := make(chan struct{})
 	cmd.Stdout, cmd.Stderr = &guardianOutput{ready: ready}, os.Stderr

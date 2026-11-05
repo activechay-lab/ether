@@ -43,19 +43,22 @@ const (
 )
 
 type warmEntry struct {
-	profileKey string // profileKey of profileObj
-	profileObj core.QualityProfile
-	caps       core.ClientCaps
-	done       chan struct{}
-	ready      sync.Once
-	foreground chan context.Context
-	started    time.Time
-	expires    time.Time
-	cancelMu   sync.Mutex
-	cancel     context.CancelFunc
-	runtime    time.Duration // title runtime, for size rules without a probe
-	res        *core.Resolution
-	probe      *probeCache
+	offset        time.Duration
+	windowAt      time.Time
+	windowRunning bool
+	profileKey    string // profileKey of profileObj
+	profileObj    core.QualityProfile
+	caps          core.ClientCaps
+	done          chan struct{}
+	ready         sync.Once
+	foreground    chan context.Context
+	started       time.Time
+	expires       time.Time
+	cancelMu      sync.Mutex
+	cancel        context.CancelFunc
+	runtime       time.Duration // title runtime, for size rules without a probe
+	res           *core.Resolution
+	probe         *probeCache
 	// originalAudio is set when the warmed profile compares audio with
 	// the catalogue language. originalLanguage is the Title.Language
 	// that Resolve saw. A later catalogue correction must not reuse it.
@@ -172,9 +175,10 @@ func (m *Manager) Prewarm(_ context.Context, user *core.User, key core.RatingKey
 			delete(m.warm, ident)
 		}
 	}
-	if m.warm[id] != nil {
+	if existing := m.warm[id]; existing != nil {
+		accepted := m.scheduleChannelWindowLocked(existing, opts.StartOffset)
 		m.mu.Unlock()
-		return false
+		return accepted
 	}
 	if at, ok := m.warmMisses[id]; ok {
 		if now.Sub(at) < warmMissTTL {
@@ -253,7 +257,7 @@ func (m *Manager) Prewarm(_ context.Context, user *core.User, key core.RatingKey
 	}
 	m.warmRequests[bk] = append(recent, now)
 	profileObj := m.deps.SelectProfile(caps, user)
-	e := &warmEntry{profileKey: profileKey(profileObj), profileObj: profileObj, caps: caps, done: make(chan struct{}), opened: make(chan struct{}), foreground: make(chan context.Context, 1), started: now, expires: now.Add(preResolveTTL)}
+	e := &warmEntry{offset: opts.StartOffset, profileKey: profileKey(profileObj), profileObj: profileObj, caps: caps, done: make(chan struct{}), opened: make(chan struct{}), foreground: make(chan context.Context, 1), started: now, expires: now.Add(preResolveTTL)}
 	m.warm[id] = e
 	u := *user
 	m.wg.Add(1)
@@ -277,7 +281,7 @@ func (m *Manager) Prewarm(_ context.Context, user *core.User, key core.RatingKey
 		e.setCancel(cancel)
 		defer cancel()
 		title, err := m.deps.Catalog.Get(ctx, key)
-		if err != nil || title == nil || (!title.Released.IsZero() && title.Released.After(m.now())) || title.Type == core.TypeShow || title.Type == core.TypeSeason {
+		if err != nil || title == nil || title.IsFutureRelease(m.now()) || title.Type == core.TypeShow || title.Type == core.TypeSeason {
 			return
 		}
 		// Warming must not override the source that actually survived the
@@ -340,7 +344,14 @@ func (m *Manager) Prewarm(_ context.Context, user *core.User, key core.RatingKey
 			e.markOpeningReady()
 			return
 		}
-		if err := m.deps.Engine.Prefetch(ctx, res.Release.ID, res.NZB, 0, prefetchBytes); err != nil {
+		warmOffset := int64(0)
+		if opts.StartOffset > 0 && facts != nil {
+			tm := TimeMap{Size: src.Size(), Duration: facts.info.Duration, Points: facts.points}
+			lo, hi := warmSpanFor(tm, opts.StartOffset, opts.StartOffset+45*time.Second)
+			warmOffset = lo
+			prefetchBytes = min(hi-lo, int64(32<<20))
+		}
+		if err := m.deps.Engine.Prefetch(ctx, res.Release.ID, res.NZB, warmOffset, prefetchBytes); err != nil {
 			if permanentSourceFailure(err) {
 				// Probe success is not proof that the opening window is intact.
 				// Invalidate the published warm result before a later Play uses it.

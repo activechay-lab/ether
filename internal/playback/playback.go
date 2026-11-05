@@ -222,6 +222,7 @@ func (o *Options) defaults() {
 type Manager struct {
 	subtitleScheduled map[string]bool
 	subtitleRunning   bool
+	channelWarmActive int
 	sourceAccounting  sourceAccounting
 	// sourceCleanupBudget, when set, is the shutdown wait for in-flight
 	// source cleanup. Production leaves it nil and uses
@@ -840,7 +841,7 @@ func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, us
 		return nil, nil, core.ErrUnauthorized
 	}
 	if lookup, ok := m.deps.Catalog.(core.StoredTitleLookup); ok {
-		if title, err := lookup.StoredTitle(ctx, key); err == nil && title != nil && !title.Released.IsZero() && title.Released.After(m.now()) {
+		if title, err := lookup.StoredTitle(ctx, key); err == nil && title != nil && title.IsFutureRelease(m.now()) {
 			return nil, nil, fmt.Errorf("playback: title releases on %s: %w", title.Released.Format("2006-01-02"), core.ErrUnreleased)
 		}
 	}
@@ -1065,7 +1066,7 @@ func (m *Manager) prepare(ctx context.Context, id identity, user *core.User, cap
 	if err != nil {
 		return nil, fmt.Errorf("playback: title %s: %w", id.key, err)
 	}
-	if title == nil || (!title.Released.IsZero() && title.Released.After(m.now())) {
+	if title == nil || title.IsFutureRelease(m.now()) {
 		return nil, fmt.Errorf("playback: title is not released: %w", core.ErrUnreleased)
 	}
 	if title.Type == core.TypeShow || title.Type == core.TypeSeason {

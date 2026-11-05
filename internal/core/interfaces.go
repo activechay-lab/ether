@@ -45,12 +45,13 @@ type DateFilter struct {
 	SpanDay bool   `json:"spanDay,omitempty"`
 }
 
-// CreditFilter narrows by credited person TMDB IDs and optional credit kind
+// CreditFilter narrows by credited person TMDB IDs or exact names and optional credit kind
 // ("cast", "director", "writer", "crew", or "" for any).
 type CreditFilter struct {
-	People  []int64 `json:"people,omitempty"`
-	Kind    string  `json:"kind,omitempty"`
-	Exclude bool    `json:"exclude,omitempty"`
+	People  []int64  `json:"people,omitempty"`
+	Names   []string `json:"names,omitempty"` // alternatives to IDs; ASCII-case-insensitive exact names
+	Kind    string   `json:"kind,omitempty"`
+	Exclude bool     `json:"exclude,omitempty"`
 }
 
 // FilterGroup represents a nested boolean expression of browse filters.

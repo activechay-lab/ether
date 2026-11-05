@@ -265,16 +265,43 @@ var discoveryImageRe = regexp.MustCompile(`^/library/metadata/(\d+)/discoveryPos
 // variant closest to the requested width.
 func (s *Server) handlePhotoTranscode(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	raw := q.Get("url")
-	if raw == "" {
+	// PMS validates dimensions before resolving the image.
+	for _, name := range []string{"width", "height"} {
+		if q.Has(name) {
+			if _, err := strconv.Atoi(photoQueryValue(q, name)); err != nil {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
+		}
+	}
+	// Validate even options handled by the upstream image service.
+	for _, name := range []string{"minSize", "upscale", "opacity", "quality", "blur"} {
+		if raw, present := firstQuery(q, name); present {
+			n, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || ((name == "minSize" || name == "upscale") && n != 0 && n != 1) {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
+			if name == "blur" && n < 0 {
+				writeHTTPError(w, http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+	raw := photoQueryValue(q, "url")
+	if !q.Has("url") {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	width, _ := strconv.Atoi(q.Get("width"))
-	height, _ := strconv.Atoi(q.Get("height"))
+	if raw == "" {
+		writeHTTPError(w, http.StatusNotFound)
+		return
+	}
+	width, _ := strconv.Atoi(photoQueryValue(q, "width"))
+	height, _ := strconv.Atoi(photoQueryValue(q, "height"))
 	if width <= 0 && height > 0 {
 		width = height * 2 / 3 // poster aspect
-	} else if q.Get("minSize") == "1" && height > 0 && height*2/3 > width {
+	} else if strings.HasSuffix(photoQueryValue(q, "minSize"), "1") && height > 0 && height*2/3 > width {
 		width = height * 2 / 3
 	}
 	u, err := url.Parse(raw)
@@ -374,4 +401,14 @@ func (s *Server) allowedImageHost(host string) bool {
 		return false
 	}
 	return strings.EqualFold(ref.Host, host)
+}
+
+// photoQueryValue follows PMS duplicate-parameter semantics, including an empty
+// final value.
+func photoQueryValue(q url.Values, name string) string {
+	vs := q[name]
+	if len(vs) == 0 {
+		return ""
+	}
+	return vs[len(vs)-1]
 }

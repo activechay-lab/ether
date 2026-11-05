@@ -96,12 +96,23 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey
 func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
+	q := r.URL.Query()
+	// Validate before any catalogue lookup or playback warm-up: these flags
+	// have a boolean integer grammar even when their work is asynchronous.
+	for _, name := range []string{"checkFiles", "skipRefresh", "asyncCheckFiles", "asyncAugmentMetadata", "asyncRefreshLocalMediaAgent", "asyncRefreshAnalysis"} {
+		if values, present := q[name]; present {
+			n, err := strconv.Atoi(values[0])
+			if err != nil || (n != 0 && n != 1) {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
+		}
+	}
 	keys, err := s.metadataKeys(ctx, chi.URLParam(r, "key"))
 	if err != nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	q := r.URL.Query()
 	var mc *model.MediaContainer
 	for _, k := range keys {
 		var md model.Metadata
@@ -147,7 +158,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 			}
 		default:
 			t, err := s.metadataTitle(ctx, pr, k)
-			if err == nil && ((!t.Released.IsZero() && t.Released.After(s.now())) || !s.visibleTitle(ctx, pr.User, t)) {
+			if err == nil && !s.visibleTitle(ctx, pr.User, t) {
 				err = core.ErrNotFound
 			}
 			if err != nil && len(keys) == 1 && q.Get("collection") == "" {
@@ -203,10 +214,24 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 			if len(keys) == 1 {
 				pr.versionItemKey = t.Key
 			}
-			if len(keys) == 1 && (q.Get("checkFiles") == "1" || q.Get("asyncCheckFiles") == "1") {
+			if len(keys) == 1 && (metadataOptionOn(q.Get("checkFiles")) || metadataOptionOn(q.Get("asyncCheckFiles"))) {
 				pr.versionFlowKey = t.Key
 			}
-			md = s.detail(ctx, pr, t, q.Get("includeChildren") == "1", q.Get("includeOnDeck") == "1", q.Get("includeRelated") == "1", q.Get("includeExtras") == "1", q.Get("extraTypes"))
+			md = s.detail(ctx, pr, t, metadataOptionOn(q.Get("includeChildren")), metadataOptionOn(q.Get("includeOnDeck")), metadataOptionOn(q.Get("includeRelated")), metadataOptionOn(q.Get("includeExtras")), q.Get("extraTypes"))
+			if raw, present := q["includeRelatedCount"]; present && md.Related != nil {
+				if count, err := strconv.Atoi(raw[0]); err == nil && count >= 0 {
+					for i := range md.Related.Hub {
+						h := &md.Related.Hub[i]
+						if len(h.Metadata) > count {
+							h.Metadata, h.More = h.Metadata[:count], true
+						}
+						if len(h.Directory) > count {
+							h.Directory, h.More = h.Directory[:count], true
+						}
+						h.Size = len(h.Metadata) + len(h.Directory)
+					}
+				}
+			}
 			if mc == nil {
 				mc = s.itemContainer(t.Type)
 			}
@@ -218,7 +243,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	// PMS answers checkFiles=1 with Part@exists/@accessible. Plex for Apple TV
 	// sends it before playback and shows "Unavailable Media" when they are absent.
-	if r.URL.Query().Get("checkFiles") == "1" {
+	if metadataOptionOn(q.Get("checkFiles")) {
 		for i := range mc.Metadata {
 			for j := range mc.Metadata[i].Media {
 				for k := range mc.Metadata[i].Media[j].Part {
@@ -232,6 +257,11 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, mc)
 }
 
+func metadataOptionOn(raw string) bool {
+	n, err := strconv.Atoi(raw)
+	return err == nil && n == 1
+}
+
 // detail renders a full item page.
 func (s *Server) detail(ctx context.Context, pr *Request, t *core.Title, children, onDeck, related, extras bool, extraTypes string) model.Metadata {
 	s.rememberTitle(t)
@@ -242,14 +272,9 @@ func (s *Server) detail(ctx context.Context, pr *Request, t *core.Title, childre
 	md := items[0]
 	// Per-viewer decision header (#31); detail pages only, never lists.
 	s.decorateDetail(ctx, pr, t, &md)
-	if children && (t.Type == core.TypeShow || t.Type == core.TypeSeason) {
+	if children && t.Type == core.TypeShow {
 		if kids, err := s.metadataChildren(ctx, pr, t.Key); err == nil {
-			if t.Type == core.TypeSeason {
-				if ep := s.seasonNextEpisode(ctx, pr, kids); ep != nil {
-					s.warmDetail(ctx, pr, ep)
-				}
-			}
-			rendered := s.renderTitles(ctx, pr, kids, renderOpts{media: true, skipLeafCounts: t.Type == core.TypeShow})
+			rendered := s.renderTitles(ctx, pr, kids, renderOpts{media: true, inSection: true, skipLeafCounts: t.Type == core.TypeShow})
 			if t.Type == core.TypeShow {
 				s.applyLeafCounts(ctx, pr, rendered, kids, memo)
 			}
@@ -398,6 +423,10 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.writeErr(w, r, err)
+		return
+	}
+	if parent.Type == core.TypeMovie || parent.Type == core.TypeEpisode {
+		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
 	s.rememberTitle(parent) // seasons render the show's studio/year/logo
@@ -553,6 +582,9 @@ func (s *Server) handleAllLeaves(w http.ResponseWriter, r *http.Request) {
 	mc.Title1 = parent.Title
 	mc.Title2 = "All Episodes"
 	mc.ViewGroup = "episode"
+	if parent.Type == core.TypeMovie {
+		mc.ViewGroup = "movie"
+	}
 	mc.ViewMode = viewModeList
 	mc.Mixed = model.Ptr(true)
 	// Filter before paging, as handleChildren does, so the window and
@@ -699,18 +731,22 @@ func (s *Server) scopedCollectionCounts(ctx context.Context, u *core.User, cs []
 func (s *Server) collectionMetadata(c *core.Collection) model.Metadata {
 	rk := c.Key.String()
 	m := model.Metadata{
-		RatingKey:  rk,
-		Key:        "/library/collections/" + rk + "/children",
-		GUID:       "collection://" + rk,
-		Type:       "collection",
-		Title:      c.Title,
-		Subtype:    string(c.Type),
-		Summary:    c.Summary,
-		Index:      model.Ptr(0),
-		Thumb:      "/library/metadata/" + rk + "/thumb/" + collectionStamp(c),
-		ChildCount: model.Ptr(c.ChildCount),
-		AddedAt:    s.now().Unix(),
-		UpdatedAt:  s.now().Unix(),
+		RatingKey: rk,
+		Key:       "/library/collections/" + rk + "/children",
+		GUID:      "collection://" + rk,
+		Type:      "collection",
+		Title:     c.Title,
+		Subtype:   string(c.Type),
+		Summary:   c.Summary,
+		Index:     model.Ptr(0),
+		Thumb:     "/library/metadata/" + rk + "/thumb/" + collectionStamp(c),
+		AddedAt:   s.now().Unix(),
+		UpdatedAt: s.now().Unix(),
+	}
+	// PMS omits childCount for an empty collection on detail and listing
+	// responses, while retaining the collection itself.
+	if c.ChildCount > 0 {
+		m.ChildCount = model.Ptr(c.ChildCount)
 	}
 	if c.BackdropPath != "" {
 		m.Art = "/library/metadata/" + rk + "/art/" + collectionStamp(c)
@@ -750,6 +786,7 @@ func (s *Server) sectionCollections(w http.ResponseWriter, r *http.Request, sec 
 		all = cs
 	}
 	all = s.scopedCollectionCounts(ctx, pr.User, all)
+	all = filterCollectionTitles(all, r.URL.Query())
 	lo, hi := pr.window(len(all))
 	for i := lo; i < hi; i++ {
 		mc.Metadata = append(mc.Metadata, s.collectionMetadata(&all[i]))
@@ -833,7 +870,7 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k core.
 	} else {
 		for i := range page.Items {
 			t := &page.Items[i]
-			if !t.Released.IsZero() && t.Released.After(s.now()) {
+			if t.IsFutureRelease(s.now()) {
 				mc.Metadata = append(mc.Metadata, s.placeholderMetadata(ctx, pr, t, k))
 			} else {
 				mc.Metadata = append(mc.Metadata, s.renderTitles(ctx, pr, []core.Title{*t}, renderOpts{media: true})...)

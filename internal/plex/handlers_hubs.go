@@ -70,6 +70,12 @@ func hubItemsKey(h core.Hub, hc hubCtx) string {
 func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubCtx) model.Hub {
 	h := hs.Hub
 	build := func() []core.Title {
+		if loader, ok := s.d.Catalog.(interface {
+			LoadRowFacts(context.Context, []core.Title) []core.Title
+		}); ok {
+			h.Items = loader.LoadRowFacts(ctx, h.Items)
+		}
+
 		return (experience.RowSelection{Visibility: s.visibility(), PrioritizeAvailable: s.d.PrioritizeAvailable,
 			SameDayUnavailable: func(ctx context.Context, t *core.Title) bool { return s.sameDayUnavailable(ctx, pr, t) },
 		}).Items(ctx, pr.User, h)
@@ -124,18 +130,9 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 		stampIncluded(md)
 	}
 	keys := make([]string, 0, len(md))
-	if generation != "" {
-		for _, item := range md {
-			keys = append(keys, item.RatingKey)
-		}
-	} else {
-		// Preserve the established Home/detail key projection.
-		if hc.visible > 0 && len(sourceItems) > hc.visible {
-			sourceItems = sourceItems[:hc.visible]
-		}
-		for _, item := range sourceItems {
-			keys = append(keys, item.Key.String())
-		}
+	// Recorded PMS Home and related hubs name exactly their rendered cards.
+	for _, item := range md {
+		keys = append(keys, item.RatingKey)
 	}
 	typ := string(h.Type)
 	if typ == "" {
@@ -1424,6 +1421,24 @@ func (s *Server) collectionDirectory(ctx context.Context, c *core.Collection) mo
 	}
 }
 
+// searchLimit follows the search endpoints' two distinct refusal classes.
+func searchLimit(w http.ResponseWriter, r *http.Request, fallback, ceiling int) (int, bool) {
+	raw, present := firstQuery(r.URL.Query(), "limit")
+	if !present {
+		return fallback, true
+	}
+	n, valid := parseWhole32(raw)
+	if !valid {
+		writeHTTPError(w, http.StatusBadRequest)
+		return 0, false
+	}
+	if n <= 0 {
+		writeHTTPError(w, http.StatusInternalServerError)
+		return 0, false
+	}
+	return min(int(n), ceiling), true
+}
+
 func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
@@ -1434,9 +1449,9 @@ func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	limit := 10
-	if n, _ := strconv.Atoi(q.Get("limit")); n > 0 {
-		limit = min(n, 100)
+	limit, valid := searchLimit(w, r, 10, 100)
+	if !valid {
+		return
 	}
 	sectionID, _ := strconv.Atoi(q.Get("sectionId"))
 	fetch := max(limit*2, s.saferFetchCount(pr.User, limit))
@@ -1636,9 +1651,9 @@ func (s *Server) handleLibrarySearch(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(ctx)
 	q := r.URL.Query()
 	query := q.Get("query")
-	limit := 50
-	if n, _ := strconv.Atoi(q.Get("limit")); n > 0 {
-		limit = min(n, 200)
+	limit, valid := searchLimit(w, r, 50, 200)
+	if !valid {
+		return
 	}
 	// People are searched beside titles when the request wants them.
 	wantPeople := q.Get("searchTypes") == ""
@@ -1736,6 +1751,10 @@ func (s *Server) handleLibrarySearch(w http.ResponseWriter, r *http.Request) {
 	if isVibe && vibe != nil && (searchCollections || q.Get("searchTypes") == "") {
 		d := s.collectionDirectory(ctx, vibe)
 		mc.SearchResult = append(mc.SearchResult, model.SearchResult{Score: 1, Directory: &d})
+	}
+	// A flat search has one window across every result family.
+	if len(mc.SearchResult) > limit {
+		mc.SearchResult = mc.SearchResult[:limit]
 	}
 	mc.Size = len(mc.SearchResult)
 	s.write(w, r, mc)
