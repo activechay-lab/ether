@@ -587,6 +587,12 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
       x2[x] = dx * dx;
     }
     const flickers = effects.map((e) => 1 - e.amount * random(e.seed, frame));
+    const pattern = effects.map((e) => e.type).join(",");
+    const common =
+      pattern === "grain,flicker,vignette" && effects.every((e) => e.amount >= 0 && e.amount <= 1);
+    const vhs =
+      pattern === "grain,scanlines" && effects.every((e) => e.amount >= 0 && e.amount <= 1);
+    const quantize = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v | 0);
     for (let y = 0; y < height; y++) {
       const dy = (y / height - 0.5) * 1.4,
         y2 = dy * dy;
@@ -596,6 +602,30 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
         let r = data[i]! * a,
           g = data[i + 1]! * a,
           b = data[i + 2]! * a;
+        if (a === 1 && (common || vhs)) {
+          const grain = effects[0]!,
+            offset =
+              (random(grain.seed, x + y * width + frame * 100003) - 0.5) * grain.amount * 255;
+          r = quantize(r + offset);
+          g = quantize(g + offset);
+          b = quantize(b + offset);
+          if (common) {
+            const flicker = flickers[1]!,
+              vignette = 1 - effects[2]!.amount * Math.min(1, x2[x]! + y2);
+            r = (((r * flicker) | 0) * vignette) | 0;
+            g = (((g * flicker) | 0) * vignette) | 0;
+            b = (((b * flicker) | 0) * vignette) | 0;
+          } else if (y % 3 === 0) {
+            const v = 1 - effects[1]!.amount;
+            r = (r * v) | 0;
+            g = (g * v) | 0;
+            b = (b * v) | 0;
+          }
+          data[i] = r;
+          data[i + 1] = g;
+          data[i + 2] = b;
+          continue;
+        }
         for (let j = 0; j < effects.length; j++) {
           const e = effects[j]!;
           let v = 1,

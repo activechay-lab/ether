@@ -35,7 +35,7 @@ type sample struct {
 func main() {
 	input := flag.String("input", "", "master input for stream batch")
 	budget := flag.Int("bitrate", 3000, "continuous session total bitrate kbps")
-	batch := flag.String("batch", "signal", "signal, families, overlay or one")
+	batch := flag.String("batch", "plates", "plates, families, overlay, one or stream")
 	family := flag.String("family", "late-night", "family for one")
 	moment := flag.String("moment", "ident", "moment for one")
 	out := flag.String("out", "/tmp/onair-samples", "output directory")
@@ -76,15 +76,6 @@ func main() {
 	defer cancel()
 	var samples []sample
 	switch *batch {
-	case "signal":
-		samples = []sample{
-			{"screen-bars", "signal", "screen.bars", "Warm colour bars, soft CRT phosphors and bloom; gentle 1 kHz tone at −30 dBFS.", nil},
-			{"screen-brb", "signal", "screen.brb", "A warm vintage intermission card, with a quiet harmonic bed.", nil},
-			{"screen-testcard", "signal", "screen.testcard", "Original Ether broadcast test card: cream calibration disc, sea-green field and quiet tone.", nil},
-			{"screen-card-back-at-6pm", "signal", "screen.card", "Modern continuity · Back at 6:00 PM.", map[string]string{"screen.line1": "Back at 6:00 PM", "screen.line2": "A little pause. More good television this evening."}},
-			{"screen-card-reconnecting", "signal", "screen.card", "Modern continuity · Reconnecting…", map[string]string{"screen.line1": "Reconnecting…", "screen.line2": "Your programme will return shortly."}},
-			{"screen-card-waiting", "signal", "screen.card", "Modern continuity · Waiting for a free connection.", map[string]string{"screen.line1": "Waiting for a free connection", "screen.line2": "We’ll bring your programme back as soon as a connection is available."}},
-		}
 	case "families":
 		for _, f := range []string{"late-night", "clean", "kids", "cinema", "retro", "personal"} {
 			for _, m := range []string{"ident", "upnext", "break"} {
@@ -190,7 +181,21 @@ func render(ctx context.Context, ffmpeg string, s sample, out string, seconds, w
 	if audio == nil {
 		audio = &scene.Audio{Generator: "bed", Seed: 7}
 	}
-	err = encode.WithOptions(ctx, ffmpeg, frames, seconds*30, 30, "", target, encode.Options{Workers: workers, Width: width, Height: height, Audio: audio, MaxRate: "8M", BufferSize: "8M"})
+	audioPath := ""
+	if programme != "" && s.name == "late-night-overlay" {
+		f, e := os.CreateTemp(out, ".overlay-programme-*.wav")
+		if e != nil {
+			return e
+		}
+		audioPath = f.Name()
+		f.Close()
+		defer os.Remove(audioPath)
+		output, e := exec.CommandContext(ctx, ffmpeg, "-nostdin", "-v", "error", "-y", "-stream_loop", "-1", "-i", programme, "-vn", "-t", strconv.Itoa(seconds), "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", audioPath).CombinedOutput()
+		if e != nil {
+			return fmt.Errorf("programme audio: %w %s", e, output)
+		}
+	}
+	err = encode.WithOptions(ctx, ffmpeg, frames, seconds*30, 30, audioPath, target, encode.Options{Workers: workers, Width: width, Height: height, Audio: audio, MaxRate: "8M", BufferSize: "8M"})
 	if err != nil {
 		return err
 	}

@@ -158,6 +158,10 @@ func streamSample(ctx context.Context, input, output string, width, seconds, bud
 	sidecar["encoder"] = "h264_videotoolbox"
 	sidecar["audio_bitrate_kbps"] = 128
 	sidecar["pipeline"] = "StartDecoder → StartEncoder → SegmentIndex.ServeTS → copy remux"
+	if filepath.Base(input) == "late-night-overlay.mp4" || filepath.Base(input) == "late-night-overlay-720p.mp4" {
+		sidecar["programme_source"] = "https://download.blender.org/peach/trailer/trailer_1080p.ogg"
+		sidecar["programme_credit"] = "Big Buck Bunny © Blender Foundation | peach.blender.org | CC BY 3.0"
+	}
 	data, err = json.MarshalIndent(sidecar, "", "  ")
 	if err != nil {
 		return err
