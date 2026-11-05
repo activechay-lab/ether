@@ -95,7 +95,7 @@ func playbackMessage(err error) string {
 }
 
 // writeStartErr answers a failed start.m3u8, start.mpd or part request.
-// A 503 alone leaves some players buffering. Queue the reason as
+// End the media request and queue the reason as
 // terminationText for the client's next timeline, as for a start stall.
 func (s *Server) writeStartErr(w http.ResponseWriter, r *http.Request, pr *Request, err error) {
 	if r.Context().Err() != nil {
@@ -105,18 +105,16 @@ func (s *Server) writeStartErr(w http.ResponseWriter, r *http.Request, pr *Reque
 	if pr != nil && pr.User != nil {
 		s.setTermination(trackID(pr.User.ID, pr.ClientID, pr.SessionID), playbackMessage(err))
 	}
-	status := http.StatusInternalServerError
+	// A completed attempt is terminal. Retry-After on a 503 makes media
+	// loaders retry while waiting for a timeline they may never send.
+	// PMS start.* documents 400/403/404 for unsuccessful starts.
+	status := http.StatusBadRequest
+	w.Header().Del("Retry-After")
 	switch {
-	case errors.Is(err, core.ErrNotFound):
+	case errors.Is(err, core.ErrNotFound), errors.Is(err, core.ErrNotAvailable):
 		status = http.StatusNotFound
 	case errors.Is(err, core.ErrUnauthorized):
-		status = http.StatusUnauthorized
-	case errors.Is(err, core.ErrStreamLimit), errors.Is(err, transcode.ErrTooManyTranscodes):
-		w.Header().Set("Retry-After", "5")
-		status = http.StatusServiceUnavailable
-	case errors.Is(err, core.ErrNotAvailable), errors.Is(err, core.ErrUnreleased), errors.Is(err, core.ErrDebridAuth), errors.Is(err, core.ErrSourceUnavailable), errors.Is(err, context.DeadlineExceeded), errors.Is(err, core.ErrPrepareSlow):
-		w.Header().Set("Retry-After", notAvailableRetryAfter)
-		status = http.StatusServiceUnavailable
+		status = http.StatusForbidden
 	}
 	writePlaybackStatus(w, status)
 }
@@ -262,6 +260,31 @@ func androidFamilyClient(pr *Request) bool {
 		return false
 	}
 	return transcode.HasQuirk(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, "plex-list-all-tracks")
+}
+
+// androidTVClient limits the Shield delivery correction to Plex's TV player.
+// Plezy and the mobile/web/Apple players retain their existing contracts.
+func androidTVClient(pr *Request) bool {
+	if pr == nil {
+		return false
+	}
+	product := strings.ToLower(pr.Product)
+	return strings.HasPrefix(product, "plex for android") &&
+		(strings.Contains(product, "(tv)") || strings.Contains(strings.ToLower(pr.Device), "shield"))
+}
+
+// tvImageSubtitle is retained for native file playback, but must be burned
+// once playback is converted: our segmented muxer carries text, not images.
+func tvImageSubtitle(pr *Request, info core.MediaInfo, opts core.DecideOptions) bool {
+	if !androidTVClient(pr) {
+		return false
+	}
+	for _, st := range info.Streams {
+		if st.Type == "subtitle" && !st.External && st.Index == opts.SubtitleStream {
+			return transcode.IsImageSubtitle(st.Codec)
+		}
+	}
+	return false
 }
 
 // matroskaCarriesText reports whether a conversion for this client is
@@ -553,14 +576,27 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 		s.applyStreamPreferences(ctx, pr, p, t, ps.Info)
 		applySelections(p, ps.Info, s.audioLanguages(pr.User))
 		switch {
-		case p.subtitles == "none" && !matroskaCarriesText(p, ps.Info):
+		case p.subtitles == "none" && !matroskaCarriesText(p, ps.Info) && !tvImageSubtitle(pr, ps.Info, p.opts):
 			// The track stays selected; nothing delivers it.
 			p.opts.SubtitleStream = -1
-		case p.opts.BurnSubtitles && browserClient(pr):
-			// Plex Web asks for a burn when it will not read a soft
-			// subtitle (an ASS track under its default setting): without
-			// one it shows nothing.
+		case p.opts.BurnSubtitles && (browserClient(pr) || androidTVClient(pr)):
+			// These players explicitly request a burn when their selected
+			// rendering mode will not draw a soft text track.
 			p.opts.BurnTextSubtitles = true
+		}
+		if tvImageSubtitle(pr, ps.Info, p.opts) {
+			// Source-change remuxing is also a conversion, even when MDE
+			// initially allowed direct play of the original file.
+			converting := !p.opts.DirectPlay || ps.RequiresRemux
+			if onDemandSession(ps) && p.mde && p.opts.DirectStream && ps.Resolution != nil {
+				protocol := ps.Resolution.Release.Protocol
+				converting = converting || (protocol != core.ProtocolHTTP && protocol != core.ProtocolTorrent)
+			}
+			// A quality/codec limit can require conversion even though the
+			// client allowed direct play.
+			if converting || transcode.Decide(ps.Info, p.caps, p.opts, transcode.Policy{}).Kind != core.DecisionDirectPlay {
+				p.opts.BurnSubtitles = true
+			}
 		}
 		s.burnOnlyShownSubtitle(pr, p, ps.Info)
 		p.caps.TranscodeAudioCodecs = streamingAudioTarget(pr.ProfileExtra, p.protocol)
@@ -723,6 +759,7 @@ func (s *Server) awaitSource(ctx context.Context, r *http.Request, pr *Request) 
 // carries the message instead of a spinner.
 func (s *Server) decisionError(ctx context.Context, pr *Request, t *core.Title, err error, p playRequest) *model.MediaContainer {
 	msg := playbackMessage(err)
+	s.setTermination(trackID(pr.User.ID, pr.ClientID, pr.SessionID), msg)
 	mc := libraryContainer()
 	if t != nil {
 		mc = s.itemContainer(t.Type)
@@ -789,7 +826,7 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 	// instead of "Direct play OK", whatever directStream says (#246).
 	mustConvert := dec.Kind == core.DecisionTranscode || (dec.Kind != core.DecisionDirectPlay && (!dec.VideoCopy || !dec.AudioCopy))
 	pm4k := strings.EqualFold(pr.Product, "PM4K") || strings.EqualFold(pr.Product, "Plex for Kodi")
-	mdeDirect := p.mde && p.opts.DirectPlay && (!pm4k || dec.Kind == core.DecisionDirectPlay) && len(p.opts.AudioFilters) == 0 &&
+	mdeDirect := p.mde && p.opts.DirectPlay && !(androidTVClient(pr) && dec.BurnSubtitles) && (!pm4k || dec.Kind == core.DecisionDirectPlay) && len(p.opts.AudioFilters) == 0 &&
 		!(onDemandSession(ps) && (mustConvert || (p.opts.DirectStream && dec.Kind != core.DecisionDirectPlay)))
 	shown := dec
 	if mdeDirect {
@@ -797,6 +834,9 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 	}
 	p.listAllTracks = androidFamilyClient(pr)
 	p.softText = browserClient(pr)
+	if androidTVClient(pr) && shown.BurnSubtitles && p.subtitles == "none" {
+		p.subtitles = "burn"
+	}
 	md.Media = []model.Media{s.decisionMedia(t, ps, shown, p, pr.User)}
 	s.addProbedStreamFeatures(ctx, t.Key, ps.Info, &md)
 	if md.Media[0].Duration > 0 {
@@ -903,6 +943,10 @@ func (s *Server) decisionMedia(t *core.Title, ps *core.PlaySession, dec core.Dec
 			continue
 		}
 		if shaped, keep := applyStreamDecision(st, binding.Info, dec, selectedOnly, p.subtitles, p.softText); keep {
+			if androidTVClient(&Request{Product: p.caps.Product, Device: p.caps.Device}) && shaped.Decision == "burn" && transcode.IsImageSubtitle(binding.Info.Codec) && p.protocol == core.ProtocolHLS {
+				shaped.Location = "segments-av"
+				shaped.Extra = append(shaped.Extra, model.A("burn", "1"))
+			}
 			kept = append(kept, shaped)
 		}
 	}
@@ -1242,6 +1286,18 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		applySelections(&p, ps.Info, s.audioLanguages(pr.User))
 		return s.d.Transcoder.Decide(ps.Info, p.caps, p.opts)
 	}, func(dec core.Decision) core.Decision {
+		// A client may request HLS after accepting an MDE direct-play
+		// decision (notably stable HTTP/debrid files). HLSDecision's legacy
+		// fallback is MPEG-TS, which cannot carry the selected text track.
+		// Use the TV player's negotiated target even on this late handoff.
+		if androidTVClient(pr) {
+			dec.Container = transcode.HLSContainer(entry.caps, dec.VideoCodec, dec.AudioCodec)
+			if tvImageSubtitle(pr, ps.Info, entry.opts) {
+				opts := entry.opts
+				opts.DirectPlay, opts.BurnSubtitles = false, true
+				return s.d.Transcoder.Decide(ps.Info, entry.caps, opts)
+			}
+		}
 		if len(entry.caps.TranscodeAudioCodecs) > 0 && dec.AudioCodec != "" && !slices.Contains(entry.caps.TranscodeAudioCodecs, dec.AudioCodec) {
 			opts := entry.opts
 			opts.DirectPlay = false
@@ -1623,6 +1679,19 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 	if policy, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.ClientCaps(0).Remote, s.now()) {
 		writeHTTPError(w, http.StatusForbidden)
 		return
+	}
+	// Clients may fall back from a failed decision to the original part URL.
+	// Do not launch the same failed acquisition again during that attempt.
+	if releaseID == "" && pr.ClientID != "" {
+		for _, id := range s.transcodes.forClient(pr.User.ID, pr.ClientID, 0) {
+			if pr.SessionID != "" && id != sanitizeSessionID(pr.SessionID) {
+				continue // a distinct playback attempt must be allowed to retry
+			}
+			if err, failed := s.transcodes.takeFailure(id, pr.User.ID, key, s.now()); failed && !errors.Is(err, core.ErrPrepareSlow) {
+				s.writeStartErr(w, r, pr, err)
+				return
+			}
+		}
 	}
 	ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, key)
 	anonymousContinuation := false

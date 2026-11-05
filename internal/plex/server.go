@@ -563,7 +563,7 @@ func (s *Server) janitor() {
 			s.extraPlay.expire(now, 2*time.Hour)
 			s.expireTerminations(now, terminationTTL)
 			s.starts.expire(now)
-			expired := s.sessions.expire(now, 2*time.Minute)
+			expired := s.sessions.expire(now, 3*time.Minute)
 			for _, e := range expired {
 				s.notifyPlaying(e, "stopped")
 			}

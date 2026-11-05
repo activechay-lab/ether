@@ -304,11 +304,11 @@ func TestDirectPlayRange(t *testing.T) {
 	}
 	// Not available.
 	f.playback.failures[alien.Key] = core.ErrNotAvailable
-	if rec := f.get(t, "/library/parts/1000000000000348/1/file.mkv"); rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+	if rec := f.get(t, "/library/parts/1000000000000348/1/file.mkv"); rec.Code != http.StatusNotFound || rec.Header().Get("Retry-After") != "" {
 		t.Fatalf("unavailable part: %d retry-after=%q", rec.Code, rec.Header().Get("Retry-After"))
 	}
 	f.playback.failures[alien.Key] = core.ErrStreamLimit
-	if rec := f.get(t, "/library/parts/1000000000000348/1/file.mkv"); rec.Code != http.StatusServiceUnavailable {
+	if rec := f.get(t, "/library/parts/1000000000000348/1/file.mkv"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("stream limit part: %d", rec.Code)
 	}
 }
@@ -432,7 +432,9 @@ func TestPlaylists(t *testing.T) {
 	if rec := f.request(t, http.MethodGet, "/playlists/"+key, map[string]string{"X-Plex-Token": friendToken}); rec.Code != http.StatusNotFound {
 		t.Fatalf("friend sees playlist: %d", rec.Code)
 	}
-	f.request(t, http.MethodDelete, "/playlists/"+key, nil)
+	if rec := f.request(t, http.MethodDelete, "/playlists/"+key, nil); rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+		t.Fatalf("playlist delete: status=%d body=%q", rec.Code, rec.Body.String())
+	}
 	if _, err := f.pls.Get(context.Background(), ownerUser.ID, mustKey(key)); err == nil {
 		t.Fatal("not deleted")
 	}
@@ -659,7 +661,7 @@ func TestEventSource(t *testing.T) {
 		t.Fatalf("ct %q", resp.Header.Get("Content-Type"))
 	}
 	br := bufio.NewReader(resp.Body)
-	if line, _ := br.ReadString('\n'); !strings.HasPrefix(line, "retry:") {
+	if line, _ := br.ReadString('\n'); !strings.HasPrefix(line, ":") {
 		t.Fatalf("first line %q", line)
 	}
 	go func() {
@@ -687,7 +689,7 @@ func TestEventSource(t *testing.T) {
 			e := v.TimelineEntry
 			if e.ItemID != bbE1.Key.String() || e.ParentItemID != bbE1.Key.Parent().String() ||
 				e.RootItemID != breakingBad.Key.String() || e.Type != 4 || e.State != 5 ||
-				e.MetadataState != "created" || e.Identifier != model.LibraryIdentifier {
+				e.MetadataState != "" || e.Identifier != model.LibraryIdentifier {
 				t.Fatalf("timeline entry %+v", e)
 			}
 			return
@@ -717,7 +719,7 @@ func TestMovieScrobbleTimelineNamesItself(t *testing.T) {
 		}
 		e := entries[0]
 		if e.ItemID != fightClub.Key.String() || e.RootItemID != fightClub.Key.String() ||
-			e.Type != 1 || e.State != 5 || e.MetadataState != "created" {
+			e.Type != 1 || e.State != 5 || e.MetadataState != "" {
 			t.Fatalf("movie timeline %+v", e)
 		}
 	default:

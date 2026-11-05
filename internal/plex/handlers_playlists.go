@@ -522,7 +522,7 @@ func (s *Server) handlePlaylistDelete(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handlePlaylistItems(w http.ResponseWriter, r *http.Request) {

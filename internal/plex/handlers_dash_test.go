@@ -286,8 +286,8 @@ func TestStartDASHFailures(t *testing.T) {
 		t.Errorf("no item: %d", rec.Code)
 	}
 	f.playback.failures[fightClub.Key] = core.ErrNotAvailable
-	// Not available is temporary, not "this item is gone": 503 + Retry-After.
-	if rec := f.get(t, "/video/:/transcode/universal/start.mpd?"+dashQuery); rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+	// This playback attempt is terminal; a deliberate Play can try again.
+	if rec := f.get(t, "/video/:/transcode/universal/start.mpd?"+dashQuery); rec.Code != http.StatusNotFound || rec.Header().Get("Retry-After") != "" {
 		t.Errorf("not available: %d retry-after=%q", rec.Code, rec.Header().Get("Retry-After"))
 	}
 	// The plain shared fake returns HLS sessions: refused cleanly.
