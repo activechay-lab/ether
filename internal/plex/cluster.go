@@ -425,7 +425,7 @@ func (s *Server) endLocalSession(tid string, offset time.Duration) {
 		}
 		if current, ok := s.transcodes.get(id); ok && current.userID == e.user.ID && current.clientID == e.client.ClientID && current.key == e.key {
 			if s.d.Transcoder != nil {
-				s.d.Transcoder.Stop(id)
+				s.stopPlexHLS(id)
 			}
 			s.dropTranscode(id)
 		}

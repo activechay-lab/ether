@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"net/http"
 	"os"
 	"slices"
 	"sync"
@@ -26,7 +27,9 @@ import (
 
 // BrokerDeps are the explicit dependencies shared by all protocol surfaces.
 type BrokerDeps struct {
-	Coordination *Coordination
+	// DistributedHLS is opt-in; unsupported plans stay local before reservation.
+	DistributedHLS DistributedHLS
+	Coordination   *Coordination
 	// MaxPendingStarts bounds active or waiting neutral stream starts.
 	// Zero selects the default; the broker rejects values above 4096.
 	MaxPendingStarts int
@@ -203,6 +206,13 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 		return nil, errors.New("sessions: max pending starts exceeds 4096")
 	}
 	b := &Broker{sampleLimit: 100000, deps: d, startSlots: make(chan struct{}, limit), shutdownTimeout: 10 * time.Second, lazyCleanupWait: 5 * time.Second, planSweepEvery: 5 * time.Second, plans: make(map[string]brokerPlan), pendingByViewer: make(map[int64]int), sourceLeases: make(map[string]*sourceLease), sessions: make(map[string]*brokerSession), plexActivities: make(map[string]*PlexActivity), retired: make(map[string]retiredSession), devices: make(map[deviceKey]frontend.SessionCapabilities), owners: coord.Owners, gates: coord.Gates, bindings: NewBindingTable[frontend.PlayIntent](), plexStreams: NewPlexStreamTable()}
+	if d, ok := b.deps.DistributedHLS.(interface {
+		BindDelivery(func(http.ResponseWriter, *http.Request, string)) error
+	}); ok {
+		if err := d.BindDelivery(func(w http.ResponseWriter, r *http.Request, p string) { b.ServeMediaFor(frontend.Protocol(p), w, r) }); err != nil {
+			return nil, err
+		}
+	}
 	if d.DB != nil && d.Cluster != nil {
 		var err error
 		b.cluster, err = startBrokerCluster(b, d.DB, d.Cluster)
@@ -210,6 +220,7 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 			return nil, err
 		}
 	}
+
 	if d.SourceHistory != nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		b.historyCancel = cancel
@@ -217,6 +228,7 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 		b.historyDone = make(chan struct{})
 		go func() { defer close(b.historyDone); b.runSourceHistory(ctx) }()
 	}
+
 	return b, nil
 }
 func (b *Broker) viewer(ctx context.Context, v *core.Viewer) (*core.Viewer, error) {
@@ -782,6 +794,13 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 	if title == nil || title.Key != p.request.Item || (!title.Released.IsZero() && title.Released.After(b.deps.Now())) {
 		return frontend.Session{}, core.ErrNotFound
 	}
+	if remote, ok := b.deps.Playback.(interface {
+		RevalidateSession(context.Context, string) error
+	}); ok {
+		if err := remote.RevalidateSession(ctx, p.source.ID); err != nil {
+			return frontend.Session{}, err
+		}
+	}
 	ps, ok := b.deps.Playback.Session(p.source.ID)
 	if !ok || ps == nil || ps.UserID != v.ID || ps.ClientID != p.request.Caps.ClientID || ps.Key != p.request.Item {
 		return frontend.Session{}, core.ErrNotAvailable
@@ -797,9 +816,23 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 		}
 		return frontend.Session{}, core.ErrNotAvailable
 	}
+	if remote, ok := b.deps.Playback.(interface {
+		OpenRemoteSource(context.Context, string) error
+	}); ok {
+		if err := remote.OpenRemoteSource(ctx, p.source.ID); err != nil {
+			return frontend.Session{}, err
+		}
+	}
 	id, err := sessionID(req.Protocol)
 	if err != nil {
 		return frontend.Session{}, err
+	}
+	if binding, ok := b.deps.Playback.(interface {
+		BindClientSession(context.Context, string, string) error
+	}); ok {
+		if err := binding.BindClientSession(ctx, id, ps.ID); err != nil {
+			return frontend.Session{}, err
+		}
 	}
 	if req.Protocol == "plex" && p.external {
 		if !validPlexTranscodeID(p.request.Intent.ClientSessionID) {

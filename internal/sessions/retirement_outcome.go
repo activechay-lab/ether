@@ -16,20 +16,29 @@ func (b *Broker) retireBackends(ctx context.Context, s *brokerSession, stopSourc
 	var src core.SourceRetirement
 	var enc core.EncoderRetirement
 	var failed error
+	if remote, ok := b.deps.DistributedHLS.(interface {
+		EncoderRetirement(string) (core.EncoderRetirement, bool)
+	}); ok {
+		if token, owned := remote.EncoderRetirement(s.public.ID); owned {
+			enc = token
+		}
+	}
 	if b.deps.Transcoder != nil {
-		sess, ok := b.deps.Transcoder.Session(s.public.ID)
+		sess, ok := b.transcodeSession(s.public.ID)
 		if ok && sess != nil {
 			if owned, isOwned := sess.(core.OwnedEncoderSession); isOwned {
-				enc = owned.EncoderRetirement()
+				if enc == nil {
+					enc = owned.EncoderRetirement()
+				}
 				if err := owned.RetireEncoder(); err != nil {
 					failed = err
-					enc = nil
+					// Retain an already captured remote token on uncertain stop.
 				}
 			}
 		}
 		// Stop still removes the session before Stop returns. RetireEncoder
 		// only seals the outcome the barrier waits on.
-		b.deps.Transcoder.Stop(s.public.ID)
+		b.transcodeStop(s.public.ID)
 	}
 	if stopSource {
 		if owned, isOwned := b.deps.Playback.(core.OwnedSourcePlayback); isOwned {
