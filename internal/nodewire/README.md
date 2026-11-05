@@ -48,19 +48,45 @@ Integration:
   certificate **Boot**, since Controller is boot-scoped in that DTO. Policy still
   receives the complete identity and must bind the current controller membership;
   `Security.Authorize` must independently check placement/generation/source rights
-  for every operation. Supply `ClientTLS` to its private HTTP client.
+  for every operation. Supply `ClientTLS` to its private HTTP client and the
+  mandatory `AdapterOptions.RecheckServer` closure described below.
 - nodesource: `Options.Peer = guard.SourcePeer` returns stable NodeID and Boot,
   checking current roots/expiry/policy on every call (including reused TLS).
   This leaf-only API supports direct trusted-CA issuance; for intermediate chains
   compose `guard.Request` in a private request wrapper instead. Keep its existing
-  verified-chain handler checks. Supply `ClientTLS` and `BindServer` to the client.
-- Handshake callbacks alone cannot revoke active connections. Private runtime
-  clients MUST call `RecheckServer` per operation with established connection
-  state (including reused connections). Existing consumer clients do not expose
-  that hook; their runtime transport integration remains followup. Server handlers
-  use `Request` per operation. Long source copies additionally require live policy
+  verified-chain handler checks. Supply `ClientTLS`, `BindServer` and the mandatory
+  `ClientOptions.RecheckServer` closure described below to the client.
+- Both outbound consumers require `RecheckServer(ctx, state)` composed with
+  `guard.RecheckServer(ctx, state, expectedIdentity, hostname)`. The shared
+  [outbound transport](outbound/README.md) opens a fresh HTTP/1.1 TLS connection
+  per operation. Ordinary Go chain/hostname/EKU verification and original TLS
+  callbacks run first; current roots, expiry and complete cluster/node/boot
+  policy are checked against that selected connection before HTTP receives it
+  or can transmit credential headers or request bodies. Rejection closes the
+  connection. Keepalive, HTTP/2 and TLS session resumption are disabled, and
+  caller dial/proxy hooks cannot bypass admission. The fixed origin is enforced
+  and consumer clients refuse redirects.
+- Go 1.27 HTTP transport detaches dial cancellation but preserves context values.
+  The wrapper carries the original operation context in a private value and
+  restores it inside the TLS dial hook, with a bounded admission deadline.
+  Policy must cooperate with cancellation. This is a pre-write dial boundary,
+  not a `GotConn` cancellation assumption. Admission timeout does not impose a
+  new deadline on streaming response bodies; request cancellation and streaming
+  backpressure remain in effect. See the linked transport audit for ordering
+  evidence and real TLS fixtures.
+- After root/client credential rotation, explicitly build a new client and
+  transport from `ClientTLS`. Old transports still invoke current Guard policy
+  and cannot bypass removed roots, expiry or revocation. Checks are point-in-time:
+  handshake callbacks alone cannot revoke active connections, and outbound
+  admission does not terminate a stream already admitted. Server handlers use
+  `Request` per operation. Long source copies additionally require live policy
   through `Authority.Verify` at their existing cadence; the leaf mapper runs at
   request admission only. Certificate trust is never placement/source authority.
+
+**Unresolved throughput limitation:** every HEAD, execution RPC and source range
+read, including each 64 KiB read, pays a fresh TCP/TLS handshake. GPU/production
+throughput acceptance has not been demonstrated. Connection reuse requires a
+separately audited pre-write admission design; these primitives remain unwired.
 
 Provisioning, issuer custody, root bundle installation/bootstrap/adoption,
 authorized CSR enrollment and rotation scheduling remain host responsibilities.
