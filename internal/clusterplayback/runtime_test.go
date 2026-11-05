@@ -417,6 +417,45 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	// Same-owner reopen requires both old retirements and fresh exact revision
 	// and size; its attestation then binds a currently authorized new fence.
 	oldBinding := playbackcontinuity.SourceBinding{Owner: placement.Target{NodeID: sourceID.NodeID, Boot: sourceID.Boot}, PlayID: prepared.PlayID, Revision: prepared.Revision, Fence: record.Fence}
+	source.mu.Lock()
+	var originalPreparation *preparation
+	for _, entry := range source.preparations {
+		if entry.result.PlayID == prepared.PlayID && entry.result.Revision == prepared.Revision {
+			originalPreparation = entry
+			break
+		}
+	}
+	if originalPreparation == nil {
+		source.mu.Unlock()
+		t.Fatal("missing authorized original preparation")
+	}
+	originalSize := originalPreparation.result.Info.Size
+	originalPreparation.result.Info.Size = originalSize + 1
+	source.mu.Unlock()
+	mismatched, reopenErr := front.ReopenSource(ctx, oldBinding, "mismatched-size-reopen")
+	source.mu.Lock()
+	originalPreparation.result.Info.Size = originalSize
+	source.mu.Unlock()
+	if reopenErr == nil || mismatched.Responsibility == nil {
+		t.Fatal("reopen mismatch dropped owned lifetime")
+	}
+	select {
+	case <-mismatched.Responsibility.Done():
+		t.Fatal("reopen error alone proved retirement")
+	default:
+	}
+	for i := 0; i < 50; i++ {
+		_ = front.Tick(ctx)
+		source.Cleanup()
+		select {
+		case <-mismatched.Responsibility.Done():
+			goto mismatchRetired
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	t.Fatal("reopen mismatch lifetime did not retire exact operation")
+mismatchRetired:
 	reopened, err := front.ReopenSource(ctx, oldBinding, "same-owner-reopen")
 	if err != nil || reopened.Proof == "" || reopened.Prepared.Revision != oldBinding.Revision || reopened.Prepared.Info.Size != prepared.Info.Size {
 		t.Fatal("same-owner reopen", err)

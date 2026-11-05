@@ -16,8 +16,11 @@ type ReopenRequest struct {
 	Operation string
 }
 type ReopenedSource struct {
-	Prepared PreparedSource
-	Proof    string
+	Owner          nodewire.Identity
+	Operation      string
+	Responsibility *ReopenResponsibility `json:"-"`
+	Prepared       PreparedSource
+	Proof          string
 }
 type reopenRecord struct {
 	request   ReopenRequest
@@ -32,8 +35,28 @@ type reopenRecord struct {
 
 func (r *Runtime) ReopenSource(ctx context.Context, old playbackcontinuity.SourceBinding, operation string) (ReopenedSource, error) {
 	owner := nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: old.Owner.NodeID, Boot: old.Owner.Boot}
+	result := ReopenedSource{Owner: owner, Operation: operation}
+	if operation == "" || len(operation) > 128 || old.PlayID == "" || old.Revision == "" || old.Fence.Generation <= 0 {
+		return result, ErrDenied
+	}
+	life, e := r.reopenResponsibility(owner, old, operation)
+	if e != nil {
+		return result, e
+	}
+	result.Responsibility = life
+	r.mu.Lock()
+	sealed := life.retiring || life.retired
+	r.mu.Unlock()
+	if sealed {
+		return result, ErrPending
+	}
 	reply, e := r.sourceCall(ctx, Route{Source: owner}, sourceRequest{Op: "reopen", Reopen: &ReopenRequest{Old: old, Operation: operation}})
-	return ReopenedSource{Prepared: reply.Prepared, Proof: reply.Proof}, e
+	result.Prepared = reply.Prepared
+	result.Proof = reply.Proof
+	if e != nil {
+		life.Retire()
+	}
+	return result, e
 }
 func (r *Runtime) reopenSource(ctx context.Context, peer nodewire.Identity, q *ReopenRequest) (sourceResponse, error) {
 	if q == nil || q.Operation == "" || len(q.Operation) > 128 || q.Old.Owner != (placement.Target{NodeID: r.o.Self.NodeID, Boot: r.o.Self.Boot}) || q.Old.PlayID == "" || q.Old.Revision == "" || r.o.Eligible(ctx, peer, config.RoleServer) != nil || r.o.Eligible(ctx, r.o.Self, config.RoleSource) != nil {

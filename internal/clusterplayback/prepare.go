@@ -223,7 +223,18 @@ func (r *Runtime) preparationStatus(peer nodewire.Identity, operation string) (s
 		return sourceResponse{Phase: "preparing"}, nil
 	}
 	if entry.life == nil {
+		if entry.retiring {
+			return sourceResponse{Phase: "retired", Retired: true}, nil
+		}
 		return sourceResponse{Phase: "rejected"}, nil
+	}
+	select {
+	case <-entry.life.Done():
+		if entry.life.Err() == nil {
+			return sourceResponse{Phase: "retired", Retired: true}, nil
+		}
+		return sourceResponse{Phase: "owned-error"}, nil
+	default:
 	}
 	if !entry.finished {
 		return sourceResponse{Phase: "owned-error"}, nil

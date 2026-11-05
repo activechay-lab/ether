@@ -319,7 +319,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		list = append(list, &copy)
 	}
 	r.mu.Unlock()
-	var result error
+	result := r.tickReopenLives(ctx)
 	r.mu.Lock()
 	remote := r.remotePlayback
 	r.mu.Unlock()

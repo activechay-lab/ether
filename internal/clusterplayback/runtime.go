@@ -50,6 +50,7 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
+	reopenLives    map[string]*ReopenResponsibility
 	publicDelivery bool
 	reopens        map[string]*reopenRecord
 	plexDelivery   http.Handler
@@ -90,7 +91,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 	if o.DB == nil || o.Guard == nil || o.Placement == nil || o.Endpoint == nil || o.Eligible == nil || o.MemberRole == nil || o.Self.Cluster == "" || o.Self.NodeID == "" || o.Self.Boot == "" || !o.ClockBoundKnown || o.ClockSkew < 0 || o.ClockSkew > time.Minute || o.Capacity < 1 || o.Capacity > 4096 {
 		return nil, ErrDenied
 	}
-	r := &Runtime{reopens: map[string]*reopenRecord{}, preparations: map[string]*preparation{}, o: o, mux: http.NewServeMux(), sources: map[string]*ownedSource{}, inputs: map[remotetranscode.Identity]*workerInput{}, executions: map[string]*execution{}}
+	r := &Runtime{reopenLives: map[string]*ReopenResponsibility{}, reopens: map[string]*reopenRecord{}, preparations: map[string]*preparation{}, o: o, mux: http.NewServeMux(), sources: map[string]*ownedSource{}, inputs: map[remotetranscode.Identity]*workerInput{}, executions: map[string]*execution{}}
 	if o.Playback != nil {
 		if o.SourceAccess == nil || o.ActiveViewer == nil || o.SourcePolicy == nil {
 			return nil, ErrDenied
@@ -198,6 +199,9 @@ func (r *Runtime) Cleanup() {
 func (r *Runtime) Close() error {
 	r.mu.Lock()
 	r.closed = true
+	for _, life := range r.reopenLives {
+		life.retiring = true
+	}
 	list := make([]*execution, 0, len(r.executions))
 	for _, x := range r.executions {
 		list = append(list, x)
@@ -281,7 +285,15 @@ func (r *Runtime) Pending(ctx context.Context) (int, error) {
 	r.mu.Lock()
 	remote := r.remotePlayback
 	r.mu.Unlock()
-	n := starting
+	r.mu.Lock()
+	reopenPending := 0
+	for _, life := range r.reopenLives {
+		if !life.retired {
+			reopenPending++
+		}
+	}
+	r.mu.Unlock()
+	n := starting + reopenPending
 	if remote != nil {
 		n += remote.pending()
 	}
