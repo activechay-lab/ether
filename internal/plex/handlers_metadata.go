@@ -96,7 +96,7 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey
 func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	if androidTVClient(pr) {
+	if plexAndroidClient(pr) {
 		pr.detailWaitUntil = time.Now().Add(detailWarmWaitBudget)
 	}
 	q := r.URL.Query()
@@ -351,7 +351,7 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *core.Title) {
 	if t == nil || !isPlayable(t.Type) || s.d.Playback == nil {
 		return
 	}
-	if androidTVClient(pr) {
+	if plexAndroidClient(pr) {
 		if _, ok := s.d.Playback.(core.MetadataProber); ok {
 			// A single wait: do not add speculative warmDetail's four seconds
 			// after the metadata probe's own bounded wait. Errors/timeouts
@@ -1031,11 +1031,11 @@ func (s *Server) probeDetailTracks(ctx context.Context, pr *Request, t *core.Tit
 	return nil
 }
 
-// Disabled warming on Android TV permits cached metadata reads only: neither
+// Disabled warming on Plex Android permits cached metadata reads only: neither
 // the required probe nor version discovery may start a fresh indexer search.
 // Other clients retain their existing discovery policy.
 func (s *Server) detailSearchAllowed(pr *Request) bool {
-	if !androidTVClient(pr) {
+	if !plexAndroidClient(pr) {
 		return true
 	}
 	c := s.cfg().Cache
