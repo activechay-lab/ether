@@ -1,3 +1,4 @@
+import Library from "./library/Library";
 import { styleCopy } from "./onair/naming";
 import { stylesName } from "./onair/naming";
 import { useLooks, LooksAside, LooksGallery, LookSurfaces } from "./onair/LooksGallery";
@@ -115,7 +116,7 @@ export default function LiveTV() {
   // The Guide tab's selected guide source; none means All guides.
   const guideSourceId = params.get("gsrc");
   const [leftTab, setLeftTab] = useState(
-    tab === "looks"
+    tab === "library" ? "library" : tab === "looks"
       ? "looks"
       : tab === "guide-data"
         ? "guide"
@@ -128,7 +129,7 @@ export default function LiveTV() {
     // The Guide tab has no route of its own: leaving Looks for Guide lands on
     // /livetv, which must keep the Guide tab rather than fall back to Channels.
     setLeftTab((prev) =>
-      tab === "looks"
+      tab === "library" ? "library" : tab === "looks"
         ? "looks"
         : tab === "guide-data"
           ? "guide"
@@ -778,12 +779,13 @@ export default function LiveTV() {
       </div>
       <SubtabNav
         ariaLabel={t("Lineup")}
-        className="grid grid-cols-4 gap-0 overflow-visible [&>button]:min-w-0 [&>button]:justify-center [&>button]:px-0.5 [&>button]:text-xs @min-[280px]:[&>button]:text-sm [&>button>span]:block [&>button>span]:min-w-0 [&>button>span]:break-words"
+        className="grid grid-cols-5 gap-0 overflow-visible [&>button]:min-w-0 [&>button]:justify-center [&>button]:px-0.5 [&>button]:text-xs @min-[280px]:[&>button]:text-sm [&>button>span]:block [&>button>span]:min-w-0 [&>button>span]:break-words"
         active={leftTab}
         onSelect={(next) => {
           setLeftTab(next);
-          if (next === "looks") navigate("/livetv/looks");
-          else if (tab === "looks") navigate(next === "sources" ? "/livetv/sources" : "/livetv");
+          if (next === "library") navigate("/livetv/library");
+          else if (next === "looks") navigate("/livetv/looks");
+          else if (tab === "looks" || tab === "library") navigate(next === "sources" ? "/livetv/sources" : "/livetv");
         }}
         tabs={[
           { key: "channels", label: t("Channels") },
@@ -793,6 +795,7 @@ export default function LiveTV() {
           },
           { key: "guide", label: t("Guide") },
           { key: "looks", label: stylesName() },
+          { key: "library", label: t("Library") },
         ]}
       />
     </PanelHead>
@@ -948,7 +951,7 @@ export default function LiveTV() {
   const guideSource = guideSourceId ? sources.find((x) => x.id === guideSourceId) : undefined;
   const mainClassName = "";
   const main =
-    leftTab === "looks" ? (
+    leftTab === "library" ? <Library /> : leftTab === "looks" ? (
       <LooksGallery
         looks={looks}
         onNew={() => setParams(new URLSearchParams({ look: "new" }))}
