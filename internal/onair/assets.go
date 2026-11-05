@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -81,6 +82,41 @@ func (s *Service) UploadAsset(ctx context.Context, name, kind, license string, r
 			return Asset{}, e
 		}
 		f.Close()
+		// Lossless owner stings have a separate, explicitly selected demuxer.
+		// The general media probe whitelist remains unchanged.
+		if kind == "audio" {
+			format := ""
+			if len(b) >= 12 && string(b[:4]) == "RIFF" && string(b[8:12]) == "WAVE" {
+				format = "wav"
+			}
+			if len(b) >= 12 && string(b[:4]) == "FORM" && (string(b[8:12]) == "AIFF" || string(b[8:12]) == "AIFC") {
+				format = "aiff"
+			}
+			if len(b) >= 4 && string(b[:4]) == "fLaC" {
+				format = "flac"
+			}
+			if format != "" {
+				if s.o.FFmpeg == nil {
+					return Asset{}, fmt.Errorf("audio conversion unavailable")
+				}
+				out := f.Name() + ".m4a"
+				defer os.Remove(out)
+				cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
+				cmd := exec.CommandContext(cctx, s.o.FFmpeg(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-protocol_whitelist", "file,pipe", "-format_whitelist", format, "-f", format, "-i", f.Name(), "-map", "0:a:0", "-vn", "-t", "31", "-ac", "2", "-ar", "48000", "-c:a", "aac", "-b:a", "192k", "-threads", "1", out)
+				if e = cmd.Run(); e != nil {
+					return Asset{}, fmt.Errorf("convert audio asset: %w", e)
+				}
+				b, e = os.ReadFile(out)
+				if e != nil {
+					return Asset{}, e
+				}
+				if e = os.WriteFile(f.Name(), b, 0600); e != nil {
+					return Asset{}, e
+				}
+				mime = "audio/mp4"
+			}
+		}
 		info, e := s.o.Probe(ctx, f.Name())
 		if e != nil {
 			return Asset{}, e

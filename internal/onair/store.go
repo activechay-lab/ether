@@ -54,7 +54,7 @@ func (s *Service) validateLook(ctx context.Context, l Look) error {
 	if strings.TrimSpace(l.Name) == "" || utf8.RuneCountInString(l.Name) > 120 || utf8.RuneCountInString(l.Brand.Tagline) > 40 {
 		return fmt.Errorf("name required (120 characters maximum); tagline maximum 40 characters")
 	}
-	if !strings.Contains(" clean kids lateNight late-night cinema retro personal ", " "+l.Family+" ") {
+	if !strings.Contains(" clean kids lateNight late-night cinema retro personal grunge aqua flat ", " "+l.Family+" ") {
 		var n int
 		if e := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM onair_families WHERE id=?", l.Family).Scan(&n); e != nil || n == 0 {
 			return fmt.Errorf("unknown family %q", l.Family)

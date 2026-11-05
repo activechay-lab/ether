@@ -43,7 +43,7 @@ func familyLook(id, name string) Look {
 }
 func (s *Service) FamilyRecords(ctx context.Context) ([]json.RawMessage, error) {
 	out := []json.RawMessage{}
-	for _, v := range [][2]string{{"clean", "Clean"}, {"kids", "Kids"}, {"lateNight", "Late night"}, {"cinema", "Cinema"}, {"retro", "Retro"}, {"personal", "Personal"}} {
+	for _, v := range [][2]string{{"grunge", "Grunge 90"}, {"aqua", "Aqua 00"}, {"flat", "Flat 10"}, {"clean", "Clean"}, {"kids", "Kids"}, {"lateNight", "Late night"}, {"cinema", "Cinema"}, {"retro", "Retro"}, {"personal", "Personal"}} {
 		b, _ := json.Marshal(FamilyRecord{v[0], v[1], familyLook(v[0], v[1])})
 		out = append(out, b)
 	}

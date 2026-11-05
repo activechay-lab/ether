@@ -1,0 +1,50 @@
+{
+  "v": 1,
+  "moment": "lowerthird",
+  "duration": 8,
+  "poster": 4,
+  "layers": [
+    {
+      "id": "Strap",
+      "type": "rect",
+      "x": 120,
+      "y": 820,
+      "w": 1680,
+      "h": 150,
+      "fill": "{bg}"
+    },
+    {
+      "id": "Edge",
+      "type": "rect",
+      "x": 120,
+      "y": 820,
+      "w": 12,
+      "h": 150,
+      "fill": "{accent}"
+    },
+    {
+      "id": "Now",
+      "type": "text",
+      "text": "NOW PLAYING",
+      "x": 160,
+      "y": 865,
+      "size": 24,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1500
+    },
+    {
+      "id": "Programme",
+      "type": "text",
+      "text": "{now.title}",
+      "x": 160,
+      "y": 935,
+      "size": 55,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1500
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { programmeArtwork } from "./model";
 import { rundownPreview } from "./onair/rundown";
 import { ClockRows } from "./onair/ClockRows";
 import { LookTab } from "./onair/LookTab";
@@ -317,7 +318,7 @@ export function ChannelStudio({
       >
         {live?.item.thumb ? (
           <Artwork
-            src={live.item.thumb}
+            src={programmeArtwork(live.item.thumb)}
             alt=""
             title=""
             className="pointer-events-none absolute inset-y-0 right-0 hidden w-1/2 opacity-25 blur-[1px] [mask-image:linear-gradient(to_left,black,transparent)] sm:block"

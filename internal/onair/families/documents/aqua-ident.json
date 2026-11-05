@@ -1,0 +1,200 @@
+{
+  "v": 1,
+  "moment": "ident",
+  "duration": 8,
+  "poster": 4,
+  "layers": [
+    {
+      "id": "Background",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": {
+        "linear": [
+          0,
+          0,
+          0,
+          1080
+        ],
+        "stops": [
+          [
+            0,
+            "{bg}"
+          ],
+          [
+            1,
+            "#004d77"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "Orb",
+      "type": "blob",
+      "x": 1080,
+      "y": 200,
+      "w": 690,
+      "h": 690,
+      "fill": {
+        "linear": [
+          0,
+          0,
+          0,
+          1080
+        ],
+        "stops": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.25,
+            "{glow}"
+          ],
+          [
+            1,
+            "{accent}"
+          ]
+        ]
+      },
+      "opacity": 0.55,
+      "seed": 21,
+      "behave": [
+        {
+          "drift": {
+            "speed": 0.6,
+            "amplitude": 24
+          }
+        }
+      ]
+    },
+    {
+      "id": "Swoosh",
+      "type": "path",
+      "path": "M -100 900 Q 700 180 2020 650 L 2020 700 Q 700 240 -100 980 Z",
+      "fill": "{glow}",
+      "opacity": 0.4
+    },
+    {
+      "id": "Glass",
+      "type": "rect",
+      "x": 120,
+      "y": 260,
+      "w": 1680,
+      "h": 530,
+      "fill": {
+        "linear": [
+          0,
+          0,
+          0,
+          1080
+        ],
+        "stops": [
+          [
+            0,
+            "#ffffff@0.3"
+          ],
+          [
+            0.5,
+            "#ffffff@0.06"
+          ],
+          [
+            1,
+            "#ffffff@0.18"
+          ]
+        ]
+      },
+      "stroke": "#ffffff@0.4",
+      "strokeWidth": 2
+    },
+    {
+      "id": "Lens",
+      "type": "path",
+      "path": "M 1320 130 L 1336 320 L 1540 340 L 1336 356 L 1320 550 L 1303 356 L 1110 340 L 1303 320 Z",
+      "fill": "#ffffff",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0.1
+          ],
+          [
+            2,
+            0.6
+          ],
+          [
+            4,
+            0.1
+          ],
+          [
+            8,
+            0.1
+          ]
+        ]
+      }
+    },
+    {
+      "id": "Title",
+      "type": "text",
+      "text": "{channel.name}",
+      "x": 960,
+      "y": 535,
+      "size": 140,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "align": "center",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.7,
+            1,
+            "out"
+          ],
+          [
+            7.5,
+            1
+          ],
+          [
+            8,
+            0
+          ]
+        ]
+      }
+    },
+    {
+      "id": "Detail",
+      "type": "text",
+      "text": "{words.tagline}",
+      "x": 960,
+      "y": 660,
+      "size": 48,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "align": "center",
+      "maxWidth": 1500,
+      "fit": "shrink"
+    },
+    {
+      "id": "Station",
+      "type": "text",
+      "text": "{channel.name}  /  {station.id}",
+      "x": 960,
+      "y": 930,
+      "size": 26,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "align": "center",
+      "track": 6
+    }
+  ]
+}

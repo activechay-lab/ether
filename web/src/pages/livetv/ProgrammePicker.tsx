@@ -1,3 +1,4 @@
+import { programmeArtwork } from "./model";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { ArrowDown, ArrowUp, Shuffle, X } from "lucide-react";
 import { useRef, useState } from "react";
@@ -116,7 +117,7 @@ export function ProgrammePicker({
                   {index + 1}
                 </span>
                 <Artwork
-                  src={item.thumb}
+                  src={programmeArtwork(item.thumb)}
                   alt=""
                   title={item.title}
                   className="h-12 w-8 shrink-0 rounded"

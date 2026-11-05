@@ -1,0 +1,367 @@
+{
+  "v": 1,
+  "moment": "break",
+  "duration": 8,
+  "poster": 4,
+  "layers": [
+    {
+      "id": "Background",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": "{bg}"
+    },
+    {
+      "id": "Paint-0",
+      "type": "blob",
+      "x": 1080.0,
+      "y": 460.0,
+      "w": 100,
+      "h": 100,
+      "fill": "{glow}",
+      "seed": 8,
+      "rotate": 0,
+      "opacity": 0.65
+    },
+    {
+      "id": "Paint-1",
+      "type": "blob",
+      "x": 857.5022735397669,
+      "y": 553.88938209661,
+      "w": 113,
+      "h": 109,
+      "fill": "{accent}",
+      "seed": 9,
+      "rotate": 17,
+      "opacity": 0.65
+    },
+    {
+      "id": "Paint-2",
+      "type": "blob",
+      "x": 973.8248393834325,
+      "y": 302.6059918039372,
+      "w": 126,
+      "h": 118,
+      "fill": "{glow}",
+      "seed": 10,
+      "rotate": 34,
+      "opacity": 0.65
+    },
+    {
+      "id": "Paint-3",
+      "type": "blob",
+      "x": 1067.6781826722092,
+      "y": 600.4792119013,
+      "w": 139,
+      "h": 127,
+      "fill": "{accent}",
+      "seed": 11,
+      "rotate": 51,
+      "opacity": 0.65
+    },
+    {
+      "id": "Paint-4",
+      "type": "blob",
+      "x": 767.0011802643511,
+      "y": 425.831950880296,
+      "w": 152,
+      "h": 136,
+      "fill": "{glow}",
+      "seed": 12,
+      "rotate": 68,
+      "opacity": 0.65
+    },
+    {
+      "id": "Paint-5",
+      "type": "blob",
+      "x": 1141.4286011274858,
+      "y": 344.6368226299065,
+      "w": 165,
+      "h": 145,
+      "fill": "{accent}",
+      "seed": 13,
+      "rotate": 85,
+      "opacity": 0.65
+    },
+    {
+      "id": "Paint-6",
+      "type": "blob",
+      "x": 899.2027386459815,
+      "y": 685.963919712531,
+      "w": 178,
+      "h": 154,
+      "fill": "{glow}",
+      "seed": 14,
+      "rotate": 102,
+      "opacity": 0.65
+    },
+    {
+      "id": "Paint-7",
+      "type": "blob",
+      "x": 843.4483173849253,
+      "y": 235.44554050387936,
+      "w": 191,
+      "h": 163,
+      "fill": "{accent}",
+      "seed": 15,
+      "rotate": 119,
+      "opacity": 0.65
+    },
+    {
+      "id": "Paint-8",
+      "type": "blob",
+      "x": 1215.467934301549,
+      "y": 553.3816606390116,
+      "w": 204,
+      "h": 172,
+      "fill": "{glow}",
+      "seed": 16,
+      "rotate": 136,
+      "opacity": 0.65
+    },
+    {
+      "id": "Paint-9",
+      "type": "blob",
+      "x": 690.978713499991,
+      "y": 570.9438930715885,
+      "w": 217,
+      "h": 181,
+      "fill": "{accent}",
+      "seed": 17,
+      "rotate": 153,
+      "opacity": 0.65
+    },
+    {
+      "id": "Paint-10",
+      "type": "blob",
+      "x": 1091.4954922744691,
+      "y": 179.2707077779466,
+      "w": 230,
+      "h": 190,
+      "fill": "{glow}",
+      "seed": 18,
+      "rotate": 170,
+      "opacity": 0.65
+    },
+    {
+      "id": "Paint-11",
+      "type": "blob",
+      "x": 1058.337411193911,
+      "y": 773.9597960880973,
+      "w": 243,
+      "h": 199,
+      "fill": "{accent}",
+      "seed": 19,
+      "rotate": 187,
+      "opacity": 0.65
+    },
+    {
+      "id": "Paint-12",
+      "type": "blob",
+      "x": 658.9835207785737,
+      "y": 285.37732324484125,
+      "w": 256,
+      "h": 208,
+      "fill": "{glow}",
+      "seed": 20,
+      "rotate": 204,
+      "opacity": 0.65
+    },
+    {
+      "id": "Slash",
+      "type": "rect",
+      "x": -100,
+      "y": 730,
+      "w": 2200,
+      "h": 130,
+      "fill": "{accent}",
+      "rotate": -6
+    },
+    {
+      "id": "Frequency",
+      "type": "text",
+      "text": "NO RULES. JUST TELEVISION.",
+      "x": 120,
+      "y": 150,
+      "size": 30,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "track": 9
+    },
+    {
+      "id": "Bevel-8",
+      "type": "text",
+      "text": "WE\u2019LL BE RIGHT BACK",
+      "x": 984,
+      "y": 559,
+      "size": 140,
+      "font": "{type.display}",
+      "fill": "#24112f",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "align": "center"
+    },
+    {
+      "id": "Bevel-7",
+      "type": "text",
+      "text": "WE\u2019LL BE RIGHT BACK",
+      "x": 981,
+      "y": 556,
+      "size": 140,
+      "font": "{type.display}",
+      "fill": "#24112f",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "align": "center"
+    },
+    {
+      "id": "Bevel-6",
+      "type": "text",
+      "text": "WE\u2019LL BE RIGHT BACK",
+      "x": 978,
+      "y": 553,
+      "size": 140,
+      "font": "{type.display}",
+      "fill": "#24112f",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "align": "center"
+    },
+    {
+      "id": "Bevel-5",
+      "type": "text",
+      "text": "WE\u2019LL BE RIGHT BACK",
+      "x": 975,
+      "y": 550,
+      "size": 140,
+      "font": "{type.display}",
+      "fill": "#24112f",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "align": "center"
+    },
+    {
+      "id": "Bevel-4",
+      "type": "text",
+      "text": "WE\u2019LL BE RIGHT BACK",
+      "x": 972,
+      "y": 547,
+      "size": 140,
+      "font": "{type.display}",
+      "fill": "#24112f",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "align": "center"
+    },
+    {
+      "id": "Bevel-3",
+      "type": "text",
+      "text": "WE\u2019LL BE RIGHT BACK",
+      "x": 969,
+      "y": 544,
+      "size": 140,
+      "font": "{type.display}",
+      "fill": "#24112f",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "align": "center"
+    },
+    {
+      "id": "Bevel-2",
+      "type": "text",
+      "text": "WE\u2019LL BE RIGHT BACK",
+      "x": 966,
+      "y": 541,
+      "size": 140,
+      "font": "{type.display}",
+      "fill": "#24112f",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "align": "center"
+    },
+    {
+      "id": "Bevel-1",
+      "type": "text",
+      "text": "WE\u2019LL BE RIGHT BACK",
+      "x": 963,
+      "y": 538,
+      "size": 140,
+      "font": "{type.display}",
+      "fill": "#24112f",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "align": "center"
+    },
+    {
+      "id": "Title",
+      "type": "text",
+      "text": "WE\u2019LL BE RIGHT BACK",
+      "x": 960,
+      "y": 535,
+      "size": 140,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "align": "center",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.7,
+            1,
+            "out"
+          ],
+          [
+            7.5,
+            1
+          ],
+          [
+            8,
+            0
+          ]
+        ]
+      }
+    },
+    {
+      "id": "Detail",
+      "type": "text",
+      "text": "{channel.name}",
+      "x": 960,
+      "y": 660,
+      "size": 48,
+      "font": "{type.mono}",
+      "fill": "{text}",
+      "align": "center",
+      "maxWidth": 1500,
+      "fit": "shrink"
+    },
+    {
+      "id": "Station",
+      "type": "text",
+      "text": "{channel.name}  /  {station.id}",
+      "x": 960,
+      "y": 930,
+      "size": 26,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 1500,
+      "align": "center",
+      "track": 6
+    }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": 0.18
+    }
+  ]
+}
