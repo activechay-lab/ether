@@ -64,7 +64,7 @@ type continuousProcess struct {
 	stderr  *tailBuffer
 }
 
-func (m *Manager) startContinuous(ctx context.Context, args []string, dir string, drain bool, sockets []*rawSocket, stdout io.Writer, release func()) (*continuousProcess, error) {
+func (m *Manager) startContinuous(ctx context.Context, args []string, dir string, drain bool, sockets []*rawSocket, stdout io.Writer, release func(), observers ...func(string)) (*continuousProcess, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	m.mu.Lock()
 	if m.closed {
@@ -83,7 +83,12 @@ func (m *Manager) startContinuous(ctx context.Context, args []string, dir string
 			break
 		}
 	}
-	p, e := m.runner.Start(Command{Path: m.ffmpeg, Args: args, Dir: dir, Stdout: stdout, Stderr: &lineWriter{fn: func(line string) { stderr.add((redactingRunner{input: input}).redact(line)) }}})
+	p, e := m.runner.Start(Command{Path: m.ffmpeg, Args: args, Dir: dir, Stdout: stdout, Stderr: &lineWriter{fn: func(line string) {
+		for _, observe := range observers {
+			observe(line)
+		}
+		stderr.add((redactingRunner{input: input}).redact(line))
+	}}})
 	if e != nil {
 		cancel()
 		m.continuousWG.Done()

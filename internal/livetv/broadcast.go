@@ -502,6 +502,9 @@ func (b *broadcast) step(now time.Time) {
 		case f, ok := <-b.current.frames:
 			if ok && validRawFrame(b.format, f) {
 				frame = f
+				if source, ok := b.current.decoder.(interface{ Aired(transcode.RawFrame) }); ok {
+					source.Aired(frame)
+				}
 				if b.current.lastFrameAt.IsZero() {
 					b.logger.Debug("broadcast decoder first frame", "input", current.id, "latency", now.Sub(b.current.started))
 				}

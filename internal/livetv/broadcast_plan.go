@@ -250,12 +250,13 @@ func (s *Service) reserveBroadcastProvider(account, channel, id string, limit in
 }
 
 type providerBroadcastPlanner struct {
-	s        *Service
-	channel  Channel
-	format   transcode.RawFormat
-	runner   transcode.ContinuousRunner
-	mu       sync.Mutex
-	selected StreamSource
+	s         *Service
+	channel   Channel
+	format    transcode.RawFormat
+	runner    transcode.ContinuousRunner
+	mu        sync.Mutex
+	selected  StreamSource
+	lastAired map[string]time.Duration
 }
 
 func (p *providerBroadcastPlanner) plans(time.Time) (broadcastPlan, *broadcastPlan) {
@@ -341,23 +342,51 @@ func (p *providerBroadcastPlanner) open(ctx context.Context) (transcode.Decoder,
 		p.mu.Lock()
 		p.selected = src
 		p.mu.Unlock()
-		return &providerBroadcastDecoder{Decoder: decoder, ready: func() { p.s.recordSourceHealth(c.ID, src, nil, true) }}, cleanup, nil
+		return &providerBroadcastDecoder{Decoder: decoder, planner: p, sourceID: src.ID, ready: func() { p.s.recordSourceHealth(c.ID, src, nil, true) }}, cleanup, nil
 	}
 	return nil, nil, fmt.Errorf("broadcast provider: %w", last)
 }
 
 type providerBroadcastDecoder struct {
 	transcode.Decoder
-	once  sync.Once
-	ready func()
+	planner  *providerBroadcastPlanner
+	sourceID string
+	once     sync.Once
+	ready    func()
 }
 
 func (d *providerBroadcastDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
-	frame, err := d.Decoder.Next(ctx)
-	if err == nil {
+	for {
+		frame, err := d.Decoder.Next(ctx)
+		if err != nil {
+			return frame, err
+		}
+		if !frame.SourcePTSValid {
+			return transcode.RawFrame{}, fmt.Errorf("live decoder did not report a source timestamp")
+		}
+		d.planner.mu.Lock()
+		floor, seen := d.planner.lastAired[d.sourceID]
+		d.planner.mu.Unlock()
+		if seen && frame.SourcePTS <= floor {
+			continue
+		}
 		d.once.Do(d.ready)
+		return frame, nil
 	}
-	return frame, err
+}
+func (d *providerBroadcastDecoder) Aired(frame transcode.RawFrame) {
+	if !frame.SourcePTSValid {
+		return
+	}
+	d.planner.mu.Lock()
+	defer d.planner.mu.Unlock()
+	if d.planner.lastAired == nil {
+		d.planner.lastAired = map[string]time.Duration{}
+	}
+	last, seen := d.planner.lastAired[d.sourceID]
+	if !seen || frame.SourcePTS > last {
+		d.planner.lastAired[d.sourceID] = frame.SourcePTS
+	}
 }
 
 func (p *scheduleBroadcastPlanner) broadcastLogger() *slog.Logger {
@@ -365,4 +394,15 @@ func (p *scheduleBroadcastPlanner) broadcastLogger() *slog.Logger {
 }
 func (p *providerBroadcastPlanner) broadcastLogger() *slog.Logger {
 	return p.s.o.Logger.With("channel", p.channel.ID)
+}
+
+func (d *providerBroadcastDecoder) Diagnostics() string {
+	d.planner.mu.Lock()
+	floor := d.planner.lastAired[d.sourceID]
+	d.planner.mu.Unlock()
+	details := ""
+	if source, ok := d.Decoder.(interface{ Diagnostics() string }); ok {
+		details = source.Diagnostics()
+	}
+	return fmt.Sprintf("lastAiredSourcePTS=%s %s", floor, details)
 }

@@ -27,7 +27,7 @@ func (e *broadcastFakeEncoder) Write(ctx context.Context, f transcode.RawFrame) 
 		return ctx.Err()
 	default:
 	}
-	copyFrame := transcode.RawFrame{Video: append([]byte(nil), f.Video...), PCM: append([]byte(nil), f.PCM...)}
+	copyFrame := transcode.RawFrame{Video: append([]byte(nil), f.Video...), PCM: append([]byte(nil), f.PCM...), SourcePTS: f.SourcePTS, SourcePTSValid: f.SourcePTSValid}
 	if len(f.Video) > 6 {
 		return nil
 	}
@@ -103,6 +103,8 @@ func (d *broadcastFakeDecoder) Next(ctx context.Context) (transcode.RawFrame, er
 	default:
 	}
 	frame := blackFrame(d.format, tickSamples(d.format, d.tick))
+	frame.SourcePTS = time.Duration(d.tick) * time.Second / 30
+	frame.SourcePTSValid = true
 	d.tick++
 	for i := range frame.Video {
 		frame.Video[i] = 80
