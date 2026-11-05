@@ -448,10 +448,11 @@ func TestMatchingPolicyRanksLikeTheConsole(t *testing.T) {
 		{Row: "collection:c1*", Status: "always"},
 	}}
 	cases := []struct{ hubID, kind, want string }{
-		// An exact hub id without its screen prefix beats the kind.
-		{"home.because.42", "because-you-watched", "because.42"},
+		// A screen-less stem must not change existing Plex policy precedence.
+		{"home.because.42", "because-you-watched", "because-you-watched"},
 		{"home.because.7", "because-you-watched", "because-you-watched"},
 		{"home.because.7", "because-you-watched.x", "because.*"},
+		{"home.because.42", "other", "because.42"},
 		// Equally specific rules: the later one wins.
 		{"collection.c10", "collection:c10", "collection:c1*"},
 		{"collection.c2", "collection:c2", "collection:*"},

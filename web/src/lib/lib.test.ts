@@ -271,7 +271,7 @@ describe("layout", () => {
     };
     expect(
       effectivePolicy(doc, null, "home", "home.because.42", "because-you-watched")?.policy.row,
-    ).toBe("because.42");
+    ).toBe("because-you-watched");
     expect(
       effectivePolicy(doc, null, "home", "home.because.7", "because-you-watched")?.policy.row,
     ).toBe("because-you-watched");

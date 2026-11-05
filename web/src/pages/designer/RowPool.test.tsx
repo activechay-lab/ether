@@ -269,3 +269,98 @@ describe("collection rows", () => {
     expect(rowsOf(last!)).toEqual([]);
   });
 });
+
+describe("pattern constraint inheritance", () => {
+  const pattern = {
+    row: "collection:*",
+    status: "always" as const,
+    priority: 2.5,
+    minSlot: 2,
+    maxSlot: 8,
+    maxPerPage: 1,
+    when: { days: [1, 2] },
+  };
+  it.each(["global", 7] as const)("preserves matched constraints in a bulk edit in %s", (layer) => {
+    let last: HomeLayout | undefined;
+    render(
+      <Harness
+        initial={setPolicy(EMPTY_LAYOUT, "global", "home", pattern)}
+        available={collections.slice(0, 2)}
+        layer={layer}
+        onDraft={(d) => (last = d)}
+      />,
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Collection 0" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set the selected rows to Off" }));
+    const pages = layer === "global" ? last!.global : last!.viewers[0]!.pages;
+    expect(pages[0]!.rows.find((r) => r.row === "collection:c0")).toEqual({
+      ...pattern,
+      row: "collection:c0",
+      status: "off",
+    });
+  });
+  it("preserves matched constraints in an inline edit", () => {
+    let last: HomeLayout | undefined;
+    render(
+      <Harness
+        initial={setPolicy(EMPTY_LAYOUT, "global", "home", pattern)}
+        available={collections.slice(0, 2)}
+        onDraft={(d) => (last = d)}
+      />,
+    );
+    const row = screen.getByRole("listitem", { name: "Row Collection 0" });
+    fireEvent.click(within(row).getByRole("radio", { name: "Off" }));
+    expect(rowsOf(last!).find((r) => r.row === "collection:c0")).toEqual({
+      ...pattern,
+      row: "collection:c0",
+      status: "off",
+    });
+  });
+});
+
+describe("large catalogues", () => {
+  it("bulk edits 1000 folded collection rows without creating a pattern", () => {
+    const large = Array.from({ length: 1000 }, (_, i) => ({
+      ...collections[0]!,
+      hubId: `collection:large${i}`,
+      kind: `collection:large${i}`,
+      title: `Large ${i}`,
+    }));
+    let last: HomeLayout | undefined;
+    render(<Harness initial={EMPTY_LAYOUT} available={large} onDraft={(d) => (last = d)} />);
+    expect(screen.queryByRole("listitem")).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select every row in Collections" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set the selected rows to Off" }));
+    expect(rowsOf(last!)).toHaveLength(1000);
+    expect(rowsOf(last!).every((r) => r.status === "off" && !r.row.includes("*"))).toBe(true);
+  });
+  it("keeps inherited anchors unique across selected rows", () => {
+    const initial = setPolicy(EMPTY_LAYOUT, "global", "home", {
+      row: "collection:*",
+      status: "always",
+      slot: 2,
+    });
+    const result = setStatuses(
+      initial,
+      7,
+      "home",
+      ["collection:c0", "collection:c1"],
+      "always",
+      () => initial.global[0]!.rows[0],
+    );
+    expect(result.viewers[0]!.pages[0]!.rows).toEqual([
+      { row: "collection:c0", status: "always" },
+      { row: "collection:c1", status: "always", slot: 2 },
+    ]);
+  });
+});
+
+it("does not bulk edit a selected row hidden by an inline status change", () => {
+  render(<Harness initial={EMPTY_LAYOUT} available={picks} />);
+  const filter = screen.getByRole("radiogroup", { name: "Show rows by status" });
+  fireEvent.click(within(filter).getByRole("radio", { name: "Eligible" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select Trending" }));
+  const status = screen.getByRole("radiogroup", { name: "Status of Trending" });
+  fireEvent.click(within(status).getByRole("radio", { name: "Off" }));
+  expect(screen.queryByRole("toolbar", { name: "Selected rows" })).toBeNull();
+});

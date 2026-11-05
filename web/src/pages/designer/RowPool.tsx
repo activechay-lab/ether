@@ -110,7 +110,7 @@ function resolve(
   );
   if (eff && eff.policy.row !== e.row)
     return {
-      policy: { row: e.row, status: eff.policy.status },
+      policy: { ...eff.policy, row: e.row },
       origin: "pattern",
       via: eff.policy.row,
     };
@@ -205,12 +205,14 @@ export function RowPool({
           kind: a.kind,
         };
       });
+    const known = new Set(out.map((e) => e.row));
     for (const d of registry.descriptors) {
       if (!isPluginDescriptor(d)) continue;
       const hubId = d.meta?.hubId ?? d.id;
-      if (out.some((e) => e.row === hubId)) continue;
+      if (known.has(hubId)) continue;
       if (!rowFits({ sections: d.meta?.sections as LayoutSection[] | undefined }, section))
         continue;
+      known.add(hubId);
       out.push({
         row: hubId,
         title: textOf(d.label),
@@ -224,13 +226,14 @@ export function RowPool({
     // Policies for patterns or hub ids that are not in the catalogue.
     for (const layerKey of ["global", layer] as LayerKey[]) {
       for (const p of pageOf(draft, layerKey, section)?.rows ?? []) {
-        if (!out.some((e) => e.row === p.row))
-          out.push({
-            row: p.row,
-            title: p.row,
-            description: t("Custom row pattern (hub id, kind or glob)."),
-            group: "custom",
-          });
+        if (known.has(p.row)) continue;
+        known.add(p.row);
+        out.push({
+          row: p.row,
+          title: p.row,
+          description: t("Custom row pattern (hub id, kind or glob)."),
+          group: "custom",
+        });
       }
     }
     return out;
@@ -248,7 +251,7 @@ export function RowPool({
         (!e.collectionSource &&
           (filter === "changed" ? resolved.get(e.row)!.origin === "own" : statusOf(e) === filter))),
   );
-  const pickedRows = entries
+  const pickedRows = shown
     .filter((e) => !e.collectionSource && picked.has(e.row))
     .map((e) => e.row);
   const pick = (rows: string[], on: boolean) =>
