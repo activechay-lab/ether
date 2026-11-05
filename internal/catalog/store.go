@@ -741,8 +741,7 @@ ON CONFLICT(key) DO UPDATE SET
  catalog_titles.rating<>excluded.rating OR catalog_titles.vote_count<>excluded.vote_count OR catalog_titles.popularity<>excluded.popularity OR
  catalog_titles.content_rating<>(`+ratingPrecedence("content_rating")+`) OR
  catalog_titles.content_rating_rank<>(`+ratingPrecedence("content_rating_rank")+`) OR
- catalog_titles.content_rating_source<>(`+ratingPrecedence("content_rating_source")+`) OR
- (excluded.detail=1 AND catalog_titles.status='Returning Series' AND catalog_titles.detail_at<>excluded.detail_at)`,
+ catalog_titles.content_rating_source<>(`+ratingPrecedence("content_rating_source")+`)`,
 		int64(t.Key), string(t.Type), t.IDs.TMDB, t.IDs.IMDB, t.IDs.TVDB, int64(t.ShowKey), showTMDB, t.ShowTitle, t.SeasonTitle, t.Season, t.Episode,
 		t.Title, t.OriginalTitle, t.SortTitle, t.Tagline, t.Summary, t.Year, releasedTS, int64(t.Runtime.Seconds()), t.Status, t.Language,
 		t.ContentRating, int(contentrating.LevelOf(t.ContentRating)), t.ContentRatingSource, t.Rating, t.VoteCount, t.Popularity, t.PosterPath, t.BackdropPath, t.StillPath, t.LogoPath,
@@ -750,6 +749,15 @@ ON CONFLICT(key) DO UPDATE SET
 		homeInt, homeInt, homeInt, homeInt, homeInt, homeInt, homeInt)
 	if err != nil {
 		return fmt.Errorf("catalog: upsert %d: %w", t.Key, err)
+	}
+	// A successful detail fetch renews freshness even when its content is
+	// unchanged. Keep this out of the UPSERT predicate: updating only this
+	// unindexed column avoids the content-column triggers and index churn.
+	// Summary writes never renew details, and the same timestamp writes nothing.
+	if o.detail {
+		if _, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET detail_at=? WHERE key=? AND detail_at<>?`, now, int64(t.Key), now); err != nil {
+			return fmt.Errorf("catalog: detail freshness %d: %w", t.Key, err)
+		}
 	}
 	if err := updateReleaseNames(ctx, tx, int64(t.Key), t.Type); err != nil {
 		return fmt.Errorf("catalog: index release name: %w", err)

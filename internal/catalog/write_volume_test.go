@@ -15,7 +15,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
-// Unchanged title/fact refreshes must produce no WAL frames. Set
+// Unchanged content with the same freshness timestamp must produce no WAL frames. Set
 // ETHER_MEASURE_WRITES=1 for a 10,000-title measurement: actual WAL frames plus
 // unique database pages to copy at the final checkpoint. No auto-checkpoint
 // runs during the measured pass. This excludes filesystem/SSD amplification.
@@ -39,12 +39,16 @@ func TestCatalogWriteVolume(t *testing.T) {
 	for i := range titles {
 		titles[i] = core.Title{Key: core.MovieKey(int64(i + 1)), Type: core.TypeMovie, IDs: core.IDs{TMDB: int64(i + 1)}, Title: fmt.Sprintf("Synthetic movie %d", i), Summary: strings.Repeat("A synthetic overview. ", 20), Released: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), Genres: []string{"Drama", "Adventure"}, Popularity: 12, VoteCount: 100}
 	}
-	for _, pass := range []string{"insert", "unchanged", "jitter", "detail", "detail-unchanged", "unchanged-cursor"} {
+	for passIndex, pass := range []string{"insert", "unchanged", "jitter", "detail", "detail-unchanged", "detail-refreshed", "unchanged-cursor"} {
 		if _, err := db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 			t.Fatal(err)
 		}
+		stamp := passIndex
+		if pass == "detail-unchanged" {
+			stamp-- // identical content and identical freshness: a real no-op
+		}
 		c.clock.Store(func() time.Time {
-			return time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC).Add(time.Duration(len(pass)) * time.Hour)
+			return time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC).Add(time.Duration(stamp) * time.Hour)
 		})
 		opts := upsertOpts{browsable: true}
 		if pass == "jitter" {
