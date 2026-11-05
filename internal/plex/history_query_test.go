@@ -1,6 +1,7 @@
 package plex
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -66,5 +67,33 @@ func TestHistoryQueryGrammarAndScope(t *testing.T) {
 				t.Errorf("%s=%q without type: status %d", name, value, rec.Code)
 			}
 		}
+	}
+}
+
+// Existing lists resolve through their own stores, not the title catalog.
+// Neither list expands its members into a per-item history request.
+func TestHistoryListMetadataIdentity(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	pl, err := f.pls.Create(context.Background(), ownerUser.ID, "History list", []core.RatingKey{fightClub.Key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []core.RatingKey{pl.Key, core.CollectionKey(8091)} {
+		for _, suffix := range []string{"", "&type=1"} {
+			rec := f.get(t, "/status/sessions/history/all?metadataItemID="+key.String()+suffix, "Accept", "application/json")
+			if rec.Code != 200 || decodeJSON(t, rec)["size"].(float64) != 0 {
+				t.Fatalf("existing list %s: %d %s", key, rec.Code, rec.Body.String())
+			}
+		}
+	}
+	for _, key := range []core.RatingKey{core.PlaylistKey(999), core.CollectionKey(999)} {
+		if rec := f.get(t, "/status/sessions/history/all?type=1&metadataItemID="+key.String()); rec.Code != 404 {
+			t.Fatalf("missing list %s: %d", key, rec.Code)
+		}
+	}
+	rec := f.get(t, "/status/sessions/history/all?type=1&metadataItemID="+pl.Key.String(), "X-Plex-Token", friendToken)
+	if rec.Code != 404 {
+		t.Fatalf("private playlist visible: %d", rec.Code)
 	}
 }

@@ -466,14 +466,28 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 			ids[name] = n
 		}
 	}
+	listHistory := false
 	if q.Has("metadataItemID") {
 		key := core.RatingKey(ids["metadataItemID"])
 		if key <= 0 || s.d.Catalog == nil {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}
-		t, err := s.d.Catalog.Get(ctx, key)
-		if err != nil || t == nil || !s.visibleTitle(ctx, pr.User, t) {
+		valid := false
+		switch key.Kind() {
+		case core.KindCollection, core.KindSmart:
+			c, err := s.collection(ctx, pr.User, key)
+			valid = err == nil && c != nil
+			listHistory = true
+		case core.KindPlaylist:
+			pl, err := s.playlist(ctx, pr.User, key)
+			valid = err == nil && pl != nil
+			listHistory = true
+		default:
+			t, err := s.d.Catalog.Get(ctx, key)
+			valid = err == nil && t != nil && s.visibleTitle(ctx, pr.User, t)
+		}
+		if !valid {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}
@@ -498,7 +512,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	if n, ok := ids["limit"]; ok && n < int64(maxRows) {
 		maxRows = int(max(n, 0))
 	}
-	if !wantHistory || maxRows == 0 || s.d.State == nil || pr.User == nil || (q.Has("accountID") && ids["accountID"] != pr.User.PlexID) {
+	if listHistory || !wantHistory || maxRows == 0 || s.d.State == nil || pr.User == nil || (q.Has("accountID") && ids["accountID"] != pr.User.PlexID) {
 		s.write(w, r, mc)
 		return
 	}
