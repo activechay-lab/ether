@@ -270,3 +270,27 @@ explicitly configured and supported end-to-end. Protocol capability admission,
 current source/placement authorization and actual worker capacity remain separate
 mandatory checks. Feature support never guarantees successful process/device
 startup or reserves future capacity.
+
+## Trusted terminal reconciliation
+
+`Worker.Terminal(ctx, Identity, requestStop)` is host-only; no route is installed
+and normal transport Security callbacks are unchanged. The composing Runtime must
+independently authenticate current peer membership and freshly authorize the exact
+OLD durable fence, intended worker boot and lost/revoked authority before calling.
+The method returns a copied TerminalSnapshot containing only full Identity,
+TerminalState and Stopped. The closed typed states are TerminalUnknown,
+TerminalPending, TerminalRunning, TerminalRetired and TerminalUnverified; String
+is available for transport rendering. Only TerminalRetired is successful local
+encoder plus local input retirement. It says nothing about remote source-owner
+or durable placement retirement, which require independent proof.
+
+Status-only absence returns ErrUncertain and does not allocate. Stop-before-start
+absence creates a permanent stopped tombstone AND monotonic highest-generation
+floor before local retirement can be returned; the unique never-compacted worker
+boot is essential to that proof. Closed workers or exhausted capacity cannot
+create that fence and return ErrUncertain. Known exact records remain readable
+including after Close. Stops reach only retained exact OwnedEncoderSession and
+input objects; stale/absent-old stops never target a replacement's public ID.
+Late starts and delayed input/encoder producers remain pending; nonnil terminal
+errors remain unverified. No source resolve/start/renew/media work, generic
+Encoder.Stop, old-controller impersonation or authority extension is performed.
