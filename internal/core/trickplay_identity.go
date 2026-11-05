@@ -16,13 +16,14 @@ func TrickplayCacheKey(s *PlaySession) string {
 	if release == "" {
 		return ""
 	}
-	// Older embedded playback adapters expose only a logical release descriptor.
-	if s.Source == nil {
-		return release
-	}
-	revision := SourceRevision(s)
-	if remote, ok := s.Source.(interface{ SourceRevision() string }); ok {
-		revision = remote.SourceRevision()
+	// A logical-only adapter still has item/version scope even without an
+	// opened member revision. Opened sources must provide their verified revision.
+	revision := "logical"
+	if s.Source != nil {
+		revision = SourceRevision(s)
+		if remote, ok := s.Source.(interface{ SourceRevision() string }); ok {
+			revision = remote.SourceRevision()
+		}
 	}
 	if revision == "" {
 		return ""
