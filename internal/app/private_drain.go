@@ -24,7 +24,9 @@ func (a *App) privatePending(ctx context.Context) (int, error) {
 		return -1, errors.New("retirement accounting unavailable")
 	}
 	pending, err := rt.Pending(ctx)
-	if a.playback != nil {
+	if a.brokerPlayback != nil {
+		pending += len(a.brokerPlayback.Sessions())
+	} else if a.playback != nil {
 		pending += len(a.playback.Sessions())
 	}
 	return pending, err
@@ -35,6 +37,9 @@ func (a *App) pollDrain(ctx context.Context) {
 		return
 	}
 	a.draining.Store(true)
+	if remote, ok := a.brokerPlayback.(interface{ SetDraining(bool) }); ok {
+		remote.SetDraining(true)
+	}
 	if a.playback != nil {
 		a.playback.SetDraining(true)
 	}
@@ -51,6 +56,9 @@ func (a *App) pollDrain(ctx context.Context) {
 // Tick/cleanup alive. Deadline ends waiting, never proves ownership retirement.
 func (a *App) drainPrivate() {
 	a.draining.Store(true)
+	if remote, ok := a.brokerPlayback.(interface{ SetDraining(bool) }); ok {
+		remote.SetDraining(true)
+	}
 	if a.playback != nil {
 		a.playback.SetDraining(true)
 	}

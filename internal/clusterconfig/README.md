@@ -138,3 +138,41 @@ matches; exhaustion returns 503 for new admissions and logs the quota transition
 while `/readyz` and existing work remain available. A larger ceiling is bounded
 operational mitigation, not safe history compaction or unlimited admission. Retired
 generation floors remain permanent; never delete them to manufacture capacity.
+
+## Role boundary and public routing
+
+The staged isolated graphs construct these concrete dependencies. Source, server
+and delivery singleton activation remains a separate acceptance guard; construction
+checks alone do not establish shipping playback or replacement continuity.
+
+| Graph | Local services | Public responsibilities |
+| --- | --- | --- |
+| Historical full server | Existing providers, source manager, frontends and local encoder | Existing public APIs and representations |
+| Source singleton | Providers, resolver, cache, native media probing and source manager | None; authenticated private source operations only |
+| Transcode singleton | Dedicated fixed-plan encoder and private input gateway | None; authenticated private encoding only |
+| Server singleton | Catalogue, identity, owner console, protocol frontends and remote playback adapters | Browse/control and existing protocol routes that combine admission or authentication with response bytes |
+| Delivery singleton | Identity/policy readers and indexed authenticated representation forwarding | Bounded GET/HEAD representation routes only |
+
+Server isolation excludes local provider connections, source/cache ownership and
+encoder construction. It does not promise that the server sends no response bytes.
+Existing Plex `start`/`start.mkv`, direct `/library/parts` and query subtitle routes
+retain their URLs and control semantics, including track-selection PUT requests.
+Their authenticated proxy responses are legitimate frontend work. Silo's
+viewer/device-authenticated playback routes likewise stay on the API frontend
+until an explicit equivalent authenticated delivery seam exists.
+
+Mixed-role deployments need same-origin routing to API (full/server) and media
+(full/delivery) Services. Route only the supported GET/HEAD pure representation
+namespaces to media: canonical `/sessions/media/` and the typed Plex
+`/video/:/transcode/universal/session/{id}/{rung-or-representation}/{resource}`.
+The latter supports bounded playlists, headers, init and TS/M4S/MKV segments;
+ASS and query subtitle routes remain API. Never route the broad universal or
+`/library/parts` prefix to delivery. Jellyfin/Emby `/jellyfin/sessions/media/` and
+`/emby/sessions/media/` require the explicit protocol-bound alias adapter, preserving
+grant, query and original request policy. A generic prefix rewrite without that
+owner-side surface check is not equivalent. Full-only routing stays unchanged.
+
+Independent source selection prefers currently eligible source-only peers before
+full-server peers. Once preparation has an operation identity, an uncertain result
+retains that exact owner and operation until proof; it never retries on another
+source merely because a connection failed.

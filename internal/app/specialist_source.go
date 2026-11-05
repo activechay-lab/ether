@@ -71,5 +71,27 @@ func (a *App) buildSourceRole(ctx context.Context, cfg config.Config) error {
 	}
 	a.closers = append(a.closers, func() { _ = a.playback.Close() })
 	a.cache.Protect(a.protectedReleases)
+	a.cfg.Subscribe(a.applySourceConfig)
+	// Stop shared settings callbacks before tearing down their source services.
+	a.closers = append(a.closers, a.cfg.Close)
 	return nil
+}
+
+// applySourceConfig updates only source-owned services. Shared credential and
+// routing changes must not leave a specialist on the old provider pools.
+func (a *App) applySourceConfig(c config.Config) {
+	c.Cache = c.EffectiveCache()
+	a.applyOutbound(c)
+	a.tmdb.UpdateConfig(c.Catalog)
+	a.catalog.UpdateConfig(c.Catalog)
+	a.fetcher.UpdateConfig(c.Usenet)
+	a.sites.ApplyConfig(c)
+	a.indexers.ApplyConfig(a.withAddonIndexers(c))
+	a.engine.UpdateRepair(c.Usenet.Repair)
+	a.debrid.UpdateConfig(c.Debrid)
+	a.resolver.UpdateConfig(c)
+	a.configureCache(c.Cache)
+	c.Cache = a.runningCacheConfig()
+	a.engine.UpdatePlaybackReadAhead(c.Cache.PlaybackReadAhead())
+	a.playback.SetConfig(c)
 }

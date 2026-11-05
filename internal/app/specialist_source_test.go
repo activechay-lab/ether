@@ -30,6 +30,12 @@ func TestSourceRoleConstructionBoundary(t *testing.T) {
 	if a.playback == nil || a.resolver == nil || a.fetcher == nil || a.cache == nil || a.users == nil || a.safety == nil {
 		t.Fatal("source dependencies missing")
 	}
+	if err := cfg.Update(func(c *config.Config) error { c.Cache.BudgetBytes = 1234567; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, budget := a.cache.Usage(); budget != 1234567 {
+		t.Fatal("source-owned configuration did not apply")
+	}
 	if a.transcoder != nil || a.frontends != nil || a.registrar != nil || a.gdm != nil || a.personalize != nil || a.handler != nil {
 		t.Fatal("source constructed an unrelated role service")
 	}
