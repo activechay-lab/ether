@@ -35,6 +35,7 @@ type httpSession struct {
 }
 
 var _ core.HTTPSession = (*httpSession)(nil)
+var _ core.OwnedEncoderSession = (*httpSession)(nil)
 
 func (m *Manager) startHTTP(ctx context.Context, req core.HLSRequest, life *encoderLifetime) (core.HLSSession, error) {
 	id := req.SessionID
@@ -88,6 +89,19 @@ func (m *Manager) startHTTP(ctx context.Context, req core.HLSRequest, life *enco
 		log:        stub.log,
 		lastAccess: time.Now(),
 	}
+	// This ticket retains responsibility for HTTP registry/pipe detachment even
+	// when Start is canceled before the lazy HTTP session is returned.
+	detach, err := life.reserve(1)
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		<-life.cancel
+		h.detachOwnedHTTP()
+		detach[0].finish()
+	}()
+	life.mu.Lock()
+	defer life.mu.Unlock()
 	m.mu.Lock()
 	if m.closed || ctx.Err() != nil || life.sealed {
 		m.mu.Unlock()
@@ -169,7 +183,7 @@ func (s *httpSession) writeHTTPHeaders(w http.ResponseWriter) {
 
 func (s *httpSession) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	if s.closed {
+	if s.closed || s.life.isSealed() {
 		s.mu.Unlock()
 		http.Error(w, "session closed", http.StatusGone)
 		return
@@ -200,7 +214,7 @@ func (s *httpSession) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	for attempt := 0; attempt < 2; attempt++ {
 		s.mu.Lock()
-		if s.closed || s.requestSeq != seq || r.Context().Err() != nil {
+		if s.closed || s.life.isSealed() || s.requestSeq != seq || r.Context().Err() != nil {
 			s.mu.Unlock()
 			return
 		}
@@ -238,12 +252,13 @@ func (s *httpSession) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.life.markStarted()
 		s.life.encoding.Store(encoding)
 		s.mu.Unlock()
+		// Process exit and the serving writer are independent producers. A blocked
+		// downstream writer must keep retirement pending even after ffmpeg exits.
+		defer work[1].finish()
 		go func() {
 			<-proc.Done()
 			_ = pw.Close()
-			for _, workItem := range work {
-				workItem.finish()
-			}
+			work[0].finish()
 		}()
 		stopCancel := context.AfterFunc(r.Context(), func() { _ = pr.CloseWithError(r.Context().Err()); proc.Stop() })
 		var started atomic.Bool
@@ -388,4 +403,37 @@ func (w flushWriter) Write(p []byte) (int, error) {
 		f.Flush()
 	}
 	return n, err
+}
+
+// EncoderRetirement covers the exact lazy HTTP execution and its input producers.
+func (s *httpSession) EncoderRetirement() core.EncoderRetirement { return s.life }
+
+// RetireEncoder never takes the HTTP mutex (Runner.Start may hold it) or waits
+// for process exit. The registered detach producer handles late publication.
+func (s *httpSession) RetireEncoder() error {
+	if s.life == nil {
+		return errors.New("transcode: session has no encoder responsibility")
+	}
+	s.life.seal()
+	return nil
+}
+
+func (s *httpSession) detachOwnedHTTP() {
+	s.mu.Lock()
+	s.closed = true
+	s.requestSeq++
+	proc, pipe := s.proc, s.pipe
+	s.proc, s.pipe = nil, nil
+	s.mu.Unlock()
+	if pipe != nil {
+		_ = pipe.CloseWithError(errors.New("transcode: session retired"))
+	}
+	if proc != nil {
+		proc.Stop()
+	}
+	s.m.mu.Lock()
+	if s.m.httpSessions[s.id] == s {
+		delete(s.m.httpSessions, s.id)
+	}
+	s.m.mu.Unlock()
 }
