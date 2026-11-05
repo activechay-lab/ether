@@ -6,11 +6,12 @@ namespace=$1
 pod=$2
 kubectl=${KUBECTL:-kubectl}
 [[ "$namespace" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ && "$pod" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || exit 64
-read -r role old_uid <<< "$("$kubectl" -n "$namespace" get pod "$pod" -o 'jsonpath={.metadata.labels.ether\.plex/role}{"\t"}{.metadata.uid}')"
+read -r role old_uid data_dir <<< "$("$kubectl" -n "$namespace" get pod "$pod" -o 'jsonpath={.metadata.labels.ether\.plex/role}{"\t"}{.metadata.uid}{"\t"}{.spec.containers[?(@.name=="ether")].env[?(@.name=="ETHER_DATA_DIR")].value}')"
 case "$role" in full|server|source|transcode|delivery) ;; *) echo 'not an Ether role pod' >&2; exit 64;; esac
 [[ "$old_uid" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] || { echo 'invalid pod UID' >&2; exit 64; }
+case "$data_dir" in /config|/config/ether) ;; *) echo 'unsupported pod data directory' >&2; exit 64;; esac
 # Do not delete on drain timeout. The runtime retains unresolved ownership.
-if "$kubectl" -n "$namespace" exec "$pod" -c ether -- /usr/lib/ether/ether cluster drain --data-dir /config --wait 120s; then
+if "$kubectl" -n "$namespace" exec "$pod" -c ether -- /usr/lib/ether/ether cluster drain --data-dir "$data_dir" --wait 120s; then
   :
 else
   drain_status=$?

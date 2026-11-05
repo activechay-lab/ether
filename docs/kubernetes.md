@@ -118,7 +118,7 @@ healthy pod (example raises 1000000 to 2000000):
 
 ```sh
 kubectl -n ether exec ether-ether-full-0 -- /usr/lib/ether/ether cluster ledger-quota \
-  --data-dir /config --expect 1000000 --capacity 2000000
+  --data-dir /config/ether --expect 1000000 --capacity 2000000
 helm upgrade ether packaging/helm/ether -n ether -f your-values.yaml \
   --set runtime.ledgerCapacity=2000000
 ```
@@ -133,7 +133,18 @@ raising the quota.
 
 ## Storage, probes and transport
 
-Every ordinal gets a retained `data` PVC mounted at `/config`. Cache defaults to
+Every ordinal gets a retained `data` PVC mounted at `/config`. New installs
+create `/config/ether` as UID999 with mode0700 and use it as `ETHER_DATA_DIR`.
+This protects identity/config files even when a provisioner creates the volume
+root with broad permissions. The startup script fails closed if it finds a
+legacy root `node.json`, `config.json` or `.credentials-key`; it never silently
+creates a replacement identity under an existing root layout. Migrating that
+layout requires a stopped, positively fenced node, a backup of its full data
+directory, and an explicit move preserving its exact identity/key/config into
+`/config/ether` with UID/GID999 ownership and mode0700. Do not migrate by copying
+only node.json or generating a new identity. The rollout helper reads the exact
+pod's advertised data directory and supports both layouts, so it drains existing
+root-layout nodes using `/config` before a deliberate migration. Cache defaults to
 an independent disk-backed emptyDir at `/cache`; select `cache.type: persistent`
 for an additional per-ordinal PVC. Scratch is a separate bounded emptyDir at
 `/scratch`; runtime paths are `/scratch/transcode` and `/cache/ether`. Neither
@@ -184,7 +195,7 @@ For each pod, verify replacement capacity, then use:
 packaging/kubernetes/rollout.sh ether ether-ether-full-0
 ```
 
-The helper invokes `ether cluster drain --data-dir /config --wait 120s` through
+The helper invokes `ether cluster drain --data-dir "$ETHER_DATA_DIR" --wait 120s` through
 `kubectl exec`. This is a local owner-only request/status file protocol scoped
 to the current boot and operation, not an unauthenticated network mutation. The
 command stops new placements and waits for runtime quiescence. On timeout it

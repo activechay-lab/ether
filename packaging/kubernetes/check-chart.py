@@ -20,6 +20,9 @@ def check(docs, persistent=False):
         assert s['persistentVolumeClaimRetentionPolicy'] == dict(whenDeleted='Retain', whenScaled='Retain')
         assert s['updateStrategy']['type'] == 'OnDelete'
         assert not pod['automountServiceAccountToken']
+        assert next(e for e in c['env'] if e['name']=='ETHER_DATA_DIR')['value']=='/config/ether'
+        assert 'explicit migration required' in c['args'][0]
+        assert 'chmod 700 /config/ether' in c['args'][0]
         assert c['readinessProbe']['httpGet']['path'] == ('/admissionz' if role in ('full','server') else '/readyz')
         assert c['startupProbe']['httpGet']['path'] == '/startupz'
         assert c['livenessProbe']['httpGet']['path'] == '/livez'
@@ -42,6 +45,20 @@ def check(docs, persistent=False):
     assert public['spec']['selector']['ether.plex/public'] == 'true'
     private = next(d for d in docs if d['kind']=='Service' and d['metadata']['name'].endswith('-private'))
     assert private['spec']['publishNotReadyAddresses']
+
+# Exercise the startup guard before any server executes or identity is created.
+startup = next(d for d in render() if d['kind']=='StatefulSet')['spec']['template']['spec']['containers'][0]['args'][0]
+initialization = startup[:startup.index('sed ')]
+with tempfile.TemporaryDirectory(prefix='ether-pvc-layout-') as directory:
+    path = pathlib.Path(directory)
+    (path/'node.json').write_text('legacy identity sentinel')
+    script = initialization.replace('/config', directory)
+    refused = subprocess.run(['/bin/sh','-ec',script], capture_output=True)
+    assert refused.returncode == 64 and not (path/'ether').exists()
+    assert (path/'node.json').read_text() == 'legacy identity sentinel'
+    (path/'node.json').unlink()
+    subprocess.run(['/bin/sh','-ec',script],check=True)
+    assert (path/'ether').stat().st_mode & 0o777 == 0o700
 
 common = ['--set','pools.server.replicas=2']
 check(render(*common))
