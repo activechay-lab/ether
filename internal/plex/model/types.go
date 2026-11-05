@@ -465,7 +465,6 @@ type Stream struct {
 	Anamorphic           *bool  `plex:"anamorphic"`
 	PixelAspectRatio     string `plex:"pixelAspectRatio,omitempty"`
 	StreamIdentifier     string `plex:"streamIdentifier,omitempty"`
-	CodedHeight          int    `plex:"codedHeight,omitempty"`
 	CodecID              string `plex:"codecID,omitempty"`
 	Codec                string `plex:"codec,omitempty"`
 	Index                *int   `plex:"index"`
@@ -478,7 +477,10 @@ type Stream struct {
 	// From here PMS lists the technical attributes alphabetically.
 	AudioChannelLayout   string  `plex:"audioChannelLayout,omitempty"`
 	BitDepth             int     `plex:"bitDepth,omitempty"`
+	ChromaLocation       string  `plex:"chromaLocation,omitempty"`
 	ChromaSubsampling    string  `plex:"chromaSubsampling,omitempty"`
+	CodedHeight          int     `plex:"codedHeight,omitempty"`
+	CodedWidth           int     `plex:"codedWidth,omitempty"`
 	ColorPrimaries       string  `plex:"colorPrimaries,omitempty"`
 	ColorRange           string  `plex:"colorRange,omitempty"`
 	ColorSpace           string  `plex:"colorSpace,omitempty"`

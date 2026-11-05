@@ -16,7 +16,21 @@ func trueDisposition(v *bool) *bool {
 	return nil
 }
 
+// These native display names retain the capitalization used on the wire.
+var nativeTrackNames = map[string]string{
+	"uk": "Українська", "zxx": "No linguistic content", "nn": "norsk nynorsk", "no": "norsk",
+	"fr": "Français", "es": "Español", "pt": "Português", "it": "Italiano",
+	"ru": "Русский", "fi": "Suomi", "sv": "Svenska", "da": "Dansk",
+	"hr": "Hrvatski", "cs": "Čeština", "sk": "Slovenčina", "tr": "Türkçe",
+	"id": "Indonesia", "ms": "Melayu", "nl": "Nederlands", "la": "Latin",
+	"fil": "Filipino", "cy": "Cymraeg", "dv": "Divehi", "nr": "South Ndebele",
+	"rom": "Romany", "mul": "Multiple languages", "mdr": "Mandar", "enm": "English (Weeb)",
+}
+
 func nativeLanguage(tag, fallback string) string {
+	if name, ok := nativeTrackNames[canonicalLanguagePrimary(tag)]; ok {
+		return name
+	}
 	n := display.Self.Name(language.Make(tag))
 	if n == "" {
 		return fallback

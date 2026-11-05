@@ -888,6 +888,8 @@ func (s *Server) renderStreams(key core.RatingKey, info core.MediaInfo, sel sele
 				}
 			}
 			ps.CodedHeight = st.CodedHeight
+			ps.CodedWidth = st.CodedWidth
+			ps.ChromaLocation = st.ChromaLocation
 			if plexCodec(st.Codec) == "h264" && st.Height > 0 {
 				ps.CodedHeight = (st.Height + 15) / 16 * 16
 			}
@@ -935,7 +937,7 @@ func (s *Server) renderStreams(key core.RatingKey, info core.MediaInfo, sel sele
 			ps.Channels = st.Channels
 			ps.AudioChannelLayout = st.ChannelLayout
 			ps.SamplingRate = st.SampleRate
-			if st.Profile != "" {
+			if st.Profile != "" || st.SampleFormat != "" {
 				ps.Profile = audioProfile(&st)
 			}
 			if i == audioSelected {
@@ -1049,26 +1051,41 @@ func containerExt(c string) string {
 
 // videoResolution is PMS's videoResolution value.
 func videoResolution(w, h int) string {
-	if w > 0 && w < 800 && h > 0 && h < 480 {
-		return "sd"
-	}
-	switch tier := core.ResolutionTier(w, h); tier {
-	case 2160:
+	switch {
+	case w >= 2876:
 		return "4k"
-	case 0:
-		return ""
-	case 240:
+	case h >= 1396:
+		return "2.7k"
+	case w >= 2048 || h >= 1376:
+		return "2k"
+	case w >= 1884 || h >= 1068:
+		return "1080"
+	case w >= 1272 || h >= 688:
+		return "720"
+	case w >= 864 || h >= 560:
+		return "576"
+	case w >= 856 || h >= 436:
+		return "480"
+	case w > 0 || h > 0:
 		return "sd"
 	default:
-		return strconv.Itoa(tier)
+		return ""
 	}
 }
 
 func resolutionLabel(w, h int) string {
-	if videoResolution(w, h) == "sd" {
+	switch label := videoResolution(w, h); label {
+	case "4k":
+		return "4K"
+	case "2k":
+		return "2K"
+	case "2.7k":
+		return "2.7K"
+	case "sd", "":
 		return "SD"
+	default:
+		return label + "p"
 	}
-	return core.ResolutionLabel(w, h)
 }
 
 // frameRateName is PMS's videoFrameRate value.
@@ -1120,7 +1137,7 @@ func videoDisplayTitle(st core.StreamInfo) string {
 	}
 	// PMS names the profile only where it matters ("HEVC Main 10"), not
 	// for H.264 ("1080p (H.264)") or plain HEVC Main.
-	if p := strings.ToLower(st.Profile); p != "" && (strings.ToLower(st.Codec) != "h264" || p != "main" && p != "high") {
+	if p := strings.ToLower(st.Profile); p != "" && p != "0" && p != "unknown" && (strings.ToLower(st.Codec) != "h264" || p != "main" && p != "high") {
 		codec += " " + titleCase(st.Profile)
 	}
 	return res + " (" + codec + ")"
@@ -1259,6 +1276,9 @@ func languageName(code string) string {
 	if l, ok := languages[primaryLang(code)]; ok {
 		return nativeLanguage(l[2], l[0])
 	}
+	if canonicalLanguagePrimary(code) != code || unknownLanguageCode(code) != "" {
+		return nativeLanguage(canonicalLanguagePrimary(code), code)
+	}
 	return code
 }
 
@@ -1279,7 +1299,7 @@ func languageTag(code string) string {
 	if l, ok := languages[primaryLang(code)]; ok {
 		return l[2]
 	}
-	return strings.ToLower(code)
+	return canonicalLanguagePrimary(strings.ToLower(code))
 }
 
 // renderTitles renders a list, loading the user's watch state in one call.
