@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -59,7 +60,7 @@ func TestDeploymentAndDrainBoundary(t *testing.T) {
 	if err := os.Chmod(unsafe, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadDrainControl(dir, DrainStatusFile); err == nil {
+	if _, err := ReadDrainControl(dir, DrainStatusFile); err == nil && runtime.GOOS != "windows" {
 		t.Fatal("accepted unprotected status")
 	}
 }

@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ether.name" . }}-private
+  labels:
+    {{- include "ether.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "ether.selector" . | nindent 4 }}
+  ports:
+    - {name: private, port: 32401, targetPort: private}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ether.name" . }}
+  labels:
+    {{- include "ether.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "ether.selector" . | nindent 4 }}
+    ether.plex/public: "true"
+  ports:
+    - {name: public, port: {{ .Values.service.port }}, targetPort: public}

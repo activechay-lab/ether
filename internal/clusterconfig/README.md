@@ -98,3 +98,12 @@ of seamless replacement. SIGTERM stops new admission and preserves private
 existing-media handlers, membership and lease reconciliation during drain.
 Source cleanup runs separately from heartbeat/expiry and may block in backend
 Close: a deadline/network silence never proves remote encoder or source retirement.
+
+If SIGTERM reaches `drainSeconds` with unresolved source/encoder obligations,
+Ether reports the unresolved drain and KEEPS membership, private handlers and
+cleanup running until proof arrives or an external supervisor terminates the
+process. Arbitrary backend Close is not cancellable. CLI drain times out nonzero
+without stopping the runtime. Kubernetes terminationGracePeriod may ultimately
+kill the process; that does not retire its durable reservations. Planned upgrades
+must require a successful explicit drain before deletion. Set the external grace
+period above the intended drain window, allowing control and shutdown overhead.

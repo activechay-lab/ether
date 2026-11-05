@@ -1,0 +1,19 @@
+{{- $root := . -}}
+{{- range $role, $pool := .Values.pools }}
+{{ $pdb := mergeOverwrite (deepCopy $root.Values.disruptionBudget) (default dict $pool.disruptionBudget) -}}
+{{- if and (gt (int $pool.replicas) 0) $pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ether.name" $root }}-{{ $role }}
+  labels:
+    {{- include "ether.labels" $root | nindent 4 }}
+spec:
+  maxUnavailable: {{ $pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "ether.selector" $root | nindent 6 }}
+      ether.plex/role: {{ $role }}
+{{- end }}
+{{- end }}
