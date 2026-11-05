@@ -166,7 +166,7 @@ export function LookTab({
               <Segmented
                 ariaLabel={t("Breaks")}
                 size="sm"
-                className="w-full flex-nowrap justify-between"
+                className="w-full flex-nowrap justify-between [&>button]:px-1"
                 value={settings.breaks || ""}
                 onChange={(breaks) => set({ breaks })}
                 options={[
