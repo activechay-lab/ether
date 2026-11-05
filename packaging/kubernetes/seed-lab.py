@@ -2,7 +2,8 @@
 """Seed an isolated generated-media lab via shipping owner APIs + fixture-only SQL.
 
 No external account claim. Credentials stay in the supplied private directory.
-Requires a loopback port-forward to a full node and the named lab PostgreSQL pod.
+Requires a loopback port-forward to a full/server node or the lab Ingress,
+and the named lab PostgreSQL pod.
 """
 import argparse
 import hashlib
@@ -25,6 +26,7 @@ def save(path, text):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--base',required=True)
+    p.add_argument('--host',choices=['ether035-roles.test'],help='Approved lab Ingress Host header')
     p.add_argument('--namespace',default='ether035-ha')
     p.add_argument('--kubectl',default='kubectl')
     p.add_argument('--credentials-dir',required=True,type=Path)
@@ -42,6 +44,9 @@ def main():
     credentials=json.loads(credentials_path.read_text()) if existing else dict(username='ether035-lab-owner',password=secrets.token_urlsafe(24))
     if credentials['username']!='ether035-lab-owner': p.error('unexpected local viewer')
     headers={'Content-Type':'application/json','Origin':a.base,'X-Ether-Request':'1'}
+    if a.host:
+        headers['Host']=a.host
+        headers['Origin']=urlsplit(a.base).scheme+'://'+a.host
     def call(path, method='GET', value=None):
         with urlopen(Request(a.base+path,headers=headers,method=method,
                              data=None if value is None else json.dumps(value).encode()),timeout=30) as response:

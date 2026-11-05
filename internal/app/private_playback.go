@@ -156,7 +156,7 @@ func (a *App) refreshPrivateQuota(ctx context.Context) error {
 	open := err == nil && status.Matches && !status.Exhausted
 	previous := p.quotaOpen.Swap(open)
 	if err == nil {
-		p.quota.Store(&status)
+		p.quota.Store(&runtimeQuotaSnapshot{SampledAt: time.Now().UTC(), Status: status})
 	}
 	if previous && !open {
 		a.log.Warn("private placement ledger quota blocks new admissions; retained ownership unchanged", "capacity", status.Capacity, "used", status.Used, "retired", status.Retired)

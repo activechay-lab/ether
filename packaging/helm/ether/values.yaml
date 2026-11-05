@@ -102,7 +102,7 @@ service:
 ingress:
   enabled: false
   # Temporary broad-Prefix split is ONLY for isolated canonical HLS acceptance.
-  # It misroutes unsupported session resources (.ass/index.mpd) to delivery.
+  # Mixed writer-derived URL/auth, controller and protocol parity is unproven.
   canonicalHLSLabOnly: false
   className: ""
   annotations: {}

@@ -23,6 +23,9 @@ import (
 func viewerString(id int64) string { return strconv.FormatInt(id, 10) }
 
 type ownedSource struct {
+	size                     int64
+	operations               int
+	sealed                   bool
 	route                    Route
 	handle                   nodeauthority.Handle
 	life                     core.SourceRetirement
@@ -179,6 +182,7 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 		}
 		r.mu.Lock()
 		s.handle = handle
+		s.size = h.Size()
 		sealed := r.closed || s.retiring
 		r.mu.Unlock()
 		if sealed {
@@ -196,7 +200,11 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 		if !ok {
 			return deny()
 		}
-		candidate := &ownedSource{route: rt, life: life, playID: rt.PlayID}
+		size := int64(0)
+		if ps.Source != nil {
+			size = ps.Source.Size()
+		}
+		candidate := &ownedSource{route: rt, life: life, playID: rt.PlayID, size: size}
 		r.mu.Lock()
 		if s = r.sources[sourceKey(f)]; s == nil && len(r.sources) < r.o.HistoryCapacity {
 			r.sources[sourceKey(f)] = candidate
@@ -221,32 +229,42 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 			r.mu.Lock()
 			s.retiring = true
 			r.mu.Unlock()
-			_ = r.authority.Revoke(s.handle)
+			if s.handle.Value() != "" {
+				if r.authority.Revoke(s.handle) != nil {
+					return sourceResponse{}, ErrPending
+				}
+			}
 			if r.o.Playback.RetireSource(s.playID, s.life) != nil {
 				return sourceResponse{}, ErrPending
 			}
+			r.mu.Lock()
+			s.sealed = true
+			r.mu.Unlock()
 		}
 		retired := false
 		select {
 		case <-s.life.Done():
-			retired = s.life.Err() == nil && r.bytes.Pending(nodesource.Scope{Fence: f, Viewer: viewerString(rt.Viewer), Revision: rt.Revision}) == 0
+			r.mu.Lock()
+			joined := s.sealed && s.retiring && !s.binding && !s.issuing && s.operations == 0
+			r.mu.Unlock()
+			retired = joined && s.life.Err() == nil && r.bytes.Pending(nodesource.Scope{Fence: f, Viewer: viewerString(rt.Viewer), Revision: rt.Revision}) == 0
 		default:
 		}
 		return sourceResponse{Retired: retired}, nil
 	}
-	handle, scope, size, e := r.authority.Resolve(ctx, nodesource.Peer{NodeID: peer.NodeID, Boot: peer.Boot}, m.Stable)
-	if e != nil || handle != s.handle {
-		return deny()
-	}
-
 	r.mu.Lock()
 	if s.retiring || s.issuing || (m.Op == "resolve" && s.issued) {
 		r.mu.Unlock()
 		return deny()
 	}
 	s.issuing = true
+	s.operations++
 	r.mu.Unlock()
-	defer func() { r.mu.Lock(); s.issuing = false; r.mu.Unlock() }()
+	defer func() { r.mu.Lock(); s.issuing = false; s.operations--; r.mu.Unlock() }()
+	handle, scope, size, e := r.authority.Resolve(ctx, nodesource.Peer{NodeID: peer.NodeID, Boot: peer.Boot}, m.Stable)
+	if e != nil || handle != s.handle {
+		return deny()
+	}
 	var lease nodeauthority.Lease
 	if m.Op == "renew" {
 		lease, e = r.authority.Renew(ctx, handle, m.Old, m.Expires)
@@ -260,6 +278,10 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 	r.mu.Lock()
 	s.issued = true
 	s.grant = g
+	tracked := r.trackCredentialLocked(s, g)
+	if !tracked {
+		s.retiring = true
+	}
 	sealed := s.retiring || r.closed
 	r.mu.Unlock()
 	if sealed || g.Scope != scope {

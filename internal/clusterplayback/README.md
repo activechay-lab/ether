@@ -154,3 +154,40 @@ bounds, independent restart or real muxed audio/video clocks. Those independent
 EvidenceVerifier methods and a surviving delivery buffer remain required before
 playbackcontinuity can drive an enabled recovery. Source-host loss still needs a
 separate authoritative immutable reopen provider plus real external fencing.
+
+## Concrete retirement evidence and atomic publication
+
+Runtime now constructs placement.History with the configured cluster and itself as
+an independent re-fetching ReceiptVerifier. Read-only EvidencePath permits exact
+current controller proof reads while its lease remains active; a different live
+server may read only after the exact old authority is revoked/expired. It checks
+the complete current ledger fence and the actual intended worker/source boot on
+every observation. No encoder or source start, renewal or output occurs there.
+
+Worker.TerminalEvidence supplies the retained actual immutable Start hash,
+initial/accepted lease CAS, explicit negative admission barrier when applicable,
+and separately domain-bound joined encoder/local-input proof. Source evidence
+uses actual captured SourceHandle size, exact revision/PlayID/owner boot/fence,
+sealed authority+manager acquisition barriers, exact SourceRetirement Done/nil,
+zero tracked producers, and joined source verification/acquisition/issuance calls.
+Those callbacks register before invoking external authority and run outside the
+runtime mutex. Future source calls cannot cross the sealed registry admission.
+Bounded expired credential-index eviction only removes rejected credentials; it
+never proves source/encoder retirement or releases placement capacity.
+
+Complete independently authenticated proofs use RetireWithReceipt atomically with
+claim release. An unknown write result retains the local execution token. The next
+Tick first checks the exact immutable receipt, so a committed-but-lost response can
+settle without contacting nodes again, including after a replacement. A generic
+retired status, absent record, source-only lease extension or enum value cannot
+manufacture a receipt. Unsupported worker proof keeps payloads; ordinary Retire
+still uses its original verifier and cannot authorize history compaction. No map
+or generation-floor eviction is enabled by this change. Pre-placement random
+operation histories still require their own durable replay barrier before reuse.
+
+Focused composition checks include independent proof/digest binding, accepted
+renewal preservation, a deliberately unjoined source callback, tampered source
+proof rejection, atomic receipt insert failure with capacity retained, and a
+committed write whose local acknowledgement is lost while both remote endpoints
+are unavailable. Historical receipts remain exact and readable after replacement;
+they never restore current execution authority.

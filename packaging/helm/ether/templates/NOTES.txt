@@ -4,9 +4,9 @@ This chart requires the deployment runtime contract; do not use an older image.
 API Service (full/server): {{ include "ether.name" . }}:{{ .Values.service.port }}
 {{- if or (gt (int .Values.pools.server.replicas) 0) (gt (int .Values.pools.delivery.replicas) 0) }}
 Media Service (full/delivery, ClusterIP): {{ include "ether.name" . }}-media:{{ .Values.service.port }}
-CANONICAL HLS LAB ONLY: broad Prefix routes send unsupported session resources
-(.ass/index.mpd) to delivery too. General mixed-client parity is NOT established.
-Use full-only public pools until typed delivery or exact routing is accepted.
+CANONICAL HLS LAB ONLY: writer-derived URL/auth, same-origin controller and
+protocol capability acceptance are pending. General mixed-client parity is NOT established.
+Use full-only public pools until mixed-role acceptance is complete.
 {{- end }}
 Private identity DNS: POD.{{ include "ether.name" . }}-private.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}
 

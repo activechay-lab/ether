@@ -68,8 +68,7 @@ func (a *App) authorizeDeliveryPlex(ctx context.Context, r *http.Request, _ stri
 	// because another process can rotate it before our cache receives the bus.
 	// Delegation receipts already check their exact durable row and expiry.
 	if !user.Delegated {
-		var viewer int64
-		if err := a.db.QueryRowContext(ctx, `SELECT user_id FROM auth_tokens WHERE token_hash=?`, auth.HashToken(token)).Scan(&viewer); err != nil || viewer != user.ID {
+		if err := a.users.DurableTokenCurrent(ctx, token, user.ID); err != nil {
 			return core.ErrUnauthorized
 		}
 	}

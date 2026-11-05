@@ -107,7 +107,11 @@ func (r *Runtime) terminalOperation(ctx context.Context, peer nodewire.Identity,
 			if !ok || !owned || ps == nil || ps.UserID != route.Viewer || core.SourceRevision(ps) != route.Revision {
 				return terminalReply{}, ErrPending
 			}
-			candidate := &ownedSource{route: route, playID: route.PlayID, life: life, retiring: true}
+			size := int64(0)
+			if ps.Source != nil {
+				size = ps.Source.Size()
+			}
+			candidate := &ownedSource{route: route, playID: route.PlayID, life: life, retiring: true, size: size}
 			r.mu.Lock()
 			source = r.sources[key]
 			if source == nil && len(r.sources) < r.o.HistoryCapacity {
@@ -141,12 +145,15 @@ func (r *Runtime) terminalOperation(ctx context.Context, peer nodewire.Identity,
 			if e = r.o.Playback.RetireSource(source.playID, life); e != nil {
 				return terminalReply{}, ErrPending
 			}
+			r.mu.Lock()
+			source.sealed = true
+			r.mu.Unlock()
 		}
 		select {
 		case <-life.Done():
 			if life.Err() != nil {
 				reply.State = remotetranscode.TerminalUnverified
-			} else if r.bytes.Pending(scopeForRoute(route)) == 0 {
+			} else if r.sourceJoined(source) && r.bytes.Pending(scopeForRoute(route)) == 0 {
 				reply.State = remotetranscode.TerminalRetired
 			}
 		default:
@@ -238,6 +245,11 @@ func (r *Runtime) ReconcileExpired(ctx context.Context, id string) (core.Encoder
 	return executionRetirement{r: r, id: id, x: x}, nil
 }
 func (r *Runtime) retireForeign(ctx context.Context, x *execution) error {
+	if retired, e := r.retainedReceipt(ctx, x.route); e != nil {
+		return e
+	} else if retired {
+		return nil
+	}
 	encoder, e := r.terminalCall(ctx, x.route, "encoder", true)
 	if e != nil {
 		return e
@@ -249,7 +261,7 @@ func (r *Runtime) retireForeign(ctx context.Context, x *execution) error {
 	if encoder.State != remotetranscode.TerminalRetired || source.State != remotetranscode.TerminalRetired {
 		return ErrPending
 	}
-	return r.o.Placement.Retire(ctx, x.route.Fence, "clusterplayback/terminal-takeover")
+	return r.retireWithEvidence(ctx, x.route, "clusterplayback/terminal-takeover")
 }
 func (r *Runtime) verifyForeign(ctx context.Context, route Route) error {
 	encoder, e := r.terminalCall(ctx, route, "encoder", false)
