@@ -55,7 +55,7 @@ func channelSummary(ctx context.Context, d Deps, id string) (map[string]any, err
 	return map[string]any{"id": c.ID, "name": c.Name, "kind": c.Kind, "genres": genres, "titles": titles, "look": c.Look}, nil
 }
 func onairTools(d Deps) []tools.Tool {
-	draft := tool(tools.Tool{Name: "look_draft", Title: "Draft a style", ReadOnly: true, OpenWorld: true, Description: "Draft a channel look from the owner's prompt and real channel summary using the configured model. Returns a validated owned-scene Style with brand kit, scenes, role durations and controls without saving. Include the current look as look to preserve unsaved edits, or lookId for a saved base. The owner saves with Save style.", InputSchema: schema(map[string]any{"prompt": pString("The owner's requested colours, type, mood and motion", 2000), "channelId": pString("Optional local channel id to match programming", 128), "lookId": pString("Optional saved base look id", 128), "look": map[string]any{"type": "object", "additionalProperties": true, "description": "Optional complete current Style: brand, roles, scenes with full documents, controls, channelIds"}}, "prompt"), Execute: func(ctx context.Context, _ tools.Principal, in map[string]any) (tools.Result, error) {
+	draft := tool(tools.Tool{Name: "look_draft", Title: "Draft a style", ReadOnly: true, OpenWorld: true, Description: "Draft a channel look from the owner's prompt and real channel summary using the configured model. Returns complete validated owned scenes, controls, motion and sound without saving. Include the current look as look to preserve unsaved edits, or lookId for a saved base. The owner saves with Save style.", InputSchema: schema(map[string]any{"prompt": pString("The owner's requested colours, type, mood and motion", 2000), "channelId": pString("Optional local channel id to match programming", 128), "lookId": pString("Optional saved base look id", 128), "sceneId": pString("Optional scene id to revise; preserves all other scenes",128), "look": map[string]any{"type": "object", "additionalProperties": true, "description": "Optional complete current draft look"}}, "prompt"), Execute: func(ctx context.Context, _ tools.Principal, in map[string]any) (tools.Result, error) {
 		if d.OnAir == nil {
 			return tools.Result{}, tools.Userf("On Air is unavailable")
 		}
@@ -93,7 +93,9 @@ func onairTools(d Deps) []tools.Tool {
 			b, _ := json.Marshal(v)
 			summary = string(b)
 		}
-		l, e := d.OnAir.Generate(ctx, prompt, summary, base)
+		sceneID, e := optStr(in, "sceneId", 128)
+		if e != nil { return tools.Result{}, e }
+		l, e := d.OnAir.GenerateScene(ctx, prompt, summary, base, sceneID)
 		if e != nil {
 			return tools.Result{}, tools.Userf("%v", e)
 		}
