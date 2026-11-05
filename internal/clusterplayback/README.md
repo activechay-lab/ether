@@ -128,3 +128,29 @@ availability and retains a token through pending reservation/start and stopped
 executions. It closes only after exact terminal reconciliation, including a fresh
 proof that a failed reservation had no side effect. Stop/expired lease/network
 errors never close this token on their own.
+
+## Same-owner reopen attestation
+
+ReopenSource and Runtime.VerifyReopen provide a concrete same-owner implementation
+of playbackcontinuity.SourceReopenVerifier. This is limited to the original exact
+owner node AND boot. The original authenticated preparation must remain available;
+its exact source lifetime and producers must have retired successfully, and the
+old complete placement fence must already be durably retired. Reopen uses the
+original authorized exact release through the real Manager, then requires fresh
+source revision AND size equality. This relies on the existing resolver/source
+immutable revision contract; equality does not invent a new byte hash guarantee.
+Cross-host and cross-boot equivalence are unsupported.
+
+The bounded source-owner registry returns an opaque attestation tied to the
+immutable reopen operation, original binding, original owner boot, old/new PlayID,
+revision and size. Verification rechecks current source policy, exact new route,
+and complete current placement authority. The first verified new fence binds
+permanently; another generation cannot reuse it. Historical successful verification
+is never current execution authority after retirement. A lost response retains the
+same operation; it must not prompt an alternate source/encoder start.
+
+This provider does not validate final delivery buffer retention, measured recovery
+bounds, independent restart or real muxed audio/video clocks. Those independent
+EvidenceVerifier methods and a surviving delivery buffer remain required before
+playbackcontinuity can drive an enabled recovery. Source-host loss still needs a
+separate authoritative immutable reopen provider plus real external fencing.
