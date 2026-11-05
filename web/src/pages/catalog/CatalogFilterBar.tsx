@@ -23,11 +23,32 @@ type Field = {
   category: string;
   kind?: "number" | "date" | "person";
   values?: string[];
-  facet?: "genre" | "language" | "country" | "contentRating" | "studio" | "decade";
+  facet?: "genre" | "language" | "country" | "contentRating" | "studio" | "decade" | "tag";
 };
 const fields = (): Field[] => [
+  {
+    key: "playable",
+    label: t("Playable now"),
+    category: t("Availability"),
+    values: ["yes", "unknown"],
+  },
+  {
+    key: "cached",
+    label: t("Cached on debrid"),
+    category: t("Availability"),
+    values: ["yes", "unknown"],
+  },
+  {
+    key: "quality",
+    label: t("Quality"),
+    category: t("Availability"),
+    values: ["4k", "hdr", "dv", "atmos"],
+  },
   { key: "title", label: t("Title"), category: t("Essentials") },
   { key: "type", label: t("Type"), category: t("Essentials"), values: ["movie", "show"] },
+  {key:"tag",label:t("Tags"),category:t("People & stories"),facet:"tag"},
+  {key:"anime",label:t("Anime keyword"),category:t("Origin & classification"),values:["true"]},
+  {key:"kids",label:t("Kids genre"),category:t("Origin & classification"),values:["true"]},
   { key: "genre", label: t("Genre"), category: t("Essentials"), facet: "genre" },
   { key: "decade", label: t("Decade"), category: t("Essentials"), facet: "decade", kind: "number" },
   { key: "year", label: t("Year"), category: t("Dates"), kind: "number" },

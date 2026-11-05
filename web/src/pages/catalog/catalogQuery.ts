@@ -1,6 +1,9 @@
 export type Chip = { field: string; op: string; value: string; label?: string; group?: number };
 export type QueryState = { chips: Chip[]; mode: "and" | "or"; groupMode?: "and" | "or" };
 const allowedFields = new Set([
+  "playable",
+  "cached",
+  "quality",
   "title",
   "type",
   "genre",
@@ -16,6 +19,9 @@ const allowedFields = new Set([
   "certification",
   "studio",
   "keyword",
+  "tag",
+  "anime",
+  "kids",
   "cast",
   "director",
   "writer",
@@ -84,6 +90,8 @@ export function chipFilter(c: Chip, viewer: string): Record<string, unknown> {
     keyword: "keywords",
   };
   if (arrays[c.field]) return { [arrays[c.field]!]: [c.value] };
+  if (c.field === "tag") return {tags:[c.value]};
+  if (c.field === "anime" || c.field === "kids") return {[c.field]:true};
   if (c.field === "collection") return { collections: [number] };
   if (["cast", "director", "writer", "composer"].includes(c.field))
     return {
@@ -107,6 +115,9 @@ export function chipFilter(c: Chip, viewer: string): Record<string, unknown> {
     };
   if (c.field === "status") return { statuses: [c.value] };
   if (c.field === "studio") return { studio: c.value };
+  if (c.field === "playable") return { playable: c.value };
+  if (c.field === "cached") return { debridCached: c.value };
+  if (c.field === "quality") return { qualities: [c.value] };
   if (c.field === "type") return { type: c.value };
   if (c.field === "title") return { query: c.value };
   if (c.field === "watched")

@@ -59,7 +59,7 @@ func (c *Catalog) ConsoleCount(ctx context.Context, f core.Filter) (int, bool, e
 	if err != nil {
 		return 0, false, err
 	}
-	key := "console-count:" + browseFilterKey(f)
+	key := "console-count:" + c.evidencePolicy() + "|" + browseFilterKey(f)
 	c.cacheMu.RLock()
 	ent, ok := c.countCache[key]
 	c.cacheMu.RUnlock()

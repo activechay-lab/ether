@@ -135,6 +135,9 @@ func (s *Service) remember(ctx context.Context, f core.ReleaseFeed, t core.Title
  next_check=CASE WHEN availability_releases.generation<>excluded.generation THEN 0 ELSE availability_releases.next_check END,
  state=CASE WHEN availability_releases.generation<>excluded.generation THEN 'observed' ELSE availability_releases.state END,
  generation=excluded.generation`, r.ID, t.Key, f.ID, f.Generation, raw, t.Title, r.Name, r.Protocol, now, now, t.Popularity, policy, releasePolicyDigest(r))
+	if err == nil {
+		s.publishConsoleEvidence(ctx, t.Key, r, f.ID, policy, -1)
+	}
 	return err
 }
 func (s *Service) prune(ctx context.Context) error {

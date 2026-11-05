@@ -106,6 +106,9 @@ func New(d Deps) (*Service, error) {
 	}
 	s := &Service{db: d.DB, cfg: d.Config, d: d, now: d.Now, log: d.Logger, hiddenSets: map[string]*hiddenSet{}, verdictQueue: verdictQueue{behind: true}}
 	s.bgCtx, s.bgStop = context.WithCancel(context.Background())
+	if c, ok := d.Catalog.(interface{ SetConsoleAvailabilityPolicy(func() string) }); ok {
+		c.SetConsoleAvailabilityPolicy(s.policy)
+	}
 	return s, nil
 }
 
@@ -449,7 +452,19 @@ func (s *Service) verify(parent context.Context) error {
 				if e != nil {
 					return e
 				}
+				projectionRelease := r
+				projectionRelease.ID = q.id
+				s.publishConsoleEvidence(parent, q.key, projectionRelease, q.source, policy, 0)
 				continue
+			}
+			if definitive && r.Protocol == core.ProtocolTorrent {
+				v := 0
+				if cached[r.InfoHash] {
+					v = 1
+				}
+				projectionRelease := r
+				projectionRelease.ID = q.id
+				s.publishConsoleEvidence(parent, q.key, projectionRelease, q.source, policy, v)
 			}
 			preferred[q.id] = cached[r.InfoHash]
 			kept = append(kept, q)
@@ -525,6 +540,9 @@ func (s *Service) verify(parent context.Context) error {
 		if err != nil {
 			return err
 		}
+		projectionRelease := r
+		projectionRelease.ID = q.id
+		s.publishConsoleEvidence(parent, q.key, projectionRelease, q.source, policy, -1)
 	}
 	return nil
 }
@@ -554,6 +572,8 @@ func (s *Service) Observe(ctx context.Context, t *core.Title, r core.Release) {
 			_, err = s.db.ExecContext(ctx, `UPDATE availability_releases SET state='verified',reason='Health check reused from playback resolution',verified_at=?,first_verified=CASE WHEN first_verified=0 THEN ? ELSE first_verified END,policy=?,next_check=? WHERE id=? AND rating_key=? AND source_id=? AND revision=? AND generation=?`, now, now, policy, now+int64((6*time.Hour).Seconds()), r.ID, t.Key, f.ID, revision, f.Generation)
 			if err != nil {
 				s.log.Debug("availability observation could not be saved", "error", err)
+			} else {
+				s.publishConsoleEvidence(ctx, t.Key, r, f.ID, policy, -1)
 			}
 			return
 		}
@@ -594,6 +614,7 @@ func (s *Service) Candidates(ctx context.Context, t *core.Title) []core.Release 
 // Invalidate retracts positive evidence immediately when playback or the owner
 // invalidates a release. The title and its other sources remain discoverable.
 func (s *Service) Invalidate(ctx context.Context, id string) {
+	s.invalidateConsoleEvidence(ctx, id)
 	defer s.clearVisibility()
 	_, err := s.db.ExecContext(ctx, `UPDATE availability_releases SET revision=revision+1,verified_at=0,state='unknown',reason='Source health invalidated; awaiting a fresh check',next_check=0 WHERE id=? OR checked_id=?`, id, id)
 	if err != nil {

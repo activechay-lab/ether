@@ -1,6 +1,16 @@
 import { t } from "../../i18n";
 /** Translate finite enum labels at render time; wire values remain canonical. */
 export function catalogValueLabel(field: string, value: string): string {
+  if (field === "playable" || field === "cached") {
+    if (value === "yes") return t("Yes");
+    if (value === "unknown") return t("Unknown");
+  }
+  if (field === "quality") {
+    if (value === "4k") return "4K";
+    if (value === "hdr") return "HDR";
+    if (value === "dv") return "Dolby Vision";
+    if (value === "atmos") return "Dolby Atmos";
+  }
   if (field === "type") {
     if (value === "movie") return t("Movie");
     if (value === "show") return t("TV show");
