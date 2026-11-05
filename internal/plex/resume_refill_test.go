@@ -161,7 +161,7 @@ func (x *etheLab) start(t *testing.T) {
 	x.rs = resolver.New(x.idx, nil, nil, x.cfg, resolver.Options{Now: func() time.Time { return fixedNow }})
 	x.observed = &observedRefillResolver{Service: x.rs, scheduled: make(chan (<-chan struct{}), 16)}
 	var err error
-	x.mgr, err = playback.New(playback.Deps{Catalog: x.f.catalog, State: x.f.state, Resolver: x.observed, Engine: x.engine, Transcoder: x.f.trans, SelectProfile: x.rs.ProfileFor, DB: x.db, NativeProbe: func(_ context.Context, s core.MediaSource) (*core.MediaInfo, error) {
+	x.mgr, err = playback.New(playback.Deps{Catalog: x.f.catalog, State: x.f.state, Resolver: x.observed, Engine: x.engine, Transcoder: x.f.trans, SelectProfile: func(c core.ClientCaps, u *core.User, _ string) core.QualityProfile { return x.rs.ProfileFor(c, u) }, DB: x.db, NativeProbe: func(_ context.Context, s core.MediaSource) (*core.MediaInfo, error) {
 		info := sampleInfo
 		info.Streams = append([]core.StreamInfo(nil), sampleInfo.Streams...)
 		info.Duration = x.title.Runtime

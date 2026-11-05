@@ -201,7 +201,7 @@ func (l *Library) Deps() plex.Deps {
 		Playback:         l.Playback(),
 		Transcoder:       l.Transcoder(),
 		Config:           l.cfg,
-		ApplyClientRules: resolver.ApplyClientRules,
+		ApplyClientRules: resolver.ApplyClientRulesForMedia,
 		Logger:           l.opts.Logger,
 		Identity: plex.Identity{
 			MachineIdentifier: c.Server.MachineIdentifier,

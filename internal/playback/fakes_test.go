@@ -707,7 +707,7 @@ func newHarness(t *testing.T, rels []*fakeRelease, ids []string, opts ...harness
 		Catalog:    h.catalog,
 		Cache:      cache,
 		State:      h.state,
-		SelectProfile: func(caps core.ClientCaps, user *core.User) core.QualityProfile {
+		SelectProfile: func(caps core.ClientCaps, user *core.User, _ string) core.QualityProfile {
 			if caps.MaxHeight >= 2160 {
 				return quality.Profiles[0]
 			}

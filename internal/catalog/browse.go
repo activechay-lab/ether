@@ -392,16 +392,6 @@ func groupHasState(g *core.FilterGroup) bool {
 
 // Browse filters share one SQL statement; their combined parameters remain subject
 // to the database's statement-wide variable limit.
-// flagInt converts a bool to the 0/1 form the Postgres driver uses for the
-// BIGINT flag columns, so a query never leaves Postgres inferring boolean
-// for a parameter the driver will send as an integer.
-func flagInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 	var conds []string
 	var args []any
@@ -418,7 +408,7 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 	// columns; a bare `AND ?` would make Postgres infer boolean and reject
 	// the int. Compare the flag numerically instead.
 	conds = append(conds, "t.release_known=1 AND (t.released_ts<=? OR (t.type='movie' AND ?=1))")
-	args = append(args, nowTS, flagInt(c.config().ShowUpcomingMovies))
+	args = append(args, nowTS, store.BoolInt(c.config().ShowUpcomingMovies))
 	for _, hidden := range []struct{ kind, generation string }{
 		{"movie", f.HiddenMovieGeneration}, {"show", f.HiddenShowGeneration},
 	} {
@@ -492,7 +482,7 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 			digital += " OR t.key IN (" + placeholders(len(f.AvailabilityKeepKeys)) + ")"
 		}
 		conds = append(conds, "(t.type<>'movie' OR (t.key>=? AND t.key<?) OR (t.release_known=1 AND t.released_ts>? AND ?=1) OR ("+digital+"))")
-		args = append(args, int64(core.LocalKey(0)), int64(core.LocalKey(0))+1000000000000000, nowTS, flagInt(c.config().ShowUpcomingMovies))
+		args = append(args, int64(core.LocalKey(0)), int64(core.LocalKey(0))+1000000000000000, nowTS, store.BoolInt(c.config().ShowUpcomingMovies))
 		if f.DigitalDateEvidence {
 			args = append(args, nowTS)
 		}

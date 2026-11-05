@@ -114,7 +114,7 @@ func (m *Manager) ParityProbeNow(ctx context.Context, user *core.User, key core.
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if m == nil || user == nil || caps.ClientID == "" || m.deps.Catalog == nil || m.deps.Engine == nil || (m.deps.SelectProfile == nil && m.deps.SelectProfileFor == nil) {
+	if m == nil || user == nil || caps.ClientID == "" || m.deps.Catalog == nil || m.deps.Engine == nil || m.deps.SelectProfile == nil {
 		return nil
 	}
 	// Plex reads look the probe up without a surface. Leaving newer identity

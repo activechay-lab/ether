@@ -187,12 +187,23 @@ func limitationValue(a map[string]string) string {
 // matching client rule override from the server's quality configuration.
 // The override stays behind Deps so this package does not import the resolver.
 func (s *Server) clientCaps(pr *Request) core.ClientCaps {
+	return s.clientCapsForKey(pr, 0)
+}
+
+func (s *Server) clientCapsForKey(pr *Request, key core.RatingKey) core.ClientCaps {
 	cfg := s.cfg()
 	caps := s.declaredCaps(pr)
 	if s.d.ApplyClientRules == nil {
 		return caps
 	}
-	return s.d.ApplyClientRules(cfg.Quality, caps, pr.User)
+	media := core.MediaAny
+	switch key.Kind() {
+	case core.KindMovie:
+		media = core.MediaMovie
+	case core.KindEpisode:
+		media = core.MediaTV
+	}
+	return s.d.ApplyClientRules(cfg.Quality, caps, pr.User, media)
 }
 
 // Directive is one parsed X-Plex-Client-Profile-Extra directive, e.g.

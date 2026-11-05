@@ -44,7 +44,7 @@ func TestResumedTracksFollowTheResumeRow(t *testing.T) {
 		now:    time.Now,
 		resume: rs,
 		deps: Deps{
-			SelectProfile: func(core.ClientCaps, *core.User) core.QualityProfile { return profile },
+			SelectProfile: func(core.ClientCaps, *core.User, string) core.QualityProfile { return profile },
 			Resolver:      gates,
 		},
 	}

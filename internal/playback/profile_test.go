@@ -8,7 +8,7 @@ import (
 
 func TestSelectProfileForMediaUsesTitleKind(t *testing.T) {
 	var got []string
-	m := &Manager{deps: Deps{SelectProfileFor: func(_ core.ClientCaps, _ *core.User, media string) core.QualityProfile {
+	m := &Manager{deps: Deps{SelectProfile: func(_ core.ClientCaps, _ *core.User, media string) core.QualityProfile {
 		got = append(got, media)
 		return core.QualityProfile{Name: media}
 	}}}
@@ -23,14 +23,5 @@ func TestSelectProfileForMediaUsesTitleKind(t *testing.T) {
 	}
 	if len(got) != 3 || got[0] != core.MediaMovie || got[1] != core.MediaTV || got[2] != core.MediaAny {
 		t.Fatalf("media passed to selector %v", got)
-	}
-}
-
-func TestSelectProfileFallsBackToLegacySelector(t *testing.T) {
-	m := &Manager{deps: Deps{SelectProfile: func(core.ClientCaps, *core.User) core.QualityProfile {
-		return core.QualityProfile{Name: "legacy"}
-	}}}
-	if p := m.selectProfile(core.ClientCaps{}, nil, core.MovieKey(1)); p.Name != "legacy" {
-		t.Fatalf("fallback profile %q", p.Name)
 	}
 }

@@ -93,7 +93,7 @@ func TestParityProbeNowPublishesFactsForLaterReads(t *testing.T) {
 			Catalog:       cat,
 			Resolver:      newFakeResolver("rel"),
 			Engine:        eng,
-			SelectProfile: func(core.ClientCaps, *core.User) core.QualityProfile { return core.QualityProfile{} },
+			SelectProfile: func(core.ClientCaps, *core.User, string) core.QualityProfile { return core.QualityProfile{} },
 			NativeProbe: func(context.Context, core.MediaSource) (*core.MediaInfo, error) {
 				return probed, nil
 			},
@@ -151,7 +151,7 @@ func TestParityProbeNowSurvivesTheWarmCap(t *testing.T) {
 			Catalog:       &fakeCatalog{titles: map[core.RatingKey]*core.Title{key: title}},
 			Resolver:      newFakeResolver("rel"),
 			Engine:        newFakeEngine(&fakeRelease{ID: "rel", Name: "parity.mp4", Size: 4096}),
-			SelectProfile: func(core.ClientCaps, *core.User) core.QualityProfile { return core.QualityProfile{} },
+			SelectProfile: func(core.ClientCaps, *core.User, string) core.QualityProfile { return core.QualityProfile{} },
 			NativeProbe: func(context.Context, core.MediaSource) (*core.MediaInfo, error) {
 				return probed, nil
 			},

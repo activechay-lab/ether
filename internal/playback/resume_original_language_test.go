@@ -25,7 +25,7 @@ func TestRememberedResumeFollowsOriginalLanguage(t *testing.T) {
 		Conditions: []core.ReleaseCondition{{Field: "audio_matches_original"}},
 	}}
 	profile := core.QualityProfile{Name: "1080p", MaxHeight: 1080, MinHeight: 720, ReleaseRules: rules}
-	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User) core.QualityProfile { return profile }
+	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User, string) core.QualityProfile { return profile }
 	resolver := &originalAudioResolver{rules: rules, releases: []core.Release{
 		{ID: "ja", Name: "Japanese", Info: core.ReleaseInfo{Languages: []string{"japanese"}}},
 		{ID: "ko", Name: "Korean", Info: core.ReleaseInfo{Languages: []string{"korean"}}},
@@ -93,7 +93,7 @@ func TestPreferOriginalAudioReselectsOnLanguageChange(t *testing.T) {
 		Conditions: []core.ReleaseCondition{{Field: "audio_matches_original"}},
 	}}
 	profile := core.QualityProfile{Name: "1080p", MaxHeight: 1080, MinHeight: 720, ReleaseRules: rules}
-	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User) core.QualityProfile { return profile }
+	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User, string) core.QualityProfile { return profile }
 	resolver := &originalAudioResolver{rules: rules, releases: []core.Release{
 		{ID: "ja", Name: "Japanese", Info: core.ReleaseInfo{Languages: []string{"japanese"}}},
 		{ID: "ko", Name: "Korean", Info: core.ReleaseInfo{Languages: []string{"korean"}}},
@@ -131,7 +131,7 @@ func TestAvoidOriginalAudioDropsRememberedMatch(t *testing.T) {
 		Conditions: []core.ReleaseCondition{{Field: "audio_matches_original"}},
 	}}
 	profile := core.QualityProfile{Name: "1080p", MaxHeight: 1080, MinHeight: 720, ReleaseRules: rules}
-	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User) core.QualityProfile { return profile }
+	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User, string) core.QualityProfile { return profile }
 	resolver := &originalAudioResolver{rules: rules, releases: []core.Release{
 		{ID: "ja", Name: "Japanese", Info: core.ReleaseInfo{Languages: []string{"japanese"}}},
 		{ID: "ko", Name: "Korean", Info: core.ReleaseInfo{Languages: []string{"korean"}}},
@@ -161,7 +161,7 @@ func TestPlainProfileResumeSkipsCatalogue(t *testing.T) {
 		ID: "lang", Name: "Norwegian", Action: "require",
 		Conditions: []core.ReleaseCondition{{Field: "language", Operator: "equals", Value: "no"}},
 	}}}
-	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User) core.QualityProfile { return profile }
+	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User, string) core.QualityProfile { return profile }
 	h.catalog.titles[movieKey].Language = "ja"
 	h.catalog.gets.Store(0)
 	if err := h.m.Remember(ctx, owner, movieKey, caps, &core.Resolution{Release: core.Release{ID: "A"}, NZB: []byte("nzb-A")}); err != nil {
@@ -199,7 +199,7 @@ func TestLegacyBlankOriginalLanguageDoesNotBypass(t *testing.T) {
 		Conditions: []core.ReleaseCondition{{Field: "audio_matches_original"}},
 	}}
 	profile := core.QualityProfile{Name: "1080p", MaxHeight: 1080, MinHeight: 720, ReleaseRules: rules}
-	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User) core.QualityProfile { return profile }
+	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User, string) core.QualityProfile { return profile }
 	resolver := &originalAudioResolver{rules: rules, releases: []core.Release{
 		{ID: "ja", Name: "Japanese", Info: core.ReleaseInfo{Languages: []string{"japanese"}}},
 		{ID: "ko", Name: "Korean", Info: core.ReleaseInfo{Languages: []string{"korean"}}},

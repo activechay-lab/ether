@@ -79,7 +79,11 @@ func TestQualitySyncUpdatesProfileAndDefinitionsExactly(t *testing.T) {
 			{Name: "Manual", CustomFormatScores: map[string]int{"cf-manual": 5, "cf-old": 0}},
 		},
 	}, Resolver: config.Resolver{CustomFormats: []core.CustomFormat{
-		format("cf-web1", "Old WEB", map[string]int{"default": 1}, titleSpec),
+		func() core.CustomFormat {
+			f := format("cf-web1", "Old WEB", map[string]int{"default": 1}, titleSpec)
+			f.ManagedBy = "trash:radarr"
+			return f
+		}(),
 		func() core.CustomFormat {
 			f := format("cf-old", "Old managed", map[string]int{"default": 2}, titleSpec)
 			f.ManagedBy = "trash:radarr"
@@ -96,7 +100,7 @@ func TestQualitySyncUpdatesProfileAndDefinitionsExactly(t *testing.T) {
 		t.Fatalf("report %+v", report)
 	}
 	prof := f.cfg.Quality.Profiles[0]
-	wantScores := map[string]int{"cf-web1": 1700, "cf-brdisk": -10000}
+	wantScores := map[string]int{"cf-web1": 1700, "cf-brdisk": -10000, "cf-manual": 0}
 	if len(prof.CustomFormatScores) != len(wantScores) || prof.CustomFormatScores["cf-web1"] != 1700 || prof.CustomFormatScores["cf-brdisk"] != -10000 {
 		t.Fatalf("scores %v, want exactly %v", prof.CustomFormatScores, wantScores)
 	}
@@ -128,7 +132,7 @@ func TestQualitySyncUpdatesProfileAndDefinitionsExactly(t *testing.T) {
 	if _, ok := defs["cf-old"]; ok {
 		t.Fatal("unreferenced managed definition kept")
 	}
-	if manual := f.cfg.Quality.Profiles[1].CustomFormatScores; len(manual) != 1 || manual["cf-manual"] != 5 {
+	if manual := f.cfg.Quality.Profiles[1].CustomFormatScores; len(manual) != 2 || manual["cf-manual"] != 5 || manual["cf-brdisk"] != 0 {
 		t.Fatalf("dangling 0 score for a removed definition kept: %v", manual)
 	}
 	if f.cfg.Quality.Sync.LastRun != f.now || f.cfg.Quality.Sync.LastError != "" {
@@ -328,5 +332,24 @@ func TestSameFormatDefinitionIgnoresRawJSONWhitespace(t *testing.T) {
 	b.Specifications[0].Fields["value"] = json.RawMessage(`"bar"`)
 	if sameFormatDefinition(a, b) {
 		t.Fatal("a different regex must count as a definition change")
+	}
+}
+
+// Shared manual definitions and same-name replacements remain owner-owned.
+func TestQualitySyncRespectsOwnership(t *testing.T) {
+	manual := format("shared", "Owner definition", map[string]int{"default": 42}, titleSpec)
+	c := config.Config{Quality: config.Quality{Profiles: []core.QualityProfile{trashImported("Imported", "hd")}}, Resolver: config.Resolver{CustomFormats: []core.CustomFormat{manual}}}
+	saved := *c.Quality.Profiles[0].Import
+	plan := QualityImportPlan{App: AppRadarr, Source: ImportSourceTrash, ProfileID: "hd", Definitions: []core.CustomFormat{format("shared", "Guide definition", nil, titleSpec)}}
+	s := NewQualitySyncer(QualitySyncDeps{})
+	report := QualitySyncReport{}
+	s.apply(&c, "Imported", saved, plan, time.Now(), &report)
+	if c.Resolver.CustomFormats[0].Name != manual.Name || c.Resolver.CustomFormats[0].ManagedBy != "" {
+		t.Fatal("manual format overwritten")
+	}
+	c.Quality.Profiles[0] = core.QualityProfile{Name: "Imported", MaxHeight: 720}
+	s.apply(&c, "Imported", saved, plan, time.Now(), &report)
+	if c.Quality.Profiles[0].Import != nil || c.Quality.Profiles[0].MaxHeight != 720 {
+		t.Fatal("manual replacement overwritten")
 	}
 }

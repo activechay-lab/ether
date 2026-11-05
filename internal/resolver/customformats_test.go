@@ -224,10 +224,9 @@ func TestNativeLanguageSpecifications(t *testing.T) {
 	}
 }
 
-// A profile that carries its own score map scores missing formats 0; only
-// a profile with no map falls back to the definition's default (or the
-// owner's global score).
-func TestScoreForTitleProfileMapScoresAbsentFormatsZero(t *testing.T) {
+// Sparse profile maps retain the existing global fallback; imports explicitly
+// backfill zeroes for unrelated formats.
+func TestScoreForTitleSparseProfileMapInheritsGlobalScores(t *testing.T) {
 	defs := []core.CustomFormat{
 		format("a", "A", map[string]int{"default": 10}, titleSpec),
 		format("b", "B", map[string]int{"default": 20}, titleSpec),
@@ -248,14 +247,14 @@ func TestScoreForTitleProfileMapScoresAbsentFormatsZero(t *testing.T) {
 	if got := score(nil); got != 12 {
 		t.Fatalf("global scores total %d, want 12", got)
 	}
-	if got := score(map[string]int{"b": 7}); got != 7 {
-		t.Fatalf("profile map total %d, want 7 (absent format must score 0)", got)
+	if got := score(map[string]int{"b": 7}); got != 12 {
+		t.Fatalf("profile map total %d, want 12 (absent format inherits global score)", got)
 	}
-	if got := score(map[string]int{}); got != 0 {
-		t.Fatalf("empty profile map total %d, want 0", got)
+	if got := score(map[string]int{}); got != 12 {
+		t.Fatalf("empty profile map total %d, want 12", got)
 	}
-	if got := score(map[string]int{"a": -4}); got != -4 {
-		t.Fatalf("negative profile score total %d, want -4", got)
+	if got := score(map[string]int{"a": -4}); got != 3 {
+		t.Fatalf("negative profile score total %d, want 3", got)
 	}
 }
 

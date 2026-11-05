@@ -309,7 +309,7 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *core.Title) {
 	if t == nil || !isPlayable(t.Type) || s.d.Playback == nil {
 		return
 	}
-	caps := s.clientCaps(pr)
+	caps := s.clientCapsForKey(pr, t.Key)
 	if warm, ok := s.d.Playback.(core.Prewarmer); ok {
 		warm.Prewarm(ctx, pr.User, t.Key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail})
 	}
