@@ -21,7 +21,8 @@ import (
 func (s *Service) Reel(ctx context.Context, id string) (Reel, error) {
 	var b string
 	var r Reel
-	e := s.db.QueryRowContext(ctx, "SELECT data FROM onair_reels WHERE id=?", id).Scan(&b)
+	var anchor int64
+	e := s.db.QueryRowContext(ctx, "SELECT data,updated_at FROM onair_reels WHERE id=?", id).Scan(&b, &anchor)
 	if e == sql.ErrNoRows {
 		return r, ErrNotFound
 	}
@@ -31,6 +32,7 @@ func (s *Service) Reel(ctx context.Context, id string) (Reel, error) {
 	if e = json.Unmarshal([]byte(b), &r); e != nil {
 		return r, e
 	}
+	r.Anchor = time.Unix(anchor, 0).UTC()
 	order := r.Clips
 	r.Clips = []ReelClip{}
 	rows, e := s.db.QueryContext(ctx, "SELECT data FROM onair_reel_clips WHERE reel_id=? ORDER BY created_at,id", id)

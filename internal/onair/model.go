@@ -4,6 +4,7 @@ package onair
 import (
 	"encoding/json"
 	"github.com/braedonsaunders/ether/internal/onair/scene"
+	"time"
 )
 
 type Brand struct {
@@ -62,6 +63,7 @@ type Asset struct {
 	MIME    string   `json:"-"`
 }
 type Reel struct {
+	Anchor        time.Time  `json:"-"`
 	ID            string     `json:"id"`
 	Name          string     `json:"name"`
 	Order         string     `json:"order"`

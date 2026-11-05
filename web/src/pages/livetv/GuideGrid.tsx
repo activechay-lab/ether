@@ -54,6 +54,7 @@ export function GuideGrid({
   covered,
   onToggleFavorite,
   emptyHint,
+  onAddChannel,
   selection,
   bulkActions,
 }: {
@@ -80,6 +81,7 @@ export function GuideGrid({
   onToggleFavorite?: (c: Channel) => void;
   /** Shown instead of the default when there are no rows. */
   emptyHint?: ReactNode;
+  onAddChannel?: () => void;
   selection?: ChannelSelection;
   bulkActions?: ReactNode;
 }) {
@@ -193,19 +195,35 @@ export function GuideGrid({
         pseudoFull && "fixed inset-0 z-[100] h-dvh",
       )}
     >
-      <div className={cn("flex shrink-0", lineup && "border-b border-border")}>
+      <div
+        className={cn(
+          "flex shrink-0",
+          lineup && channels.length === 0 && "max-sm:flex-col",
+          lineup && "border-b border-border",
+        )}
+      >
         {lineup ? (
-          <div className="shrink-0 border-r border-border bg-bg-subtle" style={{ width: chCol }}>
+          <div
+            className="shrink-0 border-r border-border bg-bg-subtle"
+            style={{ width: channels.length === 0 && view.width < 640 ? "100%" : chCol }}
+          >
             {head}
           </div>
         ) : null}
         <div className={cn("flex min-w-0 flex-1", lineup && "h-[104px]")}>
           {lineup ? (
-            <OnNowStrip channels={loadedChannels} guide={guide} now={now} onSelect={onSelect} />
+            <OnNowStrip
+              channels={loadedChannels}
+              guide={guide}
+              now={now}
+              onSelect={onSelect}
+              onAddChannel={onAddChannel}
+            />
           ) : null}
           <div
             className={cn(
               "flex min-w-0 flex-wrap items-center gap-1 bg-surface px-2 py-1.5",
+              channels.length === 0 && "max-sm:hidden",
               lineup
                 ? "ml-auto w-44 shrink-0 content-center justify-center border-l border-border"
                 : "flex-1 border-b border-border sm:px-4",
@@ -291,276 +309,278 @@ export function GuideGrid({
         }
         className="app-scroll relative min-h-0 flex-1 overflow-auto bg-bg"
       >
-        <div
-          className="relative"
-          style={{
-            width: chCol + width,
-            height: HEADER + channels.length * ROW + (selection?.ids.size ? 100 : 0),
-          }}
-        >
-          {/* time ruler */}
+        {channels.length > 0 ? (
           <div
-            className="sticky top-0 z-30 flex border-b border-border bg-surface/95 backdrop-blur"
-            style={{ height: HEADER }}
+            className="relative"
+            style={{
+              width: chCol + width,
+              height: HEADER + channels.length * ROW + (selection?.ids.size ? 100 : 0),
+            }}
           >
+            {/* time ruler */}
             <div
-              className="sticky left-0 z-40 flex shrink-0 items-center border-r border-border bg-surface px-3 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle"
-              style={{ width: chCol }}
+              className="sticky top-0 z-30 flex border-b border-border bg-surface/95 backdrop-blur"
+              style={{ height: HEADER }}
             >
-              {selection ? (
-                <Checkbox
-                  className="mr-3"
-                  checked={selection.all}
-                  ref={(el) => {
-                    if (el) el.indeterminate = !selection.all && selection.ids.size > 0;
-                  }}
-                  disabled={selection.busy || !channels.length}
-                  aria-label={t("Select all matches")}
-                  onChange={selection.toggleAll}
-                />
-              ) : null}
-              {t("Channel")}
+              <div
+                className="sticky left-0 z-40 flex shrink-0 items-center border-r border-border bg-surface px-3 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle"
+                style={{ width: chCol }}
+              >
+                {selection ? (
+                  <Checkbox
+                    className="mr-3"
+                    checked={selection.all}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !selection.all && selection.ids.size > 0;
+                    }}
+                    disabled={selection.busy || !channels.length}
+                    aria-label={t("Select all matches")}
+                    onChange={selection.toggleAll}
+                  />
+                ) : null}
+                {t("Channel")}
+              </div>
+              <div className="relative" style={{ width }}>
+                {ticks.map((tick) => {
+                  const hour = new Date(tick).getMinutes() === 0;
+                  return (
+                    <div
+                      key={tick}
+                      className="absolute inset-y-0 flex items-center border-l border-border/70 pl-2"
+                      style={{ left: x(tick) }}
+                    >
+                      <span
+                        className={cn(
+                          "whitespace-nowrap text-xs tabular-nums",
+                          hour ? "font-semibold text-fg" : "text-fg-subtle",
+                        )}
+                      >
+                        {clock(new Date(tick))}
+                      </span>
+                    </div>
+                  );
+                })}
+                {nowVisible ? (
+                  <div
+                    className="absolute bottom-0 z-10 -translate-x-1/2 rounded-t-md bg-danger px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"
+                    style={{ left: nowX }}
+                  >
+                    {t("Live · {time}", { time: clock(new Date(now)) })}
+                  </div>
+                ) : null}
+              </div>
             </div>
-            <div className="relative" style={{ width }}>
-              {ticks.map((tick) => {
-                const hour = new Date(tick).getMinutes() === 0;
+
+            {/* half-hour gridlines */}
+            <div
+              className="pointer-events-none absolute bottom-0 z-0"
+              style={{ left: chCol, top: HEADER, width }}
+              aria-hidden
+            >
+              {ticks.map((tick) => (
+                <div
+                  key={tick}
+                  className="absolute inset-y-0 border-l border-border/40"
+                  style={{ left: x(tick) }}
+                />
+              ))}
+            </div>
+
+            {channels.slice(first, last).map((c, k) => {
+              const i = first + k;
+              if (!c)
                 return (
                   <div
-                    key={tick}
-                    className="absolute inset-y-0 flex items-center border-l border-border/70 pl-2"
-                    style={{ left: x(tick) }}
+                    key={`pending-${i}`}
+                    role="row"
+                    aria-busy="true"
+                    aria-rowindex={i + 1}
+                    className="absolute left-0 flex border-b border-border/60 bg-bg-subtle/40"
+                    style={{ top: HEADER + i * ROW, height: ROW, width: chCol + width }}
                   >
-                    <span
-                      className={cn(
-                        "whitespace-nowrap text-xs tabular-nums",
-                        hour ? "font-semibold text-fg" : "text-fg-subtle",
-                      )}
+                    <div
+                      className="sticky left-0 z-20 flex shrink-0 items-center border-r border-border bg-surface px-4"
+                      style={{ width: chCol }}
+                      aria-hidden
                     >
-                      {clock(new Date(tick))}
-                    </span>
+                      <div className="h-3 w-2/3 animate-pulse rounded bg-fg-subtle/15" />
+                    </div>
                   </div>
                 );
-              })}
-              {nowVisible ? (
-                <div
-                  className="absolute bottom-0 z-10 -translate-x-1/2 rounded-t-md bg-danger px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"
-                  style={{ left: nowX }}
-                >
-                  {t("Live · {time}", { time: clock(new Date(now)) })}
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          {/* half-hour gridlines */}
-          <div
-            className="pointer-events-none absolute bottom-0 z-0"
-            style={{ left: chCol, top: HEADER, width }}
-            aria-hidden
-          >
-            {ticks.map((tick) => (
-              <div
-                key={tick}
-                className="absolute inset-y-0 border-l border-border/40"
-                style={{ left: x(tick) }}
-              />
-            ))}
-          </div>
-
-          {channels.slice(first, last).map((c, k) => {
-            const i = first + k;
-            if (!c)
+              const ps = guide.get(c.id) ?? [];
+              const on = c.id === selected;
+              const live = onNow(ps, now);
               return (
                 <div
-                  key={`pending-${i}`}
+                  key={c.id}
                   role="row"
-                  aria-busy="true"
+                  aria-selected={selection ? selection.ids.has(c.id) : undefined}
                   aria-rowindex={i + 1}
-                  className="absolute left-0 flex border-b border-border/60 bg-bg-subtle/40"
+                  className={cn(
+                    "absolute left-0 flex border-b border-border/60",
+                    on ? "bg-primary-subtle/40" : i % 2 ? "bg-bg" : "bg-bg-subtle/40",
+                  )}
                   style={{ top: HEADER + i * ROW, height: ROW, width: chCol + width }}
                 >
-                  <div
-                    className="sticky left-0 z-20 flex shrink-0 items-center border-r border-border bg-surface px-4"
-                    style={{ width: chCol }}
-                    aria-hidden
-                  >
-                    <div className="h-3 w-2/3 animate-pulse rounded bg-fg-subtle/15" />
+                  {lineup ? (
+                    <LineupCell
+                      channel={c}
+                      live={live}
+                      hasGuide={covered?.(c)}
+                      on={on}
+                      now={now}
+                      width={chCol}
+                      onSelect={onSelect}
+                      onToggleFavorite={onToggleFavorite}
+                      selection={selection}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      role="rowheader"
+                      onClick={() => onSelect(c.id)}
+                      className={cn(
+                        "sticky left-0 z-20 flex shrink-0 items-center gap-2.5 border-r border-border px-3 text-left transition-colors hover:bg-surface-hover",
+                        on ? "bg-primary-subtle" : "bg-surface",
+                      )}
+                      style={{ width: chCol }}
+                      aria-label={t("Channel {number} {name}", { number: c.number, name: c.name })}
+                    >
+                      <span className="w-7 shrink-0 text-right font-mono text-[11px] tabular-nums text-fg-subtle">
+                        {c.number}
+                      </span>
+                      <ChannelLogo name={c.name} logo={c.logo} seed={c.id} size={32} />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1">
+                          <span className="truncate text-[13px] font-medium text-fg">{c.name}</span>
+                          {c.favorite ? (
+                            <Star size={10} className="shrink-0 fill-warning text-warning" />
+                          ) : null}
+                        </span>
+                        <span className="block truncate text-[11px] text-fg-subtle">
+                          {live
+                            ? t("{time} left", {
+                                time: unit(
+                                  Math.max(1, Math.round((Date.parse(live.end) - now) / MINUTE)),
+                                  "minute",
+                                ),
+                              })
+                            : c.group || (c.kind === "virtual" ? t("Virtual") : t("Live"))}
+                        </span>
+                      </span>
+                    </button>
+                  )}
+                  <div className="relative" style={{ width }}>
+                    {ps.length === 0 ? (
+                      <div
+                        className="absolute inset-1 flex items-center rounded-md border border-dashed border-border px-3 text-xs text-fg-subtle"
+                        style={{ paddingLeft: Math.max(12, view.left + 12) }}
+                      >
+                        {c.kind === "iptv"
+                          ? t("No guide data — map a guide channel in Guide data")
+                          : t("No guide data — no programming")}
+                      </div>
+                    ) : null}
+                    {ps.map((p) => {
+                      const s = Math.max(Date.parse(p.start), start);
+                      const e = Math.min(Date.parse(p.end), until.getTime());
+                      if (e <= s) return null;
+                      const left = x(s);
+                      const w = Math.max(2, x(e) - left);
+                      const airing = live?.id === p.id;
+                      const past = Date.parse(p.end) <= now;
+                      // Slide the label right so it stays readable beside the
+                      // sticky channel column when the programme began earlier.
+                      const inset = Math.max(0, Math.min(view.left - left, w - 90));
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          role="gridcell"
+                          onClick={() => onSelect(c.id)}
+                          aria-label={t("{channel}: {title}, {start} to {end}", {
+                            channel: c.name,
+                            title: p.item.title,
+                            start: clock(p.start),
+                            end: clock(p.end),
+                          })}
+                          title={`${p.item.title}\n${clock(p.start)} – ${clock(p.end)}${p.item.summary ? `\n\n${p.item.summary}` : ""}`}
+                          className={cn(
+                            "group absolute inset-y-1 overflow-hidden rounded-md border px-2 py-1 text-left transition-all hover:z-10 hover:shadow-md focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                            airing
+                              ? "border-primary/40 bg-surface shadow-sm"
+                              : past
+                                ? "border-transparent bg-surface/50 opacity-60"
+                                : "border-border/70 bg-surface hover:border-border-strong",
+                          )}
+                          style={{ left: left + 1, width: w - 2 }}
+                        >
+                          {airing ? (
+                            <span
+                              className="absolute inset-y-0 left-0 bg-primary/10"
+                              style={{ width: `${progress(p, now) * 100}%` }}
+                              aria-hidden
+                            />
+                          ) : null}
+                          <span
+                            className="absolute inset-y-1 left-0 w-0.5 rounded-full"
+                            style={{ background: `hsl(${hueOf(c.id)} 65% 55%)` }}
+                            aria-hidden
+                          />
+                          <span
+                            className="relative flex h-full items-center gap-2"
+                            style={inset ? { paddingLeft: inset } : undefined}
+                          >
+                            {p.item.thumb && w > 220 ? (
+                              <Artwork
+                                src={p.item.thumb}
+                                alt=""
+                                title=""
+                                className="h-10 w-7 shrink-0 rounded"
+                              />
+                            ) : null}
+                            <span className="min-w-0">
+                              <span
+                                className={cn(
+                                  "block truncate text-[13px] font-medium",
+                                  airing ? "text-fg" : "text-fg",
+                                )}
+                              >
+                                {p.item.title || t("Untitled")}
+                              </span>
+                              {w > 70 ? (
+                                <span className="block truncate text-[11px] tabular-nums text-fg-muted">
+                                  {clock(p.start)} – {clock(p.end)}
+                                  {p.item.rating ? ` · ${p.item.rating}` : ""}
+                                </span>
+                              ) : null}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               );
-            const ps = guide.get(c.id) ?? [];
-            const on = c.id === selected;
-            const live = onNow(ps, now);
-            return (
-              <div
-                key={c.id}
-                role="row"
-                aria-selected={selection ? selection.ids.has(c.id) : undefined}
-                aria-rowindex={i + 1}
-                className={cn(
-                  "absolute left-0 flex border-b border-border/60",
-                  on ? "bg-primary-subtle/40" : i % 2 ? "bg-bg" : "bg-bg-subtle/40",
-                )}
-                style={{ top: HEADER + i * ROW, height: ROW, width: chCol + width }}
-              >
-                {lineup ? (
-                  <LineupCell
-                    channel={c}
-                    live={live}
-                    hasGuide={covered?.(c)}
-                    on={on}
-                    now={now}
-                    width={chCol}
-                    onSelect={onSelect}
-                    onToggleFavorite={onToggleFavorite}
-                    selection={selection}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    role="rowheader"
-                    onClick={() => onSelect(c.id)}
-                    className={cn(
-                      "sticky left-0 z-20 flex shrink-0 items-center gap-2.5 border-r border-border px-3 text-left transition-colors hover:bg-surface-hover",
-                      on ? "bg-primary-subtle" : "bg-surface",
-                    )}
-                    style={{ width: chCol }}
-                    aria-label={t("Channel {number} {name}", { number: c.number, name: c.name })}
-                  >
-                    <span className="w-7 shrink-0 text-right font-mono text-[11px] tabular-nums text-fg-subtle">
-                      {c.number}
-                    </span>
-                    <ChannelLogo name={c.name} logo={c.logo} seed={c.id} size={32} />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1">
-                        <span className="truncate text-[13px] font-medium text-fg">{c.name}</span>
-                        {c.favorite ? (
-                          <Star size={10} className="shrink-0 fill-warning text-warning" />
-                        ) : null}
-                      </span>
-                      <span className="block truncate text-[11px] text-fg-subtle">
-                        {live
-                          ? t("{time} left", {
-                              time: unit(
-                                Math.max(1, Math.round((Date.parse(live.end) - now) / MINUTE)),
-                                "minute",
-                              ),
-                            })
-                          : c.group || (c.kind === "virtual" ? t("Virtual") : t("Live"))}
-                      </span>
-                    </span>
-                  </button>
-                )}
-                <div className="relative" style={{ width }}>
-                  {ps.length === 0 ? (
-                    <div
-                      className="absolute inset-1 flex items-center rounded-md border border-dashed border-border px-3 text-xs text-fg-subtle"
-                      style={{ paddingLeft: Math.max(12, view.left + 12) }}
-                    >
-                      {c.kind === "iptv"
-                        ? t("No guide data — map a guide channel in Guide data")
-                        : t("No guide data — no programming")}
-                    </div>
-                  ) : null}
-                  {ps.map((p) => {
-                    const s = Math.max(Date.parse(p.start), start);
-                    const e = Math.min(Date.parse(p.end), until.getTime());
-                    if (e <= s) return null;
-                    const left = x(s);
-                    const w = Math.max(2, x(e) - left);
-                    const airing = live?.id === p.id;
-                    const past = Date.parse(p.end) <= now;
-                    // Slide the label right so it stays readable beside the
-                    // sticky channel column when the programme began earlier.
-                    const inset = Math.max(0, Math.min(view.left - left, w - 90));
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        role="gridcell"
-                        onClick={() => onSelect(c.id)}
-                        aria-label={t("{channel}: {title}, {start} to {end}", {
-                          channel: c.name,
-                          title: p.item.title,
-                          start: clock(p.start),
-                          end: clock(p.end),
-                        })}
-                        title={`${p.item.title}\n${clock(p.start)} – ${clock(p.end)}${p.item.summary ? `\n\n${p.item.summary}` : ""}`}
-                        className={cn(
-                          "group absolute inset-y-1 overflow-hidden rounded-md border px-2 py-1 text-left transition-all hover:z-10 hover:shadow-md focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                          airing
-                            ? "border-primary/40 bg-surface shadow-sm"
-                            : past
-                              ? "border-transparent bg-surface/50 opacity-60"
-                              : "border-border/70 bg-surface hover:border-border-strong",
-                        )}
-                        style={{ left: left + 1, width: w - 2 }}
-                      >
-                        {airing ? (
-                          <span
-                            className="absolute inset-y-0 left-0 bg-primary/10"
-                            style={{ width: `${progress(p, now) * 100}%` }}
-                            aria-hidden
-                          />
-                        ) : null}
-                        <span
-                          className="absolute inset-y-1 left-0 w-0.5 rounded-full"
-                          style={{ background: `hsl(${hueOf(c.id)} 65% 55%)` }}
-                          aria-hidden
-                        />
-                        <span
-                          className="relative flex h-full items-center gap-2"
-                          style={inset ? { paddingLeft: inset } : undefined}
-                        >
-                          {p.item.thumb && w > 220 ? (
-                            <Artwork
-                              src={p.item.thumb}
-                              alt=""
-                              title=""
-                              className="h-10 w-7 shrink-0 rounded"
-                            />
-                          ) : null}
-                          <span className="min-w-0">
-                            <span
-                              className={cn(
-                                "block truncate text-[13px] font-medium",
-                                airing ? "text-fg" : "text-fg",
-                              )}
-                            >
-                              {p.item.title || t("Untitled")}
-                            </span>
-                            {w > 70 ? (
-                              <span className="block truncate text-[11px] tabular-nums text-fg-muted">
-                                {clock(p.start)} – {clock(p.end)}
-                                {p.item.rating ? ` · ${p.item.rating}` : ""}
-                              </span>
-                            ) : null}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+            })}
 
-          {nowVisible ? (
-            // Above programme cards (z-10 on hover) but below the sticky
-            // channel column (z-20), so scrolling never draws it over names.
-            <div
-              className="pointer-events-none absolute bottom-0 z-[15] w-0.5 bg-danger shadow-[0_0_8px] shadow-danger/60"
-              style={{ left: chCol + nowX - 1, top: HEADER }}
-              aria-hidden
-            />
-          ) : null}
-        </div>
+            {nowVisible ? (
+              // Above programme cards (z-10 on hover) but below the sticky
+              // channel column (z-20), so scrolling never draws it over names.
+              <div
+                className="pointer-events-none absolute bottom-0 z-[15] w-0.5 bg-danger shadow-[0_0_8px] shadow-danger/60"
+                style={{ left: chCol + nowX - 1, top: HEADER }}
+                aria-hidden
+              />
+            ) : null}
+          </div>
+        ) : null}
         {channels.length === 0 && emptyHint ? (
-          <div className="absolute inset-0 top-9 grid place-items-center p-8 text-center">
+          <div className="absolute inset-0 grid place-items-center px-6 py-10 text-center">
             <div className="max-w-sm">{emptyHint}</div>
           </div>
         ) : channels.length === 0 ? (
-          <div className="absolute inset-0 top-9 grid place-items-center p-8 text-center">
+          <div className="absolute inset-0 grid place-items-center px-6 py-10 text-center">
             <div className="max-w-sm space-y-2">
               <Tv className="mx-auto text-fg-subtle" size={28} />
               <p className="text-sm font-medium text-fg">{t("No channels match")}</p>
@@ -712,7 +732,9 @@ export function OnNowStrip({
   guide,
   now,
   onSelect,
+  onAddChannel,
 }: {
+  onAddChannel?: () => void;
   channels: Channel[];
   guide: Map<string, Programme[]>;
   now: number;
@@ -738,7 +760,40 @@ export function OnNowStrip({
       })
       .slice(0, 10);
   }, [channels, guide, now]);
-  if (!picks.length) return null;
+  if (!picks.length)
+    return (
+      <section
+        aria-label={t("On now")}
+        className="relative isolate flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-bg-subtle px-5 py-3"
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary-subtle via-surface to-bg"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-6 -top-12 size-44 rounded-full border border-primary/15 bg-primary/5 motion-safe:animate-pulse"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-gradient-to-r from-transparent via-primary/25 to-transparent"
+        />
+        <div className="relative flex min-w-0 flex-col items-center gap-2 text-center sm:flex-row sm:gap-4 sm:text-left">
+          <span
+            className="hidden size-9 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-surface/60 text-primary sm:inline-flex"
+            aria-hidden
+          >
+            <Tv size={17} />
+          </span>
+          <p className="text-sm font-medium text-fg">{t("Your next channel starts here.")}</p>
+          {onAddChannel ? (
+            <Button size="sm" variant="outline" onClick={onAddChannel}>
+              {t("Add channel")}
+            </Button>
+          ) : null}
+        </div>
+      </section>
+    );
   return (
     <section aria-label={t("On now")} className="flex min-w-0 flex-1 items-center bg-surface px-2">
       <div className="sr-only">

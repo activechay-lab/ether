@@ -86,6 +86,7 @@ const MOCK_EQUIVALENTS: Record<string, string[]> = {
 const NOW = () => new Date();
 
 export interface FakeOptions {
+  liveTVEmpty?: boolean;
   capabilityOverrides?: Array<Record<string, unknown>>;
   bootstrap?: Partial<Bootstrap>;
   /** Artificial latency for realism in the browser; 0 in tests. */
@@ -581,7 +582,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
   const experience = createExperienceMock();
   const sites = createSitesMock();
   const cacheMock = createCacheMock(opts.cacheRestart);
-  const liveTV = createLiveTVMock(catalog);
+  const liveTV = createLiveTVMock(catalog, opts.liveTVEmpty);
   const onAir = createOnAirMock(liveTV);
   const calendar = createCalendarMock();
   const qualityMock = createQualityMock();
