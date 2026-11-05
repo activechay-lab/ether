@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/braedonsaunders/ether/internal/clusterconfig"
@@ -37,6 +38,13 @@ func TestServerRoleConstructionBoundary(t *testing.T) {
 	}
 	if !a.deployment.playback.Ready() {
 		t.Fatal("broker delivery binding missing")
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest("GET", "http://localhost:32400/ether/api/bootstrap", nil)
+	request.RemoteAddr = "127.0.0.1:12345"
+	a.handler.ServeHTTP(response, request)
+	if response.Code != 200 {
+		t.Fatalf("owner console bootstrap unavailable: %d", response.Code)
 	}
 	if a.privateProtocol() != 0 {
 		t.Fatal("constructed graph advertised before listeners")

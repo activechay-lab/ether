@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/braedonsaunders/ether/internal/clusterplayback"
 	"github.com/braedonsaunders/ether/internal/config"
@@ -63,7 +64,10 @@ func (a *App) buildServerRole(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 	a.closers = append(a.closers, a.frontends.close)
-	a.handler = a.frontends.plexHandler()
+	mux := http.NewServeMux()
+	mux.Handle("/ether/", a.perf.wrap("console", lanOnly(a.buildAdmin(), a.cfg.TrustedProxyCIDRs, a.cfg.AllowRemoteConsole)))
+	mux.Handle("/", a.frontends.plexHandler())
+	a.handler = mux
 	// This is a genuine protocol handler; role-specific public media mounting and
 	// complete supervisor lifecycle are separate acceptance steps before enablement.
 	return nil
