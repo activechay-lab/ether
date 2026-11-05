@@ -451,6 +451,26 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(ctx)
 	ctx = watchstate.WithOrigin(ctx, watchstate.Origin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
 	mc := &model.MediaContainer{}
+	// Lists have no playback history of their own. Resolve through the
+	// viewer-scoped list service rather than the title catalogue.
+	if key, err := core.ParseRatingKey(r.URL.Query().Get("metadataItemID")); err == nil {
+		switch key.Kind() {
+		case core.KindPlaylist:
+			if _, err := s.playlist(ctx, pr.User, key); err != nil {
+				s.writeErr(w, r, err)
+				return
+			}
+			s.write(w, r, mc)
+			return
+		case core.KindCollection, core.KindSmart:
+			if _, err := s.collection(ctx, pr.User, key); err != nil {
+				s.writeErr(w, r, err)
+				return
+			}
+			s.write(w, r, mc)
+			return
+		}
+	}
 	if s.d.State == nil || pr.User == nil {
 		s.write(w, r, mc)
 		return
