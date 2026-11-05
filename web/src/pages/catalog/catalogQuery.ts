@@ -1,6 +1,7 @@
 export type Chip = { field: string; op: string; value: string; label?: string; group?: number };
 export type QueryState = { chips: Chip[]; mode: "and" | "or"; groupMode?: "and" | "or" };
 const allowedFields = new Set([
+  "gate",
   "playable",
   "cached",
   "quality",
@@ -115,6 +116,7 @@ export function chipFilter(c: Chip, viewer: string): Record<string, unknown> {
     };
   if (c.field === "status") return { statuses: [c.value] };
   if (c.field === "studio") return { studio: c.value };
+  if (c.field === "gate") return { releaseGate: c.value };
   if (c.field === "playable") return { playable: c.value };
   if (c.field === "cached") return { debridCached: c.value };
   if (c.field === "quality") return { qualities: [c.value] };

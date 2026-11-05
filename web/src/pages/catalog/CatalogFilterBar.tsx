@@ -27,6 +27,12 @@ type Field = {
 };
 const fields = (): Field[] => [
   {
+    key: "gate",
+    label: t("New-release gate"),
+    category: t("Availability"),
+    values: ["admitted", "held", "unknown"],
+  },
+  {
     key: "playable",
     label: t("Playable now"),
     category: t("Availability"),

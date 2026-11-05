@@ -34,6 +34,8 @@ func TestConsoleAvailabilityEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	run(core.Filter{Qualities: []string{"4k", "dv"}}, 0)
+	run(core.Filter{Qualities: []string{"hdr"}}, 1)
+	run(core.Filter{Qualities: []string{"dv"}}, 1)
 	policy = "two"
 	run(core.Filter{Playable: "yes"}, 0)
 	run(core.Filter{Playable: "unknown"}, 3)

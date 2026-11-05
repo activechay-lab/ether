@@ -62,6 +62,16 @@ describe("catalogue query language", () => {
     });
     expect(query.group!.children).toHaveLength(2);
   });
+  it("keeps conjunctive quality requirements on the same release", () => {
+    const chips = [
+      { field: "quality", op: "is", value: "4k" },
+      { field: "quality", op: "is", value: "dv" },
+    ];
+    expect(compileQuery({ mode: "and", chips }).group!.children).toEqual([
+      { operator: "and", filter: { qualities: ["4k", "dv"] } },
+    ]);
+    expect(compileQuery({ mode: "or", chips }).group!.children).toHaveLength(2);
+  });
   it("preserves unrecognised phrases rather than silently discarding them", () => {
     expect(parseNatural("obscure moon film")).toContainEqual({
       field: "title",

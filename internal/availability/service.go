@@ -109,6 +109,12 @@ func New(d Deps) (*Service, error) {
 	if c, ok := d.Catalog.(interface{ SetConsoleAvailabilityPolicy(func() string) }); ok {
 		c.SetConsoleAvailabilityPolicy(s.policy)
 	}
+	if c, ok := d.Catalog.(interface{ SetConsoleGatePolicies(func() (string, string)) }); ok {
+		c.SetConsoleGatePolicies(func() (string, string) {
+			snap := s.discoverySnapshot()
+			return hiddenPolicy(hiddenMovies, snap), hiddenPolicy(hiddenShows, snap)
+		})
+	}
 	return s, nil
 }
 

@@ -224,6 +224,7 @@ type tmdbRef struct{ client TMDB }
 // Catalog implements core.Catalog.
 type Catalog struct {
 	consoleEvidencePolicy atomic.Pointer[func() string]
+	consoleGatePolicies   atomic.Pointer[func() (string, string)]
 	listSummaryMu         sync.Mutex
 	listSummaries         map[core.RatingKey]listSummary
 

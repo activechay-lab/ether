@@ -75,18 +75,18 @@ func (c *Catalog) consoleAvailabilityConditions(f core.Filter) ([]string, []any)
 	if f.Playable == "no" || f.DebridCached == "no" {
 		return []string{"1=0"}, nil
 	}
-	playable := `EXISTS(SELECT 1 FROM catalog_release_evidence ev WHERE ev.rating_key=t.key AND ev.policy=? AND ev.verified_until>?)`
+	playable := `t.key IN (SELECT ev.rating_key FROM catalog_release_evidence ev WHERE ev.policy=? AND ev.verified_until>?)`
 	if f.Playable != "" {
 		if f.Playable == "unknown" {
-			playable = "NOT " + playable
+			playable = "NOT (" + playable + ")"
 		}
 		conds = append(conds, playable)
 		args = append(args, policy, now)
 	}
 	if f.DebridCached != "" {
-		sql := `EXISTS(SELECT 1 FROM catalog_release_evidence ev WHERE ev.rating_key=t.key AND ev.policy=? AND ev.cached=1 AND ev.cache_until>?)`
+		sql := `t.key IN (SELECT ev.rating_key FROM catalog_release_evidence ev WHERE ev.policy=? AND ev.cached=1 AND ev.cache_until>?)`
 		if f.DebridCached == "unknown" {
-			sql = `NOT EXISTS(SELECT 1 FROM catalog_release_evidence ev WHERE ev.rating_key=t.key AND ev.policy=? AND ev.cached>=0 AND ev.cache_until>?)`
+			sql = `t.key NOT IN (SELECT ev.rating_key FROM catalog_release_evidence ev WHERE ev.policy=? AND ev.cached>=0 AND ev.cache_until>?)`
 		}
 		conds = append(conds, sql)
 		args = append(args, policy, now)
@@ -107,7 +107,7 @@ func (c *Catalog) consoleAvailabilityConditions(f core.Filter) ([]string, []any)
 				return []string{"1=0"}, nil
 			}
 		}
-		conds = append(conds, fmt.Sprintf(`EXISTS(SELECT 1 FROM catalog_release_evidence ev WHERE ev.rating_key=t.key AND ev.policy=? AND ev.verified_until>? AND %s)`, strings.Join(q, " AND ")))
+		conds = append(conds, fmt.Sprintf(`t.key IN (SELECT ev.rating_key FROM catalog_release_evidence ev WHERE ev.policy=? AND ev.verified_until>? AND %s)`, strings.Join(q, " AND ")))
 		args = append(args, policy, now)
 	}
 	return conds, args

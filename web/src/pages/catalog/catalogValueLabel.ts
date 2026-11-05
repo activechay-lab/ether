@@ -1,6 +1,11 @@
 import { t } from "../../i18n";
 /** Translate finite enum labels at render time; wire values remain canonical. */
 export function catalogValueLabel(field: string, value: string): string {
+  if (field === "gate") {
+    if (value === "admitted") return t("Admitted");
+    if (value === "held") return t("Held by release gate");
+    if (value === "unknown") return t("Unknown");
+  }
   if (field === "playable" || field === "cached") {
     if (value === "yes") return t("Yes");
     if (value === "unknown") return t("Unknown");

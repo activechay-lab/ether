@@ -58,7 +58,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	}
 	gen := c.writeGen.Load()
 	minBucket := c.minuteBucket()
-	ckey := c.evidencePolicy() + "|" + browseFilterKey(q.Filter) + fmt.Sprintf("|rules:%s:%#v:%s", q.Filter.RuleVisibility, q.Filter.PreviewRules, q.Filter.PreviewFallback)
+	ckey := c.consoleAvailabilityCacheKey(q.Filter) + "|" + browseFilterKey(q.Filter) + fmt.Sprintf("|rules:%s:%#v:%s", q.Filter.RuleVisibility, q.Filter.PreviewRules, q.Filter.PreviewFallback)
 	bkey := fmt.Sprintf("%s|%s|%v|%v|%d|%d|%v", ckey, q.Sort, q.Desc, q.SecondarySorts, offset, limit, q.NoTotal)
 	cacheable := !groupHasState(q.Filter.Group)
 	c.cacheMu.RLock()
@@ -447,6 +447,9 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		conds = append(conds, "t.key IN (SELECT key FROM catalog_owner_tags WHERE tag=?)")
 		args = append(args, strings.ToLower(strings.TrimSpace(tag)))
 	}
+	gateConds, gateArgs := c.consoleGateConditions(f)
+	conds = append(conds, gateConds...)
+	args = append(args, gateArgs...)
 	evidenceConds, evidenceArgs := c.consoleAvailabilityConditions(f)
 	conds = append(conds, evidenceConds...)
 	args = append(args, evidenceArgs...)
