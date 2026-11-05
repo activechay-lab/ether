@@ -185,6 +185,9 @@ type inflight struct {
 
 // Service implements core.Resolver.
 type Service struct {
+	subMiss        map[string]time.Time
+	subVerdicts    map[string]bool
+	rejections     map[core.RatingKey][]core.Release
 	searchObserved func(context.Context, *core.Title, []core.Release)
 	discovered     func(context.Context, *core.Title) []core.Release
 	observed       func(context.Context, *core.Title, core.Release)
@@ -1242,6 +1245,9 @@ func (env *rankEnv) audio(profile core.QualityProfile, req core.ResolveRequest) 
 
 // rankWith is rankCandidates with its environment already prepared.
 func (s *Service) rankWith(ctx context.Context, env rankEnv, req core.ResolveRequest, sreq core.SearchRequest, profile core.QualityProfile, results []core.Release, trace *Trace, pinID string) ([]candidate, bool, error) {
+	if s.db != nil {
+		s.loadRejectionsFor(ctx, req.Title.Key)
+	}
 	start := 0
 	if trace != nil {
 		start = len(trace.Candidates)
@@ -1301,12 +1307,19 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 			}
 		}
 		policyResult := policy.Evaluate(rel, policyContext)
+		if s.hardSubbed(ctx, rel) {
+			policyResult.Fallback += 100
+		}
 		if len(profile.ReleaseRules) > 0 {
 			ct.Preferences = &policyResult
 		}
 		preferred := !fallback && (pinned || (req.Prefer != "" && rel.ID == req.Prefer))
 		var reason string
-		if pinned {
+		if s.HardSubtitleBlocked(ctx, rel) {
+			reason = "blocked hardcoded subtitles"
+		} else if s.rejectedFor(t.Key, rel) {
+			reason = "release rejected for this title"
+		} else if pinned {
 			reason = s.pinRejectReason(rel, sreq, req.Client, exclude)
 		} else if !preferred && policyResult.Rejected {
 			reason = preferenceReason(policyResult)
@@ -1525,6 +1538,9 @@ func (s *Service) rejectReason(rel core.Release, t *core.Title, sreq core.Search
 	if exclude[rel.ID] {
 		return "excluded (already tried)"
 	}
+	if s.rejectedFor(t.Key, rel) {
+		return "release rejected for this title"
+	}
 	if s.isBad(rel.ID) {
 		return "marked bad"
 	}
@@ -1533,7 +1549,7 @@ func (s *Service) rejectReason(rel core.Release, t *core.Title, sreq core.Search
 	}
 	lowerName := strings.ToLower(rel.Name)
 	for _, term := range rcfg.BlockedTerms {
-		if term != "" && strings.Contains(lowerName, strings.ToLower(term)) {
+		if releaseparse.KeywordMatch(rel.Name, term) {
 			return "blocked term: " + term
 		}
 	}

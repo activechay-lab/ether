@@ -3175,6 +3175,7 @@
   "m_0e25c909d14d7f": "Explorar órdenes",
   "m_0e2664176b9544": "Personalizar póster",
   "m_0e266e2ae74f9f": "Volver al catálogo",
+  "m_0e26addde1f7de": "Los términos bloqueados coinciden con palabras completas: sub incluye etiquetas de subtítulos incrustados, pero no Subtitles ni SUBPACK. Los subtítulos incrustados son el último recurso; los bloqueos explícitos siempre se aplican.",
   "m_0e2847f929048d": "{name} conserva todo — historial, Inicio y ajustes — pero no podrá iniciar sesión en ningún sitio hasta que reanudes el acceso.",
   "m_0e2b5c9f988dd5": "Eliminar borrador…",
   "m_0e2b83290d8ddb": "No se ha informado de ningún nodo",

@@ -2,6 +2,7 @@ package playback
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -53,6 +54,9 @@ func (m *Manager) preparedResolution(ctx context.Context, s *session, profile co
 			}
 		}
 	}
+	if res != nil && m.titleReleaseRejected(ctx, s.ident.key, res.Release) {
+		return nil, nil, false
+	}
 	if res != nil && (!releaseMatchesTitle(res.Release, s.title) || !payloadMatchesTitle(res.NZB, s.title)) {
 		// An older stored/warmed selection may predate the series identity
 		// gate. Do not reuse a same-named reboot for this show's episode.
@@ -74,10 +78,11 @@ func (m *Manager) openInitial(ctx context.Context, s *session, profile core.Qual
 	}
 	res, cached, fromResume := m.preparedResolution(ctx, s, profile, original, s.prefer)
 	var (
-		tried       []string
-		alternates  []core.Release
-		lastErr     error
-		fallbackGen *generation
+		tried          []string
+		alternates     []core.Release
+		lastErr        error
+		fallbackGen    *generation
+		fallbackBurned bool
 		// allUncached: every release that failed to open was a torrent
 		// no debrid account could serve (uncached, blocked, add refused).
 		allUncached = true
@@ -136,6 +141,15 @@ func (m *Manager) openInitial(ctx context.Context, s *session, profile core.Qual
 		if s.exact && res.Release.ID != s.prefer {
 			return nil, fmt.Errorf("%w: %w", core.ErrNotAvailable, core.ErrSourceChanged)
 		}
+		if len(res.NZB) > 0 {
+			res.Release.SourceHash = fmt.Sprintf("%x", sha256.Sum256(res.NZB))
+		}
+		if m.titleReleaseRejected(ctx, s.ident.key, res.Release) {
+			tried = append(tried, res.Release.ID)
+			alternates = res.Alternates
+			res, cached, fromResume = nil, nil, false
+			continue
+		}
 		g, err := m.openGeneration(ctx, s, res, fallback, cached)
 		if err == nil && fromResume && !s.exact && !rememberedInfoCodecCurrent(g.infoSnapshot(), s.caps) {
 			m.dropGeneration(g)
@@ -143,10 +157,29 @@ func (m *Manager) openInitial(ctx context.Context, s *session, profile core.Qual
 			res, cached, fromResume = nil, nil, false
 			continue
 		}
-		if err == nil && !s.exact && s.prefer == "" && !m.probedAudioAcceptable(s, profile, g.infoSnapshot()) {
-			m.log.Info("probed release lacks viewer audio language; trying next candidate", "release", res.Release.Name)
-			if fallbackGen == nil {
+		burned := false
+		if err == nil {
+			burned = m.generationHardSubbed(ctx, g)
+		}
+		if err == nil && burned && m.hardSubtitleBlocked(ctx, res.Release) {
+			m.dropGeneration(g)
+			tried = append(tried, res.Release.ID)
+			alternates = res.Alternates
+			res, cached, fromResume = nil, nil, false
+			continue
+		}
+		if err == nil && !s.exact && s.prefer == "" && (burned || !m.probedAudioAcceptable(s, profile, g.infoSnapshot())) {
+			reason := "probed release lacks viewer audio language"
+			if burned {
+				reason = "burned-in subtitles detected"
+			}
+			m.log.Info("trying next candidate", "release", res.Release.Name, "reason", reason)
+			if fallbackGen == nil || fallbackBurned && !burned {
+				if fallbackGen != nil {
+					m.dropGeneration(fallbackGen)
+				}
 				fallbackGen = g
+				fallbackBurned = burned
 			} else {
 				m.dropGeneration(g)
 			}
@@ -221,7 +254,7 @@ func (m *Manager) nextResolution(ctx context.Context, s *session, tried []string
 	ctx = core.WithIndexerPurpose(ctx, core.IndexerPurposePlayback)
 	if m.deps.FetchNZB != nil {
 		for i, alt := range alternates {
-			if alt.ID == "" || slices.Contains(tried, alt.ID) || !releaseMatchesTitle(alt, s.title) {
+			if alt.ID == "" || m.titleReleaseRejected(ctx, s.ident.key, alt) || slices.Contains(tried, alt.ID) || !releaseMatchesTitle(alt, s.title) {
 				continue
 			}
 			nzb, err := m.deps.FetchNZB(ctx, alt)

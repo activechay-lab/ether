@@ -3100,6 +3100,7 @@
   "m_0e25c909d14d7f": "Explore orders",
   "m_0e2664176b9544": "Customise artwork",
   "m_0e266e2ae74f9f": "Back to catalog",
+  "m_0e26addde1f7de": "Blocked terms match whole tokens: sub includes hardcoded subtitle tags, but not Subtitles or SUBPACK. Burned-in subtitles are otherwise a last resort; explicit blocks always apply.",
   "m_0e2847f929048d": "{name} keeps everything — history, Home and settings — but can't sign in anywhere until you resume access.",
   "m_0e2b5c9f988dd5": "Delete draft…",
   "m_0e2b83290d8ddb": "No nodes reported",

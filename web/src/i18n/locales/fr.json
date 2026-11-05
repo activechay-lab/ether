@@ -3175,6 +3175,7 @@
   "m_0e25c909d14d7f": "Explorer les ordres",
   "m_0e2664176b9544": "Personnaliser l’illustration",
   "m_0e266e2ae74f9f": "Retour au catalogue",
+  "m_0e26addde1f7de": "Les termes bloqués correspondent à des mots entiers : sub inclut les mentions de sous-titres incrustés, mais pas Subtitles ni SUBPACK. Les sous-titres incrustés restent un dernier recours ; les blocages explicites s’appliquent toujours.",
   "m_0e2847f929048d": "{name} conserve tout — historique, Accueil et réglages — mais ne peut se connecter nulle part tant que vous n'avez pas rétabli l'accès.",
   "m_0e2b5c9f988dd5": "Supprimer le brouillon…",
   "m_0e2b83290d8ddb": "Aucun nœud signalé",

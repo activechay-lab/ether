@@ -3091,6 +3091,7 @@
   "m_0e25c909d14d7f": "Utforska ordningar",
   "m_0e2664176b9544": "Anpassa omslag",
   "m_0e266e2ae74f9f": "Tillbaka till katalogen",
+  "m_0e26addde1f7de": "Blockerade termer matchar hela ord: sub omfattar taggar för inbrända undertexter, men inte Subtitles eller SUBPACK. Inbrända undertexter är annars en sista utväg; uttryckliga blockeringar gäller alltid.",
   "m_0e2847f929048d": "{name} behåller allt — historik, Hem och inställningar — men kan inte logga in någonstans förrän du återupptar åtkomsten.",
   "m_0e2b5c9f988dd5": "Ta bort utkast…",
   "m_0e2b83290d8ddb": "Inga noder rapporterade",

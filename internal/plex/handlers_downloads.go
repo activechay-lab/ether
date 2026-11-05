@@ -70,6 +70,7 @@ func (s *Server) requireDownloads(w http.ResponseWriter, r *http.Request) bool {
 // Store
 
 type downloadItem struct {
+	release core.Release
 	id      int64
 	queueID int64
 	key     core.RatingKey
@@ -539,6 +540,7 @@ func (s *Server) handleDownloadQueueItemDelete(w http.ResponseWriter, r *http.Re
 	s.downloads.mu.Lock()
 	keep := q.items[:0]
 	var removed []*downloadItem
+	removedReleases := map[*downloadItem]core.Release{}
 	for _, it := range q.items {
 		drop := false
 		for _, id := range ids {
@@ -548,16 +550,30 @@ func (s *Server) handleDownloadQueueItemDelete(w http.ResponseWriter, r *http.Re
 		}
 		if drop {
 			removed = append(removed, it)
+			removedReleases[it] = it.release
 		} else {
 			keep = append(keep, it)
 		}
 	}
 	q.items = keep
 	s.downloads.mu.Unlock()
+	var rejectErr error
 	for _, it := range removed {
+		rel := removedReleases[it]
 		s.cancelDownloadItem(it)
+		if reject, ok := s.d.Playback.(interface {
+			RejectRelease(context.Context, core.RatingKey, core.Release) error
+		}); ok && rel.ID != "" {
+			if err := reject.RejectRelease(r.Context(), it.key, rel); err != nil {
+				rejectErr = err
+			}
+		}
 	}
 	s.scheduleDownloads()
+	if rejectErr != nil {
+		s.writeErr(w, r, rejectErr)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -864,6 +880,9 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 		// next run now.
 		s.downloads.mu.Unlock()
 		return
+	}
+	if ps.Resolution != nil {
+		it.release = ps.Resolution.Release
 	}
 	it.status = downloadWaiting
 	it.duration = ps.Info.Duration

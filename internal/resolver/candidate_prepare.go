@@ -2,7 +2,9 @@ package resolver
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -39,6 +41,19 @@ func (s *Service) validateOne(ctx context.Context, rel core.Release) validation 
 	v.nzb, v.err = s.indexer.FetchNZB(ctx, rel)
 	v.fetchDuration = time.Since(at)
 	if v.err == nil {
+		if len(v.nzb) > 0 {
+			rel.SourceHash = fmt.Sprintf("%x", sha256.Sum256(v.nzb))
+		}
+		if title, ok := ctx.Value(observationTitleKey{}).(*core.Title); ok && title != nil && s.rejectedFor(title.Key, rel) {
+			v.err = core.ErrReleaseRejected
+			return v
+		}
+		s.con.mu.Lock()
+		if recent, ok := s.con.recent[rel.ID]; ok {
+			recent.rel.SourceHash = rel.SourceHash
+			s.con.recent[rel.ID] = recent
+		}
+		s.con.mu.Unlock()
 		v.healthy = true
 		if s.health != nil {
 			v.healthChecked = true

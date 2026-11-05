@@ -129,6 +129,7 @@ func WithTracePlayback(on bool) Option { return func(o *options) { o.tracePlayba
 
 // Manager runs ffmpeg for Ether. It implements core.Transcoder.
 type Manager struct {
+	subtitleMu   sync.Mutex
 	continuousWG sync.WaitGroup
 	slateMu      sync.Mutex
 	subtitles    subtitleCache

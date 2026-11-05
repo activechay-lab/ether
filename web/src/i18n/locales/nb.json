@@ -3091,6 +3091,7 @@
   "m_0e25c909d14d7f": "Utforsk rekkefølger",
   "m_0e2664176b9544": "Tilpass omslag",
   "m_0e266e2ae74f9f": "Tilbake til katalogen",
+  "m_0e26addde1f7de": "Blokkerte termer matcher hele ord: sub inkluderer merker for innbrente undertekster, men ikke Subtitles eller SUBPACK. Innbrente undertekster er ellers siste utvei; uttrykkelige blokkeringer gjelder alltid.",
   "m_0e2847f929048d": "{name} beholder alt — historikk, Hjem og innstillinger — men kan ikke logge inn noe sted før du gjenopptar tilgangen.",
   "m_0e2b5c9f988dd5": "Slett utkast…",
   "m_0e2b83290d8ddb": "Ingen noder rapportert",
