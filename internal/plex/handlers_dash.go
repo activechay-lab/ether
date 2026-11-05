@@ -73,6 +73,8 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry, ok := s.transcodes.get(p.sessionID)
+	original := p
+	pendingOutput := applyPendingOutput(&p, entry)
 	var ps *core.PlaySession
 	if ok && entry.key == p.key && entry.userID == pr.User.ID {
 		ps, ok = s.d.Playback.Session(entry.playID)
@@ -87,6 +89,9 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		entry, _ = s.transcodes.get(p.sessionID)
+		if pendingOutput {
+			entry.requested = original
+		}
 	} else if dec, err := s.publishBrokerPlayback(ctx, pr, replayPlay(p, entry), ps); err != nil {
 		s.writeStartErr(w, r, pr, err)
 		return
