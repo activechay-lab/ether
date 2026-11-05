@@ -281,9 +281,6 @@ func (c *Catalog) untilDue(ctx context.Context) time.Duration {
 var ErrSyncInProgress = fmt.Errorf("catalog: sync already in progress")
 
 func (c *Catalog) Sync(ctx context.Context) error {
-	if c.tmdb() == nil {
-		return fmt.Errorf("catalog: sync: no TMDB client")
-	}
 	if !c.syncing.CompareAndSwap(false, true) {
 		return ErrSyncInProgress
 	}
@@ -293,7 +290,11 @@ func (c *Catalog) Sync(ctx context.Context) error {
 	})
 	resumeCtx, err := c.resumeSync(ctx)
 	if err == nil {
-		err = c.syncLocked(resumeCtx)
+		if c.tmdb() == nil {
+			err = fmt.Errorf("catalog: sync: no TMDB client")
+		} else {
+			err = c.syncLocked(resumeCtx)
+		}
 	}
 	if err == nil {
 		tx, txErr := c.db.BeginTx(ctx, nil)
