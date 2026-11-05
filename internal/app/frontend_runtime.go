@@ -323,6 +323,9 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		}
 		srv := handler.(*plex.Server)
 		srv.UsePlexStreams(sessions.BindPlexStreams(r.broker))
+		if a.deployment != nil {
+			srv.UsePlexEncoder(r.broker)
+		}
 		return srv, nil
 	}, WatchState: a.state, ExplicitWatchOnly: cfg.Spike.Enabled, StatusFunc: r.plexStatus, ListenersFunc: r.plexListeners}); err != nil {
 		return nil, err
@@ -351,6 +354,15 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 	if cfg.Frontends == nil || cfg.Frontends["plex"].Enabled {
 		if err := r.control.listeners.start(ctx, "plex"); err != nil {
 			return nil, err
+		}
+	}
+	if a.deployment != nil && a.deployment.playback != nil {
+		if receiver, ok := a.deployment.playback.(interface{ BindPlexDelivery(http.Handler) error }); ok {
+			// Replay the entire public protocol handler, including current auth/grant
+			// middleware and dynamic mount. Never bind a bare representation callback.
+			if err := receiver.BindPlexDelivery(r.plexHandler()); err != nil {
+				return nil, err
+			}
 		}
 	}
 	initialized = true

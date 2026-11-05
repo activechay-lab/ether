@@ -3,6 +3,7 @@ package placement
 import "github.com/braedonsaunders/ether/internal/store"
 
 func init() {
+	store.Register("placement", 2, `CREATE TABLE placement_policy(id INTEGER PRIMARY KEY CHECK(id=1), max_sessions BIGINT NOT NULL CHECK(max_sessions>0));`)
 	store.Register("placement", 1, `
  CREATE TABLE placement_pools (scope TEXT PRIMARY KEY, role TEXT NOT NULL, capacity BIGINT NOT NULL CHECK(capacity >= 0));
  CREATE TABLE placement_targets (node TEXT PRIMARY KEY, boot TEXT NOT NULL, roles TEXT NOT NULL, scopes TEXT NOT NULL);

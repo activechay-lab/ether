@@ -107,3 +107,34 @@ without stopping the runtime. Kubernetes terminationGracePeriod may ultimately
 kill the process; that does not retire its durable reservations. Planned upgrades
 must require a successful explicit drain before deletion. Set the external grace
 period above the intended drain window, allowing control and shutdown overhead.
+
+The supported deployment topology uses full servers as frontend/source/delivery
+coordinators and transcode-only nodes as remote execution targets. Full servers
+keep their historical local encoder but are EXCLUDED from private transcode
+placement: local legacy sessions do not yet participate in the durable placement
+budget, so admitting private encodes there could double-book hardware. This does
+not disable their existing local capabilities. Transcode-only nodes use a
+separate fixed-plan encoder manager with adaptive ladders/governor/enhancement and
+automatic source mutation disabled. Unified local+private physical accounting is
+required before full servers can become remote encoding targets.
+
+`ledgerCapacity` is distinct from concurrent encoder `capacity` and boot-local
+history retention. It defaults to 1000000, accepts 4096..10000000, and must cover
+concurrent/history capacity. Every deployment replica must use the SAME value.
+Placement migration 2 stores that fleet ceiling. Initial startup seeds or verifies
+it under the serialized placement lock. Every new-generation Reserve checks policy
+in the SAME transaction as allocation; conflicting coordinator settings fail
+closed. Existing assignment replay/renewal/retirement remain available on a stale
+coordinator so correcting policy never destroys ownership. Drain old pre-policy
+candidate binaries before introducing this policy; they predate this enforcement.
+
+Changing JSON alone cannot silently raise the ceiling. The trusted operator runs
+`ether cluster ledger-quota --data-dir /config --expect 1000000 --capacity 2000000`,
+then rolls matching `ledgerCapacity:2000000` settings across the fleet. This is an
+explicit monotonic compare-and-swap, never a decrease or table cleanup. Stale
+coordinators stop NEW allocations until their configured ceiling matches the new
+policy. `/admissionz` includes a `ledger` object with capacity/used/retired/exhausted/
+matches; exhaustion returns 503 for new admissions and logs the quota transition,
+while `/readyz` and existing work remain available. A larger ceiling is bounded
+operational mitigation, not safe history compaction or unlimited admission. Retired
+generation floors remain permanent; never delete them to manufacture capacity.
