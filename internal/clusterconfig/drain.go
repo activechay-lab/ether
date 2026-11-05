@@ -32,6 +32,7 @@ type DrainControl struct {
 type DrainPendingCategories struct {
 	SourcePreparations   int `json:"sourcePreparations"`
 	PreparationLifetimes int `json:"preparationLifetimes"`
+	PreparationReceipts  int `json:"preparationReceipts"`
 	SourceLifetimes      int `json:"sourceLifetimes"`
 	SourceCallbacks      int `json:"sourceCallbacks"`
 	EncoderStarts        int `json:"encoderStarts"`

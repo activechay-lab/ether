@@ -51,6 +51,12 @@ func TestDrainStatusSeparatesBarriersAndUnknownAccounting(t *testing.T) {
 	if !a.nodeDraining() || !a.deployment.ready.Load() {
 		t.Fatal("drain confused admission and existing-work readiness")
 	}
+	rt.counts.PreparationReceipts = 1
+	a.pollDrain(context.Background())
+	st, err = clusterconfig.ReadDrainControl(dir, clusterconfig.DrainStatusFile)
+	if err != nil || st.Pending != 3 || st.PendingRuntime == nil || *st.PendingRuntime != 2 || st.PendingCategories == nil || st.PendingCategories.PreparationReceipts != 1 || st.PendingCategories.RemoteLive != 1 {
+		t.Fatalf("receipt barrier missing from subtotal/category: %+v %v", st, err)
+	}
 	rt.err = errors.New("private failure https://credential.invalid/secret")
 	a.pollDrain(context.Background())
 	st, err = clusterconfig.ReadDrainControl(dir, clusterconfig.DrainStatusFile)

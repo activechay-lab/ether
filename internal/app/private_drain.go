@@ -47,7 +47,7 @@ func (a *App) privatePendingSnapshot(ctx context.Context) (drainBarrierSnapshot,
 		}
 		st.runtime = counts.Total()
 		st.categories = &clusterconfig.DrainPendingCategories{
-			SourcePreparations: counts.SourcePreparations, PreparationLifetimes: counts.PreparationLifetimes,
+			SourcePreparations: counts.SourcePreparations, PreparationLifetimes: counts.PreparationLifetimes, PreparationReceipts: counts.PreparationReceipts,
 			SourceLifetimes: counts.SourceLifetimes, SourceCallbacks: counts.SourceCallbacks,
 			EncoderStarts: counts.EncoderStarts, EncoderTokens: counts.EncoderTokens, Inputs: counts.Inputs,
 			RemotePreparing: counts.RemotePreparing, RemoteLive: counts.RemoteLive, RemoteRetiring: counts.RemoteRetiring,
