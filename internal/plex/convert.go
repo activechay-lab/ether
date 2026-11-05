@@ -769,6 +769,9 @@ func buildMedia(t *core.Title, info core.MediaInfo, stamp int64) model.Media {
 
 // audioProfile is PMS's audioProfile ("lc" for AAC, "dts"/"ma" for DTS...).
 func audioProfile(st *core.StreamInfo) string {
+	if strings.HasPrefix(strings.ToLower(st.Codec), "pcm_") && st.Codec != "pcm_bluray" || st.Codec == "pcm" {
+		return st.SampleFormat
+	}
 	if st.Profile != "" {
 		p := strings.ToLower(st.Profile)
 		if strings.Contains(p, "atmos") {
@@ -779,6 +782,12 @@ func audioProfile(st *core.StreamInfo) string {
 			return "ma"
 		case "dts-hd hra":
 			return "hra"
+		case "dts", "dts core":
+			return "dts"
+		case "dts-es", "dts es":
+			return "es"
+		case "dts express", "dts-hd lbr":
+			return "express"
 		}
 		return p
 	}
@@ -787,8 +796,14 @@ func audioProfile(st *core.StreamInfo) string {
 		return "lc"
 	case "dts":
 		return "dts"
-	case "dtshd":
+	case "dtshd", "dts-hd", "dts-hd ma":
 		return "ma"
+	case "dts-es":
+		return "es"
+	case "dts express", "dts-hd lbr":
+		return "express"
+	case "dts-hd hra":
+		return "hra"
 	}
 	return ""
 }
@@ -976,11 +991,14 @@ func boolPtrIf(b bool) *bool {
 
 // plexCodec maps ffprobe/core codec names to the names PMS uses.
 func plexCodec(c string) string {
+	if strings.HasPrefix(strings.ToLower(c), "pcm_") && !strings.EqualFold(c, "pcm_bluray") {
+		return "pcm"
+	}
 	switch strings.ToLower(c) {
 	case "dts":
 		return "dca"
-	case "dtshd", "dts-hd", "dts-hd ma":
-		return "dca-ma"
+	case "dtshd", "dts-hd", "dts-hd ma", "dts-es", "dts express", "dts-hd lbr", "dts-hd hra":
+		return "dca"
 	case "subrip":
 		return "srt"
 	case "hdmv_pgs_subtitle", "pgssub":

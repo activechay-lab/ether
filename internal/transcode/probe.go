@@ -150,6 +150,8 @@ type ffprobeOutput struct {
 
 type ffprobeStream struct {
 	ID             string            `json:"id"`
+	CodedWidth     int               `json:"coded_width"`
+	ChromaLocation string            `json:"chroma_location"`
 	CodedHeight    int               `json:"coded_height"`
 	FieldOrder     string            `json:"field_order"`
 	Extradata      string            `json:"extradata"`
@@ -174,6 +176,7 @@ type ffprobeStream struct {
 	Refs           *int              `json:"refs"`
 	RFrameRate     string            `json:"r_frame_rate"`
 	AvgFrameRate   string            `json:"avg_frame_rate"`
+	SampleFmt      string            `json:"sample_fmt"`
 	BitsPerRaw     string            `json:"bits_per_raw_sample"`
 	SampleRate     string            `json:"sample_rate"`
 	Channels       int               `json:"channels"`
@@ -224,7 +227,7 @@ func ParseProbe(b []byte) (*core.MediaInfo, error) {
 		m.Streams = append(m.Streams, si)
 	}
 	if m.BitrateKbps == 0 && m.Size > 0 && m.Duration > 0 {
-		m.BitrateKbps = int(float64(m.Size*8) / m.Duration.Seconds() / 1000)
+		m.BitrateKbps = int(math.Round(float64(m.Size*8) / m.Duration.Seconds() / 1000))
 	}
 	// Only a complete successful MP4/Matroska probe can establish that its
 	// container has no DV configuration record. Partial best-effort probes
@@ -260,6 +263,9 @@ func mapStream(s ffprobeStream) (core.StreamInfo, bool) {
 	}
 	si.Codec = NormalizeCodec(s.CodecName)
 	si.Profile = s.Profile
+	if strings.HasPrefix(s.CodecName, "pcm_") {
+		si.SampleFormat = s.SampleFmt
+	}
 	if s.Level != nil {
 		si.Level = *s.Level
 		if *s.Level >= 0 {
@@ -299,6 +305,10 @@ func mapStream(s ffprobeStream) (core.StreamInfo, bool) {
 		si.CodecTag = tag
 	}
 	si.CodedHeight = s.CodedHeight
+	si.CodedWidth = s.CodedWidth
+	if s.ChromaLocation != "unspecified" && s.ChromaLocation != "unknown" {
+		si.ChromaLocation = s.ChromaLocation
+	}
 	if id, err := strconv.ParseInt(s.ID, 0, 64); err == nil {
 		si.StreamIdentifier = strconv.FormatInt(id, 10)
 	}
