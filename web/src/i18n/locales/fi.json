@@ -347,7 +347,6 @@
   "m_01a985b7b0eceb": "Seuraava kotitalouden katselujärjestyksessä",
   "m_01a9d534a0c80c": "Mikään julkaisu ei kelpaa tälle profiilille.",
   "m_01aac44b990a0a": "Tarkista tekoälyn ehdotukset. Luottamus on arvio.",
-  "m_01ac360d3f80b5": "Käytössä tasoissa: {layers}",
   "m_01adfbaf6437be": "Alkutunti",
   "m_01af9435193543": {
     "one": "Kerran tunnissa katselijaa kohden",
@@ -1106,10 +1105,6 @@
   "m_04cbdf0c66f6ba": "Tavoite {value}",
   "m_04cd42a7c63eeb": "Takaisin ensimmäiselle sivulle",
   "m_04ceaa68e29440": "Ladatun tekstityksen dialogi estää ohittamasta kohtausta lopputeksteissä.",
-  "m_04cebc82cacd72": {
-    "one": "{count} klippi",
-    "other": "{count} klippiä"
-  },
   "m_04cf3af89153c2": "Protokolla",
   "m_04cf67ade502fd": "Ankkuroi tähän",
   "m_04cfc3767af270": "{percent} kestosta {length}",
@@ -2319,7 +2314,6 @@
   "m_0a1ed215e9aca5": "Viikkoraportteja ei ole vielä lähetetty.",
   "m_0a1f6a6e22044c": "Säädä ajoitusta",
   "m_0a208f79755b03": "Debrid-palvelut ja suoratoistot",
-  "m_0a20982880cbd5": "Poista resurssi",
   "m_0a20dd9140b781": "HDR pois",
   "m_0a220beea2f81b": {
     "one": "Koodi vanhenee {time}. Odota vähintään {count} sekunti tarkistusten välillä.",
@@ -2549,7 +2543,6 @@
   "m_0b0ad99d2fd15d": "Selaa esikatselun aikajanaa",
   "m_0b0bcf39ca3df1": "Sekuntien vähimmäismäärä",
   "m_0b0e70ffc776fa": "Palveluntarjoaja lisätty",
-  "m_0b0e78669cab3a": "Tämä aineisto poistetaan kirjastosta.",
   "m_0b10fbf01b5ef5": {
     "one": "Sitä käyttävä laitesääntö poistetaan.",
     "other": "{count} sitä käyttävää laitesääntöä poistetaan."
@@ -4122,7 +4115,6 @@
   "m_11d61d4f3e9fd5": "Luo kotisivun rivi Stremio-luettelosta",
   "m_11d7a3f8437639": "vuotta",
   "m_11d7e31cd286eb": "Esilämmitä tietosivut",
-  "m_11d92042d2fd61": "Etsi aineistoja",
   "m_11da71d0a7cb55": "Välimuistiin tallennetut julkaisutiedot",
   "m_11db42a9d77b45": "Viimeisin virhe",
   "m_11db493ffadcf1": "introdb intro lopputekstit merkit ohita",
@@ -6254,7 +6246,6 @@
   },
   "m_1b281d356ec8aa": "Enimmäkseen tuttua",
   "m_1b28eae133b224": "Torrentio löytää julkaisuja; lisää debrid- tai Usenet-tili, jotta niitä voi toistaa.",
-  "m_1b299ce438a7d6": "Aineiston tyyppi",
   "m_1b2a34dc6f05da": "Kanavien yhdistäminen",
   "m_1b2b48bb51f0c1": "Transkoodaus",
   "m_1b2bec1672c5f4": "Uusi Stremio-lisäosa",
@@ -6592,7 +6583,6 @@
   "m_1cc22461d8cb1e": "API {time}",
   "m_1cc23a3583b150": "Tili",
   "m_1cc2674d3a7c96": "Paikallinen tunniste vahvistettu",
-  "m_1cc2e90eb75ec7": "Leikkeet",
   "m_1cc3099ac6762f": "{name} · {plugin} · {minutes} min",
   "m_1cc47d8d7c06fe": "Lisäosista",
   "m_1cc65dce53ce8e": "Lähdetyyppejä ei voitu ladata.",
@@ -7093,7 +7083,6 @@
   "m_1ee0878f3a251c": "Kanavat säilyttävät palveluntarjoajan numerot ja järjestyksen, joka yleensä nostaa suorat tapahtumat ensimmäisiksi.",
   "m_1ee5e30d239fd4": "Olohuoneen vieras",
   "m_1ee6088a38be1d": "Johtaja",
-  "m_1ee73ed59b328c": "Leikekokoelmat",
   "m_1ee7eb9267ce60": "Anna varmuuskopion salasana ladataksesi",
   "m_1ee836b0304ceb": "Poikkeus täsmäsi",
   "m_1eea59aeacb74c": "Hienosäädä välimuistiasi",

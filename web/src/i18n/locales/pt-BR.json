@@ -354,7 +354,6 @@
   "m_01a985b7b0eceb": "Próximo em uma sequência de exibição da casa",
   "m_01a9d534a0c80c": "Nenhum release é aceitável para este perfil.",
   "m_01aac44b990a0a": "Revise as sugestões da IA. A confiança é uma estimativa.",
-  "m_01ac360d3f80b5": "Usado por: {layers}",
   "m_01adfbaf6437be": "Hora inicial",
   "m_01af9435193543": {
     "one": "Uma vez por hora por espectador",
@@ -1137,11 +1136,6 @@
   "m_04cbdf0c66f6ba": "Meta {value}",
   "m_04cd42a7c63eeb": "Voltar à primeira página",
   "m_04ceaa68e29440": "O diálogo de uma legenda baixada impede pular uma cena nos créditos.",
-  "m_04cebc82cacd72": {
-    "one": "{count} clipe",
-    "many": "{count} clipes",
-    "other": "{count} clipes"
-  },
   "m_04cf3af89153c2": "Protocolo",
   "m_04cf67ade502fd": "Ancorar aqui",
   "m_04cfc3767af270": "{percent} de {length}",
@@ -2383,7 +2377,6 @@
   "m_0a1ed215e9aca5": "Nenhum relatório semanal enviado ainda.",
   "m_0a1f6a6e22044c": "Ajustar sincronização",
   "m_0a208f79755b03": "Serviços e transmissões de debrid",
-  "m_0a20982880cbd5": "Remover recurso",
   "m_0a20dd9140b781": "HDR desativado",
   "m_0a220beea2f81b": {
     "many": "O código expira às {time}. Aguarde pelo menos {count} segundos entre as verificações.",
@@ -2621,7 +2614,6 @@
   "m_0b0ad99d2fd15d": "Percorrer pré-visualização",
   "m_0b0bcf39ca3df1": "Segundos mínimos",
   "m_0b0e70ffc776fa": "Provedor adicionado",
-  "m_0b0e78669cab3a": "Este recurso será removido da biblioteca.",
   "m_0b10fbf01b5ef5": {
     "many": "{count} regras de dispositivo que o usam serão removidas.",
     "one": "A regra de dispositivo que o usa será removida.",
@@ -4237,7 +4229,6 @@
   "m_11d61d4f3e9fd5": "Criar uma linha na tela inicial a partir de um catálogo do Stremio",
   "m_11d7a3f8437639": "anos",
   "m_11d7e31cd286eb": "Aquecer páginas de detalhes",
-  "m_11d92042d2fd61": "Buscar recursos",
   "m_11da71d0a7cb55": "Dados da versão em cache",
   "m_11db42a9d77b45": "Último erro",
   "m_11db493ffadcf1": "introdb introdução créditos marcadores pular",
@@ -6430,7 +6421,6 @@
   },
   "m_1b281d356ec8aa": "Principalmente familiar",
   "m_1b28eae133b224": "O Torrentio encontra lançamentos; adicione uma conta debrid ou Usenet para reproduzir.",
-  "m_1b299ce438a7d6": "Tipo de recurso",
   "m_1b2a34dc6f05da": "Associação de canais",
   "m_1b2b48bb51f0c1": "Transcodificação",
   "m_1b2bec1672c5f4": "Novo addon do Stremio",
@@ -6775,7 +6765,6 @@
   "m_1cc22461d8cb1e": "API {time}",
   "m_1cc23a3583b150": "Conta",
   "m_1cc2674d3a7c96": "Identidade local verificada",
-  "m_1cc2e90eb75ec7": "Clipes",
   "m_1cc3099ac6762f": "{name} · {plugin} · {minutes} min",
   "m_1cc47d8d7c06fe": "De plugins",
   "m_1cc65dce53ce8e": "Não foi possível carregar os tipos de fonte.",
@@ -7288,7 +7277,6 @@
   "m_1ee0878f3a251c": "Os canais mantêm os números e a ordem do seu provedor, que costuma colocar os eventos ao vivo primeiro.",
   "m_1ee5e30d239fd4": "Convidado da sala",
   "m_1ee6088a38be1d": "Líder",
-  "m_1ee73ed59b328c": "Coleções de clipes",
   "m_1ee7eb9267ce60": "Informe uma senha de backup para baixar",
   "m_1ee836b0304ceb": "Exceção correspondente",
   "m_1eea59aeacb74c": "Ajuste seu cache",

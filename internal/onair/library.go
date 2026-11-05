@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/image/draw"
 	"golang.org/x/image/font"
@@ -71,6 +72,7 @@ func (s *Service) libraryInfo(ctx context.Context, a Asset) (LibraryAsset, error
 	if b, e := os.ReadFile(filepath.Join(s.o.Dir, "library-"+a.Digest+".json")); e == nil {
 		_ = json.Unmarshal(b, &v)
 		v.Asset = a
+		_ = s.db.QueryRowContext(ctx, "SELECT created_at FROM onair_assets WHERE digest=?", a.Digest).Scan(&v.CreatedAt)
 		v.MIME = a.MIME
 		v.UsedBy = []LibraryUse{}
 	}
@@ -103,11 +105,8 @@ func (s *Service) libraryInfo(ctx context.Context, a Asset) (LibraryAsset, error
 				return v, e
 			}
 			var record struct {
-				Name   string `json:"name"`
-				Scenes []struct {
-					ID   string `json:"id"`
-					Name string `json:"name"`
-				} `json:"scenes"`
+				Name   string            `json:"name"`
+				Scenes []json.RawMessage `json:"scenes"`
 			}
 			_ = json.Unmarshal([]byte(data), &record)
 			name := record.Name
@@ -115,6 +114,14 @@ func (s *Service) libraryInfo(ctx context.Context, a Asset) (LibraryAsset, error
 				name = id
 			}
 			v.UsedBy = append(v.UsedBy, LibraryUse{Kind: entry.kind, ID: id, Name: name})
+			for _, raw := range record.Scenes {
+				if strings.Contains(string(raw), a.Digest) {
+					var sc struct{ ID, Name string }
+					_ = json.Unmarshal(raw, &sc)
+					v.UsedBy = append(v.UsedBy, LibraryUse{Kind: "style", ID: id, Name: sc.Name, Scene: sc.ID})
+				}
+			}
+
 		}
 		e = rows.Err()
 		rows.Close()
@@ -175,6 +182,13 @@ func (s *Service) libraryDerived(ctx context.Context, a LibraryAsset, wave bool)
 	var out bytes.Buffer
 	if !wave && (a.Kind == "image" || a.Kind == "font") {
 		var src image.Image
+		if a.MIME == "image/svg+xml" {
+			var err error
+			data, _, err = artwork.NewSVGRasterizer().Rasterize(ctx, a.Digest, data, artwork.RasterOptions{Width: 480})
+			if err != nil {
+				return nil, err
+			}
+		}
 		if a.Kind == "image" {
 			var e error
 			src, _, e = image.Decode(bytes.NewReader(data))
@@ -340,7 +354,12 @@ func (s *Service) replaceLibraryAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.assetMu.Lock()
-	defer s.assetMu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			s.assetMu.Unlock()
+		}
+	}()
 	tx, e := s.db.BeginTx(r.Context(), nil)
 	if e != nil {
 		result(w, nil, e)
@@ -356,6 +375,10 @@ func (s *Service) replaceLibraryAsset(w http.ResponseWriter, r *http.Request) {
 			result(w, nil, e)
 			return
 		}
+	}
+	if _, e = tx.ExecContext(r.Context(), "UPDATE onair_reel_clips SET data=REPLACE(data,?,?) WHERE data LIKE ?", old.Digest, a.Digest, "%"+old.Digest+"%"); e != nil {
+		result(w, nil, e)
+		return
 	}
 	for _, q := range []string{"INSERT INTO onair_look_assets(look_id,digest) SELECT look_id,? FROM onair_look_assets WHERE digest=? ON CONFLICT(look_id,digest) DO NOTHING", "UPDATE onair_reel_clips SET source_digest=? WHERE source_digest=?"} {
 		if _, e = tx.ExecContext(r.Context(), q, a.Digest, old.Digest); e != nil {
@@ -373,6 +396,8 @@ func (s *Service) replaceLibraryAsset(w http.ResponseWriter, r *http.Request) {
 		result(w, nil, e)
 		return
 	}
+	s.assetMu.Unlock()
+	locked = false
 	if s.o.Changed != nil {
 		_ = s.o.Changed(r.Context())
 	}

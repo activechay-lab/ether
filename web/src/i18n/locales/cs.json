@@ -361,7 +361,6 @@
   "m_01a985b7b0eceb": "Další v pořadí sledování domácnosti",
   "m_01a9d534a0c80c": "Pro tento profil není přijatelné žádné vydání.",
   "m_01aac44b990a0a": "Zkontrolujte návrhy AI. Míra jistoty je odhad.",
-  "m_01ac360d3f80b5": "Používají vrstvy: {layers}",
   "m_01adfbaf6437be": "Od hodiny",
   "m_01af9435193543": {
     "one": "Jednou za hodinu pro každého diváka",
@@ -1168,12 +1167,6 @@
   "m_04cbdf0c66f6ba": "Cíl: {value}",
   "m_04cd42a7c63eeb": "Zpět na první stranu",
   "m_04ceaa68e29440": "Dialog ve stažených titulcích zabrání přeskočení scény v závěrečných titulcích.",
-  "m_04cebc82cacd72": {
-    "one": "{count} klip",
-    "few": "{count} klipy",
-    "many": "{count} klipu",
-    "other": "{count} klipů"
-  },
   "m_04cf3af89153c2": "Protokol",
   "m_04cf67ade502fd": "Ukotvit sem",
   "m_04cfc3767af270": "{percent} z {length}",
@@ -2447,7 +2440,6 @@
   "m_0a1ed215e9aca5": "Zatím nebyly odeslány žádné týdenní reporty.",
   "m_0a1f6a6e22044c": "Upravit časování",
   "m_0a208f79755b03": "Služby a streamy debrid",
-  "m_0a20982880cbd5": "Odebrat soubor",
   "m_0a20dd9140b781": "HDR vypnuto",
   "m_0a220beea2f81b": {
     "few": "Platnost kódu vyprší v {time}. Mezi kontrolami počkejte alespoň {count} sekundy.",
@@ -2693,7 +2685,6 @@
   "m_0b0ad99d2fd15d": "Posouvat náhled",
   "m_0b0bcf39ca3df1": "Minimum sekund",
   "m_0b0e70ffc776fa": "Poskytovatel přidán",
-  "m_0b0e78669cab3a": "Tento podklad bude odstraněn z knihovny.",
   "m_0b10fbf01b5ef5": {
     "few": "Budou odebrána {count} pravidla zařízení, která ho používají.",
     "many": "Bude odebráno {count} pravidel zařízení, která ho používají.",
@@ -4352,7 +4343,6 @@
   "m_11d61d4f3e9fd5": "Vytvořit řádek na domovské stránce z katalogu Stremio",
   "m_11d7a3f8437639": "let",
   "m_11d7e31cd286eb": "Předehřívat stránky podrobností",
-  "m_11d92042d2fd61": "Hledat podklady",
   "m_11da71d0a7cb55": "Uložená data vydání",
   "m_11db42a9d77b45": "Poslední chyba",
   "m_11db493ffadcf1": "introdb intra titulky značky přeskakování",
@@ -6606,7 +6596,6 @@
   },
   "m_1b281d356ec8aa": "Převážně známé",
   "m_1b28eae133b224": "Torrentio hledá vydání; pro přehrávání přidejte účet debrid nebo Usenet.",
-  "m_1b299ce438a7d6": "Druh podkladu",
   "m_1b2a34dc6f05da": "Přiřazení kanálů",
   "m_1b2b48bb51f0c1": "Překódování",
   "m_1b2bec1672c5f4": "Nový doplněk Stremio",
@@ -6958,7 +6947,6 @@
   "m_1cc22461d8cb1e": "API {time}",
   "m_1cc23a3583b150": "Účet",
   "m_1cc2674d3a7c96": "Místní identita ověřena",
-  "m_1cc2e90eb75ec7": "Klipy",
   "m_1cc3099ac6762f": "{name} · {plugin} · {minutes} min",
   "m_1cc47d8d7c06fe": "Z doplňků",
   "m_1cc65dce53ce8e": "Typy zdrojů se nepodařilo načíst.",
@@ -7483,7 +7471,6 @@
   "m_1ee0878f3a251c": "Kanály si ponechají čísla a pořadí poskytovatele, které obvykle řadí živé přenosy na začátek.",
   "m_1ee5e30d239fd4": "Host v obýváku",
   "m_1ee6088a38be1d": "Vedoucí",
-  "m_1ee73ed59b328c": "Kolekce klipů",
   "m_1ee7eb9267ce60": "Pro stažení zadejte heslo zálohy",
   "m_1ee836b0304ceb": "Výjimka odpovídá",
   "m_1eea59aeacb74c": "Doladit mezipaměť",

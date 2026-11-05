@@ -1,4 +1,5 @@
 import { remixMock } from "./onair-remix";
+import { libraryMock } from "./onair-library";
 import type { Programme } from "../pages/livetv/model";
 import clipPreview from "./clip-preview.mp4?url";
 import { referenceLooks, templates } from "../pages/livetv/onair/fixtures";
@@ -119,6 +120,8 @@ export function createOnAirMock(
       q: URLSearchParams,
       body: unknown,
     ): { body: unknown; status?: number } | null {
+      const library = libraryMock(method, seg, body);
+      if (library) return library;
       if (seg[0] === "onair" && seg[1] === "scenes" && seg[2] === "validate" && method === "POST") {
         const sc = body as import("../pages/livetv/onair/studio-model").StyleScene;
         const valid =

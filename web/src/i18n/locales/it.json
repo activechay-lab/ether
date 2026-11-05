@@ -354,7 +354,6 @@
   "m_01a985b7b0eceb": "Prossimo in una sequenza di visione familiare",
   "m_01a9d534a0c80c": "Nessuna release è accettabile per questo profilo.",
   "m_01aac44b990a0a": "Controlla i suggerimenti dell’IA. L’affidabilità è una stima.",
-  "m_01ac360d3f80b5": "Usata da: {layers}",
   "m_01adfbaf6437be": "Dall'ora",
   "m_01af9435193543": {
     "one": "Una volta all'ora per spettatore",
@@ -1137,11 +1136,6 @@
   "m_04cbdf0c66f6ba": "Obiettivo {value}",
   "m_04cd42a7c63eeb": "Torna alla prima pagina",
   "m_04ceaa68e29440": "Il dialogo di un sottotitolo scaricato impedisce di saltare una scena nei titoli di coda.",
-  "m_04cebc82cacd72": {
-    "one": "{count} clip",
-    "many": "{count} clip",
-    "other": "{count} clip"
-  },
   "m_04cf3af89153c2": "Protocollo",
   "m_04cf67ade502fd": "Ancora qui",
   "m_04cfc3767af270": "{percent} di {length}",
@@ -2383,7 +2377,6 @@
   "m_0a1ed215e9aca5": "Nessun resoconto settimanale ancora inviato.",
   "m_0a1f6a6e22044c": "Regola la temporizzazione",
   "m_0a208f79755b03": "Servizi e flussi debrid",
-  "m_0a20982880cbd5": "Rimuovi risorsa",
   "m_0a20dd9140b781": "HDR disattivato",
   "m_0a220beea2f81b": {
     "many": "Il codice scade alle {time}. Attendi almeno {count} secondi tra un controllo e l’altro.",
@@ -2621,7 +2614,6 @@
   "m_0b0ad99d2fd15d": "Scorri l’anteprima",
   "m_0b0bcf39ca3df1": "Secondi minimi",
   "m_0b0e70ffc776fa": "Provider aggiunto",
-  "m_0b0e78669cab3a": "Questa risorsa verrà rimossa dalla libreria.",
   "m_0b10fbf01b5ef5": {
     "many": "{count} regole del dispositivo che lo usano verranno rimosse.",
     "one": "La regola del dispositivo che lo usa verrà rimossa.",
@@ -4237,7 +4229,6 @@
   "m_11d61d4f3e9fd5": "Crea una riga Home da un catalogo Stremio",
   "m_11d7a3f8437639": "anni",
   "m_11d7e31cd286eb": "Prepara le pagine di dettaglio",
-  "m_11d92042d2fd61": "Cerca risorse",
   "m_11da71d0a7cb55": "Dati versione in cache",
   "m_11db42a9d77b45": "Ultimo errore",
   "m_11db493ffadcf1": "introdb intro crediti marcatori salta",
@@ -6430,7 +6421,6 @@
   },
   "m_1b281d356ec8aa": "Perlopiù familiare",
   "m_1b28eae133b224": "Torrentio trova le release; aggiungi un account debrid o Usenet per riprodurle.",
-  "m_1b299ce438a7d6": "Tipo di risorsa",
   "m_1b2a34dc6f05da": "Associazione dei canali",
   "m_1b2b48bb51f0c1": "Transcodifica",
   "m_1b2bec1672c5f4": "Nuovo addon Stremio",
@@ -6775,7 +6765,6 @@
   "m_1cc22461d8cb1e": "API {time}",
   "m_1cc23a3583b150": "Account",
   "m_1cc2674d3a7c96": "Identità locale verificata",
-  "m_1cc2e90eb75ec7": "Clip",
   "m_1cc3099ac6762f": "{name} · {plugin} · {minutes} min",
   "m_1cc47d8d7c06fe": "Dai plugin",
   "m_1cc65dce53ce8e": "Impossibile caricare i tipi di sorgente.",
@@ -7288,7 +7277,6 @@
   "m_1ee0878f3a251c": "I canali mantengono numeri e ordine del fornitore, che di solito mette per primi gli eventi dal vivo.",
   "m_1ee5e30d239fd4": "Ospite del soggiorno",
   "m_1ee6088a38be1d": "Leader",
-  "m_1ee73ed59b328c": "Raccolte di clip",
   "m_1ee7eb9267ce60": "Inserisci una password del backup per scaricare",
   "m_1ee836b0304ceb": "Eccezione corrispondente",
   "m_1eea59aeacb74c": "Perfeziona la tua cache",
