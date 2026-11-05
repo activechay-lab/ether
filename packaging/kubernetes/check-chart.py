@@ -63,8 +63,8 @@ def check(docs, persistent=False):
     for path in ['/sessions/media/id/grant/file','/sessions/media/id/grant/master.m3u8',
                  '/video/:/transcode/universal/session/id/base/00001.ts']:
         assert backend(path)=='contract-ether-media'
-    # Known Prefix limitation: app exclusions do NOT make these API routes.
-    # Mixed-role rendering therefore requires the explicit HLS-lab-only gate.
+    # Non-authored boundary probes still hit the Prefix and may correctly404.
+    # Do not treat these as writer-derived compatibility defects or API paths.
     for path in ['/video/:/transcode/universal/session/id/subtitles/1.ass',
                  '/video/:/transcode/universal/session/id/base/index.mpd']:
         assert backend(path)=='contract-ether-media'

@@ -24,8 +24,8 @@ spec:
       http:
         paths:
           {{- if or (gt (int $.Values.pools.server.replicas) 0) (gt (int $.Values.pools.delivery.replicas) 0) }}
-          # Canonical HLS LAB ONLY. Prefix includes unsupported .ass/.mpd
-          # session resources; these will reach delivery and fail, not API.
+          # Canonical HLS LAB ONLY. Requires real writer-derived URL/auth,
+          # same-origin controller and protocol capability acceptance.
           # General mixed-client routing remains blocked by validation.
           - path: /video/:/transcode/universal/session
             pathType: Prefix

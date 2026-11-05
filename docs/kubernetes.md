@@ -250,7 +250,7 @@ host, preserving paths and query strings:
 
 | Prefix | Backend | Contract |
 | --- | --- | --- |
-| `/video/:/transcode/universal/session` | media (full/delivery) | Broad Prefix for the canonical-HLS lab; includes unsupported session resources too. |
+| `/video/:/transcode/universal/session` | media (full/delivery) | Canonical representation namespace; unrecognized resources receive 404. |
 | `/sessions/media` | media (full/delivery) | Canonical grant-bearing representations: GET/HEAD only. |
 | `/` and every other path | API (full/server) | Browse, admission, control and control-coupled responses. |
 
@@ -265,16 +265,22 @@ server nodes may proxy those bytes through real remote adapters without local
 providers or encoders. This topology does not claim that every byte path runs
 on a delivery-only node or rewrites a client to a different media origin.
 
-The broad Prefix has a known mismatch with the current typed sender:
-`/video/:/transcode/universal/session/id/subtitles/1.ass` and
-`/video/:/transcode/universal/session/id/base/index.mpd` both route to the media
-Service, where current typed delivery rejects them. They do **not** fall back to
-API because an application matcher excludes them. Standard Prefix routing cannot
-express those suffix exceptions. General mixed-client parity is blocked until
-typed authenticated delivery covers the actual authored representations and real
-same-origin controller tests pass. The preferred production strategy is that
-application coverage; the chart does not introduce a Traefik CRD/controller
-requirement or promise a regex fix. Full-only public pools remain supported.
+Writer-derived inventory distinguishes authored URLs from synthetic boundary
+probes. Plex authors its MPD at `/video/:/transcode/universal/start.mpd` on API;
+the resulting `session/{id}/{representation}/header` and numbered `.m4s` media
+paths are already in typed delivery scope. ASS uses the query-bound
+`/video/:/transcode/universal/subtitles` or
+`/subtitles/:/transcode/universal/start` API endpoints, outside the media Prefix.
+Plex does not author `session/id/subtitles/1.ass` or `session/id/base/index.mpd`.
+Those synthetic requests do match the broad Prefix and correctly receive 404 at
+current delivery; they do not establish an authored compatibility defect or an
+application-to-Ingress fallback guarantee.
+
+The explicit lab gate remains because mixed deployment still needs writer-derived
+URL/auth fixtures, actual same-origin controller tests and protocol capability
+acceptance. It is not justified by invented representation URLs. No controller
+CRDs, suffix widening, URL rewrite or authentication relaxation are added.
+Full-only public pools remain supported.
 
 Jellyfin/Emby media aliases require the explicit
 auth-preserving runtime adapter and matching approved routing before being
