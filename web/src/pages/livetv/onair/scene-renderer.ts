@@ -1,7 +1,6 @@
 import { crispStatic } from "./crisp-static";
-import { resolveBug } from "./bug";
 import { getToken, SESSION_HEADER } from "../../../lib/api";
-import type { Bindings, Look, Moment } from "./model";
+import type { Bindings, Look } from "./model";
 
 let resourceToken = "";
 export function setResourceToken(token: string) {
@@ -715,14 +714,6 @@ function pixelBehaviours(ctx: Context, l: Layer, t: number, w: number, h: number
   ctx.putImageData(pixels, 0, 0);
 }
 
-// Vite reads the authoritative files only in mock mode. Production uses owner routes.
-const documents =
-  import.meta.env.MODE === "mock" || import.meta.env.MODE === "test"
-    ? import.meta.glob<Scene>("../../../../../internal/onair/families/documents/*.json", {
-        eager: true,
-        import: "default",
-      })
-    : {};
 const fontURLs =
   import.meta.env.MODE === "mock"
     ? import.meta.glob<string>("../../../../../internal/onair/fonts/data/*.ttf", {
@@ -731,36 +722,9 @@ const fontURLs =
         import: "default",
       })
     : {};
-let catalog: Record<string, Scene> = Object.fromEntries(
-  Object.entries(documents).map(([path, doc]) => [
-    path
-      .split("/")
-      .at(-1)!
-      .replace(/\.json$/, ""),
-    doc,
-  ]),
-);
-let defaults: Record<string, SceneBindings> = {};
 let ready: Promise<void> | undefined;
 export function loadOnAirFonts() {
   return (ready ??= (async () => {
-    if (import.meta.env.MODE !== "mock" && import.meta.env.MODE !== "test") {
-      const response = await fetch("/ether/api/onair/families?documents=1", {
-        headers: resourceHeaders("/ether/api/onair/families?documents=1"),
-      });
-      if (!response.ok) throw new Error(`On Air families: ${response.status}`);
-      const entries = (await response.json()) as {
-        id: string;
-        documents: Record<string, Scene>;
-        bindings: SceneBindings;
-      }[];
-      catalog = {};
-      defaults = {};
-      for (const f of entries) {
-        defaults[f.id] = f.bindings;
-        for (const [m, d] of Object.entries(f.documents)) catalog[`${f.id}-${m}`] = d;
-      }
-    }
     if (typeof FontFace === "undefined") return;
     const ids = [
       "inter",
@@ -817,57 +781,18 @@ export async function loadStyleFonts(look: Look) {
       }),
   );
 }
-export function documentFor(family: string, moment: string) {
-  return catalog[
-    `${family === "lateNight" ? "late-night" : family}-${moment === "offair" && family === "personal" ? "welcome" : moment}`
-  ];
-}
-export function lookBindings(look: Look, bindings: Bindings): SceneBindings {
-  const family = look.family === "lateNight" ? "late-night" : look.family;
-  const tokens: Record<string, unknown> = {
-    ...defaults[family]?.tokens,
-    bg: look.brand.palette.background,
-    accent: look.brand.palette.accent,
-    text: look.brand.palette.text,
-    glow: look.brand.palette.glow,
-    moon: "#ded9c5",
-    fog: look.brand.palette.glow,
-    "type.display": normalizeFont(look.brand.type.display),
-    "type.mono": normalizeFont(look.brand.type.body),
-    energy: look.brand.energy * 2,
-    seed: look.brand.seed,
-    "textures.grain": look.brand.textures.includes("Grain") ? 0.07 : 0,
-    "words.tagline": look.brand.tagline,
-    "words.tonight": "TONIGHT",
-    "words.upNext": "UP NEXT",
-    "words.now": "NOW PLAYING",
-    "words.break": family === "cinema" ? "INTERMISSION" : "Back in a moment",
-    "words.back": "NOW RESUMING",
-    "words.offair": "OFF AIR",
-  };
-  for (const [k, v] of Object.entries(look.brand.words))
-    tokens[`words.${k === "upnext" ? "upNext" : k}`] = v;
-  const slots: Record<string, string> = {
-    ...defaults[family]?.slots,
-    "channel.name": bindings.channel?.name ?? look.name,
-    "viewer.name": bindings.viewer?.name ?? "Alex",
-    "viewer.greeting": bindings.viewer?.greeting ?? bindings.greeting ?? "Good evening",
-    "offair.message": bindings.offair?.message ?? "Programming resumes soon",
-  };
-  function flatten(value: unknown, prefix: string) {
-    if (value === undefined || value === null) return;
-    if (typeof value !== "object") {
-      slots[prefix] = String(value);
-      return;
-    }
-    for (const [key, child] of Object.entries(value))
-      flatten(
-        child,
-        Array.isArray(value) ? `${prefix}[${key}]` : prefix ? `${prefix}.${key}` : key,
-      );
-  }
-  flatten(bindings, "");
-  return { tokens, slots };
+/** Resolve the owned style's shared kit and live slots without template lookups. */
+export function styleBindings(look: Look, bindings: Bindings = {}): SceneBindings {
+ const tokens: Record<string,unknown> = {
+ bg:look.brand.palette.background, accent:look.brand.palette.accent, text:look.brand.palette.text, glow:look.brand.palette.glow,
+ "type.display":normalizeFont(look.brand.type.display), "type.body":normalizeFont(look.brand.type.body), "type.mono":normalizeFont(look.brand.type.body),
+ energy:look.brand.energy, "words.tagline":look.brand.tagline, "brand.logo":look.brand.logo ?? "",
+ };
+ for (const name of ["grain","flicker","scanlines","vignette","chroma"]) tokens[`textures.${name}`] = look.brand.textures.some(t=>t.toLowerCase()===name) ? .07 : 0;
+ for (const control of look.controls) tokens[`control.${control.id}`] = control.value;
+ const slots: Record<string,string> = { "channel.name": bindings.channel?.name ?? look.name, "brand.logo": look.brand.logo ?? "" };
+ const flatten=(value:unknown,prefix:string)=> { if(value==null) return; if(typeof value!=="object") { slots[prefix]=String(value); return; } for(const [key,child] of Object.entries(value)) flatten(child,Array.isArray(value) ? `${prefix}[${key}]` : prefix ? `${prefix}.${key}` : key); };
+ flatten(bindings,""); return {tokens,slots};
 }
 type WorkerRequest = {
   id: number;
@@ -981,174 +906,6 @@ function workerFrame(
     return false;
   }
   return true;
-}
-export function renderLook(
-  ctx: Context,
-  look: Look,
-  moment: Moment,
-  bindings: Bindings = {},
-  t = 3,
-  synchronous = false,
-) {
-  const doc = documentFor(look.family, moment);
-  if (!doc) return;
-  const edit = (layers: Layer[]): Layer[] =>
-    layers.map((l) => {
-      const patch =
-        look.layers?.[l.id] ??
-        look.layers?.[
-          l.id === "brand" || l.id === "title" ? "Title" : l.id === "tag" ? "Tagline" : l.id
-        ];
-      return {
-        ...l,
-        ...(l.id === "tag" && l.type === "text" && ["ident", "offair", "welcome"].includes(moment)
-          ? { text: "{words.tagline}" }
-          : {}),
-        ...(patch
-          ? {
-              ...patch,
-              opacity: patch.hidden
-                ? 0
-                : patch.opacity === undefined
-                  ? l.opacity
-                  : patch.opacity / 100,
-              font: l.font,
-            }
-          : {}),
-        layers: l.layers ? edit(l.layers) : undefined,
-      } as Layer;
-    });
-  const bug = resolveBug(look.bug);
-  const scale = bug.size === "small" ? 0.75 : bug.size === "large" ? 1.3 : 1;
-  const logo = bindings.channel?.logo || look.brand.logo;
-  const useLogo = bug.source === "logo" && logo && logo.length > 3;
-  const mark: Layer = useLogo
-    ? {
-        id: "station-logo",
-        type: "image",
-        src: logo,
-        w: 288,
-        h: 100,
-        fit: "contain",
-        glow: 2,
-        ...(bug.style === "monochrome" ? { tint: "#eeeeee", tintBlend: "silhouette" } : {}),
-      }
-    : {
-        id: "Title",
-        type: "text",
-        text: "{channel.name}",
-        y: 64,
-        font: "{type.display}",
-        size: 48,
-        weight: 600,
-        track: 2,
-        fill: bug.style === "original" ? "{accent}" : "#eeeeee",
-        maxWidth: 288,
-        fit: "shrink",
-        glow: 2,
-      };
-  const shadow: Layer = {
-    ...mark,
-    id: "bug-shadow",
-    fill: "#000000",
-    tint: "#000000",
-    glow: 0,
-    blur: 2,
-    y: mark.type === "text" ? 66 : 2,
-  };
-  const bugLayers: Layer[] = [
-    {
-      id: "station-bug",
-      type: "group",
-      x: bug.position.endsWith("Left") ? 192 : 1728 - 288 * scale,
-      y: bug.position.startsWith("top") ? 108 : 972 - 100 * scale,
-      scale,
-      opacity: bug.opacity,
-      layers: [shadow, mark],
-    },
-  ];
-  let previewLayers = moment === "bug" ? bugLayers : doc.layers;
-  if (moment === "bug" || moment === "lowerthird") {
-    const illustration = documentFor(look.family, "upnext")?.layers.find((l) =>
-      l.id.endsWith("-illustration"),
-    );
-    if (illustration?.layers) {
-      const sky = illustration.layers[0]!;
-      const programme: Layer = {
-        ...illustration,
-        x: 0,
-        y: 0,
-        scaleX: 1920 / number(sky.w, 1920),
-        scaleY: 1080 / number(sky.h, 1080),
-      };
-      previewLayers = [
-        programme,
-        ...(moment === "lowerthird" ? bugLayers : []),
-        ...(moment === "bug" ? bugLayers : doc.layers),
-      ];
-    }
-  }
-  const document = { ...doc, layers: edit(previewLayers) };
-  if (moment === "ident" && document.layers[0]?.id === "ident-envelope") {
-    const duration = look.moments.ident?.duration ?? doc.duration;
-    document.duration = duration;
-    document.layers = document.layers.map((layer, i) =>
-      i
-        ? layer
-        : {
-            ...layer,
-            opacity: {
-              keys: [
-                [0, 0],
-                [0.4, 1, "inOut"],
-                [duration - 0.4, 1],
-                [duration, 0, "inOut"],
-              ],
-            },
-          },
-    );
-  }
-  const bound = lookBindings(look, bindings);
-  if (look.brand.logo && moment !== "bug" && moment !== "lowerthird") {
-    const logo = look.brand.logo;
-    if ([...logo].length <= 3)
-      document.layers = [
-        ...document.layers,
-        {
-          id: "owner-logo",
-          type: "text",
-          text: logo,
-          x: 95,
-          y: 130,
-          font: normalizeFont(look.brand.type.display),
-          size: 72,
-          fill: look.brand.palette.accent,
-        },
-      ];
-    else {
-      bound.slots["brand.logo"] = logo;
-      document.layers = [
-        ...document.layers,
-        {
-          id: "owner-logo",
-          type: "image",
-          src: "{brand.logo}",
-          x: 95,
-          y: 70,
-          w: 120,
-          h: 120,
-          fit: "contain",
-        },
-      ];
-    }
-  }
-
-  if (
-    Object.values(look.brand.type).some((id) => /^[a-f0-9]{64}$/.test(id)) ||
-    synchronous ||
-    !workerFrame(ctx, document, bound, t)
-  )
-    renderScene(ctx, document, bound, t);
 }
 
 if (import.meta.hot)
