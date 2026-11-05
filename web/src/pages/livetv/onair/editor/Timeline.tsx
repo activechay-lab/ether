@@ -114,6 +114,11 @@ export function Timeline(p: {
               {l.name || l.id}
             </button>
             <div data-track className="relative h-8 grow bg-current/5">
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 w-px bg-amber-400 z-10"
+                style={{ left: `${(p.time / p.duration) * 100}%` }}
+              />
               <div
                 className="absolute h-8 rounded bg-blue-500/40 flex justify-between"
                 role="slider"
@@ -476,6 +481,7 @@ export function Timeline(p: {
           sound={sound}
           duration={p.duration}
           muted={muted.includes(sound.id)}
+          solo={solo === sound.id}
           onMute={() => {
             const next = muted.includes(sound.id)
               ? muted.filter((id) => id !== sound.id)
