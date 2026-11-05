@@ -50,7 +50,7 @@ func (s *Service) analyzeUpcomingBreaks(retry map[core.RatingKey]time.Time) {
 			continue
 		}
 		for _, p := range Schedule(c, now, now.Add(2*time.Hour)) {
-			if p.Item.Key == 0 || !eligible[p.Item.Key] || (p.Item.ShowKey == 0 && p.Item.MediaType != "episode") || !p.Start.After(now.Add(time.Minute)) || now.Before(retry[p.Item.Key]) {
+			if p.Item.Key == 0 || !eligible[p.Item.Key] || (p.Item.Key.Kind() != core.KindEpisode && p.Item.ShowKey == 0 && p.Item.MediaType != "episode") || !p.Start.After(now.Add(time.Minute)) || now.Before(retry[p.Item.Key]) {
 				continue
 			}
 			pending = append(pending, p)
