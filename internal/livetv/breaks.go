@@ -162,10 +162,11 @@ func (s *Service) publishBreaks(key core.RatingKey, points []markers.BreakPoint,
 		}
 		changed := false
 		activeKnown := false
-		for _, airing := range Schedule(s.graphicsChannel(c), s.o.Now(), s.o.Now().Add(time.Millisecond)) {
-			if airing.Item.Key == key && len(airing.Item.BreakPointsMS) > 0 {
-				activeKnown = true
-				break
+		// Include the preceding content slice: an in-programme commercial pod
+		// has key zero but still belongs to the existing act timeline.
+		for _, airing := range Schedule(s.graphicsChannel(c), s.o.Now().Add(-time.Duration(duration)*time.Millisecond-time.Hour), s.o.Now().Add(time.Millisecond)) {
+			if airing.Item.Key != 0 {
+				activeKnown = airing.Item.Key == key && len(airing.Item.BreakPointsMS) > 0
 			}
 		}
 		walkNaturalBreakItems(document, c.Look, func(v map[string]any, policy *ChannelLook) {
