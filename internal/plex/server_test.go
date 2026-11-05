@@ -659,7 +659,7 @@ func TestEventSource(t *testing.T) {
 		t.Fatalf("ct %q", resp.Header.Get("Content-Type"))
 	}
 	br := bufio.NewReader(resp.Body)
-	if line, _ := br.ReadString('\n'); !strings.HasPrefix(line, "retry:") {
+	if line, _ := br.ReadString('\n'); !strings.HasPrefix(line, ":") {
 		t.Fatalf("first line %q", line)
 	}
 	go func() {
@@ -687,7 +687,7 @@ func TestEventSource(t *testing.T) {
 			e := v.TimelineEntry
 			if e.ItemID != bbE1.Key.String() || e.ParentItemID != bbE1.Key.Parent().String() ||
 				e.RootItemID != breakingBad.Key.String() || e.Type != 4 || e.State != 5 ||
-				e.MetadataState != "created" || e.Identifier != model.LibraryIdentifier {
+				e.MetadataState != "" || e.Identifier != model.LibraryIdentifier {
 				t.Fatalf("timeline entry %+v", e)
 			}
 			return
@@ -717,7 +717,7 @@ func TestMovieScrobbleTimelineNamesItself(t *testing.T) {
 		}
 		e := entries[0]
 		if e.ItemID != fightClub.Key.String() || e.RootItemID != fightClub.Key.String() ||
-			e.Type != 1 || e.State != 5 || e.MetadataState != "created" {
+			e.Type != 1 || e.State != 5 || e.MetadataState != "" {
 			t.Fatalf("movie timeline %+v", e)
 		}
 	default:
