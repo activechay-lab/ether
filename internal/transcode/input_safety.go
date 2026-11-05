@@ -1,5 +1,46 @@
 package transcode
 
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+func trustedClipPath(root, path string) (string, error) {
+	if root == "" {
+		return "", fmt.Errorf("transcode: clip cache is not configured")
+	}
+	base, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	target, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	base, err = filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	target, err = filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(base, target)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("transcode: clip outside cache")
+	}
+	st, err := os.Stat(target)
+	if err != nil {
+		return "", err
+	}
+	if !st.Mode().IsRegular() {
+		return "", fmt.Errorf("transcode: clip is not a regular file")
+	}
+	return target, nil
+}
+
 // These demuxers cover the self-contained video containers accepted by
 // nzb.IsVideoExt. In particular, a downloaded file's extension is not proof
 // of its contents: generic probing must not turn a VOD source into a playlist

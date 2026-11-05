@@ -78,11 +78,12 @@ func (p picture) sameColour(o picture) bool {
 // accept a new encode, but they do not make a different picture format
 // safe to present under the old track description.
 type videoContract struct {
-	copied bool // the opening decision copied the video
-	codec  string
-	depth  int    // 8 or 10
-	rng    string // rangeSDR, rangeHDR10, rangeHLG; rangeDV is profile 5
-	dv     bool   // Dolby Vision signalled in the header (copied RPU)
+	frameRate float64 // set only for generated clip inputs
+	copied    bool    // the opening decision copied the video
+	codec     string
+	depth     int    // 8 or 10
+	rng       string // rangeSDR, rangeHDR10, rangeHLG; rangeDV is profile 5
+	dv        bool   // Dolby Vision signalled in the header (copied RPU)
 	// dvProfile and dvCompat are the signalled Dolby Vision configuration.
 	dvProfile, dvCompat int
 	width               int
