@@ -828,7 +828,7 @@
         {
           "key": "import",
           "label": {
-            "source": "Import \u0026 export"
+            "source": "Import & export"
           },
           "keywords": {
             "source": "migrate plex csv letterboxd trakt"
@@ -1000,6 +1000,15 @@
           "keywords": {
             "source": "epg schedule"
           }
+        },
+        {
+          "key": "looks",
+          "label": {
+            "source": "Looks"
+          },
+          "keywords": {
+            "source": "on air graphics brand reels"
+          }
         }
       ]
     }
@@ -1147,7 +1156,7 @@
         {
           "key": "extras",
           "label": {
-            "source": "Trailers \u0026 extras"
+            "source": "Trailers & extras"
           },
           "keywords": {
             "source": "cinema trailers yt-dlp resolver"
@@ -1471,7 +1480,7 @@
         {
           "key": "subtitles",
           "label": {
-            "source": "Audio \u0026 subtitles"
+            "source": "Audio & subtitles"
           },
           "keywords": {
             "source": "audio languages subtitles timing sync opensubtitles household"

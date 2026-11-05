@@ -31,6 +31,20 @@ export type Look = {
   family: string;
   brand: BrandTokens;
   moments: Partial<Record<Moment, { duration: number; poster: number }>>;
+  layers?: Record<
+    string,
+    {
+      text?: string;
+      size?: number;
+      opacity?: number;
+      x?: number;
+      y?: number;
+      fit?: string;
+      behaviour?: string;
+      hidden?: boolean;
+      locked?: boolean;
+    }
+  >;
   channelIds: string[];
   pack?: { id: string; name: string };
   render?: { done: number; total: number };

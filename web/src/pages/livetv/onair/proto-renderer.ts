@@ -124,6 +124,15 @@ function tokenText(c, s, o) {
     if (value && words[key]) s = s.replace(new RegExp(words[key], "ig"), value);
   }
   if (s === "totally gooey TV" || s === "Late night. Lights off.") s = look.brand.tagline;
+  const edit = look.layers?.Title;
+  if (edit && o.s >= 80) {
+    if (edit.text && !edit.text.startsWith("{")) s = edit.text;
+    o = {
+      ...o,
+      s: edit.size || o.s,
+      alpha: edit.opacity === undefined ? o.alpha : edit.opacity / 100,
+    };
+  }
   const display = ["Bungee", "Playfair", "Fraunces", "Monoton", "Orbitron", "Grotesk"].includes(
     o.f,
   );

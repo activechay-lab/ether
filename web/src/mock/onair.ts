@@ -74,6 +74,25 @@ export function createOnAirMock(tv: {
       }
       if (seg[0] !== "onair") return null;
       const [, kind, id, action, clipId] = seg;
+      if (kind === "clips" && id === "render")
+        return {
+          body: {
+            status: "prototype",
+            url: null,
+            message: "Real clips arrive with the Go renderer",
+          },
+        };
+      if (kind === "fonts")
+        return {
+          body: {
+            id,
+            url: "https://fonts.googleapis.com/css2?family=" + encodeURIComponent(id || "Inter"),
+          },
+        };
+      if (kind === "renderer.wasm")
+        return { body: { status: "prototype", message: "Canvas2D preview active" }, status: 501 };
+      if (kind === "packs")
+        return { body: { message: "Channel packs arrive in a later build" }, status: 501 };
       const data = body as Look & Reel;
       if (kind === "families") return { body: families };
       if (kind === "bindings") {
@@ -92,10 +111,10 @@ export function createOnAirMock(tv: {
           (tv.handle("GET", ["livetv", "guide"], qs, null)?.body as {
             channelId: string;
             start: string;
-            item: { title: string };
+            item: { title: string; key?: number; slate?: string };
           }[]) || []
         )
-          .filter((p) => p.channelId === channel?.id)
+          .filter((p) => p.channelId === channel?.id && p.item.key !== 0 && !p.item.slate)
           .slice(0, 4);
         return {
           body: {

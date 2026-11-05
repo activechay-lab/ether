@@ -80,10 +80,19 @@ export const referenceLooks: Look[] = (
   },
   moments: Object.fromEntries(
     ["ident", "tonight", "upnext", "break", "back", "offair", "welcome", "bug", "lowerthird"].map(
-      (m) => [m, { duration: 8, poster: 3 }],
+      (m) => [m, { duration: 8, poster: 4.4 }],
     ),
   ),
-  channelIds: i === 0 ? ["v-movie-night", "v-scifi"] : i === 4 ? ["v-personal"] : ["v-movie-night"],
+  channelIds:
+    i === 0
+      ? ["v-movie-night", "v-horror"]
+      : i === 4
+        ? ["v-personal"]
+        : i === 2
+          ? ["v-family"]
+          : i === 3
+            ? ["v-80s"]
+            : ["v-movie-night"],
   ...(i === 2 ? { pack: { id: "saturday", name: "Saturday mornings" } } : {}),
 }));
 export const families: Family[] = ["clean", "kids", "lateNight", "cinema", "retro", "personal"].map(
