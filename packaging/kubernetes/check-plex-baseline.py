@@ -21,7 +21,7 @@ stop=base+'/video/:/transcode/universal/stop?session='+session
 variant=base+'/video/:/transcode/universal/session/'+session+'/base/index.m3u8?X-Ether-Stream-Token=fixture%2Bvalue&X-Ether-Read-Token=fixture2'
 master=('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\n'+variant+'\n').encode()
 playlist=b'#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:4,\n0.ts?fixture=%2B\n#EXTINF:4,\n1.ts?fixture=%2B\n'
-c={'session':session,'requestID':'offline','startURL':start,'stopURL':stop,'durationSeconds':5,
+c={'session':session,'requestID':'offline','startURL':start,'stopURL':stop,'durationSeconds':8,
    'minimumSegments':2,'headers':{},'samplers':[]}
 class Reply:
     status=200

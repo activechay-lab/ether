@@ -264,6 +264,11 @@ class Attempt:
                 if last is not None and sequence <= last:
                     continue
                 require(last is None or sequence == last+1, 'missing-hls-sequence')
+                if media_seconds+seconds > duration:
+                    # End at a whole authored segment within the media budget.
+                    # Never trim, normalize or rewrite the original media.
+                    require(count >= self.c.get('minimumSegments', 5), 'insufficient-segments')
+                    return
                 data = self.get(url, f'segment-{count:06d}.ts', 16*1024*1024)
                 require(data and len(data) % 188 == 0 and all(data[n] == 0x47 for n in range(0, len(data), 188)), 'invalid-ts')
                 self.total += len(data)
