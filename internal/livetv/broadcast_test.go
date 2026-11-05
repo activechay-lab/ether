@@ -466,22 +466,44 @@ func TestPCMFadeContinuesEmittedEndpoint(t *testing.T) {
 // The edge may lead schedule time only by media actually produced. A fast
 // source fills that lead without a cold-playlist hold; a slow source has a
 // bounded burst attempt and returns to its ordinary continuous clock.
-type burstTestPlanner struct{ broadcastFakePlanner }
+type burstTestPlanner struct {
+	broadcastFakePlanner
+	cutAt   time.Time
+	cutPlan broadcastPlan
+}
+
+func (p burstTestPlanner) plans(now time.Time) (broadcastPlan, *broadcastPlan) {
+	if !p.cutAt.IsZero() && !now.Before(p.cutAt) {
+		return p.cutPlan, nil
+	}
+	return p.broadcastFakePlanner.plans(now)
+}
 
 func (burstTestPlanner) startupLead() time.Duration { return 12 * time.Second }
 
 func TestBroadcastBoundedStartupLead(t *testing.T) {
-	for _, slow := range []bool{false, true} {
-		t.Run(map[bool]string{false: "fast", true: "slow"}[slow], func(t *testing.T) {
+	for _, source := range []string{"fast", "slow", "short-file"} {
+		t.Run(source, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
+				slow := source == "slow"
 				format := smallBroadcastFormat()
-				planner := burstTestPlanner{broadcastFakePlanner{plan: broadcastPlan{id: "programme", open: func(context.Context) (transcode.Decoder, func(), error) {
+				planner := burstTestPlanner{broadcastFakePlanner: broadcastFakePlanner{plan: broadcastPlan{id: "programme", open: func(context.Context) (transcode.Decoder, func(), error) {
 					d := &broadcastFakeDecoder{format: format, closed: make(chan struct{})}
 					if slow {
 						return &burstSlowDecoder{broadcastFakeDecoder: d}, nil, nil
 					}
+					if source == "short-file" {
+						return &burstFiniteDecoder{broadcastFakeDecoder: d, remaining: 239}, nil, nil
+					}
 					return d, nil, nil
 				}}}}
+				if source == "short-file" {
+					planner.cutAt = time.Now().Add(8 * time.Second)
+					planner.cutPlan = broadcastPlan{id: "next", start: planner.cutAt, open: func(context.Context) (transcode.Decoder, func(), error) {
+						return &broadcastFakeDecoder{format: format, closed: make(chan struct{}), value: 90}, nil, nil
+					}}
+					planner.next = &planner.cutPlan
+				}
 				runner := &broadcastFakeRunner{}
 				b, err := newBroadcast(context.Background(), runner, planner, format)
 				if err != nil {
@@ -521,6 +543,9 @@ func TestBroadcastBoundedStartupLead(t *testing.T) {
 					if len(f.PCM) != 6400 {
 						t.Fatalf("frame %d audio samples lost", n)
 					}
+					if source == "short-file" && n >= 240 && f.Video[0] != 90 {
+						t.Fatalf("frame %d missed the scheduled element cut", n)
+					}
 				}
 			})
 		})
@@ -528,6 +553,21 @@ func TestBroadcastBoundedStartupLead(t *testing.T) {
 }
 
 type burstSlowDecoder struct{ *broadcastFakeDecoder }
+
+// Container duration rounding can leave a file one frame short of its slot.
+// Its final picture must bridge to the cut without stopping the burst clock.
+type burstFiniteDecoder struct {
+	*broadcastFakeDecoder
+	remaining int
+}
+
+func (d *burstFiniteDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
+	if d.remaining == 0 {
+		return transcode.RawFrame{}, io.EOF
+	}
+	d.remaining--
+	return d.broadcastFakeDecoder.Next(ctx)
+}
 
 func (d *burstSlowDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
 	select {

@@ -699,7 +699,9 @@ func (b *broadcast) step(now time.Time) bool {
 		b.closeInput(b.current)
 		b.current = nil
 	}
-	if b.bursting && frame.Video == nil && !introActive && current.open != nil && b.mode == current.id {
+	// Wait for an active decoder during a burst, but let an exhausted file's
+	// final picture bridge a rounded duration to the next scheduled cut.
+	if b.bursting && frame.Video == nil && !introActive && b.current != nil {
 		return false
 	}
 	if frame.Video == nil && !introActive && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
