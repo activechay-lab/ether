@@ -46,6 +46,7 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
+	control        sync.Mutex
 	preparations   map[string]*preparation
 	delivery       func(http.ResponseWriter, *http.Request, string)
 	workerStarting int

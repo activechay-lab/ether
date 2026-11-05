@@ -243,6 +243,10 @@ func (r *Runtime) Stop(id string) {
 // Tick owns only bounded control work; Cleanup runs separately. A lost renewal
 // response is reconciled through worker accepted history, never source replay.
 func (r *Runtime) Tick(ctx context.Context) error {
+	if !r.control.TryLock() {
+		return ErrPending
+	}
+	defer r.control.Unlock()
 	r.mu.Lock()
 	list := make([]*execution, 0, len(r.executions))
 	for _, x := range r.executions {
@@ -261,6 +265,22 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		if x.reservePending {
 			rec, e := r.o.Placement.Reserve(ctx, x.request)
 			if e != nil {
+				var unknown *placement.UnknownOutcome
+				if !errors.As(e, &unknown) {
+					observed, lookupErr := r.o.Placement.Lookup(ctx, x.request.Session)
+					// A business rejection plus a fresh ledger observation proves this
+					// immutable operation never reserved. No execution RPC was sent.
+					absent := errors.Is(lookupErr, placement.ErrFenced)
+					other := lookupErr == nil && observed.Operation != x.request.Operation && observed.Generation <= x.request.ExpectedGeneration
+					if absent || other {
+						r.mu.Lock()
+						current := r.executions[x.request.Session]
+						if current != nil && current.request.Operation == x.request.Operation && !current.reserved {
+							delete(r.executions, x.request.Session)
+						}
+						r.mu.Unlock()
+					}
+				}
 				result = e
 				continue
 			}

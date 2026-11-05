@@ -63,6 +63,11 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 		if result.PlayID == "" {
 			return sourceResponse{}, ErrPending
 		}
+		viewer, e := r.o.ActiveViewer(ctx, q.Viewer)
+		ps, ok := r.o.Playback.Session(result.PlayID)
+		if e != nil || viewer == nil || !ok || ps == nil || core.SourceRevision(ps) != result.Revision || r.o.SourcePolicy(ctx, viewer, ps) != nil {
+			return sourceResponse{}, ErrDenied
+		}
 		return sourceResponse{Prepared: result}, nil
 	}
 	if r.closed || len(r.preparations) >= r.o.Capacity {
@@ -93,6 +98,11 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 	revision := core.SourceRevision(ps)
 	if revision == "" {
 		return sourceResponse{}, ErrDenied
+	}
+	for _, stream := range ps.Info.Streams {
+		if stream.External || stream.ExternalURL != "" {
+			return sourceResponse{}, ErrDenied
+		}
 	}
 	result := PreparedSource{Owner: r.o.Self, PlayID: ps.ID, Revision: revision, ReleaseID: ps.SourceReleaseID(), Info: ps.Info}
 	r.mu.Lock()
