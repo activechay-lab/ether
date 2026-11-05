@@ -2,7 +2,6 @@ package availability
 
 import (
 	"context"
-	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -17,15 +16,8 @@ type Summary struct {
 }
 
 func (s *Service) Summary(ctx context.Context) (Summary, error) {
-	cat, ok := s.d.Catalog.(interface {
-		RecentMovies(context.Context, time.Time) ([]core.Title, error)
-	})
-	if !ok {
-		return Summary{}, nil
-	}
 	cfg := s.cfg().Availability
-	since := s.now().Add(-time.Duration(cfg.EffectiveMovieEvidenceDays()) * 24 * time.Hour)
-	movies, err := cat.RecentMovies(ctx, since)
+	movies, _, err := s.recent(ctx, hiddenMovies, s.snapshotFor(ctx))
 	if err != nil {
 		return Summary{}, err
 	}

@@ -61,7 +61,7 @@ func evidenceWindow(t core.Title, now time.Time, cfg config.Availability) bool {
 	switch t.Type {
 	case core.TypeMovie:
 		if cfg.EffectiveMode() == config.ModeDigital {
-			return true
+			return t.HomeReleased.IsZero() || now.Sub(t.HomeReleased) < time.Duration(cfg.EffectiveMovieEvidenceDays())*24*time.Hour
 		}
 		return !cfg.DisableMovieEvidenceGate && age < time.Duration(cfg.EffectiveMovieEvidenceDays())*24*time.Hour
 	case core.TypeEpisode, core.TypeShow:
@@ -75,6 +75,49 @@ func evidenceWindow(t core.Title, now time.Time, cfg config.Availability) bool {
 func (s *Service) filterReleaseDiscovery(ctx context.Context, items []core.Title, input discoverySnapshot) []core.Title {
 	titles := map[core.RatingKey]*core.Title{}
 	keys := []core.RatingKey{}
+	for i := range items {
+		t := &items[i]
+		if !input.upcomingMovie(*t) && evidenceWindow(*t, input.now, input.availability) && titles[t.Key] == nil {
+			keys = append(keys, t.Key)
+			titles[t.Key] = t
+		}
+	}
+	if len(keys) == 0 {
+		return items
+	}
+	if input.availability.EffectiveMode() == config.ModeDigital {
+		var movies []core.RatingKey
+		var rest []core.Title
+		for _, t := range items {
+			if t.Type == core.TypeMovie && titles[t.Key] != nil {
+				movies = append(movies, t.Key)
+			} else {
+				rest = append(rest, t)
+			}
+		}
+		acceptable := map[core.RatingKey]bool{}
+		if input.availability.DigitalDateEvidence {
+			s.acceptDigitalReleases(ctx, movies, input.now, acceptable)
+		}
+		out := s.filterReleaseEvidence(ctx, rest, input)
+		allowed := map[core.RatingKey]bool{}
+		for _, t := range out {
+			allowed[t.Key] = true
+		}
+		out = nil
+		for _, t := range items {
+			if allowed[t.Key] || (acceptable[t.Key] && !t.Released.After(input.now)) {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	return s.filterReleaseEvidence(ctx, items, input)
+}
+
+func (s *Service) filterReleaseEvidence(ctx context.Context, items []core.Title, input discoverySnapshot) []core.Title {
+	titles := map[core.RatingKey]*core.Title{}
+	var keys []core.RatingKey
 	for i := range items {
 		t := &items[i]
 		if !input.upcomingMovie(*t) && evidenceWindow(*t, input.now, input.availability) && titles[t.Key] == nil {
@@ -217,6 +260,14 @@ const (
 func (s *Service) recent(ctx context.Context, kind string, input discoverySnapshot) ([]core.Title, bool, error) {
 	switch kind {
 	case hiddenMovies:
+		if input.availability.EffectiveMode() == config.ModeDigital {
+			if c, ok := s.d.Catalog.(interface {
+				DigitalEvidenceMovies(context.Context, time.Time) ([]core.Title, error)
+			}); ok {
+				ts, err := c.DigitalEvidenceMovies(ctx, input.now.Add(-time.Duration(input.availability.EffectiveMovieEvidenceDays())*24*time.Hour))
+				return ts, true, err
+			}
+		}
 		c, ok := s.d.Catalog.(interface {
 			RecentMovies(context.Context, time.Time) ([]core.Title, error)
 		})
@@ -266,7 +317,7 @@ func (h *hiddenSet) fresh(key string, revision uint64, now time.Time) bool {
 }
 
 func hiddenKey(kind string, input discoverySnapshot) string {
-	return fmt.Sprintf("%s:%s:%+v:%+v", kind, input.policy, input.availability, input.feeds)
+	return fmt.Sprintf("%s:%s:%+v:%+v:%t", kind, input.policy, input.availability, input.feeds, input.showUpcomingMovies)
 }
 
 // hidden returns the last evaluated set, waiting for its first calculation.

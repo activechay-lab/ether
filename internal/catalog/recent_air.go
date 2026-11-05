@@ -85,7 +85,7 @@ func (c *Catalog) recentMovieKeys(ctx context.Context, now int64, exclude []core
 		notIn += ` AND NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='movie' AND ah.generation=? AND ah.rating_key=catalog_titles.key)`
 		args = append(args, f.HiddenMovieGeneration)
 	}
-	if f.DigitalDiscovery {
+	if f.DigitalDiscovery && f.HiddenMovieGeneration == "" {
 		if f.DigitalDateEvidence {
 			notIn += ` AND ((key>=? AND key<?) OR EXISTS (SELECT 1 FROM catalog_home_release dh WHERE dh.key=catalog_titles.key AND dh.checked=1 AND dh.earliest_ts>0 AND dh.earliest_ts<=?))`
 			args = append(args, int64(core.LocalKey(0)), int64(core.LocalKey(0))+1000000000000000, now)

@@ -66,9 +66,11 @@ func hubItemsKey(h core.Hub, hc hubCtx) string {
 
 func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubCtx) model.Hub {
 	h := hs.Hub
-	items := (experience.RowSelection{Visibility: s.visibility(), PrioritizeAvailable: s.d.PrioritizeAvailable,
-		SameDayUnavailable: func(ctx context.Context, t *core.Title) bool { return s.sameDayUnavailable(ctx, pr, t) },
-	}).Items(ctx, pr.User, h)
+	items := s.shelfItems(ctx, pr, h, hc, func() []core.Title {
+		return (experience.RowSelection{Visibility: s.visibility(), PrioritizeAvailable: s.d.PrioritizeAvailable,
+			SameDayUnavailable: func(ctx context.Context, t *core.Title) bool { return s.sameDayUnavailable(ctx, pr, t) },
+		}).Items(ctx, pr.User, h)
+	})
 	// Related hubs (detail pages, postplay) carry Guid children and omit the
 	// items' library section and the hub's promoted flag, like PMS.
 	related := hc.related != 0
@@ -653,7 +655,8 @@ func (s *Server) handleSectionHubs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) buildSectionHubs(r *http.Request, sec Section) homeBuild {
 	ctx := withStoredPolicy(r.Context())
 	pr := FromContext(ctx)
-	count := countParam(r, 12)
+	visibleCount := countParam(r, 12)
+	count := 200
 	mc := hubContainer()
 	mc.LibrarySectionID = model.Ptr(sec.ID)
 	mc.LibrarySectionTitle = sec.Title
@@ -665,6 +668,11 @@ func (s *Server) buildSectionHubs(r *http.Request, sec Section) homeBuild {
 	var layoutNeutral []core.NeutralHomeRow
 	add := func(hs hubSpec) {
 		mh := s.renderHub(ctx, pr, hs, hc)
+		if len(mh.Metadata) > visibleCount {
+			mh.Metadata = mh.Metadata[:visibleCount]
+			mh.Size = len(mh.Metadata)
+			mh.More = true
+		}
 		mc.Hub = append(mc.Hub, mh)
 		hub, neutral := homeLayoutFacts(mh)
 		layoutHubs = append(layoutHubs, hub)
