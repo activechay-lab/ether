@@ -1,9 +1,10 @@
 // Run against mock mode with the host playwright-cli:
 // playwright-cli -s=w23 run-code "$(cat web/scripts/check-onair-resize.js)"
-async (page) => {
+async function checkOnAirResize(page) {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(new URL("/ether/livetv?channel=v-80s", page.url()).href);
+  const origin = await page.evaluate(() => location.origin);
+  await page.goto(origin + "/ether/livetv?channel=v-80s");
   const timeline = page.locator(".schedule-timeline");
   await timeline.locator(".schedule-element").first().waitFor();
   // Six hours crosses the title/subtitle threshold as the native drawer expands.
@@ -16,7 +17,8 @@ async (page) => {
   await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
   await page.waitForFunction(
     (w) =>
-      Number(document.querySelector(".schedule-timeline")?.getAttribute("data-viewport-width")) > w,
+      Number(document.querySelector(".schedule-timeline")?.getAttribute("data-viewport-width")) >
+      innerWidth - 100,
     before,
   );
   const expanded = Number(await timeline.getAttribute("data-viewport-width"));
@@ -32,14 +34,19 @@ async (page) => {
     expanded,
   );
   await page.getByRole("button", { name: "Close", exact: true }).click();
-  await page.goto(new URL("/ether/livetv/looks", page.url()).href);
+  await page.goto(origin + "/ether/livetv/looks");
   await page
     .getByRole("button", { name: /NEON 84/ })
     .first()
     .click();
   const stage = page.getByLabel("On-air stage", { exact: true });
   await stage.waitFor();
-  await page.waitForFunction(()=>{const c=document.querySelector('canvas[aria-label="On-air stage"]');return c&&Math.abs(c.width-c.getBoundingClientRect().width*Math.min(2,devicePixelRatio))<2;});
+  await page.waitForFunction(() => {
+    const c = document.querySelector('canvas[aria-label="On-air stage"]');
+    return (
+      c && Math.abs(c.width - c.getBoundingClientRect().width * Math.min(2, devicePixelRatio)) < 2
+    );
+  });
   const oldSize = await stage.evaluate((c) => ({
     width: c.width,
     box: c.getBoundingClientRect().width,
@@ -47,7 +54,13 @@ async (page) => {
   await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
   await page.waitForFunction((old) => {
     const c = document.querySelector('canvas[aria-label="On-air stage"]');
-    return c && c.width > old;
+    return (
+      c &&
+      c.width > old &&
+      Math.abs(
+        document.querySelector('[role="dialog"]').getBoundingClientRect().width - innerWidth,
+      ) < 1
+    );
   }, oldSize.width);
   const newSize = await stage.evaluate((c) => ({
     width: c.width,
@@ -60,4 +73,4 @@ async (page) => {
     oldSize.width,
   );
   return { timeline: { before, expanded }, stage: { before: oldSize, expanded: newSize } };
-};
+}

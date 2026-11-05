@@ -157,4 +157,7 @@
   }
 }
 
-.schedule-day { border-left-width:2px; border-left-color:var(--color-fg-subtle); }
+.schedule-day {
+  border-left-width: 2px;
+  border-left-color: var(--color-fg-subtle);
+}

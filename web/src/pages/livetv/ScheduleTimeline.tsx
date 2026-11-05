@@ -180,9 +180,22 @@ export function ScheduleTimeline({
     visible.find((i) => i.lane === 0)?.el;
   const locale = getLocale(),
     timezone = data?.timezone ?? "UTC";
-  const dayFormat = new Intl.DateTimeFormat(locale,{timeZone:timezone,weekday:'short',day:'numeric',month:'short'});
-  const hourFormat = new Intl.DateTimeFormat(locale,{timeZone:timezone,hour:'numeric',minute:'2-digit'});
-  const midnightFormat = new Intl.DateTimeFormat('en-US',{timeZone:timezone,hour:'numeric',hourCycle:'h23'});
+  const dayFormat = new Intl.DateTimeFormat(locale, {
+    timeZone: timezone,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+  const hourFormat = new Intl.DateTimeFormat(locale, {
+    timeZone: timezone,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const midnightFormat = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour: "numeric",
+    hourCycle: "h23",
+  });
   return (
     <div
       ref={root}
@@ -323,17 +336,29 @@ export function ScheduleTimeline({
               </div>
             ))}
           {ticks.map((at) => (
-            <div key={at} className={`schedule-grid ${midnightFormat.format(at)==="00"?"schedule-day":""}`} style={{ left: (at - range.from) * scale }}>
+            <div
+              key={at}
+              className={`schedule-grid ${midnightFormat.format(at) === "00" ? "schedule-day" : ""}`}
+              style={{ left: (at - range.from) * scale }}
+            >
               <span
                 style={{
-                  visibility: (new Date(at).getUTCHours() % tickHours === 0 || midnightFormat.format(at)==="00") ? "visible" : "hidden",
+                  visibility:
+                    (hours <= 48 && new Date(at).getUTCHours() % tickHours === 0) ||
+                    midnightFormat.format(at) === "00"
+                      ? "visible"
+                      : "hidden",
                 }}
               >
                 {dayFormat.format(at)}
               </span>
               <small
                 style={{
-                  visibility: (new Date(at).getUTCHours() % tickHours === 0 || midnightFormat.format(at)==="00") ? "visible" : "hidden",
+                  visibility:
+                    (hours <= 48 && new Date(at).getUTCHours() % tickHours === 0) ||
+                    midnightFormat.format(at) === "00"
+                      ? "visible"
+                      : "hidden",
                 }}
               >
                 {hourFormat.format(at)}
@@ -349,6 +374,7 @@ export function ScheduleTimeline({
               style={{
                 left: x,
                 width: w,
+                padding: w < 64 ? 0 : 6,
                 top: lane === 0 ? 86 : lane === 1 ? 166 : 208,
                 height: lane === 0 ? 72 : 34,
               }}
@@ -369,7 +395,7 @@ export function ScheduleTimeline({
               <span
                 className="schedule-label"
                 style={{
-                  maxWidth: Math.min(w - 12, width - 24),
+                  maxWidth: Math.max(0, Math.min(w - 12, width - 24)),
                   marginLeft: Math.max(0, left - x),
                 }}
               >

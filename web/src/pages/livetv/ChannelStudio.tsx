@@ -47,7 +47,7 @@ import { ChannelLogo } from "./ChannelLogo";
 import { MapGuideButton } from "./GuideData";
 import { LivePreview } from "./LivePreview";
 import { ProgrammePicker } from "./ProgrammePicker";
-import { Timeline } from "./Timeline";
+import { ScheduleTimeline } from "./ScheduleTimeline";
 import { WeekGrid } from "./WeekGrid";
 import {
   MINUTE,
@@ -489,13 +489,7 @@ export function ChannelStudio({
               ))}
             </div>
           ) : null}
-          <Timeline
-            programmes={schedule}
-            from={windowFrom}
-            until={windowUntil}
-            now={now}
-            label={c.name ? t("{name} schedule", { name: c.name }) : t("Channel schedule")}
-          />
+          <ScheduleTimeline channelId={c.id} range={{ from: windowFrom, to: windowUntil }} />
         </div>
       </section>
 
