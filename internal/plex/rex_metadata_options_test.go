@@ -39,6 +39,9 @@ func TestMetadataOptionsPaddedIncludesAndRelatedCount(t *testing.T) {
 	if !strings.Contains(show, "<Children") {
 		t.Fatalf("padded show children missing: %s", show)
 	}
+	if childStart := strings.Index(show, "<Children"); childStart >= 0 && strings.Contains(show[childStart:], "librarySection") {
+		t.Fatalf("inline child repeats container section fields: %s", show)
+	}
 	season := f.get(t, "/library/metadata/"+bbS1.Key.String()+"?includeChildren=1").Body.String()
 	if strings.Contains(season, "<Children") {
 		t.Fatalf("season inlined children: %s", season)

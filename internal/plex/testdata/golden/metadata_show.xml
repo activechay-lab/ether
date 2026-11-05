@@ -17,7 +17,7 @@
 </Video>
 </OnDeck>
 <Children size="1">
-<Directory ratingKey="3000000013960001" key="/library/metadata/3000000013960001/children" parentRatingKey="2000000000001396" guid="com.plexapp.agents.themoviedb://1396/1?lang=en" parentGuid="com.plexapp.agents.themoviedb://1396?lang=en" parentSlug="boundary-bay" type="season" title="Season 1" parentKey="/library/metadata/2000000000001396" librarySectionTitle="TV Shows" librarySectionID="2" librarySectionKey="/library/sections/2" parentTitle="Boundary Bay" summary="" index="1" parentIndex="1" parentYear="2008" thumb="/library/metadata/3000000013960001/thumb/1790899200" art="/library/metadata/2000000000001396/art/1790899200" parentThumb="/library/metadata/2000000000001396/thumb/1790899200" leafCount="2" viewedLeafCount="0" addedAt="1201392000" updatedAt="1790899200">
+<Directory ratingKey="3000000013960001" key="/library/metadata/3000000013960001/children" parentRatingKey="2000000000001396" guid="com.plexapp.agents.themoviedb://1396/1?lang=en" parentGuid="com.plexapp.agents.themoviedb://1396?lang=en" parentSlug="boundary-bay" type="season" title="Season 1" parentKey="/library/metadata/2000000000001396" parentTitle="Boundary Bay" summary="" index="1" parentIndex="1" parentYear="2008" thumb="/library/metadata/3000000013960001/thumb/1790899200" art="/library/metadata/2000000000001396/art/1790899200" parentThumb="/library/metadata/2000000000001396/thumb/1790899200" leafCount="2" viewedLeafCount="0" addedAt="1201392000" updatedAt="1790899200">
 <Image alt="Season 1" type="coverPoster" url="/library/metadata/3000000013960001/thumb/1790899200" />
 <Image alt="Season 1" type="background" url="/library/metadata/2000000000001396/art/1790899200" />
 </Directory>

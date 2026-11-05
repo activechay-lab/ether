@@ -274,7 +274,7 @@ func (s *Server) detail(ctx context.Context, pr *Request, t *core.Title, childre
 	s.decorateDetail(ctx, pr, t, &md)
 	if children && t.Type == core.TypeShow {
 		if kids, err := s.metadataChildren(ctx, pr, t.Key); err == nil {
-			rendered := s.renderTitles(ctx, pr, kids, renderOpts{media: true, skipLeafCounts: t.Type == core.TypeShow})
+			rendered := s.renderTitles(ctx, pr, kids, renderOpts{media: true, inSection: true, skipLeafCounts: t.Type == core.TypeShow})
 			if t.Type == core.TypeShow {
 				s.applyLeafCounts(ctx, pr, rendered, kids, memo)
 			}
