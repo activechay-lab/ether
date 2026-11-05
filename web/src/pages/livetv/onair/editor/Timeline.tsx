@@ -34,8 +34,8 @@ export function Timeline(p: {
   onSelect(ids: string[]): void;
   onChange(scene: StyleScene): void;
 }) {
-  const [loop, setLoop] = useState(true),
-    [half, setHalf] = useState(false),
+  const [localLoop, setLoop] = useState(true),
+    [localHalf, setHalf] = useState(false),
     [zoom, setZoom] = useState(1),
     [expanded, setExpanded] = useState<string[]>([]),
     [prop, setProp] = useState<keyof Layer>("opacity"),
@@ -43,6 +43,8 @@ export function Timeline(p: {
     [muted, setMuted] = useState<string[]>([]),
     [solo, setSolo] = useState(""),
     [error, setError] = useState("");
+  const loop = p.loop ?? localLoop,
+    half = p.rate !== undefined ? p.rate === 0.5 : localHalf;
   const edit = (id: string, fn: (l: Timed) => Layer) => {
     const visit = (layers: Layer[]): Layer[] =>
       layers.map((l) =>
@@ -69,7 +71,8 @@ export function Timeline(p: {
   const drag = (e: React.PointerEvent, initial: number, change: (v: number) => void) => {
     e.stopPropagation();
     const x = e.clientX,
-      width = e.currentTarget.parentElement!.getBoundingClientRect().width;
+      width = (e.currentTarget.closest("[data-track]") ??
+        e.currentTarget.parentElement)!.getBoundingClientRect().width;
     const node = e.currentTarget;
     node.setPointerCapture(e.pointerId);
     const move = (event: PointerEvent) =>
@@ -109,7 +112,7 @@ export function Timeline(p: {
             >
               {l.name || l.id}
             </button>
-            <div className="relative h-8 grow bg-current/5">
+            <div data-track className="relative h-8 grow bg-current/5">
               <div
                 className="absolute h-8 rounded bg-blue-500/40 flex justify-between"
                 style={{
