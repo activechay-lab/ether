@@ -15,12 +15,16 @@ export function SequencePreview({
   channelId: string;
   at: string;
 }) {
+  const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false),
     [playing, setPlaying] = useState(false),
     [muted, setMuted] = useState(false),
     [time, setTime] = useState(0),
     [bindings, setBindings] = useState<Bindings>({}),
     [reels, setReels] = useState<Reel[]>([]);
+  useEffect(() => {
+    if (open) dialog.current?.showModal();
+  }, [open]);
   useEffect(() => {
     void onair.bindings({ channel: channelId, at }).then(setBindings);
     void onair.reels().then(setReels);
@@ -124,11 +128,17 @@ export function SequencePreview({
         {t("Play the sequence")}
       </Button>
       {open ? (
-        <div
+        <dialog
+          ref={dialog}
+          onCancel={(e) => {
+            e.preventDefault();
+            setOpen(false);
+            setPlaying(false);
+          }}
           role="dialog"
           aria-modal="true"
           aria-label={t("Sequence preview")}
-          className="fixed inset-0 z-50 flex flex-col bg-black text-white"
+          className="fixed inset-0 z-50 m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-black p-0 text-white"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setOpen(false);
@@ -239,7 +249,7 @@ export function SequencePreview({
               onChange={(e) => setTime(+e.target.value)}
             />
           </div>
-        </div>
+        </dialog>
       ) : null}
     </>
   );
