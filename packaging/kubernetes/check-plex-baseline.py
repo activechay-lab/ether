@@ -41,8 +41,8 @@ class Opener:
         return Reply(b'G'+b'\x00'*187)
 with tempfile.TemporaryDirectory(prefix='ether-plex-baseline-check-') as td:
     d=Path(td)
-    for scenario in ['success','http403','stop403','bad-master','delayed','packet-failure','not-ready']:
-        out=d/scenario;out.mkdir();a=m.Attempt(c,out);a.opener=Opener(scenario)
+    for scenario in ['success','http403','stop403','bad-master','delayed','packet-failure','not-ready','whole-budget']:
+        out=d/scenario;out.mkdir();cfg={**c,'durationSeconds':7,'minimumSegments':1} if scenario=='whole-budget' else c;a=m.Attempt(cfg,out);a.opener=Opener(scenario)
         def ready():
             if scenario=='not-ready':raise m.Failure('sampler-not-ready')
             a.event('samplers-ready')
@@ -61,13 +61,14 @@ with tempfile.TemporaryDirectory(prefix='ether-plex-baseline-check-') as td:
         urls=a.opener.urls
         assert urls.count(start)==(0 if scenario=='not-ready' else 1),(scenario,urls)
         assert urls.count(stop)==(0 if scenario=='not-ready' else 1),(scenario,urls)
-        assert result['failed']==(scenario!='success'),(scenario,result)
+        assert result['failed']==(scenario not in ('success','whole-budget')),(scenario,result)
         assert result['retirementVerified'] is False
         if scenario=='success':
             assert urls[1]==variant  # Full authored query remains byte-identical.
             assert result['mediaBytes']==376
             event=next(e for e in a.events if e['kind']=='first-media-get')
             assert 0<=event['startResponseToFirstGETSeconds']<1
+        if scenario=='whole-budget':assert result['mediaBytes']==188 and len(urls)==4
         if scenario=='http403':assert urls==[start,variant,stop]
         if scenario=='delayed':assert urls==[start,stop] and result['errorCode']=='delayed-first-get'
     for uri in ['http://example.test/secret','../secret','/%2fsecret','//other/secret']:
