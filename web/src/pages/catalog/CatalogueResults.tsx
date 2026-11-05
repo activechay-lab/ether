@@ -84,6 +84,15 @@ export function CatalogueResults({
   const firstRow = Math.max(0, Math.floor(size.top / rowHeight) - 2);
   const lastRow = Math.min(rowCount, Math.ceil((size.top + size.height) / rowHeight) + 2);
   const visible = titles.slice(firstRow * lanes, lastRow * lanes);
+  const firstVisible = Math.floor(size.top / rowHeight) * lanes;
+  const lastVisible = Math.min(
+    titles.length,
+    Math.ceil((size.top + size.height) / rowHeight) * lanes,
+  );
+  const tabTarget =
+    focused >= firstVisible && focused < lastVisible
+      ? focused
+      : Math.min(firstVisible, titles.length - 1);
   const visibleKey = visible.map((title) => title.key).join(",");
   useEffect(() => {
     onVisibleKeys?.(visibleKey ? visibleKey.split(",") : []);
@@ -251,7 +260,7 @@ export function CatalogueResults({
                 <button
                   className="catalogue-result-open"
                   data-catalog-index={index}
-                  tabIndex={index === focused ? 0 : -1}
+                  tabIndex={index === tabTarget ? 0 : -1}
                   onFocus={() => {
                     setFocused(index);
                     setPeek(title.key);

@@ -73,6 +73,21 @@ describe("CatalogueResults", () => {
     expect(scrolled).toContain("100");
     expect(scrolled.length).toBeLessThan(20);
   });
+  it("keeps an inspect button reachable by Tab after manual scrolling unmounts the focused row", async () => {
+    const base = props();
+    const { container } = render(<CatalogueResults {...base} items={titles(0, 500)} list />);
+    fireEvent.scroll(container.querySelector(".catalogue-result-viewport")!, {
+      target: { scrollTop: 8400 },
+    });
+    const firstVisible = screen.getByRole("button", { name: "Inspect Film 100" });
+    expect(firstVisible).toHaveAttribute("tabindex", "0");
+    expect(container.querySelectorAll('[data-catalog-index][tabindex="0"]')).toHaveLength(1);
+    fireEvent.focus(firstVisible);
+    fireEvent.keyDown(firstVisible, { key: "ArrowDown" });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Inspect Film 101" })).toHaveFocus(),
+    );
+  });
   it("loads the next page at the viewport boundary and offers a manual fallback", () => {
     const base = props();
     render(<CatalogueResults {...base} items={titles(0, 1)} hasMore />);
