@@ -79,6 +79,11 @@ type Frontend struct {
 }
 
 type Server struct {
+	// NodeRoles is node-local; empty retains every full-server responsibility.
+	NodeRoles NodeRoles `json:"nodeRoles,omitempty"`
+	// InternalAddress is the authenticated private transport origin, never a
+	// Plex connection URL. Empty means remote transport is unconfigured.
+	InternalAddress string `json:"internalAddress,omitempty"`
 	// StartupAnimation controls the owner console splash for all administrators.
 	StartupAnimation bool `json:"startupAnimation"`
 	// TrustedProxyCIDRs are proxy peer networks whose forwarding headers are trusted.
