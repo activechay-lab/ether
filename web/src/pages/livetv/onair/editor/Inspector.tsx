@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { studio, type LibraryAsset } from "../studio-model";
+import { isAnimated, setKeyframe } from "./keyframes";
+import type { Value } from "../scene-renderer";
 import { editValue } from "./Canvas";
 import { Button, Input, Select } from "@braedonsaunders/appkit-ui";
 import { t } from "../../../../i18n";
@@ -97,7 +99,9 @@ export function Inspector(p: {
             patch(
               kind === "number" && typeof next === "number"
                 ? editValue(layer, key, next, p.time ?? 0)
-                : { [key]: next },
+                : isAnimated(layer[key])
+                  ? { [key]: setKeyframe(layer, key, p.time ?? 0, next as Value)[key] }
+                  : { [key]: next },
             );
           }}
         />

@@ -57,12 +57,13 @@ export function LookDrawer({
     [sequence, setSequence] = useState(false),
     [muted, setMuted] = useState(true),
     [mix, setMix] = useState<{ muted: string[]; solo: string }>({ muted: [], solo: "" });
+  const gestureActive = useRef(false);
   const history = useRef<Style[]>([]),
     future = useRef<Style[]>([]),
     current = useRef(draft);
   current.current = draft;
   const change = (next: Style) => {
-    history.current.push(current.current);
+    if (!gestureActive.current) history.current.push(current.current);
     future.current = [];
     current.current = next;
     setDraft(next);
@@ -368,6 +369,16 @@ export function LookDrawer({
                 />
               )}
               <LookStage
+                onGestureStart={() => {
+                  if (!gestureActive.current) {
+                    history.current.push(current.current);
+                    future.current = [];
+                    gestureActive.current = true;
+                  }
+                }}
+                onGestureEnd={() => {
+                  gestureActive.current = false;
+                }}
                 sceneVideo={scene.video}
                 playing={clock.playing}
                 muted={muted}
