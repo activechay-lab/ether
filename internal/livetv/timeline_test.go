@@ -102,8 +102,12 @@ func TestProgrammingMigrationPreservesSchedules(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, before := range fixtures {
-		after, err := s.Channel(ctx, before.ID)
-		if err != nil {
+		var after Channel
+		var raw []byte
+		if err := s.o.DB.QueryRowContext(ctx, `SELECT data FROM livetv_channels WHERE id=?`, before.ID).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &after); err != nil {
 			t.Fatal(err)
 		}
 		// The original scheduler consumed the stored flattened Items; source

@@ -132,6 +132,49 @@ func (s *Service) expandProgramSource(ctx context.Context, src ProgramSource, de
 }
 
 func validateProgramming(c *Channel, check func([]Item) error) error {
+	var sources func([]ProgramSource, int) error
+	sources = func(list []ProgramSource, depth int) error {
+		if depth > 8 || len(list) > 100 {
+			return fmt.Errorf("too many programming sources")
+		}
+		for _, src := range list {
+			if src.StartDate != "" {
+				if _, err := time.Parse("2006-01-02", src.StartDate); err != nil {
+					return fmt.Errorf("invalid strip start date")
+				}
+			}
+			if src.StartSeason < 0 || src.StartEpisode < 0 || src.Weight < 0 || src.Weight > 100 {
+				return fmt.Errorf("invalid source start or weight")
+			}
+			if src.Order != "" && src.Order != "order" && src.Order != "shuffle" {
+				return fmt.Errorf("invalid source order")
+			}
+			if src.Strip && src.Kind != "show" {
+				return fmt.Errorf("strip requires a show source")
+			}
+			if err := sources(src.Sources, depth+1); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := sources(c.Sources, 0); err != nil {
+		return err
+	}
+	for _, b := range c.Blocks {
+		if _, _, err := DaypartPreset(b.Preset); err != nil {
+			return err
+		}
+		if err := sources(b.Sources, 0); err != nil {
+			return err
+		}
+	}
+	for _, p := range c.Pins {
+		if err := sources(p.Sources, 0); err != nil {
+			return err
+		}
+	}
+
 	look := func(l *ChannelLook) error {
 		if l == nil {
 			return nil
@@ -141,10 +184,29 @@ func validateProgramming(c *Channel, check func([]Item) error) error {
 		default:
 			return fmt.Errorf("unknown break placement")
 		}
+		for moment, digest := range l.MomentAssets {
+			switch moment {
+			case "ident", "upnext", "tonight", "break", "back":
+			default:
+				return fmt.Errorf("invalid creative moment")
+			}
+			if digest != "" {
+				if len(digest) != 64 {
+					return fmt.Errorf("invalid creative asset digest")
+				}
+				for _, c := range digest {
+					if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+						return fmt.Errorf("invalid creative asset digest")
+					}
+				}
+			}
+		}
 		if l.BreakPattern != nil {
 			if err := l.BreakPattern.Validate(); err != nil {
 				return err
 			}
+			l.BreakContent = "reel"
+			l.Placement = "insert"
 			if l.ReelID == "" {
 				return fmt.Errorf("commercial pods require a reel")
 			}

@@ -67,7 +67,7 @@ func TestProgrammingCalendar(t *testing.T) {
 	})
 	t.Run("overrun cut pad and shift", func(t *testing.T) {
 		for _, fit := range []string{"cut", "pad", "shift"} {
-			c := Channel{ID: "fit", Kind: "virtual", Epoch: day, Mode: "order", OffAir: true, Blocks: []Block{{ID: "movie", Start: 1200, End: 1260, Fit: fit, Items: []Item{{Key: 1, Title: "Movie", DurationMS: 90 * 60 * 1000}}}, {ID: "after", Start: 1260, End: 1380, Items: []Item{episode(2)}}}}
+			c := Channel{ID: "fit", Kind: "virtual", Epoch: day, Mode: "order", OffAir: true, Blocks: []Block{{ID: "movie", Start: 1200, End: 1260, Fit: fit, Sources: []ProgramSource{{ID: "movies", Kind: "items", Items: []Item{{Key: 1, Title: "Movie", DurationMS: 90 * 60 * 1000}}}}}, {ID: "after", Start: 1260, End: 1380, Items: []Item{episode(2)}}}}
 			ps := Schedule(c, day.Add(20*time.Hour), day.Add(23*time.Hour))
 			if fit == "pad" {
 				if ps[0].Item.Key != 0 {

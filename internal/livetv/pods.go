@@ -53,7 +53,7 @@ func EraBreakPattern(era string) (BreakPattern, bool) {
 	return p, true
 }
 func (p BreakPattern) Validate() error {
-	if p.MinSeconds < 0 || p.MaxSeconds < 1 || p.MaxSeconds > 600 || p.MinSeconds > p.MaxSeconds || p.Seconds < 0 || p.Seconds > p.MaxSeconds || p.MinSpots < 0 || p.MaxSpots < 1 || p.MaxSpots > 30 || p.MinSpots > p.MaxSpots || p.Spots < 0 || p.Spots > p.MaxSpots || p.PodsPerHalfHour < 1 || p.PodsPerHalfHour > 6 || p.NoRepeatMinutes < 0 || p.NoRepeatMinutes > 1440 || (p.ClockAlignment != "none" && p.ClockAlignment != "half") || p.BumperStyle != "break-back" {
+	if p.MinSeconds < 0 || p.MaxSeconds < 1 || p.MaxSeconds > 600 || p.MinSeconds > p.MaxSeconds || p.Seconds < 0 || p.Seconds > p.MaxSeconds || p.MinSpots < 0 || p.MaxSpots < 1 || p.MaxSpots > 30 || p.MinSpots > p.MaxSpots || p.Spots < 0 || p.Spots > p.MaxSpots || p.PodsPerHalfHour < 1 || p.PodsPerHalfHour > 6 || p.NoRepeatMinutes < 0 || p.NoRepeatMinutes > 1440 || (p.ClockAlignment != "none" && p.ClockAlignment != "half") || (p.BumperStyle != "break-back" && p.BumperStyle != "none") {
 		return fmt.Errorf("invalid commercial break pattern")
 	}
 	return nil
@@ -84,13 +84,16 @@ func (c Channel) podItems(at time.Time, budget time.Duration) []Item {
 	}
 	moment := func(kind string) Item {
 		if c.clipDuration != nil {
-			if d, ok := c.clipDuration(c.Look.LookID, kind); ok && d > 0 {
+			if d, ok := c.momentDuration(kind); ok && d > 0 {
 				return Item{Slate: kind, Title: kind, DurationMS: d.Milliseconds()}
 			}
 		}
 		return Item{}
 	}
-	outB, inB := moment("break"), moment("back")
+	outB, inB := Item{}, Item{}
+	if p.BumperStyle != "none" {
+		outB, inB = moment("break"), moment("back")
+	}
 	id := Item{}
 	if p.StationID {
 		id = moment("ident")

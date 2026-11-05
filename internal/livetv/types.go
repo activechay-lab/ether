@@ -57,6 +57,7 @@ type Item struct {
 // ProgramSource is one weighted part of a mix. Weight 0 means 1.
 // Watched is "", "watched" or "unwatched" for the whole household.
 type ProgramSource struct {
+	StartDate    string          `json:"startDate,omitempty"`
 	ID           string          `json:"id,omitempty"`
 	Kind         string          `json:"kind,omitempty"`
 	ShowKey      core.RatingKey  `json:"showKey,omitempty"`
@@ -102,6 +103,7 @@ type Block struct {
 	Watched     string          `json:"watched,omitempty"`
 }
 type ChannelLook struct {
+	MomentAssets         map[string]string `json:"momentAssets,omitempty"`
 	BreakPlacement       string            `json:"breakPlacement,omitempty"`
 	Tonight              *bool             `json:"tonight,omitempty"`
 	Bug                  *core.BugSettings `json:"bug,omitempty"`

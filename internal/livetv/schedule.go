@@ -22,7 +22,7 @@ func Schedule(c Channel, from, until time.Time) []Programme {
 	if len(c.Clock) > 0 && c.clipDuration != nil {
 		return clockSchedule(c, from, until)
 	}
-	if c.Look != nil || len(c.Blocks) > 0 || len(c.Pins) > 0 {
+	if c.Look != nil || len(c.Blocks) > 0 || len(c.Pins) > 0 || len(c.Sources) > 0 {
 		c.momentHistory = &momentHistory{last: map[string]time.Time{}}
 	}
 	if c.Epoch.IsZero() {
@@ -34,7 +34,7 @@ func Schedule(c Channel, from, until time.Time) []Programme {
 // epochCalendar describes an unaligned continuous loop. It is a scheduling
 // policy, independent of the age of the saved channel.
 func epochCalendar(c Channel) bool {
-	if c.Mode != "" || c.Align != "" || c.Fit != "" || c.RepeatDays > 0 || len(c.Filler) > 0 || c.MarathonKey != 0 || len(c.Pins) > 0 {
+	if c.Mode != "" || c.Align != "" || c.Fit != "" || c.RepeatDays > 0 || len(c.Filler) > 0 || c.MarathonKey != 0 || len(c.Pins) > 0 || len(c.Sources) > 0 {
 		return false
 	}
 	if len(c.Items) == 0 && (c.OffAir || len(c.Fallback) > 0) {
@@ -135,7 +135,7 @@ func weeklySchedule(c Channel, from, until time.Time) []Programme {
 		prev := 0
 		for _, b := range blocks {
 			if b.Start > prev {
-				emit(c, baseSegment(c), prev, b.Start, day.Unix(), false)
+				emit(c, baseSegment(c, day), prev, b.Start, day.Unix(), false)
 			}
 			bc := c
 			bc.programmingBlockID = b.ID
@@ -148,7 +148,7 @@ func weeklySchedule(c Channel, from, until time.Time) []Programme {
 			}
 			bc.programmingPinned = b.pinned
 			if b.Breaks != nil {
-				bc.Look = b.Breaks
+				bc.Look = effectiveBlockLook(c.Look, b.Breaks)
 				bc.reel = b.reel
 			}
 			items := programmingItems(b.Sources, b.Items, c, day, b.original)
@@ -160,12 +160,16 @@ func weeklySchedule(c Channel, from, until time.Time) []Programme {
 				seg.shuffle = false
 				seg.marathon = 0
 				seg.repeat = b.RepeatDays
+				if len(b.Sources) == 1 && b.Sources[0].Strip {
+					seg.align = "half"
+					seg.fit = "pad"
+				}
 			}
 			emit(bc, seg, b.Start, b.End, day.Unix()+int64(b.Start), b.pinned)
 			prev = b.End
 		}
 		if prev < 1440 {
-			emit(c, baseSegment(c), prev, 1440, day.Unix(), false)
+			emit(c, baseSegment(c, day), prev, 1440, day.Unix(), false)
 		}
 		for _, p := range daily {
 			if p.End.After(from) && p.Start.Before(until) {
@@ -230,7 +234,7 @@ func emitSegment(out *[]Programme, c Channel, seg segment, day time.Time, startM
 }
 
 func needsWalk(seg segment) bool {
-	return seg.mode == "random" || seg.align != "" || seg.repeat > 0 || seg.fit != ""
+	return seg.mode == "random" || seg.align != "" || seg.repeat > 0 || seg.fit == "shift" || (seg.fit == "pad" && seg.mode == "sources")
 }
 
 const (
@@ -307,7 +311,7 @@ func emitWalk(out *[]Programme, c Channel, items []Item, seg segment, anchor, en
 			}
 		}
 		if finish.After(end) {
-			if seg.fit == "pad" {
+			if seg.fit == "pad" && seg.mode == "sources" {
 				fillGap(out, c, seg.filler, cursor, end, from, until)
 				return
 			}

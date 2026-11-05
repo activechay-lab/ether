@@ -85,7 +85,7 @@ func (c Channel) momentsWithin(at time.Time, budget time.Duration) []Item {
 			}
 			continue
 		}
-		if d, ok := c.clipDuration(c.Look.LookID, kind); ok && d > 0 && d%segmentDuration == 0 {
+		if d, ok := c.momentDuration(kind); ok && d > 0 && d%segmentDuration == 0 {
 			base = append(base, Item{Slate: kind, Title: kind, DurationMS: d.Milliseconds()})
 			reserved += d
 		}
@@ -182,6 +182,16 @@ func guideSchedule(c Channel, from, until time.Time) []Programme {
 }
 
 func (s *Service) clipRequest(c Channel, p Programme, snapshots ...[]Programme) core.ClipRequest {
+	for _, b := range c.Blocks {
+		if b.ID == p.BlockID && b.Breaks != nil {
+			c.Look = effectiveBlockLook(c.Look, b.Breaks)
+		}
+	}
+	for _, pin := range c.Pins {
+		if pin.ID == p.BlockID && pin.Breaks != nil {
+			c.Look = effectiveBlockLook(c.Look, pin.Breaks)
+		}
+	}
 	lookID := ""
 	if c.Look != nil {
 		lookID = c.Look.LookID
@@ -189,6 +199,8 @@ func (s *Service) clipRequest(c Channel, p Programme, snapshots ...[]Programme) 
 	r := core.ClipRequest{LookID: lookID, Moment: p.Item.Slate, ChannelID: c.ID, Bind: map[string]string{"channel.name": c.Name}, Art: map[string]string{}}
 	if c.Look != nil {
 		r.Bug = c.Look.Bug
+		r.AssetDigest = c.Look.MomentAssets[p.Item.Slate]
+		r.AssetDuration = time.Duration(p.Item.DurationMS) * time.Millisecond
 		r.Bind["channel.tagline"] = c.Look.Tagline
 		r.Bind["channel.accent"] = c.Look.Accent
 	}
@@ -280,7 +292,7 @@ func (s *Service) ensureGraphics() {
 		if !c.Enabled || !recent[c.ID] {
 			continue
 		}
-		if c.Look == nil && len(c.Clock) == 0 {
+		if c.Look == nil && len(c.Clock) == 0 && len(c.Blocks) == 0 && len(c.Pins) == 0 {
 			continue
 		}
 		if c.Look != nil && c.Look.Ident {
@@ -329,4 +341,15 @@ func (c Channel) pluginItem(id string) (Item, bool) {
 		return Item{}, false
 	}
 	return Item{Slate: id, Title: name, Rating: rating, DurationMS: d.Milliseconds()}, true
+}
+
+func (c Channel) momentDuration(kind string) (time.Duration, bool) {
+	if c.Look == nil || c.clipDuration == nil {
+		return 0, false
+	}
+	duration, ok := c.clipDuration(c.Look.LookID, kind)
+	if c.Look.MomentAssets[kind] != "" && (!ok || duration <= 0) {
+		return 8 * time.Second, true
+	}
+	return duration, ok
 }

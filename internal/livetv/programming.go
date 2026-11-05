@@ -16,7 +16,17 @@ type calendarBlock struct {
 	reel     *ReelSnapshot
 }
 
-func baseSegment(c Channel) segment {
+func baseSegment(c Channel, day time.Time) segment {
+	if len(c.Sources) > 0 {
+		c.Items = programmingItems(c.Sources, c.Items, c, day, Block{ID: "base", Start: 0, End: 1440})
+		c.Mode = "sources"
+		c.Shuffle = false
+		c.MarathonKey = 0
+		if len(c.Sources) == 1 && c.Sources[0].Strip {
+			c.Align = "half"
+			c.Fit = "pad"
+		}
+	}
 	return segment{items: c.Items, filler: c.Filler, shuffle: c.Shuffle, mode: c.Mode, align: c.Align, fit: c.Fit, repeat: c.RepeatDays, marathon: c.MarathonKey, fallback: c.Fallback, offAir: c.OffAir}
 }
 
@@ -90,13 +100,26 @@ func programmingItems(sources []ProgramSource, fallback []Item, c Channel, day t
 		if s.Strip && len(items) > 0 {
 			// A strip consumes the same number of slots on every eligible day,
 			// counting only broadcast weekdays since the channel's epoch.
-			elapsed := broadcastDays(dayStart(c.Epoch, day.Location()), day, b.Days)
-			at := stripPosition(items, elapsed, b)
+			epoch := dayStart(c.Epoch, day.Location())
+			if s.StartDate != "" {
+				if at, err := time.ParseInLocation("2006-01-02", s.StartDate, day.Location()); err == nil {
+					epoch = at
+				}
+			}
+			elapsed := broadcastDays(epoch, day, b.Days)
+			stripBlock := b
+			if len(sources) == 1 {
+				stripBlock.Align = "half"
+				stripBlock.Fit = "pad"
+			}
+			at := stripPosition(items, elapsed, stripBlock)
 
 			items = append(items[at:], items[:at]...)
 		}
 		for i := range items {
-			items[i].SourceID = s.ID
+			if len(s.Sources) == 0 || items[i].SourceID == "" {
+				items[i].SourceID = s.ID
+			}
 		}
 		parts = append(parts, items)
 		w := s.Weight
@@ -240,6 +263,9 @@ func stripPosition(items []Item, days int, b Block) int {
 }
 
 func programmeRule(c Channel, item Item) string {
+	if c.programmingBlockID == "" && item.SourceID == "" {
+		return ""
+	}
 	label := orText(c.programmingRule, "Channel loop")
 	var find func([]ProgramSource) *ProgramSource
 	find = func(sources []ProgramSource) *ProgramSource {
@@ -279,4 +305,42 @@ func programmeRule(c Channel, item Item) string {
 		}
 	}
 	return label
+}
+
+// A block owns its break policy, while the channel owns its shared creative
+// identity. Empty style and asset overrides inherit the channel's choices.
+func effectiveBlockLook(base, override *ChannelLook) *ChannelLook {
+	if override == nil {
+		return base
+	}
+	look := *override
+	if base != nil {
+		if look.LookID == "" {
+			look.LookID = base.LookID
+		}
+		look.Ident = base.Ident
+		look.UpNext = base.UpNext
+		look.Tonight = base.Tonight
+		look.OffAir = base.OffAir
+		look.Bug = base.Bug
+		assets := map[string]string{}
+		for k, v := range base.MomentAssets {
+			assets[k] = v
+		}
+		for k, v := range look.MomentAssets {
+			assets[k] = v
+		}
+		look.MomentAssets = assets
+	}
+	return &look
+}
+
+func (c Channel) reelForItem(item Item) *ReelSnapshot {
+	if reel := c.programmingReels[item.ReelID]; reel != nil {
+		return reel
+	}
+	if c.reel != nil && (item.ReelID == "" || item.ReelID == c.reel.ID) {
+		return c.reel
+	}
+	return nil
 }

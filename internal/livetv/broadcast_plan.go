@@ -132,8 +132,8 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 		}
 		if programme.Item.ReelClipID != "" {
 			var path string
-			if c.reel != nil {
-				for _, clip := range c.reel.Clips {
+			if reel := c.reelForItem(programme.Item); reel != nil {
+				for _, clip := range reel.Clips {
 					if clip.ID == programme.Item.ReelClipID {
 						path = clip.Path
 						break

@@ -368,6 +368,34 @@ func itemFromTitle(t core.Title) Item {
 	return Item{Key: t.Key, Title: t.Title, DurationMS: t.Runtime.Milliseconds(), Summary: t.Summary, Rating: t.ContentRating, Thumb: t.PosterPath, ShowKey: t.ShowKey, Season: t.Season, Episode: t.Episode, ReleasedMS: released}
 }
 func (s *Service) expand(ctx context.Context, c *Channel) error {
+	var prepare func([]ProgramSource, string)
+	prepare = func(sources []ProgramSource, prefix string) {
+		for i := range sources {
+			source := &sources[i]
+			if source.ID == "" {
+				source.ID = fmt.Sprintf("%s-source-%d", prefix, i)
+			}
+			if source.Strip && source.StartDate == "" {
+				source.StartDate = s.o.Now().In(zoneOf(c.Timezone)).Format("2006-01-02")
+			}
+			prepare(source.Sources, source.ID)
+		}
+	}
+	prepare(c.Sources, c.ID)
+	for i := range c.Blocks {
+		b := &c.Blocks[i]
+		if b.ID == "" {
+			b.ID = fmt.Sprintf("%s-block-%d", c.ID, i)
+		}
+		prepare(b.Sources, b.ID)
+	}
+	for i := range c.Pins {
+		p := &c.Pins[i]
+		if p.ID == "" {
+			p.ID = fmt.Sprintf("%s-pin-%d", c.ID, i)
+		}
+		prepare(p.Sources, p.ID)
+	}
 	if c.Personal != nil {
 		return nil
 	}
@@ -649,6 +677,21 @@ func validateChannel(c *Channel) error {
 			return fmt.Errorf("too many items")
 		}
 		for _, it := range items {
+			if len(it.BreakPoints) > 256 {
+				return fmt.Errorf("maximum 256 programme break points")
+			}
+			var lastMeta int64
+			for _, p := range it.BreakPoints {
+				if p.AtMS <= lastMeta || p.AtMS >= it.DurationMS || p.Confidence < 0 || p.Confidence > 1 {
+					return fmt.Errorf("invalid programme break point metadata")
+				}
+				switch p.Source {
+				case "chapters", "detected", "even":
+				default:
+					return fmt.Errorf("invalid break point source")
+				}
+				lastMeta = p.AtMS
+			}
 			if len(it.BreakPointsMS) > 256 {
 				return fmt.Errorf("maximum 256 programme break points")
 			}
@@ -1228,9 +1271,13 @@ func (s *Service) guideChannel(ctx context.Context, c Channel) Channel {
 		next := make([]Block, len(c.Blocks))
 		copy(next, c.Blocks)
 		for i := range next {
+			bs, ch3 := omitUnavailableSources(ctx, src, next[i].Sources)
+			if ch3 {
+				next[i].Sources = bs
+			}
 			bi, ch := omitUnavailable(ctx, src, next[i].Items)
 			bf, ch2 := omitUnavailable(ctx, src, next[i].Filler)
-			if ch || ch2 {
+			if ch || ch2 || ch3 {
 				blocksChanged = true
 				next[i].Items = bi
 				next[i].Filler = bf
@@ -1240,11 +1287,50 @@ func (s *Service) guideChannel(ctx context.Context, c Channel) Channel {
 			blocks = next
 		}
 	}
-	if !itemsChanged && !fallbackChanged && !fillerChanged && !blocksChanged {
+	sources, sourcesChanged := omitUnavailableSources(ctx, src, c.Sources)
+	pins := append([]PinnedSlot(nil), c.Pins...)
+	pinsChanged := false
+	for i := range pins {
+		pi, a := omitUnavailable(ctx, src, pins[i].Items)
+		ps, b := omitUnavailableSources(ctx, src, pins[i].Sources)
+		if a || b {
+			pins[i].Items = pi
+			pins[i].Sources = ps
+			pinsChanged = true
+		}
+	}
+	if sourcesChanged {
+		c.Sources = sources
+	}
+	if pinsChanged {
+		c.Pins = pins
+	}
+	if !itemsChanged && !fallbackChanged && !fillerChanged && !blocksChanged && !sourcesChanged && !pinsChanged {
 		return c
 	}
 	c.Items, c.Fallback, c.Filler, c.Blocks = items, fallback, filler, blocks
 	return c
+}
+
+func omitUnavailableSources(ctx context.Context, src core.AvailabilitySource, sources []ProgramSource) ([]ProgramSource, bool) {
+	if len(sources) == 0 {
+		return sources, false
+	}
+	next := append([]ProgramSource(nil), sources...)
+	changed := false
+	for i := range next {
+		items, a := omitUnavailable(ctx, src, next[i].Items)
+		children, b := omitUnavailableSources(ctx, src, next[i].Sources)
+		if a || b {
+			next[i].Items = items
+			next[i].Sources = children
+			changed = true
+		}
+	}
+	if !changed {
+		return sources, false
+	}
+	return next, true
 }
 
 func omitUnavailable(ctx context.Context, src core.AvailabilitySource, items []Item) ([]Item, bool) {

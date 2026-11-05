@@ -180,7 +180,7 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	s.mu.Lock()
 	l, ok := s.looks[r.LookID]
 	s.mu.Unlock()
-	if isPlugin && r.LookID == "" {
+	if (isPlugin || r.AssetDigest != "") && r.LookID == "" {
 		l = familyLook("clean", "Clean")
 		ok = true
 	}
@@ -225,6 +225,13 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	}
 	if isPlugin {
 		d.Duration = plugin.Document.Duration
+	}
+	assetDigest := l.Moments[r.Moment].AssetDigest
+	if r.AssetDigest != "" {
+		assetDigest = r.AssetDigest
+		if r.AssetDuration > 0 {
+			d.Duration = r.AssetDuration.Seconds()
+		}
 	}
 	b := families.Defaults(f)
 	for k := range b.Slots {
@@ -306,11 +313,11 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		Brand       Brand
 		AssetDigest string
 		Layers      map[string]map[string]any
-	}{l.Brand, l.Moments[r.Moment].AssetDigest, l.Layers}, struct {
+	}{l.Brand, assetDigest, l.Layers}, struct {
 		Bindings scene.Bindings
 		Request  core.ClipRequest
 	}{b, r}, r.Art, encode.Profile)
-	return renderJob{AssetDigest: l.Moments[r.Moment].AssetDigest, Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b, Assets: plugin.Images}, Request: r}, h != ""
+	return renderJob{AssetDigest: assetDigest, Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b, Assets: plugin.Images}, Request: r}, h != ""
 }
 func (s *Service) Clip(_ context.Context, r core.ClipRequest) (core.ClipRef, bool) {
 	j, ok := s.plan(r)

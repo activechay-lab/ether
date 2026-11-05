@@ -1161,11 +1161,14 @@ presets supply editable defaults. All days use the channel timezone, Sunday=0.
 
 `ProgramSource` adds `id`, `kind` (`items`, `show`, `movies`, `collection`,
 `filter`, `personal`, `plugin`, `mix`), `showKey`, `startSeason`, `startEpisode`,
-`order` (`order`, `shuffle`), `strip`, `segmentId`, `personal` (PersonalRecipe),
+`order` (`order`, `shuffle`), `strip`, `startDate`, `segmentId`, `personal` (PersonalRecipe),
 and recursive `sources`. `items` is the saved expanded snapshot. Sources retain
 their own episode ordering; channel-level marathon/shuffle cannot override it.
 Weights apply across every source kind, independent of pool size. A strip
-continues episodes on eligible days from the channel epoch, skipping other days.
+continues episodes on eligible days, skipping other days. Its saved `startDate`
+is initialized when authored, so an old channel epoch cannot skip the requested
+first episode; an absent start date uses the channel epoch. A single strip aligns
+to half-hour boundaries and pads the rest of its slot.
 
 `Channel.pins` contains `{id,name,start,end,days,date?,sources,items,mode,
 repeatDays,breaks?}`. A `date` in `YYYY-MM-DD` creates a special; absent dates
@@ -1195,3 +1198,13 @@ provenance is `blockId`, `sourceId`, `pinned`, `rule`; those fields are additive
 and do not change Plex programme identity. The client timeline uses the playback
 view so individual pod spots remain inspectable; the public guide folds pods
 into programme slots.
+
+`Channel.look.momentAssets` maps `ident`, `upnext`, `tonight`, `break`, and
+`back` to ready video asset digests. It overrides those moments on this channel
+without modifying the shared style. Without a style, an explicit asset uses an
+8-second slot. `core.ClipRequest` adds optional `AssetDigest` and `AssetDuration`
+for background conversion; their zero values preserve existing master hashes.
+Asset usage and deletion checks include channel references. Break overrides
+inherit the channel's creative identity and can change commercial policy/reel.
+`BreakPattern.bumperStyle` also accepts `none` to turn return/break bumpers off.
+No `internal/config` fields were added.

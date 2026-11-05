@@ -73,6 +73,16 @@ func (s *Service) timelineRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := &core.User{IsOwner: true}
+	if viewer == 0 && s.o.InputUser != nil {
+		current, e := s.o.InputUser(r.Context())
+		if e != nil {
+			ownerResult(w, nil, e)
+			return
+		}
+		if current != nil {
+			user = current
+		}
+	}
 	if viewer > 0 {
 		if s.o.Users == nil {
 			ownerResult(w, nil, core.ErrNotFound)
@@ -113,7 +123,7 @@ func (s *Service) timelineRoute(w http.ResponseWriter, r *http.Request) {
 func buildTimeline(c Channel, programmes []Programme, start, end int64, now time.Time) Timeline {
 	out := Timeline{ChannelID: c.ID, Timezone: orText(c.Timezone, "UTC"), Now: now.UnixMilli(), Dayparts: []TimelineDaypart{}, Elements: []TimelineElement{}}
 	for i, b := range c.Blocks {
-		out.Dayparts = append(out.Dayparts, TimelineDaypart{ID: orText(b.ID, fmt.Sprintf("block-%d", i)), Name: b.Name, Start: b.Start, End: b.End, Days: b.Days})
+		out.Dayparts = append(out.Dayparts, TimelineDaypart{ID: orText(b.ID, fmt.Sprintf("block-%d", i)), Name: b.Name, Start: b.Start, End: b.End, Days: append([]int{}, b.Days...)})
 	}
 	ps := append([]Programme(nil), programmes...)
 	sort.SliceStable(ps, func(i, j int) bool { return ps[i].Start.Before(ps[j].Start) })
@@ -144,6 +154,20 @@ func buildTimeline(c Channel, programmes []Programme, start, end int64, now time
 			kind = p.Item.Slate
 		case p.Pinned && strings.Contains(p.Rule, "dated special"):
 			kind = "special"
+		}
+		if p.Pinned {
+			for _, pin := range c.Pins {
+				if pin.ID == p.BlockID && pin.Date != "" {
+					kind = "special"
+					break
+				}
+			}
+		}
+		if kind == "ident" && len(out.Elements) > 0 {
+			previous := out.Elements[len(out.Elements)-1]
+			if previous.Kind == "pod" && previous.End == a {
+				kind = "stationId"
+			}
 		}
 		el := TimelineElement{ID: p.ID, Kind: kind, Start: a, End: z, Title: p.Item.Title, MediaType: p.Item.MediaType, BlockID: p.BlockID, SourceID: orText(p.SourceID, p.Item.SourceID), Pinned: p.Pinned, Art: orText(p.Item.Art, p.Item.Thumb), Rule: p.Rule, BreakPoints: append([]BreakPoint(nil), p.Item.BreakPoints...)}
 		if el.Rule == "" {
