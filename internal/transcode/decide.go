@@ -385,7 +385,7 @@ func collectIssues(info core.MediaInfo, v, a, sub *core.StreamInfo, ctx issueCon
 		identity := strings.ToLower(caps.Platform + " " + caps.Product + " " + caps.Device)
 		// PAFF H.264 cannot be decoded by Chromium. The probe cannot
 		// distinguish PAFF from MBAFF, so interlaced H.264 needs conversion
-		// on the measured browser platforms (Rex findings, 2026-10-27).
+		// on the measured browser platforms (recorded PMS measurement, 2026-10-27).
 		platform := strings.ToLower(caps.Platform)
 		if v.Codec == "h264" && v.Interlaced && (platform == "chrome" || platform == "microsoft edge" || platform == "edge" || platform == "opera") {
 			videoIssues = append(videoIssues, "interlaced H.264 requires deinterlacing for this browser")
@@ -618,7 +618,7 @@ func Decide(info core.MediaInfo, caps core.ClientCaps, opts core.DecideOptions, 
 	// A nonseekable Matroska header cannot acquire AAC AudioSpecificConfig
 	// from later ADTS packets, even with aac_adtstoasc. Convert that track
 	// so the encoder supplies the header before streamed output starts
-	// (Rex findings, Plex Desktop/ADTS AAC, 2026-10-27).
+	// (recorded measurement, Plex Desktop/ADTS AAC, 2026-10-27).
 	if a != nil && a.Codec == "aac" && (info.Container == "mpegts" || info.Container == "hls") && outputContainer(caps, opts, "h264", "aac") == ContainerMatroska {
 		audioIssues = append(audioIssues, "ADTS AAC requires conversion for streamed Matroska")
 	}
