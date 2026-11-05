@@ -71,7 +71,7 @@ export type Layer = {
   seed?: number;
   repeat?: number;
   behave?: Record<string, Params>[];
-  reveal?: { wipe: string; from: number; to: number; ease?: string };
+  reveal?: { out?: boolean; wipe: string; from: number; to: number; ease?: string };
   layers?: Layer[];
 };
 export type Scene = {
@@ -210,103 +210,124 @@ const staticFrames = new Map<string, ReturnType<typeof surface>>();
 export function measureText(c: Context, l: Layer, bindings: SceneBindings, t: number) {
   const n = (v: Value | undefined, fallback = 0) => number(evaluate(v, bindings, t), fallback);
   const s = (v: Value | undefined) => String(evaluate(v, bindings, t) ?? "");
-    let value = s(l.text),
-      size = n(l.size, 60);
-    let track = n(l.track);
-    for (const b of l.behave ?? [])
-      if (b.typewriter)
-        value = [...value]
-          .slice(
+  let value = s(l.text),
+    size = n(l.size, 60);
+  let track = n(l.track);
+  for (const b of l.behave ?? [])
+    if (b.typewriter)
+      value = [...value]
+        .slice(
+          0,
+          Math.max(
             0,
-            Math.max(
-              0,
-              Math.floor(
-                (t - (b.typewriter.start ?? 0)) / Math.max(0.001, b.typewriter.step ?? 0),
-              ) + 1,
-            ),
-          )
-          .join("");
-    const setFont = () => {
-      c.font = `${l.weight ?? 400} ${size}px "onair-${normalizeFont(s(l.font))}", "onair-notosans"`;
-    };
+            Math.floor((t - (b.typewriter.start ?? 0)) / Math.max(0.001, b.typewriter.step ?? 0)) +
+              1,
+          ),
+        )
+        .join("");
+  const setFont = () => {
+    c.font = `${l.weight ?? 400} ${size}px "onair-${normalizeFont(s(l.font))}", "onair-notosans"`;
+  };
+  setFont();
+  const measure = (line: string) =>
+    c.measureText(line).width + Math.max(0, [...line].length - 1) * track;
+  if (l.fit === "shrink" && l.maxWidth && measure(value) > l.maxWidth) {
+    const ratio = l.maxWidth / measure(value);
+    size *= ratio;
+    track *= ratio;
     setFont();
-    const measure = (line: string) =>
-      c.measureText(line).width + Math.max(0, [...line].length - 1) * track;
-    if (l.fit === "shrink" && l.maxWidth && measure(value) > l.maxWidth) {
-      const ratio = l.maxWidth / measure(value);
-      size *= ratio;
-      track *= ratio;
-      setFont();
+  }
+  let lines = [value];
+  if (l.fit === "wrap" && l.maxWidth) {
+    lines = [];
+    let line = "";
+    for (const word of value.trim().split(/\s+/)) {
+      const test = line ? line + " " + word : word;
+      if (line && measure(test) > l.maxWidth) {
+        lines.push(line);
+        line = word;
+      } else line = test;
     }
-    let lines = [value];
-    if (l.fit === "wrap" && l.maxWidth) {
-      lines = [];
-      let line = "";
-      for (const word of value.trim().split(/\s+/)) {
-        const test = line ? line + " " + word : word;
-        if (line && measure(test) > l.maxWidth) {
-          lines.push(line);
-          line = word;
-        } else line = test;
-      }
-      lines.push(line);
-    }
-    if (l.maxLines && lines.length > l.maxLines) {
-      lines = lines.slice(0, l.maxLines);
-      let last = [...lines.at(-1)!];
-      while (last.length && measure(last.join("") + "…") > (l.maxWidth ?? Infinity)) last.pop();
-      lines[lines.length - 1] = last.join("") + "…";
-    }
+    lines.push(line);
+  }
+  if (l.maxLines && lines.length > l.maxLines) {
+    lines = lines.slice(0, l.maxLines);
+    let last = [...lines.at(-1)!];
+    while (last.length && measure(last.join("") + "…") > (l.maxWidth ?? Infinity)) last.pop();
+    lines[lines.length - 1] = last.join("") + "…";
+  }
   const widths = lines.map(measure);
   const w = Math.max(0, ...widths);
   const metrics = c.measureText("Mg");
-  const ascent = metrics.actualBoundingBoxAscent || size * .8;
-  const descent = metrics.actualBoundingBoxDescent || size * .2;
-  return { lines, widths, size, track, font: c.font, x: l.align === "center" ? -w / 2 : l.align === "right" ? -w : 0, y: -ascent, w, h: ascent + descent + Math.max(0, lines.length - 1) * size * 1.15 };
+  const ascent = metrics.actualBoundingBoxAscent || size * 0.8;
+  const descent = metrics.actualBoundingBoxDescent || size * 0.2;
+  return {
+    lines,
+    widths,
+    size,
+    track,
+    font: c.font,
+    x: l.align === "center" ? -w / 2 : l.align === "right" ? -w : 0,
+    y: -ascent,
+    w,
+    h: ascent + descent + Math.max(0, lines.length - 1) * size * 1.15,
+  };
 }
 export function resolvedTransform(l: Layer, bindings: SceneBindings, t: number) {
   const n = (v: Value | undefined, fallback = 0) => number(evaluate(v, bindings, t), fallback);
   const energy = number(lookup(bindings.tokens, "energy"), 1);
-        let x = n(l.x),
-          y = n(l.y),
-          sx = n(l.scale, 1) * n(l.scaleX, 1),
-          sy = n(l.scale, 1) * n(l.scaleY, 1),
-          rot = n(l.rotate),
-          alpha = n(l.opacity, 1);
-        for (const b of l.behave ?? [])
-          for (const [kind, p] of Object.entries(b)) {
-            const u = Math.max(0, t - (p.start ?? 0)),
-              speed = p.speed || 1,
-              a = (p.amplitude ?? 0) * energy;
-            switch (kind) {
-              case "wiggle":
-                rot += Math.sin(u * speed * 6.28) * a;
-                break;
-              case "bounce":
-                y -= Math.abs(Math.sin(u * speed * Math.PI)) * a;
-                break;
-              case "drift":
-                x += u * a;
-                y += Math.sin(u * speed) * a * 0.2;
-                break;
-              case "pop":
-                sx *= ease("back", u * speed, energy);
-                sy *= ease("back", u * speed, energy);
-                break;
-              case "squash": {
-                const k = Math.sin(u * speed * 6.28) * a * 0.01;
-                sx *= 1 + k;
-                sy /= Math.max(0.1, 1 + k);
-                break;
-              }
-              case "flicker":
-                alpha *= 1 - a * random((l.seed ?? 0) + (p.seed ?? 0), Math.trunc(t * 24));
-                break;
-            }
-          }
+  let x = n(l.x),
+    y = n(l.y),
+    sx = n(l.scale, 1) * n(l.scaleX, 1),
+    sy = n(l.scale, 1) * n(l.scaleY, 1),
+    rot = n(l.rotate),
+    alpha = n(l.opacity, 1);
+  for (const b of l.behave ?? [])
+    for (const [kind, p] of Object.entries(b)) {
+      const u = Math.max(0, t - (p.start ?? 0)),
+        speed = p.speed || 1,
+        a = (p.amplitude ?? 0) * energy;
+      switch (kind) {
+        case "wiggle":
+          rot += Math.sin(u * speed * 6.28) * a;
+          break;
+        case "bounce":
+          y -= Math.abs(Math.sin(u * speed * Math.PI)) * a;
+          break;
+        case "drift":
+          x += u * a;
+          y += Math.sin(u * speed) * a * 0.2;
+          break;
+        case "pop":
+          sx *= ease("back", u * speed, energy);
+          sy *= ease("back", u * speed, energy);
+          break;
+        case "squash": {
+          const k = Math.sin(u * speed * 6.28) * a * 0.01;
+          sx *= 1 + k;
+          sy /= Math.max(0.1, 1 + k);
+          break;
+        }
+        case "flicker":
+          alpha *= 1 - a * random((l.seed ?? 0) + (p.seed ?? 0), Math.trunc(t * 24));
+          break;
+      }
+    }
   return { x, y, scaleX: sx, scaleY: sy, rotate: rot, opacity: alpha };
 }
-export type LayerGeometry = { id: string; x: number; y: number; w: number; h: number; rotate: number; scaleX: number; scaleY: number; anchor: { x: number; y: number }; matrix: number[]; text?: ReturnType<typeof measureText> };
+export type LayerGeometry = {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotate: number;
+  scaleX: number;
+  scaleY: number;
+  anchor: { x: number; y: number };
+  matrix: number[];
+  text?: ReturnType<typeof measureText>;
+};
 /** Geometry in 1920×1080 document coordinates, with inherited group transforms. */
 export function layerGeometry(doc: Scene, bindings: SceneBindings, t: number): LayerGeometry[] {
   const out: LayerGeometry[] = [];
@@ -315,12 +336,28 @@ export function layerGeometry(doc: Scene, bindings: SceneBindings, t: number): L
     for (const l of ls) {
       if (l.hidden || (l.start && t < l.start) || (l.end && t >= l.end)) continue;
       const r = resolvedTransform(l, bindings, t);
-      const m = parent.translate(r.x, r.y).rotate(r.rotate * 180 / Math.PI).scale(r.scaleX, r.scaleY);
+      const m = parent
+        .translate(r.x, r.y)
+        .rotate((r.rotate * 180) / Math.PI)
+        .scale(r.scaleX, r.scaleY);
       const text = l.type === "text" ? measureText(c, l, bindings, t) : undefined;
-      const n = (v: Value | undefined, fallback: number) => number(evaluate(v, bindings, t), fallback);
+      const n = (v: Value | undefined, fallback: number) =>
+        number(evaluate(v, bindings, t), fallback);
       const anchor = { x: m.e, y: m.f };
       const origin = m.transformPoint({ x: text?.x ?? 0, y: text?.y ?? 0 });
-      out.push({ id: l.id, x: origin.x, y: origin.y, w: text?.w ?? n(l.w, 1920), h: text?.h ?? n(l.h, 1080), rotate: Math.atan2(m.b, m.a), scaleX: Math.hypot(m.a, m.b), scaleY: (m.a * m.d - m.b * m.c) / Math.max(1e-12, Math.hypot(m.a, m.b)), anchor, matrix: [m.a,m.b,m.c,m.d,m.e,m.f], text });
+      out.push({
+        id: l.id,
+        x: origin.x,
+        y: origin.y,
+        w: text?.w ?? n(l.w, 1920),
+        h: text?.h ?? n(l.h, 1080),
+        rotate: Math.atan2(m.b, m.a),
+        scaleX: Math.hypot(m.a, m.b),
+        scaleY: (m.a * m.d - m.b * m.c) / Math.max(1e-12, Math.hypot(m.a, m.b)),
+        anchor,
+        matrix: [m.a, m.b, m.c, m.d, m.e, m.f],
+        text,
+      });
       if (l.layers) visit(l.layers, m);
     }
   };
@@ -403,7 +440,14 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
     for (const l of ls)
       for (let rep = 0; rep < Math.max(1, l.repeat ?? 1); rep++) {
         if (l.hidden || (l.start && t < l.start) || (l.end && t >= l.end)) continue;
-        const { x, y, scaleX: sx, scaleY: sy, rotate: rot, opacity: alpha } = resolvedTransform(l, bindings, t);
+        const {
+          x,
+          y,
+          scaleX: sx,
+          scaleY: sy,
+          rotate: rot,
+          opacity: alpha,
+        } = resolvedTransform(l, bindings, t);
         if (alpha <= 0 || sx === 0 || sy === 0) continue;
         c.save();
         c.translate(x, y);
@@ -430,7 +474,8 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
           seed = ((l.seed ?? 0) + rep + number(lookup(bindings.tokens, "seed"), 7)) >>> 0;
         if (l.reveal) {
           const r = l.reveal,
-            u = ease(r.ease ?? "linear", (t - r.from) / (r.to - r.from), energy),
+            progress = ease(r.ease ?? "linear", (t - r.from) / (r.to - r.from), energy),
+            u = r.out ? 1 - progress : progress,
             extent = Math.max(l.maxWidth ?? 0, w);
           draw.beginPath();
           draw.rect(
@@ -783,16 +828,41 @@ export async function loadStyleFonts(look: Look) {
 }
 /** Resolve the owned style's shared kit and live slots without template lookups. */
 export function styleBindings(look: Look, bindings: Bindings = {}): SceneBindings {
- const tokens: Record<string,unknown> = {
- bg:look.brand.palette.background, accent:look.brand.palette.accent, text:look.brand.palette.text, glow:look.brand.palette.glow,
- "type.display":normalizeFont(look.brand.type.display), "type.body":normalizeFont(look.brand.type.body), "type.mono":normalizeFont(look.brand.type.body),
- energy:look.brand.energy, "words.tagline":look.brand.tagline, "brand.logo":look.brand.logo ?? "",
- };
- for (const name of ["grain","flicker","scanlines","vignette","chroma"]) tokens[`textures.${name}`] = look.brand.textures.some(t=>t.toLowerCase()===name) ? .07 : 0;
- for (const control of look.controls) tokens[`control.${control.id}`] = control.value;
- const slots: Record<string,string> = { "channel.name": bindings.channel?.name ?? look.name, "brand.logo": look.brand.logo ?? "" };
- const flatten=(value:unknown,prefix:string)=> { if(value==null) return; if(typeof value!=="object") { slots[prefix]=String(value); return; } for(const [key,child] of Object.entries(value)) flatten(child,Array.isArray(value) ? `${prefix}[${key}]` : prefix ? `${prefix}.${key}` : key); };
- flatten(bindings,""); return {tokens,slots};
+  const tokens: Record<string, unknown> = {
+    bg: look.brand.palette.background,
+    accent: look.brand.palette.accent,
+    text: look.brand.palette.text,
+    glow: look.brand.palette.glow,
+    "type.display": normalizeFont(look.brand.type.display),
+    "type.body": normalizeFont(look.brand.type.body),
+    "type.mono": normalizeFont(look.brand.type.body),
+    energy: look.brand.energy,
+    "words.tagline": look.brand.tagline,
+    "brand.logo": look.brand.logo ?? "",
+  };
+  for (const name of ["grain", "flicker", "scanlines", "vignette", "chroma"])
+    tokens[`textures.${name}`] = look.brand.textures.some((t) => t.toLowerCase() === name)
+      ? 0.07
+      : 0;
+  for (const control of look.controls) tokens[`control.${control.id}`] = control.value;
+  const slots: Record<string, string> = {
+    "channel.name": bindings.channel?.name ?? look.name,
+    "brand.logo": look.brand.logo ?? "",
+  };
+  const flatten = (value: unknown, prefix: string) => {
+    if (value == null) return;
+    if (typeof value !== "object") {
+      slots[prefix] = String(value);
+      return;
+    }
+    for (const [key, child] of Object.entries(value))
+      flatten(
+        child,
+        Array.isArray(value) ? `${prefix}[${key}]` : prefix ? `${prefix}.${key}` : key,
+      );
+  };
+  flatten(bindings, "");
+  return { tokens, slots };
 }
 type WorkerRequest = {
   id: number;

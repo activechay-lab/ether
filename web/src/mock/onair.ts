@@ -121,8 +121,21 @@ export function createOnAirMock(
     ): { body: unknown; status?: number } | null {
       if (seg[0] === "onair" && seg[1] === "scenes" && seg[2] === "validate" && method === "POST") {
         const sc = body as import("../pages/livetv/onair/studio-model").StyleScene;
-        const valid = sc.document?.v === 1 && sc.document.duration >= 4 && sc.document.duration <= 30 && sc.document.duration % 4 === 0 && sc.sounds.length <= 4;
-        return valid ? {body:structuredClone(sc)} : {body:{error:"Scene duration must be a multiple of four seconds and use at most four sounds"},status:400};
+        const valid =
+          sc.document?.v === 1 &&
+          sc.document.duration >= 4 &&
+          sc.document.duration <= 30 &&
+          sc.document.duration % 4 === 0 &&
+          sc.sounds.length <= 4;
+        return valid
+          ? { body: structuredClone(sc) }
+          : {
+              body: {
+                error:
+                  "Scene duration must be a multiple of four seconds and use at most four sounds",
+              },
+              status: 400,
+            };
       }
       if (seg[0] === "livetv" && seg[3] === "rundown") {
         const result = tv.handle(method, seg, q, body);

@@ -227,6 +227,9 @@ func (r *render) layers(dst *image.RGBA, ls []scene.Layer, parent matrix, opacit
 			}
 			if l.Reveal != nil {
 				u := scene.Ease(l.Reveal.Ease, (r.t-l.Reveal.From)/(l.Reveal.To-l.Reveal.From), energy)
+				if l.Reveal.Out {
+					u = 1 - u
+				}
 				for yy := 0; yy < r.h; yy++ {
 					for xx := 0; xx < r.w; xx++ {
 						p := m.inverse().point(point{float64(xx), float64(yy)})
