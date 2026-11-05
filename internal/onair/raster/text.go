@@ -67,7 +67,9 @@ func (r *render) text(dst *image.RGBA, l scene.Layer, m matrix) {
 		return float64(font.MeasureString(face, s))/64/density + float64(max(0, len([]rune(s))-1))*track
 	}
 	if l.Fit == "shrink" && l.MaxWidth > 0 && measure(text) > l.MaxWidth {
-		size *= l.MaxWidth / measure(text)
+		ratio := l.MaxWidth / measure(text)
+		size *= ratio
+		track *= ratio
 		face.Close()
 		face, _ = opentype.NewFace(parsed, &opentype.FaceOptions{Size: size * density, DPI: 72})
 		if face == nil {

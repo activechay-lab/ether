@@ -247,7 +247,7 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
   function text(c: Context, l: Layer) {
     let value = s(l.text),
       size = n(l.size, 60);
-    const track = n(l.track);
+    let track = n(l.track);
     for (const b of l.behave ?? [])
       if (b.typewriter)
         value = [...value]
@@ -268,7 +268,9 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
     const measure = (line: string) =>
       c.measureText(line).width + Math.max(0, [...line].length - 1) * track;
     if (l.fit === "shrink" && l.maxWidth && measure(value) > l.maxWidth) {
-      size *= l.maxWidth / measure(value);
+      const ratio = l.maxWidth / measure(value);
+      size *= ratio;
+      track *= ratio;
       setFont();
     }
     let lines = [value];
