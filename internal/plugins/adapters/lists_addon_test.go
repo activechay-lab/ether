@@ -88,10 +88,11 @@ func TestAddonCatalogMatchesByIDAndCountsUnmatched(t *testing.T) {
 	if created.ItemCount != 2 || !strings.Contains(strings.Join(created.Warnings, "\n"), warning) {
 		t.Fatalf("build = %d items, warnings %v", created.ItemCount, created.Warnings)
 	}
-	// The catalog does not declare skip: one page per read (the preview
-	// and the build).
-	if calls != 2 {
-		t.Fatalf("catalog reads = %d, want 2", calls)
+	// The catalog does not declare skip: one page per read. Creating a
+	// remote-source collection starts an initial build, so the explicit
+	// rebuild below can add a third read when that build wins the race.
+	if calls < 2 || calls > 3 {
+		t.Fatalf("catalog reads = %d, want 2 or 3 one-page reads", calls)
 	}
 
 	// The source's own limit bounds the read.
