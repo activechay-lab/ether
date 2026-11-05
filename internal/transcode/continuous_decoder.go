@@ -65,7 +65,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		}
 	}()
 	f := r.Format
-	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-threads", "2", "-filter_threads", "1"}
+	args := []string{"-hide_banner", "-loglevel", "warning", "-nostdin", "-threads", "2", "-filter_threads", "1"}
 	args = append(args, inputSafetyArgs(r.InputURL, r.Live)...)
 	if !r.Live && r.Offset > 0 {
 		args = append(args, "-ss", strconv.FormatFloat(r.Offset.Seconds(), 'f', 6, 64), "-noaccurate_seek")

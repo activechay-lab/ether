@@ -133,6 +133,9 @@ func (p *continuousProcess) result() error {
 	if p.err != nil {
 		return fmt.Errorf("continuous ffmpeg: %w: %s", p.err, strings.TrimSpace(p.stderr.String()))
 	}
+	if tail := strings.TrimSpace(p.stderr.String()); tail != "" {
+		return fmt.Errorf("continuous ffmpeg: %w: %s", io.EOF, tail)
+	}
 	return io.EOF
 }
 func validateRaw(f RawFormat) error {
