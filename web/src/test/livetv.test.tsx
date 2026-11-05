@@ -778,40 +778,47 @@ describe("Live TV Stremio plugins", () => {
 });
 
 describe("Live TV access on the viewer profile", () => {
-  it("only switches Live TV on or off for the viewer; channels are managed on each channel", async () => {
-    let policy = {
-      userId: 2,
-      disabled: false,
-      restricted: true,
-      channels: ["c1"],
-      favorites: [],
-      maxRating: "",
-    };
-    const { fake } = renderAppWith("/viewers/2/limits", (method, path, body) => {
-      if (path === "/livetv/channels")
-        return [
-          { id: "c1", number: "1", name: "Movie night", kind: "virtual", enabled: true },
-          { id: "c2", number: "2", name: "Cartoons", kind: "virtual", enabled: true },
-        ];
-      if (path === "/livetv/policies/2") {
-        if (method === "PUT") policy = body as typeof policy;
-        return policy;
-      }
-      return undefined;
-    });
-    fireEvent.click(await screen.findByLabelText("Disable Live TV for this viewer", {}, WAIT));
-    // Thousands of channels never list here; access lives on each channel.
-    expect(screen.queryByLabelText("Allow Movie night")).not.toBeInTheDocument();
-    expect(screen.queryByText("Allowed channels")).not.toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
-    await waitFor(() =>
-      expect(fakeCalls(fake, "PUT", "/livetv/policies/2").at(-1)?.body).toMatchObject({
-        disabled: true,
+  it(
+    "only switches Live TV on or off for the viewer; channels are managed on each channel",
+    { timeout: 30000 },
+    async () => {
+      let policy = {
+        userId: 2,
+        disabled: false,
         restricted: true,
         channels: ["c1"],
-      }),
-    );
-  });
+        favorites: [],
+        maxRating: "",
+      };
+      const { fake } = renderAppWith("/viewers/2/limits", (method, path, body) => {
+        if (path === "/livetv/channels")
+          return [
+            { id: "c1", number: "1", name: "Movie night", kind: "virtual", enabled: true },
+            { id: "c2", number: "2", name: "Cartoons", kind: "virtual", enabled: true },
+          ];
+        if (path === "/livetv/policies/2") {
+          if (method === "PUT") policy = body as typeof policy;
+          return policy;
+        }
+        return undefined;
+      });
+      // First visit to the lazily loaded viewer profile route: allow a cold chunk load.
+      fireEvent.click(
+        await screen.findByLabelText("Disable Live TV for this viewer", {}, { timeout: 15000 }),
+      );
+      // Thousands of channels never list here; access lives on each channel.
+      expect(screen.queryByLabelText("Allow Movie night")).not.toBeInTheDocument();
+      expect(screen.queryByText("Allowed channels")).not.toBeInTheDocument();
+      fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
+      await waitFor(() =>
+        expect(fakeCalls(fake, "PUT", "/livetv/policies/2").at(-1)?.body).toMatchObject({
+          disabled: true,
+          restricted: true,
+          channels: ["c1"],
+        }),
+      );
+    },
+  );
 });
 
 it("bulk selects matching channels beyond the loaded page without fetching full rows", async () => {

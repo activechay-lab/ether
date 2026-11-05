@@ -793,12 +793,21 @@ type MyPlex struct {
 func (MyPlex) XMLElementName() string { return "MyPlex" }
 
 // Notification containers for websockets/eventsource.
+type LogSentNotification struct {
+	Level   int    `plex:"level"`
+	Thread  string `plex:"thread"`
+	Time    string `plex:"time"`
+	Message string `plex:"message"`
+}
+
 type NotificationContainer struct {
+	LogSentNotification          []LogSentNotification          `plex:"LogSentNotification"`
 	Type                         string                         `plex:"type"`
 	Size                         int                            `plex:"size"`
 	PlaySessionStateNotification []PlaySessionStateNotification `plex:"PlaySessionStateNotification"`
 	TimelineEntry                []TimelineEntry                `plex:"TimelineEntry"`
 	ActivityNotification         []ActivityNotification         `plex:"ActivityNotification"`
+	AutoUpdateNotification       []AutoUpdateNotification       `plex:"AutoUpdateNotification"`
 	StatusNotification           []StatusNotification           `plex:"StatusNotification"`
 	TranscodeSession             []TranscodeSess                `plex:"TranscodeSession"`
 }
@@ -846,3 +855,9 @@ type StatusNotification struct {
 
 // A builds an Attr.
 func A(name string, value any) Attr { return Attr{Name: name, Value: value} }
+
+// AutoUpdateNotification reports the result of the native updater check.
+type AutoUpdateNotification struct {
+	State      string `plex:"state"`
+	CanInstall bool   `plex:"canInstall"`
+}

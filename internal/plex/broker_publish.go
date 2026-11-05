@@ -2,6 +2,7 @@ package plex
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -62,11 +63,11 @@ func (s *Server) openPlexPlan(ctx context.Context, pr *Request, p *playRequest, 
 	ctx = sessions.WithPlexAdmission(ctx, admit)
 	plan, err := s.playbackBroker.Plan(ctx, s.plexPlanRequest(pr, p))
 	if err != nil {
-		return core.Decision{}, err
+		return core.Decision{}, fmt.Errorf("Plex broker plan: %w", err)
 	}
 	_, err = s.playbackBroker.Open(ctx, frontend.OpenRequest{Protocol: "plex", PlanID: plan.ID, Viewer: pr.User, Device: core.Device{ID: pr.ClientID, Client: pr.Product, Product: pr.Product, Version: pr.Version, Platform: pr.Platform, DeviceName: pr.Device, Language: pr.Language}})
 	if err != nil {
-		return core.Decision{}, err
+		return core.Decision{}, fmt.Errorf("Plex broker open: %w", err)
 	}
 	return plan.Decision, nil
 }

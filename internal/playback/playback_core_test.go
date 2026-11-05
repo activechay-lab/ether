@@ -1,8 +1,8 @@
 package playback
 
 import (
-	"bytes"
 	"context"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -290,7 +290,7 @@ func TestPrepareVariantIgnoresWarmOfOtherRelease(t *testing.T) {
 
 // #5: with NZB fetching available, an exact-size repost is opened before
 // a higher-ranked mismatched candidate.
-func TestDirectFailoverPrefersExactSizeRepost(t *testing.T) {
+func TestDirectFailoverSameSizeNeedsNewDecision(t *testing.T) {
 	a := mkv("A", 200000, 100*time.Second)
 	a.setFail(120000, 130000, nil)
 	h := newHarness(t, []*fakeRelease{a, mkv("B", 400000, 100*time.Second), mkv("C", 200000, 100*time.Second)}, []string{"A", "B", "C"})
@@ -310,20 +310,19 @@ func TestDirectFailoverPrefersExactSizeRepost(t *testing.T) {
 	if st.Resolution.Release.ID != "C" {
 		t.Fatalf("exact-size repost not chosen: %+v", st)
 	}
-	if st.RequiresRemux {
-		t.Fatal("exact-size swap must not require remux")
+	if !st.RequiresRemux {
+		t.Fatal("different bytes require a new remux decision even at equal size")
 	}
 	h.engine.mu.Lock()
 	opens := append([]string(nil), h.engine.opens...)
 	h.engine.mu.Unlock()
-	for _, id := range opens {
-		if id == "B" {
-			t.Fatalf("mismatched candidate opened before exact repost: %v", opens)
-		}
+	if len(opens) < 2 || opens[1] != "C" {
+		t.Fatalf("same-size candidate was not considered first: %v", opens)
 	}
-	// The client re-requests and is served the whole file from C.
+
+	// The old URL retains its identity; C requires a new decision.
 	resp, body2, err := get(t, srv.URL, nil)
-	if err != nil || resp.StatusCode != 200 || !bytes.Equal(body2, expected("C", 0, 200000)) {
+	if err != nil || resp.StatusCode != http.StatusConflict {
 		t.Fatalf("re-request from C: %d %v len=%d", resp.StatusCode, err, len(body2))
 	}
 }
