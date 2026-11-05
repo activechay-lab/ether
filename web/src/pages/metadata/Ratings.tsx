@@ -171,6 +171,12 @@ export function RatingSources({
       }}
     />
   );
+  const savedKeyFor = (provider: string) => {
+    const current = controlled ? saved : doc.data;
+    if (provider === current?.provider) return current.apiKey;
+    if (provider && provider === current?.backupProvider) return current.backupApiKey;
+    return "";
+  };
   const providerRow = (
     <SettingsRow
       stacked
@@ -183,14 +189,20 @@ export function RatingSources({
           id="ratings-provider"
           className={`${nativeSelect} sm:w-48`}
           value={draft.provider}
-          onChange={(e) =>
-            set({
-              provider: e.currentTarget.value,
-              ...(e.currentTarget.value === draft.backupProvider
-                ? { backupProvider: "", backupApiKey: "" }
-                : {}),
-            })
-          }
+          onChange={(e) => {
+            const provider = e.currentTarget.value;
+            if (provider === draft.provider) return;
+            if (provider === draft.backupProvider) {
+              set({
+                provider,
+                apiKey: draft.backupApiKey,
+                backupProvider: draft.provider,
+                backupApiKey: draft.apiKey,
+              });
+            } else {
+              set({ provider, apiKey: savedKeyFor(provider) });
+            }
+          }}
         >
           <option value="omdb">OMDb</option>
           <option value="mdblist">MDBList</option>
@@ -243,7 +255,11 @@ export function RatingSources({
                 id="ratings-backup"
                 className={`${nativeSelect} sm:w-48`}
                 value={draft.backupProvider || ""}
-                onChange={(e) => set({ backupProvider: e.currentTarget.value, backupApiKey: "" })}
+                onChange={(e) => {
+                  const backupProvider = e.currentTarget.value;
+                  if (backupProvider !== draft.backupProvider)
+                    set({ backupProvider, backupApiKey: savedKeyFor(backupProvider) });
+                }}
               >
                 <option value="">{t("None")}</option>
                 {draft.provider !== "omdb" && <option value="omdb">OMDb</option>}
