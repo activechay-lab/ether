@@ -18,8 +18,31 @@ func continueIdentity(key core.RatingKey) core.RatingKey {
 	return key
 }
 func (s *State) HideContinue(ctx context.Context, uid int64, key core.RatingKey) error {
-	_, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO state_continue_hidden(user_id,item_key) VALUES(?,?)`, uid, int64(continueIdentity(key)))
-	return err
+	if err := s.lockWrites(ctx); err != nil {
+		return err
+	}
+	defer s.unlockWrites()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	cur, err := loadTx(ctx, tx, uid, key)
+	if err != nil {
+		return err
+	}
+	cur.ws.UpdatedAt = s.now()
+	if err := saveTx(ctx, tx, uid, cur); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO state_continue_hidden(user_id,item_key) VALUES(?,?)`, uid, int64(continueIdentity(key))); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.gen.Add(1)
+	return nil
 }
 func (s *State) RestoreContinue(ctx context.Context, uid int64, key core.RatingKey) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM state_continue_hidden WHERE user_id=? AND item_key=?`, uid, int64(continueIdentity(key)))

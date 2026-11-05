@@ -73,3 +73,20 @@ func TestRecentViewedUsesSettingsWriteTime(t *testing.T) {
 		t.Fatal(rows, err)
 	}
 }
+
+func TestContinueHideStampsSettingsWithoutMovingResume(t *testing.T) {
+	s, now := newTestState(t)
+	k := core.MovieKey(99)
+	if err := s.LegacyProgress(context.Background(), 1, k, 2*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := s.Get(context.Background(), 1, k)
+	*now = now.Add(time.Hour)
+	if err := s.HideContinue(context.Background(), 1, k); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.Get(context.Background(), 1, k)
+	if !after.UpdatedAt.After(before.UpdatedAt) || after.ViewOffset != before.ViewOffset || !after.LastViewedAt.Equal(before.LastViewedAt) {
+		t.Fatalf("hide timestamps/resume %+v -> %+v", before, after)
+	}
+}

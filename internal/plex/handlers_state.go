@@ -330,7 +330,13 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		known = err == nil
 	default:
 		if s.d.Catalog != nil {
-			title, e := s.d.Catalog.Get(ctx, key)
+			var title *core.Title
+			var e error
+			if stored, ok := s.d.Catalog.(core.StoredTitleLookup); ok {
+				title, e = stored.StoredTitle(ctx, key)
+			} else {
+				title, e = s.d.Catalog.Get(ctx, key)
+			}
 			known = e == nil && title != nil && s.titleVisible(pr.User, title)
 		}
 	}
