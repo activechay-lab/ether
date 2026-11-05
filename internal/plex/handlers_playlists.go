@@ -419,6 +419,12 @@ func (s *Server) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	title := q.Get("title")
+	// Ether has video catalogue sections only. Refuse unsupported smart media
+	// domains before attempting to interpret a section query.
+	if mediaType != "video" && q.Get("smart") == "1" {
+		writeHTTPError(w, http.StatusBadRequest)
+		return
+	}
 	if q.Get("smart") == "1" {
 		uri, err := s.smartSectionURI(pr.User, q.Get("uri"))
 		store, ok := s.d.Playlists.(core.SmartPlaylists)
@@ -448,6 +454,12 @@ func (s *Server) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 				keys = append(keys, it.key)
 			}
 		}
+	}
+	// Unresolvable non-video sources cannot name an Ether section. Give the
+	// client a graceful refusal rather than create a mislabeled video list.
+	if mediaType != "video" && len(keys) == 0 {
+		writeHTTPError(w, http.StatusBadRequest)
+		return
 	}
 	mismatch := mediaType != "video" && len(keys) > 0
 	if mismatch {
