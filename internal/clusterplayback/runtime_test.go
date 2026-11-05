@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
@@ -264,7 +265,7 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 
 	// A proven pre-reservation failure must not poison a stable public ID.
 	preflight := core.HLSRequest{SessionID: "public-session", Info: ps.Info, Decision: core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, SubtitleStream: -1}}
-	if _, err := front.StartPreparedHLS(ctx, 9, prepared, preflight); err == nil || front.Allocated(preflight.SessionID) {
+	if _, err := front.StartPreparedHLS(ctx, 9, prepared, preflight); !errors.Is(err, ErrNoEligibleTarget) || front.Allocated(preflight.SessionID) {
 		t.Fatal("no-target failure retained ownership")
 	}
 	target := placement.Target{NodeID: workerID.NodeID, Boot: workerID.Boot}
@@ -273,6 +274,30 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	}
 	if e = p.SetTarget(ctx, target, config.NodeRoles{config.RoleTranscode}, map[config.NodeRole][]string{config.RoleTranscode: {"worker/streams"}}); e != nil {
 		t.Fatal(e)
+	}
+	// These are real pre-reservation RPC/pool outcomes, not capacity inference
+	// from transport loss. Every failed attempt leaves the public ID reusable.
+	checkSelection := func(want error) {
+		t.Helper()
+		_, err := front.StartPreparedHLS(ctx, 9, prepared, preflight)
+		var detail *SelectionError
+		if !errors.Is(err, want) || !errors.As(err, &detail) || front.Allocated(preflight.SessionID) {
+			t.Fatalf("selection: %v, want %v; allocated=%v", err, want, front.Allocated(preflight.SessionID))
+		}
+	}
+	preflight.Info.Estimated = true
+	checkSelection(remotetranscode.ErrUnsupported)
+	preflight.Info.Estimated = false
+	workerEndpoint := endpoints[workerID]
+	delete(endpoints, workerID)
+	checkSelection(ErrTargetUnavailable)
+	endpoints[workerID] = workerEndpoint
+	if err := p.SetPool(ctx, "worker/streams", config.RoleTranscode, 0); err != nil {
+		t.Fatal(err)
+	}
+	checkSelection(placement.ErrCapacity)
+	if err := p.SetPool(ctx, "worker/streams", config.RoleTranscode, 1); err != nil {
+		t.Fatal(err)
 	}
 	testRemoteNeutralBroker(t, ctx, base, guards[3], brokerID, sourceID, endpoints, source, worker)
 	request := core.HLSRequest{SessionID: "public-session", Info: ps.Info, Decision: core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, SubtitleStream: -1}}
@@ -795,7 +820,7 @@ func testRemoteNeutralBroker(t *testing.T, ctx context.Context, base Options, gu
 	t.Fatal("remote plan lifetime did not retire")
 }
 
-func (*fixtureEncoder) SupportsDistributedRequest(core.HLSRequest) bool { return true }
+func (*fixtureEncoder) SupportsDistributedRequest(q core.HLSRequest) bool { return !q.Info.Estimated }
 
 func testPreparationFailures(t *testing.T, ctx context.Context, front, source *Runtime, owner, controller nodewire.Identity) {
 	t.Helper()

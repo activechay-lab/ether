@@ -86,6 +86,9 @@ func (r *Runtime) workerCapabilities(ctx context.Context, id nodewire.Identity, 
 		return remotetranscode.Capabilities{}, e
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnprocessableEntity {
+		return remotetranscode.Capabilities{}, remotetranscode.ErrUnsupported
+	}
 	if response.StatusCode != 200 {
 		return remotetranscode.Capabilities{}, ErrDenied
 	}
@@ -94,12 +97,15 @@ func (r *Runtime) workerCapabilities(ctx context.Context, id nodewire.Identity, 
 		return remotetranscode.Capabilities{}, ErrDenied
 	}
 	var reply capabilityReply
-	if json.Unmarshal(raw, &reply) != nil || reply.Identity != id || !reply.Supported {
+	if json.Unmarshal(raw, &reply) != nil || reply.Identity != id {
 		return remotetranscode.Capabilities{}, ErrDenied
 	}
 	caps, e := remotetranscode.NormalizeCapabilities(reply.Capabilities)
-	if e != nil || !remotetranscode.SupportsRequest(q, caps) {
+	if e != nil {
 		return remotetranscode.Capabilities{}, ErrDenied
+	}
+	if !reply.Supported || !remotetranscode.SupportsRequest(q, caps) {
+		return remotetranscode.Capabilities{}, remotetranscode.ErrUnsupported
 	}
 	return intersectCapabilities(caps, r.o.RemoteCapabilities), nil
 }
