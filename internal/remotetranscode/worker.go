@@ -14,6 +14,7 @@ import (
 )
 
 type WorkerOptions struct {
+	Capabilities    Capabilities    // Explicit backend contract; zero retains fixed HLS.
 	ValidateRenewal ValidateRenewal // Nil explicitly disables renewal.
 	Boot            string
 	Capacity        int // Includes all retained tombstones; never evicts unresolved work.
@@ -29,6 +30,7 @@ type execution struct {
 	hash                      [32]byte
 	session                   core.OwnedEncoderSession
 	retirement                core.EncoderRetirement
+	rungs                     []core.HLSRung
 	input                     core.EncoderInputLease
 	gatewayInput              core.EncoderInputLease
 	starting, stopped, failed bool
@@ -45,6 +47,11 @@ type Worker struct {
 }
 
 func NewWorker(o WorkerOptions) (*Worker, error) {
+	caps, err := NormalizeCapabilities(o.Capabilities)
+	if err != nil {
+		return nil, err
+	}
+	o.Capabilities = caps
 	if !token(o.Boot) || o.Capacity < 1 || o.MaxLease <= 0 || o.MaxLease > 10*time.Minute || o.Security.Authenticate == nil || o.Security.Authorize == nil || o.Resolve == nil || o.Encoder == nil {
 		return nil, errors.New("remotetranscode: explicit worker dependencies required")
 	}
@@ -137,12 +144,12 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "invalid request", 400)
 		return
 	}
-	if m.Op != "renew" && m.Op != "start" && m.Op != "stop" && m.Op != "status" && m.Op != "playlist" && m.Op != "segment" {
+	if m.Op != "renew" && m.Op != "start" && m.Op != "stop" && m.Op != "status" && !mediaOperation(m.Op) {
 		http.Error(out, "unsupported operation", 422)
 		return
 	}
 	if m.Op == "start" {
-		if m.Start == nil || len(m.Start.ReleaseID) > 512 || m.Start.Identity != m.Identity || len(m.Start.Grant) == 0 || len(m.Start.Grant) > 4096 || !validPlan(m.Start.Info, m.Start.Decision, m.Start.Offset, m.Start.SegmentDuration) {
+		if m.Start == nil || len(m.Start.ReleaseID) > 512 || m.Start.Identity != m.Identity || len(m.Start.Grant) == 0 || len(m.Start.Grant) > 4096 || !SupportsRequest(core.HLSRequest{Protocol: m.Start.Protocol, ReleaseID: m.Start.ReleaseID, Info: m.Start.Info, Decision: m.Start.Decision, StartOffset: m.Start.Offset, SegmentDuration: m.Start.SegmentDuration}, w.opts.Capabilities) {
 			http.Error(out, "unsupported start", 422)
 			return
 		}
@@ -159,7 +166,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "invalid request", 400)
 		return
 	}
-	if m.Segment < -1 || m.Segment > 10000000 {
+	if m.Segment < -1 || m.Segment > 10000000 || m.Representation < 0 || m.Representation > 63 || (m.Rung != "" && !token(m.Rung)) {
 		http.Error(out, "invalid segment", 400)
 		return
 	}
@@ -219,11 +226,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 	for _, h := range []string{"Range", "If-Range", "If-None-Match", "If-Modified-Since"} {
 		request.Header[h] = r.Header.Values(h)
 	}
-	if m.Op == "playlist" {
-		s.ServePlaylist(out, request)
-	} else {
-		s.ServeSegment(out, request, m.Segment)
-	}
+	w.serveMedia(out, request, m, s, e.start.Protocol, e.rungs)
 }
 func reply(out http.ResponseWriter, state string, id Identity) {
 	out.Header().Set("Content-Type", "application/json")
@@ -302,10 +305,36 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	}
 	if err == nil {
 		invoked = true
-		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), InputURL: source.URL, InputLease: input, Info: s.Info, Decision: s.Decision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, Protocol: core.ProtocolHLS})
+		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), InputURL: source.URL, InputLease: input, Info: s.Info, Decision: s.Decision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, Protocol: s.Protocol})
+	}
+	var rungs []core.HLSRung
+	if err == nil && session != nil {
+		if w.opts.Capabilities.ABR && s.Protocol != core.ProtocolHTTP {
+			ladder, ok := session.(core.HLSLadderSession)
+			if !ok {
+				err = ErrUnsupported
+			} else {
+				rungs = ladder.Rungs()
+				if len(rungs) == 0 || !validRungs(rungs) {
+					rungs = nil
+					err = ErrUnsupported
+				}
+			}
+		}
+		if s.Protocol == core.ProtocolDASH {
+			if _, ok := session.(core.DASHSession); !ok {
+				err = ErrUnsupported
+			}
+		}
+		if s.Protocol == core.ProtocolHTTP {
+			if _, ok := session.(core.HTTPSession); !ok {
+				err = ErrUnsupported
+			}
+		}
 	}
 	w.mu.Lock()
 	w.expire(e)
+	e.rungs = append([]core.HLSRung(nil), rungs...)
 	e.starting = false
 	e.retirement = retirement
 	if session != nil {
@@ -392,7 +421,7 @@ func (w *Worker) snapshot(e *execution) status {
 		accepted := *lease.Accepted
 		lease.Accepted = &accepted
 	}
-	return status{State: result(e), Identity: e.id, Lease: lease, Stopped: e.stopped}
+	return status{Rungs: append([]core.HLSRung(nil), e.rungs...), State: result(e), Identity: e.id, Lease: lease, Stopped: e.stopped}
 }
 func replyStatus(out http.ResponseWriter, s status) {
 	out.Header().Set("Content-Type", "application/json")

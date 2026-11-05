@@ -23,7 +23,8 @@ type Assignment struct {
 	Expires  time.Time
 }
 type AdapterOptions struct {
-	Endpoint string
+	Capabilities Capabilities // Trusted negotiated worker/backend contracts; zero is fixed HLS.
+	Endpoint     string
 	// RecheckServer composes current Guard policy for the expected worker identity.
 	// Fresh TLS per operation; rebuild on rotation. Callback captures/opaque keys
 	// are immutable, callbacks concurrency safe and context cooperative.
@@ -42,6 +43,11 @@ type Adapter struct {
 }
 
 func NewAdapter(o AdapterOptions) (*Adapter, error) {
+	caps, err := NormalizeCapabilities(o.Capabilities)
+	if err != nil {
+		return nil, err
+	}
+	o.Capabilities = caps
 	u, e := url.Parse(o.Endpoint)
 	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || o.Client == nil || o.RecheckServer == nil || o.Assign == nil || o.Decide == nil || o.Capacity < 1 {
 		return nil, errors.New("remotetranscode: explicit adapter dependencies required")
@@ -68,7 +74,7 @@ func NewAdapter(o AdapterOptions) (*Adapter, error) {
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &Adapter{opts: o, client: &client, sessions: make(map[Identity]*Session)}, nil
 }
-func (a *Adapter) Capabilities() Capabilities                             { return Supported() }
+func (a *Adapter) Capabilities() Capabilities                             { return a.opts.Capabilities }
 func (a *Adapter) Probe(context.Context, string) (*core.MediaInfo, error) { return nil, ErrUnsupported }
 func (a *Adapter) Decide(i core.MediaInfo, c core.ClientCaps, o core.DecideOptions) core.Decision {
 	return a.opts.Decide(i, c, o)
@@ -79,7 +85,7 @@ func (a *Adapter) StartHLS(ctx context.Context, r core.HLSRequest) (core.HLSSess
 	return s, e
 }
 func (a *Adapter) StartHLSOwned(ctx context.Context, r core.HLSRequest) (core.HLSSession, core.EncoderRetirement, error) {
-	if !supported(r) || !token(r.SessionID) {
+	if !a.SupportsRequest(r) || !token(r.SessionID) {
 		return nil, nil, ErrUnsupported
 	}
 	if err := ctx.Err(); err != nil {
@@ -92,7 +98,7 @@ func (a *Adapter) StartHLSOwned(ctx context.Context, r core.HLSRequest) (core.HL
 	if !validIdentity(assignment.Identity) || assignment.Identity.Session != r.SessionID || len(assignment.Grant) == 0 || len(assignment.Grant) > 4096 || !assignment.Expires.After(time.Now()) {
 		return nil, nil, errors.New("remotetranscode: invalid assignment")
 	}
-	start := Start{ReleaseID: r.ReleaseID, Identity: assignment.Identity, Grant: assignment.Grant, Expires: assignment.Expires, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof}
+	start := Start{Protocol: r.Protocol, ReleaseID: r.ReleaseID, Identity: assignment.Identity, Grant: assignment.Grant, Expires: assignment.Expires, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof}
 	b, err := json.Marshal(start)
 	if err != nil || len(b) > MaxMessage-1024 {
 		return nil, nil, ErrUnsupported
@@ -182,7 +188,7 @@ func (a *Adapter) call(ctx context.Context, m message, headers http.Header) (*ht
 	if err != nil {
 		return nil, ErrUncertain
 	}
-	if m.Op != "playlist" && m.Op != "segment" && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
+	if !mediaOperation(m.Op) && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
 		resp.Body.Close()
 		if m.Op == "renew" && resp.StatusCode == http.StatusUnprocessableEntity {
 			return nil, ErrUnsupported
@@ -203,6 +209,7 @@ type Session struct {
 	terminal error
 	stopped  bool
 	access   atomic.Int64
+	rungs    []core.HLSRung
 }
 
 func (s *Session) ID() string                                { return s.id.Session }
@@ -266,8 +273,14 @@ func (s *Session) observe(r *http.Response) error {
 	if st.State != "running" && st.State != "pending" && st.State != "retired" && st.State != "unverified" {
 		return ErrUncertain
 	}
+	if !validRungs(st.Rungs) {
+		return ErrUncertain
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if st.Rungs != nil {
+		s.rungs = append([]core.HLSRung(nil), st.Rungs...)
+	}
 	// Do not regress accepted lease history on a delayed start/status response.
 	if st.Lease.Version > 0 {
 		n := st.Lease.Accepted
@@ -304,6 +317,10 @@ func (s *Session) ServeSegment(w http.ResponseWriter, r *http.Request, n int) {
 	s.serve(w, r, "segment", n)
 }
 func (s *Session) serve(w http.ResponseWriter, r *http.Request, op string, n int) {
+	s.serveRepresentation(w, r, message{Op: op, Segment: n})
+}
+func (s *Session) serveRepresentation(w http.ResponseWriter, r *http.Request, m message) {
+	n := m.Segment
 	if n < -1 || n > 10000000 {
 		http.Error(w, "invalid segment", 400)
 		return
@@ -315,7 +332,8 @@ func (s *Session) serve(w http.ResponseWriter, r *http.Request, op string, n int
 		http.Error(w, "execution stopped", 410)
 		return
 	}
-	response, err := s.adapter.call(r.Context(), message{Op: op, Identity: s.id, Segment: n, Head: r.Method == http.MethodHead}, r.Header)
+	m.Identity, m.Head = s.id, r.Method == http.MethodHead
+	response, err := s.adapter.call(r.Context(), m, r.Header)
 	if err != nil {
 		http.Error(w, "remote execution unavailable", 502)
 		return
@@ -330,7 +348,13 @@ func (s *Session) serve(w http.ResponseWriter, r *http.Request, op string, n int
 	}
 	w.WriteHeader(response.StatusCode)
 	// io.Copy applies downstream backpressure; request context cancels upstream.
-	_, _ = io.Copy(w, response.Body)
+	if r.Method != http.MethodHead {
+		if m.Op == "http" {
+			_, _ = io.Copy(flushingWriter{w}, response.Body)
+		} else {
+			_, _ = io.Copy(w, response.Body)
+		}
+	}
 }
 
 var _ core.Transcoder = (*Adapter)(nil)
