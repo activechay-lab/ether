@@ -25,15 +25,8 @@ type NewRelease struct {
 }
 
 func (s *Service) NewReleases(ctx context.Context) ([]NewRelease, error) {
-	cat, ok := s.d.Catalog.(interface {
-		RecentMovies(context.Context, time.Time) ([]core.Title, error)
-	})
-	if !ok {
-		return []NewRelease{}, nil
-	}
 	cfg := s.cfg().Availability
-	since := s.now().Add(-time.Duration(cfg.EffectiveMovieEvidenceDays()) * 24 * time.Hour)
-	movies, err := cat.RecentMovies(ctx, since)
+	movies, _, err := s.recent(ctx, hiddenMovies, s.snapshotFor(ctx))
 	if err != nil || len(movies) == 0 {
 		if err != nil {
 			return nil, err

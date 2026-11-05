@@ -183,6 +183,8 @@ type Deps struct {
 // Server is the PMS API handler. It is an http.Handler; call Close on
 // shutdown to stop background work and notification streams.
 type Server struct {
+	shelfMu      sync.Mutex
+	shelfCuts    map[string]shelfCut
 	homeSharedMu sync.Mutex
 	homeShared   map[string]*homeSharedEntry
 	home         *homeCache

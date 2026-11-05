@@ -466,3 +466,9 @@ func (c *Catalog) ResolveShowParents(ctx context.Context, keys []core.RatingKey)
 	}
 	return out, nil
 }
+
+// DigitalEvidenceMovies excludes settled home releases at the database boundary.
+// Unknown and future home dates remain gated, regardless of cinema age.
+func (c *Catalog) DigitalEvidenceMovies(ctx context.Context, since time.Time) ([]core.Title, error) {
+	return c.queryTitlesUnfiltered(ctx, `SELECT `+prefixedCols("t")+` FROM catalog_titles t WHERE t.type='movie' AND t.browsable=1 AND t.release_known=1 AND NOT EXISTS (SELECT 1 FROM catalog_home_release h WHERE h.key=t.key AND h.checked=1 AND h.earliest_ts>0 AND h.earliest_ts<=?) ORDER BY t.key`, since.Unix())
+}
