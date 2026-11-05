@@ -192,10 +192,12 @@ func TestClusterPlayQueueFollowsClientAcrossNodes(t *testing.T) {
 	}
 	// ...and records the playing item from a timeline.
 	b.get(t, fmt.Sprintf("/:/timeline?ratingKey=%s&state=playing&time=1&duration=10&playQueueItemID=%d", bbE2.Key, second))
-	// Node A sees all of it.
+	// Plain additions enter Up Next before the second original item, moving
+	// that item to offset 2. Node A sees both the edit and selection by ID.
 	waitFor(t, "A sees B's edits", func() bool {
 		mc = decodeJSON(t, a.get(t, "/playQueues/"+id, jsonAccept...))
-		return mc["playQueueTotalCount"].(float64) == 3 && mc["playQueueSelectedItemOffset"].(float64) == 1
+		return mc["playQueueTotalCount"].(float64) == 3 && mc["playQueueSelectedItemOffset"].(float64) == 2 &&
+			int64(mc["playQueueSelectedItemID"].(float64)) == second
 	})
 	// Item IDs stay unique across nodes.
 	seen := map[float64]bool{}
