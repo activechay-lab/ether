@@ -179,6 +179,17 @@ describe("Catalog workspace", () => {
     expect(latest).not.toContain("offset=");
   });
 
+  it("reloads visible-card membership after adding a selected set to the watchlist", async () => {
+    const { fake } = renderAppWith("/catalog", (_method, path) => {
+      if (path === "/catalog/browse") return { items: [title], total: 1 };
+    });
+    await screen.findByRole("button", { name: "Inspect Seven" });
+    fireEvent.click(screen.getByRole("button", { name: "Select loaded titles" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Add to Watchlist" })[0]!);
+    await screen.findByRole("button", { name: "Remove from Watchlist" });
+    expect(calls(fake, "PUT", `/discovery/users/1/catalog/${title.key}`)).toHaveLength(1);
+  });
+
   it("keeps all catalog settings and saves changes from the new page", async () => {
     const { fake } = renderAppWith("/catalog/settings", () => undefined);
     const language = await screen.findByLabelText("Language");

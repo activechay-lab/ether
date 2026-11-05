@@ -581,6 +581,9 @@ export function createFakeServer(opts: FakeOptions = {}) {
   const catalog = buildCatalog();
   const byKey = new Map(catalog.map((t) => [t.key, t]));
   const ownerTags = new Map<string, string[]>();
+  const watchlistChanges = new Map<string, boolean>();
+  const savedForViewer = (viewerId: number, key: string) =>
+    watchlistChanges.get(`${viewerId}:${key}`) ?? Number(key.slice(-2)) % 4 === 0;
   const releaseConsole = createReleaseConsoleMock(catalog);
   const trash = createTrashMock();
   const maintenance = createMaintenance();
@@ -2390,7 +2393,18 @@ export function createFakeServer(opts: FakeOptions = {}) {
       return json(servers);
     }
     if (p === "/discovery/settings") return json({ enabled: true });
-    if (seg[0] === "discovery" && seg[1] === "users") return json([]);
+    if (seg[0] === "discovery" && seg[1] === "users") {
+      const viewer = Number(seg[2]);
+      if (seg[3] === "membership" && method === "POST") {
+        const keys = (body as { keys?: string[] }).keys || [];
+        return json(Object.fromEntries(keys.map((key) => [key, savedForViewer(viewer, key)])));
+      }
+      if (seg[3] === "catalog" && seg[4] && (method === "PUT" || method === "DELETE")) {
+        watchlistChanges.set(`${viewer}:${decodeURIComponent(seg[4])}`, method === "PUT");
+        return json({ traktFailed: false });
+      }
+      return json([]);
+    }
     if (seg[0] === "viewers" && seg[2] === "favorite-episode-alert") return json({ enabled: true });
 
     if (p === "/users/local" && method === "POST") {
@@ -3443,7 +3457,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
             (!ruleVisibility ||
               hiddenByRules(t, ruleGroups, q.get("ruleFallback") ?? "show") ===
                 (ruleVisibility === "hidden")) &&
-            matchesCatalogFilter(t, advanced, ownerTags) &&
+            matchesCatalogFilter(t, advanced, ownerTags, savedForViewer) &&
             t.title.toLowerCase().includes(needle) &&
             (!type || t.type === type) &&
             (!waiting || t.type === "movie") &&

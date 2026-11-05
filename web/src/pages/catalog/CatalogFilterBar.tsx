@@ -1,6 +1,6 @@
 import { Button, Input } from "@braedonsaunders/appkit-ui";
 import { Plus, Search, Sparkles, Undo2, X, Bookmark, ChevronDown } from "lucide-react";
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
 import { useNavigate } from "react-router-dom";
 import { newCollectionHref } from "../collections/links";
@@ -139,6 +139,14 @@ export function CatalogFilterBar({
   viewers: { id: number; title?: string; username?: string }[];
   collection?: boolean;
 }) {
+  const latestParams = useRef(params);
+  useLayoutEffect(() => {
+    latestParams.current = params;
+  }, [params]);
+  const publish = (next: URLSearchParams) => {
+    latestParams.current = next;
+    onChange(next);
+  };
   const navigate = useNavigate();
   const naturalRef = useRef<HTMLDetailsElement>(null);
   const savedRef = useRef<HTMLDetailsElement>(null);
@@ -231,13 +239,15 @@ export function CatalogFilterBar({
       params.get("type"),
     ],
   );
-  function commit(next: QueryState) {
-    setUndo(params.toString());
-    const p = new URLSearchParams(params);
+  function commit(update: QueryState | ((current: QueryState) => QueryState)) {
+    const current = readQuery(latestParams.current.get("filters"));
+    const next = typeof update === "function" ? update(current) : update;
+    setUndo(latestParams.current.toString());
+    const p = new URLSearchParams(latestParams.current);
     if (next.chips.length) p.set("filters", JSON.stringify(next));
     else p.delete("filters");
     p.delete("page");
-    onChange(p);
+    publish(p);
   }
   function edit(index: number, chip?: Chip) {
     closeMenus();
@@ -247,9 +257,11 @@ export function CatalogFilterBar({
   }
   function add() {
     if (!draft.value.trim()) return;
-    const chips = [...state.chips];
-    chips[editing ?? chips.length] = { ...draft, value: draft.value.trim() };
-    commit({ ...state, chips });
+    commit((current) => {
+      const chips = [...current.chips];
+      chips[editing ?? chips.length] = { ...draft, value: draft.value.trim() };
+      return { ...current, chips };
+    });
     setEditing(null);
   }
   const valid =
@@ -279,10 +291,10 @@ export function CatalogFilterBar({
           placeholder={t("Search catalog…")}
           value={params.get("q") || ""}
           onChange={(e) => {
-            const p = new URLSearchParams(params);
+            const p = new URLSearchParams(latestParams.current);
             p.delete("page");
             e.target.value ? p.set("q", e.target.value) : p.delete("q");
-            onChange(p);
+            publish(p);
           }}
         />
         <details ref={naturalRef} className="catalog-natural">
@@ -307,7 +319,7 @@ export function CatalogFilterBar({
               } finally {
                 setInterpreting(false);
               }
-              commit({ ...state, chips: [...state.chips, ...chips] });
+              commit((current) => ({ ...current, chips: [...current.chips, ...chips] }));
               setNatural("");
             }}
           >
@@ -332,7 +344,9 @@ export function CatalogFilterBar({
           <select
             aria-label={t("Match filters")}
             value={state.mode}
-            onChange={(e) => commit({ ...state, mode: e.target.value as "and" | "or" })}
+            onChange={(e) =>
+              commit((current) => ({ ...current, mode: e.target.value as "and" | "or" }))
+            }
           >
             <option value="and">{t("Match all")}</option>
             <option value="or">{t("Match any")}</option>
@@ -342,7 +356,9 @@ export function CatalogFilterBar({
           <select
             aria-label={t("Match within groups")}
             value={state.groupMode || "and"}
-            onChange={(e) => commit({ ...state, groupMode: e.target.value as "and" | "or" })}
+            onChange={(e) =>
+              commit((current) => ({ ...current, groupMode: e.target.value as "and" | "or" }))
+            }
           >
             <option value="and">{t("All in each group")}</option>
             <option value="or">{t("Any in each group")}</option>
@@ -371,7 +387,12 @@ export function CatalogFilterBar({
               aria-label={t("Remove {filter} filter", {
                 filter: catalogValueLabel(chip.field, chip.label || chip.value),
               })}
-              onClick={() => commit({ ...state, chips: state.chips.filter((_, i) => i !== index) })}
+              onClick={() =>
+                commit((current) => ({
+                  ...current,
+                  chips: current.chips.filter((_, i) => i !== index),
+                }))
+              }
             >
               <X size={13} />
             </button>
@@ -385,11 +406,11 @@ export function CatalogFilterBar({
             })}
             className="catalog-query-chip"
             onClick={() => {
-              setUndo(params.toString());
-              const p = new URLSearchParams(params);
+              setUndo(latestParams.current.toString());
+              const p = new URLSearchParams(latestParams.current);
               p.delete(key);
               p.delete("page");
-              onChange(p);
+              publish(p);
             }}
           >
             {key === "waiting" ? t("Waiting for a release") : params.get(key)}
@@ -416,10 +437,10 @@ export function CatalogFilterBar({
             size="sm"
             variant="ghost"
             onClick={() => {
-              setUndo(params.toString());
-              const p = new URLSearchParams(params);
+              setUndo(latestParams.current.toString());
+              const p = new URLSearchParams(latestParams.current);
               ["filters", "q", "genre", "decade", "waiting", "page"].forEach((k) => p.delete(k));
-              onChange(p);
+              publish(p);
             }}
           >
             {t("Clear filters")}
@@ -430,7 +451,7 @@ export function CatalogFilterBar({
             size="sm"
             variant="ghost"
             onClick={() => {
-              onChange(new URLSearchParams(undo));
+              publish(new URLSearchParams(undo));
               setUndo(null);
             }}
           >
@@ -450,8 +471,8 @@ export function CatalogFilterBar({
               <div className="catalog-saved-row" key={index}>
                 <button
                   onClick={() => {
-                    setUndo(params.toString());
-                    onChange(new URLSearchParams(view.query));
+                    setUndo(latestParams.current.toString());
+                    publish(new URLSearchParams(view.query));
                   }}
                 >
                   {view.name}
@@ -486,7 +507,7 @@ export function CatalogFilterBar({
                   e.preventDefault();
                   const next = [
                     ...saved.filter((v) => v.name !== name.trim()),
-                    { name: name.trim(), query: params.toString() },
+                    { name: name.trim(), query: latestParams.current.toString() },
                   ].slice(-30);
                   setSaved(next);
                   localStorage.setItem("ether.catalog.views", JSON.stringify(next));
@@ -674,10 +695,10 @@ export function CatalogFilterBar({
             aria-label={t("Viewer")}
             value={params.get("viewer") || ""}
             onChange={(e) => {
-              const p = new URLSearchParams(params);
+              const p = new URLSearchParams(latestParams.current);
               p.set("viewer", e.target.value);
               p.delete("page");
-              onChange(p);
+              publish(p);
             }}
           >
             <option value="">{t("Choose a viewer")}</option>

@@ -7,6 +7,7 @@ export function matchesCatalogFilter(
   title: FakeTitle,
   filter: Record<string, any>,
   annotations?: ReadonlyMap<string, string[]>,
+  onWatchlist?: (viewerId: number, key: string) => boolean,
 ): boolean {
   const f = filter;
   const some = (values: string[] | undefined, actual: string[]) =>
@@ -14,13 +15,15 @@ export function matchesCatalogFilter(
   if (f.group) {
     const visit = (g: any): boolean =>
       g.filter
-        ? matchesCatalogFilter(title, g.filter, annotations)
+        ? matchesCatalogFilter(title, g.filter, annotations, onWatchlist)
         : g.unwatched !== undefined
           ? g.unwatched === (Number(title.key.slice(-2)) % 3 !== 0)
           : g.inProgress !== undefined
             ? g.inProgress === (Number(title.key.slice(-2)) % 5 === 0)
             : g.onWatchlist !== undefined
-              ? g.onWatchlist === (Number(title.key.slice(-2)) % 4 === 0)
+              ? g.onWatchlist ===
+                (onWatchlist?.(Number(g.userId), title.key) ??
+                  Number(title.key.slice(-2)) % 4 === 0)
               : g.stateField === "lastRatedAt"
                 ? (g.stateOperator === ">") === (Number(title.key.slice(-2)) % 2 === 0)
                 : g.operator === "or"
