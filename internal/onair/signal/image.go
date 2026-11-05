@@ -5,17 +5,11 @@ import (
 	"image/color"
 )
 
-// ImageAt is the random-access scene/master adapter for the live phosphor engine.
-// Replay only the small temporal field; output sampling happens once. Live playout
-// keeps its Engine instead, so its tick cost is independent of time on air.
+// ImageAt samples the same random-access crisp generator used by live playout.
 func ImageAt(w, h int, seed, tick int64) *image.RGBA {
 	ew, eh := (w+1)&^1, (h+1)&^1
-	e := NewStatic(ew, eh, seed)
-	for n := int64(0); n <= tick; n++ {
-		e.warm.Frame(e.source, n)
-	}
 	video := make([]byte, ew*eh*3/2)
-	e.upscale(video)
+	StaticVideo(video, ew, eh, seed, tick)
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {

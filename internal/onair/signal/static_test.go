@@ -22,7 +22,7 @@ func TestStaticAudio(t *testing.T) {
 	}
 }
 
-func BenchmarkLiveWarm1080p30(b *testing.B) {
+func BenchmarkLiveStatic1080p30(b *testing.B) {
 	e := NewStatic(1920, 1080, 7)
 	video := make([]byte, 1920*1080*3/2)
 	pcm := make([]int16, 3200)

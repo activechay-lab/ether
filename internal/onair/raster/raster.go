@@ -17,7 +17,7 @@ import (
 	"golang.org/x/image/vector"
 )
 
-const Version = "onair-raster-2-warm-static"
+const Version = "onair-raster-3-crisp-static"
 
 // Bindings keeps decoded artwork outside the document; images are immutable during a job.
 type Bindings struct {
