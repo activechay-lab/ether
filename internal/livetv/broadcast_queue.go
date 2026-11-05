@@ -36,6 +36,7 @@ func (q *broadcastFrameQueue) push(frame transcode.RawFrame) (changed, repeating
 	}
 	if q.repeating && q.held != nil {
 		frame.Video = q.held
+		frame.RepeatVideo = true
 	} else {
 		q.held = frame.Video
 	}
