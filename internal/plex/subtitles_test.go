@@ -477,8 +477,8 @@ func (f *fixture) requestBody(t *testing.T, method, target string, body []byte, 
 }
 
 func TestSubtitleUpload(t *testing.T) {
-	// Status grammar measured on PMS 1.43.4 (rex-ref/docs/findings.md
-	// cycle 11 / protocol-traps.md): empty body is 406 before title or
+	// Status grammar measured on PMS 1.43.4 (recorded measurement,
+	// cycle 11): empty body is 406 before title or
 	// format; no title and a title with no extension are 500; format is
 	// case-sensitive (SRT=400, srt=200); srt/ass/ssa/smi/txt/psb pass,
 	// vtt is accepted here as an Ether extra.

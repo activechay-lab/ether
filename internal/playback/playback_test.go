@@ -591,19 +591,13 @@ func TestFailoverMidResponseEndsMKV(t *testing.T) {
 		t.Fatalf("pins = %v", h.cache.pins)
 	}
 
-	// The client re-requests from where it stopped; virtual coordinates
-	// (A's size) remain valid for the same-size repost B.
-	resp, body, err = get(t, srv.URL, map[string]string{"Range": fmt.Sprintf("bytes=%d-%d", a.FailFrom, a.FailFrom+999)})
-	if err != nil || resp.StatusCode != 206 {
-		t.Fatalf("re-request: %d %v", resp.StatusCode, err)
+	// Equal lengths do not prove equal bytes or compatible Cues. The old
+	// part URL must never return B under A's validator and byte coordinates.
+	resp, _, err = get(t, srv.URL, map[string]string{"Range": fmt.Sprintf("bytes=%d-%d", a.FailFrom, a.FailFrom+999)})
+	if err != nil || resp.StatusCode != http.StatusConflict {
+		t.Fatalf("re-request after release change: %d %v", resp.StatusCode, err)
 	}
-	if cr := resp.Header.Get("Content-Range"); cr != fmt.Sprintf("bytes %d-%d/%d", a.FailFrom, a.FailFrom+999, sizeA) {
-		t.Fatalf("Content-Range %q", cr)
-	}
-	mapped := a.FailFrom * sizeB / sizeA // same duration: linear
-	if !bytes.Equal(body, expected("B", mapped, 1000)) {
-		t.Fatal("re-request not served from B at the mapped offset")
-	}
+
 }
 
 func TestDirectPlayRejectsDifferentSizeReplacement(t *testing.T) {
@@ -1057,8 +1051,8 @@ func TestReadFailuresRecoverWithoutPoisoningReleases(t *testing.T) {
 			ps := h.prepare(owner, movieKey, "reader")
 			a.setFail(5000, 10000, tc.err)
 			srv := directPlayServer(t, h.m, ps.ID)
-			resp, body, err := get(t, srv.URL, map[string]string{"Range": "bytes=6000-6999"})
-			if err != nil || resp.StatusCode != 206 || !bytes.Equal(body, expected("B", 6000, 1000)) {
+			resp, _, err := get(t, srv.URL, map[string]string{"Range": "bytes=6000-6999"})
+			if err != nil || resp.StatusCode != http.StatusConflict {
 				t.Fatalf("failed to recover read: %v %d", err, resp.StatusCode)
 			}
 			if bad := h.resolver.isBad("A"); bad != tc.bad {

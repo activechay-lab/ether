@@ -30,7 +30,9 @@ func TestPartSelectionRejectsInvalidTracksAtomically(t *testing.T) {
 		"audioStreamID=0", "audioStreamID=999", fmt.Sprintf("audioStreamID=%d", subtitle),
 		fmt.Sprintf("audioStreamID=%d", other),
 		fmt.Sprintf("audioStreamID=%d&subtitleStreamID=999", french),
-		fmt.Sprintf("audioStreamID=999&subtitleStreamID=0"),
+		"audioStreamID=999&subtitleStreamID=0",
+		"audioStreamID=-1&subtitleStreamID=999",
+		"audioStreamID=999&subtitleStreamID=-1",
 		fmt.Sprintf("subtitleStreamID=%d", french),
 	} {
 		rec := f.request(t, http.MethodPut, target+"?"+q, nil)
@@ -38,9 +40,14 @@ func TestPartSelectionRejectsInvalidTracksAtomically(t *testing.T) {
 			t.Errorf("%s: status %d", q, rec.Code)
 		}
 		selected := f.srv.selections.get(ownerUser.ID, int64(key))
-		if selected.audio != 1 || selected.subtitle != 3 {
+		if !selected.audioSet || !selected.subtitleSet || selected.audio != 1 || selected.subtitle != 3 {
 			t.Fatalf("%s changed picks: %+v", q, selected)
 		}
+	}
+	rec = f.request(t, http.MethodPost, target+"?audioStreamID=-1&subtitleStreamID=-1", nil)
+	selected := f.srv.selections.get(ownerUser.ID, int64(key))
+	if rec.Code != http.StatusOK || selected.audioSet || selected.subtitleSet {
+		t.Fatalf("paired default reset: status=%d selection=%+v", rec.Code, selected)
 	}
 	rec = f.request(t, http.MethodPut, target+"?audioStreamID=&subtitleStreamID=abc", nil)
 	if rec.Code != http.StatusOK {

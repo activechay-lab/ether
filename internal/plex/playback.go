@@ -1077,7 +1077,7 @@ func applyTranscodeMedia(m *model.Media, dec core.Decision, protocol string) {
 // the shape under review against a real PMS Android capture; the selected
 // stream's shape never changes.
 //
-// The selected subtitle row follows PMS 1.42 (rex subtitles_s1422 capture):
+// The selected subtitle row follows PMS 1.42 (recorded PMS 1.42.2 capture):
 // subtitles=none is decision="ignore" with nothing delivered (except a
 // text track a Matroska run carries, which keeps the copy row); a burned text
 // track is decision="burn" burn="1" location="segments-av"; Plex Web's text
@@ -1879,7 +1879,7 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 	subDefault := q.Has("subtitleStreamID") && subErr == nil && subID == -1
 	ctx := sessions.WithPlexServe(r.Context(), pr.Remote, "")
 	var audio *sessions.PlexStreamBinding
-	if v := q.Get("audioStreamID"); v != "" {
+	if v := q.Get("audioStreamID"); v != "" && !audioDefault {
 		if sid, err := strconv.ParseInt(v, 10, 64); err == nil {
 			if sid == 0 {
 				writeHTTPError(w, http.StatusBadRequest)
@@ -1899,7 +1899,7 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 	}
 	clearSub := q.Has("subtitleStreamID") && (subErr != nil || subID == 0)
 	var sub *sessions.PlexStreamBinding
-	if v := q.Get("subtitleStreamID"); v != "" {
+	if v := q.Get("subtitleStreamID"); v != "" && !subDefault {
 		if sid, err := strconv.ParseInt(v, 10, 64); err == nil {
 			if sid == 0 {
 				clearSub = true

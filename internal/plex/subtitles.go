@@ -512,8 +512,8 @@ func (s *Server) handleSubtitleUpload(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	// rex-ref has no measurement that shared or managed users can upload
-	// (findings.md "Upload Subtitle modal", protocol-traps.md). Owner only
+	// There is no recorded measurement that shared or managed users can upload
+	// of the Upload Subtitle modal. Owner only
 	// so a friend cannot change anyone else's pick.
 	if !pr.User.IsOwner {
 		writeHTTPError(w, http.StatusForbidden)

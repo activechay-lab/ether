@@ -71,7 +71,6 @@ This checkout stores the captures under `testdata/conform/plex`, not `testdata/p
 
 All 59 emitted hubKeys match rendered cards. This supports retaining the rendered-card projection for Home and movie-detail hubs.
 
-Also consulted `~/Documents/.ether-ref/rex/docs/protocol-traps.md` around lines 176–180 and its `rust/src/runtime.rs` Home hub assembly around 12057–12083 and `set_hub_key` around 22963. Those record the same relationship. Earlier checks covered its light/detail projection notes and `tests/fixtures/decisions/rows.json` / `transcode/session_gate_s1422.json`. None establishes a TMDB regional-release policy. Used concepts and recorded facts only; copied no Rex code or fixtures.
 
 ## Focused gates
 

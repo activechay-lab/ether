@@ -37,6 +37,8 @@ import type {
   LoadSample,
   SystemLoad,
   ClusterNode,
+  ClusterControl,
+  ClusterControlRequest,
   ClusterStatus,
   EtherConfig,
   EtherUser,
@@ -714,6 +716,11 @@ export function createFakeServer(opts: FakeOptions = {}) {
             expiresAt: ago(29),
             usedAt: ago(29.5),
             usedBy: "attic",
+          },
+          {
+            id: "expired-example",
+            createdAt: ago(2),
+            expiresAt: ago(1),
           },
           {
             id: "q9wd",
@@ -2000,9 +2007,14 @@ export function createFakeServer(opts: FakeOptions = {}) {
 
   let clusterSetupState = "idle";
   let nodePaused = false;
+  const nodeControls = new Map<
+    string,
+    { control: ClusterControl; patch?: ClusterControlRequest["patch"]; due?: number }
+  >();
   function clusterNodes(): ClusterNode[] {
     const ago = (s: number) => new Date(Date.now() - s * 1000).toISOString();
     const node = (n: Partial<ClusterNode> & { id: string; name: string }): ClusterNode => ({
+      incarnation: `boot-${n.id}`,
       version: state.boot.version,
       addrs: [`http://${n.id}.test:32400`],
       caps: { transcode: true, hwAccel: "videotoolbox", egressIp: "203.0.113.7" },
@@ -2032,6 +2044,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
       node({
         id: "n-attic",
         name: "attic",
+        draining: true,
         load: 2,
         caps: {
           roles: ["transcode", "delivery"],
@@ -2040,6 +2053,18 @@ export function createFakeServer(opts: FakeOptions = {}) {
           weight: 2,
           egressIp: "198.51.100.20",
         },
+      }),
+      node({
+        id: "n-source",
+        name: "source-02",
+        load: 3,
+        caps: { roles: ["source"], transcode: false, weight: 2 },
+      }),
+      node({
+        id: "n-edge",
+        name: "edge-01",
+        load: 4,
+        caps: { roles: ["delivery"], transcode: false, weight: 1 },
       }),
       node({
         id: "n-garage",
@@ -2072,6 +2097,42 @@ export function createFakeServer(opts: FakeOptions = {}) {
           ]
         : undefined;
     return {
+      mockConsole: {
+        // Explicit synthetic diagnostic evidence, independent of heartbeat liveness.
+        health: Object.fromEntries(
+          nodes.map((n) => [
+            n.id,
+            {
+              nodeId: n.id,
+              boot: n.incarnation!,
+              sampledAt: new Date().toISOString(),
+              level: n.id === "n-garage" ? ("error" as const) : ("ok" as const),
+            },
+          ]),
+        ),
+        metrics: Object.fromEntries(
+          nodes.map((n, i) => [
+            n.id,
+            { transcodes: i === 1 ? 2 : 0, capacity: i === 1 ? 8 : 4, load: i === 1 ? 63 : 18 },
+          ]),
+        ),
+        events: [
+          { node: "attic", kind: "drain", at: new Date(Date.now() - 60000).toISOString() },
+          { node: "den", kind: "failover", at: new Date(Date.now() - 180000).toISOString() },
+          { node: "source-02", kind: "join", at: new Date(Date.now() - 600000).toISOString() },
+        ],
+        transition: { node: "n-attic", role: "transcode", phase: "drain" },
+      },
+      selfRuntime: {
+        nodeId: self.id,
+        boot: self.incarnation!,
+        runtimeSampledAt: new Date().toISOString(),
+        protocol: 1,
+        started: true,
+        readyExisting: true,
+        acceptingNew: !nodePaused,
+        draining: nodePaused,
+      },
       warnings,
       mode: state.clustered ? "postgres" : "solo",
       self,
@@ -2158,6 +2219,108 @@ export function createFakeServer(opts: FakeOptions = {}) {
     const q = url.searchParams;
     const seg = p.split("/").filter(Boolean);
     const route = `${method} /${seg.join("/")}`;
+    if (seg[0] === "cluster" && seg[1] === "nodes" && seg[3] === "role-preflight") {
+      const node = clusterNodes().find((n) => n.id === seg[2]);
+      if (!node || q.get("boot") !== node.incarnation)
+        return err(409, "stale_boot", "Refresh the node");
+      return json({
+        nodeId: node.id,
+        boot: node.incarnation,
+        observedAt: new Date().toISOString(),
+        membershipSampledAt: node.lastSeen,
+        eligible: false,
+        executor: "none",
+        reasons: [
+          "executor_unavailable",
+          "runtime_guard_not_verified",
+          "ownership_retirement_unknown",
+          "active_sessions_unknown",
+          ...(node.leader ? ["last_full_server", "leader_handoff_unverified"] : []),
+        ],
+        safety: {
+          membership: "observed",
+          ownershipRetirement: "unknown",
+          activeSessions: "unknown",
+          restart: "unsupported",
+        },
+        guidance: {
+          scope: "deployment_pool",
+          deploymentOwnership: "unknown",
+          verifiedAgainst: ["packaging/helm/ether/values.yaml"],
+          exampleValues: "pools:\n  full:\n    replicas: 2",
+          impact: "",
+          execution: "",
+        },
+      });
+    }
+    if (seg[0] === "cluster" && seg[1] === "nodes" && seg[3] === "control") {
+      const node = clusterNodes().find((n) => n.id === seg[2]);
+      if (!node) return err(404, "unavailable", "Unknown node");
+      let saved = nodeControls.get(node.id);
+      if (!saved) {
+        saved = {
+          control: {
+            nodeId: node.id,
+            boot: node.incarnation!,
+            requestedVersion: 0,
+            appliedVersion: 0,
+            state: "idle",
+            updatedAt: new Date().toISOString(),
+            observed: { weight: node.caps.weight || 1, draining: !!node.draining },
+            capabilities: [
+              { key: "weight", scope: "node", supported: true, reason: "" },
+              ...["draining", "pause", "roles"].map((key) => ({
+                key,
+                scope: "node" as const,
+                supported: false,
+                reason: "ownership_interlock_required",
+              })),
+              ...["maxStreams", "defaultStreamLimit"].map((key) => ({
+                key,
+                scope: "fleet" as const,
+                supported: false,
+                reason: "fleet_setting",
+              })),
+              ...["maxTranscodes", "hwAccel"].map((key) => ({
+                key,
+                scope: "node" as const,
+                supported: false,
+                reason: "restart_required",
+              })),
+            ],
+          },
+        };
+        nodeControls.set(node.id, saved);
+      }
+      if (saved.due && Date.now() >= saved.due && node.live) {
+        Object.assign(saved.control.observed, saved.patch);
+        saved.control.appliedVersion = saved.control.requestedVersion;
+        saved.control.state = "applied";
+        saved.due = undefined;
+      }
+      if (node.live) saved.control.updatedAt = new Date().toISOString();
+      else saved.control.updatedAt = node.lastSeen;
+      if (method === "GET") {
+        if (q.get("boot") !== node.incarnation) return err(409, "stale_boot", "Stale boot");
+        return json(saved.control);
+      }
+      if (method === "POST") {
+        const request = body as ClusterControlRequest;
+        if (
+          request.boot !== node.incarnation ||
+          request.expectedVersion !== saved.control.requestedVersion ||
+          saved.control.state === "pending"
+        )
+          return err(409, "conflict", "Refresh the node");
+        if (request.patch.draining !== undefined) return err(422, "unsupported", "No safe setter");
+        saved.control.requestedVersion++;
+        saved.control.state = "pending";
+        saved.control.requestId = request.requestId;
+        saved.patch = request.patch;
+        saved.due = Date.now() + 5000;
+        return json(saved.control, 202);
+      }
+    }
     if (seg[0] === "stream-preferences") {
       if (seg[2] === "shows") return json([]);
       const id = seg[1] ?? "0";
@@ -3114,7 +3277,11 @@ export function createFakeServer(opts: FakeOptions = {}) {
                 clustered: true,
                 keyFingerprint: "3f9c2a71d04be6a8",
                 sharedVersion: 42,
-                joinTokens: state.joinTokens,
+                // Match the active-only owner token list; retain historical fixtures
+                // in state so UI filtering can also be exercised independently.
+                joinTokens: state.joinTokens.filter(
+                  (token) => !token.usedAt && Date.parse(token.expiresAt) > Date.now(),
+                ),
               }
             : { clustered: false, keyFingerprint: "3f9c2a71d04be6a8" },
         );

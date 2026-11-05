@@ -1,7 +1,6 @@
 package plex
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
+	"github.com/gorilla/websocket"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plex/model"
@@ -211,10 +210,12 @@ func entryActivity(e playEntry) sessions.PlexActivity {
 // Notification fan-out
 
 type subscriber struct {
-	userID  int64
-	owner   bool
-	ch      chan notification
-	filters map[string]bool // empty = all
+	userID      int64
+	owner       bool
+	ch          chan notification
+	filters     map[string]bool // empty = all
+	includeLogs bool            // explicit empty filters includes logs
+	language    string
 }
 
 type notification struct {
@@ -272,8 +273,11 @@ func newNotifier() *notifier {
 	return &notifier{subs: map[*subscriber]struct{}{}, done: make(chan struct{})}
 }
 
-func (n *notifier) subscribe(filters []string, user *core.User) (*subscriber, bool) {
-	sub := &subscriber{userID: user.ID, owner: user.IsOwner, ch: make(chan notification, 64), filters: map[string]bool{}}
+func (n *notifier) subscribe(filters []string, user *core.User, language ...string) (*subscriber, bool) {
+	sub := &subscriber{userID: user.ID, owner: user.IsOwner, ch: make(chan notification, 64), filters: map[string]bool{}, includeLogs: filters != nil}
+	if len(language) > 0 {
+		sub.language = language[0]
+	}
 	for _, f := range filters {
 		if f = strings.TrimSpace(f); f != "" {
 			sub.filters[f] = true
@@ -309,14 +313,17 @@ func (n *notifier) deliver(msg notification, userID int64) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	for sub := range n.subs {
+		if msg.typ == "log" && !sub.owner {
+			continue
+		}
 		if userID != 0 && sub.userID != userID && !sub.owner {
 			continue
 		}
-		if (len(sub.filters) == 0 && msg.typ == "log") || (len(sub.filters) > 0 && !sub.filters[msg.typ]) {
+		if (len(sub.filters) == 0 && !sub.includeLogs && msg.typ == "log") || (len(sub.filters) > 0 && !sub.filters[msg.typ]) {
 			continue
 		}
 		select {
-		case sub.ch <- msg:
+		case sub.ch <- localizeNotification(msg, sub.language):
 		default:
 		}
 	}
@@ -333,62 +340,76 @@ func (n *notifier) close() {
 
 func notificationFilters(r *http.Request) []string {
 	q := r.URL.Query()
-	v := q.Get("filters")
-	if v == "" {
-		v = q.Get("filter")
+	values, present := q["filters"]
+	if !present {
+		values, present = q["filter"]
 	}
-	if v == "" {
+	if !present || len(values) == 0 {
 		return nil
 	}
-	return strings.Split(v, ",")
+	return strings.Split(values[len(values)-1], ",")
 }
 
 // handleWebsocket serves /:/websockets/notifications.
 func (s *Server) handleWebsocket(w http.ResponseWriter, r *http.Request) {
-	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Plex Web connects from app.plex.tv; tokens, not origins, gate access.
-		InsecureSkipVerify: true,
-	})
+	u := websocket.Upgrader{
+		CheckOrigin:      func(*http.Request) bool { return true }, // Plex tokens authorize access.
+		HandshakeTimeout: 10 * time.Second,
+	}
+	h := w.Header().Clone()
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Date", time.Now().UTC().Format(http.TimeFormat))
+	c, err := u.Upgrade(orderedUpgradeWriter{w}, r, h)
 	if err != nil {
 		s.log.Debug("websocket accept failed", "err", err)
 		return
 	}
-	defer c.CloseNow()
-	sub, ok := s.notifier.subscribe(notificationFilters(r), FromContext(r.Context()).User)
+	defer c.Close()
+	sub, ok := s.notifier.subscribe(notificationFilters(r), FromContext(r.Context()).User, notificationLanguage(r))
 	if !ok {
-		c.Close(websocket.StatusGoingAway, "server shutting down")
+		_ = c.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutting down"), time.Now().Add(time.Second))
 		return
 	}
 	defer s.notifier.unsubscribe(sub)
-
-	ctx := c.CloseRead(r.Context())
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		// Reading processes masked control frames, echoes ping payloads and
+		// acknowledges client closes. Application messages have no meaning here.
+		c.SetReadLimit(64 << 10)
+		for {
+			if _, _, err := c.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+	defer func() { _ = c.Close(); <-readDone }()
 	ping := time.NewTicker(10 * time.Second)
 	defer ping.Stop()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-r.Context().Done():
+			return
+		case <-readDone:
 			return
 		case <-s.notifier.done:
-			c.Close(websocket.StatusGoingAway, "server shutting down")
+			_ = c.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutting down"), time.Now().Add(time.Second))
 			return
 		case <-ping.C:
 			if s.activeViewer(r.Context(), sub.userID) == nil {
 				return
 			}
-			pctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err := c.Ping(pctx)
-			cancel()
-			if err != nil {
+			// PMS's timer runs independently of pong reception and always uses
+			// one byte, including connections held for many minutes.
+			if err := c.WriteControl(websocket.PingMessage, []byte{0}, time.Now().Add(10*time.Second)); err != nil {
 				return
 			}
 		case msg := <-sub.ch:
 			if s.activeViewer(r.Context(), sub.userID) == nil {
 				return
 			}
-			wctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err := c.Write(wctx, websocket.MessageText, msg.data)
-			cancel()
-			if err != nil {
+			_ = c.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.WriteMessage(websocket.TextMessage, msg.data); err != nil {
 				return
 			}
 		}
@@ -406,7 +427,7 @@ func (s *Server) handleEventSource(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusInternalServerError)
 		return
 	}
-	sub, ok := s.notifier.subscribe(notificationFilters(r), FromContext(r.Context()).User)
+	sub, ok := s.notifier.subscribe(notificationFilters(r), FromContext(r.Context()).User, notificationLanguage(r))
 	if !ok {
 		writeHTTPError(w, http.StatusServiceUnavailable)
 		return
@@ -538,6 +559,7 @@ func (s *Server) notifyTimeline(key core.RatingKey, t core.MediaType, title stri
 // publishNotification delivers a notification to this node's subscribers
 // and, on a clustered node, to every other node's.
 func (s *Server) publishNotification(nc model.NotificationContainer, userID int64) {
+	s.recordActivities(nc)
 	msg, ok := encodeNotification(nc)
 	if !ok {
 		return
