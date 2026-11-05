@@ -29,6 +29,11 @@ type Audio struct {
 }
 
 type Layer struct {
+	Name        string     `json:"name,omitempty"`
+	Hidden      bool       `json:"hidden,omitempty"`
+	Locked      bool       `json:"locked,omitempty"`
+	Start       float64    `json:"start,omitempty"`
+	End         float64    `json:"end,omitempty"`
 	ID          string     `json:"id"`
 	Type        string     `json:"type"`
 	X           Value      `json:"x,omitempty"`
