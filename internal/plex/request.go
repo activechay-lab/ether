@@ -35,9 +35,10 @@ type Request struct {
 
 	// Paging (X-Plex-Container-Start/Size); HasPage is false when the client
 	// did not ask for a window.
-	Start   int
-	Size    int
-	HasPage bool
+	Start         int
+	Size          int
+	HasPage       bool
+	pagingInvalid bool
 
 	Format   model.Format
 	RemoteIP netip.Addr
@@ -92,6 +93,25 @@ func plexParam(r *http.Request, name string) string {
 	return ""
 }
 
+// pagingParam preserves presence and query whitespace. An empty header still
+// overrides a query value; unlike client names, paging values are strict numbers.
+func pagingParam(r *http.Request, name string) (string, bool) {
+	if values, ok := r.Header[http.CanonicalHeaderKey(name)]; ok {
+		if len(values) > 0 {
+			return values[0], true
+		}
+		return "", true
+	}
+	q := r.URL.Query()
+	if values, ok := q[name]; ok {
+		if len(values) > 0 {
+			return values[0], true
+		}
+		return "", true
+	}
+	return "", false
+}
+
 // ParseRequest builds the request context from an HTTP request. Forwarded
 // addresses are considered only for a loopback peer (a local reverse proxy).
 func ParseRequest(r *http.Request, trusted ...netip.Prefix) *Request {
@@ -120,21 +140,20 @@ func ParseRequest(r *http.Request, trusted ...netip.Prefix) *Request {
 	if pr.SessionID == "" {
 		pr.SessionID = plexParam(r, "X-Plex-Session-Id")
 	}
-	// Paging.
-	startS := plexParam(r, "X-Plex-Container-Start")
-	sizeS := plexParam(r, "X-Plex-Container-Size")
-	if sizeS != "" || startS != "" {
-		start, _ := strconv.Atoi(startS)
-		size := -1
-		if sizeS != "" {
-			if n, err := strconv.Atoi(sizeS); err == nil {
-				size = n
+	// PMS validates size whenever supplied, but start only alongside size.
+	// A window requires both values and neither may be negative.
+	startS, hasStart := pagingParam(r, "X-Plex-Container-Start")
+	sizeS, hasSize := pagingParam(r, "X-Plex-Container-Size")
+	if hasSize {
+		size, sizeErr := strconv.ParseInt(sizeS, 10, 32)
+		pr.pagingInvalid = sizeErr != nil
+		if hasStart {
+			start, startErr := strconv.ParseInt(startS, 10, 32)
+			pr.pagingInvalid = pr.pagingInvalid || startErr != nil
+			if !pr.pagingInvalid && start >= 0 && size >= 0 {
+				pr.Start, pr.Size, pr.HasPage = int(start), int(size), true
 			}
 		}
-		if start < 0 {
-			start = 0
-		}
-		pr.Start, pr.Size, pr.HasPage = start, size, true
 	}
 	pr.Format = model.XML
 	if wantsJSON(r) {
