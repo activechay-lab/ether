@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 )
 
 type continuousDecoder struct {
@@ -18,6 +19,7 @@ type continuousDecoder struct {
 	readDone chan struct{}
 	readErr  error
 	workers  sync.WaitGroup
+	reads    [2]atomic.Int64
 }
 
 func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, error) {
@@ -68,7 +70,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	args := []string{"-hide_banner", "-loglevel", "warning", "-nostdin", "-threads", "2", "-filter_threads", "1"}
 	args = append(args, inputSafetyArgs(r.InputURL, r.Live)...)
 	if !r.Live && r.Offset > 0 {
-		args = append(args, "-ss", strconv.FormatFloat(r.Offset.Seconds(), 'f', 6, 64), "-noaccurate_seek")
+		args = append(args, "-ss", strconv.FormatFloat(r.Offset.Seconds(), 'f', 6, 64))
 	}
 	if r.Loop {
 		args = append(args, "-stream_loop", "-1")
@@ -105,6 +107,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 				if _, e := io.ReadFull(c, b); e != nil {
 					return
 				}
+				d.reads[i].Add(1)
 				select {
 				case ch <- b:
 				case <-p.ctx.Done():
@@ -173,3 +176,8 @@ func (d *continuousDecoder) Next(ctx context.Context) (RawFrame, error) {
 	}
 }
 func (d *continuousDecoder) Close() error { d.continuousProcess.close(); d.workers.Wait(); return nil }
+
+// Diagnostics reports bounded decoder progress without exposing the input URL.
+func (d *continuousDecoder) Diagnostics() string {
+	return fmt.Sprintf("videoFrames=%d audioTicks=%d queued=%d stderr=%s", d.reads[0].Load(), d.reads[1].Load(), len(d.frames), d.stderr.String())
+}

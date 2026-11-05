@@ -233,6 +233,7 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 				return
 			case frame := <-r.queue:
 				if err := encoder.Write(lifetime, frame); err != nil {
+					b.logger.Warn("broadcast rendition write stopped", "rendition", id, "reason", err)
 					b.dropRendition(id, r)
 					return
 				}
@@ -295,7 +296,11 @@ func (b *broadcast) open(plan broadcastPlan, now time.Time) {
 		return
 	}
 	b.opening[plan.id] = true
-	b.logger.Debug("broadcast decoder prepare started", "input", plan.id, "offsetAge", now.Sub(plan.start))
+	age := time.Duration(0)
+	if !plan.start.IsZero() {
+		age = now.Sub(plan.start)
+	}
+	b.logger.Debug("broadcast decoder prepare started", "input", plan.id, "offsetAge", age)
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
@@ -369,7 +374,17 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 	}
 }
 func (b *broadcast) noteFailure(p broadcastPlan, err error, now time.Time) {
-	b.logger.Debug("broadcast input abandoned", "input", p.id, "reason", err, "context", context.Cause(b.ctx))
+	details := ""
+	if b.current != nil && b.current.plan.id == p.id {
+		d := b.current.decoder
+		if wrapped, ok := d.(*overlayDecoder); ok {
+			d = wrapped.Decoder
+		}
+		if source, ok := d.(interface{ Diagnostics() string }); ok {
+			details = source.Diagnostics()
+		}
+	}
+	b.logger.Debug("broadcast input abandoned", "input", p.id, "reason", err, "context", context.Cause(b.ctx), "decoder", details)
 	retry := now.Add(15 * time.Second)
 	if p.failed != nil {
 		retry = p.failed(err)
@@ -566,6 +581,7 @@ func (b *broadcast) step(now time.Time) {
 		select {
 		case r.queue <- frame:
 		default:
+			b.logger.Warn("broadcast rendition queue full", "rendition", id, "tick", b.tick, "clockLag", now.Sub(b.origin)-time.Duration(b.tick)*time.Second*time.Duration(b.format.FPSDen)/time.Duration(b.format.FPSNum))
 			delete(b.renditions, id)
 			r.cancel()
 		}
