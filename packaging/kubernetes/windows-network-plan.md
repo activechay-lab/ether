@@ -22,50 +22,77 @@ and writes only the generated encoder log. No provider/claim is involved. Do not
 start the specialist until the following transport and advertised-origin checks
 are satisfied. Its strict deployment parser must include ledgerCapacity support.
 
-## Required endpoints
+## Dedicated-role endpoint proposal after CPU media passes
 
-| Consumer | Destination | Proposed transport |
+This graph supersedes the earlier full-only origin proposal. It is documentation
+only: no new source relay, native process, Secret transfer or advertised-origin
+change has been made. The coordinator's confirmed Mac Tailscale IPv4 is
+`100.65.221.123`. Existing scoped old-full forwards `32431/32432` and PG `15435`
+on WSL `100.115.49.93` remain retained and unchanged.
+
+| Consumer | Destination | Proposed exact path |
 | --- | --- | --- |
-| Windows specialist | lab PG | Windows loopback `127.0.0.1:15435` through an owned scoped relay/tunnel to lab PG5432 |
-| Windows specialist | full/source private0 | `https://RELAY_TAILSCALE_IP:33431`, exact advertised origin for full0 |
-| Windows specialist | full/source private1 | `https://RELAY_TAILSCALE_IP:33432`, exact advertised origin for full1 |
-| kind full/source pods | Windows encoder | `https://RELAY_TAILSCALE_IP:33411`, relay to native private32411 |
-| Windows local inspector | native probes | loopback32412; never public ingress |
+| Mac relay | dedicated source | new owned WSL `100.115.49.93:32433` → exact source pod `:32401` |
+| Native worker and kind server | source private origin | `https://100.65.221.123:33433` → Mac TCP relay → WSL `32433` |
+| Kind server/delivery/source | native worker private origin | `https://100.65.221.123:33411` → owned Mac SSH local forward → Windows loopback `32411` |
+| Native worker | lab PostgreSQL | Windows loopback `127.0.0.1:15435` → owned SSH remote forward → WSL scoped `15435` → lab PG `5432` |
+| Windows local inspector | native worker probes | loopback `32412`; no public listener |
 
-`RELAY_TAILSCALE_IP` must be the coordinator's reachable Mac Tailscale IPv4 (not
-the mirrored Windows/WSL address). An owned user-space TCP relay on that address
-can connect to WSL's scoped port-forwards33431/33432 and a Mac SSH local forward
-to Windows private32411. This avoids assuming WSL can reach native Windows's
-mirrored self-address. Native Windows can reach the Mac's real Tailscale address.
-The coordinator must supply the actual Mac address and confirm this path before
-any listener is opened. Prefer a direct validated host-loopback path if available;
-do not modify global routes/DNS just to make the plan work.
+The current source is `ether035-roles-ether-source-0`, UID
+`11ff0ce9-6155-4c6f-8674-6285cbcbcdfa`, stable node
+`2fafed8783aff03b06528063e2474b36`, boot
+`f9a5fb8349bc25bb46ec216d86b549d8`. These are observations from candidate982;
+recheck exact UID and boot after any approved probe-fix rollout before binding
+an exact-pod forward. Record every owned forward/relay process and its endpoint.
+Do not use the similarly named synthetic `ether035-ha-source` HTTP/NNTP fixture
+as the private source runtime endpoint.
 
-To make the PG path explicit, a Mac SSH remote forward can bind Windows
-loopback15435 and connect from the Mac to WSL `100.115.49.93:15435`, where an owned
-kubectl port-forward reaches the lab PG service. First independently verify the
-Mac reaches that WSL listener and Windows reaches the loopback forward. No DB
-credentials belong in forwarding command arguments. A separate lab URL file on
-Windows must point at the verified loopback endpoint, with the generated lab
-password transferred securely as a file; never print it or put it in Helm values.
+The source currently advertises its authenticated pod-DNS origin
+`https://ether035-roles-ether-source-0.ether035-roles-ether-private.ether035-ha.svc.cluster.local:32401`.
+Its existing certificate needs that DNS SAN for current validation. Before a
+future reviewed source-origin change to Mac `33433`, require actual reachability
+from both native Windows and every relevant kind pod, then remint through the
+normal issuer with **IP SAN `100.65.221.123`**. The native worker's distinct
+`33411` origin likewise requires that IP SAN. Their URI identities, boot checks,
+role checks, issuer trust and mTLS remain separate; a shared relay IP is not node
+identity. A DNS SAN containing an IP string is not an IP SAN.
 
-## Private identity origins must match the path
+Server and delivery private origins can remain pod DNS: the native encoder reads
+from the dedicated source and PostgreSQL, while kind server/delivery call its
+advertised relay origin. Validate this dependency graph against the final
+candidate's actual private calls before native startup; any additional peer must
+have an explicit verified endpoint. Do not change old full-node advertisements.
+The chart currently generates pod-DNS addresses. A future one-source LAB override
+must be a separately reviewed exact ConfigMap/render change followed by successful
+source drain and UID-fenced replacement, preserving its PVC/node ID. No such live
+change is authorized by this plan or required for CPU HLS acceptance.
 
-Windows cannot resolve/reach Kubernetes `.svc.cluster.local` names by default.
-Merely opening PG or encoder ports is insufficient. Before native enrollment,
-configure each full pod's node-local deployment internalAddress to its exact
-relay origin above, then drain/restart sequentially so membership, minted
-certificate hostname and endpoint checks agree. Keep each full pod's existing
-identity and PVC; no node.json copy. These are lab-specific per-ordinal address
-overrides, not a reason to expose the private service publicly in the chart.
-The private listener remains32401 inside each pod and uses the existing issuer.
-All kind nodes must also reach the relay origin in the advertised membership.
-Check TLS trust/client authentication and actual node/boot identity both ways.
-A successful TCP connection alone does not establish private compatibility.
+For the PG path, an owned Mac SSH remote forward binds Windows loopback15435 and
+connects from Mac to WSL `100.115.49.93:15435`. Verify both connections before
+using a generated lab DB URL file. No DB credential belongs in command arguments.
+TCP success alone is insufficient: validate certificate chain, actual IP/DNS
+hostname, missing-client-cert rejection and actual role/boot identity on every
+private endpoint. No trust bypass or global DNS/route changes are permitted.
 
-If any side cannot reach the exact advertised endpoint, stop and report the
-nonsecret error. Do not bypass hostname, issuer, role or membership verification.
-Use a reviewed dedicated source/native graph with generated input to test this.
+## Opaque lab Secret transfer proposal
+
+After the corrected CPU media gate and endpoint/clock review pass, the coordinator
+can transfer only the existing isolated lab Secret files into restricted native
+`C:\ether-gpu-lab\secrets`: DB URL, raw32-byte cluster encryption key, issuer PEM
+certificate, PKCS8 Ed25519 issuer private key and explicit roots PEM. Keep the
+three logical bundles separate and preserve raw key bytes. Transfer via the
+existing authenticated BB file mechanism into restricted coordinator task storage,
+then existing Mac SSH/SFTP into that owned Windows directory; never place payloads
+in a BB message, shell arguments, Git, Helm values or command output. Remove only
+exact owned transfer copies after verified delivery. The public CA alone may be
+shared for review. Deployment JSON contains paths only. Create a fresh native
+node identity locally; never copy any pod's `node.json`.
+
+This is an opaque-file workflow proposal, not an initiated transfer. Final exact
+file roots, restricted ACL verification and source/worker origins must be reviewed
+before secrets or a native specialist process are staged. No services, broad
+firewall rules, host driver changes, daemon restarts or new software installation
+are part of it.
 
 ## Native setup and cleanup
 
