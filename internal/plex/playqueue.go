@@ -765,9 +765,17 @@ func (s *Server) handlePlayQueueMutate(op string) http.HandlerFunc {
 		ctx := r.Context()
 		pr := FromContext(ctx)
 		q := r.URL.Query()
-		if existing, found := s.queues.get(id, u.ID); found && existing.liveSession != "" {
-			writeHTTPError(w, http.StatusBadRequest)
-			return
+		if existing, found := s.queues.get(id, u.ID); found {
+			if existing.liveSession != "" {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
+			// Once the viewer has explicitly queued content, PMS refuses
+			// shuffle controls rather than replacing that Up Next order.
+			if (op == "shuffle" || op == "unshuffle") && existing.lastAdded != 0 {
+				writeHTTPError(w, http.StatusNotFound)
+				return
+			}
 		}
 		var addKeys []core.RatingKey
 		if op == "add" {
@@ -829,6 +837,9 @@ func (s *Server) handlePlayQueueMutate(op string) http.HandlerFunc {
 				if idx < 0 {
 					bad = true
 					return
+				}
+				if q.Get("after") == strconv.FormatInt(itemID, 10) {
+					return // moving an item after itself leaves its order intact
 				}
 				selID := p.items[p.selected].id
 				it := p.items[idx]
