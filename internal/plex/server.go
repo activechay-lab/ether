@@ -82,6 +82,9 @@ type SessionToucher interface {
 // Deps are the server's dependencies. Catalog, State, Auth and Playback are
 // required; the rest degrade gracefully when nil.
 type Deps struct {
+	// PlexEncoder optionally dispatches authenticated universal playback through
+	// the shared broker; nil preserves the existing local encoder path.
+	PlexEncoder         PlexEncoder
 	ArtworkImages       *artworkservice.RemoteCache
 	ArtworkPalettes     *artworkservice.PaletteCache
 	SessionCoordination *sessions.Coordination
@@ -183,9 +186,11 @@ type Deps struct {
 // Server is the PMS API handler. It is an http.Handler; call Close on
 // shutdown to stop background work and notification streams.
 type Server struct {
-	homeSharedMu sync.Mutex
-	homeShared   map[string]*homeSharedEntry
-	home         *homeCache
+	plexEncoderMu sync.RWMutex
+	plexEncoder   PlexEncoder
+	homeSharedMu  sync.Mutex
+	homeShared    map[string]*homeSharedEntry
+	home          *homeCache
 
 	d      Deps
 	log    *slog.Logger
@@ -266,6 +271,7 @@ func NewServer(d Deps) *Server {
 		coord = sessions.NewCoordination()
 	}
 	s := &Server{
+		plexEncoder:       d.PlexEncoder,
 		d:                 d,
 		log:               d.Logger.With("component", "plex"),
 		images:            artworkservice.NewRemoteCache(d.ImageCacheBytes, d.HTTPClient),
@@ -584,7 +590,7 @@ func (s *Server) releaseMountedPlayback() {
 	}
 	for _, id := range ids {
 		if s.d.Transcoder != nil {
-			s.d.Transcoder.Stop(id)
+			s.stopPlexHLS(id)
 		}
 		s.dropTranscode(id)
 	}

@@ -97,7 +97,7 @@ func (s *Server) handleStartHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return dec
 	})
-	if existing, ok := s.d.Transcoder.Session(p.sessionID); ok && existing != nil {
+	if existing, ok := s.plexHLSSession(p.sessionID); ok && existing != nil {
 		if entry.started && entry.offset == p.offset {
 			if hs, ok := existing.(core.HTTPSession); ok {
 				if failed, ok := hs.(interface{ ProgressiveFailed() bool }); ok && failed.ProgressiveFailed() && r.Header.Get("Range") == "" {
@@ -111,9 +111,9 @@ func (s *Server) handleStartHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		s.d.Transcoder.Stop(p.sessionID)
+		s.stopPlexHLS(p.sessionID)
 	}
-	hs, err := s.d.Transcoder.StartHLS(context.WithoutCancel(ctx), core.HLSRequest{
+	hs, err := s.startPlexHLS(context.WithoutCancel(ctx), pr.User, ps.ID, p.sessionID, core.HLSRequest{
 		SessionID:      p.sessionID,
 		InputURL:       s.d.Playback.InputURL(ps.ID),
 		Info:           ps.Info,
@@ -129,7 +129,7 @@ func (s *Server) handleStartHTTP(w http.ResponseWriter, r *http.Request) {
 	stream, ok := hs.(core.HTTPSession)
 	if !ok {
 		s.log.Error("transcoder returned a non-HTTP session", "session", p.sessionID)
-		s.d.Transcoder.Stop(p.sessionID)
+		s.stopPlexHLS(p.sessionID)
 		writePlaybackStatus(w, http.StatusInternalServerError)
 		return
 	}
