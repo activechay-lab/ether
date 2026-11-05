@@ -147,6 +147,15 @@ func TestAcceptedStartLocalRetainedInvariant(t *testing.T) {
 	}
 	w.mu.Lock()
 	w.records[start.Identity] = e
+	alias := start.Identity
+	alias.Session = "inconsistent-map-alias"
+	w.records[alias] = e
+	w.mu.Unlock()
+	if _, err := w.AcceptedStart(ctx, alias); err == nil {
+		t.Fatal("requested identity substituted through inconsistent map alias")
+	}
+	w.mu.Lock()
+	delete(w.records, alias)
 	e.monotonicDeadline = time.Now().Add(-time.Second)
 	w.mu.Unlock()
 	if _, err := w.InspectAcceptedStart(ctx, h); err == nil {

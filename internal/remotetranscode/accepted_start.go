@@ -59,7 +59,7 @@ func (w *Worker) AcceptedStart(ctx context.Context, id Identity) (*AcceptedStart
 		return nil, err
 	}
 	e := w.records[id]
-	if e == nil {
+	if e == nil || e.id != id {
 		return nil, ErrUncertain
 	}
 	if _, err := w.inspectAcceptedStart(ctx, e.acceptedStart); err != nil {
