@@ -59,7 +59,7 @@ export function matchesCatalogFilter(
   )
     return false;
   if (f.etherAddedFrom && Date.parse(title.addedAt) / 1000 < f.etherAddedFrom) return false;
-  if (f.etherAddedTo && Date.parse(title.addedAt) / 1000 > f.etherAddedTo + 86399) return false;
+  if (f.etherAddedTo && Date.parse(title.addedAt) / 1000 > f.etherAddedTo) return false;
   if (f.dateAddedFrom && Date.parse(title.released) / 1000 < f.dateAddedFrom) return false;
   if (f.dateAddedTo && Date.parse(title.released) / 1000 > f.dateAddedTo) return false;
   if (f.kids && !title.genres?.includes("Kids")) return false;

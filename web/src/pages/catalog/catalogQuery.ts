@@ -107,8 +107,14 @@ export function chipFilter(c: Chip, viewer: string): Record<string, unknown> {
         ? { dateAddedTo: stamp + 86399 }
         : { dateAddedFrom: stamp };
   }
-  if (c.field === "etherAdded")
-    return { [c.op === "max" ? "etherAddedTo" : "etherAddedFrom"]: Date.parse(c.value) / 1000 };
+  if (c.field === "etherAdded") {
+    const stamp = Date.parse(c.value) / 1000;
+    return c.op === "is"
+      ? { etherAddedFrom: stamp, etherAddedTo: stamp + 86399 }
+      : c.op === "max"
+        ? { etherAddedTo: stamp + 86399 }
+        : { etherAddedFrom: stamp };
+  }
   if (c.field === "watchlist")
     return {
       __state: { operator: "and", onWatchlist: c.value === "true", userId: Number(viewer) },

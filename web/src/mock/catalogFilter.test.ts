@@ -26,6 +26,9 @@ describe("mock catalogue filtering contract", () => {
   it("applies numeric ranges and nested AND/OR to actual results", () => {
     expect(matchesCatalogFilter(title, { yearFrom: (title.year || 0) + 1 })).toBe(false);
     expect(
+      matchesCatalogFilter(title, { etherAddedTo: Date.parse(title.addedAt) / 1000 - 1 }),
+    ).toBe(false);
+    expect(
       matchesCatalogFilter(title, {
         group: {
           operator: "or",

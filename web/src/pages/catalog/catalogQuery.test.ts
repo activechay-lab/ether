@@ -2,6 +2,19 @@ import { describe, expect, it } from "vitest";
 import { compileQuery, parseNatural, readQuery } from "./catalogQuery";
 
 describe("catalogue query language", () => {
+  it("preserves the whole selected insertion day independently of air date", () => {
+    const exact = compileQuery({
+      mode: "and",
+      chips: [{ field: "etherAdded", op: "is", value: "2026-01-01" }],
+    });
+    expect(JSON.stringify(exact)).toContain('"etherAddedFrom":1767225600');
+    expect(JSON.stringify(exact)).toContain('"etherAddedTo":1767311999');
+    const before = compileQuery({
+      mode: "and",
+      chips: [{ field: "etherAdded", op: "max", value: "2026-01-01" }],
+    });
+    expect(JSON.stringify(before)).toContain('"etherAddedTo":1767311999');
+  });
   it("compiles an exact date-added day separately from insertion time", () => {
     const query = compileQuery({
       mode: "and",
