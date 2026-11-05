@@ -222,6 +222,7 @@ func (o *Options) defaults() {
 type Manager struct {
 	subtitleScheduled map[string]bool
 	subtitleRunning   bool
+	channelWarmActive int
 	sourceAccounting  sourceAccounting
 	// sourceCleanupBudget, when set, is the shutdown wait for in-flight
 	// source cleanup. Production leaves it nil and uses
