@@ -3,7 +3,7 @@ import { stylesName } from "./naming";
 import { useEffect, useState } from "react";
 import { Badge, Button, EmptyState } from "@braedonsaunders/appkit-ui";
 import { Plus, Sparkles, Copy, Palette } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { Drawer } from "../../../components/Drawer";
 import { t, tn } from "../../../i18n";
 import { onair, type Look, type Reel, type Family } from "./model";
@@ -13,13 +13,15 @@ import { ReelDrawer } from "./ReelDrawer";
 import { AssetsPanel } from "./AssetsPanel";
 import { ScreensDefaults } from "./ScreensDefaults";
 export function useLooks() {
+ const location=useLocation();
+ const [params]=useSearchParams();
   const [looks, setLooks] = useState<Look[]>([]),
     [reels, setReels] = useState<Reel[]>([]);
   const reload = () => {
     void onair.looks().then(setLooks);
     void onair.reels().then(setReels);
   };
-  useEffect(reload, []);
+  useEffect(reload, [location.pathname, params.get("channel"), params.get("look")]);
   return { looks, reels, reload };
 }
 export function LooksAside({

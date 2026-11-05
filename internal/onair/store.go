@@ -188,6 +188,14 @@ func (s *Service) Look(ctx context.Context, id string) (Look, error) {
 	if e == nil {
 		e = json.Unmarshal([]byte(b), &l)
 	}
+	if e == nil && s.o.StyleChannels != nil {
+		usage, err := s.o.StyleChannels(ctx)
+		if err != nil {
+			return l, err
+		}
+		l.ChannelIDs = append([]string{}, usage[l.ID]...)
+		l.ChannelCount = len(l.ChannelIDs)
+	}
 	return l, e
 }
 func (s *Service) SaveLook(ctx context.Context, l Look) (Look, error) {

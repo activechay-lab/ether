@@ -71,6 +71,14 @@ func (s *Service) Reel(ctx context.Context, id string) (Reel, error) {
 		}
 	}
 	r.Clips = sorted
+	rows.Close()
+	if s.o.ReelChannels != nil {
+		usage, err := s.o.ReelChannels(ctx)
+		if err != nil {
+			return r, err
+		}
+		r.ChannelIDs = append([]string{}, usage[r.ID]...)
+	}
 	return s.importClips(ctx, r)
 }
 func (s *Service) Reels(ctx context.Context) ([]Reel, error) {
