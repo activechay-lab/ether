@@ -447,6 +447,7 @@ func (s *Server) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 			s.writeErr(w, r, err)
 			return
 		}
+		s.notifyPlaylistLifecycle(pl, true)
 		s.write(w, r, &model.MediaContainer{Size: 1, Metadata: []model.Metadata{s.playlistMetadata(ctx, pl)}})
 		return
 	}
@@ -471,6 +472,7 @@ func (s *Server) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, r, err)
 		return
 	}
+	s.notifyPlaylistLifecycle(pl, true)
 	mc := &model.MediaContainer{Size: 1, Metadata: []model.Metadata{s.playlistMetadata(ctx, pl)}}
 	s.write(w, r, mc)
 }
@@ -522,6 +524,7 @@ func (s *Server) handlePlaylistDelete(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, r, err)
 		return
 	}
+	s.notifyPlaylistLifecycle(pl, false)
 	w.WriteHeader(http.StatusNoContent)
 }
 

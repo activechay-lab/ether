@@ -166,6 +166,7 @@ func (s *Server) requestLog(next http.Handler) http.Handler {
 		sr := &statusRecorder{ResponseWriter: w, sampling: sample}
 		next.ServeHTTP(sr, r)
 		s.observeRequest(r, sr, time.Since(start))
+		s.notifyRequestLog(r, sr.status)
 		if sr.status == http.StatusUnauthorized {
 			failures.Fail(errors.New("unauthorized"))
 			return
