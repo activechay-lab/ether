@@ -800,19 +800,22 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 					kind = "crew"
 				}
 				var ids []int64
+				var names []string
 				for _, p := range splitVals(v) {
 					if id, err := strconv.ParseInt(p, 10, 64); err == nil && id > 0 {
 						ids = append(ids, id)
+					} else {
+						names = append(names, p)
 					}
 				}
-				if len(ids) > 0 {
+				if len(ids) > 0 || len(names) > 0 {
 					if isNeg {
-						f.Credits = append(f.Credits, core.CreditFilter{People: ids, Kind: kind, Exclude: true})
+						f.Credits = append(f.Credits, core.CreditFilter{People: ids, Names: names, Kind: kind, Exclude: true})
 					} else {
-						if len(ids) == 1 && f.Person == 0 {
+						if len(ids) == 1 && len(names) == 0 && f.Person == 0 {
 							f.Person = ids[0]
 						}
-						f.Credits = append(f.Credits, core.CreditFilter{People: ids, Kind: kind})
+						f.Credits = append(f.Credits, core.CreditFilter{People: ids, Names: names, Kind: kind})
 					}
 				}
 			case "title":

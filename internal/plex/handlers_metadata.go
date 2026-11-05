@@ -699,18 +699,22 @@ func (s *Server) scopedCollectionCounts(ctx context.Context, u *core.User, cs []
 func (s *Server) collectionMetadata(c *core.Collection) model.Metadata {
 	rk := c.Key.String()
 	m := model.Metadata{
-		RatingKey:  rk,
-		Key:        "/library/collections/" + rk + "/children",
-		GUID:       "collection://" + rk,
-		Type:       "collection",
-		Title:      c.Title,
-		Subtype:    string(c.Type),
-		Summary:    c.Summary,
-		Index:      model.Ptr(0),
-		Thumb:      "/library/metadata/" + rk + "/thumb/" + collectionStamp(c),
-		ChildCount: model.Ptr(c.ChildCount),
-		AddedAt:    s.now().Unix(),
-		UpdatedAt:  s.now().Unix(),
+		RatingKey: rk,
+		Key:       "/library/collections/" + rk + "/children",
+		GUID:      "collection://" + rk,
+		Type:      "collection",
+		Title:     c.Title,
+		Subtype:   string(c.Type),
+		Summary:   c.Summary,
+		Index:     model.Ptr(0),
+		Thumb:     "/library/metadata/" + rk + "/thumb/" + collectionStamp(c),
+		AddedAt:   s.now().Unix(),
+		UpdatedAt: s.now().Unix(),
+	}
+	// PMS omits childCount for an empty collection on detail and listing
+	// responses, while retaining the collection itself.
+	if c.ChildCount > 0 {
+		m.ChildCount = model.Ptr(c.ChildCount)
 	}
 	if c.BackdropPath != "" {
 		m.Art = "/library/metadata/" + rk + "/art/" + collectionStamp(c)
@@ -750,6 +754,7 @@ func (s *Server) sectionCollections(w http.ResponseWriter, r *http.Request, sec 
 		all = cs
 	}
 	all = s.scopedCollectionCounts(ctx, pr.User, all)
+	all = filterCollectionTitles(all, r.URL.Query())
 	lo, hi := pr.window(len(all))
 	for i := lo; i < hi; i++ {
 		mc.Metadata = append(mc.Metadata, s.collectionMetadata(&all[i]))

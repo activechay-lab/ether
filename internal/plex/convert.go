@@ -732,6 +732,9 @@ func buildMedia(t *core.Title, info core.MediaInfo, stamp int64) model.Media {
 		m.AudioChannels = firstAudio.Channels
 		m.AudioCodec = plexCodec(firstAudio.Codec)
 		m.AudioProfile = audioProfile(firstAudio)
+		if m.AudioCodec == "dca" && m.AudioProfile == "ma" {
+			m.AudioCodec = "dca-ma"
+		}
 	}
 	m.HasVoiceActivity = model.Ptr(false)
 	p := model.Part{
@@ -862,13 +865,15 @@ func (s *Server) renderStreams(key core.RatingKey, info core.MediaInfo, sel sele
 			ps.Channels = st.Channels
 			ps.AudioChannelLayout = st.ChannelLayout
 			ps.SamplingRate = st.SampleRate
-			ps.Profile = strings.ToLower(st.Profile)
+			if st.Profile != "" {
+				ps.Profile = audioProfile(&st)
+			}
 			if i == audioSelected {
 				ps.Selected = model.Ptr(true)
 			}
 			ps.CanNormalizeLoudness = model.Ptr(false) // no loudness analysis
 			ps.DisplayTitle = audioDisplayTitle(st)
-			ps.ExtendedDisplayTitle = extendedTitle(st, ps.DisplayTitle, audioCodecLabel(st.Codec))
+			ps.ExtendedDisplayTitle = extendedTitle(st, ps.DisplayTitle, audioStreamCodecLabel(st))
 		case "subtitle":
 			ps.StreamType = 3
 			ps.CanAutoSync = model.Ptr(false) // no voice-activity data
@@ -951,9 +956,6 @@ func plexContainer(c string) string {
 	case c == "":
 		return "mkv"
 	case strings.Contains(c, "matroska"), c == "mkv", c == "webm":
-		if c == "webm" {
-			return "webm"
-		}
 		return "mkv"
 	case strings.Contains(c, "mp4"), c == "m4v":
 		return "mp4"
@@ -979,6 +981,9 @@ func containerExt(c string) string {
 
 // videoResolution is PMS's videoResolution value.
 func videoResolution(w, h int) string {
+	if w > 0 && w < 800 && h > 0 && h < 480 {
+		return "sd"
+	}
 	switch tier := core.ResolutionTier(w, h); tier {
 	case 2160:
 		return "4k"
@@ -992,6 +997,9 @@ func videoResolution(w, h int) string {
 }
 
 func resolutionLabel(w, h int) string {
+	if videoResolution(w, h) == "sd" {
+		return "SD"
+	}
 	return core.ResolutionLabel(w, h)
 }
 
@@ -1057,6 +1065,13 @@ func audioCodecLabel(c string) string {
 	return codec
 }
 
+func audioStreamCodecLabel(st core.StreamInfo) string {
+	if plexCodec(st.Codec) == "dca" && audioProfile(&st) == "ma" {
+		return "DTS-HD MA"
+	}
+	return audioCodecLabel(st.Codec)
+}
+
 func titleCase(s string) string {
 	words := strings.Fields(strings.ReplaceAll(s, "_", " "))
 	for i, w := range words {
@@ -1071,6 +1086,12 @@ func channelsLabel(n int, layout string) string {
 		return "Mono"
 	case 2:
 		return "Stereo"
+	case 3:
+		return "3.0"
+	case 5:
+		return "5.0"
+	case 7:
+		return "6.1"
 	case 6:
 		return "5.1"
 	case 8:
@@ -1089,7 +1110,7 @@ func audioDisplayTitle(st core.StreamInfo) string {
 	if lang == "" {
 		lang = "Unknown"
 	}
-	inner := audioCodecLabel(st.Codec)
+	inner := audioStreamCodecLabel(st)
 	if ch := channelsLabel(st.Channels, st.ChannelLayout); ch != "" {
 		inner += " " + ch
 	}

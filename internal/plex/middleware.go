@@ -222,6 +222,10 @@ func traceSecretQuery(k string) bool {
 func (s *Server) parse(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pr := ParseRequest(r, identity.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs)...)
+		if pr.pagingInvalid {
+			writeHTTPError(w, http.StatusInternalServerError)
+			return
+		}
 		ctx := withRequest(r.Context(), pr)
 		ctx = core.WithBrowseScope(ctx, browseScope(r, pr))
 		if s.plexMetaOn() {

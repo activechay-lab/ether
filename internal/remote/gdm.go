@@ -21,7 +21,7 @@ import (
 // GDM ("G'Day Mate") is Plex's LAN discovery protocol. Clients send
 // "M-SEARCH * HTTP/1.1" to UDP 32414 on multicast group 239.0.0.250 (and by
 // broadcast); every PMS answers unicast with an "HTTP/1.0 200 OK" block of
-// headers describing itself. PMS listens on 32410, 32412, 32413 and 32414.
+// headers describing itself. PMS answers searches on 32410 and 32414.
 const (
 	GDMMulticastGroup = "239.0.0.250"
 	GDMServerPort     = 32414
@@ -30,7 +30,7 @@ const (
 )
 
 // DefaultGDMPorts are the UDP ports PMS answers GDM on.
-var DefaultGDMPorts = []int{32410, 32412, 32413, 32414}
+var DefaultGDMPorts = []int{32410, 32414}
 
 // GDMInfo is what the responder advertises.
 type GDMInfo struct {
@@ -379,8 +379,11 @@ func (g *GDMResponder) serve(ctx context.Context, i int, c *net.UDPConn, rejoin 
 }
 
 func isMSearch(b []byte) bool {
-	line, _, _ := bytes.Cut(b, []byte("\n"))
-	return bytes.HasPrefix(bytes.TrimSpace(line), []byte("M-SEARCH * HTTP/1."))
+	// PMS checks only the available bytes of the search prefix; short UDP
+	// probes (including an empty datagram) are valid discovery requests.
+	const prefix = "M-SEARCH * "
+	n := min(len(b), len(prefix))
+	return bytes.Equal(b[:n], []byte(prefix[:n]))
 }
 
 func (g *GDMResponder) announce(ctx context.Context) {

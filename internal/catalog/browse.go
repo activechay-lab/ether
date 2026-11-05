@@ -698,29 +698,36 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		args = append(args, f.Person)
 	}
 	for _, cf := range f.Credits {
-		if len(cf.People) == 0 {
+		var matches []string
+		var creditArgs []any
+		if len(cf.People) > 0 {
+			matches = append(matches, "person_tmdb IN ("+placeholders(len(cf.People))+")")
+			for _, id := range cf.People {
+				creditArgs = append(creditArgs, id)
+			}
+		}
+		if len(cf.Names) > 0 {
+			// Resolve names through the person-name index, then drive the
+			// title lookup from the credit index, never through title scans.
+			matches = append(matches, "person_tmdb IN (SELECT person_tmdb FROM catalog_person_names WHERE "+personNameExpression(store.DialectOf(c.db))+" IN ("+placeholders(len(cf.Names))+"))")
+			for _, name := range cf.Names {
+				creditArgs = append(creditArgs, asciiPersonName(name))
+			}
+		}
+		if len(matches) == 0 {
 			continue
 		}
-		ph := placeholders(len(cf.People))
-		if cf.Exclude {
-			if cf.Kind != "" {
-				conds = append(conds, `NOT EXISTS (SELECT 1 FROM catalog_credits cc WHERE cc.key=t.key AND cc.person_tmdb IN (`+ph+`) AND cc.kind=?)`)
-			} else {
-				conds = append(conds, `NOT EXISTS (SELECT 1 FROM catalog_credits cc WHERE cc.key=t.key AND cc.person_tmdb IN (`+ph+`))`)
-			}
-		} else {
-			if cf.Kind != "" {
-				conds = append(conds, `t.key IN (SELECT key FROM catalog_credits WHERE person_tmdb IN (`+ph+`) AND kind=?)`)
-			} else {
-				conds = append(conds, `t.key IN (SELECT key FROM catalog_credits WHERE person_tmdb IN (`+ph+`))`)
-			}
-		}
-		for _, p := range cf.People {
-			args = append(args, p)
-		}
+		predicate := "(" + strings.Join(matches, " OR ") + ")"
 		if cf.Kind != "" {
-			args = append(args, cf.Kind)
+			predicate += " AND kind=?"
+			creditArgs = append(creditArgs, cf.Kind)
 		}
+		op := " IN "
+		if cf.Exclude {
+			op = " NOT IN "
+		}
+		conds = append(conds, "t.key"+op+"(SELECT key FROM catalog_credits WHERE "+predicate+")")
+		args = append(args, creditArgs...)
 	}
 	if f.Studio != "" && len(f.StudioFilters) == 0 {
 		conds = append(conds, `EXISTS (SELECT 1 FROM catalog_studios bs WHERE bs.key=t.key AND bs.studio=?)`)
