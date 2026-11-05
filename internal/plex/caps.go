@@ -412,8 +412,18 @@ func applyLimitation(c *core.ClientCaps, a map[string]string) {
 			c.DolbyVision = false
 		}
 	case scope == "videoCodec" && strings.EqualFold(name, "video.DOVIProfile"):
-		if typ == "notMatch" && (val == "*" || val == "") {
-			c.DolbyVision = false
+		if strings.EqualFold(typ, "notMatch") {
+			if val == "*" || val == "" {
+				c.DolbyVision = false
+			} else if numErr == nil && n > 0 {
+				// A profile-specific refusal must not disable other supported
+				// Dolby Vision profiles (Rex's 2026-10-17 PMS measurement).
+				profiles := transcode.ClientPolicyFor(*c).DolbyVisionProfiles
+				c.DVProfiles = slices.DeleteFunc(profiles, func(profile int) bool { return profile == n })
+				if len(c.DVProfiles) == 0 {
+					c.DolbyVision = false
+				}
+			}
 		}
 	case scope == "videoCodec" && name == "video.colorTrc" && typ == "notMatch":
 		if strings.Contains(val, "smpte2084") {
