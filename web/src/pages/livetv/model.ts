@@ -670,7 +670,7 @@ export function upNext(
   programmes: Programme[] | undefined,
   at = Date.now(),
 ): Programme | undefined {
-  return programmes?.find((p) => Date.parse(p.start) > at);
+  return programmes?.find((p) => !p.slate && Date.parse(p.start) > at);
 }
 
 export function progress(p: Programme, at = Date.now()): number {
