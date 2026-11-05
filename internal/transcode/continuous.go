@@ -36,6 +36,7 @@ type DecoderRequest struct {
 	Format       RawFormat // decoder scales, frame-rate converts and resamples to this
 	Offset       time.Duration
 	Live         bool // IPTV/live input: no seeking, no prewarm hold
+	Loop         bool // repeat a local cached master seamlessly; incompatible with Live and URLs
 }
 
 // Decoder yields frames already in Format, one per call, paced by the caller.
@@ -90,7 +91,7 @@ type SegmentIndex interface {
 	ServeTS(w http.ResponseWriter, r *http.Request, seq int64)   // MPEG-TS segment (HLS)
 	ServeInit(w http.ResponseWriter, r *http.Request)            // fMP4 init (DASH)
 	ServeFMP4(w http.ResponseWriter, r *http.Request, seq int64) // fMP4 media segment (DASH)
-	AttachTS(ctx context.Context) (io.ReadCloser, error)         // raw TS bytes, for byte-stream viewers
+	AttachTS(ctx context.Context) (io.ReadCloser, error)         // live continuous TS from the live edge; bounded fan-out
 	Format() (codecs string, width, height int, bandwidth int)   // for playlists and MPD Representation attributes
 }
 
