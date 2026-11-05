@@ -150,3 +150,16 @@ func TestCatalogAdvancedBrowseRejectsInvalidExpressions(t *testing.T) {
 		t.Fatal("invalid requests reached SQL")
 	}
 }
+
+func TestCatalogBrowseAcceptsClassicReleaseDates(t *testing.T) {
+	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
+	helper := &browseHelper{}
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), CatalogHelper: helper})
+	for _, filter := range []string{`{"releasedFilters":[{"op":">=","unix":-631152000}]}`, `{"dateAddedFrom":-631152000,"dateAddedTo":-315619201}`} {
+		path := "/ether/api/catalog/browse?filter=" + url.QueryEscape(filter)
+		rec := serve(h, authed(req(http.MethodGet, path, "")))
+		if rec.Code != 200 {
+			t.Fatalf("pre-1970 dates rejected: %d %s", rec.Code, rec.Body)
+		}
+	}
+}

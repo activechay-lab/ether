@@ -22,13 +22,13 @@ func consoleAddedDateConditions(f core.Filter, now int64) ([]string, []any) {
 		if typ == core.TypeShow {
 			column = "t.show_added_ts"
 		}
-		clause := "(t.type=? AND " + column + ">0 AND " + column + "<=?"
+		clause := "(t.type=? AND " + column + "<>0 AND " + column + "<=?"
 		args = append(args, string(typ), now)
-		if f.DateAddedFrom > 0 {
+		if f.DateAddedFrom != 0 {
 			clause += " AND " + column + ">=?"
 			args = append(args, f.DateAddedFrom)
 		}
-		if f.DateAddedTo > 0 {
+		if f.DateAddedTo != 0 {
 			clause += " AND " + column + "<=?"
 			args = append(args, f.DateAddedTo)
 		}

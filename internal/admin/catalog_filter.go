@@ -108,7 +108,7 @@ func decodeCatalogFilter(raw string, f *core.Filter) error {
 		if v.MinVotes < 0 || v.MaxVotes < 0 || v.MinPopularity < 0 || v.MaxPopularity < 0 || v.MinSeasons < 0 || v.MaxSeasons < 0 || v.MinEpisodes < 0 || v.MaxEpisodes < 0 {
 			return errors.New("Invalid numeric range")
 		}
-		for _, bounds := range [][2]float64{{float64(v.MinVotes), float64(v.MaxVotes)}, {v.MinPopularity, v.MaxPopularity}, {float64(v.MinSeasons), float64(v.MaxSeasons)}, {float64(v.MinEpisodes), float64(v.MaxEpisodes)}, {float64(v.EtherAddedFrom), float64(v.EtherAddedTo)}, {float64(v.DateAddedFrom), float64(v.DateAddedTo)}} {
+		for _, bounds := range [][2]float64{{float64(v.MinVotes), float64(v.MaxVotes)}, {v.MinPopularity, v.MaxPopularity}, {float64(v.MinSeasons), float64(v.MaxSeasons)}, {float64(v.MinEpisodes), float64(v.MaxEpisodes)}, {float64(v.EtherAddedFrom), float64(v.EtherAddedTo)}} {
 			if bounds[0] < 0 || bounds[1] < 0 || (bounds[1] > 0 && bounds[0] > bounds[1]) {
 				return errors.New("Invalid numeric range")
 			}
@@ -128,6 +128,9 @@ func decodeCatalogFilter(raw string, f *core.Filter) error {
 				return errors.New("Unknown release quality")
 			}
 		}
+		if (v.DateAddedFrom != 0 && v.DateAddedTo != 0 && v.DateAddedFrom > v.DateAddedTo) || v.DateAddedFrom < -62135596800 || v.DateAddedTo < -62135596800 || v.DateAddedFrom > 253402300799 || v.DateAddedTo > 253402300799 {
+			return errors.New("Invalid date range")
+		}
 		for _, c := range v.Credits {
 			if len(c.People)+len(c.Names) > 32 {
 				return errors.New("Too many people")
@@ -144,7 +147,7 @@ func decodeCatalogFilter(raw string, f *core.Filter) error {
 			default:
 				return errors.New("Unknown date operator")
 			}
-			if d.Unix < 0 {
+			if d.Unix < -62135596800 || d.Unix > 253402300799 {
 				return errors.New("Invalid date")
 			}
 		}

@@ -35,3 +35,19 @@ func TestConsoleAddedDateUsesReleaseAndAiredProjection(t *testing.T) {
 		}
 	}
 }
+
+func TestConsoleAddedDateIncludesClassicFilmsBeforeEpoch(t *testing.T) {
+	c := largeCatalogue(t, 3)
+	ctx := context.Background()
+	key := core.MovieKey(1)
+	release := time.Date(1955, 6, 1, 0, 0, 0, 0, time.UTC).Unix()
+	if _, err := c.db.ExecContext(ctx, `UPDATE catalog_titles SET released_ts=? WHERE key=?`, release, int64(key)); err != nil {
+		t.Fatal(err)
+	}
+	from := time.Date(1950, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+	to := time.Date(1959, 12, 31, 23, 59, 59, 0, time.UTC).Unix()
+	page, err := c.Browse(ctx, core.BrowseQuery{Filter: core.Filter{DateAddedFrom: from, DateAddedTo: to}, Limit: 10})
+	if err != nil || page.Total != 1 || page.Items[0].Key != key {
+		t.Fatalf("classic film missing: %+v %v", page, err)
+	}
+}
