@@ -24,14 +24,11 @@ type Engine struct {
 	seed          int64
 }
 
-// NewStatic supports shimmer, classic and ghost. Source resolution is 320x180,
-// with Gaussian bloom at half that resolution, independent of output size.
-func NewStatic(width, height int, variant string, seed int64) *Engine {
-	if variant != "shimmer" && variant != "classic" && variant != "ghost" {
-		panic("signal: unknown static variant")
-	}
-	e := newEngine(width, height, variant, seed)
-	e.warm = NewWarmGenerator(320, 180, seed, variant)
+// NewStatic produces the approved warm phosphor static at the output resolution.
+// The band-limited field is deliberate softness, not a reduced-resolution encode.
+func NewStatic(width, height int, seed int64) *Engine {
+	e := newEngine(width, height, "static", seed)
+	e.warm = NewWarmGenerator(320, 180, seed)
 	e.source = make([]byte, 320*180*3/2)
 	e.rowA = make([]uint16, width)
 	e.rowB = make([]uint16, width)

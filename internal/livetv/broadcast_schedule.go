@@ -36,7 +36,12 @@ func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until 
 			request := s.clipRequest(c, p)
 			ready := false
 			if p.Item.ReelClipID == "" {
-				_, ready = s.o.Graphics.Clip(ctx, request)
+				if live, ok := s.o.Graphics.(liveStaticSource); ok {
+					ready = live.LiveStatic(ctx, request)
+				}
+				if !ready {
+					_, ready = s.o.Graphics.Clip(ctx, request)
+				}
 			}
 			if p.Item.ReelClipID != "" {
 				ready = false

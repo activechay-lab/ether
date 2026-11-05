@@ -12,11 +12,12 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/onair/scene"
+	"github.com/braedonsaunders/ether/internal/onair/signal"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/vector"
 )
 
-const Version = "onair-raster-1"
+const Version = "onair-raster-2-warm-static"
 
 // Bindings keeps decoded artwork outside the document; images are immutable during a job.
 type Bindings struct {
@@ -169,17 +170,13 @@ func (r *render) layers(dst *image.RGBA, ls []scene.Layer, parent matrix, opacit
 			case "image", "art", "logo":
 				r.sample(tmp, l, m, w, h)
 			case "noise":
+				source := signal.ImageAt(r.w, r.h, int64(seed), int64(max(0, r.t)*30))
+				inv := m.inverse()
 				for yy := 0; yy < r.h; yy++ {
 					for xx := 0; xx < r.w; xx++ {
-						p := m.inverse().point(point{float64(xx), float64(yy)})
+						p := inv.point(point{float64(xx), float64(yy)})
 						if p.x >= 0 && p.y >= 0 && p.x < w && p.y < h {
-							nx, ny := p.x, p.y
-							if l.GrainSize > 0 {
-								nx *= float64(r.w) / 1920
-								ny *= float64(r.h) / 1080
-							}
-							v := uint8(random(seed, int(nx)/max(1, l.GrainSize)+int(ny)/max(1, l.GrainSize)*1920+int(r.t*float64(noiseFPS(l.NoiseFPS)))*100003) * 255)
-							tmp.SetRGBA(xx, yy, color.RGBA{v, v, v, 255})
+							tmp.SetRGBA(xx, yy, source.RGBAAt(min(r.w-1, int(p.x/w*float64(r.w))), min(r.h-1, int(p.y/h*float64(r.h)))))
 						}
 					}
 				}
@@ -384,11 +381,4 @@ func (r *render) paint(dst *image.RGBA, mask *image.Alpha, fill any, m matrix) {
 }
 func mix(a, b color.RGBA, u float64) color.RGBA {
 	return color.RGBA{uint8(float64(a.R)*(1-u) + float64(b.R)*u), uint8(float64(a.G)*(1-u) + float64(b.G)*u), uint8(float64(a.B)*(1-u) + float64(b.B)*u), uint8(float64(a.A)*(1-u) + float64(b.A)*u)}
-}
-
-func noiseFPS(n int) int {
-	if n == 0 {
-		return 24
-	}
-	return n
 }
