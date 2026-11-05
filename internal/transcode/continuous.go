@@ -3,6 +3,7 @@ package transcode
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -55,7 +56,6 @@ type EncoderRequest struct {
 	Decision        core.Decision // output codec, size, bitrate, audio; fixed for life; HW from HWAccel
 	SegmentDuration time.Duration // 4 s; keyframe exactly at every segment start
 	DVRWindow       time.Duration // segments kept on node-local disk for timeshift (30 min default; 0 = live window only)
-	HTTP            bool          // also produce a continuous byte stream for Plex for Mac
 }
 
 // ContinuousEncoder never restarts and never changes output parameters.
@@ -63,12 +63,35 @@ type EncoderRequest struct {
 // Write takes exactly one tick and must not block longer than about one tick
 // under normal load; sustained backpressure returns ErrEncoderBehind so P3
 // can drop the rendition rather than stall the switcher.
-// Output() implements core.HLSSession; it also implements core.DASHSession
-// and, when HTTP is set, core.HTTPSession (type-assert).
+// Segments exposes finished media for Live TV to build viewer responses.
 type ContinuousEncoder interface {
 	Write(ctx context.Context, f RawFrame) error
-	Output() core.HLSSession
+	Segments() SegmentIndex
 	Close() error
+}
+
+// Segment is one finished segment. Seq is contiguous from 0 for the
+// encoder's life; Start is the wall-clock time of its first frame
+// (PROGRAM-DATE-TIME); Duration is exact (120 frames at 30000/1001 = 4.004 s).
+type Segment struct {
+	Seq      int64
+	Start    time.Time
+	Duration time.Duration
+}
+
+// SegmentIndex is safe for concurrent use. Only finished segments are listed.
+// Segments older than DVRWindow are evicted; Window never returns evicted
+// segments, and serving one returns core.ErrNotFound.
+type SegmentIndex interface {
+	Latest() (Segment, bool)                                     // newest finished segment
+	Window(from, until time.Time) []Segment                      // segments overlapping [from, until), oldest first
+	Since(seq int64, max int) []Segment                          // up to max segments with Seq > seq
+	Wait(ctx context.Context, after int64) (Segment, error)      // blocks until segment after+1 is finished
+	ServeTS(w http.ResponseWriter, r *http.Request, seq int64)   // MPEG-TS segment (HLS)
+	ServeInit(w http.ResponseWriter, r *http.Request)            // fMP4 init (DASH)
+	ServeFMP4(w http.ResponseWriter, r *http.Request, seq int64) // fMP4 media segment (DASH)
+	OpenTS(seq int64) (io.ReadCloser, error)                     // raw TS bytes, for byte-stream viewers
+	Format() (codecs string, width, height int, bandwidth int)   // for playlists and MPD Representation attributes
 }
 
 type ContinuousRunner interface {
