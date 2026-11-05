@@ -347,7 +347,6 @@
   "m_01a985b7b0eceb": "Nächste in einer Haushalts-Sehreihenfolge",
   "m_01a9d534a0c80c": "Kein Release ist für dieses Profil akzeptabel.",
   "m_01aac44b990a0a": "Prüfen Sie die KI-Vorschläge. Die Konfidenz ist eine Schätzung.",
-  "m_01ac360d3f80b5": "Verwendet von: {layers}",
   "m_01adfbaf6437be": "Ab Uhrzeit",
   "m_01af9435193543": {
     "one": "Einmal pro Stunde je Zuschauer",
@@ -1106,10 +1105,6 @@
   "m_04cbdf0c66f6ba": "Ziel {value}",
   "m_04cd42a7c63eeb": "Zurück zur ersten Seite",
   "m_04ceaa68e29440": "Dialog in einem heruntergeladenen Untertitel verhindert, dass eine Szene im Abspann übersprungen wird.",
-  "m_04cebc82cacd72": {
-    "one": "{count} Clip",
-    "other": "{count} Clips"
-  },
   "m_04cf3af89153c2": "Protokoll",
   "m_04cf67ade502fd": "Hier verankern",
   "m_04cfc3767af270": "{percent} von {length}",
@@ -2319,7 +2314,6 @@
   "m_0a1ed215e9aca5": "Noch keine Wochenberichte gesendet.",
   "m_0a1f6a6e22044c": "Timing anpassen",
   "m_0a208f79755b03": "Debrid-Dienste und Streams",
-  "m_0a20982880cbd5": "Asset entfernen",
   "m_0a20dd9140b781": "HDR aus",
   "m_0a220beea2f81b": {
     "one": "Der Code läuft um {time} ab. Warte zwischen den Prüfungen mindestens {count} Sekunde.",
@@ -2549,7 +2543,6 @@
   "m_0b0ad99d2fd15d": "Vorschau durchlaufen",
   "m_0b0bcf39ca3df1": "Mindestsekunden",
   "m_0b0e70ffc776fa": "Anbieter hinzugefügt",
-  "m_0b0e78669cab3a": "Dieses Medium wird aus der Bibliothek entfernt.",
   "m_0b10fbf01b5ef5": {
     "one": "Die Geräteregel, die es verwendet, wird entfernt.",
     "other": "{count} Geräteregeln, die es verwenden, werden entfernt."
@@ -4122,7 +4115,6 @@
   "m_11d61d4f3e9fd5": "Startseitenzeile aus einem Stremio-Katalog erstellen",
   "m_11d7a3f8437639": "Jahre",
   "m_11d7e31cd286eb": "Detailseiten vorwärmen",
-  "m_11d92042d2fd61": "Medien suchen",
   "m_11da71d0a7cb55": "Gecachte Versionsdaten",
   "m_11db42a9d77b45": "Letzter Fehler",
   "m_11db493ffadcf1": "introdb intro abspann marker überspringen",
@@ -6254,7 +6246,6 @@
   },
   "m_1b281d356ec8aa": "Meist vertraut",
   "m_1b28eae133b224": "Torrentio findet Veröffentlichungen; fügen Sie ein Debrid- oder Usenet-Konto hinzu, um sie abzuspielen.",
-  "m_1b299ce438a7d6": "Medientyp",
   "m_1b2a34dc6f05da": "Kanalzuordnung",
   "m_1b2b48bb51f0c1": "Transkodierung",
   "m_1b2bec1672c5f4": "Neues Stremio-Addon",
@@ -6592,7 +6583,6 @@
   "m_1cc22461d8cb1e": "API {time}",
   "m_1cc23a3583b150": "Konto",
   "m_1cc2674d3a7c96": "Lokale Identität bestätigt",
-  "m_1cc2e90eb75ec7": "Clips",
   "m_1cc3099ac6762f": "{name} · {plugin} · {minutes} Min.",
   "m_1cc47d8d7c06fe": "Aus Plugins",
   "m_1cc65dce53ce8e": "Quelltypen konnten nicht geladen werden.",
@@ -7093,7 +7083,6 @@
   "m_1ee0878f3a251c": "Kanäle behalten die Nummern und die Reihenfolge deines Anbieters, die Live-Events meist nach oben stellt.",
   "m_1ee5e30d239fd4": "Wohnzimmer-Gast",
   "m_1ee6088a38be1d": "Leader",
-  "m_1ee73ed59b328c": "Clip-Sammlungen",
   "m_1ee7eb9267ce60": "Gib zum Herunterladen ein Backup-Passwort ein",
   "m_1ee836b0304ceb": "Ausnahme trifft zu",
   "m_1eea59aeacb74c": "Cache feinabstimmen",

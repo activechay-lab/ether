@@ -347,7 +347,6 @@
   "m_01a985b7b0eceb": "Hane izleme sırasındaki sonraki",
   "m_01a9d534a0c80c": "Bu profil için kabul edilebilir sürüm yok.",
   "m_01aac44b990a0a": "Yapay zekâ önerilerini inceleyin. Güven düzeyi bir tahmindir.",
-  "m_01ac360d3f80b5": "Kullanan katmanlar: {layers}",
   "m_01adfbaf6437be": "Başlangıç saati",
   "m_01af9435193543": {
     "one": "Her izleyiciye saatte bir kez",
@@ -1106,10 +1105,6 @@
   "m_04cbdf0c66f6ba": "Hedef {value}",
   "m_04cd42a7c63eeb": "İlk sayfaya dön",
   "m_04ceaa68e29440": "İndirilen bir altyazıdaki diyalog, jenerikteki bir sahnenin atlanmasını engeller.",
-  "m_04cebc82cacd72": {
-    "one": "{count} klip",
-    "other": "{count} klip"
-  },
   "m_04cf3af89153c2": "Protokol",
   "m_04cf67ade502fd": "Buraya sabitle",
   "m_04cfc3767af270": "{length} sürenin {percent} kadarı",
@@ -2319,7 +2314,6 @@
   "m_0a1ed215e9aca5": "Henüz haftalık rapor gönderilmedi.",
   "m_0a1f6a6e22044c": "Zamanlamayı ayarla",
   "m_0a208f79755b03": "Debrid hizmetleri ve akışlar",
-  "m_0a20982880cbd5": "Varlığı kaldır",
   "m_0a20dd9140b781": "HDR kapalı",
   "m_0a220beea2f81b": {
     "one": "Kodun süresi {time} saatinde dolar. Denetimler arasında en az {count} saniye bekleyin.",
@@ -2549,7 +2543,6 @@
   "m_0b0ad99d2fd15d": "Önizlemede kaydır",
   "m_0b0bcf39ca3df1": "En az saniye",
   "m_0b0e70ffc776fa": "Sağlayıcı eklendi",
-  "m_0b0e78669cab3a": "Bu varlık kitaplıktan kaldırılacak.",
   "m_0b10fbf01b5ef5": {
     "one": "Bunu kullanan cihaz kuralı kaldırılacak.",
     "other": "Bunu kullanan {count} cihaz kuralı kaldırılacak."
@@ -4122,7 +4115,6 @@
   "m_11d61d4f3e9fd5": "Stremio kataloğundan ana sayfa satırı oluştur",
   "m_11d7a3f8437639": "yıl",
   "m_11d7e31cd286eb": "Ayrıntı sayfalarını hazırla",
-  "m_11d92042d2fd61": "Varlık ara",
   "m_11da71d0a7cb55": "Önbellekteki sürüm verileri",
   "m_11db42a9d77b45": "Son hata",
   "m_11db493ffadcf1": "introdb giriş jenerik işaretler atla",
@@ -6254,7 +6246,6 @@
   },
   "m_1b281d356ec8aa": "Çoğunlukla tanıdık",
   "m_1b28eae133b224": "Torrentio yayınları bulur; oynatmak için bir debrid veya Usenet hesabı ekleyin.",
-  "m_1b299ce438a7d6": "Varlık türü",
   "m_1b2a34dc6f05da": "Kanal eşlemesi",
   "m_1b2b48bb51f0c1": "Dönüştürme",
   "m_1b2bec1672c5f4": "Yeni Stremio eklentisi",
@@ -6592,7 +6583,6 @@
   "m_1cc22461d8cb1e": "API {time}",
   "m_1cc23a3583b150": "Hesap",
   "m_1cc2674d3a7c96": "Yerel kimlik doğrulandı",
-  "m_1cc2e90eb75ec7": "Klipler",
   "m_1cc3099ac6762f": "{name} · {plugin} · {minutes} dk",
   "m_1cc47d8d7c06fe": "Eklentilerden",
   "m_1cc65dce53ce8e": "Kaynak türleri yüklenemedi.",
@@ -7093,7 +7083,6 @@
   "m_1ee0878f3a251c": "Kanallar sağlayıcınızın numaralarını ve sırasını korur; bu sıra genelde canlı etkinlikleri başa koyar.",
   "m_1ee5e30d239fd4": "Oturma odası misafiri",
   "m_1ee6088a38be1d": "Lider",
-  "m_1ee73ed59b328c": "Klip koleksiyonları",
   "m_1ee7eb9267ce60": "İndirmek için bir yedek parolası girin",
   "m_1ee836b0304ceb": "İstisna eşleşti",
   "m_1eea59aeacb74c": "Önbelleğinize ince ayar yapın",

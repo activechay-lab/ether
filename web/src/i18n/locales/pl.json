@@ -361,7 +361,6 @@
   "m_01a985b7b0eceb": "Następny w sekwencji oglądania gospodarstwa",
   "m_01a9d534a0c80c": "Żadne wydanie nie jest akceptowalne dla tego profilu.",
   "m_01aac44b990a0a": "Sprawdź sugestie AI. Pewność jest szacunkowa.",
-  "m_01ac360d3f80b5": "Używany przez: {layers}",
   "m_01adfbaf6437be": "Od godziny",
   "m_01af9435193543": {
     "one": "Raz na godzinę dla każdego widza",
@@ -1168,12 +1167,6 @@
   "m_04cbdf0c66f6ba": "Cel: {value}",
   "m_04cd42a7c63eeb": "Wróć do pierwszej strony",
   "m_04ceaa68e29440": "Dialog w pobranych napisach nie pozwala pominąć sceny w napisach końcowych.",
-  "m_04cebc82cacd72": {
-    "one": "{count} klip",
-    "few": "{count} klipy",
-    "many": "{count} klipów",
-    "other": "{count} klipu"
-  },
   "m_04cf3af89153c2": "Protokół",
   "m_04cf67ade502fd": "Zakotwicz tutaj",
   "m_04cfc3767af270": "{percent} z {length}",
@@ -2447,7 +2440,6 @@
   "m_0a1ed215e9aca5": "Nie wysłano jeszcze raportów tygodniowych.",
   "m_0a1f6a6e22044c": "Dostosuj synchronizację",
   "m_0a208f79755b03": "Usługi i strumienie debrid",
-  "m_0a20982880cbd5": "Usuń zasób",
   "m_0a20dd9140b781": "HDR wyłączony",
   "m_0a220beea2f81b": {
     "few": "Kod wygasa o {time}. Odczekaj co najmniej {count} sekundy między sprawdzeniami.",
@@ -2693,7 +2685,6 @@
   "m_0b0ad99d2fd15d": "Przewiń podgląd",
   "m_0b0bcf39ca3df1": "Minimum sekund",
   "m_0b0e70ffc776fa": "Dostawca dodany",
-  "m_0b0e78669cab3a": "Ten zasób zostanie usunięty z biblioteki.",
   "m_0b10fbf01b5ef5": {
     "few": "Zostaną usunięte {count} reguły urządzeń, które go używają.",
     "many": "Zostanie usuniętych {count} reguł urządzeń, które go używają.",
@@ -4352,7 +4343,6 @@
   "m_11d61d4f3e9fd5": "Utwórz wiersz na stronie głównej z katalogu Stremio",
   "m_11d7a3f8437639": "lat",
   "m_11d7e31cd286eb": "Przygotowuj strony szczegółów",
-  "m_11d92042d2fd61": "Szukaj zasobów",
   "m_11da71d0a7cb55": "Buforowane dane wydania",
   "m_11db42a9d77b45": "Ostatni błąd",
   "m_11db493ffadcf1": "introdb intro napisy końcowe znaczniki pomiń",
@@ -6606,7 +6596,6 @@
   },
   "m_1b281d356ec8aa": "Głównie znane",
   "m_1b28eae133b224": "Torrentio znajduje wydania; dodaj konto debrid lub Usenet, aby je odtworzyć.",
-  "m_1b299ce438a7d6": "Rodzaj zasobu",
   "m_1b2a34dc6f05da": "Przypisanie kanałów",
   "m_1b2b48bb51f0c1": "Transkodowanie",
   "m_1b2bec1672c5f4": "Nowy dodatek Stremio",
@@ -6958,7 +6947,6 @@
   "m_1cc22461d8cb1e": "API {time}",
   "m_1cc23a3583b150": "Konto",
   "m_1cc2674d3a7c96": "Tożsamość lokalna potwierdzona",
-  "m_1cc2e90eb75ec7": "Klipy",
   "m_1cc3099ac6762f": "{name} · {plugin} · {minutes} min",
   "m_1cc47d8d7c06fe": "Z wtyczek",
   "m_1cc65dce53ce8e": "Nie udało się wczytać typów źródeł.",
@@ -7483,7 +7471,6 @@
   "m_1ee0878f3a251c": "Kanały zachowują numery i kolejność dostawcy, która zwykle stawia wydarzenia na żywo na początku.",
   "m_1ee5e30d239fd4": "Gość w salonie",
   "m_1ee6088a38be1d": "Lider",
-  "m_1ee73ed59b328c": "Kolekcje klipów",
   "m_1ee7eb9267ce60": "Wpisz hasło kopii zapasowej, aby pobrać",
   "m_1ee836b0304ceb": "Wyjątek pasuje",
   "m_1eea59aeacb74c": "Dostrój pamięć podręczną",

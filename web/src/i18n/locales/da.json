@@ -347,7 +347,6 @@
   "m_01a985b7b0eceb": "Næste i en husstandens seerrækkefølge",
   "m_01a9d534a0c80c": "Ingen udgivelse er acceptabel for denne profil.",
   "m_01aac44b990a0a": "Gennemgå AI-forslagene. Sikkerheden er et skøn.",
-  "m_01ac360d3f80b5": "Bruges af: {layers}",
   "m_01adfbaf6437be": "Fra time",
   "m_01af9435193543": {
     "one": "Én gang i timen pr. seer",
@@ -1106,10 +1105,6 @@
   "m_04cbdf0c66f6ba": "Mål {value}",
   "m_04cd42a7c63eeb": "Tilbage til første side",
   "m_04ceaa68e29440": "Dialog i en hentet undertekst forhindrer, at en scene i rulleteksterne springes over.",
-  "m_04cebc82cacd72": {
-    "one": "{count} klip",
-    "other": "{count} klip"
-  },
   "m_04cf3af89153c2": "Protokol",
   "m_04cf67ade502fd": "Forankr her",
   "m_04cfc3767af270": "{percent} af {length}",
@@ -2319,7 +2314,6 @@
   "m_0a1ed215e9aca5": "Der er endnu ikke sendt nogen ugentlige rapporter.",
   "m_0a1f6a6e22044c": "Juster timing",
   "m_0a208f79755b03": "Debrid-tjenester og streams",
-  "m_0a20982880cbd5": "Fjern ressource",
   "m_0a20dd9140b781": "HDR fra",
   "m_0a220beea2f81b": {
     "one": "Koden udløber {time}. Vent mindst {count} sekund mellem kontrollerne.",
@@ -2549,7 +2543,6 @@
   "m_0b0ad99d2fd15d": "Spol i forhåndsvisning",
   "m_0b0bcf39ca3df1": "Mindste antal sekunder",
   "m_0b0e70ffc776fa": "Udbyder tilføjet",
-  "m_0b0e78669cab3a": "Dette aktiv fjernes fra biblioteket.",
   "m_0b10fbf01b5ef5": {
     "one": "Enhedsreglen, der bruger den, fjernes.",
     "other": "{count} enhedsregler, der bruger den, fjernes."
@@ -4122,7 +4115,6 @@
   "m_11d61d4f3e9fd5": "Opret en række på Hjem fra et Stremio-katalog",
   "m_11d7a3f8437639": "år",
   "m_11d7e31cd286eb": "Forvarm detaljesider",
-  "m_11d92042d2fd61": "Søg i aktiver",
   "m_11da71d0a7cb55": "Cachede udgivelsesdata",
   "m_11db42a9d77b45": "Seneste fejl",
   "m_11db493ffadcf1": "introdb intro rulletekster markører spring over",
@@ -6254,7 +6246,6 @@
   },
   "m_1b281d356ec8aa": "Mest velkendt",
   "m_1b28eae133b224": "Torrentio finder udgivelser; tilføj en debrid- eller Usenet-konto for at afspille dem.",
-  "m_1b299ce438a7d6": "Aktivtype",
   "m_1b2a34dc6f05da": "Kanalknytning",
   "m_1b2b48bb51f0c1": "Transkodning",
   "m_1b2bec1672c5f4": "Nyt Stremio-addon",
@@ -6592,7 +6583,6 @@
   "m_1cc22461d8cb1e": "API {time}",
   "m_1cc23a3583b150": "Konto",
   "m_1cc2674d3a7c96": "Lokal identitet bekræftet",
-  "m_1cc2e90eb75ec7": "Klip",
   "m_1cc3099ac6762f": "{name} · {plugin} · {minutes} min",
   "m_1cc47d8d7c06fe": "Fra plugins",
   "m_1cc65dce53ce8e": "Kildetyper kunne ikke indlæses.",
@@ -7093,7 +7083,6 @@
   "m_1ee0878f3a251c": "Kanalerne beholder din udbyders numre og rækkefølge, som oftest sætter livebegivenheder først.",
   "m_1ee5e30d239fd4": "Stuegæst",
   "m_1ee6088a38be1d": "Leder",
-  "m_1ee73ed59b328c": "Klipsamlinger",
   "m_1ee7eb9267ce60": "Angiv en backupadgangskode for at downloade",
   "m_1ee836b0304ceb": "Undtagelse matchede",
   "m_1eea59aeacb74c": "Finjuster din cache",

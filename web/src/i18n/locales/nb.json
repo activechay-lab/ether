@@ -347,7 +347,6 @@
   "m_01a985b7b0eceb": "Neste i en husstandsvisningssekvens",
   "m_01a9d534a0c80c": "Ingen utgivelse er akseptabel for denne profilen.",
   "m_01aac44b990a0a": "Se gjennom KI-forslagene. Sikkerheten er et anslag.",
-  "m_01ac360d3f80b5": "Brukes av: {layers}",
   "m_01adfbaf6437be": "Fra klokkeslett",
   "m_01af9435193543": {
     "one": "Én gang i timen per seer",
@@ -1106,10 +1105,6 @@
   "m_04cbdf0c66f6ba": "Mål {value}",
   "m_04cd42a7c63eeb": "Tilbake til første side",
   "m_04ceaa68e29440": "Dialog i en nedlastet undertekst hindrer at en scene i rulleteksten hoppes over.",
-  "m_04cebc82cacd72": {
-    "one": "{count} klipp",
-    "other": "{count} klipp"
-  },
   "m_04cf3af89153c2": "Protokoll",
   "m_04cf67ade502fd": "Forankre her",
   "m_04cfc3767af270": "{percent} av {length}",
@@ -2319,7 +2314,6 @@
   "m_0a1ed215e9aca5": "Ingen ukentlige rapporter er sendt ennå.",
   "m_0a1f6a6e22044c": "Juster timing",
   "m_0a208f79755b03": "Debrid-tjenester og strømmer",
-  "m_0a20982880cbd5": "Fjern ressurs",
   "m_0a20dd9140b781": "HDR av",
   "m_0a220beea2f81b": {
     "one": "Koden utløper {time}. Vent minst {count} sekund mellom hver sjekk.",
@@ -2549,7 +2543,6 @@
   "m_0b0ad99d2fd15d": "Spol i forhåndsvisningen",
   "m_0b0bcf39ca3df1": "Minste antall sekunder",
   "m_0b0e70ffc776fa": "Leverandør lagt til",
-  "m_0b0e78669cab3a": "Denne ressursen fjernes fra biblioteket.",
   "m_0b10fbf01b5ef5": {
     "one": "Enhetsregelen som bruker den, fjernes.",
     "other": "{count} enhetsregler som bruker den, fjernes."
@@ -4122,7 +4115,6 @@
   "m_11d61d4f3e9fd5": "Opprett en rad på Hjem fra en Stremio-katalog",
   "m_11d7a3f8437639": "år",
   "m_11d7e31cd286eb": "Forvarm detaljsider",
-  "m_11d92042d2fd61": "Søk i ressurser",
   "m_11da71d0a7cb55": "Bufrede utgivelsesdata",
   "m_11db42a9d77b45": "Siste feil",
   "m_11db493ffadcf1": "introdb intro rulletekst markører hopp over",
@@ -6254,7 +6246,6 @@
   },
   "m_1b281d356ec8aa": "Stort sett kjent",
   "m_1b28eae133b224": "Torrentio finner utgivelser; legg til en debrid- eller Usenet-konto for å spille dem av.",
-  "m_1b299ce438a7d6": "Ressurstype",
   "m_1b2a34dc6f05da": "Kanalkobling",
   "m_1b2b48bb51f0c1": "Transkoding",
   "m_1b2bec1672c5f4": "Nytt Stremio-tillegg",
@@ -6592,7 +6583,6 @@
   "m_1cc22461d8cb1e": "API {time}",
   "m_1cc23a3583b150": "Konto",
   "m_1cc2674d3a7c96": "Lokal identitet bekreftet",
-  "m_1cc2e90eb75ec7": "Klipp",
   "m_1cc3099ac6762f": "{name} · {plugin} · {minutes} min",
   "m_1cc47d8d7c06fe": "Fra programtillegg",
   "m_1cc65dce53ce8e": "Kildetyper kunne ikke lastes inn.",
@@ -7093,7 +7083,6 @@
   "m_1ee0878f3a251c": "Kanalene beholder leverandørens numre og rekkefølge, som som regel setter direktesendte hendelser først.",
   "m_1ee5e30d239fd4": "Stuegjest",
   "m_1ee6088a38be1d": "Leder",
-  "m_1ee73ed59b328c": "Klippsamlinger",
   "m_1ee7eb9267ce60": "Skriv inn et sikkerhetskopipassord for å laste ned",
   "m_1ee836b0304ceb": "Unntak traff",
   "m_1eea59aeacb74c": "Finjuster hurtigbufferen din",

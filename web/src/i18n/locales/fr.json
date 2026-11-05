@@ -354,7 +354,6 @@
   "m_01a985b7b0eceb": "Suivant dans une séquence de visionnage du foyer",
   "m_01a9d534a0c80c": "Aucune release n’est acceptable pour ce profil.",
   "m_01aac44b990a0a": "Vérifiez les suggestions de l’IA. La confiance est une estimation.",
-  "m_01ac360d3f80b5": "Utilisée par : {layers}",
   "m_01adfbaf6437be": "Heure de début",
   "m_01af9435193543": {
     "one": "Une fois par heure et par spectateur",
@@ -1137,11 +1136,6 @@
   "m_04cbdf0c66f6ba": "Objectif {value}",
   "m_04cd42a7c63eeb": "Retour à la première page",
   "m_04ceaa68e29440": "Le dialogue d'un sous-titre téléchargé empêche de passer une scène dans le générique.",
-  "m_04cebc82cacd72": {
-    "one": "{count} clip",
-    "many": "{count} clips",
-    "other": "{count} clips"
-  },
   "m_04cf3af89153c2": "Protocole",
   "m_04cf67ade502fd": "Ancrer ici",
   "m_04cfc3767af270": "{percent} sur {length}",
@@ -2383,7 +2377,6 @@
   "m_0a1ed215e9aca5": "Aucun rapport hebdomadaire envoyé pour le moment.",
   "m_0a1f6a6e22044c": "Ajuster le minutage",
   "m_0a208f79755b03": "Services et flux de débridage",
-  "m_0a20982880cbd5": "Supprimer la ressource",
   "m_0a20dd9140b781": "HDR désactivé",
   "m_0a220beea2f81b": {
     "many": "Le code expire à {time}. Attendez au moins {count} secondes entre les vérifications.",
@@ -2621,7 +2614,6 @@
   "m_0b0ad99d2fd15d": "Parcourir l’aperçu",
   "m_0b0bcf39ca3df1": "Secondes minimum",
   "m_0b0e70ffc776fa": "Fournisseur ajouté",
-  "m_0b0e78669cab3a": "Cette ressource sera supprimée de la bibliothèque.",
   "m_0b10fbf01b5ef5": {
     "many": "{count} règles d’appareil qui l’utilisent seront retirées.",
     "one": "La règle d’appareil qui l’utilise sera retirée.",
@@ -4237,7 +4229,6 @@
   "m_11d61d4f3e9fd5": "Créer une rangée d’accueil à partir d’un catalogue Stremio",
   "m_11d7a3f8437639": "ans",
   "m_11d7e31cd286eb": "Préparer les pages de détails",
-  "m_11d92042d2fd61": "Rechercher des ressources",
   "m_11da71d0a7cb55": "Données de version en cache",
   "m_11db42a9d77b45": "Dernière erreur",
   "m_11db493ffadcf1": "introdb intro générique marqueurs ignorer",
@@ -6430,7 +6421,6 @@
   },
   "m_1b281d356ec8aa": "Plutôt familier",
   "m_1b28eae133b224": "Torrentio trouve des sorties ; ajoutez un compte debrid ou Usenet pour les lire.",
-  "m_1b299ce438a7d6": "Type de ressource",
   "m_1b2a34dc6f05da": "Association des chaînes",
   "m_1b2b48bb51f0c1": "Transcodage",
   "m_1b2bec1672c5f4": "Nouvel addon Stremio",
@@ -6775,7 +6765,6 @@
   "m_1cc22461d8cb1e": "API {time}",
   "m_1cc23a3583b150": "Compte",
   "m_1cc2674d3a7c96": "Identité locale vérifiée",
-  "m_1cc2e90eb75ec7": "Clips",
   "m_1cc3099ac6762f": "{name} · {plugin} · {minutes} min",
   "m_1cc47d8d7c06fe": "Depuis les plugins",
   "m_1cc65dce53ce8e": "Impossible de charger les types de sources.",
@@ -7288,7 +7277,6 @@
   "m_1ee0878f3a251c": "Les chaînes gardent les numéros et l’ordre de votre fournisseur, qui place généralement les événements en direct en tête.",
   "m_1ee5e30d239fd4": "Invité du salon",
   "m_1ee6088a38be1d": "Leader",
-  "m_1ee73ed59b328c": "Collections de clips",
   "m_1ee7eb9267ce60": "Saisissez un mot de passe de sauvegarde pour télécharger",
   "m_1ee836b0304ceb": "Exception correspondante",
   "m_1eea59aeacb74c": "Affiner votre cache",
