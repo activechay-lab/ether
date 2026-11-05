@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/playback"
 )
 
 // Owner status presents one row per viewer, including passthrough IPTV.
@@ -28,9 +29,10 @@ func (p ownerPlayback) Sessions() []*core.PlaySession {
 	if p.app != nil {
 		if p.app.brokerPlayback != nil {
 			backend = p.app.brokerPlayback
-		} else if p.app.playback == nil {
-			backend = nil
 		}
+	}
+	if manager, ok := backend.(*playback.Manager); ok && manager == nil {
+		backend = nil
 	}
 	var local []*core.PlaySession
 	if backend != nil {

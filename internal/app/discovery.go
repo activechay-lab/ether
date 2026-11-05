@@ -107,8 +107,19 @@ func (a *App) overlayFacts(ctx context.Context, u *core.User, t *core.Title, sta
 	// poster. Historical probes survive a restart and are bound to the current
 	// resume release by the playback package; no resolving/probing happens here.
 	if quality && u != nil {
-		if observed, err := a.playback.ObservedMediaInfo(ctx, u.ID, t.Key); err == nil && observed != nil {
-			applyOverlayQuality(&f, observed.Info)
+		if a.playback != nil {
+			if observed, err := a.playback.ObservedMediaInfo(ctx, u.ID, t.Key); err == nil && observed != nil {
+				applyOverlayQuality(&f, observed.Info)
+			}
+		} else if a.brokerPlayback != nil {
+			// Remote preparation snapshots contain exact owner-probed metadata for an
+			// immutable pinned revision. Do not resolve/probe/network during artwork.
+			for _, session := range a.brokerPlayback.Sessions() {
+				if session != nil && session.UserID == u.ID && session.Key == t.Key && !session.Info.Estimated {
+					applyOverlayQuality(&f, session.Info)
+					break
+				}
+			}
 		}
 	}
 	return f

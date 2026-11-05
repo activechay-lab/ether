@@ -9,6 +9,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/clusterconfig"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -49,6 +50,7 @@ func TestServerRoleConstructionBoundary(t *testing.T) {
 	if sessions := (ownerPlayback{Playback: a.playback, app: a}).Sessions(); len(sessions) != 0 {
 		t.Fatal("unexpected fresh server sessions")
 	}
+	_ = a.overlayFacts(context.Background(), &core.User{ID: 1}, &core.Title{Key: core.MovieKey(1), Type: core.TypeMovie}, false, true)
 	if a.privateProtocol() != 0 {
 		t.Fatal("constructed graph advertised before listeners")
 	}
