@@ -3464,16 +3464,29 @@ export function createFakeServer(opts: FakeOptions = {}) {
             (!genre || t.genres?.includes(genre)) &&
             (!decade || decadeOf(t.year) === decade),
         );
-        items.sort((a, b) =>
-          sort === "title"
+        const compare = (a: FakeTitle, b: FakeTitle, field: string) =>
+          field === "title"
             ? a.title.localeCompare(b.title)
-            : sort === "rating"
-              ? (b.rating ?? 0) - (a.rating ?? 0)
-              : sort === "released"
-                ? b.released.localeCompare(a.released)
-                : sort === "added"
-                  ? b.addedAt.localeCompare(a.addedAt)
-                  : b.popularity - a.popularity,
+            : field === "year"
+              ? (a.year || 0) - (b.year || 0)
+              : field === "duration"
+                ? (a.runtimeMinutes || 0) - (b.runtimeMinutes || 0)
+                : field === "rating"
+                  ? (a.rating || 0) - (b.rating || 0)
+                  : field === "released"
+                    ? a.released.localeCompare(b.released)
+                    : field === "added"
+                      ? a.addedAt.localeCompare(b.addedAt)
+                      : a.popularity - b.popularity;
+        const desc = q.has("desc") ? q.get("desc") === "1" : sort !== "title";
+        const secondary = q.get("secondarySort");
+        items.sort(
+          (a, b) =>
+            compare(a, b, sort || "popularity") * (desc ? -1 : 1) ||
+            (secondary
+              ? compare(a, b, secondary) * (q.get("secondaryDesc") === "1" ? -1 : 1)
+              : 0) ||
+            a.key.localeCompare(b.key),
         );
         const after = q.get("after");
         const offset = after

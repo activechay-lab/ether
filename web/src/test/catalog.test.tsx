@@ -190,6 +190,53 @@ describe("Catalog workspace", () => {
     expect(calls(fake, "PUT", `/discovery/users/1/catalog/${title.key}`)).toHaveLength(1);
   });
 
+  it("sends effective primary and secondary sort directions and reverses title on the first click", async () => {
+    const { fake } = renderAppWith("/catalog?sort=title&secondarySort=rating", (_method, path) =>
+      path === "/catalog/browse" ? { items: [title], total: 1 } : undefined,
+    );
+    await screen.findByRole("button", { name: "Inspect Seven" });
+    const last = () =>
+      new URL(
+        calls(fake, "GET", "/catalog/browse")
+          .filter((c) => !c.path.includes("countOnly"))
+          .at(-1)!.path,
+        "http://localhost",
+      ).searchParams;
+    expect(last().get("desc")).toBe("0");
+    expect(last().get("secondaryDesc")).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "Reverse sort direction" }));
+    await waitFor(() => expect(last().get("desc")).toBe("1"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Secondary sort · Reverse sort direction" }),
+    );
+    await waitFor(() => expect(last().get("secondaryDesc")).toBe("0"));
+    fireEvent.click(screen.getByRole("button", { name: "Sort titles" }));
+    expect(await screen.findByRole("menuitemradio", { name: "Year" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: "Runtime" })).toBeInTheDocument();
+  });
+  it("preserves a shared secondary direction override and supports runtime and year sorts", async () => {
+    const { fake } = renderAppWith(
+      "/catalog?sort=duration&secondarySort=rating&secondaryDesc=0",
+      (_method, path) => (path === "/catalog/browse" ? { items: [title], total: 1 } : undefined),
+    );
+    await screen.findByRole("button", { name: "Inspect Seven" });
+    const last = () =>
+      new URL(
+        calls(fake, "GET", "/catalog/browse")
+          .filter((c) => !c.path.includes("countOnly"))
+          .at(-1)!.path,
+        "http://localhost",
+      ).searchParams;
+    expect(last().get("sort")).toBe("duration");
+    expect(last().get("desc")).toBe("0");
+    expect(last().get("secondaryDesc")).toBe("0");
+    fireEvent.click(screen.getByRole("button", { name: "Sort titles" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Year" }));
+    await waitFor(() => expect(last().get("sort")).toBe("year"));
+    expect(last().get("desc")).toBe("1");
+    expect(last().get("secondaryDesc")).toBe("0");
+  });
+
   it("keeps all catalog settings and saves changes from the new page", async () => {
     const { fake } = renderAppWith("/catalog/settings", () => undefined);
     const language = await screen.findByLabelText("Language");

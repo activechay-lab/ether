@@ -38,6 +38,8 @@ const SORTS = localized(() => [
   { value: "rating", label: t("Highest rated") },
   { value: "added", label: t("Recently added") },
   { value: "title", label: t("Title A–Z") },
+  { value: "year", label: t("Year") },
+  { value: "duration", label: t("Runtime") },
 ]);
 
 export default function Catalog() {
@@ -110,6 +112,11 @@ export function CatalogBrowser({
   const sort = SORTS.some((s) => s.value === params.get("sort"))
     ? params.get("sort")!
     : "popularity";
+  const secondarySort = params.get("secondarySort") || "";
+  const descending = (value: string | null, field: string) =>
+    value === "0" ? false : value === "1" ? true : field !== "title" && field !== "duration";
+  const desc = descending(params.get("desc"), sort);
+  const secondaryDesc = descending(params.get("secondaryDesc"), secondarySort);
   const rawPage = Number(params.get("page"));
   const collectionPageNumber =
     Number.isSafeInteger(rawPage) && rawPage > 0 ? Math.min(rawPage, 1000000) : 1;
@@ -169,8 +176,9 @@ export function CatalogBrowser({
               filter: advanced
                 ? JSON.stringify(compileQuery(readQuery(advanced), viewer))
                 : undefined,
-              secondarySort: params.get("secondarySort") || undefined,
-              desc: params.get("desc") || undefined,
+              secondarySort: secondarySort || undefined,
+              secondaryDesc: secondarySort ? (secondaryDesc ? "1" : "0") : undefined,
+              desc: desc ? "1" : "0",
               cursor: "1",
               after: activeCursor.after || undefined,
               limit: PAGE_SIZE,
@@ -191,7 +199,8 @@ export function CatalogBrowser({
       advanced,
       viewer,
       params.get("secondarySort"),
-      params.get("desc"),
+      desc,
+      secondaryDesc,
     ],
   );
   const countKey = JSON.stringify([
@@ -523,13 +532,23 @@ export function CatalogBrowser({
                     size="sm"
                     variant="ghost"
                     aria-label={t("Reverse sort direction")}
-                    onClick={() => update("desc", params.get("desc") === "0" ? "1" : "0")}
+                    onClick={() => update("desc", desc ? "0" : "1")}
                   >
-                    <ArrowRight
-                      size={14}
-                      className={params.get("desc") === "0" ? "-rotate-90" : "rotate-90"}
-                    />
+                    <ArrowRight size={14} className={desc ? "rotate-90" : "-rotate-90"} />
                   </Button>
+                  {secondarySort ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`${t("Secondary sort")} · ${t("Reverse sort direction")}`}
+                      onClick={() => update("secondaryDesc", secondaryDesc ? "0" : "1")}
+                    >
+                      <ArrowRight
+                        size={14}
+                        className={secondaryDesc ? "rotate-90" : "-rotate-90"}
+                      />
+                    </Button>
+                  ) : null}
                 </>
               ) : null}
             </div>

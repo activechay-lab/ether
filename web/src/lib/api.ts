@@ -477,6 +477,7 @@ export const api = {
       after?: string;
       filter?: string;
       secondarySort?: string;
+      secondaryDesc?: string;
       desc?: string;
       ruleVisibility?: string;
       rules?: string;
