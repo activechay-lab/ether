@@ -482,13 +482,60 @@ func (p *recoveryMP4Parser) audioConfig(tables []mp4Box, channels int) ([32]byte
 	if len(raw) < 4 || !bytes.Equal(raw[:4], []byte{0, 0, 0, 0}) {
 		return zero, errRecoveryAACIndex
 	}
-	object, asc := esdsConfig(raw)
+	asc, err := recoveryESDSConfig(raw[4:])
+	if err != nil {
+		return zero, err
+	}
 	canonical := []byte{0x11, byte(0x80 | channels<<3)} // LC, 48 kHz, 1024 samples, no extensions/PCE.
 	// Accept only an absent-SBR sync extension in addition to the canonical ASC.
-	if object != 0x40 || (len(asc) != 2 && len(asc) != 5) || !bytes.Equal(asc[:2], canonical) || (len(asc) == 5 && !bytes.Equal(asc[2:], []byte{0x56, 0xe5, 0x00})) {
+	if (len(asc) != 2 && len(asc) != 5) || !bytes.Equal(asc[:2], canonical) || (len(asc) == 5 && !bytes.Equal(asc[2:], []byte{0x56, 0xe5, 0x00})) {
 		return zero, errRecoveryAACIndex
 	}
 	return sha256.Sum256(canonical), nil
+}
+
+// recoveryDescriptor requires a terminating length byte within the four-byte
+// limit, and bounds the body against its immediate parent descriptor.
+func recoveryDescriptor(b []byte, tag byte) (body, rest []byte, err error) {
+	if len(b) < 2 || b[0] != tag {
+		return nil, nil, errRecoveryAACIndex
+	}
+	n := 0
+	for i := 1; i <= 4 && i < len(b); i++ {
+		n = n<<7 | int(b[i]&0x7f)
+		if b[i]&0x80 == 0 {
+			start := i + 1
+			if n > len(b)-start {
+				return nil, nil, errRecoveryAACIndex
+			}
+			return b[start : start+n], b[start+n:], nil
+		}
+	}
+	return nil, nil, errRecoveryAACIndex
+}
+
+// recoveryESDSConfig accepts only a local MPEG-4 audio ES, its sole decoder
+// config/ASC, and the predefined MP4 SL config. Every parent is consumed fully;
+// optional dependencies, URLs, extensions and unrecognized trailing data reject.
+// Keep this strict recovery policy separate from ordinary native probing.
+func recoveryESDSConfig(b []byte) ([]byte, error) {
+	es, rest, err := recoveryDescriptor(b, 0x03)
+	if err != nil || len(rest) != 0 || len(es) < 3 || es[2] != 0 {
+		return nil, errRecoveryAACIndex
+	}
+	dc, slBytes, err := recoveryDescriptor(es[3:], 0x04)
+	if err != nil || len(dc) < 13 || dc[0] != 0x40 || dc[1] != 0x15 {
+		return nil, errRecoveryAACIndex
+	}
+	asc, rest, err := recoveryDescriptor(dc[13:], 0x05)
+	if err != nil || len(rest) != 0 {
+		return nil, errRecoveryAACIndex
+	}
+	sl, rest, err := recoveryDescriptor(slBytes, 0x06)
+	if err != nil || len(rest) != 0 || !bytes.Equal(sl, []byte{0x02}) {
+		return nil, errRecoveryAACIndex
+	}
+	return asc, nil
 }
 
 // Explicit roll=-1 is understood as a decoder dependency, never independence.

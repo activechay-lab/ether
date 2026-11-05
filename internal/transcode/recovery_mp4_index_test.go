@@ -158,6 +158,20 @@ func TestRecoveryAACIndexRejectsAmbiguousMetadata(t *testing.T) {
 		})
 	}
 }
+
+func TestRecoveryAACIndexRejectsMalformedDescriptorLength(t *testing.T) {
+	src, want := recoveryIndexFixture(t)
+	esds := recoveryBoxPayload(t, src.data, "esds")
+	if !bytes.Equal(esds[4:9], []byte{0x03, 0x80, 0x80, 0x80, 0x25}) {
+		t.Fatal("unexpected fixture ES descriptor")
+	}
+	// Preserve all seven-bit length payloads and the ASC bytes, but illegally
+	// require a fifth length byte. Ordinary probing previously accepted this.
+	esds[8] = 0xa5
+	if _, err := verifyRecoveryAACIndex(t.Context(), src, want); err == nil {
+		t.Fatal("unterminated four-byte descriptor length accepted")
+	}
+}
 func TestRecoveryAACIndexChunkBudget(t *testing.T) {
 	src, want := recoveryIndexFixture(t)
 	// Large metadata payload is read in bounded chunks; it deliberately has no
