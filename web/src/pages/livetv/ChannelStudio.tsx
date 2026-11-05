@@ -301,7 +301,13 @@ export function ChannelStudio({
 
   return (
     <div className="@container min-w-0 pb-10">
-      {watching && c.id ? <LivePreview channel={c} onClose={() => setWatching(false)} /> : null}
+      {watching && c.id ? (
+        <LivePreview
+          channel={c}
+          viewer={c.personal ? viewer : undefined}
+          onClose={() => setWatching(false)}
+        />
+      ) : null}
       {/* hero */}
       <section
         className="relative overflow-hidden border-b border-border"

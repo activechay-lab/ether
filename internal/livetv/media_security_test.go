@@ -3,6 +3,7 @@ package livetv
 import (
 	"context"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/core"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,7 +26,7 @@ func TestOwnerPreviewResourceIsolatesActiveContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.sessions["security"] = &session{ready: true, info: SessionInfo{ID: "security", UserID: 0, Channel: c}, inputURL: c.StreamURL, resources: map[string]string{"html": upstream.URL + "/html", "svg": upstream.URL + "/svg"}}
+	s.sessions["security"] = &session{caps: core.ClientCaps{Product: previewCaps.Product, ClientID: "ether-preview-security"}, user: core.User{IsOwner: true}, ready: true, info: SessionInfo{ID: "security", UserID: 0, Channel: c}, inputURL: c.StreamURL, resources: map[string]string{"html": upstream.URL + "/html", "svg": upstream.URL + "/svg"}}
 	for _, key := range []string{"html", "svg"} {
 		w := httptest.NewRecorder()
 		s.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/sessions/security/resource/"+key, nil))

@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { getThemeScript } from "@braedonsaunders/appkit-ui/theme-script";
 import type { Plugin } from "vite";
+import { mockWatch } from "./src/mock/watch-server";
 import { theme } from "./src/theme";
 
 // AppKit's pre-paint theme script goes first in <head>, so the stored (or
@@ -24,7 +25,7 @@ const themeScript: Plugin = {
 // mock is only reachable behind `import.meta.env.MODE === "mock"`, which is a
 // compile-time constant, so it never ships in the production bundle.
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), tailwindcss(), themeScript],
+  plugins: [react(), tailwindcss(), themeScript, ...(mode === "mock" ? [mockWatch()] : [])],
   base: "/ether/",
   build: {
     outDir: "../internal/admin/dist",
