@@ -227,6 +227,10 @@ func (a *App) clearBlockCache(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := a.playback.RejectReleaseID(r.Context(), body.ReleaseID); err != nil {
+		http.Error(w, "Could not persist release rejection", 500)
+		return
+	}
 	if _, err := a.resolver.Block(r.Context(), resolver.BlockRequest{ReleaseID: body.ReleaseID, Name: found.Title}, "Cleared and blocked from Cache by owner"); err != nil {
 		http.Error(w, "Could not persist release block", 500)
 		return

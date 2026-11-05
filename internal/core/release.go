@@ -147,6 +147,7 @@ func ValidateRankingWith(ranking []string, rules []ReleaseRule, known func(step 
 
 // ReleaseInfo is what can be parsed from a release name.
 type ReleaseInfo struct {
+	HardSubbed  bool     `json:"hardSubbed,omitempty"`
 	Title       string   `json:"title"`
 	Edition     string   `json:"edition,omitempty"`
 	Year        int      `json:"year,omitempty"`
@@ -176,18 +177,19 @@ type ReleaseInfo struct {
 
 // Release is an indexer search result for a title.
 type Release struct {
-	ID       string      `json:"id"`      // stable: sha1(indexer + guid)
-	GUID     string      `json:"guid"`    // indexer guid
-	Indexer  string      `json:"indexer"` // indexer name
-	Name     string      `json:"name"`    // release name
-	NZBURL   string      `json:"nzbUrl"`
-	Size     int64       `json:"size"`
-	PubDate  time.Time   `json:"pubDate"`
-	Grabs    int         `json:"grabs,omitempty"`
-	Password bool        `json:"password,omitempty"` // indexer flagged passworded
-	Category int         `json:"category,omitempty"`
-	Info     ReleaseInfo `json:"info"`
-	Score    float64     `json:"score"`
+	SourceHash string      `json:"sourceHash,omitempty"` // SHA-256 of the fetched source descriptor, when known
+	ID         string      `json:"id"`                   // stable: sha1(indexer + guid)
+	GUID       string      `json:"guid"`                 // indexer guid
+	Indexer    string      `json:"indexer"`              // indexer name
+	Name       string      `json:"name"`                 // release name
+	NZBURL     string      `json:"nzbUrl"`
+	Size       int64       `json:"size"`
+	PubDate    time.Time   `json:"pubDate"`
+	Grabs      int         `json:"grabs,omitempty"`
+	Password   bool        `json:"password,omitempty"` // indexer flagged passworded
+	Category   int         `json:"category,omitempty"`
+	Info       ReleaseInfo `json:"info"`
+	Score      float64     `json:"score"`
 	// TitleIDs are movie/series identifiers reported by the indexer. They
 	// must never be inferred from the search request's identifiers.
 	TitleIDs IDs `json:"titleIds,omitempty"`

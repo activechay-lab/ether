@@ -61,6 +61,7 @@ func (s *Service) loadPersisted(ctx context.Context) {
 		s.mu.Unlock()
 		rows.Close()
 	}
+	s.loadRejections(ctx)
 	s.loadPins(ctx)
 	rrows, err := s.db.QueryContext(ctx, `SELECT indexer, successes, failures FROM resolver_reputation`)
 	if err == nil {

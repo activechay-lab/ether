@@ -353,6 +353,7 @@ export interface EtherConfig {
     offerHigherVersions?: boolean;
     blockedGroups: string[] | null;
     blockedTerms: string[] | null;
+ hardSubtitles?: "" | "exclude" | "allow";
     optimisticStart?: boolean;
     healthRace?: number;
     sourcePreference?: string;
