@@ -289,7 +289,7 @@ retune), instead of an error.
 The set is open: more styles are scene documents in a built-in "Signal" family (§5), so packs and later releases can add them.
 
 **Where it's set**
-- **Owner default:** in Live TV's existing **Channel options** drawer (`LiveTVOptions.tsx`), a **Screens** section with two pickers: **When a channel is off air** and **When a channel can't play**, plus **Show station ID**.
+- **Owner default:** an inline **Screens** section at the top of the Live TV › Looks pane, edited in place with the page's one save bar. It has two pickers, **When a channel is off air** and **When a channel can't play** (which also offers **Show an error**), plus **Show station ID**. v0.3.4 removed the old Live TV options drawer, so this is the only Live TV-wide setting.
 - **Per channel:** a **Screens** section in the channel Look tab, with the same two pickers. Each has a first option, **Default (Modern card)**, that names the current owner default. IPTV channels get a Look tab that contains only this section.
 - **The pickers:** a row of 16:9 style cards. Each card plays its own animated preview on hover, with a ▶ button for its sound (muted by default). The selected card has the primary ring. There is one line of ⓘ help per picker.
 
@@ -608,24 +608,67 @@ Migrations:
 
 **Off air** (virtual channels, scheduled gaps). The `offAir` slate plays the chosen style instead of the plain card. The guide is unchanged.
 
-**Can't play** (IPTV, and virtual channels whose candidates all fail within the tune budget):
-- **What triggers it.** Any tune or retune failure that today returns an error: `source_unavailable`, `provider_http`, `source_cooldown`, `no_video`, `ErrProviderBusy` (the account's connection limit), and a stream that drops mid-play.
-- **Tune.** The tune still succeeds. The session's first track is the chosen screen. The session is marked `waiting` and holds **no provider connection**. The playlist (or MPD) serves the screen immediately.
-- **Background retry.**
-  - The session retries its inputs on the existing per-input cooldown schedule: 15 s, doubling to 2 min (`stream_sources.go`).
-  - It honours the source's tune gap and streams-per-hour cap, and runs at most one attempt at a time per session.
-  - Before each attempt it takes a provider slot under `s.mu`, using the same check tune uses today (`playout.go:330`). A `waiting` session doesn't count as playing, so it never holds a slot, and an attempt never exceeds the account's connection limit.
-  - When the limit is the cause, the screen says "Waiting for a free connection" and the attempt waits for a slot instead of failing.
-  - Retrying continues while the viewer stays on the channel. When they leave, the session expires through the normal session TTL and the retry stops with it.
-- **Recovery.** On success, the real feed is appended as a new track after `#EXT-X-DISCONTINUITY` (HLS), exactly like a programme boundary today, and the screen track ends. The session leaves `waiting` and counts against the provider limit as usual.
-  - **DASH (Plex Web):** the feed is encoded to the representation the screen advertised, keeping the single Period valid.
-  - **HTTP/Matroska (Plex for Mac):** this path has no rollover. Ether ends the stream on recovery so the app reconnects, which needs verifying on device; if it doesn't, the Mac app keeps today's error.
-- **Mid-play drop.** When the active input fails while someone is watching, the session splices the screen in after a discontinuity, then follows the same retry and recovery flow.
-- **What the Plex app sees.**
-  - A failed tune no longer shows Plex's "could not tune" error. The app tunes normally and plays the screen with sound, the guide and Now Playing show the channel's scheduled programme as they do today, and the real picture replaces the screen within seconds of recovery. Some apps may show a brief buffering spinner at the switch.
-  - **No Plex response shape changes.** The tune response, decision, playlists and MPD are the same shapes Ether already sends for a successful tune; only the outcome changes, from HTTP 503 to success. This is a deliberate behaviour change and needs the owner's approval.
-  - Jellyfin, Emby and M3U clients see the same thing through the sessions broker.
-  - With **Can't play** set to **Off**, behaviour is exactly today's. That option exists in the owner default only, as **Show an error**, for owners who prefer apps to report the failure.
+**Can't play** (IPTV, and virtual channels whose candidates all fail within the tune budget). This must be **seamless** (owner, 2026-11-05).
+- **What the app must never see:** an `EXT-X-DISCONTINUITY`, a new playlist or MPD, a new session, a retune, or a buffering spinner.
+- **What happens instead:** the stream keeps delivering segments the whole time. When the source stops, or never starts, the same stream's next segments carry the chosen screen. When the source returns, the same stream goes back to the real picture.
+
+**Design: a continuous-output switcher** (chosen). Every IPTV session that can fall back runs:
+
+```
+provider ─▶ ffmpeg decoder ──raw frames + PCM──▶ ┌───────────────┐      ┌──────────────────────┐
+             (restartable)                       │  Go switcher  │─────▶│ ffmpeg encoder       │─▶ HLS / DASH / HTTP
+generated screen frames + PCM (cached, looped) ▶ │ (frame sync)  │ raw  │ (one per session,    │   (the same output
+                                                 └───────────────┘      │  never restarted)    │    the whole time)
+                                                                        └──────────────────────┘
+```
+
+- **The encoder** is started once per session with fixed output parameters: codec, profile and level, resolution, frame rate, pixel format, GOP, audio codec, layout and sample rate. They come from the session's negotiated contract, the same `slateInfo` / `Decide` path, so clients see exactly the shapes they get today. Its input is constant-rate raw video plus PCM, so its timestamps are a monotonic frame clock that can't jump.
+  - Inputs reach ffmpeg over loopback TCP, because `ExtraFiles` pipes don't exist on Windows (production runs on Windows).
+- **The decoder** turns the provider stream into raw frames already scaled to the output size and frame rate, and PCM resampled to the output layout (`-vf scale,fps`, `aresample=async=1`). It is restarted on every reconnect. It is the only process that holds the provider connection.
+- **The switcher** (Go, in `internal/livetv`) is a broadcast-style frame synchroniser. It writes exactly one video frame per output tick and the matching audio samples, choosing the source frame when it's fresh. Ticks are paced to the wall clock.
+  - **Stall detection.** If no decoded frame arrives for 1.5 s, or the decoder exits, or the provider closes or errors, the switcher repeats the last frame until the 1.5 s threshold, then switches to the screen. Audio crossfades over 40 ms. The output never gaps.
+  - **Recovery.** A background retry (cooldown, tune gap, per-hour cap and provider-slot rules exactly as above) starts a new decoder. The first decoded frame is always a keyframe, because the decoder starts there. The switcher cuts back on the next tick, re-timed onto the continuous clock, with a 40 ms audio crossfade.
+  - **Starting down.** A tune whose source is down from the start begins on the screen at the channel's last known contract (the cached probe from its last session or health sweep, otherwise 1080p30 H.264 / AAC stereo). It becomes the real feed later with the same continuity. If the feed arrives at a different size or rate, it is scaled into the fixed contract for the rest of the session.
+- **The screens** are cached master clips (the Signal family) decoded once into a looping in-memory frame and PCM ring, so filling costs no extra decoder.
+
+**HLS, DASH and HTTP.**
+- The encoder writes the session's output (HLS segments; fMP4 for Plex Web's DASH; a continuous Matroska/TS byte stream for Plex for Mac's HTTP path) from one uninterrupted stream.
+- All three keep continuity with no reconnect, including Plex for Mac, which has no rollover today. A single endless output doesn't need any.
+
+**Alternative ruled out: copy mode with a matching pre-encoded slate.**
+- Splicing a slate into a stream-copied feed without a discontinuity requires the slate's H.264 SPS/PPS, timebase, GOP structure and AAC AudioSpecificConfig to be bit-identical to the provider's. RFC 8216 §4.3.2.3 requires `EXT-X-DISCONTINUITY` whenever encoding parameters change.
+- Ether can probe the provider's parameters, but it can't reproduce a third-party encoder's SPS/PPS and VUI bit-exactly with x264.
+- Providers also come back from an outage with different parameters: a restarted transcoder, a new resolution, or a backup input.
+- Without the tag, real decoders (Apple VideoToolbox in particular) corrupt or stall on the SPS change. With it, the owner's requirement fails.
+- Copy-mode splicing would therefore be seamless only in the special case where nothing changes, and that can't be guaranteed or detected in time. It is ruled out.
+
+**Cost per session** (estimates to be measured as the slice gate on the Mac lab and HYPERV03):
+
+| | CPU | Memory | Notes |
+| --- | --- | --- | --- |
+| Today, relay or remux | ≈ 0.02 core | ≈ 20 MB | No encode |
+| Switcher, x264 `veryfast`, 720p30 | ≈ 0.5–0.7 core | ≈ 150 MB | Decode ≈ 0.1, encode ≈ 0.4–0.6, frame pump ≈ 0.05 (≈ 40 MB/s raw) |
+| Switcher, x264 `veryfast`, 1080p30 | ≈ 1.2–1.7 cores | ≈ 250 MB | Frame pump ≈ 95 MB/s raw |
+| Switcher, hardware encode (NVENC, QSV, VAAPI, VideoToolbox) | ≈ 0.15–0.25 core | ≈ 200 MB | Uses an encoder session on the GPU |
+| Session already transcoding (`Channel.Transcode`, or the client needs it) | ≈ +0.1 core over today | ≈ +60 MB | The encode already exists; only the decoder split and the pump are added |
+
+**When it applies.** Always-on would multiply IPTV CPU by roughly 30–80× with software encoding, so the switcher runs only where a can't-play screen is enabled.
+- The owner default **When a channel can't play** gets one more option, **Apply to**:
+  - **Streams Ether already converts**: the default; it costs almost nothing.
+  - **Every stream**: adds encoding per viewer. The ⓘ gives the measured cost and how many simultaneous viewers this server can encode (from the transcode benchmark).
+- Hardware encode is used whenever `HWAccel` reports it.
+- Sessions without a screen (owner default **Show an error**, or a relayed stream under **Streams Ether already converts**) keep today's relay path and today's error on failure.
+
+**Virtual channels.** They play each programme as its own track today, with a discontinuity at every programme boundary. The same switcher could drive a virtual channel's whole session: programme decoders, clips and screens as switcher inputs into one encoder. That would remove every discontinuity, the track budget, the DASH codec-flip risk and Plex for Mac's missing rollover, but every virtual viewer would then be encoded (today, programmes remux when compatible). **v0.3.5 scope:** IPTV sessions with a screen enabled, and virtual-channel tune failures that start on a screen (their programme boundaries stay as today). Moving virtual channels onto the switcher is an owner decision (§13).
+
+**What the Plex app sees.** With a screen enabled, a failed or dropped source never produces an error, a retune or a spinner. The picture goes to the screen within about 1.5 s of the source stopping, and back to the real feed about 1 s after the retry reconnects. The guide and Now Playing still show the scheduled programme.
+- **No Plex response shapes change.** The tune response, decision, playlists and MPD are the same shapes as any successful tune today. The one deliberate behaviour change is that a tune that fails today with HTTP 503 now succeeds.
+- Jellyfin, Emby and M3U clients see the same through the sessions broker.
+
+**Lasting tests.**
+- A fake source that stalls for 20 s and recovers produces a continuous segment sequence on HLS and DASH: no discontinuity tags, monotonic PTS and DTS, constant codec parameters, continuous media sequence numbers.
+- A real-ffmpeg check decodes the whole captured output straight through (`ffmpeg -xerror -i … -f null -`) with no errors, timestamp warnings or parameter changes. It is skipped when ffmpeg isn't installed.
+
 - **Diagnostics are unchanged.** Source health, cooldowns and failure logs record every failed attempt exactly as now, and Activity shows the session as "No signal, retrying".
 
 ### 4.8 AI
@@ -888,7 +931,7 @@ Each phase ships on its own and leaves Ether better than it was.
 | **0 · Spike** (1 week) | `raster` with paths, gradients, text, blur and blend; one family as a document; Go render benchmark; WASM build in a throwaway stage. | §6.3/§6.4 gates measured on HYPERV03 and the Mac lab. Go/no-go on WASM ([§13](#13-owner-decisions-needed), decision 4). |
 | **1 · Looks foundation** | `onair` package, built-in Clean family plus the five reel families, look CRUD, render cache, clip tracks on the slate path, **looked off-air clip on the v0.3.4 slate path**, **tune-in ident**, Looks sub-tab plus gallery, look drawer Design tab, channel Look tab (Ident, Off-air). | Looked off-air plays on HLS and DASH. Tune-to-first-frame ≤ 1 s with an ident. Owner screenshot approval. |
 | **2 · Moments** | Interstitials in `Schedule` (gap and inserted), guide coalescing, track budget, `upnext`/`back`/`break`/`tonight`, **break reels** (upload, conversion, reel drawer, break contents in the Look tab), Layers tab, Assets tab, Describe a look, DASH clip encode. | Guide IDs stable in gap mode. 24 h soak on the lab with no stalls. Owner approval of the designer. |
-| **2b · Signal screens** | Signal family (card, static, bars, brb, testcard) with synthesized audio; owner default and per-channel pickers; off-air styles; can't-play screens with background retry inside the connection limit and recovery onto the real feed on HLS, DASH and (if the app reconnects) HTTP. | Provider outage simulated on the lab: Apple TV, Plex Web and Android show the screen with sound, then the real feed after recovery, with the account limit never exceeded. Owner approval of the pickers. |
+| **2b · Signal screens** | Signal family (card, static, bars, brb, testcard) with synthesized audio; owner default and per-channel pickers; off-air styles; can't-play screens with a continuous-output switcher (decoder → Go frame sync → one long-lived encoder) so a stalled, failed or recovering source never interrupts the stream on HLS, DASH or HTTP; background retry inside the connection limit. | Provider outage simulated on the lab: Apple TV, Plex Web and Android show the screen with sound and then the real feed, with no discontinuity, spinner or reconnect; continuity and real-decoder tests green; the account limit never exceeded; per-session cost measured on the lab and HYPERV03. Owner approval of the pickers. |
 | **3 · Personal channels** | `PersonalPicker`, recipe tab, rundowns, on-demand cursor, `welcome`, watchlist trailers in breaks, viewer profile row, per-viewer lineup naming. | Tested on two viewers on Apple TV and Plex Web, with policy-filter checks. |
 | **4 · Packs and describe-a-channel** | `data` runtime, contributions, links, export drawer, install preview, Make it mine, `channel_draft` describer. | Export → import round-trip on a second server reproduces the channel and look. |
 | **4b · Plugin content** | `onair_content` capability, feeds and segments contributions, `onair_feed_values`, segment placement (blocks, On the clock, breaks), binding picker, Studio templates and stage preview, one sample weather plugin built in Studio. | A Studio-built weather plugin airs hourly in two different looks on the lab, survives a feed outage without stalling, and uninstalls cleanly. |
@@ -940,7 +983,9 @@ Everything else is verified once by hand and recorded in the acceptance doc.
 6. **AppKit additions:** `ColorPicker` and `PaletteEditor` upstreamed to `appkit-ui` first. (Recommended: yes.)
 7. **Font bundle:** about 4 MB added to the binary for 13 OFL families, with CJK downloaded on demand. (Recommended: yes.)
 8. **Unrated plugin segments** on channels with a rating cap: hidden unless the owner allows them per channel (recommended), or always allowed?
-9. **Can't-play screens:** tunes that fail today with HTTP 503 succeed and play the chosen screen while Ether retries. Plex response shapes don't change; only the outcome does. (Recommended: approve, with an owner-default option **Show an error** that keeps today's behaviour.)
+9. **Can't-play screens:** tunes that fail today with HTTP 503 succeed, and the stream continues seamlessly on the chosen screen until the source returns (continuous-output switcher, §4.9). Plex response shapes don't change; only the outcome does. (Recommended: approve, keeping **Show an error** as an option.)
+9a. **Where the switcher runs:** **Streams Ether already converts** by default (near-zero cost), with **Every stream** as an opt-in that adds about 0.5–0.7 core per 720p viewer in software, or about 0.2 with hardware encode. (Recommended.)
+9b. **Virtual channels on the switcher:** remove every programme-boundary discontinuity, at the cost of encoding every virtual viewer. (Recommended: a follow-on slice after IPTV proves it, not in v0.3.5's first cut.)
 10. **Screen defaults:** Modern card for both situations, with the colour-bars tone at −24 dBFS. (Recommended.)
 11. **Release:** v0.3.5 (decided by the release coordinator, 2026-11-05).
 
