@@ -37,6 +37,7 @@ func (q *broadcastFrameQueue) push(frame transcode.RawFrame) (changed, repeating
 	}
 	if q.repeating && q.held != nil {
 		frame.Video = q.held
+		frame.RepeatVideo = true
 		frame.PolicyTags = mergeBroadcastTags(frame.PolicyTags, q.heldPolicy)
 	} else {
 		q.held = frame.Video
