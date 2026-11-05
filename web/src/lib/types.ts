@@ -705,7 +705,14 @@ export interface ClusterNode {
   name: string;
   version: string;
   addrs: string[] | null;
-  caps: { transcode: boolean; hwAccel?: string; weight?: number; egressIp?: string };
+  caps: {
+    /** Empty or absent preserves the full-server responsibilities. */
+    roles?: string[] | null;
+    transcode: boolean;
+    hwAccel?: string;
+    weight?: number;
+    egressIp?: string;
+  };
   /** Active playback sessions on the node. */
   load: number;
   startedAt: string;

@@ -2028,7 +2028,13 @@ export function createFakeServer(opts: FakeOptions = {}) {
         id: "n-attic",
         name: "attic",
         load: 2,
-        caps: { transcode: true, hwAccel: "nvenc", weight: 2, egressIp: "198.51.100.20" },
+        caps: {
+          roles: ["transcode", "delivery"],
+          transcode: true,
+          hwAccel: "nvenc",
+          weight: 2,
+          egressIp: "198.51.100.20",
+        },
       }),
       node({
         id: "n-garage",
