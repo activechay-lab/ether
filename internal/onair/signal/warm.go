@@ -41,15 +41,15 @@ func (g *WarmGenerator) Frame(dst []byte, tick int64) {
 	switch g.variant {
 	case "shimmer":
 		alpha = .035
-		amplitude = 34
+		amplitude = 68
 		barDepth = 1.8
 	case "classic":
 		alpha = .10
-		amplitude = 64
+		amplitude = 112
 		barDepth = 5
 	case "ghost":
 		alpha = .045
-		amplitude = 32
+		amplitude = 88
 		barDepth = 2.5
 	}
 	if tick%2 == 0 {
@@ -75,6 +75,7 @@ func (g *WarmGenerator) Frame(dst []byte, tick int64) {
 		}
 	}
 	t := float64(tick) / 30
+	amplitude *= 1 + .12*float32(math.Sin(t*.23))
 	bar := float64(g.h) * (.5 + .33*math.Sin(t*.043) + .06*math.Sin(t*.017*math.Sqrt2))
 	ghost := 0.0
 	if g.variant == "ghost" {

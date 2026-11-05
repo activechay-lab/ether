@@ -16,6 +16,7 @@ type Engine struct {
 	style         string
 	warm          *WarmGenerator
 	source, plate []byte
+	vignette      []uint16
 	rowA, rowB    []uint16
 	xIndex        []int
 	xWeight       []uint16
@@ -66,6 +67,13 @@ func NewPlate(width, height int, style string, plate, overlay image.Image, seed 
 		draw.Draw(combined, combined.Rect, overlay, overlay.Bounds().Min, draw.Over)
 	}
 	e.plate = make([]byte, width*height*3/2)
+	e.vignette = make([]uint16, width*height)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			nx, ny := (float64(x)/float64(width)-.5)*2, (float64(y)/float64(height)-.5)*2
+			e.vignette[y*width+x] = uint16(256 - 20*(nx*nx+ny*ny)/2)
+		}
+	}
 	for y := 0; y < height; y += 2 {
 		for x := 0; x < width; x += 2 {
 			r, g, b := 0, 0, 0
@@ -115,7 +123,7 @@ func (e *Engine) Render(video []byte, pcm []int16, tick int64) {
 		}
 		row := video[y*w : (y+1)*w]
 		for x, v := range row {
-			row[x] = lut[v]
+			row[x] = byte(16 + (int(lut[v])-16)*int(e.vignette[y*w+x])/256)
 		}
 	}
 	if e.style == "bars" || e.style == "testcard" {

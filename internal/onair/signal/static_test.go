@@ -1,6 +1,7 @@
 package signal
 
 import (
+	"image"
 	"math"
 	"testing"
 )
@@ -56,6 +57,18 @@ func TestStaticContinuity(t *testing.T) {
 
 func BenchmarkLiveWarm1080p30(b *testing.B) {
 	e := NewStatic(1920, 1080, "classic", 7)
+	video := make([]byte, 1920*1080*3/2)
+	pcm := make([]int16, 3200)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		e.Render(video, pcm, int64(n))
+	}
+}
+
+func BenchmarkLivePlate1080p30(b *testing.B) {
+	plate := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	e := NewPlate(1920, 1080, "bars", plate, nil, 7)
 	video := make([]byte, 1920*1080*3/2)
 	pcm := make([]int16, 3200)
 	b.ReportAllocs()
