@@ -3387,6 +3387,7 @@
     "other": "{count} times, {time}"
   },
   "m_0e9291aef864c6": "Last 20 plays",
+  "m_0e93126e6b5d00": "Asset sections",
   "m_0e936e6e874290": "Height",
   "m_0e94189aa61949": "Arguments",
   "m_0e95572bd34f35": "Search Ether",
@@ -6318,6 +6319,7 @@
   "m_1ad81b34fdb36f": "Setup",
   "m_1ad98023f59772": "ratings omdb mdblist api key",
   "m_1adc423f4fbe16": "Sign in with Plex",
+  "m_1adca56e6d2eb5": "Used in reel {name}",
   "m_1adcd67ee7e38b": "Corrected copy: {url}",
   "m_1ade361b8011ed": "Break placement",
   "m_1adfaa3edbfae0": "step",
