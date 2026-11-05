@@ -74,6 +74,7 @@ func (s *Server) routes() chi.Router {
 	r.Put("/library/metadata/{key}/analyze", s.handlePlaylistMetadataRefusal)
 	r.Put("/library/metadata/{key}/match", s.handlePlaylistMetadataRefusal)
 	get("/library/metadata/{key}/match", s.handlePlaylistMetadataRefusal)
+	get("/library/metadata/{key}/tree", s.handleMetadataTree)
 	get("/library/metadata/{key}/children", s.handleChildren)
 	get("/library/metadata/{key}/allLeaves", s.handleAllLeaves)
 	get("/library/metadata/{key}/grandchildren", s.handleAllLeaves)

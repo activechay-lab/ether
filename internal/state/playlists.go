@@ -13,7 +13,14 @@ import (
 )
 
 func init() {
+	// Some older databases recorded state/1 without the optional member
+	// table. Ensure that legacy shape exists before copying its entries.
 	store.Register("state", 7, `
+ CREATE TABLE IF NOT EXISTS state_playlist_items (
+ playlist_id INTEGER NOT NULL REFERENCES state_playlists(id) ON DELETE CASCADE,
+ position INTEGER NOT NULL,
+ rating_key INTEGER NOT NULL,
+ PRIMARY KEY (playlist_id, position));
  ALTER TABLE state_playlists ADD COLUMN guid TEXT NOT NULL DEFAULT '';
  ALTER TABLE state_playlists ADD COLUMN summary TEXT NOT NULL DEFAULT '';
  ALTER TABLE state_playlists ADD COLUMN added_at INTEGER NOT NULL DEFAULT 0;

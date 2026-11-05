@@ -386,7 +386,7 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 			}
 			sel := resolveSelection(stored, info)
 			sel = s.preferredSelection(ctx, pr.User, t.Key, info, t.Language, sel)
-			m.Part[0].Stream = s.issuedStreams(t.Key, ik, m.ID, info, sel, pr.User)
+			m.Part[0].Stream = s.issuedStreams(t.Key, ik, m.ID, info, sel, pr.User, pr)
 		}
 		// The admitted version stays selected while its probe is pending,
 		// so the selection does not move from Auto to it once probed.

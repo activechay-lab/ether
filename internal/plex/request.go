@@ -126,7 +126,7 @@ func ParseRequest(r *http.Request, trusted ...netip.Prefix) *Request {
 		DeviceName:      plexParam(r, "X-Plex-Device-Name"),
 		Model:           plexParam(r, "X-Plex-Model"),
 		Vendor:          plexParam(r, "X-Plex-Device-Vendor"),
-		Language:        plexParam(r, "X-Plex-Language"),
+		Language:        requestLanguage(r),
 
 		Features:     plexParam(r, "X-Plex-Features"),
 		ProfileExtra: plexParam(r, "X-Plex-Client-Profile-Extra"),

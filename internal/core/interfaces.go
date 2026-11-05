@@ -591,6 +591,11 @@ type StreamInfo struct {
 	ReferenceFrameRate *float64 `json:"referenceFrameRate,omitempty"`
 	DisplayAspectRatio string   `json:"displayAspectRatio,omitempty"`
 	PixelFormat        string   `json:"pixelFormat,omitempty"`
+	SampleFormat       string   `json:"sampleFormat,omitempty"`
+	StreamIdentifier   string   `json:"streamIdentifier,omitempty"`
+	CodedWidth         int      `json:"codedWidth,omitempty"`
+	ChromaLocation     string   `json:"chromaLocation,omitempty"`
+	CodedHeight        int      `json:"codedHeight,omitempty"`
 	CodecTag           string   `json:"codecTag,omitempty"`
 	TimeBase           string   `json:"timeBase,omitempty"`
 	NALLengthSize      *int     `json:"nalLengthSize,omitempty"`
@@ -623,6 +628,7 @@ type StreamInfo struct {
 	AACSourceStart *int64 `json:"aacSourceStart,omitempty"`
 	SampleRate     int    `json:"sampleRate,omitempty"`
 	BitrateKbps    int    `json:"bitrateKbps,omitempty"`
+	ProviderTitle  string `json:"providerTitle,omitempty"`
 	External       bool   `json:"external,omitempty"` // sidecar subtitle (OpenSubtitles)
 	ExternalURL    string `json:"externalUrl,omitempty"`
 
