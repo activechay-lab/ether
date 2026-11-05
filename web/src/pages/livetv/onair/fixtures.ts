@@ -80,7 +80,24 @@ export const referenceLooks: Look[] = (
   },
   moments: Object.fromEntries(
     ["ident", "tonight", "upnext", "break", "back", "offair", "welcome", "bug", "lowerthird"].map(
-      (m) => [m, { duration: 8, poster: 4.4 }],
+      (m) => [
+        m,
+        {
+          duration: 8,
+          poster:
+            m === "ident"
+              ? family === "retro"
+                ? 5.4
+                : family === "lateNight"
+                  ? 5.3
+                  : family === "kids"
+                    ? 3.8
+                    : 4.4
+              : family === "lateNight" && m === "back"
+                ? 6.2
+                : 4.4,
+        },
+      ],
     ),
   ),
   channelIds:
