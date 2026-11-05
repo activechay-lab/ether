@@ -22,6 +22,7 @@ jobs:
       - run: helm lint packaging/helm/ether --strict -f packaging/kubernetes/mixed-cpu.values.yaml
       - run: python packaging/kubernetes/check-chart.py
       - run: python packaging/kubernetes/check-rollout.py
+      - run: python packaging/kubernetes/check-placement.py
       - run: helm package packaging/helm/ether --destination dist/charts
       - uses: actions/upload-artifact@v4
         with:
