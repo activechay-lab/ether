@@ -1493,8 +1493,25 @@ func segmentNumber(name string) (int, bool) {
 	return n, true
 }
 
+// The control endpoints distinguish an omitted session from an empty one.
+func transcodeControlSession(w http.ResponseWriter, r *http.Request) bool {
+	q := r.URL.Query()
+	if !q.Has("session") {
+		writeHTTPError(w, http.StatusBadRequest)
+		return false
+	}
+	if q.Get("session") == "" {
+		writeHTTPError(w, http.StatusNotFound)
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleTranscodePing(w http.ResponseWriter, r *http.Request) {
 	if s.refuseCapability(w, r) {
+		return
+	}
+	if !transcodeControlSession(w, r) {
 		return
 	}
 	if id := sanitizeSessionID(r.URL.Query().Get("session")); id != "" {
@@ -1514,6 +1531,9 @@ func (s *Server) handleTranscodePing(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTranscodeStop(w http.ResponseWriter, r *http.Request) {
 	if s.refuseCapability(w, r) {
+		return
+	}
+	if !transcodeControlSession(w, r) {
 		return
 	}
 	id := sanitizeSessionID(r.URL.Query().Get("session"))

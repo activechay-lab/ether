@@ -626,7 +626,7 @@ func (s *Server) handlePlayQueueCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 // continuousKeys resolves a play queue URI; with continuous=1 a single
-// episode expands to the rest of its show.
+// episode expands to the remaining episodes in its presented season.
 func (s *Server) continuousKeys(ctx context.Context, pr *Request, uri string, continuous bool) ([]core.RatingKey, error) {
 	keys, err := s.resolveURI(ctx, pr, uri)
 	if err != nil {
@@ -636,8 +636,13 @@ func (s *Server) continuousKeys(ctx context.Context, pr *Request, uri string, co
 		return keys, nil
 	}
 	ep := keys[0]
-	show := ep.Parent().Parent()
-	eps, err := s.metadataGrandchildren(ctx, pr, show)
+	season := ep.Season()
+	if s.d.EpisodeOrder != nil {
+		if n, _, _, ok := s.d.EpisodeOrder.Position(ctx, pr.User, ep); ok {
+			season = n
+		}
+	}
+	eps, err := s.metadataChildren(ctx, pr, core.SeasonKey(ep.TMDB(), season))
 	if err != nil {
 		return keys, nil
 	}
@@ -782,7 +787,7 @@ func (s *Server) handlePlayQueueMutate(op string) http.HandlerFunc {
 			var err error
 			switch {
 			case q.Get("uri") != "":
-				addKeys, err = s.resolveURI(ctx, pr, q.Get("uri"))
+				addKeys, err = s.continuousKeys(ctx, pr, q.Get("uri"), q.Get("continuous") == "1")
 			case q.Get("playlistID") != "":
 				var k core.RatingKey
 				if k, err = core.ParseRatingKey(q.Get("playlistID")); err == nil {

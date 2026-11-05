@@ -425,6 +425,10 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, r, err)
 		return
 	}
+	if parent.Type == core.TypeMovie || parent.Type == core.TypeEpisode {
+		writeHTTPError(w, http.StatusBadRequest)
+		return
+	}
 	s.rememberTitle(parent) // seasons render the show's studio/year/logo
 	kids, err := s.metadataChildren(ctx, pr, k)
 	if err != nil && !errors.Is(err, core.ErrNotFound) {
