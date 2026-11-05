@@ -260,7 +260,7 @@ func TestScrobbleRate(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("scrobble %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "MediaContainer") {
+	if rec.Body.Len() != 0 || rec.Header().Get("Content-Type") != "text/html" {
 		t.Fatalf("scrobble body %q", rec.Body.String())
 	}
 	if st, _ := f.state.Get(context.Background(), ownerUser.ID, fightClub.Key); st.ViewCount != 1 {
@@ -664,13 +664,7 @@ func TestEventSource(t *testing.T) {
 	if line, _ := br.ReadString('\n'); !strings.HasPrefix(line, ":") {
 		t.Fatalf("first line %q", line)
 	}
-	go func() {
-		r, _ := http.NewRequest(http.MethodPut, ts.URL+"/:/scrobble?key="+bbE1.Key.String()+"&identifier=com.plexapp.plugins.library", nil)
-		r.Header.Set("X-Plex-Token", ownerToken)
-		if resp, err := http.DefaultClient.Do(r); err == nil {
-			resp.Body.Close()
-		}
-	}()
+	go f.srv.WatchStateChanged(ownerUser.ID, bbE1.Key)
 	for {
 		line, err := br.ReadString('\n')
 		if err != nil {
@@ -697,12 +691,12 @@ func TestEventSource(t *testing.T) {
 	}
 }
 
-func TestMovieScrobbleTimelineNamesItself(t *testing.T) {
+func TestMovieWatchRefreshTimelineNamesItself(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	sub, _ := f.srv.notifier.subscribe([]string{"timeline"}, &ownerUser)
 	defer f.srv.notifier.unsubscribe(sub)
-	f.get(t, "/:/scrobble?key="+fightClub.Key.String()+"&identifier=com.plexapp.plugins.library")
+	f.srv.WatchStateChanged(ownerUser.ID, fightClub.Key)
 	select {
 	case msg := <-sub.ch:
 		var body struct {
@@ -723,7 +717,7 @@ func TestMovieScrobbleTimelineNamesItself(t *testing.T) {
 			t.Fatalf("movie timeline %+v", e)
 		}
 	default:
-		t.Fatal("movie scrobble published no timeline entry")
+		t.Fatal("movie watch refresh published no timeline entry")
 	}
 }
 

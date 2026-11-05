@@ -463,6 +463,16 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 		if mc.AllowSync != nil {
 			*mc.AllowSync = s.downloadsAllowed(pr.User)
 		}
+		if strings.HasPrefix(r.URL.Path, "/hubs") {
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/postplay"):
+				mc.AllowSync = nil
+			case strings.HasPrefix(r.URL.Path, "/hubs/search"), strings.HasPrefix(r.URL.Path, "/hubs/items"):
+				mc.AllowSync = nil
+			default:
+				mc.AllowSync = model.Ptr(true)
+			}
+		}
 		// PMS exposes playlist syncing to clients that declare the sync
 		// protocol. Keep Ether's download permission as the authority.
 		if r.Header.Get("X-Plex-Sync-Version") != "" && strings.HasPrefix(r.URL.Path, "/playlists") {
@@ -476,6 +486,12 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 				mc.AllowSync = model.Ptr(allowed)
 			}
 		}
+	}
+	if mc, ok := v.(*model.MediaContainer); ok {
+		if r.URL.Path == "/hubs" {
+			s.applyHubDetailOptions(r.Context(), mc, r.URL.Query())
+		}
+		applyInlineOnDeckExclusions(mc, excludedElements(r.URL.Query()))
 	}
 	if strings.HasPrefix(r.URL.Path, "/playlists") || strings.HasPrefix(r.URL.Path, "/playQueues") {
 		if mc, ok := v.(*model.MediaContainer); ok && strings.HasPrefix(r.URL.Path, "/playlists") && r.Method != http.MethodGet && r.Method != http.MethodHead && pr.HasPage {

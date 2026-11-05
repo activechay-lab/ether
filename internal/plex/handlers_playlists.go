@@ -329,7 +329,7 @@ func (s *Server) playlist(ctx context.Context, u *core.User, k core.RatingKey) (
 	return (experience.PlaylistSelection{Playlists: s.d.Playlists}).Get(ctx, u, k)
 }
 
-func (s *Server) playlistMetadata(ctx context.Context, pl *core.Playlist) model.Metadata {
+func (s *Server) playlistMetadata(ctx context.Context, pl *core.Playlist, omitState ...bool) model.Metadata {
 	rk := pl.Key.String()
 	count := len(pl.Items)
 	if pl.SmartURI != "" {
@@ -370,6 +370,9 @@ func (s *Server) playlistMetadata(ctx context.Context, pl *core.Playlist) model.
 		m.Icon = "playlist://image.smart"
 	}
 	m.Duration = s.playlistDuration(pl.Items)
+	if len(omitState) > 0 && !omitState[0] {
+		s.applyListWatch(ctx, &m, pl.Key)
+	}
 	return m
 }
 
@@ -446,7 +449,7 @@ func (s *Server) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.notifyPlaylistLifecycle(pl, true)
-		s.write(w, r, &model.MediaContainer{Size: 1, Metadata: []model.Metadata{s.playlistMetadata(ctx, pl)}})
+		s.write(w, r, &model.MediaContainer{Size: 1, Metadata: []model.Metadata{s.playlistMetadata(ctx, pl, true)}})
 		return
 	}
 	var keys []core.RatingKey
@@ -483,7 +486,7 @@ func (s *Server) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	mc := &model.MediaContainer{Size: 1, Metadata: []model.Metadata{s.playlistMetadata(ctx, pl)}}
+	mc := &model.MediaContainer{Size: 1, Metadata: []model.Metadata{s.playlistMetadata(ctx, pl, true)}}
 	s.write(w, r, mc)
 }
 
@@ -509,7 +512,7 @@ func (s *Server) handlePlaylist(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	md := s.playlistMetadata(r.Context(), pl)
+	md := s.playlistMetadata(r.Context(), pl, true)
 	if pl.SmartURI != "" {
 		md.Content = "library://x/directory/" + url.QueryEscape(pl.SmartURI)
 	}

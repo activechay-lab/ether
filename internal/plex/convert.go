@@ -345,9 +345,10 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *core.Title, o ren
 			m.ViewOffset = ms(st.ViewOffset)
 		}
 		m.LastViewedAt = unixOrZero(st.LastViewedAt)
+		m.LastRatedAt = unixOrZero(st.LastRatedAt)
 		if st.UserRating > 0 {
 			m.UserRating = st.UserRating
-			m.LastRatedAt = unixOrZero(st.UpdatedAt)
+			m.LastRatedAt = unixOrZero(st.LastRatedAt)
 		}
 	}
 
@@ -1480,9 +1481,6 @@ func (s *Server) applyListLeafCountsOpts(ctx context.Context, pr *Request, items
 		}
 		if viewed > 0 {
 			items[i].ViewedLeafCount = model.Ptr(viewed)
-			if items[i].LeafCount != nil && *items[i].LeafCount > 0 && viewed >= *items[i].LeafCount {
-				items[i].ViewCount = max(items[i].ViewCount, 1)
-			}
 		}
 	}
 }
@@ -1660,9 +1658,7 @@ func (s *Server) applyLeafCountsWith(ctx context.Context, pr *Request, items []m
 		// or season reads as watched.
 		items[i].ViewedLeafCount = model.Ptr(viewed)
 		items[i].LeafCount = model.Ptr(len(eps))
-		if viewed > 0 && viewed == len(eps) {
-			items[i].ViewCount = max(items[i].ViewCount, 1)
-		}
+
 	}
 }
 

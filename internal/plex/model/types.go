@@ -64,6 +64,7 @@ type MediaContainer struct {
 
 	Meta                *Meta                 `plex:"Meta,object"`
 	Directory           []Directory           `plex:"Directory"`
+	History             []HistoryMetadata     `plex:"Metadata"`
 	Metadata            []Metadata            `plex:"Metadata"`
 	Stream              []Stream              `plex:"Stream"` // subtitle search results
 	Hub                 []Hub                 `plex:"Hub"`
@@ -182,6 +183,7 @@ type Metadata struct {
 	Preferences *TrackPreferences `plex:"Preferences"`
 	element     string
 	alpha       bool
+	onDeck      bool
 
 	// On Deck items lead with their sync flag and section (PMS).
 	AllowSync             *bool   `plex:"allowSync"`
@@ -249,6 +251,8 @@ type Metadata struct {
 	CollectionSort        string  `plex:"collectionSort,omitempty"`
 	AddedAt               int64   `plex:"addedAt,omitempty"`
 	UpdatedAt             int64   `plex:"updatedAt,omitempty"`
+	GlobalViewCount       *int    `plex:"globalViewCount"`
+	UserCount             *int    `plex:"userCount"`
 	AudienceRatingImage   string  `plex:"audienceRatingImage,omitempty"`
 	ChapterSource         string  `plex:"chapterSource,omitempty"`
 	PrimaryExtraKey       string  `plex:"primaryExtraKey,omitempty"`
@@ -295,6 +299,7 @@ type Metadata struct {
 	Similar    []Tag       `plex:"Similar"`
 	Studio_    []Tag       `plex:"Studio"`
 
+	TopUsers         []HistoryUser  `plex:"User"`
 	User             *SessionUser   `plex:"User,object"`
 	Player           *Player        `plex:"Player,object"`
 	Session          *Session       `plex:"Session,object"`
@@ -517,6 +522,7 @@ type Stream struct {
 // Hub is a row of items.
 type Hub struct {
 	HubKey        string `plex:"hubKey,omitempty"`
+	UpNext        *bool  `plex:"upNext"`
 	Key           string `plex:"key,omitempty"`
 	Title         string `plex:"title"`
 	Type          string `plex:"type"`
@@ -713,7 +719,12 @@ type ButlerTask struct {
 	Description       string `plex:"description"`
 }
 
+type HistoryUser struct {
+	ID int64 `plex:"id"`
+}
+
 type Account struct {
+	GlobalViewCount      *int   `plex:"globalViewCount,omitempty"`
 	ID                   int64  `plex:"id"`
 	Key                  string `plex:"key"`
 	Name                 string `plex:"name"`

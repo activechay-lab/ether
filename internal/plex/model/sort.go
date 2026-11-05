@@ -24,7 +24,11 @@ var decisionTrailing = []string{"decision", "selected", "location"}
 func (m *Metadata) SetAlphabetical() { m.alpha = true }
 
 // AttrOrder implements AttrSorter.
+func (m *Metadata) SetOnDeckOrder() { m.onDeck = true }
 func (m Metadata) AttrOrder() (bool, []string, []string) {
+	if m.onDeck {
+		return false, []string{"allowSync", "librarySectionID", "librarySectionTitle", "librarySectionUUID"}, nil
+	}
 	if m.Type == "playlist" && !m.alpha {
 		return true, []string{"allowSync", "ratingKey", "key", "guid", "type", "title", "titleSort", "summary", "smart", "playlistType", "composite", "viewCount", "lastViewedAt", "viewOffset", "userRating", "duration", "leafCount", "addedAt", "updatedAt", "content", "icon"}, nil
 	}
@@ -96,7 +100,7 @@ func sortAttrs[T any](v reflect.Value, attrs []T, name func(T) string) []T {
 		return attrs
 	}
 	sorted, leading, trailing := s.AttrOrder()
-	if !sorted {
+	if !sorted && len(leading) == 0 && len(trailing) == 0 {
 		return attrs
 	}
 	rank := func(n string) int {
@@ -121,7 +125,7 @@ func sortAttrs[T any](v reflect.Value, attrs []T, name func(T) string) []T {
 		if ri != 0 {
 			return false
 		}
-		return name(out[i]) < name(out[j])
+		return sorted && name(out[i]) < name(out[j])
 	})
 	return out
 }

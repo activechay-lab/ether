@@ -1,6 +1,7 @@
 package plex
 
 import (
+	"github.com/braedonsaunders/ether/internal/plex/model"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -167,7 +168,13 @@ func (s *Server) routes() chi.Router {
 	any("/:/rate", s.handleRate)
 	any("/actions/removeFromContinueWatching", s.handleRemoveFromContinueWatching)
 	get("/status/sessions", s.handleSessions)
+	get("/history", func(w http.ResponseWriter, r *http.Request) { s.write(w, r, &model.MediaContainer{Content: "plugins"}) })
+	get("/hubs/sections/{section}/popular", s.handleHistoryPopular)
+	get("/library/all/top", s.handleHistoryTop)
+	get("/library/metadata/{key}/users/top", s.handleHistoryTopUsers)
 	get("/status/sessions/history/all", s.handleHistory)
+	get("/status/sessions/history/{history}", s.handleHistoryItem)
+	r.Delete("/status/sessions/history/{history}", s.handleHistoryItem)
 	get("/statistics/bandwidth", s.ownerOnly(s.handleStatisticsBandwidth))
 	get("/statistics/resources", s.ownerOnly(s.handleStatisticsResources))
 	get("/statistics/media", s.ownerOnly(s.handleStatisticsMedia))
