@@ -1,0 +1,189 @@
+{
+  "v": 1,
+  "moment": "ident",
+  "duration": 8,
+  "poster": 4.8,
+  "slots": [
+    "channel.name",
+    "next.title",
+    "next.meta",
+    "next.logline",
+    "next.time",
+    "next.backdrop",
+    "offair.message"
+  ],
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": {
+        "linear": [
+          0,
+          0,
+          1920,
+          1080
+        ],
+        "stops": [
+          [
+            0,
+            "{bg}"
+          ],
+          [
+            1,
+            "#182638"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "accent",
+      "type": "rect",
+      "x": {
+        "keys": [
+          [
+            0,
+            -1920
+          ],
+          [
+            1,
+            0,
+            "out"
+          ]
+        ]
+      },
+      "y": 0,
+      "w": 1920,
+      "h": 8,
+      "fill": "{accent}"
+    },
+    {
+      "id": "orb",
+      "type": "ellipse",
+      "x": 1240,
+      "y": 160,
+      "w": 560,
+      "h": 560,
+      "fill": {
+        "radial": [
+          280,
+          280,
+          0,
+          280
+        ],
+        "stops": [
+          [
+            0,
+            "{accent}@0.15"
+          ],
+          [
+            1,
+            "{accent}@0"
+          ]
+        ]
+      },
+      "behave": [
+        {
+          "drift": {
+            "amplitude": 10,
+            "speed": 0.5
+          }
+        }
+      ]
+    },
+    {
+      "id": "brand",
+      "type": "text",
+      "text": "{channel.name}",
+      "x": 960,
+      "y": {
+        "keys": [
+          [
+            0,
+            600
+          ],
+          [
+            1.2,
+            540,
+            "out"
+          ]
+        ]
+      },
+      "size": 150,
+      "font": "inter",
+      "fill": "{text}",
+      "align": "center",
+      "maxWidth": 1600,
+      "fit": "shrink",
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            1.2,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "id": "rule",
+      "type": "rect",
+      "x": 860,
+      "y": 620,
+      "w": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.8,
+            0
+          ],
+          [
+            1.7,
+            200,
+            "out"
+          ]
+        ]
+      },
+      "h": 4,
+      "fill": "{accent}"
+    },
+    {
+      "id": "tag",
+      "type": "text",
+      "text": "{words.tagline}",
+      "x": 960,
+      "y": 720,
+      "size": 38,
+      "font": "spacegrotesk",
+      "fill": "{text}",
+      "align": "center",
+      "track": 5,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            1.2,
+            0
+          ],
+          [
+            2.2,
+            1
+          ]
+        ]
+      }
+    }
+  ],
+  "post": []
+}

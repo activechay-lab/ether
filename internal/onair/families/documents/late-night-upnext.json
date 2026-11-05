@@ -1,0 +1,253 @@
+{
+  "v": 1,
+  "moment": "upnext",
+  "duration": 8,
+  "poster": 4.8,
+  "slots": [
+    "channel.name",
+    "next.title",
+    "next.meta",
+    "next.logline",
+    "next.time",
+    "next.backdrop",
+    "offair.message"
+  ],
+  "layers": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": "{bg}"
+    },
+    {
+      "id": "art",
+      "type": "art",
+      "src": "{next.backdrop}",
+      "w": 1920,
+      "h": 1080,
+      "scale": {
+        "keys": [
+          [
+            0,
+            1.06
+          ],
+          [
+            8,
+            1.13
+          ]
+        ]
+      },
+      "tint": "{accent}",
+      "tintBlend": "multiply"
+    },
+    {
+      "id": "scrim",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "fill": {
+        "linear": [
+          0,
+          0,
+          1440,
+          0
+        ],
+        "stops": [
+          [
+            0,
+            "{bg}@0.95"
+          ],
+          [
+            0.6,
+            "{bg}@0.6"
+          ],
+          [
+            1,
+            "{bg}@0"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "kicker",
+      "type": "text",
+      "text": "UP NEXT",
+      "x": 140,
+      "y": 250,
+      "size": 44,
+      "font": "specialelite",
+      "fill": "{accent}",
+      "track": 12,
+      "behave": [
+        {
+          "typewriter": {
+            "start": 0.3,
+            "step": 0.07
+          }
+        }
+      ]
+    },
+    {
+      "id": "rule",
+      "type": "rect",
+      "x": 140,
+      "y": 280,
+      "w": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.8,
+            0
+          ],
+          [
+            1.3,
+            140,
+            "out"
+          ]
+        ]
+      },
+      "h": 4,
+      "fill": "{accent}"
+    },
+    {
+      "id": "title",
+      "type": "text",
+      "text": "{next.title}",
+      "x": 135,
+      "y": 440,
+      "size": 128,
+      "font": "playfairdisplay",
+      "fill": "{text}",
+      "maxWidth": 1150,
+      "fit": "wrap",
+      "maxLines": 2,
+      "reveal": {
+        "wipe": "ltr",
+        "from": 0.9,
+        "to": 1.9,
+        "ease": "inOut"
+      }
+    },
+    {
+      "id": "meta",
+      "type": "text",
+      "text": "{next.meta}",
+      "x": 140,
+      "y": 670,
+      "size": 38,
+      "font": "specialelite",
+      "fill": "{text}",
+      "track": 2,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            1.9,
+            0
+          ],
+          [
+            2.5,
+            0.8
+          ]
+        ]
+      }
+    },
+    {
+      "id": "logline",
+      "type": "text",
+      "text": "{next.logline}",
+      "x": 140,
+      "y": 760,
+      "size": 44,
+      "font": "playfairdisplay",
+      "fill": "{text}",
+      "maxWidth": 980,
+      "fit": "wrap",
+      "maxLines": 2,
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            2.4,
+            0
+          ],
+          [
+            3.1,
+            0.92
+          ]
+        ]
+      }
+    },
+    {
+      "id": "tonight",
+      "type": "text",
+      "text": "TONIGHT AT",
+      "x": 1780,
+      "y": 860,
+      "size": 34,
+      "font": "specialelite",
+      "fill": "{text}",
+      "align": "right",
+      "track": 8
+    },
+    {
+      "id": "time",
+      "type": "text",
+      "text": "{next.time}",
+      "x": 1780,
+      "y": 965,
+      "size": 110,
+      "font": "specialelite",
+      "fill": "{accent}",
+      "align": "right"
+    },
+    {
+      "id": "progress",
+      "type": "rect",
+      "x": 140,
+      "y": 1030,
+      "w": {
+        "keys": [
+          [
+            0,
+            1640
+          ],
+          [
+            8,
+            0
+          ]
+        ]
+      },
+      "h": 3,
+      "fill": "{accent}"
+    }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": "{textures.grain}"
+    },
+    {
+      "type": "flicker",
+      "amount": 0.09
+    },
+    {
+      "type": "vignette",
+      "amount": 0.8
+    }
+  ]
+}
