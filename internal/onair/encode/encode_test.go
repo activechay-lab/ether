@@ -5,7 +5,10 @@ import (
 	"errors"
 	"image"
 	"os"
+	"os/exec"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,5 +43,31 @@ func TestCancellation(t *testing.T) {
 	}
 	if time.Since(start) > 2*time.Second {
 		t.Fatal("slow cancellation")
+	}
+}
+
+func TestLongPluginMasterKeepsDeclaredDuration(t *testing.T) {
+	ff, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	fp, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe unavailable")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	still := image.NewRGBA(image.Rect(0, 0, 64, 36))
+	out := t.TempDir() + "/forecast.mp4"
+	if err := WithOptions(ctx, ff, func(int) *image.RGBA { return still }, 120*30, 30, "", out, Options{Workers: 1, Width: 64, Height: 36, MaxSeconds: 600}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := exec.CommandContext(ctx, fp, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	duration, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64)
+	if err != nil || duration < 120 || duration > 120.1 {
+		t.Fatalf("plugin duration %s: %v", b, err)
 	}
 }

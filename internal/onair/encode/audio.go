@@ -11,7 +11,7 @@ import (
 // PCM returns deterministic stereo 48 kHz signed PCM. Periodic sine components
 // meet at zero, including band-limited noise (80–8000 Hz). No random stream seam.
 func PCM(a scene.Audio, seconds int) ([]int16, error) {
-	if seconds < 1 || seconds > 30 {
+	if seconds < 1 || seconds > 600 {
 		return nil, fmt.Errorf("invalid audio duration")
 	}
 	if a.Generator != "tone" && a.Generator != "static" && a.Generator != "bed" {
