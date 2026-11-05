@@ -104,7 +104,7 @@
               "fill": "{control.detail2}",
               "stroke": "{control.detail1}",
               "strokeWidth": 8,
-              "name": "White0"
+              "name": "White 1"
             },
             {
               "id": "pupil0",
@@ -114,10 +114,10 @@
               "w": 40,
               "h": 60,
               "fill": "{control.detail1}",
-              "name": "Pupil0"
+              "name": "Pupil 1"
             }
           ],
-          "name": "Eye0"
+          "name": "Eye 1"
         },
         {
           "id": "eye1",
@@ -136,7 +136,7 @@
               "fill": "{control.detail2}",
               "stroke": "{control.detail1}",
               "strokeWidth": 8,
-              "name": "White1"
+              "name": "White 2"
             },
             {
               "id": "pupil1",
@@ -146,10 +146,10 @@
               "w": 40,
               "h": 60,
               "fill": "{control.detail1}",
-              "name": "Pupil1"
+              "name": "Pupil 2"
             }
           ],
-          "name": "Eye1"
+          "name": "Eye 2"
         },
         {
           "id": "smile",
@@ -195,314 +195,328 @@
       "name": "Title shadow"
     },
     {
-      "id": "Title-outline3",
-      "type": "text",
-      "text": "BLORP! is napping",
-      "x": 1240,
-      "y": 475,
-      "size": 100,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Title outline3"
+      "id": "Title-treatment",
+      "name": "Title lettering",
+      "type": "group",
+      "layers": [
+        {
+          "id": "Title-outline3",
+          "type": "text",
+          "text": "BLORP! is napping",
+          "x": 1240,
+          "y": 475,
+          "size": 100,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Title outline 4"
+        },
+        {
+          "id": "Title-outline2",
+          "type": "text",
+          "text": "BLORP! is napping",
+          "x": 1240,
+          "y": 465,
+          "size": 100,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Title outline 3"
+        },
+        {
+          "id": "Title-outline1",
+          "type": "text",
+          "text": "BLORP! is napping",
+          "x": 1245,
+          "y": 470,
+          "size": 100,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Title outline 2"
+        },
+        {
+          "id": "Title-outline0",
+          "type": "text",
+          "text": "BLORP! is napping",
+          "x": 1235,
+          "y": 470,
+          "size": 100,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Title outline 1"
+        },
+        {
+          "id": "Title",
+          "type": "text",
+          "text": "BLORP! is napping",
+          "x": 1240,
+          "y": 470,
+          "size": 100,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Channel title"
+        }
+      ]
     },
     {
-      "id": "Title-outline2",
-      "type": "text",
-      "text": "BLORP! is napping",
-      "x": 1240,
-      "y": 465,
-      "size": 100,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Title outline2"
-    },
-    {
-      "id": "Title-outline1",
-      "type": "text",
-      "text": "BLORP! is napping",
-      "x": 1245,
-      "y": 470,
-      "size": 100,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Title outline1"
-    },
-    {
-      "id": "Title-outline0",
-      "type": "text",
-      "text": "BLORP! is napping",
-      "x": 1235,
-      "y": 470,
-      "size": 100,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Title outline0"
-    },
-    {
-      "id": "Title",
-      "type": "text",
-      "text": "BLORP! is napping",
-      "x": 1240,
-      "y": 470,
-      "size": 100,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Channel title"
-    },
-    {
-      "id": "subtitle-outline3",
-      "type": "text",
-      "text": "{offair.message}",
-      "x": 1240,
-      "y": 655,
-      "size": 54,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Subtitle outline3"
-    },
-    {
-      "id": "subtitle-outline2",
-      "type": "text",
-      "text": "{offair.message}",
-      "x": 1240,
-      "y": 645,
-      "size": 54,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Subtitle outline2"
-    },
-    {
-      "id": "subtitle-outline1",
-      "type": "text",
-      "text": "{offair.message}",
-      "x": 1245,
-      "y": 650,
-      "size": 54,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Subtitle outline1"
-    },
-    {
-      "id": "subtitle-outline0",
-      "type": "text",
-      "text": "{offair.message}",
-      "x": 1235,
-      "y": 650,
-      "size": 54,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Subtitle outline0"
-    },
-    {
-      "id": "subtitle",
-      "type": "text",
-      "text": "{offair.message}",
-      "x": 1240,
-      "y": 650,
-      "size": 54,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Subtitle"
+      "id": "subtitle-treatment",
+      "name": "Subtitle lettering",
+      "type": "group",
+      "layers": [
+        {
+          "id": "subtitle-outline3",
+          "type": "text",
+          "text": "{offair.message}",
+          "x": 1240,
+          "y": 655,
+          "size": 54,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Subtitle outline 4"
+        },
+        {
+          "id": "subtitle-outline2",
+          "type": "text",
+          "text": "{offair.message}",
+          "x": 1240,
+          "y": 645,
+          "size": 54,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Subtitle outline 3"
+        },
+        {
+          "id": "subtitle-outline1",
+          "type": "text",
+          "text": "{offair.message}",
+          "x": 1245,
+          "y": 650,
+          "size": 54,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Subtitle outline 2"
+        },
+        {
+          "id": "subtitle-outline0",
+          "type": "text",
+          "text": "{offair.message}",
+          "x": 1235,
+          "y": 650,
+          "size": 54,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Subtitle outline 1"
+        },
+        {
+          "id": "subtitle",
+          "type": "text",
+          "text": "{offair.message}",
+          "x": 1240,
+          "y": 650,
+          "size": 54,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Subtitle"
+        }
+      ]
     }
   ],
   "post": [

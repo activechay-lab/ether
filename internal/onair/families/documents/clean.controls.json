@@ -1,28 +1,28 @@
 [
   {
     "id": "detail1",
-    "label": "Highlight colour",
+    "label": "Poster shadow",
     "kind": "color",
     "value": "#000000",
     "group": "Artwork"
   },
   {
     "id": "detail2",
-    "label": "Shadow colour",
+    "label": "Progress track",
     "kind": "color",
     "value": "#eeeeee",
     "group": "Artwork"
   },
   {
     "id": "detail3",
-    "label": "Detail colour",
+    "label": "Poster background",
     "kind": "color",
     "value": "#152443",
     "group": "Artwork"
   },
   {
     "id": "detail4",
-    "label": "Secondary colour",
+    "label": "Fallback artwork",
     "kind": "color",
     "value": "#bd794f",
     "group": "Artwork"

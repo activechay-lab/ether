@@ -51,7 +51,7 @@
         ]
       },
       "blend": "screen",
-      "name": "Aurora0"
+      "name": "Aurora 1"
     },
     {
       "id": "aurora1",
@@ -90,7 +90,7 @@
         ]
       },
       "blend": "screen",
-      "name": "Aurora1"
+      "name": "Aurora 2"
     },
     {
       "id": "aurora2",
@@ -129,7 +129,7 @@
         ]
       },
       "blend": "screen",
-      "name": "Aurora2"
+      "name": "Aurora 3"
     },
     {
       "id": "Title-group",
@@ -137,69 +137,76 @@
       "type": "group",
       "layers": [
         {
-          "id": "Title-weight0",
-          "type": "text",
-          "text": "Back in a moment",
-          "x": 138.2,
-          "y": 200,
-          "size": 84,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "name": "Title edge 1"
-        },
-        {
-          "id": "Title-weight1",
-          "type": "text",
-          "text": "Back in a moment",
-          "x": 141.8,
-          "y": 200,
-          "size": 84,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "name": "Title edge 2"
-        },
-        {
-          "id": "Title-weight2",
-          "type": "text",
-          "text": "Back in a moment",
-          "x": 140,
-          "y": 198.2,
-          "size": 84,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "name": "Title edge 3"
-        },
-        {
-          "id": "Title-weight3",
-          "type": "text",
-          "text": "Back in a moment",
-          "x": 140,
-          "y": 201.8,
-          "size": 84,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "name": "Title edge 4"
-        },
-        {
-          "id": "Title",
-          "type": "text",
-          "text": "Back in a moment",
-          "x": 140,
-          "y": 200,
-          "size": 84,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "name": "Channel title"
+          "id": "Title-treatment",
+          "name": "Title lettering",
+          "type": "group",
+          "layers": [
+            {
+              "id": "Title-weight0",
+              "type": "text",
+              "text": "Back in a moment",
+              "x": 138.2,
+              "y": 200,
+              "size": 84,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "name": "Title edge 1"
+            },
+            {
+              "id": "Title-weight1",
+              "type": "text",
+              "text": "Back in a moment",
+              "x": 141.8,
+              "y": 200,
+              "size": 84,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "name": "Title edge 2"
+            },
+            {
+              "id": "Title-weight2",
+              "type": "text",
+              "text": "Back in a moment",
+              "x": 140,
+              "y": 198.2,
+              "size": 84,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "name": "Title edge 3"
+            },
+            {
+              "id": "Title-weight3",
+              "type": "text",
+              "text": "Back in a moment",
+              "x": 140,
+              "y": 201.8,
+              "size": 84,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "name": "Title edge 4"
+            },
+            {
+              "id": "Title",
+              "type": "text",
+              "text": "Back in a moment",
+              "x": 140,
+              "y": 200,
+              "size": 84,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "name": "Channel title"
+            }
+          ]
         }
       ]
     },
@@ -248,7 +255,7 @@
               ]
             ]
           },
-          "name": "Art sky"
+          "name": "Sky"
         },
         {
           "id": "art-moon",
@@ -258,33 +265,33 @@
           "w": 86.4,
           "h": 86.4,
           "fill": "{control.detail3}",
-          "name": "Art moon"
+          "name": "Moon"
         },
         {
           "id": "art-ridge0",
           "type": "path",
           "path": "M 0 338.0 L 108.0 195.0 L 189.0 325.0 L 351.0 175.5 L 540 312.0 L 540 650 L 0 650 Z",
           "fill": "{control.detail4}",
-          "name": "Art ridge0"
+          "name": "Ridge 1"
         },
         {
           "id": "art-ridge1",
           "type": "path",
           "path": "M 0 416.0 L 108.0 299.0 L 189.0 390.0 L 351.0 286.00000000000006 L 540 377.0 L 540 650 L 0 650 Z",
           "fill": "#293248",
-          "name": "Art ridge1"
+          "name": "Ridge 2"
         },
         {
           "id": "art-ridge2",
           "type": "path",
           "path": "M 0 494.0 L 108.0 403.0 L 189.0 454.99999999999994 L 351.0 396.50000000000006 L 540 441.99999999999994 L 540 650 L 0 650 Z",
           "fill": "#172139",
-          "name": "Art ridge2"
+          "name": "Ridge 3"
         }
       ],
       "scaleX": 1.962962962962963,
       "scaleY": 0.9230769230769231,
-      "name": "Art illustration"
+      "name": "Illustration"
     },
     {
       "id": "trailer-frame",
@@ -317,74 +324,81 @@
       "type": "group",
       "layers": [
         {
-          "id": "promo-weight0",
-          "type": "text",
-          "text": "{next.title}",
-          "x": 1268.2,
-          "y": 570,
-          "size": 84,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 520,
-          "fit": "wrap",
-          "maxLines": 3,
-          "name": "Promo edge 1"
-        },
-        {
-          "id": "promo-weight1",
-          "type": "text",
-          "text": "{next.title}",
-          "x": 1271.8,
-          "y": 570,
-          "size": 84,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 520,
-          "fit": "wrap",
-          "maxLines": 3,
-          "name": "Promo edge 2"
-        },
-        {
-          "id": "promo-weight2",
-          "type": "text",
-          "text": "{next.title}",
-          "x": 1270,
-          "y": 568.2,
-          "size": 84,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 520,
-          "fit": "wrap",
-          "maxLines": 3,
-          "name": "Promo edge 3"
-        },
-        {
-          "id": "promo-weight3",
-          "type": "text",
-          "text": "{next.title}",
-          "x": 1270,
-          "y": 571.8,
-          "size": 84,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 520,
-          "fit": "wrap",
-          "maxLines": 3,
-          "name": "Promo edge 4"
-        },
-        {
-          "id": "promo",
-          "type": "text",
-          "text": "{next.title}",
-          "x": 1270,
-          "y": 570,
-          "size": 84,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 520,
-          "fit": "wrap",
-          "maxLines": 3,
-          "name": "Promo"
+          "id": "promo-treatment",
+          "name": "Promo lettering",
+          "type": "group",
+          "layers": [
+            {
+              "id": "promo-weight0",
+              "type": "text",
+              "text": "{next.title}",
+              "x": 1268.2,
+              "y": 570,
+              "size": 84,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 520,
+              "fit": "wrap",
+              "maxLines": 3,
+              "name": "Promo edge 1"
+            },
+            {
+              "id": "promo-weight1",
+              "type": "text",
+              "text": "{next.title}",
+              "x": 1271.8,
+              "y": 570,
+              "size": 84,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 520,
+              "fit": "wrap",
+              "maxLines": 3,
+              "name": "Promo edge 2"
+            },
+            {
+              "id": "promo-weight2",
+              "type": "text",
+              "text": "{next.title}",
+              "x": 1270,
+              "y": 568.2,
+              "size": 84,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 520,
+              "fit": "wrap",
+              "maxLines": 3,
+              "name": "Promo edge 3"
+            },
+            {
+              "id": "promo-weight3",
+              "type": "text",
+              "text": "{next.title}",
+              "x": 1270,
+              "y": 571.8,
+              "size": 84,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 520,
+              "fit": "wrap",
+              "maxLines": 3,
+              "name": "Promo edge 4"
+            },
+            {
+              "id": "promo",
+              "type": "text",
+              "text": "{next.title}",
+              "x": 1270,
+              "y": 570,
+              "size": 84,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 520,
+              "fit": "wrap",
+              "maxLines": 3,
+              "name": "Promo"
+            }
+          ]
         }
       ]
     },

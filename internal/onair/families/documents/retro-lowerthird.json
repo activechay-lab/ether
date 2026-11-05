@@ -94,154 +94,161 @@
           "type": "group",
           "layers": [
             {
-              "id": "Title-weight0",
-              "type": "text",
-              "text": "{now.title}",
-              "x": 158.2,
-              "y": 880,
-              "size": 60,
-              "font": "{type.display}",
-              "fill": "{text}",
-              "fit": "shrink",
-              "maxWidth": 1140,
-              "opacity": {
-                "keys": [
-                  [
-                    0,
-                    0
-                  ],
-                  [
-                    0.4,
-                    0
-                  ],
-                  [
-                    1.8,
-                    1,
-                    "out"
-                  ]
-                ]
-              },
-              "name": "Title edge 1"
-            },
-            {
-              "id": "Title-weight1",
-              "type": "text",
-              "text": "{now.title}",
-              "x": 161.8,
-              "y": 880,
-              "size": 60,
-              "font": "{type.display}",
-              "fill": "{text}",
-              "fit": "shrink",
-              "maxWidth": 1140,
-              "opacity": {
-                "keys": [
-                  [
-                    0,
-                    0
-                  ],
-                  [
-                    0.4,
-                    0
-                  ],
-                  [
-                    1.8,
-                    1,
-                    "out"
-                  ]
-                ]
-              },
-              "name": "Title edge 2"
-            },
-            {
-              "id": "Title-weight2",
-              "type": "text",
-              "text": "{now.title}",
-              "x": 160,
-              "y": 878.2,
-              "size": 60,
-              "font": "{type.display}",
-              "fill": "{text}",
-              "fit": "shrink",
-              "maxWidth": 1140,
-              "opacity": {
-                "keys": [
-                  [
-                    0,
-                    0
-                  ],
-                  [
-                    0.4,
-                    0
-                  ],
-                  [
-                    1.8,
-                    1,
-                    "out"
-                  ]
-                ]
-              },
-              "name": "Title edge 3"
-            },
-            {
-              "id": "Title-weight3",
-              "type": "text",
-              "text": "{now.title}",
-              "x": 160,
-              "y": 881.8,
-              "size": 60,
-              "font": "{type.display}",
-              "fill": "{text}",
-              "fit": "shrink",
-              "maxWidth": 1140,
-              "opacity": {
-                "keys": [
-                  [
-                    0,
-                    0
-                  ],
-                  [
-                    0.4,
-                    0
-                  ],
-                  [
-                    1.8,
-                    1,
-                    "out"
-                  ]
-                ]
-              },
-              "name": "Title edge 4"
-            },
-            {
-              "id": "Title",
-              "type": "text",
-              "text": "{now.title}",
-              "x": 160,
-              "y": 880,
-              "size": 60,
-              "font": "{type.display}",
-              "fill": "{text}",
-              "fit": "shrink",
-              "maxWidth": 1140,
-              "opacity": {
-                "keys": [
-                  [
-                    0,
-                    0
-                  ],
-                  [
-                    0.4,
-                    0
-                  ],
-                  [
-                    1.8,
-                    1,
-                    "out"
-                  ]
-                ]
-              },
-              "name": "Channel title"
+              "id": "Title-treatment",
+              "name": "Title lettering",
+              "type": "group",
+              "layers": [
+                {
+                  "id": "Title-weight0",
+                  "type": "text",
+                  "text": "{now.title}",
+                  "x": 158.2,
+                  "y": 880,
+                  "size": 60,
+                  "font": "{type.display}",
+                  "fill": "{text}",
+                  "fit": "shrink",
+                  "maxWidth": 1140,
+                  "opacity": {
+                    "keys": [
+                      [
+                        0,
+                        0
+                      ],
+                      [
+                        0.4,
+                        0
+                      ],
+                      [
+                        1.8,
+                        1,
+                        "out"
+                      ]
+                    ]
+                  },
+                  "name": "Title edge 1"
+                },
+                {
+                  "id": "Title-weight1",
+                  "type": "text",
+                  "text": "{now.title}",
+                  "x": 161.8,
+                  "y": 880,
+                  "size": 60,
+                  "font": "{type.display}",
+                  "fill": "{text}",
+                  "fit": "shrink",
+                  "maxWidth": 1140,
+                  "opacity": {
+                    "keys": [
+                      [
+                        0,
+                        0
+                      ],
+                      [
+                        0.4,
+                        0
+                      ],
+                      [
+                        1.8,
+                        1,
+                        "out"
+                      ]
+                    ]
+                  },
+                  "name": "Title edge 2"
+                },
+                {
+                  "id": "Title-weight2",
+                  "type": "text",
+                  "text": "{now.title}",
+                  "x": 160,
+                  "y": 878.2,
+                  "size": 60,
+                  "font": "{type.display}",
+                  "fill": "{text}",
+                  "fit": "shrink",
+                  "maxWidth": 1140,
+                  "opacity": {
+                    "keys": [
+                      [
+                        0,
+                        0
+                      ],
+                      [
+                        0.4,
+                        0
+                      ],
+                      [
+                        1.8,
+                        1,
+                        "out"
+                      ]
+                    ]
+                  },
+                  "name": "Title edge 3"
+                },
+                {
+                  "id": "Title-weight3",
+                  "type": "text",
+                  "text": "{now.title}",
+                  "x": 160,
+                  "y": 881.8,
+                  "size": 60,
+                  "font": "{type.display}",
+                  "fill": "{text}",
+                  "fit": "shrink",
+                  "maxWidth": 1140,
+                  "opacity": {
+                    "keys": [
+                      [
+                        0,
+                        0
+                      ],
+                      [
+                        0.4,
+                        0
+                      ],
+                      [
+                        1.8,
+                        1,
+                        "out"
+                      ]
+                    ]
+                  },
+                  "name": "Title edge 4"
+                },
+                {
+                  "id": "Title",
+                  "type": "text",
+                  "text": "{now.title}",
+                  "x": 160,
+                  "y": 880,
+                  "size": 60,
+                  "font": "{type.display}",
+                  "fill": "{text}",
+                  "fit": "shrink",
+                  "maxWidth": 1140,
+                  "opacity": {
+                    "keys": [
+                      [
+                        0,
+                        0
+                      ],
+                      [
+                        0.4,
+                        0
+                      ],
+                      [
+                        1.8,
+                        1,
+                        "out"
+                      ]
+                    ]
+                  },
+                  "name": "Channel title"
+                }
+              ]
             }
           ]
         },

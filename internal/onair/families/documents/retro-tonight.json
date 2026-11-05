@@ -92,159 +92,166 @@
       "type": "group",
       "layers": [
         {
-          "id": "Title-weight0",
-          "type": "text",
-          "text": "{words.tonight}",
-          "x": 958.2,
-          "y": 190,
-          "size": 86,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "shrink",
-          "maxWidth": 1600,
-          "align": "center",
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title edge 1"
-        },
-        {
-          "id": "Title-weight1",
-          "type": "text",
-          "text": "{words.tonight}",
-          "x": 961.8,
-          "y": 190,
-          "size": 86,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "shrink",
-          "maxWidth": 1600,
-          "align": "center",
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title edge 2"
-        },
-        {
-          "id": "Title-weight2",
-          "type": "text",
-          "text": "{words.tonight}",
-          "x": 960,
-          "y": 188.2,
-          "size": 86,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "shrink",
-          "maxWidth": 1600,
-          "align": "center",
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title edge 3"
-        },
-        {
-          "id": "Title-weight3",
-          "type": "text",
-          "text": "{words.tonight}",
-          "x": 960,
-          "y": 191.8,
-          "size": 86,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "shrink",
-          "maxWidth": 1600,
-          "align": "center",
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title edge 4"
-        },
-        {
-          "id": "Title",
-          "type": "text",
-          "text": "{words.tonight}",
-          "x": 960,
-          "y": 190,
-          "size": 86,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "shrink",
-          "maxWidth": 1600,
-          "align": "center",
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Channel title"
+          "id": "Title-treatment",
+          "name": "Title lettering",
+          "type": "group",
+          "layers": [
+            {
+              "id": "Title-weight0",
+              "type": "text",
+              "text": "{words.tonight}",
+              "x": 958.2,
+              "y": 190,
+              "size": 86,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "shrink",
+              "maxWidth": 1600,
+              "align": "center",
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title edge 1"
+            },
+            {
+              "id": "Title-weight1",
+              "type": "text",
+              "text": "{words.tonight}",
+              "x": 961.8,
+              "y": 190,
+              "size": 86,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "shrink",
+              "maxWidth": 1600,
+              "align": "center",
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title edge 2"
+            },
+            {
+              "id": "Title-weight2",
+              "type": "text",
+              "text": "{words.tonight}",
+              "x": 960,
+              "y": 188.2,
+              "size": 86,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "shrink",
+              "maxWidth": 1600,
+              "align": "center",
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title edge 3"
+            },
+            {
+              "id": "Title-weight3",
+              "type": "text",
+              "text": "{words.tonight}",
+              "x": 960,
+              "y": 191.8,
+              "size": 86,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "shrink",
+              "maxWidth": 1600,
+              "align": "center",
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title edge 4"
+            },
+            {
+              "id": "Title",
+              "type": "text",
+              "text": "{words.tonight}",
+              "x": 960,
+              "y": 190,
+              "size": 86,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "shrink",
+              "maxWidth": 1600,
+              "align": "center",
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Channel title"
+            }
+          ]
         }
       ]
     },
@@ -255,7 +262,7 @@
       "y": 268,
       "fill": "{accent}@0.14",
       "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z",
-      "name": "Card0"
+      "name": "Card 1"
     },
     {
       "id": "time0",
@@ -286,7 +293,7 @@
           ]
         ]
       },
-      "name": "Time0"
+      "name": "Time 1"
     },
     {
       "id": "item0",
@@ -316,7 +323,7 @@
           ]
         ]
       },
-      "name": "Item0"
+      "name": "Item 1"
     },
     {
       "id": "meta0",
@@ -346,7 +353,7 @@
           ]
         ]
       },
-      "name": "Meta0"
+      "name": "Meta 1"
     },
     {
       "id": "card1",
@@ -355,7 +362,7 @@
       "y": 438,
       "fill": "{accent}@0.14",
       "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z",
-      "name": "Card1"
+      "name": "Card 2"
     },
     {
       "id": "time1",
@@ -386,7 +393,7 @@
           ]
         ]
       },
-      "name": "Time1"
+      "name": "Time 2"
     },
     {
       "id": "item1",
@@ -416,7 +423,7 @@
           ]
         ]
       },
-      "name": "Item1"
+      "name": "Item 2"
     },
     {
       "id": "meta1",
@@ -446,7 +453,7 @@
           ]
         ]
       },
-      "name": "Meta1"
+      "name": "Meta 2"
     },
     {
       "id": "card2",
@@ -455,7 +462,7 @@
       "y": 608,
       "fill": "{accent}@0.14",
       "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z",
-      "name": "Card2"
+      "name": "Card 3"
     },
     {
       "id": "time2",
@@ -486,7 +493,7 @@
           ]
         ]
       },
-      "name": "Time2"
+      "name": "Time 3"
     },
     {
       "id": "item2",
@@ -516,7 +523,7 @@
           ]
         ]
       },
-      "name": "Item2"
+      "name": "Item 3"
     },
     {
       "id": "meta2",
@@ -546,7 +553,7 @@
           ]
         ]
       },
-      "name": "Meta2"
+      "name": "Meta 3"
     },
     {
       "id": "card3",
@@ -555,7 +562,7 @@
       "y": 778,
       "fill": "{accent}@0.14",
       "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z",
-      "name": "Card3"
+      "name": "Card 4"
     },
     {
       "id": "time3",
@@ -586,7 +593,7 @@
           ]
         ]
       },
-      "name": "Time3"
+      "name": "Time 4"
     },
     {
       "id": "item3",
@@ -616,7 +623,7 @@
           ]
         ]
       },
-      "name": "Item3"
+      "name": "Item 4"
     },
     {
       "id": "meta3",
@@ -646,7 +653,7 @@
           ]
         ]
       },
-      "name": "Meta3"
+      "name": "Meta 4"
     }
   ],
   "post": [

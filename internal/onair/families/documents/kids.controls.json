@@ -1,28 +1,28 @@
 [
   {
     "id": "detail1",
-    "label": "Highlight colour",
+    "label": "Goo shadow",
     "kind": "color",
     "value": "#1b0b3a",
     "group": "Artwork"
   },
   {
     "id": "detail2",
-    "label": "Shadow colour",
+    "label": "Eye colour",
     "kind": "color",
     "value": "#ffffff",
     "group": "Artwork"
   },
   {
     "id": "detail3",
-    "label": "Detail colour",
+    "label": "Sunshine colour",
     "kind": "color",
     "value": "#ffd23f",
     "group": "Artwork"
   },
   {
     "id": "detail4",
-    "label": "Secondary colour",
+    "label": "Poster background",
     "kind": "color",
     "value": "#152443",
     "group": "Artwork"

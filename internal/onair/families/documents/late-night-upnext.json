@@ -53,7 +53,7 @@
               ]
             ]
           },
-          "name": "Art sky"
+          "name": "Sky"
         },
         {
           "id": "art-house",
@@ -63,14 +63,14 @@
           "w": 1228.8,
           "h": 734.4000000000001,
           "fill": "#22313a",
-          "name": "Art house"
+          "name": "House"
         },
         {
           "id": "art-roof",
           "type": "path",
           "path": "M 153.6 367.20000000000005 L 960.0 108.0 L 1766.4 367.20000000000005 Z",
           "fill": "#121b2b",
-          "name": "Art roof"
+          "name": "Roof"
         },
         {
           "id": "art-window00",
@@ -80,7 +80,7 @@
           "w": 124.80000000000001,
           "h": 118.8,
           "fill": "{control.detail3}",
-          "name": "Art window00"
+          "name": "Window 1"
         },
         {
           "id": "art-window01",
@@ -90,7 +90,7 @@
           "w": 124.80000000000001,
           "h": 118.8,
           "fill": "{control.detail1}",
-          "name": "Art window01"
+          "name": "Window 2"
         },
         {
           "id": "art-window02",
@@ -100,7 +100,7 @@
           "w": 124.80000000000001,
           "h": 118.8,
           "fill": "{control.detail1}",
-          "name": "Art window02"
+          "name": "Window 3"
         },
         {
           "id": "art-window03",
@@ -110,7 +110,7 @@
           "w": 124.80000000000001,
           "h": 118.8,
           "fill": "{control.detail3}",
-          "name": "Art window03"
+          "name": "Window 4"
         },
         {
           "id": "art-window10",
@@ -120,7 +120,7 @@
           "w": 124.80000000000001,
           "h": 118.8,
           "fill": "{control.detail1}",
-          "name": "Art window10"
+          "name": "Window 11"
         },
         {
           "id": "art-window11",
@@ -130,7 +130,7 @@
           "w": 124.80000000000001,
           "h": 118.8,
           "fill": "{control.detail1}",
-          "name": "Art window11"
+          "name": "Window 12"
         },
         {
           "id": "art-window12",
@@ -140,7 +140,7 @@
           "w": 124.80000000000001,
           "h": 118.8,
           "fill": "{control.detail3}",
-          "name": "Art window12"
+          "name": "Window 13"
         },
         {
           "id": "art-window13",
@@ -150,7 +150,7 @@
           "w": 124.80000000000001,
           "h": 118.8,
           "fill": "{control.detail1}",
-          "name": "Art window13"
+          "name": "Window 14"
         },
         {
           "id": "art-window20",
@@ -160,7 +160,7 @@
           "w": 124.80000000000001,
           "h": 118.8,
           "fill": "{control.detail1}",
-          "name": "Art window20"
+          "name": "Window 21"
         },
         {
           "id": "art-window21",
@@ -170,7 +170,7 @@
           "w": 124.80000000000001,
           "h": 118.8,
           "fill": "{control.detail3}",
-          "name": "Art window21"
+          "name": "Window 22"
         },
         {
           "id": "art-window22",
@@ -180,7 +180,7 @@
           "w": 124.80000000000001,
           "h": 118.8,
           "fill": "{control.detail1}",
-          "name": "Art window22"
+          "name": "Window 23"
         },
         {
           "id": "art-window23",
@@ -190,10 +190,10 @@
           "w": 124.80000000000001,
           "h": 118.8,
           "fill": "{control.detail1}",
-          "name": "Art window23"
+          "name": "Window 24"
         }
       ],
-      "name": "Art illustration"
+      "name": "Illustration"
     },
     {
       "id": "art",

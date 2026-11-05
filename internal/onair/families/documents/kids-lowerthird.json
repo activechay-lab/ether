@@ -119,154 +119,161 @@
           "name": "Title shadow"
         },
         {
-          "id": "Title-outline3",
-          "type": "text",
-          "text": "{now.title}",
-          "x": 160,
-          "y": 885,
-          "size": 60,
-          "font": "{type.display}",
-          "fill": "{control.detail1}",
-          "fit": "shrink",
-          "maxWidth": 1140,
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title outline3"
-        },
-        {
-          "id": "Title-outline2",
-          "type": "text",
-          "text": "{now.title}",
-          "x": 160,
-          "y": 875,
-          "size": 60,
-          "font": "{type.display}",
-          "fill": "{control.detail1}",
-          "fit": "shrink",
-          "maxWidth": 1140,
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title outline2"
-        },
-        {
-          "id": "Title-outline1",
-          "type": "text",
-          "text": "{now.title}",
-          "x": 165,
-          "y": 880,
-          "size": 60,
-          "font": "{type.display}",
-          "fill": "{control.detail1}",
-          "fit": "shrink",
-          "maxWidth": 1140,
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title outline1"
-        },
-        {
-          "id": "Title-outline0",
-          "type": "text",
-          "text": "{now.title}",
-          "x": 155,
-          "y": 880,
-          "size": 60,
-          "font": "{type.display}",
-          "fill": "{control.detail1}",
-          "fit": "shrink",
-          "maxWidth": 1140,
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title outline0"
-        },
-        {
-          "id": "Title",
-          "type": "text",
-          "text": "{now.title}",
-          "x": 160,
-          "y": 880,
-          "size": 60,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "shrink",
-          "maxWidth": 1140,
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Channel title"
+          "id": "Title-treatment",
+          "name": "Title lettering",
+          "type": "group",
+          "layers": [
+            {
+              "id": "Title-outline3",
+              "type": "text",
+              "text": "{now.title}",
+              "x": 160,
+              "y": 885,
+              "size": 60,
+              "font": "{type.display}",
+              "fill": "{control.detail1}",
+              "fit": "shrink",
+              "maxWidth": 1140,
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title outline 4"
+            },
+            {
+              "id": "Title-outline2",
+              "type": "text",
+              "text": "{now.title}",
+              "x": 160,
+              "y": 875,
+              "size": 60,
+              "font": "{type.display}",
+              "fill": "{control.detail1}",
+              "fit": "shrink",
+              "maxWidth": 1140,
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title outline 3"
+            },
+            {
+              "id": "Title-outline1",
+              "type": "text",
+              "text": "{now.title}",
+              "x": 165,
+              "y": 880,
+              "size": 60,
+              "font": "{type.display}",
+              "fill": "{control.detail1}",
+              "fit": "shrink",
+              "maxWidth": 1140,
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title outline 2"
+            },
+            {
+              "id": "Title-outline0",
+              "type": "text",
+              "text": "{now.title}",
+              "x": 155,
+              "y": 880,
+              "size": 60,
+              "font": "{type.display}",
+              "fill": "{control.detail1}",
+              "fit": "shrink",
+              "maxWidth": 1140,
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title outline 1"
+            },
+            {
+              "id": "Title",
+              "type": "text",
+              "text": "{now.title}",
+              "x": 160,
+              "y": 880,
+              "size": 60,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "shrink",
+              "maxWidth": 1140,
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Channel title"
+            }
+          ]
         },
         {
           "id": "next",
