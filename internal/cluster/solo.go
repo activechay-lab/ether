@@ -39,7 +39,7 @@ func (s *Solo) Self() Node {
 	n := Node{
 		ID: s.local.Identity.NodeID, Name: s.local.Identity.Name, Version: s.local.Version,
 		Caps: s.local.caps(), Load: s.local.load(), StartedAt: s.started, LastSeen: time.Now(),
-		InternalAddress: s.local.InternalAddress, ProtocolVersion: s.local.ProtocolVersion, Incarnation: s.incarnation,
+		InternalAddress: s.local.InternalAddress, ProtocolVersion: s.local.protocol(), Incarnation: s.incarnation,
 		Leader: s.IsLeader(), Live: true, Draining: s.local.draining(), Migrations: s.local.Migrations,
 	}
 	if s.local.Addrs != nil && s.local.serverEligible() {
