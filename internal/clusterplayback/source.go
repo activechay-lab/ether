@@ -13,6 +13,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playbackcontinuity"
+	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"io"
 	"net/http"
 	"strconv"
@@ -76,8 +77,13 @@ func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "source unavailable", 409)
 		return
 	}
+	raw, e := json.Marshal(reply)
+	if e != nil || len(raw) > remotetranscode.MaxMessage {
+		http.Error(w, "unsupported source metadata", 422)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(reply)
+	_, _ = w.Write(raw)
 }
 func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m sourceRequest) (sourceResponse, error) {
 	deny := func() (sourceResponse, error) { return sourceResponse{}, ErrDenied }
@@ -265,7 +271,28 @@ func (r *Runtime) sourceCall(ctx context.Context, rt Route, m sourceRequest) (so
 	m.Version = 1
 	m.Route = rt
 	if rt.Source == r.o.Self {
-		return r.sourceOperation(ctx, r.o.Self, m)
+		// The in-process path obeys the same bounded, detached DTO contract as RPC.
+		raw, e := json.Marshal(m)
+		if e != nil || len(raw) > remotetranscode.MaxMessage {
+			return sourceResponse{}, ErrDenied
+		}
+		var request sourceRequest
+		if json.Unmarshal(raw, &request) != nil {
+			return sourceResponse{}, ErrDenied
+		}
+		reply, e := r.sourceOperation(ctx, r.o.Self, request)
+		if e != nil {
+			return sourceResponse{}, e
+		}
+		raw, e = json.Marshal(reply)
+		if e != nil || len(raw) > remotetranscode.MaxMessage {
+			return sourceResponse{}, ErrDenied
+		}
+		var out sourceResponse
+		if json.Unmarshal(raw, &out) != nil {
+			return sourceResponse{}, ErrDenied
+		}
+		return out, nil
 	}
 	c, ep, e := r.controlClient(ctx, rt.Source)
 	if e != nil {
@@ -289,9 +316,12 @@ func (r *Runtime) sourceCall(ctx context.Context, rt Route, m sourceRequest) (so
 	if resp.StatusCode != 200 {
 		return sourceResponse{}, ErrDenied
 	}
+	raw, e := io.ReadAll(io.LimitReader(resp.Body, remotetranscode.MaxMessage+1))
+	if e != nil || len(raw) > remotetranscode.MaxMessage {
+		return sourceResponse{}, ErrPending
+	}
 	var out sourceResponse
-	d := json.NewDecoder(io.LimitReader(resp.Body, 64<<10))
-	if d.Decode(&out) != nil || d.Decode(new(any)) != io.EOF {
+	if json.Unmarshal(raw, &out) != nil {
 		return sourceResponse{}, ErrPending
 	}
 	return out, nil

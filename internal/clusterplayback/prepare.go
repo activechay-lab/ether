@@ -7,6 +7,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodewire"
+	"github.com/braedonsaunders/ether/internal/remotetranscode"
 )
 
 // PrepareRequest contains authenticated frontend choices, never provider paths.
@@ -124,7 +125,11 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 	if e := r.o.Playback.PinSourceRevision(ctx, ps.ID, revision); e != nil {
 		return sourceResponse{}, e
 	}
-	result := PreparedSource{Owner: r.o.Self, PlayID: ps.ID, Revision: revision, ReleaseID: ps.SourceReleaseID(), Info: ps.Info}
+	result := PreparedSource{Owner: r.o.Self, PlayID: ps.ID, Revision: revision, ReleaseID: ps.SourceReleaseID(), Info: core.CloneMediaInfo(ps.Info)}
+	encoded, e := json.Marshal(sourceResponse{Prepared: result})
+	if e != nil || len(encoded) > remotetranscode.MaxMessage {
+		return sourceResponse{}, ErrDenied
+	}
 	r.mu.Lock()
 	entry.result = result
 	entry.finished = true

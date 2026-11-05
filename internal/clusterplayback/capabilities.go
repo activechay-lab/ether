@@ -42,10 +42,16 @@ func (r *Runtime) capabilitiesHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "method", 405)
 		return
 	}
-	var request core.HLSRequest
+	var wire capabilityRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, q.Body, remotetranscode.MaxMessage))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF || request.InputURL != "" || !remotetranscode.SupportsRequest(request, r.o.WorkerCapabilities) {
+	if decoder.Decode(&wire) != nil || decoder.Decode(new(any)) != io.EOF {
+		http.Error(w, "unsupported", 422)
+		return
+	}
+	request := wire.Request
+	request.Info.Keyframes = wire.Keyframes
+	if !validPreparedKeyframes(request.Info) || request.InputURL != "" || !remotetranscode.SupportsRequest(request, r.o.WorkerCapabilities) {
 		http.Error(w, "unsupported", 422)
 		return
 	}
@@ -65,7 +71,7 @@ func (r *Runtime) workerCapabilities(ctx context.Context, id nodewire.Identity, 
 		return remotetranscode.Capabilities{}, e
 	}
 	defer transport.CloseIdleConnections()
-	raw, e := json.Marshal(q)
+	raw, e := json.Marshal(capabilityRequest{Request: q, Keyframes: q.Info.Keyframes})
 	if e != nil || len(raw) > remotetranscode.MaxMessage {
 		return remotetranscode.Capabilities{}, ErrDenied
 	}

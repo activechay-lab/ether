@@ -2,7 +2,6 @@ package clusterplayback
 
 import (
 	"context"
-	"encoding/json"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodewire"
@@ -147,12 +146,8 @@ func copyPlaySession(s *core.PlaySession) *core.PlaySession {
 	if s == nil {
 		return nil
 	}
-	b, e := json.Marshal(s.Info)
-	if e != nil {
-		return nil
-	}
 	out := *s
-	_ = json.Unmarshal(b, &out.Info)
+	out.Info = core.CloneMediaInfo(s.Info)
 	if s.Resolution != nil {
 		resolution := *s.Resolution
 		out.Resolution = &resolution
