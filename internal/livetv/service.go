@@ -368,6 +368,34 @@ func itemFromTitle(t core.Title) Item {
 	return Item{Key: t.Key, Title: t.Title, DurationMS: t.Runtime.Milliseconds(), Summary: t.Summary, Rating: t.ContentRating, Thumb: t.PosterPath, ShowKey: t.ShowKey, Season: t.Season, Episode: t.Episode, ReleasedMS: released}
 }
 func (s *Service) expand(ctx context.Context, c *Channel) error {
+	var prepare func([]ProgramSource, string)
+	prepare = func(sources []ProgramSource, prefix string) {
+		for i := range sources {
+			source := &sources[i]
+			if source.ID == "" {
+				source.ID = fmt.Sprintf("%s-source-%d", prefix, i)
+			}
+			if source.Strip && source.StartDate == "" {
+				source.StartDate = s.o.Now().In(zoneOf(c.Timezone)).Format("2006-01-02")
+			}
+			prepare(source.Sources, source.ID)
+		}
+	}
+	prepare(c.Sources, c.ID)
+	for i := range c.Blocks {
+		b := &c.Blocks[i]
+		if b.ID == "" {
+			b.ID = fmt.Sprintf("%s-block-%d", c.ID, i)
+		}
+		prepare(b.Sources, b.ID)
+	}
+	for i := range c.Pins {
+		p := &c.Pins[i]
+		if p.ID == "" {
+			p.ID = fmt.Sprintf("%s-pin-%d", c.ID, i)
+		}
+		prepare(p.Sources, p.ID)
+	}
 	if c.Personal != nil {
 		return nil
 	}
@@ -389,6 +417,16 @@ func (s *Service) expand(ctx context.Context, c *Channel) error {
 		}
 		b.Items = blockItems
 	}
+	for i := range c.Pins {
+		pin := &c.Pins[i]
+		if len(pin.Sources) == 0 {
+			continue
+		}
+		pin.Items, err = s.resolveProgramming(ctx, pin.Items, 0, nil, pin.Sources, "")
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -403,7 +441,8 @@ func (s *Service) resolveProgramming(ctx context.Context, existing []Item, colle
 		parts := make([][]Item, len(sources))
 		weights := make([]int, len(sources))
 		for i, src := range sources {
-			parts[i], err = s.resolveProgramming(ctx, src.Items, src.Collection, src.Filter, nil, src.Watched)
+			parts[i], err = s.expandProgramSource(ctx, src, 0)
+			sources[i].Items = append([]Item(nil), parts[i]...)
 			if err != nil {
 				return nil, err
 			}
@@ -547,7 +586,7 @@ func checkPlay(mode, align, fit string, repeat int, watched string) error {
 		return fmt.Errorf("alignment must be hour or half hour")
 	}
 	switch fit {
-	case "", "cut", "pad":
+	case "", "cut", "pad", "shift":
 	default:
 		return fmt.Errorf("fit must be cut or pad")
 	}
@@ -622,7 +661,7 @@ func validateChannel(c *Channel) error {
 			return err
 		}
 	}
-	if c.Personal == nil && c.Kind == "virtual" && len(c.Items) == 0 && !c.OffAir && len(c.Fallback) == 0 {
+	if c.Personal == nil && c.Kind == "virtual" && len(c.Items) == 0 && len(c.Blocks) == 0 && len(c.Pins) == 0 && !c.OffAir && len(c.Fallback) == 0 {
 		return fmt.Errorf("virtual channel needs base programming")
 	}
 	if err := checkPlay(c.Mode, c.Align, c.Fit, c.RepeatDays, c.Watched); err != nil {
@@ -638,6 +677,21 @@ func validateChannel(c *Channel) error {
 			return fmt.Errorf("too many items")
 		}
 		for _, it := range items {
+			if len(it.BreakPoints) > 256 {
+				return fmt.Errorf("maximum 256 programme break points")
+			}
+			var lastMeta int64
+			for _, p := range it.BreakPoints {
+				if p.AtMS <= lastMeta || p.AtMS >= it.DurationMS || p.Confidence < 0 || p.Confidence > 1 {
+					return fmt.Errorf("invalid programme break point metadata")
+				}
+				switch p.Source {
+				case "chapters", "detected", "even":
+				default:
+					return fmt.Errorf("invalid break point source")
+				}
+				lastMeta = p.AtMS
+			}
 			if len(it.BreakPointsMS) > 256 {
 				return fmt.Errorf("maximum 256 programme break points")
 			}
@@ -648,7 +702,7 @@ func validateChannel(c *Channel) error {
 				}
 				last = point
 			}
-			if it.Key <= 0 || it.DurationMS < 1000 || it.DurationMS > 24*60*60*1000 {
+			if (it.Key <= 0 && !strings.HasPrefix(it.Slate, "plugin:")) || it.DurationMS < 1000 || it.DurationMS > 24*60*60*1000 {
 				return fmt.Errorf("programme needs a catalogue key and duration of 1 second to 24 hours")
 			}
 		}
@@ -684,6 +738,9 @@ func validateChannel(c *Channel) error {
 			}
 		}
 	}
+	if err := validateProgramming(c, check); err != nil {
+		return err
+	}
 	if err := check(c.Filler); err != nil {
 		return err
 	}
@@ -705,8 +762,15 @@ func (s *Service) SaveChannel(ctx context.Context, c Channel) (Channel, error) {
 			c.LogoMatched = false
 		}
 	}
-	if err := s.expand(ctx, &c); err != nil {
-		return c, err
+	// A metadata save must not re-query collections or personal providers.
+	s.virtualGuide.mu.RLock()
+	previous := s.virtualGuide.entries[c.ID]
+	s.virtualGuide.mu.RUnlock()
+	sameProgramming := previous != nil && snapshotInputFingerprint(c, 0) == snapshotInputFingerprint(previous.channel, 0)
+	if !sameProgramming {
+		if err := s.expand(ctx, &c); err != nil {
+			return c, err
+		}
 	}
 	if err := validateChannel(&c); err != nil {
 		return c, err
@@ -1225,9 +1289,13 @@ func (s *Service) guideChannel(ctx context.Context, c Channel) Channel {
 		next := make([]Block, len(c.Blocks))
 		copy(next, c.Blocks)
 		for i := range next {
+			bs, ch3 := omitUnavailableSources(ctx, src, next[i].Sources)
+			if ch3 {
+				next[i].Sources = bs
+			}
 			bi, ch := omitUnavailable(ctx, src, next[i].Items)
 			bf, ch2 := omitUnavailable(ctx, src, next[i].Filler)
-			if ch || ch2 {
+			if ch || ch2 || ch3 {
 				blocksChanged = true
 				next[i].Items = bi
 				next[i].Filler = bf
@@ -1237,11 +1305,50 @@ func (s *Service) guideChannel(ctx context.Context, c Channel) Channel {
 			blocks = next
 		}
 	}
-	if !itemsChanged && !fallbackChanged && !fillerChanged && !blocksChanged {
+	sources, sourcesChanged := omitUnavailableSources(ctx, src, c.Sources)
+	pins := append([]PinnedSlot(nil), c.Pins...)
+	pinsChanged := false
+	for i := range pins {
+		pi, a := omitUnavailable(ctx, src, pins[i].Items)
+		ps, b := omitUnavailableSources(ctx, src, pins[i].Sources)
+		if a || b {
+			pins[i].Items = pi
+			pins[i].Sources = ps
+			pinsChanged = true
+		}
+	}
+	if sourcesChanged {
+		c.Sources = sources
+	}
+	if pinsChanged {
+		c.Pins = pins
+	}
+	if !itemsChanged && !fallbackChanged && !fillerChanged && !blocksChanged && !sourcesChanged && !pinsChanged {
 		return c
 	}
 	c.Items, c.Fallback, c.Filler, c.Blocks = items, fallback, filler, blocks
 	return c
+}
+
+func omitUnavailableSources(ctx context.Context, src core.AvailabilitySource, sources []ProgramSource) ([]ProgramSource, bool) {
+	if len(sources) == 0 {
+		return sources, false
+	}
+	next := append([]ProgramSource(nil), sources...)
+	changed := false
+	for i := range next {
+		items, a := omitUnavailable(ctx, src, next[i].Items)
+		children, b := omitUnavailableSources(ctx, src, next[i].Sources)
+		if a || b {
+			next[i].Items = items
+			next[i].Sources = children
+			changed = true
+		}
+	}
+	if !changed {
+		return sources, false
+	}
+	return next, true
 }
 
 func omitUnavailable(ctx context.Context, src core.AvailabilitySource, items []Item) ([]Item, bool) {
