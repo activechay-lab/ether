@@ -35,12 +35,17 @@ func TestRenewalHistoryAndFences(t *testing.T) {
 	if renewRPC(w, n).Code != 422 {
 		t.Fatal("missing validator accepted")
 	}
+	initialCap := w.records[s.Identity].monotonicDeadline
 	w.opts.ValidateRenewal = receipt
 	if state(t, renewRPC(w, n)) != "running" {
 		t.Fatal("renew")
 	}
+	acceptedCap := w.records[s.Identity].monotonicDeadline
 	if state(t, renewRPC(w, n)) != "running" {
 		t.Fatal("replay")
+	}
+	if w.records[s.Identity].monotonicDeadline != acceptedCap {
+		t.Fatal("replay reset elapsed cap")
 	}
 	changed := n
 	changed.Deadline = changed.Deadline.Add(time.Second)
@@ -78,7 +83,7 @@ func TestRenewalHistoryAndFences(t *testing.T) {
 	}
 	// Old timer callback cannot stop a renewed execution, even if queued already.
 	e := w.records[s.Identity]
-	w.expireVersion(e, 0, s.Expires)
+	w.expireVersion(e, 0, s.Expires, initialCap)
 	if e.stopped {
 		t.Fatal("old timer stopped renewal")
 	}

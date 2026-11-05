@@ -61,8 +61,10 @@ type Renewal struct {
 
 // RenewalReceipt is returned only by a trusted injected validator, never decoded
 // from the caller. It attests durable placement AND continued access using the
-// SAME source URL/grant/input lease through Deadline. The validator must actually
-// extend/revalidate that source authority; an expired initial grant is not proof.
+// SAME source authority handle, gateway URL and input lease through Deadline.
+// Start.Grant stays immutable; internal source bearers may rotate while preserving
+// exact source scope/revision/size. The validator must actually
+// extend/revalidate that source authority; an expired bearer alone is not proof.
 // No source replacement or encoder invocation is permitted in this callback.
 // It must account for DB/worker clock skew conservatively and fail on uncertainty.
 type RenewalReceipt struct {

@@ -112,11 +112,15 @@ independently cover Deadline. The receipt is not accepted from the wire.
 
 The validator must check durable placement using its authoritative database clock,
 all controller/worker boot and generation fences, and the authority of the SAME
-source grant, URL and input lease through the requested new deadline. It must
-actually extend or revalidate underlying source authority idempotently; it cannot
-pretend the initial expiring URL grant remains valid, exchange the source, or
-start a replacement encoder. If the source implementation cannot extend access
-without changing input, renewal must fail. Missing database/source authority or
+scoped source authority, worker-local gateway URL and input lease through the
+requested new deadline. Start.Grant is an immutable scoped authority/reader handle,
+not a requirement to retain an expiring source bearer. A trusted source reader may
+rotate its internal opaque bearer while preserving that handle, exact source
+scope/revision/size, gateway URL and input lease. The validator must actually
+extend or revalidate this same source authority idempotently; it cannot pretend
+an expired credential remains valid, exchange the source, or start an encoder.
+If the source implementation cannot extend access without changing input, renewal
+must fail. Missing database/source authority or
 uncertain validation must fail closed. Validation runs outside the worker lock;
 its placement/source updates may conservatively outlive a rejected worker
 extension, but can never manufacture worker acceptance or retirement proof.
@@ -125,8 +129,10 @@ After validation, the worker locks and rechecks the old version/deadline,
 execution state, stop, expiry, and policy bound before committing. Stop, expiry,
 and renewal commit serialize under that same lock. A queued timer callback checks
 its captured version AND deadline under lock, so Timer.Stop races cannot retire a
-renewed execution. Renew never resolves a source or invokes an encoder. Starts
-remain byte-immutable even after renewal.
+renewed execution. All responses encode immutable snapshots after releasing the
+worker mutex, so blocked network output cannot delay expiry, Stop or Close.
+Renew never resolves a source or invokes an encoder. Starts remain byte-immutable
+even after renewal.
 
 The latest exact operation replay returns the accepted snapshot without another
 extension or validation side effect. A changed payload at that version, or an
@@ -142,6 +148,15 @@ Session.Lease(). Do not mint a later version until accepted history is known.
 Worker deadlines use the worker clock; placement uses the database clock. The
 trusted validator and deployment must apply a conservative clock-skew budget
 before issuing a receipt and before treating authority expiry as safe reassignment.
+Each accepted start or renewal also records a process-local monotonic cap using
+`time.Now().Add(remainingWallDuration)`, retaining time.Now's monotonic component.
+Expiry occurs at the earlier of wall deadline and that elapsed cap: a wall-clock
+rollback cannot extend the accepted local lifetime, while forward corrections may
+retire conservatively early. An early callback rearms to the earlier remaining
+bound without resetting the cap. Timer callbacks fence version, wall deadline and
+monotonic cap together. Only an authorized new renewal acceptance replaces the
+cap; retries never reset it. Status reports the wall authority deadline only;
+this monotonic cap is neither serialized nor portable across worker restarts.
 This package does not invent a cross-host clock bound. Worker expiry requests
 retirement; it does not prove the child/input have stopped. External placement
 retirement still requires exact proofs, or its separately established safe expiry

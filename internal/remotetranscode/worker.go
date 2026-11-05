@@ -33,6 +33,7 @@ type execution struct {
 	starting, stopped, failed bool
 	cancel                    context.CancelFunc
 	timer                     *time.Timer
+	monotonicDeadline         time.Time // Local elapsed-time cap; never serialized.
 }
 type Worker struct {
 	mu      sync.Mutex
@@ -256,6 +257,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	e := &execution{start: s, lease: LeaseState{Deadline: s.Expires.UTC(), Renewable: w.opts.ValidateRenewal != nil}, id: s.Identity, hash: hash, starting: true, cancel: cancel}
 	w.records[s.Identity] = e
 	w.highest[key] = s.Identity.Generation
+	w.setMonotonicDeadline(e)
 	w.arm(e)
 	w.mu.Unlock()
 	// Request cancellation seals a late start, but never forgets its responsibility.
@@ -281,7 +283,6 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), InputURL: source.URL, InputLease: source.Lease, Info: s.Info, Decision: s.Decision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, Protocol: core.ProtocolHLS})
 	}
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	w.expire(e)
 	e.starting = false
 	e.retirement = retirement
@@ -304,11 +305,13 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 		e.failed = true
 		w.stop(e)
 	}
-	if e.failed {
+	failed, snapshot := e.failed, w.snapshot(e)
+	w.mu.Unlock()
+	if failed {
 		http.Error(out, "start failed; reconcile execution", 409)
 		return
 	}
-	replyStatus(out, w.snapshot(e))
+	replyStatus(out, snapshot)
 }
 func executionID(i Identity) string {
 	b, _ := json.Marshal(i)
@@ -325,26 +328,49 @@ func executionID(i Identity) string {
 // All lease transitions and deadline checks run under mu. Timer.Stop alone is
 // insufficient: an already queued old callback must compare the accepted lease.
 func (w *Worker) expire(e *execution) {
-	if !e.lease.Deadline.IsZero() && !time.Now().Before(e.lease.Deadline) {
+	if w.expired(e, time.Now()) {
 		w.stop(e)
 	}
+}
+func (w *Worker) expired(e *execution, now time.Time) bool {
+	return (!e.lease.Deadline.IsZero() && !now.Before(e.lease.Deadline)) ||
+		(!e.monotonicDeadline.IsZero() && !now.Before(e.monotonicDeadline))
+}
+func (w *Worker) setMonotonicDeadline(e *execution) {
+	now := time.Now()
+	// Add retains now's monotonic reading; wall-clock rollback cannot extend this
+	// accepted execution's elapsed lifetime. A renewed lease gets a new bound.
+	e.monotonicDeadline = now.Add(e.lease.Deadline.Sub(now))
 }
 func (w *Worker) arm(e *execution) {
 	if e.timer != nil {
 		e.timer.Stop()
 	}
-	version, deadline := e.lease.Version, e.lease.Deadline
-	e.timer = time.AfterFunc(time.Until(deadline), func() { w.expireVersion(e, version, deadline) })
+	version, deadline, cap := e.lease.Version, e.lease.Deadline, e.monotonicDeadline
+	wait := time.Until(deadline)
+	if !e.monotonicDeadline.IsZero() {
+		wait = min(wait, time.Until(e.monotonicDeadline))
+	}
+	e.timer = time.AfterFunc(wait, func() { w.expireVersion(e, version, deadline, cap) })
 }
-func (w *Worker) expireVersion(e *execution, version uint64, deadline time.Time) {
+func (w *Worker) expireVersion(e *execution, version uint64, deadline, cap time.Time) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if e.lease.Version == version && e.lease.Deadline.Equal(deadline) {
+	if e.lease.Version == version && e.lease.Deadline.Equal(deadline) && e.monotonicDeadline == cap {
 		w.expire(e)
+		// An early callback must not lose the only timer.
+		if !e.stopped {
+			w.arm(e)
+		}
 	}
 }
 func (w *Worker) snapshot(e *execution) status {
-	return status{State: result(e), Identity: e.id, Lease: e.lease, Stopped: e.stopped}
+	lease := e.lease
+	if lease.Accepted != nil {
+		accepted := *lease.Accepted
+		lease.Accepted = &accepted
+	}
+	return status{State: result(e), Identity: e.id, Lease: lease, Stopped: e.stopped}
 }
 func replyStatus(out http.ResponseWriter, s status) {
 	out.Header().Set("Content-Type", "application/json")
@@ -383,25 +409,30 @@ func (w *Worker) renew(out http.ResponseWriter, r *http.Request, peer string, n 
 		return
 	}
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	w.expire(e)
 	// Concurrent duplicate validation may complete after this operation committed.
 	if e.lease.Accepted != nil && sameRenewal(*e.lease.Accepted, n) {
-		replyStatus(out, w.snapshot(e))
+		snapshot := w.snapshot(e)
+		w.mu.Unlock()
+		replyStatus(out, snapshot)
 		return
 	}
 	if r.Context().Err() != nil || !w.canRenew(e, n) {
+		w.mu.Unlock()
 		http.Error(out, "lease conflict", 409)
 		return
 	}
 	accepted := n
 	e.lease.Deadline, e.lease.Version, e.lease.Accepted = n.Deadline.UTC(), n.Operation, &accepted
+	w.setMonotonicDeadline(e)
 	w.arm(e)
-	replyStatus(out, w.snapshot(e))
+	snapshot := w.snapshot(e)
+	w.mu.Unlock()
+	replyStatus(out, snapshot)
 }
 func (w *Worker) canRenew(e *execution, n Renewal) bool {
 	now := time.Now()
-	return !w.closed && !e.stopped && !e.failed && !e.starting && e.lease.Deadline.After(now) && result(e) == "running" &&
+	return !w.closed && !e.stopped && !e.failed && !e.starting && !w.expired(e, now) && e.lease.Deadline.After(now) && result(e) == "running" &&
 		e.lease.Version == n.PreviousVersion && e.lease.Deadline.Equal(n.PreviousDeadline) &&
 		n.Deadline.After(now) && n.Deadline.Sub(now) <= w.opts.MaxLease
 }
