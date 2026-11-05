@@ -65,6 +65,9 @@ func (c Channel) momentsWithin(at time.Time, budget time.Duration) []Item {
 			reserved += d
 		}
 	}
+	if breaks && c.momentHistory != nil && len(base) > 0 {
+		c.momentHistory.lastBreak = at
+	}
 	if budget > 0 && reserved > budget {
 		var fit []Item
 		for _, item := range base {
@@ -114,6 +117,7 @@ func guideSchedule(c Channel, from, until time.Time) []Programme {
 			look := *c.Look
 			look.Breaks = ""
 			look.UpNext = false
+			look.Ident = false
 			c.Look = &look
 		} else {
 			c.Look = nil
@@ -185,7 +189,6 @@ func (s *Service) graphicsChannel(c Channel) Channel {
 			c.reel = s.reelSnapshots[c.Look.ReelID]
 			s.mu.Unlock()
 		}
-
 	}
 	return c
 }

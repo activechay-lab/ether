@@ -131,7 +131,14 @@ func TestPluginClockBroadcastInputPlan(t *testing.T) {
 			return &broadcastFakeDecoder{closed: make(chan struct{})}, nil
 		}}
 		planner := &scheduleBroadcastPlanner{s: s, channel: c, user: core.User{ID: 1, IsOwner: true}, runner: runner, format: smallBroadcastFormat()}
+		planner.startPlanner(t.Context())
+		defer planner.closePlanner()
 		plan, _ := planner.plans(now)
+		deadline := time.Now().Add(time.Second)
+		for plan.start.IsZero() && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+			plan, _ = planner.plans(now)
+		}
 		if !plan.start.Equal(now.Add(-10*time.Second)) || !plan.end.Equal(now.Add(110*time.Second)) {
 			t.Fatalf("wrong clock input boundaries: %v %v", plan.start, plan.end)
 		}

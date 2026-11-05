@@ -76,6 +76,15 @@ func appendClockWindow(out []Programme, c Channel, start, end, from, until time.
 			b = end
 		}
 		if b.After(from) && a.Before(until) && b.After(a) {
+			if p.Item.ReelClipID != "" && (!a.Equal(p.Start) || !b.Equal(p.End)) {
+				// A fixed clock slot can reserve part of an otherwise whole reel.
+				// Leave that dead-air span to filler rather than cutting a master.
+				plain := c
+				plain.Look = nil
+				plain.Clock = nil
+				fillGap(&out, plain, c.Filler, a, b, from, until)
+				continue
+			}
 			p.sourceOffset += a.Sub(p.Start)
 			p.Start = a
 			p.End = b

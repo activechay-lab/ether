@@ -187,8 +187,12 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 				now = p.joinAt
 			}
 			offset := time.Duration(0)
-			if candidate.ID == programme.ID && now.After(programme.Start) {
-				offset = now.Sub(programme.Start)
+			if candidate.ID == programme.ID {
+				at := now
+				if at.Before(programme.Start) {
+					at = programme.Start
+				}
+				offset = programme.Offset(at)
 			}
 			p.s.o.Logger.Debug("broadcast programme decoder start", "channel", c.ID, "programme", programme.ID, "playback", ps.ID, "offset", offset)
 			decoder, err := p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: group + "-" + candidate.ID, InputURL: p.s.o.Playback.InputURL(ps.ID), Offset: offset, Format: p.format})

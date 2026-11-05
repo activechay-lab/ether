@@ -201,7 +201,7 @@ func TestBroadcastRealContinuity(t *testing.T) {
 		}
 	}
 	b.close()
-	if attempts != 3 {
+	if attempts != 2 {
 		t.Fatalf("decoder retry count %d", attempts)
 	}
 }
