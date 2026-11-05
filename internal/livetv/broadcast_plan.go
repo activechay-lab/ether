@@ -193,7 +193,7 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 			if c.Personal != nil {
 				group += "-viewer-" + strconv.FormatInt(p.user.ID, 10)
 			}
-			if c.Look != nil && c.Look.BreakPattern != nil && c.Look.BreakPattern.Inside && c.Look.BreakPlacement != "even" && c.Look.BreakPlacement != "between" && candidate.Item.BreakReleaseID != "" && len(candidate.Item.BreakPointsMS) > 0 {
+			if candidate.Item.BreakReleaseID != "" && len(candidate.Item.BreakPointsMS) > 0 {
 				planned, ok := p.s.o.Playback.(interface {
 					PrepareChannelRelease(context.Context, *core.User, core.RatingKey, core.ClientCaps, string, string) (*core.PlaySession, error)
 				})

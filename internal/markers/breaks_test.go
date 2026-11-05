@@ -97,5 +97,19 @@ func TestBreakSyntheticDecode(t *testing.T) {
 		t.Fatal(got, err)
 	}
 	b, _ := json.Marshal(got)
+	if artifacts := os.Getenv("ETHER_BREAK_TEST_ARTIFACTS"); artifacts != "" {
+		if err := os.MkdirAll(artifacts, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(artifacts, "synthetic-timeline.json"), b, 0644); err != nil {
+			t.Fatal(err)
+		}
+		for _, at := range []string{"69", "70.5", "72"} {
+			cmd := exec.Command(binary, "-v", "error", "-nostdin", "-threads", "1", "-ss", at, "-i", file, "-frames:v", "1", "-threads", "1", filepath.Join(artifacts, "synthetic-"+at+"s.png"))
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("still: %v %s", err, output)
+			}
+		}
+	}
 	t.Logf("timeline=%s wall=%s per-video-hour=%s", b, time.Since(started), time.Since(started)*20)
 }

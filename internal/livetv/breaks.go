@@ -41,7 +41,7 @@ func (s *Service) analyzeUpcomingBreaks(retry map[core.RatingKey]time.Time) {
 	now := s.o.Now()
 	done := map[core.RatingKey]bool{}
 	for _, c := range cs {
-		if !c.Enabled || c.Look == nil || c.Look.BreakPattern == nil || !c.Look.BreakPattern.Inside || c.Look.BreakPlacement == "even" || c.Look.BreakPlacement == "between" {
+		if !c.Enabled || !s.channelHasNaturalBreaks(c) {
 			continue
 		}
 		for _, p := range Schedule(c, now, now.Add(2*time.Hour)) {
@@ -77,17 +77,11 @@ func (s *Service) publishBreaks(key core.RatingKey, points []markers.BreakPoint,
 		return
 	}
 	for _, c := range cs {
-		if c.Look == nil || c.Look.BreakPattern == nil || !c.Look.BreakPattern.Inside || c.Look.BreakPlacement == "even" || c.Look.BreakPlacement == "between" {
-			continue
-		}
 		var raw string
 		if s.o.DB.QueryRowContext(s.ctx, `SELECT data FROM livetv_channels WHERE id=?`, c.ID).Scan(&raw) != nil {
 			continue
 		}
 		if json.Unmarshal([]byte(raw), &c) != nil {
-			continue
-		}
-		if c.Look == nil || c.Look.BreakPattern == nil || !c.Look.BreakPattern.Inside || c.Look.BreakPlacement == "even" || c.Look.BreakPlacement == "between" {
 			continue
 		}
 		// Traverse materialized source snapshots too (including nested mixes,
@@ -97,39 +91,28 @@ func (s *Service) publishBreaks(key core.RatingKey, points []markers.BreakPoint,
 			continue
 		}
 		changed := false
-		var apply func(any)
-		apply = func(node any) {
-			switch v := node.(type) {
-			case []any:
-				for _, child := range v {
-					apply(child)
-				}
-			case map[string]any:
-				if id, ok := v["key"].(float64); ok && core.RatingKey(id) == key {
-					d, _ := v["durationMs"].(float64)
-					if d <= 0 {
-						return
-					}
-					usable := min(duration, int64(d))
-					k := max(1, int((usable+1799999)/1800000)) * c.Look.BreakPattern.PodsPerHalfHour
-					selected := markers.SelectBreaks(points, usable, k, max(int64(180000), usable/int64(k+1)/2))
-					offsets := make([]int64, 0, len(selected))
-					for _, point := range selected {
-						offsets = append(offsets, point.AtMS)
-					}
-					v["breakPoints"] = selected
-					v["breakPointsMs"] = offsets
-					v["breakReleaseId"] = releaseID
-					v["breakRevision"] = revision
-					changed = true
-					return
-				}
-				for _, child := range v {
-					apply(child)
-				}
+		walkNaturalBreakItems(document, c.Look, func(v map[string]any, policy *ChannelLook) {
+			id, ok := v["key"].(float64)
+			if !ok || core.RatingKey(id) != key {
+				return
 			}
-		}
-		apply(document)
+			d, _ := v["durationMs"].(float64)
+			if d <= 0 {
+				return
+			}
+			usable := min(duration, int64(d))
+			k := max(1, int((usable+1799999)/1800000)) * policy.BreakPattern.PodsPerHalfHour
+			selected := markers.SelectBreaks(points, usable, k, max(int64(180000), usable/int64(k+1)/2))
+			offsets := make([]int64, 0, len(selected))
+			for _, point := range selected {
+				offsets = append(offsets, point.AtMS)
+			}
+			v["breakPoints"] = selected
+			v["breakPointsMs"] = offsets
+			v["breakReleaseId"] = releaseID
+			v["breakRevision"] = revision
+			changed = true
+		})
 		if !changed {
 			continue
 		}
@@ -145,4 +128,46 @@ func (s *Service) publishBreaks(key core.RatingKey, points []markers.BreakPoint,
 			}
 		}
 	}
+}
+
+func naturalBreakPolicy(p *ChannelLook) bool {
+	return p != nil && p.BreakPattern != nil && p.BreakPattern.Inside && (p.BreakPlacement == "" || p.BreakPlacement == "natural")
+}
+
+// A non-null block/pin breaks object replaces the entire break policy.
+func walkNaturalBreakItems(node any, policy *ChannelLook, visit func(map[string]any, *ChannelLook)) {
+	switch v := node.(type) {
+	case []any:
+		for _, child := range v {
+			walkNaturalBreakItems(child, policy, visit)
+		}
+	case map[string]any:
+		if override, ok := v["breaks"].(map[string]any); ok {
+			b, _ := json.Marshal(override)
+			var p ChannelLook
+			if json.Unmarshal(b, &p) == nil {
+				policy = &p
+			}
+		}
+		if _, ok := v["durationMs"]; ok && naturalBreakPolicy(policy) {
+			visit(v, policy)
+			return
+		}
+		for _, child := range v {
+			walkNaturalBreakItems(child, policy, visit)
+		}
+	}
+}
+func (s *Service) channelHasNaturalBreaks(c Channel) bool {
+	var raw string
+	if s.o.DB.QueryRowContext(s.ctx, `SELECT data FROM livetv_channels WHERE id=?`, c.ID).Scan(&raw) != nil {
+		return false
+	}
+	var doc any
+	if json.Unmarshal([]byte(raw), &doc) != nil {
+		return false
+	}
+	found := false
+	walkNaturalBreakItems(doc, c.Look, func(map[string]any, *ChannelLook) { found = true })
+	return found
 }

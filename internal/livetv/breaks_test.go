@@ -62,3 +62,16 @@ func TestBreakPublishNestedSources(t *testing.T) {
 		t.Fatal(saved)
 	}
 }
+
+func TestNaturalBreakOverrideInheritance(t *testing.T) {
+	var document any
+	raw := `{"blocks":[{"breaks":{"breakPattern":{"inside":true,"podsPerHalfHour":2}},"sources":[{"items":[{"key":1,"durationMs":1320000}]}]},{"breaks":{},"items":[{"key":2,"durationMs":1320000}]},{"breaks":{"breakPlacement":"even","breakPattern":{"inside":true,"podsPerHalfHour":2}},"items":[{"key":3,"durationMs":1320000}]}]}`
+	if err := json.Unmarshal([]byte(raw), &document); err != nil {
+		t.Fatal(err)
+	}
+	var ids []float64
+	walkNaturalBreakItems(document, nil, func(item map[string]any, _ *ChannelLook) { ids = append(ids, item["key"].(float64)) })
+	if len(ids) != 1 || ids[0] != 1 {
+		t.Fatal(ids)
+	}
+}

@@ -13,6 +13,7 @@ import (
 // channelBreakInput uses playback's configured source engine and loopback range
 // transport. Its dedicated prepared source is retired immediately after analysis.
 func (a *App) channelBreakInput(ctx context.Context, key core.RatingKey) (markers.BreakInput, error) {
+	ctx, _ = core.WithSpeculative(ctx)
 	u, err := a.users.Owner(ctx)
 	if err != nil {
 		return markers.BreakInput{}, err
@@ -32,8 +33,10 @@ func (a *App) channelBreakInput(ctx context.Context, key core.RatingKey) (marker
 	info := ps.Info
 	transcode.ProbeTrailer(ctx, ps.Source, ps.Source.Size(), &info)
 	payload := ""
+	releaseID := ps.Source.ReleaseID()
 	if ps.Resolution != nil {
+		releaseID = ps.Resolution.Release.ID
 		payload = fmt.Sprintf("%x", sha256.Sum256(ps.Resolution.NZB))
 	}
-	return markers.BreakInput{ReleaseID: ps.Source.ReleaseID(), Revision: revision, ReleaseKey: fmt.Sprintf("%s:%s:%d", revision, payload, info.Duration.Milliseconds()), URL: a.playback.InputURL(ps.ID), Info: info, Close: closePinned}, nil
+	return markers.BreakInput{ReleaseID: releaseID, Revision: revision, ReleaseKey: fmt.Sprintf("%s:%s:%d", revision, payload, info.Duration.Milliseconds()), URL: a.playback.InputURL(ps.ID) + "?background=1", Info: info, Close: closePinned}, nil
 }
