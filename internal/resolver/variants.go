@@ -33,8 +33,10 @@ func (s *Service) Variants(ctx context.Context, req core.ResolveRequest, max int
 	if max <= 0 || max > maxVariants {
 		max = maxVariants
 	}
-	req.Client = ApplyClientRules(s.qualityCfg(), req.Client, req.User)
-	profile := s.ProfileFor(req.Client, req.User)
+	media := titleMedia(req.Title)
+	q := s.qualityCfg()
+	req.Client, _ = applyClientRules(q, req.Client, req.User, media)
+	profile := SelectProfileForMedia(q, req.Client, req.User, media)
 	sreq := searchRequestFor(req.Title)
 	results, ok := s.peekSearchCache(searchCacheKey(sreq))
 	if !ok || len(results) == 0 {

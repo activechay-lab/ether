@@ -42,14 +42,22 @@ func (h *consoleAPI) trashProfiles(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 	items, err := h.deps.Guides.Profiles(ctx, app)
-	if err != nil {
+	if err != nil && len(items) == 0 {
 		h.importFail(w, err)
 		return
 	}
 	if items == nil {
 		items = []TrashProfile{}
 	}
-	consoleJSON(w, http.StatusOK, map[string]any{"items": items})
+	out := struct {
+		Items   []TrashProfile `json:"items"`
+		Warning string         `json:"warning,omitempty"`
+	}{Items: items}
+	if err != nil {
+		h.deps.Logger.Warn("TRaSH Guides profile list is partial", "err", err)
+		out.Warning = "Some quality profiles couldn't be read (" + trashReason(err) + "); the list is partial."
+	}
+	consoleJSON(w, http.StatusOK, out)
 }
 
 func (h *consoleAPI) dictionarryProfiles(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +112,8 @@ func (h *consoleAPI) applyImport(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, ErrProfileExists):
 			consoleError(w, http.StatusConflict, "exists", fmt.Sprintf("A profile named %q already exists; choose another name.", name))
+		case errors.Is(err, ErrImportUnusable):
+			consoleError(w, http.StatusBadRequest, "unusable", err.Error())
 		case errors.Is(err, ErrImportRejected):
 			consoleError(w, http.StatusBadRequest, "validation", err.Error())
 		default:
@@ -114,6 +124,32 @@ func (h *consoleAPI) applyImport(w http.ResponseWriter, r *http.Request) {
 	}
 	h.deps.Logger.Info("quality profile imported", "name", name, "app", plan.App, "formatsAdded", plan.Added())
 	consoleJSON(w, http.StatusOK, map[string]any{"name": name, "formatsAdded": plan.Added()})
+}
+
+// syncQuality runs one imported-profile sync now and reports what changed.
+func (h *consoleAPI) syncQuality(w http.ResponseWriter, r *http.Request) {
+	if h.deps.SyncQuality == nil {
+		consoleError(w, http.StatusNotImplemented, "not_implemented", "quality profile sync is not available")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	defer cancel()
+	report, err := h.deps.SyncQuality(ctx)
+	if err != nil {
+		switch {
+		case errors.Is(err, context.Canceled):
+			consoleError(w, http.StatusBadRequest, "canceled", "the request was canceled")
+		case errors.Is(err, context.DeadlineExceeded):
+			consoleError(w, http.StatusGatewayTimeout, "timeout", "the guide sync did not finish in time")
+		case errors.Is(err, ErrImportRejected):
+			consoleError(w, http.StatusBadRequest, "validation", err.Error())
+		default:
+			h.deps.Logger.Warn("quality profile sync failed", "err", err)
+			consoleError(w, http.StatusInternalServerError, "save_failed", "could not save the configuration")
+		}
+		return
+	}
+	consoleJSON(w, http.StatusOK, report)
 }
 
 // plan builds the import preview for in, answering the request itself on
@@ -141,6 +177,9 @@ func (h *consoleAPI) plan(w http.ResponseWriter, r *http.Request, in importReque
 			h.dictionarryFail(w, err)
 			return QualityImportPlan{}, false
 		}
+		// Dictionarry profile IDs are name slugs; saving the slug keeps a
+		// later sync working if the guide renames its display name.
+		imp.Source, imp.ProfileID = ImportSourceDictionarry, trashSlug(in.Profile)
 		cfg := config.Config{Resolver: h.s.resolverCfg(), Quality: h.s.qualityCfg()}
 		return PlanQualityImport(imp, app, found, cfg), true
 	}
@@ -170,6 +209,11 @@ func (h *consoleAPI) plan(w http.ResponseWriter, r *http.Request, in importReque
 	if imp.App != "" && imp.App != app && in.JSON != "" {
 		app = imp.App // pasted: the quality names say which app it is for
 	}
+	if strings.TrimSpace(in.JSON) == "" && strings.TrimSpace(in.Profile) != "" {
+		// A fetched profile is synced from the guide it came from; pasted
+		// JSON has no source to fetch again.
+		imp.Source, imp.ProfileID = ImportSourceTrash, strings.TrimSpace(in.Profile)
+	}
 	// TRaSH's default-on format groups hold custom formats the profile's
 	// formatItems don't name — the Base Profile names none of its own.
 	extra, gerr := h.deps.Guides.ProfileGroupFormats(ctx, app, imp.TrashID)
@@ -183,8 +227,8 @@ func (h *consoleAPI) plan(w http.ResponseWriter, r *http.Request, in importReque
 			}
 		}
 	}
-	if gerr != nil && !errors.Is(gerr, ErrTrashNotFound) {
-		imp.Warnings = append(imp.Warnings, fmt.Sprintf("Couldn't read TRaSH's default format groups (%s); only the profile's own formats are in this import.", trashReason(gerr)))
+	if gerr != nil && (errors.Is(gerr, ErrTrashPartial) || !errors.Is(gerr, ErrTrashNotFound)) {
+		imp.Warnings = append(imp.Warnings, fmt.Sprintf("Couldn't read every TRaSH default format group (%s); only the profile's own formats and the groups that loaded are in this import.", trashReason(gerr)))
 	}
 	cfg := config.Config{Resolver: h.s.resolverCfg(), Quality: h.s.qualityCfg()}
 	// Formats the owner already has are looked up too: TRaSH's current

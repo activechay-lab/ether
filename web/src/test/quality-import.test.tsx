@@ -12,11 +12,13 @@ const imports = (fake: Parameters<typeof calls>[0]) =>
 
 async function openImport() {
   fireEvent.click(await screen.findByRole("button", { name: "Add profile" }, WAIT));
-  fireEvent.click(await screen.findByRole("button", { name: "Import from TRaSH Guides" }, WAIT));
-  return screen.findByRole("dialog", { name: "Import from TRaSH Guides" }, WAIT);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Import a quality profile" }, WAIT),
+  );
+  return screen.findByRole("dialog", { name: "Import a quality profile" }, WAIT);
 }
 
-describe("Quality profile import from TRaSH Guides", () => {
+describe("Quality profile import from guides", () => {
   it("previews a TRaSH profile and adds it with its custom format scores", async () => {
     const { fake } = renderApp("/quality/profiles");
     const drawer = await openImport();
@@ -42,6 +44,9 @@ describe("Quality profile import from TRaSH Guides", () => {
     expect(within(drawer).getByText("Blu-ray › WEB-DL › WEBRip")).toBeInTheDocument();
     expect(within(drawer).getByText(/Left out SDTV/)).toBeInTheDocument();
     expect(within(drawer).getByText("1,000")).toBeInTheDocument();
+    // The drawer names the source profile and the media it applies to.
+    expect(within(drawer).getByText("Source profile: sqp-1-2160p")).toBeInTheDocument();
+    expect(within(drawer).getByText("Movies")).toBeInTheDocument();
 
     // "4K" is taken by an existing profile in the fake; rename before adding.
     fireEvent.change(within(drawer).getByLabelText("Name"), { target: { value: "4K" } });
@@ -66,9 +71,35 @@ describe("Quality profile import from TRaSH Guides", () => {
     // The profile's drawer shows what the import carried over.
     fireEvent.click(screen.getByRole("button", { name: "Edit UHD (TRaSH)" }));
     const editor = await screen.findByRole("dialog", { name: "UHD (TRaSH)" }, WAIT);
-    expect(within(editor).getByText("Imported from TRaSH / Radarr / Sonarr")).toBeInTheDocument();
+    expect(within(editor).getByText("Imported profile")).toBeInTheDocument();
     expect(within(editor).getByText("WEB-DL 4K")).toBeInTheDocument();
     expect(within(editor).getByLabelText("Minimum format score")).toHaveValue(1000);
+    // The imported profile's media and source are read-only.
+    expect(
+      within(editor).getByText("Set by the Radarr profile it was imported from."),
+    ).toBeInTheDocument();
+    expect(within(editor).getByText("TRaSH Guides")).toBeInTheDocument();
+    expect(within(editor).queryByRole("radio", { name: "Both" })).not.toBeInTheDocument();
+  });
+
+  it("shows own and default format counts in the picker", async () => {
+    renderApp("/quality/profiles");
+    const drawer = await openImport();
+    fireEvent.click(await within(drawer).findByRole("button", { name: "TRaSH profile" }, WAIT));
+    const option = await screen.findByRole("option", { name: /\[SQP\] SQP-1/ }, WAIT);
+    expect(option).toHaveTextContent("3 own · 32 default");
+  });
+
+  it("refuses to save a profile no release can satisfy", async () => {
+    const { fake } = renderApp("/quality/profiles");
+    const drawer = await openImport();
+    fireEvent.click(await within(drawer).findByRole("button", { name: "TRaSH profile" }, WAIT));
+    fireEvent.click(await screen.findByRole("option", { name: /Needs a perfect release/ }, WAIT));
+    expect(
+      await within(drawer).findByText(/minimum custom format score \(100\)/, {}, WAIT),
+    ).toBeInTheDocument();
+    expect(within(drawer).getByRole("button", { name: "Add profile" })).toBeDisabled();
+    expect(imports(fake)).toHaveLength(0);
   });
 
   it("previews and imports a Profilarr (Dictionarry) quality profile", async () => {
@@ -121,7 +152,7 @@ describe("Quality profile import from TRaSH Guides", () => {
     expect(within(table).getByText("Not found")).toBeInTheDocument();
     expect(within(drawer).getByText("Remux 1080p")).toBeInTheDocument();
     // The Sonarr remux name switched the app.
-    expect(within(drawer).getByRole("radio", { name: "Sonarr (shows)" })).toHaveAttribute(
+    expect(within(drawer).getByRole("radio", { name: "Shows (Sonarr)" })).toHaveAttribute(
       "aria-checked",
       "true",
     );
@@ -132,6 +163,8 @@ describe("Quality profile import from TRaSH Guides", () => {
       json,
       name: "My remuxes",
     });
+    // A show profile is listed under Shows, not Movies.
+    fireEvent.click(await screen.findByRole("radio", { name: "Shows" }, WAIT));
     expect(await screen.findByText("My remuxes", {}, WAIT)).toBeInTheDocument();
   });
 });

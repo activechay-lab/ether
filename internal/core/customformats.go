@@ -12,6 +12,10 @@ type CustomFormat struct {
 	// App names the Starr app whose enum values the specifications use:
 	// Sonarr numbers sources differently from Radarr. Empty means Radarr.
 	App string `json:"app,omitempty"`
+	// ManagedBy marks a definition an imported profile brought in and the
+	// guide sync owns ("trash:radarr", "dictionarry:sonarr"). Manual
+	// definitions leave it empty and the sync never removes them.
+	ManagedBy string `json:"managedBy,omitempty"`
 }
 
 type FormatSpecification struct {

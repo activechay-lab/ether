@@ -18,7 +18,11 @@ const (
 // runtime. Estimate has no user, so profile rules keyed on a user do not
 // apply here.
 func (m *Manager) Estimate(_ context.Context, t *core.Title, caps core.ClientCaps) core.MediaInfo {
-	return EstimateInfo(t, caps, m.deps.SelectProfile(caps, nil))
+	var key core.RatingKey
+	if t != nil {
+		key = t.Key
+	}
+	return EstimateInfo(t, caps, m.selectProfile(caps, nil, key))
 }
 
 // EstimateInfo builds the estimated MediaInfo for a title, client and

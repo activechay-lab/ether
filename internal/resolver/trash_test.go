@@ -28,6 +28,8 @@ type fakeGitHub struct {
 	agents    map[string]bool
 	limited   atomic.Bool
 	down      atomic.Bool
+	// fail names individual files (path after "radarr/" etc.) served as 500.
+	fail map[string]bool
 }
 
 func newFakeGitHub(t *testing.T, files map[string]string) *fakeGitHub {
@@ -85,6 +87,10 @@ func (f *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.fileCalls[path]++
 		f.mu.Unlock()
+		if f.fail[path] {
+			http.Error(w, "boom", http.StatusInternalServerError)
+			return
+		}
 		body, ok := f.files[path]
 		if !ok {
 			http.NotFound(w, r)
@@ -180,7 +186,9 @@ func TestTrashProfilesListsSummariesSafely(t *testing.T) {
 	if _, err := g.Profiles(context.Background(), AppRadarr); err != nil {
 		t.Fatal(err)
 	}
-	if lists, files := gh.fetched(); lists != 1 || files != 3 {
+	// The profile directory is cached; the missing cf-groups directory is
+	// retried, so each Profiles call costs one extra listing request.
+	if lists, files := gh.fetched(); lists != 3 || files != 3 {
 		t.Fatalf("second listing should be cached: %d listings, %d files", lists, files)
 	}
 	if !gh.agents["Ether/test"] || len(gh.agents) != 1 {
@@ -283,9 +291,11 @@ func TestTrashServesStaleCopiesWhenGitHubFails(t *testing.T) {
 	now = now.Add(2 * time.Hour)
 	mu.Unlock()
 	gh.down.Store(true)
+	// The profiles come from the stale cache; the groups read fails, so the
+	// list is served as a partial result with the reason attached.
 	list, err := g.Profiles(context.Background(), AppRadarr)
-	if err != nil || len(list) != 2 {
-		t.Fatalf("stale copy not served: %v %v", list, err)
+	if len(list) != 2 || err == nil || !errors.Is(err, ErrTrashUnavailable) {
+		t.Fatalf("stale copy not served with a partial warning: %v %v", list, err)
 	}
 	// Nothing cached for Sonarr: the failure is reported, without the URL.
 	_, err = g.Profiles(context.Background(), AppSonarr)
@@ -339,5 +349,45 @@ func TestPlainTextAndSlug(t *testing.T) {
 	}
 	if got := trashSlug("DD+ ATMOS (undefined)"); got != "dd-atmos-undefined" {
 		t.Fatalf("slug %q", got)
+	}
+}
+
+func TestTrashProfilesReportPartialFetch(t *testing.T) {
+	gh := newFakeGitHub(t, trashTree())
+	gh.fail = map[string]bool{"radarr/quality-profiles/sqp-1-2160p.json": true}
+	list, err := gh.guides(nil).Profiles(context.Background(), AppRadarr)
+	if len(list) != 1 || list[0].ID != "hd-bluray-web" {
+		t.Fatalf("partial list %+v", list)
+	}
+	if !errors.Is(err, ErrTrashUnavailable) {
+		t.Fatalf("partial failure not reported: %v", err)
+	}
+}
+
+func TestTrashProfilesCountDefaultGroupFormats(t *testing.T) {
+	gh := newFakeGitHub(t, trashGroupTree())
+	list, err := gh.guides(nil).Profiles(context.Background(), AppRadarr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, p := range list {
+		counts[p.ID] = p.DefaultFormats
+	}
+	if counts["base-profile"] != 3 || counts["hd-bluray-web"] != 3 || counts["sqp-1-2160p"] != 1 {
+		t.Fatalf("default format counts %v", counts)
+	}
+}
+
+func TestTrashGroupsReportPartialRead(t *testing.T) {
+	gh := newFakeGitHub(t, trashGroupTree())
+	gh.fail = map[string]bool{"radarr/cf-groups/release-groups.json": true}
+	g := gh.guides(nil)
+	got, err := g.ProfileGroupFormats(context.Background(), AppRadarr, "p3")
+	if err == nil || !errors.Is(err, ErrTrashUnavailable) {
+		t.Fatalf("partial group failure not reported: %v", err)
+	}
+	if len(got) != 3 || got["DD+ ATMOS"] == "" {
+		t.Fatalf("partial groups %v", got)
 	}
 }

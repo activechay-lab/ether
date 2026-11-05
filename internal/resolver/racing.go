@@ -227,14 +227,14 @@ func compatibilityScore(r core.Release, c core.ClientCaps, t *core.Title) (float
 			notes = append(notes, "audio transcode required")
 		}
 	}
-	if c.MaxBitrateKbps > 0 && r.Size > 0 && t.Runtime > 0 {
+	if c.MaxBitrateKbps > 0 && r.Size > 0 && t != nil && t.Runtime > 0 {
 		kbps := float64(r.Size) * 8 / t.Runtime.Seconds() / 1000
+		// The connection ladder step already ranks this fit, so the score
+		// only keeps a note: counting it here too would double its weight.
 		// NZB sizes include archive overhead; reserve 10% for instantaneous peaks.
 		if kbps*1.1 <= float64(c.MaxBitrateKbps) {
-			score += 200
 			notes = append(notes, fmt.Sprintf("estimated %.0f kbps fits client cap", kbps))
 		} else {
-			score -= 200
 			notes = append(notes, fmt.Sprintf("estimated %.0f kbps exceeds client cap", kbps))
 		}
 	}

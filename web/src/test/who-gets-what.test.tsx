@@ -74,6 +74,24 @@ describe("who gets what", () => {
     });
   });
 
+  it("sends the chosen media when no title is picked", async () => {
+    const fake = await renderChecker();
+    await settleUi(() => expect(headline()).toBe("4KHDRDolby Vision"));
+
+    fireEvent.click(screen.getByRole("radio", { name: "Shows" }));
+    await settleUi(() =>
+      expect(calls(fake, "POST", "/quality/explain").at(-1)?.body).toEqual({
+        userId: 1,
+        clientId: "plex-apple-tv",
+        mediaType: "tv",
+        remote: false,
+      }),
+    );
+    // The movie-only 4K rule does not apply; the both-media 1080p profile does.
+    await settleUi(() => expect(headline()).toBe("1080pSDR"));
+    expect(screen.getByTestId("quality-media")).toHaveTextContent("Shows");
+  });
+
   it("words every layer the server can send", () => {
     const answer: QualityAnswer = {
       profile: "At home",

@@ -223,3 +223,68 @@ func TestNativeLanguageSpecifications(t *testing.T) {
 		t.Fatalf("originalLanguage(ko) = %q", got)
 	}
 }
+
+// A profile that carries its own score map scores missing formats 0; only
+// a profile with no map falls back to the definition's default (or the
+// owner's global score).
+func TestScoreForTitleProfileMapScoresAbsentFormatsZero(t *testing.T) {
+	defs := []core.CustomFormat{
+		format("a", "A", map[string]int{"default": 10}, titleSpec),
+		format("b", "B", map[string]int{"default": 20}, titleSpec),
+	}
+	release := core.Release{Name: "x", Info: core.ReleaseInfo{Languages: []string{"english"}}}
+	scorer, err := NewFormatScorer(defs, map[string]int{"a": 5, "b": 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	score := func(overrides map[string]int) int {
+		t.Helper()
+		total, _, err := scorer.ScoreForTitle(release, overrides, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return total
+	}
+	if got := score(nil); got != 12 {
+		t.Fatalf("global scores total %d, want 12", got)
+	}
+	if got := score(map[string]int{"b": 7}); got != 7 {
+		t.Fatalf("profile map total %d, want 7 (absent format must score 0)", got)
+	}
+	if got := score(map[string]int{}); got != 0 {
+		t.Fatalf("empty profile map total %d, want 0", got)
+	}
+	if got := score(map[string]int{"a": -4}); got != -4 {
+		t.Fatalf("negative profile score total %d, want -4", got)
+	}
+}
+
+func TestCompatibilityScoreDoesNotCountBandwidthTwice(t *testing.T) {
+	title := &core.Title{Runtime: 100 * time.Minute}
+	rel := core.Release{Size: 2 << 30, Info: core.ReleaseInfo{VideoCodec: "h264", AudioCodec: "aac"}}
+	caps := core.ClientCaps{MaxBitrateKbps: 1000, VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac"}}
+	score, note := compatibilityScore(rel, caps, title)
+	if !strings.Contains(note, "exceeds client cap") {
+		t.Fatalf("note %q", note)
+	}
+	// Only the codec/audio contributions remain: 10 for audio, nothing for
+	// video; the connection ladder step ranks the fit separately.
+	if score != 10 {
+		t.Fatalf("score %v, want 10 (bandwidth must not add ±200)", score)
+	}
+	caps.MaxBitrateKbps = 1_000_000
+	if score, _ := compatibilityScore(rel, caps, title); score != 10 {
+		t.Fatalf("fitting source score %v, want 10", score)
+	}
+}
+
+func TestImportCustomFormatsPreservesSonarrApp(t *testing.T) {
+	defs, err := ImportCustomFormats([]byte(`{"trash_id":"r","name":"Remux","app":"sonarr",
+		"specifications":[{"implementation":"SourceSpecification","fields":{"value":7}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(defs) != 1 || defs[0].App != AppSonarr {
+		t.Fatalf("app not preserved: %+v", defs)
+	}
+}

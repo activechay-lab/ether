@@ -26,7 +26,7 @@ func (m *Manager) ResumedTracks(ctx context.Context, user *core.User, key core.R
 		return core.MediaInfo{}, "", false
 	}
 	rp, err := m.resumeFor(ctx, user, key, caps, false)
-	if rp == nil && err == nil && !caps.Remote && m.deps.SelectProfile != nil {
+	if rp == nil && err == nil && !caps.Remote && (m.deps.SelectProfile != nil || m.deps.SelectProfileFor != nil) {
 		// A client behind a Docker bridge or LAN subnet may send location=wan
 		// on /decision while /library/metadata carries no location query param.
 		rcaps := caps
@@ -34,7 +34,7 @@ func (m *Manager) ResumedTracks(ctx context.Context, user *core.User, key core.R
 		if m.cfg.Transcode.RemoteMaxBitrateKbps > 0 && (rcaps.MaxBitrateKbps == 0 || m.cfg.Transcode.RemoteMaxBitrateKbps < rcaps.MaxBitrateKbps) {
 			rcaps.MaxBitrateKbps = m.cfg.Transcode.RemoteMaxBitrateKbps
 		}
-		if profileKey(m.deps.SelectProfile(rcaps, user)) != profileKey(m.deps.SelectProfile(caps, user)) {
+		if profileKey(m.selectProfile(rcaps, user, key)) != profileKey(m.selectProfile(caps, user, key)) {
 			rp, err = m.resumeFor(ctx, user, key, rcaps, false)
 		}
 	}
