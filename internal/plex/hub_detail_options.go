@@ -30,6 +30,15 @@ func (s *Server) applyHubDetailOptions(ctx context.Context, mc *model.MediaConta
 			}
 			title := s.titles.get(core.RatingKey(n))
 			if title == nil {
+				// Cache eviction must not erase a requested block. Production
+				// adapters use a local point read without remote discovery.
+				if stored, ok := s.d.Catalog.(core.StoredTitleLookup); ok {
+					title, _ = stored.StoredTitle(ctx, core.RatingKey(n))
+				} else {
+					title, _ = s.d.Catalog.Get(ctx, core.RatingKey(n))
+				}
+			}
+			if title == nil {
 				continue
 			}
 			full := s.detail(ctx, pr, title, children, onDeck, related, extras, q.Get("extraTypes"))
