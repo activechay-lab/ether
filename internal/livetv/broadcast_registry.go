@@ -1,0 +1,114 @@
+package livetv
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/transcode"
+)
+
+// A registry is node-local. Personal channels include viewerID in their key;
+// ordinary channels use zero, so all viewers share the same input clock.
+type broadcastKey struct {
+	channelID string
+	viewerID  int64
+}
+type broadcastRegistry struct {
+	mu      sync.Mutex
+	outputs map[broadcastKey]*broadcast
+	closed  bool
+}
+type broadcastLease struct {
+	registry  *broadcastRegistry
+	broadcast *broadcast
+	rendition string
+	once      sync.Once
+}
+
+func (r *broadcastRegistry) acquire(ctx context.Context, key broadcastKey, id string, decision core.Decision, create func() (*broadcast, error)) (*broadcastLease, error) {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return nil, core.ErrNotFound
+	}
+	if r.outputs == nil {
+		r.outputs = map[broadcastKey]*broadcast{}
+	}
+	b := r.outputs[key]
+	if b != nil {
+		b.mu.Lock()
+		closed := b.closed
+		b.mu.Unlock()
+		if closed {
+			delete(r.outputs, key)
+			b = nil
+		}
+	}
+	if b == nil {
+		var err error
+		b, err = create()
+		if err != nil {
+			r.mu.Unlock()
+			return nil, err
+		}
+		r.outputs[key] = b
+		b.start()
+	}
+	r.mu.Unlock()
+	if _, err := b.addRendition(ctx, id, decision); err != nil {
+		return nil, err
+	}
+	return &broadcastLease{registry: r, broadcast: b, rendition: id}, nil
+}
+func (l *broadcastLease) output() (transcode.SegmentIndex, error) {
+	b := l.broadcast
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return nil, core.ErrNotFound
+	}
+	if r := b.renditions[l.rendition]; r != nil {
+		return r.encoder.Segments(), nil
+	}
+	var fallback *broadcastRendition
+	for _, r := range b.renditions {
+		if fallback == nil || r.height < fallback.height {
+			fallback = r
+		}
+	}
+	if fallback == nil {
+		return nil, core.ErrNotAvailable
+	}
+	return fallback.encoder.Segments(), nil
+}
+func (l *broadcastLease) close() {
+	if l != nil {
+		l.once.Do(func() { l.broadcast.releaseRendition(l.rendition) })
+	}
+}
+func (r *broadcastRegistry) close() {
+	r.mu.Lock()
+	r.closed = true
+	outputs := r.outputs
+	r.outputs = nil
+	r.mu.Unlock()
+	for _, b := range outputs {
+		b.close()
+	}
+}
+func (r *broadcastRegistry) expire(now time.Time) {
+	r.mu.Lock()
+	var idle []*broadcast
+	for key, b := range r.outputs {
+		if b.idle(now) {
+			delete(r.outputs, key)
+			idle = append(idle, b)
+		}
+	}
+	r.mu.Unlock()
+	for _, b := range idle {
+		b.close()
+	}
+}
