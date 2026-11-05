@@ -230,3 +230,75 @@ func TestCASRejectsProofRacingSeek(t *testing.T) {
 		t.Fatal(after)
 	}
 }
+
+func TestMultipleRecoveriesNeverReuseOldTokenOrOutput(t *testing.T) {
+	s, initial, r := fixture(t)
+	ctx := context.Background()
+	var old Reservation
+	for cycle := 0; cycle < 3; cycle++ {
+		if cycle == 1 {
+			seek := 2 * time.Second
+			r.SeekTo = &seek
+		} else {
+			r.SeekTo = nil
+		}
+		reserved := mustReserve(t, s, r)
+		if cycle > 0 {
+			n, f := restart(old)
+			if _, err := s.CommitRestart(ctx, initial.Session, old.Token, n, f); !errors.Is(err, ErrStale) {
+				t.Fatal("obsolete token accepted", err)
+			}
+		}
+		n, f := restart(reserved)
+		if _, err := s.CommitRestart(ctx, initial.Session, reserved.Token, n, f); err != nil {
+			t.Fatal(err)
+		}
+		d := DeliverySample{Fence: n, Epoch: reserved.Epoch, Floor: Floor{reserved.Floor.NextSequence + 1, reserved.Floor.Timestamp + 4*time.Second}, SourceEnd: reserved.SourceStart + 4*time.Second, Buffered: 20 * time.Second, Proof: "final-http"}
+		st, err := s.RecordDelivery(ctx, initial.Session, d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Floor.NextSequence != int64(8+cycle) || st.Floor.Timestamp != time.Duration(32+4*cycle)*time.Second || st.Fence.Generation != int64(4+cycle) {
+			t.Fatal(st)
+		}
+		old = reserved
+		r.Operation += "-next"
+		r.ExpectedFence = n
+		r.ExpectedEpoch = st.Epoch
+		r.Source = st.Source
+		r.Final = d
+	}
+}
+
+func TestConcurrentReservationsChooseOneDurableToken(t *testing.T) {
+	s, st, r := fixture(t)
+	entered, release := make(chan struct{}, 2), make(chan struct{})
+	v := verifier{delivery: func() { entered <- struct{}{}; <-release }}
+	one, _ := New(s.db, v)
+	two, _ := New(s.db, v)
+	type outcome struct {
+		token Reservation
+		err   error
+	}
+	results := make(chan outcome, 2)
+	for _, service := range []*Service{one, two} {
+		go func(svc *Service) {
+			got, err := svc.ReserveRecovery(context.Background(), r)
+			results <- outcome{got, err}
+		}(service)
+	}
+	<-entered
+	<-entered
+	close(release)
+	a, b := <-results, <-results
+	if a.err != nil {
+		a, b = b, a
+	}
+	if a.err != nil || !errors.Is(b.err, ErrStale) {
+		t.Fatal(a.err, b.err)
+	}
+	after, err := s.Lookup(context.Background(), st.Session)
+	if err != nil || after.Reservation.Token != a.token.Token || after.Phase != Reserved {
+		t.Fatal(after, err)
+	}
+}

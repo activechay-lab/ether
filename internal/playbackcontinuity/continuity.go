@@ -194,7 +194,7 @@ func New(db *sql.DB, verifier EvidenceVerifier) (*Service, error) {
 func text(s string) bool { return len(s) > 0 && len(s) <= 4096 }
 func publicPath(s string) bool {
 	u, err := url.ParseRequestURI(s)
-	return text(s) && err == nil && strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "//") && u.Host == "" && !u.IsAbs() && u.RawQuery == "" && u.Fragment == ""
+	return text(s) && err == nil && strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "//") && !strings.ContainsAny(s, "?#\\\r\n") && u.Host == "" && !u.IsAbs() && u.RawQuery == "" && u.Fragment == ""
 }
 func target(t placement.Target) bool { return text(t.NodeID) && text(t.Boot) }
 func fence(f placement.Fence) bool {
