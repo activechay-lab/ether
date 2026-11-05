@@ -150,6 +150,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		state = "stopped"
 	}
 	if state == "stopped" {
+		s.endVersionFlow(ctx, s.playIdentityFor(pr, key))
 		if e, ok := s.sessions.remove(tid); ok {
 			e.offset = offset
 			s.notifyPlaying(e, "stopped")
@@ -175,6 +176,11 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 			unlock()
 		}
 	} else {
+		if s.versionFlows != nil {
+			if _, err := s.versionFlows.call(ctx, s.playIdentityFor(pr, key), nil, versionTouch, s.now(), 0); err != nil {
+				s.log.Warn("refresh version flow", "err", err)
+			}
+		}
 		client := *pr
 		client.User = nil
 		fresh := !s.sessions.has(tid)

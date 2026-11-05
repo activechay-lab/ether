@@ -594,9 +594,8 @@ func (s *Server) resumedTracks(ctx context.Context, pr *Request, t *core.Title) 
 // mediaFor renders the virtual Media/Part of a playable title: one per
 // release variant on detail pages (withVariants, driving the "Play
 // Version" picker), otherwise the single Media. The second return value
-// is the item's editionTitle, or "". During a live session Plex Web keeps
-// the same version list, with the version actually playing selected and
-// carrying the session's probed info; other apps see that version alone.
+// is the item's editionTitle, or "". Detail and queue versions retain their
+// flow identity; /status/sessions projects only the admitted version.
 func (s *Server) mediaFor(ctx context.Context, pr *Request, t *core.Title, withStreams, withVariants, sessionMedia bool) ([]model.Media, string) {
 	info, ps, probedSource := s.mediaInfoWithSource(ctx, pr, t)
 	stamp := unixOrZero(t.UpdatedAt)
@@ -607,7 +606,7 @@ func (s *Server) mediaFor(ctx context.Context, pr *Request, t *core.Title, withS
 		stamp = 1
 	}
 	// VIDAA has always received a single version, including before playback.
-	if withVariants && withStreams && !strings.EqualFold(strings.TrimSpace(pr.Product), "Plex for VIDAA") {
+	if withVariants && withStreams && !sessionMedia && !strings.EqualFold(strings.TrimSpace(pr.Product), "Plex for VIDAA") {
 		probed, probedRelease := core.MediaInfo{Estimated: true}, ""
 		if ps != nil {
 			// A client keeps the Media index it chose before playback
