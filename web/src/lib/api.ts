@@ -27,6 +27,9 @@ import type {
   ClusterSetupStatus,
   ClusterSettings,
   ClusterStatus,
+  ClusterControl,
+  ClusterRolePreflight,
+  ClusterControlRequest,
   CreatedJoinToken,
   DashboardData,
   DebridProvider,
@@ -419,6 +422,18 @@ export const api = {
     post<{ state: string }>("/cluster/setup/apply", request),
   updateClusterNode: (body: { weight?: number; draining?: boolean }) =>
     send<{ weight: number; draining: boolean }>("PATCH", "/cluster/node", body),
+  clusterRolePreflight: (id: string, boot: string, signal?: AbortSignal) =>
+    apiFetch<ClusterRolePreflight>(
+      `/cluster/nodes/${encodeURIComponent(id)}/role-preflight?boot=${encodeURIComponent(boot)}`,
+      { signal },
+    ),
+  clusterControl: (id: string, boot: string, signal?: AbortSignal) =>
+    apiFetch<ClusterControl>(
+      `/cluster/nodes/${encodeURIComponent(id)}/control?boot=${encodeURIComponent(boot)}`,
+      { signal },
+    ),
+  updateClusterControl: (id: string, request: ClusterControlRequest) =>
+    post<ClusterControl>(`/cluster/nodes/${encodeURIComponent(id)}/control`, request),
   clusterStatus: (signal?: AbortSignal) => apiFetch<ClusterStatus>("/cluster/", { signal }),
   clusterSettings: (signal?: AbortSignal) =>
     apiFetch<ClusterSettings>("/cluster/settings", { signal }),

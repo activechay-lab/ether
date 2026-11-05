@@ -17,6 +17,7 @@ import { InfoTip } from "./RecipeTab";
 import { ReelDrawer } from "./ReelDrawer";
 import { ChannelScreens } from "./ScreenPicker";
 
+import { BugControls, resolveBug } from "./BugControls";
 export function LookTab({
   channel,
   onChange,
@@ -71,14 +72,18 @@ export function LookTab({
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
         {look ? (
           <LookTile
-            look={look}
+            look={{ ...look, bug: resolveBug(look.bug, settings.bug) }}
             channel={
               channel.personal
                 ? channel.personal.nameFormat.replace("{viewer}", viewerName || "")
                 : channel.name
             }
-            moment={moment}
-            bindings={{ ...bindings.data, viewer: { name: viewerName || "" } }}
+            moment={settings.bug ? "bug" : moment}
+            bindings={{
+              ...bindings.data,
+              channel: { name: channel.name, logo: channel.logo },
+              viewer: { name: viewerName || "" },
+            }}
           />
         ) : (
           <div className="grid aspect-video place-items-center rounded-lg border border-dashed border-border bg-surface text-sm text-fg-muted">
@@ -350,6 +355,29 @@ export function LookTab({
           }
         />
       </section>
+      {look ? (
+        <section className="space-y-4 border-t border-border pt-4">
+          <label className="flex items-center justify-between gap-3 text-sm font-medium">
+            {t("Customize corner logo")}
+            <Switch
+              aria-label={t("Customize corner logo")}
+              checked={settings.bug !== undefined}
+              onChange={(e) => {
+                set({ bug: e.currentTarget.checked ? resolveBug(look.bug) : undefined });
+                setMoment("bug");
+              }}
+            />
+          </label>
+          {settings.bug ? (
+            <BugControls
+              value={resolveBug(look.bug, settings.bug)}
+              onChange={(bug) => set({ bug })}
+            />
+          ) : (
+            <p className="text-sm text-fg-muted">{t("Uses the look’s corner logo.")}</p>
+          )}
+        </section>
+      ) : null}
       <MoreOptions label={t("More options")}>
         <div className="grid gap-4 p-4 sm:grid-cols-3">
           <Field label={t("Break frequency (minutes)")}>

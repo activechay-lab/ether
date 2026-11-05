@@ -805,11 +805,6 @@ export default function LiveTV() {
       <p className="text-xs text-fg-muted">
         {t("Build a virtual channel from your catalogue, or bring in IPTV from an M3U playlist.")}
       </p>
-      <div className="flex justify-center gap-2">
-        <Button size="sm" onClick={() => void go({ kind: "new" })}>
-          <Sparkles size={13} /> {t("New channel")}
-        </Button>
-      </div>
     </div>
   );
 
@@ -1027,7 +1022,6 @@ export default function LiveTV() {
         head={panelHead}
         covered={covered}
         onToggleFavorite={toggleFavorite}
-        onAddChannel={() => void go({ kind: "new" })}
         emptyHint={
           channels === null ? (
             <p className="text-xs text-fg-muted">{t("Loading channels…")}</p>

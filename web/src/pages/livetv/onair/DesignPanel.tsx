@@ -7,6 +7,7 @@ import { t } from "../../../i18n";
 import { referenceLooks } from "./fixtures";
 import { normalizeFont } from "./scene-renderer";
 import { MOMENTS, onair, type Look, type OnAirAsset, type BrandTokens } from "./model";
+import { BugControls } from "./BugControls";
 export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look) => void }) {
   const [assets, setAssets] = useState<OnAirAsset[]>([]);
   useEffect(() => {
@@ -260,6 +261,10 @@ export function DesignPanel({ look, onChange }: { look: Look; onChange: (l: Look
             />
           </Field>
         </>,
+      )}
+      {section(
+        t("Corner logo"),
+        <BugControls value={look.bug ?? {}} onChange={(bug) => onChange({ ...look, bug })} />,
       )}
       <details className="space-y-3">
         <summary className="cursor-pointer text-sm text-fg-muted">{t("More options")}</summary>

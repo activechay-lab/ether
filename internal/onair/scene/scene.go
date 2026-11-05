@@ -181,7 +181,7 @@ func (d Document) Validate() error {
 			if total > 200 || particles > 2000 || l.Blur < 0 || l.Blur > 64 || l.Glow < 0 || l.Glow > 64 {
 				return fmt.Errorf("scene exceeds render cost limit")
 			}
-			if !one(l.Blend, " normal multiply screen overlay") || !one(l.TintBlend, " normal multiply screen overlay") || !one(l.Fit, " shrink wrap clip cover contain") || !one(l.FillRule, " nonzero evenodd") || !one(l.Join, " miter round bevel") || !one(l.Cap, " butt round square") || l.MaxLines < 0 || l.MaxLines > 100 {
+			if !one(l.Blend, " normal multiply screen overlay") || !one(l.TintBlend, " normal multiply screen overlay silhouette") || !one(l.Fit, " shrink wrap clip cover contain") || !one(l.FillRule, " nonzero evenodd") || !one(l.Join, " miter round bevel") || !one(l.Cap, " butt round square") || l.MaxLines < 0 || l.MaxLines > 100 {
 				return fmt.Errorf("invalid layer option")
 			}
 			for _, v := range []Value{l.X, l.Y, l.W, l.H, l.Scale, l.ScaleX, l.ScaleY, l.Rotate, l.Opacity, l.Fill, l.Stroke, l.StrokeWidth, l.Text, l.Font, l.Size, l.Track, l.Src, l.Tint} {

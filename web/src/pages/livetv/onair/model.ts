@@ -31,7 +31,17 @@ export type StyleScreens = {
   stationId: boolean;
   applyTo?: "converted" | "all";
 };
+export type BugSettings = {
+  position?: "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+  opacity?: number;
+  style?: "monochrome" | "original";
+  size?: "small" | "medium" | "large";
+  source?: "logo" | "wordmark";
+  fadeBreaks?: boolean;
+  fadeCredits?: boolean;
+};
 export type Look = {
+  bug?: BugSettings;
   screens?: StyleScreens;
   id: string;
   name: string;
@@ -79,6 +89,7 @@ export type Reel = {
   channelIds: string[];
 };
 export type ChannelLook = {
+  bug?: BugSettings;
   lookId: string;
   ident: boolean;
   upNext: boolean;
@@ -114,7 +125,7 @@ export type PersonalRecipe = {
   nightMaxMinutes: number;
 };
 export type Bindings = {
-  channel?: { name: string };
+  channel?: { name: string; logo?: string };
   viewer?: { name: string; greeting?: string };
   now?: { title: string };
   next?: {

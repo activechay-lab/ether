@@ -5,26 +5,8 @@
   "poster": 5.5,
   "layers": [
     {
-      "id": "panel",
-      "type": "path",
-      "x": 120,
-      "y": 850,
-      "fill": "{bg}@0.85",
-      "stroke": "{accent}",
-      "strokeWidth": 2,
-      "path": "M 30 0 H 1220 Q 1250 0 1250 30 V 120 Q 1250 150 1220 150 H 30 Q 0 150 0 120 V 30 Q 0 0 30 0 Z"
-    },
-    {
-      "id": "kicker",
-      "type": "text",
-      "text": "{words.now}",
-      "x": 160,
-      "y": 895,
-      "size": 28,
-      "font": "{type.mono}",
-      "fill": "{accent}",
-      "fit": "shrink",
-      "maxWidth": 1600,
+      "id": "lowerthird-envelope",
+      "type": "group",
       "opacity": {
         "keys": [
           [
@@ -32,74 +14,137 @@
             0
           ],
           [
-            0.4,
-            0
+            0.5,
+            1,
+            "inOut"
           ],
           [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "Title",
-      "type": "text",
-      "text": "{now.title}",
-      "x": 160,
-      "y": 960,
-      "size": 60,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1140,
-      "opacity": {
-        "keys": [
+            7.5,
+            1
+          ],
           [
+            8,
             0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
+            "inOut"
           ]
         ]
-      }
-    },
-    {
-      "id": "next",
-      "type": "text",
-      "text": "{words.upNext} {next.time} \u00b7 {next.title}",
-      "x": 160,
-      "y": 1040,
-      "size": 30,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1500,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
+      },
+      "layers": [
+        {
+          "id": "panel",
+          "type": "path",
+          "x": 120,
+          "y": 770,
+          "fill": {
+            "linear": [
+              0,
+              0,
+              1250,
+              0
+            ],
+            "stops": [
+              [
+                0,
+                "#080b12@0.78"
+              ],
+              [
+                1,
+                "#080b12@0"
+              ]
+            ]
+          },
+          "stroke": "{accent}",
+          "strokeWidth": 1,
+          "path": "M 30 0 H 1220 Q 1250 0 1250 30 V 120 Q 1250 150 1220 150 H 30 Q 0 150 0 120 V 30 Q 0 0 30 0 Z"
+        },
+        {
+          "id": "kicker",
+          "type": "text",
+          "text": "{words.now}",
+          "x": 160,
+          "y": 815,
+          "size": 28,
+          "font": "{type.mono}",
+          "fill": "{accent}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "Title",
+          "type": "text",
+          "text": "{now.title}",
+          "x": 160,
+          "y": 880,
+          "size": 60,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1140,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "next",
+          "type": "text",
+          "text": "{words.upNext} {next.time} \u00b7 {next.title}",
+          "x": 160,
+          "y": 960,
+          "size": 30,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1100,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          }
+        }
+      ]
     }
   ],
   "post": [],

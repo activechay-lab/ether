@@ -107,6 +107,24 @@ func (b *Broker) planPlexAdmission(ctx context.Context, req frontend.PlanRequest
 		caps = admitted.Caps
 		opts = admitted.Options
 	}
+	// A part-only client has not passed through the decision endpoint's
+	// policy clamping. Apply the same current ceilings before Decide and
+	// storing the plan, so Open does not mistake an omitted limit for a
+	// policy violation. Open still rechecks for policy changes.
+	limit := b.deps.BitrateLimit(req.Viewer)
+	if caps.Remote && b.deps.RemoteBitrateLimit != nil {
+		if remote := b.deps.RemoteBitrateLimit(); remote > 0 && (limit == 0 || remote < limit) {
+			limit = remote
+		}
+	}
+	if limit > 0 {
+		if caps.MaxBitrateKbps == 0 || caps.MaxBitrateKbps > limit {
+			caps.MaxBitrateKbps = limit
+		}
+		if opts.MaxBitrateKbps == 0 || opts.MaxBitrateKbps > limit {
+			opts.MaxBitrateKbps = limit
+		}
+	}
 	protocol := admitted.Protocol
 	if protocol == "" {
 		protocol = string(req.Protocol)

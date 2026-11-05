@@ -34,7 +34,8 @@ func TestPartRangeAfterFailover(t *testing.T) {
 		t.Fatal("no replacement generation")
 	}
 	r := f.get(t, path, headers...)
-	if r.Code != 206 || r.Body.Len() != 10 {
+	// A same-size replacement still has different container bytes.
+	if r.Code != 409 {
 		t.Fatalf("replacement part status=%d length=%d", r.Code, r.Body.Len())
 	}
 }

@@ -241,6 +241,15 @@ with three cards:
 - **Start from a family:** six live tiles. Picking one creates the look.
 - **Duplicate a look.**
 
+### 3.2a Corner logo controls
+
+The Design inspector includes **Corner logo**: four-corner picker, 15–60% opacity,
+Monochrome / Original colour, Small / Medium / Large, Logo / Wordmark, and fades
+during breaks and credits. Defaults: bottom right, 30%, monochrome, medium, logo
+(wordmark when absent), break fades on and credit fades off. No badge or disc.
+The channel Look tab has **Customize corner logo**; off inherits the look, on edits
+the same controls over a programme preview. Channel fields override look fields.
+
 ### 3.3 The channel drawer: a Look tab (addition)
 
 Virtual channel tabs go from **Programming | Schedule | Viewers | Details** to
@@ -772,6 +781,22 @@ designs, rebuilt as documents.
 
 ---
 
+### 5.1 Broadcast overlay preparation
+
+Bugs use title safe: 10% inset on every edge (192/108 at 1080p, 128/72 at 720p).
+Medium occupies 288×100 reference pixels; small is 75%, large 130%. Wordmarks
+use the display face, weight 600 and two pixels of tracking. Channel artwork
+precedes look artwork. Monochrome uses alpha for transparent artwork, luminance
+for opaque artwork (inverted for light backing), and a faint soft shadow.
+The mask, raster and compact YUV planes are prepared once per channel/look/size;
+frame ticks only alpha-blend compact bounds with a scalar fade.
+Scene image `tintBlend: "silhouette"` colours the alpha mask; the TS preparer uses
+the same alpha/luminance rule. Missing artwork falls back to a wordmark.
+Break and look boundaries use 500ms smoothstep ramps. Credit fades use prepared
+media chapters whose names include “credit”; without cues the bug stays visible.
+Lower thirds stay within title safe with dark-to-transparent panels and a shared
+fade envelope. Idents retain their family design with 400ms boundary fades.
+
 ## 6. Rendering engine
 
 ### 6.1 Primitives
@@ -1094,3 +1119,19 @@ identical in Go (`internal/livetv`) and TypeScript (`web/src/pages/livetv/onair/
 ## Viewer policy addition (`livetv_policies` JSON)
 
 `personal`: `{ "enabled": bool | null, "name": string }`. `null` follows the channel's audience; `name` overrides `nameFormat` for this viewer.
+
+## Appendix A addition: station bug settings
+
+Optional `Look.bug` and `Channel.look.bug` share this sparse JSON object:
+
+```json
+{"position":"bottomRight","opacity":0.3,"style":"monochrome","size":"medium","source":"logo","fadeBreaks":true,"fadeCredits":false}
+```
+
+`position`: `topLeft|topRight|bottomLeft|bottomRight`; `opacity`: finite 0.15–0.60;
+`style`: `monochrome|original`; `size`: `small|medium|large`;
+`source`: `logo|wordmark`; fade fields: booleans. Absent fields resolve through
+channel override → look → defaults above. Explicit `false` is preserved.
+This is additive JSON. Existing records use the new defaults without migration
+or legacy styling. `core.ClipRequest.Bug` carries overrides to background
+preparation; no server configuration setting is added.

@@ -4,6 +4,7 @@ package onair
 import (
 	"encoding/json"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/onair/scene"
 	"time"
 )
@@ -35,6 +36,7 @@ type Moment struct {
 }
 type Look struct {
 	Screens    *config.LiveTVScreens     `json:"screens,omitempty"`
+	Bug        *core.BugSettings         `json:"bug,omitempty"`
 	ID         string                    `json:"id"`
 	Name       string                    `json:"name"`
 	Family     string                    `json:"family"`

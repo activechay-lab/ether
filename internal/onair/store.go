@@ -53,6 +53,9 @@ func (s *Service) validateLook(ctx context.Context, l Look) error {
 		}
 	}
 
+	if e := l.Bug.Validate(); e != nil {
+		return e
+	}
 	if strings.TrimSpace(l.Name) == "" || utf8.RuneCountInString(l.Name) > 120 || utf8.RuneCountInString(l.Brand.Tagline) > 40 {
 		return fmt.Errorf("name required (120 characters maximum); tagline maximum 40 characters")
 	}
