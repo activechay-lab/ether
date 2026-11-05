@@ -34,6 +34,8 @@ type privatePlayback interface {
 }
 
 type deploymentRuntime struct {
+	quotaOpen     atomic.Bool
+	quota         atomic.Pointer[placement.QuotaStatus]
 	encoder       *transcode.Manager
 	placement     *placement.Service
 	settings      clusterconfig.Deployment
@@ -77,7 +79,16 @@ func (a *App) prepareDeployment(ctx context.Context) error {
 	mux.HandleFunc("GET /livez", probe(func() bool { return true }))
 	mux.HandleFunc("GET /startupz", probe(p.started.Load))
 	mux.HandleFunc("GET /readyz", probe(p.ready.Load))
-	mux.HandleFunc("GET /admissionz", probe(func() bool { return p.ready.Load() && !a.nodeDraining() }))
+	mux.HandleFunc("GET /admissionz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !p.ready.Load() || !p.quotaOpen.Load() || a.nodeDraining() {
+			w.WriteHeader(503)
+		}
+		_ = json.NewEncoder(w).Encode(struct {
+			Accepting bool                   `json:"accepting"`
+			Ledger    *placement.QuotaStatus `json:"ledger,omitempty"`
+		}{p.ready.Load() && p.quotaOpen.Load() && !a.nodeDraining(), p.quota.Load()})
+	})
 	p.probes = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	p.probeListener, err = net.Listen("tcp", d.ProbeListen)
 	if err != nil {
@@ -205,6 +216,7 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 			case <-tick.C:
 				op, c := context.WithTimeout(runCtx, 3*time.Second)
 				a.pollDrain(op)
+				_ = a.refreshPrivateQuota(op)
 				err := a.reconcilePrivatePlacement(op)
 				_ = p.playback.Tick(op) // pending retirement is healthy retained ownership, not readiness loss
 				c()
@@ -258,7 +270,10 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		}
 	})
 	initial, done := context.WithTimeout(runCtx, 3*time.Second)
-	err = a.reconcilePrivatePlacement(initial)
+	err = a.refreshPrivateQuota(initial)
+	if err == nil {
+		err = a.reconcilePrivatePlacement(initial)
+	}
 	done()
 	if err != nil {
 		cancel()

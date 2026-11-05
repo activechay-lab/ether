@@ -59,6 +59,9 @@ func TestSpecialistExecutableSupervisorLifecycle(t *testing.T) {
 			if err != nil {
 				return nil, err
 			}
+			if err = ledger.EnsureLedgerQuota(ctx); err != nil {
+				return nil, err
+			}
 			self := a.cluster.Self()
 			runtime, err := clusterplayback.NewRuntime(clusterplayback.Options{DB: db, Guard: a.deployment.guard, Self: nodewire.Identity{Cluster: cfg.Get().Server.MachineIdentifier, NodeID: self.ID, Boot: self.Incarnation}, Roles: roles, Placement: ledger, Endpoint: a.privateEndpoint, Eligible: a.privateEligible, MemberRole: a.privateMemberRole, Encoder: supervisorEncoder{}, Capacity: 1, ClockBoundKnown: true})
 			if err != nil {

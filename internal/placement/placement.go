@@ -26,13 +26,14 @@ type Error string
 func (e Error) Error() string { return string(e) }
 
 const (
-	ErrInvalid    Error = "placement: invalid request"
-	ErrFenced     Error = "placement: stale fence or generation"
-	ErrConflict   Error = "placement: operation payload conflict"
-	ErrCapacity   Error = "placement: capacity exhausted"
-	ErrPolicy     Error = "placement: missing or ineligible target/scope policy"
-	ErrRetirement Error = "placement: retirement proof required"
-	ErrQuota      Error = "placement: session ledger quota exhausted"
+	ErrInvalid     Error = "placement: invalid request"
+	ErrFenced      Error = "placement: stale fence or generation"
+	ErrConflict    Error = "placement: operation payload conflict"
+	ErrCapacity    Error = "placement: capacity exhausted"
+	ErrPolicy      Error = "placement: missing or ineligible target/scope policy"
+	ErrRetirement  Error = "placement: retirement proof required"
+	ErrQuotaPolicy Error = "placement: fleet ledger quota differs; coordinate deployment policy"
+	ErrQuota       Error = "placement: session ledger quota exhausted"
 )
 
 // UnknownOutcome means a database operation did not produce a confirmed result.
@@ -295,6 +296,9 @@ func (s *Service) Reserve(ctx context.Context, request Request) (Record, error) 
 			out.Deadline = old.InitialDeadline
 			out.Authority = !old.Retired && out.Deadline.UnixMilli() > now
 			return nil
+		}
+		if e := s.checkLedgerQuota(ctx, tx); e != nil {
+			return e
 		}
 		if (!exists && r.ExpectedGeneration != 0) || (exists && old.Generation != r.ExpectedGeneration) {
 			return ErrFenced

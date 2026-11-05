@@ -16,6 +16,7 @@ import (
 // Deployment contains paths and node-local policy only. Secret CONTENTS must
 // reside in separate mounted files. This document is never a shared setting.
 type Deployment struct {
+	LedgerCapacity  int              `json:"ledgerCapacity,omitempty"`
 	TempDir         string           `json:"tempDir,omitempty"`
 	CacheDir        string           `json:"cacheDir,omitempty"`
 	DrainSeconds    int              `json:"drainSeconds,omitempty"`
@@ -72,6 +73,12 @@ func ReadDeployment(path string) (Deployment, error) {
 	}
 	if d.PrivateListen == d.ProbeListen || d.InternalAddress == "" || d.DatabaseURLFile == "" || d.ClusterKeyFile == "" || d.CAFile == "" || d.CAKeyFile == "" || d.RootsFile == "" {
 		return Deployment{}, errors.New("deployment: missing or conflicting required settings")
+	}
+	if d.LedgerCapacity == 0 {
+		d.LedgerCapacity = 1000000
+	}
+	if d.LedgerCapacity < 4096 || d.LedgerCapacity > 10000000 || d.LedgerCapacity < d.Capacity {
+		return Deployment{}, errors.New("deployment: ledgerCapacity must be 4096..10000000 and cover concurrent/history capacity")
 	}
 	if d.DrainSeconds == 0 {
 		d.DrainSeconds = 120

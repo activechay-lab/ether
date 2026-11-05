@@ -13,14 +13,17 @@ import (
 	"github.com/braedonsaunders/ether/internal/playback"
 )
 
-func (a *App) buildClusterPlayback(_ context.Context, _ config.Config) error {
+func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
 	p := a.deployment
 	if p == nil {
 		return nil
 	}
 	verifier := clusterplayback.NewVerifier()
-	ledger, err := placement.New(a.db, placement.Options{MaxSessions: 4096, MaxLease: 10 * time.Minute, LockTimeout: 3 * time.Second}, verifier)
+	ledger, err := placement.New(a.db, placement.Options{MaxSessions: p.settings.LedgerCapacity, MaxLease: 10 * time.Minute, LockTimeout: 3 * time.Second}, verifier)
 	if err != nil {
+		return err
+	}
+	if err := ledger.EnsureLedgerQuota(ctx); err != nil {
 		return err
 	}
 	self := a.cluster.Self()
@@ -104,7 +107,7 @@ func (a *App) reconcilePrivatePlacement(ctx context.Context) error {
 	}
 	var roles config.NodeRoles
 	scopes := map[config.NodeRole][]string{}
-	if p.settings.Roles.Has(config.RoleTranscode) && !p.settings.Roles.FullServer() && !a.nodeDraining() && p.playback.Ready() {
+	if p.settings.Roles.Has(config.RoleTranscode) && !p.settings.Roles.FullServer() && !a.nodeDraining() && p.playback.Ready() && p.quotaOpen.Load() {
 		scope := p.settings.ResourceScope
 		if scope == "" {
 			scope = "node:" + self.ID
@@ -135,4 +138,18 @@ func (a *App) privateSourcePolicy(ctx context.Context, v *core.Viewer, s *core.P
 		return core.ErrUnauthorized
 	}
 	return nil
+}
+
+func (a *App) refreshPrivateQuota(ctx context.Context) error {
+	p := a.deployment
+	status, err := p.placement.LedgerStatus(ctx)
+	open := err == nil && status.Matches && !status.Exhausted
+	previous := p.quotaOpen.Swap(open)
+	if err == nil {
+		p.quota.Store(&status)
+	}
+	if previous && !open {
+		a.log.Warn("private placement ledger quota blocks new admissions; retained ownership unchanged", "capacity", status.Capacity, "used", status.Used, "retired", status.Retired)
+	}
+	return err
 }
