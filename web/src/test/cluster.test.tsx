@@ -16,6 +16,8 @@ import {
   managerURL,
   nodeRuntime,
   runtimeFresh,
+  controlFresh,
+  clusterNodeHealth,
 } from "../pages/settings/Cluster";
 import { calls, renderApp } from "./harness";
 
@@ -75,7 +77,7 @@ describe("Server › Cluster", () => {
     expect(calls(fake, "POST", "/cluster/setup/apply")).toHaveLength(0);
     expect(within(drawer).getByText(/Create a portable backup/)).toBeInTheDocument();
     fireEvent.click(within(drawer).getByRole("button", { name: "Create cluster and restart" }));
-    await screen.findByRole("region", { name: "Nodes" }, WAIT);
+    await screen.findByRole("tab", { name: "Nodes" }, WAIT);
     expect(calls(fake, "POST", "/cluster/setup/apply")).toHaveLength(1);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -110,7 +112,7 @@ describe("Server › Cluster", () => {
     await within(drawer).findByText("Connection verified", {}, WAIT);
     expect(within(drawer).getByText(/existing history is not merged/)).toBeInTheDocument();
     fireEvent.click(within(drawer).getByRole("button", { name: "Join cluster and restart" }));
-    await screen.findByRole("region", { name: "Nodes" }, WAIT);
+    await screen.findByRole("tab", { name: "Nodes" }, WAIT);
     expect(calls(fake, "POST", "/cluster/setup/apply")[0]!.body).toMatchObject({
       mode: "join",
       token: "ether-join-v1:example",
@@ -118,22 +120,27 @@ describe("Server › Cluster", () => {
     });
   });
 
-  it("changes the local node weight and pauses and resumes new streams", async () => {
+  it("submits remote weight with boot/version and never calls pending applied", async () => {
     const { fake } = renderApp("/cluster", { cluster: true });
+    fireEvent.click(await screen.findByRole("tab", { name: "Nodes" }, WAIT));
     fireEvent.click(await screen.findByRole("button", { name: "Manage this node" }, WAIT));
-    const drawer = await screen.findByRole("dialog", { name: "Manage this node" });
+    const drawer = await screen.findByRole("dialog", { name: "Manage" });
+    await waitFor(() => expect(within(drawer).getByLabelText("Node weight")).toBeEnabled());
     fireEvent.change(within(drawer).getByLabelText("Node weight"), { target: { value: "3" } });
     fireEvent.click(within(drawer).getByRole("button", { name: "Save weight" }));
-    await waitFor(() => expect(calls(fake, "PATCH", "/cluster/node")).toHaveLength(1));
-    expect(calls(fake, "PATCH", "/cluster/node")[0]!.body).toEqual({ weight: 3 });
-    fireEvent.click(await within(drawer).findByRole("button", { name: "Pause new streams" }));
-    fireEvent.click(await within(drawer).findByRole("button", { name: "Resume new streams" }));
-    await waitFor(() => expect(calls(fake, "PATCH", "/cluster/node")).toHaveLength(3));
-    expect(calls(fake, "PATCH", "/cluster/node")[2]!.body).toEqual({ draining: false });
+    await within(drawer).findByText("Pending");
+    expect(calls(fake, "POST", "/cluster/nodes/n-den/control")[0]!.body).toMatchObject({
+      boot: "boot-n-den",
+      expectedVersion: 0,
+      patch: { weight: 3 },
+    });
+    expect(within(drawer).getByRole("button", { name: "Save weight" })).toBeDisabled();
+    expect(within(drawer).getByRole("button", { name: "Pause new streams" })).toBeDisabled();
   });
 
   it("lists every node with its role, health, load and capabilities", async () => {
     renderApp("/cluster", { cluster: true });
+    fireEvent.click(await screen.findByRole("tab", { name: "Nodes" }, WAIT));
     const nodes = await screen.findByRole("region", { name: "Nodes" }, WAIT);
     const den = rowOf(nodes, "den");
     expect(within(den).getByText("Leader")).toBeInTheDocument();
@@ -147,10 +154,7 @@ describe("Server › Cluster", () => {
     expect(within(attic).getByLabelText("attic streams")).toHaveTextContent("2");
     expect(within(attic).getByLabelText("attic weight")).toHaveTextContent("2");
     expect(within(attic).getByText("198.51.100.20")).toBeInTheDocument();
-    expect(within(attic).getByRole("link", { name: "Open manager for attic" })).toHaveAttribute(
-      "href",
-      "http://n-attic.test:32400/ether/cluster",
-    );
+    expect(within(attic).getByRole("button", { name: "Manage" })).toBeEnabled();
 
     const garage = rowOf(nodes, "garage");
     expect(within(garage).getByText("Offline")).toBeInTheDocument();
@@ -159,14 +163,18 @@ describe("Server › Cluster", () => {
     expect(within(garage).getByText("Software")).toBeInTheDocument();
 
     // Different public addresses among live nodes are called out.
-    expect(screen.getByText("Cluster needs attention")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
     expect(screen.getByText(/different public addresses/)).toBeInTheDocument();
 
-    expect(screen.getByRole("heading", { name: "Shared settings" })).toBeInTheDocument();
-    expect(screen.queryByText("v42")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "More options: Shared settings" }));
-    expect(await screen.findByText("v42", {}, WAIT)).toBeInTheDocument();
-    expect(screen.getByText("3f9c2a71d04be6a8")).toBeInTheDocument();
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Overview",
+      "Nodes",
+      "Join tokens",
+    ]);
+    fireEvent.click(screen.getByRole("tab", { name: "Join tokens" }));
+    expect(screen.queryByRole("heading", { name: "Shared settings" })).toBeNull();
+    expect(screen.queryByText("Settings each node keeps")).toBeNull();
+    expect(screen.getByRole("button", { name: "Create join token" })).toBeEnabled();
   });
 
   it("shows independent local serving/admission observations and leaves peers unknown", async () => {
@@ -191,6 +199,7 @@ describe("Server › Cluster", () => {
         return new Response(JSON.stringify(status));
       };
     });
+    fireEvent.click(await screen.findByRole("tab", { name: "Nodes" }, WAIT));
     const nodes = await screen.findByRole("region", { name: "Nodes" }, WAIT);
     const local = rowOf(nodes, "den");
     expect(within(local).getByText("Serving existing work").nextElementSibling).toHaveTextContent(
@@ -204,7 +213,7 @@ describe("Server › Cluster", () => {
       "Unknown",
     );
     fireEvent.click(screen.getByRole("button", { name: "Manage this node" }));
-    const drawer = await screen.findByRole("dialog", { name: "Manage this node" });
+    const drawer = await screen.findByRole("dialog", { name: "Manage" });
     expect(within(drawer).getByText("Accepting new work").nextElementSibling).toHaveTextContent(
       "No",
     );
@@ -212,12 +221,11 @@ describe("Server › Cluster", () => {
 
   it("lists join tokens with their state", async () => {
     renderApp("/cluster", { cluster: true });
+    fireEvent.click(await screen.findByRole("tab", { name: "Join tokens" }, WAIT));
     const tokens = await screen.findByRole("region", { name: "Join tokens" }, WAIT);
-    await within(tokens).findByText("t7k2", {}, WAIT);
-    const used = rowOf(tokens, "t7k2");
-    expect(await within(used).findByText("Used")).toBeInTheDocument();
-    expect(within(used).getByText(/by attic/)).toBeInTheDocument();
-    expect(within(used).queryByRole("button", { name: /Revoke/ })).toBeNull();
+    await within(tokens).findByText("q9wd", {}, WAIT);
+    expect(within(tokens).queryByText("t7k2")).toBeNull();
+    expect(within(tokens).queryByText("expired-example")).toBeNull();
     const open = rowOf(tokens, "q9wd");
     expect(within(open).getByText("Unused")).toBeInTheDocument();
     expect(within(open).getByRole("button", { name: "Revoke token q9wd" })).toBeEnabled();
@@ -225,6 +233,7 @@ describe("Server › Cluster", () => {
 
   it("creates a join token in a drawer and shows it only once", async () => {
     const { fake } = renderApp("/cluster", { cluster: true });
+    fireEvent.click(await screen.findByRole("tab", { name: "Join tokens" }, WAIT));
     const tokens = await screen.findByRole("region", { name: "Join tokens" }, WAIT);
     fireEvent.click(within(tokens).getByRole("button", { name: /Create join token/ }));
     let drawer = await screen.findByRole("dialog", { name: "Create join token" });
@@ -256,19 +265,20 @@ describe("Server › Cluster", () => {
 
   it("revokes an unused token after confirmation", async () => {
     const { fake } = renderApp("/cluster", { cluster: true });
+    fireEvent.click(await screen.findByRole("tab", { name: "Join tokens" }, WAIT));
     const tokens = await screen.findByRole("region", { name: "Join tokens" }, WAIT);
     fireEvent.click(await within(tokens).findByRole("button", { name: "Revoke token q9wd" }, WAIT));
     const confirm = await screen.findByRole("dialog", { name: "Revoke join token?" });
     fireEvent.click(within(confirm).getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(calls(fake, "DELETE", "/cluster/join-tokens/q9wd")).toHaveLength(1));
     await waitFor(() => expect(within(tokens).queryByText("q9wd")).toBeNull(), WAIT);
-    expect(within(tokens).getByText("t7k2")).toBeInTheDocument();
+    expect(within(tokens).queryByText("t7k2")).toBeNull();
   });
 
   it("refreshes membership every 10 seconds while open", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { fake } = renderApp("/cluster", { cluster: true });
-    await screen.findByRole("region", { name: "Nodes" }, WAIT);
+    await screen.findByRole("tab", { name: "Nodes" }, WAIT);
     const before = calls(fake, "GET", "/cluster/").filter((c) => c.path === "/cluster/").length;
     await act(async () => {
       vi.advanceTimersByTime(CLUSTER_POLL_MS);
@@ -336,6 +346,47 @@ describe("cluster helpers", () => {
       new Date(now.getTime() - 20_001).toISOString(),
     ])
       expect(runtimeFresh(at, now.getTime())).toBe(false);
+  });
+
+  it("keeps synthetic peer health separate from live runtime and heartbeat", () => {
+    const peer = { ...base.self, id: "peer", incarnation: "peer-boot", live: false };
+    const health = {
+      peer: {
+        nodeId: "peer",
+        boot: "peer-boot",
+        sampledAt: new Date().toISOString(),
+        level: "error" as const,
+      },
+    };
+    expect(clusterNodeHealth(base, peer, false)).toBe("unknown");
+    expect(clusterNodeHealth(base, peer, false, health)).toBe("error");
+    expect(clusterNodeHealth(base, peer, true, health)).toBe("unknown");
+    expect(clusterNodeHealth(base, { ...peer, incarnation: "replacement" }, false, health)).toBe(
+      "unknown",
+    );
+    expect(
+      clusterNodeHealth(base, peer, false, {
+        peer: { ...health.peer, sampledAt: "2000-01-01T00:00:00Z" },
+      }),
+    ).toBe("unknown");
+  });
+
+  it("rejects mismatched or stale remote observations", () => {
+    const node = { ...base.self, incarnation: "boot-a" };
+    const c = {
+      nodeId: node.id,
+      boot: "boot-a",
+      updatedAt: now.toISOString(),
+      requestedVersion: 1,
+      appliedVersion: 1,
+      state: "applied" as const,
+      observed: { weight: 2, draining: false },
+      capabilities: [],
+    };
+    expect(controlFresh(c, node, now.getTime())).toBe(true);
+    expect(controlFresh({ ...c, boot: "old" }, node, now.getTime())).toBe(false);
+    expect(controlFresh({ ...c, nodeId: "peer" }, node, now.getTime())).toBe(false);
+    expect(controlFresh(c, node, now.getTime() + 30001)).toBe(false);
   });
 
   it("warns when this node loses the database, the event channel or clock sync", () => {

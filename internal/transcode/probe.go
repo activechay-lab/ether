@@ -149,6 +149,7 @@ type ffprobeOutput struct {
 }
 
 type ffprobeStream struct {
+	ID             string            `json:"id"`
 	ChromaLocation string            `json:"chroma_location"`
 	CodedWidth     int               `json:"coded_width"`
 	CodedHeight    int               `json:"coded_height"`
@@ -175,6 +176,7 @@ type ffprobeStream struct {
 	Refs           *int              `json:"refs"`
 	RFrameRate     string            `json:"r_frame_rate"`
 	AvgFrameRate   string            `json:"avg_frame_rate"`
+	SampleFmt      string            `json:"sample_fmt"`
 	BitsPerRaw     string            `json:"bits_per_raw_sample"`
 	SampleRate     string            `json:"sample_rate"`
 	Channels       int               `json:"channels"`
@@ -261,6 +263,9 @@ func mapStream(s ffprobeStream) (core.StreamInfo, bool) {
 	}
 	si.Codec = NormalizeCodec(s.CodecName)
 	si.Profile = s.Profile
+	if strings.HasPrefix(s.CodecName, "pcm_") {
+		si.SampleFormat = s.SampleFmt
+	}
 	if s.Level != nil {
 		si.Level = *s.Level
 		if *s.Level >= 0 {
@@ -298,6 +303,14 @@ func mapStream(s ffprobeStream) (core.StreamInfo, bool) {
 	}
 	if tag := s.CodecTagString; tag != "" && tag != "[0][0][0][0]" && tag != "0x0000" {
 		si.CodecTag = tag
+	}
+	si.CodedHeight = s.CodedHeight
+	si.CodedWidth = s.CodedWidth
+	if s.ChromaLocation != "unspecified" && s.ChromaLocation != "unknown" {
+		si.ChromaLocation = s.ChromaLocation
+	}
+	if id, err := strconv.ParseInt(s.ID, 0, 64); err == nil {
+		si.StreamIdentifier = strconv.FormatInt(id, 10)
 	}
 	si.TimeBase = probedTimeBase(s.TimeBase)
 	if n, err := strconv.Atoi(strings.TrimSpace(s.BitsPerRaw)); err == nil && n > 0 {
@@ -647,6 +660,8 @@ func NormalizeCodec(c string) string {
 		return "mpeg2video"
 	case "dca":
 		return "dts"
+	case "pcm_bluray":
+		return "pcm_bluray"
 	case "mlp":
 		return "truehd"
 	case "hdmv_pgs_subtitle":

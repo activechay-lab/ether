@@ -1924,22 +1924,6 @@ func (s *Server) writePartErr(w http.ResponseWriter, r *http.Request, pr *Reques
 	writePlaybackStatus(w, http.StatusBadGateway)
 }
 
-// partSelectsTitle reports whether bindingKey is the title this part select
-// applies to, and rewrites id to that title when it is. A registry hit and
-// the Auto rating key already name the title. An unregistered id in the
-// variant block is not a different item: More Ways to Watch addresses the
-// part it was showing, and the stream id is what names the title.
-func (s *Server) partSelectsTitle(id *int64, rawID int64, viaRegistry bool, bindingKey core.RatingKey) bool {
-	if int64(bindingKey) == *id {
-		return true
-	}
-	if viaRegistry || !inVariantIDSpace(rawID) || !bindingKey.Valid() || !isPlayableKey(bindingKey) {
-		return false
-	}
-	*id = int64(bindingKey)
-	return true
-}
-
 // handlePartSelect is PUT or POST /library/parts/{part}?audioStreamID=&subtitleStreamID=.
 // The stored subtitle is the title's choice. The part id only finds that
 // title: Play Version part ids move between releases as the list reorders.
@@ -1957,16 +1941,18 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	// Stream selections are per title. A registry hit (or the Auto rating
-	// key) names that title. A variant-block id the registry does not know
-	// — the 8*10^15 ids and any 9*10^15 id that parsed as KindLocal — does
-	// not, and the stream id names the title instead (allParts=1).
-	id := rawID
-	viaRegistry := false
-	if k, rel, found := s.partTitle(rawID); found {
-		id = int64(k)
-		viaRegistry = rel != ""
+	// Resolve and authorize the part before interpreting either selector.
+	key, _, found := s.partTitle(rawID)
+	if !found || s.d.Catalog == nil {
+		writeHTTPError(w, http.StatusNotFound)
+		return
 	}
+	title, err := s.metadataTitle(r.Context(), pr, key)
+	if err != nil || title == nil || !s.titleVisible(pr.User, title) {
+		writeHTTPError(w, http.StatusNotFound)
+		return
+	}
+	id := int64(key)
 	q := r.URL.Query()
 	// These two selection parameters deliberately have different PMS grammars.
 	audioID, audioErr := strconv.ParseInt(q.Get("audioStreamID"), 10, 64)
@@ -1991,7 +1977,7 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 				writeHTTPError(w, http.StatusUnauthorized)
 				return
 			}
-			if rerr != nil || binding.Info.Type != "audio" || !s.partSelectsTitle(&id, rawID, viaRegistry, binding.Key) {
+			if rerr != nil || binding.Info.Type != "audio" || binding.Key != key {
 				writeHTTPError(w, http.StatusBadRequest)
 				return
 			}
@@ -2010,7 +1996,7 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 					writeHTTPError(w, http.StatusUnauthorized)
 					return
 				}
-				if rerr != nil || binding.Info.Type != "subtitle" || !s.partSelectsTitle(&id, rawID, viaRegistry, binding.Key) || (audio != nil && audio.Key != binding.Key) {
+				if rerr != nil || binding.Info.Type != "subtitle" || binding.Key != key || (audio != nil && audio.Key != binding.Key) {
 					writeHTTPError(w, http.StatusBadRequest)
 					return
 				}
@@ -2107,9 +2093,30 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		if !binding.Info.External {
 			writeHTTPError(w, http.StatusForbidden)
-		} else {
-			writeHTTPError(w, http.StatusNotFound)
+			return
 		}
+		deleter, ok := s.d.Subtitles.(subtitleDelete)
+		if !ok {
+			writeHTTPError(w, http.StatusNotFound)
+			return
+		}
+		if err := deleter.DeleteSubtitle(r.Context(), binding.Key, pr.User, binding.Info); err != nil {
+			writeHTTPError(w, http.StatusNotFound)
+			return
+		}
+		s.selections.update(pr.User.ID, int64(binding.Key), func(sel *selection) {
+			if sel.subtitleStream != nil && sel.subtitleStream.ExternalURL == binding.Info.ExternalURL {
+				sel.subtitle, sel.subtitleSet, sel.subtitleStream = -1, true, nil
+			}
+		})
+		if resetter, ok := s.d.TrackPreferences.(interface {
+			ForgetChoice(context.Context, int64, core.RatingKey, string) error
+		}); ok {
+			if err := resetter.ForgetChoice(r.Context(), pr.User.ID, binding.Key, "subtitle"); err != nil {
+				s.log.Warn("clear deleted subtitle preference", "error", err)
+			}
+		}
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	if binding.Info.Type == "subtitle" && !binding.Info.External {

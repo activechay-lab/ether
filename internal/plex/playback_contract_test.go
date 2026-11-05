@@ -26,7 +26,7 @@ func TestPlaybackCorpusLifecycle(t *testing.T) {
 				f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts"}
 				queueID := ""
 				for _, probe := range conformplex.PlaybackCorpus() {
-					path := strings.NewReplacer("{{machineID}}", "fixture", "{{movieKey}}", fightClub.Key.String(), "{{session}}", "contract-stream", "{{queueID}}", queueID).Replace(probe.Path)
+					path := strings.NewReplacer("{{machineID}}", f.srv.identity().MachineIdentifier, "{{movieKey}}", fightClub.Key.String(), "{{session}}", "contract-stream", "{{queueID}}", queueID).Replace(probe.Path)
 					hdr := map[string]string{}
 					key := profile
 					if jsonMode {

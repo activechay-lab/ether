@@ -29,8 +29,8 @@ var (
 // session started with; after a failover they are mapped by timestamp into
 // the current release. When articles go missing mid-response the session
 // fails over: an MPEG-TS response continues from the new release at the same
-// moment, any other container ends the response so the client re-requests
-// (a brief rebuffer) and that request is served from the new release.
+// moment; other containers require a new playback decision before the client
+// can read a replacement release.
 func (m *Manager) ServeRange(w http.ResponseWriter, r *http.Request, sessionID string) {
 	s := m.lookup(sessionID)
 	if s == nil {
@@ -273,7 +273,7 @@ func (s *session) directRangeGeneration() (*generation, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cur, s.cur != nil && !s.requiresRemux &&
-		(spliceable(s.container, s.name) || s.cur.src.Size() == s.virtual.Size)
+		(spliceable(s.container, s.name) || (s.virtualGen != nil && s.cur.releaseID() == s.virtualGen.releaseID() && s.cur.src.Size() == s.virtual.Size))
 }
 
 type chunk struct {
@@ -385,7 +385,10 @@ func (m *Manager) copyFrom(ctx context.Context, w io.Writer, g *generation, off,
 				} else {
 					n, err = g.src.ReadAt((*bp)[:want], pos)
 				}
-			} else if cr, ok := g.src.(core.ConcurrentRangeReaderAt); ok && ctx.Value(concurrentLoopbackReadKey{}) == true {
+			} else if cr, ok := g.src.(core.ConcurrentRangeReaderAt); ok {
+				// Each HTTP response owns its producer, including overlapping
+				// direct-play Cues and mid-file seeks. The backend bounds stalls.
+				// Do not retire its remaining blocks with a per-chunk context.
 				n, err = cr.ReadAtConcurrentContext(ctx, (*bp)[:want], pos)
 			} else if cr, ok := g.src.(core.ContextReaderAt); ok {
 				readCtx := ctx
@@ -469,10 +472,7 @@ func (m *Manager) copyFrom(ctx context.Context, w io.Writer, g *generation, off,
 // byte for byte, to ffmpeg on 127.0.0.1. A read that hits missing articles
 // ends the response and, for a live session, fails over in the background
 // so the HLS session restarts on the next release.
-type concurrentLoopbackReadKey struct{}
-
 func (m *Manager) serveLoopback(w http.ResponseWriter, r *http.Request) {
-	r = r.WithContext(context.WithValue(r.Context(), concurrentLoopbackReadKey{}, true))
 	m.mu.Lock()
 	g := m.tokens[r.PathValue("session")+"/"+r.PathValue("token")]
 	m.mu.Unlock()

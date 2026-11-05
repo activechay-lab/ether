@@ -19,6 +19,9 @@ import (
 // in-memory count and page caching so repeated library/recommendation reads
 // return without hitting disk.
 func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, error) {
+	if q.PlaylistSource != nil {
+		return c.browsePlaylist(ctx, q)
+	}
 	q.Filter = c.viewerPaging(ctx, q.Filter)
 	switch q.Filter.Type {
 	case core.TypeEpisode:

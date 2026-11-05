@@ -67,7 +67,7 @@ func TestPostplayUpNextReloadAndPlayQueue(t *testing.T) {
 				if len(fetched.Metadata) != 1 || fetched.Metadata[0].RatingKey != bbE2.Key.String() || len(fetched.Metadata[0].Media) == 0 {
 					t.Fatalf("unplayable next episode: %+v", fetched.Metadata)
 				}
-				for _, uri := range []string{hub.Key, "server://fixture/com.plexapp.plugins.library" + hub.Key, "library://section/directory/" + url.PathEscape(hub.Key), hub.HubKey, "/hubs/items?identifier=tv.upnext&metadataID=" + bbE1.Key.String()} {
+				for _, uri := range []string{hub.Key, "server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library" + hub.Key, "library://section/directory/" + url.PathEscape(hub.Key), hub.HubKey, "/hubs/items?identifier=tv.upnext&metadataID=" + bbE1.Key.String()} {
 					q := url.Values{"type": {"video"}, "continuous": {"1"}, "uri": {uri}, "key": {fetched.Metadata[0].Key}}
 					r := f.request(t, "POST", "/playQueues?"+q.Encode(), headers)
 					attrs := containerAttrs(t, r.Body.Bytes())

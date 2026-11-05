@@ -221,6 +221,9 @@ func normalizeForNative(want, got *core.MediaInfo) {
 		// comparing each one whenever native probing starts supplying it.
 		if i < len(got.Streams) {
 			g := &got.Streams[i]
+			if g.ChromaLocation == "" {
+				w.ChromaLocation = ""
+			}
 			if g.AverageFrameRate == nil {
 				w.AverageFrameRate = nil
 			}

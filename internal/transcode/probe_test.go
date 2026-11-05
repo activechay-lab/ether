@@ -141,6 +141,9 @@ func TestParseProbeGolden(t *testing.T) {
 			}
 			switch tt.file {
 			case "mkv_hevc_hdr10.json":
+				v.CodedHeight = 2160
+				v.CodedWidth = 3840
+				v.ChromaLocation = "left"
 				v.ProbedLevel = integer(153)
 				v.PixelFormat = "yuv420p10le"
 				v.TimeBase = "1/1000"

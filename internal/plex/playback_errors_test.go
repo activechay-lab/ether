@@ -47,7 +47,7 @@ func TestDiscoveryHiddenTitleStaysPlayable(t *testing.T) {
 		t.Fatalf("decision: %v", mc)
 	}
 
-	uri := urlEsc("server://m/com.plexapp.plugins.library/library/metadata/" + fightClub.Key.String())
+	uri := urlEsc("server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/" + fightClub.Key.String())
 	if rec := f.request(t, http.MethodPost, "/playQueues?type=video&uri="+uri, map[string]string{"Accept": "application/json"}); rec.Code != http.StatusOK {
 		t.Fatalf("play queue for a discovery-hidden title: %d", rec.Code)
 	}

@@ -148,6 +148,11 @@ type Filter struct {
 }
 
 type BrowseQuery struct {
+	// PlaylistSource evaluates a saved smart membership before applying this
+	// query's filters and optional episode-to-parent projection.
+	PlaylistSource      *BrowseQuery
+	PlaylistSourceLimit int
+
 	SortLastViewed bool
 	SortViewerID   int64
 	Filter         Filter
@@ -325,8 +330,33 @@ type Playlist struct {
 	Title     string      `json:"title"`
 	Smart     bool        `json:"smart"`
 	SmartURI  string      `json:"-"`
+	GUID      string      `json:"-"`
+	Summary   string      `json:"summary,omitempty"`
+	AddedAt   time.Time   `json:"addedAt"`
+	ItemIDs   []int64     `json:"-"`
 	Items     []RatingKey `json:"items"`
 	UpdatedAt time.Time   `json:"updatedAt"`
+}
+
+// PlaylistEdit updates only explicitly supplied fields.
+type PlaylistEdit struct {
+	Title    *string
+	Summary  *string
+	SmartURI *string
+}
+type PlaylistEditor interface {
+	EditPlaylist(context.Context, int64, RatingKey, PlaylistEdit) (*Playlist, error)
+}
+
+// PlaylistMutation addresses members by stable item identity.
+type PlaylistMutation struct {
+	Operation string
+	Items     []RatingKey
+	ItemID    int64
+	AfterID   int64
+}
+type PlaylistMutator interface {
+	MutatePlaylist(context.Context, int64, RatingKey, PlaylistMutation) (*Playlist, int, error)
 }
 
 // SmartPlaylists persists a section query for evaluation at read time.
@@ -564,6 +594,11 @@ type StreamInfo struct {
 	ReferenceFrameRate *float64 `json:"referenceFrameRate,omitempty"`
 	DisplayAspectRatio string   `json:"displayAspectRatio,omitempty"`
 	PixelFormat        string   `json:"pixelFormat,omitempty"`
+	SampleFormat       string   `json:"sampleFormat,omitempty"`
+	StreamIdentifier   string   `json:"streamIdentifier,omitempty"`
+	CodedWidth         int      `json:"codedWidth,omitempty"`
+	ChromaLocation     string   `json:"chromaLocation,omitempty"`
+	CodedHeight        int      `json:"codedHeight,omitempty"`
 	CodecTag           string   `json:"codecTag,omitempty"`
 	TimeBase           string   `json:"timeBase,omitempty"`
 	NALLengthSize      *int     `json:"nalLengthSize,omitempty"`
@@ -596,6 +631,7 @@ type StreamInfo struct {
 	AACSourceStart *int64 `json:"aacSourceStart,omitempty"`
 	SampleRate     int    `json:"sampleRate,omitempty"`
 	BitrateKbps    int    `json:"bitrateKbps,omitempty"`
+	ProviderTitle  string `json:"providerTitle,omitempty"`
 	External       bool   `json:"external,omitempty"` // sidecar subtitle (OpenSubtitles)
 	ExternalURL    string `json:"externalUrl,omitempty"`
 

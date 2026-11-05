@@ -182,8 +182,9 @@ type Pivot struct {
 // items, <Directory> for containers and <Playlist> for playlists; in JSON
 // all are under "Metadata".
 type Metadata struct {
-	element string
-	alpha   bool
+	Preferences *TrackPreferences `plex:"Preferences"`
+	element     string
+	alpha       bool
 
 	// On Deck items lead with their sync flag and section (PMS).
 	AllowSync             *bool   `plex:"allowSync"`
@@ -216,6 +217,7 @@ type Metadata struct {
 	Summary               string  `plex:"summary"`
 	Smart                 *bool   `plex:"smart"`
 	PlaylistType          string  `plex:"playlistType,omitempty"`
+	Content               string  `plex:"content,omitempty"`
 	Index                 *int    `plex:"index"`
 	ParentIndex           *int    `plex:"parentIndex"`
 	Rating                float64 `plex:"rating,omitempty"`
@@ -451,6 +453,7 @@ type Part struct {
 
 // Stream is a video (1), audio (2) or subtitle (3) track.
 type Stream struct {
+	lead                 []string
 	alpha                bool
 	ID                   int64  `plex:"id"`
 	StreamType           int    `plex:"streamType"`
@@ -459,6 +462,12 @@ type Stream struct {
 	Selected             *bool  `plex:"selected"`
 	Default              *bool  `plex:"default"`
 	Forced               *bool  `plex:"forced"`
+	HearingImpaired      *bool  `plex:"hearingImpaired"`
+	VisualImpaired       *bool  `plex:"visualImpaired"`
+	Original             *bool  `plex:"original"`
+	Dub                  *bool  `plex:"dub"`
+	Comment              *bool  `plex:"comment"`
+	StreamIdentifier     string `plex:"streamIdentifier,omitempty"`
 	Codec                string `plex:"codec,omitempty"`
 	Index                *int   `plex:"index"`
 	Key                  string `plex:"key,omitempty"`
@@ -505,6 +514,7 @@ type Stream struct {
 	Decision             string  `plex:"decision,omitempty"`
 	Location             string  `plex:"location,omitempty"`
 	External             *bool   `plex:"external"`
+	Transient            *int    `plex:"transient"`
 	// Extra carries endpoint-specific attributes (subtitle search results).
 	Extra []Attr `plex:",attrs"`
 }

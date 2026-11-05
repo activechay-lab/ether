@@ -64,6 +64,12 @@ func (s *Server) commonHeaders(next http.Handler) http.Handler {
 			h.Set("Access-Control-Expose-Headers", corsExposeHeaders)
 		}
 		if r.Method == http.MethodOptions {
+			// PMS leaves subtitle-search/upload OPTIONS unimplemented, even
+			// though the rest of the API accepts generic CORS preflights.
+			if strings.HasPrefix(r.URL.Path, "/library/metadata/") && (strings.HasSuffix(r.URL.Path, "/subtitles") || strings.HasSuffix(r.URL.Path, "/tree")) {
+				writeHTTPError(w, http.StatusNotFound)
+				return
+			}
 			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, HEAD, OPTIONS")
 			if req := r.Header.Get("Access-Control-Request-Headers"); req != "" {
 				h.Set("Access-Control-Allow-Headers", req)
@@ -183,6 +189,7 @@ func (s *Server) requestLog(next http.Handler) http.Handler {
 		s.log.Debug("request", "method", r.Method, "path", r.URL.Path, "status", sr.status,
 			"dur", time.Since(start).Round(time.Millisecond), "product", pr.Product, "client", pr.ClientID,
 			"range", r.Header.Get("Range"), "contentRange", sr.Header().Get("Content-Range"),
+			"bytes", sr.written, "contentLength", sr.Header().Get("Content-Length"),
 			"pageStart", pr.Start, "pageSize", pr.Size, "paged", pr.HasPage, "format", pr.Format, "includeChildren", r.URL.Query().Get("includeChildren"),
 			"model", pr.Model, "device", pr.Device, "version", pr.Version, "platformVersion", pr.PlatformVersion, "peer", pr.RemoteIP.String())
 	})
@@ -491,7 +498,28 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 			}
 		}
 	}
-	return model.Marshal(localizeDecisionResponse(r, v), pr.Format)
+	v = localizeDecisionResponse(r, v)
+	if strings.HasPrefix(r.URL.Path, "/playlists") || strings.HasPrefix(r.URL.Path, "/playQueues") {
+		if mc, ok := v.(*model.MediaContainer); ok && strings.HasPrefix(r.URL.Path, "/playlists") && r.Method != http.MethodGet && r.Method != http.MethodHead && pr.HasPage {
+			total := len(mc.Metadata)
+			lo, hi := pr.window(total)
+			mc.Metadata = mc.Metadata[lo:hi]
+			mc.Size = len(mc.Metadata)
+			mc.SetPage(lo, total)
+		}
+		names := func(key string) map[string]bool {
+			out := map[string]bool{}
+			for _, raw := range r.URL.Query()[key] {
+				for _, name := range strings.Split(raw, ",") {
+					out[name] = true
+				}
+			}
+			return out
+		}
+		return model.MarshalWithExclusions(v, pr.Format, names("excludeFields"), names("excludeElements"))
+	}
+	return model.Marshal(v, pr.Format)
+
 }
 
 // writeBody writes an encoded body, gzip-compressed when the client accepts
