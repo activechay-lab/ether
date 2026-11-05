@@ -111,10 +111,10 @@ export function createOnAirMock(tv: {
           (tv.handle("GET", ["livetv", "guide"], qs, null)?.body as {
             channelId: string;
             start: string;
-            item: { title: string };
+            item: { title: string; key?: number; slate?: string };
           }[]) || []
         )
-          .filter((p) => p.channelId === channel?.id)
+          .filter((p) => p.channelId === channel?.id && p.item.key !== 0 && !p.item.slate)
           .slice(0, 4);
         return {
           body: {
