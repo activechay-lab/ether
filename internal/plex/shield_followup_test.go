@@ -105,7 +105,8 @@ func TestShieldTroyCaptureFollowup(t *testing.T) {
 				if mode == "tonemap" {
 					profile += "+add-limitation(scope=videoCodec&scopeName=hevc&type=upperBound&name=video.bitDepth&value=8)"
 				}
-				q := url.Values{"path": {path}, "protocol": {"hls"}, "directPlay": {"1"}, "directStream": {"1"}, "hasMDE": {"1"}, "subtitles": {"none"}, "advancedSubtitles": {"text"}, "session": {"troy-" + mode}, "X-Plex-Client-Profile-Name": {"Generic"}, "X-Plex-Client-Profile-Extra": {profile}}
+				// The fixture advertises multiple versions; select its Auto entry.
+				q := url.Values{"mediaIndex": {"0"}, "path": {path}, "protocol": {"hls"}, "directPlay": {"1"}, "directStream": {"1"}, "hasMDE": {"1"}, "subtitles": {"none"}, "advancedSubtitles": {"text"}, "session": {"troy-" + mode}, "X-Plex-Client-Profile-Name": {"Generic"}, "X-Plex-Client-Profile-Extra": {profile}}
 				for i, id := range ids {
 					if i > 0 {
 						r = f.request(t, "PUT", "/library/parts/"+fightClub.Key.String()+"?subtitleStreamID="+id, h)

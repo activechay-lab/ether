@@ -14,7 +14,10 @@ import (
 func TestPMSSessionProjectionAndPublicIdentity(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.get(t, "/video/:/transcode/universal/decision?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=projection", "X-Plex-Platform", "Chrome")
+	f.get(t, "/video/:/transcode/universal/decision?path=%2Flibrary%2Fmetadata%2F1000000000000550&hasMDE=1&directPlay=1&session=projection", "X-Plex-Platform", "Chrome")
+	if rec := f.get(t, "/library/parts/1000000000000550/1/file.mkv", "Range", "bytes=0-9"); rec.Code != 206 {
+		t.Fatalf("media delivery: %d", rec.Code)
+	}
 	f.get(t, "/:/timeline?ratingKey=1000000000000550&state=playing&time=1234&duration=10000", "X-Plex-Platform", "Chrome")
 	rec := f.get(t, "/status/sessions", jsonAccept...)
 	if rec.Code != 200 {

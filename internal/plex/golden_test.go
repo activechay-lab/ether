@@ -183,6 +183,9 @@ func TestGoldenSessions(t *testing.T) {
 	defer f.srv.Close()
 	f.get(t, "/video/:/transcode/universal/decision?path=/library/metadata/1000000000000550&hasMDE=1&directPlay=1&session=sess-1",
 		"X-Plex-Product", "Plex Web", "X-Plex-Platform", "Chrome", "X-Plex-Device", "OSX", "X-Plex-Device-Name", "Chrome", "X-Plex-Session-Identifier", "sess-1")
+	if rec := f.get(t, "/library/parts/1000000000000550/1/file.mkv", "Range", "bytes=0-9", "X-Plex-Session-Identifier", "sess-1"); rec.Code != 206 {
+		t.Fatalf("media delivery: %d", rec.Code)
+	}
 	f.get(t, "/:/timeline?ratingKey=1000000000000550&key=%2Flibrary%2Fmetadata%2F1000000000000550&state=playing&time=60000&duration=8340000",
 		"X-Plex-Product", "Plex Web", "X-Plex-Platform", "Chrome", "X-Plex-Device", "OSX", "X-Plex-Device-Name", "Chrome", "X-Plex-Session-Identifier", "sess-1")
 	checkGolden(t, "status_sessions", f.getWarm(t, "/status/sessions"))
