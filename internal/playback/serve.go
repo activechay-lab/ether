@@ -377,6 +377,8 @@ func (m *Manager) copyFrom(ctx context.Context, w io.Writer, g *generation, off,
 				} else {
 					n, err = g.src.ReadAt((*bp)[:want], pos)
 				}
+			} else if cr, ok := g.src.(core.ConcurrentRangeReaderAt); ok && ctx.Value(concurrentLoopbackReadKey{}) == true {
+				n, err = cr.ReadAtConcurrentContext(ctx, (*bp)[:want], pos)
 			} else if cr, ok := g.src.(core.ContextReaderAt); ok {
 				readCtx := ctx
 				cancelRead := func() {}
@@ -459,7 +461,10 @@ func (m *Manager) copyFrom(ctx context.Context, w io.Writer, g *generation, off,
 // byte for byte, to ffmpeg on 127.0.0.1. A read that hits missing articles
 // ends the response and, for a live session, fails over in the background
 // so the HLS session restarts on the next release.
+type concurrentLoopbackReadKey struct{}
+
 func (m *Manager) serveLoopback(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(context.WithValue(r.Context(), concurrentLoopbackReadKey{}, true))
 	m.mu.Lock()
 	g := m.tokens[r.PathValue("session")+"/"+r.PathValue("token")]
 	m.mu.Unlock()

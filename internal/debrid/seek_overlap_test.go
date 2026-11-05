@@ -21,14 +21,16 @@ func TestOverlappingActiveSeeksKeepTheirRequestLifetime(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer src.Close()
-	rc := src.(readAtContexter)
+	rc := src.(interface {
+		ReadAtConcurrentContext(context.Context, []byte, int64) (int, error)
+	})
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	before := r.media.requests.Load()
 	first := make(chan error, 1)
 	go func() {
 		buf := make([]byte, 4096)
-		n, e := rc.ReadAtContext(ctx, buf, 16*testBlock)
+		n, e := rc.ReadAtConcurrentContext(ctx, buf, 16*testBlock)
 		if e == nil && (n != len(buf) || !bytes.Equal(buf, r.media.data[16*testBlock:16*testBlock+4096])) {
 			e = context.Canceled
 		}
@@ -42,7 +44,7 @@ func TestOverlappingActiveSeeksKeepTheirRequestLifetime(t *testing.T) {
 		}
 	}
 	buf := make([]byte, 4096)
-	n, err := rc.ReadAtContext(ctx, buf, 48*testBlock)
+	n, err := rc.ReadAtConcurrentContext(ctx, buf, 48*testBlock)
 	if err != nil || n != len(buf) || !bytes.Equal(buf, r.media.data[48*testBlock:48*testBlock+4096]) {
 		t.Fatalf("second seek n=%d err=%v", n, err)
 	}
