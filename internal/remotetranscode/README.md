@@ -164,3 +164,18 @@ policy. Integration must supply the validator, source extension mechanism,
 parent-driven renewal schedule, and failure/reassignment policy before enabling
 long-running remote playback. No application/core/config/placement wiring is
 included here.
+
+## Trusted worker-local input gateway
+
+`Source.Gateway TrustedGatewayInput` is an additive, injected composition boundary;
+no wire fields or caller InputURL can populate it. Its `GatewayInput(Identity,
+Start.Grant)` must return the exact locally constructed URL and input lease, even
+on error after acquisition. Gateway excludes ordinary Source.URL/Lease; resolvers
+must not mint an unused second lease. Worker invokes it outside its mutex, rejects
+mixed results, missing lease and nonliteral/nonloopback or ambiguous URL forms,
+never falls back, and retains all returned leases for seal/reconciliation on error.
+The ordinary Source.URL private-HTTPS validator is unchanged. Custom interface
+implementations remain trusted dependencies responsible for exact identity,
+listener origin/path binding, no redirects and no input substitution. `nodeinput`
+is the concrete verified-Go-Reader implementation; its README specifies lifecycle,
+renewal evidence and the separate remote source retirement requirement.
