@@ -32,7 +32,7 @@
       "w": 1640,
       "h": 2,
       "fill": "{text}@0.18",
-      "name": "Toprule"
+      "name": "Top rule"
     },
     {
       "id": "art-illustration",
@@ -66,7 +66,7 @@
               ]
             ]
           },
-          "name": "Art sky"
+          "name": "Sky"
         },
         {
           "id": "art-moon",
@@ -76,31 +76,31 @@
           "w": 307.2,
           "h": 307.2,
           "fill": "#efdbaa",
-          "name": "Art moon"
+          "name": "Moon"
         },
         {
           "id": "art-ridge0",
           "type": "path",
           "path": "M 0 561.6 L 384.0 324.0 L 672.0 540.0 L 1248.0 291.6 L 1920 518.4 L 1920 1080 L 0 1080 Z",
           "fill": "#384762",
-          "name": "Art ridge0"
+          "name": "Ridge 1"
         },
         {
           "id": "art-ridge1",
           "type": "path",
           "path": "M 0 691.2 L 384.0 496.79999999999995 L 672.0 648.0 L 1248.0 475.20000000000005 L 1920 626.4 L 1920 1080 L 0 1080 Z",
           "fill": "#293248",
-          "name": "Art ridge1"
+          "name": "Ridge 2"
         },
         {
           "id": "art-ridge2",
           "type": "path",
           "path": "M 0 820.8 L 384.0 669.6 L 672.0 756.0 L 1248.0 658.8000000000001 L 1920 734.4 L 1920 1080 L 0 1080 Z",
           "fill": "#172139",
-          "name": "Art ridge2"
+          "name": "Ridge 3"
         }
       ],
-      "name": "Art illustration"
+      "name": "Illustration"
     },
     {
       "id": "art",

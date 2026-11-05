@@ -51,7 +51,7 @@
         ]
       },
       "blend": "screen",
-      "name": "Aurora0"
+      "name": "Aurora 1"
     },
     {
       "id": "aurora1",
@@ -90,7 +90,7 @@
         ]
       },
       "blend": "screen",
-      "name": "Aurora1"
+      "name": "Aurora 2"
     },
     {
       "id": "aurora2",
@@ -129,7 +129,7 @@
         ]
       },
       "blend": "screen",
-      "name": "Aurora2"
+      "name": "Aurora 3"
     },
     {
       "id": "Title-group",
@@ -137,74 +137,81 @@
       "type": "group",
       "layers": [
         {
-          "id": "Title-weight0",
-          "type": "text",
-          "text": "Back to your night",
-          "x": 958.2,
-          "y": 430,
-          "size": 90,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "center",
-          "name": "Title edge 1"
-        },
-        {
-          "id": "Title-weight1",
-          "type": "text",
-          "text": "Back to your night",
-          "x": 961.8,
-          "y": 430,
-          "size": 90,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "center",
-          "name": "Title edge 2"
-        },
-        {
-          "id": "Title-weight2",
-          "type": "text",
-          "text": "Back to your night",
-          "x": 960,
-          "y": 428.2,
-          "size": 90,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "center",
-          "name": "Title edge 3"
-        },
-        {
-          "id": "Title-weight3",
-          "type": "text",
-          "text": "Back to your night",
-          "x": 960,
-          "y": 431.8,
-          "size": 90,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "center",
-          "name": "Title edge 4"
-        },
-        {
-          "id": "Title",
-          "type": "text",
-          "text": "Back to your night",
-          "x": 960,
-          "y": 430,
-          "size": 90,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "center",
-          "name": "Channel title"
+          "id": "Title-treatment",
+          "name": "Title lettering",
+          "type": "group",
+          "layers": [
+            {
+              "id": "Title-weight0",
+              "type": "text",
+              "text": "Back to your night",
+              "x": 958.2,
+              "y": 430,
+              "size": 90,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "center",
+              "name": "Title edge 1"
+            },
+            {
+              "id": "Title-weight1",
+              "type": "text",
+              "text": "Back to your night",
+              "x": 961.8,
+              "y": 430,
+              "size": 90,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "center",
+              "name": "Title edge 2"
+            },
+            {
+              "id": "Title-weight2",
+              "type": "text",
+              "text": "Back to your night",
+              "x": 960,
+              "y": 428.2,
+              "size": 90,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "center",
+              "name": "Title edge 3"
+            },
+            {
+              "id": "Title-weight3",
+              "type": "text",
+              "text": "Back to your night",
+              "x": 960,
+              "y": 431.8,
+              "size": 90,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "center",
+              "name": "Title edge 4"
+            },
+            {
+              "id": "Title",
+              "type": "text",
+              "text": "Back to your night",
+              "x": 960,
+              "y": 430,
+              "size": 90,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "center",
+              "name": "Channel title"
+            }
+          ]
         }
       ]
     },
@@ -214,74 +221,81 @@
       "type": "group",
       "layers": [
         {
-          "id": "programme-weight0",
-          "type": "text",
-          "text": "{now.title}",
-          "x": 958.2,
-          "y": 590,
-          "size": 130,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "center",
-          "name": "Programme edge 1"
-        },
-        {
-          "id": "programme-weight1",
-          "type": "text",
-          "text": "{now.title}",
-          "x": 961.8,
-          "y": 590,
-          "size": 130,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "center",
-          "name": "Programme edge 2"
-        },
-        {
-          "id": "programme-weight2",
-          "type": "text",
-          "text": "{now.title}",
-          "x": 960,
-          "y": 588.2,
-          "size": 130,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "center",
-          "name": "Programme edge 3"
-        },
-        {
-          "id": "programme-weight3",
-          "type": "text",
-          "text": "{now.title}",
-          "x": 960,
-          "y": 591.8,
-          "size": 130,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "center",
-          "name": "Programme edge 4"
-        },
-        {
-          "id": "programme",
-          "type": "text",
-          "text": "{now.title}",
-          "x": 960,
-          "y": 590,
-          "size": 130,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "center",
-          "name": "Programme"
+          "id": "programme-treatment",
+          "name": "Programme lettering",
+          "type": "group",
+          "layers": [
+            {
+              "id": "programme-weight0",
+              "type": "text",
+              "text": "{now.title}",
+              "x": 958.2,
+              "y": 590,
+              "size": 130,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "center",
+              "name": "Programme edge 1"
+            },
+            {
+              "id": "programme-weight1",
+              "type": "text",
+              "text": "{now.title}",
+              "x": 961.8,
+              "y": 590,
+              "size": 130,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "center",
+              "name": "Programme edge 2"
+            },
+            {
+              "id": "programme-weight2",
+              "type": "text",
+              "text": "{now.title}",
+              "x": 960,
+              "y": 588.2,
+              "size": 130,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "center",
+              "name": "Programme edge 3"
+            },
+            {
+              "id": "programme-weight3",
+              "type": "text",
+              "text": "{now.title}",
+              "x": 960,
+              "y": 591.8,
+              "size": 130,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "center",
+              "name": "Programme edge 4"
+            },
+            {
+              "id": "programme",
+              "type": "text",
+              "text": "{now.title}",
+              "x": 960,
+              "y": 590,
+              "size": 130,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "center",
+              "name": "Programme"
+            }
+          ]
         }
       ]
     },

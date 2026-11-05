@@ -1,28 +1,28 @@
 [
   {
     "id": "detail1",
-    "label": "Highlight colour",
+    "label": "Chrome highlights",
     "kind": "color",
     "value": "#ffffff",
     "group": "Artwork"
   },
   {
     "id": "detail2",
-    "label": "Shadow colour",
+    "label": "Twilight colour",
     "kind": "color",
     "value": "#502050",
     "group": "Artwork"
   },
   {
     "id": "detail3",
-    "label": "Detail colour",
+    "label": "Sun colour",
     "kind": "color",
     "value": "#ffce52",
     "group": "Artwork"
   },
   {
     "id": "detail4",
-    "label": "Secondary colour",
+    "label": "Chrome blue",
     "kind": "color",
     "value": "#83e4ff",
     "group": "Artwork"

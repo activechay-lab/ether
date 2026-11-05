@@ -92,159 +92,166 @@
       "type": "group",
       "layers": [
         {
-          "id": "Title-weight0",
-          "type": "text",
-          "text": "{words.back}",
-          "x": 958.2,
-          "y": 470,
-          "size": 100,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "shrink",
-          "maxWidth": 1600,
-          "align": "center",
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title edge 1"
-        },
-        {
-          "id": "Title-weight1",
-          "type": "text",
-          "text": "{words.back}",
-          "x": 961.8,
-          "y": 470,
-          "size": 100,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "shrink",
-          "maxWidth": 1600,
-          "align": "center",
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title edge 2"
-        },
-        {
-          "id": "Title-weight2",
-          "type": "text",
-          "text": "{words.back}",
-          "x": 960,
-          "y": 468.2,
-          "size": 100,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "shrink",
-          "maxWidth": 1600,
-          "align": "center",
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title edge 3"
-        },
-        {
-          "id": "Title-weight3",
-          "type": "text",
-          "text": "{words.back}",
-          "x": 960,
-          "y": 471.8,
-          "size": 100,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "shrink",
-          "maxWidth": 1600,
-          "align": "center",
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title edge 4"
-        },
-        {
-          "id": "Title",
-          "type": "text",
-          "text": "{words.back}",
-          "x": 960,
-          "y": 470,
-          "size": 100,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "shrink",
-          "maxWidth": 1600,
-          "align": "center",
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Channel title"
+          "id": "Title-treatment",
+          "name": "Title lettering",
+          "type": "group",
+          "layers": [
+            {
+              "id": "Title-weight0",
+              "type": "text",
+              "text": "{words.back}",
+              "x": 958.2,
+              "y": 470,
+              "size": 100,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "shrink",
+              "maxWidth": 1600,
+              "align": "center",
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title edge 1"
+            },
+            {
+              "id": "Title-weight1",
+              "type": "text",
+              "text": "{words.back}",
+              "x": 961.8,
+              "y": 470,
+              "size": 100,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "shrink",
+              "maxWidth": 1600,
+              "align": "center",
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title edge 2"
+            },
+            {
+              "id": "Title-weight2",
+              "type": "text",
+              "text": "{words.back}",
+              "x": 960,
+              "y": 468.2,
+              "size": 100,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "shrink",
+              "maxWidth": 1600,
+              "align": "center",
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title edge 3"
+            },
+            {
+              "id": "Title-weight3",
+              "type": "text",
+              "text": "{words.back}",
+              "x": 960,
+              "y": 471.8,
+              "size": 100,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "shrink",
+              "maxWidth": 1600,
+              "align": "center",
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title edge 4"
+            },
+            {
+              "id": "Title",
+              "type": "text",
+              "text": "{words.back}",
+              "x": 960,
+              "y": 470,
+              "size": 100,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "shrink",
+              "maxWidth": 1600,
+              "align": "center",
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Channel title"
+            }
+          ]
         }
       ]
     },
@@ -285,69 +292,76 @@
       "type": "group",
       "layers": [
         {
-          "id": "play-weight0",
-          "type": "text",
-          "text": "PLAY  \u25b6",
-          "x": 138.2,
-          "y": 150,
-          "size": 64,
-          "font": "vt323",
-          "fill": "{glow}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "name": "Play edge 1"
-        },
-        {
-          "id": "play-weight1",
-          "type": "text",
-          "text": "PLAY  \u25b6",
-          "x": 141.8,
-          "y": 150,
-          "size": 64,
-          "font": "vt323",
-          "fill": "{glow}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "name": "Play edge 2"
-        },
-        {
-          "id": "play-weight2",
-          "type": "text",
-          "text": "PLAY  \u25b6",
-          "x": 140,
-          "y": 148.2,
-          "size": 64,
-          "font": "vt323",
-          "fill": "{glow}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "name": "Play edge 3"
-        },
-        {
-          "id": "play-weight3",
-          "type": "text",
-          "text": "PLAY  \u25b6",
-          "x": 140,
-          "y": 151.8,
-          "size": 64,
-          "font": "vt323",
-          "fill": "{glow}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "name": "Play edge 4"
-        },
-        {
-          "id": "play",
-          "type": "text",
-          "text": "PLAY  \u25b6",
-          "x": 140,
-          "y": 150,
-          "size": 64,
-          "font": "vt323",
-          "fill": "{glow}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "name": "Play"
+          "id": "play-treatment",
+          "name": "Play lettering",
+          "type": "group",
+          "layers": [
+            {
+              "id": "play-weight0",
+              "type": "text",
+              "text": "PLAY  \u25b6",
+              "x": 138.2,
+              "y": 150,
+              "size": 64,
+              "font": "vt323",
+              "fill": "{glow}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "name": "Play edge 1"
+            },
+            {
+              "id": "play-weight1",
+              "type": "text",
+              "text": "PLAY  \u25b6",
+              "x": 141.8,
+              "y": 150,
+              "size": 64,
+              "font": "vt323",
+              "fill": "{glow}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "name": "Play edge 2"
+            },
+            {
+              "id": "play-weight2",
+              "type": "text",
+              "text": "PLAY  \u25b6",
+              "x": 140,
+              "y": 148.2,
+              "size": 64,
+              "font": "vt323",
+              "fill": "{glow}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "name": "Play edge 3"
+            },
+            {
+              "id": "play-weight3",
+              "type": "text",
+              "text": "PLAY  \u25b6",
+              "x": 140,
+              "y": 151.8,
+              "size": 64,
+              "font": "vt323",
+              "fill": "{glow}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "name": "Play edge 4"
+            },
+            {
+              "id": "play",
+              "type": "text",
+              "text": "PLAY  \u25b6",
+              "x": 140,
+              "y": 150,
+              "size": 64,
+              "font": "vt323",
+              "fill": "{glow}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "name": "Play"
+            }
+          ]
         }
       ]
     },
@@ -357,74 +371,81 @@
       "type": "group",
       "layers": [
         {
-          "id": "timecode-weight0",
-          "type": "text",
-          "text": "00:00:00",
-          "x": 1738.2,
-          "y": 980,
-          "size": 60,
-          "font": "vt323",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "right",
-          "name": "Timecode edge 1"
-        },
-        {
-          "id": "timecode-weight1",
-          "type": "text",
-          "text": "00:00:00",
-          "x": 1741.8,
-          "y": 980,
-          "size": 60,
-          "font": "vt323",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "right",
-          "name": "Timecode edge 2"
-        },
-        {
-          "id": "timecode-weight2",
-          "type": "text",
-          "text": "00:00:00",
-          "x": 1740,
-          "y": 978.2,
-          "size": 60,
-          "font": "vt323",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "right",
-          "name": "Timecode edge 3"
-        },
-        {
-          "id": "timecode-weight3",
-          "type": "text",
-          "text": "00:00:00",
-          "x": 1740,
-          "y": 981.8,
-          "size": 60,
-          "font": "vt323",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "right",
-          "name": "Timecode edge 4"
-        },
-        {
-          "id": "timecode",
-          "type": "text",
-          "text": "00:00:00",
-          "x": 1740,
-          "y": 980,
-          "size": 60,
-          "font": "vt323",
-          "fill": "{text}",
-          "maxWidth": 1600,
-          "fit": "shrink",
-          "align": "right",
-          "name": "Timecode"
+          "id": "timecode-treatment",
+          "name": "Timecode lettering",
+          "type": "group",
+          "layers": [
+            {
+              "id": "timecode-weight0",
+              "type": "text",
+              "text": "00:00:00",
+              "x": 1738.2,
+              "y": 980,
+              "size": 60,
+              "font": "vt323",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "right",
+              "name": "Timecode edge 1"
+            },
+            {
+              "id": "timecode-weight1",
+              "type": "text",
+              "text": "00:00:00",
+              "x": 1741.8,
+              "y": 980,
+              "size": 60,
+              "font": "vt323",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "right",
+              "name": "Timecode edge 2"
+            },
+            {
+              "id": "timecode-weight2",
+              "type": "text",
+              "text": "00:00:00",
+              "x": 1740,
+              "y": 978.2,
+              "size": 60,
+              "font": "vt323",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "right",
+              "name": "Timecode edge 3"
+            },
+            {
+              "id": "timecode-weight3",
+              "type": "text",
+              "text": "00:00:00",
+              "x": 1740,
+              "y": 981.8,
+              "size": 60,
+              "font": "vt323",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "right",
+              "name": "Timecode edge 4"
+            },
+            {
+              "id": "timecode",
+              "type": "text",
+              "text": "00:00:00",
+              "x": 1740,
+              "y": 980,
+              "size": 60,
+              "font": "vt323",
+              "fill": "{text}",
+              "maxWidth": 1600,
+              "fit": "shrink",
+              "align": "right",
+              "name": "Timecode"
+            }
+          ]
         }
       ]
     }

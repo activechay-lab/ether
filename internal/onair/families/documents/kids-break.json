@@ -19,126 +19,126 @@
       "type": "path",
       "path": "M 960 540 L 3360.00 540.00 L 3351.34 743.75 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray0"
+      "name": "Ray 1"
     },
     {
       "id": "ray1",
       "type": "path",
       "path": "M 960 540 L 3215.26 1360.85 L 3137.43 1549.35 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray1"
+      "name": "Ray 2"
     },
     {
       "id": "ray2",
       "type": "path",
       "path": "M 960 540 L 2798.51 2082.69 L 2660.90 2233.21 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray2"
+      "name": "Ray 3"
     },
     {
       "id": "ray3",
       "type": "path",
       "path": "M 960 540 L 2160.00 2618.46 L 1979.21 2712.83 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray3"
+      "name": "Ray 4"
     },
     {
       "id": "ray4",
       "type": "path",
       "path": "M 960 540 L 1376.76 2903.54 L 1174.59 2930.39 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray4"
+      "name": "Ray 5"
     },
     {
       "id": "ray5",
       "type": "path",
       "path": "M 960 540 L 543.24 2903.54 L 344.09 2859.62 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray5"
+      "name": "Ray 6"
     },
     {
       "id": "ray6",
       "type": "path",
       "path": "M 960 540 L -240.00 2618.46 L -412.12 2509.08 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray6"
+      "name": "Ray 7"
     },
     {
       "id": "ray7",
       "type": "path",
       "path": "M 960 540 L -878.51 2082.69 L -1002.84 1921.04 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray7"
+      "name": "Ray 8"
     },
     {
       "id": "ray8",
       "type": "path",
       "path": "M 960 540 L -1295.26 1360.85 L -1356.81 1166.42 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray8"
+      "name": "Ray 9"
     },
     {
       "id": "ray9",
       "type": "path",
       "path": "M 960 540 L -1440.00 540.00 L -1431.34 336.25 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray9"
+      "name": "Ray 10"
     },
     {
       "id": "ray10",
       "type": "path",
       "path": "M 960 540 L -1295.26 -280.85 L -1217.43 -469.35 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray10"
+      "name": "Ray 11"
     },
     {
       "id": "ray11",
       "type": "path",
       "path": "M 960 540 L -878.51 -1002.69 L -740.90 -1153.21 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray11"
+      "name": "Ray 12"
     },
     {
       "id": "ray12",
       "type": "path",
       "path": "M 960 540 L -240.00 -1538.46 L -59.21 -1632.83 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray12"
+      "name": "Ray 13"
     },
     {
       "id": "ray13",
       "type": "path",
       "path": "M 960 540 L 543.24 -1823.54 L 745.41 -1850.39 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray13"
+      "name": "Ray 14"
     },
     {
       "id": "ray14",
       "type": "path",
       "path": "M 960 540 L 1376.76 -1823.54 L 1575.91 -1779.62 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray14"
+      "name": "Ray 15"
     },
     {
       "id": "ray15",
       "type": "path",
       "path": "M 960 540 L 2160.00 -1538.46 L 2332.12 -1429.08 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray15"
+      "name": "Ray 16"
     },
     {
       "id": "ray16",
       "type": "path",
       "path": "M 960 540 L 2798.51 -1002.69 L 2922.84 -841.04 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray16"
+      "name": "Ray 17"
     },
     {
       "id": "ray17",
       "type": "path",
       "path": "M 960 540 L 3215.26 -280.85 L 3276.81 -86.42 Z",
       "fill": "#ffffff@0.06",
-      "name": "Ray17"
+      "name": "Ray 18"
     },
     {
       "id": "confetti",
@@ -225,7 +225,7 @@
               "fill": "{control.detail2}",
               "stroke": "{control.detail1}",
               "strokeWidth": 8,
-              "name": "White0"
+              "name": "White 1"
             },
             {
               "id": "pupil0",
@@ -235,10 +235,10 @@
               "w": 40,
               "h": 60,
               "fill": "{control.detail1}",
-              "name": "Pupil0"
+              "name": "Pupil 1"
             }
           ],
-          "name": "Eye0"
+          "name": "Eye 1"
         },
         {
           "id": "eye1",
@@ -288,7 +288,7 @@
               "fill": "{control.detail2}",
               "stroke": "{control.detail1}",
               "strokeWidth": 8,
-              "name": "White1"
+              "name": "White 2"
             },
             {
               "id": "pupil1",
@@ -298,10 +298,10 @@
               "w": 40,
               "h": 60,
               "fill": "{control.detail1}",
-              "name": "Pupil1"
+              "name": "Pupil 2"
             }
           ],
-          "name": "Eye1"
+          "name": "Eye 2"
         },
         {
           "id": "smile",
@@ -316,340 +316,368 @@
       "name": "Mascot"
     },
     {
-      "id": "kicker-outline0",
-      "type": "text",
-      "text": "WE'LL BE",
-      "x": 1324,
-      "y": 300,
-      "size": 110,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Kicker outline0"
+      "id": "kicker-treatment",
+      "name": "Kicker lettering",
+      "type": "group",
+      "layers": [
+        {
+          "id": "kicker-outline0",
+          "type": "text",
+          "text": "WE'LL BE",
+          "x": 1324,
+          "y": 300,
+          "size": 110,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Kicker outline 1"
+        },
+        {
+          "id": "kicker-outline1",
+          "type": "text",
+          "text": "WE'LL BE",
+          "x": 1336,
+          "y": 300,
+          "size": 110,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Kicker outline 2"
+        },
+        {
+          "id": "kicker-outline2",
+          "type": "text",
+          "text": "WE'LL BE",
+          "x": 1330,
+          "y": 294,
+          "size": 110,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Kicker outline 3"
+        },
+        {
+          "id": "kicker-outline3",
+          "type": "text",
+          "text": "WE'LL BE",
+          "x": 1330,
+          "y": 306,
+          "size": 110,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Kicker outline 4"
+        },
+        {
+          "id": "kicker-outline4",
+          "type": "text",
+          "text": "WE'LL BE",
+          "x": 1338,
+          "y": 309,
+          "size": 110,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Kicker outline 5"
+        },
+        {
+          "id": "kicker",
+          "type": "text",
+          "text": "WE'LL BE",
+          "x": 1330,
+          "y": 300,
+          "size": 110,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Kicker"
+        }
+      ]
     },
     {
-      "id": "kicker-outline1",
-      "type": "text",
-      "text": "WE'LL BE",
-      "x": 1336,
-      "y": 300,
-      "size": 110,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Kicker outline1"
+      "id": "Title-treatment",
+      "name": "Title lettering",
+      "type": "group",
+      "layers": [
+        {
+          "id": "Title-outline0",
+          "type": "text",
+          "text": "RIGHT",
+          "x": 1324,
+          "y": 490,
+          "size": 170,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Title outline 1"
+        },
+        {
+          "id": "Title-outline1",
+          "type": "text",
+          "text": "RIGHT",
+          "x": 1336,
+          "y": 490,
+          "size": 170,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Title outline 2"
+        },
+        {
+          "id": "Title-outline2",
+          "type": "text",
+          "text": "RIGHT",
+          "x": 1330,
+          "y": 484,
+          "size": 170,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Title outline 3"
+        },
+        {
+          "id": "Title-outline3",
+          "type": "text",
+          "text": "RIGHT",
+          "x": 1330,
+          "y": 496,
+          "size": 170,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Title outline 4"
+        },
+        {
+          "id": "Title-outline4",
+          "type": "text",
+          "text": "RIGHT",
+          "x": 1338,
+          "y": 499,
+          "size": 170,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Title outline 5"
+        },
+        {
+          "id": "Title",
+          "type": "text",
+          "text": "RIGHT",
+          "x": 1330,
+          "y": 490,
+          "size": 170,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Channel title"
+        }
+      ]
     },
     {
-      "id": "kicker-outline2",
-      "type": "text",
-      "text": "WE'LL BE",
-      "x": 1330,
-      "y": 294,
-      "size": 110,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Kicker outline2"
+      "id": "back-treatment",
+      "name": "Back lettering",
+      "type": "group",
+      "layers": [
+        {
+          "id": "back-outline0",
+          "type": "text",
+          "text": "BACK!",
+          "x": 1324,
+          "y": 680,
+          "size": 170,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Back outline 1"
+        },
+        {
+          "id": "back-outline1",
+          "type": "text",
+          "text": "BACK!",
+          "x": 1336,
+          "y": 680,
+          "size": 170,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Back outline 2"
+        },
+        {
+          "id": "back-outline2",
+          "type": "text",
+          "text": "BACK!",
+          "x": 1330,
+          "y": 674,
+          "size": 170,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Back outline 3"
+        },
+        {
+          "id": "back-outline3",
+          "type": "text",
+          "text": "BACK!",
+          "x": 1330,
+          "y": 686,
+          "size": 170,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Back outline 4"
+        },
+        {
+          "id": "back-outline4",
+          "type": "text",
+          "text": "BACK!",
+          "x": 1338,
+          "y": 689,
+          "size": 170,
+          "font": "{type.display}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Back outline 5"
+        },
+        {
+          "id": "back",
+          "type": "text",
+          "text": "BACK!",
+          "x": 1330,
+          "y": 680,
+          "size": 170,
+          "font": "{type.display}",
+          "fill": "{control.detail3}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Back"
+        }
+      ]
     },
     {
-      "id": "kicker-outline3",
-      "type": "text",
-      "text": "WE'LL BE",
-      "x": 1330,
-      "y": 306,
-      "size": 110,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Kicker outline3"
-    },
-    {
-      "id": "kicker-outline4",
-      "type": "text",
-      "text": "WE'LL BE",
-      "x": 1338,
-      "y": 309,
-      "size": 110,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Kicker outline4"
-    },
-    {
-      "id": "kicker",
-      "type": "text",
-      "text": "WE'LL BE",
-      "x": 1330,
-      "y": 300,
-      "size": 110,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Kicker"
-    },
-    {
-      "id": "Title-outline0",
-      "type": "text",
-      "text": "RIGHT",
-      "x": 1324,
-      "y": 490,
-      "size": 170,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Title outline0"
-    },
-    {
-      "id": "Title-outline1",
-      "type": "text",
-      "text": "RIGHT",
-      "x": 1336,
-      "y": 490,
-      "size": 170,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Title outline1"
-    },
-    {
-      "id": "Title-outline2",
-      "type": "text",
-      "text": "RIGHT",
-      "x": 1330,
-      "y": 484,
-      "size": 170,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Title outline2"
-    },
-    {
-      "id": "Title-outline3",
-      "type": "text",
-      "text": "RIGHT",
-      "x": 1330,
-      "y": 496,
-      "size": 170,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Title outline3"
-    },
-    {
-      "id": "Title-outline4",
-      "type": "text",
-      "text": "RIGHT",
-      "x": 1338,
-      "y": 499,
-      "size": 170,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Title outline4"
-    },
-    {
-      "id": "Title",
-      "type": "text",
-      "text": "RIGHT",
-      "x": 1330,
-      "y": 490,
-      "size": 170,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Channel title"
-    },
-    {
-      "id": "back-outline0",
-      "type": "text",
-      "text": "BACK!",
-      "x": 1324,
-      "y": 680,
-      "size": 170,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Back outline0"
-    },
-    {
-      "id": "back-outline1",
-      "type": "text",
-      "text": "BACK!",
-      "x": 1336,
-      "y": 680,
-      "size": 170,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Back outline1"
-    },
-    {
-      "id": "back-outline2",
-      "type": "text",
-      "text": "BACK!",
-      "x": 1330,
-      "y": 674,
-      "size": 170,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Back outline2"
-    },
-    {
-      "id": "back-outline3",
-      "type": "text",
-      "text": "BACK!",
-      "x": 1330,
-      "y": 686,
-      "size": 170,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Back outline3"
-    },
-    {
-      "id": "back-outline4",
-      "type": "text",
-      "text": "BACK!",
-      "x": 1338,
-      "y": 689,
-      "size": 170,
-      "font": "{type.display}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Back outline4"
-    },
-    {
-      "id": "back",
-      "type": "text",
-      "text": "BACK!",
-      "x": 1330,
-      "y": 680,
-      "size": 170,
-      "font": "{type.display}",
-      "fill": "{control.detail3}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Back"
-    },
-    {
-      "id": "next-outline0",
-      "type": "text",
-      "text": "{next.title}",
-      "x": 1324,
-      "y": 950,
-      "size": 44,
-      "font": "{type.mono}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Next outline0"
-    },
-    {
-      "id": "next-outline1",
-      "type": "text",
-      "text": "{next.title}",
-      "x": 1336,
-      "y": 950,
-      "size": 44,
-      "font": "{type.mono}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Next outline1"
-    },
-    {
-      "id": "next-outline2",
-      "type": "text",
-      "text": "{next.title}",
-      "x": 1330,
-      "y": 944,
-      "size": 44,
-      "font": "{type.mono}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Next outline2"
-    },
-    {
-      "id": "next-outline3",
-      "type": "text",
-      "text": "{next.title}",
-      "x": 1330,
-      "y": 956,
-      "size": 44,
-      "font": "{type.mono}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Next outline3"
-    },
-    {
-      "id": "next-outline4",
-      "type": "text",
-      "text": "{next.title}",
-      "x": 1338,
-      "y": 959,
-      "size": 44,
-      "font": "{type.mono}",
-      "fill": "{control.detail1}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Next outline4"
-    },
-    {
-      "id": "next",
-      "type": "text",
-      "text": "{next.title}",
-      "x": 1330,
-      "y": 950,
-      "size": 44,
-      "font": "{type.mono}",
-      "fill": "{text}",
-      "maxWidth": 950,
-      "fit": "shrink",
-      "align": "center",
-      "name": "Next"
+      "id": "next-treatment",
+      "name": "Next lettering",
+      "type": "group",
+      "layers": [
+        {
+          "id": "next-outline0",
+          "type": "text",
+          "text": "{next.title}",
+          "x": 1324,
+          "y": 950,
+          "size": 44,
+          "font": "{type.mono}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Next outline 1"
+        },
+        {
+          "id": "next-outline1",
+          "type": "text",
+          "text": "{next.title}",
+          "x": 1336,
+          "y": 950,
+          "size": 44,
+          "font": "{type.mono}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Next outline 2"
+        },
+        {
+          "id": "next-outline2",
+          "type": "text",
+          "text": "{next.title}",
+          "x": 1330,
+          "y": 944,
+          "size": 44,
+          "font": "{type.mono}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Next outline 3"
+        },
+        {
+          "id": "next-outline3",
+          "type": "text",
+          "text": "{next.title}",
+          "x": 1330,
+          "y": 956,
+          "size": 44,
+          "font": "{type.mono}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Next outline 4"
+        },
+        {
+          "id": "next-outline4",
+          "type": "text",
+          "text": "{next.title}",
+          "x": 1338,
+          "y": 959,
+          "size": 44,
+          "font": "{type.mono}",
+          "fill": "{control.detail1}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Next outline 5"
+        },
+        {
+          "id": "next",
+          "type": "text",
+          "text": "{next.title}",
+          "x": 1330,
+          "y": 950,
+          "size": 44,
+          "font": "{type.mono}",
+          "fill": "{text}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "align": "center",
+          "name": "Next"
+        }
+      ]
     }
   ],
   "post": [

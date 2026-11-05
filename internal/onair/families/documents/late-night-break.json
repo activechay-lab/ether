@@ -89,7 +89,7 @@
           "w": 66,
           "h": 66,
           "fill": "#3c3c46@0.1",
-          "name": "Crater0"
+          "name": "Crater 1"
         },
         {
           "id": "crater1",
@@ -99,7 +99,7 @@
           "w": 48,
           "h": 48,
           "fill": "#3c3c46@0.1",
-          "name": "Crater1"
+          "name": "Crater 2"
         },
         {
           "id": "crater2",
@@ -109,7 +109,7 @@
           "w": 36,
           "h": 36,
           "fill": "#3c3c46@0.1",
-          "name": "Crater2"
+          "name": "Crater 3"
         },
         {
           "id": "crater3",
@@ -119,7 +119,7 @@
           "w": 30,
           "h": 30,
           "fill": "#3c3c46@0.1",
-          "name": "Crater3"
+          "name": "Crater 4"
         }
       ],
       "name": "Moon"
@@ -160,7 +160,7 @@
           ]
         ]
       },
-      "name": "Fog0"
+      "name": "Fog 1"
     },
     {
       "id": "fog1",
@@ -198,7 +198,7 @@
           ]
         ]
       },
-      "name": "Fog1"
+      "name": "Fog 2"
     },
     {
       "id": "fog2",
@@ -236,7 +236,7 @@
           ]
         ]
       },
-      "name": "Fog2"
+      "name": "Fog 3"
     },
     {
       "id": "fog3",
@@ -274,7 +274,7 @@
           ]
         ]
       },
-      "name": "Fog3"
+      "name": "Fog 4"
     },
     {
       "id": "fog4",
@@ -312,7 +312,7 @@
           ]
         ]
       },
-      "name": "Fog4"
+      "name": "Fog 5"
     },
     {
       "id": "fog5",
@@ -350,7 +350,7 @@
           ]
         ]
       },
-      "name": "Fog5"
+      "name": "Fog 6"
     },
     {
       "id": "doorlight",

@@ -51,7 +51,7 @@
         ]
       },
       "blend": "screen",
-      "name": "Aurora0"
+      "name": "Aurora 1"
     },
     {
       "id": "aurora1",
@@ -90,7 +90,7 @@
         ]
       },
       "blend": "screen",
-      "name": "Aurora1"
+      "name": "Aurora 2"
     },
     {
       "id": "aurora2",
@@ -129,7 +129,7 @@
         ]
       },
       "blend": "screen",
-      "name": "Aurora2"
+      "name": "Aurora 3"
     },
     {
       "id": "panel",
@@ -167,7 +167,7 @@
           ]
         ]
       },
-      "name": "Poster bg"
+      "name": "Poster background"
     },
     {
       "id": "art-illustration",
@@ -201,7 +201,7 @@
               ]
             ]
           },
-          "name": "Art sky"
+          "name": "Sky"
         },
         {
           "id": "art-moon",
@@ -211,31 +211,31 @@
           "w": 86.4,
           "h": 86.4,
           "fill": "{control.detail3}",
-          "name": "Art moon"
+          "name": "Moon"
         },
         {
           "id": "art-ridge0",
           "type": "path",
           "path": "M 0 338.0 L 108.0 195.0 L 189.0 325.0 L 351.0 175.5 L 540 312.0 L 540 650 L 0 650 Z",
           "fill": "{control.detail4}",
-          "name": "Art ridge0"
+          "name": "Ridge 1"
         },
         {
           "id": "art-ridge1",
           "type": "path",
           "path": "M 0 416.0 L 108.0 299.0 L 189.0 390.0 L 351.0 286.00000000000006 L 540 377.0 L 540 650 L 0 650 Z",
           "fill": "#293248",
-          "name": "Art ridge1"
+          "name": "Ridge 2"
         },
         {
           "id": "art-ridge2",
           "type": "path",
           "path": "M 0 494.0 L 108.0 403.0 L 189.0 454.99999999999994 L 351.0 396.50000000000006 L 540 441.99999999999994 L 540 650 L 0 650 Z",
           "fill": "#172139",
-          "name": "Art ridge2"
+          "name": "Ridge 3"
         }
       ],
-      "name": "Art illustration"
+      "name": "Illustration"
     },
     {
       "id": "art",
@@ -285,159 +285,166 @@
       "type": "group",
       "layers": [
         {
-          "id": "Title-weight0",
-          "type": "text",
-          "text": "{next.title}",
-          "x": 178.2,
-          "y": 460,
-          "size": 112,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "wrap",
-          "maxWidth": 920,
-          "maxLines": 2,
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title edge 1"
-        },
-        {
-          "id": "Title-weight1",
-          "type": "text",
-          "text": "{next.title}",
-          "x": 181.8,
-          "y": 460,
-          "size": 112,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "wrap",
-          "maxWidth": 920,
-          "maxLines": 2,
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title edge 2"
-        },
-        {
-          "id": "Title-weight2",
-          "type": "text",
-          "text": "{next.title}",
-          "x": 180,
-          "y": 458.2,
-          "size": 112,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "wrap",
-          "maxWidth": 920,
-          "maxLines": 2,
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title edge 3"
-        },
-        {
-          "id": "Title-weight3",
-          "type": "text",
-          "text": "{next.title}",
-          "x": 180,
-          "y": 461.8,
-          "size": 112,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "wrap",
-          "maxWidth": 920,
-          "maxLines": 2,
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Title edge 4"
-        },
-        {
-          "id": "Title",
-          "type": "text",
-          "text": "{next.title}",
-          "x": 180,
-          "y": 460,
-          "size": 112,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "wrap",
-          "maxWidth": 920,
-          "maxLines": 2,
-          "opacity": {
-            "keys": [
-              [
-                0,
-                0
-              ],
-              [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
-                "out"
-              ]
-            ]
-          },
-          "name": "Channel title"
+          "id": "Title-treatment",
+          "name": "Title lettering",
+          "type": "group",
+          "layers": [
+            {
+              "id": "Title-weight0",
+              "type": "text",
+              "text": "{next.title}",
+              "x": 178.2,
+              "y": 460,
+              "size": 112,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "wrap",
+              "maxWidth": 920,
+              "maxLines": 2,
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title edge 1"
+            },
+            {
+              "id": "Title-weight1",
+              "type": "text",
+              "text": "{next.title}",
+              "x": 181.8,
+              "y": 460,
+              "size": 112,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "wrap",
+              "maxWidth": 920,
+              "maxLines": 2,
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title edge 2"
+            },
+            {
+              "id": "Title-weight2",
+              "type": "text",
+              "text": "{next.title}",
+              "x": 180,
+              "y": 458.2,
+              "size": 112,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "wrap",
+              "maxWidth": 920,
+              "maxLines": 2,
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title edge 3"
+            },
+            {
+              "id": "Title-weight3",
+              "type": "text",
+              "text": "{next.title}",
+              "x": 180,
+              "y": 461.8,
+              "size": 112,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "wrap",
+              "maxWidth": 920,
+              "maxLines": 2,
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Title edge 4"
+            },
+            {
+              "id": "Title",
+              "type": "text",
+              "text": "{next.title}",
+              "x": 180,
+              "y": 460,
+              "size": 112,
+              "font": "{type.display}",
+              "fill": "{text}",
+              "fit": "wrap",
+              "maxWidth": 920,
+              "maxLines": 2,
+              "opacity": {
+                "keys": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0.4,
+                    0
+                  ],
+                  [
+                    1.8,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Channel title"
+            }
+          ]
         }
       ]
     },

@@ -133,7 +133,7 @@
           ]
         ]
       },
-      "name": "Time0"
+      "name": "Time 1"
     },
     {
       "id": "poster0",
@@ -160,7 +160,7 @@
           ]
         ]
       },
-      "name": "Poster0"
+      "name": "Poster 1"
     },
     {
       "id": "art0-illustration",
@@ -194,7 +194,7 @@
               ]
             ]
           },
-          "name": "Art0 sky"
+          "name": "Sky"
         },
         {
           "id": "art0-house",
@@ -204,14 +204,14 @@
           "w": 179.20000000000002,
           "h": 278.8,
           "fill": "#22313a",
-          "name": "Art0 house"
+          "name": "House"
         },
         {
           "id": "art0-roof",
           "type": "path",
           "path": "M 22.400000000000002 139.4 L 140.0 41.0 L 257.6 139.4 Z",
           "fill": "{control.detail3}",
-          "name": "Art0 roof"
+          "name": "Roof"
         },
         {
           "id": "art0-window00",
@@ -221,7 +221,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art0 window00"
+          "name": "Window 1"
         },
         {
           "id": "art0-window01",
@@ -231,7 +231,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art0 window01"
+          "name": "Window 2"
         },
         {
           "id": "art0-window02",
@@ -241,7 +241,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art0 window02"
+          "name": "Window 3"
         },
         {
           "id": "art0-window03",
@@ -251,7 +251,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art0 window03"
+          "name": "Window 4"
         },
         {
           "id": "art0-window10",
@@ -261,7 +261,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art0 window10"
+          "name": "Window 11"
         },
         {
           "id": "art0-window11",
@@ -271,7 +271,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art0 window11"
+          "name": "Window 12"
         },
         {
           "id": "art0-window12",
@@ -281,7 +281,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art0 window12"
+          "name": "Window 13"
         },
         {
           "id": "art0-window13",
@@ -291,7 +291,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art0 window13"
+          "name": "Window 14"
         },
         {
           "id": "art0-window20",
@@ -301,7 +301,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art0 window20"
+          "name": "Window 21"
         },
         {
           "id": "art0-window21",
@@ -311,7 +311,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art0 window21"
+          "name": "Window 22"
         },
         {
           "id": "art0-window22",
@@ -321,7 +321,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art0 window22"
+          "name": "Window 23"
         },
         {
           "id": "art0-window23",
@@ -331,10 +331,10 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art0 window23"
+          "name": "Window 24"
         }
       ],
-      "name": "Art0 illustration"
+      "name": "Illustration"
     },
     {
       "id": "art0",
@@ -345,7 +345,7 @@
       "w": 280,
       "h": 410,
       "fit": "cover",
-      "name": "Art0"
+      "name": "Art 1"
     },
     {
       "id": "item0",
@@ -377,7 +377,7 @@
           ]
         ]
       },
-      "name": "Item0"
+      "name": "Item 1"
     },
     {
       "id": "time1",
@@ -408,7 +408,7 @@
           ]
         ]
       },
-      "name": "Time1"
+      "name": "Time 2"
     },
     {
       "id": "poster1",
@@ -435,7 +435,7 @@
           ]
         ]
       },
-      "name": "Poster1"
+      "name": "Poster 2"
     },
     {
       "id": "art1-illustration",
@@ -469,7 +469,7 @@
               ]
             ]
           },
-          "name": "Art1 sky"
+          "name": "Sky"
         },
         {
           "id": "art1-house",
@@ -479,14 +479,14 @@
           "w": 179.20000000000002,
           "h": 278.8,
           "fill": "#462435",
-          "name": "Art1 house"
+          "name": "House"
         },
         {
           "id": "art1-roof",
           "type": "path",
           "path": "M 22.400000000000002 139.4 L 140.0 41.0 L 257.6 139.4 Z",
           "fill": "{control.detail3}",
-          "name": "Art1 roof"
+          "name": "Roof"
         },
         {
           "id": "art1-window00",
@@ -496,7 +496,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art1 window00"
+          "name": "Window 1"
         },
         {
           "id": "art1-window01",
@@ -506,7 +506,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art1 window01"
+          "name": "Window 2"
         },
         {
           "id": "art1-window02",
@@ -516,7 +516,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art1 window02"
+          "name": "Window 3"
         },
         {
           "id": "art1-window03",
@@ -526,7 +526,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art1 window03"
+          "name": "Window 4"
         },
         {
           "id": "art1-window10",
@@ -536,7 +536,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art1 window10"
+          "name": "Window 11"
         },
         {
           "id": "art1-window11",
@@ -546,7 +546,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art1 window11"
+          "name": "Window 12"
         },
         {
           "id": "art1-window12",
@@ -556,7 +556,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art1 window12"
+          "name": "Window 13"
         },
         {
           "id": "art1-window13",
@@ -566,7 +566,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art1 window13"
+          "name": "Window 14"
         },
         {
           "id": "art1-window20",
@@ -576,7 +576,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art1 window20"
+          "name": "Window 21"
         },
         {
           "id": "art1-window21",
@@ -586,7 +586,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art1 window21"
+          "name": "Window 22"
         },
         {
           "id": "art1-window22",
@@ -596,7 +596,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art1 window22"
+          "name": "Window 23"
         },
         {
           "id": "art1-window23",
@@ -606,10 +606,10 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art1 window23"
+          "name": "Window 24"
         }
       ],
-      "name": "Art1 illustration"
+      "name": "Illustration"
     },
     {
       "id": "art1",
@@ -620,7 +620,7 @@
       "w": 280,
       "h": 410,
       "fit": "cover",
-      "name": "Art1"
+      "name": "Art 2"
     },
     {
       "id": "item1",
@@ -652,7 +652,7 @@
           ]
         ]
       },
-      "name": "Item1"
+      "name": "Item 2"
     },
     {
       "id": "time2",
@@ -683,7 +683,7 @@
           ]
         ]
       },
-      "name": "Time2"
+      "name": "Time 3"
     },
     {
       "id": "poster2",
@@ -710,7 +710,7 @@
           ]
         ]
       },
-      "name": "Poster2"
+      "name": "Poster 3"
     },
     {
       "id": "art2-illustration",
@@ -744,7 +744,7 @@
               ]
             ]
           },
-          "name": "Art2 sky"
+          "name": "Sky"
         },
         {
           "id": "art2-house",
@@ -754,14 +754,14 @@
           "w": 179.20000000000002,
           "h": 278.8,
           "fill": "#30493e",
-          "name": "Art2 house"
+          "name": "House"
         },
         {
           "id": "art2-roof",
           "type": "path",
           "path": "M 22.400000000000002 139.4 L 140.0 41.0 L 257.6 139.4 Z",
           "fill": "{control.detail3}",
-          "name": "Art2 roof"
+          "name": "Roof"
         },
         {
           "id": "art2-window00",
@@ -771,7 +771,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art2 window00"
+          "name": "Window 1"
         },
         {
           "id": "art2-window01",
@@ -781,7 +781,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art2 window01"
+          "name": "Window 2"
         },
         {
           "id": "art2-window02",
@@ -791,7 +791,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art2 window02"
+          "name": "Window 3"
         },
         {
           "id": "art2-window03",
@@ -801,7 +801,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art2 window03"
+          "name": "Window 4"
         },
         {
           "id": "art2-window10",
@@ -811,7 +811,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art2 window10"
+          "name": "Window 11"
         },
         {
           "id": "art2-window11",
@@ -821,7 +821,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art2 window11"
+          "name": "Window 12"
         },
         {
           "id": "art2-window12",
@@ -831,7 +831,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art2 window12"
+          "name": "Window 13"
         },
         {
           "id": "art2-window13",
@@ -841,7 +841,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art2 window13"
+          "name": "Window 14"
         },
         {
           "id": "art2-window20",
@@ -851,7 +851,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art2 window20"
+          "name": "Window 21"
         },
         {
           "id": "art2-window21",
@@ -861,7 +861,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art2 window21"
+          "name": "Window 22"
         },
         {
           "id": "art2-window22",
@@ -871,7 +871,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art2 window22"
+          "name": "Window 23"
         },
         {
           "id": "art2-window23",
@@ -881,10 +881,10 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art2 window23"
+          "name": "Window 24"
         }
       ],
-      "name": "Art2 illustration"
+      "name": "Illustration"
     },
     {
       "id": "art2",
@@ -895,7 +895,7 @@
       "w": 280,
       "h": 410,
       "fit": "cover",
-      "name": "Art2"
+      "name": "Art 3"
     },
     {
       "id": "item2",
@@ -927,7 +927,7 @@
           ]
         ]
       },
-      "name": "Item2"
+      "name": "Item 3"
     },
     {
       "id": "time3",
@@ -958,7 +958,7 @@
           ]
         ]
       },
-      "name": "Time3"
+      "name": "Time 4"
     },
     {
       "id": "poster3",
@@ -985,7 +985,7 @@
           ]
         ]
       },
-      "name": "Poster3"
+      "name": "Poster 4"
     },
     {
       "id": "art3-illustration",
@@ -1019,7 +1019,7 @@
               ]
             ]
           },
-          "name": "Art3 sky"
+          "name": "Sky"
         },
         {
           "id": "art3-house",
@@ -1029,14 +1029,14 @@
           "w": 179.20000000000002,
           "h": 278.8,
           "fill": "#1c354a",
-          "name": "Art3 house"
+          "name": "House"
         },
         {
           "id": "art3-roof",
           "type": "path",
           "path": "M 22.400000000000002 139.4 L 140.0 41.0 L 257.6 139.4 Z",
           "fill": "{control.detail3}",
-          "name": "Art3 roof"
+          "name": "Roof"
         },
         {
           "id": "art3-window00",
@@ -1046,7 +1046,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art3 window00"
+          "name": "Window 1"
         },
         {
           "id": "art3-window01",
@@ -1056,7 +1056,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art3 window01"
+          "name": "Window 2"
         },
         {
           "id": "art3-window02",
@@ -1066,7 +1066,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art3 window02"
+          "name": "Window 3"
         },
         {
           "id": "art3-window03",
@@ -1076,7 +1076,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art3 window03"
+          "name": "Window 4"
         },
         {
           "id": "art3-window10",
@@ -1086,7 +1086,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art3 window10"
+          "name": "Window 11"
         },
         {
           "id": "art3-window11",
@@ -1096,7 +1096,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art3 window11"
+          "name": "Window 12"
         },
         {
           "id": "art3-window12",
@@ -1106,7 +1106,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art3 window12"
+          "name": "Window 13"
         },
         {
           "id": "art3-window13",
@@ -1116,7 +1116,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art3 window13"
+          "name": "Window 14"
         },
         {
           "id": "art3-window20",
@@ -1126,7 +1126,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art3 window20"
+          "name": "Window 21"
         },
         {
           "id": "art3-window21",
@@ -1136,7 +1136,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail2}",
-          "name": "Art3 window21"
+          "name": "Window 22"
         },
         {
           "id": "art3-window22",
@@ -1146,7 +1146,7 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art3 window22"
+          "name": "Window 23"
         },
         {
           "id": "art3-window23",
@@ -1156,10 +1156,10 @@
           "w": 18.2,
           "h": 45.1,
           "fill": "{control.detail1}",
-          "name": "Art3 window23"
+          "name": "Window 24"
         }
       ],
-      "name": "Art3 illustration"
+      "name": "Illustration"
     },
     {
       "id": "art3",
@@ -1170,7 +1170,7 @@
       "w": 280,
       "h": 410,
       "fit": "cover",
-      "name": "Art3"
+      "name": "Art 4"
     },
     {
       "id": "item3",
@@ -1202,7 +1202,7 @@
           ]
         ]
       },
-      "name": "Item3"
+      "name": "Item 4"
     }
   ],
   "post": [
