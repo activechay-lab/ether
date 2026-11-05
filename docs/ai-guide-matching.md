@@ -1,45 +1,98 @@
-# AI-assisted guide matching (0.3.5)
+# AI-assisted guide matching (0.3.5): owner review revision
 
-In Live TV → Guide, choose **Match with AI** beside Auto-match. Ether shows an
-estimated provider-call count and approximate input tokens before you run it.
-The shared connection is configured under **Integrations → LLM**; no additional
-provider settings are introduced. Auto-match continues to work without AI.
+The original inline AI UI was rejected. AI matching now opens a stacked review
+**drawer** from one button beside Auto-match in the Channel mapping controls.
+There is no AI button in the page hero. The same launcher inside a channel’s
+guide drawer opens review above it; Change guide opens a third drawer. Escape,
+focus trapping and scrolling follow the console’s existing Drawer component.
 
-Ether first runs its existing deterministic matcher. Only unresolved IPTV
-channels enter the AI pass. Guide candidates come from the same persisted
-XMLTV, Xtream and Plex guide metadata. Fuzzy retrieval considers names, aliases,
-region, numbers, HD/SD and programme-title overlap where known. Explicit region,
-number and timeshift conflicts are excluded. Each channel gets at most six
-candidates; the model receives names and bounded now/next titles, with local
-candidate indices instead of source credentials or stream addresses.
+## Reviewing large lineups
 
-Proposals include confidence and a reason. Confidence of at least 95% is selected
-only when the region is known; inconsistent numeric identity is capped below
-that threshold. Confidence is a model estimate, not a measured probability.
-Owners can select lower-confidence suggestions themselves. Apply accepts only
-selected channels and fingerprinted proposals. Changed channel or guide inputs
-require another review. Existing streams keep playing.
+The drawer starts with already-matched, unmatched, high-confidence and
+needs-review counts, plus an upper bound for provider calls and time before
+running. Matching runs in batches of eight with visible progress. Pause aborts
+the in-flight request; Resume starts only unfinished channels. Each run stops
+after 32 batches (256 channels), preserving the rest for the next run.
 
-## Limits and caching
+The fixed-height virtual grid mounts only the rows around the viewport. Search,
+confidence, source, region, group and status filters compose with name,
+confidence, source and status sorting. Bulk actions accept high-confidence
+proposals or accept/reject the full filtered set, including off-screen rows.
+Rows offer Accept, Reject and Change; reasons appear in a compact popover.
+Focus the grid and use j/k (or arrow keys) to move, a to accept, r to reject.
 
-- Eight channels per batch, at most 32 provider requests per run.
-- 18 KB maximum batch JSON; 120,000 approximate input tokens per run.
-- 2,048 output tokens per request, 20 seconds per request, 90 seconds per AI pass.
-- Bounded guide calls do not retry automatically or negotiate request options.
-- Provider prices differ; Ether shows calls/tokens rather than inventing a dollar price.
-- Decisions, including abstentions, persist in SQLite/PostgreSQL under a SHA-256
-  fingerprint of channel state and shortlisted guide identity/content.
-- Cached decisions cost no provider calls. Unprocessed channels are counted as
-  deferred; Continue opens another estimate before any additional provider work.
-- Concurrent runs in one service are serialized/rejected; caches persist across
-  restarts. Separate cluster nodes can still initiate simultaneous uncached work.
+Review drafts persist in this browser tab’s session storage through drawer
+closure and page reload. Only mapping/review metadata is stored; no stream
+addresses or provider credentials. Server-side decision caching persists across
+restarts. Model confidence is an estimate, not a calibrated probability.
 
-The existing POST `/livetv/guide/match` accepts `ai: estimate | propose | apply`,
-optional `guideSourceId`, and, for apply, selected `channelIds` and `proposalKeys`.
-Estimate and propose force dry-run behavior. The owner route marks explicit
-selections reviewed. MCP and Ask Ether expose `livetv_guide_match`; paid work and
-Apply go through the existing owner approval mechanism, with cost or mapping
-details on the approval. Read-scope MCP clients cannot call the write tool.
+Apply sends the accepted set in one request and commits it in one transaction.
+AI choices are fingerprint-validated again; manual corrections must refer to a
+real stored guide channel. Mapping conflicts abort the entire transaction.
+The owner receives a durable undo receipt, valid for 24 hours. Undo atomically
+restores the last applied set only when its mappings still match, and preserves
+unrelated owner edits. A newer Apply replaces the Undo button’s current receipt.
+
+The existing owner-only POST `/livetv/guide/match` now additionally supports
+`ai: commit` with explicit `selections` and expected old mappings, or `ai: undo`
+with the returned `undoToken`. Existing estimate/propose/apply clients and MCP
+coverage remain compatible. No new routes or provider settings are introduced.
+XMLTV, Xtream and Plex guide sources still share the same candidate pipeline.
+
+## 5,000-channel browser measurements
+
+The opt-in mock fixture uses 5,000 IPTV rows: 1,000 existing mappings and 4,000
+cached proposals, with 3,000 high-confidence and 1,000 needs-review proposals.
+Open `/ether/livetv/guide-data?guideReviewFixture=5000&guideReviewResults=1`
+under the mock dev server to reproduce the populated state. Omit
+`guideReviewResults` for an empty queue. This fixture is compiled out of the
+production bundle.
+
+| Warm host Chrome measurement | 1440×900 desktop | 390×844 phone viewport |
+| --- | --- | --- |
+| Click event → first result-row paint | 32.8 ms | 35.1 ms |
+| Maximum mounted rows while scrolling all 5,000 | 11 | 10 |
+| Scroll frame median, 90 samples | 16.7 ms | 16.7 ms |
+| Scroll frame p95 | 17.2 ms | 17.3 ms |
+| Maximum scroll frame | 19.1 ms | 19.0 ms |
+| Horizontal overflow | none | none |
+
+Render timing uses a click listener and MutationObserver followed by the first
+animation frame. It excludes page loading, automation scrolling to the launcher
+and the existing drawer entrance animation. Scroll sampling spans the full list
+after the drawer settles. These are viewport simulations on this Mac, not
+physical-phone benchmarks. Live-provider latency and accuracy remain unmeasured.
+
+The browser also verified confidence filtering, keyboard acceptance, manual
+changes in a third drawer, Apply and Undo while the original guide drawer stayed
+open. Running captures use an explicit 180 ms fake network delay per batch.
+
+## Scoped gates
+
+```text
+ok internal/livetv
+ok internal/agent/builtin
+ok internal/mcp
+GUIDE_ROUTE_TOOL_COVERAGE PASS: POST /guide/match → livetv_guide_match (owner approval required)
+ok internal/app (targeted MCP workflow)
+web typecheck: passed
+web changed-file and i18n tests: 4 files, 56 tests passed
+20 locales complete: 6434/6434 messages per translated locale
+prettier changed files: passed
+```
+
+New offline tests cover atomic rollback, undo preserving unrelated edits,
+5,000-row virtualization, keyboard and filtered review, one-request Apply,
+Pause/Resume without resending finished batches, and restoring undo after reload.
+No full Go suite, race suite, full web suite or production build was run.
+
+## Owner gallery
+
+`output/playwright/ai-guide-review-v2/index.html` is the replacement gallery:
+30 screenshots at both requested sizes, dark/light, including the 5k summary,
+review, filters, running/paused states, nested review/change, reasons, and Undo.
+Raw timing data is alongside it in `measurements.json`. The old gallery is
+retained for comparison and is not the approval target.
 
 ## Offline measurement
 
@@ -67,36 +120,3 @@ This measures retrieval, budgets, validation and review/apply plumbing. It does
 was made: no LLM configuration was found in the standard local Ether config
 locations inspected on this machine. Provider response quality remains an
 owner acceptance check with a representative real lineup.
-
-## Verification and gallery
-
-Scoped gates passed:
-
-```text
-ok internal/livetv
-ok internal/llm
-ok internal/agent/builtin
-ok internal/mcp
-ok internal/app (full package earlier; final MCP workflow check below)
-GUIDE_ROUTE_TOOL_COVERAGE PASS: POST /guide/match → livetv_guide_match (owner approval required)
-web typecheck: passed
-web changed-file/i18n tests: 3 files, 53 tests passed
-20 locales complete and valid
-```
-
-This release baseline does not contain a general route-table-to-MCP coverage
-gate. The existing MCP/app catalogue checks were updated for the added tool and
-the app workflow now checks the guide endpoint and owner-scoped tool together.
-No full Go suite, race suite, full web suite or production build was run.
-
-Owner gallery: `output/playwright/ai-guide-matching/index.html` (local artifact),
-with eight screenshots: estimate/review at 1440×900 and 390×844, dark/light.
-Screenshots use the actual UI with the offline mock backend. All mobile proposal
-names wrap, and the page has no horizontal overflow at 390 pixels.
-
-Discord reply draft:
-
-> Hey Kakasanti — yes! We’ve built AI-assisted guide matching for 0.3.5. It uses
-> your existing AI connection to suggest matches for channels auto-match misses,
-> including Plex guides. You’ll see confidence and a short reason, then choose
-> which matches to apply. It’s ready for owner review before release.

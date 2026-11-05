@@ -966,15 +966,20 @@ it("estimates AI cost before running and applies only reviewed proposals", async
   expect(await screen.findByText(/Estimated calls: 1/)).toBeVisible();
   expect(calls.filter((c) => c.url.endsWith("/guide/match"))).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Find suggestions" }));
-  expect(await screen.findByLabelText("Accept match for News 24")).toBeChecked();
-  expect(screen.getByLabelText("Accept match for Cartoons")).not.toBeChecked();
+  expect(await screen.findByRole("button", { name: "Accept match for News 24" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(screen.getByRole("button", { name: "Accept match for Cartoons" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
   expect(screen.getByText("70% confidence")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Apply 1" }));
   await waitFor(() => expect(calls.filter((c) => c.url.endsWith("/guide/match"))).toHaveLength(3));
   const matchCalls = calls.filter((c) => c.url.endsWith("/guide/match"));
-  expect(JSON.parse(String(matchCalls[2]?.init?.body))).toEqual({
-    channelIds: ["c1"],
-    ai: "apply",
-    proposalKeys: { c1: "key-1" },
+  expect(JSON.parse(String(matchCalls[2]?.init?.body))).toMatchObject({
+    ai: "commit",
+    selections: [{ channelId: "c1", guideSourceId: "epg1", guideId: "news", proposalKey: "key-1" }],
   });
 });

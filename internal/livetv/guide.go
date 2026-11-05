@@ -70,12 +70,14 @@ type GuideChannel struct {
 }
 
 type GuideMatchRequest struct {
-	GuideSourceID string            `json:"guideSourceId,omitempty"`
-	AI            string            `json:"ai,omitempty"` // estimate, propose, or apply; AI never writes without apply.
-	ProposalKeys  map[string]string `json:"proposalKeys,omitempty"`
-	ChannelIDs    []string          `json:"channelIds,omitempty"`
-	Overwrite     bool              `json:"overwrite"`
-	DryRun        bool              `json:"dryRun"`
+	Selections    []GuideCommitSelection `json:"selections,omitempty"`
+	UndoToken     string                 `json:"undoToken,omitempty"`
+	GuideSourceID string                 `json:"guideSourceId,omitempty"`
+	AI            string                 `json:"ai,omitempty"` // estimate, propose, or apply; AI never writes without apply.
+	ProposalKeys  map[string]string      `json:"proposalKeys,omitempty"`
+	ChannelIDs    []string               `json:"channelIds,omitempty"`
+	Overwrite     bool                   `json:"overwrite"`
+	DryRun        bool                   `json:"dryRun"`
 	// Reviewed is set by the owner route for explicitly accepted proposals, never by imports.
 	Reviewed bool `json:"-"`
 }
@@ -93,6 +95,7 @@ type GuideMatchChange struct {
 	ReviewRegion    bool    `json:"reviewRegion,omitempty"`
 }
 type GuideMatchResult struct {
+	UndoToken string        `json:"undoToken,omitempty"`
 	AI        *GuideAIStats `json:"ai,omitempty"`
 	Matched   int           `json:"matched"`
 	Unmatched int           `json:"unmatched"`
@@ -120,7 +123,7 @@ func (s *Service) guideRoutes(r chi.Router) {
 	})
 	r.Post("/guide/match", func(w http.ResponseWriter, r *http.Request) {
 		var req GuideMatchRequest
-		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 		if err == nil && len(bytes.TrimSpace(body)) > 0 {
 			d := json.NewDecoder(bytes.NewReader(body))
 			d.DisallowUnknownFields()
@@ -130,7 +133,7 @@ func (s *Service) guideRoutes(r chi.Router) {
 			ownerResult(w, nil, fmt.Errorf("invalid request body: %w", err))
 			return
 		}
-		req.Reviewed = len(req.ChannelIDs) > 0
+		req.Reviewed = len(req.ChannelIDs) > 0 || len(req.Selections) > 0 || req.UndoToken != ""
 		v, e := s.MatchGuides(r.Context(), req)
 		ownerResult(w, v, e)
 	})
@@ -671,6 +674,9 @@ type guideCandidate struct {
 // Overwrite, channels that already have programmes in the next 24 hours are
 // left alone.
 func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (GuideMatchResult, error) {
+	if req.AI == "commit" || req.AI == "undo" {
+		return s.commitGuideReview(ctx, req)
+	}
 	if req.AI != "" && req.AI != "estimate" && req.AI != "propose" && req.AI != "apply" {
 		return GuideMatchResult{}, fmt.Errorf("invalid AI operation")
 	}
@@ -909,7 +915,7 @@ func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (Guide
 					return res, fmt.Errorf("channel changed; review again")
 				}
 			}
-			updated, e := tx.ExecContext(ctx, `UPDATE livetv_channels SET data=? WHERE id=? AND data=?`, b, c.ID, string(raw))
+			updated, e := tx.ExecContext(ctx, `UPDATE livetv_channels SET data=? WHERE id=? AND CAST(data AS TEXT)=?`, string(b), c.ID, string(raw))
 			if e != nil {
 				return res, e
 			}

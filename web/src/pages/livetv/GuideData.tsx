@@ -1,3 +1,4 @@
+import { GuideAIAction } from "./GuideAIReview";
 import { sourceImportError } from "./sourceErrors";
 import { Badge, Button, Input, Popover, cn, toast } from "@braedonsaunders/appkit-ui";
 import {
@@ -31,7 +32,6 @@ import {
   type Coverage,
   type GuideChannel,
   type MatchChange,
-  type MatchResult,
   type Programme,
   type Source,
 } from "./model";
@@ -313,9 +313,6 @@ export function GuideWorkbench({
   type Show = "missing" | "all" | "using";
   const [show, setShow] = useState<Show>("missing");
   const [limit, setLimit] = useState(ROW_PAGE);
-  const [aiEstimate, setAIEstimate] = useState<MatchResult["ai"]>();
-  const [aiReview, setAIReview] = useState(false);
-  const [deferredAI, setDeferredAI] = useState(0);
   const [proposals, setProposals] = useState<MatchChange[] | null>(null);
   const [matchCounts, setMatchCounts] = useState({ ambiguous: 0, regionRejected: 0 });
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
@@ -368,39 +365,14 @@ export function GuideWorkbench({
   const pct = live.length ? (live.length - missing.length) / live.length : 1;
   const status = source ? guideSourceStatus(source, using.length, now) : { text: "", warn: false };
 
-  const estimateAI = async () => {
+  const propose = async () => {
     setBusy(true);
     try {
-      const r = await tv.match({ ai: "estimate", guideSourceId: sourceId });
-      setAIEstimate(r.ai);
-    } catch (e) {
-      toast.error(t("Couldn't match guide channels"), { description: errorMessage(e) });
-    } finally {
-      setBusy(false);
-    }
-  };
-  const propose = async (ai = false) => {
-    setBusy(true);
-    try {
-      const r = await tv.match({
-        dryRun: true,
-        ...(ai ? { ai: "propose" as const, guideSourceId: sourceId } : {}),
-      });
-      setAIReview(ai);
-      setDeferredAI(r.ai?.deferred ?? 0);
-      setAIEstimate(undefined);
+      const r = await tv.match({ dryRun: true });
       const changes = (r.changes ?? []).filter((c) => !sourceId || c.guideSourceId === sourceId);
       setProposals(changes);
       setMatchCounts({ ambiguous: r.ambiguous ?? 0, regionRejected: r.regionRejected ?? 0 });
-      setAccepted(
-        new Set(
-          changes
-            .filter((c) =>
-              c.method === "ai" ? (c.confidence ?? 0) >= 0.95 && !c.reviewRegion : !c.reviewRegion,
-            )
-            .map((c) => c.channelId),
-        ),
-      );
+      setAccepted(new Set(changes.filter((c) => !c.reviewRegion).map((c) => c.channelId)));
       if (!changes.length)
         toast.info(t("No new matches found"), {
           description: source
@@ -416,20 +388,7 @@ export function GuideWorkbench({
   const apply = async () => {
     setBusy(true);
     try {
-      const r = await tv.match({
-        channelIds: [...accepted],
-        ...(aiReview
-          ? {
-              ai: "apply" as const,
-              guideSourceId: sourceId,
-              proposalKeys: Object.fromEntries(
-                (proposals ?? [])
-                  .filter((p) => accepted.has(p.channelId) && p.proposalKey)
-                  .map((p) => [p.channelId, p.proposalKey!]),
-              ),
-            }
-          : {}),
-      });
+      const r = await tv.match({ channelIds: [...accepted] });
       toast.success(
         tn(r.matched, "{count} channel matched to a guide", "{count} channels matched to a guide"),
       );
@@ -489,16 +448,6 @@ export function GuideWorkbench({
               <Button variant="outline" onClick={() => onEditSource(source.id)}>
                 <Pencil size={14} /> {t("Edit")}
               </Button>
-              <Button onClick={() => void propose()} disabled={busy || coverage === null}>
-                <Wand2 size={14} /> {t("Auto-match")}
-              </Button>
-              <Button
-                variant="outline"
-                disabled={busy || coverage === null}
-                onClick={() => void estimateAI()}
-              >
-                {t("Match with AI")}
-              </Button>
             </div>
             {source.lastError ? (
               <p
@@ -537,54 +486,10 @@ export function GuideWorkbench({
                 />
               </div>
             </div>
-            <Button size="sm" onClick={() => void propose()} disabled={busy || coverage === null}>
-              <Wand2 size={14} /> {t("Auto-match")}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy || coverage === null}
-              onClick={() => void estimateAI()}
-            >
-              {t("Match with AI")}
-            </Button>
           </div>
         )}
       </section>
 
-      {aiEstimate ? (
-        <section
-          aria-label={t("Match with AI")}
-          className="space-y-3 rounded-2xl border border-primary/30 bg-primary-subtle/40 p-4"
-        >
-          <h2 className="text-sm font-semibold">{t("Match with AI")}</h2>
-          <p className="text-sm text-fg-muted">
-            {aiEstimate.configured
-              ? t(
-                  "Estimated calls: {calls} · about {tokens} input tokens. Provider charges may apply. Cached decisions are reused.",
-                  { calls: aiEstimate.estimatedCalls, tokens: aiEstimate.inputTokens },
-                )
-              : t("Set up AI in Integrations → LLM to match channels.")}
-          </p>
-          <p className="text-xs text-fg-muted">
-            {t(
-              "Only channel names, programme titles and guide candidates are shared. Review every suggestion before applying.",
-            )}
-          </p>
-          {aiEstimate.configured ? (
-            <Button disabled={busy} onClick={() => void propose(true)}>
-              {busy ? t("Matching…") : t("Find suggestions")}
-            </Button>
-          ) : (
-            <a className="text-primary" href="/ether/services">
-              {t("Integrations")}
-            </a>
-          )}
-          <Button variant="ghost" disabled={busy} onClick={() => setAIEstimate(undefined)}>
-            {t("Cancel")}
-          </Button>
-        </section>
-      ) : null}
       {proposals !== null ? (
         <section
           aria-label={t("Suggested matches")}
@@ -596,9 +501,7 @@ export function GuideWorkbench({
               {tn(proposals.length, "{count} suggested match", "{count} suggested matches")}
             </h2>
             <span className="text-xs text-fg-muted">
-              {aiReview
-                ? t("AI suggestions need your review. Confidence is an estimate.")
-                : t("Matched by guide id, then by channel name.")}
+              {t("Matched by guide id, then by channel name.")}
             </span>
             <div className="ml-auto flex gap-2">
               <Button variant="ghost" size="sm" onClick={() => setProposals(null)}>
@@ -614,11 +517,6 @@ export function GuideWorkbench({
             {" · "}
             {t("Region conflicts: {count}", { count: formatNumber(matchCounts.regionRejected) })}
           </p>
-          {deferredAI > 0 ? (
-            <Button variant="outline" disabled={busy} onClick={() => void estimateAI()}>
-              {t("Continue")} <Badge variant="secondary">{formatNumber(deferredAI)}</Badge>
-            </Button>
-          ) : null}
           <ul className="max-h-80 space-y-1 overflow-y-auto">
             {proposals.map((p) => {
               const c = byId.get(p.channelId);
@@ -652,16 +550,6 @@ export function GuideWorkbench({
                         {p.method === "name" ? ` · ${t("by name")}` : ""}
                       </span>
                     </span>
-                    {p.method === "ai" ? (
-                      <span className="col-start-2 text-xs text-fg-muted sm:col-span-3">
-                        <Badge variant={(p.confidence ?? 0) >= 0.95 ? "success" : "warning"}>
-                          {t("{confidence}% confidence", {
-                            confidence: Math.round((p.confidence ?? 0) * 100),
-                          })}
-                        </Badge>{" "}
-                        <span>{p.reason}</span>
-                      </span>
-                    ) : null}
                     {p.reviewRegion ? (
                       <span className="col-start-2 text-xs text-fg-muted sm:col-span-3">
                         <Badge variant="warning" className="mr-2">
@@ -682,6 +570,19 @@ export function GuideWorkbench({
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
             <h2 className="text-sm font-semibold text-fg">{t("Channel mapping")}</h2>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => void propose()} disabled={busy || coverage === null}>
+                <Wand2 size={14} />
+                {t("Auto-match")}
+              </Button>
+              <GuideAIAction
+                channels={channels}
+                sources={sources}
+                coverage={coverage}
+                sourceId={sourceId}
+                onApplied={onReload}
+              />
+            </div>
             <p className="mt-1 text-xs text-fg-muted">
               {t("Map a channel from Missing or All IPTV, or run Auto-match.")}
             </p>
@@ -911,6 +812,8 @@ export function GuideMatchPanel({
   coverage,
   onUse,
   onOpenChannel,
+  sources,
+  onReload,
   setFooter,
   scopeSourceId,
   scopeName,
@@ -921,6 +824,8 @@ export function GuideMatchPanel({
   coverage?: Coverage;
   onUse: (c: Channel) => Promise<void>;
   onOpenChannel: () => void;
+  sources: Source[];
+  onReload: () => Promise<void>;
   /** When opened from a guide source, search that source first. */
   scopeSourceId?: string;
   scopeName?: string;
@@ -1028,6 +933,13 @@ export function GuideMatchPanel({
           <h3 className="flex-1 text-xs font-semibold uppercase tracking-wider text-fg-subtle">
             {t("Guide channels")}
           </h3>
+          <GuideAIAction
+            channels={[channel]}
+            sources={sources}
+            coverage={new Map([[channel.id, coverage ?? { channelId: channel.id, programmes: 0 }]])}
+            sourceId={scopeSourceId}
+            onApplied={onReload}
+          />
           {scopeSourceId ? (
             <Segmented
               ariaLabel={t("Search in")}
