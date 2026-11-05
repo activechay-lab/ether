@@ -1,3 +1,4 @@
+import { createOnAirMock } from "./onair";
 /**
  * In-memory fake of the Ether admin API. Used by `vite --mode mock` and by the
  * tests; never shipped. It evaluates collection rules against a generated
@@ -581,6 +582,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
   const sites = createSitesMock();
   const cacheMock = createCacheMock(opts.cacheRestart);
   const liveTV = createLiveTVMock(catalog);
+  const onAir = createOnAirMock(liveTV);
   const calendar = createCalendarMock();
   const qualityMock = createQualityMock();
   const safetyPolicies = new Map<number, Record<string, unknown>>();
@@ -2372,6 +2374,8 @@ export function createFakeServer(opts: FakeOptions = {}) {
     const cal = calendar.handle(method, seg, q);
     if (cal) return json(cal.body, cal.status);
 
+    const oar = onAir.handle(method, seg, q, body);
+    if (oar) return json(oar.body, oar.status);
     const tvr = liveTV.handle(method, seg, q, body);
     if (tvr) return json(tvr.body, tvr.status);
 
