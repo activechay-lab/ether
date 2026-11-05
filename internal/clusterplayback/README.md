@@ -268,8 +268,36 @@ it immediately when the owned token returns, outside its mutex, and binds it onl
 to the matching initial route-derived identity. Mismatch/error retains the exact
 token and reservation for conservative retirement; it never authorizes fallback.
 
-The snapshot and commitment are boot-local historical admission state. This adds
-no persistence, public observation API, wire proof, output observation, successful
+Migration v3 persists one immutable sanitized admission and actual Start hash per
+cluster/session/generation before any Start RPC bytes. AdapterOptions.CommitStart
+runs synchronously outside adapter locks with a context bounded to five seconds.
+The outbound Start comes only from installed Session.start bytes. Nil preserves
+default adapter behavior. SQL errors are unknown outcomes; only an independent
+identical read permits sending. Conflicts, timeout without exact reconciliation,
+and full history retain source, placement and owned-token responsibilities.
+Records are bounded to 256 KiB and HistoryCapacity per controller boot, including
+retired generations; no expiry deletion or compaction is provided. Historical
+route JSON stays unchanged. Explicit fields retain complete keyframes and slate
+text omitted by ordinary request JSON. Raw grants, URLs, headers and InputLease
+actors never persist. The reservation operation is retained only as a hash.
+
+The package-private Runtime.loadRecoveryAdmission is a concrete historical reader
+for a current authenticated viewer and current server boot. It validates exact
+current placement/operation/route, original source owner boot/PlayID/revision and
+fresh source-owner viewer policy through a read-only authenticated control call.
+The source must retain the original bound lifetime. Route/fence are checked again
+after policy callbacks, which run outside locks. Missing binding or unavailable
+policy fails closed. The reader returns a detached original snapshot and hash;
+it installs no execution, starts no encoder, issues no grants, renews no old boot
+and supplies no retirement evidence. Historical admission alone cannot resume a
+rebooted source or controller. Pre-install failures have no attempted Start and
+are not claimed as recovered plans.
+
+The focused offline DB/mTLS invariant reconstructs a new-boot Runtime while the
+worker holds received Start before returning a response, loads the original
+snapshot/hash, and checks immutable conflicts, unknown writes, bounded history,
+stale generation exclusion, current policy and callback mutation. It uses no real
+encoder. This adds no public observation API, output observation, successful
 splice, client-buffer evidence or recovery enablement. Later receipt consumers
 still need reviewed actual source-index, complete packaged-picture/sample ends,
 final transformed bytes, current authority and fencing contracts.

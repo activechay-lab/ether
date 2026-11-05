@@ -160,7 +160,9 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if e != nil {
 		return nil, e
 	}
-	adapter, e := remotetranscode.NewAdapter(remotetranscode.AdapterOptions{Capabilities: capabilities, Endpoint: endpoint, Client: &http.Client{Transport: &http.Transport{TLSClientConfig: tc}, Timeout: 0}, RecheckServer: check, Assign: func(context.Context, core.HLSRequest) (remotetranscode.Assignment, error) {
+	adapter, e := remotetranscode.NewAdapter(remotetranscode.AdapterOptions{CommitStart: func(c context.Context, id remotetranscode.Identity, hash [32]byte) error {
+		return r.persistAdmission(c, x, id, hash)
+	}, Capabilities: capabilities, Endpoint: endpoint, Client: &http.Client{Transport: &http.Transport{TLSClientConfig: tc}, Timeout: 0}, RecheckServer: check, Assign: func(context.Context, core.HLSRequest) (remotetranscode.Assignment, error) {
 		return remotetranscode.Assignment{Identity: remoteIdentity(rt), Grant: bound.Stable, Expires: deadline}, nil
 	}, Decide: r.o.Decide, Hardware: r.o.Hardware, Capacity: 1})
 	if e != nil {

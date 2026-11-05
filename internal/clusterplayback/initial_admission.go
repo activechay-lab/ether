@@ -5,7 +5,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 )
 
-// initialAdmission is private, boot-local historical admission state, not an
+// initialAdmission is private historical admission state, not an
 // output observation or execution permission. Route binds the actual reserved
 // full fence and authenticated source owner/PlayID/revision. It carries the
 // owning controller identity; there is no separate delivery identity in Route.
@@ -15,8 +15,9 @@ type initialAdmission struct {
 	route   Route
 	request core.HLSRequest
 
-	// These fields are installed under Runtime.mu only from the actual retained
-	// owned token, including an uncertain return. They never assert acceptance.
+	// These fields bind the actual installed Start at the durable pre-send seam.
+	// The retained owned token independently confirms them after RPC return.
+	// They never assert acceptance.
 	commitmentIdentity remotetranscode.Identity
 	commitment         [32]byte
 	hasCommitment      bool

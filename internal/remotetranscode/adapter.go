@@ -23,6 +23,12 @@ type Assignment struct {
 	Expires  time.Time
 }
 type AdapterOptions struct {
+	// CommitStart durably binds the installed immutable Start before any Start
+	// bytes leave this adapter. It runs synchronously outside locks, with a
+	// context bounded to five seconds; implementations must honor cancellation.
+	// Failure retains the owned token and never establishes retirement. Nil
+	// preserves existing behavior. Only identity and hash cross this boundary.
+	CommitStart  func(context.Context, Identity, [32]byte) error
 	Capabilities Capabilities // Trusted negotiated worker/backend contracts; zero is fixed HLS.
 	Endpoint     string
 	// RecheckServer composes current Guard policy for the expected worker identity.
@@ -121,7 +127,32 @@ func (a *Adapter) StartHLSOwned(ctx context.Context, r core.HLSRequest) (core.HL
 		a.sessions[s.id] = s
 	}
 	a.mu.Unlock()
-	response, err := a.call(ctx, message{Op: "start", Identity: s.id, Start: &start}, nil)
+	if a.opts.CommitStart != nil {
+		commitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		identity, hash, commitmentErr := s.StartCommitment()
+		if commitmentErr == nil {
+			commitmentErr = a.opts.CommitStart(commitCtx, identity, hash)
+		}
+		if commitmentErr == nil {
+			commitmentErr = commitCtx.Err()
+		}
+		cancel()
+		if commitmentErr != nil || ctx.Err() != nil {
+			return nil, s, ErrUncertain
+		}
+	}
+	// The payload comes only from the immutable bytes installed in Session,
+	// never from request pointers still reachable by a caller or callback.
+	payload, err := json.Marshal(struct {
+		Version  int
+		Op       string
+		Identity Identity
+		Start    json.RawMessage
+	}{Version: Version, Op: "start", Identity: s.id, Start: json.RawMessage(s.start)})
+	if err != nil {
+		return nil, s, ErrUncertain
+	}
+	response, err := a.callPayload(ctx, payload, nil, "start")
 	if err != nil {
 		return nil, s, ErrUncertain
 	}
@@ -177,6 +208,12 @@ func (a *Adapter) call(ctx context.Context, m message, headers http.Header) (*ht
 	if err != nil || len(b) > MaxMessage {
 		return nil, ErrUnsupported
 	}
+	return a.callPayload(ctx, b, headers, m.Op)
+}
+func (a *Adapter) callPayload(ctx context.Context, b []byte, headers http.Header, op string) (*http.Response, error) {
+	if len(b) > MaxMessage {
+		return nil, ErrUnsupported
+	}
 	req, err := http.NewRequestWithContext(ctx, "POST", a.opts.Endpoint, bytes.NewReader(b))
 	if err != nil {
 		return nil, err
@@ -191,9 +228,9 @@ func (a *Adapter) call(ctx context.Context, m message, headers http.Header) (*ht
 	if err != nil {
 		return nil, ErrUncertain
 	}
-	if !mediaOperation(m.Op) && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
+	if !mediaOperation(op) && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
 		resp.Body.Close()
-		if (m.Op == "renew" || m.Op == "inspect") && resp.StatusCode == http.StatusUnprocessableEntity {
+		if (op == "renew" || op == "inspect") && resp.StatusCode == http.StatusUnprocessableEntity {
 			return nil, ErrUnsupported
 		}
 		return nil, ErrUncertain

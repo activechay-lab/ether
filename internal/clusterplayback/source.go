@@ -123,6 +123,9 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 	if e != nil || rt != m.Route || rt.Source != r.o.Self {
 		return deny()
 	}
+	if m.Op == "recovery-admission-policy" {
+		return r.recoveryAdmissionPolicy(ctx, peer, rt)
+	}
 	f := rt.Fence
 	controller := peer.Cluster == r.o.Self.Cluster && peer.NodeID == f.Controller.ID && peer.Boot == f.Controller.Boot
 	target := peer.Cluster == r.o.Self.Cluster && peer.NodeID == f.Target.NodeID && peer.Boot == f.Target.Boot
