@@ -37,18 +37,19 @@ type Moment struct {
 	Poster      float64 `json:"poster"`
 }
 type Look struct {
-	Screens    *config.LiveTVScreens     `json:"screens,omitempty"`
-	Bug        *core.BugSettings         `json:"bug,omitempty"`
-	ID         string                    `json:"id"`
-	Name       string                    `json:"name"`
-	Family     string                    `json:"family"`
-	Brand      Brand                     `json:"brand"`
-	Moments    map[string]Moment         `json:"moments"`
-	Layers     map[string]map[string]any `json:"layers,omitempty"`
-	Documents  map[string]scene.Document `json:"documents,omitempty"`
-	ChannelIDs []string                  `json:"channelIds"`
-	Pack       *Pack                     `json:"pack,omitempty"`
-	Render     *Progress                 `json:"render,omitempty"`
+	ChannelCount int                       `json:"channelCount"`
+	Screens      *config.LiveTVScreens     `json:"screens,omitempty"`
+	Bug          *core.BugSettings         `json:"bug,omitempty"`
+	ID           string                    `json:"id"`
+	Name         string                    `json:"name"`
+	Family       string                    `json:"family"`
+	Brand        Brand                     `json:"brand"`
+	Moments      map[string]Moment         `json:"moments"`
+	Layers       map[string]map[string]any `json:"layers,omitempty"`
+	Documents    map[string]scene.Document `json:"documents,omitempty"`
+	ChannelIDs   []string                  `json:"channelIds"`
+	Pack         *Pack                     `json:"pack,omitempty"`
+	Render       *Progress                 `json:"render,omitempty"`
 }
 type Pack struct {
 	ID   string `json:"id"`

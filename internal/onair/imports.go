@@ -254,7 +254,7 @@ func (s *Service) Import(ctx context.Context, reel string, in ImportRequest) ([]
 			return nil, e
 		}
 		job := j
-		if !s.enqueue(renderJob{Hash: "import-" + j.ID, prepare: func(ctx context.Context) error { return s.runImport(ctx, reel, job) }}) {
+		if !s.enqueue(renderJob{download: true, Hash: "import-" + j.ID, prepare: func(ctx context.Context) error { return s.runImport(ctx, reel, job) }}) {
 			j.Status = "error"
 			j.Error = "import queue full"
 			s.saveImport(ctx, reel, j)
@@ -422,7 +422,7 @@ func (s *Service) resumeImports() {
 	}
 	rows.Close()
 	for _, v := range jobs {
-		if !s.enqueue(renderJob{Hash: "import-" + v.j.ID, prepare: func(ctx context.Context) error { return s.runImport(ctx, v.reel, v.j) }}) {
+		if !s.enqueue(renderJob{download: true, Hash: "import-" + v.j.ID, prepare: func(ctx context.Context) error { return s.runImport(ctx, v.reel, v.j) }}) {
 			v.j.Status = "error"
 			v.j.Error = "import queue full"
 			s.saveImport(s.ctx, v.reel, v.j)

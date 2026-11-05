@@ -725,6 +725,7 @@ export function loadOnAirFonts() {
       "orbitron",
       "vt323",
       "ibmplexmono",
+      "archivoblack",
       "notosans",
     ];
     await Promise.all(

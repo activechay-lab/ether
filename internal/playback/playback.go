@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -743,6 +744,9 @@ func (m *Manager) reserve(ctx context.Context, user *core.User, id identity) err
 	}
 	userN, total, children := m.reservationCountsLocked(id)
 	group := m.channelGroups[id]
+	if strings.HasPrefix(group, "broadcast-") {
+		userLimit = 0
+	} // Viewer admission already reserved this output.
 	if group != "" && children >= 3 {
 		m.mu.Unlock()
 		return fmt.Errorf("%w: channel source overlap limit", core.ErrStreamLimit)

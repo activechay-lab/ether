@@ -62,13 +62,13 @@ func (s *Service) validateLook(ctx context.Context, l Look) error {
 	if strings.TrimSpace(l.Name) == "" || utf8.RuneCountInString(l.Name) > 120 || utf8.RuneCountInString(l.Brand.Tagline) > 40 {
 		return fmt.Errorf("name required (120 characters maximum); tagline maximum 40 characters")
 	}
-	if !strings.Contains(" clean kids lateNight late-night cinema retro personal ", " "+l.Family+" ") {
+	if !strings.Contains(" clean kids lateNight late-night cinema retro personal grunge aqua flat ", " "+l.Family+" ") {
 		var n int
 		if e := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM onair_families WHERE id=?", l.Family).Scan(&n); e != nil || n == 0 {
 			return fmt.Errorf("unknown family %q", l.Family)
 		}
 	}
-	known := " inter playfairdisplay specialelite fraunces bungee fredoka orbitron vt323 spacegrotesk ibmplexmono notosans "
+	known := " inter playfairdisplay specialelite fraunces bungee fredoka orbitron vt323 spacegrotesk ibmplexmono archivoblack notosans "
 	for _, f := range []string{l.Brand.Type.Display, l.Brand.Type.Body} {
 		if !strings.Contains(known, " "+normalizeFont(f)+" ") {
 			var n int
@@ -162,7 +162,21 @@ func (s *Service) Looks(ctx context.Context) ([]Look, error) {
 		s.mu.Unlock()
 		out = append(out, l)
 	}
-	return out, rows.Err()
+	if e = rows.Err(); e != nil {
+		return nil, e
+	}
+	rows.Close()
+	if s.o.StyleChannels != nil {
+		usage, err := s.o.StyleChannels(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for i := range out {
+			out[i].ChannelIDs = append([]string{}, usage[out[i].ID]...)
+			out[i].ChannelCount = len(out[i].ChannelIDs)
+		}
+	}
+	return out, nil
 }
 func (s *Service) Look(ctx context.Context, id string) (Look, error) {
 	var b string
@@ -173,6 +187,14 @@ func (s *Service) Look(ctx context.Context, id string) (Look, error) {
 	}
 	if e == nil {
 		e = json.Unmarshal([]byte(b), &l)
+	}
+	if e == nil && s.o.StyleChannels != nil {
+		usage, err := s.o.StyleChannels(ctx)
+		if err != nil {
+			return l, err
+		}
+		l.ChannelIDs = append([]string{}, usage[l.ID]...)
+		l.ChannelCount = len(l.ChannelIDs)
 	}
 	return l, e
 }

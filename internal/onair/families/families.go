@@ -23,7 +23,7 @@ func Names() map[string][]string {
 	entries, _ := documents.ReadDir("documents")
 	for _, entry := range entries {
 		name := strings.TrimSuffix(entry.Name(), ".json")
-		for _, family := range []string{"late-night", "personal", "cinema", "retro", "kids", "clean", "signal"} {
+		for _, family := range []string{"grunge", "aqua", "flat", "late-night", "personal", "cinema", "retro", "kids", "clean", "signal"} {
 			if strings.HasPrefix(name, family+"-") {
 				out[family] = append(out[family], strings.TrimPrefix(name, family+"-"))
 				break
@@ -57,6 +57,30 @@ func Defaults(family string) scene.Bindings {
 		b.Slots[fmt.Sprintf("list[%d].meta", i)] = "Tonight's selection"
 	}
 	switch family {
+	case "grunge":
+		b.Tokens["bg"] = "#141021"
+		b.Tokens["accent"] = "#edff38"
+		b.Tokens["glow"] = "#ed4c99"
+		b.Tokens["text"] = "#ffffff"
+		b.Tokens["type.display"] = "archivoblack"
+		b.Tokens["type.mono"] = "specialelite"
+		b.Slots["channel.name"] = "RIOT 90"
+	case "aqua":
+		b.Tokens["bg"] = "#031d37"
+		b.Tokens["accent"] = "#009edb"
+		b.Tokens["glow"] = "#8cf5ff"
+		b.Tokens["text"] = "#ffffff"
+		b.Tokens["type.display"] = "spacegrotesk"
+		b.Tokens["type.mono"] = "inter"
+		b.Slots["channel.name"] = "AQUAWAVE 00"
+	case "flat":
+		b.Tokens["bg"] = "#102a35"
+		b.Tokens["accent"] = "#f15440"
+		b.Tokens["glow"] = "#ffd66e"
+		b.Tokens["text"] = "#ffffff"
+		b.Tokens["type.display"] = "inter"
+		b.Tokens["type.mono"] = "inter"
+		b.Slots["channel.name"] = "OFFSET 10"
 	case "signal":
 		b.Slots["channel.name"] = "Ether"
 		b.Slots["station.id"] = "ETHER"

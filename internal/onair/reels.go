@@ -71,6 +71,14 @@ func (s *Service) Reel(ctx context.Context, id string) (Reel, error) {
 		}
 	}
 	r.Clips = sorted
+	rows.Close()
+	if s.o.ReelChannels != nil {
+		usage, err := s.o.ReelChannels(ctx)
+		if err != nil {
+			return r, err
+		}
+		r.ChannelIDs = append([]string{}, usage[r.ID]...)
+	}
 	return s.importClips(ctx, r)
 }
 func (s *Service) Reels(ctx context.Context) ([]Reel, error) {
@@ -411,9 +419,7 @@ func (s *Service) DeleteClip(ctx context.Context, reel, id string) error {
 	if e != nil {
 		return e
 	}
-	if n, _ := res.RowsAffected(); n > 0 {
-		return nil
-	}
+	removed, _ := res.RowsAffected()
 	r, e := s.Reel(ctx, reel)
 	if e != nil {
 		return e
@@ -429,6 +435,9 @@ func (s *Service) DeleteClip(ctx context.Context, reel, id string) error {
 			}
 			return e
 		}
+	}
+	if removed > 0 {
+		return nil
 	}
 	return ErrNotFound
 }

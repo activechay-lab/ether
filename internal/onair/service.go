@@ -30,6 +30,8 @@ import (
 type Options struct {
 	// Changed runs after an owner style save has committed and locks are released.
 	Changed        func(context.Context) error
+	StyleChannels  func(context.Context) (map[string][]string, error)
+	ReelChannels   func(context.Context) (map[string][]string, error)
 	PluginSegment  func(string) (PluginSegment, bool)
 	StaticRequests func(context.Context, string) []core.ClipRequest
 	DB             *sql.DB
@@ -55,6 +57,7 @@ type entry struct {
 	Pin  time.Time
 }
 type renderJob struct {
+	download    bool
 	AssetDigest string
 	Hash        string
 	Look        string
@@ -80,6 +83,7 @@ type Service struct {
 	lookJobs    map[string][]string
 	jobs        chan renderJob
 	clipJobs    chan renderJob
+	importJobs  chan renderJob
 	ctx         context.Context
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
@@ -102,7 +106,8 @@ func New(o Options) (*Service, error) {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 16), ctx: ctx, cancel: cancel}
+	s := &Service{reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
+
 	if e := s.seed(ctx); e != nil {
 		cancel()
 		return nil, e
@@ -132,6 +137,10 @@ func (s *Service) Start() {
 		if s.ctx.Err() == nil {
 			s.wg.Add(1)
 			go s.run()
+			for range 2 {
+				s.wg.Add(1)
+				go s.runImports()
+			}
 		}
 	})
 }
@@ -382,7 +391,9 @@ func (s *Service) enqueue(j renderJob) bool {
 	default:
 	}
 	queue := s.jobs
-	if j.convert != nil {
+	if j.download {
+		queue = s.importJobs
+	} else if j.convert != nil {
 		queue = s.clipJobs
 	}
 	select {
@@ -448,9 +459,20 @@ func (s *Service) run() {
 	defer s.wg.Done()
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
+	clipsSinceRender := 0
 	for {
+		if clipsSinceRender >= 3 {
+			select {
+			case j := <-s.jobs:
+				s.process(j)
+				clipsSinceRender = 0
+				continue
+			default:
+			}
+		}
 		select {
 		case j := <-s.clipJobs:
+			clipsSinceRender++
 			s.process(j)
 			continue
 		default:
@@ -486,8 +508,10 @@ func (s *Service) run() {
 				}
 			}
 		case j := <-s.clipJobs:
+			clipsSinceRender++
 			s.process(j)
 		case j := <-s.jobs:
+			clipsSinceRender = 0
 			s.process(j)
 		}
 	}
@@ -775,6 +799,21 @@ func (s *Service) SegmentInfo(moment string) (name, rating string, ok bool) {
 	return v.Name, v.Rating, ok
 }
 
+// Imports are network-bound. Two bounded workers isolate them from raster work;
+// downloaded clips rejoin clipJobs for the existing conversion priority.
+func (s *Service) runImports() {
+	defer s.wg.Done()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case j := <-s.importJobs:
+			s.process(j)
+		}
+
+	}
+}
+
 // StyleScreens reads the cached owner style; it performs no rendering or database work.
 func (s *Service) StyleScreens(id string) *config.LiveTVScreens {
 	if s == nil {
@@ -796,5 +835,6 @@ func bindStyleTagline(layers []scene.Layer) {
 			l.Text = "{words.tagline}"
 		}
 		bindStyleTagline(l.Layers)
+
 	}
 }

@@ -508,3 +508,20 @@ func TestPayloadReplayGraceFailedReleaseIsRetried(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSetupPrincipalDoesNotPermitZeroPayloadOwner(t *testing.T) {
+	p := payloadFixture(t)
+	hash := nzbHash([]byte("setup-source"))
+	for _, id := range []int64{0, -1} {
+		if _, err := p.reserve(context.Background(), id, "console", "setup", "lifetime", hash, "source-open"); !errors.Is(err, core.ErrNotAvailable) {
+			t.Fatalf("invalid principal %d: %v", id, err)
+		}
+	}
+	owner, err := p.reserve(context.Background(), core.SetupOwnerID, "console", "setup", "lifetime", hash, "source-open")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.release(context.Background(), owner); err != nil {
+		t.Fatal(err)
+	}
+}

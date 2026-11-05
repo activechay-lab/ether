@@ -16,7 +16,10 @@ historical blob ID for opt-in exact expected-image inspection. The format,
 tolerances, update command and debug limitations are documented in
 `internal/onair/raster/testdata/README.md`.
 
-Only Archivo Black and Monoton were unused. IBM Plex Mono is used by signal
+At the W21 baseline, Archivo Black and Monoton were unused. W17 subsequently
+added Grunge 90, which uses Archivo Black. Its pinned source was subset with
+the same script to 37876 bytes (from 78,900), including RFN-safe metadata
+renaming to EtherAir12 and its OFL notice. Monoton remains unbundled. IBM Plex Mono is used by signal
 screens and Noto Sans remains the renderer fallback. The other retained fonts
 are used by the built-in families. Subsets preserve Latin/Extended, combining
 marks, Greek/Cyrillic and punctuation available upstream, common layout features,
@@ -70,3 +73,16 @@ This is an 11.97 MiB reduction for shallow fetches. A full-history comparison
 was skipped: the shared source object database already contains 1.17 GiB of
 packs, and both full clones would retain historical media. The measurement
 above predates only these small documentation additions.
+
+Rebuild just the W17 face without touching the other eleven:
+
+```sh
+/tmp/onair-fonttools/bin/python - <<'PY'
+import importlib.util
+spec = importlib.util.spec_from_file_location("subset", "tools/subset-onair-fonts.py")
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+m.FAMILIES = ["archivoblack"]
+m.main()
+PY
+```
