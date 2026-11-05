@@ -926,7 +926,8 @@ type ServeOptions struct {
 
 // ServeHandle represents a running HTTP or tunnel sidecar session.
 type ServeHandle struct {
-	// Done closes when the tunnel disconnects. It is nil for HTTP servers.
+	// Done closes when the tunnel supervisor stops (ctx cancellation or Close).
+	// Transient disconnects reconnect automatically. It is nil for HTTP servers.
 	Done  <-chan struct{}
 	Mode  string
 	URL   string

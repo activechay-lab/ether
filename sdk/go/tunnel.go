@@ -5,9 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -151,6 +153,60 @@ func (p *Plugin) startTunnel(ctx context.Context, tunnelURL, credential string) 
 	if tunnelURL == "" {
 		return nil, fmt.Errorf("tunnel mode requires TunnelURL or ETHER_TUNNEL_URL")
 	}
+	loopCtx, cancel := context.WithCancel(ctx)
+	conn, maxChunk, err := p.dialTunnel(loopCtx, tunnelURL, credential)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer cancel()
+		backoff := 100 * time.Millisecond
+		for {
+			started := time.Now()
+			p.runTunnel(loopCtx, conn, maxChunk)
+			if time.Since(started) >= time.Minute {
+				backoff = 100 * time.Millisecond
+			}
+			for {
+				// Equal jitter keeps retries bounded and avoids synchronized sidecars.
+				delay := backoff/2 + time.Duration(rand.Int64N(int64(backoff/2)))
+				timer := time.NewTimer(delay)
+				select {
+				case <-loopCtx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+				if backoff < 10*time.Second {
+					backoff = min(backoff*2, 10*time.Second)
+				}
+				conn, maxChunk, err = p.dialTunnel(loopCtx, tunnelURL, credential)
+				if err == nil {
+					break
+				}
+			}
+		}
+	}()
+	return &ServeHandle{
+		Done: done,
+		Mode: "tunnel",
+		URL:  tunnelURL,
+		Close: func() error {
+			cancel()
+			<-done
+			return nil
+		},
+	}, nil
+}
+
+// dialTunnel authenticates and completes the handshake on every attempt.
+// Its timeout also bounds a peer that accepts a socket but never welcomes us.
+func (p *Plugin) dialTunnel(ctx context.Context, tunnelURL, credential string) (*websocket.Conn, int, error) {
+	handshakeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	dialOpts := &websocket.DialOptions{
 		Subprotocols: []string{TunnelProtocol},
 		HTTPHeader:   http.Header{},
@@ -158,103 +214,99 @@ func (p *Plugin) startTunnel(ctx context.Context, tunnelURL, credential string) 
 	if credential != "" {
 		dialOpts.HTTPHeader.Set("X-Ether-Plugin-Credential", credential)
 	}
-	conn, _, err := websocket.Dial(ctx, tunnelURL, dialOpts)
+	conn, resp, err := websocket.Dial(handshakeCtx, tunnelURL, dialOpts)
 	if err != nil {
-		return nil, err
+		if resp != nil && resp.Body != nil {
+			resp.Body.Close()
+		}
+		return nil, 0, err
 	}
 	conn.SetReadLimit(16 << 20)
-
-	hello := TunnelFrame{
-		Type:     "hello",
-		Protocol: TunnelProtocol,
-		Plugin:   p.manifest.ID,
+	helloBytes, _ := json.Marshal(TunnelFrame{
+		Type: "hello", Protocol: TunnelProtocol, Plugin: p.manifest.ID,
 		Features: []string{"range", "stream"},
+	})
+	if err := conn.Write(handshakeCtx, websocket.MessageText, helloBytes); err != nil {
+		conn.CloseNow()
+		return nil, 0, err
 	}
-	helloBytes, _ := json.Marshal(hello)
-	if err := conn.Write(ctx, websocket.MessageText, helloBytes); err != nil {
-		_ = conn.Close(websocket.StatusInternalError, "failed to send hello")
-		return nil, err
-	}
-
-	_, welcomeBytes, err := conn.Read(ctx)
+	_, welcomeBytes, err := conn.Read(handshakeCtx)
 	if err != nil {
-		_ = conn.Close(websocket.StatusInternalError, "failed to read welcome")
-		return nil, err
+		conn.CloseNow()
+		return nil, 0, err
 	}
 	var welcome TunnelFrame
 	if err := json.Unmarshal(welcomeBytes, &welcome); err != nil || welcome.Type != "welcome" {
-		_ = conn.Close(websocket.StatusPolicyViolation, "expected welcome frame")
-		return nil, fmt.Errorf("unexpected tunnel handshake response: %s", string(welcomeBytes))
+		conn.CloseNow()
+		return nil, 0, fmt.Errorf("unexpected tunnel handshake response: %s", string(welcomeBytes))
 	}
 	maxChunk := welcome.MaxChunkBytes
 	if maxChunk <= 0 {
 		maxChunk = DefaultMaxChunkBytes
 	}
+	return conn, maxChunk, nil
+}
 
+// runTunnel owns one socket. Only the supervisor dials; old handlers retain
+// their old socket and are cancelled before a replacement is opened.
+func (p *Plugin) runTunnel(ctx context.Context, conn *websocket.Conn, maxChunk int) {
 	loopCtx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
+	defer cancel()
+	defer conn.CloseNow()
 	var mu sync.Mutex
 	active := make(map[string]context.CancelFunc)
-	go func() {
-		defer close(done)
-		defer cancel()
-		defer func() {
-			mu.Lock()
-			defer mu.Unlock()
-			for _, stop := range active {
-				stop()
-			}
-		}()
-		for {
-			_, msgBytes, err := conn.Read(loopCtx)
-			if err != nil {
-				return
-			}
-			var frame TunnelFrame
-			if json.Unmarshal(msgBytes, &frame) != nil {
-				continue
-			}
-			if frame.Type == "cancel" {
-				mu.Lock()
-				stop := active[frame.ID]
-				mu.Unlock()
-				if stop != nil {
-					stop()
-				}
-				continue
-			}
-			if frame.Type != "request" {
-				continue
-			}
-			requestCtx, stop := context.WithCancel(loopCtx)
-			mu.Lock()
-			active[frame.ID] = stop
-			mu.Unlock()
-			go func(frame TunnelFrame) {
-				defer func() { mu.Lock(); delete(active, frame.ID); mu.Unlock(); stop() }()
-				for _, reply := range p.DispatchTunnelFrame(requestCtx, frame, maxChunk) {
-					if requestCtx.Err() != nil {
-						return
-					}
-					b, err := json.Marshal(reply)
-					if err != nil {
-						return
-					}
-					if err := conn.Write(requestCtx, websocket.MessageText, b); err != nil {
-						return
-					}
-				}
-			}(frame)
+	defer func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, stop := range active {
+			stop()
 		}
 	}()
-
-	return &ServeHandle{
-		Done: done,
-		Mode: "tunnel",
-		URL:  tunnelURL,
-		Close: func() error {
-			cancel()
-			return conn.Close(websocket.StatusNormalClosure, "shutting down")
-		},
-	}, nil
+	for {
+		_, msgBytes, err := conn.Read(loopCtx)
+		if err != nil {
+			return
+		}
+		var frame TunnelFrame
+		if json.Unmarshal(msgBytes, &frame) != nil {
+			continue
+		}
+		if frame.Type == "cancel" {
+			mu.Lock()
+			stop := active[frame.ID]
+			mu.Unlock()
+			if stop != nil {
+				stop()
+			}
+			continue
+		}
+		if frame.Type != "request" {
+			continue
+		}
+		requestCtx, stop := context.WithCancel(loopCtx)
+		mu.Lock()
+		active[frame.ID] = stop
+		mu.Unlock()
+		go func(frame TunnelFrame) {
+			defer func() { mu.Lock(); delete(active, frame.ID); mu.Unlock(); stop() }()
+			for _, reply := range p.DispatchTunnelFrame(requestCtx, frame, maxChunk) {
+				if requestCtx.Err() != nil {
+					return
+				}
+				b, err := json.Marshal(reply)
+				if err != nil {
+					return
+				}
+				// WebSocket cancellation is connection-fatal. A per-request cancel
+				// must stop dispatch, never interrupt a write on the shared socket.
+				writeCtx, writeCancel := context.WithTimeout(loopCtx, 10*time.Second)
+				err = conn.Write(writeCtx, websocket.MessageText, b)
+				writeCancel()
+				if err != nil {
+					cancel()
+					return
+				}
+			}
+		}(frame)
+	}
 }

@@ -634,7 +634,7 @@ func TestRemoteFileRangePlaybackAndGrantRevocation(t *testing.T) {
 	defer cancel()
 	env := newStreamTestEnv(t)
 	dir := t.TempDir()
-	data := bytes.Repeat([]byte("0123456789abcdef"), 4096)
+	data := bytes.Repeat([]byte("0123456789abcdef"), 16384)
 	if err := os.WriteFile(filepath.Join(dir, "movie.mkv"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -721,6 +721,12 @@ func TestRemoteFileRangePlaybackAndGrantRevocation(t *testing.T) {
 		if !bytes.Equal(buf[:n], data[int(off):int(off)+n]) {
 			t.Fatalf("bytes at %d", off)
 		}
+	}
+	// Read across multiple SDK chunks as well as the short probes/seeks above.
+	// No reconnect wait or retry may hide a tunnel lost to probe cancellation.
+	full := make([]byte, len(data))
+	if n, err := source.ReadAt(full, 0); n != len(data) || err != nil || !bytes.Equal(full, data) {
+		t.Fatalf("full remote range: n=%d err=%v", n, err)
 	}
 	if err = env.mgr.SetGrants(ctx, rec.ID, plugins.Grants{Folders: []string{dir}, Revoked: []string{"folders"}}); err != nil {
 		t.Fatal(err)

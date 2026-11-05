@@ -341,6 +341,8 @@ func TestTunnelAuthMultiplexDeadlineBackpressureAndReconnect(t *testing.T) {
 	// 3. Connect a real sidecar, test concurrency/multiplexing, backpressure, and deadlines.
 	var active, maxSeen atomic.Int32
 	gate := make(chan struct{})
+	allStarted := make(chan struct{})
+	var startedOnce sync.Once
 	canceled := make(chan string, 4)
 
 	sidecarHandler := func(ctx context.Context, req Request) (Response, error) {
@@ -359,6 +361,9 @@ func TestTunnelAuthMultiplexDeadlineBackpressureAndReconnect(t *testing.T) {
 			canceled <- req.RequestID
 			return Response{}, ctx.Err()
 		case "/gated":
+			if cur == 4 {
+				startedOnce.Do(func() { close(allStarted) })
+			}
 			select {
 			case <-gate:
 			case <-ctx.Done():
@@ -401,7 +406,13 @@ func TestTunnelAuthMultiplexDeadlineBackpressureAndReconnect(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, totalCalls)
 	go func() {
-		time.Sleep(30 * time.Millisecond)
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-allStarted:
+		case <-timer.C:
+			t.Error("four gated handlers did not start")
+		}
 		close(gate)
 	}()
 	for i := range totalCalls {

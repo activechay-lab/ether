@@ -61,5 +61,19 @@ Once `internal/plugins/remote` is present, run
 `go test -tags ws8b ./sdk/examples/hello/go -run TestWS8bSDKInterop`.
 It starts Ether's tunnel server and exercises the Go, Python, and TypeScript
 hello sidecars. It requires Python 3 and a Node version with TypeScript support
-and WebSocket. The SDK sidecars currently make one tunnel connection; if it
-drops, a process supervisor must restart the sidecar.
+and WebSocket. The Go SDK reconnects automatically after a dropped tunnel.
+
+## Tunnel recovery
+
+`Start(ctx, ServeOptions{Mode: "tunnel", ...})` returns after the initial
+credential authentication and hello/welcome handshake; initial failures are
+returned to the caller. After that, dropped connections retry serially with
+jittered exponential backoff (50–100 ms initially, capped at 5–10 seconds).
+Every attempt re-authenticates and repeats the handshake, with a 10-second
+connection/handshake timeout. A connection stable for a minute resets backoff.
+
+In-flight calls fail on disconnect and are not replayed. Ether runtimes resolve
+the current connection for subsequent calls. `handle.Done` stays open during
+recovery; cancelling `ctx` or calling `handle.Close()` stops active I/O and any
+retry, closes the socket, and closes `Done`. `Close` is safe to call repeatedly.
+Request cancellation stops that handler without closing the shared tunnel.
