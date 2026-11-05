@@ -47,14 +47,15 @@ type StaticParameters struct {
 	HissLevel, HumLevel                              float64
 }
 
-// DefaultStaticParameters preserves the approved W18 picture and sound.
+// DefaultStaticParameters uses owner-selected detail 1.75; every other value
+// preserves the approved W18 picture and sound.
 func DefaultStaticParameters() StaticParameters {
-	return StaticParameters{GrainSize: 6, Detail: 1, Gain: 1, RefreshHz: 15,
+	return StaticParameters{GrainSize: 6, Detail: 1.75, Gain: 1, RefreshHz: 15,
 		BarStrength: 1, BarSpeed: 1, TearAmount: 1, TearFrequency: 1, HissLevel: 1, HumLevel: 1}
 }
 
-// StaticVideo fills tightly packed I420 with crisp 6x6 destination-pixel
-// grains, changing at 15 Hz. The
+// StaticVideo fills tightly packed I420 with crisp destination-pixel grains
+// at the owner-selected detail, changing at 15 Hz. The
 // rolling bar and tears follow the full 30 Hz clock and never use a clip phase.
 // Composite an optional pre-rendered ID with ApplyOverlay after this call.
 func StaticVideo(dst []byte, w, h int, seed, tick int64) {
@@ -70,11 +71,21 @@ func StaticVideoWithParameters(dst []byte, w, h int, seed, tick int64, p StaticP
 	for i := w * h; i < w*h*3/2; i++ {
 		dst[i] = 128
 	}
+	walkTick := tick
+	if p.BarSpeed != 1 {
+		walkTick = int64(float64(tick) * p.BarSpeed)
+	}
 	t := float64(tick) / 30 * p.BarSpeed
-	bar := int((.5 + .24*math.Sin(t*.173) + .13*math.Sin(t*.071*math.Sqrt2) + .08*walk(seed, tick)) * float64(h))
+	bar := int((.5 + .24*math.Sin(t*.173) + .13*math.Sin(t*.071*math.Sqrt2) + .08*walk(seed, walkTick)) * float64(h))
 	barHeight := max(12, h/11)
-	update := int64(math.Floor(float64(tick) * max(0, min(30, p.RefreshHz)) / 30))
+	update := tick / 2
+	if p.RefreshHz != 15 {
+		update = int64(math.Floor(float64(tick) * max(0, min(30, p.RefreshHz)) / 30))
+	}
 	grain := max(1, min(128, int(float64(max(1, p.GrainSize))/max(.25, min(4, p.Detail)))))
+	gain := max(0, min(3, p.Gain))
+	minLuma := max(16, min(235, 115+int(-63*gain)))
+	maxLuma := max(16, min(235, 115+int(64*gain)))
 	for gy, y := 0, 0; y < h; gy, y = gy+1, y+grain {
 		row := yplane[y*w : (y+1)*w]
 		for gx, x := 0, 0; x < w; gx, x = gx+1, x+grain {
@@ -104,8 +115,20 @@ func StaticVideoWithParameters(dst []byte, w, h int, seed, tick int64, p StaticP
 			if (y+dy)%3 == 0 {
 				offset -= 3
 			}
-			for x, v := range target {
-				target[x] = byte(max(16, min(235, int(v)+offset)))
+			// Grain values are already legal luma. Most rows need no
+			// modulation; other rows can use a tight add loop when the
+			// whole source range stays legal after this row's offset.
+			if offset == 0 {
+				continue
+			}
+			if minLuma+offset >= 16 && maxLuma+offset <= 235 {
+				for x, v := range target {
+					target[x] = byte(int(v) + offset)
+				}
+			} else {
+				for x, v := range target {
+					target[x] = byte(max(16, min(235, int(v)+offset)))
+				}
 			}
 		}
 	}
