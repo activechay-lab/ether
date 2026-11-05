@@ -1,4 +1,4 @@
-import { Select, Switch, Tooltip } from "@braedonsaunders/appkit-ui";
+import { MultiSelect, Select, Switch, Tooltip } from "@braedonsaunders/appkit-ui";
 import { Info } from "lucide-react";
 import { Artwork } from "../../../components/Artwork";
 import { MoreOptions } from "../../../components/ConfigSection";
@@ -11,7 +11,7 @@ import type { PersonalRecipe } from "./model";
 
 export function InfoTip({ text }: { text: string }) {
   return (
-    <Tooltip content={text} className="max-w-xs whitespace-normal">
+    <Tooltip content={text} className="w-72 max-w-xs whitespace-normal">
       <button type="button" aria-label={text} className="inline-flex align-middle text-fg-subtle">
         <Info size={14} />
       </button>
@@ -47,7 +47,10 @@ export function RecipeTab({
         {recipe.ingredients.map((v, i) => {
           const pick = rundown[i % Math.max(1, rundown.length)];
           return (
-            <div key={v.kind} className="flex flex-wrap items-center gap-3 p-3 sm:flex-nowrap">
+            <div
+              key={v.kind}
+              className={`flex flex-wrap items-center gap-3 p-3 ${v.kind === "collections" && v.enabled ? "" : "sm:flex-nowrap"}`}
+            >
               <Artwork
                 src={pick?.item.thumb}
                 title={pick?.item.title || labels[v.kind] || ""}
@@ -80,24 +83,21 @@ export function RecipeTab({
                 onChange={(e) => ingredient(i, { enabled: e.currentTarget.checked })}
               />
               {v.kind === "collections" && v.enabled ? (
-                <Select
-                  multiple
-                  aria-label={t("Your picks (collections)")}
-                  value={(v.collections ?? []).map(String)}
-                  onChange={(e) =>
-                    ingredient(i, {
-                      collections: Array.from(e.currentTarget.selectedOptions, (o) =>
-                        Number(o.value),
-                      ),
-                    })
-                  }
-                >
-                  {collections.map((c) => (
-                    <option key={c.id} value={c.ratingKey || c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </Select>
+                <div className="w-full min-w-0">
+                  <MultiSelect
+                    ariaLabel={t("Your picks (collections)")}
+                    value={(v.collections ?? []).map(String)}
+                    onChange={(values) => ingredient(i, { collections: values.map(Number) })}
+                    placeholder={t("Choose collections…")}
+                    searchPlaceholder={t("Search…")}
+                    noMatchesLabel={t("No matches")}
+                    clearLabel={t("Clear")}
+                    selectAllLabel={t("Select all")}
+                    options={collections
+                      .filter((c) => c.ratingKey && Number.isFinite(Number(c.ratingKey)))
+                      .map((c) => ({ value: c.ratingKey!, label: c.name }))}
+                  />
+                </div>
               ) : null}
             </div>
           );

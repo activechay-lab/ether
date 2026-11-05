@@ -199,7 +199,13 @@ export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => v
   return (
     <>
       {lookId === "new" && !creating ? (
-        <Drawer open size="lg" title={t("New look")} onClose={close}>
+        <Drawer
+          open
+          stacked={params.has("channel")}
+          size="lg"
+          title={t("New look")}
+          onClose={close}
+        >
           <div className="space-y-6">
             <button
               className="flex w-full items-center gap-4 rounded-xl border border-border bg-primary-subtle p-5 text-left"
@@ -244,12 +250,16 @@ export function LookSurfaces({ looks, reload }: { looks: Look[]; reload: () => v
           key={selected.id || "new"}
           look={selected}
           initialTab={initialTab}
+          stacked={params.has("channel")}
           onClose={close}
           onSaved={(l) => {
             reload();
             if (l) {
               setCreating(null);
-              setParams(new URLSearchParams({ look: l.id }));
+              setParams((p) => {
+                p.set("look", l.id);
+                return p;
+              });
             }
           }}
         />

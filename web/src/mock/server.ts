@@ -734,6 +734,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
       lastBuiltAt: NOW().toISOString(),
     });
     spec.itemCount = evaluate(spec).total;
+    Object.assign(spec, { ratingKey: String(20000 + seq) });
     state.collections.push(spec);
   }
   state.collections.push({
