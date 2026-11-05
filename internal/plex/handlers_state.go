@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -58,8 +59,25 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	s.rememberStreamRequest(r, pr.User, key)
 	state := q.Get("state")
+	switch state {
+	case "playing", "paused", "stopped", "buffering":
+	default:
+		writeHTTPError(w, http.StatusBadRequest)
+		return
+	}
+	// Reject malformed positions before they can affect playback or watch state.
+	// Keep the existing handling of late positions from source switches below.
+	for _, name := range []string{"time", "duration"} {
+		if q.Has(name) {
+			n, err := strconv.ParseInt(q.Get(name), 10, 64)
+			if err != nil || n < 0 || n > math.MaxInt64/int64(time.Millisecond) {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
+		}
+	}
+	s.rememberStreamRequest(r, pr.User, key)
 	// A late stop from an explicitly superseded playback must not stop the
 	// replacement source or overwrite its progress. Unknown/omitted IDs keep
 	// the historical behavior for clients with different request identities.
@@ -150,6 +168,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		state = "stopped"
 	}
 	if state == "stopped" {
+		s.endVersionFlow(ctx, s.playIdentityFor(pr, key))
 		if e, ok := s.sessions.remove(tid); ok {
 			e.offset = offset
 			s.notifyPlaying(e, "stopped")
@@ -175,6 +194,11 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 			unlock()
 		}
 	} else {
+		if s.versionFlows != nil {
+			if _, err := s.versionFlows.call(ctx, s.playIdentityFor(pr, key), nil, versionTouch, s.now(), 0); err != nil {
+				s.log.Warn("refresh version flow", "err", err)
+			}
+		}
 		client := *pr
 		client.User = nil
 		fresh := !s.sessions.has(tid)
@@ -242,7 +266,20 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	if err := s.d.State.Progress(ctx, pr.User.ID, key, msParam(q.Get("time")), 0, q.Get("state")); err != nil {
+	n, err := strconv.ParseInt(q.Get("time"), 10, 64)
+	if err != nil || n < 0 || n > math.MaxInt64/int64(time.Millisecond) {
+		writeHTTPError(w, http.StatusInternalServerError)
+		return
+	}
+	offset := time.Duration(n) * time.Millisecond
+	if legacy, ok := s.d.State.(interface {
+		LegacyProgress(context.Context, int64, core.RatingKey, time.Duration) error
+	}); ok {
+		err = legacy.LegacyProgress(ctx, pr.User.ID, key, offset)
+	} else {
+		err = s.d.State.Progress(ctx, pr.User.ID, key, offset, 0, q.Get("state"))
+	}
+	if err != nil {
 		s.writeErr(w, r, err)
 		return
 	}
@@ -444,20 +481,84 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	ctx = watchstate.WithOrigin(ctx, watchstate.Origin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
-	mc := &model.MediaContainer{}
-	if s.d.State == nil || pr.User == nil {
+	mc := &model.MediaContainer{TotalSize: model.Ptr(0)}
+	q := r.URL.Query()
+	// History's type is viewType, not the movie/episode metadata type.
+	// Validate identifiers before deciding whether a view type selects rows.
+	ids := make(map[string]int64)
+	for _, name := range []string{"accountID", "librarySectionID", "metadataItemID", "viewedAt>", "limit", "parent"} {
+		if q.Has(name) {
+			n, err := strconv.ParseInt(q.Get(name), 10, 64)
+			if err != nil {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
+			ids[name] = n
+		}
+	}
+	listHistory := false
+	if q.Has("metadataItemID") {
+		key := core.RatingKey(ids["metadataItemID"])
+		if key <= 0 || s.d.Catalog == nil {
+			writeHTTPError(w, http.StatusNotFound)
+			return
+		}
+		valid := false
+		switch key.Kind() {
+		case core.KindCollection, core.KindSmart:
+			c, err := s.collection(ctx, pr.User, key)
+			valid = err == nil && c != nil
+			listHistory = true
+		case core.KindPlaylist:
+			pl, err := s.playlist(ctx, pr.User, key)
+			valid = err == nil && pl != nil
+			listHistory = true
+		default:
+			t, err := s.d.Catalog.Get(ctx, key)
+			valid = err == nil && t != nil && s.visibleTitle(ctx, pr.User, t)
+		}
+		if !valid {
+			writeHTTPError(w, http.StatusNotFound)
+			return
+		}
+	}
+	if q.Has("group") {
+		writeHTTPError(w, http.StatusBadRequest)
+		return
+	}
+	wantHistory := false
+	if q.Has("type") {
+		for _, raw := range strings.Split(q.Get("type"), ",") {
+			n, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
+			wantHistory = wantHistory || n == 1
+		}
+	}
+	_, size := pr.pageOf(0)
+	maxRows := min(size, 500)
+	if n, ok := ids["limit"]; ok && n < int64(maxRows) {
+		maxRows = int(max(n, 0))
+	}
+	if listHistory || !wantHistory || maxRows == 0 || s.d.State == nil || pr.User == nil || (q.Has("accountID") && ids["accountID"] != pr.User.PlexID) {
 		s.write(w, r, mc)
 		return
 	}
 	var since time.Time
-	if v, err := strconv.ParseInt(r.URL.Query().Get("viewedAt>"), 10, 64); err == nil {
+	if v, ok := ids["viewedAt>"]; ok {
 		since = time.Unix(v, 0)
 	}
-	_, size := pr.pageOf(0)
-	hist, err := s.d.State.History(ctx, pr.User.ID, since, min(size, 500))
+	// The existing 500-record ceiling bounds all joins and policy checks,
+	// including requests whose section or item filter has few matches.
+	hist, err := s.d.State.History(ctx, pr.User.ID, since, 500)
 	if err != nil {
 		s.writeErr(w, r, err)
 		return
+	}
+	if len(hist) > 500 {
+		hist = hist[:500]
 	}
 	keys := make([]core.RatingKey, 0, len(hist))
 	for _, h := range hist {
@@ -485,6 +586,15 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		if !v {
 			continue
 		}
+		if q.Has("metadataItemID") && int64(t.Key) != ids["metadataItemID"] {
+			continue
+		}
+		if q.Has("librarySectionID") {
+			sec, ok := s.sectionFor(t.Type)
+			if !ok || int64(sec.ID) != ids["librarySectionID"] {
+				continue
+			}
+		}
 		md := model.Metadata{
 			RatingKey: t.Key.String(),
 			Key:       "/library/metadata/" + t.Key.String(),
@@ -494,8 +604,12 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 			Extra: []model.Attr{
 				model.A("historyKey", "/status/sessions/history/"+strconv.Itoa(i+1)),
 				model.A("viewedAt", h.ViewedAt.Unix()),
+				model.A("viewType", 1),
 				model.A("accountID", pr.User.PlexID),
 			},
+		}
+		if !t.Released.IsZero() {
+			md.OriginallyAvailableAt = t.Released.Format("2006-01-02")
 		}
 		if t.Type == core.TypeEpisode {
 			md.GrandparentTitle = t.ShowTitle
@@ -503,8 +617,12 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 			md.ParentIndex = model.Ptr(t.Season)
 		}
 		mc.Metadata = append(mc.Metadata, md)
+		if len(mc.Metadata) == maxRows {
+			break
+		}
 	}
 	mc.Size = len(mc.Metadata)
+	mc.TotalSize = model.Ptr(mc.Size)
 	s.write(w, r, mc)
 }
 

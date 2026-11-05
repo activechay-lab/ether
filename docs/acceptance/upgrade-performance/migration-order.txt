@@ -1,0 +1,6 @@
+=== RUN   TestUpgradeInspectManual
+    upgrade_inspect_test.go:3: base 11 [availability/6 catalog/32 livetv/5 livetv/6 plexguid/4 plexguid/5 plexwatch_pms/1 state/6 state_plexwatch/5 stats/9 stats/10]
+    upgrade_inspect_test.go:3: base032 49 [agent/1 availability/6 availability_coverage/1 availability_coverage/2 availability_coverage/3 availability_verdicts/1 catalog/25 catalog/26 catalog/27 catalog/28 catalog/29 catalog/30 catalog/31 catalog/32 identity_grants/3 livetv/4 livetv/5 livetv/6 markers/2 markers/3 mcp_oauth/1 mcp_pairings/1 mcp_pairings/2 newznab_limits/1 newznab_usage/1 plexguid/3 plexguid/4 plexguid/5 plexwatch/5 plexwatch_pms/1 plugin_collections/1 plugin_studio/1 plugins/1 plugins/2 plugins/3 plugins_catalogue/1 plugins_catalogue/2 plugins_proposals/1 prerolls/1 segcache/2 sessions_source_offers/2 state/6 state_lastviewed/1 state_plexwatch/5 state_search/1 state_updated/1 stats/8 stats/9 stats/10]
+--- PASS: TestUpgradeInspectManual (0.02s)
+PASS
+ok  	github.com/braedonsaunders/ether/internal/app	1.132s

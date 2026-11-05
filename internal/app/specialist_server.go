@@ -78,10 +78,18 @@ func (a *App) selectPrivateSource(ctx context.Context) (nodewire.Identity, error
 	if err != nil {
 		return nodewire.Identity{}, err
 	}
-	for _, n := range nodes {
-		id := nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: n.ID, Boot: n.Incarnation}
-		if a.privateEligible(ctx, id, config.RoleSource) == nil {
-			return id, nil
+	// Prefer the explicitly isolated source pool. Selection happens before a
+	// preparation operation exists; uncertain preparation never retries elsewhere.
+	for _, dedicated := range []bool{true, false} {
+		for _, n := range nodes {
+			isDedicated := len(n.Caps.Roles) == 1 && n.Caps.Roles[0] == config.RoleSource
+			if isDedicated != dedicated {
+				continue
+			}
+			id := nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: n.ID, Boot: n.Incarnation}
+			if a.privateEligible(ctx, id, config.RoleSource) == nil {
+				return id, nil
+			}
 		}
 	}
 	return nodewire.Identity{}, core.ErrNotAvailable

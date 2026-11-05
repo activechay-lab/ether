@@ -70,32 +70,69 @@ func hubItemsKey(h core.Hub, hc hubCtx) string {
 func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubCtx) model.Hub {
 	h := hs.Hub
 	build := func() []core.Title {
+		if loader, ok := s.d.Catalog.(interface {
+			LoadRowFacts(context.Context, []core.Title) []core.Title
+		}); ok {
+			h.Items = loader.LoadRowFacts(ctx, h.Items)
+		}
+
 		return (experience.RowSelection{Visibility: s.visibility(), PrioritizeAvailable: s.d.PrioritizeAvailable,
 			SameDayUnavailable: func(ctx context.Context, t *core.Title) bool { return s.sameDayUnavailable(ctx, pr, t) },
 		}).Items(ctx, pr.User, h)
 	}
-	var items []core.Title
-	if hs.state != nil {
-		// Watch-state shelves (Continue Watching) change with every
-		// scrobble; they are never held in a paging cut.
-		items = build()
-	} else {
-		items = s.shelfItems(ctx, pr, h, hc, build)
+	// Filter the section and availability before rendering or paging. The
+	// resulting wire list is the canonical generation (including its counts).
+	if hc.section != 0 && hs.state == nil && hs.key == "" {
+		if sec, ok := s.sectionByID(hc.section); ok {
+			if view, ok := core.SectionView(h, sec.Type); ok {
+				h = view
+			} else {
+				h.Items = nil
+			}
+		}
 	}
-	if hc.visible > 0 && len(items) > hc.visible {
-		items = items[:hc.visible]
+	related := hc.related != 0
+	pinned := hc.section != 0 && hs.state == nil && hs.key == ""
+	var sourceItems []core.Title
+	render := func() []model.Metadata {
+		sourceItems = build()
+		if !pinned && hc.visible > 0 && len(sourceItems) > hc.visible {
+			sourceItems = sourceItems[:hc.visible]
+			h.More = true
+		}
+		return s.renderTitles(ctx, pr, sourceItems, renderOpts{media: true, state: hs.state, inSection: related, guids: related, detailEpisodes: !hs.plain})
+	}
+	var md []model.Metadata
+	generation := ""
+	if pinned {
+		h.More = false
+		var selected []core.Title
+		selected, generation = s.shelfSnapshot(ctx, pr, h, hc, func() ([]core.Title, []model.Metadata) {
+			metadata := render()
+			return sourceItems, metadata
+		})
+		// Membership was already evaluated in the generation; refresh presentation
+		// (watch badges, artwork enrichment) without reapplying live availability.
+		if hc.visible > 0 && len(selected) > hc.visible {
+			selected = selected[:hc.visible]
+			h.More = true
+		}
+		md = s.renderTitles(ctx, pr, selected, renderOpts{media: true, availabilityInSQL: true})
+		// More is calculated from the canonical generation, not source hints.
+	} else {
+		md = render()
+	}
+	if hc.visible > 0 && len(md) > hc.visible {
+		md = md[:hc.visible]
 		h.More = true
 	}
-	// Related hubs (detail pages, postplay) carry Guid children and omit the
-	// items' library section and the hub's promoted flag, like PMS.
-	related := hc.related != 0
-	md := s.renderTitles(ctx, pr, items, renderOpts{media: true, state: hs.state, inSection: related, guids: related, detailEpisodes: !hs.plain})
 	if hs.included {
 		stampIncluded(md)
 	}
-	keys := make([]string, 0, len(items))
-	for _, t := range items {
-		keys = append(keys, t.Key.String())
+	keys := make([]string, 0, len(md))
+	// Recorded PMS Home and related hubs name exactly their rendered cards.
+	for _, item := range md {
+		keys = append(keys, item.RatingKey)
 	}
 	typ := string(h.Type)
 	if typ == "" {
@@ -114,7 +151,7 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 		key = hubItemsKey(h, hc)
 	}
 	mh := model.Hub{
-		Key:           key,
+		Key:           s.shelfURL(key, generation),
 		Title:         h.Title,
 		Type:          typ,
 		HubIdentifier: h.ID,
@@ -128,7 +165,7 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 		mh.Promoted = model.Ptr(h.Promoted)
 	}
 	if len(keys) > 0 {
-		mh.HubKey = "/library/metadata/" + strings.Join(keys, ",")
+		mh.HubKey = s.shelfURL("/library/metadata/"+strings.Join(keys, ","), generation)
 	}
 	return mh
 }
@@ -668,7 +705,9 @@ func (s *Server) handleSectionHubs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) buildSectionHubs(r *http.Request, sec Section) homeBuild {
-	ctx := withStoredPolicy(r.Context())
+	batch := &shelfBatch{}
+	ctx := withStoredPolicy(context.WithValue(r.Context(), shelfBatchKey{}, batch))
+	defer func() { s.enqueueShelves(batch.records) }()
 	pr := FromContext(ctx)
 	visibleCount := countParam(r, 12)
 	count := 200
@@ -828,7 +867,7 @@ func (s *Server) findHub(ctx context.Context, pr *Request, id string, sections [
 			}
 		}
 	}
-	if hubs, err := s.recommendHome(ctx, pr, s.hubContext(pr, 0), count); err == nil {
+	if hubs, err := s.recommendHome(ctx, pr, s.hubContext(pr, 0), count); len(sections) == 0 && err == nil {
 		for _, h := range hubs {
 			if h.ID == id {
 				return hubSpec{Hub: h}, true
@@ -1382,6 +1421,24 @@ func (s *Server) collectionDirectory(ctx context.Context, c *core.Collection) mo
 	}
 }
 
+// searchLimit follows the search endpoints' two distinct refusal classes.
+func searchLimit(w http.ResponseWriter, r *http.Request, fallback, ceiling int) (int, bool) {
+	raw, present := firstQuery(r.URL.Query(), "limit")
+	if !present {
+		return fallback, true
+	}
+	n, valid := parseWhole32(raw)
+	if !valid {
+		writeHTTPError(w, http.StatusBadRequest)
+		return 0, false
+	}
+	if n <= 0 {
+		writeHTTPError(w, http.StatusInternalServerError)
+		return 0, false
+	}
+	return min(int(n), ceiling), true
+}
+
 func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
@@ -1392,9 +1449,9 @@ func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	limit := 10
-	if n, _ := strconv.Atoi(q.Get("limit")); n > 0 {
-		limit = min(n, 100)
+	limit, valid := searchLimit(w, r, 10, 100)
+	if !valid {
+		return
 	}
 	sectionID, _ := strconv.Atoi(q.Get("sectionId"))
 	fetch := max(limit*2, s.saferFetchCount(pr.User, limit))
@@ -1594,9 +1651,9 @@ func (s *Server) handleLibrarySearch(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(ctx)
 	q := r.URL.Query()
 	query := q.Get("query")
-	limit := 50
-	if n, _ := strconv.Atoi(q.Get("limit")); n > 0 {
-		limit = min(n, 200)
+	limit, valid := searchLimit(w, r, 50, 200)
+	if !valid {
+		return
 	}
 	// People are searched beside titles when the request wants them.
 	wantPeople := q.Get("searchTypes") == ""
@@ -1694,6 +1751,10 @@ func (s *Server) handleLibrarySearch(w http.ResponseWriter, r *http.Request) {
 	if isVibe && vibe != nil && (searchCollections || q.Get("searchTypes") == "") {
 		d := s.collectionDirectory(ctx, vibe)
 		mc.SearchResult = append(mc.SearchResult, model.SearchResult{Score: 1, Directory: &d})
+	}
+	// A flat search has one window across every result family.
+	if len(mc.SearchResult) > limit {
+		mc.SearchResult = mc.SearchResult[:limit]
 	}
 	mc.Size = len(mc.SearchResult)
 	s.write(w, r, mc)

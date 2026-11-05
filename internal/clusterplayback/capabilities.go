@@ -42,10 +42,16 @@ func (r *Runtime) capabilitiesHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "method", 405)
 		return
 	}
-	var request core.HLSRequest
+	var wire capabilityRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, q.Body, remotetranscode.MaxMessage))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF || request.InputURL != "" || !remotetranscode.SupportsRequest(request, r.o.WorkerCapabilities) {
+	if decoder.Decode(&wire) != nil || decoder.Decode(new(any)) != io.EOF {
+		http.Error(w, "unsupported", 422)
+		return
+	}
+	request := wire.Request
+	request.Info.Keyframes = wire.Keyframes
+	if !validPreparedKeyframes(request.Info) || request.InputURL != "" || !remotetranscode.SupportsRequest(request, r.o.WorkerCapabilities) {
 		http.Error(w, "unsupported", 422)
 		return
 	}
@@ -65,7 +71,7 @@ func (r *Runtime) workerCapabilities(ctx context.Context, id nodewire.Identity, 
 		return remotetranscode.Capabilities{}, e
 	}
 	defer transport.CloseIdleConnections()
-	raw, e := json.Marshal(q)
+	raw, e := json.Marshal(capabilityRequest{Request: q, Keyframes: q.Info.Keyframes})
 	if e != nil || len(raw) > remotetranscode.MaxMessage {
 		return remotetranscode.Capabilities{}, ErrDenied
 	}
@@ -80,6 +86,9 @@ func (r *Runtime) workerCapabilities(ctx context.Context, id nodewire.Identity, 
 		return remotetranscode.Capabilities{}, e
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnprocessableEntity {
+		return remotetranscode.Capabilities{}, remotetranscode.ErrUnsupported
+	}
 	if response.StatusCode != 200 {
 		return remotetranscode.Capabilities{}, ErrDenied
 	}
@@ -88,15 +97,18 @@ func (r *Runtime) workerCapabilities(ctx context.Context, id nodewire.Identity, 
 		return remotetranscode.Capabilities{}, ErrDenied
 	}
 	var reply capabilityReply
-	if json.Unmarshal(raw, &reply) != nil || reply.Identity != id || !reply.Supported {
+	if json.Unmarshal(raw, &reply) != nil || reply.Identity != id {
 		return remotetranscode.Capabilities{}, ErrDenied
 	}
 	caps, e := remotetranscode.NormalizeCapabilities(reply.Capabilities)
-	if e != nil || !remotetranscode.SupportsRequest(q, caps) {
+	if e != nil {
 		return remotetranscode.Capabilities{}, ErrDenied
+	}
+	if !reply.Supported || !remotetranscode.SupportsRequest(q, caps) {
+		return remotetranscode.Capabilities{}, remotetranscode.ErrUnsupported
 	}
 	return intersectCapabilities(caps, r.o.RemoteCapabilities), nil
 }
 func intersectCapabilities(a, b remotetranscode.Capabilities) remotetranscode.Capabilities {
-	return remotetranscode.Capabilities{HLS: a.HLS && b.HLS, SegmentSeek: a.SegmentSeek && b.SegmentSeek, DASH: a.DASH && b.DASH, HTTP: a.HTTP && b.HTTP, ABR: a.ABR && b.ABR, SoftSubtitles: a.SoftSubtitles && b.SoftSubtitles, Controls: a.Controls && b.Controls, Observations: a.Observations && b.Observations}
+	return remotetranscode.Capabilities{HLS: a.HLS && b.HLS, SegmentSeek: a.SegmentSeek && b.SegmentSeek, DASH: a.DASH && b.DASH, HTTP: a.HTTP && b.HTTP, ABR: a.ABR && b.ABR, SoftSubtitles: a.SoftSubtitles && b.SoftSubtitles, Controls: a.Controls && b.Controls, Keyframes: a.Keyframes && b.Keyframes, Observations: a.Observations && b.Observations}
 }

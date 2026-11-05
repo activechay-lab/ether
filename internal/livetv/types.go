@@ -317,6 +317,7 @@ type Policy struct {
 	channelSet map[string]struct{} // Channels as a set for long lists; see indexChannels
 }
 type Options struct {
+	GuideAI   GuideAIClient
 	Reels     func(context.Context, string) (ReelSnapshot, error)
 	InputUser func(context.Context) (*core.User, error)
 	Screens   func() config.LiveTVScreens

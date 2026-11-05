@@ -19,3 +19,10 @@ pools:
       limits: {cpu: "2", memory: 2Gi}
   delivery:
     replicas: 1
+
+# Mixed public roles require an actual controller and one reachable public host.
+# Replace this hostname and select the installed IngressClass before deployment.
+ingress:
+  enabled: true
+  canonicalHLSLabOnly: true
+  hosts: [ether.example.test]

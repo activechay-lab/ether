@@ -1,0 +1,92 @@
+# LAB ONLY plain Kubernetes Ingress controller, not a chart production dependency.
+# No CRDs, host networking, Docker socket, cluster-wide RBAC or global changes.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ether035-ha-ingress
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ether035-ha-ingress
+rules:
+  - apiGroups: ['']
+    resources: [services, secrets]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses/status]
+    verbs: [update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ether035-ha-ingress
+subjects:
+  - kind: ServiceAccount
+    name: ether035-ha-ingress
+    namespace: ether035-ha
+roleRef:
+  kind: Role
+  name: ether035-ha-ingress
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ether035-ha-ingress
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ether035-ha-ingress}
+  template:
+    metadata:
+      labels: {app: ether035-ha-ingress}
+    spec:
+      serviceAccountName: ether035-ha-ingress
+      nodeSelector: {kubernetes.io/hostname: ether035-ha-control-plane}
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: ingress
+          image: traefik:v3.7.17
+          args:
+            - --entrypoints.web.address=:8000
+            - --providers.kubernetesingress=true
+            - --providers.kubernetesingress.namespaces=ether035-ha
+            - --providers.kubernetesingress.ingressclass=ether035-ha
+            - --providers.kubernetesingress.disableclusterscoperesources=true
+            - --global.checknewversion=false
+            - --global.sendanonymoususage=false
+            - --accesslog=true
+            - --accesslog.format=json
+            - --accesslog.fields.defaultmode=drop
+            - --accesslog.fields.names.StartUTC=keep
+            - --accesslog.fields.names.RequestMethod=keep
+            - --accesslog.fields.names.ServiceName=keep
+            - --accesslog.fields.names.ServiceAddr=keep
+            - --accesslog.fields.names.DownstreamStatus=keep
+            - --accesslog.fields.names.OriginContentSize=keep
+            - --accesslog.fields.names.Duration=keep
+            - --accesslog.fields.headers.defaultmode=drop
+            - --accesslog.fields.headers.names.X-Ether-Lab-Request-ID=keep
+          ports: [{name: http, containerPort: 8000}]
+          readinessProbe:
+            tcpSocket: {port: http}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: '1', memory: 256Mi}

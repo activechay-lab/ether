@@ -314,14 +314,14 @@ func TestMediaIndexSelectsVariant(t *testing.T) {
 	}
 }
 
-func TestMediaIndexRecomputesWithoutRender(t *testing.T) {
+func TestMediaIndexWithoutIssuedListUsesAuto(t *testing.T) {
 	f, pb := newVariantPlaybackFixture(t)
-	// No detail render first: the selection is resolved by recomputation.
+	// No issued list: a stored position must not select a new candidate.
 	rec := f.get(t, "/video/:/transcode/universal/decision?path=/library/metadata/"+fightClub.Key.String()+"&mediaIndex=2&session=v9")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
-	if len(pb.variantCalls) != 1 || pb.variantCalls[0] != "rel-compat" {
+	if len(pb.variantCalls) != 0 || pb.prepared != 1 {
 		t.Fatalf("variant calls %v", pb.variantCalls)
 	}
 }
@@ -773,8 +773,8 @@ func TestAutoScope1080pAndSecondRowReleaseConsistency(t *testing.T) {
 }
 
 // A detail page opened before the title's search finished shows one
-// version. Once the search lands, a library timeline entry tells the open
-// page to reload, so Play Version appears without leaving it (#214).
+// version. Once discovery finishes, an ordinary detail gains the picker
+// immediately. Only explicit pre-play/queue flows retain a version list.
 func TestDetailPageRefreshesWhenVersionsArrive(t *testing.T) {
 	saved := variantWatchSchedule
 	variantWatchSchedule = []time.Duration{10 * time.Millisecond, 10 * time.Millisecond, 10 * time.Millisecond, 10 * time.Millisecond}
@@ -803,7 +803,7 @@ func TestDetailPageRefreshesWhenVersionsArrive(t *testing.T) {
 		t.Fatal("no refresh after the versions arrived")
 	}
 	if n := strings.Count(f.get(t, "/library/metadata/"+fightClub.Key.String()).Body.String(), "<Media "); n != 3 {
-		t.Fatalf("media count %d after the refresh, want 3", n)
+		t.Fatalf("media count %d after refill without a play flow, want 3", n)
 	}
 }
 

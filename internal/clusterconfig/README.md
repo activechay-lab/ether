@@ -138,3 +138,74 @@ matches; exhaustion returns 503 for new admissions and logs the quota transition
 while `/readyz` and existing work remain available. A larger ceiling is bounded
 operational mitigation, not safe history compaction or unlimited admission. Retired
 generation floors remain permanent; never delete them to manufacture capacity.
+
+## Role boundary and public routing
+
+The staged isolated graphs construct these concrete dependencies. Source, server
+and delivery singleton activation remains a separate acceptance guard; construction
+checks alone do not establish shipping playback or replacement continuity.
+
+| Graph | Local services | Public responsibilities |
+| --- | --- | --- |
+| Historical full server | Existing providers, source manager, frontends and local encoder | Existing public APIs and representations |
+| Source singleton | Providers, resolver, cache, native/ffprobe metadata probing and source manager | None; authenticated private source operations only |
+| Transcode singleton | Dedicated fixed-plan encoder and private input gateway | None; authenticated private encoding only |
+| Server singleton | Catalogue, identity, owner console, protocol frontends and remote playback adapters | Browse/control and existing protocol routes that combine admission or authentication with response bytes |
+| Delivery singleton | Identity/policy readers and indexed authenticated representation forwarding | Bounded GET/HEAD representation routes only |
+
+Server isolation excludes local provider connections, source/cache ownership and
+encoder construction. It does not promise that the server sends no response bytes.
+Existing Plex `start`/`start.mkv`, direct `/library/parts` and query subtitle routes
+retain their URLs and control semantics, including track-selection PUT requests.
+Their authenticated proxy responses are legitimate frontend work. Silo's
+viewer/device-authenticated playback routes likewise stay on the API frontend
+until an explicit equivalent authenticated delivery seam exists.
+
+Mixed-role deployments need same-origin routing to API (full/server) and media
+(full/delivery) Services. Route only the supported GET/HEAD pure representation
+namespaces to media: canonical `/sessions/media/` and the typed Plex
+`/video/:/transcode/universal/session/{id}/{rung-or-representation}/{resource}`.
+The latter supports bounded playlists, headers, init and TS/M4S/MKV segments;
+ASS and query subtitle routes remain API. Never route the broad universal or
+`/library/parts` prefix to delivery. Jellyfin/Emby `/jellyfin/sessions/media/` and
+`/emby/sessions/media/` require the explicit protocol-bound alias adapter, preserving
+grant, query and original request policy. A generic prefix rewrite without that
+owner-side surface check is not equivalent. Full-only routing stays unchanged.
+
+Independent source selection prefers currently eligible source-only peers before
+full-server peers. Once preparation has an operation identity, an uncertain result
+retains that exact owner and operation until proof; it never retries on another
+source merely because a connection failed.
+
+The existing owner-authenticated `GET /ether/api/cluster/` optionally includes
+`selfRuntime` for a deployment process only. `nodeId` and `boot` match the same
+response's captured `self`; `runtimeSampledAt` timestamps its local cached atomic
+state (`protocol`, `started`, `readyExisting`, `acceptingNew`, `draining`).
+`quota.sampledAt` retains the last successful quota observation time and
+`quota.status` its measured ledger status. A failed current quota read closes
+admission without refreshing the retained observation. Optional `resources`
+retains each metric's own `at` and `state`; these are resource sample times, not
+response times. Missing runtime/quota/resources are unknown, not measured zero.
+This is local process diagnostics, not fleet readiness, placement or retirement
+proof. Drain can leave `readyExisting:true` with `acceptingNew:false`.
+
+The frozen real Plex writer inventory (`internal/plex/representation_paths.md`)
+confirms that public DASH uses the API `start.mpd` response plus typed session
+`{numeric-representation}/header` and `{number}.m4s` URLs. ASS uses the existing
+API query subtitle routes. Encoder filesystem `manifest.mpd` and subtitle ASS
+names are not authored session-namespace URLs. Do not expand the delivery grammar
+from those filenames. A canonical-HLS-only lab restriction records unproven mixed
+role playback/capability acceptance, not a demonstrated authored ASS/MPD URL gap.
+
+Source-only nodes require the existing bundled/configured `ffprobe` for genuine
+native-incomplete formats (for example MPEG-4 Visual `mp4v` in MP4). The source
+manager retains native probing first and uses a probe-only fallback without an
+encoder, hardware inventory or transcode session manager. It accepts only the
+source manager's literal-loopback HTTP capability, preserves actual parsed facts,
+and admits at most two concurrent probes with a 20-second cancellation deadline
+including queue time and a shared 2 MiB output bound. Caller cancellation and
+shutdown stop the probe; its slot and service remain owned until the runner's
+child and output readers join. Close requests cancellation and joins, never
+substitutes elapsed time for completion. Errors omit capability URLs and raw
+ffprobe stderr. Genuine failed probes remain estimated and are still rejected by
+remote encoder preflight; no estimate or capability gate is relaxed.

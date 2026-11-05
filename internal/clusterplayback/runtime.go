@@ -50,6 +50,11 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
+	history        *placement.History
+	credentials    map[string]sourceCredential
+	reopenLives    map[string]*ReopenResponsibility
+	publicDelivery bool
+	reopens        map[string]*reopenRecord
 	plexDelivery   http.Handler
 	remotePlayback *RemotePlayback
 	control        sync.Mutex
@@ -88,7 +93,12 @@ func NewRuntime(o Options) (*Runtime, error) {
 	if o.DB == nil || o.Guard == nil || o.Placement == nil || o.Endpoint == nil || o.Eligible == nil || o.MemberRole == nil || o.Self.Cluster == "" || o.Self.NodeID == "" || o.Self.Boot == "" || !o.ClockBoundKnown || o.ClockSkew < 0 || o.ClockSkew > time.Minute || o.Capacity < 1 || o.Capacity > 4096 {
 		return nil, ErrDenied
 	}
-	r := &Runtime{preparations: map[string]*preparation{}, o: o, mux: http.NewServeMux(), sources: map[string]*ownedSource{}, inputs: map[remotetranscode.Identity]*workerInput{}, executions: map[string]*execution{}}
+	r := &Runtime{credentials: map[string]sourceCredential{}, reopenLives: map[string]*ReopenResponsibility{}, reopens: map[string]*reopenRecord{}, preparations: map[string]*preparation{}, o: o, mux: http.NewServeMux(), sources: map[string]*ownedSource{}, inputs: map[remotetranscode.Identity]*workerInput{}, executions: map[string]*execution{}}
+	history, historyErr := placement.NewHistory(o.Placement, o.Self.Cluster, r)
+	if historyErr != nil {
+		return nil, historyErr
+	}
+	r.history = history
 	if o.Playback != nil {
 		if o.SourceAccess == nil || o.ActiveViewer == nil || o.SourcePolicy == nil {
 			return nil, ErrDenied
@@ -98,7 +108,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 			return nil, e
 		}
 		r.authority = a
-		h, e := nodesource.NewHandler(nodesource.Options{Authority: a, Peer: o.Guard.SourcePeer, Acquire: a.Acquire, Now: time.Now, MaxRequests: o.Capacity, MaxLifetime: 10 * time.Minute, Revalidate: time.Second})
+		h, e := nodesource.NewHandler(nodesource.Options{Authority: trackedAuthority{r: r}, Peer: o.Guard.SourcePeer, Acquire: r.acquireSource, Now: time.Now, MaxRequests: o.Capacity, MaxLifetime: 10 * time.Minute, Revalidate: time.Second})
 		if e != nil {
 			return nil, e
 		}
@@ -117,6 +127,8 @@ func NewRuntime(o Options) (*Runtime, error) {
 		r.mux.Handle(WorkerPath, w)
 	}
 	r.mux.HandleFunc(DeliveryPath, r.deliveryHTTP)
+	r.mux.HandleFunc(TerminalPath, r.terminalHTTP)
+	r.mux.HandleFunc(EvidencePath, r.evidenceHTTP)
 	r.mux.HandleFunc(PlexDeliveryPath, r.plexDeliveryHTTP)
 	return r, nil
 }
@@ -133,10 +145,16 @@ func (r *Runtime) Ready() bool {
 	if r.o.Roles.Has(config.RoleTranscode) && r.worker == nil {
 		return false
 	}
-	if r.o.Roles.Has(config.RoleDelivery) && r.delivery == nil {
-		return false
+	if r.o.Roles.Has(config.RoleDelivery) {
+		if r.o.Roles.Has(config.RoleServer) {
+			if r.delivery == nil {
+				return false
+			}
+		} else if !r.publicDelivery {
+			return false
+		}
 	}
-	return r.worker != nil || r.authority != nil || r.delivery != nil
+	return r.worker != nil || r.authority != nil || r.delivery != nil || r.publicDelivery
 }
 func (r *Runtime) peer(ctx context.Context, id nodewire.Identity, path string) (string, *tls.Config, func(context.Context, tls.ConnectionState) error, error) {
 	origin, e := r.o.Endpoint(ctx, id)
@@ -190,6 +208,9 @@ func (r *Runtime) Cleanup() {
 func (r *Runtime) Close() error {
 	r.mu.Lock()
 	r.closed = true
+	for _, life := range r.reopenLives {
+		life.retiring = true
+	}
 	list := make([]*execution, 0, len(r.executions))
 	for _, x := range r.executions {
 		list = append(list, x)
@@ -251,13 +272,13 @@ func (r *Runtime) sourcePolicy(ctx context.Context, owner placement.Target, s no
 // It is conservative: errors are returned and must keep drain blocked.
 func (r *Runtime) Pending(ctx context.Context) (int, error) {
 	r.mu.Lock()
-	sources := make([]*ownedSource, 0, len(r.sources))
+	sources := make([]ownedSource, 0, len(r.sources))
 	for _, s := range r.sources {
-		sources = append(sources, s)
+		sources = append(sources, *s)
 	}
-	inputs := make([]*workerInput, 0, len(r.inputs))
+	inputs := make([]workerInput, 0, len(r.inputs))
 	for _, v := range r.inputs {
-		inputs = append(inputs, v)
+		inputs = append(inputs, *v)
 	}
 	r.mu.Unlock()
 	r.mu.Lock()
@@ -273,7 +294,21 @@ func (r *Runtime) Pending(ctx context.Context) (int, error) {
 	r.mu.Lock()
 	remote := r.remotePlayback
 	r.mu.Unlock()
-	n := starting
+	r.mu.Lock()
+	executionPending := 0
+	for _, x := range r.executions {
+		if !x.retired {
+			executionPending++
+		}
+	}
+	reopenPending := 0
+	for _, life := range r.reopenLives {
+		if !life.retired {
+			reopenPending++
+		}
+	}
+	r.mu.Unlock()
+	n := starting + reopenPending + executionPending
 	if remote != nil {
 		n += remote.pending()
 	}

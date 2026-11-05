@@ -348,6 +348,61 @@ export function createLiveTVMock(titles: FakeTitle[], empty = false) {
   if (empty) channels.length = 0;
   // Two channels have a guide id their own source doesn't carry.
   const unlisted = new Set(["iptv-4", "iptv-10", "iptv-11", "iptv-16"]);
+  // Opt-in 5k review fixture, stripped from production with the mock backend.
+  const reviewFixture =
+    new URLSearchParams(window.location.search).get("guideReviewFixture") === "5000";
+  if (reviewFixture) {
+    channels.splice(
+      0,
+      channels.length,
+      ...Array.from({ length: 5000 }, (_, i) => ({
+        id: `review-${i}`,
+        number: String(i + 1),
+        name: `${["US", "CA", "UK", "AU"][i % 4]}: ${["ESPN 2 HD RAW", "BBC News FHD", "Sky Sports Main Event", "Discovery Science", "National Geographic HD", "CNN International", "NBC Boston", "History Channel"][i % 8]} ${String(i + 1).padStart(4, "0")}`,
+        kind: "iptv" as const,
+        enabled: true,
+        favorite: false,
+        sourceId: i % 2 ? "demo-fast" : "demo-xtream",
+        group: ["Sports", "News", "Documentary", "Entertainment"][i % 4],
+        guideId: i % 5 === 0 ? `fixture-${i}` : "",
+        items: [],
+      })),
+    );
+    unlisted.clear();
+    for (const c of channels) if (!c.guideId) unlisted.add(c.id);
+    if (new URLSearchParams(window.location.search).has("guideReviewResults")) {
+      const rows = Object.fromEntries(
+        channels
+          .filter((c) => !c.guideId)
+          .map((c, i) => [
+            c.id,
+            {
+              guideId: "",
+              guideSourceId: "",
+              decision: i % 4 === 0 ? "pending" : "accepted",
+              checked: true,
+              proposal: {
+                channelId: c.id,
+                channelName: c.name,
+                guideSourceId: "regional-epg",
+                guideSourceName: "Regional listings",
+                guideId: `fixture-guide-${c.id}`,
+                guideName: c.name.replace(/ RAW| FHD| HD/g, ""),
+                method: "ai",
+                confidence: i % 4 === 0 ? 0.78 : 0.98,
+                reason:
+                  i % 4 === 0
+                    ? "Regional feed needs confirmation; the current programme differs."
+                    : "Station identity, region and current programme agree.",
+                proposalKey: `mock-${c.id}`,
+              },
+            },
+          ]),
+      );
+      sessionStorage.setItem("ether-guide-review-v2:all:lineup", JSON.stringify({ rows }));
+    }
+  }
+  const guideUndo = new Map<string, { id: string; guideId: unknown; guideSourceId: unknown }[]>();
 
   function schedule(c: Channel, from: number, until: number): Programme[] {
     const out: Programme[] = [];
@@ -465,6 +520,8 @@ export function createLiveTVMock(titles: FakeTitle[], empty = false) {
     if (seg[0] !== "livetv") return null;
     const route = `${method} /${seg.slice(1).join("/")}`;
     const now = Date.now();
+    if (route === "GET /usage")
+      return { body: { sessions: 0, viewers: 0, watching: [], sources: [] } };
     if (method === "GET" && seg[1] === "channels" && seg[3] === "rundown") {
       const viewer = Number(q.get("viewer") || 1);
       const picks = slice(viewer + 3, 14);
@@ -582,7 +639,58 @@ export function createLiveTVMock(titles: FakeTitle[], empty = false) {
       };
     }
     if (route === "POST /guide/match") {
-      const b = (body ?? {}) as { channelIds?: string[]; dryRun?: boolean };
+      const b = (body ?? {}) as {
+        channelIds?: string[];
+        dryRun?: boolean;
+        ai?: string;
+        selections?: { channelId: string; guideId: string; guideSourceId: string }[];
+        undoToken?: string;
+      };
+      if (b.ai === "undo") {
+        const before = guideUndo.get(b.undoToken ?? "");
+        if (!before) return { status: 400, body: { error: "undo expired" } };
+        for (const v of before) {
+          const c = channels.find((c) => c.id === v.id)!;
+          c.guideId = v.guideId as string;
+          c.guideSourceId = v.guideSourceId as string;
+          unlisted.add(c.id);
+        }
+        guideUndo.delete(b.undoToken!);
+        return { body: { matched: before.length, changes: [] } };
+      }
+      if (b.ai === "commit") {
+        const selections = b.selections ?? [],
+          token = `undo-${Date.now()}`;
+        const before = selections.map((v) => {
+          const c = channels.find((c) => c.id === v.channelId)!;
+          return { id: c.id, guideId: c.guideId, guideSourceId: c.guideSourceId };
+        });
+        for (const v of selections) {
+          const c = channels.find((c) => c.id === v.channelId)!;
+          c.guideId = v.guideId;
+          c.guideSourceId = v.guideSourceId;
+          unlisted.delete(c.id);
+        }
+        guideUndo.set(token, before);
+        return { body: { matched: selections.length, undoToken: token, changes: [] } };
+      }
+
+      if (b.ai === "estimate")
+        return {
+          body: {
+            matched: 0,
+            unmatched: unlisted.size,
+            changes: [],
+            ai: {
+              configured: true,
+              estimatedCalls: 1,
+              inputTokens: 2400,
+              cached: 0,
+              calls: 0,
+              deferred: 0,
+            },
+          },
+        };
       const targets = channels.filter(
         (c) =>
           c.kind === "iptv" &&
@@ -590,16 +698,23 @@ export function createLiveTVMock(titles: FakeTitle[], empty = false) {
           unlisted.has(c.id) &&
           (!b.channelIds || b.channelIds.includes(c.id)),
       );
-      const changes = targets.map((c) => ({
+      const changes = targets.map((c, i) => ({
         channelId: c.id,
         channelName: c.name,
         guideSourceId: "regional-epg",
         guideSourceName: "Regional listings",
         guideId: `${c.name.replace(/[^A-Za-z0-9]+/g, "")}.regional`,
         guideName: `${c.name} HD`,
-        method: "name",
+        method: b.ai ? "ai" : "name",
+        ...(b.ai
+          ? {
+              confidence: i === 1 ? 0.74 : 0.98,
+              reason: "Station identity, region and current programme agree.",
+              proposalKey: `mock-${c.id}`,
+            }
+          : {}),
       }));
-      if (!b.dryRun)
+      if (!b.dryRun && b.ai !== "propose")
         for (const ch of changes) {
           const c = channels.find((x) => x.id === ch.channelId)!;
           c.guideSourceId = ch.guideSourceId;

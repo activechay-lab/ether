@@ -223,6 +223,10 @@ type tmdbRef struct{ client TMDB }
 
 // Catalog implements core.Catalog.
 type Catalog struct {
+	listSummaryMu sync.Mutex
+	listSummaries map[core.RatingKey]listSummary
+
+	startupContext    context.Context
 	metadataMu        sync.RWMutex
 	metadataProviders map[string]*metadataRegistration
 	metadataFlights   flight.Group[string, *core.Title]
@@ -350,6 +354,11 @@ type listEntry struct {
 // Option customises a Catalog.
 type Option func(*Catalog)
 
+// WithStartupContext carries cancellation and upgrade progress into constructor backfills.
+func WithStartupContext(ctx context.Context) Option {
+	return func(c *Catalog) { c.startupContext = ctx }
+}
+
 func WithNow(fn func() time.Time) Option {
 	return func(c *Catalog) { c.setNow(fn) }
 }
@@ -416,7 +425,12 @@ func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...
 	if err := c.reloadViewerRules(context.Background()); err != nil {
 		return nil, err
 	}
-	c.ensureSortTitlesFolded(context.Background())
+	ctx := c.startupContext
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	c.ensureSortTitlesFolded(ctx)
+	c.startupContext = nil
 	return c, nil
 }
 

@@ -14,8 +14,13 @@ func (s *Server) routes() chi.Router {
 
 	// get registers GET and HEAD.
 	get := func(pattern string, h http.HandlerFunc) {
-		r.Get(pattern, h)
-		r.Head(pattern, h)
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			if !s.serveShelfGeneration(w, r) {
+				h(w, r)
+			}
+		}
+		r.Get(pattern, handler)
+		r.Head(pattern, handler)
 	}
 	any := func(pattern string, h http.HandlerFunc) { r.HandleFunc(pattern, h) }
 
@@ -70,6 +75,8 @@ func (s *Server) routes() chi.Router {
 	get("/library/metadata/{key}/parent", s.handleParent)
 	get("/library/metadata/{key}/grandparent", s.handleParent)
 	get("/library/metadata/{key}/extras", s.handleExtras)
+	r.Post("/library/metadata/{key}/extras", func(w http.ResponseWriter, r *http.Request) { writeHTTPError(w, http.StatusBadRequest) })
+	get("/library/metadata/{key}/extras/all", s.handleExtras)
 	get("/library/metadata/{key}/subtitles", s.handleSubtitleSearch)
 	r.Put("/library/metadata/{key}/subtitles", s.handleSubtitlePick)
 	r.Post("/library/metadata/{key}/subtitles", s.handleSubtitleUpload)
@@ -166,7 +173,10 @@ func (s *Server) routes() chi.Router {
 	get("/library/parts/{part}/{changestamp}/", s.handlePart)
 	get("/library/parts/{part}/{file}", s.handlePart)
 	r.Put("/library/parts/{part}", s.handlePartSelect)
+	r.Post("/library/parts/{part}", s.handlePartSelect)
 	get("/library/streams/{stream}", s.handleStream)
+	r.Put("/library/streams/{stream}", s.handleStream)
+	r.Delete("/library/streams/{stream}", s.handleStream)
 
 	// Downloads (Download Queue API)
 	r.Post("/downloadQueue", s.handleDownloadQueueCreate)

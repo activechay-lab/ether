@@ -15,6 +15,7 @@ import (
 )
 
 type execution struct {
+	foreign                       bool
 	done                          chan struct{}
 	busy, reservePending, retired bool
 	route                         Route
@@ -210,6 +211,7 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placemen
 	if err != nil {
 		return placement.Target{}, nil, remotetranscode.Capabilities{}, err
 	}
+	failure := &SelectionError{}
 	for _, candidate := range candidates {
 		target, rolesJSON, scopesJSON := candidate.target, candidate.rolesJSON, candidate.scopesJSON
 		var roles config.NodeRoles
@@ -224,12 +226,19 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placemen
 		if e = r.o.Eligible(ctx, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: target.NodeID, Boot: target.Boot}, config.RoleTranscode); e != nil {
 			continue
 		}
+		failure.Eligible++
 		claims := make([]placement.Claim, len(names))
 		available := true
 		for i, name := range names {
 			var remaining int64
 			err := r.o.DB.QueryRowContext(ctx, `SELECT p.capacity-COALESCE(SUM(c.units),0) FROM placement_pools p LEFT JOIN placement_claims c ON c.scope=p.scope WHERE p.scope=? AND p.role=? GROUP BY p.scope,p.capacity`, name, string(config.RoleTranscode)).Scan(&remaining)
-			if err != nil || remaining < 1 {
+			if err != nil {
+				failure.Unavailable++
+				available = false
+				break
+			}
+			if remaining < 1 {
+				failure.Exhausted++
 				available = false
 				break
 			}
@@ -240,12 +249,21 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placemen
 			continue
 		}
 		caps, e := r.workerCapabilities(ctx, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: target.NodeID, Boot: target.Boot}, q)
-		if e != nil || !supportedRequest(q, caps) {
+		if e != nil {
+			if errors.Is(e, remotetranscode.ErrUnsupported) {
+				failure.Unsupported++
+			} else {
+				failure.Unavailable++
+			}
+			continue
+		}
+		if !supportedRequest(q, caps) {
+			failure.Unsupported++
 			continue
 		}
 		return target, claims, caps, nil
 	}
-	return placement.Target{}, nil, remotetranscode.Capabilities{}, placement.ErrCapacity
+	return placement.Target{}, nil, remotetranscode.Capabilities{}, failure
 }
 
 func (r *Runtime) Session(id string) (core.HLSSession, bool) {
@@ -319,12 +337,14 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		list = append(list, &copy)
 	}
 	r.mu.Unlock()
-	var result error
+	result := r.tickReopenLives(ctx)
 	r.mu.Lock()
 	remote := r.remotePlayback
 	r.mu.Unlock()
 	if remote != nil {
-		result = remote.tick(ctx)
+		if e := remote.tick(ctx); e != nil {
+			result = e
+		}
 	}
 	for _, x := range list {
 		if e := ctx.Err(); e != nil {
@@ -428,6 +448,14 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	return result
 }
 func (r *Runtime) retire(ctx context.Context, x *execution) error {
+	if retired, e := r.retainedReceipt(ctx, x.route); e != nil {
+		return e
+	} else if retired {
+		return nil
+	}
+	if x.foreign {
+		return r.retireForeign(ctx, x)
+	}
 	if x.session != nil {
 		_ = x.session.RetireEncoder()
 		_ = x.session.Reconcile(ctx)
@@ -441,7 +469,7 @@ func (r *Runtime) retire(ctx context.Context, x *execution) error {
 	if e != nil || !source.Retired {
 		return ErrPending
 	}
-	return r.o.Placement.Retire(ctx, x.route.Fence, "clusterplayback/exact-retirement")
+	return r.retireWithEvidence(ctx, x.route, "clusterplayback/exact-retirement")
 }
 func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
 	r.mu.Lock()
@@ -451,8 +479,12 @@ func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
 		return ErrPending
 	}
 	s := x.session
+	foreign := x.foreign
 	rt := x.route
 	r.mu.Unlock()
+	if foreign {
+		return r.verifyForeign(ctx, rt)
+	}
 	if s != nil && s.EncoderErr() != nil {
 		return ErrPending
 	}

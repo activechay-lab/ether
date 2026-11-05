@@ -252,16 +252,19 @@ func (s *sessionStore) migrate(ctx context.Context, origins map[string]string) (
 	if err := rows.Err(); err != nil {
 		return 0, nil, err
 	}
+	batch := store.NewUpgradeBatch(s.db)
+	defer batch.Close()
 	n := 0
 	var waiting []string
-	for _, r := range all {
+	for i, r := range all {
+		store.WorkProgress(ctx, "cookies", i, len(all))
 		if config.IsSealed(r.raw) {
 			continue
 		}
 		origin, ok := origins[r.id]
 		if !ok {
 			// Login cookies of a removed indexer: useless, and plaintext.
-			res, err := s.db.ExecContext(ctx, `DELETE FROM cardigann_sessions WHERE indexer_id=? AND cookies=?`, r.id, r.raw)
+			res, err := batch.ExecContext(ctx, `DELETE FROM cardigann_sessions WHERE indexer_id=? AND cookies=?`, r.id, r.raw)
 			if err != nil {
 				return n, waiting, err
 			}
@@ -274,10 +277,22 @@ func (s *sessionStore) migrate(ctx context.Context, origins map[string]string) (
 			waiting = append(waiting, r.id)
 			continue
 		}
-		if s.reseal(ctx, r.id, origin, r.raw, r.raw) {
+		sealed, err := config.SealWith(s.sealer, r.raw, cookieContext(r.id, origin)...)
+		if err != nil {
+			return n, waiting, err
+		}
+		res, err := batch.ExecContext(ctx, `UPDATE cardigann_sessions SET cookies=? WHERE indexer_id=? AND cookies=?`, sealed, r.id, r.raw)
+		if err != nil {
+			return n, waiting, err
+		}
+		if k, _ := res.RowsAffected(); k > 0 {
 			n++
 		}
 	}
+	if err := batch.Flush(); err != nil {
+		return n, waiting, err
+	}
+	store.WorkProgress(ctx, "cookies", len(all), len(all))
 	return n, waiting, nil
 }
 

@@ -200,6 +200,7 @@ type Options struct {
 // (copying a SQLite database before migrating it) or StageMigrate, where
 // Done of Total pending migrations have been applied.
 type Progress struct {
+	Name        string
 	Stage       string
 	Done, Total int
 }
@@ -358,6 +359,7 @@ func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress
 	}
 	// Recommended at open by the SQLite docs: analyse tables whose stats are
 	// missing or stale, bounded by the 0x10000 analysis limit so it is cheap.
+	WorkProgress(ctx, "optimizing", 0, 0)
 	_, _ = db.ExecContext(ctx, `PRAGMA optimize=0x10002`)
 	if path != ":memory:" {
 		// Opening SQLite re-reads the whole schema. The default idle pool
@@ -498,7 +500,7 @@ func migrateSQLite(ctx context.Context, db *sql.DB, progress func(Progress)) err
 		} else if done {
 			continue
 		}
-		report(progress, Progress{Stage: StageMigrate, Done: i, Total: len(pending)})
+		report(progress, Progress{Stage: StageMigrate, Name: fmt.Sprintf("%s/%d", m.component, m.version), Done: i, Total: len(pending)})
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
@@ -521,6 +523,7 @@ func migrateSQLite(ctx context.Context, db *sql.DB, progress func(Progress)) err
 			tx.Rollback()
 			return err
 		}
+		WorkProgress(ctx, "statistics", 0, 0)
 		if err := analyseNewIndexes(ctx, tx); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("migration %s/%d: statistics: %w", m.component, m.version, err)

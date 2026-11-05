@@ -49,6 +49,11 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 60000
+        },
+        "ledgerCapacity": {
+          "type": "integer",
+          "minimum": 4096,
+          "maximum": 10000000
         }
       }
     },
@@ -863,10 +868,19 @@
           "type": "object"
         },
         "hosts": {
-          "type": "array"
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253
+          },
+          "uniqueItems": true
         },
         "tls": {
           "type": "array"
+        },
+        "canonicalHLSLabOnly": {
+          "type": "boolean"
         }
       }
     },

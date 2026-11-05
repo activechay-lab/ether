@@ -17,8 +17,12 @@ import (
 )
 
 func (c *Catalog) upsertSummaries(ctx context.Context, titles []core.Title, browsable bool) error {
+	return c.upsertSummaryBatch(ctx, titles, browsable, false)
+}
+
+func (c *Catalog) upsertSummaryBatch(ctx context.Context, titles []core.Title, browsable, preserveDetailed bool) error {
 	if browsable {
-		return c.upsertMany(ctx, titles, upsertOpts{browsable: true})
+		return c.upsertMany(ctx, titles, upsertOpts{browsable: true, preserveDetailed: preserveDetailed})
 	}
 	// One transaction for the list, while retaining each title's threshold.
 	// A transaction per summary adds two network round trips per tile in HA.
@@ -36,7 +40,7 @@ func (c *Catalog) upsertSummaries(ctx context.Context, titles []core.Title, brow
 	defer tx.Rollback()
 	now := c.now().Unix()
 	for _, t := range titles {
-		if err := upsertOne(ctx, tx, t, upsertOpts{browsable: c.meetsThreshold(t)}, now); err != nil {
+		if err := upsertOne(ctx, tx, t, upsertOpts{browsable: c.meetsThreshold(t), preserveDetailed: preserveDetailed}, now); err != nil {
 			return err
 		}
 	}
@@ -597,7 +601,7 @@ func (c *Catalog) List(ctx context.Context, list string, t core.MediaType, limit
 	if err != nil {
 		return nil, err
 	}
-	if err := c.upsertSummaries(ctx, items, false); err != nil {
+	if err := c.mirrorListSummaries(ctx, "list:"+cacheKey, items, false); err != nil {
 		return nil, err
 	}
 	// Hydrate the list together: the facet queries are already batch-aware.

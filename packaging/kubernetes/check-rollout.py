@@ -20,8 +20,9 @@ with open(os.environ['CALLS'],'a') as f: f.write(json.dumps(args)+'\\n')
 mode=os.environ['MODE']
 old=os.environ['OLD']; new=os.environ['NEW']
 if 'get' in args:
-    print('full\\t'+old if 'role' in ' '.join(args) else new)
+    print('full\\t'+old+'\\t'+('/config' if mode=='legacy' else '/wrong' if mode=='unknown-layout' else '/config/ether') if 'role' in ' '.join(args) else new)
 elif 'exec' in args:
+    assert args[args.index('--data-dir')+1] == ('/config' if mode=='legacy' else '/config/ether')
     if mode=='drain-fails': sys.exit(23)
 elif 'delete' in args:
     assert '--raw' in args and '-f' in args and args[-1]=='-'
@@ -36,7 +37,7 @@ elif 'wait' not in args:
     sys.exit(90)
 ''')
     kubectl.chmod(0o755)
-    for mode, expected in [('drain-fails',23),('replaced',41),('success',0)]:
+    for mode, expected in [('drain-fails',23),('replaced',41),('success',0),('legacy',0),('unknown-layout',64)]:
         calls = work / f'{mode}.jsonl'
         result = subprocess.run(['bash', str(ROOT/'rollout.sh'), 'ether035-ha','test-full-0'],
             env={**os.environ, 'KUBECTL':str(kubectl),'MODE':mode,'CALLS':str(calls),'OLD':OLD,'NEW':NEW},
@@ -44,7 +45,7 @@ elif 'wait' not in args:
         assert result.returncode==expected, (mode,result.returncode,result.stderr)
         commands=[json.loads(line) for line in calls.read_text().splitlines()]
         deletes=[command for command in commands if 'delete' in command]
-        assert len(deletes)==(0 if mode=='drain-fails' else 1)
+        assert len(deletes)==(0 if mode in ('drain-fails','unknown-layout') else 1)
         if mode=='replaced':
             assert 'Conflict' in result.stderr
             assert not any('wait' in command for command in commands)

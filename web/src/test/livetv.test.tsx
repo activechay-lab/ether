@@ -910,3 +910,76 @@ it("uses saved source state when a different cluster node has no import progress
     ).toBeNull(),
   );
 });
+
+it("estimates AI cost before running and applies only reviewed proposals", async () => {
+  const calls = backend(
+    [iptv("c1"), iptv("c2", { name: "Cartoons", number: "102" })],
+    (url, init) => {
+      if (url.endsWith("/livetv/guide/coverage"))
+        return [
+          { channelId: "c1", programmes: 0 },
+          { channelId: "c2", programmes: 0 },
+        ];
+      if (!url.endsWith("/livetv/guide/match")) return undefined;
+      const b = JSON.parse(String(init?.body ?? "{}"));
+      return {
+        matched: 2,
+        unmatched: 0,
+        ai: {
+          configured: true,
+          estimatedCalls: 1,
+          inputTokens: 1200,
+          cached: 0,
+          calls: b.ai === "propose" ? 1 : 0,
+          deferred: 0,
+        },
+        changes:
+          b.ai === "estimate"
+            ? []
+            : [
+                {
+                  channelId: "c1",
+                  guideSourceId: "epg1",
+                  guideId: "news",
+                  guideName: "News 24",
+                  method: "ai",
+                  confidence: 0.98,
+                  reason: "Same station and region",
+                  proposalKey: "key-1",
+                },
+                {
+                  channelId: "c2",
+                  guideSourceId: "epg1",
+                  guideId: "cartoons",
+                  guideName: "Cartoons",
+                  method: "ai",
+                  confidence: 0.7,
+                  reason: "Region uncertain",
+                  proposalKey: "key-2",
+                },
+              ],
+      };
+    },
+  );
+  renderLiveTV("/livetv/guide-data");
+  fireEvent.click(await screen.findByRole("button", { name: "Match with AI" }, WAIT));
+  expect(await screen.findByText(/Estimated calls: 1/)).toBeVisible();
+  expect(calls.filter((c) => c.url.endsWith("/guide/match"))).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Find suggestions" }));
+  expect(await screen.findByRole("button", { name: "Accept match for News 24" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(screen.getByRole("button", { name: "Accept match for Cartoons" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  expect(screen.getByText("70% confidence")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Apply 1" }));
+  await waitFor(() => expect(calls.filter((c) => c.url.endsWith("/guide/match"))).toHaveLength(3));
+  const matchCalls = calls.filter((c) => c.url.endsWith("/guide/match"));
+  expect(JSON.parse(String(matchCalls[2]?.init?.body))).toMatchObject({
+    ai: "commit",
+    selections: [{ channelId: "c1", guideSourceId: "epg1", guideId: "news", proposalKey: "key-1" }],
+  });
+});

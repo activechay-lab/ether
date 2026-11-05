@@ -1,0 +1,36 @@
+=== RUN   TestUpgradeManual
+    upgrade_manual_test.go:75: STEP open 15.949542ms
+2026/11/05 13:29:39 INFO store: snapshot taken before applying database migrations path=/tmp/ether-upgrade-final033/ether.db.pre-migrate.bak
+    upgrade_manual_test.go:75: STEP snapshot  1/18 10.917710875s
+    upgrade_manual_test.go:75: STEP migrate availability/6 1/18 5.36175ms
+2026/11/05 13:29:44 WARN sqlite writer held holder=github.com/braedonsaunders/ether/internal/app.TestUpgradeManual duration=4.146138s
+    upgrade_manual_test.go:75: STEP migrate catalog/32 2/18 4.146262375s
+    upgrade_manual_test.go:75: STEP migrate catalog_viewer_rules/1 3/18 4.342042ms
+    upgrade_manual_test.go:75: STEP migrate cluster/3 4/18 9.84ms
+    upgrade_manual_test.go:75: STEP migrate clusterplayback/1 5/18 4.245083ms
+    upgrade_manual_test.go:75: STEP migrate livetv/5 6/18 4.319ms
+    upgrade_manual_test.go:75: STEP migrate livetv/6 7/18 4.434958ms
+    upgrade_manual_test.go:75: STEP migrate placement/1 8/18 4.648125ms
+    upgrade_manual_test.go:75: STEP migrate placement/2 9/18 4.295875ms
+    upgrade_manual_test.go:75: STEP migrate plexguid/4 10/18 4.2015ms
+    upgrade_manual_test.go:75: STEP migrate plexguid/5 11/18 4.107958ms
+    upgrade_manual_test.go:75: STEP migrate plexwatch_pms/1 12/18 4.924542ms
+    upgrade_manual_test.go:75: STEP migrate resolver/4 13/18 4.28525ms
+    upgrade_manual_test.go:75: STEP migrate resolver/5 14/18 4.169375ms
+    upgrade_manual_test.go:75: STEP migrate state/6 15/18 7.266417ms
+    upgrade_manual_test.go:75: STEP migrate state_plexwatch/5 16/18 560.328583ms
+    upgrade_manual_test.go:75: STEP migrate stats/9 17/18 7.507167ms
+    upgrade_manual_test.go:83: STEP migrate stats/10 18/18 394.5955ms; schema total 16.113259917s
+2026/11/05 13:29:45 INFO config: converted stored credentials to v2 legacy=0 plaintext=0
+    upgrade_manual_test.go:150: STEP catalogue sort titles 29.02864725s
+    upgrade_manual_test.go:150: STEP credential blobs 1.454149458s
+    upgrade_manual_test.go:150: STEP IPTV sources 1.494639083s
+    upgrade_manual_test.go:150: STEP Trakt tokens 1.22766s
+    upgrade_manual_test.go:150: STEP indexer cookies 1.219268459s
+    upgrade_manual_test.go:150: STEP notifications 1.345636291s
+    upgrade_manual_test.go:150: STEP ratings 11.444167ms
+    upgrade_manual_test.go:150: STEP checkpoint 12.129792ms
+    upgrade_manual_test.go:152: TOTAL 52.856926458s
+--- PASS: TestUpgradeManual (52.86s)
+PASS
+ok  	github.com/braedonsaunders/ether/internal/app	55.666s

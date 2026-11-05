@@ -279,7 +279,7 @@ func TestDownloadQueueLifecycle(t *testing.T) {
 
 	// Delete releases the temp file and the item is gone.
 	rec = f.do(t, http.MethodDelete, "/downloadQueue/"+itoa(qid)+"/items/"+itoa(itemID), ownerToken, nil)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete: %d", rec.Code)
 	}
 	if got := f.items(t, qid); len(got) != 0 {

@@ -312,7 +312,7 @@ func (n *notifier) deliver(msg notification, userID int64) {
 		if userID != 0 && sub.userID != userID && !sub.owner {
 			continue
 		}
-		if len(sub.filters) > 0 && !sub.filters[msg.typ] {
+		if (len(sub.filters) == 0 && msg.typ == "log") || (len(sub.filters) > 0 && !sub.filters[msg.typ]) {
 			continue
 		}
 		select {
@@ -362,7 +362,7 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, r *http.Request) {
 	defer s.notifier.unsubscribe(sub)
 
 	ctx := c.CloseRead(r.Context())
-	ping := time.NewTicker(30 * time.Second)
+	ping := time.NewTicker(10 * time.Second)
 	defer ping.Stop()
 	for {
 		select {
@@ -423,7 +423,7 @@ func (s *Server) handleEventSource(w http.ResponseWriter, r *http.Request) {
 	h.Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 	arm()
-	fmt.Fprint(w, "retry: 5000\n\n")
+	fmt.Fprint(w, ": connected\n\n")
 	fl.Flush()
 	ping := time.NewTicker(10 * time.Second)
 	defer ping.Stop()
@@ -522,16 +522,15 @@ func (s *Server) notifyTimeline(key core.RatingKey, t core.MediaType, title stri
 		Type: "timeline",
 		Size: 1,
 		TimelineEntry: []model.TimelineEntry{{
-			Identifier:    model.LibraryIdentifier,
-			SectionID:     fmt.Sprint(sec.ID),
-			ItemID:        key.String(),
-			ParentItemID:  parent,
-			RootItemID:    root,
-			Type:          typeNum,
-			Title:         title,
-			State:         5,
-			MetadataState: "created",
-			UpdatedAt:     s.now().Unix(),
+			Identifier:   model.LibraryIdentifier,
+			SectionID:    fmt.Sprint(sec.ID),
+			ItemID:       key.String(),
+			ParentItemID: parent,
+			RootItemID:   root,
+			Type:         typeNum,
+			Title:        title,
+			State:        5,
+			UpdatedAt:    s.now().Unix(),
 		}},
 	}, userID)
 }

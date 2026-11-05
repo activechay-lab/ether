@@ -128,3 +128,75 @@ availability and retains a token through pending reservation/start and stopped
 executions. It closes only after exact terminal reconciliation, including a fresh
 proof that a failed reservation had no side effect. Stop/expired lease/network
 errors never close this token on their own.
+
+## Same-owner reopen attestation
+
+ReopenSource and Runtime.VerifyReopen provide a concrete same-owner implementation
+of playbackcontinuity.SourceReopenVerifier. This is limited to the original exact
+owner node AND boot. The original authenticated preparation must remain available;
+its exact source lifetime and producers must have retired successfully, and the
+old complete placement fence must already be durably retired. Reopen uses the
+original authorized exact release through the real Manager, then requires fresh
+source revision AND size equality. This relies on the existing resolver/source
+immutable revision contract; equality does not invent a new byte hash guarantee.
+Cross-host and cross-boot equivalence are unsupported.
+
+The bounded source-owner registry returns an opaque attestation tied to the
+immutable reopen operation, original binding, original owner boot, old/new PlayID,
+revision and size. Verification rechecks current source policy, exact new route,
+and complete current placement authority. The first verified new fence binds
+permanently; another generation cannot reuse it. Historical successful verification
+is never current execution authority after retirement. A lost response retains the
+same operation; it must not prompt an alternate source/encoder start.
+
+This provider does not validate final delivery buffer retention, measured recovery
+bounds, independent restart or real muxed audio/video clocks. Those independent
+EvidenceVerifier methods and a surviving delivery buffer remain required before
+playbackcontinuity can drive an enabled recovery. Source-host loss still needs a
+separate authoritative immutable reopen provider plus real external fencing.
+
+## Concrete retirement evidence and atomic publication
+
+Pre-reservation target diagnostics return SelectionError with only aggregate
+eligible/exhausted/unsupported/unavailable counts. ErrNoEligibleTarget means no
+configured live candidate passed membership/role admission. ErrTargetUnavailable
+means at least one candidate had an unresolved pool or authenticated capability
+check; it is not saturation. ErrUnsupported means a candidate declined the exact
+request or negotiated capabilities. ErrCapacity is reserved for known exhausted
+advisory pools (all eligible candidates) or atomic placement admission. These
+observations never authorize retries after reservation, release, or retirement.
+
+Runtime now constructs placement.History with the configured cluster and itself as
+an independent re-fetching ReceiptVerifier. Read-only EvidencePath permits exact
+current controller proof reads while its lease remains active; a different live
+server may read only after the exact old authority is revoked/expired. It checks
+the complete current ledger fence and the actual intended worker/source boot on
+every observation. No encoder or source start, renewal or output occurs there.
+
+Worker.TerminalEvidence supplies the retained actual immutable Start hash,
+initial/accepted lease CAS, explicit negative admission barrier when applicable,
+and separately domain-bound joined encoder/local-input proof. Source evidence
+uses actual captured SourceHandle size, exact revision/PlayID/owner boot/fence,
+sealed authority+manager acquisition barriers, exact SourceRetirement Done/nil,
+zero tracked producers, and joined source verification/acquisition/issuance calls.
+Those callbacks register before invoking external authority and run outside the
+runtime mutex. Future source calls cannot cross the sealed registry admission.
+Bounded expired credential-index eviction only removes rejected credentials; it
+never proves source/encoder retirement or releases placement capacity.
+
+Complete independently authenticated proofs use RetireWithReceipt atomically with
+claim release. An unknown write result retains the local execution token. The next
+Tick first checks the exact immutable receipt, so a committed-but-lost response can
+settle without contacting nodes again, including after a replacement. A generic
+retired status, absent record, source-only lease extension or enum value cannot
+manufacture a receipt. Unsupported worker proof keeps payloads; ordinary Retire
+still uses its original verifier and cannot authorize history compaction. No map
+or generation-floor eviction is enabled by this change. Pre-placement random
+operation histories still require their own durable replay barrier before reuse.
+
+Focused composition checks include independent proof/digest binding, accepted
+renewal preservation, a deliberately unjoined source callback, tampered source
+proof rejection, atomic receipt insert failure with capacity retained, and a
+committed write whose local acknowledgement is lost while both remote endpoints
+are unavailable. Historical receipts remain exact and readable after replacement;
+they never restore current execution authority.

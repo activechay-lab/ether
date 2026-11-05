@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 const MaxMessage = 64 << 10
@@ -24,7 +25,7 @@ var ErrUncertain = errors.New("remotetranscode: execution responsibility require
 // Capabilities must be consulted by placement before choosing this adapter.
 // Segment seeks use the backend's ordinary ServeSegment behavior. Source swaps,
 // probe, subtitles, DASH, HTTP Matroska, ABR and optional session controls are not supported.
-type Capabilities struct{ HLS, SegmentSeek, DASH, HTTP, Probe, SourceSwap, Subtitles, ABR, SoftSubtitles, Controls, Observations bool }
+type Capabilities struct{ HLS, SegmentSeek, DASH, HTTP, Probe, SourceSwap, Subtitles, ABR, SoftSubtitles, Controls, Observations, Keyframes bool }
 
 // NormalizeCapabilities preserves fixed HLS for zero options and rejects promises
 // for operations that have no concrete private implementation.
@@ -49,8 +50,9 @@ type Identity struct {
 	Generation uint64
 }
 type Start struct {
-	SoftSubtitleStream *int   `json:",omitempty"`
-	Protocol           string `json:",omitempty"`
+	Keyframes          []core.KeyframePoint `json:",omitempty"`
+	SoftSubtitleStream *int                 `json:",omitempty"`
+	Protocol           string               `json:",omitempty"`
 	ReleaseID          string
 	Identity           Identity
 	Grant              string
@@ -195,7 +197,10 @@ func SupportsRequest(r core.HLSRequest, c Capabilities) bool {
 	if r.ManifestSessionID != "" || len(r.ReleaseID) > 512 {
 		return false
 	}
-	if r.InputLease != nil || len(r.InputHeaders) > 0 || r.LiveInput || r.CopyTimestamps || len(r.SlateText) > 0 || len(r.Info.Keyframes) > 0 {
+	if r.InputLease != nil || len(r.InputHeaders) > 0 || r.LiveInput || r.CopyTimestamps || len(r.SlateText) > 0 {
+		return false
+	}
+	if !ValidateKeyframes(r.Info) || (len(r.Info.Keyframes) > 0 && !c.Keyframes) {
 		return false
 	}
 	if r.SoftSubtitleStream != nil {
@@ -203,7 +208,7 @@ func SupportsRequest(r core.HLSRequest, c Capabilities) bool {
 			return false
 		}
 	}
-	b, err := json.Marshal(Start{ReleaseID: r.ReleaseID, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof})
+	b, err := json.Marshal(Start{Keyframes: r.Info.Keyframes, ReleaseID: r.ReleaseID, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof})
 	if err != nil || len(b) > MaxMessage-8192 {
 		return false
 	}
@@ -223,7 +228,7 @@ func validPlan(info core.MediaInfo, d core.Decision, offset, segment time.Durati
 	if d.Kind != core.DecisionRemux && d.Kind != core.DecisionTranscode {
 		return false
 	}
-	if d.BurnSubtitles || d.SubtitleStream >= 0 || len(d.AudioFilters) > 0 || d.Enhancement != (core.VideoEnhancement{}) {
+	if d.BurnSubtitles || d.SubtitleStream >= 0 || len(d.AudioFilters) > 0 || !transcode.SupportsDistributedEnhancement(d.Enhancement) {
 		return false
 	}
 	for _, s := range info.Streams {
@@ -241,4 +246,15 @@ func validRenewal(r Renewal) bool {
 	_, oldOffset := r.PreviousDeadline.Zone()
 	_, newOffset := r.Deadline.Zone()
 	return validIdentity(r.Identity) && r.Operation != 0 && r.PreviousVersion != ^uint64(0) && r.Operation == r.PreviousVersion+1 && !r.PreviousDeadline.IsZero() && oldOffset == 0 && newOffset == 0 && r.Deadline.After(r.PreviousDeadline)
+}
+
+const MaxKeyframes = transcode.MaxDistributedKeyframes
+
+// ValidateKeyframes is shared by runtime capability/source DTOs and worker
+// admission. It validates the complete index without changing any point.
+func ValidateKeyframes(info core.MediaInfo) bool { return transcode.ValidateDistributedKeyframes(info) }
+func startInfo(s Start) core.MediaInfo {
+	info := core.CloneMediaInfo(s.Info)
+	info.Keyframes = append([]core.KeyframePoint(nil), s.Keyframes...)
+	return info
 }

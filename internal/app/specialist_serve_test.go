@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
 	"testing"
 	"time"
 
@@ -31,6 +32,15 @@ func (supervisorEncoder) StartHLSOwned(context.Context, core.HLSRequest) (core.H
 // cancellation, drain and Close with explicit offline worker dependencies.
 // Encoding acceptance belongs to the runtime lab; this fixture starts no child.
 func TestSpecialistExecutableSupervisorLifecycle(t *testing.T) {
+	testSpecialistExecutableSupervisor(t, config.RoleTranscode)
+}
+
+func TestSourceExecutableSupervisorLifecycle(t *testing.T) {
+	testSpecialistExecutableSupervisor(t, config.RoleSource)
+}
+
+func testSpecialistExecutableSupervisor(t *testing.T, role config.NodeRole) {
+	t.Helper()
 	dir := t.TempDir()
 	db := store.OpenTest(t)
 	ca, key := privateIssuerFiles(t, dir)
@@ -44,12 +54,36 @@ func TestSpecialistExecutableSupervisorLifecycle(t *testing.T) {
 			if err != nil {
 				return nil, err
 			}
-			roles := config.NodeRoles{config.RoleTranscode}
+			roles := config.NodeRoles{role}
 			if err = cfg.Update(func(c *config.Config) error { c.Server.NodeRoles = roles; return nil }); err != nil {
 				return nil, err
 			}
-			a := &App{opts: opts, cfg: cfg, db: db, log: opts.Logger, deployment: &deploymentRuntime{settings: clusterconfig.Deployment{Roles: roles, Capacity: 1, ClockBoundKnown: true, PrivateListen: "127.0.0.1:0", InternalAddress: "https://127.0.0.1:32401", CAFile: ca, CAKeyFile: key, RootsFile: ca, DrainSeconds: 1}, errors: make(chan error, 3)}}
+			a := &App{opts: opts, cfg: cfg, db: db, log: opts.Logger, deployment: &deploymentRuntime{settings: clusterconfig.Deployment{Roles: roles, LedgerCapacity: 4096, Capacity: 1, ClockBoundKnown: true, PrivateListen: "127.0.0.1:0", InternalAddress: "https://127.0.0.1:32401", CAFile: ca, CAKeyFile: key, RootsFile: ca, DrainSeconds: 1}, errors: make(chan error, 3)}}
 			a.closers = append(a.closers, cfg.Close)
+			t.Cleanup(a.Close)
+			if role == config.RoleSource {
+				if err := a.buildCluster(store.SQLite); err != nil {
+					return nil, err
+				}
+				a.cluster = supervisorMembership{a.cluster}
+				probePath, err := os.Executable()
+				if err != nil {
+					return nil, err
+				}
+				sourceCfg := cfg.Get()
+				sourceCfg.Transcode.FFprobePath = probePath
+				if err := a.buildSourceRole(ctx, sourceCfg); err != nil {
+					return nil, err
+				}
+				if err := a.buildPrivateCredentials(); err != nil {
+					return nil, err
+				}
+				if err := a.buildClusterPlayback(ctx, cfg.Get()); err != nil {
+					return nil, err
+				}
+				created <- a
+				return a, nil
+			}
 			a.cluster = supervisorMembership{cluster.NewSolo(cluster.Local{Identity: cluster.Identity{NodeID: "worker"}, Roles: roles, Protocol: a.privateProtocol, Caps: func() cluster.Caps { return cluster.Caps{Transcode: true} }}, opts.Logger)}
 			if err = a.buildPrivateCredentials(); err != nil {
 				return nil, err

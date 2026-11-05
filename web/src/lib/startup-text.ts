@@ -1,3 +1,4 @@
+import { formatNumber } from "./format";
 import { t } from "../i18n";
 import type { ReconnectStep } from "./reconnect";
 import type { StartupFailureCode, StartupStatus } from "./ops";
@@ -38,6 +39,19 @@ function databaseName(s: StartupStatus): string {
 
 /** A starting server's phase as a headline and one line of detail. */
 export function phaseText(s: StartupStatus, now = Date.now()): { title: string; detail: string } {
+  if (s.task) {
+    const title = workTitle(s.task);
+    return {
+      title,
+      detail: s.total
+        ? t("{operation}: {done} of {total}", {
+            operation: title.replace(/…$/, ""),
+            done: formatNumber(s.completed ?? 0, 0),
+            total: formatNumber(s.total, 0),
+          })
+        : title,
+    };
+  }
   switch (s.phase) {
     case "starting":
       return { title: t("Starting Ether"), detail: t("Reading your settings…") };
@@ -168,5 +182,48 @@ export function failureText(s: StartupStatus): { title: string; body: string } {
         title: t("Something went wrong while starting"),
         body: t("Ether keeps trying by itself. The details below can help if it keeps failing."),
       };
+  }
+}
+
+export function workTitle(task: string): string {
+  switch (task) {
+    case "sort_titles":
+      return t("Normalizing catalogue titles…");
+    case "snapshot":
+      return t("Saving a safety copy");
+    case "release_names":
+    case "catalog/32":
+      return t("Indexing release names…");
+    case "settings":
+      return t("Securing saved settings…");
+    case "availability_releases":
+    case "availability_feed_items":
+    case "blobs":
+      return t("Securing cached releases…");
+    case "livetv":
+    case "sources":
+      return t("Securing IPTV sources…");
+    case "indexer sites":
+    case "cookies":
+      return t("Securing indexer cookies…");
+    case "trakt":
+    case "tokens":
+      return t("Securing stored credentials…");
+    case "ratings":
+      return t("Securing ratings credentials…");
+    case "search cache":
+      return t("Removing legacy search cache…");
+    case "notifications":
+      return t("Securing notifications…");
+    case "statistics":
+    case "optimizing":
+      return t("Updating database statistics…");
+    case "checkpoint":
+      return t("Saving database changes…");
+    case "clusterconfig_secrets":
+    case "secrets":
+      return t("Securing stored credentials…");
+    default:
+      return t("Applying database update {migration}…", { migration: task });
   }
 }

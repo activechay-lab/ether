@@ -21,11 +21,13 @@ import (
 
 func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 	w, f, start := fixture(t)
+	start.Decision.Enhancement = core.VideoEnhancement{Backend: "nvenc-ngx-vsr", State: "off", Reason: "disabled by owner"}
 	w.opts.ValidateRenewal = receipt
 	caps := Supported()
 	caps.ABR, caps.DASH, caps.HTTP = true, true, true
 	caps.SoftSubtitles, caps.Controls = true, true
 	caps.Observations = true
+	caps.Keyframes = true
 	w.opts.Capabilities = caps
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -66,10 +68,12 @@ func TestMutualTLSAdapterAndDisconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	hs, proof, err := a.StartHLSOwned(context.Background(), core.HLSRequest{SessionID: start.Identity.Session, InputURL: "http://127.0.0.1/must-never-be-forwarded", Decision: start.Decision})
+	indexedRequest := core.HLSRequest{SessionID: start.Identity.Session, InputURL: "http://127.0.0.1/must-never-be-forwarded", Decision: start.Decision, Info: core.MediaInfo{Keyframes: []core.KeyframePoint{{Offset: 123, Time: 0}, {Offset: 9000, Time: 4 * time.Second}}}}
+	hs, proof, err := a.StartHLSOwned(context.Background(), indexedRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkKeyframeRoundTrip(t, a, f, indexedRequest, hs)
 	out := httptest.NewRecorder()
 	hs.ServeSegment(out, httptest.NewRequest("GET", "https://frontend/segment", nil), -1)
 	if out.Code != 206 || out.Body.String() != "abc" || out.Header().Get("Content-Range") != "bytes 0-2/3" {

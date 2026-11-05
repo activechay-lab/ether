@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -293,5 +294,44 @@ func TestCacheBounded(t *testing.T) {
 	}
 	if slug("  Slow-burn Sci-Fi: With a Twist!! ") != "slow-burn-sci-fi-with-a-twist" || slug("!!!") != "row" {
 		t.Fatalf("slug: %q", slug("  Slow-burn Sci-Fi: With a Twist!! "))
+	}
+}
+
+func TestGuideChatBudget(t *testing.T) {
+	for _, provider := range []string{"custom", "openai"} {
+		t.Run(provider, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				var b map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&b)
+				key := "max_tokens"
+				if provider == "openai" {
+					key = "max_completion_tokens"
+				}
+				if b[key] != float64(2048) {
+					t.Errorf("missing reply budget: %v", b)
+				}
+				if _, ok := b["temperature"]; ok {
+					t.Error("bounded request must not negotiate temperature")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				io.WriteString(w, `{"choices":[{"message":{"content":"{\"decisions\":[]}"}}]}`)
+			}))
+			defer server.Close()
+			// A custom endpoint exercises both legacy and reasoning-model token fields.
+			cfg := config.LLM{Enabled: true, Provider: "custom", BaseURL: server.URL, Model: "fixture"}
+			if provider == "openai" {
+				cfg.Model = "gpt-5-fixture"
+			}
+			svc := New(ServiceOptions{Client: NewClient(ClientOptions{Config: cfg, HTTPClient: server.Client()})})
+			_, e := svc.ChatGuide(context.Background(), "system", "input")
+			if e != nil {
+				t.Fatal(e)
+			}
+			if calls != 1 {
+				t.Fatalf("calls=%d", calls)
+			}
+		})
 	}
 }

@@ -1,0 +1,73 @@
+=== RUN   TestUpgradeManual
+    upgrade_manual_test.go:74: STEP open 13.581875ms
+2026/11/05 13:26:04 INFO store: snapshot taken before applying database migrations path=/tmp/ether-upgrade-fixed032-fast/ether.db.pre-migrate.bak
+    upgrade_manual_test.go:74: STEP snapshot  1/56 12.879150709s
+    upgrade_manual_test.go:74: STEP migrate agent/1 1/56 4.217458ms
+    upgrade_manual_test.go:74: STEP migrate availability/6 2/56 3.545375ms
+    upgrade_manual_test.go:74: STEP migrate availability_coverage/1 3/56 8.228583ms
+    upgrade_manual_test.go:74: STEP migrate availability_coverage/2 4/56 3.453875ms
+    upgrade_manual_test.go:74: STEP migrate availability_coverage/3 5/56 24.848292ms
+    upgrade_manual_test.go:74: STEP migrate availability_verdicts/1 6/56 3.760916ms
+    upgrade_manual_test.go:74: STEP migrate catalog/25 7/56 3.592708ms
+    upgrade_manual_test.go:74: STEP migrate catalog/26 8/56 3.43625ms
+    upgrade_manual_test.go:74: STEP migrate catalog/27 9/56 3.472792ms
+    upgrade_manual_test.go:74: STEP migrate catalog/28 10/56 824.229334ms
+    upgrade_manual_test.go:74: STEP migrate catalog/29 11/56 4.173708ms
+    upgrade_manual_test.go:74: STEP migrate catalog/30 12/56 3.595417ms
+    upgrade_manual_test.go:74: STEP migrate catalog/31 13/56 229.596959ms
+2026/11/05 13:26:08 WARN sqlite writer held holder=github.com/braedonsaunders/ether/internal/app.TestUpgradeManual duration=2.801005042s
+    upgrade_manual_test.go:74: STEP migrate catalog/32 14/56 2.801138375s
+    upgrade_manual_test.go:74: STEP migrate catalog_viewer_rules/1 15/56 4.119375ms
+    upgrade_manual_test.go:74: STEP migrate cluster/3 16/56 9.74625ms
+    upgrade_manual_test.go:74: STEP migrate clusterplayback/1 17/56 4.505625ms
+    upgrade_manual_test.go:74: STEP migrate identity_grants/3 18/56 7.186875ms
+    upgrade_manual_test.go:74: STEP migrate livetv/4 19/56 4.755208ms
+    upgrade_manual_test.go:74: STEP migrate livetv/5 20/56 4.538875ms
+    upgrade_manual_test.go:74: STEP migrate livetv/6 21/56 3.984834ms
+    upgrade_manual_test.go:74: STEP migrate markers/2 22/56 4.511666ms
+    upgrade_manual_test.go:74: STEP migrate markers/3 23/56 4.037208ms
+    upgrade_manual_test.go:74: STEP migrate mcp_oauth/1 24/56 4.635417ms
+    upgrade_manual_test.go:74: STEP migrate mcp_pairings/1 25/56 4.060583ms
+    upgrade_manual_test.go:74: STEP migrate mcp_pairings/2 26/56 5.001542ms
+    upgrade_manual_test.go:74: STEP migrate newznab_limits/1 27/56 4.040375ms
+    upgrade_manual_test.go:74: STEP migrate newznab_usage/1 28/56 4.842042ms
+    upgrade_manual_test.go:74: STEP migrate placement/1 29/56 4.786625ms
+    upgrade_manual_test.go:74: STEP migrate placement/2 30/56 4.033166ms
+    upgrade_manual_test.go:74: STEP migrate plexguid/3 31/56 3.888416ms
+    upgrade_manual_test.go:74: STEP migrate plexguid/4 32/56 4.098ms
+    upgrade_manual_test.go:74: STEP migrate plexguid/5 33/56 3.816959ms
+    upgrade_manual_test.go:74: STEP migrate plexwatch/5 34/56 47.004ms
+    upgrade_manual_test.go:74: STEP migrate plexwatch_pms/1 35/56 4.786583ms
+    upgrade_manual_test.go:74: STEP migrate plugin_collections/1 36/56 3.829542ms
+    upgrade_manual_test.go:74: STEP migrate plugin_studio/1 37/56 4.17ms
+    upgrade_manual_test.go:74: STEP migrate plugins/1 38/56 5.762083ms
+    upgrade_manual_test.go:74: STEP migrate plugins/2 39/56 6.810875ms
+    upgrade_manual_test.go:74: STEP migrate plugins/3 40/56 9.188209ms
+    upgrade_manual_test.go:74: STEP migrate plugins_catalogue/1 41/56 4.168333ms
+    upgrade_manual_test.go:74: STEP migrate plugins_catalogue/2 42/56 7.27925ms
+    upgrade_manual_test.go:74: STEP migrate plugins_proposals/1 43/56 3.946166ms
+    upgrade_manual_test.go:74: STEP migrate prerolls/1 44/56 4.615042ms
+    upgrade_manual_test.go:74: STEP migrate resolver/4 45/56 4.410917ms
+    upgrade_manual_test.go:74: STEP migrate resolver/5 46/56 4.934541ms
+    upgrade_manual_test.go:74: STEP migrate segcache/2 47/56 10.19075ms
+    upgrade_manual_test.go:74: STEP migrate sessions_source_offers/2 48/56 4.230667ms
+    upgrade_manual_test.go:74: STEP migrate state/6 49/56 9.2995ms
+    upgrade_manual_test.go:74: STEP migrate state_lastviewed/1 50/56 671.397458ms
+    upgrade_manual_test.go:74: STEP migrate state_plexwatch/5 51/56 594.363125ms
+    upgrade_manual_test.go:74: STEP migrate state_search/1 52/56 306.329375ms
+    upgrade_manual_test.go:74: STEP migrate state_updated/1 53/56 547.785084ms
+    upgrade_manual_test.go:74: STEP migrate stats/8 54/56 61.524667ms
+    upgrade_manual_test.go:74: STEP migrate stats/9 55/56 8.677084ms
+    upgrade_manual_test.go:82: STEP migrate stats/10 56/56 470.728041ms; schema total 19.700947125s
+2026/11/05 13:26:13 INFO config: converted stored credentials to v2 legacy=0 plaintext=0
+    upgrade_manual_test.go:135: STEP credential blobs 1.501835833s
+    upgrade_manual_test.go:135: STEP IPTV sources 1.482147334s
+    upgrade_manual_test.go:135: STEP Trakt tokens 1.2416s
+    upgrade_manual_test.go:135: STEP indexer cookies 75.542µs
+    upgrade_manual_test.go:135: STEP notifications 45.834µs
+    upgrade_manual_test.go:135: STEP ratings 10.208µs
+    upgrade_manual_test.go:135: STEP checkpoint 13.651375ms
+    upgrade_manual_test.go:137: TOTAL 26.099399458s
+--- PASS: TestUpgradeManual (26.10s)
+PASS
+ok  	github.com/braedonsaunders/ether/internal/app	27.048s

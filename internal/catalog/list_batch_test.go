@@ -40,6 +40,7 @@ func TestListBatchPreservesOrderDetailsAndThreshold(t *testing.T) {
 	if got[1].Runtime != 90*time.Minute || len(got[1].Genres) != 1 || got[1].Genres[0] != "Drama" {
 		t.Fatalf("detail lost: %+v", got[1])
 	}
+	c.WaitRefreshes() // source mirroring is detached from the serving request
 	for key, want := range map[core.RatingKey]int{first.Key: 1, core.MovieKey(2): 0} {
 		var n int
 		if err := db.QueryRowContext(ctx, "SELECT browsable FROM catalog_titles WHERE key=?", key).Scan(&n); err != nil || n != want {

@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/net/netutil"
+
 	"github.com/braedonsaunders/ether/internal/cluster"
 	"github.com/braedonsaunders/ether/internal/clusterconfig"
 	"github.com/braedonsaunders/ether/internal/config"
@@ -35,8 +37,9 @@ type privatePlayback interface {
 
 type deploymentRuntime struct {
 	sourceAdmin   http.Handler
+	publicReady   atomic.Bool
 	quotaOpen     atomic.Bool
-	quota         atomic.Pointer[placement.QuotaStatus]
+	quota         atomic.Pointer[runtimeQuotaSnapshot]
 	encoder       *transcode.Manager
 	placement     *placement.Service
 	settings      clusterconfig.Deployment
@@ -82,15 +85,15 @@ func (a *App) prepareDeployment(ctx context.Context) error {
 	mux.HandleFunc("GET /readyz", probe(p.ready.Load))
 	mux.HandleFunc("GET /admissionz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if !p.ready.Load() || !p.quotaOpen.Load() || a.nodeDraining() {
+		if !a.privateAdmissionReady() {
 			w.WriteHeader(503)
 		}
 		_ = json.NewEncoder(w).Encode(struct {
 			Accepting bool                   `json:"accepting"`
 			Ledger    *placement.QuotaStatus `json:"ledger,omitempty"`
-		}{p.ready.Load() && p.quotaOpen.Load() && !a.nodeDraining(), p.quota.Load()})
+		}{a.privateAdmissionReady(), p.quotaStatus()})
 	})
-	p.probes = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
+	p.probes = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	p.probeListener, err = net.Listen("tcp", d.ProbeListen)
 	if err != nil {
 		return errors.New("deployment: cannot bind probe listener")
@@ -192,13 +195,13 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		}
 		p.playback.Handler().ServeHTTP(w, r)
 	})
-	srv := &http.Server{Handler: mux, TLSConfig: p.guard.ServerTLS(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
+	srv := &http.Server{Handler: mux, TLSConfig: p.guard.ServerTLS(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	a.closers = append(a.closers, cancel)
 	var workers sync.WaitGroup
 	launch := func(f func()) { workers.Add(1); go func() { defer workers.Done(); f() }() }
 	launch(func() {
-		err := srv.Serve(tls.NewListener(ln, srv.TLSConfig))
+		err := srv.Serve(tls.NewListener(netutil.LimitListener(ln, 256), srv.TLSConfig))
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			p.ready.Store(false)
 			p.protocol.Store(0)
@@ -225,7 +228,10 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 				err := a.reconcilePrivatePlacement(op)
 				_ = p.playback.Tick(op) // pending retirement is healthy retained ownership, not readiness loss
 				c()
-				p.ready.Store(err == nil && p.playback.Ready())
+				p.ready.Store(err == nil && a.privateServicesReady())
+				if p.ready.Load() {
+					p.started.Store(true)
+				}
 				if p.ready.Load() {
 					p.protocol.Store(1)
 				} else {
@@ -292,9 +298,11 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		workers.Wait()
 		return nil, err
 	}
-	p.started.Store(true)
-	p.ready.Store(true)
-	p.protocol.Store(1)
+	p.ready.Store(a.privateServicesReady())
+	if p.ready.Load() {
+		p.started.Store(true)
+		p.protocol.Store(1)
+	}
 	return func() {
 		a.drainPrivate()
 		p.protocol.Store(0)
@@ -336,6 +344,10 @@ func (a *App) runSpecialist(ctx context.Context) error {
 		return err
 	}
 	defer a.cluster.Close()
+	if a.fetcher != nil {
+		background.start(func() { a.runBudgets(ctx) })
+		background.start(func() { a.runEgress(ctx) })
+	}
 	stop, err := a.startPrivate(ctx)
 	if err != nil {
 		return err
@@ -348,5 +360,26 @@ func (a *App) runSpecialist(ctx context.Context) error {
 		return err
 	case err := <-a.privateErrors():
 		return err
+	}
+}
+
+// Public-role admission becomes ready only after the actual public listener and
+// its complete handler have been installed. Private-only workers need no public
+// frontend. Transient health loss does not clear the completed startup probe.
+func (a *App) privateServicesReady() bool {
+	p := a.deployment
+	if p == nil || p.playback == nil || !p.playback.Ready() {
+		return false
+	}
+	return !(p.settings.Roles.Has(config.RoleServer) || p.settings.Roles.Has(config.RoleDelivery)) || p.publicReady.Load()
+}
+func (a *App) markPublicReady() {
+	if p := a.deployment; p != nil {
+		p.publicReady.Store(true)
+		if a.privateServicesReady() {
+			p.started.Store(true)
+			p.ready.Store(true)
+			p.protocol.Store(1)
+		}
 	}
 }

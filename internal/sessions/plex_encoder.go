@@ -99,3 +99,12 @@ func (b *Broker) ForwardPlexMedia(w http.ResponseWriter, r *http.Request, id str
 	}
 	return false
 }
+
+func (b *Broker) ForwardPlexGrantMedia(w http.ResponseWriter, r *http.Request, id string) bool {
+	if remote, ok := b.deps.DistributedHLS.(interface {
+		ForwardPlexGrantMedia(http.ResponseWriter, *http.Request, string) bool
+	}); ok {
+		return remote.ForwardPlexGrantMedia(w, r, id)
+	}
+	return false
+}

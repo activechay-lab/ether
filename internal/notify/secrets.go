@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // Channel secrets are sealed inside the stored channel JSON
@@ -285,9 +286,12 @@ func (s *Service) MigrateSecrets(ctx context.Context) (int, error) {
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
+	batch := store.NewUpgradeBatch(s.db)
+	defer batch.Close()
 	n, failed := 0, 0
 	var firstErr error
-	for _, r := range all {
+	for i, r := range all {
+		store.WorkProgress(ctx, "notifications", i, len(all))
 		c, legacy, err := s.decodeMigrationChannel(r.raw)
 		if err != nil {
 			failed++
@@ -305,7 +309,7 @@ func (s *Service) MigrateSecrets(ctx context.Context) (int, error) {
 		if !legacy || raw == r.raw {
 			continue
 		}
-		res, err := s.db.ExecContext(ctx, `UPDATE notify_channels SET config=? WHERE id=? AND config=?`, raw, r.id, r.raw)
+		res, err := batch.ExecContext(ctx, `UPDATE notify_channels SET config=? WHERE id=? AND config=?`, raw, r.id, r.raw)
 		if err != nil {
 			return n, err
 		}
@@ -313,6 +317,10 @@ func (s *Service) MigrateSecrets(ctx context.Context) (int, error) {
 			n++
 		}
 	}
+	if err := batch.Flush(); err != nil {
+		return n, err
+	}
+	store.WorkProgress(ctx, "notifications", len(all), len(all))
 	var private, public string
 	if s.opts.Sealer == nil {
 		// Shape migration above does not need a key; sealing the push
@@ -341,7 +349,7 @@ func (s *Service) MigrateSecrets(ctx context.Context) (int, error) {
 			return n, serr
 		}
 		if sealed != private {
-			res, uerr := s.db.ExecContext(ctx, `UPDATE notify_push_keys SET private_key=? WHERE id='vapid' AND private_key=?`, sealed, private)
+			res, uerr := batch.ExecContext(ctx, `UPDATE notify_push_keys SET private_key=? WHERE id='vapid' AND private_key=?`, sealed, private)
 			if uerr != nil {
 				return n, uerr
 			}
@@ -350,6 +358,9 @@ func (s *Service) MigrateSecrets(ctx context.Context) (int, error) {
 			}
 		}
 	case !errors.Is(err, sql.ErrNoRows):
+		return n, err
+	}
+	if err := batch.Flush(); err != nil {
 		return n, err
 	}
 	if failed > 0 {

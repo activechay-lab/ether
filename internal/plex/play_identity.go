@@ -67,6 +67,7 @@ type playIdentity struct {
 	// frozen: a session is being admitted or is live. The list, selected
 	// Media and part keys are not re-resolved until a render finds no
 	// session and no admission in flight.
+	flowUntil time.Time
 	frozen    bool
 	admitting int
 	// selected is the Media id the session was admitted on (0 = unknown);
@@ -163,7 +164,9 @@ func (p *playIdentities) entryLocked(k playIdentityKey, now time.Time) *playIden
 
 // pinned returns the identity's list. live renders (a session exists)
 // freeze it; a render without a session or admission thaws it, so the
-// next pre-playback page sees a fresh list.
+// selected playback state can be cleared. The issued list remains valid
+// through explicit pre-play (90 seconds pending) and live admission.
+// Ordinary detail renders remain free to discover versions.
 func (p *playIdentities) pinned(k playIdentityKey, live bool, now time.Time) pinnedVariants {
 	if p == nil || !k.valid() {
 		return pinnedVariants{}
@@ -177,17 +180,25 @@ func (p *playIdentities) pinned(k playIdentityKey, live bool, now time.Time) pin
 	if live {
 		e.frozen = true
 		e.at = now
-	} else if e.frozen && e.admitting == 0 {
+	} else if e.frozen && e.admitting == 0 && !now.Before(e.flowUntil) {
 		e.frozen, e.selected, e.admittedRelease, e.autoAligned = false, 0, "", ""
+		if !e.flowUntil.IsZero() {
+			e.resolved = false
+			e.variants = nil
+			e.flowUntil = time.Time{}
+		}
 	}
 	if !e.frozen && now.Sub(e.at) > playIdentityTTL {
 		return pinnedVariants{}
 	}
-	return pinnedVariants{variants: e.variants, resolved: e.resolved, frozen: e.frozen, selected: e.selected, admittedRelease: e.admittedRelease, autoAligned: e.autoAligned}
+	e.at = now
+	return pinnedVariants{variants: cloneVariants(e.variants), resolved: e.resolved, frozen: e.frozen, selected: e.selected, admittedRelease: e.admittedRelease, autoAligned: e.autoAligned}
 }
 
-// issueList records the version list just rendered. A frozen identity
-// keeps the list it already issued.
+// issueList remembers a real detail list for positional version choices.
+// Ordinary cold/singleton renders remain unresolved and can gain a picker.
+// Explicit pre-play/queue flows retain their list, including Auto, until
+// admission, stop or pending-flow expiry (#339).
 func (p *playIdentities) issueList(k playIdentityKey, vs []core.ReleaseVariant, live bool, now time.Time) {
 	if p == nil || !k.valid() {
 		return
@@ -199,7 +210,7 @@ func (p *playIdentities) issueList(k playIdentityKey, vs []core.ReleaseVariant, 
 		return
 	}
 	e.variants = cloneVariants(vs)
-	e.resolved = true
+	e.resolved = len(vs) >= 2 || e.frozen
 	e.at = now
 	if live {
 		e.frozen = true
@@ -217,7 +228,7 @@ func (p *playIdentities) alignAuto(k playIdentityKey, auto *core.ReleaseVariant,
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	e := p.m[k]
-	if e == nil || e.admittedRelease != release {
+	if e == nil || (e.admittedRelease != "" && e.admittedRelease != release) {
 		return
 	}
 	e.autoAligned = release
@@ -236,8 +247,13 @@ func (p *playIdentities) releases(k playIdentityKey, now time.Time) ([]string, b
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	e := p.m[k]
-	if e == nil || !e.resolved || len(e.variants) < 2 || (!e.frozen && now.Sub(e.at) > playIdentityTTL) {
+	if e == nil || !e.resolved || (!e.frozen && now.Sub(e.at) > playIdentityTTL) {
 		return nil, false
+	}
+	// A singleton is also an issued list. In particular, do not resolve a
+	// stale nonzero mediaIndex against newly arrived candidates.
+	if len(e.variants) < 2 {
+		return []string{""}, true
 	}
 	ids := make([]string, len(e.variants))
 	for i, v := range e.variants {
@@ -256,6 +272,9 @@ func (p *playIdentities) beginAdmission(k playIdentityKey, now time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if e := p.entryLocked(k, now); e != nil {
+		if !e.frozen && now.Sub(e.at) > playIdentityTTL {
+			*e = playIdentity{at: now, media: map[int64]*issuedMedia{}}
+		}
 		e.admitting++
 		e.frozen = true
 		e.at = now
@@ -620,3 +639,23 @@ func cloneVariants(vs []core.ReleaseVariant) []core.ReleaseVariant {
 func streamSelected(st model.Stream) bool { return st.Selected != nil && *st.Selected }
 
 func isExternalStream(st model.Stream) bool { return st.External != nil && *st.External }
+
+// installVersionFlow adopts an authoritative flow snapshot without changing
+// issued stream aliases. Pending pre-play expires promptly; live sessions keep
+// the existing admission lifetime.
+func (p *playIdentities) installVersionFlow(k playIdentityKey, vs []core.ReleaseVariant, until, now time.Time) {
+	if !k.valid() {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	e := p.entryLocked(k, now)
+	if e == nil {
+		return
+	}
+	e.variants = cloneVariants(vs)
+	e.resolved = true
+	e.frozen = true
+	e.flowUntil = until
+	e.at = now
+}

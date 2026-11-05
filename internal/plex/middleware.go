@@ -222,6 +222,10 @@ func traceSecretQuery(k string) bool {
 func (s *Server) parse(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pr := ParseRequest(r, identity.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs)...)
+		if pr.pagingInvalid {
+			writeHTTPError(w, http.StatusInternalServerError)
+			return
+		}
 		ctx := withRequest(r.Context(), pr)
 		ctx = core.WithBrowseScope(ctx, browseScope(r, pr))
 		if s.plexMetaOn() {
@@ -255,6 +259,22 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				if id := transcodeSessionID(r.URL.Path); id != "" {
 					e, ok := s.transcodes.get(id)
 					if !ok {
+						// A valid local token is not permission for this stream. Only a
+						// bounded terminal transfer to its exact owner may decide access;
+						// the original public owner handler reauthenticates all credentials.
+						if remoteID, eligible := missingPlexMediaID(r); eligible && remoteID == id && s.currentPlexEncoder() != nil {
+							checked := r
+							if receipt.Valid() {
+								checked = r.WithContext(withAcceptance(r.Context(), receipt))
+							}
+							if !s.acceptanceCurrent(checked) {
+								writeHTTPError(w, http.StatusUnauthorized)
+								return
+							}
+							if s.forwardPlexMedia(w, checked, id) {
+								return
+							}
+						}
 						writeHTTPError(w, http.StatusNotFound)
 						return
 					}
@@ -269,6 +289,10 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				}
 				if !s.acceptanceCurrent(r) {
 					writeHTTPError(w, http.StatusUnauthorized)
+					return
+				}
+				if !s.forwardedOwnerPolicy(r, pr) {
+					writeHTTPError(w, http.StatusForbidden)
 					return
 				}
 				if s.d.Hooks.OnClientSeen != nil {
@@ -295,7 +319,14 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				writeHTTPError(w, http.StatusUnauthorized)
 				return
 			}
+			if !s.forwardedOwnerPolicy(r, pr) {
+				writeHTTPError(w, http.StatusForbidden)
+				return
+			}
 			next.ServeHTTP(w, r)
+			return
+		}
+		if s.forwardMissingPlexGrant(w, r, pr) {
 			return
 		}
 		writeHTTPError(w, http.StatusUnauthorized)
@@ -396,6 +427,11 @@ func (s *Server) write(w http.ResponseWriter, r *http.Request, v any) {
 }
 
 func (s *Server) writeStatus(w http.ResponseWriter, r *http.Request, status int, v any) {
+	if err := FromContext(r.Context()).versionErr; err != nil {
+		s.log.Warn("version flow unavailable", "err", err)
+		writeHTTPError(w, http.StatusServiceUnavailable)
+		return
+	}
 	body, err := s.encodeResponse(r, v)
 	if err != nil {
 		s.log.Error("encode response", "path", r.URL.Path, "err", err)
@@ -415,8 +451,23 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 	// allowSync on library containers follows the viewer's download
 	// permission; containers that don't carry the attribute keep not
 	// carrying it.
-	if mc, ok := v.(*model.MediaContainer); ok && mc.AllowSync != nil {
-		*mc.AllowSync = s.downloadsAllowed(pr.User)
+	if mc, ok := v.(*model.MediaContainer); ok {
+		if mc.AllowSync != nil {
+			*mc.AllowSync = s.downloadsAllowed(pr.User)
+		}
+		// PMS exposes playlist syncing to clients that declare the sync
+		// protocol. Keep Ether's download permission as the authority.
+		if r.Header.Get("X-Plex-Sync-Version") != "" && strings.HasPrefix(r.URL.Path, "/playlists") {
+			allowed := s.downloadsAllowed(pr.User)
+			for i := range mc.Metadata {
+				if mc.Metadata[i].Type == "playlist" {
+					mc.Metadata[i].AllowSync = model.Ptr(allowed)
+				}
+			}
+			if strings.HasSuffix(r.URL.Path, "/items") {
+				mc.AllowSync = model.Ptr(allowed)
+			}
+		}
 	}
 	return model.Marshal(v, pr.Format)
 }

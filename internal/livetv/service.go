@@ -32,6 +32,7 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 }
 
 type Service struct {
+	guideAIMu          sync.Mutex
 	graphicsWake       chan struct{}
 	reelSnapshots      map[string]*ReelSnapshot
 	graphicsSkips      map[string]time.Time

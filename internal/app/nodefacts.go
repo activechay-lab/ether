@@ -41,10 +41,11 @@ func readNodeFacts(dataDir string, getenv func(string) string) nodeFacts {
 	var doc struct {
 		SetupComplete bool `json:"setupComplete"`
 		Server        struct {
-			Port              int      `json:"port"`
-			BindAddress       *string  `json:"bindAddress"`
-			FriendlyName      string   `json:"friendlyName"`
-			TrustedProxyCIDRs []string `json:"trustedProxyCIDRs"`
+			Port               int      `json:"port"`
+			BindAddress        *string  `json:"bindAddress"`
+			FriendlyName       string   `json:"friendlyName"`
+			TrustedProxyCIDRs  []string `json:"trustedProxyCIDRs"`
+			AllowRemoteConsole bool     `json:"allowRemoteConsole"`
 		} `json:"server"`
 		Plex struct {
 			OwnerPlexID      int64  `json:"ownerPlexId"`
@@ -71,6 +72,7 @@ func readNodeFacts(dataDir string, getenv func(string) string) nodeFacts {
 		}
 		f.Server.FriendlyName = doc.Server.FriendlyName
 		f.Server.TrustedProxyCIDRs = doc.Server.TrustedProxyCIDRs
+		f.Server.AllowRemoteConsole = doc.Server.AllowRemoteConsole
 		f.OwnerPlexID, f.ClientIdentifier = doc.Plex.OwnerPlexID, doc.Plex.ClientIdentifier
 		// A sealed URL is still a URL: any database URL means PostgreSQL.
 		f.Postgres = strings.TrimSpace(doc.Database.URL) != "" ||

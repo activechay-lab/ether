@@ -28,8 +28,9 @@ import (
 // their cached copy when told over the bus.
 
 type pqItem struct {
-	id  int64
-	key core.RatingKey
+	id    int64
+	key   core.RatingKey
+	added bool // explicit Up Next addition, distinct from original queue members
 }
 
 type playQueue struct {
@@ -44,6 +45,7 @@ type playQueue struct {
 	playlistID    core.RatingKey
 	playlistTitle string
 	version       int
+	lastAdded     int64
 	updatedAt     time.Time
 	liveSession   string // live queues resolve through LiveTV, never the catalogue
 
@@ -214,13 +216,21 @@ func (s *playQueueStore) addItems(q *playQueue, keys []core.RatingKey, pre []pqI
 	if items == nil {
 		items = s.newItemsLocked(keys)
 	}
-	items = append([]pqItem(nil), items...)
-	if next && len(q.items) > 0 {
-		at := q.selected + 1
-		q.items = append(q.items[:at], append(items, q.items[at:]...)...)
-	} else {
-		q.items = append(q.items, items...)
+	if len(items) == 0 {
+		return // a no-op must not invalidate the client's queue version
 	}
+	items = append([]pqItem(nil), items...)
+	for i := range items {
+		items[i].added = true
+	}
+	at := min(q.selected+1, len(q.items))
+	if !next {
+		for at < len(q.items) && q.items[at].added {
+			at++
+		}
+		q.lastAdded = items[len(items)-1].id
+	}
+	q.items = append(q.items[:at], append(items, q.items[at:]...)...)
 	if q.shuffled {
 		q.original = append(q.original, items...)
 	}
@@ -248,8 +258,9 @@ func (s *playQueueStore) dropCache() {
 // Clustered storage
 
 type storedItem struct {
-	ID  int64          `json:"i"`
-	Key core.RatingKey `json:"k"`
+	ID    int64          `json:"i"`
+	Key   core.RatingKey `json:"k"`
+	Added bool           `json:"a,omitempty"`
 }
 
 type storedQueue struct {
@@ -262,13 +273,14 @@ type storedQueue struct {
 	PlaylistID    core.RatingKey `json:"playlistID,omitempty"`
 	PlaylistTitle string         `json:"playlistTitle,omitempty"`
 	Version       int            `json:"version"`
+	LastAdded     int64          `json:"lastAdded,omitempty"`
 	LiveSession   string         `json:"liveSession,omitempty"`
 }
 
 func toStored(items []pqItem) []storedItem {
 	out := make([]storedItem, len(items))
 	for i, it := range items {
-		out[i] = storedItem{ID: it.id, Key: it.key}
+		out[i] = storedItem{ID: it.id, Key: it.key, Added: it.added}
 	}
 	return out
 }
@@ -279,7 +291,7 @@ func fromStored(items []storedItem) []pqItem {
 	}
 	out := make([]pqItem, len(items))
 	for i, it := range items {
-		out[i] = pqItem{id: it.ID, key: it.Key}
+		out[i] = pqItem{id: it.ID, key: it.Key, added: it.Added}
 	}
 	return out
 }
@@ -287,7 +299,7 @@ func fromStored(items []storedItem) []pqItem {
 func encodeQueue(q *playQueue) (string, error) {
 	b, err := json.Marshal(storedQueue{ClientID: q.clientID, Items: toStored(q.items), Original: toStored(q.original),
 		Selected: q.selected, Shuffled: q.shuffled, SourceURI: q.sourceURI, PlaylistID: q.playlistID,
-		PlaylistTitle: q.playlistTitle, Version: q.version, LiveSession: q.liveSession})
+		PlaylistTitle: q.playlistTitle, Version: q.version, LastAdded: q.lastAdded, LiveSession: q.liveSession})
 	return string(b), err
 }
 
@@ -298,7 +310,7 @@ func decodeQueue(id, userID, rev, updated int64, data string) (*playQueue, error
 	}
 	return &playQueue{id: id, userID: userID, clientID: sq.ClientID, items: fromStored(sq.Items),
 		original: fromStored(sq.Original), selected: sq.Selected, shuffled: sq.Shuffled, sourceURI: sq.SourceURI,
-		playlistID: sq.PlaylistID, playlistTitle: sq.PlaylistTitle, version: sq.Version, liveSession: sq.LiveSession,
+		playlistID: sq.PlaylistID, playlistTitle: sq.PlaylistTitle, version: sq.Version, lastAdded: sq.LastAdded, liveSession: sq.LiveSession,
 		updatedAt: time.UnixMilli(updated), rev: rev}, nil
 }
 
@@ -614,7 +626,7 @@ func (s *Server) handlePlayQueueCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 // continuousKeys resolves a play queue URI; with continuous=1 a single
-// episode expands to the rest of its show.
+// episode expands to the remaining episodes in its presented season.
 func (s *Server) continuousKeys(ctx context.Context, pr *Request, uri string, continuous bool) ([]core.RatingKey, error) {
 	keys, err := s.resolveURI(ctx, pr, uri)
 	if err != nil {
@@ -624,8 +636,13 @@ func (s *Server) continuousKeys(ctx context.Context, pr *Request, uri string, co
 		return keys, nil
 	}
 	ep := keys[0]
-	show := ep.Parent().Parent()
-	eps, err := s.metadataGrandchildren(ctx, pr, show)
+	season := ep.Season()
+	if s.d.EpisodeOrder != nil {
+		if n, _, _, ok := s.d.EpisodeOrder.Position(ctx, pr.User, ep); ok {
+			season = n
+		}
+	}
+	eps, err := s.metadataChildren(ctx, pr, core.SeasonKey(ep.TMDB(), season))
 	if err != nil {
 		return keys, nil
 	}
@@ -753,16 +770,24 @@ func (s *Server) handlePlayQueueMutate(op string) http.HandlerFunc {
 		ctx := r.Context()
 		pr := FromContext(ctx)
 		q := r.URL.Query()
-		if existing, found := s.queues.get(id, u.ID); found && existing.liveSession != "" {
-			writeHTTPError(w, http.StatusBadRequest)
-			return
+		if existing, found := s.queues.get(id, u.ID); found {
+			if existing.liveSession != "" {
+				writeHTTPError(w, http.StatusBadRequest)
+				return
+			}
+			// Once the viewer has explicitly queued content, PMS refuses
+			// shuffle controls rather than replacing that Up Next order.
+			if (op == "shuffle" || op == "unshuffle") && existing.lastAdded != 0 {
+				writeHTTPError(w, http.StatusNotFound)
+				return
+			}
 		}
 		var addKeys []core.RatingKey
 		if op == "add" {
 			var err error
 			switch {
 			case q.Get("uri") != "":
-				addKeys, err = s.resolveURI(ctx, pr, q.Get("uri"))
+				addKeys, err = s.continuousKeys(ctx, pr, q.Get("uri"), q.Get("continuous") == "1")
 			case q.Get("playlistID") != "":
 				var k core.RatingKey
 				if k, err = core.ParseRatingKey(q.Get("playlistID")); err == nil {
@@ -817,6 +842,9 @@ func (s *Server) handlePlayQueueMutate(op string) http.HandlerFunc {
 				if idx < 0 {
 					bad = true
 					return
+				}
+				if q.Get("after") == strconv.FormatInt(itemID, 10) {
+					return // moving an item after itself leaves its order intact
 				}
 				selID := p.items[p.selected].id
 				it := p.items[idx]
@@ -905,9 +933,14 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 		model.A("playQueueTotalCount", len(pq.items)),
 		model.A("playQueueVersion", pq.version),
 	}
+	if pq.lastAdded != 0 {
+		mc.Extra = append(mc.Extra, model.A("playQueueLastAddedItemID", pq.lastAdded))
+	}
 	if pq.playlistID != 0 {
 		mc.Extra = append(mc.Extra, model.A("playQueuePlaylistID", pq.playlistID.String()), model.A("playQueuePlaylistTitle", pq.playlistTitle))
 	}
+	pr.versionFlowKey = selItem.key
+	pr.versionItemKey = selItem.key
 	for _, it := range slice {
 		if it.key.Kind() == core.KindExtra {
 			if md, ok := s.extraMetadataByKey(ctx, pr, it.key); ok {

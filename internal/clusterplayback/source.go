@@ -12,6 +12,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodesource"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
+	"github.com/braedonsaunders/ether/internal/playbackcontinuity"
+	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"io"
 	"net/http"
 	"strconv"
@@ -21,6 +23,9 @@ import (
 func viewerString(id int64) string { return strconv.FormatInt(id, 10) }
 
 type ownedSource struct {
+	size                     int64
+	operations               int
+	sealed                   bool
 	route                    Route
 	handle                   nodeauthority.Handle
 	life                     core.SourceRetirement
@@ -30,17 +35,21 @@ type ownedSource struct {
 	binding, issuing, issued bool
 }
 type sourceRequest struct {
-	Position time.Duration
-	State    string
-	Prepare  *PrepareRequest
-	Version  int
-	Op       string
-	Route    Route
-	Stable   string
-	Expires  time.Time
-	Old      nodesource.Grant
+	Reopen                *ReopenRequest
+	OldSource, NextSource *playbackcontinuity.SourceBinding
+	Proof                 string
+	Position              time.Duration
+	State                 string
+	Prepare               *PrepareRequest
+	Version               int
+	Op                    string
+	Route                 Route
+	Stable                string
+	Expires               time.Time
+	Old                   nodesource.Grant
 }
 type sourceResponse struct {
+	Proof    string
 	Phase    string
 	Prepared PreparedSource
 	Stable   string
@@ -71,11 +80,22 @@ func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "source unavailable", 409)
 		return
 	}
+	raw, e := json.Marshal(reply)
+	if e != nil || len(raw) > remotetranscode.MaxMessage {
+		http.Error(w, "unsupported source metadata", 422)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(reply)
+	_, _ = w.Write(raw)
 }
 func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m sourceRequest) (sourceResponse, error) {
 	deny := func() (sourceResponse, error) { return sourceResponse{}, ErrDenied }
+	if m.Op == "reopen" {
+		return r.reopenSource(ctx, peer, m.Reopen)
+	}
+	if m.Op == "verify-reopen" {
+		return r.verifyReopen(ctx, peer, m)
+	}
 	if m.Op == "prepare-open" || m.Op == "prepare-hidden" || m.Op == "prepare-activity" {
 		return r.sourceActivity(ctx, peer, m)
 	}
@@ -162,6 +182,7 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 		}
 		r.mu.Lock()
 		s.handle = handle
+		s.size = h.Size()
 		sealed := r.closed || s.retiring
 		r.mu.Unlock()
 		if sealed {
@@ -179,7 +200,11 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 		if !ok {
 			return deny()
 		}
-		candidate := &ownedSource{route: rt, life: life, playID: rt.PlayID}
+		size := int64(0)
+		if ps.Source != nil {
+			size = ps.Source.Size()
+		}
+		candidate := &ownedSource{route: rt, life: life, playID: rt.PlayID, size: size}
 		r.mu.Lock()
 		if s = r.sources[sourceKey(f)]; s == nil && len(r.sources) < r.o.HistoryCapacity {
 			r.sources[sourceKey(f)] = candidate
@@ -204,32 +229,42 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 			r.mu.Lock()
 			s.retiring = true
 			r.mu.Unlock()
-			_ = r.authority.Revoke(s.handle)
+			if s.handle.Value() != "" {
+				if r.authority.Revoke(s.handle) != nil {
+					return sourceResponse{}, ErrPending
+				}
+			}
 			if r.o.Playback.RetireSource(s.playID, s.life) != nil {
 				return sourceResponse{}, ErrPending
 			}
+			r.mu.Lock()
+			s.sealed = true
+			r.mu.Unlock()
 		}
 		retired := false
 		select {
 		case <-s.life.Done():
-			retired = s.life.Err() == nil && r.bytes.Pending(nodesource.Scope{Fence: f, Viewer: viewerString(rt.Viewer), Revision: rt.Revision}) == 0
+			r.mu.Lock()
+			joined := s.sealed && s.retiring && !s.binding && !s.issuing && s.operations == 0
+			r.mu.Unlock()
+			retired = joined && s.life.Err() == nil && r.bytes.Pending(nodesource.Scope{Fence: f, Viewer: viewerString(rt.Viewer), Revision: rt.Revision}) == 0
 		default:
 		}
 		return sourceResponse{Retired: retired}, nil
 	}
-	handle, scope, size, e := r.authority.Resolve(ctx, nodesource.Peer{NodeID: peer.NodeID, Boot: peer.Boot}, m.Stable)
-	if e != nil || handle != s.handle {
-		return deny()
-	}
-
 	r.mu.Lock()
 	if s.retiring || s.issuing || (m.Op == "resolve" && s.issued) {
 		r.mu.Unlock()
 		return deny()
 	}
 	s.issuing = true
+	s.operations++
 	r.mu.Unlock()
-	defer func() { r.mu.Lock(); s.issuing = false; r.mu.Unlock() }()
+	defer func() { r.mu.Lock(); s.issuing = false; s.operations--; r.mu.Unlock() }()
+	handle, scope, size, e := r.authority.Resolve(ctx, nodesource.Peer{NodeID: peer.NodeID, Boot: peer.Boot}, m.Stable)
+	if e != nil || handle != s.handle {
+		return deny()
+	}
 	var lease nodeauthority.Lease
 	if m.Op == "renew" {
 		lease, e = r.authority.Renew(ctx, handle, m.Old, m.Expires)
@@ -243,6 +278,10 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 	r.mu.Lock()
 	s.issued = true
 	s.grant = g
+	tracked := r.trackCredentialLocked(s, g)
+	if !tracked {
+		s.retiring = true
+	}
 	sealed := s.retiring || r.closed
 	r.mu.Unlock()
 	if sealed || g.Scope != scope {
@@ -254,7 +293,28 @@ func (r *Runtime) sourceCall(ctx context.Context, rt Route, m sourceRequest) (so
 	m.Version = 1
 	m.Route = rt
 	if rt.Source == r.o.Self {
-		return r.sourceOperation(ctx, r.o.Self, m)
+		// The in-process path obeys the same bounded, detached DTO contract as RPC.
+		raw, e := json.Marshal(m)
+		if e != nil || len(raw) > remotetranscode.MaxMessage {
+			return sourceResponse{}, ErrDenied
+		}
+		var request sourceRequest
+		if json.Unmarshal(raw, &request) != nil {
+			return sourceResponse{}, ErrDenied
+		}
+		reply, e := r.sourceOperation(ctx, r.o.Self, request)
+		if e != nil {
+			return sourceResponse{}, e
+		}
+		raw, e = json.Marshal(reply)
+		if e != nil || len(raw) > remotetranscode.MaxMessage {
+			return sourceResponse{}, ErrDenied
+		}
+		var out sourceResponse
+		if json.Unmarshal(raw, &out) != nil {
+			return sourceResponse{}, ErrDenied
+		}
+		return out, nil
 	}
 	c, ep, e := r.controlClient(ctx, rt.Source)
 	if e != nil {
@@ -278,9 +338,12 @@ func (r *Runtime) sourceCall(ctx context.Context, rt Route, m sourceRequest) (so
 	if resp.StatusCode != 200 {
 		return sourceResponse{}, ErrDenied
 	}
+	raw, e := io.ReadAll(io.LimitReader(resp.Body, remotetranscode.MaxMessage+1))
+	if e != nil || len(raw) > remotetranscode.MaxMessage {
+		return sourceResponse{}, ErrPending
+	}
 	var out sourceResponse
-	d := json.NewDecoder(io.LimitReader(resp.Body, 64<<10))
-	if d.Decode(&out) != nil || d.Decode(new(any)) != io.EOF {
+	if json.Unmarshal(raw, &out) != nil {
 		return sourceResponse{}, ErrPending
 	}
 	return out, nil

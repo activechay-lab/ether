@@ -206,6 +206,7 @@ type App struct {
 	sources             *debrid.Indexer // core.Indexer over indexers
 	resolver            *resolver.Service
 	transcoder          *transcode.Manager
+	sourceProber        *transcode.SourceProber
 	trickplay           *trickplay.Owner
 	load                *sysload.Sampler // machine load for the Overview
 	playback            *playback.Manager
@@ -337,6 +338,8 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		return nil, err
 	}
 
+	ctx = store.WithWorkProgress(ctx, a.upgradeProgress)
+	a.tracker.Work("settings", 0, 0)
 	// Opening the config may rewrite it for this version, so capture the
 	// files as they are now: a pre-migrate database snapshot stores them, so
 	// the snapshot can be restored together with its matching settings.
@@ -477,6 +480,23 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 	}
 	a.tracker.Set(startup.PhaseStartingServices)
 	if a.deployment != nil && !cfg.Server.NodeRoles.FullServer() {
+		if cfg.Server.NodeRoles.Has(config.RoleServer) {
+			if err := a.buildServerRole(ctx, cfg); err != nil {
+				return nil, err
+			}
+			a.connectServerHooks()
+			a.initUpdates()
+			a.syncOwnerRecovery(ctx)
+			started = true
+			return a, nil
+		}
+		if cfg.Server.NodeRoles.Has(config.RoleDelivery) {
+			if err := a.buildDeliveryRole(ctx, cfg); err != nil {
+				return nil, err
+			}
+			started = true
+			return a, nil
+		}
 		if cfg.Server.NodeRoles.Has(config.RoleTranscode) {
 			if err := a.buildPrivateEncoder(cfg); err != nil {
 				return nil, err
@@ -642,6 +662,7 @@ func (a *App) settleBeforeListen(ctx context.Context) {
 		}
 	}
 	if a.db != nil && store.DialectOf(a.db) == store.SQLite {
+		a.upgradeProgress("checkpoint", 0, 0)
 		if _, err := a.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 			a.log.Warn("startup checkpoint", "err", err)
 		}
@@ -653,7 +674,11 @@ func (a *App) Config() *config.Store { return a.cfg }
 
 // Run serves until ctx is cancelled.
 func (a *App) Run(ctx context.Context) error {
+	ctx = store.WithWorkProgress(ctx, a.upgradeProgress)
 	if a.deployment != nil && !a.cfg.Get().Server.NodeRoles.FullServer() {
+		if roles := a.cfg.Get().Server.NodeRoles; roles.Has(config.RoleServer) || roles.Has(config.RoleDelivery) {
+			return a.runPublicRole(ctx)
+		}
 		return a.runSpecialist(ctx)
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -790,6 +815,7 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 	front.gate.Open(a.handler)
+	a.markPublicReady()
 	uiURL := fmt.Sprintf("http://localhost:%d/ether/", cfg.Server.Port)
 	a.log.Info("Ether listening", "addr", addr.String(), "ui", uiURL,
 		"version", a.opts.Version, "spike", cfg.Spike.Enabled)
@@ -830,6 +856,9 @@ func (a *App) Run(ctx context.Context) error {
 	case runErr = <-watchdogErr:
 	case runErr = <-a.privateErrors():
 	case runErr = <-a.clusterFatal: // nil channel (never ready) when standalone
+	}
+	if a.deployment != nil {
+		a.drainPrivate()
 	}
 	if runErr == nil {
 		a.notifyLifecycle("server.stopping", "Ether is stopping", "The server is shutting down or restarting.")

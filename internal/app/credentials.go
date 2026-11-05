@@ -109,6 +109,7 @@ func (a *App) checkCredentialKey(ctx context.Context) error {
 // migrateCredentials converts old stored secrets once before background work
 // and listeners start. An interrupted pass resumes safely at the next startup.
 func (a *App) migrateCredentials(ctx context.Context) error {
+	store.WorkProgress(ctx, "settings", 0, 0)
 	if err := a.recordCredentialFormat(ctx); err != nil {
 		return err
 	}
@@ -139,6 +140,7 @@ func (a *App) migrateStoredSecrets(ctx context.Context) (int, error) {
 	total := 0
 	var errs []error
 	run := func(name string, fn func(context.Context) (int, error)) {
+		store.WorkProgress(ctx, name, 0, 0)
 		n, err := fn(ctx)
 		total += n
 		if err != nil {
@@ -170,33 +172,35 @@ func (a *App) migrateStoredSecrets(ctx context.Context) (int, error) {
 	return total, errors.Join(errs...)
 }
 
-// migrateCredentialBlobs converts old identity blobs and cached releases in one
-// transaction before consumers can read them. Completed conversions are no-ops.
+// migrateCredentialBlobs converts old identity blobs and cached releases in
+// bounded transactions before consumers read them. Completed batches are skipped
+// on restart. Updates use primary keys to avoid a table scan for every payload.
 func (a *App) migrateCredentialBlobs(ctx context.Context) error {
-	tx, err := a.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 	changed := 0
-	for _, spec := range []struct{ table, column, name string }{
-		{"clusterconfig_secrets", "value", ""},
-		{"availability_releases", "payload", "availability-release"},
-		{"availability_feed_items", "payload", "availability-release"},
+	for _, spec := range []struct{ table, column, name, keys string }{
+		{"clusterconfig_secrets", "value", "", "name"},
+		{"availability_releases", "payload", "availability-release", "id,rating_key,source_id"},
+		{"availability_feed_items", "payload", "availability-release", "id,source_id"},
 	} {
-		nameExpr := "'" + spec.name + "'"
-		if spec.name == "" {
-			nameExpr = "name"
-		}
-		rows, err := tx.QueryContext(ctx, "SELECT DISTINCT "+nameExpr+","+spec.column+" FROM "+spec.table+" WHERE "+spec.column+" NOT LIKE 'ether-sealed:v2:%'")
+		store.WorkProgress(ctx, spec.table, 0, 0)
+		keys := strings.Split(spec.keys, ",")
+		rows, err := a.db.QueryContext(ctx, "SELECT "+spec.keys+","+spec.column+" FROM "+spec.table+" WHERE "+spec.column+" NOT LIKE 'ether-sealed:v2:%'")
 		if err != nil {
 			return err
 		}
-		type row struct{ name, value string }
+		type row struct {
+			keys  []any
+			value string
+		}
 		var all []row
 		for rows.Next() {
-			var r row
-			if err := rows.Scan(&r.name, &r.value); err != nil {
+			r := row{keys: make([]any, len(keys))}
+			scan := make([]any, len(keys)+1)
+			for i := range keys {
+				scan[i] = &r.keys[i]
+			}
+			scan[len(keys)] = &r.value
+			if err := rows.Scan(scan...); err != nil {
 				rows.Close()
 				return err
 			}
@@ -206,27 +210,46 @@ func (a *App) migrateCredentialBlobs(ctx context.Context) error {
 		if err := rows.Err(); err != nil {
 			return err
 		}
-		for _, r := range all {
-			sealed, err := a.cfg.ConvertLegacyBlob(r.name, r.value)
-			if err != nil {
-				return fmt.Errorf("convert %s: %w", spec.table, err)
+		batch := store.NewUpgradeBatch(a.db)
+		err = func() error {
+			defer batch.Close()
+			for i, r := range all {
+				store.WorkProgress(ctx, spec.table, i, len(all))
+				name := spec.name
+				if name == "" {
+					name = fmt.Sprint(r.keys[0])
+				}
+				sealed, err := a.cfg.ConvertLegacyBlob(name, r.value)
+				if err != nil {
+					return fmt.Errorf("convert %s: %w", spec.table, err)
+				}
+				query := "UPDATE " + spec.table + " SET " + spec.column + "=? WHERE "
+				args := []any{sealed}
+				for j, key := range keys {
+					if j > 0 {
+						query += " AND "
+					}
+					query += key + "=?"
+					args = append(args, r.keys[j])
+				}
+				query += " AND " + spec.column + "=?"
+				args = append(args, r.value)
+				res, err := batch.ExecContext(ctx, query, args...)
+				if err != nil {
+					return err
+				}
+				n, _ := res.RowsAffected()
+				changed += int(n)
 			}
-			query := "UPDATE " + spec.table + " SET " + spec.column + "=? WHERE " + spec.column + "=?"
-			args := []any{sealed, r.value}
-			if spec.name == "" {
-				query += " AND name=?"
-				args = append(args, r.name)
-			}
-			res, err := tx.ExecContext(ctx, query, args...)
-			if err != nil {
+			if err := batch.Flush(); err != nil {
 				return err
 			}
-			n, _ := res.RowsAffected()
-			changed += int(n)
+			store.WorkProgress(ctx, spec.table, len(all), len(all))
+			return nil
+		}()
+		if err != nil {
+			return err
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return err
 	}
 	if changed > 0 {
 		a.log.Info("credentials: converted stored blobs to v2", "rows", changed)

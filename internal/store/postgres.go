@@ -186,7 +186,7 @@ func migratePostgres(ctx context.Context, db *sql.DB, gate MigrationGate, progre
 		if applied[key] {
 			continue
 		}
-		report(progress, Progress{Stage: StageMigrate, Done: done, Total: total})
+		report(progress, Progress{Stage: StageMigrate, Name: fmt.Sprintf("%s/%d", m.component, m.version), Done: done, Total: total})
 		done++
 		for _, match := range reSeedInsert.FindAllStringSubmatch(m.sqlFor(Postgres), -1) {
 			seeded[match[1]] = true

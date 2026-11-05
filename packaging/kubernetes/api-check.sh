@@ -8,7 +8,7 @@ kubectl=${KUBECTL:-kubectl}
 root=$(cd "$(dirname "$0")/../.." && pwd)
 fixture=$(mktemp)
 trap 'rm -f "$fixture"' EXIT
-"$helm" template ether035 "$root/packaging/helm/ether" -n "$namespace" \
+"$helm" template ether035-api-check "$root/packaging/helm/ether" -n "$namespace" \
   -f "$root/packaging/kubernetes/mixed-cpu.values.yaml" \
   --set pools.server.replicas=1 --set cache.type=persistent \
   --set ingress.enabled=true --set 'ingress.hosts[0]=ether.example.test' \

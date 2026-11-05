@@ -1,7 +1,6 @@
 package clusterplayback
 
 import (
-	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 	"io"
@@ -34,7 +33,7 @@ func plexMediaSession(u *url.URL) (string, bool) {
 		return "", false
 	}
 	for _, part := range parts {
-		if part == "." || part == ".." || len(part) > 256 {
+		if part == "." || part == ".." || len(part) > 128 {
 			return "", false
 		}
 		for _, c := range part {
@@ -50,11 +49,28 @@ func plexMediaSession(u *url.URL) (string, bool) {
 	return parts[0], true
 }
 
-var plexForwardHeaders = []string{"Authorization", "X-Plex-Token", "X-Plex-Client-Identifier", "X-Plex-Product", "X-Plex-Version", "X-Plex-Platform", "X-Plex-Device", "X-Plex-Device-Name", "X-Plex-Session-Identifier", "Range", "If-Range", "If-None-Match", "If-Modified-Since"}
+var plexForwardHeaders = []string{"Authorization", "Accept", "User-Agent", "X-Plex-Token", "X-Plex-Client-Identifier", "X-Plex-Client-Id", "X-Plex-Product", "X-Plex-Version", "X-Plex-Platform", "X-Plex-Platform-Version", "X-Plex-Device", "X-Plex-Device-Name", "X-Plex-Model", "X-Plex-Device-Vendor", "X-Plex-Language", "X-Plex-Features", "X-Plex-Client-Profile-Extra", "X-Plex-Client-Capabilities", "X-Plex-Session-Identifier", "X-Plex-Session-Id", "X-Plex-Container-Start", "X-Plex-Container-Size", "Range", "If-Range", "If-None-Match", "If-Modified-Since"}
 
+func copyPlexHeaders(dst, src http.Header) error {
+	total := 0
+	for _, h := range plexForwardHeaders {
+		values := src.Values(h)
+		if len(values) > 16 {
+			return ErrDenied
+		}
+		for _, v := range values {
+			total += len(h) + len(v)
+			if len(v) > 4096 || total > 16384 {
+				return ErrDenied
+			}
+		}
+		dst[h] = append([]string(nil), values...)
+	}
+	return nil
+}
 func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 	peer, e := r.o.Guard.Request(q)
-	if e != nil || r.o.MemberRole(q.Context(), peer, config.RoleDelivery) != nil {
+	if e != nil || !r.mediaPeer(q.Context(), peer) {
 		http.Error(w, "denied", 401)
 		return
 	}
@@ -93,9 +109,11 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "unavailable", 503)
 		return
 	}
-	clone := q.Clone(q.Context())
-	clone.URL = u
-	clone.RequestURI = raw
+	clone, e := restoreOrigin(q, u, raw)
+	if e != nil {
+		http.Error(w, "scope", 400)
+		return
+	}
 	handler.ServeHTTP(w, clone)
 }
 
@@ -133,9 +151,16 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 		http.Error(w, "delivery unavailable", 502)
 		return true
 	}
-	for _, h := range plexForwardHeaders {
-		request.Header[h] = append([]string(nil), q.Header.Values(h)...)
+	if copyPlexHeaders(request.Header, q.Header) != nil {
+		http.Error(w, "request headers too large", 431)
+		return true
 	}
+	origin, e := captureOrigin(q)
+	if e != nil {
+		http.Error(w, "invalid request origin", 400)
+		return true
+	}
+	request.Header.Set(deliveryOrigin, origin)
 	request.Header.Set(deliveryHop, "1")
 	request.Header.Set(deliveryURI, q.URL.RequestURI())
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}

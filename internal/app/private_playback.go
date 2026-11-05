@@ -11,6 +11,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
+	"github.com/braedonsaunders/ether/internal/remotetranscode"
 )
 
 func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
@@ -28,6 +29,12 @@ func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
 	}
 	self := a.cluster.Self()
 	o := clusterplayback.Options{DB: a.db, Guard: p.guard, Self: nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: self.ID, Boot: self.Incarnation}, Roles: p.settings.Roles, Placement: ledger, Endpoint: a.privateEndpoint, MemberRole: a.privateMemberRole, Eligible: a.privateEligible, Capacity: p.settings.Capacity, ClockSkew: time.Duration(p.settings.ClockSkewMillis) * time.Millisecond, ClockBoundKnown: p.settings.ClockBoundKnown}
+	// The reviewed complete source/capability/start/observation chain preserves
+	// bounded indexes without truncation. The same dedicated manager below owns
+	// both real worker preflight and execution; all other extensions stay closed.
+	capabilities := remotetranscode.Supported()
+	capabilities.Keyframes = true
+	o.RemoteCapabilities, o.WorkerCapabilities = capabilities, capabilities
 	if p.settings.Roles.FullServer() {
 		o.Roles = config.NodeRoles{config.RoleServer, config.RoleSource, config.RoleDelivery, config.RoleBackground}
 		if local := a.activeTranscoder(); local != nil {
@@ -149,7 +156,7 @@ func (a *App) refreshPrivateQuota(ctx context.Context) error {
 	open := err == nil && status.Matches && !status.Exhausted
 	previous := p.quotaOpen.Swap(open)
 	if err == nil {
-		p.quota.Store(&status)
+		p.quota.Store(&runtimeQuotaSnapshot{SampledAt: time.Now().UTC(), Status: status})
 	}
 	if previous && !open {
 		a.log.Warn("private placement ledger quota blocks new admissions; retained ownership unchanged", "capacity", status.Capacity, "used", status.Used, "retired", status.Retired)
