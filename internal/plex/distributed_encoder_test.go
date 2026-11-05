@@ -13,6 +13,7 @@ import (
 
 type recordedPlexEncoder struct {
 	expectedRelease                  string
+	grantForwards                    int
 	forwardHandler                   http.Handler
 	forwardID                        string
 	sessions                         map[string]core.HLSSession
@@ -236,4 +237,9 @@ func TestPlexTokenMissingEntryTransfersOnlyToOwnerAuthorization(t *testing.T) {
 	if out.Code != 404 {
 		t.Fatal("nil seam changed missing-entry behavior")
 	}
+}
+
+func (e *recordedPlexEncoder) ForwardPlexGrantMedia(w http.ResponseWriter, r *http.Request, id string) bool {
+	e.grantForwards++
+	return e.ForwardPlexMedia(w, r, id)
 }

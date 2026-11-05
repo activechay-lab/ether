@@ -322,6 +322,9 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if s.forwardMissingPlexGrant(w, r, pr) {
+			return
+		}
 		writeHTTPError(w, http.StatusUnauthorized)
 	})
 }
