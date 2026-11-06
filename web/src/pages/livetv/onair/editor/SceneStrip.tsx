@@ -1,3 +1,4 @@
+import { uuid } from "../../../../lib/api";
 import { sceneDisplayName } from "./scene-names";
 import { useState, useEffect } from "react";
 import { Button, Input, Popover, confirmDialog } from "@braedonsaunders/appkit-ui";
@@ -55,7 +56,7 @@ export function SceneStrip(p: {
     void studio.templates().then(setTemplates);
   }, []);
   const add = (role: Role, source?: StyleScene, templateName?: string) => {
-    const id = crypto.randomUUID();
+    const id = uuid();
     const scene: StyleScene = source
       ? {
           ...structuredClone(source),

@@ -1,3 +1,4 @@
+import { uuid } from "../lib/api";
 import { t } from "../i18n";
 import { ROLES } from "../pages/livetv/onair/studio-model";
 import type { Style } from "../pages/livetv/onair/studio-model";
@@ -30,7 +31,7 @@ export function createStyleSteps(base: Style, prompt: string, sceneId?: string) 
   const step = (text: string) => ({
     text,
     draft: {
-      toolCallId: crypto.randomUUID(),
+      toolCallId: uuid(),
       toolName: "look_draft",
       input: { look: structuredClone({ ...look, scenes: cumulative }) },
       output: { look: structuredClone({ ...look, scenes: cumulative }) },
