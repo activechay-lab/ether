@@ -401,3 +401,18 @@ func (a *Authority) armLocked(b *binding, expiry time.Time) {
 }
 
 func (a *Authority) clockReady() bool { return a.o.ClockReady == nil || a.o.ClockReady() }
+
+// CheckLocal checks revocation and monotonic lease expiry without durable I/O.
+// It supplements Verify during an already admitted streaming request.
+func (a *Authority) CheckLocal(ctx context.Context, p nodesource.Peer, key string) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	c := a.grants[key]
+	if c == nil || c.binding.sealed || !time.Now().Before(c.deadline) || !time.Now().Before(c.binding.deadline) || p != (nodesource.Peer{NodeID: c.binding.scope.Fence.Target.NodeID, Boot: c.binding.scope.Fence.Target.Boot}) {
+		return ErrDenied
+	}
+	return nil
+}

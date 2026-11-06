@@ -149,6 +149,10 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 	}
 	f := rt.Fence
 	controller := peer.Cluster == r.o.Self.Cluster && peer.NodeID == f.Controller.ID && peer.Boot == f.Controller.Boot
+	if m.Op == "bind" || m.Op == "resolve-failover" || m.Op == "retire" || m.Op == "status" {
+		c, err := r.CurrentCoordinator(ctx, f.Session)
+		controller = err == nil && c.Identity == peer
+	}
 	target := peer.Cluster == r.o.Self.Cluster && peer.NodeID == f.Target.NodeID && peer.Boot == f.Target.Boot
 	if (m.Op == "bind" || m.Op == "retire" || m.Op == "status" || m.Op == "resolve-failover") && !controller {
 		return deny()

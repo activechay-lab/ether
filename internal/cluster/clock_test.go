@@ -129,6 +129,14 @@ func TestContinuousClockAuthorityInvariant(t *testing.T) {
 	if err := ledger.Renew(ctx, record.Fence, record.Deadline.Add(time.Second)); !errors.Is(err, placement.ErrFenced) {
 		t.Fatalf("renewal admitted during drift: %v", err)
 	}
+	replacement := request("existing")
+	replacement.ExpectedGeneration = record.Generation
+	replacement.Operation = "clock-replacement"
+	replacement.Target.NodeID = "other-worker"
+	sealed := false
+	if _, err := ledger.Supersede(ctx, record.Fence, replacement, func(context.Context, *sql.Tx, placement.Record) error { sealed = true; return nil }); !errors.Is(err, placement.ErrFenced) || sealed {
+		t.Fatalf("quarantined supersession mutated authority: %v sealed=%v", err, sealed)
+	}
 	if existing, err := ledger.Lookup(ctx, record.Session); err != nil || !existing.Authority {
 		t.Fatalf("existing authority revoked: %+v %v", existing, err)
 	}

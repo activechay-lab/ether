@@ -21,6 +21,9 @@ import (
 )
 
 const clusterUsage = `usage:
+  ether cluster retire-node --node-id ID --boot BOOT --evidence REFERENCE [--data-dir DIR]
+      Attest that this exact boot is permanently removed/fenced; release its
+      displaced encoder claims and prohibit that boot from new placements.
   ether cluster ledger-quota [--data-dir DIR] --expect N --capacity M
       Explicitly raise the durable fleet ledger ceiling with compare-and-swap.
       Then configure ledgerCapacity=M consistently on all replicas.
@@ -54,6 +57,9 @@ func runCluster(args []string, defaultDataDir string, stdout, stderr io.Writer) 
 	force := fs.Bool("force", false, "join: move an existing configured server aside")
 	expectedQuota := fs.Int("expect", 0, "ledger-quota: expected current fleet ceiling")
 	newQuota := fs.Int("capacity", 0, "ledger-quota: new fleet ceiling")
+	nodeID := fs.String("node-id", "", "retire-node: exact removed node ID")
+	boot := fs.String("boot", "", "retire-node: exact removed boot incarnation")
+	evidence := fs.String("evidence", "", "retire-node: operator removal/fencing evidence reference")
 	wait := fs.Duration("wait", 2*time.Minute, "drain: maximum wait for quiescence")
 	fs.DurationVar(wait, "timeout", 2*time.Minute, "drain: alias for --wait")
 	ttl := fs.Duration("ttl", clusterconfig.DefaultJoinTokenTTL, "token: validity")
@@ -75,6 +81,11 @@ func runCluster(args []string, defaultDataDir string, stdout, stderr io.Writer) 
 
 	var err error
 	switch cmd {
+	case "retire-node":
+		err = retireClusterNode(ctx, *dataDir, placement.Target{NodeID: *nodeID, Boot: *boot}, *evidence, log)
+		if err == nil {
+			fmt.Fprintln(stdout, "Exact node boot removed; displaced encoder claims released.")
+		}
 	case "ledger-quota":
 		err = raiseLedgerQuota(ctx, *dataDir, *expectedQuota, *newQuota, log)
 	case "drain":
@@ -179,4 +190,33 @@ func raiseLedgerQuota(ctx context.Context, dataDir string, expected, capacity in
 		return err
 	}
 	return service.RaiseLedgerQuota(ctx, expected)
+}
+
+func retireClusterNode(ctx context.Context, dataDir string, target placement.Target, evidence string, log *slog.Logger) error {
+	if target.NodeID == "" || target.Boot == "" || evidence == "" {
+		return errors.New("retire-node requires --node-id, --boot and --evidence")
+	}
+	cfg, err := config.Open(dataDir)
+	if err != nil {
+		return errors.New("retire-node: cannot read local cluster credentials")
+	}
+	defer cfg.Close()
+	dbCfg := cfg.Get().Database
+	if !dbCfg.IsPostgres() {
+		return errors.New("retire-node requires an enrolled PostgreSQL node")
+	}
+	db, _, err := store.OpenWith(ctx, store.Options{Driver: dbCfg.Driver, URL: dbCfg.URL, Logger: log})
+	if err != nil {
+		return errors.New("retire-node: cannot open cluster database")
+	}
+	defer db.Close()
+	doc, found, err := clusterconfig.NewShared(db).LoadShared(ctx)
+	if err != nil || !found || doc.KeyFingerprint != cfg.KeyFingerprint() {
+		return errors.New("retire-node: cluster identity could not be verified")
+	}
+	service, err := placement.New(db, placement.Options{MaxSessions: 1, MaxLease: 10 * time.Minute, LockTimeout: 5 * time.Second}, nil)
+	if err != nil {
+		return err
+	}
+	return service.RemoveTarget(ctx, target, evidence)
 }

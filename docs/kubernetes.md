@@ -134,6 +134,20 @@ Existing media remains subject to normal authority/expiry checks, and an outage
 longer than the previously granted lifetime can therefore interrupt playback.
 No retirement or resource reclamation follows from clock failure.
 
+A healthy controller probes encoder eligibility before attempting renewal. Once
+heartbeat diagnostics report a worker's clock quarantine, the failure grace
+triggers replacement on another eligible node without waiting for expiry. If
+that report is delayed, a refused renewal leaves the worker's last accepted
+monotonic deadline intact; its expiry timer self-fences the execution and a
+subsequent status probe triggers the same replacement. Supersession preserves
+old displaced capacity claims until exact retirement proof, advances execution
+generation, and resumes at the delivery watermark. A clock-quarantined controller
+also stops coordinator lease issuance/renewal/adoption; a healthy replica can
+win the next coordination epoch and continue recovery. This requires healthy
+spare capacity and a surviving database/controller. The offline recovery fixture
+covers quarantine with live RPC transport; it does not certify a client-buffer
+budget or actual decoder/audio continuity. Those remain measured lab gates.
+
 Heartbeat `caps.diagnostics.clock` and local cluster health expose
 `clockSkewNs`, `rttNs`, `uncertaintyNs`, `boundNs`, `sampledAt`, `ready`, `reason`
 and `lastStepNs`. The diagnostic readiness reason is `clock_skew` while blocked;
@@ -448,3 +462,109 @@ means acceptance failed, even if the node restarts.
 drain failure, a replacement racing the UID-preconditioned delete, successful
 replacement, and container-name reuse safety. These checks run in chart CI and
 do not count as playback or hard-loss acceptance.
+
+### Generation checks during media bodies
+
+Every gateway, worker, source and delivery response admits output with a full
+current durable generation check before headers. `generationfence.Writer` shares
+one request-local authority observation between header, read, write and flush
+checks. It repeats durable validation after at most one second of monotonic time
+(measured from the start of validation), independent of body size. A positive check
+that exhausts that interval or races invalidation is discarded and retried,
+without publishing between attempts. A single resync or slow observation does
+not revoke a healthy writer. At most three attempts are made; each uses a fresh
+start time and event epoch and must complete inside its observation interval.
+The callback's host context/I/O deadline bounds each call; the attempt limit
+bounds retries. Negative authority, failed local checks or exhausted attempts
+latch denial. Source handlers may request a shorter observation interval.
+
+Between durable checks every operation checks local cancellation, sealing and
+monotonic execution/grant deadlines where present. Delivery converts its observed
+placement deadline to a monotonic cap. A blocked producer returning after a cap
+or the revalidation interval cannot bypass these checks. An already admitted
+socket write cannot be recalled; an idle writer does not poll or retain an extra
+goroutine and revalidates before its next output operation.
+
+Committed route updates publish the session ID on the existing cluster bus as
+`playback.route`. Active writers subscribe only for their request lifetime;
+route notifications and bus reconnect/resync invalidate their observations.
+Callbacks perform only local invalidation, so the next output operation performs
+the durable check. This normally detects supersession at the next write, within
+milliseconds for an actively streaming producer. Lost notifications retain the
+one-second bound. Notifications never grant authority or release resources.
+
+This is bounded streaming staleness, not instantaneous distributed revocation.
+Replacement output starts at the first unavailable fixed-grid segment N under the
+next generation; every new segment request validates current authority before
+headers and a response remains bound to its admitted generation. No request
+switches encoder generations in the middle of its body. Existing in-flight
+responses can emit old-generation bytes within the bound; after denial clients
+must retry through current authority. Output retention/publication keeps its own
+durable checks. This optimization alone does not prove client-side zero stalls,
+splice continuity or exact audio continuity; those remain acceptance gates.
+
+The DB cost of streaming validation is O(requests + active streaming seconds),
+plus invalidation events, rather than O(body writes). Request admission remains
+durable. The gateway reads sequential source ranges of at most 2 MiB, while
+keeping exact-offset whole-range retries on source failure. Scratch is bounded
+by 2 MiB per active response (less for short ranges). This replaces a source
+HTTP admission on every 64 KiB. At 20 Mbps it reduces admissions from about
+38.15/s to 1.20/s, measured with a 150 MB offline transfer representing 60 seconds
+of media. Each range retains grant verification, exact-source acquisition and
+output admission: at least nine core SELECTs, plus membership/viewer policy SQL
+and transaction overhead. The measured core admission contribution falls from
+343.35 to 10.80 SELECTs/s; slower source responses can also require periodic
+streaming checks. A writer-only benchmark must not be reported as total source
+pipeline query rate. Small client ranges and random seeks still pay per-request
+admission; the sequential rate assumes a continuous encoder input request.
+
+## Playback coordinator and delivery loss
+
+Overlay `packaging/kubernetes/routing-ha.values.yaml` on mixed-role values for
+two server and two delivery replicas on distinct Kubernetes hostnames. Supply
+the existing operator-managed Secrets, database and same-origin Ingress. The
+API Service selects **all** full/server replicas through `ether.plex/public`;
+the media Service selects all full/delivery replicas through `ether.plex/media`.
+Neither selector pins a particular ordinal or elected global leader. The
+headless private Service resolves exact source/encoder incarnations; balancing
+those RPCs across a role Service would discard their execution identity.
+Existing readiness probes and per-pool PDBs apply. Hard loss requires spare
+ready replicas; a PDB constrains voluntary disruption only.
+
+Delivery retains no authoritative output or coordination. Every request resolves
+the current coordinator from SQL and forwards once over authenticated node RPC.
+The receiving original protocol handler rechecks viewer/grant, device and media
+policy. Range, conditional requests, HEAD and cancellation follow that handler;
+redirects and additional delivery hops are refused. Output lives at the encoder;
+optional controller retention is a second copy, never delivery's unique data.
+
+Playback coordination uses a separate SQL lease and monotonically increasing
+epoch (`clusterplayback/6`). Its 15-second lease includes twice the configured
+clock-skew bound. A surviving eligible server claims an expired lease by CAS,
+observes the exact healthy worker through status (no Start), and renews its
+placement, source and worker leases. The execution fence/generation and encoder
+process remain unchanged. Worker requests bind the current certificate and
+coordinator epoch; a stale controller cannot stop or renew that execution.
+Source movement keeps its independent source generation. Global cluster
+leadership and registrar epochs are unrelated to either playback generation.
+
+The original Plex stream binding, read capability and source authorization
+snapshot are persisted in the shared database before publishing the HLS master.
+These are credentials: do not export the binding table in evidence or logs.
+Surviving replicas restore protocol facts and run the original live policy
+checks. Binding snapshots are bounded by admitted placement history and become
+unreadable when that execution is retired or loses authority. They do not
+manufacture a new source owner or encoder start. A repeated decision on the
+surviving coordinator can reuse the source manager’s exact protected lifetime;
+obsolete preparations cannot close it, and plan cleanup cannot retire a source
+while the healthy execution still owns its binding.
+
+The in-process `TestDeliveryAndControllerLossKeepExecution` stops delivery and
+controller HTTP listeners, waits for the real coordinator lease, and verifies
+segment response continuity, Range/HEAD/416 parity, timeline availability,
+renewal and one encoder start. Its media backend is an offline fake. It does
+**not** certify decoded playback, real Ingress endpoint removal, a client buffer,
+PostgreSQL availability or physical node loss. Run the acceptance collector
+across each actual loss before release. Budget at least the coordination lease,
+three clock-skew bounds, the control tick and actual RPC latency within the
+measured client forward buffer; configurations with larger skew need more buffer.

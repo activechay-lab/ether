@@ -60,3 +60,15 @@ func (r *Runtime) sourceJoined(source *ownedSource) bool {
 	defer r.mu.Unlock()
 	return source.sealed && source.retiring && !source.binding && !source.issuing && source.operations == 0
 }
+
+func (a trackedAuthority) CheckLocal(ctx context.Context, peer nodesource.Peer, credential string) error {
+	r := a.r
+	r.mu.Lock()
+	entry, ok := r.credentials[credential]
+	denied := r.closed || !ok || entry.source.retiring || entry.source.sealed
+	r.mu.Unlock()
+	if denied {
+		return ErrDenied
+	}
+	return r.authority.CheckLocal(ctx, peer, credential)
+}

@@ -117,7 +117,7 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 	for _, other := range r.preparations {
 		if !other.receipt && samePreparationIdentity(other.request, *q) {
 			r.mu.Unlock()
-			return sourceResponse{}, ErrPending
+			return r.transferPreparation(ctx, peer, *q, key, hash, other)
 		}
 	}
 	lifetimeID, tokenErr := randomToken()
@@ -243,6 +243,11 @@ func (r *Runtime) retirePreparation(ctx context.Context, peer nodewire.Identity,
 		r.mu.Unlock()
 		return sourceResponse{}, ErrDenied
 	}
+	r.mu.Unlock()
+	if err := r.preparationController(ctx, peer, entry, true); err != nil {
+		return sourceResponse{}, err
+	}
+	r.mu.Lock()
 	entry.retiring = true
 	running, life, id, request := entry.running || entry.operations != 0, entry.life, entry.result.PlayID, entry.request
 	r.mu.Unlock()

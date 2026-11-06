@@ -131,6 +131,9 @@ func (s *Server) authenticateSessionRead(r *http.Request, pr *Request) bool {
 	if !capabilityPathOK(r) {
 		return false
 	}
+	if id := transcodeSessionID(r.URL.Path); id != "" {
+		_, _ = s.transcodes.get(id)
+	}
 	cap, ok := s.readCaps.lookup(readCapFrom(r))
 	if !ok {
 		return false
