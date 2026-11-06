@@ -141,7 +141,7 @@ func (i *instance) serve(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, map[string]any{"user_info": map[string]int{"auth": 0}})
 		return
 	}
-	switch r.URL.Path {
+	switch strings.ToLower(r.URL.Path) {
 	case "/player_api.php":
 		i.api(w, r, l)
 	case "/get.php":
@@ -191,7 +191,7 @@ func (i *instance) api(w http.ResponseWriter, r *http.Request, l login) {
 	}
 }
 func (i *instance) media(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/image/") {
+	if strings.HasPrefix(strings.ToLower(r.URL.Path), "/image/") {
 		if i.host.ImageGrants != nil {
 			i.host.ImageGrants.Serve(w, r, r.PathValue("secret"))
 			return

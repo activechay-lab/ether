@@ -1,6 +1,7 @@
 package xtream
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -34,7 +35,7 @@ func (i *instance) play(w http.ResponseWriter, r *http.Request, l login) {
 	}
 	file := r.PathValue("file")
 	id, ext, ok := strings.Cut(file, ".")
-	if !ok || !strings.Contains("|ts|m3u8|mkv|mp4|", "|"+ext+"|") {
+	if file != r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:] || !ok || (ext != "ts" && ext != "m3u8" && ext != "mkv" && ext != "mp4") {
 		http.NotFound(w, r)
 		return
 	}
@@ -51,7 +52,7 @@ func (i *instance) play(w http.ResponseWriter, r *http.Request, l login) {
 	}
 	no := false
 	req := frontend.PlanRequest{Viewer: l.viewer, Device: l.device, Protocol: "xtream", Caps: profile.Client, Intent: frontend.PlayIntent{AllowTranscoding: &no, Options: frontend.DecideOptions{DirectPlay: true, DirectStream: true}}}
-	kind := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")[0]
+	kind := strings.ToLower(strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")[0])
 	if kind == "live" {
 		c, ok := i.findChannel(r, l, id)
 		if !ok {
@@ -59,6 +60,7 @@ func (i *instance) play(w http.ResponseWriter, r *http.Request, l login) {
 			return
 		}
 		req.Channel = c.ID
+		req.Intent.AllowTranscoding = nil // Shared live output is already encoded by the channel service.
 		if !i.admit(w, r.WithContext(ctx), l, req) {
 			return
 		}
@@ -101,7 +103,14 @@ func (i *instance) play(w http.ResponseWriter, r *http.Request, l login) {
 func (i *instance) admit(w http.ResponseWriter, r *http.Request, l login, req frontend.PlanRequest) bool {
 	if admission, ok := i.host.LazyStreams.(frontend.AppConnectionAdmission); ok {
 		if err := admission.PrepareAppConnection(r, l.password, req); err != nil {
-			http.Error(w, "Playback unavailable or connection limit reached", http.StatusTooManyRequests)
+			status := http.StatusServiceUnavailable
+			if errors.Is(err, frontend.ErrStreamLimit) {
+				status = http.StatusTooManyRequests
+			}
+			if errors.Is(err, frontend.ErrUnauthorized) {
+				status = http.StatusUnauthorized
+			}
+			http.Error(w, "Playback unavailable", status)
 			return false
 		}
 	}

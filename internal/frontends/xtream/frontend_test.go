@@ -331,3 +331,86 @@ func mustInt(t *testing.T, s string) int64 {
 	}
 	return n
 }
+
+func TestXtreamCatalogueFailureResponses(t *testing.T) {
+	for _, late := range []bool{false, true} {
+		t.Run(fmt.Sprint(late), func(t *testing.T) {
+			host, _ := testHost(t)
+			host.Experience = frontendtest.Experience{ViewsFunc: func(context.Context, *frontend.Viewer) ([]frontend.View, error) {
+				if !late {
+					return nil, fmt.Errorf("backend unavailable")
+				}
+				return []frontend.View{{ID: "1", Type: "movie"}}, nil
+			}, LibraryItemsFunc: func(_ context.Context, _ *frontend.Viewer, _ frontend.Device, _ string, q frontend.ItemQuery) (core.Page, error) {
+				if q.Offset > 0 {
+					return core.Page{}, fmt.Errorf("backend unavailable")
+				}
+				return core.Page{Items: []core.Title{{Key: core.MovieKey(1), Type: core.TypeMovie, Title: "First"}}, Total: 2}, nil
+			}}
+			h := mount(t, host)
+			w := httptest.NewRecorder()
+			aborted := false
+			func() {
+				defer func() {
+					if p := recover(); p != nil {
+						if p != http.ErrAbortHandler {
+							panic(p)
+						}
+						aborted = true
+					}
+				}()
+				h.ServeHTTP(w, httptest.NewRequest("GET", "/xtream/player_api.php?"+authQuery()+"&action=get_vod_streams", nil))
+			}()
+			if late {
+				if !aborted || json.Valid(w.Body.Bytes()) {
+					t.Fatal("partial response reported success")
+				}
+			} else if w.Code != 503 || aborted {
+				t.Fatalf("early failure %d abort=%v", w.Code, aborted)
+			}
+		})
+	}
+}
+func TestXtreamCanonicalIdentifiersAndPaths(t *testing.T) {
+	host, _ := testHost(t)
+	host.Capabilities = frontendtest.Capabilities{}
+	host.LazyStreams = &testLazy{t: t}
+	h := mount(t, host)
+	for _, file := range []string{"%2531.mkv", "1.ts|m3u8", "+1.mkv", "01.mp4", "2147483648.mkv", "1.mkv/extra", "1%2f2.mkv", "1.exe", "1.", "../1.mkv"} {
+		w := request(h, "/movie/"+frontend.XtreamUsername("eg1_test")+"/eg1_test/"+file)
+		if w.Code != 404 {
+			t.Fatalf("%s: %d", file, w.Code)
+		}
+	}
+	w := request(h, "/PLAYER_API.PHP?"+authQuery())
+	if w.Code != 200 || !json.Valid(w.Body.Bytes()) {
+		t.Fatal("case-insensitive kit route not dispatched")
+	}
+}
+
+type unavailableAdmission struct {
+	testLazy
+	err error
+}
+
+func (a *unavailableAdmission) PrepareAppConnection(*http.Request, string, frontend.PlanRequest) error {
+	return a.err
+}
+func TestXtreamAdmissionFailureStatus(t *testing.T) {
+	for _, tc := range []struct {
+		err    error
+		status int
+	}{{frontend.ErrStreamLimit, 429}, {frontend.ErrUnauthorized, 401}, {fmt.Errorf("storage unavailable"), 503}} {
+		host, _ := testHost(t)
+		host.Experience = frontendtest.Experience{ItemFunc: func(_ context.Context, r frontend.ItemRequest) (frontend.ItemDetail, error) {
+			return frontend.ItemDetail{Title: frontend.Title{Key: r.Key, Type: "movie"}}, nil
+		}}
+		host.Capabilities = frontendtest.Capabilities{}
+		host.LazyStreams = &unavailableAdmission{err: tc.err}
+		id, _ := host.IDs.Compact(context.Background(), "xtream", "item", fmt.Sprint(core.MovieKey(1)))
+		w := request(mount(t, host), fmt.Sprintf("/movie/%s/eg1_test/%d.mkv", frontend.XtreamUsername("eg1_test"), id))
+		if w.Code != tc.status {
+			t.Fatalf("%v: %d want %d", tc.err, w.Code, tc.status)
+		}
+	}
+}

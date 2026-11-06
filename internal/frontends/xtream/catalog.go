@@ -141,19 +141,32 @@ func (i *instance) catalog(w http.ResponseWriter, r *http.Request, l login, acti
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_, _ = w.Write([]byte("["))
 	n := 0
 	err := i.walk(r, l, kind, func(t frontend.Title, cat string) error {
+		data, err := json.Marshal(i.row(r, l, t, cat, n+1))
+		if err != nil {
+			return err
+		}
+		prefix := "["
 		if n > 0 {
-			if _, e := w.Write([]byte(",")); e != nil {
-				return e
-			}
+			prefix = ","
+		}
+		if _, err = w.Write([]byte(prefix)); err != nil {
+			return err
 		}
 		n++
-		return jsonEncoder(w, i.row(r, l, t, cat, n))
+		_, err = w.Write(data)
+		return err
 	})
 	if err != nil {
-		return
+		if n == 0 {
+			http.Error(w, "Unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		panic(http.ErrAbortHandler)
+	}
+	if n == 0 {
+		_, _ = w.Write([]byte("["))
 	}
 	_, _ = w.Write([]byte("]"))
 }
@@ -289,7 +302,7 @@ func (i *instance) pageImages(r *http.Request, l login, titles []frontend.Title)
 
 func (i *instance) resolveItem(r *http.Request, id string) (frontend.RatingKey, error) {
 	n, err := strconv.ParseInt(id, 10, 32)
-	if err != nil || n <= 0 {
+	if err != nil || n <= 0 || strconv.FormatInt(n, 10) != id {
 		return 0, errors.New("invalid identifier")
 	}
 	ref, err := i.host.IDs.Resolve(r.Context(), "xtream", "item", int32(n))
