@@ -35,6 +35,9 @@ func (r *Runtime) probeEncoder(ctx context.Context, x *execution) error {
 }
 
 func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
+	if !r.clockReady() {
+		return ErrDenied
+	}
 	coordinator, err := r.CurrentCoordinator(ctx, old.route.Fence.Session)
 	if err != nil || coordinator.Identity != r.o.Self || coordinator.Epoch > 0 && !coordinator.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
 		return ErrDenied
@@ -96,6 +99,9 @@ func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
 }
 
 func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
+	if !r.clockReady() {
+		return ErrDenied
+	}
 	coordinator, err := r.CurrentCoordinator(ctx, x.route.Fence.Session)
 	if err != nil || coordinator.Identity != r.o.Self || coordinator.Epoch > 0 && !coordinator.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
 		return ErrDenied
@@ -252,6 +258,9 @@ func (r *Runtime) startReplacement(ctx context.Context, x *execution) error {
 	r.mu.Unlock()
 	if stopping {
 		return ErrPending
+	}
+	if !r.clockReady() {
+		return ErrDenied
 	}
 	if next.adapter == nil {
 		bound, err := r.sourceCall(ctx, route, sourceRequest{Op: "bind"})

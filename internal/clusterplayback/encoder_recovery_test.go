@@ -66,7 +66,7 @@ func (s *recoveryTestSession) ServeSegment(w http.ResponseWriter, q *http.Reques
 // The encoded bytes are a recorded offline TS fixture: it tests ownership and
 // complete/unique delivery, not real decoder or audio splice continuity.
 func TestEncoderLossRecoveryInvariant(t *testing.T) {
-	for _, mode := range []string{"exit", "partition", "newboot", "removed"} {
+	for _, mode := range []string{"exit", "partition", "newboot", "removed", "clock"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -94,8 +94,15 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			ids := []nodewire.Identity{{Cluster: "loss", NodeID: "source", Boot: "source-boot"}, {Cluster: "loss", NodeID: "a", Boot: "a-boot"}, {Cluster: "loss", NodeID: "b", Boot: "b-boot"}, {Cluster: "loss", NodeID: "controller", Boot: "controller-boot"}}
 			guards := fixtureGuards(t, ids...)
 			endpoints := map[nodewire.Identity]string{}
-			eligible := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
-			base := Options{DB: db, Placement: p, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: eligible, Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond, EncoderRPCDeadline: 50 * time.Millisecond, EncoderFailureGrace: time.Millisecond, EncoderSegmentWait: time.Second, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return core.Decision{} }}
+			var clockFault atomic.Bool
+			member := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
+			eligible := func(_ context.Context, id nodewire.Identity, _ config.NodeRole) error {
+				if id == ids[1] && clockFault.Load() {
+					return ErrDenied
+				}
+				return nil
+			}
+			base := Options{DB: db, Placement: p, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: member, Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond, EncoderRPCDeadline: 50 * time.Millisecond, EncoderFailureGrace: time.Millisecond, EncoderSegmentWait: time.Second, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return core.Decision{} }}
 			var down atomic.Bool
 			runtimes := make([]*Runtime, 4)
 			for i := range ids {
@@ -109,6 +116,7 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 					o.SourcePolicy = func(context.Context, *core.Viewer, *core.PlaySession) error { return nil }
 					o.ActiveViewer = func(context.Context, int64) (*core.Viewer, error) { return &core.Viewer{ID: 9}, nil }
 				case 1:
+					o.ClockReady = func() bool { return !clockFault.Load() }
 					o.Encoder = a
 				case 2:
 					o.Encoder = b
@@ -180,7 +188,19 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			down.Store(true)
+			if mode == "clock" {
+				clockFault.Store(true)
+				// This is a clock quarantine, with the transport still live.
+				// Renewal must refuse, while status and exact stop stay usable.
+				if err := runtimes[1].authorizeWorker(ctx, old.route.Fence.Controller.Boot, "renew", remoteIdentity(old.route), nil); err != ErrDenied {
+					t.Fatalf("quarantined renewal: %v", err)
+				}
+				if err := runtimes[1].authorizeWorker(ctx, old.route.Fence.Controller.Boot, "status", remoteIdentity(old.route), nil); err != nil {
+					t.Fatalf("quarantined status: %v", err)
+				}
+			} else {
+				down.Store(true)
+			}
 			_ = front.Tick(ctx)
 			time.Sleep(2 * time.Millisecond)
 			replacementDone := make(chan error, 1)

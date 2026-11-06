@@ -63,6 +63,9 @@ func (r *Runtime) CurrentCoordinator(ctx context.Context, id string) (Coordinato
 const coordinationLease = 15 * time.Second
 
 func (r *Runtime) initializeCoordinator(ctx context.Context, route Route) error {
+	if !r.clockReady() {
+		return ErrDenied
+	}
 	if route.Fence.Generation <= 0 {
 		return nil
 	}
@@ -78,7 +81,7 @@ func (r *Runtime) ownsCoordination(ctx context.Context, id string) bool {
 // maintainCoordinators uses a SQL compare-and-swap. A paused old owner cannot
 // renew after takeover. Expiry transfers only coordination, never execution.
 func (r *Runtime) maintainCoordinators(ctx context.Context) error {
-	if !r.o.Roles.Has(config.RoleServer) || r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil {
+	if !r.clockReady() || !r.o.Roles.Has(config.RoleServer) || r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil {
 		return nil
 	}
 	rows, err := r.o.DB.QueryContext(ctx, `SELECT c.session FROM clusterplayback_coordinators c JOIN placement_sessions p ON p.session=c.session AND p.generation=c.generation WHERE p.retired=0 ORDER BY c.session LIMIT 4096`)
@@ -100,6 +103,9 @@ func (r *Runtime) maintainCoordinators(ctx context.Context) error {
 		return err
 	}
 	for _, id := range ids {
+		if !r.clockReady() {
+			return ErrDenied
+		}
 		c, e := r.CurrentCoordinator(ctx, id)
 		if e != nil {
 			continue

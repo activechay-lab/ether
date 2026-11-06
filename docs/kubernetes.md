@@ -100,6 +100,61 @@ limit voluntary eviction; they do not protect direct pod deletion, forced loss,
 or guarantee spare capacity. A one-replica pool with maxUnavailable 1 can become
 fully unavailable. Choose PDB and scheduling rules to match the capacity plan.
 
+## Continuous clock enforcement
+
+`runtime.clockSkewMillis` is the maximum **pairwise** wall-clock error used by
+lease and grant consumers; `runtime.clockBoundKnown=true` remains mandatory.
+Every PostgreSQL membership heartbeat (normally five seconds) now performs one
+additional bounded scalar `clock_timestamp()` query, before publishing caps.
+The estimate is local wall time at the monotonic round-trip midpoint minus DB
+time. Admission uses `abs(skew) + RTT/2 + 1 microsecond` (timestamp precision).
+Each node must fit within **half** the configured pairwise bound against the
+common database reference, so nodes on opposite sides of that reference cannot
+exceed the peer-to-peer budget. A zero bound therefore cannot admit work.
+
+Unknown, failed or stale samples (older than three heartbeat intervals) refuse
+new authority. Local wall elapsed is also compared with monotonic elapsed on
+heartbeats and authority checks: a step above the smaller of 10 ms and one tenth
+of the configured bound (minimum 1 ms) closes admission immediately and logs its
+signed size. A step during a query invalidates that query. Two consecutive good
+samples at or below 80% of the half-bound restore admission automatically.
+Keep host NTP/time synchronization running; this monitor neither sets clocks nor
+proves an external synchronization service's future drift guarantee. PostgreSQL
+must remain a common stable clock reference for the cluster.
+
+During a clock fault `/admissionz` returns HTTP 503 with `reason: "clock_skew"`.
+Placement reservation, source binding/grant minting, worker start acceptance and
+**renewal issuance and acceptance** fail closed. Extending a lease with an
+unbounded clock could outlive a peer's fencing deadline, so existing leases
+cannot be renewed as a special exception. Failed remote renewals are retried
+without proactively revoking the last accepted lease; its original monotonic
+expiry still bounds the worker and source authority. Clock quarantine itself
+does not revoke grants, stop encoders, remove media routes or change `/readyz`.
+Existing media remains subject to normal authority/expiry checks, and an outage
+longer than the previously granted lifetime can therefore interrupt playback.
+No retirement or resource reclamation follows from clock failure.
+
+A healthy controller probes encoder eligibility before attempting renewal. Once
+heartbeat diagnostics report a worker's clock quarantine, the failure grace
+triggers replacement on another eligible node without waiting for expiry. If
+that report is delayed, a refused renewal leaves the worker's last accepted
+monotonic deadline intact; its expiry timer self-fences the execution and a
+subsequent status probe triggers the same replacement. Supersession preserves
+old displaced capacity claims until exact retirement proof, advances execution
+generation, and resumes at the delivery watermark. A clock-quarantined controller
+also stops coordinator lease issuance/renewal/adoption; a healthy replica can
+win the next coordination epoch and continue recovery. This requires healthy
+spare capacity and a surviving database/controller. The offline recovery fixture
+covers quarantine with live RPC transport; it does not certify a client-buffer
+budget or actual decoder/audio continuity. Those remain measured lab gates.
+
+Heartbeat `caps.diagnostics.clock` and local cluster health expose
+`clockSkewNs`, `rttNs`, `uncertaintyNs`, `boundNs`, `sampledAt`, `ready`, `reason`
+and `lastStepNs`. The diagnostic readiness reason is `clock_skew` while blocked;
+`readyExisting` remains the serving-readiness observation. Remote clock
+diagnostics exclude nodes from new selection, while the node's own fresh guard
+is the enforcement boundary. Diagnostics alone never grant authority.
+
 ## Durable ledger quota
 
 `runtime.capacity` limits concurrent work at a node/resource scope (1–4096).
