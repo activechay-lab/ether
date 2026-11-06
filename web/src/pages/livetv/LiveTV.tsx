@@ -1002,7 +1002,6 @@ export default function LiveTV() {
       <Library />
     ) : leftTab === "looks" ? (
       <LooksGallery
-        showOwned={false}
         looks={looks}
         onNew={() => setParams(new URLSearchParams({ look: "new" }))}
         onSelect={(id) => setParams(new URLSearchParams({ look: id }))}
