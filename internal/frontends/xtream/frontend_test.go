@@ -414,3 +414,19 @@ func TestXtreamAdmissionFailureStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestXtreamSharedOriginPreservesFrontendPrefix(t *testing.T) {
+	for _, base := range []string{"http://ether.test", "http://ether.test/xtream", "http://ether.test/proxy/xtream"} {
+		host, _ := testHost(t)
+		host.SurfaceURL = func(context.Context, *http.Request) (string, error) { return base, nil }
+		inst := &instance{host: host}
+		got := inst.base(httptest.NewRequest("GET", "/xtream/player_api.php", nil))
+		want := base
+		if !strings.HasSuffix(want, "/xtream") {
+			want += "/xtream"
+		}
+		if got != want {
+			t.Fatalf("base=%s got=%s want=%s", base, got, want)
+		}
+	}
+}

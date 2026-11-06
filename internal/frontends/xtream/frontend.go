@@ -160,7 +160,18 @@ func (i *instance) base(r *http.Request) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimRight(s, "/")
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return ""
+	}
+	// Shared-listener hosts can return the reachable origin instead of the
+	// frontend prefix. All media and artwork routes belong under /xtream.
+	u.Path = strings.TrimRight(u.Path, "/")
+	if !strings.HasSuffix(u.Path, "/xtream") {
+		u.Path += "/xtream"
+	}
+	u.RawPath = ""
+	return u.String()
 }
 func (i *instance) api(w http.ResponseWriter, r *http.Request, l login) {
 	action := r.URL.Query().Get("action")
