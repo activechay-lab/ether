@@ -27,6 +27,19 @@ def parsed(s):
     return dt.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
 
 
+def control_summary(controls):
+    status = controls[-1].get('Status') if controls else None
+    failed = sum(not 200 <= attempt.get('Status', 0) < 300 for attempt in controls)
+    clean = bool(controls) and failed == 0
+    return {'stopStatus': status, 'failedRequests': failed, 'requests': len(controls),
+            'stopPassed': bool(controls) and 200 <= status < 300,
+            'allRequestsPassed': clean, 'passed': clean}
+
+
+def media_control_passed(media_passed, action_succeeded, control):
+    return bool(media_passed and action_succeeded and control['allRequestsPassed'])
+
+
 def sample_host_load(out):
     begin = time.monotonic()
     row = dict(observedAt=stamp(), logicalCPUs=os.cpu_count())
@@ -270,14 +283,11 @@ def run(c, out):
             report['playback'] = p
             controls = [a for a in p.get('Attempts', []) if a.get('Kind') in ('timeline', 'stop')]
             # The client sends Stop last, after its bounded playback window.
-            # Periodic progress reports may fail transiently during a fault;
-            # retain those failures separately from the final Stop outcome.
-            report['control'] = {
-                'stopStatus': controls[-1].get('Status') if controls else None,
-                'failedRequests': sum(not 200 <= a.get('Status', 0) < 300 for a in controls),
-                'requests': len(controls)}
-            report['control']['allRequestsPassed'] = bool(controls) and report['control']['failedRequests'] == 0
-            report['control']['passed'] = bool(controls) and 200 <= report['control']['stopStatus'] < 300
+            report['control'] = control_summary(controls)
+            report['outcomes'] = {'mediaPassed': p.get('Outcome') == 'passed',
+                                  'controlPassed': report['control']['allRequestsPassed'],
+                                  'stopPassed': report['control']['stopPassed'],
+                                  'actionSucceeded': report['actionSucceeded']}
             kill = parsed(report['killAt']) if report['killAt'] else None
             if kill:
                 report['postLossObservationSeconds'] = max(0, parsed(p['StartedAt'])+p.get('ElapsedSeconds', 0)-kill)
@@ -306,8 +316,7 @@ def run(c, out):
                         report['serverInterruptionSeconds'] = min(parsed(r['producedAt']) for r in recovered)-kill
                         report['serverInterruptionVerified'] = True
                     report['producerEvidenceSHA256'] = hashlib.sha256(evidence.read_bytes()).hexdigest()
-            report['passed'] = (p.get('Outcome') == 'passed' and report['actionSucceeded']
-                                and report['control']['passed']
+            report['passed'] = (media_control_passed(p.get('Outcome') == 'passed', report['actionSucceeded'], report['control'])
                                 and (action == 'none' or report['killAt'] is not None)
                                 and report.get('restored', True) and 'error' not in report
                                 and report.get('playerExitCode') == 0
