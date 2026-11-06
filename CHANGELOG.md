@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.5-rc.1 (release candidate)
+
+Xtream source/player support, per-viewer Live TV compatibility transcoding,
+channel search, catalogue and poster corrections, richer support diagnostics,
+and scoped distributed playback recovery fixes. See the
+[RC1 notes](release-notes/v0.3.5-rc.1.md) for upgrade guidance and validation limits.
+
 ## 0.3.1 (2026-11-01)
 
 - **Bundled TMDB key and fallback guidance (`internal/tmdb`, `Dockerfile`, `.github/workflows/release.yml`, `web/`):** Official release builds and Docker images now bake in `internal/tmdb.BundledKey` so fresh installs populate a catalogue immediately. For custom builds without a bundled key, the setup finish screen, **Overview › Next steps**, and **Catalog** surface an **Add a TMDB key** link to **Server › Integrations › TMDB**.

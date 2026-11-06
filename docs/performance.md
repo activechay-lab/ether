@@ -405,7 +405,7 @@ grow with the library.
    the gate covers it.
 
 
-## Xtream export (v0.3.6)
+## Xtream export (v0.3.5)
 
 The focused synthetic checks use 100,001 movie titles and 250-row export pages.
 On the development Mac, the HTTP handler wrote 401 pages (about 31 MB JSON) to

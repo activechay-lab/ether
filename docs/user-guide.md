@@ -1350,7 +1350,7 @@ may continue briefly before stopping; that interruption is not instantaneous.
 
 ## IPTV apps (Xtream)
 
-In v0.3.6, enable **IPTV apps (Xtream)** on **Apps**, open its settings,
+In v0.3.5, enable **IPTV apps (Xtream)** on **Apps**, open its settings,
 choose a viewer, and create a connection. Enter the displayed server address,
 generated username and app password into an IPTV player app. The password is
 shown once. Create a separate login for each device; each login permits one
@@ -1366,5 +1366,10 @@ The API lives under the displayed server address: `player_api.php`, `xmltv.php`,
 `get.php`, and `live/`, `movie/`, and `series/` stream paths. Connection details are
 secrets because the protocol carries them in URLs. Ether redacts them in logs
 and support captures. Use a private network or HTTPS when connecting remotely.
-Real IPTV player app validation remains pending; protocol tests are the current
-compatibility evidence.
+Generated-media testing covered Televizo movie/episode playback, movie seeking,
+and live channel switching on an Android emulator. TiviMate guide/live playback
+and switching were also exercised; its Premium VOD/series paths were not tested.
+Smarters Pro for Mac was checked for login and decoder activity, but sustained
+playback remains unverified. These are scoped checks, not certification of every
+IPTV app, physical TV, or provider. Upstream provider connection limits are
+enforced per Ether process; they are not a cluster-wide account quota.
