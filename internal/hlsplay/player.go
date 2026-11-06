@@ -421,7 +421,9 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 		sample := Sample{now, b.Level, b.Played}
 		r.Buffer = append(r.Buffer, sample)
 		p.event(sample)
-		if b.Started && now >= nextTimeline {
+		// Do not begin a progress call that the bounded window will cancel.
+		deadline, _ := runCtx.Deadline()
+		if b.Started && now >= nextTimeline && time.Until(deadline) >= c.RequestTimeout {
 			nextTimeline = now + 5
 			state := "playing"
 			if b.Level == 0 {
