@@ -345,7 +345,7 @@ export function clusterNodeHealth(
     return observation.level;
   const diagnostic = n.caps?.diagnostics;
   if (diagnostic && nodeStatusFresh(n) && runtimeFresh(diagnostic.sampledAt))
-    return diagnostic.readyExisting ? "ok" : "error";
+    return !diagnostic.readyExisting ? "error" : diagnostic.readinessReason ? "warn" : "ok";
   const runtime = nodeRuntime(s, n);
   return runtime && runtimeFresh(runtime.runtimeSampledAt)
     ? runtime.readyExisting
@@ -426,7 +426,8 @@ function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: b
               {t("Health")}: {t("Healthy")}{" "}
               <strong>{nodes.filter((n) => healthOf(n) === "ok").length}</strong> · {t("Failing")}{" "}
               <strong>{nodes.filter((n) => healthOf(n) === "error").length}</strong> ·{" "}
-              {t("Unknown")}{" "}
+              {t("Needs attention")}{" "}
+              <strong>{nodes.filter((n) => healthOf(n) === "warn").length}</strong> · {t("Unknown")}{" "}
               <strong>{nodes.filter((n) => healthOf(n) === "unknown").length}</strong>
             </div>
             <div>
@@ -460,14 +461,18 @@ function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: b
                             ? "destructive"
                             : healthOf(n) === "ok"
                               ? "success"
-                              : "outline"
+                              : healthOf(n) === "warn"
+                                ? "warning"
+                                : "outline"
                         }
                       >
                         {healthOf(n) === "error"
                           ? t("Failing")
                           : healthOf(n) === "ok"
                             ? t("Healthy")
-                            : t("Unknown")}
+                            : healthOf(n) === "warn"
+                              ? t("Needs attention")
+                              : t("Unknown")}
                       </Badge>
                     </span>
                     <Badge variant={n.draining ? "warning" : "outline"}>
@@ -827,7 +832,7 @@ function NodeDrawer({
       }
     >
       <div className="space-y-5">
-        <NodeCapacity node={node} cached={cached} />
+        <NodeCapacity node={node} cached={cached} lifecycle={false} />
         <SettingsSection title={t("Configured roles")}>
           <SettingsRow
             title={nodeRoles(node).join(", ")}
@@ -1480,7 +1485,15 @@ function readinessReason(reason: string): string {
       return t("Runtime unavailable");
   }
 }
-function NodeCapacity({ node, cached }: { node: ClusterNode; cached: boolean }) {
+function NodeCapacity({
+  node,
+  cached,
+  lifecycle = true,
+}: {
+  node: ClusterNode;
+  cached: boolean;
+  lifecycle?: boolean;
+}) {
   const d = node.caps?.diagnostics;
   const fresh = !cached && nodeStatusFresh(node) && !!d && runtimeFresh(d.sampledAt);
   const value = (n: number | undefined) =>
@@ -1489,8 +1502,15 @@ function NodeCapacity({ node, cached }: { node: ClusterNode; cached: boolean }) 
     <dl className="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
       {[
         [t("Transcoding"), transcodeLabel(node)],
-        [t("Accepting new work"), fresh ? (d?.acceptingNew ? t("Yes") : t("No")) : t("Unknown")],
-        [t("Draining"), fresh ? (d?.draining ? t("Yes") : t("No")) : t("Unknown")],
+        ...(lifecycle
+          ? [
+              [
+                t("Accepting new work"),
+                fresh ? (d?.acceptingNew ? t("Yes") : t("No")) : t("Unknown"),
+              ],
+              [t("Draining"), fresh ? (d?.draining ? t("Yes") : t("No")) : t("Unknown")],
+            ]
+          : []),
         [
           t("Clock skew"),
           fresh && d?.clock && runtimeFresh(d.clock.sampledAt)
