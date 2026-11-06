@@ -524,7 +524,17 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			// confirmed. Retry disposal when a last retained reader drains.
 			_ = r.ReleaseOutput(ctx, x.route.Fence.Session, x.route.Fence)
 		}
-		if x.busy || x.retired || (x.reserved && !x.stopping && !r.ownsExecution(ctx, x)) {
+		if x.busy {
+			continue
+		}
+		if x.retired {
+			// Retiring the current generation does not prove that a displaced
+			// producer exited. Keep exact old-worker retirement alive after Stop,
+			// including when that same boot becomes reachable again later.
+			r.reconcileDisplaced(ctx, x)
+			continue
+		}
+		if x.reserved && !x.stopping && !r.ownsExecution(ctx, x) {
 			continue
 		}
 		if x.reservePending {

@@ -81,7 +81,7 @@ func TestReencodedAACLossRecoveryInvariant(t *testing.T) {
 }
 
 func testEncoderLossRecoveryInvariant(t *testing.T, reencoded bool) {
-	modes := []string{"exit", "partition", "newboot", "boot-before-recovery", "removed", "clock", "tls-replaced", "tls-denied", "gone", "pause", "refused"}
+	modes := []string{"exit", "partition", "newboot", "boot-before-recovery", "removed", "clock", "tls-replaced", "tls-denied", "gone", "pause", "stop-before-restore", "refused"}
 	if !reencoded {
 		modes = append(modes, "ramp")
 	}
@@ -168,7 +168,7 @@ func testEncoderLossRecoveryInvariant(t *testing.T, reencoded bool) {
 				if i == 1 {
 					handler = http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
 						if down.Load() {
-							if mode == "pause" {
+							if mode == "pause" || mode == "stop-before-restore" {
 								var request struct{ Op string }
 								_ = json.NewDecoder(q.Body).Decode(&request)
 								if request.Op == "segment" {
@@ -242,7 +242,7 @@ func testEncoderLossRecoveryInvariant(t *testing.T, reencoded bool) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mode == "pause" {
+			if mode == "pause" || mode == "stop-before-restore" {
 				// The first discovered server is a different replica, just like
 				// ingress landing away from the session's coordinator in the lab.
 				runtimes[2].o.MediaServers = func(context.Context) ([]nodewire.Identity, error) { return []nodewire.Identity{ids[2], ids[3]}, nil }
@@ -262,7 +262,7 @@ func testEncoderLossRecoveryInvariant(t *testing.T, reencoded bool) {
 			fetch := func(n int) {
 				t.Helper()
 				w := httptest.NewRecorder()
-				if mode == "pause" {
+				if mode == "pause" || mode == "stop-before-restore" {
 					request := httptest.NewRequest("GET", "https://public/video/:/transcode/universal/session/recover/base/"+strconv.Itoa(n)+".ts", nil).WithContext(ctx)
 					if !runtimes[2].ForwardPlexMedia(w, request, "recover") {
 						t.Fatal("media missed coordinator capture")
@@ -338,7 +338,7 @@ func testEncoderLossRecoveryInvariant(t *testing.T, reencoded bool) {
 			}
 			var cancelPaused context.CancelFunc
 			var pausedDone chan struct{}
-			if mode == "pause" {
+			if mode == "pause" || mode == "stop-before-restore" {
 				readCtx, cancelRead := context.WithCancel(ctx)
 				cancelPaused = cancelRead
 				defer cancelRead()
@@ -525,6 +525,30 @@ func testEncoderLossRecoveryInvariant(t *testing.T, reencoded bool) {
 			}
 			for n := 3; n < 6; n++ {
 				fetch(n)
+			}
+			if mode == "stop-before-restore" {
+				_ = session.Close()
+				for i := 0; i < 30; i++ {
+					_ = front.Tick(ctx)
+					runtimes[0].Cleanup()
+					runtimes[2].Cleanup()
+					record, _ = p.Lookup(ctx, q.SessionID)
+					if record.Retired {
+						break
+					}
+				}
+				if !record.Retired || record.Generation != 2 {
+					t.Fatal("replacement did not retire before old worker restored", record)
+				}
+				for i := 0; i < 2; i++ {
+					_ = front.Tick(ctx)
+				}
+				if err = db.QueryRow(`SELECT COUNT(*) FROM placement_claims`).Scan(&charged); err != nil || charged != 0 {
+					t.Fatal("retired replacement retained current capacity", charged, err)
+				}
+				if err = db.QueryRow(`SELECT COUNT(*) FROM placement_displaced_claims`).Scan(&charged); err != nil || charged != 1 {
+					t.Fatal("unreachable old worker lost its charge without exit proof", charged, err)
+				}
 			}
 			down.Store(false)
 			gone.Store(false)
