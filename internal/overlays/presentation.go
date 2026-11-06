@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/ratings"
 )
 
 // LayerReport describes exactly why a layer is or isn't present in the rendered
@@ -102,28 +103,10 @@ func (s *Service) presentation(ctx context.Context, u *core.User, t *core.Title,
 	add("quality", cfg.Quality, quality, "Verified from this viewer's playback within 30 days; the next release may differ", "No verified playback yet; release-name guesses are excluded")
 	var scores []string
 	if cfg.Enabled && cfg.Ratings {
-		if s.o.Ratings != nil {
-			if bs, e := s.o.Ratings.Cached(ctx, t); e == nil {
-				for _, b := range bs {
-					if b.Scale > 0 && b.Value > 0 && b.Value <= b.Scale && !math.IsNaN(b.Value) && !math.IsInf(b.Value, 0) && !math.IsInf(b.Scale, 0) {
-						label := fmt.Sprintf("%s %.1f", strings.ToUpper(b.Source), b.Value)
-						if !cfg.HideDenominator {
-							label += fmt.Sprintf("/%.0f", b.Scale)
-						}
-						scores = append(scores, label)
-					}
-					if len(scores) == 2 {
-						break
-					}
-				}
-			}
-		}
-		// TMDB scores are already in the catalogue. They need no extra provider,
-		// network request or invented IMDb identity.
-		if len(scores) == 0 && t.VoteCount > 0 && t.Rating > 0 && t.Rating <= 10 && !math.IsNaN(t.Rating) {
-			label := fmt.Sprintf("TMDB %.1f", t.Rating)
+		for _, b := range s.posterRatings(ctx, t) {
+			label := fmt.Sprintf("%s %.1f", strings.ToUpper(b.Source), b.Value)
 			if !cfg.HideDenominator {
-				label += "/10"
+				label += fmt.Sprintf("/%.0f", b.Scale)
 			}
 			scores = append(scores, label)
 		}
@@ -146,5 +129,66 @@ func (s *Service) presentation(ctx context.Context, u *core.User, t *core.Title,
 		}
 	}
 	add("details", cfg.Details, details, "Year, runtime and content rating from the catalogue", "No catalogue details available")
+	return out
+}
+
+// posterRatings honors the selected sources in slot order, rather than provider
+// response order. None disables a slot; a missing selected source only falls
+// back to the honestly labelled catalogue score when the owner permits it.
+func (s *Service) posterRatings(ctx context.Context, t *core.Title) []ratings.Badge {
+	valid := func(b ratings.Badge) bool {
+		return b.Scale > 0 && b.Value > 0 && b.Value <= b.Scale &&
+			!math.IsNaN(b.Value) && !math.IsInf(b.Value, 0) && !math.IsInf(b.Scale, 0)
+	}
+	var out []ratings.Badge
+	add := func(b ratings.Badge) {
+		if !valid(b) {
+			return
+		}
+		for _, existing := range out {
+			if existing.Source == b.Source {
+				return
+			}
+		}
+		out = append(out, b)
+	}
+	catalogue := ratings.Badge{Source: "tmdb", Value: t.Rating, Scale: 10}
+	if t.VoteCount <= 0 {
+		catalogue.Value = 0
+	}
+	if s.o.Ratings == nil {
+		add(catalogue)
+		return out
+	}
+	ctx = s.o.Ratings.WithSettingsSnapshot(ctx)
+	cfg, err := s.o.Ratings.Settings(ctx)
+	if err != nil {
+		return nil
+	}
+	if !cfg.Enabled {
+		add(catalogue)
+		return out
+	}
+	badges, err := s.o.Ratings.Cached(ctx, t)
+	if err != nil {
+		return nil
+	}
+	for _, source := range []string{cfg.Critic, cfg.Audience} {
+		if source == "" || source == "none" {
+			continue
+		}
+		found := false
+		for _, b := range badges {
+			if b.Source == source && valid(b) {
+				add(b)
+				found = true
+				break
+			}
+		}
+		// Empty is the existing UI default: fall back to TMDB.
+		if !found && cfg.Missing != "none" {
+			add(catalogue)
+		}
+	}
 	return out
 }
