@@ -15,7 +15,9 @@ import (
 
 // runSpec is everything needed to build one ffmpeg HLS run.
 type runSpec struct {
-	// AuthoredTimeline keeps adaptive/ramp sessions on their existing clock.
+	// RampClock keeps every run of a fast-start session on the steady clock.
+	RampClock bool
+	// AuthoredTimeline preserves adaptive sessions with a separate clock.
 	AuthoredTimeline bool
 	QSVMode          string // session-local retry override; never mutates shared capabilities
 	SilenceAudio     bool
@@ -548,19 +550,26 @@ func buildCodecArgs(s runSpec) []string {
 	// shifts a zero-origin encoder's negative DTS to zero. A positive-origin
 	// restart does not receive that second shift. Restore it explicitly,
 	// retaining the initial run's clock and its copied-audio segment cutoff.
-	if lead := hlsRestartLead(s); lead > 0 {
+	lead := hlsRestartLead(s)
+	if fastLead := hlsFastStartClock(s); fastLead > 0 {
+		lead = fastLead
+		args = appendVideoClockBSF(args, "setts=dts=DTS-"+strconv.FormatFloat(fastLead.Seconds(), 'f', 9, 64)+"/TB")
+	}
+	if lead > 0 {
 		args = append(args, "-output_ts_offset", strconv.FormatFloat(lead.Seconds(), 'f', 9, 64))
 	}
 	return args
 }
 
-// hlsRestartLead covers only the measured software H264 CFR configuration.
+// hlsRestartLead retains the measured software H264 clock across restarts.
+// Fast-start fMP4 also carries the ramp origin into every steady run; its
+// edit-list correction already handles the encoder reorder difference.
 // Copies, hardware, live, alternate muxers and unknown output clocks retain
 // their existing arguments. Chunked/keyframe-planned runs are slotted on their
 // own authored timeline and must not receive a uniform-grid mux shift.
 // Never infer a hardware encoder's reorder delay.
 func hlsRestartLead(s runSpec) time.Duration {
-	if s.AuthoredTimeline || s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP || s.Decision.Container != ContainerMPEGTS || s.Decision.VideoCopy || !s.Decision.AudioCopy || s.FastStart {
+	if (s.AuthoredTimeline && !s.RampClock) || s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP || (s.Decision.Container != ContainerMPEGTS && !(s.RampClock && s.Decision.Container == ContainerFMP4)) || s.Decision.VideoCopy || !s.Decision.AudioCopy || (s.FastStart && hlsFastStartClock(s) == 0) {
 		return 0
 	}
 	v := s.Info.Video()
@@ -575,7 +584,11 @@ func hlsRestartLead(s runSpec) time.Duration {
 	if fps <= 0 {
 		return 0
 	}
-	_, _, _, delay := x264FramePlan(s)
+	clockSpec := s
+	if s.FastStart {
+		clockSpec.FastStart = false
+	}
+	_, _, _, delay := x264FramePlan(clockSpec)
 	return time.Duration(math.Round(float64(delay) / fps * float64(time.Second)))
 }
 
@@ -584,7 +597,7 @@ func hlsRestartLead(s runSpec) time.Duration {
 // ceil-to-microsecond preload can put an AU exactly on the nominal boundary
 // in the preceding fragment; dropping only pts < Start would duplicate it.
 func hlsFMP4AudioCut(s runSpec) (float64, bool) {
-	if s.AuthoredTimeline || s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.Decision.Container != ContainerFMP4 || s.Decision.VideoCopy || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP {
+	if (s.AuthoredTimeline && !s.RampClock) || s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.Decision.Container != ContainerFMP4 || s.Decision.VideoCopy || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP {
 		return 0, false
 	}
 	v := s.Info.Video()
@@ -599,12 +612,45 @@ func hlsFMP4AudioCut(s runSpec) (float64, bool) {
 	if fps <= 0 {
 		return 0, false
 	}
-	_, _, _, delay := x264FramePlan(s)
+	clockSpec := s
+	if hlsFastStartClock(s) > 0 {
+		clockSpec.FastStart = false
+	}
+	_, _, _, delay := x264FramePlan(clockSpec)
 	preload := 0.0
 	if !v.VariableFrameRate {
 		preload = math.Ceil(2_000_000/v.FrameRate) / 1_000_000
 	}
 	return hlsGridVideoStart(s, fps) + preload - float64(delay)/fps, true
+}
+
+// hlsFastStartClock gives the zero-reorder ramp the steady clock without
+// adding B-frames or changing its low-latency encoder preset.
+func hlsFastStartClock(s runSpec) time.Duration {
+	if !s.RampClock || !s.FastStart || s.LiveInput || s.LoopInput || s.RTXTimeline || s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Decision.VideoCopy || (s.Decision.Container != ContainerMPEGTS && s.Decision.Container != ContainerFMP4) || (s.Protocol != "" && s.Protocol != core.ProtocolHLS) {
+		return 0
+	}
+	enc, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features)
+	if enc != "libx264" {
+		return 0
+	}
+	fps := hlsOutputFPS(s)
+	if fps <= 0 {
+		return 0
+	}
+	s.FastStart = false
+	_, _, _, delay := x264FramePlan(s)
+	return time.Duration(math.Round(float64(delay) / fps * float64(time.Second)))
+}
+
+func appendVideoClockBSF(args []string, filter string) []string {
+	for i := len(args) - 2; i >= 0; i-- {
+		if args[i] == "-bsf:v" {
+			args[i+1] += "," + filter
+			return args
+		}
+	}
+	return append(args, "-bsf:v", filter)
 }
 
 // FFmpeg's HLS CFR output clock uses the reference (nominal) demuxer rate,
