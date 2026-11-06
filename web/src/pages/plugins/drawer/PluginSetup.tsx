@@ -10,6 +10,7 @@ import { useLocale } from "../../../i18n/react";
 import { ApiError, apiFetch, errorMessage } from "../../../lib/api";
 import { SchemaGroups } from "../../settings/SchemaForm";
 import { FolderGrantsPicker, ViewerGrantsPicker } from "../PermissionSheet";
+import { SearchSetting } from "./SearchSetting";
 import { AddonSettings } from "./AddonSettings";
 import {
   buildGrantItems,
@@ -151,8 +152,20 @@ export function PluginSetup({
     }
   };
 
-  const groups = schemaToFieldGroups(schema, draft, options, viewers);
-  const hasSettings = groups.length > 0;
+  const searchFields: { key: string; label: string; placeholder?: string }[] = [];
+  const plainSchema = JSON.parse(JSON.stringify(schema), (_key, value) => {
+    if (Array.isArray(value))
+      return value.filter((f) => {
+        if (f?.kind === "select" && f.search) {
+          searchFields.push(f);
+          return false;
+        }
+        return true;
+      });
+    return value;
+  });
+  const groups = schemaToFieldGroups(plainSchema, draft, options, viewers);
+  const hasSettings = groups.length > 0 || searchFields.length > 0;
   const grants = detail.permissions.grants ?? {};
   const revoked = new Set(grants.revoked ?? []);
   const grantItems = buildGrantItems(detail).filter((g) => g.revocable);
@@ -163,6 +176,15 @@ export function PluginSetup({
 
   return (
     <div className="space-y-5">
+      {searchFields.map((field) => (
+        <SearchSetting
+          key={field.key}
+          plugin={id}
+          field={field}
+          value={draft[field.key]}
+          onChange={(value) => setDraft((prev) => ({ ...prev, [field.key]: value }))}
+        />
+      ))}
       {detail.host ? (
         <AddonSettings
           detail={detail}
@@ -173,7 +195,11 @@ export function PluginSetup({
           }}
         />
       ) : null}
-      {!loaded || (detail.host && !hasSettings) ? null : hasSettings ? (
+      {!loaded || (detail.host && !hasSettings) ? null : hasSettings && !groups.length ? (
+        <Button size="sm" disabled={saving} onClick={() => void save()}>
+          {saving ? t("Saving…") : t("Save settings")}
+        </Button>
+      ) : hasSettings ? (
         <SchemaGroups
           groups={groups}
           value={draft}

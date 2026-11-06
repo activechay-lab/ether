@@ -1,30 +1,51 @@
 {
   "id": "community.example.weather",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Weather",
   "description": "Local forecasts from Open-Meteo.",
   "ether": {
     "protocol": 1,
     "kind": "extension",
     "summary": "Adds local forecasts to channels",
-    "runtime": { "kind": "hosted", "entry": "index.js" },
+    "runtime": {
+      "kind": "hosted",
+      "entry": "index.js"
+    },
     "capabilities": ["onair_content"],
     "cluster": "leader",
-    "permissions": { "network": ["api.open-meteo.com"] },
+    "permissions": {
+      "network": ["api.open-meteo.com", "geocoding-api.open-meteo.com"]
+    },
     "schedule": "15m",
     "settings": {
       "fields": [
         {
-          "key": "latitude",
-          "kind": "number",
-          "label": "Latitude",
-          "default": 43.65
+          "key": "location",
+          "kind": "select",
+          "search": true,
+          "label": "$t:location",
+          "placeholder": "$t:search",
+          "required": true
         },
         {
-          "key": "longitude",
-          "kind": "number",
-          "label": "Longitude",
-          "default": -79.38
+          "key": "units",
+          "kind": "select",
+          "label": "$t:units",
+          "default": "locale",
+          "options": [
+            {
+              "value": "locale",
+              "label": "$t:locale"
+            },
+            {
+              "value": "metric",
+              "label": "$t:metric"
+            },
+            {
+              "value": "imperial",
+              "label": "$t:imperial"
+            }
+          ]
         }
       ]
     },
@@ -33,19 +54,139 @@
         {
           "id": "now",
           "maxAge": "1h",
-          "fields": { "temp": "number", "summary": "text" },
-          "sample": { "temp": 18, "summary": "Current temperature" }
+          "fields": {
+            "place": "text",
+            "temp": "text",
+            "feels": "text",
+            "wind": "text",
+            "humidity": "text",
+            "summary": "text",
+            "icon": "image",
+            "updated": "text",
+            "ticker": "text"
+          },
+          "sample": {
+            "place": "Toronto, Ontario, Canada",
+            "temp": "18\u00b0C",
+            "feels": "17\u00b0C",
+            "wind": "SW 14 km/h",
+            "humidity": "64%",
+            "summary": "Partly cloudy",
+            "icon": "assets/partly.png",
+            "updated": "16:15 EDT",
+            "ticker": "Toronto, Ontario, Canada   /   Partly cloudy   /   Feels like 17\u00b0C   /   Wind SW 14 km/h   /   Humidity 64%"
+          }
+        },
+        {
+          "id": "daily",
+          "maxAge": "6h",
+          "fields": {
+            "d0name": "text",
+            "d0high": "text",
+            "d0low": "text",
+            "d0summary": "text",
+            "d0icon": "image",
+            "d0rain": "text",
+            "d0snow": "text",
+            "d1name": "text",
+            "d1high": "text",
+            "d1low": "text",
+            "d1summary": "text",
+            "d1icon": "image",
+            "d1rain": "text",
+            "d1snow": "text",
+            "d2name": "text",
+            "d2high": "text",
+            "d2low": "text",
+            "d2summary": "text",
+            "d2icon": "image",
+            "d2rain": "text",
+            "d2snow": "text",
+            "d3name": "text",
+            "d3high": "text",
+            "d3low": "text",
+            "d3summary": "text",
+            "d3icon": "image",
+            "d3rain": "text",
+            "d3snow": "text",
+            "d4name": "text",
+            "d4high": "text",
+            "d4low": "text",
+            "d4summary": "text",
+            "d4icon": "image",
+            "d4rain": "text",
+            "d4snow": "text"
+          },
+          "sample": {
+            "d0name": "TODAY",
+            "d0high": "18\u00b0C",
+            "d0low": "11\u00b0C",
+            "d0summary": "Partly cloudy",
+            "d0icon": "assets/partly.png",
+            "d0rain": "20%  /  0.4 mm",
+            "d0snow": "Snow 0.0 cm",
+            "d1name": "TOMORROW",
+            "d1high": "16\u00b0C",
+            "d1low": "9\u00b0C",
+            "d1summary": "Rain",
+            "d1icon": "assets/rain.png",
+            "d1rain": "80%  /  6.2 mm",
+            "d1snow": "Snow 0.0 cm",
+            "d2name": "SUNDAY",
+            "d2high": "14\u00b0C",
+            "d2low": "8\u00b0C",
+            "d2summary": "Overcast",
+            "d2icon": "assets/cloud.png",
+            "d2rain": "35%  /  0.8 mm",
+            "d2snow": "Snow 0.0 cm",
+            "d3name": "MONDAY",
+            "d3high": "17\u00b0C",
+            "d3low": "10\u00b0C",
+            "d3summary": "Clear skies",
+            "d3icon": "assets/sun.png",
+            "d3rain": "5%  /  0.0 mm",
+            "d3snow": "Snow 0.0 cm",
+            "d4name": "TUESDAY",
+            "d4high": "19\u00b0C",
+            "d4low": "12\u00b0C",
+            "d4summary": "Partly cloudy",
+            "d4icon": "assets/partly.png",
+            "d4rain": "15%  /  0.2 mm",
+            "d4snow": "Snow 0.0 cm"
+          }
         }
       ],
       "onairSegments": [
         {
           "id": "forecast",
           "name": "Local forecast",
-          "duration": 120,
+          "duration": 48,
           "file": "segments/forecast.json",
-          "feeds": ["now"]
+          "feeds": ["now", "daily"]
         }
       ]
+    },
+    "strings": {
+      "cs": "i18n/cs.json",
+      "da": "i18n/da.json",
+      "de": "i18n/de.json",
+      "en": "i18n/en.json",
+      "es": "i18n/es.json",
+      "fi": "i18n/fi.json",
+      "fr": "i18n/fr.json",
+      "it": "i18n/it.json",
+      "ja": "i18n/ja.json",
+      "ko": "i18n/ko.json",
+      "nb": "i18n/nb.json",
+      "nl": "i18n/nl.json",
+      "pl": "i18n/pl.json",
+      "pt-BR": "i18n/pt-BR.json",
+      "ru": "i18n/ru.json",
+      "sv": "i18n/sv.json",
+      "tr": "i18n/tr.json",
+      "uk": "i18n/uk.json",
+      "zh-CN": "i18n/zh-CN.json",
+      "zh-TW": "i18n/zh-TW.json"
     }
   }
 }

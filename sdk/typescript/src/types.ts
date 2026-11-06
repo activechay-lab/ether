@@ -132,6 +132,8 @@ export interface SettingField {
   min?: number;
   max?: number;
   placeholder?: string;
+  /** Search /ether/options/{key}?q=...; selected value persists verbatim. */
+  search?: boolean;
 }
 
 export interface SettingsSchema {

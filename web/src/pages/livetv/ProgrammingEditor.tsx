@@ -16,7 +16,8 @@ import type { CollectionChoice } from "./ChannelStudio";
 import { ProgrammePicker } from "./ProgrammePicker";
 import { WeekGrid } from "./WeekGrid";
 import { SubtabNav } from "../../components/layout";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { ClockRows } from "./onair/ClockRows";
 import { BreakPatternEditor, breakPatternPreset } from "./onair/BreakPatternEditor";
 import { personalRecipe } from "./onair/defaults";
 import { ChannelLook, OnAirAsset, Reel, onair } from "./onair/model";
@@ -372,6 +373,7 @@ export function ProgrammingEditor({
             {t("Creative elements")}
           </h3>
           <Creative value={c.look} onChange={(look) => onChange({ look })} />
+          <ClockRows slots={c.clock ?? []} onChange={(clock) => onChange({ clock })} />
         </section>
       )}
       {editingBreaks && (
@@ -813,6 +815,7 @@ function Sources({
                   </option>
                 ))}
               </Select>
+              <SegmentSettingsLink segmentId={s.segmentId} />
             </Field>
           )}
           {s.kind === "mix" && (
@@ -900,6 +903,9 @@ function Breaks({
               })
             }
           />
+          {value.segmentIds?.map((segmentId) => (
+            <SegmentSettingsLink key={segmentId} segmentId={segmentId} />
+          ))}
           <Field label={t("Commercials from Assets")}>
             <Select
               aria-label={t("Commercials from Assets")}
@@ -1265,4 +1271,17 @@ function GenreChips({
       </Field>
     </>
   );
+}
+
+function SegmentSettingsLink({ segmentId }: { segmentId?: string }) {
+  const segments = useRegistry("onairSegment");
+  const owner = segments.descriptors.find((segment) => segment.id === segmentId)?.owner;
+  return owner ? (
+    <Link
+      className="text-sm text-primary hover:underline"
+      to={`/plugins/installed?plugin=${encodeURIComponent(owner)}&tab=setup`}
+    >
+      {t("Plugin settings")}
+    </Link>
+  ) : null;
 }

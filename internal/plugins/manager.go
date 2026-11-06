@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -425,6 +426,7 @@ func (m *Manager) CallStream(ctx context.Context, pluginID string, req Request) 
 		return Response{}, nil, ErrStreamUnsupported
 	}
 	req.PluginID = pluginID
+
 	ctx, cancel := context.WithTimeout(ctx, DeadlineFor(req.Path))
 	resp, body, err := s.CallStream(ctx, req)
 	if err != nil {
@@ -511,6 +513,14 @@ func (m *Manager) Call(ctx context.Context, pluginID string, req Request) (Respo
 		return Response{}, ErrDisabled
 	}
 	req.PluginID = pluginID
+	if req.Locale == "" {
+		for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+			if value := os.Getenv(key); value != "" {
+				req.Locale = strings.ReplaceAll(strings.Split(value, ".")[0], "_", "-")
+				break
+			}
+		}
+	}
 	start := m.now()
 	deadline := DeadlineFor(req.Path)
 	if r.Manifest.SpeaksStremio() {

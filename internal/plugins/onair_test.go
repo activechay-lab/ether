@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,12 +21,21 @@ func weatherFixture(t *testing.T) (Manifest, map[string][]byte) {
 		t.Fatal(e)
 	}
 	files := map[string][]byte{}
-	for _, p := range []string{"index.js", "segments/forecast.json"} {
-		files[p], e = os.ReadFile("../../examples/onair-weather/" + p)
-		if e != nil {
-			t.Fatal(e)
+	err := filepath.WalkDir("../../examples/onair-weather", func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel("../../examples/onair-weather", path)
+		files[filepath.ToSlash(rel)], err = os.ReadFile(path)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
+
 	return m, files
 }
 func TestOnAirManifestContract(t *testing.T) {
@@ -97,10 +107,16 @@ func TestOnAirLeaderLastGoodAndExpiry(t *testing.T) {
 		t.Fatal(e)
 	}
 	env.fake.routes["/ether/feed/"] = func(req Request) (Response, error) {
-		if req.Op != "feed" || req.ID != "now" {
+		if req.Op != "feed" || (req.ID != "now" && req.ID != "daily") {
 			t.Fatal(req)
 		}
-		return Response{Status: 200, Body: json.RawMessage(`{"temp":12,"summary":"Clear"}`)}, nil
+		for _, feed := range m.Ether.Contributes.OnAirFeeds {
+			if feed.ID == req.ID {
+				body, _ := json.Marshal(feed.Sample)
+				return Response{Status: 200, Body: body}, nil
+			}
+		}
+		return Response{}, nil
 	}
 	now := time.Now().UTC()
 	env.lead = false
@@ -113,7 +129,7 @@ func TestOnAirLeaderLastGoodAndExpiry(t *testing.T) {
 	env.lead = true
 	env.m.refreshOnAir(ctx, []Record{rec}, now)
 	first, ok := env.m.PluginSegment("plugin:" + m.ID + "/forecast")
-	if !ok || first.Slots["now.temp"] != "12" || !first.Expires.After(now) {
+	if !ok || first.Slots["now.temp"] != "18°C" || !first.Expires.After(now) {
 		t.Fatal(first)
 	}
 	env.fake.routes["/ether/feed/"] = func(Request) (Response, error) {
@@ -121,7 +137,7 @@ func TestOnAirLeaderLastGoodAndExpiry(t *testing.T) {
 	}
 	env.m.refreshOnAir(ctx, []Record{rec}, now.Add(20*time.Minute))
 	last, _ := env.m.PluginSegment("plugin:" + m.ID + "/forecast")
-	if first.Version != last.Version || last.Slots["now.temp"] != "12" {
+	if first.Version != last.Version || last.Slots["now.temp"] != "18°C" {
 		t.Fatal("failed refresh replaced good data")
 	}
 	env.m.refreshOnAir(ctx, []Record{rec}, now.Add(2*time.Hour))

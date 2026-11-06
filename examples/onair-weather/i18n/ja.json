@@ -1,0 +1,8 @@
+{
+  "location": "場所",
+  "search": "都市名または郵便番号",
+  "units": "単位",
+  "locale": "サーバーの地域設定",
+  "metric": "メートル法 (°C, km/h, mm)",
+  "imperial": "ヤード・ポンド法 (°F, mph, in)"
+}

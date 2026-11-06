@@ -1,0 +1,8 @@
+{
+  "location": "位置",
+  "search": "城市或邮政编码",
+  "units": "单位",
+  "locale": "服务器区域设置",
+  "metric": "公制 (°C, km/h, mm)",
+  "imperial": "英制 (°F, mph, in)"
+}

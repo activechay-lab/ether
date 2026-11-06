@@ -1,0 +1,8 @@
+{
+  "location": "Sted",
+  "search": "By eller postnummer",
+  "units": "Enheter",
+  "locale": "Serverens nasjonale innstillinger",
+  "metric": "Metrisk (°C, km/h, mm)",
+  "imperial": "Imperial (°F, mph, in)"
+}

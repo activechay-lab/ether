@@ -3139,6 +3139,7 @@
   "m_0c6eb71fc753ce": "Zkontrolujte, že Ether běží, a podívejte se znovu po další kontrole certifikátu.",
   "m_0c6f6914b8b4b8": "Odebrat profil?",
   "m_0c6f6ff4e33a83": "Odebrat {name}",
+  "m_0c726da8b78d42": "Žádné výsledky",
   "m_0c73de2e07b8af": "{rate}/h",
   "m_0c743b3826f19b": "SERIÁL",
   "m_0c74a7e7264402": "Kontrola stavu",
@@ -4716,6 +4717,7 @@
     "one": "Formát {count} odstraněn",
     "other": "Počet odstraněných formátů: {count}"
   },
+  "m_1254aea7808d9e": "Vyberte výsledek",
   "m_12554fb8746756": "Najít titul k úpravě…",
   "m_1257e768d65e6a": "Záložní poskytovatel hodnocení",
   "m_12589eb2f87843": "Torznab (torrenty)",

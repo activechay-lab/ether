@@ -3139,6 +3139,7 @@
   "m_0c6eb71fc753ce": "Sprawdź, czy Ether działa, i zajrzyj ponownie po następnym sprawdzeniu certyfikatu.",
   "m_0c6f6914b8b4b8": "Usunąć profil?",
   "m_0c6f6ff4e33a83": "Usuń: {name}",
+  "m_0c726da8b78d42": "Brak wyników",
   "m_0c73de2e07b8af": "{rate}/h",
   "m_0c743b3826f19b": "SERIAL",
   "m_0c74a7e7264402": "Kontrola stanu",
@@ -4716,6 +4717,7 @@
     "one": "Usunięto format {count}",
     "other": "Usunięto {count} formatów"
   },
+  "m_1254aea7808d9e": "Wybierz wynik",
   "m_12554fb8746756": "Znajdź tytuł do dostosowania…",
   "m_1257e768d65e6a": "Zapasowy dostawca ocen",
   "m_12589eb2f87843": "Torznab (torrenty)",

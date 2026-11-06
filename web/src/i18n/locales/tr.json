@@ -2981,6 +2981,7 @@
   "m_0c6eb71fc753ce": "Ether’in çalıştığını kontrol edin, ardından sonraki sertifika denetiminden sonra yeniden bakın.",
   "m_0c6f6914b8b4b8": "Profil kaldırılsın mı?",
   "m_0c6f6ff4e33a83": "{name} öğesini kaldır",
+  "m_0c726da8b78d42": "Sonuç yok",
   "m_0c73de2e07b8af": "{rate}/sa",
   "m_0c743b3826f19b": "TELEVİZYON",
   "m_0c74a7e7264402": "Sağlık denetimi",
@@ -4474,6 +4475,7 @@
     "one": "{count} biçimi kaldırıldı",
     "other": "{count} format kaldırıldı"
   },
+  "m_1254aea7808d9e": "Bir sonuç seçin",
   "m_12554fb8746756": "Özelleştirilecek başlık bul…",
   "m_1257e768d65e6a": "Yedek puan sağlayıcısı",
   "m_12589eb2f87843": "Torznab (torrent'ler)",

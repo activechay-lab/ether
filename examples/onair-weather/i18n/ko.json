@@ -1,0 +1,8 @@
+{
+  "location": "위치",
+  "search": "도시 또는 우편번호",
+  "units": "단위",
+  "locale": "서버 지역 설정",
+  "metric": "미터법 (°C, km/h, mm)",
+  "imperial": "야드파운드법 (°F, mph, in)"
+}
