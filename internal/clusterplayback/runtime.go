@@ -27,6 +27,7 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
+	MediaServers   func(context.Context) ([]nodewire.Identity, error)
 	ProtocolSealer ProtocolSealer
 	// ClockReady continuously gates new and extended time-bounded authority.
 	ClockReady          func() bool
@@ -64,6 +65,7 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
+	mediaSessions        map[string]*mediaReplica
 	neutralControl       func(context.Context, frontend.SessionAccess, string, string, frontend.Timeline, frontend.StreamRequest) (string, error)
 	mediaBrowserDelivery http.Handler
 
@@ -137,7 +139,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 	if o.DB == nil || o.Guard == nil || o.Placement == nil || o.Endpoint == nil || o.Eligible == nil || o.MemberRole == nil || o.Self.Cluster == "" || o.Self.NodeID == "" || o.Self.Boot == "" || !o.ClockBoundKnown || o.ClockSkew < 0 || o.ClockSkew > time.Minute || o.Capacity < 1 || o.Capacity > 4096 {
 		return nil, ErrDenied
 	}
-	r := &Runtime{deliveryScratch: make(chan struct{}, 4), automaticOutput: automaticOutput, credentials: map[string]sourceCredential{}, reopenLives: map[string]*ReopenResponsibility{}, reopens: map[string]*reopenRecord{}, preparations: map[string]*preparation{}, o: o, mux: http.NewServeMux(), sources: map[string]*ownedSource{}, inputs: map[remotetranscode.Identity]*workerInput{}, executions: map[string]*execution{}}
+	r := &Runtime{mediaSessions: make(map[string]*mediaReplica), deliveryScratch: make(chan struct{}, 4), automaticOutput: automaticOutput, credentials: map[string]sourceCredential{}, reopenLives: map[string]*ReopenResponsibility{}, reopens: map[string]*reopenRecord{}, preparations: map[string]*preparation{}, o: o, mux: http.NewServeMux(), sources: map[string]*ownedSource{}, inputs: map[remotetranscode.Identity]*workerInput{}, executions: map[string]*execution{}}
 	if o.OutputBuffer != nil {
 		r.outputScratch = make(chan struct{}, 1)
 	}
@@ -272,6 +274,9 @@ func (r *Runtime) Close() error {
 	r.mu.Unlock()
 	r.mu.Lock()
 	remote := r.remotePlayback
+	for _, replica := range r.mediaSessions {
+		replica.adapter.Close()
+	}
 	r.mu.Unlock()
 	if remote != nil {
 		remote.close()

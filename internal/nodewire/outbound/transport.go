@@ -129,3 +129,10 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return t.http.RoundTrip(r)
 }
 func (t *Transport) CloseIdleConnections() { t.http.CloseIdleConnections() }
+
+// ResponseHeaderTimeout sets the wait for the first response headers separately
+// from TCP/TLS admission. Call only before the transport's first request.
+// Media may wait for an encoder segment while dead endpoints must fail quickly.
+func (t *Transport) ResponseHeaderTimeout(timeout time.Duration) {
+	t.http.ResponseHeaderTimeout = timeout
+}

@@ -18,20 +18,34 @@ import (
 
 // probeEncoder distinguishes a successful status reporting an active process
 // from transport loss. EncoderErr==pending is normal for an active process.
-func (r *Runtime) probeEncoder(ctx context.Context, x *execution) error {
+func (r *Runtime) probeEncoder(ctx context.Context, x *execution) (string, error) {
 	c, cancel := context.WithTimeout(ctx, r.o.EncoderRPCDeadline)
 	defer cancel()
-	if err := r.o.Eligible(c, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: x.route.Fence.Target.NodeID, Boot: x.route.Fence.Target.Boot}, config.RoleTranscode); err != nil {
-		return err
+	// Eligibility governs NEW placement. A draining or clock-quarantined
+	// member can still own a healthy execution under its accepted lease.
+	if err := r.o.MemberRole(c, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: x.route.Fence.Target.NodeID, Boot: x.route.Fence.Target.Boot}, config.RoleTranscode); err != nil {
+		if c.Err() != nil {
+			return "membership-timeout", err
+		}
+		return "membership-loss", err
 	}
 	err := x.session.Reconcile(c)
 	if errors.Is(err, core.ErrEncoderPending) {
-		return nil
+		return "healthy", nil
 	}
 	if err == nil {
-		return ErrPending
-	} // exact retired observation also needs replacement
-	return err
+		return "encoder-retired", ErrPending
+	}
+	if c.Err() != nil {
+		return "status-timeout", err
+	}
+	return "status-failure", err
+}
+
+// encoderRecoverySupported is shared with dead-boot retirement: lack of spare
+// capacity or a temporary RPC failure must not turn a recoverable plan terminal.
+func encoderRecoverySupported(q core.HLSRequest) bool {
+	return !q.Decision.VideoCopy && q.Decision.AudioCopy && q.Decision.Kind == core.DecisionTranscode && q.Decision.Container == "mpegts" && q.StartOffset == 0 && q.RecoveryStart == nil && !q.LiveInput && q.SoftSubtitleStream == nil
 }
 
 func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
@@ -59,7 +73,7 @@ func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
 		return err
 	}
 	q := cloneAdmissionRequest(x.initial.request)
-	if q.Decision.VideoCopy || !q.Decision.AudioCopy || q.Decision.Kind != core.DecisionTranscode || q.Decision.Container != "mpegts" || q.StartOffset != 0 || q.RecoveryStart != nil || q.LiveInput || q.SoftSubtitleStream != nil {
+	if !encoderRecoverySupported(q) {
 		return remotetranscode.ErrUnsupported
 	}
 	next := int(snapshot.State.PublishedFloor + 1)
@@ -133,80 +147,92 @@ func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
 		return err
 	}
 	binding := admissionBinding(admission, raw)
-	_, err = r.o.Placement.Supersede(ctx, old.Fence, request, func(c context.Context, tx *sql.Tx, rec placement.Record) error {
-		if err := r.lockAdmissionHistory(c, tx); err != nil {
+	err = r.retryTargetCapacity(ctx, replacement.initial.request, old.Source, old.Fence.Target.NodeID, request.Target, request.Claims, replacement.recoveryCaps, route.Encoder, func(target placement.Target, claims []placement.Claim, caps remotetranscode.Capabilities, chosenEncoder string) error {
+		request.Target, request.Claims = target, claims
+		route.Fence.Target = target
+		route.Encoder = chosenEncoder
+		r.mu.Lock()
+		replacement.request, replacement.route = request, route
+		replacement.recoveryCaps = caps
+		replacement.initial = newInitialAdmission(route, replacement.initial.request)
+		r.mu.Unlock()
+		_, attemptErr := r.o.Placement.Supersede(ctx, old.Fence, request, func(c context.Context, tx *sql.Tx, rec placement.Record) error {
+			if err := r.lockAdmissionHistory(c, tx); err != nil {
+				return err
+			}
+			gate, err := readGate(c, tx, binding.key())
+			if err != nil {
+				return err
+			}
+			if gate.Binding != binding || gate.Seal != nil {
+				return ErrDenied
+			}
+			gate.Seal = &operationSeal{Actor: r.o.Self, Reason: sealAuthorityLoss}
+			sealed, err := gate.encode()
+			if err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(c, `UPDATE clusterplayback_operation_gates SET gate=? WHERE cluster=? AND session=? AND generation=?`, sealed, binding.key().Cluster, binding.key().Session, binding.key().Generation); err != nil {
+				return err
+			}
+			decision, err := json.Marshal(struct {
+				Previous       Route
+				Next           Route
+				Operation      placement.Request
+				Request        core.HLSRequest
+				OriginalDigest [32]byte
+			}{old, route, request, replacement.initial.request, binding.AdmissionDigest})
+			if err != nil || len(decision) > maxAdmissionBytes {
+				return ErrDenied
+			}
+			if _, err = tx.ExecContext(c, `INSERT INTO clusterplayback_recovery_decisions(cluster,session,generation,decision) VALUES(?,?,?,?)`, r.o.Self.Cluster, route.Fence.Session, route.Fence.Generation, string(decision)); err != nil {
+				return err
+			}
+			if err = r.recordRecoveryEvent(c, tx, x, replacement); err != nil {
+				return err
+			}
+			data, err := json.Marshal(route)
+			if err != nil {
+				return err
+			}
+			// Preserve source affinity if a source move raced replacement planning.
+			var currentRaw string
+			if err = tx.QueryRowContext(c, `SELECT route FROM clusterplayback_routes WHERE session=? AND generation=?`, old.Fence.Session, old.Fence.Generation).Scan(&currentRaw); err != nil {
+				return err
+			}
+			var current Route
+			if json.Unmarshal([]byte(currentRaw), &current) != nil || current.Source != route.Source || current.PlayID != route.PlayID || current.Revision != route.Revision {
+				return ErrDenied
+			}
+			updated, err := tx.ExecContext(c, `UPDATE clusterplayback_routes SET generation=?,route=? WHERE session=? AND generation=? AND route=?`, rec.Generation, string(data), rec.Session, old.Fence.Generation, currentRaw)
+			if err != nil {
+				return err
+			}
+			count, err := updated.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if count != 1 {
+				return ErrDenied
+			}
+			coordinatorUpdate, err := tx.ExecContext(c, `UPDATE clusterplayback_coordinators SET generation=? WHERE session=? AND generation=? AND node=? AND boot=? AND epoch=? AND deadline>?`, rec.Generation, rec.Session, old.Fence.Generation, r.o.Self.NodeID, r.o.Self.Boot, coordinator.Epoch, time.Now().Add(r.o.ClockSkew).UnixMilli())
+			if err != nil {
+				return err
+			}
+			count, err = coordinatorUpdate.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if count != 1 {
+				return ErrDenied
+			}
+			// Credentials continue authorizing the same title while the execution moves.
+			_, err = tx.ExecContext(c, `UPDATE clusterplayback_plex_bindings SET generation=? WHERE session=? AND generation=?`, rec.Generation, rec.Session, old.Fence.Generation)
 			return err
-		}
-		gate, err := readGate(c, tx, binding.key())
-		if err != nil {
-			return err
-		}
-		if gate.Binding != binding || gate.Seal != nil {
-			return ErrDenied
-		}
-		gate.Seal = &operationSeal{Actor: r.o.Self, Reason: sealAuthorityLoss}
-		sealed, err := gate.encode()
-		if err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(c, `UPDATE clusterplayback_operation_gates SET gate=? WHERE cluster=? AND session=? AND generation=?`, sealed, binding.key().Cluster, binding.key().Session, binding.key().Generation); err != nil {
-			return err
-		}
-		decision, err := json.Marshal(struct {
-			Previous       Route
-			Next           Route
-			Operation      placement.Request
-			Request        core.HLSRequest
-			OriginalDigest [32]byte
-		}{old, route, request, replacement.initial.request, binding.AdmissionDigest})
-		if err != nil || len(decision) > maxAdmissionBytes {
-			return ErrDenied
-		}
-		if _, err = tx.ExecContext(c, `INSERT INTO clusterplayback_recovery_decisions(cluster,session,generation,decision) VALUES(?,?,?,?)`, r.o.Self.Cluster, route.Fence.Session, route.Fence.Generation, string(decision)); err != nil {
-			return err
-		}
-		if err = r.recordRecoveryEvent(c, tx, x, replacement); err != nil {
-			return err
-		}
-		data, err := json.Marshal(route)
-		if err != nil {
-			return err
-		}
-		// Preserve source affinity if a source move raced replacement planning.
-		var currentRaw string
-		if err = tx.QueryRowContext(c, `SELECT route FROM clusterplayback_routes WHERE session=? AND generation=?`, old.Fence.Session, old.Fence.Generation).Scan(&currentRaw); err != nil {
-			return err
-		}
-		var current Route
-		if json.Unmarshal([]byte(currentRaw), &current) != nil || current.Source != route.Source || current.PlayID != route.PlayID || current.Revision != route.Revision {
-			return ErrDenied
-		}
-		updated, err := tx.ExecContext(c, `UPDATE clusterplayback_routes SET generation=?,route=? WHERE session=? AND generation=? AND route=?`, rec.Generation, string(data), rec.Session, old.Fence.Generation, currentRaw)
-		if err != nil {
-			return err
-		}
-		count, err := updated.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if count != 1 {
-			return ErrDenied
-		}
-		coordinatorUpdate, err := tx.ExecContext(c, `UPDATE clusterplayback_coordinators SET generation=? WHERE session=? AND generation=? AND node=? AND boot=? AND epoch=? AND deadline>?`, rec.Generation, rec.Session, old.Fence.Generation, r.o.Self.NodeID, r.o.Self.Boot, coordinator.Epoch, time.Now().Add(r.o.ClockSkew).UnixMilli())
-		if err != nil {
-			return err
-		}
-		count, err = coordinatorUpdate.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if count != 1 {
-			return ErrDenied
-		}
-		// Credentials continue authorizing the same title while the execution moves.
-		_, err = tx.ExecContext(c, `UPDATE clusterplayback_plex_bindings SET generation=? WHERE session=? AND generation=?`, rec.Generation, rec.Session, old.Fence.Generation)
-		return err
+		})
+		return attemptErr
 	})
+
 	if err != nil {
 		if !isAdmissionUnknown(err) {
 			observed, readErr := r.o.Placement.Lookup(ctx, old.Fence.Session)

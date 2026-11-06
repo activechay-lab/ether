@@ -308,8 +308,11 @@ func (w *segmentCapture) WriteHeader(status int) {
 	}
 	for _, directive := range strings.Split(w.Header().Get("Cache-Control"), ",") {
 		name := strings.TrimSpace(strings.SplitN(directive, "=", 2)[0])
-		// No revalidation mechanism exists for retained output.
-		if strings.EqualFold(name, "no-store") || strings.EqualFold(name, "no-cache") {
+		// no-cache controls HTTP reuse, not this private immutable recovery
+		// log. Every replay rechecks current authority, and preserves the
+		// original client-facing cache policy. Explicit no-store still refuses
+		// retention of the representation.
+		if strings.EqualFold(name, "no-store") {
 			w.failed = true
 		}
 	}

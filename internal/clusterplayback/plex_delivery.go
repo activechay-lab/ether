@@ -96,11 +96,6 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.NotFound(w, q)
 		return
 	}
-	coordinator, e := r.CurrentCoordinator(q.Context(), id)
-	if e != nil || coordinator.Identity != r.o.Self {
-		http.NotFound(w, q)
-		return
-	}
 	route, e := r.route(q.Context(), id)
 	if e != nil {
 		http.NotFound(w, q)
@@ -136,8 +131,8 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 	if q.Method != "GET" && q.Method != "HEAD" {
 		return false
 	}
-	coordinator, e := r.CurrentCoordinator(q.Context(), id)
-	if e != nil || coordinator.Identity == r.o.Self {
+	owner, e := r.mediaServer(q.Context(), id)
+	if e != nil || owner == r.o.Self {
 		return false
 	}
 	route, e := r.route(q.Context(), id)
@@ -145,17 +140,17 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 		http.NotFound(w, q)
 		return true
 	}
-	owner := coordinator.Identity
 	ep, tc, check, e := r.peer(q.Context(), owner, PlexDeliveryPath)
 	if e != nil {
 		http.Error(w, "delivery unavailable", 502)
 		return true
 	}
-	transport, e := outbound.New(ep, tc, 5*time.Second, check)
+	transport, e := outbound.New(ep, tc, 500*time.Millisecond, check)
 	if e != nil {
 		http.Error(w, "delivery unavailable", 502)
 		return true
 	}
+	transport.ResponseHeaderTimeout(r.o.EncoderSegmentWait)
 	defer transport.CloseIdleConnections()
 	request, e := http.NewRequestWithContext(q.Context(), q.Method, ep, nil)
 	if e != nil {
@@ -174,7 +169,7 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 	request.Header.Set(deliveryOrigin, origin)
 	request.Header.Set(deliveryHop, "1")
 	request.Header.Set(deliveryURI, q.URL.RequestURI())
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: &mediaFailoverTransport{runtime: r, first: transport, owner: owner, path: PlexDeliveryPath}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, e := client.Do(request)
 	if e != nil {
 		http.Error(w, "delivery unavailable", 502)

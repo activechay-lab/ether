@@ -29,7 +29,10 @@ using software for that codec remains eligible without a hardware preference.
 Spare slots are the minimum remaining capacity across required scopes, counting
 both current and displaced claims. These scores do not reserve capacity: the
 durable Reserve transaction remains the atomic authority. Encoder replacement
-uses the same scores while excluding the failed node.
+uses the same scores while excluding the failed node. A definite capacity
+refusal refreshes the scores and tries each remaining node at most once within
+the caller deadline, for both initial admission and replacement. Unknown
+transaction outcomes retain the identical operation for reconciliation.
 
 Private Handler registers SourcePath, nodesource.Path and WorkerPath where those
 roles exist, and DeliveryPath. Host supplies verified mTLS listener. NewRuntime

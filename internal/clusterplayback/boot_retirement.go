@@ -106,6 +106,18 @@ func (r *Runtime) reconcileOrdinaryBootRetirements(ctx context.Context) error {
 		if err != nil || record.Retired || record.Fence != route.Fence {
 			continue
 		}
+		// Tick holds control across this decision and encoder supersession. A
+		// dead boot proves the OLD process exited, not that the viewer stopped.
+		// Never seal a recoverable current gate here: Supersede must seal it in
+		// the same ledger transaction that publishes generation+1. Its displaced
+		// claim can then retire independently on the next reconciliation.
+		active, err := r.preserveDeadBootRecovery(ctx, route)
+		if err != nil {
+			return err
+		}
+		if active {
+			continue
+		}
 		if err = r.sealDeadBoot(ctx, route); err != nil {
 			return err
 		}
@@ -136,4 +148,31 @@ func (r *Runtime) reconcileOrdinaryBootRetirements(ctx context.Context) error {
 		slog.Info("retired playback capacity after authenticated boot replacement", "session", id, "generation", route.Fence.Generation, "worker", route.Fence.Target.NodeID, "worker_boot", route.Fence.Target.Boot, "source", route.Source.NodeID, "source_boot", route.Source.Boot)
 	}
 	return nil
+}
+
+// Missing local memory (for example during coordinator takeover) cannot prove
+// abandonment. Use durable admission to preserve a supported recovery plan until
+// the coordinator can attach it. Cancellation is durable and wins against the
+// recovery transaction's unsealed-gate CAS.
+func (r *Runtime) preserveDeadBootRecovery(ctx context.Context, route Route) (bool, error) {
+	h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, route.Fence.Session, route.Fence.Generation})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	if err == nil && h.Gate.Seal != nil && h.Gate.Seal.Reason == sealCancellation {
+		return false, nil
+	}
+	r.mu.Lock()
+	x := r.executions[route.Fence.Session]
+	stopped := x != nil && x.route.Fence == route.Fence && (x.stopping || x.retired)
+	r.mu.Unlock()
+	if stopped {
+		return false, nil
+	}
+	a, err := r.readExecutionAdmission(ctx, route)
+	if err != nil {
+		// Unknown admission is not evidence that the session is unrecoverable.
+		return true, nil
+	}
+	return encoderRecoverySupported(a.Request), nil
 }

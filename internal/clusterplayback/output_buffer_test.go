@@ -103,7 +103,7 @@ func TestOutputBufferContiguousAndImmutable(t *testing.T) {
 	}
 }
 func TestOutputBufferPassThroughAndIncomplete(t *testing.T) {
-	for _, test := range []string{"head", "range", "conditional", "206", "error", "short", "unknown", "oversize", "cancel", "type", "content-range", "headers", "scratch", "no-store", "no-cache"} {
+	for _, test := range []string{"head", "range", "conditional", "206", "error", "short", "unknown", "oversize", "cancel", "type", "content-range", "headers", "scratch", "no-store"} {
 		t.Run(test, func(t *testing.T) {
 			s, data := outputFixture(t)
 			q := httptest.NewRequest("GET", "/segment", nil)
@@ -149,7 +149,7 @@ func TestOutputBufferPassThroughAndIncomplete(t *testing.T) {
 				if test == "content-range" {
 					w.Header().Set("Content-Range", "bytes 0-1/2")
 				}
-				if test == "no-store" || test == "no-cache" {
+				if test == "no-store" {
 					w.Header().Set("Cache-Control", test)
 				}
 				if test == "headers" {

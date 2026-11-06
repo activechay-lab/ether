@@ -313,7 +313,7 @@ func (b *Broker) ServeSessionMedia(w http.ResponseWriter, r *http.Request, a fro
 		http.NotFound(w, r)
 		return
 	}
-	if err := b.restoreNeutralBinding(r.Context(), sessionID, &a, "", string(a.Protocol)); err != nil && err != core.ErrNotFound {
+	if err := b.restoreNeutralBindingMode(r.Context(), sessionID, &a, "", string(a.Protocol), true); err != nil && err != core.ErrNotFound {
 		http.NotFound(w, r)
 		return
 	}
@@ -425,7 +425,7 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 		http.NotFound(w, r)
 		return
 	}
-	_ = b.restoreNeutralBinding(r.Context(), parts[0], access, parts[1], string(protocol))
+	_ = b.restoreNeutralBindingMode(r.Context(), parts[0], access, parts[1], string(protocol), true)
 	b.mu.Lock()
 	live, ok := b.sessions[parts[0]]
 	var tracker *core.ReadRetirement
@@ -488,13 +488,15 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 		http.NotFound(w, r)
 		return
 	}
-	if !b.neutralCurrent(r.Context(), s) {
+	if !b.neutralMediaCurrent(r.Context(), s) {
 		http.Error(w, "session coordinator unavailable", 503)
 		return
 	}
-	if err := b.saveNeutralBinding(r.Context(), s.public.ID, false); err != nil {
-		http.Error(w, "session state unavailable", 503)
-		return
+	if b.neutralCurrent(r.Context(), s) {
+		if err := b.saveNeutralBinding(r.Context(), s.public.ID, false); err != nil {
+			http.Error(w, "session state unavailable", 503)
+			return
+		}
 	}
 	if remote, ok := b.deps.Playback.(interface{ Touch(string) }); ok {
 		remote.Touch(s.playID)

@@ -45,7 +45,25 @@ func (c *clockGuard) observe(wall, mono time.Time) time.Duration {
 		step = wall.Round(0).Sub(c.wall.Round(0)) - mono.Sub(c.mono)
 		if absClock(step) > max(time.Millisecond, min(10*time.Millisecond, c.status.Bound/10)) {
 			c.status.LastStep = step
-			c.status.Ready, c.good = false, 0
+			// A small correction inside the existing per-node safety budget is
+			// diagnostic, not loss of authority. Carry its estimated offset
+			// forward until the next DB sample without inventing extra RTT.
+			oldSkew := c.status.ClockSkew
+			const maximum = time.Duration(1<<63 - 1)
+			if absClock(oldSkew) > maximum-absClock(step) {
+				c.status.Uncertainty = maximum
+			} else {
+				measurement := max(0, c.status.Uncertainty-absClock(oldSkew))
+				c.status.ClockSkew += step
+				if absClock(c.status.ClockSkew) > maximum-measurement {
+					c.status.Uncertainty = maximum
+				} else {
+					c.status.Uncertainty = absClock(c.status.ClockSkew) + measurement
+				}
+			}
+			if !c.known || c.status.Uncertainty > c.status.Bound/2 {
+				c.status.Ready, c.good = false, 0
+			}
 		} else {
 			step = 0
 		}
@@ -57,9 +75,19 @@ func (c *clockGuard) observe(wall, mono time.Time) time.Duration {
 func (c *clockGuard) sample(before, after, monoBefore, monoAfter, database time.Time, ok bool) (ClockStatus, time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.sampleLocked(before, after, monoBefore, monoAfter, database, ok)
+}
+
+func (c *clockGuard) sampleLocked(before, after, monoBefore, monoAfter, database time.Time, ok bool) (ClockStatus, time.Duration) {
+	// A probe can finish before an admission sample but acquire this lock
+	// later. Never rewind the last paired observation or restore stale proof.
+	if !c.mono.IsZero() && monoAfter.Before(c.mono) {
+		return c.snapshotLocked(c.mono), 0
+	}
 	step := c.observe(after, monoAfter)
 	rtt := monoAfter.Sub(monoBefore)
-	// A step during the query invalidates its midpoint too.
+	// Report a step during the query too; the after-wall estimate and RTT
+	// uncertainty below determine whether admission remains inside its budget.
 	queryStep := after.Round(0).Sub(before.Round(0)) - rtt
 	if absClock(queryStep) > time.Millisecond {
 		step = queryStep
@@ -79,7 +107,7 @@ func (c *clockGuard) sample(before, after, monoBefore, monoAfter, database time.
 		}
 		c.status.SampledAt, c.receipt = after.Round(0).UTC(), monoAfter
 	}
-	if !ok || step != 0 || rtt < 0 {
+	if !ok || rtt < 0 {
 		c.status.Ready, c.good = false, 0
 	} else {
 		// Each node gets half the pairwise budget against the common DB reference.
@@ -97,9 +125,12 @@ func (c *clockGuard) sample(before, after, monoBefore, monoAfter, database time.
 	}
 	return c.snapshotLocked(monoAfter), step
 }
-func (c *clockGuard) snapshot(wall, mono time.Time) (ClockStatus, time.Duration) {
+func (c *clockGuard) snapshot(sample func() (time.Time, time.Time)) (ClockStatus, time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Capture and commit under the same lock, so concurrent admissions cannot
+	// commit observations out of order after a scheduler pause.
+	wall, mono := sample()
 	step := c.observe(wall, mono)
 	return c.snapshotLocked(mono), step
 }
@@ -119,7 +150,7 @@ func (c *clockGuard) snapshotLocked(mono time.Time) ClockStatus {
 // ClockStatus also checks for local wall steps at each authority admission,
 // closing the interval between heartbeat samples without a database round trip.
 func (p *Postgres) ClockStatus() ClockStatus {
-	s, step := p.clock.snapshot(p.o.Now(), p.o.MonotonicNow())
+	s, step := p.clock.snapshot(p.o.ClockSample)
 	p.logClockStep(step)
 	return s
 }
