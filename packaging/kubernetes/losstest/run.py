@@ -171,7 +171,7 @@ def run(c, out):
                         fault_handles = [(out/'action.stdout').open('wb'), (out/'action.stderr').open('wb')]
                         fault_process = subprocess.Popen(fault_argv, stdin=subprocess.PIPE,
                             stdout=fault_handles[0], stderr=fault_handles[1], start_new_session=True)
-                        ready_deadline = time.monotonic()+20
+                        ready_deadline = time.monotonic()+min(150, max(1, c.get('faultReadyTimeoutSeconds', 20)))
                         while not ready_file.exists() and fault_process.poll() is None and time.monotonic()<ready_deadline:
                             time.sleep(0.05)
                         if not ready_file.exists() or fault_process.poll() is not None:
