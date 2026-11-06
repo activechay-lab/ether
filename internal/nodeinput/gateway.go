@@ -419,7 +419,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return ErrDenied
 		}
 		if g.o.ValidateScope != nil {
-			return g.o.ValidateScope(ctx, in.scope)
+			return in.validateScope(ctx)
 		}
 		return nil
 	}}

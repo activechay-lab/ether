@@ -151,9 +151,11 @@ var _ = context.Background
 
 // Generation zero is the preparation-only direct-play mapping; once an encoder
 // is assigned, placement and the durable route must agree on its complete fence.
+// Moving its exact source preserves encoder output authority: SourceGeneration,
+// source node and PlayID belong to input fencing rather than delivery fencing.
 func (r *Runtime) deliveryAuthority(ctx context.Context, expected Route) error {
 	current, err := r.route(ctx, expected.Fence.Session)
-	if err != nil || current != expected {
+	if err != nil || current.Fence != expected.Fence || current.Viewer != expected.Viewer || current.Revision != expected.Revision || (expected.Fence.Generation == 0 && current != expected) {
 		return ErrDenied
 	}
 	if expected.Fence.Generation > 0 {

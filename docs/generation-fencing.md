@@ -12,7 +12,11 @@ Worker RPC admission checks the durable route and live placement. Source Verify,
 Acquire and Renew independently check the same fence. Runtime input gateways
 validate that fence before local HTTP headers and each body write. Delivery
 checks the selected route again and, for encoded sessions, its live exact
-placement before forwarding headers or bytes. Preparation-only direct playback
+placement before forwarding headers or bytes. Source movement may change source
+node, PlayID and SourceGeneration without revoking healthy encoder output. The
+input gateway instead checks its current full source scope, including that source
+generation, against the durable route. Source replacement never extends the
+execution's monotonic deadline. Preparation-only direct playback
 uses a generation-zero route until encoder assignment and checks the exact route;
 it confers no encoder authority. Retained output also checks current authority
 before capture and publication, and its store uses generation-keyed entries/CAS.
