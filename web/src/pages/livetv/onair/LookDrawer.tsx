@@ -290,7 +290,7 @@ export function LookDrawer({
         </div>
       }
       subtabs={
-        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
+        <div className="flex shrink-0 items-end justify-between gap-4 border-b border-border px-4 pt-1">
           <SubtabNav
             active={tab}
             onSelect={setTab}
@@ -302,7 +302,7 @@ export function LookDrawer({
               { key: "screens", label: t("Screens") },
             ]}
           />
-          <span className="hidden text-[10px] text-fg-muted sm:block">
+          <span className="hidden pb-3 text-[10px] text-fg-muted sm:block">
             {t("1920 × 1080 · Live television")}
           </span>
         </div>
