@@ -10,7 +10,7 @@ import (
 )
 
 func TestRampAdmissionSnapshot(t *testing.T) {
-	q := core.HLSRequest{SessionID: "ramp", Info: core.MediaInfo{Duration: 29 * time.Second, Streams: []core.StreamInfo{{Type: "video", Codec: "h264"}}}, Decision: core.Decision{Kind: core.DecisionTranscode, Container: "mpegts"}}
+	q := core.HLSRequest{SessionID: "ramp", Info: core.MediaInfo{Duration: 29 * time.Second, Streams: []core.StreamInfo{{Type: "video", Codec: "h264"}}}, Decision: core.Decision{Kind: core.DecisionTranscode, AudioCopy: true, Container: "mpegts"}}
 	q = transcode.AuthorDistributedRamp(q, config.Transcode{FastStart: true})
 	if q.Ramp.Segments != 2 {
 		t.Fatal("ramp not authored")

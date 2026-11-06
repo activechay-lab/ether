@@ -28,6 +28,7 @@ func TestRecoveryRebuildsAuthoredTimeline(t *testing.T) {
 				m := newTestManager(t, newFakeRunner(), cfg, WithoutHWDetection())
 				req := transcodeRequest(t, "initial")
 				req.Decision.Container = container
+				req.Decision.AudioCopy = true
 				req.Info.Duration = 29 * time.Second
 				req = AuthorDistributedRamp(req, cfg)
 				if req.Ramp.Segments != ramp.count {

@@ -28,8 +28,9 @@ func ValidDistributedRamp(q core.HLSRequest) bool {
 
 // AuthorDistributedRamp snapshots shared configuration once, before durable
 // admission. Unsupported requests remain on their legacy steady private path.
+// Reencoded audio stays steady until combined ramp/audio recovery is qualified.
 func AuthorDistributedRamp(q core.HLSRequest, c config.Transcode) core.HLSRequest {
-	if q.Ramp != (core.HLSRamp{}) || q.Resume != nil || !c.FastStart {
+	if q.Ramp != (core.HLSRamp{}) || q.Resume != nil || !c.FastStart || !q.Decision.AudioCopy {
 		return q
 	}
 	original := q

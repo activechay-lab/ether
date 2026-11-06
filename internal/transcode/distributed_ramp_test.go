@@ -2,6 +2,7 @@ package transcode
 
 import (
 	"github.com/braedonsaunders/ether/internal/core"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -31,6 +32,19 @@ func TestDistributedRampBounds(t *testing.T) {
 		change(&bad)
 		if ValidDistributedRamp(bad) || m.SupportsDistributedRequest(bad) {
 			t.Fatalf("invalid ramp admitted: %+v", bad.Ramp)
+		}
+	}
+	// Automatic authoring must not remove steady AAC recovery eligibility.
+	// Already authored contracts (including explicit steady) remain immutable.
+	for _, ramp := range []core.HLSRamp{{}, {Version: 1}, q.Ramp} {
+		for _, steady := range []time.Duration{0, 4 * time.Second} {
+			audio := q
+			audio.Decision.AudioCopy = false
+			audio.Decision.AudioCodec = "aac"
+			audio.Ramp, audio.SegmentDuration = ramp, steady
+			if got := AuthorDistributedRamp(audio, fastStartConfig()); !reflect.DeepEqual(got, audio) {
+				t.Fatalf("reencoded audio contract changed: %+v -> %+v", audio, got)
+			}
 		}
 	}
 	legacy := q
