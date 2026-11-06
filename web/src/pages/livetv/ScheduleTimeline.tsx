@@ -123,8 +123,11 @@ export function ScheduleTimeline({
           )
             throw new Error("Invalid timeline snapshot");
           new Intl.DateTimeFormat("en", { timeZone: d.timezone }).format(0);
-          // One element this console doesn't know must not hide the whole schedule.
-          const elements = d.elements.filter((e) => validElement(e));
+          // An element kind this console doesn't know yet is skipped, so it can't
+          // hide the whole schedule; a malformed element of a known kind is still
+          // an invalid snapshot.
+          const elements = d.elements.filter((e) => !!e && TIMELINE_KINDS.includes(e.kind));
+          if (!elements.every((e) => validElement(e))) throw new Error("Invalid timeline snapshot");
           if (live) setData({ ...d, elements });
         })
         .catch((error) => {

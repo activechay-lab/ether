@@ -46,15 +46,13 @@ import { SceneStrip } from "./editor/SceneStrip";
 import { Timeline } from "./editor/Timeline";
 import { useStageClock } from "./editor/clock";
 import { usePreviewAudio } from "./editor/preview-audio";
-import { RemixPanel, StyleThumbnail } from "./editor/RemixPanel";
+import { RemixPanel } from "./editor/RemixPanel";
 import { SequencePreview } from "./editor/SequencePreview";
-import { CreateTab } from "./editor/CreateTab";
-
 export function LookDrawer({
   look,
   onClose,
   onSaved,
-  initialTab = "create",
+  initialTab = "remix",
   stacked,
 }: {
   look: Style;
@@ -150,11 +148,6 @@ export function LookDrawer({
     [scene, mix],
   );
   usePreviewAudio(audioScene, clock.time, clock.playing, muted);
-  const playScene = () => {
-    clock.seek(0);
-    setMuted(false);
-    clock.setPlaying(true);
-  };
   const updateScene = (next: StyleScene) =>
     change({ ...draft, scenes: draft.scenes.map((s) => (s.id === next.id ? next : s)) });
   const dirty = !draft.id || JSON.stringify(draft) !== JSON.stringify(saved);
@@ -188,9 +181,7 @@ export function LookDrawer({
       if (!editing && !e.metaKey && !e.ctrlKey && !e.altKey) {
         if (e.code === "Space") {
           e.preventDefault();
-          if (tab !== "design") return;
-          if (clock.playing) clock.setPlaying(false);
-          else playScene();
+          clock.setPlaying((value) => !value);
           return;
         }
         if (e.key === "-" || e.key === "+" || e.key === "=") {
@@ -208,7 +199,7 @@ export function LookDrawer({
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [tab, clock.playing]);
+  }, []);
   const close = async () => {
     if (
       !dirty ||
@@ -296,7 +287,6 @@ export function LookDrawer({
             onSelect={setTab}
             ariaLabel={t("Style workspace")}
             tabs={[
-              { key: "create", label: t("Create") },
               { key: "remix", label: t("Remix") },
               { key: "design", label: t("Design") },
               { key: "screens", label: t("Screens") },
@@ -409,403 +399,370 @@ export function LookDrawer({
         </div>
       }
     >
-      {(tab === "design" || tab === "remix") && (
-        <div className="flex shrink-0 items-center justify-center gap-1 border-b border-border p-1 lg:hidden">
-          {[
-            { id: "stage", label: t("Canvas"), Icon: MousePointer2 },
-            { id: "layers", label: tab === "remix" ? t("Remix") : t("Layers"), Icon: Layers },
-            { id: "inspector", label: t("Inspector"), Icon: SlidersHorizontal },
-          ]
-            .filter((i) => tab === "design" || i.id !== "inspector")
-            .map(({ id, label, Icon }) => (
-              <Button
-                key={id}
-                size="sm"
-                variant={mobilePanel === id ? "secondary" : "ghost"}
-                onClick={() => setMobilePanel(id)}
-              >
-                <Icon size={14} />
-                {label}
-              </Button>
-            ))}
-        </div>
-      )}
-      {tab === "create" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <CreateTab style={draft} onChange={change} selectedSceneId={scene?.id} />
-        </div>
-      ) : tab === "screens" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto bg-surface p-4 sm:p-8">
-          <div className="mx-auto max-w-4xl space-y-8">
-            <section className="space-y-4 rounded-xl border border-border p-4 sm:p-6">
-              <h2 className="font-semibold">{t("Corner logo")}</h2>
-              <BugControls
-                value={draft.bug ?? {}}
-                brand={draft.brand}
-                name={draft.name}
-                backdrop={<StyleThumbnail style={draft} />}
-                onChange={(bug) => change({ ...draft, bug })}
-              />
-            </section>
-            <StyleScreensEditor look={draft} onChange={change} />
-          </div>
-        </div>
-      ) : (
-        <div
-          inert={saving}
-          className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:overflow-hidden"
-          style={{
-            gridTemplateColumns:
-              tab === "design" ? `${rail}px minmax(0,1fr) 296px` : `${rail}px minmax(0,1fr)`,
-          }}
+      <div className="flex shrink-0 items-center justify-center gap-1 border-b border-border p-1 lg:hidden">
+        {[
+          { id: "stage", label: t("Canvas"), Icon: MousePointer2 },
+          { id: "layers", label: tab === "remix" ? t("Remix") : t("Layers"), Icon: Layers },
+          { id: "inspector", label: t("Inspector"), Icon: SlidersHorizontal },
+        ]
+          .filter((i) => tab === "design" || i.id !== "inspector")
+          .map(({ id, label, Icon }) => (
+            <Button
+              key={id}
+              size="sm"
+              variant={mobilePanel === id ? "secondary" : "ghost"}
+              onClick={() => setMobilePanel(id)}
+            >
+              <Icon size={14} />
+              {label}
+            </Button>
+          ))}
+      </div>
+      <div
+        inert={saving}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:overflow-hidden"
+        style={{
+          gridTemplateColumns:
+            tab === "design" ? `${rail}px minmax(0,1fr) 296px` : `${rail}px minmax(0,1fr)`,
+        }}
+      >
+        <aside
+          className={`${mobilePanel === "layers" ? "block" : "hidden"} relative min-h-0 overflow-y-auto border-r border-border bg-surface lg:block`}
         >
-          <aside
-            className={`${mobilePanel === "layers" ? "block" : "hidden"} relative min-h-0 overflow-y-auto border-r border-border bg-surface lg:block`}
-          >
-            <div className="p-4">
-              {tab === "design" && scene ? (
-                <LayersPanel
+          <div className="p-4">
+            {tab === "design" && scene ? (
+              <LayersPanel
+                document={scene.document}
+                selected={selected}
+                onSelect={(ids) => {
+                  setSelected(ids);
+                  clock.setPlaying(false);
+                }}
+                onChange={(document) => updateScene({ ...scene, document })}
+              />
+            ) : tab === "screens" ? (
+              <div className="space-y-5">
+                <StyleScreensEditor look={draft} onChange={change} />
+                <BugControls
+                  value={draft.bug ?? {}}
+                  onChange={(bug) => change({ ...draft, bug })}
+                />
+              </div>
+            ) : (
+              <RemixPanel
+                style={draft}
+                onChange={change}
+                onOpenScene={(id) => {
+                  setSceneId(id);
+                  setTab("design");
+                  setMobilePanel("stage");
+                }}
+              />
+            )}
+          </div>
+          <div
+            role="separator"
+            tabIndex={0}
+            aria-label={t("Resize layers panel")}
+            aria-orientation="vertical"
+            aria-valuenow={rail}
+            aria-valuemin={200}
+            aria-valuemax={360}
+            className="absolute inset-y-0 right-0 hidden w-1 cursor-col-resize hover:bg-primary/40 focus:bg-primary/40 lg:block"
+            onPointerDown={(e) => {
+              resizeRail.current = { x: e.clientX, width: rail };
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              if (e.currentTarget.hasPointerCapture(e.pointerId))
+                setRail(
+                  Math.max(
+                    200,
+                    Math.min(360, resizeRail.current.width + e.clientX - resizeRail.current.x),
+                  ),
+                );
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                e.preventDefault();
+                setRail((w) =>
+                  Math.max(200, Math.min(360, w + (e.key === "ArrowRight" ? 16 : -16))),
+                );
+              }
+            }}
+          />
+        </aside>
+        <main
+          className={`${mobilePanel === "stage" ? "flex" : "hidden"} min-h-0 min-w-0 flex-col bg-bg-subtle lg:flex`}
+        >
+          {scene && (
+            <div className="shrink-0 overflow-x-auto">
+              <InsertBar
+                scene={scene}
+                onChange={updateScene}
+                onSelect={setSelected}
+                onPen={() => setPen(true)}
+                onSelectTool={() => setPen(false)}
+                pen={pen}
+                bindings={bindings.slots}
+              >
+                <span className="mx-1 h-5 border-l border-border" />
+                <ToolButton
+                  label={t("Zoom out")}
+                  shortcut="−"
+                  onClick={() => setZoom((z) => Math.max(0.25, z - 0.1))}
+                >
+                  <ZoomOut size={15} />
+                </ToolButton>
+                <button
+                  className="w-10 shrink-0 text-center text-[11px] tabular-nums text-fg-muted"
+                  aria-label={t("Reset zoom")}
+                  onClick={() => setZoom(1)}
+                >
+                  {Math.round(zoom * 100)}%
+                </button>
+                <ToolButton
+                  label={t("Zoom in")}
+                  shortcut="+"
+                  onClick={() => setZoom((z) => Math.min(3, z + 0.1))}
+                >
+                  <ZoomIn size={15} />
+                </ToolButton>
+                <ToolButton label={t("Fit to viewport")} onClick={() => setZoom(1)}>
+                  <Scan size={15} />
+                </ToolButton>
+                <ToolButton label={t("Safe areas")} active={safe} onClick={() => setSafe(!safe)}>
+                  <Shield size={15} />
+                </ToolButton>
+                <ToolButton
+                  label={muted ? t("Enable preview sound") : t("Mute preview sound")}
+                  active={!muted}
+                  onClick={() => setMuted(!muted)}
+                >
+                  {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                </ToolButton>
+                <Popover
+                  open={previewOpen}
+                  onOpenChange={setPreviewOpen}
+                  className="w-72 space-y-4 p-4"
+                  trigger={
+                    <span>
+                      <ToolButton
+                        label={t("Preview as")}
+                        onClick={() => setPreviewOpen(!previewOpen)}
+                      >
+                        <Eye size={15} />
+                        <span className="hidden max-w-32 truncate text-[10px] min-[1500px]:inline">
+                          {t("{channel} · {time} · {viewer}", {
+                            channel: channels.find((c) => c.id === channel)?.name ?? "",
+                            time: new Date(at).toLocaleTimeString(undefined, {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            }),
+                            viewer: viewers.find((v) => String(v.id) === viewer)?.title ?? "",
+                          })}
+                        </span>
+                      </ToolButton>
+                    </span>
+                  }
+                >
+                  <h3 className="text-sm font-semibold">{t("Preview as")}</h3>
+                  <label className="block space-y-1 text-xs">
+                    {t("Channel")}
+                    <Select
+                      aria-label={t("Preview channel")}
+                      value={channel}
+                      onChange={(e) => setChannel(e.target.value)}
+                    >
+                      {channels.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label className="block space-y-1 text-xs">
+                    {t("Time")}
+                    <Input
+                      type="datetime-local"
+                      value={at}
+                      aria-label={t("Preview time")}
+                      onChange={(e) => setAt(e.target.value)}
+                    />
+                  </label>
+                  <label className="block space-y-1 text-xs">
+                    {t("Viewer")}
+                    <Select
+                      aria-label={t("Preview viewer")}
+                      value={viewer}
+                      onChange={(e) => setViewer(e.target.value)}
+                    >
+                      {viewers.map((v) => (
+                        <option key={v.id} value={String(v.id)}>
+                          {v.title || v.username}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <p className="text-xs text-fg-muted">
+                    {t("{channel} · {time} · {viewer}", {
+                      channel: channels.find((c) => c.id === channel)?.name ?? "",
+                      time: new Date(at).toLocaleString(undefined, {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      }),
+                      viewer: viewers.find((v) => String(v.id) === viewer)?.title ?? "",
+                    })}
+                  </p>
+                </Popover>
+                <Button
+                  size="sm"
+                  className="ml-auto h-8 shrink-0 gap-2"
+                  aria-label={t("Play the sequence")}
+                  disabled={!channel || !Number.isFinite(Date.parse(at))}
+                  onClick={() => setSequence(true)}
+                >
+                  <Play size={13} fill="currentColor" />
+                  <span className="hidden min-[1400px]:inline">{t("Play the sequence")}</span>
+                </Button>
+              </InsertBar>
+            </div>
+          )}
+          {scene ? (
+            <>
+              <div className="relative min-h-[220px] flex-1 overflow-hidden lg:min-h-0">
+                <LookStage
+                  fit
+                  onGestureStart={() => {
+                    if (!gestureActive.current) {
+                      history.current.push(current.current);
+                      future.current = [];
+                      gestureActive.current = true;
+                    }
+                  }}
+                  onGestureEnd={() => {
+                    gestureActive.current = false;
+                  }}
+                  sceneVideo={scene.video}
+                  playing={clock.playing}
+                  muted={muted}
+                  pen={pen}
+                  onPenDone={() => setPen(false)}
                   document={scene.document}
+                  bindings={bindings}
+                  time={clock.time}
                   selected={selected}
                   onSelect={(ids) => {
                     setSelected(ids);
-                    clock.setPlaying(false);
+                    if (ids.length) {
+                      clock.setPlaying(false);
+                      setTab("design");
+                    }
                   }}
                   onChange={(document) => updateScene({ ...scene, document })}
+                  safe={safe}
+                  zoom={zoom}
                 />
-              ) : (
-                <RemixPanel
-                  style={draft}
-                  onChange={change}
-                  onOpenScene={(id) => {
-                    setSceneId(id);
-                    setTab("design");
-                    setMobilePanel("stage");
-                  }}
-                />
-              )}
-            </div>
-            <div
-              role="separator"
-              tabIndex={0}
-              aria-label={t("Resize layers panel")}
-              aria-orientation="vertical"
-              aria-valuenow={rail}
-              aria-valuemin={200}
-              aria-valuemax={360}
-              className="absolute inset-y-0 right-0 hidden w-1 cursor-col-resize hover:bg-primary/40 focus:bg-primary/40 lg:block"
-              onPointerDown={(e) => {
-                resizeRail.current = { x: e.clientX, width: rail };
-                e.currentTarget.setPointerCapture(e.pointerId);
-              }}
-              onPointerMove={(e) => {
-                if (e.currentTarget.hasPointerCapture(e.pointerId))
-                  setRail(
-                    Math.max(
-                      200,
-                      Math.min(360, resizeRail.current.width + e.clientX - resizeRail.current.x),
-                    ),
-                  );
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-                  e.preventDefault();
-                  setRail((w) =>
-                    Math.max(200, Math.min(360, w + (e.key === "ArrowRight" ? 16 : -16))),
-                  );
-                }
-              }}
-            />
-          </aside>
-          <main
-            className={`${mobilePanel === "stage" ? "flex" : "hidden"} min-h-0 min-w-0 flex-col bg-bg-subtle lg:flex`}
-          >
-            {scene && (
-              <div className="shrink-0 overflow-x-auto">
-                <InsertBar
-                  scene={scene}
-                  onChange={updateScene}
-                  onSelect={setSelected}
-                  onPen={() => setPen(true)}
-                  onSelectTool={() => setPen(false)}
-                  pen={pen}
-                  bindings={bindings.slots}
+                <span className="pointer-events-none absolute bottom-2 left-3 text-[10px] text-fg-muted">
+                  {t("{role} · {name}", {
+                    role: roleNames[scene.role],
+                    name: sceneDisplayName(draft, scene),
+                  })}
+                </span>
+              </div>
+              {tab === "design" && (
+                <div
+                  className="relative shrink-0 border-t border-border bg-surface"
+                  style={{ height: timelineHeight }}
                 >
-                  <span className="mx-1 h-5 border-l border-border" />
-                  <ToolButton
-                    label={t("Zoom out")}
-                    shortcut="−"
-                    onClick={() => setZoom((z) => Math.max(0.25, z - 0.1))}
-                  >
-                    <ZoomOut size={15} />
-                  </ToolButton>
-                  <button
-                    className="w-10 shrink-0 text-center text-[11px] tabular-nums text-fg-muted"
-                    aria-label={t("Reset zoom")}
-                    onClick={() => setZoom(1)}
-                  >
-                    {Math.round(zoom * 100)}%
-                  </button>
-                  <ToolButton
-                    label={t("Zoom in")}
-                    shortcut="+"
-                    onClick={() => setZoom((z) => Math.min(3, z + 0.1))}
-                  >
-                    <ZoomIn size={15} />
-                  </ToolButton>
-                  <ToolButton label={t("Fit to viewport")} onClick={() => setZoom(1)}>
-                    <Scan size={15} />
-                  </ToolButton>
-                  <ToolButton label={t("Safe areas")} active={safe} onClick={() => setSafe(!safe)}>
-                    <Shield size={15} />
-                  </ToolButton>
-                  <ToolButton
-                    label={muted ? t("Enable preview sound") : t("Mute preview sound")}
-                    active={!muted}
-                    onClick={() => setMuted(!muted)}
-                  >
-                    {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
-                  </ToolButton>
-                  <Popover
-                    open={previewOpen}
-                    onOpenChange={setPreviewOpen}
-                    className="w-72 space-y-4 p-4"
-                    trigger={
-                      <span>
-                        <ToolButton
-                          label={t("Preview as")}
-                          onClick={() => setPreviewOpen(!previewOpen)}
-                        >
-                          <Eye size={15} />
-                          <span className="hidden max-w-32 truncate text-[10px] min-[1500px]:inline">
-                            {t("{channel} · {time} · {viewer}", {
-                              channel: channels.find((c) => c.id === channel)?.name ?? "",
-                              time: new Date(at).toLocaleTimeString(undefined, {
-                                hour: "numeric",
-                                minute: "2-digit",
-                              }),
-                              viewer: viewers.find((v) => String(v.id) === viewer)?.title ?? "",
-                            })}
-                          </span>
-                        </ToolButton>
-                      </span>
-                    }
-                  >
-                    <h3 className="text-sm font-semibold">{t("Preview as")}</h3>
-                    <label className="block space-y-1 text-xs">
-                      {t("Channel")}
-                      <Select
-                        aria-label={t("Preview channel")}
-                        value={channel}
-                        onChange={(e) => setChannel(e.target.value)}
-                      >
-                        {channels.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </label>
-                    <label className="block space-y-1 text-xs">
-                      {t("Time")}
-                      <Input
-                        type="datetime-local"
-                        value={at}
-                        aria-label={t("Preview time")}
-                        onChange={(e) => setAt(e.target.value)}
-                      />
-                    </label>
-                    <label className="block space-y-1 text-xs">
-                      {t("Viewer")}
-                      <Select
-                        aria-label={t("Preview viewer")}
-                        value={viewer}
-                        onChange={(e) => setViewer(e.target.value)}
-                      >
-                        {viewers.map((v) => (
-                          <option key={v.id} value={String(v.id)}>
-                            {v.title || v.username}
-                          </option>
-                        ))}
-                      </Select>
-                    </label>
-                    <p className="text-xs text-fg-muted">
-                      {t("{channel} · {time} · {viewer}", {
-                        channel: channels.find((c) => c.id === channel)?.name ?? "",
-                        time: new Date(at).toLocaleString(undefined, {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        }),
-                        viewer: viewers.find((v) => String(v.id) === viewer)?.title ?? "",
-                      })}
-                    </p>
-                  </Popover>
-                  {tab === "design" && (
-                    <Button size="sm" className="ml-auto h-8 shrink-0 gap-2" onClick={playScene}>
-                      <Play size={13} />
-                      {t("Play scene")}
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant={tab === "design" ? "ghost" : "default"}
-                    className={`${tab === "design" ? "" : "ml-auto"} h-8 shrink-0 gap-2`}
-                    aria-label={t("Play the sequence")}
-                    disabled={!channel || !Number.isFinite(Date.parse(at))}
-                    onClick={() => {
-                      clock.setPlaying(false);
-                      setSequence(true);
-                    }}
-                  >
-                    <Play size={13} fill="currentColor" />
-                    {tab !== "design" && (
-                      <span className="hidden min-[1400px]:inline">{t("Play the sequence")}</span>
-                    )}
-                  </Button>
-                </InsertBar>
-              </div>
-            )}
-            {scene ? (
-              <>
-                <div className="relative min-h-[220px] flex-1 overflow-hidden lg:min-h-0">
-                  <LookStage
-                    fit
-                    onGestureStart={() => {
-                      if (!gestureActive.current) {
-                        history.current.push(current.current);
-                        future.current = [];
-                        gestureActive.current = true;
-                      }
-                    }}
-                    onGestureEnd={() => {
-                      gestureActive.current = false;
-                    }}
-                    sceneVideo={scene.video}
-                    playing={clock.playing}
-                    muted={muted}
-                    pen={pen}
-                    onPenDone={() => setPen(false)}
-                    document={scene.document}
-                    bindings={bindings}
-                    time={clock.time}
-                    selected={selected}
-                    onSelect={(ids) => {
-                      setSelected(ids);
-                      if (ids.length) {
-                        clock.setPlaying(false);
-                        setTab("design");
-                      }
-                    }}
-                    onChange={(document) => updateScene({ ...scene, document })}
-                    safe={safe}
-                    zoom={zoom}
-                  />
-                  <span className="pointer-events-none absolute bottom-2 left-3 text-[10px] text-fg-muted">
-                    {t("{role} · {name}", {
-                      role: roleNames[scene.role],
-                      name: sceneDisplayName(draft, scene),
-                    })}
-                  </span>
-                </div>
-                {tab === "design" && (
                   <div
-                    className="relative shrink-0 border-t border-border bg-surface"
-                    style={{ height: timelineHeight }}
-                  >
-                    <div
-                      role="separator"
-                      tabIndex={0}
-                      aria-label={t("Resize timeline")}
-                      aria-orientation="horizontal"
-                      aria-valuenow={timelineHeight}
-                      aria-valuemin={140}
-                      aria-valuemax={400}
-                      className="absolute -top-1 left-0 z-10 flex h-2 w-full cursor-row-resize justify-center hover:bg-primary/20 focus:bg-primary/20"
-                      onPointerDown={(e) => {
-                        resizeTimeline.current = { y: e.clientY, height: timelineHeight };
-                        e.currentTarget.setPointerCapture(e.pointerId);
-                      }}
-                      onPointerMove={(e) => {
-                        if (e.currentTarget.hasPointerCapture(e.pointerId))
-                          setTimelineHeight(
-                            Math.max(
-                              140,
-                              Math.min(
-                                400,
-                                resizeTimeline.current.height +
-                                  resizeTimeline.current.y -
-                                  e.clientY,
-                              ),
+                    role="separator"
+                    tabIndex={0}
+                    aria-label={t("Resize timeline")}
+                    aria-orientation="horizontal"
+                    aria-valuenow={timelineHeight}
+                    aria-valuemin={140}
+                    aria-valuemax={400}
+                    className="absolute -top-1 left-0 z-10 flex h-2 w-full cursor-row-resize justify-center hover:bg-primary/20 focus:bg-primary/20"
+                    onPointerDown={(e) => {
+                      resizeTimeline.current = { y: e.clientY, height: timelineHeight };
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    }}
+                    onPointerMove={(e) => {
+                      if (e.currentTarget.hasPointerCapture(e.pointerId))
+                        setTimelineHeight(
+                          Math.max(
+                            140,
+                            Math.min(
+                              400,
+                              resizeTimeline.current.height + resizeTimeline.current.y - e.clientY,
                             ),
-                          );
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-                          e.preventDefault();
-                          setTimelineHeight((h) =>
-                            Math.max(140, Math.min(400, h + (e.key === "ArrowUp" ? 16 : -16))),
-                          );
-                        }
-                      }}
-                    >
-                      <GripHorizontal size={14} className="text-fg-muted" />
-                    </div>
-                    <div className="h-full overflow-auto px-3">
-                      <Timeline
-                        scene={scene}
-                        duration={scene.document.duration}
-                        time={clock.time}
-                        playing={clock.playing}
-                        onPlayingChange={(playing) => {
-                          if (playing) playScene();
-                          else clock.setPlaying(false);
-                        }}
-                        onTime={clock.seek}
-                        loop={clock.loop}
-                        onLoopChange={clock.setLoop}
-                        rate={clock.rate}
-                        onRateChange={clock.setRate}
-                        selected={selected}
-                        onSelect={setSelected}
-                        onChange={updateScene}
-                        onPreviewMixChange={(muted, solo) => setMix({ muted, solo })}
-                      />
-                    </div>
+                          ),
+                        );
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setTimelineHeight((h) =>
+                          Math.max(140, Math.min(400, h + (e.key === "ArrowUp" ? 16 : -16))),
+                        );
+                      }
+                    }}
+                  >
+                    <GripHorizontal size={14} className="text-fg-muted" />
                   </div>
-                )}
-              </>
-            ) : (
-              <div className="grid flex-1 place-items-center p-8 text-sm text-fg-muted">
-                {t("Add a scene to start designing.")}
-              </div>
-            )}
-            <SceneStrip
-              style={draft}
-              selected={scene?.id ?? ""}
+                  <div className="h-full overflow-auto px-3 py-2">
+                    <Timeline
+                      scene={scene}
+                      duration={scene.document.duration}
+                      time={clock.time}
+                      playing={clock.playing}
+                      onPlayingChange={clock.setPlaying}
+                      onTime={clock.seek}
+                      loop={clock.loop}
+                      onLoopChange={clock.setLoop}
+                      rate={clock.rate}
+                      onRateChange={clock.setRate}
+                      selected={selected}
+                      onSelect={setSelected}
+                      onChange={updateScene}
+                      onPreviewMixChange={(muted, solo) => setMix({ muted, solo })}
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="grid flex-1 place-items-center p-8 text-sm text-fg-muted">
+              {t("Add a scene to start designing.")}
+            </div>
+          )}
+          <SceneStrip
+            style={draft}
+            selected={scene?.id ?? ""}
+            bindings={bindings}
+            onSelect={(id) => {
+              setSceneId(id);
+              setSelected([]);
+            }}
+            onChange={change}
+          />
+        </main>
+        {tab === "design" && scene && (
+          <aside
+            className={`${mobilePanel === "inspector" ? "block" : "hidden"} min-h-0 overflow-y-auto border-l border-border bg-surface p-4 lg:block`}
+          >
+            <Inspector
               bindings={bindings}
-              onSelect={(id) => {
-                setSceneId(id);
-                setSelected([]);
-              }}
+              time={clock.time}
+              style={draft}
+              scene={scene}
+              selected={selected}
               onChange={change}
             />
-          </main>
-          {tab === "design" && scene && (
-            <aside
-              className={`${mobilePanel === "inspector" ? "block" : "hidden"} min-h-0 overflow-y-auto border-l border-border bg-surface p-4 lg:block`}
-            >
-              <Inspector
-                bindings={bindings}
-                time={clock.time}
-                style={draft}
-                scene={scene}
-                selected={selected}
-                onChange={change}
-              />
-            </aside>
-          )}
-        </div>
-      )}
+          </aside>
+        )}
+      </div>
       {sequence && (
         <SequencePreview
           style={draft}

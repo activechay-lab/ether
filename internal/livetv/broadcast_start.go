@@ -12,17 +12,36 @@ import (
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
-func (s *Service) screenDefaults(c Channel) config.LiveTVScreens {
-	defaults := config.LiveTVScreens{NoSignal: "error", OffAir: "card", ApplyTo: "converted"}
-	if c.Look != nil && c.Look.LookID != "" && s.o.StyleScreens != nil {
-		if v := s.o.StyleScreens(c.Look.LookID); v != nil {
+func (s *Service) screenDefaults() config.LiveTVScreens {
+	if s.o.Screens != nil {
+		defaults := s.o.Screens()
+		if defaults.NoSignal == "" {
+			defaults.NoSignal = "error"
+		}
+		if defaults.OffAir == "" {
+			defaults.OffAir = "card"
+		}
+		if defaults.ApplyTo == "" {
+			defaults.ApplyTo = "converted"
+		}
+		return defaults
+	}
+	return config.LiveTVScreens{NoSignal: "error", OffAir: "card", ApplyTo: "converted"}
+}
+func (s *Service) screenStyle(c Channel, offair bool) string {
+	defaults := s.screenDefaults()
+	id := ""
+	if s.o.DefaultStyle != nil {
+		id = s.o.DefaultStyle()
+	}
+	if c.Look != nil && c.Look.LookID != "" {
+		id = c.Look.LookID
+	}
+	if s.o.StyleScreens != nil {
+		if v := s.o.StyleScreens(id); v != nil {
 			defaults = *v
 		}
 	}
-	return defaults
-}
-func (s *Service) screenStyle(c Channel, offair bool) string {
-	defaults := s.screenDefaults(c)
 	style := defaults.NoSignal
 	if offair {
 		style = defaults.OffAir
@@ -48,7 +67,7 @@ func (s *Service) useBroadcast(c Channel) bool {
 	if c.Kind == "virtual" {
 		return true
 	}
-	return c.Kind == "iptv" && s.screenStyle(c, false) != "error" && (c.Transcode || s.screenDefaults(c).ApplyTo == "all")
+	return c.Kind == "iptv" && s.screenStyle(c, false) != "error" && (c.Transcode || s.screenDefaults().ApplyTo == "all")
 }
 func (s *Service) screenRequest(c Channel, reason string) core.ClipRequest {
 	offair := reason == offAirSlate
@@ -60,12 +79,15 @@ func (s *Service) screenRequest(c Channel, reason string) core.ClipRequest {
 		reason = "reconnecting"
 	}
 	station := "0"
-	stationID := s.screenDefaults(c).StationID
+	stationID := s.screenDefaults().StationID
 	id := ""
+	if s.o.DefaultStyle != nil {
+		id = s.o.DefaultStyle()
+	}
 	if c.Look != nil && c.Look.LookID != "" {
 		id = c.Look.LookID
 	}
-	if id != "" && s.o.StyleScreens != nil {
+	if s.o.StyleScreens != nil {
 		if v := s.o.StyleScreens(id); v != nil {
 			stationID = v.StationID
 		}

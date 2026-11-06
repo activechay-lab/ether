@@ -325,21 +325,22 @@ type SourceGroup struct {
 	Excluded bool `json:"excluded,omitempty"`
 }
 type Programme struct {
-	BlockID         string `json:"blockId,omitempty"`
-	SourceID        string `json:"sourceId,omitempty"`
-	Pinned          bool   `json:"pinned,omitempty"`
-	Rule            string `json:"rule,omitempty"`
-	policyTag       *broadcastPolicyTag
-	sourceOffset    time.Duration
-	graphicsRequest *core.ClipRequest
-	graphicsID      string
-	Reason          string    `json:"reason,omitempty"`
-	Lens            string    `json:"lens,omitempty"`
-	ID              string    `json:"id"`
-	ChannelID       string    `json:"channelId"`
-	Start           time.Time `json:"start"`
-	End             time.Time `json:"end"`
-	Item            Item      `json:"item"`
+	BlockID          string `json:"blockId,omitempty"`
+	SourceID         string `json:"sourceId,omitempty"`
+	Pinned           bool   `json:"pinned,omitempty"`
+	Rule             string `json:"rule,omitempty"`
+	policyTag        *broadcastPolicyTag
+	sourceOffset     time.Duration
+	graphicsRequest  *core.ClipRequest
+	graphicsID       string
+	graphicsFallback bool
+	Reason           string    `json:"reason,omitempty"`
+	Lens             string    `json:"lens,omitempty"`
+	ID               string    `json:"id"`
+	ChannelID        string    `json:"channelId"`
+	Start            time.Time `json:"start"`
+	End              time.Time `json:"end"`
+	Item             Item      `json:"item"`
 }
 
 func (p Programme) Offset(at time.Time) time.Duration {
@@ -374,7 +375,9 @@ type Options struct {
 	GuideAI      GuideAIClient
 	Reels        func(context.Context, string) (ReelSnapshot, error)
 	InputUser    func(context.Context) (*core.User, error)
+	DefaultStyle func() string
 	StyleScreens func(string) *config.LiveTVScreens
+	Screens      func() config.LiveTVScreens
 	Watchlist    interface{ Generation() uint64 }
 	Picker       core.PersonalPicker
 	State        core.State

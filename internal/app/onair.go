@@ -27,7 +27,7 @@ func (a *App) buildOnAir() error {
 		if a.livetv == nil {
 			return map[string][]string{}, nil
 		}
-		return a.livetv.StyleChannelIDs(ctx)
+		return a.livetv.StyleChannelIDs(ctx, a.cfg.Read().LiveTV.DefaultStyleID)
 	}
 	o.ReelChannels = func(ctx context.Context) (map[string][]string, error) {
 		if a.livetv == nil {
@@ -54,7 +54,11 @@ func (a *App) buildOnAir() error {
 	}
 	if a.transcoder != nil {
 		o.Acquire = func(ctx context.Context) (context.Context, func(), error) {
-			return a.transcoder.AcquireTranscodeSlot(ctx, transcode.SlotBackground)
+			priority := transcode.SlotBackground
+			if deadline, imminent := onair.BoundaryDeadline(ctx); imminent && deadline.After(time.Now()) {
+				priority = transcode.SlotLivePrep
+			}
+			return a.transcoder.AcquireTranscodeSlot(ctx, priority)
 		}
 		o.FFmpeg = a.transcoder.FFmpegPath
 		o.Probe = a.transcoder.Probe

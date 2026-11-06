@@ -430,7 +430,7 @@ func (s *Service) buildVirtualGuideSnapshot(ctx context.Context, c Channel, now 
 		}
 		return entry, nil
 	}
-	if !shareableGuide(c) {
+	if !shareableGuide(c) || (s.o.DefaultStyle != nil && s.o.DefaultStyle() != "") {
 		return build()
 	}
 	shared, err := compiled.build(ctx, recipe, build)

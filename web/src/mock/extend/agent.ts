@@ -8,8 +8,8 @@
  * served by GET /agent/threads/{id}/messages, never in the live stream,
  * which is the contract AgentPanel is built around.
  */
-import { createStyleSteps } from "../create-style";
 import type { Look } from "../../pages/livetv/onair/model";
+import { t } from "../../i18n";
 import type { CollectionSpec, Rule } from "../../lib/contract";
 import { normalizeSpec } from "../../lib/rules";
 import { GENRES } from "../data";
@@ -573,24 +573,33 @@ export function createAgentMock(): { handle: ExtendHandler } {
         const { lines, delays } = describeChunks(id, steps);
         return sseResponse(lines, thread.id, delays);
       }
-      if (context.route === "/livetv/look") {
-        const draft = asRecord(context.draft);
-        const steps = createStyleSteps(
-          draft.look as Look,
-          prompt,
-          draft.sceneId as string | undefined,
-        );
-        const id = nextId("msg");
-        thread.messages.push({
-          id,
-          role: "assistant",
-          parts: describeParts(steps),
-          createdAt: now(),
-        });
-        const { lines, delays } = describeChunks(id, steps);
-        return sseResponse(lines, thread.id, delays);
-      }
-      const plan = planTurn(prompt);
+      const plan: PlannedTurn =
+        context.route === "/livetv/look"
+          ? (() => {
+              const look = structuredClone(asRecord(context.draft).look) as Look;
+              look.brand.palette = {
+                background: "#100d20",
+                accent: "#D8B26E",
+                text: "#F4EEDF",
+                glow: "#8b78bb",
+              };
+              look.brand.type = { display: "Fraunces", body: "Inter" };
+              look.brand.energy = 0.28;
+              return {
+                text: t(
+                  "The draft uses a calmer palette and motion. Save the style when you’re ready.",
+                ),
+                tools: [
+                  {
+                    toolCallId: nextId("call"),
+                    toolName: "look_draft",
+                    input: { prompt },
+                    output: { look },
+                  },
+                ],
+              };
+            })()
+          : planTurn(prompt);
       const assistant: MockAgentMessage = {
         id: nextId("msg"),
         role: "assistant",

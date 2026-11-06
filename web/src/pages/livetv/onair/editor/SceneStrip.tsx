@@ -98,7 +98,7 @@ export function SceneStrip(p: {
   const name = (scene: StyleScene) => sceneDisplayName(p.style, scene);
   return (
     <div
-      className="flex h-[202px] shrink-0 gap-0 overflow-x-auto overflow-y-hidden border-t border-border bg-surface px-2 py-2"
+      className="flex h-[156px] shrink-0 gap-0 overflow-x-auto overflow-y-hidden border-t border-border bg-surface px-2 py-2"
       aria-label={t("Scenes")}
     >
       {ai && (
@@ -148,7 +148,7 @@ export function SceneStrip(p: {
               .map((scene) => (
                 <article
                   key={scene.id}
-                  className={`group relative w-40 shrink-0 rounded-lg ${scene.id === p.selected ? "ring-2 ring-primary ring-offset-2 ring-offset-surface" : ""} ${!scene.enabled ? "opacity-45" : ""}`}
+                  className={`group relative w-32 shrink-0 rounded-lg ${scene.id === p.selected ? "ring-2 ring-primary ring-offset-2 ring-offset-surface" : ""} ${!scene.enabled ? "opacity-45" : ""}`}
                 >
                   <button
                     className="block w-full overflow-hidden rounded-lg border border-border bg-bg-subtle"
@@ -282,7 +282,7 @@ export function SceneStrip(p: {
               className="w-64 p-2"
               trigger={
                 <button
-                  className="flex h-[90px] w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-border text-fg-muted transition-colors hover:border-primary hover:bg-primary-subtle hover:text-primary"
+                  className="flex h-[72px] w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-border text-fg-muted transition-colors hover:border-primary hover:bg-primary-subtle hover:text-primary"
                   aria-label={t("Add {role} scene", { role: roleNames[role] })}
                   onClick={() => {
                     setMenu(menu === `add-${role}` ? "" : `add-${role}`);

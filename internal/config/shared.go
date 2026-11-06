@@ -200,23 +200,6 @@ func (s *Store) attachShared(ctx context.Context, b SharedBackend, o SharedOptio
 			}
 		}
 	}
-	if err == nil && found && doc.KeyFingerprint == s.KeyFingerprint() {
-		var plain []byte
-		plain, _, err = openDocument([]byte(doc.Doc), s.credentialKey)
-		if err == nil {
-			var stored map[string]any
-			err = json.Unmarshal(plain, &stored)
-			if err == nil && stripRetiredLiveTV(stored) {
-				plain, err = json.Marshal(stored)
-				if err == nil {
-					doc.Doc, err = s.sealShared(plain)
-				}
-				if err == nil {
-					doc.Version, err = b.SaveShared(lctx, doc, doc.Version)
-				}
-			}
-		}
-	}
 	cancel()
 	var next Config
 	if err == nil {

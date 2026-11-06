@@ -262,7 +262,7 @@ func (s *Service) seed(ctx context.Context) error {
 	if n == 0 {
 		return tx.Commit()
 	}
-	for _, v := range [][10]string{{"nocturne", "Nocturne", "late-night", "#060508", "#C8102E", "#EDE6D6", "#8FA3B8", "Playfair Display", "Special Elite", "Late night · lights off"}, {"meridian", "Meridian", "cinema", "#070d1d", "#D8B26E", "#F4EEDF", "#17254a", "Fraunces", "Inter", "A world of cinema"}, {"blorp", "BLORP!", "kids", "#6B2BD9", "#FF7A00", "#ffffff", "#7CE03A", "Bungee", "Fredoka", "Totally gooey TV"}, {"neon", "NEON 84", "retro", "#12002b", "#ff4fd8", "#ffffff", "#22e6ff", "Orbitron", "VT323", "Stay tuned"}, {"personal", "Your TV", "personal", "#100b23", "#9b85ff", "#ffffff", "#ff5ca8", "Space Grotesk", "Inter", "Made for you"}, {"riot", "RIOT 90", "grunge", "#141021", "#edff38", "#ffffff", "#ed4c99", "Archivo Black", "Special Elite", "Television with a pulse"}, {"aquawave", "AQUAWAVE 00", "aqua", "#031d37", "#009edb", "#ffffff", "#8cf5ff", "Space Grotesk", "Inter", "Dive into your favourites"}, {"offset", "OFFSET 10", "flat", "#102a35", "#f15440", "#ffffff", "#ffd66e", "Inter", "Inter", "Good stories. Every day."}} {
+	for _, v := range [][10]string{{"nocturne", "Nocturne", "lateNight", "#060508", "#C8102E", "#EDE6D6", "#8FA3B8", "Playfair Display", "Special Elite", "Late night · lights off"}, {"meridian", "Meridian", "cinema", "#070d1d", "#D8B26E", "#F4EEDF", "#17254a", "Fraunces", "Inter", "A world of cinema"}, {"blorp", "BLORP!", "kids", "#6B2BD9", "#FF7A00", "#ffffff", "#7CE03A", "Bungee", "Fredoka", "Totally gooey TV"}, {"neon", "NEON 84", "retro", "#12002b", "#ff4fd8", "#ffffff", "#22e6ff", "Orbitron", "VT323", "Stay tuned"}, {"personal", "Your TV", "personal", "#100b23", "#9b85ff", "#ffffff", "#ff5ca8", "Space Grotesk", "Inter", "Made for you"}} {
 		l := familyLook(v[2], v[1])
 		l.ID = v[0]
 		l.Brand.Palette.Background = v[3]
@@ -274,7 +274,7 @@ func (s *Service) seed(ctx context.Context) error {
 		l.Brand.Tagline = v[9]
 		l.Brand.Energy = .5
 		l.Brand.Language = "en"
-		l.Brand.Textures = []string{"grain"}
+		l.Brand.Textures = []string{"Grain"}
 		b, _ := json.Marshal(l)
 		if _, e = tx.ExecContext(ctx, "INSERT INTO onair_looks(id,data,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING", l.ID, string(b), time.Now().Unix()); e != nil {
 			return e

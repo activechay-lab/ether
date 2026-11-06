@@ -431,7 +431,7 @@ func (s *Service) virtualChannels(ctx context.Context) ([]Channel, error) {
 }
 
 // StyleChannelIDs reads the invalidated lineup index, never programme payloads.
-func (s *Service) StyleChannelIDs(ctx context.Context) (map[string][]string, error) {
+func (s *Service) StyleChannelIDs(ctx context.Context, defaultStyle string) (map[string][]string, error) {
 	channels, err := s.channelSummaries(ctx)
 	if err != nil {
 		return nil, err
@@ -439,6 +439,9 @@ func (s *Service) StyleChannelIDs(ctx context.Context) (map[string][]string, err
 	out := map[string][]string{}
 	for _, c := range channels {
 		id := c.styleID
+		if id == "" {
+			id = defaultStyle
+		}
 		if id != "" {
 			out[id] = append(out[id], c.ID)
 		}

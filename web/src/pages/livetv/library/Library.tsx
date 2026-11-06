@@ -321,25 +321,6 @@ export function LibraryGrid({
   filters?: boolean;
 }) {
   const [params, setParams] = useSearchParams();
-  const uploadInput = useRef<HTMLInputElement>(null);
-  const uploadOpened = useRef(false);
-  useEffect(() => {
-    if (params.get("upload") !== "1") {
-      uploadOpened.current = false;
-      return;
-    }
-    if (uploadOpened.current) return;
-    uploadOpened.current = true;
-    uploadInput.current?.click();
-    setParams(
-      (previous) => {
-        const next = new URLSearchParams(previous);
-        next.delete("upload");
-        return next;
-      },
-      { replace: true },
-    );
-  }, [params, setParams]);
   const [loading, setLoading] = useState(true);
   const [assets, setAssets] = useState<(LibraryAsset & { readOnly?: boolean })[]>([]),
     [error, setError] = useState("");
@@ -515,7 +496,6 @@ export function LibraryGrid({
           <input
             className="sr-only"
             aria-label={t("Upload files")}
-            ref={uploadInput}
             type="file"
             multiple
             accept="image/*,audio/*,video/*,.ttf,.otf"

@@ -24,9 +24,15 @@ const copy = {
   "Choose a style": (values?: Parameters<typeof t>[1]) => t("Choose a style", values),
   "Couldn\u2019t save style": (values?: Parameters<typeof t>[1]) =>
     t("Couldn\u2019t save style", values),
+  "Default ({style})": (values?: Parameters<typeof t>[1]) => t("Default ({style})", values),
+  "Default style": (values?: Parameters<typeof t>[1]) => t("Default style", values),
+  "Default style \u00b7 {name}": (values?: Parameters<typeof t>[1]) =>
+    t("Default style \u00b7 {name}", values),
   "Describe your style": (values?: Parameters<typeof t>[1]) => t("Describe your style", values),
   "Duplicate a style": (values?: Parameters<typeof t>[1]) => t("Duplicate a style", values),
   "Edit style": (values?: Parameters<typeof t>[1]) => t("Edit style", values),
+  "Fallback screens without a style": (values?: Parameters<typeof t>[1]) =>
+    t("Fallback screens without a style", values),
   "Give your channels a style": (values?: Parameters<typeof t>[1]) =>
     t("Give your channels a style", values),
   "Match the style to this channel\u2019s programming": (values?: Parameters<typeof t>[1]) =>
@@ -48,6 +54,7 @@ const copy = {
   "Style \u00b7 {name}": (values?: Parameters<typeof t>[1]) => t("Style \u00b7 {name}", values),
   "Style's break screen": (values?: Parameters<typeof t>[1]) => t("Style's break screen", values),
   "Untitled style": (values?: Parameters<typeof t>[1]) => t("Untitled style", values),
+  "Use default style": (values?: Parameters<typeof t>[1]) => t("Use default style", values),
   "Your changes to this style haven\u2019t been saved.": (values?: Parameters<typeof t>[1]) =>
     t("Your changes to this style haven\u2019t been saved.", values),
 };

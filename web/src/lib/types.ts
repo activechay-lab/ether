@@ -395,8 +395,15 @@ export interface EtherConfig {
     sourceOrder?: string[];
   };
   liveTV?: {
+    defaultStyleId?: string;
     logoIndexUrl?: string;
     healthSweepMinutes?: number;
+    screens?: {
+      offAir: import("../pages/livetv/onair/ScreenPicker").ScreenStyle;
+      noSignal: import("../pages/livetv/onair/ScreenPicker").ScreenStyle;
+      stationId: boolean;
+      applyTo?: "converted" | "all";
+    };
   };
   subtitles?: {
     providers?: { id: string; kind: string; name?: string; enabled: boolean }[];
