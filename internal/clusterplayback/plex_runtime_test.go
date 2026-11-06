@@ -10,7 +10,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/plex"
 	"github.com/braedonsaunders/ether/internal/sessions"
-	"github.com/braedonsaunders/ether/internal/store"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -92,11 +91,11 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	senderID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "sender", Boot: "sender-boot"}
 	guards := fixtureGuards(t, sourceID, workerID, ownerID, senderID)
 	fixtureStarted := time.Now()
-	db := store.OpenTest(t)
+	db := openFixtureDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 15*time.Second))
 	defer cancel()
 	verifier := NewVerifier()
-	ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
+	ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: fixtureSQLBudget()}, verifier)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,7 +9,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
-	"github.com/braedonsaunders/ether/internal/store"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -24,11 +23,11 @@ func TestSourceMovementKeepsEncoderAndFencesOldGrant(t *testing.T) {
 	replacementID := nodewire.Identity{Cluster: "indexed", NodeID: "replacement", Boot: "replacement-boot"}
 	workerID := nodewire.Identity{Cluster: "indexed", NodeID: "worker", Boot: "worker-boot"}
 	guards := fixtureGuards(t, sourceID, workerID, replacementID)
-	db := store.OpenTest(t)
+	db := openFixtureDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 10*time.Second))
 	defer cancel()
 	verifier := NewVerifier()
-	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
+	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 10 * time.Minute, LockTimeout: fixtureSQLBudget()}, verifier)
 	if err != nil {
 		t.Fatal(err)
 	}

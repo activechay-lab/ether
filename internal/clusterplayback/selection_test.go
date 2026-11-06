@@ -11,7 +11,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 type scoredFixtureEncoder struct {
@@ -41,10 +40,10 @@ func TestTranscodePlacementScoresVerifiedHardwareAndCapacity(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fixtureStarted := time.Now()
-			db := store.OpenTest(t)
+			db := openFixtureDB(t)
 			ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 10*time.Second))
 			defer cancel()
-			ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: time.Second}, NewVerifier())
+			ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: fixtureSQLBudget()}, NewVerifier())
 			if err != nil {
 				t.Fatal(err)
 			}
