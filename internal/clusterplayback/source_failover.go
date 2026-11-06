@@ -51,7 +51,7 @@ func (r *Runtime) sourceFailover(ctx context.Context, peer nodewire.Identity, m 
 	defer r.control.Unlock()
 	old := m.Old
 	f := old.Scope.Fence
-	if f.Controller.ID != r.o.Self.NodeID || f.Controller.Boot != r.o.Self.Boot || peer.Cluster != r.o.Self.Cluster || peer.NodeID != f.Target.NodeID || peer.Boot != f.Target.Boot || r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil {
+	if !r.ownsCoordination(ctx, f.Session) || peer.Cluster != r.o.Self.Cluster || peer.NodeID != f.Target.NodeID || peer.Boot != f.Target.Boot || r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil {
 		return sourceResponse{}, ErrDenied
 	}
 	rec, err := r.o.Placement.Lookup(ctx, f.Session)

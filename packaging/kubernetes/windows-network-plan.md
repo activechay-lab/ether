@@ -1,5 +1,29 @@
 # Proposed mixed native GPU / kind lab network
 
+## Current native staging constraints
+
+The native lab can also reside at `D:\ether-gpu-lab`. The launcher and startup
+script allow only the two explicit C/D lab roots; pass `-LabRoot D:\ether-gpu-lab`
+to the startup script and `-Lab D:\ether-gpu-lab` to the containment test. Native
+probes bind loopback only. Inventory returns before directory or ACL changes.
+Do not write to C while it has no free space. The WSL disk is already on D;
+relocating the lab does not require changing or compacting that disk.
+
+Cross-compile Ether and the launcher on bb-worker-server with `CGO_ENABLED=0`,
+`GOOS=windows`, and `GOARCH=amd64`; do not build Go on the GPU workstation.
+Download into the selected lab root and verify the supplied SHA256 before
+renaming or execution. Verify the Windows FFmpeg archive against
+`packaging/ffmpeg.lock.json` and preserve the verified executable hashes when
+copying the extracted bundle to D. Keep only native GPU execution here.
+
+From WSL, record `cat /proc/pressure/memory` immediately before every native
+encode or specialist start. If `full avg10` exceeds 10, wait and recheck; report
+persistent pressure. WSL interop can run native PowerShell directly without a
+restart. Keep native test handles until bounded cleanup proves every owned
+descendant exited. These preparation checks do not prove cluster playback.
+
+## Earlier endpoint proposal
+
 This is a plan awaiting the coordinator's endpoint confirmation. No host routes,
 DNS configuration, WSL/dockerd/Caboose changes, Windows services or firewall rules
 have been changed. The native specialist is not a Kubernetes GPU pod; record

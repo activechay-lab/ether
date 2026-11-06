@@ -331,13 +331,9 @@ legacy admission is unsupported/unknown; retries never backfill one or declare
 that operation never started. A matching sealed retry returns history only.
 Conflicts deny replacement of immutable bindings, slots or seal metadata.
 
-These helpers provide bookkeeping only. They neither authenticate Worker-owned
-accepted handles nor authorize an actor to seal, acknowledge live arming, issue
-execution permits, or prove retirement. No mutation method is wired into actual
-Start, replay, renewal or ongoing authorization. Those behaviors remain unchanged.
-A separate reviewed slice must join actual Worker-owned handle authentication,
-provisional acceptance, trusted seal authorization and observer-owned live arming
-before any gate can become an execution veto or participate in host evidence.
-An arm payload/digest cannot authenticate itself, restore lost kernel handles or
-release placement/source obligations. There is no exported gate API, generic
-proof callback, host-proof consumer or production recovery enablement here.
+The production Start authorizer now checks the unsealed gate and exact Start
+hash. The host joins Worker-owned accepted handles to immutable acceptance and
+arming history before invoking the backend. Supersession seals the gate in the
+same transaction as placement generation and route advancement. These records
+never prove process retirement. See [encoder recovery](../../docs/encoder-recovery.md)
+for supported paths, bounds and acceptance limits.

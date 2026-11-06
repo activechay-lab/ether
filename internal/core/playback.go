@@ -10,7 +10,13 @@ import (
 // ---------------------------------------------------------------------------
 // Transcoder (internal/transcode)
 
+type HLSResume struct {
+	FirstSegment int
+	Generation   uint64
+}
+
 type HLSRequest struct {
+	Resume *HLSResume `json:",omitempty"`
 	// RecoveryStart is trusted composition only; nil preserves legacy behavior.
 	RecoveryStart *RecoveryStart `json:",omitempty"`
 

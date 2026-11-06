@@ -108,3 +108,38 @@ func (b *Broker) ForwardPlexGrantMedia(w http.ResponseWriter, r *http.Request, i
 	}
 	return false
 }
+
+// PlexHLSDistributed reports allocation before protocol code reads any binding
+// or source snapshot. Local sessions retain their original publication path.
+func (b *Broker) PlexHLSDistributed(id string) bool {
+	return b.deps.DistributedHLS != nil && b.deps.DistributedHLS.Allocated(id)
+}
+
+func (b *Broker) SavePlexBinding(ctx context.Context, id string, raw []byte) error {
+	if b.deps.DistributedHLS == nil || !b.deps.DistributedHLS.Allocated(id) {
+		return nil
+	}
+	if remote, ok := b.deps.DistributedHLS.(interface {
+		SavePlexBinding(context.Context, string, []byte) error
+	}); ok {
+		return remote.SavePlexBinding(ctx, id, raw)
+	}
+	return core.ErrNotAvailable
+}
+func (b *Broker) LoadPlexBinding(ctx context.Context, id string) ([]byte, error) {
+	if remote, ok := b.deps.DistributedHLS.(interface {
+		LoadPlexBinding(context.Context, string) ([]byte, error)
+	}); ok {
+		return remote.LoadPlexBinding(ctx, id)
+	}
+	return nil, core.ErrNotAvailable
+}
+
+func (b *Broker) DeletePlexBinding(ctx context.Context, id string) error {
+	if remote, ok := b.deps.DistributedHLS.(interface {
+		DeletePlexBinding(context.Context, string) error
+	}); ok {
+		return remote.DeletePlexBinding(ctx, id)
+	}
+	return core.ErrNotAvailable
+}

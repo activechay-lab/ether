@@ -16,6 +16,15 @@ func (r *Runtime) sourceActivity(ctx context.Context, peer nodewire.Identity, m 
 		return sourceResponse{}, e
 	}
 	defer end()
+	r.mu.Lock()
+	entry := r.preparations[peer.NodeID+"/"+peer.Boot+"/"+m.Prepare.Operation]
+	r.mu.Unlock()
+	if entry == nil {
+		return sourceResponse{}, ErrDenied
+	}
+	if err := r.preparationController(ctx, peer, entry, false); err != nil {
+		return sourceResponse{}, err
+	}
 	use.ActivityMu.Lock()
 	defer use.ActivityMu.Unlock()
 	if err := ctx.Err(); err != nil {
