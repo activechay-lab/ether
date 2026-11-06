@@ -391,3 +391,27 @@ func TestFrontendStatusCountsStreamsByProtocol(t *testing.T) {
 		t.Fatalf("found=%v calls=%d", found, calls)
 	}
 }
+
+func TestXtreamDefaultsOffAndMountsWithNeutralExport(t *testing.T) {
+	a := setupTestApp(t, true)
+	if a.cfg.Get().Frontends["xtream"].Enabled {
+		t.Fatal("must default off")
+	}
+	if err := a.frontends.control.listeners.start(context.Background(), "xtream"); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/xtream/player_api.php?username=invalid&password=invalid", nil)
+	r.RemoteAddr = "192.0.2.8:1234"
+	a.Handler().ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid grant: %d", w.Code)
+	}
+	exp, err := a.newSurfaceExperience("xtream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := exp.(frontend.LibraryExporter); !ok {
+		t.Fatal("real host missing bounded neutral export")
+	}
+}

@@ -439,3 +439,49 @@ func TestSurfaceIdentityAppPasswordSignInOnJellyfinEmbySilo(t *testing.T) {
 		}
 	}
 }
+
+func TestXtreamAppPasswordRateLimitAndRevocation(t *testing.T) {
+	a := setupTestApp(t, true)
+	ctx := frontend.WithClientIP(context.Background(), netip.MustParseAddr("192.0.2.10"))
+	if err := a.users.SetOwner(ctx, plextv.Account{ID: 42, Username: "owner"}, "owner-token"); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := a.users.Owner(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grants, _ := identity.NewGrants(a.db, a.users, time.Hour, nil)
+	resolver, _ := identity.NewResolver(a.users, grants)
+	limiter, _ := identity.NewLoginLimiter(a.db, time.Minute, 3, 3, nil)
+	surface := surfaceIdentity{surface: "xtream", resolver: resolver, grants: grants, login: limiter}
+	password, err := grants.Issue(ctx, owner.ID, nil, "xtream", core.Device{ID: "xtream-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	username := frontend.XtreamUsername(password)
+	for n := 0; n < 20; n++ {
+		viewer, err := surface.AuthenticateAppPassword(ctx, username, password)
+		if err != nil || viewer.ID != owner.ID {
+			t.Fatal("normal startup locked out", err)
+		}
+	}
+	for n := 0; n < 3; n++ {
+		if _, err := surface.AuthenticateAppPassword(ctx, "owner", "main-password"); !errors.Is(err, core.ErrUnauthorized) {
+			t.Fatal(err)
+		}
+	}
+	if _, err := surface.AuthenticateAppPassword(ctx, "owner", "main-password"); !errors.Is(err, frontend.ErrRateLimited) {
+		t.Fatal("brute force not limited", err)
+	}
+	if err := surface.Revoke(ctx, password); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := surface.AuthenticateAppPassword(ctx, username, password); err == nil {
+		t.Fatal("revoked app password accepted")
+	}
+	wrong := surface
+	wrong.surface = "jellyfin"
+	if _, err := wrong.AuthenticateAppPassword(ctx, username, password); !errors.Is(err, core.ErrUnauthorized) {
+		t.Fatal("cross-surface grant accepted")
+	}
+}

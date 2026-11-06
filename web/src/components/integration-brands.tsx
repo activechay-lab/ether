@@ -58,6 +58,7 @@ export function householdIcon(id: string): ReactNode | undefined {
       return <Cast size={22} aria-hidden />;
     case "webdav":
       return <FolderOpen size={22} aria-hidden />;
+    case "xtream":
     case "m3u":
       return <ListVideo size={22} aria-hidden />;
     default:

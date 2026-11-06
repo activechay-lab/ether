@@ -33,7 +33,7 @@ var sensitive = map[string]bool{
 	"xetherstreamtoken": true, "streamtoken": true, "xetherreadtoken": true, "readtoken": true,
 	"plugintoken": true, "sharetoken": true, "downloadtoken": true,
 	"credential": true, "xetherplugincredential": true, "xetherbackuppassword": true, "xetherpick": true, "xembytoken": true, "xembyauthorization": true, "xmediabrowsertoken": true, "xroomtoken": true, "jointoken": true, "roomaccesstoken": true, "opentoken": true, "ticket": true, "code": true, "devicecode": true, "pincode": true, "codeverifier": true, "invite": true, "secrets": true, "tag": true, "imagetags": true, "backdropimagetags": true,
-	"password": true, "passwd": true, "pwd": true, "passkey": true,
+	"username": true, "password": true, "passwd": true, "pwd": true, "passkey": true,
 	"secret": true, "clientsecret": true, "apikey": true, "xapikey": true, "apitoken": true,
 	"authorization": true, "proxyauthorization": true, "cookie": true, "setcookie": true,
 	"rsskey": true,
@@ -65,6 +65,8 @@ func Sensitive(name string) bool {
 }
 
 var (
+	xtreamPath = regexp.MustCompile(`(?i)(/(?:live|movie|series)/)[^/\s?#"']+/[^/\s?#"']+/`)
+
 	// name=value after a query, form or log-text boundary. A value stops at
 	// '?' so that url=https://host/?apikey=… is still seen as apikey=….
 	param = regexp.MustCompile(`(^|[?&#;\s,(\[{])([^=&#\s"'<>?;,(){}\[\]]+)=("[^"?]*"|[^&#\s"'<>;,)\]}?]*)`)
@@ -84,7 +86,7 @@ var (
 	// Ether's own credentials: console sessions and cast delegations.
 	own = regexp.MustCompile(`\bether-(admin|cast|recovery)-[A-Za-z0-9]+`)
 	// Path capabilities and WebSocket subprotocol credentials have no key=value name.
-	pathCapability   = regexp.MustCompile(`(?i)(/(?:stremio/image|m3u/image|api/v2/images|sessions/lazy|ether/api/addon-relay)/|/(?:sessions/media|src)/[^/\s?#"']+/)([^/\s?#"']+)`)
+	pathCapability   = regexp.MustCompile(`(?i)(/(?:stremio/image|m3u/image|xtream/image|api/v2/images|sessions/lazy|ether/api/addon-relay)/|/(?:sessions/media|src)/[^/\s?#"']+/)([^/\s?#"']+)`)
 	appPath          = regexp.MustCompile(`(?i)(/(?:stremio|m3u)/)([^/\s?#"']+)`)
 	opaqueCredential = regexp.MustCompile(`\b(?:eg1_|er1_|ether-credential\.|silo\.ticket\.)[A-Za-z0-9_-]+`)
 	// JSON Web Tokens by shape (header.payload.signature, base64url), so a
@@ -97,6 +99,7 @@ func String(s string) string {
 	if s == "" {
 		return s
 	}
+	s = replaceIf(xtreamPath, s, "${1}"+Mask+"/"+Mask+"/")
 	s = replaceIf(pathCapability, s, "${1}"+Mask)
 	s = replaceFuncIf(appPath, s, func(m string) string {
 		sub := appPath.FindStringSubmatch(m)

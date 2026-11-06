@@ -13,6 +13,7 @@ type SortOrder string
 
 const (
 	SortPopularity SortOrder = "popularity"
+	SortKey        SortOrder = "key"
 	SortTitle      SortOrder = "title"
 	SortReleased   SortOrder = "released"
 	SortYear       SortOrder = "year"
@@ -151,6 +152,9 @@ type Filter struct {
 }
 
 type BrowseQuery struct {
+	// AfterKey is an exclusive keyset cursor for SortKey exports.
+	AfterKey RatingKey
+
 	// PlaylistSource evaluates a saved smart membership before applying this
 	// query's filters and optional episode-to-parent projection.
 	PlaylistSource      *BrowseQuery

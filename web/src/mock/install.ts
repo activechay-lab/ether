@@ -31,7 +31,7 @@ export function installMockBackend(): void {
     prerolls: params.has("prerolls"),
   });
   fake.state.config.frontends = Object.fromEntries(
-    ["plex", "jellyfin", "emby", "silo", "stremio", "webdav", "m3u", "dlna"].map((id) => [
+    ["plex", "jellyfin", "emby", "silo", "stremio", "webdav", "m3u", "xtream", "dlna"].map((id) => [
       id,
       { enabled: true },
     ]),

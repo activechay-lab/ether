@@ -130,7 +130,7 @@ func TestFrontendImports(t *testing.T) {
 // Cheap adapters prove that new surfaces fit the host boundary without growing
 // their own domain orchestration. Count all production lines, including comments.
 func TestCheapSurfaceSize(t *testing.T) {
-	for _, protocol := range []string{"stremio", "webdav", "m3u", "dlna"} {
+	for _, protocol := range []string{"stremio", "webdav", "m3u", "dlna", "xtream"} {
 		files, err := filepath.Glob(filepath.Join("..", "frontends", protocol, "*.go"))
 		if err != nil || len(files) == 0 {
 			t.Fatalf("%s: missing adapter: %v", protocol, err)

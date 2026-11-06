@@ -1,0 +1,223 @@
+// Package xtream provides a viewer-scoped API for IPTV player apps.
+package xtream
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/mediasafety"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/route"
+)
+
+type Frontend struct{}
+
+func (Frontend) Describe() frontend.Descriptor {
+	return frontend.Descriptor{ID: "xtream", Name: "IPTV apps (Xtream)", Version: "1.0", SettingsSchema: frontend.AccountSchema("xtream")}
+}
+func (Frontend) Mount(_ context.Context, host frontend.Host) (frontend.Instance, error) {
+	if _, ok := host.Identity.(frontend.AppPasswordIdentity); !ok || host.Experience == nil || host.LiveTV == nil || host.Sessions == nil {
+		return nil, errors.New("xtream requires app passwords, experience, live TV and sessions")
+	}
+	i := &instance{host: host}
+	if err := i.registerRoutes(); err != nil {
+		return nil, err
+	}
+	return i, nil
+}
+
+type instance struct {
+	host   frontend.Host
+	router *route.Router
+}
+
+func (i *instance) registerRoutes() error {
+	i.router = &route.Router{}
+	for _, p := range []string{"/player_api.php", "/xmltv.php", "/get.php"} {
+		if err := i.router.Handle("GET", p, http.HandlerFunc(i.serve)); err != nil {
+			return err
+		}
+	}
+	for _, kind := range []string{"live", "movie", "series"} {
+		for _, method := range []string{"GET", "HEAD"} {
+			if err := i.router.Handle(method, "/"+kind+"/{username}/{password}/{file}", http.HandlerFunc(i.serve)); err != nil {
+				return err
+			}
+		}
+	}
+	for _, p := range []string{"/sessions/{tail...}", "/image/{secret}"} {
+		for _, method := range []string{"GET", "HEAD"} {
+			if err := i.router.Handle(method, p, http.HandlerFunc(i.media)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+func RegisteredRoutes() ([]route.Route, error) {
+	i := &instance{}
+	err := i.registerRoutes()
+	return i.router.Routes(), err
+}
+func (i *instance) Handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mediasafety.SetHeaders(w)
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		r = r.Clone(r.Context())
+		u := *r.URL
+		u.Path = strings.TrimPrefix(u.Path, "/xtream")
+		r.URL = &u
+		i.router.ServeHTTP(w, r)
+	})
+}
+func (*instance) Listeners() []frontend.ListenerSpec {
+	return []frontend.ListenerSpec{{Shared: true, PathPrefix: "/xtream"}}
+}
+func (*instance) Discovery() []frontend.Announcer { return nil }
+func (*instance) Status(context.Context) frontend.Status {
+	return frontend.Status{TargetVersion: "Xtream", Conformance: "partial"}
+}
+func (*instance) Close(context.Context) error { return nil }
+func (i *instance) Routes() []route.Route     { return i.router.Routes() }
+
+type login struct {
+	viewer             *frontend.Viewer
+	device             frontend.Device
+	password, username string
+	artwork            map[frontend.RatingKey]string
+	ids                map[frontend.RatingKey]int32
+	channels           map[string]int32
+}
+
+func (i *instance) authenticate(r *http.Request) (login, error) {
+	u, p := r.PathValue("username"), r.PathValue("password")
+	if u == "" {
+		u, p = r.URL.Query().Get("username"), r.URL.Query().Get("password")
+	}
+	if len(u) > 128 || len(p) > 128 || i.host.ClientIP == nil {
+		return login{}, errors.New("unauthorized")
+	}
+	ip, ok := i.host.ClientIP(r)
+	if !ok {
+		return login{}, errors.New("unauthorized")
+	}
+	v, err := i.host.Identity.(frontend.AppPasswordIdentity).AuthenticateAppPassword(frontend.WithClientIP(r.Context(), ip), u, p)
+	if err != nil {
+		return login{}, err
+	}
+	if v == nil {
+		return login{}, errors.New("unauthorized")
+	}
+	sum := sha256.Sum256([]byte(p))
+	d := frontend.Device{ID: "xtream-" + hex.EncodeToString(sum[:16]), Client: "IPTV player apps", Product: "Xtream"}
+	if i.host.ClientSeen != nil {
+		i.host.ClientSeen(d.ID)
+	}
+	return login{viewer: v, device: d, password: p, username: u, artwork: make(map[frontend.RatingKey]string), ids: make(map[frontend.RatingKey]int32), channels: make(map[string]int32)}, nil
+}
+func jsonResponse(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(v)
+}
+func (i *instance) serve(w http.ResponseWriter, r *http.Request) {
+	l, err := i.authenticate(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		status := http.StatusUnauthorized
+		if errors.Is(err, frontend.ErrRateLimited) {
+			status = http.StatusTooManyRequests
+			w.Header().Set("Retry-After", "900")
+		}
+		w.WriteHeader(status)
+		jsonResponse(w, map[string]any{"user_info": map[string]int{"auth": 0}})
+		return
+	}
+	switch r.URL.Path {
+	case "/player_api.php":
+		i.api(w, r, l)
+	case "/get.php":
+		i.playlist(w, r, l)
+	case "/xmltv.php":
+		i.xmltv(w, r, l)
+	default:
+		i.play(w, r, l)
+	}
+}
+func (i *instance) base(r *http.Request) string {
+	if i.host.SurfaceURL == nil {
+		return ""
+	}
+	s, err := i.host.SurfaceURL(r.Context(), r)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimRight(s, "/")
+}
+func (i *instance) api(w http.ResponseWriter, r *http.Request, l login) {
+	action := r.URL.Query().Get("action")
+	switch action {
+	case "":
+		base, err := url.Parse(i.base(r))
+		if err != nil || base.Host == "" {
+			http.Error(w, "Unavailable", 503)
+			return
+		}
+		port := base.Port()
+		if port == "" {
+			port = "80"
+			if base.Scheme == "https" {
+				port = "443"
+			}
+		}
+		now := time.Now().UTC()
+		jsonResponse(w, map[string]any{"user_info": map[string]any{"username": l.username, "password": l.password, "auth": 1, "status": "Active", "message": "Ether", "exp_date": nil, "is_trial": "0", "active_cons": strconv.Itoa(i.active(r, l)), "created_at": "0", "max_connections": "1", "allowed_output_formats": []string{"m3u8"}}, "server_info": map[string]any{"url": base.Hostname(), "port": port, "https_port": "443", "server_protocol": base.Scheme, "rtmp_port": "0", "timezone": "UTC", "timestamp_now": now.Unix(), "time_now": now.Format("2006-01-02 15:04:05")}})
+	case "get_live_categories", "get_live_streams":
+		i.live(w, r, l, action)
+	case "get_short_epg", "get_simple_data_table":
+		i.epg(w, r, l, action)
+	case "get_vod_categories", "get_series_categories", "get_vod_streams", "get_series", "get_vod_info", "get_series_info":
+		i.catalog(w, r, l, action)
+	default:
+		http.Error(w, "Unknown action", 400)
+	}
+}
+func (i *instance) media(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/image/") {
+		if i.host.ImageGrants != nil {
+			i.host.ImageGrants.Serve(w, r, r.PathValue("secret"))
+			return
+		}
+	} else if i.host.LazyStreams != nil {
+		if i.host.ClientIP != nil {
+			if ip, ok := i.host.ClientIP(r); ok {
+				r = r.WithContext(frontend.WithClientIP(r.Context(), ip))
+			}
+		}
+		i.host.LazyStreams.ServeHTTP(w, r)
+		return
+	}
+	http.NotFound(w, r)
+}
+func (i *instance) image(r *http.Request, l login, key frontend.RatingKey, channel string, images []frontend.Image) string {
+	if len(images) == 0 || i.host.ImageGrants == nil {
+		return ""
+	}
+	base := i.base(r)
+	if base == "" {
+		return ""
+	}
+	secret, err := i.host.ImageGrants.Issue(r.Context(), frontend.ImageGrantRequest{Credential: l.password, Device: l.device, Item: key, Channel: channel, Image: images[0]})
+	if err != nil {
+		return ""
+	}
+	return base + "/image/" + secret
+}

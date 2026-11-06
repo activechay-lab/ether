@@ -1328,3 +1328,25 @@ connection under **Devices** when it is no longer needed.
 Revoking a connection blocks its new playback requests immediately. An existing
 download or playback response is checked again while it is transferring, so it
 may continue briefly before stopping; that interruption is not instantaneous.
+
+
+## IPTV apps (Xtream)
+
+In v0.3.6, enable **IPTV apps (Xtream)** on **Apps**, open its settings,
+choose a viewer, and create a connection. Enter the displayed server address,
+generated username and app password into an IPTV player app. The password is
+shown once. Create a separate login for each device; each login permits one
+active playback connection. Revoke a login from the same page.
+
+Live TV includes that viewer's On Air and IPTV channels and guide. Movies and
+series are another view of Ether's regular TMDB catalogue, with the same viewer
+restrictions and release-availability rules. Playback uses Ether's normal source
+resolver and cache, prefers the original media, and supports byte ranges for VOD.
+Live playback uses the continuous shared HLS output. Timeshift is not advertised.
+
+The API lives under the displayed server address: `player_api.php`, `xmltv.php`,
+`get.php`, and `live/`, `movie/`, and `series/` stream paths. Connection details are
+secrets because the protocol carries them in URLs. Ether redacts them in logs
+and support captures. Use a private network or HTTPS when connecting remotely.
+Real IPTV player app validation remains pending; protocol tests are the current
+compatibility evidence.

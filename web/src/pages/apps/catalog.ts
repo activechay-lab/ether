@@ -5,7 +5,17 @@ import { t } from "../../i18n";
  * Brand marks live in `integration-brands`; this file does not draw logos.
  */
 /** Setup chooser and the Apps page use this order, not alphabetical registration. */
-const APP_ORDER = ["plex", "jellyfin", "emby", "stremio", "silo", "dlna", "webdav", "m3u"] as const;
+const APP_ORDER = [
+  "plex",
+  "jellyfin",
+  "emby",
+  "stremio",
+  "silo",
+  "dlna",
+  "webdav",
+  "m3u",
+  "xtream",
+] as const;
 
 export function appRank(id: string): number {
   const rank = APP_ORDER.indexOf(id as (typeof APP_ORDER)[number]);
@@ -18,6 +28,7 @@ export function appPath(id: string): string {
 
 export function appLabel(id: string, fallbackName: string): string {
   if (id === "webdav") return t("Files (WebDAV)");
+  if (id === "xtream") return t("IPTV apps (Xtream)");
   if (id === "m3u") return t("M3U & XMLTV");
   return fallbackName;
 }
@@ -43,6 +54,8 @@ export function appPurpose(id: string): string {
       return t("This library as files in other apps.");
     case "dlna":
       return t("TVs and players that browse over DLNA.");
+    case "xtream":
+      return t("Live TV, movies and series in IPTV player apps.");
     case "m3u":
       return t("Live TV playlists for other apps.");
     default:
