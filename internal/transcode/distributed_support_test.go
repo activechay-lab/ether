@@ -97,6 +97,7 @@ func TestDistributedRequestUsesExactProbedPlan(t *testing.T) {
 	req.Decision.VideoCodec = "h264"
 	m.hw = core.HWAccel{Name: AccelNVENC, Encoders: []string{"h264_nvenc"}}
 	m.feat.encoders["h264_nvenc"] = true
+	m.feat.hwaccels = map[string]bool{"cuda": true}
 	if got := m.DistributedHardwareEncoder(req); got != "h264_nvenc" {
 		t.Fatalf("verified hardware offer = %q", got)
 	}
