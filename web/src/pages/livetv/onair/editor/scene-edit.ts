@@ -149,3 +149,63 @@ export function duplicateLayers(scene: Scene, ids: string[]): Scene {
     );
   return { ...scene, layers: walk(scene.layers) };
 }
+
+/** Root-to-leaf ancestry, shared by canvas scope and the Layers tree. */
+export function layerPath(scene: Scene, id: string): Layer[] {
+  const walk = (layers: Layer[], parents: Layer[]): Layer[] => {
+    for (const layer of layers) {
+      const path = [...parents, layer];
+      if (layer.id === id) return path;
+      const found = walk(layer.layers ?? [], path);
+      if (found.length) return found;
+    }
+    return [];
+  };
+  return walk(scene.layers, []);
+}
+/** The single envelope containing a scene-wide background is its scene root. */
+export function selectionPath(scene: Scene, id: string): Layer[] {
+  const path = layerPath(scene, id);
+  const root = scene.layers[0];
+  const shell =
+    scene.layers.length === 1 &&
+    root?.type === "group" &&
+    root.layers?.some(
+      (l) =>
+        ["rect", "gradient", "image", "art", "video"].includes(l.type) &&
+        Number(l.x ?? 0) === 0 &&
+        Number(l.y ?? 0) === 0 &&
+        Number(l.w) === 1920 &&
+        Number(l.h) === 1080,
+    );
+  return shell && path.length > 1 ? path.slice(1) : path;
+}
+export function selectionTarget(
+  scene: Scene,
+  hit: string,
+  scope?: string,
+  deepest = false,
+): string {
+  const path = selectionPath(scene, hit);
+  if (deepest) return hit;
+  const index = scope ? path.findIndex((l) => l.id === scope) : -1;
+  return path[Math.min(path.length - 1, index + 1)]?.id ?? hit;
+}
+/** Text stacks are one editable title when their authored values match. */
+export function sharedTextLayers(layer: Layer): Layer[] {
+  const texts: Layer[] = [];
+  const walk = (l: Layer) => {
+    if (l.type === "text") texts.push(l);
+    else l.layers?.forEach(walk);
+  };
+  walk(layer);
+  return texts.length &&
+    texts.every((l) => JSON.stringify(l.text) === JSON.stringify(texts[0]!.text))
+    ? texts
+    : [];
+}
+export function updateSharedText(scene: Scene, id: string, patch: Partial<Layer>): Scene {
+  const layer = findLayer(scene, id);
+  if (!layer) return scene;
+  return sharedTextLayers(layer).reduce((doc, text) => updateLayer(doc, text.id, patch), scene);
+}

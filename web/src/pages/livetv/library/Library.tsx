@@ -1,8 +1,8 @@
 import { useMediaURL } from "../onair/useMediaURL";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Button, Checkbox, Input, Select, confirmDialog } from "@braedonsaunders/appkit-ui";
-import { AudioLines, Film, Image, Type } from "lucide-react";
+import { AudioLines, Film, Image, Type, Play, Pause, Volume2 } from "lucide-react";
 import { SubtabNav } from "../../../components/layout";
 import { Drawer } from "../../../components/Drawer";
 import { t, tn } from "../../../i18n";
@@ -12,7 +12,8 @@ import { studio, type LibraryAsset, type AssetKind } from "../onair/studio-model
 import { onair } from "../onair/model";
 import { LinkImport } from "../onair/LinkImport";
 
-export function Waveform({ asset }: { asset: LibraryAsset }) {
+export function Waveform({ asset, progress = 0 }: { asset: LibraryAsset; progress?: number }) {
+  const clip = useId().replace(/:/g, "");
   const [peaks, setPeaks] = useState<number[]>([]);
   useEffect(() => {
     let live = true;
@@ -33,10 +34,186 @@ export function Waveform({ asset }: { asset: LibraryAsset }) {
       role="img"
       aria-label={t("Audio waveform")}
     >
-      {peaks.map((p, i) => (
-        <path key={i} d={`M${i} ${80 - p * 78}v${Math.max(1, p * 156)}`} stroke="currentColor" />
-      ))}
+      <defs>
+        <clipPath id={clip}>
+          <rect width={Math.max(0, Math.min(1, progress)) * 1000} height="160" />
+        </clipPath>
+      </defs>
+      <g opacity=".3">
+        {peaks.map((p, i) => (
+          <path
+            key={i}
+            d={`M${(i * 1000) / Math.max(1, peaks.length)} ${80 - p * 78}v${Math.max(1, p * 156)}`}
+            stroke="currentColor"
+          />
+        ))}
+      </g>
+      <g clipPath={`url(#${clip})`}>
+        {peaks.map((p, i) => (
+          <path
+            key={i}
+            d={`M${(i * 1000) / Math.max(1, peaks.length)} ${80 - p * 78}v${Math.max(1, p * 156)}`}
+            stroke="currentColor"
+          />
+        ))}
+      </g>
     </svg>
+  );
+}
+let activeAudio: HTMLAudioElement | null = null;
+function AudioPreview({
+  asset,
+  source,
+  full,
+}: {
+  asset: LibraryAsset;
+  source: string;
+  full: boolean;
+}) {
+  const audio = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false),
+    [time, setTime] = useState(0),
+    [duration, setDuration] = useState((asset.durationMs ?? 0) / 1000),
+    [error, setError] = useState(false);
+  useEffect(() => {
+    const node = audio.current;
+    return () => {
+      node?.pause();
+      if (activeAudio === node) activeAudio = null;
+    };
+  }, []);
+  const seek = (next: number) => {
+    if (audio.current && duration > 0) {
+      audio.current.currentTime = Math.max(0, Math.min(duration, next));
+      setTime(audio.current.currentTime);
+    }
+  };
+  const toggle = () => {
+    const node = audio.current;
+    if (!node) return;
+    if (playing) node.pause();
+    else {
+      if (activeAudio && activeAudio !== node) activeAudio.pause();
+      activeAudio = node;
+      if (node.ended) node.currentTime = 0;
+      void node.play().catch(() => {
+        setError(true);
+        setPlaying(false);
+      });
+    }
+  };
+  const clock = (value: number) =>
+    `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, "0")}`;
+  return (
+    <div
+      className="flex h-full min-h-32 flex-col justify-center gap-2 bg-gradient-to-br from-primary/5 to-transparent px-4 py-3"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <audio
+        ref={audio}
+        src={source || undefined}
+        preload="metadata"
+        className="hidden"
+        aria-label={asset.name}
+        onLoadedMetadata={(e) => {
+          if (Number.isFinite(e.currentTarget.duration)) setDuration(e.currentTarget.duration);
+        }}
+        onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+        onPlay={() => {
+          setPlaying(true);
+          setError(false);
+        }}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+      />
+      <div className="relative overflow-hidden rounded-lg bg-primary/5">
+        <div
+          role="slider"
+          tabIndex={duration > 0 ? 0 : -1}
+          aria-label={t("Seek audio")}
+          aria-valuemin={0}
+          aria-valuemax={duration}
+          aria-valuenow={Math.min(time, duration)}
+          aria-valuetext={t("{elapsed} of {duration}", {
+            elapsed: clock(time),
+            duration: clock(duration),
+          })}
+          className="relative cursor-pointer px-2 outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            const rect = e.currentTarget.getBoundingClientRect();
+            seek(((e.clientX - rect.left) / rect.width) * duration);
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+              const rect = e.currentTarget.getBoundingClientRect();
+              seek(((e.clientX - rect.left) / rect.width) * duration);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+              e.preventDefault();
+              seek(
+                e.key === "Home"
+                  ? 0
+                  : e.key === "End"
+                    ? duration
+                    : time + (e.key === "ArrowRight" ? 5 : -5),
+              );
+            }
+          }}
+        >
+          <div
+            className="pointer-events-none absolute inset-y-0 left-0 bg-primary/10 transition-[width] duration-100"
+            style={{ width: `${duration ? (time / duration) * 100 : 0}%` }}
+          />
+          <Waveform asset={asset} progress={duration ? time / duration : 0} />
+        </div>
+        <Button
+          size="sm"
+          className="absolute left-3 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full p-0 shadow-lg"
+          disabled={!source}
+          aria-label={
+            playing
+              ? t("Pause {name}", { name: asset.name })
+              : t("Play {name}", { name: asset.name })
+          }
+          onClick={toggle}
+        >
+          {playing ? <Pause size={18} /> : <Play size={18} fill="currentColor" />}
+        </Button>
+      </div>
+      <div className="flex items-center justify-between gap-4 text-[10px] tabular-nums text-fg-muted">
+        <span>{playing ? t("Playing") : t("Audio preview")}</span>
+        <span>
+          {t("{elapsed} / {duration}", { elapsed: clock(time), duration: clock(duration) })}
+        </span>
+      </div>
+      {full && (
+        <label className="flex items-center gap-3 text-xs text-fg-muted">
+          <Volume2 size={15} />
+          {t("Volume")}
+          <input
+            className="flex-1 accent-primary"
+            type="range"
+            min="0"
+            max="1"
+            step=".01"
+            defaultValue="1"
+            aria-label={t("Audio preview volume")}
+            onChange={(e) => {
+              if (audio.current) audio.current.volume = Number(e.target.value);
+            }}
+          />
+        </label>
+      )}
+      {error && (
+        <p role="alert" className="text-xs text-danger">
+          {t("Couldn’t play this audio.")}
+        </p>
+      )}
+    </div>
   );
 }
 function Preview({ asset: a, full = false }: { asset: LibraryAsset; full?: boolean }) {
@@ -98,19 +275,7 @@ function Preview({ asset: a, full = false }: { asset: LibraryAsset; full?: boole
         }}
       />
     );
-  if (a.kind === "audio")
-    return (
-      <div className="flex h-full flex-col justify-center px-4">
-        <Waveform asset={a} />
-        <audio
-          aria-label={a.name}
-          src={preview || undefined}
-          controls
-          preload="metadata"
-          className="max-w-full"
-        />
-      </div>
-    );
+  if (a.kind === "audio") return <AudioPreview asset={a} source={preview} full={full} />;
   if (a.kind === "font")
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-4 text-center">

@@ -1,3 +1,4 @@
+import { sceneDisplayName } from "./scene-names";
 import { useState, useEffect } from "react";
 import { Button, Input, Popover, confirmDialog } from "@braedonsaunders/appkit-ui";
 import {
@@ -94,7 +95,7 @@ export function SceneStrip(p: {
         s.role === role ? { ...s, document: { ...s.document, duration: seconds } } : s,
       ),
     });
-  const name = (scene: StyleScene) => (scene.name === scene.role ? p.style.name : scene.name);
+  const name = (scene: StyleScene) => sceneDisplayName(p.style, scene);
   return (
     <div
       className="flex h-[156px] shrink-0 gap-0 overflow-x-auto overflow-y-hidden border-t border-border bg-surface px-2 py-2"

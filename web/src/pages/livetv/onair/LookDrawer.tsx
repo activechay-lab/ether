@@ -1,3 +1,4 @@
+import { sceneDisplayName } from "./editor/scene-names";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Tooltip,
@@ -255,7 +256,7 @@ export function LookDrawer({
                   <span className="text-fg-muted">{roleNames[scene.role]}</span>
                   <span className="hidden text-fg-muted sm:inline">·</span>
                   <span className="hidden max-w-48 truncate sm:inline">
-                    {scene.name === scene.role ? draft.name : scene.name}
+                    {sceneDisplayName(draft, scene)}
                   </span>
                   <ChevronDown size={12} />
                 </Button>
@@ -272,9 +273,7 @@ export function LookDrawer({
                   }}
                 >
                   <span className="w-24 shrink-0 text-fg-muted">{roleNames[item.role]}</span>
-                  <span className="truncate">
-                    {item.name === item.role ? draft.name : item.name}
-                  </span>
+                  <span className="truncate">{sceneDisplayName(draft, item)}</span>
                 </button>
               ))}
             </Popover>
@@ -667,7 +666,7 @@ export function LookDrawer({
                 <span className="pointer-events-none absolute bottom-2 left-3 text-[10px] text-fg-muted">
                   {t("{role} · {name}", {
                     role: roleNames[scene.role],
-                    name: scene.name === scene.role ? draft.name : scene.name,
+                    name: sceneDisplayName(draft, scene),
                   })}
                 </span>
               </div>

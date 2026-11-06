@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Input, Popover } from "@braedonsaunders/appkit-ui";
 import {
   Type,
@@ -22,7 +22,13 @@ import {
 } from "lucide-react";
 import { t } from "../../../i18n";
 import type { Scene, Layer } from "./scene-renderer";
-import { updateLayer, moveLayer, duplicateLayers, removeLayers } from "./editor/scene-edit";
+import {
+  updateLayer,
+  moveLayer,
+  duplicateLayers,
+  removeLayers,
+  layerPath,
+} from "./editor/scene-edit";
 export function LayersPanel(p: {
   document: Scene;
   selected: string[];
@@ -34,6 +40,21 @@ export function LayersPanel(p: {
     ),
     [rename, setRename] = useState(""),
     [menu, setMenu] = useState("");
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  useEffect(() => {
+    const parents = p.selected.flatMap((id) =>
+      layerPath(p.document, id)
+        .slice(0, -1)
+        .map((l) => l.id),
+    );
+    setExpanded((current) => [...new Set([...current, ...parents])]);
+    const frame = requestAnimationFrame(() => {
+      rowRefs.current
+        .get(p.selected[0] ?? "")
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [p.selected]);
   const names: Record<string, string> = {
     text: t("Text"),
     path: t("Shape"),
