@@ -82,6 +82,7 @@ func (a *App) runPublicRole(ctx context.Context) error {
 	front.gate.Close(shutdown)
 	a.deployment.publicReady.Store(false)
 	a.deployment.ready.Store(false)
+	a.recordPrivateReadiness(privateReadinessSnapshot{reason: readinessPublic, errorClass: privateReadinessError(result)})
 	if a.registrar != nil {
 		a.registrar.Stop()
 	}
