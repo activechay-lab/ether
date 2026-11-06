@@ -3,6 +3,7 @@ package clusterplayback
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"mime"
@@ -152,54 +153,31 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 		return
 	}
 	key := s.key(n)
-	s.mu.Lock()
-	headers := s.headers[int64(n)].Clone()
-	s.mu.Unlock()
-	if headers != nil {
-		lease, err := s.r.o.OutputBuffer.Acquire(key)
-		if err == nil {
-			defer lease.Close()
-			// The outer authenticated broker owns current viewer/media policy. Cache
-			// delivery additionally requires the exact current controller authority.
-			record, err := s.r.o.Placement.Lookup(q.Context(), s.route.Fence.Session)
-			if err != nil || !s.allowedFence(record.Fence, n) || !record.Authority || record.Retired || s.r.o.MemberRole(q.Context(), s.r.o.Self, config.RoleServer) != nil {
-				http.Error(w, "output authority unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			s.r.mu.Lock()
-			x := s.r.executions[s.route.Fence.Session]
-			active := !s.r.closed && x != nil && s.allowedExecution(x, n) && !x.stopping && !x.retired
-			s.r.mu.Unlock()
-			if !active {
-				http.Error(w, "execution stopped", http.StatusGone)
-				return
-			}
-			retained = true
-			s.access.Store(time.Now().UnixNano())
-			for name, values := range headers {
-				w.Header()[name] = values
-			}
-			length, _ := strconv.ParseInt(headers.Get("Content-Length"), 10, 64)
-			w.WriteHeader(http.StatusOK)
-			_, _ = io.Copy(w, io.NewSectionReader(lease, 0, length))
-			return
-		}
-		// Already retained but not contiguous: serve normally without attempting
-		// a duplicate Retain or overwriting the immutable representation metadata.
-		serve(w, q)
+	if s.serveRetained(w, q, n, key, &retained) {
 		return
 	}
+	// Backpressure precedes allocation and the encoder RPC. A busy capture must
+	// never turn a recoverable response into an unretained successful segment.
+	waitBound := s.r.o.EncoderSegmentWait
+	if waitBound <= 0 {
+		waitBound = 30 * time.Second
+	}
+	wait, cancel := context.WithTimeout(q.Context(), waitBound)
+	defer cancel()
 	select {
 	case s.r.outputScratch <- struct{}{}:
 		defer func() { <-s.r.outputScratch }()
-	default:
-		s.degrade("capture scratch unavailable")
-		serve(w, q)
+	case <-wait.Done():
+		http.Error(w, "segment capture unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	// Another reader may have published this immutable key while we waited.
+	if s.serveRetained(w, q, n, key, &retained) {
 		return
 	}
 	// Scratch is charged globally BEFORE allocation/read. No recorder, pipe,
-	// child reader or retry exists. The original response streams exactly once
-	// with downstream backpressure, even if capture overflows or is unsupported.
+	// child reader or retry exists. Hold only the final representation byte until
+	// validated contiguous publication; preceding bytes retain backpressure.
 	capture := &segmentCapture{ResponseWriter: w, limit: s.r.o.MaxSegmentBytes, body: make([]byte, 0, int(s.r.o.MaxSegmentBytes))}
 	completion := serve(capture, q)
 	if !completion.Complete() || completion.ReadBytes != int64(len(capture.body)) || !capture.complete(q.Context()) {
@@ -240,6 +218,31 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 		return
 	}
 	s.headers[int64(n)] = capture.headers
+	s.mu.Unlock()
+	_ = s.publishStaged(q.Context())
+	// A full client receipt can only follow publication. Future staged segments
+	// stay incomplete until their missing prefix is published by another request.
+	lease, err := s.r.o.OutputBuffer.Acquire(key)
+	if err != nil {
+		return
+	}
+	defer lease.Close()
+	if capture.complete(q.Context()) {
+		_, _ = w.Write(capture.body[len(capture.body)-1:])
+	}
+}
+
+func (s *bufferedSession) publishStaged(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.r.mu.Lock()
+	x := s.r.executions[s.route.Fence.Session]
+	active := x != nil && x.route == s.route && x.replacement == nil && !x.stopping && !x.retired
+	s.r.mu.Unlock()
+	if !active {
+		return ErrDenied
+	}
+	key := s.key(0)
 	// Staged future segments may arrive out of order. Publish only the complete
 	// contiguous range; old public keys remain immutable at the store boundary.
 	snapshot, err := s.r.o.OutputBuffer.Snapshot(key.Session)
@@ -254,7 +257,7 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 			keys = append(keys, candidate)
 		}
 		if len(keys) > 0 {
-			err = s.r.deliveryAuthority(q.Context(), s.route)
+			err = s.r.deliveryAuthority(ctx, s.route)
 			if err == nil {
 				err = s.r.o.OutputBuffer.Publish(key.Session, snapshot.State, keys)
 			}
@@ -266,7 +269,54 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 	if err != nil && s.reason == "" {
 		s.reason = "contiguous publication unavailable"
 	}
+	return err
+}
+
+func (s *bufferedSession) serveRetained(w http.ResponseWriter, q *http.Request, n int, key playbackbuffer.Key, retained *bool) bool {
+	s.mu.Lock()
+	headers := s.headers[int64(n)].Clone()
 	s.mu.Unlock()
+	if headers != nil {
+		lease, err := s.r.o.OutputBuffer.Acquire(key)
+		if err != nil {
+			// A prior request may have staged valid bytes but lost its context
+			// before publication. Retry the commit, never the worker read.
+			if s.publishStaged(q.Context()) == nil {
+				lease, err = s.r.o.OutputBuffer.Acquire(key)
+			}
+		}
+		if err == nil {
+			defer lease.Close()
+			// The outer authenticated broker owns current viewer/media policy. Cache
+			// delivery additionally requires the exact current controller authority.
+			record, err := s.r.o.Placement.Lookup(q.Context(), s.route.Fence.Session)
+			if err != nil || !s.allowedFence(record.Fence, n) || !record.Authority || record.Retired || s.r.o.MemberRole(q.Context(), s.r.o.Self, config.RoleServer) != nil {
+				http.Error(w, "output authority unavailable", http.StatusServiceUnavailable)
+				return true
+			}
+			s.r.mu.Lock()
+			x := s.r.executions[s.route.Fence.Session]
+			active := !s.r.closed && x != nil && s.allowedExecution(x, n) && !x.stopping && !x.retired
+			s.r.mu.Unlock()
+			if !active {
+				http.Error(w, "execution stopped", http.StatusGone)
+				return true
+			}
+			*retained = true
+			s.access.Store(time.Now().UnixNano())
+			for name, values := range headers {
+				w.Header()[name] = values
+			}
+			length, _ := strconv.ParseInt(headers.Get("Content-Length"), 10, 64)
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.Copy(w, io.NewSectionReader(lease, 0, length))
+			return true
+		}
+		// A staged but unpublished key cannot acknowledge successful delivery.
+		http.Error(w, "segment publication pending", http.StatusServiceUnavailable)
+		return true
+	}
+	return false
 }
 
 type segmentCapture struct {
@@ -275,6 +325,7 @@ type segmentCapture struct {
 	body    []byte
 	headers http.Header
 	status  int
+	length  int64
 	failed  bool
 }
 
@@ -318,6 +369,20 @@ func (w *segmentCapture) WriteHeader(status int) {
 			w.failed = true
 		}
 	}
+	if status == http.StatusOK {
+		length, e := strconv.ParseInt(w.Header().Get("Content-Length"), 10, 64)
+		w.length = length
+		if e != nil || len(w.Header().Values("Content-Length")) != 1 || length <= 0 || length > w.limit {
+			w.failed = true
+		}
+		if w.failed {
+			for name := range w.Header() {
+				delete(w.Header(), name)
+			}
+			http.Error(w.ResponseWriter, "segment capture unavailable", http.StatusServiceUnavailable)
+			return
+		}
+	}
 	if !w.failed {
 		w.headers = make(http.Header)
 		for name, values := range w.Header() {
@@ -332,23 +397,29 @@ func (w *segmentCapture) Write(p []byte) (int, error) {
 	if w.status == 0 {
 		w.WriteHeader(http.StatusOK)
 	}
-	n, err := w.ResponseWriter.Write(p)
-	if n < 0 || n > len(p) {
-		w.failed = true
-		return n, err
+	if w.status != http.StatusOK {
+		return w.ResponseWriter.Write(p)
 	}
-	if err != nil || n != len(p) {
+	if w.failed || int64(len(p)) > w.length-int64(len(w.body)) {
 		w.failed = true
+		return 0, errors.New("segment capture incomplete")
 	}
-	if !w.failed {
-		if int64(n) > w.limit-int64(len(w.body)) {
+	count := len(p)
+	if int64(len(w.body)+count) == w.length && count > 0 {
+		count--
+	}
+	if count > 0 {
+		n, err := w.ResponseWriter.Write(p[:count])
+		if err != nil || n != count {
 			w.failed = true
-		} else {
-			w.body = append(w.body, p[:n]...)
+			w.body = nil
+			return n, err
 		}
 	}
-	return n, err
+	w.body = append(w.body, p...)
+	return len(p), nil
 }
+
 func (w *segmentCapture) complete(ctx context.Context) bool {
 	length, err := strconv.ParseInt(w.headers.Get("Content-Length"), 10, 64)
 	if len(w.headers.Values("Content-Length")) != 1 {

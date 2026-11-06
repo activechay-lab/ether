@@ -128,7 +128,7 @@ func TestOutputBufferContiguousAndImmutable(t *testing.T) {
 	}
 }
 func TestOutputBufferPassThroughAndIncomplete(t *testing.T) {
-	for _, test := range []string{"head", "range", "conditional", "206", "error", "short", "unknown", "oversize", "cancel", "type", "content-range", "headers", "scratch", "no-store"} {
+	for _, test := range []string{"head", "range", "conditional", "206", "error", "short", "unknown", "oversize", "cancel", "type", "content-range", "headers", "no-store"} {
 		t.Run(test, func(t *testing.T) {
 			s, data := outputFixture(t)
 			q := httptest.NewRequest("GET", "/segment", nil)
@@ -160,9 +160,6 @@ func TestOutputBufferPassThroughAndIncomplete(t *testing.T) {
 				q = q.WithContext(ctx)
 			case "type":
 				ct = "text/plain"
-			case "scratch":
-				s.r.outputScratch <- struct{}{}
-				defer func() { <-s.r.outputScratch }()
 			}
 			calls := 0
 			serve := func(w http.ResponseWriter, _ *http.Request) remotetranscode.RepresentationCompletion {
@@ -193,6 +190,10 @@ func TestOutputBufferPassThroughAndIncomplete(t *testing.T) {
 				if got.Code != 409 {
 					t.Fatal("cancelled generation published", got.Code)
 				}
+			} else if test == "unknown" || test == "oversize" || test == "type" || test == "content-range" || test == "headers" || test == "no-store" {
+				if got.Code != 503 {
+					t.Fatal("unsupported successful representation acknowledged", test, got.Code)
+				}
 			} else if calls != 1 || got.Code != want.Code || got.Body.String() != want.Body.String() || !reflect.DeepEqual(got.Header(), want.Header()) {
 				t.Fatal("upstream response changed or retried")
 			}
@@ -214,34 +215,120 @@ func TestOutputCaptureDownstreamFailure(t *testing.T) {
 		t.Fatal("failed delivery retained")
 	}
 }
-func TestOutputBufferScratchReservedDuringUnknownStream(t *testing.T) {
-	s, _ := outputFixture(t)
-	q := httptest.NewRequest("GET", "/segment", nil)
-	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+
+// Every completed successful response must already have immutable published
+// bytes, even when the next request overlaps the former upstream EOF/close.
+func TestOutputBufferPublicationBeforeSuccessInvariant(t *testing.T) {
+	s, data := outputFixture(t)
+	s.r.o.MemberRole = func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
+	writer := func(n int) *publicationWriter {
+		return &publicationWriter{ResponseRecorder: httptest.NewRecorder(), check: func() bool {
+			snap, err := s.r.o.OutputBuffer.Snapshot("retained")
+			return err == nil && snap.State.PublishedFloor >= int64(n)
+		}, length: len(data), t: t}
+	}
+	q := func() *http.Request { return httptest.NewRequest("GET", "/segment", nil) }
+	first, second := writer(0), writer(1)
+	bodyWritten, release, done0, done1 := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
-		defer close(done)
-		s.serveSegment(httptest.NewRecorder(), q, 0, func(w http.ResponseWriter, _ *http.Request) remotetranscode.RepresentationCompletion {
-			w.Header().Set("Content-Type", "video/mp2t")
-			_, _ = w.Write([]byte("chunk"))
-			close(entered)
+		defer close(done0)
+		s.serveSegment(first, q(), 0, func(w http.ResponseWriter, r *http.Request) remotetranscode.RepresentationCompletion {
+			facts := outputResponse(data)(w, r)
+			close(bodyWritten)
 			<-release
-			return remotetranscode.RepresentationCompletion{}
+			return facts
 		})
 	}()
-	<-entered
-	if len(s.r.outputScratch) != 1 {
-		t.Error("unknown length stream uncharged")
+	<-bodyWritten
+	// Upstream EOF/publication has not completed: not even this already-written
+	// full source body may be acknowledged by a complete downstream body.
+	if first.Body.Len() == len(data) {
+		t.Error("client completed before upstream completion/publication")
 	}
-	s.serveSegment(httptest.NewRecorder(), q, 1, outputResponse([]byte("second")))
+	go func() { defer close(done1); s.serveSegment(second, q(), 1, outputResponse(data)) }()
+	// Cancellation while waiting must not enter another upstream operation.
+	c, cancel := context.WithCancel(context.Background())
+	cancel()
+	cancelled := httptest.NewRecorder()
+	s.serveSegment(cancelled, q().WithContext(c), 2, func(http.ResponseWriter, *http.Request) remotetranscode.RepresentationCompletion {
+		t.Error("cancelled waiter reached worker")
+		return remotetranscode.RepresentationCompletion{}
+	})
+	if cancelled.Code != 409 {
+		t.Error("cancelled waiter not fenced", cancelled.Code)
+	}
 	close(release)
-	<-done
+	<-done0
+	<-done1
+	for i, w := range []*publicationWriter{first, second} {
+		if w.Body.String() != string(data) || w.Code != 200 {
+			t.Fatal("overlap lost representation", i, w.Code, w.Body.Len())
+		}
+	}
+	for _, failure := range []string{"read-error", "cancel-after-body"} {
+		ctx, stop := context.WithCancel(context.Background())
+		failed := writer(2)
+		s.serveSegment(failed, q().WithContext(ctx), 2, func(w http.ResponseWriter, r *http.Request) remotetranscode.RepresentationCompletion {
+			f := outputResponse(data)(w, r)
+			if failure == "read-error" {
+				f.ReadError = true
+			} else {
+				stop()
+			}
+			return f
+		})
+		stop()
+		snap, err := s.r.o.OutputBuffer.Snapshot("retained")
+		if failed.Body.Len() >= len(data) || err != nil || snap.State.PublishedFloor != 1 {
+			t.Fatal("failed/cancelled body acknowledged or published", failure, snap, err)
+		}
+	}
+	for n := 2; n <= 3; n++ {
+		w := writer(n)
+		s.serveSegment(w, q(), n, outputResponse(data))
+		if w.Body.String() != string(data) {
+			t.Fatal("retry lost bytes", n)
+		}
+	}
+	// A staged future representation cannot fall through to an unobserved worker
+	// read. Publishing its missing predecessor makes the exact staged key usable.
+	future := writer(5)
+	s.serveSegment(future, q(), 5, outputResponse(data))
+	if future.Body.Len() >= len(data) {
+		t.Fatal("future uncommitted body acknowledged")
+	}
+	pending := httptest.NewRecorder()
+	s.serveSegment(pending, q(), 5, func(http.ResponseWriter, *http.Request) remotetranscode.RepresentationCompletion {
+		t.Error("staged key reread worker")
+		return remotetranscode.RepresentationCompletion{}
+	})
+	if pending.Code != 503 {
+		t.Fatal("staged future not retryable", pending.Code)
+	}
+	fourth := writer(4)
+	s.serveSegment(fourth, q(), 4, outputResponse(data))
+	fifth := writer(5)
+	s.serveSegment(fifth, q(), 5, outputResponse(data))
+	if fourth.Body.String() != string(data) || fifth.Body.String() != string(data) {
+		t.Fatal("contiguous staged prefix lost")
+	}
 	if len(s.r.outputScratch) != 0 {
 		t.Fatal("scratch leaked")
 	}
-	snap, _ := s.r.o.OutputBuffer.Snapshot("retained")
-	if len(snap.Entries) != 0 {
-		t.Fatal("scratch miss retained")
+}
+
+type publicationWriter struct {
+	*httptest.ResponseRecorder
+	t      *testing.T
+	length int
+	check  func() bool
+}
+
+func (w *publicationWriter) Write(p []byte) (int, error) {
+	if w.Body.Len()+len(p) >= w.length && !w.check() {
+		w.t.Error("successful full representation preceded contiguous publication")
 	}
+	return w.ResponseRecorder.Write(p)
 }
 func TestOutputBufferExactOptionalMethodsAndNil(t *testing.T) {
 	original := reflect.TypeOf(&remotetranscode.Session{})
@@ -369,8 +456,8 @@ func TestOutputBufferLifetimeCapacity(t *testing.T) {
 	s.serveSegment(httptest.NewRecorder(), q, 0, outputResponse(data))
 	got := httptest.NewRecorder()
 	s.serveSegment(got, q, 1, outputResponse(data))
-	if got.Code != 200 || got.Body.String() != string(data) {
-		t.Fatal("capacity changed ordinary serving")
+	if got.Body.Len() >= len(data) {
+		t.Fatal("capacity exhaustion acknowledged unretained success")
 	}
 	snap, err := s.r.SnapshotOutput("retained")
 	if err != nil || snap.Retaining || len(snap.Buffer.Entries) != 1 || snap.Buffer.State.PublishedFloor != 0 {
@@ -465,7 +552,11 @@ func TestOutputBufferRemoteMTLSCompletion(t *testing.T) {
 	for n := 0; n < 3; n++ {
 		w := httptest.NewRecorder()
 		s.ServeSegment(w, httptest.NewRequest("GET", "/segment", nil), n)
-		if w.Code != 200 || w.Body.String() != string(data) {
+		if n == 2 {
+			if w.Code != 503 {
+				t.Fatal("unknown framing acknowledged", w.Code)
+			}
+		} else if w.Code != 200 || w.Body.String() != string(data) {
 			t.Fatal("ordinary response changed", n, w.Code)
 		}
 	}
