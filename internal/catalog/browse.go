@@ -59,7 +59,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	gen := c.writeGen.Load()
 	minBucket := c.minuteBucket()
 	ckey := c.consoleAvailabilityCacheKey(q.Filter) + "|" + browseFilterKey(q.Filter) + fmt.Sprintf("|rules:%s:%#v:%s", q.Filter.RuleVisibility, q.Filter.PreviewRules, q.Filter.PreviewFallback)
-	bkey := fmt.Sprintf("%s|%s|%v|%v|%d|%d|%v", ckey, q.Sort, q.Desc, q.SecondarySorts, offset, limit, q.NoTotal)
+	bkey := fmt.Sprintf("after:%d|", q.AfterKey) + fmt.Sprintf("%s|%s|%v|%v|%d|%d|%v", ckey, q.Sort, q.Desc, q.SecondarySorts, offset, limit, q.NoTotal)
 	cacheable := !groupHasState(q.Filter.Group)
 	c.cacheMu.RLock()
 	if ent, ok := c.browseCache[bkey]; cacheable && !q.SortLastViewed && ok && ent.gen == gen && ent.minute == minBucket {
@@ -130,6 +130,10 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		return core.Page{Items: items, Total: total}, nil
 	}
 	pageWhere, pageArgs := where, args
+	if q.Sort == core.SortKey && q.AfterKey > 0 {
+		pageWhere += " AND t.key>?"
+		pageArgs = append(append([]any{}, args...), q.AfterKey)
+	}
 	if q.Sort == core.SortUpdated && q.Filter.UpdatedAfter == 0 {
 		pageWhere += " AND t.fetched_at>=?"
 		pageArgs = append(append([]any{}, args...), int64(0))
@@ -255,6 +259,9 @@ func prefixedCols(prefix string) string {
 }
 
 func sortColumn(alias string, so core.SortOrder) string {
+	if so == core.SortKey {
+		return alias + ".key"
+	}
 	switch so {
 	case core.SortTitle:
 		return alias + ".sort_title"

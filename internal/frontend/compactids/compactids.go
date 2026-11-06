@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/braedonsaunders/ether/internal/store"
 )
@@ -81,4 +82,84 @@ func (a *Allocator) Resolve(ctx context.Context, surface, kind string, id int32)
 		return "", fmt.Errorf("compact ids: not found")
 	}
 	return ref, err
+}
+
+// CompactBatch allocates a page in one transaction, with a single counter
+// update. Existing identifiers are stable across concurrent export requests.
+func (a *Allocator) CompactBatch(ctx context.Context, surface, kind string, refs []string) (map[string]int32, error) {
+	if surface == "" || kind == "" || len(refs) > 250 {
+		return nil, errors.New("compact ids: invalid batch")
+	}
+	result := map[string]int32{}
+	if len(refs) == 0 {
+		return result, nil
+	}
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	// The namespace counter serializes allocators on SQLite and PostgreSQL.
+	_, err = tx.ExecContext(ctx, `INSERT INTO frontend_compact_id_counters(surface,kind,last_id) VALUES(?,?,0) ON CONFLICT(surface,kind) DO UPDATE SET last_id=frontend_compact_id_counters.last_id`, surface, kind)
+	if err != nil {
+		return nil, err
+	}
+	args := []any{surface, kind}
+	marks := make([]string, len(refs))
+	for j, ref := range refs {
+		if ref == "" {
+			return nil, errors.New("compact ids: empty reference")
+		}
+		marks[j] = "?"
+		args = append(args, ref)
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT ref,id FROM frontend_compact_ids WHERE surface=? AND kind=? AND ref IN (`+strings.Join(marks, ",")+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var ref string
+		var id int32
+		if err := rows.Scan(&ref, &id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		result[ref] = id
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	missing := []string{}
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		if result[ref] == 0 && !seen[ref] {
+			missing = append(missing, ref)
+			seen[ref] = true
+		}
+	}
+	if len(missing) > 0 {
+		var last int64
+		err = tx.QueryRowContext(ctx, `UPDATE frontend_compact_id_counters SET last_id=last_id+? WHERE surface=? AND kind=? AND last_id<=2147483647-? RETURNING last_id`, len(missing), surface, kind, len(missing)).Scan(&last)
+		if err != nil {
+			return nil, err
+		}
+		vals := make([]string, len(missing))
+		args = []any{}
+		for j, ref := range missing {
+			id := last - int64(len(missing)) + int64(j) + 1
+			result[ref] = int32(id)
+			vals[j] = "(?,?,?,?)"
+			args = append(args, surface, kind, ref, id)
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO frontend_compact_ids(surface,kind,ref,id) VALUES `+strings.Join(vals, ","), args...)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }

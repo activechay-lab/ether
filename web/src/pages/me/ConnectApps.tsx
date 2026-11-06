@@ -26,6 +26,7 @@ const names: Record<string, string> = {
   stremio: "Stremio",
   webdav: "WebDAV",
   m3u: "M3U",
+  xtream: "Xtream",
 };
 
 export function ConnectApps(props: { base: string; token: string }) {
@@ -125,7 +126,7 @@ function ConnectAppsSession({ base, token }: { base: string; token: string }) {
                 ) : (
                   householdIcon(id)
                 )}
-                {names[id]}
+                {id === "xtream" ? t("IPTV apps (Xtream)") : names[id]}
               </div>
               {id === "plex" ? (
                 <a

@@ -34,6 +34,7 @@ func (allConnectFrontends) List(context.Context) ([]admin.FrontendInfo, error) {
 		{Descriptor: frontend.Descriptor{ID: "stremio"}, Enabled: true},
 		{Descriptor: frontend.Descriptor{ID: "webdav"}, Enabled: true},
 		{Descriptor: frontend.Descriptor{ID: "m3u"}, Enabled: true},
+		{Descriptor: frontend.Descriptor{ID: "xtream"}, Enabled: true},
 	}, nil
 }
 func (allConnectFrontends) Settings(context.Context, frontend.Protocol) (frontend.Settings, error) {
@@ -241,7 +242,7 @@ func TestConnectAppsPlexViewerWithoutLocalPasswordMintsJellyfinEmbySilo(t *testi
 	}
 	_ = json.NewDecoder(res.Body).Decode(&listing)
 	res.Body.Close()
-	wantApps := []string{"plex", "jellyfin", "emby", "silo", "stremio", "webdav", "m3u"}
+	wantApps := []string{"plex", "jellyfin", "emby", "silo", "stremio", "webdav", "m3u", "xtream"}
 	if res.StatusCode != 200 || strings.Join(listing.Apps, ",") != strings.Join(wantApps, ",") {
 		t.Fatalf("listing: %d %+v", res.StatusCode, listing.Apps)
 	}
@@ -271,4 +272,25 @@ func TestConnectAppsPlexViewerWithoutLocalPasswordMintsJellyfinEmbySilo(t *testi
 			t.Fatalf("%s resolve device: viewer=%+v dev=%+v err=%v", surface, viewer, dev, err)
 		}
 	}
+	res = do("POST", "/ether/api/me/apps/xtream")
+	var xt struct {
+		URL      string `json:"url"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&xt); err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 200 || xt.Username != frontend.XtreamUsername(xt.Password) || xt.Username == "plexviewer" || xt.URL != "https://ether.example/xtream" {
+		t.Fatalf("invalid app login: status=%d", res.StatusCode)
+	}
+	viewer, err := grants.Resolve(ctx, "xtream", xt.Password)
+	if err != nil || viewer.ID != 77 {
+		t.Fatal("unscoped login", err)
+	}
+	if _, err = grants.Resolve(ctx, "jellyfin", xt.Password); err == nil {
+		t.Fatal("cross-surface credential")
+	}
+
 }

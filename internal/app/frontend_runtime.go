@@ -24,6 +24,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontends/silo"
 	"github.com/braedonsaunders/ether/internal/frontends/stremio"
 	"github.com/braedonsaunders/ether/internal/frontends/webdav"
+	"github.com/braedonsaunders/ether/internal/frontends/xtream"
 	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex"
@@ -346,6 +347,9 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		return nil, err
 	}
 	if err := r.registry.Register(dlna.Frontend{MachineID: cfg.Server.MachineIdentifier}); err != nil {
+		return nil, err
+	}
+	if err := r.registry.Register(xtream.Frontend{}); err != nil {
 		return nil, err
 	}
 	if err := r.registry.Register(m3u.Frontend{}); err != nil {

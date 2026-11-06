@@ -582,6 +582,7 @@ function durationMs(w: string): number {
 }
 
 export function createFakeServer(opts: FakeOptions = {}) {
+  const xtreamGrants = new Map<string, { hash: string; surface: string; lastUsed: number }[]>();
   const catalog = buildCatalog();
   const byKey = new Map(catalog.map((t) => [t.key, t]));
   const ownerTags = new Map<string, string[]>();
@@ -2521,15 +2522,38 @@ export function createFakeServer(opts: FakeOptions = {}) {
 
     const appsOffset = seg[0] === "me" ? 1 : seg[0] === "viewers" && seg[1] ? 2 : -1;
     if (appsOffset >= 0 && seg[appsOffset] === "apps") {
-      const enabled = ["plex", "jellyfin", "emby", "silo", "stremio", "webdav", "m3u"].filter(
-        (id) => state.config.frontends?.[id]?.enabled,
-      );
+      const enabled = [
+        "plex",
+        "jellyfin",
+        "emby",
+        "silo",
+        "stremio",
+        "webdav",
+        "m3u",
+        "xtream",
+      ].filter((id) => state.config.frontends?.[id]?.enabled);
       if (method === "GET" && seg.length === appsOffset + 1) return json({ apps: enabled });
       const surface = seg[appsOffset + 1];
       if (method === "POST" && surface && enabled.includes(surface)) {
         const qr =
           "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
         const id = seg[0] === "viewers" ? seg[1] : "1";
+        if (surface === "xtream") {
+          const grants = xtreamGrants.get(id ?? "1") ?? [];
+          grants.push({
+            hash: `mock-xtream-${grants.length + 1}`,
+            surface: "xtream",
+            lastUsed: Date.now(),
+          });
+          xtreamGrants.set(id ?? "1", grants);
+          return json({
+            surface,
+            url: "http://ether.local/xtream",
+            username: "xt_demo",
+            password: "eg1_private-mock-login",
+            qr: "",
+          });
+        }
         if (surface === "webdav")
           return json({
             surface,
@@ -2599,7 +2623,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
             ? `https://203-0-113-7.abc.plex.direct:${port}`
             : `https://${id}.example.com`,
         ];
-      if (id === "stremio" || id === "webdav" || id === "dlna" || id === "m3u") {
+      if (id === "stremio" || id === "webdav" || id === "dlna" || id === "m3u" || id === "xtream") {
         return [`http://192.168.1.20:${state.config.server.port}/${id}`];
       }
       return [];
@@ -2696,6 +2720,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
       },
       { id: "webdav", name: "Files (WebDAV)", settingsSchema: accountSchema("files") },
       { id: "m3u", name: "M3U & XMLTV", settingsSchema: accountSchema("playlist") },
+      { id: "xtream", name: "IPTV apps (Xtream)", settingsSchema: accountSchema("xtream") },
     ];
     if (seg[0] === "frontends" && seg.length === 1 && method === "GET") {
       return json(
@@ -4199,11 +4224,17 @@ export function createFakeServer(opts: FakeOptions = {}) {
       seg.length === 3 &&
       method === "GET"
     )
-      return json({ devices: [] });
+      return json({ devices: xtreamGrants.get(seg[1]!) ?? [] });
     if (seg[0] === "users" && seg[1] && seg[2] === "password" && method === "POST")
       return json({ ok: true });
-    if (seg[0] === "users" && seg[1] && seg[2] === "devices" && seg[3] === "revoke")
+    if (seg[0] === "users" && seg[1] && seg[2] === "devices" && seg[3] === "revoke") {
+      const hash = (body as { hash?: string })?.hash;
+      xtreamGrants.set(
+        seg[1],
+        (xtreamGrants.get(seg[1]) ?? []).filter((g) => g.hash !== hash),
+      );
       return json({ ok: true });
+    }
     const viewerHidden = /^\/viewers\/(\d+)\/not-interested(?:\/restore)?$/.exec(p);
     if (viewerHidden && (method === "GET" || method === "POST")) {
       if (method === "GET")

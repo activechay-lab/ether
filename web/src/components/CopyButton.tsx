@@ -6,8 +6,23 @@ import { t } from "../i18n";
 /** Resolves false for denied or unavailable clipboard access, including HTTP. */
 export async function copyText(value: string): Promise<boolean> {
   try {
-    if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
-    await navigator.clipboard.writeText(value);
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+    } else {
+      const active = document.activeElement as HTMLElement | null;
+      const input = document.createElement("textarea");
+      input.value = value;
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.appendChild(input);
+      try {
+        input.select();
+        if (!document.execCommand("copy")) throw new Error("clipboard unavailable");
+      } finally {
+        input.remove();
+        active?.focus();
+      }
+    }
     toast.success(t("Copied"));
     return true;
   } catch {

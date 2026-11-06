@@ -29,6 +29,7 @@ import { API_BASE, api, apiBlob, apiFetch } from "../../lib/api";
 import { isPlainObject } from "../../lib/format";
 import { useAsync, useInterval } from "../../lib/hooks";
 import { viewerStatus } from "../viewers/ViewerStatus";
+import { XtreamLogins } from "./XtreamLogins";
 import { AwayFromHome } from "./AwayFromHome";
 import { PlexApp } from "./PlexApp";
 import { appLabel, appPath, appPurpose, appRank } from "./catalog";
@@ -209,7 +210,7 @@ function ConnectDevice({
     };
   }, [open, url]);
   if (!info.enabled) return null;
-  if (["stremio", "webdav", "m3u"].includes(info.descriptor.id)) {
+  if (["stremio", "webdav", "m3u", "xtream"].includes(info.descriptor.id)) {
     return (
       <Button asChild variant="outline">
         <Link to="/me">{t("Connect a device")}</Link>
@@ -353,6 +354,7 @@ function ProtocolSettings({
             }
           />
         ) : null}
+        {id === "xtream" && info?.enabled ? <XtreamLogins /> : null}
         {shared ? (
           <SettingsSection title={t("Connect")} description={shared}>
             <div className="px-5 py-3">
