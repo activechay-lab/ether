@@ -322,6 +322,7 @@
     "one": "{count} misser",
     "other": "{count} missers"
   },
+  "m_015bee8cceee5b": "Pauzes en reclames",
   "m_015f6c1164ab16": "{name} verwijderd",
   "m_016092af66360a": "Elke indexer",
   "m_01611b2cfb0ba0": "nog ~{minutes} min",
@@ -1559,6 +1560,7 @@
   "m_066a8a91babdd8": "Aandacht nodig",
   "m_066bcd3e1cdbf5": "{field} op of voor {value}",
   "m_066bde54fa19f1": "fysieke release",
+  "m_066cced5258f1b": "Blokken",
   "m_066cd852a9f5c7": "Kies een videobestand",
   "m_066dc8d3967318": "Alle genres",
   "m_066fba65ba094e": "Geen regels",
@@ -2639,6 +2641,7 @@
   "m_0b015cb1633194": "De Intel-graphics van deze computer zetten video om.",
   "m_0b0377f6f73793": "Sleep de padpunten op het canvas om de vorm aan te passen.",
   "m_0b03d86bb83e05": "Eigen product",
+  "m_0b0535abc42eed": "Vaste tijdsloten en specials",
   "m_0b05f3af17e509": "Deze weergave is vastgelegd voordat starttijd en bufferen werden gemeten.",
   "m_0b08ee7d4474bd": "De achtergrond van de hoofdtitel met de naam eroverheen.",
   "m_0b09abc7c21f66": "Bron toevoegen",

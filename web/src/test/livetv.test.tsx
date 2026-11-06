@@ -367,9 +367,11 @@ describe("Live TV studio", () => {
     const calls = backend();
     renderLiveTV("/livetv?channel=new");
     fireEvent.click(await screen.findByRole("button", { name: "80s Action 24/7 template" }));
-    fireEvent.click(screen.getByRole("tab", { name: /Schedule/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "Programming" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Blocks" }));
     fireEvent.click(screen.getByRole("gridcell", { name: "Monday at 00:00" }));
     const dialog = await screen.findByRole("dialog", { name: "Programme block" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Block name" }), {
       target: { value: "Morning movies" },
     });
@@ -532,8 +534,9 @@ describe("Live TV studio", () => {
     fireEvent.click(screen.getByRole("button", { name: /Create channel/ }));
     await waitFor(() => expect(sent(calls, "POST", /\/livetv\/channels$/)).toHaveLength(1));
     expect(await screen.findByLabelText("Name")).toHaveValue("Movie night");
+    expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "false");
     const lineup = screen.getByRole("grid", { name: "Programme guide" });
-    fireEvent.click(within(lineup).getByRole("button", { name: "2 News 24" }));
+    fireEvent.click(await within(lineup).findByRole("button", { name: "2 News 24" }));
     expect(await screen.findByLabelText("Name")).toHaveValue("News 24");
     fireEvent.click(screen.getByRole("tab", { name: "Details" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete News 24" }));
@@ -1012,9 +1015,11 @@ it("estimates AI cost before running and applies only reviewed proposals", async
   expect(await screen.findByText(/Estimated calls: 1/)).toBeVisible();
   expect(calls.filter((c) => c.url.endsWith("/guide/match"))).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Find suggestions" }));
-  expect(await screen.findByRole("button", { name: "Accept match for News 24" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Accept match for News 24" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    ),
   );
   expect(screen.getByRole("button", { name: "Accept match for Cartoons" })).toHaveAttribute(
     "aria-pressed",

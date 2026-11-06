@@ -27,6 +27,7 @@ type virtualGuideCache struct {
 	buildMu  sync.Mutex
 	epoch    int64
 	revision uint64
+	timeline map[string]*virtualGuideSnapshot
 	entries  map[string]*virtualGuideSnapshot
 	wake     chan struct{}
 }
@@ -46,6 +47,9 @@ func (s *Service) virtualGuideLoop() {
 	for {
 		if err := s.refreshVirtualGuide(s.ctx); err != nil && s.ctx.Err() == nil {
 			s.o.Logger.Debug("virtual guide snapshot refresh failed", "error", err)
+		}
+		if err := s.refreshTimelineGuide(s.ctx); err != nil && s.ctx.Err() == nil {
+			s.o.Logger.Debug("timeline snapshot refresh failed", "error", err)
 		}
 		select {
 		case <-s.ctx.Done():
@@ -273,13 +277,14 @@ const (
 	SnapshotRaw      SnapshotView = "raw"
 	SnapshotPlayback SnapshotView = "playback"
 	SnapshotGuide    SnapshotView = "guide"
+	SnapshotTimeline SnapshotView = "timeline"
 )
 
 func (s *Service) ProgrammesSnapshot(ctx context.Context, u *core.User, id string, from, until time.Time, view SnapshotView) ([]Programme, error) {
 	if !until.After(from) || until.Sub(from) > 8*24*time.Hour {
 		return nil, fmt.Errorf("invalid snapshot window")
 	}
-	if view != SnapshotRaw && view != SnapshotPlayback && view != SnapshotGuide {
+	if view != SnapshotRaw && view != SnapshotPlayback && view != SnapshotGuide && view != SnapshotTimeline {
 		return nil, fmt.Errorf("invalid snapshot view")
 	}
 	ctx, _, err := s.withPolicy(ctx, u)
@@ -288,8 +293,12 @@ func (s *Service) ProgrammesSnapshot(ctx context.Context, u *core.User, id strin
 	}
 	s.virtualGuide.mu.RLock()
 	entry := s.virtualGuide.entries[id]
+	epoch, revision := s.virtualGuide.epoch, s.virtualGuide.revision
+	if view == SnapshotTimeline && entry != nil && entry.channel.Personal == nil && (from.Before(entry.from) || until.After(entry.until)) {
+		entry = s.virtualGuide.timeline[id]
+	}
 	s.virtualGuide.mu.RUnlock()
-	if entry == nil {
+	if entry == nil || (view == SnapshotTimeline && (entry.epoch != epoch || entry.revision != revision)) {
 		s.wakeVirtualGuide()
 		return nil, core.ErrNotAvailable
 	}
@@ -305,7 +314,11 @@ func (s *Service) ProgrammesSnapshot(ctx context.Context, u *core.User, id strin
 		if from.Before(entry.from) || until.After(entry.until) {
 			return nil, core.ErrNotAvailable
 		}
-		ps = s.virtualProgrammes(c, from, until, string(view))
+		if view == SnapshotTimeline {
+			ps = entry.playback.slice(c.ID, from, until)
+		} else {
+			ps = s.virtualProgrammes(c, from, until, string(view))
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -367,6 +380,10 @@ func refreshSnapshotMetadata(playback, current Channel) Channel {
 // buildVirtualGuideSnapshot compiles one channel without publishing it. A pass
 // shares its thread-safe cache across workers, so identical recipes expand once.
 func (s *Service) buildVirtualGuideSnapshot(ctx context.Context, c Channel, now time.Time, revision uint64, compiled *guideCompileCache) (*virtualGuideSnapshot, error) {
+	return s.buildVirtualSnapshot(ctx, c, now, revision, compiled, false)
+}
+
+func (s *Service) buildVirtualSnapshot(ctx context.Context, c Channel, now time.Time, revision uint64, compiled *guideCompileCache, timeline bool) (*virtualGuideSnapshot, error) {
 	if compiled == nil {
 		compiled = &guideCompileCache{}
 	}
@@ -376,15 +393,22 @@ func (s *Service) buildVirtualGuideSnapshot(ctx context.Context, c Channel, now 
 			return nil, err
 		}
 		from, until := now.Add(-24*time.Hour), now.Add(8*24*time.Hour+time.Hour)
+		if timeline {
+			until = now.Add(28*24*time.Hour + time.Hour)
+		}
 		gated := s.guideChannel(ctx, c)
 		entry := &virtualGuideSnapshot{channel: c, playbackChannel: gated, recipe: recipe, built: now, from: from, until: until, revision: revision}
-		raw := Schedule(c, from, until)
+		rawChannel := c
+		if timeline {
+			rawChannel = gated
+		}
+		raw := Schedule(rawChannel, from, until)
 		playback := raw
-		if !reflect.DeepEqual(c, gated) {
+		if !timeline && !reflect.DeepEqual(c, gated) {
 			playback = Schedule(gated, from, until)
 		}
 		guide := playback
-		if gated.clipDuration != nil {
+		if !timeline && gated.clipDuration != nil {
 			guide = s.broadcastGuide(gated, from, until)
 		}
 		tags := map[struct {

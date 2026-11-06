@@ -329,6 +329,7 @@
     "one": "{count} falha de localização",
     "other": "{count} falhas de localização"
   },
+  "m_015bee8cceee5b": "Intervalos e comerciais",
   "m_015f6c1164ab16": "{name} removido",
   "m_016092af66360a": "Todos os indexadores",
   "m_01611b2cfb0ba0": "~{minutes} min restantes",
@@ -1602,6 +1603,7 @@
   "m_066a8a91babdd8": "Requer atenção",
   "m_066bcd3e1cdbf5": "{field} até {value}",
   "m_066bde54fa19f1": "lançamento físico",
+  "m_066cced5258f1b": "Blocos",
   "m_066cd852a9f5c7": "Escolher um arquivo de vídeo",
   "m_066dc8d3967318": "Todos os gêneros",
   "m_066fba65ba094e": "Sem regras",
@@ -2710,6 +2712,7 @@
   "m_0b015cb1633194": "Os gráficos Intel deste computador convertem o vídeo.",
   "m_0b0377f6f73793": "Arraste os nós do caminho na tela para mudar a forma.",
   "m_0b03d86bb83e05": "Produto personalizado",
+  "m_0b0535abc42eed": "Horários fixos e especiais",
   "m_0b05f3af17e509": "Esta reprodução foi registrada antes de o tempo de início e o buffering serem medidos.",
   "m_0b08ee7d4474bd": "O plano de fundo do título principal com o nome sobreposto.",
   "m_0b09abc7c21f66": "Adicionar fonte",

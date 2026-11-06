@@ -322,6 +322,7 @@
     "one": "{count} miss",
     "other": "{count} misses"
   },
+  "m_015bee8cceee5b": "Pauser og reklamer",
   "m_015f6c1164ab16": "Fjernede {name}",
   "m_016092af66360a": "Alle indexere",
   "m_01611b2cfb0ba0": "~{minutes} min tilbage",
@@ -1559,6 +1560,7 @@
   "m_066a8a91babdd8": "Kræver opmærksomhed",
   "m_066bcd3e1cdbf5": "{field} på eller før {value}",
   "m_066bde54fa19f1": "fysisk udgivelse",
+  "m_066cced5258f1b": "Blokke",
   "m_066cd852a9f5c7": "Vælg en videofil",
   "m_066dc8d3967318": "Alle genrer",
   "m_066fba65ba094e": "Ingen regler",
@@ -2639,6 +2641,7 @@
   "m_0b015cb1633194": "Computerens Intel-grafik omregner video.",
   "m_0b0377f6f73793": "Træk kurvens punkter på lærredet for at ændre formen.",
   "m_0b03d86bb83e05": "Brugerdefineret produkt",
+  "m_0b0535abc42eed": "Fastlagte tider og særprogrammer",
   "m_0b05f3af17e509": "Denne afspilning blev registreret, før starttid og buffering blev målt.",
   "m_0b08ee7d4474bd": "Hovedtitlens baggrund med navnet henover.",
   "m_0b09abc7c21f66": "Tilføj kilde",

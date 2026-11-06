@@ -11,19 +11,12 @@ import { blankSpec } from "../../lib/rules";
 import { useDebouncedValue } from "../../lib/hooks";
 import type { Rule } from "../../lib/contract";
 import { t, tn } from "../../i18n";
-import {
-  Block,
-  Channel,
-  Pin,
-  ProgramSource,
-  blockLabel,
-  minutesOfDay,
-  timeOfDay,
-  timeZones,
-} from "./model";
+import { Block, Channel, Pin, ProgramSource, blockLabel, minutesOfDay, timeOfDay } from "./model";
 import type { CollectionChoice } from "./ChannelStudio";
 import { ProgrammePicker } from "./ProgrammePicker";
 import { WeekGrid } from "./WeekGrid";
+import { SubtabNav } from "../../components/layout";
+import { useSearchParams } from "react-router-dom";
 import { BreakPatternEditor, breakPatternPreset } from "./onair/BreakPatternEditor";
 import { personalRecipe } from "./onair/defaults";
 import { ChannelLook, OnAirAsset, Reel, onair } from "./onair/model";
@@ -100,17 +93,26 @@ export function ProgrammingEditor({
   channel: c,
   onChange,
   collections,
-  schedule = false,
   editRequest,
   onEditHandled,
 }: {
   channel: Channel;
   onChange: (patch: Partial<Channel>) => void;
   collections: CollectionChoice[];
-  schedule?: boolean;
   editRequest?: { start?: number; blockId?: string; pinId?: string };
   onEditHandled?: () => void;
 }) {
+  const [params, setParams] = useSearchParams();
+  const tabs = [
+    { key: "blocks", label: t("Blocks") },
+    { key: "between", label: t("Between blocks") },
+    { key: "pins", label: t("Pinned slots & specials") },
+    { key: "creative", label: t("Creative elements") },
+    { key: "breaks", label: t("Breaks & commercials") },
+  ];
+  const section = tabs.some((tab) => tab.key === params.get("programming"))
+    ? params.get("programming")
+    : "blocks";
   const [editing, setEditing] = useState<
     | { kind: "block"; index: number; value: Block }
     | { kind: "pin"; index: number; value: Pin }
@@ -231,71 +233,74 @@ export function ProgrammingEditor({
   const v = editing?.value;
   return (
     <div className="space-y-6">
-      <Field label={t("Timezone")}>
-        <Select
-          aria-label={t("Timezone")}
-          value={c.timezone || "UTC"}
-          onChange={(e) => onChange({ timezone: e.currentTarget.value })}
-        >
-          {timeZones().map((z) => (
-            <option key={z} value={z}>
-              {z}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="font-semibold">{t("Dayparts and programme blocks")}</h3>
-        <Button size="sm" onClick={() => setAdding(true)}>
-          <Plus size={16} />
-          {t("Add")}
-        </Button>
-      </div>
-      {schedule && (
-        <WeekGrid
-          blocks={blocks}
-          onChange={(next) => {
-            onChange({ blocks: next });
-            if (next.length > blocks.length)
-              setEditing({
-                kind: "block",
-                index: next.length - 1,
-                value: structuredClone(next[next.length - 1]!),
-              });
-          }}
-          selected={editing?.kind === "block" ? editing.index : null}
-          onSelect={(i) => {
-            if (i !== null) openBlock(i);
-          }}
-        />
+      <SubtabNav
+        ariaLabel={t("Programming")}
+        tabs={tabs}
+        active={section!}
+        onSelect={(key) =>
+          setParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("programming", key);
+            return next;
+          })
+        }
+      />
+      {section === "blocks" && (
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="font-semibold">{t("Dayparts and programme blocks")}</h3>
+            <Button size="sm" onClick={() => setAdding(true)}>
+              <Plus size={16} />
+              {t("Add")}
+            </Button>
+          </div>
+          {
+            <WeekGrid
+              blocks={blocks}
+              onChange={(next) => {
+                onChange({ blocks: next });
+                if (next.length > blocks.length)
+                  setEditing({
+                    kind: "block",
+                    index: next.length - 1,
+                    value: structuredClone(next[next.length - 1]!),
+                  });
+              }}
+              selected={editing?.kind === "block" ? editing.index : null}
+              onSelect={(i) => {
+                if (i !== null) openBlock(i);
+              }}
+            />
+          }
+          <div className="space-y-2">
+            {blocks.map((b, i) => (
+              <button
+                key={b.id ?? i}
+                className="flex w-full items-center gap-3 rounded-lg border border-border bg-surface p-4 text-left hover:bg-bg-subtle"
+                onClick={() => openBlock(i)}
+              >
+                <Clock size={20} className="text-primary" />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{blockLabel(b)}</span>
+                  <span className="text-xs text-fg-muted">
+                    {b.sources
+                      ?.map((s) => s.name)
+                      .filter(Boolean)
+                      .join(" · ") || tn(b.items?.length ?? 0, "{count} title", "{count} titles")}
+                  </span>
+                </span>
+                <Badge>{t("Block")}</Badge>
+              </button>
+            ))}
+            {!blocks.length && (
+              <p className="text-sm text-fg-muted">
+                {t("Add a daypart or programme block to shape the day.")}
+              </p>
+            )}
+          </div>
+        </>
       )}
-      <div className="space-y-2">
-        {blocks.map((b, i) => (
-          <button
-            key={b.id ?? i}
-            className="flex w-full items-center gap-3 rounded-lg border border-border bg-surface p-4 text-left hover:bg-bg-subtle"
-            onClick={() => openBlock(i)}
-          >
-            <Clock size={20} className="text-primary" />
-            <span className="min-w-0 flex-1">
-              <span className="block font-medium">{blockLabel(b)}</span>
-              <span className="text-xs text-fg-muted">
-                {b.sources
-                  ?.map((s) => s.name)
-                  .filter(Boolean)
-                  .join(" · ") || tn(b.items?.length ?? 0, "{count} title", "{count} titles")}
-              </span>
-            </span>
-            <Badge>{t("Block")}</Badge>
-          </button>
-        ))}
-        {!blocks.length && (
-          <p className="text-sm text-fg-muted">
-            {t("Add a daypart or programme block to shape the day.")}
-          </p>
-        )}
-      </div>
-      {!!(c.items.length || c.collection || c.filter || c.sources?.length) && (
+      {section === "between" && (
         <section className="space-y-3 rounded-lg border border-border p-4">
           <h3 className="font-medium">{t("Between blocks")}</h3>
           <p className="text-xs text-fg-muted">
@@ -322,47 +327,53 @@ export function ProgrammingEditor({
           />
         </section>
       )}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold">{t("Pinned slots and specials")}</h3>
-          <Button variant="outline" size="sm" onClick={() => add("pin")}>
-            <Plus size={14} />
-            {t("Add pinned slot")}
-          </Button>
-        </div>
-        <p className="text-xs text-fg-muted">{t("Pins take priority over programme blocks.")}</p>
-        {pins.map((p, i) => (
-          <button
-            key={p.id}
-            onClick={() => setEditing({ kind: "pin", index: i, value: structuredClone(p) })}
-            className="flex w-full items-center gap-3 rounded-lg border border-border bg-surface p-4 text-left"
-          >
-            <CalendarDays size={20} />
-            <span className="flex-1">
-              <span className="block font-medium">{p.name}</span>
-              <span className="text-xs text-fg-muted">
-                {p.date || t("Recurring")} · {timeOfDay(p.start)}–{timeOfDay(p.end)}
+      {section === "pins" && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold">{t("Pinned slots and specials")}</h3>
+            <Button variant="outline" size="sm" onClick={() => add("pin")}>
+              <Plus size={14} />
+              {t("Add pinned slot")}
+            </Button>
+          </div>
+          <p className="text-xs text-fg-muted">{t("Pins take priority over programme blocks.")}</p>
+          {pins.map((p, i) => (
+            <button
+              key={p.id}
+              onClick={() => setEditing({ kind: "pin", index: i, value: structuredClone(p) })}
+              className="flex w-full items-center gap-3 rounded-lg border border-border bg-surface p-4 text-left"
+            >
+              <CalendarDays size={20} />
+              <span className="flex-1">
+                <span className="block font-medium">{p.name}</span>
+                <span className="text-xs text-fg-muted">
+                  {p.date || t("Recurring")} · {timeOfDay(p.start)}–{timeOfDay(p.end)}
+                </span>
               </span>
-            </span>
-            <Badge>{p.date ? t("Special") : t("Pinned")}</Badge>
-          </button>
-        ))}
-      </section>
-      <section className="space-y-4 rounded-lg border border-border p-4">
-        <h3 className="font-semibold">{t("Breaks and commercials")}</h3>
-        <Breaks
-          value={c.look}
-          onChange={(look) => onChange({ look })}
-          detected={detectedBreaks(c)}
-        />
-      </section>
-      <section className="space-y-4 rounded-lg border border-border p-4">
-        <h3 className="flex items-center gap-2 font-semibold">
-          <Radio size={18} />
-          {t("Creative elements")}
-        </h3>
-        <Creative value={c.look} onChange={(look) => onChange({ look })} />
-      </section>
+              <Badge>{p.date ? t("Special") : t("Pinned")}</Badge>
+            </button>
+          ))}
+        </section>
+      )}
+      {section === "breaks" && (
+        <section className="space-y-4 rounded-lg border border-border p-4">
+          <h3 className="font-semibold">{t("Breaks and commercials")}</h3>
+          <Breaks
+            value={c.look}
+            onChange={(look) => onChange({ look })}
+            detected={detectedBreaks(c)}
+          />
+        </section>
+      )}
+      {section === "creative" && (
+        <section className="space-y-4 rounded-lg border border-border p-4">
+          <h3 className="flex items-center gap-2 font-semibold">
+            <Radio size={18} />
+            {t("Creative elements")}
+          </h3>
+          <Creative value={c.look} onChange={(look) => onChange({ look })} />
+        </section>
+      )}
       {editingBreaks && (
         <Drawer
           open

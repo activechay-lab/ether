@@ -322,6 +322,7 @@
     "one": "{count} ohi",
     "other": "{count} ohi"
   },
+  "m_015bee8cceee5b": "Tauot ja mainokset",
   "m_015f6c1164ab16": "Poistettu: {name}",
   "m_016092af66360a": "Kaikki indeksoijat",
   "m_01611b2cfb0ba0": "~{minutes} min jäljellä",
@@ -1559,6 +1560,7 @@
   "m_066a8a91babdd8": "Vaatii huomiota",
   "m_066bcd3e1cdbf5": "{field} samana päivänä tai sitä ennen: {value}",
   "m_066bde54fa19f1": "fyysinen julkaisu",
+  "m_066cced5258f1b": "Lohkot",
   "m_066cd852a9f5c7": "Valitse videotiedosto",
   "m_066dc8d3967318": "Kaikki lajityypit",
   "m_066fba65ba094e": "Ei sääntöjä",
@@ -2639,6 +2641,7 @@
   "m_0b015cb1633194": "Tämän tietokoneen Intel-grafiikka muuntaa videon.",
   "m_0b0377f6f73793": "Muokkaa muotoa vetämällä polun pisteitä piirtoalueella.",
   "m_0b03d86bb83e05": "Oma tuote",
+  "m_0b0535abc42eed": "Kiinnitetyt ajat ja erikoisohjelmat",
   "m_0b05f3af17e509": "Tämä toisto tallennettiin ennen kuin aloitusaikaa ja puskurointia mitattiin.",
   "m_0b08ee7d4474bd": "Pääotsikon taustakuva, jonka päällä on nimi.",
   "m_0b09abc7c21f66": "Lisää lähde",

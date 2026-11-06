@@ -57,6 +57,7 @@ export function GuideGrid({
   emptyHint,
   selection,
   bulkActions,
+  onLineupEdge,
 }: {
   /** Sparse by design: only rows near the viewport have been fetched. */
   channels: (Channel | undefined)[];
@@ -83,6 +84,7 @@ export function GuideGrid({
   emptyHint?: ReactNode;
   selection?: ChannelSelection;
   bulkActions?: ReactNode;
+  onLineupEdge?: (edge: number) => void;
 }) {
   const lineup = head !== undefined;
   const loadedChannels = useMemo(
@@ -184,6 +186,16 @@ export function GuideGrid({
     }
     setPseudoFull(true);
   };
+
+  useLayoutEffect(() => {
+    if (!onLineupEdge || !root.current) return;
+    const element = root.current;
+    const measure = () => onLineupEdge(element.getBoundingClientRect().left + chCol);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [chCol, onLineupEdge]);
 
   return (
     <div

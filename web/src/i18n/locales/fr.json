@@ -329,6 +329,7 @@
     "one": "{count} échec de recherche",
     "other": "{count} échecs de recherche"
   },
+  "m_015bee8cceee5b": "Pauses et publicités",
   "m_015f6c1164ab16": "{name} supprimé",
   "m_016092af66360a": "Chaque indexeur",
   "m_01611b2cfb0ba0": "~{minutes} min restantes",
@@ -1602,6 +1603,7 @@
   "m_066a8a91babdd8": "À vérifier",
   "m_066bcd3e1cdbf5": "{field} jusqu’au {value}",
   "m_066bde54fa19f1": "sortie physique",
+  "m_066cced5258f1b": "Blocs",
   "m_066cd852a9f5c7": "Choisir un fichier vidéo",
   "m_066dc8d3967318": "Tous les genres",
   "m_066fba65ba094e": "Aucune règle",
@@ -2710,6 +2712,7 @@
   "m_0b015cb1633194": "La puce Intel de cet ordinateur convertit la vidéo.",
   "m_0b0377f6f73793": "Déplacez les points du tracé pour modifier sa forme.",
   "m_0b03d86bb83e05": "Produit personnalisé",
+  "m_0b0535abc42eed": "Créneaux fixes et émissions spéciales",
   "m_0b05f3af17e509": "Cette lecture a été enregistrée avant la mesure du temps de démarrage et de la mise en mémoire tampon.",
   "m_0b08ee7d4474bd": "Le fond d’écran du titre principal, avec le nom par-dessus.",
   "m_0b09abc7c21f66": "Ajouter une source",

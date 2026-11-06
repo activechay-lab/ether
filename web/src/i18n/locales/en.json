@@ -322,6 +322,7 @@
     "one": "{count} miss",
     "other": "{count} misses"
   },
+  "m_015bee8cceee5b": "Breaks & commercials",
   "m_015f6c1164ab16": "Removed {name}",
   "m_016092af66360a": "Every indexer",
   "m_01611b2cfb0ba0": "~{minutes}m left",
@@ -1562,6 +1563,7 @@
   "m_066a8a91babdd8": "Needs attention",
   "m_066bcd3e1cdbf5": "{field} on or before {value}",
   "m_066bde54fa19f1": "physical release",
+  "m_066cced5258f1b": "Blocks",
   "m_066cd852a9f5c7": "Choose a video file",
   "m_066dc8d3967318": "All genres",
   "m_066fba65ba094e": "No rules",
@@ -2645,6 +2647,7 @@
   "m_0b015cb1633194": "This computer's Intel graphics convert video.",
   "m_0b0377f6f73793": "Drag path nodes on the canvas to reshape.",
   "m_0b03d86bb83e05": "Custom product",
+  "m_0b0535abc42eed": "Pinned slots & specials",
   "m_0b05f3af17e509": "This play was recorded before start time and buffering were measured.",
   "m_0b08ee7d4474bd": "The lead title's backdrop with the name set over it.",
   "m_0b09abc7c21f66": "Add source",

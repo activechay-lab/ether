@@ -336,6 +336,7 @@
     "one": "{count} chybějící",
     "other": "{count} chybějících"
   },
+  "m_015bee8cceee5b": "Přestávky a reklamy",
   "m_015f6c1164ab16": "Odebráno: {name}",
   "m_016092af66360a": "Každý indexer",
   "m_01611b2cfb0ba0": "zbývá ~{minutes} min",
@@ -1645,6 +1646,7 @@
   "m_066a8a91babdd8": "Vyžaduje pozornost",
   "m_066bcd3e1cdbf5": "{field} dne {value} nebo dříve",
   "m_066bde54fa19f1": "fyzické vydání",
+  "m_066cced5258f1b": "Bloky",
   "m_066cd852a9f5c7": "Vyberte soubor s videem",
   "m_066dc8d3967318": "Všechny žánry",
   "m_066fba65ba094e": "Žádná pravidla",
@@ -2781,6 +2783,7 @@
   "m_0b015cb1633194": "Intel grafika tohoto počítače převádí video.",
   "m_0b0377f6f73793": "Tvar upravíte tažením uzlů cesty na plátně.",
   "m_0b03d86bb83e05": "Vlastní produkt",
+  "m_0b0535abc42eed": "Pevné časy a speciály",
   "m_0b05f3af17e509": "Toto přehrání bylo zaznamenáno dříve, než se začala měřit doba spuštění a načítání.",
   "m_0b08ee7d4474bd": "Pozadí hlavního titulu s názvem přes něj.",
   "m_0b09abc7c21f66": "Přidat zdroj",

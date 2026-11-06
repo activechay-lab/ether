@@ -6,7 +6,7 @@ import { LookTab } from "./onair/LookTab";
 import { RecipeTab } from "./onair/RecipeTab";
 import { apiFetch } from "../../lib/api";
 import { SubtabNav } from "../../components/layout";
-import { Avatar, Badge, Button, Input, Switch, cn } from "@braedonsaunders/appkit-ui";
+import { Avatar, Badge, Button, Input, Select, Switch, cn } from "@braedonsaunders/appkit-ui";
 import {
   KeyRound,
   Play,
@@ -36,6 +36,7 @@ import { LivePreview } from "./LivePreview";
 import { ScheduleTimeline, type TimelineElement } from "./ScheduleTimeline";
 import { Drawer } from "../../components/Drawer";
 import {
+  timeZones,
   MINUTE,
   clock,
   duration,
@@ -408,7 +409,7 @@ export function ChannelStudio({
           </div>
         </div>
         <div className="relative space-y-2 px-4 pb-4 sm:px-6">
-          {virtual ? (
+          {virtual && tab !== "schedule" ? (
             <div
               className="flex flex-wrap items-center justify-end gap-2"
               role="group"
@@ -454,16 +455,18 @@ export function ChannelStudio({
               ))}
             </div>
           ) : null}
-          <ScheduleTimeline
-            channelId={c.id || "draft"}
-            range={{ from: windowFrom, to: windowUntil }}
-            selectedId={selectedElement?.id}
-            onSelect={setSelectedElement}
-            onAdd={({ start, blockId }) => {
-              setEditRequest({ start, blockId });
-              setTab("programming");
-            }}
-          />
+          {tab !== "schedule" && (
+            <ScheduleTimeline
+              channelId={c.id || "draft"}
+              range={{ from: windowFrom, to: windowUntil }}
+              selectedId={selectedElement?.id}
+              onSelect={setSelectedElement}
+              onAdd={({ start, blockId }) => {
+                setEditRequest({ start, blockId });
+                setTab("programming");
+              }}
+            />
+          )}
         </div>
       </section>
 
@@ -530,7 +533,11 @@ export function ChannelStudio({
           )
         ) : null}
         {tab === "schedule" && virtual ? (
-          <ProgrammingEditor channel={c} onChange={set} collections={collections} schedule />
+          <ScheduleTimeline
+            channelId={c.id || "draft"}
+            range={{ from: windowFrom, to: now + 7 * 24 * 60 * MINUTE }}
+            loadMore
+          />
         ) : null}
         {tab === "stream" && !virtual ? (
           <section className="max-w-2xl space-y-4">
@@ -596,6 +603,21 @@ export function ChannelStudio({
         ) : null}
         {tab === "details" ? (
           <section className="max-w-2xl space-y-4">
+            {virtual && (
+              <Field label={t("Timezone")} htmlFor="ch-timezone">
+                <Select
+                  id="ch-timezone"
+                  value={c.timezone || "UTC"}
+                  onChange={(e) => set({ timezone: e.currentTarget.value })}
+                >
+                  {timeZones().map((zone) => (
+                    <option key={zone} value={zone}>
+                      {zone}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <div className="grid gap-4 sm:grid-cols-3">
               <Field label={t("Number")} htmlFor="ch-number">
                 <Input
