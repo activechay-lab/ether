@@ -781,6 +781,9 @@ type HWAccel struct {
 	// NoGPUTonemap: the device's VAAPI VPP cannot run tonemap_vaapi, so HDR
 	// tone-mapping falls back to the software zscale/tonemap path.
 	NoGPUTonemap bool `json:"noGpuTonemap,omitempty"`
+	// QSV modes are ordered, successfully probed rate-control choices for Device.
+	QSVQualityModes map[string][]string `json:"qsvQualityModes,omitempty"`
+	QSVBitrateModes map[string][]string `json:"qsvBitrateModes,omitempty"`
 	// VAAPIQualityRC / VAAPIBitrateRC record the probed VAAPI rate-control
 	// modes ("QVBR", "VBR", "CBR", "CQP") per encoder ("h264_vaapi",
 	// "hevc_vaapi"); nil/empty falls back to the default QVBR/VBR modes.
