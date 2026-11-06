@@ -44,6 +44,9 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 	if req.Position < 0 || req.SegmentDuration < 0 {
 		return "", core.ErrNotAvailable
 	}
+	if path, handled, err := b.forwardNeutralControl(ctx, a, id, "stream", frontend.Timeline{}, req); handled {
+		return path, err
+	}
 	s, _, err := b.access(ctx, a, id)
 	if err != nil {
 		return "", err

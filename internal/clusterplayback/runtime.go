@@ -7,6 +7,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/nodeauthority"
 
 	"github.com/braedonsaunders/ether/internal/nodesource"
@@ -63,6 +64,7 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
+	neutralControl       func(context.Context, frontend.SessionAccess, string, string, frontend.Timeline, frontend.StreamRequest) (string, error)
 	mediaBrowserDelivery http.Handler
 
 	deliveryScratch chan struct{}
@@ -172,6 +174,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 		r.worker = w
 		r.mux.HandleFunc(WorkerPath, r.workerHTTP)
 	}
+	r.mux.HandleFunc(NeutralControlPath, r.neutralControlHTTP)
 	r.mux.HandleFunc(SourcePath, r.sourceHTTP)
 	r.mux.HandleFunc(DeliveryPath, r.deliveryHTTP)
 	r.mux.HandleFunc(TerminalPath, r.terminalHTTP)

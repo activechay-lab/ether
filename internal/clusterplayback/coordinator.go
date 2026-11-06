@@ -137,12 +137,19 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		return nil, e
 	}
 	request := placement.Request{Session: q.SessionID, Operation: operation, ExpectedGeneration: expected, Controller: placement.Controller{ID: r.o.Self.NodeID, Boot: r.o.Self.Boot}, Target: target, Role: config.RoleTranscode, Claims: claims, Lease: 2 * time.Minute}
-	r.mu.Lock()
-	x.request = request
-	x.route = Route{Fence: placement.Fence{Session: q.SessionID, Generation: expected + 1, Controller: request.Controller, Target: target}, Source: prepared.Owner, Viewer: viewer, PlayID: playID, Revision: revision, Encoder: encoder}
-	x.reservePending = true
-	r.mu.Unlock()
-	rec, e := r.o.Placement.Reserve(ctx, request)
+	var rec placement.Record
+	e = r.retryTargetCapacity(ctx, q, prepared.Owner, "", target, claims, capabilities, encoder, func(t placement.Target, c []placement.Claim, caps remotetranscode.Capabilities, chosenEncoder string) error {
+		target, capabilities, encoder = t, caps, chosenEncoder
+		request.Target, request.Claims = t, c
+		r.mu.Lock()
+		x.request = request
+		x.route = Route{Fence: placement.Fence{Session: q.SessionID, Generation: expected + 1, Controller: request.Controller, Target: target}, Source: prepared.Owner, Viewer: viewer, PlayID: playID, Revision: revision, Encoder: encoder}
+		x.reservePending = true
+		r.mu.Unlock()
+		var err error
+		rec, err = r.o.Placement.Reserve(ctx, request)
+		return err
+	})
 	if e != nil {
 		var unknown *placement.UnknownOutcome
 		if !errors.As(e, &unknown) {
@@ -225,28 +232,42 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest, source no
 	return r.selectTargetExcept(ctx, q, "", source)
 }
 func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exclude string, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, string, error) {
-	rows, e := r.o.DB.QueryContext(ctx, `SELECT node,boot,roles,scopes FROM placement_targets ORDER BY node LIMIT 4096`)
+	candidates, e := r.placementCandidates(ctx)
 	if e != nil {
 		return placement.Target{}, nil, remotetranscode.Capabilities{}, "", e
 	}
-	type candidate struct {
-		target                placement.Target
-		rolesJSON, scopesJSON string
+	return r.selectTargetCandidates(ctx, q, map[string]bool{exclude: true}, source, candidates)
+}
+
+type placementCandidate struct {
+	target                placement.Target
+	rolesJSON, scopesJSON string
+}
+
+func (r *Runtime) placementCandidates(ctx context.Context) ([]placementCandidate, error) {
+	rows, e := r.o.DB.QueryContext(ctx, `SELECT node,boot,roles,scopes FROM placement_targets ORDER BY node LIMIT 4096`)
+	if e != nil {
+		return nil, e
 	}
-	var candidates []candidate
+	var candidates []placementCandidate
 	for rows.Next() {
-		var c candidate
+		var c placementCandidate
 		if e = rows.Scan(&c.target.NodeID, &c.target.Boot, &c.rolesJSON, &c.scopesJSON); e != nil {
 			rows.Close()
-			return placement.Target{}, nil, remotetranscode.Capabilities{}, "", e
+			return nil, e
 		}
 		candidates = append(candidates, c)
 	}
 	err := rows.Err()
 	rows.Close()
 	if err != nil {
-		return placement.Target{}, nil, remotetranscode.Capabilities{}, "", err
+		return nil, err
 	}
+	return candidates, nil
+}
+
+func (r *Runtime) selectTargetCandidates(ctx context.Context, q core.HLSRequest, excluded map[string]bool, source nodewire.Identity, candidates []placementCandidate) (placement.Target, []placement.Claim, remotetranscode.Capabilities, string, error) {
+	var e error
 	failure := &SelectionError{}
 	var bestTarget placement.Target
 	var bestClaims []placement.Claim
@@ -256,7 +277,7 @@ func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exc
 	chosen := false
 	for _, candidate := range candidates {
 		target, rolesJSON, scopesJSON := candidate.target, candidate.rolesJSON, candidate.scopesJSON
-		if target.NodeID == exclude {
+		if excluded[target.NodeID] {
 			continue
 		}
 		var roles config.NodeRoles
