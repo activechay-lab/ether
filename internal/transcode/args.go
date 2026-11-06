@@ -332,6 +332,9 @@ func buildCodecArgs(s runSpec) []string {
 		if start, ok := hlsAudioPreroll(s); ok {
 			seek = strconv.FormatFloat(math.Max(0, math.Floor(start)-1), 'f', 0, 64)
 			args = append(args, "-noaccurate_seek")
+		} else if start, ok := hlsCopiedAudioPreroll(s); ok {
+			seek = strconv.FormatFloat(start, 'f', 0, 64)
+			args = append(args, "-noaccurate_seek")
 		}
 		args = append(args, "-ss", seek)
 	}
@@ -595,6 +598,31 @@ func hlsAudioPreroll(s runSpec) (float64, bool) {
 	}
 	rate := float64(decisionAudioRate(s.Decision))
 	return math.Max(0, math.Floor((s.Start.Seconds()-1)*rate/1024)*1024/rate), true
+}
+
+// A copied AAC packet needed after the HLS mux cut can precede the nominal
+// video seek. MP4 input seeking may otherwise discard it before the audio BSF
+// sees it, even though the BSF's reorder-adjusted cutoff is correct. Decode a
+// bounded earlier prefix and trim video separately; keep the existing exact AU
+// cutoff and all fresh-start arguments.
+func hlsCopiedAudioPreroll(s runSpec) (float64, bool) {
+	if s.Start <= 0 || !s.Decision.AudioCopy || s.SilenceAudio || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Decision.VideoCopy || s.ChunkDir != "" || len(s.KeyTimes) > 0 || (s.Protocol != "" && s.Protocol != core.ProtocolHLS) {
+		return 0, false
+	}
+	if a := findStream(s.Info, s.Decision.AudioStream, "audio"); a == nil || a.Codec != "aac" {
+		return 0, false
+	}
+	cut := s.Start.Seconds()
+	if lead := hlsRestartLead(s); lead > 0 {
+		cut = hlsGridVideoStart(s, hlsOutputFPS(s)) - lead.Seconds()
+	}
+	if boundary, ok := hlsFMP4AudioCut(s); ok {
+		cut = boundary
+	}
+	if cut >= s.Start.Seconds() {
+		return 0, false
+	}
+	return math.Max(0, math.Floor(cut)-1), true
 }
 
 func hlsAudioRestartCut(s runSpec) float64 {
@@ -1432,7 +1460,9 @@ func planVideo(s runSpec, v *core.StreamInfo) videoPlan {
 		p.err = &GraphError{Message: toneMapUnavailableMessage()}
 		return p
 	}
-	if _, ok := hlsAudioPreroll(s); ok {
+	_, encodedPreroll := hlsAudioPreroll(s)
+	_, copiedPreroll := hlsCopiedAudioPreroll(s)
+	if encodedPreroll || copiedPreroll {
 		chain = append([]string{"trim=start=" + secs(s.Start)}, chain...)
 	}
 	p.inputArgs = append(p.inputArgs, chainInput...)
