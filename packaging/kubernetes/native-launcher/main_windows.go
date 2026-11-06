@@ -43,8 +43,8 @@ func run() error {
 		return err
 	}
 	root := filepath.Dir(executable)
-	if root != `C:\ether-gpu-lab` {
-		return fmt.Errorf("launcher must reside in owned C:\\ether-gpu-lab")
+	if root != `C:\ether-gpu-lab` && root != `D:\ether-gpu-lab` {
+		return fmt.Errorf("launcher must reside in owned C:\\ether-gpu-lab or D:\\ether-gpu-lab")
 	}
 	ether := filepath.Join(root, "ether.exe")
 	childCommand := `"` + ether + `"`
@@ -139,7 +139,7 @@ func probe() error {
 		return err
 	}
 	root := filepath.Dir(executable)
-	if root != `C:\ether-gpu-lab` {
+	if root != `C:\ether-gpu-lab` && root != `D:\ether-gpu-lab` {
 		return fmt.Errorf("probe must reside in owned lab")
 	}
 	if os.Args[1] == "--probe-leaf" {

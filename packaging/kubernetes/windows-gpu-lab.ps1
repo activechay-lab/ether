@@ -15,7 +15,7 @@ param(
     [switch]$KnownClockBound
 )
 $ErrorActionPreference = 'Stop'
-if ([IO.Path]::GetFullPath($LabRoot).TrimEnd('\') -ne 'C:\ether-gpu-lab') { throw 'Only the owned C:\ether-gpu-lab directory is allowed' }
+if ([IO.Path]::GetFullPath($LabRoot).TrimEnd('\') -notin @('C:\ether-gpu-lab','D:\ether-gpu-lab')) { throw 'Only an owned C:\ether-gpu-lab or D:\ether-gpu-lab directory is allowed' }
 # Inventory must remain read-only, including on a host with no staged lab.
 & nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
 if ($LASTEXITCODE -ne 0) { throw 'Native NVIDIA inventory failed' }
