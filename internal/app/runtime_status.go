@@ -60,3 +60,25 @@ func (a *App) selfRuntimeSnapshot(self cluster.Node) *selfRuntimeStatus {
 	}
 	return st
 }
+
+// No membership call here: this also runs while the heartbeat owns its lock.
+func (a *App) nodeDiagnostics() *cluster.Diagnostics {
+	p := a.deployment
+	if p == nil {
+		return nil
+	}
+	d := &cluster.Diagnostics{SampledAt: time.Now().UTC(), ReadyExisting: p.ready.Load(), AcceptingNew: a.privateAdmissionReady(), Draining: a.nodeDraining()}
+	if loss := p.readinessLoss.Load(); loss != nil {
+		d.ReadinessReason = string(loss.reason)
+	}
+	if p.settings.Roles.Has("transcode") && !p.settings.Roles.FullServer() {
+		capacity := p.settings.Capacity
+		d.TranscodeCapacity = &capacity
+		if p.encoder != nil {
+			used := p.encoder.EncodingCount()
+			d.Transcodes = &used
+			d.Codecs = append([]string(nil), p.encoder.HWAccel().Encoders...)
+		}
+	}
+	return d
+}

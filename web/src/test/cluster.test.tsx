@@ -169,6 +169,8 @@ describe("Server › Cluster", () => {
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Overview",
       "Nodes",
+      "Playback",
+      "Recovery history",
       "Join tokens",
     ]);
     fireEvent.click(screen.getByRole("tab", { name: "Join tokens" }));

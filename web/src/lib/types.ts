@@ -720,6 +720,7 @@ export interface ClusterNode {
   caps: {
     /** Empty or absent preserves the full-server responsibilities. */
     roles?: string[] | null;
+    diagnostics?: ClusterDiagnostics;
     transcode: boolean;
     hwAccel?: string;
     weight?: number;
@@ -1008,4 +1009,42 @@ export interface ClusterRolePreflight {
     impact: string;
     execution: string;
   };
+}
+
+export interface ClusterDiagnostics {
+  sampledAt: string;
+  readyExisting: boolean;
+  acceptingNew: boolean;
+  draining: boolean;
+  readinessReason?: string;
+  transcodeCapacity?: number;
+  transcodes?: number;
+  sourceConnections?: number;
+  deliveryBytesPerSecond?: number;
+  codecs?: string[];
+}
+export interface ClusterConsole {
+  sampledAt: string;
+  truncated: boolean;
+  assignments: {
+    sessionId: string;
+    sourceNodeId?: string;
+    encoderNodeId: string;
+    controllerNodeId: string;
+    deliveryNodeId?: string;
+    generation: number;
+    movedAt?: string;
+  }[];
+  events: {
+    sessionId: string;
+    role: string;
+    failedNodeId: string;
+    replacementNodeId?: string;
+    generation: number;
+    startedAt: string;
+    completedAt?: string;
+    status: string;
+    interruptionMs?: number;
+    clientStalls?: number;
+  }[];
 }

@@ -434,6 +434,8 @@ export const api = {
     ),
   updateClusterControl: (id: string, request: ClusterControlRequest) =>
     post<ClusterControl>(`/cluster/nodes/${encodeURIComponent(id)}/control`, request),
+  clusterConsole: (signal?: AbortSignal) =>
+    apiFetch<import("./types").ClusterConsole>("/cluster/console", { signal }),
   clusterStatus: (signal?: AbortSignal) => apiFetch<ClusterStatus>("/cluster/", { signal }),
   clusterSettings: (signal?: AbortSignal) =>
     apiFetch<ClusterSettings>("/cluster/settings", { signal }),

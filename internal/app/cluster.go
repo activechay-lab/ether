@@ -176,6 +176,7 @@ func (a *App) nodeCaps() cluster.Caps {
 		caps.Transcode = true
 		caps.HWAccel = a.deployment.encoder.HWAccel().Name
 	}
+	caps.Diagnostics = a.nodeDiagnostics()
 	return caps
 }
 
@@ -345,6 +346,7 @@ func (a *App) clusterHandler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(st)
 	})
+	mux.Handle("GET /console", a.clusterConsoleHandler())
 	mux.Handle("/node", a.clusterManageHandler())
 	mux.Handle("GET /nodes/{id}/control", a.nodeControlHandler())
 	mux.Handle("GET /nodes/{id}/role-preflight", a.nodeRolePreflightHandler())

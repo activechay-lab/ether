@@ -22,6 +22,7 @@ import { useState } from "react";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
 import { Field, Segmented } from "../../components/fields";
+import { ClusterPlayback } from "./ClusterPlayback";
 import { ClusterSetup } from "./ClusterSetup";
 import { Section } from "../../components/layout";
 import { SettingsRow } from "../../components/SettingsRow";
@@ -129,7 +130,10 @@ function RuntimeObservation({
   const [, tick] = useState(0);
   useInterval(() => tick((n) => n + 1), 1_000);
   const now = Date.now();
-  const runtime = nodeRuntime(status, node);
+  const observed = node.caps?.diagnostics;
+  const runtime =
+    nodeRuntime(status, node) ??
+    (observed ? { ...observed, runtimeSampledAt: observed.sampledAt } : undefined);
   const fresh = !!runtime && !cached && runtimeFresh(runtime.runtimeSampledAt, now);
   const value = (v: boolean | undefined) =>
     !fresh || typeof v !== "boolean" ? t("Unknown") : v ? t("Yes") : t("No");
@@ -290,11 +294,15 @@ export function ClusterOverview() {
         tabs={[
           { key: "overview", label: t("Overview") },
           { key: "nodes", label: t("Nodes") },
+          { key: "playback", label: t("Playback") },
+          { key: "recovery", label: t("Recovery history") },
           { key: "tokens", label: t("Join tokens") },
         ]}
       />
       {tab === "overview" ? (
         <FleetOverview status={s} cached={cached} />
+      ) : tab === "playback" || tab === "recovery" ? (
+        <ClusterPlayback status={s} recovery={tab === "recovery"} />
       ) : (
         <div className="min-h-0 flex-1 space-y-4 overflow-auto">
           {tab === "nodes" ? (
@@ -335,6 +343,9 @@ export function clusterNodeHealth(
     runtimeFresh(observation.sampledAt)
   )
     return observation.level;
+  const diagnostic = n.caps?.diagnostics;
+  if (diagnostic && nodeStatusFresh(n) && runtimeFresh(diagnostic.sampledAt))
+    return diagnostic.readyExisting ? "ok" : "error";
   const runtime = nodeRuntime(s, n);
   return runtime && runtimeFresh(runtime.runtimeSampledAt)
     ? runtime.readyExisting
@@ -463,32 +474,35 @@ function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: b
                       {n.draining ? t("Draining") : nodeRoles(n).join(" · ")}
                     </Badge>
                   </div>
-                  <dl className="mt-2 grid grid-cols-4 gap-2 text-[11px] sm:text-xs">
-                    {[
-                      [t("Streams"), !cached && nodeStatusFresh(n) ? n.load : t("Unknown")],
-                      [
-                        t("Transcoding"),
-                        n.live && preview
-                          ? (preview.metrics[n.id]?.transcodes ?? t("Unknown"))
-                          : t("Unknown"),
-                      ],
-                      [
-                        t("Capacity"),
-                        n.live && preview
-                          ? (preview.metrics[n.id]?.capacity ?? t("Unknown"))
-                          : t("Unknown"),
-                      ],
-                      [
-                        t("Load"),
-                        n.live && preview ? `${preview.metrics[n.id]?.load}%` : t("Unknown"),
-                      ],
-                    ].map(([label, value]) => (
-                      <div key={label}>
-                        <dt className="text-fg-muted">{label}</dt>
-                        <dd className="font-medium tabular-nums">{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
+                  <NodeCapacity node={n} cached={cached} />
+                  {preview ? (
+                    <dl className="mt-2 grid grid-cols-4 gap-2 text-[11px] sm:text-xs">
+                      {[
+                        [t("Streams"), !cached && nodeStatusFresh(n) ? n.load : t("Unknown")],
+                        [
+                          t("Transcoding"),
+                          n.live && preview
+                            ? (preview.metrics[n.id]?.transcodes ?? t("Unknown"))
+                            : t("Unknown"),
+                        ],
+                        [
+                          t("Capacity"),
+                          n.live && preview
+                            ? (preview.metrics[n.id]?.capacity ?? t("Unknown"))
+                            : t("Unknown"),
+                        ],
+                        [
+                          t("Load"),
+                          n.live && preview ? `${preview.metrics[n.id]?.load}%` : t("Unknown"),
+                        ],
+                      ].map(([label, value]) => (
+                        <div key={label}>
+                          <dt className="text-fg-muted">{label}</dt>
+                          <dd className="font-medium tabular-nums">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : null}
                 </article>
               ))}
             </div>
@@ -689,7 +703,7 @@ function Nodes({
               key: "admission",
               header: t("New streams"),
               cell: (n) =>
-                status.selfRuntime ? (
+                status.selfRuntime || n.caps?.diagnostics ? (
                   <RuntimeObservation status={status} node={n} cached={cached} />
                 ) : (
                   <div className="space-y-1">
@@ -813,6 +827,7 @@ function NodeDrawer({
       }
     >
       <div className="space-y-5">
+        <NodeCapacity node={node} cached={cached} />
         <SettingsSection title={t("Configured roles")}>
           <SettingsRow
             title={nodeRoles(node).join(", ")}
@@ -1439,5 +1454,68 @@ function JoinTokenDrawer({ onClose, onCreated }: { onClose: () => void; onCreate
         )}
       </div>
     </Drawer>
+  );
+}
+
+function readinessReason(reason: string): string {
+  switch (reason) {
+    case "age_at_or_above_maximum":
+    case "not_live":
+    case "self_missing":
+      return t("Heartbeat unavailable");
+    case "set_pool":
+    case "set_target":
+    case "initial_quota_read":
+      return t("Placement unavailable");
+    case "invalid_roles":
+    case "cluster_mismatch":
+    case "boot_mismatch":
+    case "mounted_identity_changed":
+      return t("Node identity or roles need attention");
+    case "credential_rotation_failed":
+      return t("Credentials need attention");
+    default:
+      return t("Runtime unavailable");
+  }
+}
+function NodeCapacity({ node, cached }: { node: ClusterNode; cached: boolean }) {
+  const d = node.caps?.diagnostics;
+  const fresh = !cached && nodeStatusFresh(node) && !!d && runtimeFresh(d.sampledAt);
+  const value = (n: number | undefined) =>
+    fresh && n !== undefined ? n.toLocaleString() : t("Unknown");
+  return (
+    <dl className="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
+      {[
+        [t("Transcoding"), transcodeLabel(node)],
+        [t("Transcode slots"), `${value(d?.transcodes)} / ${value(d?.transcodeCapacity)}`],
+        [t("Source connections"), value(d?.sourceConnections)],
+        [
+          t("Delivery bandwidth"),
+          fresh && d?.deliveryBytesPerSecond !== undefined
+            ? t("{value} B/s", { value: value(d.deliveryBytesPerSecond) })
+            : t("Unknown"),
+        ],
+        [t("Codecs"), fresh && d?.codecs?.length ? d.codecs.join(", ") : t("Unknown")],
+        [
+          t("Readiness"),
+          fresh
+            ? d?.readinessReason
+              ? readinessReason(d.readinessReason)
+              : d?.readyExisting
+                ? t("Ready")
+                : t("Runtime unavailable")
+            : t("Unknown"),
+        ],
+        [
+          t("Telemetry"),
+          d?.sampledAt ? (fresh ? relativeTime(d.sampledAt) : t("Stale status")) : t("Unknown"),
+        ],
+      ].map(([label, v]) => (
+        <div key={label}>
+          <dt className="text-fg-muted">{label}</dt>
+          <dd>{v}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
