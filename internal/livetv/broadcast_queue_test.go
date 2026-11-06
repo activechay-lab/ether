@@ -45,7 +45,7 @@ func TestBroadcastFrameQueuePreservesPCMDuringDip(t *testing.T) {
 		for tick := 0; tick < 300; tick++ {
 			pcm := make([]byte, 4)
 			binary.LittleEndian.PutUint32(pcm, uint32(tick))
-			q.push(transcode.RawFrame{Video: []byte{byte(tick)}, PCM: pcm}, tick == 100)
+			q.push(transcode.RawFrame{Video: []byte{byte(tick)}, PCM: pcm}, tick == 100, false)
 			time.Sleep(time.Until(origin.Add(time.Duration(tick+1) * time.Second / 30)))
 		}
 		<-done
@@ -70,7 +70,7 @@ func TestBroadcastDeepDipBoundsPictures(t *testing.T) {
 	for tick := 0; tick < 1800; tick++ {
 		pcm := make([]byte, 4)
 		binary.LittleEndian.PutUint32(pcm, uint32(tick))
-		q.push(transcode.RawFrame{Video: append([]byte(nil), pcm...), PCM: pcm}, tick == 400)
+		q.push(transcode.RawFrame{Video: append([]byte(nil), pcm...), PCM: pcm}, tick == 400, false)
 	}
 	pictures := map[*byte]bool{}
 	for tick := 0; tick < 1800; tick++ {
@@ -86,4 +86,47 @@ func TestBroadcastDeepDipBoundsPictures(t *testing.T) {
 	if len(pictures) > 90 {
 		t.Fatalf("deep backlog retained %d distinct pictures", len(pictures))
 	}
+}
+
+// Below-realtime picture ingestion must adapt before accumulating enough lag
+// to exhaust a cold viewer's first segment. Every PCM tick and cut survives.
+func TestBroadcastSlowEncoderPreservesOpeningCushion(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		q := newBroadcastFrameQueue(30)
+		origin := time.Now()
+		done := make(chan struct{})
+		repeated := 0
+		go func() {
+			defer close(done)
+			for tick := 0; tick < 300; tick++ {
+				frame, ok := q.pop(t.Context())
+				if !ok || int(binary.LittleEndian.Uint32(frame.PCM)) != tick {
+					t.Errorf("audio lost at tick%d", tick)
+					return
+				}
+				if tick == 100 && frame.Video[0] != 100 {
+					t.Error("cut picture lost")
+				}
+				cost := 40 * time.Millisecond
+				if frame.RepeatVideo {
+					repeated++
+					cost = time.Millisecond
+				}
+				time.Sleep(cost)
+			}
+		}()
+		for tick := 0; tick < 300; tick++ {
+			pcm := make([]byte, 4)
+			binary.LittleEndian.PutUint32(pcm, uint32(tick))
+			_, _, pending := q.push(transcode.RawFrame{Video: []byte{byte(tick)}, PCM: pcm}, tick == 100, true)
+			if pending >= 15 {
+				t.Fatalf("slow picture ingress exhausted opening cushion: %d ticks", pending)
+			}
+			time.Sleep(time.Until(origin.Add(time.Duration(tick+1) * time.Second / 30)))
+		}
+		<-done
+		if repeated == 0 {
+			t.Fatal("slow encoder never adapted")
+		}
+	})
 }

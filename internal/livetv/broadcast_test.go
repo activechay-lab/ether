@@ -21,9 +21,19 @@ type broadcastFakeEncoder struct {
 	closed bool
 	output fakeHLS
 	index  transcode.SegmentIndex
+	pause  time.Duration
+	once   sync.Once
 }
 
 func (e *broadcastFakeEncoder) Write(ctx context.Context, f transcode.RawFrame) error {
+	e.once.Do(func() {
+		if e.pause > 0 {
+			select {
+			case <-time.After(e.pause):
+			case <-ctx.Done():
+			}
+		}
+	})
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -573,6 +583,59 @@ func TestBroadcastBoundedStartupLead(t *testing.T) {
 			})
 		})
 	}
+}
+
+// A startup burst may pace future media, but a sleeping encoder must never
+// prevent due ticks from reaching the PCM queue and its picture degradation.
+func TestStartupEncoderDipKeepsClockAndPCM(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		format := smallBroadcastFormat()
+		planner := burstTestPlanner{broadcastFakePlanner: broadcastFakePlanner{plan: broadcastPlan{id: "programme", open: func(context.Context) (transcode.Decoder, func(), error) {
+			return &broadcastFakeDecoder{format: format, closed: make(chan struct{})}, nil, nil
+		}}}}
+		runner := &broadcastFakeRunner{}
+		b, err := newBroadcast(context.Background(), runner, planner, format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer b.close()
+		if _, err = b.addRendition(context.Background(), "main", core.Decision{MaxHeight: 720}); err != nil {
+			t.Fatal(err)
+		}
+		encoder := runner.encoders[0]
+		encoder.pause = 5 * time.Second
+		encoder.index = burstSampleIndex{encoder: encoder}
+		b.start()
+		time.Sleep(3 * time.Second)
+		synctest.Wait()
+		if b.tick < 90 {
+			t.Fatalf("startup encoder blocked the due clock: %d ticks in3s", b.tick)
+		}
+		b.mu.Lock()
+		queue := b.renditions["main"].queue
+		b.mu.Unlock()
+		queue.mu.Lock()
+		pending, repeating := len(queue.frames)-queue.head, queue.repeating
+		queue.mu.Unlock()
+		if pending < 30 || !repeating {
+			t.Fatalf("due audio never reached graceful degradation: pending=%d repeating=%v", pending, repeating)
+		}
+		time.Sleep(5 * time.Second)
+		synctest.Wait()
+		b.close()
+		frames := encoder.snapshot()
+		if len(frames) < 240 {
+			t.Fatalf("lost continuous media after dip: %d ticks", len(frames))
+		}
+		for i, frame := range frames {
+			if frame.OutputTime != b.origin.Add(time.Duration(i)*time.Second/30) || len(frame.PCM) != 6400 {
+				t.Fatalf("audio/timestamp discontinuity at tick%d", i)
+			}
+		}
+		if len(runner.encoders) != 1 {
+			t.Fatal("encoder restarted during startup dip")
+		}
+	})
 }
 
 type burstSlowDecoder struct{ *broadcastFakeDecoder }

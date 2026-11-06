@@ -584,7 +584,9 @@ func (b *broadcast) run() {
 		}
 		// Feed a bounded amount ahead of the encoder. Startup must not turn a
 		// healthy fast encoder into a video-degradation event through queue growth.
-		if b.bursting && (scheduled.After(now.Add(b.startupTarget+4*time.Second)) || b.startupQueueFull()) {
+		// Due ticks still enter the continuous PCM queue: pacing those behind a
+		// slow encoder would prevent the queue's picture degradation from helping.
+		if b.bursting && scheduled.After(now) && (scheduled.After(now.Add(b.startupTarget+4*time.Second)) || b.startupQueueFull()) {
 			timer.Reset(2 * time.Millisecond)
 			continue
 		}
@@ -955,7 +957,12 @@ func (b *broadcast) step(now time.Time) bool {
 	b.lastFrame = frame
 	b.mu.Lock()
 	for id, r := range b.renditions {
-		changed, repeating, pending := r.queue.push(frame, cut)
+		slow := false
+		if encoder, ok := r.encoder.(interface{ RealtimeSpeed() float64 }); ok {
+			speed := encoder.RealtimeSpeed()
+			slow = speed > 0 && speed < 0.98
+		}
+		changed, repeating, pending := r.queue.push(frame, cut, slow)
 		if changed {
 			b.logger.Info("broadcast encoder video cadence changed", "rendition", id, "repeating", repeating, "pendingTicks", pending, "tick", b.tick)
 		}
