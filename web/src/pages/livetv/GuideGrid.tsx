@@ -1,3 +1,4 @@
+import { programmeArtwork } from "./model";
 import { Badge, Button, Checkbox, cn } from "@braedonsaunders/appkit-ui";
 import {
   AlertTriangle,
@@ -525,7 +526,7 @@ export function GuideGrid({
                           >
                             {p.item.thumb && w > 220 ? (
                               <Artwork
-                                src={p.item.thumb}
+                                src={programmeArtwork(p.item.thumb)}
                                 alt=""
                                 title=""
                                 className="h-10 w-7 shrink-0 rounded"
@@ -806,7 +807,7 @@ export function OnNowStrip({
             >
               {p.item.thumb || c.logo ? (
                 <Artwork
-                  src={p.item.thumb || c.logo}
+                  src={programmeArtwork(p.item.thumb) || c.logo}
                   alt=""
                   title=""
                   className="absolute inset-y-0 right-0 w-24 opacity-90 [mask-image:linear-gradient(to_left,black_40%,transparent)]"

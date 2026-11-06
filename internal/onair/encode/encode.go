@@ -40,6 +40,8 @@ func Encode(ctx context.Context, ffmpegPath string, frames func(int) *image.RGBA
 // Options allows Signal loops to honor a negotiated session ceiling and size.
 type Options struct {
 	Workers, Width, Height int
+	Sounds                 []SoundInput
+	Background             *VideoInput
 	// MaxSeconds is 28 for look moments; plugin segments may opt into 600.
 	MaxSeconds          int
 	MaxRate, BufferSize string
@@ -108,7 +110,31 @@ func WithOptions(ctx context.Context, ffmpegPath string, frames func(int) *image
 	} else {
 		args = append(args, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo")
 	}
-	args = append(args, "-map", "0:v:0", "-map", "1:a:0", "-t", strconv.FormatFloat(float64(n)/float64(fps), 'f', 6, 64), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", "2", "-profile:v", "high", "-level:v", "4.0", "-pix_fmt", "yuv420p", "-g", "120", "-keyint_min", "120", "-sc_threshold", "0", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k", "-movflags", "+faststart", path)
+
+	for _, sound := range opts.Sounds {
+		args = append(args, "-i", sound.Path)
+	}
+	videoMap := "0:v:0"
+	audioMap := "1:a:0"
+	filters := []string{}
+	if len(opts.Sounds) > 0 {
+		filters = append(filters, MixFilter("1:a:0", opts.Sounds, 2, float64(n)/float64(fps)))
+		audioMap = "[mixed]"
+	}
+	if bg := opts.Background; bg != nil {
+		idx := 2 + len(opts.Sounds)
+		args = append(args, "-ss", strconv.FormatFloat(bg.Start, 'f', 6, 64), "-i", bg.Path)
+		scale := fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d", width, height, width, height)
+		if bg.Fit == "contain" {
+			scale = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2", width, height, width, height)
+		}
+		filters = append(filters, fmt.Sprintf("[%d:v:0]setpts=PTS-STARTPTS,%s,tpad=stop_mode=clone:stop_duration=%g[background];[background][0:v:0]overlay=0:0:shortest=1[composite]", idx, scale, float64(n)/float64(fps)))
+		videoMap = "[composite]"
+	}
+	if len(filters) > 0 {
+		args = append(args, "-filter_complex", strings.Join(filters, ";"))
+	}
+	args = append(args, "-map", videoMap, "-map", audioMap, "-t", strconv.FormatFloat(float64(n)/float64(fps), 'f', 6, 64), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", "2", "-profile:v", "high", "-level:v", "4.0", "-pix_fmt", "yuv420p", "-g", "120", "-keyint_min", "120", "-sc_threshold", "0", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k", "-movflags", "+faststart", path)
 	if opts.MaxRate != "" {
 		if opts.BufferSize == "" {
 			opts.BufferSize = opts.MaxRate

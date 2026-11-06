@@ -72,3 +72,31 @@ func TestImportedClipDurationCap(t *testing.T) {
 		t.Fatal("duration cap bypassed", e)
 	}
 }
+
+func TestImportsStartWhileRenderLaneBlocked(t *testing.T) {
+	blocked := make(chan struct{})
+	release := make(chan struct{})
+	s := testService(t, Options{})
+	defer close(release)
+	if !s.enqueue(renderJob{Hash: "blocked-render", convert: func(context.Context) error { close(blocked); <-release; return nil }}) {
+		t.Fatal("render enqueue")
+	}
+	select {
+	case <-blocked:
+	case <-time.After(time.Second):
+		t.Fatal("render did not start")
+	}
+	started := make(chan struct{}, 2)
+	for _, hash := range []string{"download-one", "download-two"} {
+		if !s.enqueue(renderJob{download: true, Hash: hash, prepare: func(context.Context) error { started <- struct{}{}; return nil }}) {
+			t.Fatal("import enqueue")
+		}
+	}
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("render blocked import download start")
+		}
+	}
+}

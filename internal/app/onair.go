@@ -23,6 +23,18 @@ func (a *App) buildOnAir() error {
 		}
 		return nil
 	}, DB: a.db, Dir: filepath.Join(a.opts.DataDir, "cache", "onair"), Logger: a.log.With("component", "onair"), Bindings: a.onairBindings}
+	o.StyleChannels = func(ctx context.Context) (map[string][]string, error) {
+		if a.livetv == nil {
+			return map[string][]string{}, nil
+		}
+		return a.livetv.StyleChannelIDs(ctx, a.cfg.Read().LiveTV.DefaultStyleID)
+	}
+	o.ReelChannels = func(ctx context.Context) (map[string][]string, error) {
+		if a.livetv == nil {
+			return map[string][]string{}, nil
+		}
+		return a.livetv.ReelChannelIDs(ctx)
+	}
 	a.pluginContent = onair.NewPluginContentCache()
 	o.PluginSegment = a.pluginContent.Lookup
 	chat := llm.NewClient(llm.ClientOptions{Config: a.cfg.Read().LLM, Logger: a.log.With("component", "onair-llm")})

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -16,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -31,7 +34,26 @@ func (s *Service) putAsset(ctx context.Context, name, kind, license, mime string
 		return a, e
 	}
 	e = s.db.QueryRowContext(ctx, "SELECT name,kind,size,license,mime FROM onair_assets WHERE digest=?", a.Digest).Scan(&a.Name, &a.Kind, &a.Size, &a.License, &a.MIME)
+	if e == nil {
+		a = s.recordFacts(ctx, a, b)
+	}
 	return a, e
+}
+
+// AssetMetadata reads one asset's stored facts by digest: a single indexed row,
+// with no usage scan, no content read and no probing. Duration is 0 until the
+// asset has been probed.
+func (s *Service) AssetMetadata(ctx context.Context, digest string) (Asset, error) {
+	a := Asset{Digest: digest, UsedBy: []string{}}
+	e := s.db.QueryRowContext(ctx, "SELECT name,kind,size,license,mime,source,attribution,COALESCE(duration_ms,0),width,height FROM onair_assets WHERE digest=?", digest).Scan(&a.Name, &a.Kind, &a.Size, &a.License, &a.MIME, &a.Source, &a.Attribution, &a.DurationMS, &a.Width, &a.Height)
+	if errors.Is(e, sql.ErrNoRows) {
+		return Asset{}, ErrNotFound
+	}
+	if e != nil {
+		return Asset{}, e
+	}
+	a.URL = "/ether/api/onair/assets/" + a.Digest
+	return a, nil
 }
 func (s *Service) UploadAsset(ctx context.Context, name, kind, license string, r io.Reader) (Asset, error) {
 	b, e := io.ReadAll(io.LimitReader(r, assetLimit+1))
@@ -82,6 +104,41 @@ func (s *Service) UploadAsset(ctx context.Context, name, kind, license string, r
 			return Asset{}, e
 		}
 		f.Close()
+		// Lossless owner stings have a separate, explicitly selected demuxer.
+		// The general media probe whitelist remains unchanged.
+		if kind == "audio" {
+			format := ""
+			if len(b) >= 12 && string(b[:4]) == "RIFF" && string(b[8:12]) == "WAVE" {
+				format = "wav"
+			}
+			if len(b) >= 12 && string(b[:4]) == "FORM" && (string(b[8:12]) == "AIFF" || string(b[8:12]) == "AIFC") {
+				format = "aiff"
+			}
+			if len(b) >= 4 && string(b[:4]) == "fLaC" {
+				format = "flac"
+			}
+			if format != "" {
+				if s.o.FFmpeg == nil {
+					return Asset{}, fmt.Errorf("audio conversion unavailable")
+				}
+				out := f.Name() + ".m4a"
+				defer os.Remove(out)
+				cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
+				cmd := exec.CommandContext(cctx, s.o.FFmpeg(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-protocol_whitelist", "file,pipe", "-format_whitelist", format, "-f", format, "-i", f.Name(), "-map", "0:a:0", "-vn", "-t", "31", "-ac", "2", "-ar", "48000", "-c:a", "aac", "-b:a", "192k", "-threads", "1", out)
+				if e = cmd.Run(); e != nil {
+					return Asset{}, fmt.Errorf("convert audio asset: %w", e)
+				}
+				b, e = os.ReadFile(out)
+				if e != nil {
+					return Asset{}, e
+				}
+				if e = os.WriteFile(f.Name(), b, 0600); e != nil {
+					return Asset{}, e
+				}
+				mime = "audio/mp4"
+			}
+		}
 		info, e := s.o.Probe(ctx, f.Name())
 		if e != nil {
 			return Asset{}, e
@@ -104,14 +161,14 @@ func (s *Service) UploadAsset(ctx context.Context, name, kind, license string, r
 	return s.putAsset(ctx, name, kind, license, mime, b)
 }
 func (s *Service) Assets(ctx context.Context) ([]Asset, error) {
-	rows, e := s.db.QueryContext(ctx, "SELECT digest,name,kind,size,license,mime,source,attribution FROM onair_assets ORDER BY created_at")
+	rows, e := s.db.QueryContext(ctx, "SELECT digest,name,kind,size,license,mime,source,attribution,COALESCE(duration_ms,0),width,height FROM onair_assets ORDER BY created_at")
 	if e != nil {
 		return nil, e
 	}
 	out := []Asset{}
 	for rows.Next() {
 		var a Asset
-		if e = rows.Scan(&a.Digest, &a.Name, &a.Kind, &a.Size, &a.License, &a.MIME, &a.Source, &a.Attribution); e != nil {
+		if e = rows.Scan(&a.Digest, &a.Name, &a.Kind, &a.Size, &a.License, &a.MIME, &a.Source, &a.Attribution, &a.DurationMS, &a.Width, &a.Height); e != nil {
 			rows.Close()
 			return nil, e
 		}
@@ -224,7 +281,11 @@ func (s *Service) putReelAsset(ctx context.Context, name string, b []byte) (Asse
 	if _, e = tx.ExecContext(ctx, "INSERT INTO onair_assets(digest,kind,name,mime,size,license,content,created_at) VALUES(?,'reel',?,'video/mp4',?,'',?,?) ON CONFLICT(digest) DO UPDATE SET kind='reel'", a.Digest, name, a.Size, b, time.Now().Unix()); e != nil {
 		return a, e
 	}
-	return a, tx.Commit()
+	if e = tx.Commit(); e != nil {
+		return a, e
+	}
+	a.Kind = "reel"
+	return s.recordFacts(ctx, a, b), nil
 }
 
 // On Air can run independently of Live TV (including plugin test databases).

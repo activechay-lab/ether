@@ -40,6 +40,8 @@ type ChannelSummary struct {
 
 	numberKey numberKey
 	sweepKey  string
+	styleID   string
+	reelID    string
 }
 
 type ChannelCounts struct {
@@ -109,11 +111,16 @@ func (s *Service) channelSummaries(ctx context.Context) ([]ChannelSummary, error
 			return nil, err
 		}
 		var stream struct {
+			Look          *ChannelLook   `json:"look"`
 			StreamURL     string         `json:"streamUrl"`
 			StreamSources []StreamSource `json:"streamSources"`
 		}
 		if err = json.Unmarshal(b, &stream); err != nil {
 			return nil, err
+		}
+		if stream.Look != nil {
+			c.styleID = stream.Look.LookID
+			c.reelID = stream.Look.ReelID
 		}
 		c.sweepKey = sweepSignature(Channel{StreamURL: stream.StreamURL, StreamSources: stream.StreamSources})
 		c.numberKey = parseNumberKey(c.Number)
@@ -418,6 +425,39 @@ func (s *Service) virtualChannels(ctx context.Context) ([]Channel, error) {
 			if v, ok := full[c.ID]; ok {
 				out = append(out, v)
 			}
+		}
+	}
+	return out, nil
+}
+
+// StyleChannelIDs reads the invalidated lineup index, never programme payloads.
+func (s *Service) StyleChannelIDs(ctx context.Context, defaultStyle string) (map[string][]string, error) {
+	channels, err := s.channelSummaries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]string{}
+	for _, c := range channels {
+		id := c.styleID
+		if id == "" {
+			id = defaultStyle
+		}
+		if id != "" {
+			out[id] = append(out[id], c.ID)
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) ReelChannelIDs(ctx context.Context) (map[string][]string, error) {
+	channels, err := s.channelSummaries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]string{}
+	for _, c := range channels {
+		if c.reelID != "" {
+			out[c.reelID] = append(out[c.reelID], c.ID)
 		}
 	}
 	return out, nil
