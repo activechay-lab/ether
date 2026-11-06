@@ -234,3 +234,25 @@ is missing. Repeat separately for graceful drain, abrupt encoder loss, source
 loss and public ingress/controller loss with surviving authority/capacity. Stop
 owned port-forwards and verifier children afterward; preserve the explicitly
 requested kind lab.
+
+## MediaBrowser delivery aliases
+
+The chart routes `/jellyfin/sessions/media` and `/emby/sessions/media` to the
+media Service. Admission, `/Videos/...` and lazy/control routes remain on API.
+Returned grant-bearing representation URLs keep the same origin and prefix;
+no Ingress path rewrite is required. GET/HEAD and MediaBrowser OPTIONS preflight
+requests resolve the current coordinator and replay its original mounted
+frontend. Original query and bounded account/device headers are preserved, and
+the broker rechecks the path grant, protocol, active viewer and current policy.
+
+`TestMediaBrowserDeliveryReplaysOriginalFrontendAndFencesLoss` compares actual
+HTTP responses from standalone mounted frontends with responses through two
+stateless delivery senders. It uses the real broker and offline source/encoder
+bytes. For each protocol it checks master/media playlists, segments, direct
+files, seven grant/account credential envelopes, GET/HEAD/OPTIONS, Range/206/416,
+response/security/CORS/cache headers, viewer and policy revocation, wrong grants,
+protocol isolation and generation fencing. It closes one delivery listener and
+fetches the next segment through the other. This is offline path evidence,
+not a physical-node loss or a decoded playback measurement. Repeat these URLs
+through the real Ingress and client probe during delivery-node loss; combine
+with the durable neutral-session restoration gate for controller loss.

@@ -16,7 +16,7 @@ func (r *Runtime) NewPublicDelivery(authorizePlex func(context.Context, *http.Re
 		return nil, ErrDenied
 	}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
-		if q.Method != "GET" && q.Method != "HEAD" {
+		if q.Method != "GET" && q.Method != "HEAD" && !mediaBrowserPreflight(q) {
 			http.Error(w, "method", 405)
 			return
 		}
@@ -24,15 +24,13 @@ func (r *Runtime) NewPublicDelivery(authorizePlex func(context.Context, *http.Re
 			http.NotFound(w, q)
 			return
 		}
-		if path, id, protocol, ok := neutralDeliveryRoute(q.URL.Path); ok {
-			clone := q.Clone(q.Context())
-			clone.URL.Path = path
-			clone.RequestURI = clone.URL.RequestURI()
-			if !r.ForwardMedia(w, clone, id, protocol) {
+		if _, id, protocol, ok := neutralDeliveryRoute(q.URL.Path); ok {
+			if !r.ForwardMedia(w, q, id, protocol) {
 				http.NotFound(w, q)
 			}
 			return
 		}
+
 		if id, ok := plexMediaSession(q.URL); ok {
 			if plexGrantEnvelope(q) {
 				if !r.ForwardPlexGrantMedia(w, q, id) {
@@ -98,7 +96,7 @@ func neutralDeliveryRoute(path string) (canonical, id, protocol string, ok bool)
 // IsPublicRepresentation reports only the supported delivery route shape. It
 // grants no access and says nothing about listener/readiness or backend support.
 func IsPublicRepresentation(q *http.Request) bool {
-	if q == nil || q.URL == nil || (q.Method != "GET" && q.Method != "HEAD") || q.URL.RawPath != "" || q.URL.Fragment != "" || q.URL.Opaque != "" {
+	if q == nil || q.URL == nil || (q.Method != "GET" && q.Method != "HEAD" && !mediaBrowserPreflight(q)) || q.URL.RawPath != "" || q.URL.Fragment != "" || q.URL.Opaque != "" {
 		return false
 	}
 	if _, _, _, ok := neutralDeliveryRoute(q.URL.Path); ok {
@@ -108,4 +106,14 @@ func IsPublicRepresentation(q *http.Request) bool {
 		return len(q.URL.RequestURI()) <= 16384
 	}
 	return false
+}
+
+// MediaBrowser frontends own their ordinary OPTIONS/CORS response. Only a
+// typed alias can carry a preflight to that original public handler.
+func mediaBrowserPreflight(q *http.Request) bool {
+	if q == nil || q.URL == nil || q.Method != "OPTIONS" {
+		return false
+	}
+	_, _, protocol, ok := neutralDeliveryRoute(q.URL.Path)
+	return ok && (protocol == "jellyfin" || protocol == "emby")
 }

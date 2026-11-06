@@ -63,6 +63,8 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
+	mediaBrowserDelivery http.Handler
+
 	deliveryScratch chan struct{}
 	automaticOutput bool
 	outputScratch   chan struct{}
