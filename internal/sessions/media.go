@@ -551,7 +551,10 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 		}
 		if len(tail) == 2 {
 			rung, name := tail[0], tail[1]
-			if ls, ok := hs.(core.HLSLadderSession); ok {
+			// Remote sessions expose the ladder interface even when ABR is
+			// disabled. An empty ladder still uses the base rendition emitted
+			// by serveMaster, through the ordinary playlist/segment operations.
+			if ls, ok := hs.(core.HLSLadderSession); ok && len(ls.Rungs()) > 0 {
 				for _, candidate := range ls.Rungs() {
 					if candidate.ID == rung && validRung(rung) {
 						if name == "index.m3u8" {
