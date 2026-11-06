@@ -15,6 +15,25 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 
 
+def encode_part(data, index, parts, size, filename, file_crc):
+    header = (f'=ybegin part={index+1} total={parts} line=128 size={size} name={filename}\r\n'
+              f'=ypart begin={index*256*1024+1} end={index*256*1024+len(data)}\r\n').encode()
+    lines, line = [], bytearray()
+    for byte in data:
+        value = (byte+42)&255
+        encoded = bytes((61,(value+64)&255)) if value in (0,10,13,61) else bytes((value,))
+        if len(line)+len(encoded)>128:
+            lines.append(bytes(line)); line.clear()
+        line.extend(encoded)
+    if line:
+        lines.append(bytes(line))
+    crc = binascii.crc32(data)&0xffffffff
+    tail = f'=yend size={len(data)} part={index+1} pcrc32={crc:08x}'
+    if index == parts-1:
+        tail += f' crc32={file_crc:08x}'
+    return header+b'\r\n'.join(lines)+b'\r\n'+tail.encode()+b'\r\n'
+
+
 class Fixture:
     def __init__(self, media, origin, tmdb, release, fixture_id='ether035-fixture', article_prefix='ether035-ha-part'):
         if not all(re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', v) for v in (fixture_id, article_prefix)):
@@ -32,34 +51,30 @@ class Fixture:
         with self.lock:
             self.stats[key] += value
 
+    @property
+    def size(self):
+        return len(self.data)
+
+    @property
+    def parts(self):
+        return len(self.chunks)
+
+    def chunk_size(self, index):
+        return len(self.chunks[index])
+
     def snapshot(self):
         with self.lock:
-            return dict(self.stats, generatedBytes=len(self.data), parts=len(self.chunks))
+            return dict(self.stats, generatedBytes=self.size, parts=self.parts)
 
     def encode(self, index):
-        data = self.chunks[index]
-        header = (f'=ybegin part={index+1} total={len(self.chunks)} line=128 size={len(self.data)} name={self.filename}\r\n'
-                  f'=ypart begin={index*256*1024+1} end={index*256*1024+len(data)}\r\n').encode()
-        lines, line = [], bytearray()
-        for byte in data:
-            value = (byte+42)&255
-            encoded = bytes((61,(value+64)&255)) if value in (0,10,13,61) else bytes((value,))
-            if len(line)+len(encoded)>128:
-                lines.append(bytes(line)); line.clear()
-            line.extend(encoded)
-        if line:
-            lines.append(bytes(line))
-        crc = binascii.crc32(data)&0xffffffff
-        tail = f'=yend size={len(data)} part={index+1} pcrc32={crc:08x}'
-        if index == len(self.chunks)-1:
-            tail += f' crc32={binascii.crc32(self.data)&0xffffffff:08x}'
-        return header+b'\r\n'.join(lines)+b'\r\n'+tail.encode()+b'\r\n'
+        return encode_part(self.chunks[index], index, self.parts, self.size,
+                           self.filename, binascii.crc32(self.data)&0xffffffff if index == self.parts-1 else 0)
 
     def nzb(self):
-        segments = ''.join(f'<segment bytes="{len(chunk)}" number="{i+1}">{self.article_prefix}-{i+1:05d}@fixture.invalid</segment>'
-                           for i,chunk in enumerate(self.chunks))
+        segments = ''.join(f'<segment bytes="{self.chunk_size(i)}" number="{i+1}">{self.article_prefix}-{i+1:05d}@fixture.invalid</segment>'
+                           for i in range(self.parts))
         return (f'<?xml version="1.0" encoding="UTF-8"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">'
-                f'<file poster="lab@fixture.invalid" date="1577836800" subject="&quot;{escape(self.filename)}&quot; yEnc (1/{len(self.chunks)})">'
+                f'<file poster="lab@fixture.invalid" date="1577836800" subject="&quot;{escape(self.filename)}&quot; yEnc (1/{self.parts})">'
                 f'<groups><group>alt.binaries.ether.fixture</group></groups><segments>{segments}</segments></file></nzb>').encode()
 
     def rss(self):
@@ -68,8 +83,8 @@ class Fixture:
         return (f'<?xml version="1.0"?><rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">'
                 f'<channel><title>Ether generated fixture</title><item><title>{escape(self.release)}</title>'
                 f'<guid isPermaLink="false">{self.fixture_id}</guid><link>{item_url}</link><pubDate>{now}</pubDate>'
-                f'<enclosure url="{item_url}" length="{len(self.data)}" type="application/x-nzb"/>'
-                f'<newznab:attr name="category" value="2000"/><newznab:attr name="size" value="{len(self.data)}"/>'
+                f'<enclosure url="{item_url}" length="{self.size}" type="application/x-nzb"/>'
+                f'<newznab:attr name="category" value="2000"/><newznab:attr name="size" value="{self.size}"/>'
                 f'<newznab:attr name="tmdbid" value="{self.tmdb}"/><newznab:attr name="files" value="1"/>'
                 f'</item></channel></rss>').encode()
 
@@ -79,9 +94,9 @@ class HTTP(http.server.BaseHTTPRequestHandler):
         pass  # Do not log query strings: indexer clients may send API keys.
 
     def do_GET(self):
-        f = self.server.fixture
         parsed = urlsplit(self.path)
         query = parse_qs(parsed.query)
+        f = self.fixture_for_request(parsed, query)
         kind = query.get('t',[''])[0]
         content_type = 'application/xml'
         if parsed.path == '/stats':
@@ -104,8 +119,14 @@ class HTTP(http.server.BaseHTTPRequestHandler):
         self.send_header('Content-Length',str(len(body)))
         self.end_headers(); self.wfile.write(body)
 
+    def fixture_for_request(self, parsed, query):
+        return self.server.fixture
+
 
 class NNTP(socketserver.StreamRequestHandler):
+    def fixture_for_article(self, article_id):
+        return self.server.fixture
+
     def handle(self):
         f = self.server.fixture
         self.connection.settimeout(120)
@@ -128,18 +149,19 @@ class NNTP(socketserver.StreamRequestHandler):
             elif command == 'GROUP': reply = f'211 {len(f.chunks)} 1 {len(f.chunks)} alt.binaries.ether.fixture\r\n'.encode()
             elif command in ('BODY','ARTICLE','HEAD','STAT') and len(args)>1:
                 article_id = args[1].strip('<>')
-                body = f.articles.get(article_id)
+                article_fixture = self.fixture_for_article(article_id)
+                body = article_fixture.articles.get(article_id)
                 if body is None:
                     f.count('missingArticles'); reply = b'430 no such article\r\n'
                 else:
-                    f.count(command.lower()+'Requests')
+                    article_fixture.count(command.lower()+'Requests')
                     code = {'BODY':222,'ARTICLE':220,'HEAD':221,'STAT':223}[command]
                     reply = f'{code} 0 <{article_id}> article follows\r\n'.encode()
-                    headers = f'From: lab@fixture.invalid\r\nSubject: {f.filename}\r\nMessage-ID: <{article_id}>\r\n'.encode()
+                    headers = f'From: lab@fixture.invalid\r\nSubject: {article_fixture.filename}\r\nMessage-ID: <{article_id}>\r\n'.encode()
                     if command in ('HEAD','ARTICLE'): reply += headers
                     if command == 'ARTICLE': reply += b'\r\n'
                     if command in ('BODY','ARTICLE'):
-                        f.count('articlePayloadBytes',len(body))
+                        article_fixture.count('articlePayloadBytes',len(body))
                         # NNTP dot transparency is independent of yEnc escaping.
                         reply += b'\r\n'.join(b'.'+line if line.startswith(b'.') else line for line in body.split(b'\r\n'))
                     if command != 'STAT':
