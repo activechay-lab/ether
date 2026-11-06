@@ -349,3 +349,11 @@ arming history before invoking the backend. Supersession seals the gate in the
 same transaction as placement generation and route advancement. These records
 never prove process retirement. See [encoder recovery](../../docs/encoder-recovery.md)
 for supported paths, bounds and acceptance limits.
+
+Normal Stop resolves durable allocation on every server replica and seals the
+exact generation's operation gate with cancellation. The current coordinator
+consumes that intent on Tick, including after takeover, and releases placement
+only through the existing exact encoder/input/source retirement verifier or
+receipt. A cancellation seal alone never frees a claim. Worker status also seals
+its gateway when the backend retires itself (for example on idle timeout); remux
+coordinators reconcile that status even without an encoder recovery probe.
