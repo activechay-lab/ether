@@ -208,6 +208,7 @@ def run(c, out):
             report['playback'] = p
             kill = parsed(report['killAt']) if report['killAt'] else None
             if kill:
+                report['postLossObservationSeconds'] = max(0, parsed(p['StartedAt'])+p.get('ElapsedSeconds', 0)-kill)
                 receipts = [parsed(s['ReceivedAt']) for s in p.get('Segments') or [] if parsed(s['ReceivedAt']) >= kill]
                 if receipts:
                     report['clientFirstPostLossReceiptSeconds'] = min(receipts)-kill
@@ -236,7 +237,8 @@ def run(c, out):
             report['passed'] = (p.get('Outcome') == 'passed' and report['actionSucceeded']
                                 and (action == 'none' or report['killAt'] is not None)
                                 and report.get('restored', True) and 'error' not in report
-                                and report.get('playerExitCode') == 0)
+                                and report.get('playerExitCode') == 0
+                                and report.get('postLossObservationSeconds', 0) >= c.get('minimumPostLossSeconds', 0))
         else:
             report['passed'] = False
         if role == 'transcode' and action != 'none' and not report['serverInterruptionVerified']:
