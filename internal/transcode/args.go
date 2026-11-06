@@ -594,7 +594,9 @@ func buildCodecArgs(s runSpec) []string {
 	lead := hlsRestartLead(s)
 	if fastLead := hlsFastStartClock(s); fastLead > 0 {
 		lead = fastLead
-		args = appendVideoClockBSF(args, "setts=dts=DTS-"+strconv.FormatFloat(fastLead.Seconds(), 'f', 9, 64)+"/TB")
+		// setts defaults its unspecified PTS expression to TS (the packet DTS).
+		// Shift only decode time; presentation time must retain source order.
+		args = appendVideoClockBSF(args, "setts=pts=PTS:dts=DTS-"+strconv.FormatFloat(fastLead.Seconds(), 'f', 9, 64)+"/TB")
 	}
 	if lead > 0 {
 		args = append(args, "-output_ts_offset", strconv.FormatFloat(lead.Seconds(), 'f', 9, 64))
@@ -820,7 +822,7 @@ func x264FramePlan(s runSpec) (preset string, bframes int, pyramid string, reord
 		pyramid = "none"
 		reorder = 0
 	}
-	if s.Decision.H264Level > 0 {
+	if s.Decision.H264Level > 0 && !s.FastStart {
 		bframes = 2
 		pyramid = "none"
 		reorder = 1
@@ -1416,6 +1418,10 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 			// NVENC adds references internally; refs=3,bf=2 requires level
 			// 6.0 at 4K even when the generic four-picture budget fits 5.1.
 			e = append(e, "-refs", "1")
+		} else if enc == "libx264" {
+			// x264FramePlan already emitted the B-frame limit. A level limits
+			// the reference budget; it must not re-enable ramp reordering.
+			e = append(e, "-refs", "3")
 		} else {
 			e = append(e, "-refs", "3", "-bf", "2")
 		}

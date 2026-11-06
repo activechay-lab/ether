@@ -551,6 +551,67 @@ func TestBuildArgsVAAPIRCModesAndNoGPUTonemap(t *testing.T) {
 	mustNotContain(t, tmArgs, "tonemap_vaapi", "scale_vaapi")
 }
 
+// The ramp encoder and its mux clock form one contract: ramp packets have no
+// reorder delay, while their decode clock matches the subsequent steady run.
+// Check the last emitted option, since a later level constraint can override it.
+func TestX264RampFramePlanClock(t *testing.T) {
+	info := mustParse(t, "mkv_truehd_atmos.json")
+	lastValue := func(args []string, flag string) string {
+		value := ""
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == flag {
+				value = args[i+1]
+			}
+		}
+		return value
+	}
+	for _, container := range []string{ContainerMPEGTS, ContainerFMP4} {
+		for _, level := range []int{0, 30, 51} {
+			for _, fast := range []bool{false, true} {
+				for _, start := range []time.Duration{0, 2 * time.Second, 4 * time.Second} {
+					s := baseSpec(info, core.Decision{VideoCodec: "h264", AudioCopy: true, Container: container, H264Level: level, H264FrameRate: 24})
+					s.FastStart, s.RampClock, s.AuthoredTimeline = fast, true, true
+					s.Start, s.Protocol = start, core.ProtocolHLS
+					wantBF, steadyDelay, wantPreset, wantPyramid := 3, 2, "veryfast", "normal"
+					if level > 0 {
+						wantBF, steadyDelay, wantPyramid = 2, 1, "none"
+					}
+					wantReorder := steadyDelay
+					if fast {
+						wantBF, wantReorder, wantPreset, wantPyramid = 0, 0, "ultrafast", "none"
+					}
+					preset, bf, pyramid, reorder := x264FramePlan(s)
+					if preset != wantPreset || bf != wantBF || pyramid != wantPyramid || reorder != wantReorder {
+						t.Fatalf("level=%d fast=%v: plan=%s,%d,%s,%d", level, fast, preset, bf, pyramid, reorder)
+					}
+					args := buildArgs(s)
+					if lastValue(args, "-bf") != strconv.Itoa(wantBF) || lastValue(args, "-preset") != wantPreset {
+						t.Fatalf("level=%d fast=%v: encoder plan overridden: %v", level, fast, args)
+					}
+					if level > 0 {
+						mustContain(t, args, "-level:v "+strconv.Itoa(level/10)+"."+strconv.Itoa(level%10), "-profile:v high", "-r 24", "-refs 3", "8x8dct=1:b-pyramid="+wantPyramid)
+					}
+					lead := time.Duration(math.Round(float64(steadyDelay) / hlsOutputFPS(s) * float64(time.Second)))
+					clock := lastValue(args, "-bsf:v")
+					if fast {
+						wantClock := "setts=pts=PTS:dts=DTS-" + strconv.FormatFloat(lead.Seconds(), 'f', 9, 64) + "/TB"
+						if hlsFastStartClock(s) != lead || !strings.Contains(clock, wantClock) {
+							t.Fatalf("level=%d start=%s: ramp clock=%q, want %q", level, start, clock, wantClock)
+						}
+					} else if hlsFastStartClock(s) != 0 || strings.Contains(clock, "setts=") {
+						t.Fatalf("steady encode received ramp clock: %q", clock)
+					}
+					if fast || start > 0 {
+						if lastValue(args, "-output_ts_offset") != strconv.FormatFloat(lead.Seconds(), 'f', 9, 64) {
+							t.Fatalf("level=%d fast=%v start=%s: mux origin disagrees with steady clock: %v", level, fast, start, args)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 // The timestamp clock must come from the emitted NVENC plan, including the
 // zero-reorder level contract; has_b_frames is not the muxer's delay in frames.
 func TestNVENCFramePlanClock(t *testing.T) {
