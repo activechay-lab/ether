@@ -249,6 +249,7 @@ type Session struct {
 	terminal    error
 	stopped     bool
 	access      atomic.Int64
+	delivered   atomic.Bool
 	rungs       []core.HLSRung
 	independent bool
 }
@@ -398,6 +399,12 @@ func (s *Session) serveRepresentation(w http.ResponseWriter, r *http.Request, m 
 		}
 	}
 	w.WriteHeader(response.StatusCode)
+	// Track client output at this controller too; worker input reads and
+	// playlists/init records are not proof that remote media was delivered.
+	media := m.Op == "http" || m.Op == "media" || ((m.Op == "segment" || m.Op == "rung-segment") && m.Segment >= 0)
+	if media && response.StatusCode >= 200 && response.StatusCode < 300 && r.Method == http.MethodGet {
+		w = deliveryWriter{ResponseWriter: w, session: s}
+	}
 	// io.Copy applies downstream backpressure; request context cancels upstream.
 	if r.Method != http.MethodHead {
 		var target io.Writer = w
@@ -461,4 +468,25 @@ func (s *Session) Renew(ctx context.Context, n Renewal) (LeaseState, error) {
 		return lease, ErrUncertain
 	}
 	return lease, nil
+}
+
+// PlaybackDelivered reports real media writes through this remote execution.
+func (s *Session) PlaybackDelivered() bool { return s.delivered.Load() }
+
+type deliveryWriter struct {
+	http.ResponseWriter
+	session *Session
+}
+
+func (w deliveryWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(p)
+	if n > 0 {
+		w.session.delivered.Store(true)
+	}
+	return n, err
+}
+func (w deliveryWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }

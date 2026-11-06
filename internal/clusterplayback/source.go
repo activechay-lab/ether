@@ -50,13 +50,14 @@ type sourceRequest struct {
 	Old                   nodesource.Grant
 }
 type sourceResponse struct {
-	Proof    string
-	Phase    string
-	Prepared PreparedSource
-	Stable   string
-	Grant    nodesource.Grant
-	Size     int64
-	Retired  bool
+	FileAvailable *bool `json:",omitempty"`
+	Proof         string
+	Phase         string
+	Prepared      PreparedSource
+	Stable        string
+	Grant         nodesource.Grant
+	Size          int64
+	Retired       bool
 }
 
 func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
@@ -91,6 +92,12 @@ func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
 }
 func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m sourceRequest) (sourceResponse, error) {
 	deny := func() (sourceResponse, error) { return sourceResponse{}, ErrDenied }
+	if m.Op == "file-check" {
+		return r.checkSourceFile(ctx, peer, m.Prepare)
+	}
+	if m.Op == "source-failover" {
+		return r.sourceFailover(ctx, peer, m)
+	}
 	if m.Op == "reopen" {
 		return r.reopenSource(ctx, peer, m.Reopen)
 	}
@@ -120,6 +127,14 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 		return r.prepare(ctx, peer, m.Prepare)
 	}
 	rt, e := r.route(ctx, m.Route.Fence.Session)
+	if e == nil && rt != m.Route && (m.Op == "retire" || m.Op == "status") {
+		for _, prior := range r.sourceRoutes(ctx, rt) {
+			if prior == m.Route {
+				rt = prior
+				break
+			}
+		}
+	}
 	if e != nil || rt != m.Route || rt.Source != r.o.Self {
 		return deny()
 	}
@@ -129,13 +144,13 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 	f := rt.Fence
 	controller := peer.Cluster == r.o.Self.Cluster && peer.NodeID == f.Controller.ID && peer.Boot == f.Controller.Boot
 	target := peer.Cluster == r.o.Self.Cluster && peer.NodeID == f.Target.NodeID && peer.Boot == f.Target.Boot
-	if (m.Op == "bind" || m.Op == "retire" || m.Op == "status") && !controller {
+	if (m.Op == "bind" || m.Op == "retire" || m.Op == "status" || m.Op == "resolve-failover") && !controller {
 		return deny()
 	}
 	if (m.Op == "resolve" || m.Op == "renew") && !target {
 		return deny()
 	}
-	if m.Op != "bind" && m.Op != "resolve" && m.Op != "renew" && m.Op != "retire" && m.Op != "status" {
+	if m.Op != "bind" && m.Op != "resolve" && m.Op != "renew" && m.Op != "retire" && m.Op != "status" && m.Op != "resolve-failover" {
 		return deny()
 	}
 	r.mu.Lock()
@@ -174,6 +189,11 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 		r.sources[sourceKey(f)] = s
 		r.mu.Unlock()
 		defer func() { r.mu.Lock(); s.binding = false; r.mu.Unlock() }()
+		if rt.SourceGeneration == 0 {
+			if e := r.saveSourceRecovery(ctx, rt); e != nil {
+				return deny()
+			}
+		}
 		life, ok := r.o.Playback.SourceRetirement(rt.PlayID)
 		if !ok {
 			return deny()
@@ -185,7 +205,7 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 		if e != nil {
 			return deny()
 		}
-		handle, e := r.authority.Bind(ctx, nodesource.Scope{Fence: f, Viewer: viewerString(rt.Viewer), Revision: rt.Revision}, h, h.Size())
+		handle, e := r.authority.Bind(ctx, scopeForRoute(rt), h, h.Size())
 		if e != nil {
 			h.Revoke()
 			return deny()
@@ -257,10 +277,26 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 			r.mu.Lock()
 			joined := s.sealed && s.retiring && !s.binding && !s.issuing && s.operations == 0
 			r.mu.Unlock()
-			retired = joined && s.life.Err() == nil && r.bytes.Pending(nodesource.Scope{Fence: f, Viewer: viewerString(rt.Viewer), Revision: rt.Revision}) == 0
+			retired = joined && s.life.Err() == nil && r.bytes.Pending(scopeForRoute(rt)) == 0
 		default:
 		}
 		return sourceResponse{Retired: retired}, nil
+	}
+	if m.Op == "resolve-failover" {
+		r.mu.Lock()
+		grant, issued := s.grant, s.issued
+		r.mu.Unlock()
+		if issued {
+			if grant.Scope != scopeForRoute(rt) || grant.Expires.Before(m.Expires) {
+				return deny()
+			}
+			return sourceResponse{Stable: s.handle.Value(), Grant: grant, Size: s.size}, nil
+		}
+		m.Stable = s.handle.Value()
+		peer = nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: f.Target.NodeID, Boot: f.Target.Boot}
+	}
+	if m.Op == "renew" && rt.SourceGeneration > 0 {
+		m.Stable = s.handle.Value()
 	}
 	r.mu.Lock()
 	if s.retiring || s.issuing || (m.Op == "resolve" && s.issued) {

@@ -155,6 +155,7 @@ type Postgres struct {
 	busUp        bool
 	lastSkew     time.Duration
 	lastBeatOK   time.Time
+	beatReceipt  time.Time // process-local monotonic time of the last successful write
 	fatal        error
 }
 
@@ -278,6 +279,18 @@ func (p *Postgres) Health() Health {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return Health{Channel: p.Channel(), BusConnected: p.busUp, LastHeartbeat: p.lastBeatOK, ClockSkew: p.lastSkew}
+}
+
+// HeartbeatAge observes this process's successful heartbeat writes without a
+// database round trip or a persisted wall clock. It is a readiness observation,
+// never membership authority: consumers must still validate peers and fences.
+func (p *Postgres) HeartbeatAge() (time.Duration, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.joined || p.fatal != nil || p.beatReceipt.IsZero() {
+		return 0, false
+	}
+	return time.Since(p.beatReceipt), true
 }
 
 // Publish delivers to local subscribers, then notifies the other nodes.
@@ -600,6 +613,7 @@ WHERE cluster_nodes.incarnation=? AND cluster_nodes.last_seen=?`
 	p.self.Draining, p.self.Migrations = draining, p.local.Migrations
 	announce := !p.joined || !slices.Equal(addrs, p.beatAddrs) || draining != p.beatDraining
 	p.joined, p.beatAddrs, p.lastBeatOK, p.beatDraining = true, addrs, now, draining
+	p.beatReceipt = time.Now()
 	prune := now.Sub(p.lastPrune) > time.Hour
 	if prune {
 		p.lastPrune = now

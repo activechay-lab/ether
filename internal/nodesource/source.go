@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/generationfence"
 	"github.com/braedonsaunders/ether/internal/placement"
 )
 
@@ -23,9 +24,10 @@ const Path = "/internal/source/v1/bytes"
 const CredentialHeader = "X-Ether-Source-Grant"
 
 type Scope struct {
-	Fence    placement.Fence
-	Viewer   string
-	Revision string
+	SourceGeneration uint64
+	Fence            placement.Fence
+	Viewer           string
+	Revision         string
 }
 type Peer struct{ NodeID, Boot string }
 type Grant struct {
@@ -201,7 +203,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", etag(grant.Scope))
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/octet-stream")
-	http.ServeContent(w, r.WithContext(ctx), "source", time.Time{}, sr)
+	guarded := &generationfence.Writer{ResponseWriter: w, Check: func() error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return sr.check()
+	}}
+	http.ServeContent(guarded, r.WithContext(ctx), "source", time.Time{}, sr)
 }
 func etag(s Scope) string { b, _ := json.Marshal(s); return fmt.Sprintf("\"%x\"", sha256.Sum256(b)) }
 

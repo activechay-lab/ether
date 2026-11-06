@@ -54,7 +54,6 @@ export function GuideGrid({
   covered,
   onToggleFavorite,
   emptyHint,
-  onAddChannel,
   selection,
   bulkActions,
 }: {
@@ -81,7 +80,6 @@ export function GuideGrid({
   onToggleFavorite?: (c: Channel) => void;
   /** Shown instead of the default when there are no rows. */
   emptyHint?: ReactNode;
-  onAddChannel?: () => void;
   selection?: ChannelSelection;
   bulkActions?: ReactNode;
 }) {
@@ -212,13 +210,7 @@ export function GuideGrid({
         ) : null}
         <div className={cn("flex min-w-0 flex-1", lineup && "h-[104px]")}>
           {lineup ? (
-            <OnNowStrip
-              channels={loadedChannels}
-              guide={guide}
-              now={now}
-              onSelect={onSelect}
-              onAddChannel={onAddChannel}
-            />
+            <OnNowStrip channels={loadedChannels} guide={guide} now={now} onSelect={onSelect} />
           ) : null}
           <div
             className={cn(
@@ -732,9 +724,7 @@ export function OnNowStrip({
   guide,
   now,
   onSelect,
-  onAddChannel,
 }: {
-  onAddChannel?: () => void;
   channels: Channel[];
   guide: Map<string, Programme[]>;
   now: number;
@@ -786,11 +776,6 @@ export function OnNowStrip({
             <Tv size={17} />
           </span>
           <p className="text-sm font-medium text-fg">{t("Your next channel starts here.")}</p>
-          {onAddChannel ? (
-            <Button size="sm" variant="outline" onClick={onAddChannel}>
-              {t("Add channel")}
-            </Button>
-          ) : null}
         </div>
       </section>
     );

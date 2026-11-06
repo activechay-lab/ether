@@ -518,9 +518,16 @@ func TestMixedProtocolOperability(t *testing.T) {
 			a.playback.Stop(session.ID)
 		}
 		opensBefore := media.opensOf(media.relID)
-		plexHeader := map[string]string{"X-Plex-Token": "test-owner", "X-Plex-Client-Identifier": "plex-tv"}
-		code, body := call(http.MethodGet, "/video/:/transcode/universal/start.m3u8?path="+urlPath(title.Key)+"&session=plex-direct&directPlay=1&directStream=1&protocol=hls", "", plexHeader)
-		if code >= 500 {
+		plexHeader := map[string]string{"X-Plex-Token": "test-owner", "X-Plex-Client-Identifier": "plex-tv", "X-Plex-Session-Identifier": "plex-player"}
+		plexQuery := "?path=" + urlPath(title.Key) + "&session=plex-direct&directPlay=1&directStream=1&protocol=hls"
+		// Plex clients decide for the same player and item before starting HLS.
+		// Both Plex HLS and Jellyfin must occupy the shared two-slot budget.
+		code, body := call(http.MethodGet, "/video/:/transcode/universal/decision"+plexQuery, "", plexHeader)
+		if code != http.StatusOK {
+			t.Fatalf("plex decision %d %s\n%s", code, body, logs.String())
+		}
+		code, body = call(http.MethodGet, "/video/:/transcode/universal/start.m3u8"+plexQuery, "", plexHeader)
+		if code != http.StatusOK {
 			t.Fatalf("plex play %d %s\n%s", code, body, logs.String())
 		}
 		code, body = call(http.MethodPost, "/jellyfin/Items/"+guid+"/PlaybackInfo", `{"IsPlayback":true,"EnableDirectPlay":false,"EnableDirectStream":false,"EnableTranscoding":true}`, jf)
