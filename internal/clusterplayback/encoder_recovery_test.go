@@ -208,6 +208,18 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				if err := runtimes[1].authorizeWorker(ctx, old.route.Fence.Controller.Boot, "status", remoteIdentity(old.route), nil); err != nil {
 					t.Fatalf("quarantined status: %v", err)
 				}
+				// Quarantine blocks new authority, not observation of the healthy
+				// execution. Wait beyond the failure grace with a live status RPC.
+				_ = front.Tick(ctx)
+				time.Sleep(2 * time.Millisecond)
+				_ = front.Tick(ctx)
+				rec, err := p.Lookup(ctx, q.SessionID)
+				if err != nil || rec.Generation != 1 || len(b.requests) != 0 {
+					t.Fatalf("clock quarantine triggered recovery: %+v %v", rec, err)
+				}
+				clockFault.Store(false)
+				// A subsequent real RPC loss must still recover.
+				down.Store(true)
 			} else {
 				down.Store(true)
 			}

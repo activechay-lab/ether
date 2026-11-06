@@ -677,6 +677,14 @@ Membership `last_seen` writes and age calculations both use PostgreSQL's clock,
 so a node wall-clock step cannot manufacture membership freshness. Membership
 liveness remains distinct from lease authority and confirmed process retirement.
 Host NTP is mandatory even with DB-clock membership and continuous skew checks.
+Clock checks derive wall and monotonic readings from one observation. In-bound
+corrections are logged without quarantine; measured skew plus uncertainty must
+remain inside each node's half of the configured pairwise bound. Clock quarantine
+blocks new authority and lease extension, while a healthy running encoder remains
+observable under its accepted lease. Recovery probes check exact membership and
+encoder status, independently of eligibility for new work. Recovery decision logs
+name the detector, probe duration/deadline, and failure grace.
+
 
 ## Known limits and release gates
 

@@ -18,20 +18,28 @@ import (
 
 // probeEncoder distinguishes a successful status reporting an active process
 // from transport loss. EncoderErr==pending is normal for an active process.
-func (r *Runtime) probeEncoder(ctx context.Context, x *execution) error {
+func (r *Runtime) probeEncoder(ctx context.Context, x *execution) (string, error) {
 	c, cancel := context.WithTimeout(ctx, r.o.EncoderRPCDeadline)
 	defer cancel()
-	if err := r.o.Eligible(c, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: x.route.Fence.Target.NodeID, Boot: x.route.Fence.Target.Boot}, config.RoleTranscode); err != nil {
-		return err
+	// Eligibility governs NEW placement. A draining or clock-quarantined
+	// member can still own a healthy execution under its accepted lease.
+	if err := r.o.MemberRole(c, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: x.route.Fence.Target.NodeID, Boot: x.route.Fence.Target.Boot}, config.RoleTranscode); err != nil {
+		if c.Err() != nil {
+			return "membership-timeout", err
+		}
+		return "membership-loss", err
 	}
 	err := x.session.Reconcile(c)
 	if errors.Is(err, core.ErrEncoderPending) {
-		return nil
+		return "healthy", nil
 	}
 	if err == nil {
-		return ErrPending
-	} // exact retired observation also needs replacement
-	return err
+		return "encoder-retired", ErrPending
+	}
+	if c.Err() != nil {
+		return "status-timeout", err
+	}
+	return "status-failure", err
 }
 
 // encoderRecoverySupported is shared with dead-boot retirement: lack of spare

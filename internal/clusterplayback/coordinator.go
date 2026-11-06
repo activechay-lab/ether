@@ -10,6 +10,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -614,7 +615,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			continue
 		}
 		if x.output != nil && x.initial != nil && x.initial.request.Decision.Kind == core.DecisionTranscode && !x.initial.request.Decision.VideoCopy {
-			probeErr := r.probeEncoder(ctx, x)
+			probeStarted := time.Now()
+			detector, probeErr := r.probeEncoder(ctx, x)
+			probeElapsed := time.Since(probeStarted)
 			// A worker idle close after viewer activity ceased is terminal, not
 			// an invitation to place an endless chain of replacement encoders.
 			if x.session.EncoderErr() == nil && time.Since(x.output.LastAccess()) > 2*time.Minute {
@@ -628,6 +631,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			}
 			if probeErr != nil && current != nil && current.failedSince.IsZero() {
 				current.failedSince = time.Now()
+				slog.Warn("encoder recovery probe failed", "session", x.route.Fence.Session, "generation", x.route.Fence.Generation, "detector", detector, "probe_elapsed", probeElapsed, "probe_deadline", r.o.EncoderRPCDeadline, "failure_grace", r.o.EncoderFailureGrace)
 			}
 			recoverNow := current != nil && (current.replacement != nil || !current.failedSince.IsZero() && time.Since(current.failedSince) >= r.o.EncoderFailureGrace)
 			r.mu.Unlock()
@@ -638,6 +642,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 				recoverNow = true
 			}
 			if recoverNow {
+				slog.Warn("encoder recovery decision", "session", x.route.Fence.Session, "generation", x.route.Fence.Generation, "worker", x.route.Fence.Target.NodeID, "worker_boot", x.route.Fence.Target.Boot, "detector", detector, "probe_elapsed", probeElapsed, "probe_deadline", r.o.EncoderRPCDeadline, "failure_grace", r.o.EncoderFailureGrace, "failure_since", current.failedSince, "failure_elapsed", time.Since(current.failedSince), "continuing_replacement", current.replacement != nil)
 				if e := r.recoverEncoder(ctx, x); e != nil {
 					result = e
 				}

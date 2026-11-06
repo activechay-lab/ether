@@ -42,7 +42,7 @@ type Options struct {
 	ConnConfig      *pgx.ConnConfig
 	Logger          *slog.Logger
 	Now             func() time.Time
-	MonotonicNow    func() time.Time // independent monotonic sample; defaults to time.Now
+	ClockSample     func() (wall, mono time.Time) // one paired observation; defaults to a single time.Now
 	ClockBoundKnown bool
 	ClockSkew       time.Duration // configured pairwise bound; unknown refuses authority
 
@@ -181,8 +181,11 @@ func NewPostgres(o Options) (*Postgres, error) {
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}
-	if o.MonotonicNow == nil {
-		o.MonotonicNow = time.Now
+	if o.ClockSample == nil {
+		o.ClockSample = func() (time.Time, time.Time) {
+			t := time.Now()
+			return t.Round(0), t
+		}
 	}
 	if o.Now == nil {
 		o.Now = time.Now
@@ -796,13 +799,16 @@ func (p *Postgres) checkClock(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, p.o.ProbeTimeout)
 	defer cancel()
 	var dbUS int64
-	before, monoBefore := p.o.Now(), p.o.MonotonicNow()
+	before, monoBefore := p.o.ClockSample()
 	err := p.db.QueryRowContext(ctx, `SELECT CAST(EXTRACT(EPOCH FROM clock_timestamp()) * 1000000 AS BIGINT)`).Scan(&dbUS)
-	after, monoAfter := p.o.Now(), p.o.MonotonicNow()
+	// Commit the final paired sample under the same lock as admissions. Time
+	// spent waiting for it is part of the measured uncertainty, rather than a
+	// stale observation that can rewind or starve the refreshed DB proof.
 	p.clock.mu.Lock()
+	after, monoAfter := p.o.ClockSample()
 	previous := p.clock.status.Ready
+	status, step := p.clock.sampleLocked(before, after, monoBefore, monoAfter, time.UnixMicro(dbUS), err == nil)
 	p.clock.mu.Unlock()
-	status, step := p.clock.sample(before, after, monoBefore, monoAfter, time.UnixMicro(dbUS), err == nil)
 	p.logClockStep(step)
 	if previous != status.Ready {
 		p.log.Warn("cluster: clock admission changed", "ready", status.Ready, "reason", status.Reason, "skew", status.ClockSkew, "uncertainty", status.Uncertainty, "bound", status.Bound)
