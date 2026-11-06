@@ -56,3 +56,14 @@ func TestClusterConsoleOwnerBoundary(t *testing.T) {
 		t.Fatal("unavailable observations must be empty lists")
 	}
 }
+
+func TestClusterPlaybackDisplayProjection(t *testing.T) {
+	display := clusterPlaybackDisplayJSON(`{"ReadToken":"private-read","Binding":{"StreamToken":"private-stream","Decision":{"videoCodec":"h264","maxHeight":1080,"bitrateKbps":8000}},"Source":{"TitleName":"Arrival (2016)","Username":"Alex","Key":1000000000000329,"Client":{"deviceName":"Living room","product":"Plex for Apple TV"}}}`)
+	if display == nil || display.Title != "Arrival (2016)" || display.Viewer != "Alex" || display.Device != "Living room" || display.BitrateKbps != 8000 {
+		t.Fatalf("display facts not projected: %#v", display)
+	}
+	raw, err := json.Marshal(display)
+	if err != nil || strings.Contains(string(raw), "private-") {
+		t.Fatal("private protocol fields escaped into owner display")
+	}
+}

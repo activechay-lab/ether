@@ -7,14 +7,28 @@ import (
 	"time"
 )
 
+// PlaybackDisplay contains owner-facing facts only, never a transport credential.
+type PlaybackDisplay struct {
+	Title       string `json:"title,omitempty"`
+	TitleKey    string `json:"titleKey,omitempty"`
+	Poster      string `json:"poster,omitempty"`
+	Viewer      string `json:"viewer,omitempty"`
+	Device      string `json:"device,omitempty"`
+	App         string `json:"app,omitempty"`
+	Video       string `json:"video,omitempty"`
+	BitrateKbps int    `json:"bitrateKbps,omitempty"`
+}
+
 type Assignment struct {
-	SessionID        string     `json:"sessionId"`
-	SourceNodeID     string     `json:"sourceNodeId,omitempty"`
-	EncoderNodeID    string     `json:"encoderNodeId"`
-	ControllerNodeID string     `json:"controllerNodeId"`
-	DeliveryNodeID   string     `json:"deliveryNodeId,omitempty"`
-	Generation       int64      `json:"generation"`
-	MovedAt          *time.Time `json:"movedAt,omitempty"`
+	ViewerID         int64            `json:"-"`
+	Playback         *PlaybackDisplay `json:"playback,omitempty"`
+	SessionID        string           `json:"sessionId"`
+	SourceNodeID     string           `json:"sourceNodeId,omitempty"`
+	EncoderNodeID    string           `json:"encoderNodeId"`
+	ControllerNodeID string           `json:"controllerNodeId"`
+	DeliveryNodeID   string           `json:"deliveryNodeId,omitempty"`
+	Generation       int64            `json:"generation"`
+	MovedAt          *time.Time       `json:"movedAt,omitempty"`
 }
 
 // Assignments reads durable active routes. Delivery has no fixed owner, and
@@ -37,7 +51,7 @@ func (r *Runtime) Assignments(ctx context.Context) ([]Assignment, error) {
 		if err := json.Unmarshal([]byte(raw), &route); err != nil {
 			return nil, err
 		}
-		out = append(out, Assignment{SessionID: route.Fence.Session, SourceNodeID: route.Source.NodeID, EncoderNodeID: route.Fence.Target.NodeID, ControllerNodeID: coordinator.String, Generation: route.Fence.Generation})
+		out = append(out, Assignment{ViewerID: route.Viewer, SessionID: route.Fence.Session, SourceNodeID: route.Source.NodeID, EncoderNodeID: route.Fence.Target.NodeID, ControllerNodeID: coordinator.String, Generation: route.Fence.Generation})
 	}
 	return out, rows.Err()
 }

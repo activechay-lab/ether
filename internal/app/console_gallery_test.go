@@ -49,9 +49,9 @@ func (f *consoleGallery) AllNodes(context.Context) ([]cluster.Node, error) {
 			d.Transcodes = &used
 		}
 		if role == "transcode" && f.scenario == "degraded" {
-			d.ReadyExisting = false
 			d.AcceptingNew = false
-			d.ReadinessReason = "set_target"
+			d.ReadinessReason = "clock_skew"
+			d.Clock = &cluster.ClockStatus{ClockSkew: 1700 * time.Millisecond, SampledAt: now, Ready: false, Reason: "clock_skew"}
 		}
 		if role == "transcode" && f.scenario == "recovering" {
 			d.Draining = true
@@ -76,7 +76,7 @@ func (f *consoleGallery) Assignments(context.Context) ([]clusterplayback.Assignm
 		return []clusterplayback.Assignment{}, nil
 	}
 	at := time.Now().Add(-37 * time.Second)
-	return []clusterplayback.Assignment{{SessionID: "living-room-movie", SourceNodeID: "source", EncoderNodeID: "transcode", ControllerNodeID: "server", Generation: 3, MovedAt: &at}, {SessionID: "bedroom-episode", SourceNodeID: "source", EncoderNodeID: "transcode", ControllerNodeID: "server", Generation: 1}}, nil
+	return []clusterplayback.Assignment{{Playback: &clusterplayback.PlaybackDisplay{Title: "Arrival (2016)", Poster: "/fixture/posters/arrival.jpg", Viewer: "Alex", Device: "Living room Apple TV", App: "Plex for Apple TV", Video: "H.264 1080p", BitrateKbps: 8000}, SessionID: "living-room-movie", SourceNodeID: "source", EncoderNodeID: "transcode", ControllerNodeID: "server", Generation: 3, MovedAt: &at}, {Playback: &clusterplayback.PlaybackDisplay{Title: "Dune: Part Two (2024)", Poster: "/fixture/posters/dune.jpg", Viewer: "Jamie", Device: "iPad", App: "Plex for iOS", Video: "H.264 720p", BitrateKbps: 4000}, SessionID: "bedroom-episode", SourceNodeID: "source", EncoderNodeID: "transcode", ControllerNodeID: "server", Generation: 1}}, nil
 }
 func (f *consoleGallery) RecoveryEvents(context.Context, int) ([]clusterplayback.RecoveryEvent, error) {
 	f.mu.Lock()
@@ -127,6 +127,9 @@ func TestConsoleGallery(t *testing.T) {
 		_ = a.cfg.Update(func(c *config.Config) error { c.SetupComplete = true; return nil })
 		w.WriteHeader(204)
 	})
+	if media := os.Getenv("ETHER_CONSOLE_GALLERY_MEDIA"); media != "" {
+		mux.Handle("GET /fixture/posters/", http.StripPrefix("/fixture/posters/", http.FileServer(http.Dir(media))))
+	}
 	mux.Handle("/", a.Handler())
 	listener, err := net.Listen("tcp", "127.0.0.1:18735")
 	if err != nil {

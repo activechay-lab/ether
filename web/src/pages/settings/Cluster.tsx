@@ -29,7 +29,7 @@ import { SettingsRow } from "../../components/SettingsRow";
 import { pagedTableLabels } from "../../i18n/appkit-labels";
 import { localized, t, tn } from "../../i18n";
 import { api, errorMessage } from "../../lib/api";
-import { formatDateTime, parseTime, relativeTime } from "../../lib/format";
+import { fixed, formatDateTime, parseTime, relativeTime } from "../../lib/format";
 import { useAsync, useInterval, type AsyncState } from "../../lib/hooks";
 import type {
   ClusterNode,
@@ -454,32 +454,32 @@ function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: b
                 <article key={n.id} className="rounded-lg border border-border px-3 py-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <strong className="text-sm">{nodeName(n)}</strong>
-                    <span className="ml-auto">
-                      <Badge
-                        variant={
-                          healthOf(n) === "error"
-                            ? "destructive"
-                            : healthOf(n) === "ok"
-                              ? "success"
-                              : healthOf(n) === "warn"
-                                ? "warning"
-                                : "outline"
-                        }
-                      >
-                        {healthOf(n) === "error"
-                          ? t("Failing")
-                          : healthOf(n) === "ok"
-                            ? t("Healthy")
-                            : healthOf(n) === "warn"
-                              ? t("Needs attention")
-                              : t("Unknown")}
-                      </Badge>
-                    </span>
                     <Badge variant={n.draining ? "warning" : "outline"}>
-                      {n.draining ? t("Draining") : nodeRoles(n).join(" · ")}
+                      {nodeRoles(n).join(" · ")}
                     </Badge>
                   </div>
-                  <NodeCapacity node={n} cached={cached} />
+                  <div className="mt-2">
+                    <NodePlainStatus status={s} node={n} cached={cached} />
+                  </div>
+                  {!cached && n.caps?.diagnostics && runtimeFresh(n.caps.diagnostics.sampledAt) ? (
+                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-fg-muted">
+                      {n.caps.diagnostics.transcodes !== undefined &&
+                      n.caps.diagnostics.transcodeCapacity !== undefined ? (
+                        <span>
+                          {t("Transcode slots")}: {n.caps.diagnostics.transcodes} /{" "}
+                          {n.caps.diagnostics.transcodeCapacity}
+                        </span>
+                      ) : null}
+                      {n.caps.diagnostics.sourceConnections !== undefined &&
+                      n.caps.diagnostics.sourceConnectionCapacity !== undefined ? (
+                        <span>
+                          {t("Source connections")} · {t("Usenet")}:{" "}
+                          {n.caps.diagnostics.sourceConnections} /{" "}
+                          {n.caps.diagnostics.sourceConnectionCapacity}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {preview ? (
                     <dl className="mt-2 grid grid-cols-4 gap-2 text-[11px] sm:text-xs">
                       {[
@@ -679,54 +679,8 @@ function Nodes({
             },
             {
               key: "status",
-              header: t("Heartbeat"),
-              cell: (n) => (
-                <div className="flex flex-col items-start gap-1">
-                  <span className="text-xs text-fg-muted sm:hidden">{t("Heartbeat")}</span>
-                  <Badge
-                    variant={
-                      cached || (n.live && !nodeStatusFresh(n))
-                        ? "warning"
-                        : n.live
-                          ? "success"
-                          : "secondary"
-                    }
-                  >
-                    {cached || (n.live && !nodeStatusFresh(n))
-                      ? t("Stale status")
-                      : n.live
-                        ? t("Online")
-                        : t("Offline")}
-                  </Badge>
-                  <span className="text-xs text-fg-muted" title={formatDateTime(n.lastSeen)}>
-                    {t("Last seen {when}", { when: relativeTime(n.lastSeen) })}
-                  </span>
-                </div>
-              ),
-            },
-            {
-              key: "admission",
-              header: t("New streams"),
-              cell: (n) =>
-                status.selfRuntime || n.caps?.diagnostics ? (
-                  <RuntimeObservation status={status} node={n} cached={cached} />
-                ) : (
-                  <div className="space-y-1">
-                    <span className="block text-xs text-fg-muted sm:hidden">
-                      {t("New streams")}
-                    </span>
-                    <Badge variant={n.draining ? "warning" : "secondary"}>
-                      {cached || !nodeStatusFresh(n)
-                        ? t("Unknown")
-                        : n.draining
-                          ? t("Paused")
-                          : t("Not reported")}
-                    </Badge>
-                    <p className="max-w-48 text-xs text-fg-muted">
-                      {t("Playback readiness is not reported.")}
-                    </p>
-                  </div>
-                ),
+              header: t("Status"),
+              cell: (n) => <NodePlainStatus status={status} node={n} cached={cached} />,
             },
             {
               key: "load",
@@ -832,7 +786,7 @@ function NodeDrawer({
       }
     >
       <div className="space-y-5">
-        <NodeCapacity node={node} cached={cached} lifecycle={false} />
+        <NodeCapacity node={node} cached={cached} />
         <SettingsSection title={t("Configured roles")}>
           <SettingsRow
             title={nodeRoles(node).join(", ")}
@@ -841,6 +795,9 @@ function NodeDrawer({
             )}
           />
         </SettingsSection>
+        <p className="text-xs text-fg-muted">
+          {t("Last seen {when}", { when: formatDateTime(node.lastSeen) })}
+        </p>
         <RuntimeObservation status={status} node={node} cached={cached} />
         <NodeControls node={node} cached={cached} onChanged={onChanged} />
         <RolePlan status={status} node={node} />
@@ -1485,15 +1442,7 @@ function readinessReason(reason: string): string {
       return t("Runtime unavailable");
   }
 }
-function NodeCapacity({
-  node,
-  cached,
-  lifecycle = true,
-}: {
-  node: ClusterNode;
-  cached: boolean;
-  lifecycle?: boolean;
-}) {
+function NodeCapacity({ node, cached }: { node: ClusterNode; cached: boolean }) {
   const d = node.caps?.diagnostics;
   const fresh = !cached && nodeStatusFresh(node) && !!d && runtimeFresh(d.sampledAt);
   const value = (n: number | undefined) =>
@@ -1502,15 +1451,6 @@ function NodeCapacity({
     <dl className="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
       {[
         [t("Transcoding"), transcodeLabel(node)],
-        ...(lifecycle
-          ? [
-              [
-                t("Accepting new work"),
-                fresh ? (d?.acceptingNew ? t("Yes") : t("No")) : t("Unknown"),
-              ],
-              [t("Draining"), fresh ? (d?.draining ? t("Yes") : t("No")) : t("Unknown")],
-            ]
-          : []),
         [
           t("Clock skew"),
           fresh && d?.clock && runtimeFresh(d.clock.sampledAt)
@@ -1550,5 +1490,73 @@ function NodeCapacity({
         </div>
       ))}
     </dl>
+  );
+}
+
+function NodePlainStatus({
+  status,
+  node,
+  cached,
+}: {
+  status: ClusterStatus;
+  node: ClusterNode;
+  cached: boolean;
+}) {
+  const d = node.caps?.diagnostics;
+  const self = nodeRuntime(status, node);
+  const ready =
+    d && runtimeFresh(d.sampledAt)
+      ? d
+      : self && runtimeFresh(self.runtimeSampledAt)
+        ? self
+        : undefined;
+  if (cached) return <Badge variant="outline">{t("Stale status")}</Badge>;
+  if (!node.live || !nodeStatusFresh(node))
+    return <Badge variant="secondary">{t("Offline")}</Badge>;
+  if (node.draining && !ready)
+    return (
+      <div className="space-y-1">
+        <Badge variant="warning">{t("Not taking new streams")}</Badge>
+        <p className="text-xs text-fg-muted">{t("Draining")}</p>
+      </div>
+    );
+  if (!ready)
+    return (
+      <div className="space-y-1">
+        <Badge variant="outline">{t("Not reported")}</Badge>
+        <p className="max-w-56 text-xs text-fg-muted">{t("Playback readiness is not reported.")}</p>
+      </div>
+    );
+  const reason = d?.readinessReason;
+  const healthy =
+    ready.readyExisting && ready.acceptingNew && !ready.draining && !node.draining && !reason;
+  const clock = d?.clock;
+  const detail =
+    ready.draining || node.draining
+      ? t("Draining")
+      : reason === "clock_skew" && clock && runtimeFresh(clock.sampledAt)
+        ? t("Clock out of sync by {value} s", {
+            value: fixed(Math.abs(clock.clockSkewNs) / 1e9, 1),
+          })
+        : reason === "age_at_or_above_maximum" || reason === "not_live"
+          ? t("Database unreachable")
+          : reason &&
+              [
+                "invalid_roles",
+                "cluster_mismatch",
+                "boot_mismatch",
+                "mounted_identity_changed",
+              ].includes(reason)
+            ? t("Node identity or roles need attention")
+            : reason === "credential_rotation_failed"
+              ? t("Credentials need attention")
+              : t("Waiting for playback services");
+  return (
+    <div className="space-y-1">
+      <Badge variant={healthy ? "success" : "warning"}>
+        {healthy ? t("Healthy") : t("Not taking new streams")}
+      </Badge>
+      {!healthy && <p className="max-w-56 text-xs text-fg-muted">{detail}</p>}
+    </div>
   );
 }

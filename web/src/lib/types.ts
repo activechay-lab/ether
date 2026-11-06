@@ -1039,6 +1039,16 @@ export interface ClusterConsole {
   sampledAt: string;
   truncated: boolean;
   assignments: {
+    playback?: {
+      title?: string;
+      titleKey?: string;
+      poster?: string;
+      viewer?: string;
+      device?: string;
+      app?: string;
+      video?: string;
+      bitrateKbps?: number;
+    };
     sessionId: string;
     sourceNodeId?: string;
     encoderNodeId: string;

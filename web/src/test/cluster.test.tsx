@@ -145,7 +145,7 @@ describe("Server › Cluster", () => {
     const den = rowOf(nodes, "den");
     expect(within(den).getByText("Leader")).toBeInTheDocument();
     expect(within(den).getByText("This node")).toBeInTheDocument();
-    expect(within(den).getByText("Online")).toBeInTheDocument();
+    expect(within(den).getByText("Healthy")).toBeInTheDocument();
     expect(within(den).getByText("videotoolbox")).toBeInTheDocument();
     expect(within(den).getByLabelText("den weight")).toHaveTextContent("1");
 
@@ -158,7 +158,7 @@ describe("Server › Cluster", () => {
 
     const garage = rowOf(nodes, "garage");
     expect(within(garage).getByText("Offline")).toBeInTheDocument();
-    expect(within(garage).getByText(/Last seen 3 hours ago/)).toBeInTheDocument();
+    expect(within(garage).queryByText(/Last seen/)).toBeNull();
     expect(within(garage).getByText("Version 0.8.4")).toBeInTheDocument();
     expect(within(garage).getByText("Software")).toBeInTheDocument();
 
@@ -179,7 +179,7 @@ describe("Server › Cluster", () => {
     expect(screen.getByRole("button", { name: "Create join token" })).toBeEnabled();
   });
 
-  it("shows independent local serving/admission observations and leaves peers unknown", async () => {
+  it("keeps runtime details in the drawer while showing admission status", async () => {
     renderApp("/cluster", { cluster: true }, (fake) => {
       const fetch = fake.fetch;
       fake.fetch = async (...args) => {
@@ -204,16 +204,11 @@ describe("Server › Cluster", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "Nodes" }, WAIT));
     const nodes = await screen.findByRole("region", { name: "Nodes" }, WAIT);
     const local = rowOf(nodes, "den");
-    expect(within(local).getByText("Serving existing work").nextElementSibling).toHaveTextContent(
-      "Yes",
-    );
-    expect(within(local).getByText("Accepting new work").nextElementSibling).toHaveTextContent(
-      "No",
-    );
-    const peer = rowOf(nodes, "attic");
-    expect(within(peer).getByText("Serving existing work").nextElementSibling).toHaveTextContent(
-      "Unknown",
-    );
+    expect(within(local).getByText("Not taking new streams")).toBeInTheDocument();
+    expect(within(local).getByText("Draining")).toBeInTheDocument();
+    expect(within(local).queryByText("Serving existing work")).toBeNull();
+    const peer = rowOf(nodes, "source-02");
+    expect(within(peer).getByText("Not reported")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Manage this node" }));
     const drawer = await screen.findByRole("dialog", { name: "Manage" });
     expect(within(drawer).getByText("Accepting new work").nextElementSibling).toHaveTextContent(
