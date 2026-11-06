@@ -34,6 +34,7 @@ def main():
     p.add_argument('--fixture-quality',action='store_true',help='Allow the real 360p generated fixture in lab quality profiles')
     p.add_argument('--enable-mediabrowser',action='store_true',help='Enable Jellyfin/Emby and save device-bound fixture auth responses')
     p.add_argument('--refresh-only',action='store_true',help='Refresh fixture delegation without rewriting source configuration')
+    p.add_argument('--long-fixture',action='store_true',help='Add isolated 600s title900002 and its own fixture source')
     a=p.parse_args()
     if (a.namespace, a.context) not in (('ether035-ha','kind-ether035-ha'), ('ether035-ha','ether035-multihost'), ('ether035-lab2','ether035-lab2')) or urlsplit(a.base).hostname not in ('127.0.0.1','localhost'):
         p.error('only approved isolated lab namespace/context pairs and loopback origins are allowed')
@@ -64,15 +65,22 @@ def main():
         if config['plex'].get('claimed'):
             p.error('refusing a claimed server')
         if not a.refresh_only:
-            if any(v['id']!='ether035-ha-source' for v in (config['usenet']['providers'] or [])) or any(v['id']!='ether035-ha-source' for v in (config['indexers'] or [])):
+            long_id=a.namespace+'-long-source'
+            allowed={'ether035-ha-source',long_id}
+            providers=config['usenet']['providers'] or []
+            indexers=config['indexers'] or []
+            if any(v['id'] not in allowed for v in providers+indexers):
                 p.error('refusing to replace nonfixture sources')
-            config['usenet']['providers']=[dict(id='ether035-ha-source',name='Ether generated fixture',
-                host=a.namespace+'-source.'+a.namespace+'.svc.cluster.local',port=1190,tls=False,
-                username='',password='',connections=4,enabled=True,priority=0)]
+            fixture_id=long_id if a.long_fixture else 'ether035-ha-source'
+            service=long_id if a.long_fixture else a.namespace+'-source'
+            fixture_host=service+'.'+a.namespace+'.svc.cluster.local'
+            config['usenet']['providers']=[dict(id=fixture_id,name='Ether generated fixture',
+                host=fixture_host,port=1190,tls=False,
+                username='',password='',connections=4,enabled=True,priority=0)]+[v for v in providers if v['id']!=fixture_id]
             config['usenet']['minIdle']=1
-            config['indexers']=[dict(id='ether035-ha-source',name='Ether generated fixture',
-                url='http://'+a.namespace+'-source.'+a.namespace+'.svc.cluster.local:8080',apiKey='',priority=0,
-                enabled=True,protocol='usenet',movieCategories=[2000])]
+            config['indexers']=[dict(id=fixture_id,name='Ether generated fixture',
+                url='http://'+fixture_host+':8080',apiKey='',priority=0,
+                enabled=True,protocol='usenet',movieCategories=[2000])]+[v for v in indexers if v['id']!=fixture_id]
             if a.fixture_quality:
                 for profile in config['quality']['profiles']:
                     profile['minHeight']=min(profile.get('minHeight',0),360)
@@ -97,9 +105,13 @@ def main():
     now=int(time.time())
     # Mirrors the current detailed catalog fixture columns. No generated columns,
     # identity cloning, raw upstream account token, or production DB URL involved.
+    tmdb=900002 if a.long_fixture else 900001
+    rating_key=1000000000000000+tmdb
+    title='Ether Long Cluster Fixture' if a.long_fixture else 'Ether Cluster Fixture'
+    runtime=600 if a.long_fixture else 180
     sql=f'''BEGIN;
 INSERT INTO catalog_titles(key,type,tmdb_id,title,original_title,sort_title,year,released_ts,runtime_sec,language,content_rating,content_rating_rank,browsable,added_at,fetched_at,detail,detail_at,primary_released_ts,year_source,year_checked_at)
-VALUES(1000000000900001,'movie',900001,'Ether Cluster Fixture','Ether Cluster Fixture','ether cluster fixture',2020,1577836800,180,'en','PG',2,1,{now},{now},1,{now},1577836800,'primary',{now})
+VALUES({rating_key},'movie',{tmdb},'{title}','{title}','{title.lower()}',2020,1577836800,{runtime},'en','PG',2,1,{now},{now},1,{now},1577836800,'primary',{now})
 ON CONFLICT(key) DO UPDATE SET detail=1,detail_at={now},fetched_at={now},primary_released_ts=1577836800,year_source='primary',year_checked_at={now};
 INSERT INTO auth_delegations(token_hash,user_id,expires_at)
 SELECT '{hashlib.sha256(token.encode()).hexdigest()}',id,{now+900} FROM auth_users

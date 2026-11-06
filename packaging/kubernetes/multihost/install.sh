@@ -4,6 +4,10 @@ set -euo pipefail
 umask 077
 state=${1:?usage: install.sh PRIVATE_STATE IMAGE_TAG}
 source "$(dirname "$0")/lab-config.sh"
+case "$lab:$context:$prefix:$namespace" in
+ ether035-multihost:ether035-multihost:ether035-mh:ether035-ha|ether035-lab2:ether035-lab2:ether035-lab2:ether035-lab2) ;;
+ *) echo 'only approved isolated lab tuples are allowed' >&2; exit 64;;
+esac
 export ETHER_LAB_PREFIX="$prefix" ETHER_LAB_NAMESPACE="$namespace"
 tag=${2:?immutable image tag required}
 root=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -42,8 +46,17 @@ if ! kubectl -n "$namespace" get secret ether-authority >/dev/null 2>&1; then
  kubectl -n "$namespace" create secret generic ether-authority \
   --from-file="ca.key=$state/private/ca.key" --from-file="ca.crt=$state/private/ca.crt" --from-file="roots.pem=$state/private/roots.pem"
 fi
-python3 "$root/packaging/kubernetes/multihost/fixtures.py" "$root" "$tag" > "$state/fixtures.yaml"
-kubectl -n "$namespace" create configmap "${namespace}-source-code" --from-file="$root/packaging/kubernetes/source-fixture.py" --dry-run=client -o yaml | kubectl -n "$namespace" apply -f -
+fixture_flags=()
+# Reapplying a changed emptyDir template could discard the existing DB.
+if kubectl -n "$namespace" get statefulset "${namespace}-pg" >/dev/null 2>&1; then
+ fixture_flags+=(--preserve-pg)
+fi
+if kubectl -n "$namespace" get deployment "${namespace}-source" >/dev/null 2>&1; then
+ fixture_flags+=(--preserve-source)
+else
+ kubectl -n "$namespace" create configmap "${namespace}-source-code" --from-file="$root/packaging/kubernetes/source-fixture.py" --dry-run=client -o yaml | kubectl -n "$namespace" apply -f -
+fi
+python3 "$root/packaging/kubernetes/multihost/fixtures.py" "$root" "$tag" "${fixture_flags[@]}" > "$state/fixtures.yaml"
 kubectl -n "$namespace" apply -f "$state/fixtures.yaml"
 kubectl -n "$namespace" rollout status "statefulset/${namespace}-pg" --timeout=180s
 postrender=()

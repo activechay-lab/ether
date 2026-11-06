@@ -37,7 +37,8 @@ the pinned FFmpeg bundle, imports it into all three owned local nodes, and
 installs/updates the fixtures and chart:
 
 ```sh
-packaging/kubernetes/multihost/redeploy.sh "$state" "$INTEGRATION_SHA"
+packaging/kubernetes/multihost/heavy-io.sh \
+  packaging/kubernetes/multihost/redeploy.sh "$state" "$INTEGRATION_SHA"
 ```
 
 The chart uses OnDelete. That command updates templates without terminating
@@ -105,7 +106,8 @@ The guard samples `/proc/pressure/memory` every60seconds, requires full avg10<5
 for30continuous minutes, and then starts one capped lab agent. It keeps checking
 and stops that exact container if full avg10>10 or the guard exits. Preserve
 `pressure.jsonl` as evidence. A failed clock gate remains a separate blocker.
-Do not use a native GPU process to bypass either gate.
+A native Windows transcode worker is independent of the WSL agent; its own
+measured clock/pressure gates and coordinated run window still apply.
 
 Import the exact integration image into that node before scheduling workloads;
 `docker save` plus `docker exec -i NODE_ID ctr -n k8s.io images import -` requires
@@ -216,3 +218,54 @@ Keep those files private. For loss helpers, export `ETHER_LAB_STATE="$state"`
 with this lab's KUBECONFIG/PATH; they check the configured context, prefix,
 namespace and Docker label before applying a fault. `loss.sh` takes per-node
 state directly. Original lab defaults are unchanged.
+
+## Long fixture, PG and orderly updates
+
+The added renderers and PG/roll helpers accept only the original
+`ether035-multihost`/`ether035-mh`/`ether035-ha` tuple and the matching
+`ether035-lab2` context/prefix/namespace tuple. Load the private `lab.env` through
+`lab-config.sh` for shell helpers; standalone renderers use ETHER_LAB_PREFIX
+and ETHER_LAB_NAMESPACE. Do not copy secrets or identities between labs.
+
+`long-fixture.py ROOT IMAGE` renders a separate600s generated source for
+900002/rating key1000000000900002. Its Service/ConfigMap, release, Newznab ID
+and NNTP article namespace are separate from900001. It retains the original
+fixture bytes. Create the rendered `${namespace}-long-source-code` ConfigMap
+from source-fixture.py and apply only in the approved lab namespace. Seed via
+`seed-lab.py --long-fixture` with that lab's approved namespace/context and
+loopback owner origin. This preserves the other known fixture and still
+supports `--fixture-quality` and `--enable-mediabrowser`. `--refresh-only`
+continues to avoid source configuration writes. Use a separate long reference.
+Repeated install preserves an already initialized original source Deployment
+and ConfigMap, so a runtime update cannot regenerate its media unexpectedly.
+It also omits an existing PG StatefulSet from apply, preventing an emptyDir
+template change from replacing a live database.
+
+Lab PG now renders a512MiB memory-backed volume with fsync,
+synchronous_commit and full_page_writes OFF. Replacing that pod loses its DB.
+Existing disk-backed PG requires explicit quiescence and a private complete
+backup before `migrate-pg-tmpfs.sh STATE`: it refuses live role pods or a repeat
+migration, retains the old PVC, restores every table/sequence and restores
+service routing after verification. Never edit ownership rows to migrate.
+An interrupted restore retains the backup/PVC; inspect before restoring service.
+
+Run heavy work through `heavy-io.sh COMMAND ARGS...`; it serializes against
+/data/bb/thread-storage/heavy-io.lock, waits for batch-gate.active and reports
+queue/run/total seconds. It exits75 if a gate wins the lock race. These helpers
+do not create or take over another worker's priority marker.
+
+For an already-built immutable runtime, archive its exact packaging/helm tree
+and pass ETHER_LAB_CHART to `heavy-io.sh roll-gated.sh STATE IMAGE_TAG` using
+full script paths. The roll preserves lab.env, private-origin postrenderer,
+physical-host overlay and role PVCs. It drains and UID-checks replacements,
+stops on drain failure, and expects eight role pods. It never force-deletes.
+ETHER_LAB_IMAGES_IMPORTED=1 skips an independently verified image import;
+otherwise import.sh handles the selected lab. Verify runtime hashes, readiness,
+clock health and current/displaced/active claims before releasing playback.
+If PG is still disk-backed, the helper first drains all role writers for the
+explicit backed-up tmpfs migration; it never resets a live tmpfs DB.
+
+Only offline syntax/render/mock contracts were checked for this integration.
+These updated lab2-aware migration/roll paths have not been executed against a
+live cluster. Existing lab acceptance belongs to its pinned runtime and does
+not validate this new tooling port. Schedule any runtime use separately.

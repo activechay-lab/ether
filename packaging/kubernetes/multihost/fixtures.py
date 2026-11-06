@@ -8,8 +8,14 @@ import yaml
 root, tag = Path(sys.argv[1]), sys.argv[2]
 prefix = os.environ.get("ETHER_LAB_PREFIX", "ether035-mh")
 namespace = os.environ.get("ETHER_LAB_NAMESPACE", "ether035-ha")
+if (namespace, prefix) not in (("ether035-ha", "ether035-mh"), ("ether035-lab2", "ether035-lab2")):
+    raise SystemExit("only approved isolated lab namespace/prefix pairs are allowed")
+preserve_source = "--preserve-source" in sys.argv[3:]
+preserve_pg = "--preserve-pg" in sys.argv[3:]
 objects = []
 for filename in ('source-fixture.yaml', 'ingress-lab.yaml'):
+    if preserve_source and filename == 'source-fixture.yaml':
+        continue
     for obj in yaml.safe_load_all((root/'packaging/kubernetes'/filename).read_text()):
         if obj.get('kind') == 'Deployment':
             spec = obj['spec']['template']['spec']
@@ -48,7 +54,7 @@ spec:
       containers:
         - name: postgres
           image: postgres:16.9-alpine3.22
-          args: ['-c', 'max_connections=300', '-c', 'shared_buffers=64MB']
+          args: ['-c', 'max_connections=300', '-c', 'shared_buffers=64MB', '-c', 'fsync=off', '-c', 'synchronous_commit=off', '-c', 'full_page_writes=off']
           env:
             - {name: POSTGRES_USER, value: ether}
             - {name: POSTGRES_DB, value: ether}
@@ -59,13 +65,13 @@ spec:
             limits: {cpu: '1', memory: 512Mi}
           readinessProbe:
             exec: {command: [pg_isready, '-U', ether]}
-          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
-  volumeClaimTemplates:
-    - metadata: {name: data}
-      spec:
-        accessModes: [ReadWriteOnce]
-        resources: {requests: {storage: 1Gi}}
+          volumeMounts: [{name: pg-memory, mountPath: /var/lib/postgresql/data}]
+      volumes:
+        - name: pg-memory
+          emptyDir: {medium: Memory, sizeLimit: 512Mi}
 '''))
+if preserve_pg:
+    objects = [obj for obj in objects if not (obj.get('kind') == 'StatefulSet' and obj['metadata']['name'] == 'ether035-ha-pg')]
 # Resource names and embedded controller arguments belong to this namespace.
 objects = json.loads(json.dumps(objects).replace('ether035-mh', prefix).replace('ether035-ha', namespace))
 yaml.safe_dump_all(objects, sys.stdout)
