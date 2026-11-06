@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -38,6 +39,8 @@ func (e *broadcastFakeEncoder) Write(ctx context.Context, f transcode.RawFrame) 
 	return nil
 }
 func (e *broadcastFakeEncoder) Segments() transcode.SegmentIndex {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.index != nil {
 		return e.index
 	}
@@ -292,11 +295,11 @@ func (p timedBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadcastPl
 
 type countedBroadcastDecoder struct {
 	transcode.Decoder
-	calls *int
+	calls *atomic.Int64
 }
 
 func (d countedBroadcastDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
-	*d.calls++
+	d.calls.Add(1)
 	return d.Decoder.Next(ctx)
 }
 func TestBroadcastPrewarmsTwentySecondsBeforeCut(t *testing.T) {
@@ -305,7 +308,7 @@ func TestBroadcastPrewarmsTwentySecondsBeforeCut(t *testing.T) {
 		origin := time.Now()
 		runner := &broadcastFakeRunner{}
 		var secondOpened time.Time
-		nextCalls := 0
+		var nextCalls atomic.Int64
 		first := broadcastPlan{id: "one", start: origin, end: origin.Add(25 * time.Second), open: func(context.Context) (transcode.Decoder, func(), error) {
 			return &broadcastFakeDecoder{origin: origin, format: format, closed: make(chan struct{})}, nil, nil
 		}}
@@ -327,12 +330,12 @@ func TestBroadcastPrewarmsTwentySecondsBeforeCut(t *testing.T) {
 		if secondOpened.Sub(origin) != 5*time.Second {
 			t.Fatal("prewarm timing", secondOpened.Sub(origin))
 		}
-		if nextCalls != 1 {
-			t.Fatal("prewarm read beyond held first frame", nextCalls)
+		if calls := nextCalls.Load(); calls != 1 {
+			t.Fatal("prewarm read beyond held first frame", calls)
 		}
 		time.Sleep(20 * time.Second)
 		synctest.Wait()
-		if nextCalls < 2 {
+		if nextCalls.Load() < 2 {
 			t.Fatal("next input did not activate at boundary")
 		}
 	})
@@ -526,7 +529,9 @@ func TestBroadcastBoundedStartupLead(t *testing.T) {
 				if _, err = b.addRendition(context.Background(), "main", core.Decision{MaxHeight: 720}); err != nil {
 					t.Fatal(err)
 				}
+				runner.encoders[0].mu.Lock()
 				runner.encoders[0].index = burstSampleIndex{encoder: runner.encoders[0]}
+				runner.encoders[0].mu.Unlock()
 				start := time.Now()
 				b.start()
 				time.Sleep(5 * time.Second)
