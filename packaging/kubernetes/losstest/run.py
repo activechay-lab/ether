@@ -241,7 +241,7 @@ def run(c, out):
                 p = {}
                 report['error'] = 'player report is unreadable'
             report['playback'] = p
-            controls = [a for a in p.get('Attempts', []) if a.get('Kind') == 'timeline']
+            controls = [a for a in p.get('Attempts', []) if a.get('Kind') in ('timeline', 'stop')]
             # The client sends Stop last, after its bounded playback window.
             # Media continuity alone must not hide failed lifecycle requests.
             report['control'] = {
