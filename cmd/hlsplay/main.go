@@ -33,6 +33,8 @@ func main() {
 	flag.StringVar(&c.FFprobe, "ffprobe", "ffprobe", "packet checker executable")
 	flag.StringVar(&reference, "reference", "", "prior no-loss report.json for exact audio AU comparison")
 	flag.StringVar(&c.ProducerEvidence, "producer-evidence", "", "trusted observer JSON array of session/segmentIndex/generation rows")
+	flag.StringVar(&c.SegmentBarrierDir, "segment-barrier-dir", "", "fresh session/index-bound request barrier directory")
+	flag.IntVar(&c.PauseBeforeIndex, "pause-before-index", -1, "hold request for this segment until a verified fault release")
 	flag.BoolVar(&c.ReencodedAudio, "reencoded-audio", false, "verify decoded PCM continuity against the reference instead of AAC AU equality")
 	flag.BoolVar(&c.SkipDecision, "skip-decision", false, "diagnostic only: omit decision preflight (cannot pass acceptance)")
 	flag.BoolVar(&c.PrivateHTTP, "private-http", true, "retain playlists and failed HTTP bodies privately, capped at 64 KiB each")

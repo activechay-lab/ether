@@ -82,9 +82,10 @@ Example private configuration (paths and target pod are lab-specific):
 Optional `tries` (default 8), `requestTimeoutSeconds` (5) and `backoffSeconds`
 (0.2, exponential with a 16× cap) configure the client retry policy. The runner
 records that policy. `control` reports the final Stop status and all failed
-lifecycle requests separately. Overall acceptance requires a successful final
-Stop; transient periodic progress failures remain visible in `failedRequests`
-and `allRequestsPassed`. Media continuity alone cannot certify session cleanup.
+lifecycle requests separately. Overall acceptance requires every lifecycle request to succeed and an actual
+terminal Stop with a 2xx response. Periodic progress failures set
+`allRequestsPassed=false` even when final Stop succeeds. `stopPassed` reports
+Stop independently. Media continuity alone cannot certify session cleanup.
 
 `fault-dispatch.json` records the session, local time before action dispatch and
 immutable target inventory. A trusted post-check can use this time with a
@@ -272,3 +273,49 @@ native supervisor must still perform its fresh retained-handle, restart-boundary
 and authored-timeline checks immediately before killing the owned process. An
 armed request is not proof that a fault occurred; acceptance requires the final
 native fault/cleanup proof and new-generation client tail.
+
+## Loss at an early authored segment boundary
+
+A ramp case at index 1, 2 or 3 needs a request barrier because normal 30-second
+prefetch passes those indices before playback starts. Set `phase: "boundary"`,
+`pauseBeforeIndex: N`, `role: "transcode"`, `action: "force-delete"`, an independent
+same-profile `reference`, and `barrierFaultProofArgv`. The runner starts hlsplay
+with a fresh `segment-barrier` directory. After receiving exactly indices
+`0..N-1`, the player atomically publishes `ready.json` with the actual admitted
+session, N and the initial playlist digest. It sends no request for N until
+release. The monotonic playback clock and buffer model continue normally; a
+barrier before startup contributes to startup latency, and a barrier during
+playback can produce a stall. Neither buffer size nor segment grid changes.
+
+The ordinary fault selector and UID-preconditioned deletion then run. Kubernetes
+object deletion alone does not release the barrier. `barrierFaultProofArgv` is a
+bounded, read-only lab adapter, with `{session}`, `{index}` and `{runDir}` replaced
+as argv values. It must verify that the original execution's exact container task
+is absent on the original owned node and emit JSON:
+
+```json
+{
+  "session": "actual-admitted-session",
+  "index": 2,
+  "oldPodUID": "original-pod-uid",
+  "oldContainerIDs": ["containerd://original-ether-container-id"],
+  "ownedNodeContainerID": "verified-lab-node-container-id",
+  "originalTasksAbsent": true
+}
+```
+
+The runner matches every identity to `fault-dispatch.json` and the request
+barrier. It preserves this proof and atomically writes a session/index/playlist-
+bound `release.json` containing its SHA256. The player verifies the proof digest
+before requesting N. Missing, stale or mismatched evidence fails closed; timeout
+or failed task retirement leaves N unrequested. The normal post-check must still
+prove generation advance, floor equal to the delivered prefix, resume at N,
+replacement production and full client continuity. A barrier release is not a
+recovery acceptance result.
+
+Capture the actual new-runtime decision/admission and initial authored timeline
+before choosing any reference. Shared FastStart can ramp H264 output from MPEG4
+input; old constant-duration references cannot qualify a new default profile.
+Retain a fresh no-fault reference per client/title/profile, including ordinary
+cleanup and delivery reruns. Use the initial timeline retained before the fault,
+never a replacement playlist, for the shared splice checker.
