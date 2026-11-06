@@ -1,0 +1,8 @@
+{
+  "location": "Placering",
+  "search": "By eller postnummer",
+  "units": "Enheder",
+  "locale": "Serverens landestandard",
+  "metric": "Metrisk (°C, km/h, mm)",
+  "imperial": "Imperial (°F, mph, in)"
+}

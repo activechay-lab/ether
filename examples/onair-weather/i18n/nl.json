@@ -1,0 +1,8 @@
+{
+  "location": "Locatie",
+  "search": "Plaats of postcode",
+  "units": "Eenheden",
+  "locale": "Landinstelling van server",
+  "metric": "Metrisch (°C, km/h, mm)",
+  "imperial": "Imperiaal (°F, mph, in)"
+}

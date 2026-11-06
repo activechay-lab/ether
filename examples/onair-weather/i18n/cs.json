@@ -1,0 +1,8 @@
+{
+  "location": "Poloha",
+  "search": "Město nebo PSČ",
+  "units": "Jednotky",
+  "locale": "Jazyk serveru",
+  "metric": "Metrické (°C, km/h, mm)",
+  "imperial": "Imperiální (°F, mph, in)"
+}
