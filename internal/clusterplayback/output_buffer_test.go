@@ -21,7 +21,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playbackbuffer"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 func outputFixture(t *testing.T) (*bufferedSession, []byte) {
@@ -35,8 +34,8 @@ func outputFixture(t *testing.T) (*bufferedSession, []byte) {
 		t.Fatal(err)
 	}
 	r := &Runtime{o: Options{OutputBuffer: b, MaxSegmentBytes: int64(len(data) * 2)}, outputScratch: make(chan struct{}, 1), executions: map[string]*execution{}}
-	db := store.OpenTest(t)
-	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: time.Second}, outputRetirementVerifier{})
+	db := openFixtureDB(t)
+	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: fixtureSQLBudget()}, outputRetirementVerifier{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,8 +251,8 @@ func (outputRetirementVerifier) VerifyRetired(context.Context, placement.Fence, 
 }
 func TestOutputBufferCachedFailureAndAuthority(t *testing.T) {
 	s, data := outputFixture(t)
-	db := store.OpenTest(t)
-	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: time.Second}, outputRetirementVerifier{})
+	db := openFixtureDB(t)
+	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: fixtureSQLBudget()}, outputRetirementVerifier{})
 	if err != nil {
 		t.Fatal(err)
 	}

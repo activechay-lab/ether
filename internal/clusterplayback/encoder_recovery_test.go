@@ -73,9 +73,9 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			db := store.OpenTest(t)
+			db := openFixtureDB(t)
 			v := NewVerifier()
-			p, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, v)
+			p, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 10 * time.Minute, LockTimeout: fixtureSQLBudget()}, v)
 			if err != nil {
 				t.Fatal(err)
 			}

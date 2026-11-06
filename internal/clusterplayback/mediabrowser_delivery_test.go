@@ -21,7 +21,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/sessions"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 type deliveryMediaEncoder struct{ fixtureEncoder }
@@ -61,10 +60,10 @@ func TestMediaBrowserDeliveryReplaysOriginalFrontendAndFencesLoss(t *testing.T) 
 	fixtureStarted := time.Now()
 	ids := []nodewire.Identity{{Cluster: "mb-delivery", NodeID: "owner", Boot: "owner-boot"}, {Cluster: "mb-delivery", NodeID: "delivery-a", Boot: "delivery-a-boot"}, {Cluster: "mb-delivery", NodeID: "delivery-b", Boot: "delivery-b-boot"}}
 	guards := fixtureGuards(t, ids...)
-	db := store.OpenTest(t)
+	db := openFixtureDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 20*time.Second))
 	defer cancel()
-	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 2 * time.Minute, LockTimeout: time.Second}, outputRetirementVerifier{})
+	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 2 * time.Minute, LockTimeout: fixtureSQLBudget()}, outputRetirementVerifier{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,7 +18,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/sessions"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 type neutralRestoreEncoder struct {
@@ -51,7 +50,7 @@ func TestNeutralControllerLossKeepsHealthyEncoder(t *testing.T) {
 	for _, protocol := range []frontend.Protocol{"jellyfin", "emby"} {
 		t.Run(string(protocol), func(t *testing.T) {
 			fixtureStarted := time.Now()
-			db := store.OpenTest(t)
+			db := openFixtureDB(t)
 			ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 20*time.Second))
 			defer cancel()
 			hub := clusterbus.NewHub()
@@ -61,7 +60,7 @@ func TestNeutralControllerLossKeepsHealthyEncoder(t *testing.T) {
 			}
 			defer sealer.Close()
 			verifier := NewVerifier()
-			ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
+			ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: fixtureSQLBudget()}, verifier)
 			if err != nil {
 				t.Fatal(err)
 			}
