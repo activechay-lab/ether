@@ -10,6 +10,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -384,7 +385,10 @@ func (r *Runtime) Session(id string) (core.HLSSession, bool) {
 	}
 	r.mu.Unlock()
 	if a == nil {
-		return nil, false
+		if x != nil && !active {
+			return nil, false
+		}
+		return r.mediaSession(id)
 	}
 	// Published local bytes remain available after an encoder failure, while
 	// exact current authority is rechecked at every cache request. This is not
@@ -611,7 +615,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			continue
 		}
 		if x.output != nil && x.initial != nil && x.initial.request.Decision.Kind == core.DecisionTranscode && !x.initial.request.Decision.VideoCopy {
-			probeErr := r.probeEncoder(ctx, x)
+			probeStarted := time.Now()
+			detector, probeErr := r.probeEncoder(ctx, x)
+			probeElapsed := time.Since(probeStarted)
 			// A worker idle close after viewer activity ceased is terminal, not
 			// an invitation to place an endless chain of replacement encoders.
 			if x.session.EncoderErr() == nil && time.Since(x.output.LastAccess()) > 2*time.Minute {
@@ -625,10 +631,18 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			}
 			if probeErr != nil && current != nil && current.failedSince.IsZero() {
 				current.failedSince = time.Now()
+				slog.Warn("encoder recovery probe failed", "session", x.route.Fence.Session, "generation", x.route.Fence.Generation, "detector", detector, "probe_elapsed", probeElapsed, "probe_deadline", r.o.EncoderRPCDeadline, "failure_grace", r.o.EncoderFailureGrace)
 			}
 			recoverNow := current != nil && (current.replacement != nil || !current.failedSince.IsZero() && time.Since(current.failedSince) >= r.o.EncoderFailureGrace)
 			r.mu.Unlock()
+			// Authenticated replacement is positive loss evidence; unlike a
+			// transient transport failure it needs no grace period. Ordinary
+			// boot retirement preserved this gate for our supersession CAS.
+			if !recoverNow && r.retiredWorkerBoot(ctx, x.route.Fence) == nil {
+				recoverNow = true
+			}
 			if recoverNow {
+				slog.Warn("encoder recovery decision", "session", x.route.Fence.Session, "generation", x.route.Fence.Generation, "worker", x.route.Fence.Target.NodeID, "worker_boot", x.route.Fence.Target.Boot, "detector", detector, "probe_elapsed", probeElapsed, "probe_deadline", r.o.EncoderRPCDeadline, "failure_grace", r.o.EncoderFailureGrace, "failure_since", current.failedSince, "failure_elapsed", time.Since(current.failedSince), "continuing_replacement", current.replacement != nil)
 				if e := r.recoverEncoder(ctx, x); e != nil {
 					result = e
 				}

@@ -73,7 +73,7 @@ func TestContinuousClockAuthorityInvariant(t *testing.T) {
 	db := sql.OpenDB(f)
 	defer db.Close()
 	var logs strings.Builder
-	p, err := NewPostgres(Options{DB: db, Local: Local{Identity: Identity{NodeID: "clock-node"}}, Logger: slog.New(slog.NewTextHandler(&logs, nil)), Now: func() time.Time { return f.wall }, MonotonicNow: func() time.Time { return f.mono }, ClockBoundKnown: true, ClockSkew: time.Second})
+	p, err := NewPostgres(Options{DB: db, Local: Local{Identity: Identity{NodeID: "clock-node"}}, Logger: slog.New(slog.NewTextHandler(&logs, nil)), Now: func() time.Time { return f.wall }, ClockSample: func() (time.Time, time.Time) { return f.wall, f.mono }, ClockBoundKnown: true, ClockSkew: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,6 +117,28 @@ func TestContinuousClockAuthorityInvariant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Preemption-like paired corrections are logged, but remain inside the
+	// configured clock budget and cannot close admission in either direction.
+	for _, step := range []time.Duration{-70 * time.Millisecond, 70 * time.Millisecond} {
+		f.wall = f.wall.Add(step)
+		if !p.ClockReady() || p.ClockStatus().LastStep != step {
+			t.Fatalf("in-bound step quarantined authority: %+v", p.ClockStatus())
+		}
+	}
+	// A real out-of-budget step must quarantine a previously healthy node,
+	// before any heartbeat, while preserving the already accepted execution.
+	f.wall = f.wall.Add(3 * time.Second)
+	denied("real-step-from-ready")
+	f.wall = f.db
+	sample()
+	if p.ClockReady() {
+		t.Fatal("one correction sample reopened authority")
+	}
+	advance(0)
+	sample()
+	if !p.ClockReady() {
+		t.Fatal("two corrected samples did not restore authority")
+	}
 	// 9ms per heartbeat remains below step detection but eventually drifts out.
 	for range 60 {
 		advance(9 * time.Millisecond)
@@ -141,18 +163,13 @@ func TestContinuousClockAuthorityInvariant(t *testing.T) {
 		t.Fatalf("existing authority revoked: %+v %v", existing, err)
 	}
 	// Step backwards between heartbeats; admission itself must detect it.
-	f.wall = f.wall.Add(-2350 * time.Millisecond)
+	f.wall = f.wall.Add(-3 * time.Second)
 	denied("step")
-	if p.ClockStatus().LastStep != -2350*time.Millisecond || !strings.Contains(logs.String(), "local wall clock stepped") {
+	if p.ClockStatus().LastStep != -3*time.Second || !strings.Contains(logs.String(), "local wall clock stepped") {
 		t.Fatal("wall step not detected/logged")
 	}
 	f.wall = f.db
-	sample() // correction step cannot immediately restore authority
-	if p.ClockReady() {
-		t.Fatal("step bypassed hysteresis")
-	}
-	advance(0)
-	sample()
+	sample() // one healthy correction sample cannot bypass hysteresis
 	if p.ClockReady() {
 		t.Fatal("one sample bypassed hysteresis")
 	}
@@ -197,5 +214,5 @@ func TestContinuousClockAuthorityInvariant(t *testing.T) {
 	if p.ClockStatus().Uncertainty <= 0 {
 		t.Fatal("extreme clock error overflowed")
 	}
-	t.Logf("drift, -2.35s step, RTT uncertainty, outage, stale sample and hysteretic recovery verified; existing placement preserved")
+	t.Logf("paired +/-70ms corrections, drift, -3s step, RTT uncertainty, outage, stale sample and hysteretic recovery verified; existing placement preserved")
 }
