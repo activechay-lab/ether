@@ -57,6 +57,7 @@ type recoveryTestSession struct {
 
 func (s *recoveryTestSession) ServeSegment(w http.ResponseWriter, q *http.Request, n int) {
 	w.Header().Set("Content-Type", "video/mp2t")
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Content-Length", strconv.Itoa(len(s.data)))
 	w.Header().Set("X-Segment", strconv.Itoa(n))
 	_, _ = w.Write(s.data)
@@ -66,7 +67,7 @@ func (s *recoveryTestSession) ServeSegment(w http.ResponseWriter, q *http.Reques
 // The encoded bytes are a recorded offline TS fixture: it tests ownership and
 // complete/unique delivery, not real decoder or audio splice continuity.
 func TestEncoderLossRecoveryInvariant(t *testing.T) {
-	for _, mode := range []string{"exit", "partition", "newboot", "removed", "clock"} {
+	for _, mode := range []string{"exit", "partition", "newboot", "boot-before-recovery", "removed", "clock"} {
 		t.Run(mode, func(t *testing.T) {
 			fixtureStarted := time.Now()
 			data, err := os.ReadFile("../playbackbuffer/testdata/cpu.ts")
@@ -178,17 +179,21 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				t.Helper()
 				w := httptest.NewRecorder()
 				session.ServeSegment(w, httptest.NewRequest("GET", "https://public/segment", nil).WithContext(ctx), n)
-				if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), data) {
+				if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), data) || w.Header().Get("Cache-Control") != "no-cache" {
 					t.Fatalf("segment %d: %d %s", n, w.Code, w.Body.String())
 				}
 				fetched[n]++
 			}
 			fetch(0)
 			fetch(1)
+			prefix, err := front.SnapshotOutput(q.SessionID)
+			if err != nil || prefix.Buffer.State.PublishedFloor != 1 {
+				t.Fatalf("delivered no-cache segments did not advance restart floor: %+v %v", prefix, err)
+			}
 			front.mu.Lock()
 			old := *front.executions[q.SessionID]
 			front.mu.Unlock()
-			if mode == "exit" || mode == "newboot" || mode == "removed" {
+			if mode == "exit" || mode == "newboot" || mode == "boot-before-recovery" || mode == "removed" {
 				if err = a.session.RetireEncoder(); err != nil {
 					t.Fatal(err)
 				}
@@ -206,14 +211,42 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			} else {
 				down.Store(true)
 			}
-			_ = front.Tick(ctx)
-			time.Sleep(2 * time.Millisecond)
+			if mode == "boot-before-recovery" {
+				// A confirmed boot change bypasses even a long transport grace.
+				front.o.EncoderFailureGrace = time.Hour
+				// StatefulSet reuses the node ID before the controller detects
+				// encoder failure. No spare slot on the first recovery attempt:
+				// capacity pressure must preserve the gate for a later retry.
+				if err = p.SetTarget(ctx, placement.Target{NodeID: "a", Boot: "a-new-boot"}, config.NodeRoles{config.RoleTranscode}, map[config.NodeRole][]string{config.RoleTranscode: {"a/streams"}}); err != nil {
+					t.Fatal(err)
+				}
+				if err = p.SetPool(ctx, "b/streams", config.RoleTranscode, 0); err != nil {
+					t.Fatal(err)
+				}
+				_ = front.Tick(ctx)
+				rec, lookupErr := p.Lookup(ctx, q.SessionID)
+				h, gateErr := front.readOperationGate(ctx, operationKey{ids[0].Cluster, q.SessionID, 1})
+				if lookupErr != nil || gateErr != nil || rec.Retired || rec.Generation != 1 || h.Gate.Seal != nil {
+					t.Fatalf("capacity pressure destroyed recovery authority: %+v %+v %v %v", rec, h, lookupErr, gateErr)
+				}
+				if err = p.SetPool(ctx, "b/streams", config.RoleTranscode, 1); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				_ = front.Tick(ctx)
+				time.Sleep(2 * time.Millisecond)
+			}
 			replacementDone := make(chan error, 1)
 			go func() { replacementDone <- front.Tick(ctx) }()
 			select {
 			case <-b.ready:
 			case <-ctx.Done():
 				t.Fatal("replacement not started")
+			}
+			if mode == "boot-before-recovery" {
+				if err := front.Tick(ctx); err != ErrPending {
+					t.Fatalf("concurrent control tick bypassed recovery mutex: %v", err)
+				}
 			}
 			waiting := make(chan *httptest.ResponseRecorder, 1)
 			go func() {
@@ -247,7 +280,7 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			// switch: its original bytes are valid under current delivery authority.
 			historical := httptest.NewRecorder()
 			session.ServeSegment(historical, httptest.NewRequest("GET", "https://public/history", nil).WithContext(ctx), 0)
-			if historical.Code != 200 || !bytes.Equal(historical.Body.Bytes(), data) {
+			if historical.Code != 200 || !bytes.Equal(historical.Body.Bytes(), data) || historical.Header().Get("Cache-Control") != "no-cache" {
 				t.Fatalf("historical segment after recovery: %d", historical.Code)
 			}
 
@@ -255,7 +288,7 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			if err != nil || record.Generation != 2 || record.Target.NodeID != "b" {
 				t.Fatalf("replacement: %+v %v", record, err)
 			}
-			if len(b.requests) != 1 || b.requests[0].Resume == nil || *b.requests[0].Resume != (core.HLSResume{FirstSegment: 2, Generation: 2}) || !reflect.DeepEqual(b.requests[0].Decision, q.Decision) {
+			if len(b.requests) != 1 || b.requests[0].Resume == nil || *b.requests[0].Resume != (core.HLSResume{FirstSegment: int(prefix.Buffer.State.PublishedFloor + 1), Generation: 2}) || !reflect.DeepEqual(b.requests[0].Decision, q.Decision) {
 				t.Fatalf("immutable plan/resume: %+v", b.requests)
 			}
 			gate, err := front.readOperationGate(ctx, operationKey{ids[0].Cluster, q.SessionID, 1})
@@ -267,14 +300,11 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			if err = db.QueryRow(`SELECT COUNT(*) FROM placement_displaced_claims`).Scan(&charged); err != nil || charged != 1 {
 				t.Fatalf("lost charge: %d %v", charged, err)
 			}
-			for n := 3; n < 6; n++ {
-				fetch(n)
-			}
 			events, eventErr := front.RecoveryEvents(ctx, 256)
 			if eventErr != nil || len(events) != 1 || events[0].Status != "recovered" || events[0].FailedNodeID != "a" || events[0].ReplacementNodeID != "b" || events[0].InterruptionMS == nil || events[0].ClientStalls != nil {
 				t.Fatalf("events: %+v %v", events, eventErr)
 			}
-			if mode == "newboot" {
+			if mode == "newboot" || mode == "boot-before-recovery" {
 				if err = p.SetTarget(ctx, placement.Target{NodeID: "a", Boot: "a-new-boot"}, config.NodeRoles{config.RoleTranscode}, map[config.NodeRole][]string{config.RoleTranscode: {"a/streams"}}); err != nil {
 					t.Fatal(err)
 				}
@@ -304,6 +334,20 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				if err = p.SetTarget(ctx, old.route.Fence.Target, config.NodeRoles{config.RoleTranscode}, map[config.NodeRole][]string{config.RoleTranscode: {"a/streams"}}); err != placement.ErrFenced {
 					t.Fatal("removed boot readmitted", err)
 				}
+			}
+			// Retiring the authenticated dead boot must leave the replacement
+			// authoritative and charged, with the client still able to continue.
+			if mode == "boot-before-recovery" {
+				rec, err := p.Lookup(ctx, q.SessionID)
+				if err != nil || rec.Retired || !rec.Authority || rec.Generation != 2 {
+					t.Fatalf("old boot retirement affected replacement: %+v %v", rec, err)
+				}
+				if err = db.QueryRow(`SELECT COUNT(*) FROM placement_claims`).Scan(&charged); err != nil || charged != 1 {
+					t.Fatalf("replacement capacity lost: %d %v", charged, err)
+				}
+			}
+			for n := 3; n < 6; n++ {
+				fetch(n)
 			}
 			down.Store(false)
 			late := httptest.NewRecorder()
@@ -355,6 +399,7 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			default:
 				t.Fatal("session slot leaked")
 			}
+			t.Logf("%s: generation 2 on b; segments 0..5 fetched once with 200; old/current claims zero after Stop", mode)
 			if err = front.ReleaseOutput(ctx, q.SessionID, record.Fence); err != nil {
 				t.Fatal("output leak", err)
 			}

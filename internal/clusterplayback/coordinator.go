@@ -628,6 +628,12 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			}
 			recoverNow := current != nil && (current.replacement != nil || !current.failedSince.IsZero() && time.Since(current.failedSince) >= r.o.EncoderFailureGrace)
 			r.mu.Unlock()
+			// Authenticated replacement is positive loss evidence; unlike a
+			// transient transport failure it needs no grace period. Ordinary
+			// boot retirement preserved this gate for our supersession CAS.
+			if !recoverNow && r.retiredWorkerBoot(ctx, x.route.Fence) == nil {
+				recoverNow = true
+			}
 			if recoverNow {
 				if e := r.recoverEncoder(ctx, x); e != nil {
 					result = e

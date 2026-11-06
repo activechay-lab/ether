@@ -34,6 +34,12 @@ func (r *Runtime) probeEncoder(ctx context.Context, x *execution) error {
 	return err
 }
 
+// encoderRecoverySupported is shared with dead-boot retirement: lack of spare
+// capacity or a temporary RPC failure must not turn a recoverable plan terminal.
+func encoderRecoverySupported(q core.HLSRequest) bool {
+	return !q.Decision.VideoCopy && q.Decision.AudioCopy && q.Decision.Kind == core.DecisionTranscode && q.Decision.Container == "mpegts" && q.StartOffset == 0 && q.RecoveryStart == nil && !q.LiveInput && q.SoftSubtitleStream == nil
+}
+
 func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
 	if !r.clockReady() {
 		return ErrDenied
@@ -59,7 +65,7 @@ func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
 		return err
 	}
 	q := cloneAdmissionRequest(x.initial.request)
-	if q.Decision.VideoCopy || !q.Decision.AudioCopy || q.Decision.Kind != core.DecisionTranscode || q.Decision.Container != "mpegts" || q.StartOffset != 0 || q.RecoveryStart != nil || q.LiveInput || q.SoftSubtitleStream != nil {
+	if !encoderRecoverySupported(q) {
 		return remotetranscode.ErrUnsupported
 	}
 	next := int(snapshot.State.PublishedFloor + 1)
