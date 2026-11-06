@@ -712,7 +712,13 @@ func testRemoteNeutralBroker(t *testing.T, ctx context.Context, base Options, gu
 	if err != nil {
 		t.Fatal(err)
 	}
+	sealer, err := config.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sealer.Close()
 	o := base
+	o.ProtocolSealer = sealer
 	o.Placement = ownPlacement
 	o.Self = self
 	o.Guard = guard

@@ -26,6 +26,7 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
+	ProtocolSealer      ProtocolSealer
 	Bus                 clusterbus.Bus
 	EncoderSegmentWait  time.Duration
 	EncoderRPCDeadline  time.Duration
