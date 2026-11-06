@@ -76,7 +76,7 @@ its own NodePort. Run `relay.sh "$state" "$TAILSCALE_IP"` once. It creates a
 |18410,18411|Server ordinals0,1|
 |18420,18421|Source ordinals0,1|
 |18430,18431|Transcode ordinals0,1|
-|18440,18441|Delivery ordinals0,1|
+|18440,18441,18442|Delivery ordinals0,1; optional second-host ordinal2|
 
 Private TLS remains end to end, including CA verification, actual IP SAN,
 client certificates and cluster identity/boot checks. The relay holds no
@@ -110,8 +110,10 @@ Do not use a native GPU process to bypass either gate.
 Import the exact integration image into that node before scheduling workloads;
 `docker save` plus `docker exec -i NODE_ID ctr -n k8s.io images import -` requires
 no registry or daemon changes. Label it `ether.lab/workload=true` only when ready.
-Explicitly spread role replicas across `ether.lab/host` for a physical-host
-experiment and verify actual placement; the default hostname spread alone does
+Keep the second host limited to one light role (prefer delivery), with no
+transcode there. A third delivery ordinal can use fresh local storage there,
+while the two existing local ordinals retain their PVCs. Verify actual placement
+across `ether.lab/host` for a physical-host experiment; the default hostname spread alone does
 not guarantee cross-host placement. Do not move the singleton PG/fixture onto
 the host being lost.
 
@@ -131,6 +133,7 @@ role-loss.sh ether035-mh-ether-delivery-0
 `stop` checks running=false/PID0; `pause` freezes a whole Kubernetes node.
 `partition` changes only INPUT/OUTPUT rules inside that node container's private
 network namespace. It blocks the specified tailnet peer, never host traffic.
+Run per-role pause on the Docker host that owns the selected node container.
 Per-role pause freezes the immutable containerd task and its descendants,
 without pausing co-located roles. Abrupt role delete uses gracePeriodSeconds0
 with a Pod UID precondition; the StatefulSet recreates the pod. Select the actual

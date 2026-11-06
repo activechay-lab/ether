@@ -7,7 +7,7 @@ pod=${1:?usage: role-pause.sh POD VERIFIER [ARGS...]}; shift
 [[ $pod =~ ^ether035-mh-ether-(server|source|transcode|delivery)-[0-9]+$ ]] || exit 64
 read -r uid node task <<< "$(kubectl -n ether035-ha get pod "$pod" -o 'jsonpath={.metadata.uid}{" "}{.spec.nodeName}{" "}{.status.containerStatuses[?(@.name=="ether")].containerID}')"
 task=${task#containerd://}
-[[ $task =~ ^[a-f0-9]{64}$ && $node =~ ^ether035-mh-(server|agent[12])$ ]] || exit 64
+[[ $task =~ ^[a-f0-9]{64}$ && $node =~ ^ether035-mh-(server|agent[12]?)$ ]] || exit 64
 read -r cid label <<< "$(docker inspect --format '{{.Id}} {{index .Config.Labels "ether.lab"}}' "$node")"
 [[ $label == ether035-multihost ]] || exit 64
 active=false

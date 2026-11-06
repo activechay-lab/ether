@@ -7,6 +7,7 @@ revision=${2:?reviewed integration SHA required}
 root=$(cd "$(dirname "$0")/../../.." && pwd)
 sha=$(git -C "$root" rev-parse --verify "$revision^{commit}")
 tag=${sha:0:10}
+mkdir -p "$state/image"
 source_dir=$(mktemp -d "$state/build.XXXXXX")
 cleanup() { python3 - "$source_dir" <<'PY'
 import shutil,sys
