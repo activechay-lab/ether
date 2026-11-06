@@ -50,6 +50,7 @@ func (r *spliceLabRunner) Start(c Command) (Process, error) {
 		}
 	}
 	b, _ := json.Marshal(map[string]any{"PID": p.(*execProcess).PID(), "First": first, "Run": r.seq, "Time": time.Now().UnixNano(), "Args": a})
+	os.WriteFile(filepath.Join(r.dir, fmt.Sprintf("process-%d.json", r.seq)), b, 0600)
 	tmp := filepath.Join(r.dir, "process.json.tmp")
 	os.WriteFile(tmp, b, 0600)
 	os.Rename(tmp, filepath.Join(r.dir, "process.json"))
@@ -58,7 +59,7 @@ func (r *spliceLabRunner) Start(c Command) (Process, error) {
 
 // SpliceFastLab drives the shipping manager, including automatic ramp-to-steady
 // run changes. Only this lab wrapper throttles input and records owned PIDs.
-func SpliceFastLab(ctx context.Context, ff, input, dir string, info core.MediaInfo, container string, first int, resume bool, limit int, fastStart, copyAudio bool) error {
+func SpliceFastLab(ctx context.Context, ff, input, dir string, info core.MediaInfo, container string, first int, resume bool, limit int, fastStart, copyAudio bool, o SpliceLabOptions) error {
 	scratch, e := os.MkdirTemp("", "splice-fast-manager-")
 	if e != nil {
 		return e
@@ -69,9 +70,13 @@ func SpliceFastLab(ctx context.Context, ff, input, dir string, info core.MediaIn
 		return e
 	}
 	defer m.Close()
-	req := core.HLSRequest{SessionID: "fast-lab", InputURL: input, Info: info, Decision: core.Decision{Kind: core.DecisionTranscode, VideoCodec: "h264", AudioCodec: "aac", AudioCopy: copyAudio, AudioChannels: 2, AudioStream: 1, Container: container, MaxHeight: 360, BitrateKbps: 1200, SubtitleStream: -1}, SegmentDuration: 4 * time.Second, Protocol: core.ProtocolHLS}
+	req := core.HLSRequest{SessionID: "fast-lab", InputURL: input, Info: info, Decision: spliceLabDecision(container, false, copyAudio, o), SegmentDuration: 4 * time.Second, Protocol: core.ProtocolHLS}
 	if resume {
-		req.Resume = &core.HLSResume{FirstSegment: first, Generation: 2}
+		admissionFirst := first
+		if o.ResumeFirst >= 0 {
+			admissionFirst = o.ResumeFirst
+		}
+		req.Resume = &core.HLSResume{FirstSegment: admissionFirst, Generation: 2}
 	}
 	started := time.Now()
 	hs, e := m.StartHLS(ctx, req)
