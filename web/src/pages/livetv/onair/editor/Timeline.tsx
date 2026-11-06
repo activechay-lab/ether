@@ -1,3 +1,4 @@
+import { uuid } from "../../../../lib/api";
 import { useEffect, useRef, useState } from "react";
 import { Button, Input, Select, Popover } from "@braedonsaunders/appkit-ui";
 import {
@@ -390,7 +391,7 @@ export function Timeline(p: {
       sounds: [
         ...p.scene.sounds,
         {
-          id: crypto.randomUUID(),
+          id: uuid(),
           assetDigest: a.digest,
           at: p.time,
           start: 0,

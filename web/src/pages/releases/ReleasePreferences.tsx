@@ -22,7 +22,7 @@ import { DragHandle, type DragHandleProps } from "../../components/Sortable";
 import { t, getLocale } from "../../i18n";
 import { useLocale } from "../../i18n/react";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
-import { apiFetch, errorMessage, isAbort } from "../../lib/api";
+import { apiFetch, errorMessage, isAbort, uuid } from "../../lib/api";
 import {
   BUILTIN,
   isPluginDescriptor,
@@ -379,7 +379,7 @@ function createRule(
   c: ReleaseCondition,
   action: ReleaseRule["action"] = "prefer",
 ): ReleaseRule {
-  return { id: crypto.randomUUID(), name, action, match: "all", conditions: [c] };
+  return { id: uuid(), name, action, match: "all", conditions: [c] };
 }
 
 /** Same conflict the server rejects on save. Exceptions and fallbacks stay allowed. */
@@ -877,7 +877,7 @@ export function FilterRulesEditor({
       const currentRules = profileRef.current.releaseRules ?? [];
       if (!Array.isArray(data) || data.length + currentRules.length > 32)
         throw Error(t("Use a rules export with at most 32 rules."));
-      const next = data.map((r) => ({ ...r, id: crypto.randomUUID() }));
+      const next = data.map((r) => ({ ...r, id: uuid() }));
       const mergedRules = [...currentRules, ...next];
       let nextRanking = normalizeRanking(profileRef.current, steps);
       for (const r of next) {

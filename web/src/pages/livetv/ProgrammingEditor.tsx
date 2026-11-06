@@ -6,7 +6,7 @@ import { Field, ChipGroup } from "../../components/fields";
 import { TitleSearch } from "../../components/pickers";
 import { SettingsRow } from "../../components/SettingsRow";
 import { textOf, useRegistry } from "../../lib/extend";
-import { api } from "../../lib/api";
+import { api, uuid } from "../../lib/api";
 import { blankSpec } from "../../lib/rules";
 import { useDebouncedValue } from "../../lib/hooks";
 import type { Rule } from "../../lib/contract";
@@ -47,7 +47,7 @@ function detectedBreaks(channel: Channel): number {
   }
   return [...counts.values()].reduce((n, count) => n + count, 0);
 }
-const id = () => crypto.randomUUID();
+const id = () => uuid();
 const weekdays = [1, 2, 3, 4, 5];
 const lookDefault = (): ChannelLook => ({ lookId: "", ident: false, upNext: false, offAir: true });
 const newSource = (): ProgramSource => ({
