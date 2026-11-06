@@ -197,13 +197,10 @@ contain credentials, queries, fragments or path prefixes. Reports mark
 `ControlOriginsPinned` so this diagnostic placement is distinguishable from
 ordinary ingress load balancing.
 
-A coordinated supervised encoder run may supply a unique `session` and
-`steadySeconds` (default10). The latter schedules loss after that much actual
-playback time following startup buffering. For a 180s fixture, a 170s window
-with `steadySeconds: 60` leaves approximately90s after the fault; report the
-actual timestamps and generation boundary rather than assuming that entire
-tail was produced by the replacement. Verify hardware placement and the live
-encoder before invoking a native supervisor's exact-process kill hook.
+A coordinated run may supply a unique `session`. Clock-based CPU cases can
+use `steadySeconds` (default10) after startup buffering. Native hardware loss
+uses the observed-state gate below; elapsed time cannot establish that its
+encoder is alive or that output remains to be regenerated.
 
 ## Encoder-state loss and independent recovery proof
 
@@ -235,3 +232,8 @@ production interruption and client receipt latency, and must be below the
 configured buffer. For example, kill-dispatch to the first verified CPU segment
 ready on the same measured host clock is a conservative upper bound; do not
 substitute a startup/RPC acknowledgement or a fabricated production timestamp.
+
+The same client also accepts `-protocol emby -prefix /emby`, declares an Emby
+client identity and authenticates against that independent MediaBrowser surface.
+Jellyfin and Emby use separate credentials/grants, references and output
+artifacts; neither result is inferred from the other surface's success.
