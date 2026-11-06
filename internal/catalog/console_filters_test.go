@@ -50,6 +50,19 @@ func TestConsoleFacetsColdReadIsDeferred(t *testing.T) {
 			if len(vals) != 1 || vals[0].Count != 3 {
 				t.Fatalf("counts: %v", vals)
 			}
+			// A cached empty vocabulary stays usable across generation/minute
+			// refreshes. Only a missing snapshot is represented by nil.
+			c.cacheMu.Lock()
+			for key, entry := range c.facetCache {
+				entry.vals = nil
+				entry.minute--
+				c.facetCache[key] = entry
+			}
+			c.cacheMu.Unlock()
+			vals, pending, err = c.ConsoleFacets(ctx, core.TypeMovie, "year")
+			if err != nil || !pending || vals == nil || len(vals) != 0 {
+				t.Fatalf("cached empty snapshot: %v %v %v", vals, pending, err)
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

@@ -10,6 +10,8 @@ import (
 
 // ConsoleFacets never starts a library-sized count on the HTTP request. Values
 // are a generation-stamped snapshot; pending tells the UI to retry progressively.
+// A nil slice means no snapshot has completed yet; a non-nil empty slice is a
+// valid cached result, including while its replacement is being refreshed.
 func (c *Catalog) ConsoleFacets(ctx context.Context, typ core.MediaType, facet string) ([]core.FacetValue, bool, error) {
 	switch facet {
 	case "genre", "decade", "year", "studio", "country", "language", "keyword", "contentRating", "tag":
@@ -29,6 +31,9 @@ func (c *Catalog) ConsoleFacets(ctx context.Context, typ core.MediaType, facet s
 			_, err := c.countFacet(ctx, f, facet)
 			return err
 		})
+	}
+	if !ok {
+		return nil, pending, nil
 	}
 	return append([]core.FacetValue{}, ent.vals...), pending, nil
 }

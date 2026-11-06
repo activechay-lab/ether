@@ -174,32 +174,51 @@ export function CatalogBrowser({
         : Promise.resolve(null),
     [specKey],
   );
+  const browseRequestKey = JSON.stringify([
+    debouncedQuery,
+    type,
+    genre,
+    decade,
+    waiting,
+    sort,
+    page,
+    activeCursor.after,
+    ruleFilter,
+    specKey,
+    advanced,
+    viewer,
+    secondarySort,
+    desc,
+    secondaryDesc,
+  ]);
   const browsed = useAsync(
     (signal) =>
       collection
         ? Promise.resolve(null)
-        : api.browseCatalog(
-            {
-              ...ruleFilter,
-              q: debouncedQuery,
-              type,
-              genre,
-              decade,
-              waiting: waiting ? "1" : "",
-              sort,
-              noTotal: "1",
-              filter: advanced
-                ? JSON.stringify(compileQuery(readQuery(advanced), viewer))
-                : undefined,
-              secondarySort: secondarySort || undefined,
-              secondaryDesc: secondarySort ? (secondaryDesc ? "1" : "0") : undefined,
-              desc: desc ? "1" : "0",
-              cursor: "1",
-              after: activeCursor.after || undefined,
-              limit: PAGE_SIZE,
-            },
-            signal,
-          ),
+        : api
+            .browseCatalog(
+              {
+                ...ruleFilter,
+                q: debouncedQuery,
+                type,
+                genre,
+                decade,
+                waiting: waiting ? "1" : "",
+                sort,
+                noTotal: "1",
+                filter: advanced
+                  ? JSON.stringify(compileQuery(readQuery(advanced), viewer))
+                  : undefined,
+                secondarySort: secondarySort || undefined,
+                secondaryDesc: secondarySort ? (secondaryDesc ? "1" : "0") : undefined,
+                desc: desc ? "1" : "0",
+                cursor: "1",
+                after: activeCursor.after || undefined,
+                limit: PAGE_SIZE,
+              },
+              signal,
+            )
+            .then((result) => ({ ...result, requestKey: browseRequestKey })),
     [
       debouncedQuery,
       type,
@@ -440,6 +459,16 @@ export function CatalogBrowser({
         params={params}
         viewers={viewers.data || []}
         collection={!!collection}
+        emptySearch={
+          !collection &&
+          !busy &&
+          !results.error &&
+          page === 1 &&
+          browsed.data?.requestKey === browseRequestKey &&
+          items.length === 0
+            ? debouncedQuery
+            : undefined
+        }
         onChange={(next) => {
           latestParams.current = next;
           setParams(next);

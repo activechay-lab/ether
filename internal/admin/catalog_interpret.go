@@ -108,6 +108,7 @@ func (h *Handler) handleCatalogInterpret(w http.ResponseWriter, r *http.Request)
 	}
 	var result catalogInterpretation
 	if len(out) > 16384 || json.Unmarshal([]byte(out), &result) != nil || validateCatalogInterpretation(&result, vocabulary) != nil {
+		h.log.Warn("catalogue AI returned invalid filters")
 		writeError(w, 502, "invalid_interpretation", "AI could not produce valid catalogue filters; try rephrasing or use filter chips")
 		return
 	}
@@ -128,7 +129,7 @@ func (h *Handler) catalogInterpretVocabulary(ctx context.Context) (map[string][]
 		if err != nil {
 			return nil, err
 		}
-		if pending && len(values) == 0 {
+		if pending && values == nil {
 			warming = true
 		}
 		keys := []string{}

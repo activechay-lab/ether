@@ -3,7 +3,7 @@ import { Plus, Search, Sparkles, Undo2, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../../i18n";
 import { catalogValueLabel } from "./catalogValueLabel";
-import { api, apiFetch } from "../../lib/api";
+import { api, apiFetch, ApiError } from "../../lib/api";
 import { useAsync, useDebouncedValue } from "../../lib/hooks";
 import {
   compileQuery,
@@ -133,6 +133,7 @@ export function CatalogFilterBar({
   collection = false,
   leading,
   actions,
+  emptySearch,
 }: {
   params: URLSearchParams;
   onChange: (params: URLSearchParams) => void;
@@ -140,6 +141,8 @@ export function CatalogFilterBar({
   collection?: boolean;
   leading?: ReactNode;
   actions?: ReactNode;
+  /** Exact query whose completed regular search returned no titles. */
+  emptySearch?: string;
 }) {
   const latestParams = useRef(params);
   useLayoutEffect(() => {
@@ -174,11 +177,40 @@ export function CatalogFilterBar({
     setInterpreting(true);
     setAiError(false);
     try {
-      const result = await apiFetch<unknown>("/catalog/interpret", {
-        method: "POST",
-        body: JSON.stringify({ text }),
-        signal: controller.signal,
-      });
+      // A cold vocabulary is temporary and does not call the model. Keep the
+      // same user action pending while its background snapshot completes.
+      const deadline = Date.now() + 12_000;
+      let result: unknown;
+      for (;;) {
+        try {
+          result = await apiFetch<unknown>("/catalog/interpret", {
+            method: "POST",
+            body: JSON.stringify({ text }),
+            signal: controller.signal,
+          });
+          break;
+        } catch (error) {
+          if (
+            !(error instanceof ApiError) ||
+            error.code !== "vocabulary_unavailable" ||
+            error.status !== 503 ||
+            Date.now() >= deadline ||
+            controller.signal.aborted
+          )
+            throw error;
+          await new Promise<void>((resolve, reject) => {
+            const stop = () => {
+              clearTimeout(timer);
+              reject(new DOMException("Aborted", "AbortError"));
+            };
+            const timer = setTimeout(() => {
+              controller.signal.removeEventListener("abort", stop);
+              resolve();
+            }, 300);
+            controller.signal.addEventListener("abort", stop, { once: true });
+          });
+        }
+      }
       if (controller.signal.aborted || latestParams.current.get("q") !== text) return;
       const draft = readAIQuery(result);
       const next = new URLSearchParams(latestParams.current);
@@ -198,12 +230,12 @@ export function CatalogFilterBar({
   useEffect(() => {
     if (
       ai.data?.enabled &&
-      looksLikeCatalogRequest(phrase) &&
+      (looksLikeCatalogRequest(phrase) || (!!phrase.trim() && emptySearch === phrase)) &&
       lastInterpreted.current !== phrase &&
       latestParams.current.get("q") === phrase
     )
       void interpret(phrase);
-  }, [phrase, ai.data?.enabled]);
+  }, [phrase, ai.data?.enabled, emptySearch]);
   useEffect(() => () => pendingInterpret.current?.abort(), []);
   const definitions = fields();
   const field = definitions.find((f) => f.key === draft.field)!;
@@ -334,6 +366,7 @@ export function CatalogFilterBar({
               pendingInterpret.current?.abort();
               setInterpreting(false);
               setAiError(false);
+              lastInterpreted.current = "";
               const p = new URLSearchParams(latestParams.current);
               p.delete("page");
               e.target.value ? p.set("q", e.target.value) : p.delete("q");

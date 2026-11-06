@@ -49,13 +49,26 @@ describe("catalogue filter URL transactions", () => {
   });
 });
 
-function SearchHarness({ query = "", filters = "" }: { query?: string; filters?: string }) {
+function SearchHarness({
+  query = "",
+  filters = "",
+  emptySearch,
+}: {
+  query?: string;
+  filters?: string;
+  emptySearch?: string;
+}) {
   const [params, setParams] = useState(
     new URLSearchParams({ ...(query ? { q: query } : {}), ...(filters ? { filters } : {}) }),
   );
   return (
     <>
-      <CatalogFilterBar params={params} onChange={setParams} viewers={[]} />
+      <CatalogFilterBar
+        params={params}
+        onChange={setParams}
+        viewers={[]}
+        emptySearch={emptySearch}
+      />
       <output data-testid="url">{params.toString()}</output>
     </>
   );
@@ -202,5 +215,49 @@ describe("AI filter drafts", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("AI search is unavailable");
     expect(screen.getByLabelText("Find a title")).toHaveValue("whimsical movies");
     expect(screen.getByTestId("url").textContent).not.toContain("filters=");
+  });
+});
+
+describe("completed title search AI fallback", () => {
+  it("waits for matching empty results and retries vocabulary warm-up without losing the query", async () => {
+    let posts = 0;
+    const fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method !== "POST") return new Response(JSON.stringify({ enabled: true }));
+      posts++;
+      return posts === 1
+        ? new Response(JSON.stringify({ error: { code: "vocabulary_unavailable" } }), {
+            status: 503,
+          })
+        : new Response(JSON.stringify({ chips: [{ field: "genre", op: "is", value: "Comedy" }] }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const query = "cute whimsical rainy girls night in";
+    const { rerender } = render(<SearchHarness query={query} emptySearch="old search" />);
+    await screen.findByRole("button", { name: "Turn search into filters" });
+    expect(posts).toBe(0);
+    rerender(<SearchHarness query={query} emptySearch={query} />);
+    await waitFor(() => expect(screen.getByLabelText("Find a title")).toHaveValue(""));
+    expect(posts).toBe(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Genre filter" })).toHaveTextContent("Comedy");
+  });
+  it("does not turn an older search failure into an error for newly typed text", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init?: RequestInit) => {
+        if (init?.method !== "POST") return new Response(JSON.stringify({ enabled: true }));
+        return new Response(JSON.stringify({ error: { code: "vocabulary_unavailable" } }), {
+          status: 503,
+        });
+      }),
+    );
+    const { rerender } = render(<SearchHarness query="Nothing here" emptySearch="Nothing here" />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Turn search into filters" })).toBeDisabled(),
+    );
+    fireEvent.change(screen.getByLabelText("Find a title"), { target: { value: "Seven" } });
+    rerender(<SearchHarness query="Nothing here" emptySearch="Nothing here" />);
+    expect(screen.getByLabelText("Find a title")).toHaveValue("Seven");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
