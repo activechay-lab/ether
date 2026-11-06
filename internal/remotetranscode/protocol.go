@@ -28,6 +28,7 @@ var ErrUncertain = errors.New("remotetranscode: execution responsibility require
 type Capabilities struct {
 	HLS, SegmentSeek, DASH, HTTP, Probe, SourceSwap, Subtitles, ABR, SoftSubtitles, Controls, Observations, Keyframes bool
 	// RecoveryStart negotiates instruction transport only, never successful recovery.
+	AuthoredRamp  bool `json:",omitempty"`
 	RecoveryStart bool `json:",omitempty"`
 }
 
@@ -54,6 +55,7 @@ type Identity struct {
 	Generation uint64
 }
 type Start struct {
+	Ramp               core.HLSRamp         `json:",omitzero"`
 	Resume             *core.HLSResume      `json:",omitempty"`
 	RecoveryStart      *core.RecoveryStart  `json:",omitempty"`
 	Keyframes          []core.KeyframePoint `json:",omitempty"`
@@ -192,12 +194,18 @@ func supported(r core.HLSRequest) bool { return SupportsRequest(r, Supported()) 
 
 // SupportsRequest is side-effect-free and shared with placement preflight.
 func SupportsRequest(r core.HLSRequest, c Capabilities) bool {
+	if !transcode.ValidDistributedRamp(r) {
+		return false
+	}
 	if r.Resume != nil && (r.Resume.FirstSegment < 0 || r.Resume.FirstSegment > 10000000 || r.Resume.Generation == 0 || r.StartOffset != 0 || r.RecoveryStart != nil || r.Decision.VideoCopy || r.LiveInput || r.Protocol != core.ProtocolHLS && r.Protocol != "") {
 		return false
 	}
 	var err error
 	c, err = NormalizeCapabilities(c)
 	if err != nil {
+		return false
+	}
+	if r.Ramp.Version != 0 && !c.AuthoredRamp {
 		return false
 	}
 	if r.RecoveryStart != nil && (!c.RecoveryStart || !transcode.ValidRecoveryStartShape(r)) {
@@ -220,7 +228,7 @@ func SupportsRequest(r core.HLSRequest, c Capabilities) bool {
 			return false
 		}
 	}
-	b, err := json.Marshal(Start{Resume: cloneResume(r.Resume), RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: r.Info.Keyframes, ReleaseID: r.ReleaseID, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof})
+	b, err := json.Marshal(Start{Ramp: r.Ramp, Resume: cloneResume(r.Resume), RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: r.Info.Keyframes, ReleaseID: r.ReleaseID, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof})
 	if err != nil || len(b) > MaxMessage-8192 {
 		return false
 	}

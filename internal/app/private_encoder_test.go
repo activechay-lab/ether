@@ -14,7 +14,7 @@ func TestPrivateEncoderPolicyIsolation(t *testing.T) {
 	cfg.Transcode.SpikeGovernor = true
 	cfg.Transcode.RTXVideo.Mode = "auto"
 	tc := privateEncoderConfig(cfg, 2)
-	if tc.FastStart || tc.ABRLadder || tc.ABRLadderUnderCopy || tc.SpikeGovernor || tc.RTXVideo.Mode != "off" {
+	if !tc.FastStart || tc.ABRLadder || tc.ABRLadderUnderCopy || tc.SpikeGovernor || tc.RTXVideo.Mode != "off" {
 		t.Fatal("private plan permits autonomous mutation")
 	}
 	if tc.MaxTranscodes != 2 || tc.TempDir != filepath.Join(cfg.Transcode.TempDir, "private-worker") {

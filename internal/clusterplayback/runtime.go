@@ -27,6 +27,8 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
+	// AuthorRamp snapshots trusted configuration before the initial admission.
+	AuthorRamp     func(core.HLSRequest) core.HLSRequest
 	MediaServers   func(context.Context) ([]nodewire.Identity, error)
 	ProtocolSealer ProtocolSealer
 	// ClockReady continuously gates new and extended time-bounded authority.

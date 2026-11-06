@@ -13,7 +13,7 @@ import (
 // The same fixed dedicated Manager must be used for preflight and actual start;
 // this is not a promise of future capacity or successful device/process execution.
 func (m *Manager) SupportsDistributedRequest(req core.HLSRequest) bool {
-	if m == nil || req.RecoveryStart != nil || req.Info.Estimated || len(req.Info.Streams) > 64 || len(req.Info.Chapters) > 128 || req.StartOffset < 0 || req.SegmentDuration < 0 || req.SegmentDuration > time.Minute || req.LiveInput || req.CopyTimestamps || len(req.SlateText) > 0 || len(req.InputHeaders) > 0 || req.InputLease != nil || !ValidateDistributedKeyframes(req.Info) || !distributedRequestSize(req) {
+	if !ValidDistributedRamp(req) || m == nil || req.RecoveryStart != nil || req.Info.Estimated || len(req.Info.Streams) > 64 || len(req.Info.Chapters) > 128 || req.StartOffset < 0 || req.SegmentDuration < 0 || req.SegmentDuration > time.Minute || req.LiveInput || req.CopyTimestamps || len(req.SlateText) > 0 || len(req.InputHeaders) > 0 || req.InputLease != nil || !ValidateDistributedKeyframes(req.Info) || !distributedRequestSize(req) {
 		return false
 	}
 	for _, stream := range req.Info.Streams {
@@ -27,7 +27,7 @@ func (m *Manager) SupportsDistributedRequest(req core.HLSRequest) bool {
 	m.mu.Lock()
 	cfg, closed := m.cfg, m.closed
 	m.mu.Unlock()
-	if closed || cfg.FastStart || cfg.SpikeGovernor || (cfg.RTXVideo.Mode != "" && cfg.RTXVideo.Mode != "off") {
+	if closed || cfg.SpikeGovernor || (cfg.RTXVideo.Mode != "" && cfg.RTXVideo.Mode != "off") {
 		return false
 	}
 	f := m.feat
@@ -127,6 +127,11 @@ func (m *Manager) SupportsDistributedRequest(req core.HLSRequest) bool {
 				return false
 			}
 			enc, _ := videoEncoder(codec, m.hw, f)
+			// The archived ramp splice proof covers the software H264 clock.
+			// Hardware and HEVC retain their existing steady private contract.
+			if req.Ramp.Segments > 0 && enc != "libx264" {
+				return false
+			}
 			if !f.hasEncoder(enc) || (codec == "hevc" && enc == "libx264") {
 				return false
 			}
@@ -153,6 +158,25 @@ func (m *Manager) SupportsDistributedRequest(req core.HLSRequest) bool {
 		}
 		if !distributedCommandSupported(buildArgs(spec), f) {
 			return false
+		}
+		if req.Ramp.Segments > 0 {
+			rampSpec := spec
+			rampSpec.AuthoredTimeline, rampSpec.RampClock = true, true
+			rampSpec.InBandHeaders = decision.Container == ContainerFMP4
+			for _, fast := range []bool{false, true} {
+				rampSpec.FastStart = fast
+				if fast {
+					rampSpec.SegDur = req.Ramp.Duration
+				} else {
+					rampSpec.SegDur = req.SegmentDuration
+				}
+				for _, start := range []time.Duration{0, 8 * time.Second} {
+					rampSpec.Start = start
+					if !distributedCommandSupported(buildArgs(rampSpec), f) {
+						return false
+					}
+				}
+			}
 		}
 		// Segment seeks are advertised: validate the extra seek-time bitstream
 		// dependencies even when this particular start begins at zero.

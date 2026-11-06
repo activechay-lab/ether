@@ -28,7 +28,6 @@ func (a *App) buildPrivateEncoder(cfg config.Config) error {
 
 func privateEncoderConfig(cfg config.Config, capacity int) config.Transcode {
 	tc := cfg.Transcode
-	tc.FastStart = false
 	tc.ABRLadder = false
 	tc.ABRLadderUnderCopy = false
 	tc.SpikeGovernor = false

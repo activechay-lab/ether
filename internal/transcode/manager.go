@@ -575,6 +575,9 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if !ValidDistributedRamp(req) {
+		return nil, errors.New("transcode: invalid authored ramp")
+	}
 	// No trusted immutable AAC index/provider is wired yet. Reject before any
 	// source preflight or encoder invocation; never infer an AU cursor.
 	if req.RecoveryStart != nil {
@@ -664,6 +667,10 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	m.mu.Lock()
 	rtxConfig, _ := normalizedRTX(m.cfg.RTXVideo)
 	adapt := adaptiveFromConfig(m.cfg)
+	if req.Ramp.Version != 0 {
+		adapt.FastStart = req.Ramp.Segments > 0
+		adapt.RampSegs, adapt.RampDur = req.Ramp.Segments, req.Ramp.Duration
+	}
 	if enhancementSelected(d) {
 		// Native VSR keeps a steady clock. Lower rungs use ordinary FFmpeg
 		// on that same clock; never change the timeline on a VSR fallback.

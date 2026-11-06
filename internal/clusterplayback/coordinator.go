@@ -77,6 +77,9 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		return nil, ErrDenied
 	}
 	q = cloneAdmissionRequest(q)
+	if r.o.AuthorRamp != nil {
+		q = r.o.AuthorRamp(q)
+	}
 	playID, revision := prepared.PlayID, prepared.Revision
 	if r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil || r.o.Eligible(ctx, prepared.Owner, config.RoleSource) != nil {
 		return nil, ErrDenied

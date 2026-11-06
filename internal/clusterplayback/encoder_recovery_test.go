@@ -21,7 +21,9 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
+	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"github.com/braedonsaunders/ether/internal/store"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 type recoveryTestEncoder struct {
@@ -71,7 +73,7 @@ func (s *recoveryTestSession) ServeSegment(w http.ResponseWriter, q *http.Reques
 // The encoded bytes are a recorded offline TS fixture: it tests ownership and
 // complete/unique delivery, not real decoder or audio splice continuity.
 func TestEncoderLossRecoveryInvariant(t *testing.T) {
-	for _, mode := range []string{"exit", "partition", "newboot", "boot-before-recovery", "removed", "clock", "tls-replaced", "tls-denied", "gone", "pause", "refused"} {
+	for _, mode := range []string{"ramp", "exit", "partition", "newboot", "boot-before-recovery", "removed", "clock", "tls-replaced", "tls-denied", "gone", "pause", "refused"} {
 		t.Run(mode, func(t *testing.T) {
 			fixtureStarted := time.Now()
 			data, err := os.ReadFile("../playbackbuffer/testdata/cpu.ts")
@@ -115,6 +117,14 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				return nil
 			}
 			base := Options{DB: db, Placement: p, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: member, Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond, EncoderRPCDeadline: 50 * time.Millisecond, EncoderFailureGrace: time.Millisecond, EncoderSegmentWait: time.Second, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return core.Decision{} }}
+			if mode == "ramp" {
+				caps := remotetranscode.Supported()
+				caps.AuthoredRamp = true
+				base.RemoteCapabilities, base.WorkerCapabilities = caps, caps
+				base.AuthorRamp = func(q core.HLSRequest) core.HLSRequest {
+					return transcode.AuthorDistributedRamp(q, config.Transcode{FastStart: true})
+				}
+			}
 			var down atomic.Bool
 			pauseSegmentStarted := make(chan struct{})
 			var pauseOnce sync.Once
@@ -249,6 +259,9 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			prefix, err := front.SnapshotOutput(q.SessionID)
 			if err != nil || prefix.Buffer.State.PublishedFloor != 1 {
 				t.Fatalf("delivered no-cache segments did not advance restart floor: %+v %v", prefix, err)
+			}
+			if mode == "ramp" {
+				front.o.AuthorRamp = func(q core.HLSRequest) core.HLSRequest { q.Ramp.Segments = 9; return q }
 			}
 			front.mu.Lock()
 			old := *front.executions[q.SessionID]
@@ -426,6 +439,9 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			}
 			if len(b.requests) != 1 || b.requests[0].Resume == nil || *b.requests[0].Resume != (core.HLSResume{FirstSegment: int(prefix.Buffer.State.PublishedFloor + 1), Generation: 2}) || !reflect.DeepEqual(b.requests[0].Decision, q.Decision) {
 				t.Fatalf("immutable plan/resume: %+v", b.requests)
+			}
+			if mode == "ramp" && (b.requests[0].Ramp != (core.HLSRamp{Version: 1, Segments: 2, Duration: 2 * time.Second}) || a.requests[0].Ramp != b.requests[0].Ramp) {
+				t.Fatal("replacement changed admitted ramp")
 			}
 			gate, err := front.readOperationGate(ctx, operationKey{ids[0].Cluster, q.SessionID, 1})
 			if err != nil || gate.State != gateSealedClaimed || gate.Gate.Arm == nil {

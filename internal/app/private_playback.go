@@ -12,6 +12,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
@@ -29,6 +30,9 @@ func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
 	}
 	self := a.cluster.Self()
 	o := clusterplayback.Options{ProtocolSealer: a.cfg, ClockReady: a.privateClockReady, Bus: a.clusterNode(), DB: a.db, Guard: p.guard, Self: nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: self.ID, Boot: self.Incarnation}, Roles: p.settings.Roles, Placement: ledger, Endpoint: a.privateEndpoint, MemberRole: a.privateMemberRole, Eligible: a.privateEligible, Capacity: p.settings.Capacity, ClockSkew: time.Duration(p.settings.ClockSkewMillis) * time.Millisecond, ClockBoundKnown: p.settings.ClockBoundKnown}
+	o.AuthorRamp = func(q core.HLSRequest) core.HLSRequest {
+		return transcode.AuthorDistributedRamp(q, a.cfg.Get().Transcode)
+	}
 	o.MediaServers = func(ctx context.Context) ([]nodewire.Identity, error) {
 		nodes, err := a.cluster.Nodes(ctx)
 		var ids []nodewire.Identity
@@ -47,6 +51,7 @@ func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
 	// both real worker preflight and execution; all other extensions stay closed.
 	capabilities := remotetranscode.Supported()
 	capabilities.Keyframes = true
+	capabilities.AuthoredRamp = true
 	o.RemoteCapabilities, o.WorkerCapabilities = capabilities, capabilities
 	if p.settings.Roles.FullServer() {
 		o.Roles = config.NodeRoles{config.RoleServer, config.RoleSource, config.RoleDelivery, config.RoleBackground}
