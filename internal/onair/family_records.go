@@ -87,7 +87,11 @@ func familyLook(id, name string) Look {
 		if sting, ok := b.Tokens["sting"].(string); ok && sting != "" && m == "ident" {
 			sounds = append(sounds, SceneSound{ID: "sting", AssetDigest: sting, Volume: .6})
 		}
-		l.Scenes = append(l.Scenes, StyleScene{ID: id + "-" + m, Role: m, Name: strings.ToUpper(m[:1]) + m[1:], Enabled: true, Weight: 1, Document: d, Sounds: sounds})
+		sceneName := map[string]string{"ident": name + " ident", "upnext": "Up next card", "tonight": "Tonight lineup", "break": "Break bumper", "back": "Back from break", "offair": "Off air card", "welcome": "Welcome card", "lowerthird": "Programme lower third", "bug": "Corner logo"}[m]
+		if sceneName == "" {
+			sceneName = name + " " + m
+		}
+		l.Scenes = append(l.Scenes, StyleScene{ID: id + "-" + m, Role: m, Name: sceneName, Enabled: true, Weight: 1, Document: d, Sounds: sounds})
 	}
 	return l
 }

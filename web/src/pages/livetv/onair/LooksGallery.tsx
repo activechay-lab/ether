@@ -1,3 +1,4 @@
+import { nameTemplateScenes } from "./editor/scene-names";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Popover } from "@braedonsaunders/appkit-ui";
 import { useLocation, useSearchParams } from "react-router-dom";
@@ -145,7 +146,9 @@ export function LooksGallery({
     setWorking(true);
     setError("");
     try {
-      const saved = await studio.createStyle({ ...structuredClone(style), id: "", channelIds: [] });
+      const saved = await studio.createStyle(
+        nameTemplateScenes({ ...structuredClone(style), id: "", channelIds: [] }),
+      );
       onSelect(saved.id);
     } catch (e) {
       setError(errorMessage(e));

@@ -785,7 +785,7 @@ export default function LiveTV() {
       )}
       <SubtabNav
         ariaLabel={t("Lineup")}
-        className="grid grid-cols-5 gap-0 overflow-visible [&>button]:min-w-0 [&>button]:justify-center [&>button]:px-0.5 [&>button]:text-xs @min-[280px]:[&>button]:text-sm [&>button>span]:block [&>button>span]:min-w-0 [&>button>span]:break-words"
+        className="justify-start"
         active={leftTab}
         onSelect={(next) => {
           setLeftTab(next);

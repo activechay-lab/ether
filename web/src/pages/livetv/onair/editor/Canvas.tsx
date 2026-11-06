@@ -22,6 +22,10 @@ import {
   ungroup,
   insertLayer,
   newLayerId,
+  layerPath,
+  selectionPath,
+  selectionTarget,
+  sharedTextLayers,
 } from "./scene-edit";
 export type CanvasProps = {
   document: Scene;
@@ -50,6 +54,30 @@ export function editValue(
     ? { [key]: setKeyframe(layer, key, time, value)[key] }
     : { [key]: value };
 }
+type Geometry = ReturnType<typeof layerBounds>;
+type SelectionBox = { x: number; y: number; w: number; h: number; rotate: number };
+function boxFor(ids: string[], geometry: Geometry): SelectionBox | undefined {
+  const chosen = geometry.filter((b) => ids.includes(b.id));
+  const first = chosen[0];
+  if (!first) return;
+  if (chosen.length === 1)
+    return {
+      x: first.x,
+      y: first.y,
+      w: Math.abs(first.w * first.scaleX),
+      h: Math.abs(first.h * first.scaleY),
+      rotate: first.rotate,
+    };
+  const x = Math.min(...chosen.map((b) => b.world.x)),
+    y = Math.min(...chosen.map((b) => b.world.y));
+  return {
+    x,
+    y,
+    w: Math.max(...chosen.map((b) => b.world.x + b.world.w)) - x,
+    h: Math.max(...chosen.map((b) => b.world.y + b.world.h)) - y,
+    rotate: 0,
+  };
+}
 export function Canvas(p: CanvasProps) {
   const viewport = useRef<HTMLDivElement>(null);
   const [fitWidth, setFitWidth] = useState(960);
@@ -66,6 +94,17 @@ export function Canvas(p: CanvasProps) {
   }, [p.fit]);
   const canvas = useRef<HTMLCanvasElement>(null),
     host = useRef<HTMLDivElement>(null);
+  const [scope, setScope] = useState<string>();
+  useEffect(() => {
+    if (
+      scope &&
+      (!p.selected.length ||
+        p.selected.some(
+          (id) => id === scope || !layerPath(p.document, id).some((l) => l.id === scope),
+        ))
+    )
+      setScope(undefined);
+  }, [p.selected, scope]);
   const [hover, setHover] = useState<string>(),
     [editing, setEditing] = useState<string>(),
     [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number }>(),
@@ -83,7 +122,16 @@ export function Canvas(p: CanvasProps) {
     }
   }, [p.pen]);
   const gesture = useRef<
-    { x: number; y: number; doc: Scene; ids: string[]; mode: string } | undefined
+    | {
+        x: number;
+        y: number;
+        doc: Scene;
+        ids: string[];
+        mode: string;
+        bounds?: Geometry;
+        box?: SelectionBox;
+      }
+    | undefined
   >(undefined);
   useEffect(() => {
     const ctx = canvas.current?.getContext("2d");
@@ -96,6 +144,22 @@ export function Canvas(p: CanvasProps) {
     },
     [],
   );
+  const selectedRoots = p.selected.filter(
+    (id) =>
+      !layerPath(p.document, id)
+        .slice(0, -1)
+        .some((l) => p.selected.includes(l.id)),
+  );
+  const selectionBox = boxFor(selectedRoots, geometry);
+  const frameWidth = p.fit ? fitWidth * (p.zoom ?? 1) : (host.current?.clientWidth ?? 960);
+  const screenUnit = 1920 / Math.max(120, frameWidth),
+    touch = frameWidth < 600;
+  const parentMatrix = (doc: Scene, id: string, bounds: Geometry) => {
+    const path = layerPath(doc, id);
+    const parent = path.at(-2);
+    const matrix = parent ? bounds.find((b) => b.id === parent.id)?.matrix : undefined;
+    return matrix ? new DOMMatrix(matrix) : new DOMMatrix();
+  };
   const point = (e: { clientX: number; clientY: number }) => {
     const r = host.current!.getBoundingClientRect();
     return {
@@ -135,7 +199,8 @@ export function Canvas(p: CanvasProps) {
       return;
     }
     if (!g) {
-      setHover(hit(q)?.id);
+      const id = hit(q)?.id;
+      setHover(id ? selectionTarget(p.document, id, scope, e.metaKey || e.ctrlKey) : undefined);
       return;
     }
     let dx = q.x - g.x,
@@ -173,37 +238,68 @@ export function Canvas(p: CanvasProps) {
         }
         continue;
       }
-      if (g.mode === "rotate")
-        patch = editValue(
-          l,
-          "rotate",
-          e.shiftKey
-            ? Math.round((Math.atan2(q.y - n("y"), q.x - n("x")) + Math.PI / 2) / (Math.PI / 12)) *
-                (Math.PI / 12)
-            : Math.atan2(q.y - n("y"), q.x - n("x")) + Math.PI / 2,
-          p.time,
-        );
-      else if (g.mode === "resize") {
+      const bounds = g.bounds ?? geometry,
+        box = g.box;
+      const original = bounds.find((b) => b.id === id);
+      const parent = parentMatrix(g.doc, id, bounds),
+        inverseParent = parent.inverse();
+      if ((g.mode === "rotate" || g.mode.startsWith("resize:")) && box && original) {
+        const cos = Math.cos(box.rotate),
+          sin = Math.sin(box.rotate);
+        let anchor = { x: original.anchor.x, y: original.anchor.y };
+        if (g.mode === "rotate") {
+          const center = {
+            x: box.x + (cos * box.w) / 2 - (sin * box.h) / 2,
+            y: box.y + (sin * box.w) / 2 + (cos * box.h) / 2,
+          };
+          let angle =
+            Math.atan2(q.y - center.y, q.x - center.x) - Math.atan2(g.y - center.y, g.x - center.x);
+          if (e.shiftKey) angle = Math.round(angle / (Math.PI / 12)) * (Math.PI / 12);
+          const ax = anchor.x - center.x,
+            ay = anchor.y - center.y;
+          anchor = {
+            x: center.x + ax * Math.cos(angle) - ay * Math.sin(angle),
+            y: center.y + ax * Math.sin(angle) + ay * Math.cos(angle),
+          };
+          patch = editValue(l, "rotate", n("rotate") + angle, p.time);
+        } else {
+          const side = g.mode.slice(7),
+            localDx = dx * cos + dy * sin,
+            localDy = -dx * sin + dy * cos;
+          let sx = side.includes("e")
+            ? 1 + localDx / Math.max(1, box.w)
+            : side.includes("w")
+              ? 1 - localDx / Math.max(1, box.w)
+              : 1;
+          let sy = side.includes("s")
+            ? 1 + localDy / Math.max(1, box.h)
+            : side.includes("n")
+              ? 1 - localDy / Math.max(1, box.h)
+              : 1;
+          if (e.shiftKey) {
+            const ratio = Math.abs(sx - 1) > Math.abs(sy - 1) ? sx : sy;
+            sx = ratio;
+            sy = ratio;
+          }
+          sx = Math.max(0.01, sx);
+          sy = Math.max(0.01, sy);
+          const ax = side.includes("w") ? box.w : side.includes("e") ? 0 : box.w / 2,
+            ay = side.includes("n") ? box.h : side.includes("s") ? 0 : box.h / 2;
+          const lx = (anchor.x - box.x) * cos + (anchor.y - box.y) * sin,
+            ly = -(anchor.x - box.x) * sin + (anchor.y - box.y) * cos;
+          const nx = ax + (lx - ax) * sx,
+            ny = ay + (ly - ay) * sy;
+          anchor = { x: box.x + nx * cos - ny * sin, y: box.y + nx * sin + ny * cos };
+          patch = {
+            ...editValue(l, "scaleX", n("scaleX", 1) * sx, p.time),
+            ...editValue(l, "scaleY", n("scaleY", 1) * sy, p.time),
+          };
+        }
+        const local = inverseParent.transformPoint(anchor);
         patch = {
-          ...editValue(
-            l,
-            "scaleX",
-            Math.max(
-              0.01,
-              n("scaleX", 1) + dx / Math.max(1, geometry.find((b) => b.id === id)?.w ?? 100),
-            ),
-            p.time,
-          ),
-          ...editValue(
-            l,
-            "scaleY",
-            Math.max(
-              0.01,
-              n("scaleY", 1) +
-                (e.shiftKey ? dx : dy) / Math.max(1, geometry.find((b) => b.id === id)?.h ?? 100),
-            ),
-            p.time,
-          ),
+          ...patch,
+          ...editValue(l, "x", local.x, p.time),
+          ...editValue(l, "y", local.y, p.time),
         };
       } else {
         let x = n("x") + dx,
@@ -234,7 +330,12 @@ export function Canvas(p: CanvasProps) {
           y = snapY;
           nextGuides.y = y;
         }
-        patch = { ...editValue(l, "x", x, p.time), ...editValue(l, "y", y, p.time) };
+        const delta = inverseParent.transformPoint({ x: x - n("x"), y: y - n("y") }),
+          zero = inverseParent.transformPoint({ x: 0, y: 0 });
+        patch = {
+          ...editValue(l, "x", n("x") + delta.x - zero.x, p.time),
+          ...editValue(l, "y", n("y") + delta.y - zero.y, p.time),
+        };
       }
       doc = updateLayer(doc, id, patch);
     }
@@ -269,6 +370,12 @@ export function Canvas(p: CanvasProps) {
         aria-label={t("Scene canvas")}
         onPointerMove={move}
         onPointerLeave={() => setHover(undefined)}
+        onPointerCancel={() => {
+          gesture.current = undefined;
+          setMarquee(undefined);
+          setGuides({});
+          p.onGestureEnd?.();
+        }}
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest("input")) return;
           p.onGestureStart?.();
@@ -279,7 +386,12 @@ export function Canvas(p: CanvasProps) {
             return;
           }
           const target = (e.target as HTMLElement).dataset.mode;
-          const id = hit(q)?.id;
+          const leaf = hit(q)?.id;
+          if (scope && leaf && !selectionPath(p.document, leaf).some((l) => l.id === scope))
+            setScope(undefined);
+          const id = leaf
+            ? selectionTarget(p.document, leaf, scope, e.metaKey || e.ctrlKey)
+            : undefined;
           const ids = target
             ? p.selected
             : id
@@ -295,8 +407,15 @@ export function Canvas(p: CanvasProps) {
           gesture.current = {
             ...q,
             doc: p.document,
-            ids,
+            ids: ids.filter(
+              (id) =>
+                !layerPath(p.document, id)
+                  .slice(0, -1)
+                  .some((l) => ids.includes(l.id)),
+            ),
             mode: target ?? (id ? "move" : "marquee"),
+            bounds: geometry,
+            box: boxFor(ids, geometry),
           };
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
@@ -306,19 +425,31 @@ export function Canvas(p: CanvasProps) {
             gesture.current = undefined;
             return;
           }
-          if (marquee)
+          if (marquee) {
+            const ids = [
+              ...new Set(
+                geometry
+                  .filter(
+                    (b) =>
+                      findLayer(p.document, b.id)?.type !== "group" &&
+                      !layerPath(p.document, b.id).some((l) => l.locked) &&
+                      b.world.x >= marquee.x &&
+                      b.world.y >= marquee.y &&
+                      b.world.x + b.world.w <= marquee.x + marquee.w &&
+                      b.world.y + b.world.h <= marquee.y + marquee.h,
+                  )
+                  .map((b) => selectionTarget(p.document, b.id, scope)),
+              ),
+            ];
             p.onSelect(
-              geometry
-                .filter(
-                  (b) =>
-                    !findLayer(p.document, b.id)?.locked &&
-                    b.x >= marquee.x &&
-                    b.y >= marquee.y &&
-                    b.x + b.w <= marquee.x + marquee.w &&
-                    b.y + b.h <= marquee.y + marquee.h,
-                )
-                .map((b) => b.id),
+              ids.filter(
+                (id) =>
+                  !layerPath(p.document, id)
+                    .slice(0, -1)
+                    .some((l) => ids.includes(l.id)),
+              ),
             );
+          }
           gesture.current = undefined;
           setMarquee(undefined);
           setGuides({});
@@ -357,11 +488,33 @@ export function Canvas(p: CanvasProps) {
             p.onPenDone?.();
             return;
           }
-          const id = hit(point(e))?.id;
-          if (id && findLayer(p.document, id)?.type === "text") setEditing(id);
+          const leaf = hit(point(e))?.id;
+          if (!leaf) return;
+          const path = selectionPath(p.document, leaf),
+            current = p.selected[0];
+          const index = path.findIndex((l) => l.id === current);
+          const selected = findLayer(p.document, current ?? "");
+          if (current === leaf && selected?.type === "text") {
+            setEditing(leaf);
+            return;
+          }
+          const next = path[Math.min(path.length - 1, index + 1)];
+          if (next) {
+            setScope(index >= 0 ? path[index]!.id : undefined);
+            p.onSelect([next.id]);
+          }
         }}
         onKeyDown={(e) => {
           if ((e.target as HTMLElement).matches("input,textarea")) return;
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            const path = selectionPath(p.document, p.selected[0] ?? "");
+            const parent = path.at(-2);
+            setScope(parent ? selectionPath(p.document, parent.id).at(-2)?.id : undefined);
+            p.onSelect(parent ? [parent.id] : []);
+            return;
+          }
           let doc = p.document;
           const cmd = e.metaKey || e.ctrlKey;
           if (e.key === "Delete" || e.key === "Backspace") doc = removeLayers(doc, p.selected);
@@ -416,40 +569,84 @@ export function Canvas(p: CanvasProps) {
             </g>
           )}
           {geometry
-            .filter((b) => p.selected.includes(b.id) || b.id === hover)
+            .filter((b) => b.id === hover && !p.selected.includes(b.id))
             .map((b) => (
               <g
                 key={b.id}
-                transform={`translate(${b.x} ${b.y}) rotate(${(b.rotate * 180) / Math.PI}) scale(${b.scaleX} ${b.scaleY})`}
+                transform={`translate(${b.x} ${b.y}) rotate(${(b.rotate * 180) / Math.PI})`}
                 fill="none"
                 stroke="#76a9ff"
-                strokeWidth="3"
+                strokeWidth={screenUnit}
               >
-                <rect width={b.w} height={b.h} />
-                {p.selected.includes(b.id) && (
-                  <>
-                    <rect
-                      data-mode="resize"
-                      className="pointer-events-auto cursor-nwse-resize"
-                      x={b.w - 10}
-                      y={b.h - 10}
-                      width="20"
-                      height="20"
-                      fill="white"
-                    />
-                    <line x1={b.w / 2} x2={b.w / 2} y1="0" y2="-45" />
-                    <circle
-                      data-mode="rotate"
-                      className="pointer-events-auto cursor-grab"
-                      cx={b.w / 2}
-                      cy="-45"
-                      r="12"
-                      fill="white"
-                    />
-                  </>
-                )}
+                <rect width={b.w * b.scaleX} height={b.h * b.scaleY} />
               </g>
             ))}
+          {selectionBox && (
+            <g
+              transform={`translate(${selectionBox.x} ${selectionBox.y}) rotate(${(selectionBox.rotate * 180) / Math.PI})`}
+              fill="none"
+              stroke="#76a9ff"
+              strokeWidth={screenUnit}
+            >
+              <rect width={selectionBox.w} height={selectionBox.h} />
+              {(
+                [
+                  ["nw", 0, 0],
+                  ["n", 0.5, 0],
+                  ["ne", 1, 0],
+                  ["e", 1, 0.5],
+                  ["se", 1, 1],
+                  ["s", 0.5, 1],
+                  ["sw", 0, 1],
+                  ["w", 0, 0.5],
+                ] as const
+              ).map(([side, x, y]) => {
+                const cx = x * selectionBox.w,
+                  cy = y * selectionBox.h,
+                  size = (touch ? 11 : 7) * screenUnit,
+                  target = (touch ? 30 : 18) * screenUnit;
+                return (
+                  <g key={side}>
+                    <rect
+                      data-mode={`resize:${side}`}
+                      className={`pointer-events-auto ${side === "n" || side === "s" ? "cursor-ns-resize" : side === "e" || side === "w" ? "cursor-ew-resize" : side === "nw" || side === "se" ? "cursor-nwse-resize" : "cursor-nesw-resize"}`}
+                      x={cx - target / 2}
+                      y={cy - target / 2}
+                      width={target}
+                      height={target}
+                      fill="transparent"
+                      stroke="none"
+                    />
+                    <rect
+                      className="pointer-events-none"
+                      x={cx - size / 2}
+                      y={cy - size / 2}
+                      width={size}
+                      height={size}
+                      fill="white"
+                    />
+                  </g>
+                );
+              })}
+              <line x1={selectionBox.w / 2} x2={selectionBox.w / 2} y1="0" y2={-30 * screenUnit} />
+              <circle
+                data-mode="rotate"
+                className="pointer-events-auto cursor-grab"
+                cx={selectionBox.w / 2}
+                cy={-30 * screenUnit}
+                r={(touch ? 16 : 10) * screenUnit}
+                fill="transparent"
+                stroke="none"
+              />
+              <circle
+                className="pointer-events-none"
+                cx={selectionBox.w / 2}
+                cy={-30 * screenUnit}
+                r={(touch ? 6 : 4) * screenUnit}
+                fill="white"
+              />
+            </g>
+          )}
           {geometry
             .filter((b) => p.selected.includes(b.id))
             .map((b) => (
@@ -472,8 +669,28 @@ export function Canvas(p: CanvasProps) {
             autoFocus
             className="absolute left-1/4 top-1/2 w-1/2"
             aria-label={t("Edit text")}
-            value={String(findLayer(p.document, editing)?.text ?? "")}
-            onChange={(e) => p.onChange(updateLayer(p.document, editing, { text: e.target.value }))}
+            value={String(
+              typeof findLayer(p.document, editing)?.text === "string"
+                ? findLayer(p.document, editing)?.text
+                : (evaluate(findLayer(p.document, editing)?.text, p.bindings, p.time) ?? ""),
+            )}
+            onChange={(e) => {
+              const stack = [...layerPath(p.document, editing)]
+                .reverse()
+                .find((l) => l.type === "group" && sharedTextLayers(l).length > 1);
+              const targets = stack ? sharedTextLayers(stack) : [findLayer(p.document, editing)!];
+              p.onChange(
+                targets.reduce(
+                  (document, layer) =>
+                    updateLayer(
+                      document,
+                      layer.id,
+                      editValue(layer, "text", e.target.value, p.time),
+                    ),
+                  p.document,
+                ),
+              );
+            }}
             onBlur={() => setEditing(undefined)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === "Escape") setEditing(undefined);

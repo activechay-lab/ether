@@ -1,3 +1,4 @@
+import { sceneDisplayName } from "./scene-names";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, Input, Select, Textarea, Popover } from "@braedonsaunders/appkit-ui";
 import {
@@ -22,7 +23,7 @@ import {
 import { evaluate, type Value, type Layer, type SceneBindings } from "../scene-renderer";
 import { styleBindings } from "../Stage";
 import { layerBounds } from "./scene-bounds";
-import { findLayer, updateLayer } from "./scene-edit";
+import { findLayer, updateLayer, sharedTextLayers, updateSharedText } from "./scene-edit";
 import { isAnimated, setKeyframe } from "./keyframes";
 import { propertyName } from "./Timeline";
 import { VideoPicker } from "./VideoPicker";
@@ -65,6 +66,21 @@ export function Inspector(p: {
     lowerthird: t("Lower third"),
   };
   const layer = findLayer(p.scene.document, p.selected[0] ?? "");
+  const stack = layer?.type === "group" ? sharedTextLayers(layer) : [];
+  const groupTextKeys = new Set<keyof Layer>([
+    "text",
+    "font",
+    "size",
+    "track",
+    "weight",
+    "maxWidth",
+    "maxLines",
+    "align",
+    "fit",
+  ]);
+  const sourceFor = (key: keyof Layer) =>
+    stack.length && groupTextKeys.has(key) ? stack[0]! : layer!;
+  const textLayer = stack[0] ?? layer;
   const bindings = p.bindings ?? styleBindings(p.style),
     time = p.time ?? 0;
   const changeScene = (next: StyleScene) =>
@@ -92,7 +108,7 @@ export function Inspector(p: {
             {t("Name")}
             <Input
               className="h-8 text-xs"
-              value={p.scene.name === p.scene.role ? roleNames[p.scene.role] : p.scene.name}
+              value={sceneDisplayName(p.style, p.scene)}
               aria-label={t("Scene name")}
               onChange={(e) => changeScene({ ...p.scene, name: e.target.value })}
             />
@@ -184,16 +200,33 @@ export function Inspector(p: {
         </Section>
       </section>
     );
-  const patch = (data: Partial<Layer>) =>
-    changeScene({ ...p.scene, document: updateLayer(p.scene.document, layer.id, data) });
-  const set = (key: keyof Layer, value: Value) =>
-    patch(
-      isAnimated(layer[key])
-        ? { [key]: setKeyframe(layer, key, time, value)[key] }
-        : { [key]: value },
-    );
+  const patch = (data: Partial<Layer>) => {
+    let document = p.scene.document;
+    const shared: Partial<Layer> = {},
+      own: Partial<Layer> = {};
+    for (const [key, value] of Object.entries(data)) {
+      Object.assign(stack.length && groupTextKeys.has(key as keyof Layer) ? shared : own, {
+        [key]: value,
+      });
+    }
+    if (Object.keys(shared).length) document = updateSharedText(document, layer.id, shared);
+    if (Object.keys(own).length) document = updateLayer(document, layer.id, own);
+    changeScene({ ...p.scene, document });
+  };
+  const set = (key: keyof Layer, value: Value) => {
+    let document = p.scene.document;
+    for (const target of stack.length && groupTextKeys.has(key) ? stack : [layer])
+      document = updateLayer(
+        document,
+        target.id,
+        isAnimated(target[key])
+          ? { [key]: setKeyframe(target, key, time, value)[key] }
+          : { [key]: value },
+      );
+    changeScene({ ...p.scene, document });
+  };
   const n = (key: keyof Layer, fallback = 0) =>
-    Number(evaluate(layer[key] as Value, bindings, time) ?? fallback);
+    Number(evaluate(sourceFor(key)[key] as Value, bindings, time) ?? fallback);
   const labels: Record<string, string> = {
     x: t("X"),
     y: t("Y"),
@@ -341,8 +374,10 @@ export function Inspector(p: {
         className="mt-2 w-full justify-start gap-2 border-t border-border"
         onClick={() => {
           const id = `${layer.id}-${key}`.replace(/[^a-zA-Z0-9_-]/g, "-");
-          const value = evaluate(layer[key] as Value, bindings, time);
-          const document = updateLayer(p.scene.document, layer.id, { [key]: `{control.${id}}` });
+          const value = evaluate(sourceFor(key)[key] as Value, bindings, time);
+          const document = (
+            stack.length && groupTextKeys.has(key) ? updateSharedText : updateLayer
+          )(p.scene.document, layer.id, { [key]: `{control.${id}}` });
           p.onChange({
             ...p.style,
             controls: [
@@ -371,7 +406,7 @@ export function Inspector(p: {
         <Input
           className="h-8 min-w-0 text-xs"
           aria-label={label}
-          value={String(layer[key] ?? "")}
+          value={String(sourceFor(key)[key] ?? "")}
           onChange={(e) => set(key, e.target.value)}
         />
         {bind(key, label, kind)}
@@ -383,8 +418,8 @@ export function Inspector(p: {
       {label}
       <Select
         aria-label={label}
-        value={String(layer[key] ?? options[0]?.[0] ?? "")}
-        onChange={(e) => patch({ [key]: e.target.value })}
+        value={String(sourceFor(key)[key] ?? options[0]?.[0] ?? "")}
+        onChange={(e) => set(key, e.target.value)}
       >
         {options.map(([value, name]) => (
           <option key={value} value={value}>
@@ -542,13 +577,17 @@ export function Inspector(p: {
           ])}
         </div>
       </Section>
-      {layer.type === "text" && (
+      {(layer.type === "text" || stack.length > 0) && (
         <Section title={t("Text")} open>
           <div className="flex items-start gap-1">
             <Textarea
               className="min-h-20 text-xs"
               aria-label={t("Text content")}
-              value={String(evaluate(layer.text, bindings, time) ?? "")}
+              value={
+                typeof textLayer?.text === "string"
+                  ? textLayer.text
+                  : String(evaluate(textLayer?.text, bindings, time) ?? "")
+              }
               onChange={(e) => set("text", e.target.value)}
             />
             {bind("text", t("Text"), "text")}
@@ -730,7 +769,7 @@ export function Inspector(p: {
           )}
         </p>
         {(["fill", "text", "font", "src"] as const)
-          .filter((key) => layer[key] !== undefined)
+          .filter((key) => sourceFor(key)[key] !== undefined)
           .map((key) => (
             <div key={key} className="flex items-center justify-between text-xs">
               <span>
