@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"errors"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -30,7 +31,7 @@ func (b *Broker) retireBackends(ctx context.Context, s *brokerSession, stopSourc
 				if enc == nil {
 					enc = owned.EncoderRetirement()
 				}
-				if err := owned.RetireEncoder(); err != nil {
+				if err := owned.RetireEncoder(); err != nil && !errors.Is(err, core.ErrEncoderPending) {
 					failed = err
 					// Retain an already captured remote token on uncertain stop.
 				}

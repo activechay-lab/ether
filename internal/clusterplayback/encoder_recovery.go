@@ -344,7 +344,7 @@ func (r *Runtime) startReplacement(ctx context.Context, x *execution) error {
 		return err
 	}
 	r.mu.Lock()
-	output := &bufferedSession{Session: next.session, r: r, route: route, headers: make(map[int64]http.Header), supersededAt: -1}
+	output := &bufferedSession{controlledSession: &controlledSession{Session: next.session, r: r}, r: r, route: route, headers: make(map[int64]http.Header), supersededAt: -1}
 	x.previous = append(x.previous, x.output)
 	x.epoch = next.epoch
 	x.route = route

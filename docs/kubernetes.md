@@ -750,3 +750,17 @@ failures that also reproduce on the release baseline.
 See [the acceptance guide](kubernetes-acceptance.md) for exact verdict rules,
 multihost scripts and the evidence index contract. Live reports belong in private
 thread storage, not in this repository.
+
+
+Public distributed Stop removes local session admission and seals the exact
+execution's cancellation without contacting the encoder. Its SQL seal attempt
+has a 750 ms context budget; maintenance retries an uncommitted local stop
+intent. Public session handles, including remux/unbuffered representations,
+route retirement through this coordinator path. Healthy database/control
+routing is still required for an HTTP acknowledgement and durable cross-replica
+cancellation; a client timeout during database loss is not proof of a seal.
+Delivery refuses cancelled operation gates. The controller maintenance tick
+performs bounded worker stop/status RPCs, retaining claims, input ownership and
+output bytes until exact retirement and reader drainage are proven. A paused
+encoder therefore cannot hold up the public Stop response, and a quick Stop
+response does not claim that the paused process has exited.

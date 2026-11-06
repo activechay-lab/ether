@@ -232,7 +232,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if encoderRecoverySupported(q) {
 		slog.Warn("encoder recovery unavailable", "session", rt.Fence.Session, "generation", rt.Fence.Generation, "detector", "output-buffer-unavailable", "rungs", len(x.session.Rungs()), "protocol", q.Protocol)
 	}
-	return hs, nil
+	return &controlledSession{Session: x.session, r: r}, nil
 }
 func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, string, error) {
 	return r.selectTargetExcept(ctx, q, "", source)
@@ -389,6 +389,9 @@ func (r *Runtime) Session(id string) (core.HLSSession, bool) {
 		output = x.output
 	}
 	r.mu.Unlock()
+	if x != nil && !active {
+		return nil, false
+	}
 	if a == nil {
 		if x != nil && !active {
 			return nil, false
@@ -409,6 +412,9 @@ func (r *Runtime) Session(id string) (core.HLSSession, bool) {
 	session, ok := a.Session(id)
 	if ok && output != nil {
 		return r.recoveryDelivery(output), true
+	}
+	if ok {
+		return &controlledSession{Session: session.(*remotetranscode.Session), r: r}, true
 	}
 	return session, ok
 }
@@ -446,28 +452,29 @@ func (r *Runtime) Stop(id string) {
 	// Publish cancellation for the exact durable generation even when this
 	// replica never started it. The coordinator still collects independent
 	// encoder, input and source retirement proof before releasing capacity.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	r.stop(context.Background(), id)
+}
+
+func (r *Runtime) stop(ctx context.Context, id string) {
+	// Public Stop seals authority; only the controller maintenance loop may
+	// perform worker retirement RPCs. A hung encoder cannot delay this path.
+	r.stopLocal(id)
+	ctx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
 	defer cancel()
 	if route, err := r.route(ctx, id); err == nil {
 		if h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, id, route.Fence.Generation}); err == nil && h.Gate.Seal == nil && h.Gate.Binding.Route.Fence == route.Fence && r.o.MemberRole(ctx, r.o.Self, config.RoleServer) == nil {
 			_, _ = r.recordOperationSeal(ctx, h.Gate.Binding, operationSeal{Actor: r.o.Self, Reason: sealCancellation})
 		}
 	}
-	r.stopLocal(id)
 }
 
 func (r *Runtime) stopLocal(id string) {
 	r.mu.Lock()
 	x := r.executions[id]
-	var s *remotetranscode.Session
 	if x != nil {
 		x.stopping = true
-		s = x.session
 	}
 	r.mu.Unlock()
-	if s != nil {
-		_ = s.RetireEncoder()
-	}
 }
 
 // Tick owns only bounded control work; Cleanup runs separately. A lost renewal
@@ -718,9 +725,24 @@ func (r *Runtime) retire(ctx context.Context, x *execution) error {
 	if x.foreign {
 		return r.retireForeign(ctx, x)
 	}
+	// A public Stop with an expired SQL budget retains local intent. Persist
+	// its cancellation before worker cleanup, so takeover cannot resurrect it.
+	if x.initial != nil && x.initial.hasCommitment {
+		h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, x.route.Fence.Session, x.route.Fence.Generation})
+		if err != nil {
+			return err
+		}
+		if h.Gate.Seal == nil {
+			if _, err = r.recordOperationSeal(ctx, h.Gate.Binding, operationSeal{Actor: r.o.Self, Reason: sealCancellation}); err != nil {
+				return err
+			}
+		}
+	}
 	if x.session != nil {
-		_ = x.session.RetireEncoder()
-		_ = x.session.Reconcile(ctx)
+		c, cancel := context.WithTimeout(ctx, r.o.EncoderRPCDeadline)
+		_ = x.session.RetireEncoderContext(c)
+		_ = x.session.Reconcile(c)
+		cancel()
 		if e := x.session.EncoderErr(); e != nil {
 			return e
 		}

@@ -193,6 +193,12 @@ func (r *Runtime) deliveryAuthorityDeadline(ctx context.Context, expected Route)
 		return time.Time{}, ErrDenied
 	}
 	if expected.Fence.Generation > 0 {
+		if r.o.Self.Cluster != "" {
+			h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, expected.Fence.Session, expected.Fence.Generation})
+			if err != nil || h.Gate.Seal != nil && h.Gate.Seal.Reason == sealCancellation {
+				return time.Time{}, ErrDenied
+			}
+		}
 		record, err := r.o.Placement.Lookup(ctx, expected.Fence.Session)
 		if err != nil || record.Fence != expected.Fence || !record.Authority || record.Retired || !record.Deadline.Add(-r.o.ClockSkew).After(time.Now()) {
 			return time.Time{}, ErrDenied

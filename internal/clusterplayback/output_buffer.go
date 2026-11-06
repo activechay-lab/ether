@@ -31,15 +31,15 @@ type OutputBufferSnapshot struct {
 }
 
 type bufferedSession struct {
-	*remotetranscode.Session // Preserve all negotiated optional session methods.
-	r                        *Runtime
-	route                    Route
-	access                   atomic.Int64
-	published                atomic.Bool
-	mu                       sync.Mutex
-	headers                  map[int64]http.Header // At most one entry per retained segment.
-	supersededAt             int64                 // -1 until a fixed-grid replacement is committed (Runtime.mu).
-	reason                   string
+	*controlledSession // Preserve all negotiated optional session methods.
+	r                  *Runtime
+	route              Route
+	access             atomic.Int64
+	published          atomic.Bool
+	mu                 sync.Mutex
+	headers            map[int64]http.Header // At most one entry per retained segment.
+	supersededAt       int64                 // -1 until a fixed-grid replacement is committed (Runtime.mu).
+	reason             string
 }
 
 func (r *Runtime) newBufferedSession(route Route, q core.HLSRequest, s *remotetranscode.Session) *bufferedSession {
@@ -56,7 +56,7 @@ func (r *Runtime) newBufferedSession(route Route, q core.HLSRequest, s *remotetr
 		slog.Warn("recovery buffer admission refused", "session", route.Fence.Session, "error", err)
 		return nil // Existing public sequences are never overwritten or evicted.
 	}
-	return &bufferedSession{Session: s, r: r, route: route, headers: make(map[int64]http.Header), supersededAt: -1}
+	return &bufferedSession{controlledSession: &controlledSession{Session: s, r: r}, r: r, route: route, headers: make(map[int64]http.Header), supersededAt: -1}
 }
 
 func (r *Runtime) SnapshotOutput(id string) (OutputBufferSnapshot, error) {
