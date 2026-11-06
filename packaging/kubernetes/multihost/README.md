@@ -227,7 +227,7 @@ The added renderers and PG/roll helpers accept only the original
 `lab-config.sh` for shell helpers; standalone renderers use ETHER_LAB_PREFIX
 and ETHER_LAB_NAMESPACE. Do not copy secrets or identities between labs.
 
-`long-fixture.py ROOT IMAGE` renders a separate600s generated source for
+`long-fixture.py ROOT IMAGE` renders a separate 600s generated source for
 900002/rating key1000000000900002. Its Service/ConfigMap, release, Newznab ID
 and NNTP article namespace are separate from900001. It retains the original
 fixture bytes. Create the rendered `${namespace}-long-source-code` ConfigMap
@@ -269,3 +269,53 @@ Only offline syntax/render/mock contracts were checked for this integration.
 These updated lab2-aware migration/roll paths have not been executed against a
 live cluster. Existing lab acceptance belongs to its pinned runtime and does
 not validate this new tooling port. Schedule any runtime use separately.
+
+### Additional generated playback modes (review before installation)
+
+`mode-fixture.py` adds only profiles `ramp96`, `ac3-96` and `copy96` to the
+existing lab fixture transport. Its manifest binds each exact artifact's file,
+size and SHA256 to one namespace, TMDB key, Newznab ID and NNTP article prefix.
+The extra media stays file-backed: NNTP reads at most 256 KiB per article, HTTP
+streams 64 KiB blocks, and each listener accepts at most four concurrent clients.
+The original 180s fixture remains the default. The separate 600s transport is
+unchanged. Neither the manifest nor the title seed supplies runtime media proof.
+
+The manifest has `version:1`, the approved lab `namespace`, and exactly three
+`profiles`. Each entry has `id`, `tmdb`, `ratingKey`, `file`, `bytes`, `sha256`,
+`title`, `release`, `fixtureId` and `articlePrefix`. IDs must be
+`<namespace>-<profile>-fixture` and `<namespace>-<profile>-part` respectively;
+TMDB IDs are 900003, 900004 and 900005 plus the existing movie rating-key offset.
+Raw artifact SHA is an artifact identity. Observe shipping `core.SourceRevision`
+after real preparation; never replace it with that SHA. Copy acceptance also
+requires the authenticated shipping CopyTimeline/keyframe binding, actual
+VideoCopy/AudioCopy/remux admission and a fresh reference. A release label
+without a resolution tag claims no larger resolution; normal quality rejection
+must remain visible.
+
+`mode-fixture-resources.py` renders a **review-only** resource bundle from the
+captured original fixture Deployment, manifest and measured old file size. It
+checks namespace/context isolation, reserves 16 MiB beyond the actual media total
+within a 128 MiB PVC request, and emits UID/resourceVersion/template-guarded JSON
+patches. It never invokes Kubernetes. The bundle creates only a new immutable
+code ConfigMap, retained-byte media PVC and bounded upload Pod. It preserves
+existing Service/config/role resources. Its rollback pod template uses the
+original code ConfigMap and retained media PVC, with the generation init
+container removed. Restoring the original generation init would overwrite the
+retained fixture and is forbidden.
+
+`seed-mode-titles.py` renders collision-aborting, title-only SQL. It has no
+connection/apply option and never writes providers, streams, auth or claims.
+Apply it only through the existing lab seed flow after separately reviewed
+fixture replacement. Both normal runtime handoffs, quiescent claims and an
+explicit fixture window must precede live use of any rendered bundle. Account
+for media staging separately from the image-build space allowance and retain
+the 40 GB guard; a PVC request does not prove disk headroom. Retain original
+fixture hashes/PG identities before and after, and close the UID-bound upload
+Pod before handing first preparation/reference/admission to the harness.
+
+Offline contracts (no FFmpeg, providers or database):
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover \
+  -s packaging/kubernetes/multihost -p test_mode_fixture.py -v
+```
