@@ -19,6 +19,9 @@ type ProtocolSealer interface {
 }
 
 func init() {
+	// Sealed Jellyfin/Emby session snapshots are transient; a removed or
+	// merged viewer's snapshots are dropped, never moved.
+	store.RegisterViewerTable("clusterplayback", "clusterplayback_neutral_bindings", "viewer", store.ViewerMergeDrop)
 	store.Register("clusterplayback", 8, `
 CREATE TABLE clusterplayback_neutral_bindings (
  session TEXT PRIMARY KEY, generation BIGINT NOT NULL, protocol TEXT NOT NULL,
