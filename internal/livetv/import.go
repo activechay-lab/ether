@@ -70,6 +70,7 @@ func parseM3U(r io.Reader, sourceID string) ([]Channel, m3uStats, error) {
 	sc.Buffer(make([]byte, 4096), 1<<20)
 	var out []Channel
 	var pending *Channel
+	var pendingHeaders map[string]string
 	header := false
 	seen := map[string]bool{}
 	for sc.Scan() {
@@ -85,9 +86,11 @@ func parseM3U(r io.Reader, sourceID string) ([]Channel, m3uStats, error) {
 			continue
 		}
 		if strings.HasPrefix(line, "#EXTINF:") {
+			pendingHeaders = nil
 			attrs := map[string]string{}
 			for _, m := range m3uAttr.FindAllStringSubmatch(line, -1) {
 				attrs[m[1]] = m[2]
+				playlistMediaHeader(&pendingHeaders, m[1], m[2])
 			}
 			// Commas inside quoted attributes are not the display-name separator.
 			quote := false
@@ -106,6 +109,12 @@ func parseM3U(r io.Reader, sourceID string) ([]Channel, m3uStats, error) {
 				name = strings.TrimSpace(line[comma+1:])
 			}
 			pending = &Channel{Name: name, TvgName: attrs["tvg-name"], Number: attrs["tvg-chno"], Logo: attrs["tvg-logo"], GuideID: attrs["tvg-id"], Group: attrs["group-title"], SourceID: sourceID, Kind: "iptv", Enabled: true}
+			continue
+		}
+		if pending != nil && strings.HasPrefix(line, "#EXTVLCOPT:") {
+			if key, value, ok := strings.Cut(strings.TrimPrefix(line, "#EXTVLCOPT:"), "="); ok {
+				playlistMediaHeader(&pendingHeaders, key, value)
+			}
 			continue
 		}
 		if strings.HasPrefix(line, "#") {
@@ -139,7 +148,7 @@ func parseM3U(r io.Reader, sourceID string) ([]Channel, m3uStats, error) {
 			}
 		}
 		seen[pending.ID] = true
-		pending.StreamSources = []StreamSource{{ID: stableID(pending.ID, "playlist"), Name: "Imported stream", URL: line, Enabled: true}}
+		pending.StreamSources = []StreamSource{{ID: stableID(pending.ID, "playlist"), Name: "Imported stream", URL: line, Enabled: true, Headers: pendingHeaders}}
 		if pending.Name == "" {
 			pending.Name = pending.GuideID
 		}

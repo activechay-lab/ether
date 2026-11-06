@@ -129,11 +129,9 @@ func New(o Options) (*Service, error) {
 	return s, nil
 }
 
-// sourceUserAgent is the player identity most IPTV providers' CDNs accept.
-// Several reset the connection for Go's default client (h2 PROTOCOL_ERROR or
-// a malformed HTTP/1.x response), so a source without its own identity
-// presents this one.
-const sourceUserAgent = "VLC/3.0.20 LibVLC/3.0.20"
+// A neutral playback identity is shared by source requests. Explicit source
+// and per-channel identities override it without changing each other's headers.
+const sourceUserAgent = "MediaPlayer/1.0"
 
 // sourceHTTPClient returns the client for every upstream Live TV request. It
 // copies the caller's client so the default identity never mutates it.

@@ -381,7 +381,7 @@ func (s *Service) serveTapped(w http.ResponseWriter, r *http.Request, g *inputGr
 		return false
 	}
 	source, limit := s.tapSource(g)
-	t, created, err := s.inputRelay.taps.acquire(tapKey(raw, g.headers), source, limit, g)
+	t, created, err := s.inputRelay.taps.acquire(tapKey(raw+"\x00"+tapKey("", g.mediaHeaders), g.headers), source, limit, g)
 	if err != nil {
 		w.Header().Set(tapBusyHeader, "1")
 		http.Error(w, "provider connections in use", http.StatusServiceUnavailable)
@@ -575,7 +575,7 @@ func (s *Service) sniffInput(ctx context.Context, ss *session, n int) ([]byte, s
 	raw := g.resources["0"].url
 	g.mu.Unlock()
 	source, limit := s.tapSource(g)
-	t, created, err := r.taps.acquire(tapKey(raw, g.headers), source, limit, g)
+	t, created, err := r.taps.acquire(tapKey(raw+"\x00"+tapKey("", g.mediaHeaders), g.headers), source, limit, g)
 	if err != nil {
 		return nil, "", err
 	}

@@ -65,14 +65,14 @@ func (s *Service) upstream(ctx context.Context, raw string, r *http.Request) (*h
 	return s.upstreamWithHeaders(ctx, raw, r, nil, raw)
 }
 
-func (s *Service) upstreamWithHeaders(ctx context.Context, raw string, r *http.Request, headers http.Header, source string) (*http.Response, error) {
+func (s *Service) upstreamWithHeaders(ctx context.Context, raw string, r *http.Request, headers http.Header, source string, public ...http.Header) (*http.Response, error) {
 	originURL, err := url.Parse(source)
 	if err != nil {
 		return nil, err
 	}
 	origin := relayOrigin(originURL)
 	client := *s.o.HTTPClient
-	scopeInputRedirects(&client, origin, headers, r.Header.Get("User-Agent"))
+	scopeInputRedirects(&client, origin, headers, defaultUserAgent(), public...)
 	var last error
 	for attempt := 0; attempt < 3; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
@@ -84,6 +84,9 @@ func (s *Service) upstreamWithHeaders(ctx context.Context, raw string, r *http.R
 		}
 		if req.Header == nil {
 			req.Header = make(http.Header)
+		}
+		if len(public) > 0 {
+			applyMediaHeaders(req, public[0])
 		}
 		for _, name := range []string{"Range", "If-Range", "If-None-Match", "If-Modified-Since"} {
 			if v := r.Header.Get(name); v != "" {
@@ -131,7 +134,7 @@ func (s *Service) ServeResource(w http.ResponseWriter, r *http.Request, id, key 
 	// Buffer one bounded HLS object before publishing headers. A dropped
 	// connection can then be retried without corrupting the client response.
 	for attempt := 0; attempt < 3; attempt++ {
-		res, err = s.upstreamWithHeaders(r.Context(), raw, r, ss.inputHeaders, ss.inputURL)
+		res, err = s.upstreamWithHeaders(r.Context(), raw, r, ss.inputHeaders, ss.inputURL, redirectMediaHeaders(ss.inputSource.Headers))
 		if err != nil {
 			s.recordStreamFailure(ss, r.Context(), err)
 			writeStreamError(w, err)
