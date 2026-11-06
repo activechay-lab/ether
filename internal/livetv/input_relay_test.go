@@ -385,7 +385,7 @@ func TestRelayHLSChainScopesProviderHeadersToSourceOrigin(t *testing.T) {
 		t.Fatalf("byte range not forwarded: %q", originRange.Load())
 	}
 	saw := cdnSaw.Load().(string)
-	for _, want := range []string{"/audio1.aac|Lavf/61", "/seg2.ts|Lavf/61", "/seg3.ts|Lavf/61"} {
+	for _, want := range []string{"/audio1.aac|" + defaultUserAgent(), "/seg2.ts|" + defaultUserAgent(), "/seg3.ts|" + defaultUserAgent()} {
 		if !strings.Contains(saw, want) {
 			t.Fatalf("CDN requests %q missing %q", saw, want)
 		}

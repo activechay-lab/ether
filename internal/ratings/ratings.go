@@ -95,11 +95,12 @@ type Options struct {
 }
 
 type refreshKey struct {
-	key       core.RatingKey
-	settings  Settings
-	imdb      string
-	tmdb      int64
-	titleType core.MediaType
+	generation uint64
+	key        core.RatingKey
+	settings   Settings
+	imdb       string
+	tmdb       int64
+	titleType  core.MediaType
 }
 
 type Service struct {
@@ -110,6 +111,8 @@ type Service struct {
 	qmu     sync.Mutex
 	queued  map[core.RatingKey]bool
 	retryAt map[core.RatingKey]time.Time
+	// retryGeneration prevents a pre-save lookup from restoring an obsolete delay.
+	retryGeneration uint64
 	// backfillAfter is Backfill's position in the catalogue (by key).
 	backfillAfter core.RatingKey
 }
@@ -308,6 +311,12 @@ func (s *Service) SaveSettings(ctx context.Context, v Settings) error {
 		return e
 	}
 	_, e = s.db.ExecContext(ctx, `INSERT INTO ratings_settings(id,value) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value`, raw)
+	if e == nil {
+		s.qmu.Lock()
+		s.retryGeneration++
+		s.retryAt = map[core.RatingKey]time.Time{}
+		s.qmu.Unlock()
+	}
 	return e
 }
 
@@ -409,12 +418,16 @@ func (s *Service) Refresh(ctx context.Context, t *core.Title) ([]Badge, error) {
 	if t == nil {
 		return s.refresh(ctx, t)
 	}
+	// A successful save also separates identical settings from older flights.
+	s.qmu.Lock()
+	generation := s.retryGeneration
+	s.qmu.Unlock()
 	ctx = s.WithSettingsSnapshot(ctx)
 	cfg, err := s.settings(ctx)
 	if err != nil {
 		return nil, err
 	}
-	key := refreshKey{key: t.Key, settings: cfg, imdb: t.IDs.IMDB, tmdb: t.IDs.TMDB, titleType: t.Type}
+	key := refreshKey{generation: generation, key: t.Key, settings: cfg, imdb: t.IDs.IMDB, tmdb: t.IDs.TMDB, titleType: t.Type}
 	return s.flights.Do(ctx, key, func(ctx context.Context) ([]Badge, error) { return s.refresh(ctx, t) })
 }
 
@@ -627,12 +640,15 @@ func (s *Service) Run(ctx context.Context) {
 		case <-backfill.C:
 			s.Backfill(ctx)
 		case t := <-s.queue:
+			s.qmu.Lock()
+			generation := s.retryGeneration
+			s.qmu.Unlock()
 			job, cancel := context.WithTimeout(ctx, 20*time.Second)
 			_, err := s.Refresh(job, &t)
 			cancel()
 			s.qmu.Lock()
 			delete(s.queued, t.Key)
-			if err != nil {
+			if err != nil && generation == s.retryGeneration {
 				if len(s.retryAt) > 2048 {
 					s.retryAt = map[core.RatingKey]time.Time{}
 				}

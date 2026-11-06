@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
@@ -35,6 +36,13 @@ type QualityImport struct {
 	// App is the Starr app the quality names identify, or "" when they
 	// read the same in Radarr and Sonarr.
 	App string `json:"app,omitempty"`
+	// Source names the guide the profile came from ("trash" or
+	// "dictionarry"); empty for pasted JSON. It is what makes the saved
+	// profile syncable.
+	Source string `json:"source,omitempty"`
+	// ProfileID is the source's profile file name or slug, the id a later
+	// sync fetches again.
+	ProfileID string `json:"profileId,omitempty"`
 	// Skipped lists enabled qualities Ether has no equivalent for.
 	Skipped []string `json:"skipped,omitempty"`
 	// Warnings explain profile settings that do not carry over.
@@ -48,17 +56,18 @@ type QualityImport struct {
 // playable would remain.
 func ImportQualityProfile(data []byte) (QualityImport, error) {
 	var native struct {
-		Name                  string            `json:"name"`
-		TrashID               string            `json:"trash_id"`
-		ScoreSet              string            `json:"trash_score_set"`
-		UpgradeAllowed        bool              `json:"upgradeAllowed"`
-		Cutoff                json.RawMessage   `json:"cutoff"`
-		MinFormatScore        int               `json:"minFormatScore"`
-		CutoffFormatScore     int               `json:"cutoffFormatScore"`
-		MinUpgradeFormatScore int               `json:"minUpgradeFormatScore"`
-		Language              json.RawMessage   `json:"language"`
-		Items                 []json.RawMessage `json:"items"`
-		FormatItems           json.RawMessage   `json:"formatItems"`
+		Name                   string            `json:"name"`
+		TrashID                string            `json:"trash_id"`
+		ScoreSet               string            `json:"trash_score_set"`
+		UpgradeAllowed         bool              `json:"upgradeAllowed"`
+		Cutoff                 json.RawMessage   `json:"cutoff"`
+		MinFormatScore         int               `json:"minFormatScore"`
+		CutoffFormatScore      int               `json:"cutoffFormatScore"`
+		MinUpgradeFormatScore  int               `json:"minUpgradeFormatScore"`
+		Language               json.RawMessage   `json:"language"`
+		TrashQualityDefinition json.RawMessage   `json:"trash_quality_definition"`
+		Items                  []json.RawMessage `json:"items"`
+		FormatItems            json.RawMessage   `json:"formatItems"`
 	}
 	if len(data) > 8<<20 {
 		return QualityImport{}, fmt.Errorf("quality profile: too large")
@@ -88,6 +97,15 @@ func ImportQualityProfile(data []byte) (QualityImport, error) {
 		return QualityImport{}, fmt.Errorf("quality profile: too many custom formats")
 	}
 	imp := QualityImport{FormatIDs: formatIDs, TrashID: strings.TrimSpace(native.TrashID), ScoreSet: strings.TrimSpace(native.ScoreSet)}
+	// TRaSH's Sonarr profiles carry trash_quality_definition; Radarr
+	// profiles carry language. Sonarr v4 can also include language, so the
+	// Sonarr marker wins. Remux naming is the fallback for profiles that
+	// carry neither.
+	if qd := bytes.TrimSpace(native.TrashQualityDefinition); len(qd) > 0 && !bytes.Equal(qd, []byte("null")) {
+		imp.App = AppSonarr
+	} else if language := bytes.TrimSpace(native.Language); len(language) > 0 && !bytes.Equal(language, []byte("null")) {
+		imp.App = AppRadarr
+	}
 	p := core.QualityProfile{
 		Name:                 native.Name,
 		PreferredCodecs:      []string{"h264", "hevc"},
@@ -99,6 +117,7 @@ func ImportQualityProfile(data []byte) (QualityImport, error) {
 	seenQuality := map[string]bool{}
 	seenSource := map[core.Source]bool{}
 	skipped := map[string]bool{}
+	hasRemux := false
 	add := func(name string) (core.Source, bool) {
 		q, source, height, ok := parseImportedQuality(name)
 		if !ok {
@@ -108,10 +127,15 @@ func ImportQualityProfile(data []byte) (QualityImport, error) {
 			}
 			return "", false
 		}
-		if strings.HasPrefix(name, "Remux-") {
-			imp.App = AppRadarr
-		} else if strings.HasSuffix(name, " Remux") {
-			imp.App = AppSonarr
+		if imp.App == "" {
+			if strings.HasPrefix(name, "Remux-") {
+				imp.App = AppRadarr
+			} else if strings.HasSuffix(name, " Remux") {
+				imp.App = AppSonarr
+			}
+		}
+		if source == core.SourceRemux {
+			hasRemux = true
 		}
 		if !seenQuality[q] {
 			seenQuality[q] = true
@@ -169,6 +193,11 @@ func ImportQualityProfile(data []byte) (QualityImport, error) {
 		}
 		return QualityImport{}, fmt.Errorf("quality profile: no playable qualities enabled")
 	}
+	if p.MaxHeight >= 2160 || hasRemux {
+		// UHD discs and remuxes carry lossless audio; a profile built for
+		// them should not rank compressed tracks above it.
+		p.PreferredAudio = []string{"truehd", "dtshd", "eac3", "ac3", "dts", "aac"}
+	}
 	if p.MaxHeight >= 2160 {
 		// UHD profiles exist for HDR. Both still need an app that supports
 		// them, and Dolby Vision without an HDR10 base stays off.
@@ -184,7 +213,6 @@ func ImportQualityProfile(data []byte) (QualityImport, error) {
 	}
 	var language string
 	if json.Unmarshal(native.Language, &language) == nil {
-		imp.App = cmpOr(imp.App, AppRadarr) // only Radarr profiles carry a language
 		switch name := strings.ToLower(strings.TrimSpace(language)); name {
 		case "", "any", "unknown":
 		case "original":
@@ -251,6 +279,22 @@ func releaseQuality(info core.ReleaseInfo) string {
 	return fmt.Sprintf("%s-%d", info.Source, height)
 }
 
+// qualityGateMatch reports whether an imported source-resolution gate
+// covers a release. A release that names no resolution matches a gate of
+// its own source: an unlabelled WEB-DL is a WEB-DL. The profile's minimum
+// height still rules it out when it falls below the floor.
+func qualityGateMatch(gate string, info core.ReleaseInfo) bool {
+	source, resolution, ok := strings.Cut(gate, "-")
+	if !ok || source != string(info.Source) {
+		return false
+	}
+	height, err := strconv.Atoi(resolution)
+	if err != nil {
+		return false
+	}
+	return info.Height == 0 || info.Height == height
+}
+
 func knownLanguageName(name string) bool {
 	for _, n := range starrLanguages {
 		if n == name {
@@ -294,14 +338,26 @@ type ImportFormat struct {
 // QualityImportPlan previews an import: the profile as it will be saved, the
 // custom formats it references and what carries over.
 type QualityImportPlan struct {
-	App      string              `json:"app"`
-	Profile  core.QualityProfile `json:"profile"`
-	ScoreSet string              `json:"scoreSet,omitempty"`
-	Formats  []ImportFormat      `json:"formats"`
-	Skipped  []string            `json:"skippedQualities"`
-	Warnings []string            `json:"warnings"`
-	// add holds the definitions the import merges into the owner's formats.
-	add []core.CustomFormat
+	// Source is "trash", "dictionarry" or "" for pasted JSON; ProfileID
+	// and TrashID identify the source profile a sync fetches again.
+	Source    string              `json:"source"`
+	App       string              `json:"app"`
+	ProfileID string              `json:"profileId"`
+	TrashID   string              `json:"trashId"`
+	MediaType string              `json:"mediaType"`
+	Profile   core.QualityProfile `json:"profile"`
+	ScoreSet  string              `json:"scoreSet,omitempty"`
+	Formats   []ImportFormat      `json:"formats"`
+	Skipped   []string            `json:"skippedQualities"`
+	// Unusable, when set, is why the profile cannot work in Ether; Apply
+	// refuses it.
+	Unusable string   `json:"unusable,omitempty"`
+	Warnings []string `json:"warnings"`
+	// Definitions holds the source's current definition of every format
+	// the profile scores, including ones already saved. The guide sync
+	// upserts them so a saved profile tracks the source exactly. Not part
+	// of the preview JSON: the owner's editor does not need the rules.
+	Definitions []core.CustomFormat `json:"-"`
 }
 
 var (
@@ -309,6 +365,9 @@ var (
 	ErrProfileExists = errors.New("a profile with that name already exists")
 	// ErrImportRejected wraps configuration validation failures on import.
 	ErrImportRejected = errors.New("the import would make the configuration invalid")
+	// ErrImportUnusable rejects an import whose profile could never accept
+	// a release.
+	ErrImportUnusable = errors.New("the imported profile cannot work")
 )
 
 // formatID is the id the scorer keys a format by.
@@ -333,8 +392,10 @@ func formatScore(f core.CustomFormat, set string) int {
 // compile are reported as unsupported and left out, so an import can never
 // make the scoring configuration invalid.
 func PlanQualityImport(imp QualityImport, app string, found map[string]core.CustomFormat, cfg config.Config) QualityImportPlan {
-	plan := QualityImportPlan{App: app, Profile: imp.Profile, ScoreSet: imp.ScoreSet, Skipped: imp.Skipped,
+	plan := QualityImportPlan{Source: imp.Source, App: app, ProfileID: imp.ProfileID, TrashID: imp.TrashID,
+		MediaType: core.MediaTypeForApp(app), Profile: imp.Profile, ScoreSet: imp.ScoreSet, Skipped: imp.Skipped,
 		Formats: []ImportFormat{}, Warnings: append([]string{}, imp.Warnings...)}
+	plan.Profile.MediaType = plan.MediaType
 	if plan.Skipped == nil {
 		plan.Skipped = []string{}
 	}
@@ -352,36 +413,50 @@ func PlanQualityImport(imp QualityImport, app string, found map[string]core.Cust
 		seen[id] = true
 		f := ImportFormat{ID: id, Name: name}
 		def, fetched := found[id]
-		if have, ok := existing[id]; ok {
-			f.Status = FormatPresent
-			if !fetched {
-				def = have
-			}
-			f.Name = cmpOr(have.Name, name)
-		} else if fetched {
+		have, present := existing[id]
+		valid := false
+		if fetched {
 			def.ID = id
-			if app == AppSonarr {
-				def.App = AppSonarr
-			}
-			if _, err := NewFormatScorer([]core.CustomFormat{def}, nil); err != nil {
-				f.Status, f.Reason = FormatUnsupported, unsupportedReason(def, err)
-			} else {
-				f.Status = FormatAdd
-				plan.add = append(plan.add, def)
-			}
+			def.App = app
 			f.Name = cmpOr(def.Name, name)
-		} else {
+			if _, err := NewFormatScorer([]core.CustomFormat{def}, nil); err != nil {
+				if present {
+					// The owner's working definition stays; only the
+					// source's score is adopted below.
+				} else {
+					f.Status, f.Reason = FormatUnsupported, unsupportedReason(def, err)
+				}
+			} else {
+				valid = true
+			}
+		}
+		switch {
+		case present:
+			f.Status = FormatPresent
+			f.Name = cmpOr(have.Name, name)
+		case fetched && valid:
+			f.Status = FormatAdd
+			f.Name = cmpOr(def.Name, name)
+		case fetched: // unsupported, reported above
+		default:
 			f.Status, f.Reason = FormatMissing, "Not found in TRaSH Guides"
 		}
 		if f.Status == FormatPresent || f.Status == FormatAdd || fetched {
-			f.Score = formatScore(def, imp.ScoreSet)
+			if fetched {
+				f.Score = formatScore(def, imp.ScoreSet)
+			} else {
+				f.Score = formatScore(have, imp.ScoreSet)
+			}
 		}
 		if f.Status == FormatPresent || f.Status == FormatAdd {
 			scores[id] = f.Score
+			if fetched && valid {
+				plan.Definitions = append(plan.Definitions, def)
+			}
 		}
 		plan.Formats = append(plan.Formats, f)
 	}
-	if len(existing)+len(plan.add) > 1000 {
+	if len(existing)+len(plan.Definitions) > 1000 {
 		plan.Warnings = append(plan.Warnings, "Custom scoring is limited to 1,000 formats; remove some from a quality profile's More options before importing this profile.")
 	}
 	slices.SortStableFunc(plan.Formats, func(a, b ImportFormat) int {
@@ -404,6 +479,17 @@ func PlanQualityImport(imp QualityImport, app string, found map[string]core.Cust
 	}
 	if len(scores) > 0 {
 		plan.Profile.CustomFormatScores = scores
+	}
+	// No release can exceed the sum of the positive scores the import can
+	// score, so a higher minimum would reject every release for ever.
+	bestPossible := 0
+	for _, v := range scores {
+		if v > 0 {
+			bestPossible += v
+		}
+	}
+	if min := plan.Profile.MinCustomFormatScore; min != nil && *min > bestPossible {
+		plan.Unusable = fmt.Sprintf("This profile requires a custom format score of at least %d, but its importable formats can score at most %d, so no release could ever be accepted.", *min, bestPossible)
 	}
 	plan.Profile.Name = uniqueProfileName(plan.Profile.Name, cfg.Quality.Profiles)
 	return plan
@@ -461,6 +547,9 @@ func uniqueProfileName(name string, profiles []core.QualityProfile) string {
 // 0: importing a profile never changes how the others rank releases. Apply
 // only mutates c, so it can be retried against fresher settings.
 func (p QualityImportPlan) Apply(c *config.Config, name string) error {
+	if p.Unusable != "" {
+		return fmt.Errorf("%w: %s", ErrImportUnusable, p.Unusable)
+	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = p.Profile.Name
@@ -477,6 +566,22 @@ func (p QualityImportPlan) Apply(c *config.Config, name string) error {
 	}
 	prof := p.Profile
 	prof.Name = name
+	prof.MediaType = p.MediaType
+	if prof.MediaType == "" {
+		prof.MediaType = core.MediaTypeForApp(p.App)
+	}
+	if p.Source != "" {
+		prof.Import = &core.ProfileImport{
+			Source:   p.Source,
+			App:      p.App,
+			Profile:  p.ProfileID,
+			TrashID:  p.TrashID,
+			ScoreSet: p.ScoreSet,
+			SyncedAt: time.Now().UTC(),
+		}
+	} else {
+		prof.Import = nil
+	}
 	prof.AllowedQualities = slices.Clone(prof.AllowedQualities)
 	prof.PreferredSources = slices.Clone(prof.PreferredSources)
 	prof.PreferredCodecs = slices.Clone(prof.PreferredCodecs)
@@ -497,12 +602,16 @@ func (p QualityImportPlan) Apply(c *config.Config, name string) error {
 		}
 	}
 	var added []string
-	for _, f := range p.add {
-		if have[f.ID] {
+	for _, f := range p.Definitions {
+		id := formatID(f)
+		if id == "" || have[id] {
 			continue
 		}
-		have[f.ID] = true
-		added = append(added, f.ID)
+		have[id] = true
+		added = append(added, id)
+		if p.Source != "" {
+			f.ManagedBy = p.Source + ":" + p.App
+		}
 		c.Resolver.CustomFormats = append(c.Resolver.CustomFormats, f)
 	}
 	for i := range c.Quality.Profiles {
@@ -527,4 +636,12 @@ func (p QualityImportPlan) Apply(c *config.Config, name string) error {
 }
 
 // Added counts the custom formats the import adds.
-func (p QualityImportPlan) Added() int { return len(p.add) }
+func (p QualityImportPlan) Added() int {
+	n := 0
+	for _, f := range p.Formats {
+		if f.Status == FormatAdd {
+			n++
+		}
+	}
+	return n
+}

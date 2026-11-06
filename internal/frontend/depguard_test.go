@@ -43,6 +43,9 @@ func TestPlexProductionImportsStayInsideRecordedBoundary(t *testing.T) {
 		"github.com/braedonsaunders/ether/internal/lru":             true,
 		"github.com/braedonsaunders/ether/internal/markers":         true,
 		"github.com/braedonsaunders/ether/internal/plex/model":      true,
+		// Release's replica playback and stalled-start observation paths.
+		"github.com/braedonsaunders/ether/internal/playback":        true,
+		"github.com/braedonsaunders/ether/internal/remotetranscode": true,
 		"github.com/braedonsaunders/ether/internal/plexguid":        true,
 		"github.com/braedonsaunders/ether/internal/sessions":        true,
 		"github.com/braedonsaunders/ether/internal/state":           true,

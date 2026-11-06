@@ -261,7 +261,7 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 		}
 		if rel != "" && pin.autoAligned != rel && vs[0].Auto && vs[0].Release.ID != rel {
 			vctx, cancel := detailVariantContext(ctx, pr)
-			resolved, err := s.d.Variants.Variants(vctx, core.ResolveRequest{Title: t, Client: s.clientCaps(pr), User: pr.User, PlayedRelease: rel}, core.MaxVariants)
+			resolved, err := s.d.Variants.Variants(vctx, core.ResolveRequest{Title: t, Client: s.clientCapsForKey(pr, t.Key), User: pr.User, PlayedRelease: rel}, core.MaxVariants)
 			cancel()
 			var auto *core.ReleaseVariant
 			if err == nil && len(resolved) > 0 && resolved[0].Auto && resolved[0].Release.ID == rel {
@@ -271,7 +271,7 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *core.Titl
 			s.playIDs.alignAuto(ik, auto, rel)
 		}
 	} else {
-		caps := s.clientCaps(pr)
+		caps := s.clientCapsForKey(pr, t.Key)
 		vctx, cancel := detailVariantContext(ctx, pr)
 		resolved, err := s.d.Variants.Variants(vctx, core.ResolveRequest{Title: t, Client: caps, User: pr.User, PlayedRelease: probedRelease}, core.MaxVariants)
 		cancel()
@@ -830,7 +830,7 @@ func (s *Server) watchVariants(pr *Request, t *core.Title) {
 	}
 	s.variantWatch.pending[key] = true
 	s.variantWatch.mu.Unlock()
-	caps := s.clientCaps(pr)
+	caps := s.clientCapsForKey(pr, t.Key)
 	user, title := *pr.User, *t
 	// If the two refill slots were occupied, retry admission while this
 	// page is being watched. Once admitted, never retry a failed search.

@@ -1,0 +1,8 @@
+{
+  "location": "Localização",
+  "search": "Cidade ou CEP",
+  "units": "Unidades",
+  "locale": "Configuração regional do servidor",
+  "metric": "Métricas (°C, km/h, mm)",
+  "imperial": "Imperiais (°F, mph, in)"
+}

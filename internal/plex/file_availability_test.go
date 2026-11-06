@@ -53,7 +53,7 @@ func TestMetadataFileChecksUseSourceWithoutPlaybackAdmission(t *testing.T) {
 		cfg := config.Defaults(t.TempDir())
 		cfg.Cache.DisableSpeculation = true
 		engine := &fileProbeEngine{dead: dead}
-		m, err := playback.New(playback.Deps{Catalog: f.catalog, Resolver: fileProbeResolver{}, Engine: engine, Transcoder: f.trans, SelectProfile: func(core.ClientCaps, *core.User) core.QualityProfile { return core.QualityProfile{} }}, cfg, playback.Options{DataDir: t.TempDir()})
+		m, err := playback.New(playback.Deps{Catalog: f.catalog, Resolver: fileProbeResolver{}, Engine: engine, Transcoder: f.trans, SelectProfile: func(core.ClientCaps, *core.User, string) core.QualityProfile { return core.QualityProfile{} }}, cfg, playback.Options{DataDir: t.TempDir()})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -147,7 +147,7 @@ func (m *Manager) ParityProbeNow(ctx context.Context, user *core.User, key core.
 	if title.IsFutureRelease(m.now()) {
 		return nil
 	}
-	profile := m.deps.SelectProfile(caps, user)
+	profile := m.selectProfile(caps, user, key)
 	res := m.resumeResolution(ctx, user.ID, key, profile, caps, strings.TrimSpace(title.Language))
 	if res == nil || !releaseMatchesTitle(res.Release, title) {
 		if m.deps.Resolver == nil {

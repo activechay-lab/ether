@@ -63,6 +63,7 @@ type FilterGroup struct {
 	ParentOnly       bool          `json:"-"`
 	LastViewedAfter  int64         `json:"lastViewedAfter,omitempty"`
 	LastViewedBefore int64         `json:"lastViewedBefore,omitempty"`
+	OnWatchlist      *bool         `json:"onWatchlist,omitempty"`
 	Unwatched        *bool         `json:"unwatched,omitempty"`
 	InProgress       *bool         `json:"inProgress,omitempty"`
 	UserID           int64         `json:"userId,omitempty"`
@@ -73,6 +74,7 @@ type FilterGroup struct {
 
 // Filter narrows a browse or a smart collection. Zero values mean "any".
 type Filter struct {
+	LocalOnly           bool         `json:"-"` // console filtering never hydrates remote credits on the request path
 	CatalogCandidates   bool         `json:"-"`
 	CatalogViewerID     int64        `json:"-"`
 	CatalogRuleRevision int64        `json:"-"`
@@ -108,11 +110,31 @@ type Filter struct {
 	UpdatedBefore         int64           `json:"-"`              // inclusive Unix timestamp bound on metadata update time
 	Type                  MediaType       `json:"type,omitempty"` // movie or show
 	Genres                []string        `json:"genres,omitempty"`
-	Keywords              []string        `json:"keywords,omitempty"` // every keyword must match (case-insensitive)
+	ReleaseGate           string          `json:"releaseGate,omitempty"` // admitted, held, unknown in current policy snapshot
+	Playable              string          `json:"playable,omitempty"`    // yes or unknown from fresh local evidence
+	DebridCached          string          `json:"debridCached,omitempty"`
+	Qualities             []string        `json:"qualities,omitempty"` // known 4k, hdr, dv, atmos release facts
+	Anime                 bool            `json:"anime,omitempty"`     // positive canonical anime keyword
+	Kids                  bool            `json:"kids,omitempty"`      // positive canonical Kids genre
+	Tags                  []string        `json:"tags,omitempty"`      // owner annotations, distinct from provider keywords
+	Keywords              []string        `json:"keywords,omitempty"`  // every keyword must match (case-insensitive)
 	YearFrom              int             `json:"yearFrom,omitempty"`
 	YearTo                int             `json:"yearTo,omitempty"`
 	Years                 []int           `json:"years,omitempty"`
 	ExcludeYears          []int           `json:"excludeYears,omitempty"`
+	MinVotes              int             `json:"minVotes,omitempty"`
+	MaxVotes              int             `json:"maxVotes,omitempty"`
+	MinPopularity         float64         `json:"minPopularity,omitempty"`
+	MaxPopularity         float64         `json:"maxPopularity,omitempty"`
+	DateAddedFrom         int64           `json:"dateAddedFrom,omitempty"` // release/air date, never insertion
+	DateAddedTo           int64           `json:"dateAddedTo,omitempty"`
+	EtherAddedFrom        int64           `json:"etherAddedFrom,omitempty"`
+	EtherAddedTo          int64           `json:"etherAddedTo,omitempty"`
+	Statuses              []string        `json:"statuses,omitempty"`
+	MinSeasons            int             `json:"minSeasons,omitempty"`
+	MaxSeasons            int             `json:"maxSeasons,omitempty"`
+	MinEpisodes           int             `json:"minEpisodes,omitempty"`
+	MaxEpisodes           int             `json:"maxEpisodes,omitempty"`
 	MinRating             float64         `json:"minRating,omitempty"`
 	MaxRating             float64         `json:"maxRating,omitempty"`
 	ExcludeRatings        []float64       `json:"excludeRatings,omitempty"`
@@ -151,6 +173,9 @@ type Filter struct {
 }
 
 type BrowseQuery struct {
+	// CursorPage is the console-only keyset path; AfterKey is the last returned title.
+	CursorPage bool
+	AfterKey   RatingKey
 	// PlaylistSource evaluates a saved smart membership before applying this
 	// query's filters and optional episode-to-parent projection.
 	PlaylistSource      *BrowseQuery

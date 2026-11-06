@@ -22,6 +22,9 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	if q.PlaylistSource != nil {
 		return c.browsePlaylist(ctx, q)
 	}
+	if q.Filter.LocalOnly {
+		q.Filter = normalizeConsoleFilter(q.Filter)
+	}
 	q.Filter = c.viewerPaging(ctx, q.Filter)
 	switch q.Filter.Type {
 	case core.TypeEpisode:
@@ -29,15 +32,18 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	case core.TypeSeason:
 		return c.BrowseStoredSeasons(ctx, q)
 	}
-	if q.Filter.Person > 0 {
+	if !q.Filter.LocalOnly && q.Filter.Person > 0 {
 		c.ensurePersonCredits(ctx, q.Filter.Person)
 	}
 	for _, cf := range q.Filter.Credits {
 		for _, p := range cf.People {
-			if p > 0 {
+			if !q.Filter.LocalOnly && p > 0 {
 				c.ensurePersonCredits(ctx, p)
 			}
 		}
+	}
+	if q.Filter.LocalOnly && q.CursorPage {
+		return c.consoleCursorPage(ctx, q)
 	}
 	limit := q.Limit
 	if limit <= 0 {
@@ -52,7 +58,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	}
 	gen := c.writeGen.Load()
 	minBucket := c.minuteBucket()
-	ckey := browseFilterKey(q.Filter) + fmt.Sprintf("|rules:%s:%#v:%s", q.Filter.RuleVisibility, q.Filter.PreviewRules, q.Filter.PreviewFallback)
+	ckey := c.consoleAvailabilityCacheKey(q.Filter) + "|" + browseFilterKey(q.Filter) + fmt.Sprintf("|rules:%s:%#v:%s", q.Filter.RuleVisibility, q.Filter.PreviewRules, q.Filter.PreviewFallback)
 	bkey := fmt.Sprintf("%s|%s|%v|%v|%d|%d|%v", ckey, q.Sort, q.Desc, q.SecondarySorts, offset, limit, q.NoTotal)
 	cacheable := !groupHasState(q.Filter.Group)
 	c.cacheMu.RLock()
@@ -71,6 +77,15 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	}
 	c.cacheMu.RUnlock()
 
+	if q.Filter.LocalOnly && q.NoTotal {
+		empty, err := c.consoleDomainEmpty(ctx, q.Filter)
+		if err != nil {
+			return core.Page{}, err
+		}
+		if empty {
+			return core.Page{Items: []core.Title{}, Total: offset}, nil
+		}
+	}
 	where, args, err := c.browseWhere(q.Filter)
 	if err != nil {
 		return core.Page{}, err
@@ -143,6 +158,22 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	// order from the (type, browsable, released_ts) index instead of a
 	// computed expression sorted over the whole library.
 	query := `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t WHERE ` + pageWhere + ` ORDER BY ` + order + `, t.key ASC LIMIT ? OFFSET ?`
+	if q.Filter.LocalOnly && q.NoTotal && !computedAdded && q.Filter.Type != "" {
+		hint := ""
+		if store.DialectOf(c.db) != store.Postgres && !consolePositiveEvidence(q.Filter) && !consoleHasSparseCandidates(q.Filter) {
+			if len(q.Filter.Languages) == 1 && q.Filter.MinVotes > 0 {
+				hint = " INDEXED BY catalog_titles_console_language_votes_page"
+			} else if q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 {
+				hint = " INDEXED BY catalog_titles_console_pop_page"
+			}
+			if q.Sort == core.SortYear && q.Desc && len(q.SecondarySorts) == 1 && q.SecondarySorts[0].Sort == core.SortTitle && !q.SecondarySorts[0].Desc {
+				hint = " INDEXED BY catalog_titles_console_year_title_page"
+			}
+		}
+		// Sort/filter only narrow covering-index keys, then hydrate the page.
+		// This avoids reading large title payloads while rejecting candidates.
+		query = `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t JOIN (SELECT t.key AS page_key FROM catalog_titles t` + hint + ` WHERE ` + pageWhere + ` ORDER BY ` + order + `, t.key ASC LIMIT ? OFFSET ?) p ON t.key=p.page_key ORDER BY ` + order + `,t.key ASC`
+	}
 	if computedAdded {
 		// The computed date added has no index, so the whole filtered set is
 		// sorted. Sort narrow (key, date) rows from the covering index and
@@ -163,6 +194,15 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	}
 	var items []core.Title
 	switch {
+	case q.Filter.LocalOnly && q.NoTotal && q.Filter.Type == "" && !q.SortLastViewed && !computedAdded && offset+limit <= mergedPageMax:
+		keys, err := c.consoleMergedKeys(ctx, pageWhere, pageArgs, q, offset, limit)
+		if err != nil {
+			return core.Page{}, err
+		}
+		items, err = c.titlesInKeyOrder(ctx, keys)
+		if err != nil {
+			return core.Page{}, err
+		}
 	case q.Filter.Type == "" && !q.SortLastViewed && !computedAdded && len(q.SecondarySorts) == 0 && q.Sort != core.SortTitle && offset+limit <= mergedPageMax:
 		// Movies and series together: no index orders both types, so the
 		// sorted query reads every browsable title. Each type's page comes
@@ -344,7 +384,7 @@ func browseFilterKey(f core.Filter) string {
 			return ""
 		}
 		if groupHasOwnState(g) {
-			return fmt.Sprintf("state:%d:%v:%v:%d:%d:%v:%s:%s:%d", g.UserID, boolValue(g.Unwatched), boolValue(g.InProgress), g.LastViewedAfter, g.LastViewedBefore, g.ParentOnly, g.StateField, g.StateOperator, g.StateValue)
+			return fmt.Sprintf("state:%d:%v:%v:%d:%d:%v:%s:%s:%d", g.UserID, boolValue(g.Unwatched), boolValue(g.InProgress), g.LastViewedAfter, g.LastViewedBefore, g.ParentOnly, g.StateField, g.StateOperator, g.StateValue) + fmt.Sprintf("|watchlist:%s", boolValue(g.OnWatchlist))
 		}
 		if g.Filter != nil {
 			return fmt.Sprintf("leaf:%v(", g.ParentOnly) + browseFilterKey(*g.Filter) + ")"
@@ -373,7 +413,7 @@ func boolValue(v *bool) string {
 }
 
 func groupHasOwnState(g *core.FilterGroup) bool {
-	return g.StateField != "" || g.Unwatched != nil || g.InProgress != nil || g.LastViewedAfter != 0 || g.LastViewedBefore != 0
+	return g.OnWatchlist != nil || g.StateField != "" || g.Unwatched != nil || g.InProgress != nil || g.LastViewedAfter != 0 || g.LastViewedBefore != 0
 }
 
 func groupHasState(g *core.FilterGroup) bool {
@@ -396,9 +436,39 @@ func groupHasState(g *core.FilterGroup) bool {
 
 // Browse filters share one SQL statement; their combined parameters remain subject
 // to the database's statement-wide variable limit.
+// flagInt converts a bool to the 0/1 form the Postgres driver uses for the
+// BIGINT flag columns, so a query never leaves Postgres inferring boolean
+// for a parameter the driver will send as an integer.
+func flagInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
+	// Positive metadata flags retain their source meaning; absence is unknown.
+	if f.Anime {
+		f.Keywords = append(append([]string{}, f.Keywords...), "anime")
+	}
 	var conds []string
 	var args []any
+	for _, tag := range f.Tags {
+		conds = append(conds, "t.key IN (SELECT key FROM catalog_owner_tags WHERE tag=?)")
+		args = append(args, strings.ToLower(strings.TrimSpace(tag)))
+	}
+	gateConds, gateArgs := c.consoleGateConditions(f)
+	conds = append(conds, gateConds...)
+	args = append(args, gateArgs...)
+	dateConds, dateArgs := consoleAddedDateConditions(f, c.now().Unix())
+	conds = append(conds, dateConds...)
+	args = append(args, dateArgs...)
+	evidenceConds, evidenceArgs := c.consoleAvailabilityConditions(f)
+	conds = append(conds, evidenceConds...)
+	args = append(args, evidenceArgs...)
+	if f.Kids {
+		conds = append(conds, "EXISTS (SELECT 1 FROM catalog_genres kg WHERE kg.key=t.key AND kg.genre='Kids')")
+	}
 	nowTS := c.now().Unix()
 	if cfg := c.config(); cfg.ShowUpcomingMovies && f.RuleVisibility == "" {
 		conds = append(conds, "(t.browsable=1 OR (t.type='movie' AND t.release_known=1 AND t.released_ts>? AND ((?<=0 AND ?<=0) OR (?>0 AND t.popularity>=?) OR (?>0 AND t.vote_count>=?))))", "t.adult=0")
@@ -408,8 +478,11 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 	}
 	// queryTitles keeps released titles, plus explicitly enabled upcoming
 	// movies. Apply that same guard before counting and paging.
+	// The Postgres driver binds Go bools as 0/1 for the BIGINT flag
+	// columns; a bare `AND ?` would make Postgres infer boolean and reject
+	// the int. Compare the flag numerically with an int argument instead.
 	conds = append(conds, "t.release_known=1 AND (t.released_ts<=? OR (t.type='movie' AND ?<>0))")
-	args = append(args, nowTS, c.config().ShowUpcomingMovies)
+	args = append(args, nowTS, flagInt(c.config().ShowUpcomingMovies))
 	for _, hidden := range []struct{ kind, generation string }{
 		{"movie", f.HiddenMovieGeneration}, {"show", f.HiddenShowGeneration},
 	} {
@@ -483,7 +556,7 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 			digital += " OR t.key IN (" + placeholders(len(f.AvailabilityKeepKeys)) + ")"
 		}
 		conds = append(conds, "(t.type<>'movie' OR (t.key>=? AND t.key<?) OR (t.release_known=1 AND t.released_ts>? AND ?<>0) OR ("+digital+"))")
-		args = append(args, int64(core.LocalKey(0)), int64(core.LocalKey(0))+1000000000000000, nowTS, c.config().ShowUpcomingMovies)
+		args = append(args, int64(core.LocalKey(0)), int64(core.LocalKey(0))+1000000000000000, nowTS, flagInt(c.config().ShowUpcomingMovies))
 		if f.DigitalDateEvidence {
 			args = append(args, nowTS)
 		}
@@ -553,7 +626,11 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		if k == "" {
 			continue
 		}
-		conds = append(conds, `EXISTS (SELECT 1 FROM catalog_keywords kw WHERE kw.key=t.key AND LOWER(kw.keyword)=?)`)
+		if f.LocalOnly {
+			conds = append(conds, `t.key IN (SELECT key FROM catalog_keywords WHERE LOWER(keyword)=?)`)
+		} else {
+			conds = append(conds, `EXISTS (SELECT 1 FROM catalog_keywords kw WHERE kw.key=t.key AND LOWER(kw.keyword)=?)`)
+		}
 		args = append(args, k)
 	}
 	if len(f.ExcludeGenres) > 0 {
@@ -586,6 +663,35 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		conds = append(conds, "t.year>0 AND t.year NOT IN ("+placeholders(len(f.ExcludeYears))+")")
 		for _, y := range f.ExcludeYears {
 			args = append(args, y)
+		}
+	}
+	for _, bound := range []struct {
+		column, op string
+		value      any
+		active     bool
+	}{
+		{"vote_count", ">=", f.MinVotes, f.MinVotes > 0}, {"vote_count", "<=", f.MaxVotes, f.MaxVotes > 0},
+		{"popularity", ">=", f.MinPopularity, f.MinPopularity > 0}, {"popularity", "<=", f.MaxPopularity, f.MaxPopularity > 0},
+		{"child_count", ">=", f.MinSeasons, f.MinSeasons > 0}, {"child_count", "<=", f.MaxSeasons, f.MaxSeasons > 0},
+		{"leaf_count", ">=", f.MinEpisodes, f.MinEpisodes > 0}, {"leaf_count", "<=", f.MaxEpisodes, f.MaxEpisodes > 0},
+	} {
+		if bound.active {
+			conds = append(conds, "t."+bound.column+bound.op+"?")
+			args = append(args, bound.value)
+		}
+	}
+	if f.EtherAddedFrom > 0 {
+		conds = append(conds, "t.added_at>=?")
+		args = append(args, f.EtherAddedFrom)
+	}
+	if f.EtherAddedTo > 0 {
+		conds = append(conds, "t.added_at<=?")
+		args = append(args, f.EtherAddedTo)
+	}
+	if len(f.Statuses) > 0 {
+		conds = append(conds, "t.status IN ("+placeholders(len(f.Statuses))+")")
+		for _, status := range f.Statuses {
+			args = append(args, status)
 		}
 	}
 	if f.MinRating > 0 {
@@ -722,8 +828,12 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		}
 		predicate := "(" + strings.Join(matches, " OR ") + ")"
 		if cf.Kind != "" {
-			predicate += " AND kind=?"
-			creditArgs = append(creditArgs, cf.Kind)
+			if cf.Kind == "composer" {
+				predicate += " AND kind='crew' AND role='Composer'"
+			} else {
+				predicate += " AND kind=?"
+				creditArgs = append(creditArgs, cf.Kind)
+			}
 		}
 		op := " IN "
 		if cf.Exclude {
@@ -947,6 +1057,8 @@ func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) (
 	}
 	var q string
 	switch facet {
+	case "tag":
+		q = `SELECT g.tag, COUNT(*) FROM catalog_owner_tags g JOIN catalog_titles t ON t.key=g.key WHERE ` + base + ` GROUP BY g.tag ORDER BY COUNT(*) DESC,g.tag ASC LIMIT 200`
 	case "language":
 		q = `SELECT t.language,COUNT(*) FROM catalog_titles t WHERE ` + base + ` AND t.language<>'' GROUP BY t.language ORDER BY COUNT(*) DESC,t.language ASC LIMIT 200`
 	case "genre":
@@ -1031,7 +1143,11 @@ func (c *Catalog) mergedTypeKeys(ctx context.Context, where string, args []any, 
 	desc := dir == "DESC"
 	var all []sortedKey
 	for _, typ := range []core.MediaType{core.TypeMovie, core.TypeShow} {
-		rows, err := c.db.QueryContext(ctx, `SELECT t.key, `+col+` FROM catalog_titles t WHERE `+where+` AND t.type=? ORDER BY `+order+`, t.key ASC LIMIT ?`, append(append([]any{}, args...), string(typ), offset+limit)...)
+		hint := ""
+		if q.Filter.LocalOnly && q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 && store.DialectOf(c.db) != store.Postgres && !consoleHasSparseCandidates(q.Filter) {
+			hint = " INDEXED BY catalog_titles_console_pop_page"
+		}
+		rows, err := c.db.QueryContext(ctx, `SELECT t.key, `+col+` FROM catalog_titles t`+hint+` WHERE `+where+` AND t.type=? ORDER BY `+order+`, t.key ASC LIMIT ?`, append(append([]any{}, args...), string(typ), offset+limit)...)
 		if err != nil {
 			return nil, err
 		}

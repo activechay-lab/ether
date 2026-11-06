@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/clientreg"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/streamgrant"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 const segmentDuration = 4 * time.Second
@@ -358,6 +360,7 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	defer cancel()
 	ss.startupCancel = cancel
 	ss.view = core.PlaySession{ID: ss.info.ID, PlaybackGroup: ss.info.ID, UserID: u.ID, Username: u.Username, ClientID: caps.ClientID, Client: caps, TitleName: c.Name, StartedAt: ss.info.StartedAt, Decision: core.DecisionRemux, DecisionReason: "Live channel playout"}
+	ss.view.LiveChannel = &core.LiveChannel{ID: c.ID, Name: c.Name, Number: c.Number}
 	if p != nil {
 		ss.view.Key = p.Item.Key
 		ss.view.TitleName = p.Item.Title
@@ -743,7 +746,7 @@ func (s *Service) startIPTVSource(ctx context.Context, ss *session) error {
 					// A playlist is a transport, not evidence that its codecs are
 					// playable. MPEG-2/MP2 HLS needs conversion on Apple TV too.
 					dec := s.o.Transcoder.Decide(*info, ss.caps, core.DecideOptions{DirectPlay: true, DirectStream: true, AudioStream: -1, SubtitleStream: -1})
-					if !dec.VideoCopy || !dec.AudioCopy {
+					if !dec.VideoCopy || !dec.AudioCopy || info.Video().Codec == "hevc" {
 						return s.startIPTVRelay(ctx, ss, *info)
 					}
 				}
@@ -827,22 +830,29 @@ func (s *Service) serveRelayPlaylist(w http.ResponseWriter, r *http.Request, ss 
 			return
 		}
 	}
-	lines := strings.Split(rec.Body.String(), "\n")
-	for i, line := range lines {
-		if line != "" && !strings.HasPrefix(line, "#") {
-			base := path.Base(strings.SplitN(line, "?", 2)[0])
-			n, err := strconv.Atoi(strings.TrimSuffix(base, ".ts"))
-			if err != nil {
-				http.Error(w, "invalid relay segment", 502)
-				return
-			}
-			lines[i] = withAuth(fmt.Sprintf("/livetv/sessions/%s/0/relay/%d.ts", ss.info.ID, n), ss.streamGrant)
+	base, _ := url.Parse("http://relay.invalid/")
+	invalid := false
+	rewritten, err := rewriteHLS(rec.Body.Bytes(), base, func(raw string) string {
+		u, _ := url.Parse(raw)
+		name := path.Base(u.Path)
+		n, ok := transcode.ParseSegmentName(name)
+		if !ok {
+			invalid = true
+			return ""
 		}
+		if n >= 0 {
+			name = fmt.Sprintf("%d%s", n, path.Ext(name))
+		}
+		return withAuth(fmt.Sprintf("/livetv/sessions/%s/0/relay/%s", ss.info.ID, name), ss.streamGrant)
+	})
+	if err != nil || invalid {
+		http.Error(w, "invalid relay segment", 502)
+		return
 	}
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != "HEAD" {
-		fmt.Fprint(w, strings.Join(lines, "\n"))
+		w.Write(rewritten)
 	}
 }
 func (s *Service) ServeRelaySegment(w http.ResponseWriter, r *http.Request, id string, n int, u *core.User) {
@@ -856,10 +866,14 @@ func (s *Service) ServeRelaySegment(w http.ResponseWriter, r *http.Request, id s
 	relay := ss.relay
 	ss.mu.Unlock()
 	if shared {
+		if n < 0 {
+			writeStreamError(w, core.ErrNotFound)
+			return
+		}
 		s.serveBroadcastTS(w, r, ss, int64(n))
 		return
 	}
-	if relay == nil || n < 0 {
+	if relay == nil || n < transcode.InitSegment {
 		writeStreamError(w, core.ErrNotFound)
 		return
 	}

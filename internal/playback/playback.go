@@ -49,9 +49,8 @@ type Deps struct {
 	Cache core.SegmentCache
 	// State, when set, tells which titles are in progress (cache protection).
 	State core.State
-	// SelectProfile picks the quality profile for a client and user. It is
-	// implemented by the resolver package.
-	SelectProfile func(caps core.ClientCaps, user *core.User) core.QualityProfile
+	// SelectProfile picks the quality profile for the title's media and client.
+	SelectProfile func(caps core.ClientCaps, user *core.User, media string) core.QualityProfile
 	// HLSLookup finds the HLS session fed by a playback session, for
 	// mid-stream failover. Defaults to Transcoder.Session(sessionID).
 	HLSLookup func(sessionID string) (core.HLSSession, bool)
@@ -1082,7 +1081,7 @@ func (m *Manager) prepare(ctx context.Context, id identity, user *core.User, cap
 	if title.Type == core.TypeShow || title.Type == core.TypeSeason {
 		return nil, fmt.Errorf("playback: %s is a %s, not a playable item: %w", id.key, title.Type, core.ErrNotFound)
 	}
-	profile := m.deps.SelectProfile(caps, user)
+	profile := m.selectProfile(caps, user, title.Key)
 	s := newSession(randomID(16), id, user, caps, title, profileKey(profile), m.now())
 	s.sources = sources
 	defer func() {

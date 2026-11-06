@@ -254,6 +254,9 @@ func (h *Handler) handlePutSection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_json", err.Error())
 		return
 	}
+	if field == "quality" {
+		merged = mergeQualitySync(all[field], merged)
+	}
 	all[field] = merged
 	mergedAll, _ := json.Marshal(all)
 	var next config.Config
@@ -387,6 +390,45 @@ func mergeSection(current, patch json.RawMessage) (json.RawMessage, error) {
 		curObj[k] = v
 	}
 	return json.Marshal(curObj)
+}
+
+// mergeQualitySync keeps server-owned run state when a settings form patches
+// only enabled/interval. mergeSection is shallow, so without this a sync
+// form save would erase lastRun/lastError and make the next check due.
+func mergeQualitySync(current, merged json.RawMessage) json.RawMessage {
+	var cur, next map[string]json.RawMessage
+	if json.Unmarshal(current, &cur) != nil || json.Unmarshal(merged, &next) != nil {
+		return merged
+	}
+	curSync, curOK := cur["sync"]
+	nextSync, nextOK := next["sync"]
+	if !curOK || !nextOK {
+		return merged
+	}
+	var cs, ns map[string]json.RawMessage
+	if json.Unmarshal(curSync, &cs) != nil || json.Unmarshal(nextSync, &ns) != nil {
+		return merged
+	}
+	// Run state belongs to the server even when a stale form sends it back.
+	for _, k := range []string{"lastRun", "lastError"} {
+		if v, ok := cs[k]; ok {
+			ns[k] = v
+		} else {
+			delete(ns, k)
+		}
+	}
+	for k, v := range cs {
+		if _, ok := ns[k]; !ok {
+			ns[k] = v
+		}
+	}
+	if b, err := json.Marshal(ns); err == nil {
+		next["sync"] = b
+	}
+	if b, err := json.Marshal(next); err == nil {
+		return b
+	}
+	return merged
 }
 
 func effectiveRedacted(c config.Config) config.Config {

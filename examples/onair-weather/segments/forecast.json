@@ -1,56 +1,1348 @@
 {
   "v": 1,
   "moment": "plugin:community.example.weather/forecast",
-  "duration": 120,
-  "poster": 0,
-  "slots": ["now.temp", "now.summary"],
+  "duration": 48,
+  "poster": 6,
+  "slots": [
+    "now.place",
+    "now.temp",
+    "now.feels",
+    "now.wind",
+    "now.humidity",
+    "now.summary",
+    "now.icon",
+    "now.updated",
+    "now.ticker",
+    "daily.d0name",
+    "daily.d0high",
+    "daily.d0low",
+    "daily.d0summary",
+    "daily.d0icon",
+    "daily.d0rain",
+    "daily.d0snow",
+    "daily.d1name",
+    "daily.d1high",
+    "daily.d1low",
+    "daily.d1summary",
+    "daily.d1icon",
+    "daily.d1rain",
+    "daily.d1snow",
+    "daily.d2name",
+    "daily.d2high",
+    "daily.d2low",
+    "daily.d2summary",
+    "daily.d2icon",
+    "daily.d2rain",
+    "daily.d2snow",
+    "daily.d3name",
+    "daily.d3high",
+    "daily.d3low",
+    "daily.d3summary",
+    "daily.d3icon",
+    "daily.d3rain",
+    "daily.d3snow",
+    "daily.d4name",
+    "daily.d4high",
+    "daily.d4low",
+    "daily.d4summary",
+    "daily.d4icon",
+    "daily.d4rain",
+    "daily.d4snow"
+  ],
   "layers": [
     {
       "id": "background",
       "type": "rect",
+      "x": 0,
+      "y": 0,
       "w": 1920,
       "h": 1080,
-      "fill": "{bg}"
+      "fill": "{bg}",
+      "opacity": 1
     },
     {
-      "id": "title",
-      "type": "text",
-      "text": "Local forecast",
-      "x": 120,
-      "y": 220,
-      "font": "{type.display}",
-      "size": 100,
-      "fill": "{accent}"
+      "id": "rail",
+      "type": "rect",
+      "x": 72,
+      "y": 80,
+      "w": 6,
+      "h": 790,
+      "fill": "{accent}",
+      "opacity": 1
     },
     {
-      "id": "temperature",
+      "id": "brand",
       "type": "text",
-      "text": "{now.temp} °C",
-      "x": 120,
-      "y": 480,
-      "font": "{type.display}",
-      "size": 180,
-      "fill": "{text}"
-    },
-    {
-      "id": "summary",
-      "type": "text",
-      "text": "{now.summary}",
-      "x": 120,
-      "y": 730,
+      "text": "THE LOCAL WEATHER",
+      "x": 112,
+      "y": 112,
+      "size": 30,
       "font": "{type.body}",
-      "size": 56,
-      "fill": "{text}"
+      "fill": "{accent}",
+      "maxWidth": 1700,
+      "fit": "shrink",
+      "track": 6
+    },
+    {
+      "id": "place",
+      "type": "text",
+      "text": "{now.place}",
+      "x": 112,
+      "y": 182,
+      "size": 60,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "maxWidth": 1440,
+      "fit": "shrink"
+    },
+    {
+      "id": "updated",
+      "type": "text",
+      "text": "UPDATED {now.updated}",
+      "x": 1480,
+      "y": 112,
+      "size": 25,
+      "font": "{type.body}",
+      "fill": "{text}",
+      "maxWidth": 340,
+      "fit": "shrink"
+    },
+    {
+      "id": "top-rule",
+      "type": "rect",
+      "x": 112,
+      "y": 222,
+      "w": 1696,
+      "h": 2,
+      "fill": "{text}",
+      "opacity": 0.25
+    },
+    {
+      "id": "current",
+      "type": "group",
+      "start": 0,
+      "end": 16,
+      "layers": [
+        {
+          "id": "now-heading",
+          "type": "text",
+          "text": "RIGHT NOW",
+          "x": 112,
+          "y": 302,
+          "size": 32,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 1700,
+          "fit": "shrink",
+          "track": 5,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.15,
+            "to": 0.85,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "now-icon",
+          "type": "image",
+          "src": "{now.icon}",
+          "x": 1120,
+          "y": 278,
+          "w": 500,
+          "h": 500,
+          "tint": "{accent}",
+          "tintBlend": "silhouette",
+          "fit": "contain",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.19,
+            "to": 0.89,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "temperature",
+          "type": "text",
+          "text": "{now.temp}",
+          "x": 100,
+          "y": 570,
+          "size": 240,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 950,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.22999999999999998,
+            "to": 0.9299999999999999,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "condition",
+          "type": "text",
+          "text": "{now.summary}",
+          "x": 112,
+          "y": 686,
+          "size": 72,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 1000,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.27,
+            "to": 0.97,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "metrics-rule",
+          "type": "rect",
+          "x": 112,
+          "y": 740,
+          "w": 900,
+          "h": 2,
+          "fill": "{text}",
+          "opacity": 0.2,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.31,
+            "to": 1.01,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "feels-label",
+          "type": "text",
+          "text": "FEELS LIKE",
+          "x": 112,
+          "y": 806,
+          "size": 25,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 1700,
+          "fit": "shrink",
+          "track": 3,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.35,
+            "to": 1.05,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "feels",
+          "type": "text",
+          "text": "{now.feels}",
+          "x": 112,
+          "y": 866,
+          "size": 50,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 1700,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.39,
+            "to": 1.0899999999999999,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "wind-label",
+          "type": "text",
+          "text": "WIND",
+          "x": 470,
+          "y": 806,
+          "size": 25,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 1700,
+          "fit": "shrink",
+          "track": 3,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.43000000000000005,
+            "to": 1.13,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "wind",
+          "type": "text",
+          "text": "{now.wind}",
+          "x": 470,
+          "y": 866,
+          "size": 50,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 370,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.47,
+            "to": 1.17,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "humidity-label",
+          "type": "text",
+          "text": "HUMIDITY",
+          "x": 950,
+          "y": 806,
+          "size": 25,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 1700,
+          "fit": "shrink",
+          "track": 3,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.51,
+            "to": 1.21,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "humidity",
+          "type": "text",
+          "text": "{now.humidity}",
+          "x": 950,
+          "y": 866,
+          "size": 50,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 1700,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.55,
+            "to": 1.25,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "next-hint",
+          "type": "text",
+          "text": "TODAY & TOMORROW  /  FIVE-DAY OUTLOOK",
+          "x": 1120,
+          "y": 820,
+          "size": 24,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 650,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.59,
+            "to": 1.29,
+            "ease": "out"
+          }
+        }
+      ]
+    },
+    {
+      "id": "near",
+      "type": "group",
+      "start": 16,
+      "end": 32,
+      "layers": [
+        {
+          "id": "near-label0",
+          "type": "text",
+          "text": "{daily.d0name}",
+          "x": 112,
+          "y": 304,
+          "size": 34,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 1700,
+          "fit": "shrink",
+          "track": 5,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.15,
+            "to": 16.85,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-icon0",
+          "type": "image",
+          "src": "{daily.d0icon}",
+          "x": 592,
+          "y": 322,
+          "w": 270,
+          "h": 270,
+          "tint": "{accent}",
+          "tintBlend": "silhouette",
+          "fit": "contain",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.189999999999998,
+            "to": 16.89,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-high0",
+          "type": "text",
+          "text": "{daily.d0high}",
+          "x": 112,
+          "y": 500,
+          "size": 140,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 430,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.229999999999997,
+            "to": 16.93,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-low0",
+          "type": "text",
+          "text": "LOW {daily.d0low}",
+          "x": 112,
+          "y": 575,
+          "size": 44,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 430,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.27,
+            "to": 16.970000000000002,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-condition0",
+          "type": "text",
+          "text": "{daily.d0summary}",
+          "x": 112,
+          "y": 660,
+          "size": 48,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 740,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.31,
+            "to": 17.01,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-rain-label0",
+          "type": "text",
+          "text": "PRECIPITATION",
+          "x": 112,
+          "y": 738,
+          "size": 25,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 1700,
+          "fit": "shrink",
+          "track": 3,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.349999999999998,
+            "to": 17.05,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-rain0",
+          "type": "text",
+          "text": "{daily.d0rain}",
+          "x": 112,
+          "y": 795,
+          "size": 40,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 720,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.389999999999997,
+            "to": 17.09,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-snow0",
+          "type": "text",
+          "text": "{daily.d0snow}",
+          "x": 112,
+          "y": 850,
+          "size": 30,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 720,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.43,
+            "to": 17.130000000000003,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-label1",
+          "type": "text",
+          "text": "{daily.d1name}",
+          "x": 982,
+          "y": 304,
+          "size": 34,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 1700,
+          "fit": "shrink",
+          "track": 5,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.47,
+            "to": 17.17,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-icon1",
+          "type": "image",
+          "src": "{daily.d1icon}",
+          "x": 1462,
+          "y": 322,
+          "w": 270,
+          "h": 270,
+          "tint": "{accent}",
+          "tintBlend": "silhouette",
+          "fit": "contain",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.509999999999998,
+            "to": 17.21,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-high1",
+          "type": "text",
+          "text": "{daily.d1high}",
+          "x": 982,
+          "y": 500,
+          "size": 140,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 430,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.549999999999997,
+            "to": 17.25,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-low1",
+          "type": "text",
+          "text": "LOW {daily.d1low}",
+          "x": 982,
+          "y": 575,
+          "size": 44,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 430,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.59,
+            "to": 17.290000000000003,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-condition1",
+          "type": "text",
+          "text": "{daily.d1summary}",
+          "x": 982,
+          "y": 660,
+          "size": 48,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 740,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.63,
+            "to": 17.330000000000002,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-rain-label1",
+          "type": "text",
+          "text": "PRECIPITATION",
+          "x": 982,
+          "y": 738,
+          "size": 25,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 1700,
+          "fit": "shrink",
+          "track": 3,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.669999999999998,
+            "to": 17.37,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-rain1",
+          "type": "text",
+          "text": "{daily.d1rain}",
+          "x": 982,
+          "y": 795,
+          "size": 40,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 720,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.709999999999997,
+            "to": 17.41,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-snow1",
+          "type": "text",
+          "text": "{daily.d1snow}",
+          "x": 982,
+          "y": 850,
+          "size": 30,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 720,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.75,
+            "to": 17.450000000000003,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "near-divider",
+          "type": "rect",
+          "x": 939,
+          "y": 280,
+          "w": 2,
+          "h": 580,
+          "fill": "{text}",
+          "opacity": 0.2,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 16.79,
+            "to": 17.490000000000002,
+            "ease": "out"
+          }
+        }
+      ]
+    },
+    {
+      "id": "week",
+      "type": "group",
+      "start": 32,
+      "end": 48,
+      "layers": [
+        {
+          "id": "week-title",
+          "type": "text",
+          "text": "THE DAYS AHEAD",
+          "x": 112,
+          "y": 298,
+          "size": 32,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 1700,
+          "fit": "shrink",
+          "track": 5,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.15,
+            "to": 32.85,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-day0",
+          "type": "text",
+          "text": "{daily.d0name}",
+          "x": 112,
+          "y": 380,
+          "size": 26,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.19,
+            "to": 32.89,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-icon0",
+          "type": "image",
+          "src": "{daily.d0icon}",
+          "x": 147,
+          "y": 406,
+          "w": 220,
+          "h": 220,
+          "tint": "{accent}",
+          "tintBlend": "silhouette",
+          "fit": "contain",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.23,
+            "to": 32.93,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-high0",
+          "type": "text",
+          "text": "{daily.d0high}",
+          "x": 112,
+          "y": 688,
+          "size": 78,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.269999999999996,
+            "to": 32.97,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-low0",
+          "type": "text",
+          "text": "LOW {daily.d0low}",
+          "x": 112,
+          "y": 744,
+          "size": 32,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.309999999999995,
+            "to": 33.01,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-rain0",
+          "type": "text",
+          "text": "{daily.d0rain}",
+          "x": 112,
+          "y": 813,
+          "size": 27,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.35,
+            "to": 33.050000000000004,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-snow0",
+          "type": "text",
+          "text": "{daily.d0snow}",
+          "x": 112,
+          "y": 858,
+          "size": 25,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.39,
+            "to": 33.09,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-day1",
+          "type": "text",
+          "text": "{daily.d1name}",
+          "x": 456,
+          "y": 380,
+          "size": 26,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.43,
+            "to": 33.13,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-icon1",
+          "type": "image",
+          "src": "{daily.d1icon}",
+          "x": 491,
+          "y": 406,
+          "w": 220,
+          "h": 220,
+          "tint": "{accent}",
+          "tintBlend": "silhouette",
+          "fit": "contain",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.47,
+            "to": 33.17,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-high1",
+          "type": "text",
+          "text": "{daily.d1high}",
+          "x": 456,
+          "y": 688,
+          "size": 78,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.51,
+            "to": 33.21,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-low1",
+          "type": "text",
+          "text": "LOW {daily.d1low}",
+          "x": 456,
+          "y": 744,
+          "size": 32,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.55,
+            "to": 33.25,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-rain1",
+          "type": "text",
+          "text": "{daily.d1rain}",
+          "x": 456,
+          "y": 813,
+          "size": 27,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.589999999999996,
+            "to": 33.29,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-snow1",
+          "type": "text",
+          "text": "{daily.d1snow}",
+          "x": 456,
+          "y": 858,
+          "size": 25,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.629999999999995,
+            "to": 33.33,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-rule1",
+          "type": "rect",
+          "x": 431,
+          "y": 344,
+          "w": 1,
+          "h": 520,
+          "fill": "{text}",
+          "opacity": 0.2,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.67,
+            "to": 33.370000000000005,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-day2",
+          "type": "text",
+          "text": "{daily.d2name}",
+          "x": 800,
+          "y": 380,
+          "size": 26,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.71,
+            "to": 33.410000000000004,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-icon2",
+          "type": "image",
+          "src": "{daily.d2icon}",
+          "x": 835,
+          "y": 406,
+          "w": 220,
+          "h": 220,
+          "tint": "{accent}",
+          "tintBlend": "silhouette",
+          "fit": "contain",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.75,
+            "to": 33.45,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-high2",
+          "type": "text",
+          "text": "{daily.d2high}",
+          "x": 800,
+          "y": 688,
+          "size": 78,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.79,
+            "to": 33.49,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-low2",
+          "type": "text",
+          "text": "LOW {daily.d2low}",
+          "x": 800,
+          "y": 744,
+          "size": 32,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.83,
+            "to": 33.53,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-rain2",
+          "type": "text",
+          "text": "{daily.d2rain}",
+          "x": 800,
+          "y": 813,
+          "size": 27,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.87,
+            "to": 33.57,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-snow2",
+          "type": "text",
+          "text": "{daily.d2snow}",
+          "x": 800,
+          "y": 858,
+          "size": 25,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.91,
+            "to": 33.61,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-rule2",
+          "type": "rect",
+          "x": 775,
+          "y": 344,
+          "w": 1,
+          "h": 520,
+          "fill": "{text}",
+          "opacity": 0.2,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.949999999999996,
+            "to": 33.65,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-day3",
+          "type": "text",
+          "text": "{daily.d3name}",
+          "x": 1144,
+          "y": 380,
+          "size": 26,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 32.99,
+            "to": 33.690000000000005,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-icon3",
+          "type": "image",
+          "src": "{daily.d3icon}",
+          "x": 1179,
+          "y": 406,
+          "w": 220,
+          "h": 220,
+          "tint": "{accent}",
+          "tintBlend": "silhouette",
+          "fit": "contain",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.03,
+            "to": 33.730000000000004,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-high3",
+          "type": "text",
+          "text": "{daily.d3high}",
+          "x": 1144,
+          "y": 688,
+          "size": 78,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.07,
+            "to": 33.77,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-low3",
+          "type": "text",
+          "text": "LOW {daily.d3low}",
+          "x": 1144,
+          "y": 744,
+          "size": 32,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.11,
+            "to": 33.81,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-rain3",
+          "type": "text",
+          "text": "{daily.d3rain}",
+          "x": 1144,
+          "y": 813,
+          "size": 27,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.15,
+            "to": 33.85,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-snow3",
+          "type": "text",
+          "text": "{daily.d3snow}",
+          "x": 1144,
+          "y": 858,
+          "size": 25,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.19,
+            "to": 33.89,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-rule3",
+          "type": "rect",
+          "x": 1119,
+          "y": 344,
+          "w": 1,
+          "h": 520,
+          "fill": "{text}",
+          "opacity": 0.2,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.23,
+            "to": 33.93,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-day4",
+          "type": "text",
+          "text": "{daily.d4name}",
+          "x": 1488,
+          "y": 380,
+          "size": 26,
+          "font": "{type.body}",
+          "fill": "{accent}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.269999999999996,
+            "to": 33.97,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-icon4",
+          "type": "image",
+          "src": "{daily.d4icon}",
+          "x": 1523,
+          "y": 406,
+          "w": 220,
+          "h": 220,
+          "tint": "{accent}",
+          "tintBlend": "silhouette",
+          "fit": "contain",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.309999999999995,
+            "to": 34.01,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-high4",
+          "type": "text",
+          "text": "{daily.d4high}",
+          "x": 1488,
+          "y": 688,
+          "size": 78,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.35,
+            "to": 34.050000000000004,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-low4",
+          "type": "text",
+          "text": "LOW {daily.d4low}",
+          "x": 1488,
+          "y": 744,
+          "size": 32,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.39,
+            "to": 34.09,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-rain4",
+          "type": "text",
+          "text": "{daily.d4rain}",
+          "x": 1488,
+          "y": 813,
+          "size": 27,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.43,
+            "to": 34.13,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-snow4",
+          "type": "text",
+          "text": "{daily.d4snow}",
+          "x": 1488,
+          "y": 858,
+          "size": 25,
+          "font": "{type.body}",
+          "fill": "{text}",
+          "maxWidth": 310,
+          "fit": "shrink",
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.47,
+            "to": 34.17,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "week-rule4",
+          "type": "rect",
+          "x": 1463,
+          "y": 344,
+          "w": 1,
+          "h": 520,
+          "fill": "{text}",
+          "opacity": 0.2,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 33.51,
+            "to": 34.21,
+            "ease": "out"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ticker-bg",
+      "type": "rect",
+      "x": 0,
+      "y": 920,
+      "w": 1920,
+      "h": 75,
+      "fill": "{accent}",
+      "opacity": 1
+    },
+    {
+      "id": "ticker",
+      "type": "text",
+      "text": "{now.ticker}   /   {now.ticker}   /   {now.ticker}",
+      "x": 120,
+      "y": 971,
+      "size": 32,
+      "font": "{type.body}",
+      "fill": "{bg}",
+      "maxWidth": 6000,
+      "fit": "shrink",
+      "behave": [
+        {
+          "drift": {
+            "amplitude": -38,
+            "speed": 0.01
+          }
+        }
+      ]
     },
     {
       "id": "credit",
       "type": "text",
-      "text": "Weather data: Open-Meteo.com · CC BY 4.0",
-      "x": 120,
-      "y": 960,
+      "text": "Weather data: Open-Meteo.com  \u00b7  CC BY 4.0",
+      "x": 112,
+      "y": 1040,
+      "size": 25,
       "font": "{type.body}",
-      "size": 28,
-      "fill": "{text}"
+      "fill": "{text}",
+      "maxWidth": 1700,
+      "fit": "shrink"
+    },
+    {
+      "id": "footer",
+      "type": "text",
+      "text": "YOUR LOCAL OUTLOOK",
+      "x": 1460,
+      "y": 1040,
+      "size": 24,
+      "font": "{type.body}",
+      "fill": "{accent}",
+      "maxWidth": 355,
+      "fit": "shrink"
     }
   ]
 }

@@ -131,7 +131,7 @@ type Deps struct {
 	// ApplyClientRules adjusts caps for the owner's quality rules. Nil leaves
 	// the request caps unchanged. The app wires resolver.ApplyClientRules so
 	// this package stays outside the resolver.
-	ApplyClientRules func(config.Quality, core.ClientCaps, *core.User) core.ClientCaps
+	ApplyClientRules func(config.Quality, core.ClientCaps, *core.User, string) core.ClientCaps
 	// Config returns the current settings snapshot.
 	Config func() config.Config
 	// OwnerSubscription returns the current entitlement snapshot from plex.tv.
@@ -208,8 +208,11 @@ type Server struct {
 
 	sections []Section
 
-	images            *artworkservice.RemoteCache
-	channelLogos      *artwork.Images
+	images       *artworkservice.RemoteCache
+	channelLogos interface {
+		GetUntrustedURL(context.Context, string) ([]byte, string, error)
+	}
+	channelRaster     *artwork.SVGRasterizer
 	boundStreams      sessions.PlexStreamAPI
 	variantIDs        *variantIDRegistry
 	playIDs           *playIdentities
@@ -292,6 +295,7 @@ func NewServer(d Deps) *Server {
 		log:               d.Logger.With("component", "plex"),
 		images:            artworkservice.NewRemoteCache(d.ImageCacheBytes, d.HTTPClient),
 		channelLogos:      artwork.NewImages(artwork.ImagesOptions{HTTPClient: d.HTTPClient}),
+		channelRaster:     artwork.NewSVGRasterizer(),
 		variantIDs:        newVariantIDRegistry(d.DB),
 		playIDs:           newPlayIdentities(),
 		downloads:         newDownloadStore(),

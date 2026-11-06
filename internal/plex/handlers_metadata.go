@@ -365,7 +365,7 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *core.Title) {
 			return
 		}
 	}
-	caps := s.clientCaps(pr)
+	caps := s.clientCapsForKey(pr, t.Key)
 	if warm, ok := s.d.Playback.(core.Prewarmer); ok {
 		warm.Prewarm(ctx, pr.User, t.Key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail})
 	}
@@ -1031,7 +1031,7 @@ func (s *Server) probeDetailTracks(ctx context.Context, pr *Request, t *core.Tit
 			ctx, cancel = context.WithDeadline(ctx, pr.detailWaitUntil)
 			defer cancel()
 		}
-		return prober.ProbeMetadata(ctx, pr.User, t.Key, s.clientCaps(pr))
+		return prober.ProbeMetadata(ctx, pr.User, t.Key, s.clientCapsForKey(pr, t.Key))
 	}
 	return nil
 }

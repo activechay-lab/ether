@@ -2,6 +2,7 @@ package livetv
 
 import (
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -11,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/logotile"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -19,11 +22,51 @@ import (
 // authentication and CSRF middleware; it deliberately cannot authenticate Plex
 // tokens on its own. Streaming uses the separately authenticated Plex adapter.
 func (s *Service) Handler() http.Handler {
+	return s.ownerHandler(artwork.NewImages(artwork.ImagesOptions{}))
+}
+
+type channelLogoFetcher interface {
+	GetUntrustedURL(context.Context, string) ([]byte, string, error)
+}
+
+func (s *Service) ownerHandler(logos channelLogoFetcher) http.Handler {
 	r := chi.NewRouter()
+	raster := artwork.NewSVGRasterizer()
 	r.Get("/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		ownerResult(w, map[string]any{"maintenance": s.MaintenanceDiagnostics()}, nil)
 	})
 	r.Get("/channels/{id}/timeline", s.timelineRoute)
+	r.Get("/channels/{id}/logo", func(w http.ResponseWriter, r *http.Request) {
+		c, err := s.Channel(r.Context(), chi.URLParam(r, "id"))
+		if err != nil || c.Logo == "" {
+			http.NotFound(w, r)
+			return
+		}
+		data, ct, err := logos.GetUntrustedURL(r.Context(), c.Logo)
+		if err != nil || len(data) == 0 {
+			http.NotFound(w, r)
+			return
+		}
+		if strings.HasPrefix(ct, "image/svg+xml") {
+			data, ct, err = raster.Rasterize(r.Context(), c.Logo, data, artwork.RasterOptions{Format: "png"})
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+		}
+		// The console draws the logo on a tile; tell it which tile keeps the
+		// ink legible. Decode failures keep dark.
+		background := logotile.Dark
+		if ev, decodeErr := logotile.DecideBytes(data); decodeErr == nil {
+			background = ev.Background
+		}
+		w.Header().Set(logotile.Header, string(background))
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox")
+		w.Header().Set("Cache-Control", "private, max-age=300")
+		_, _ = w.Write(data)
+	})
 	r.Get("/channels/{id}/rundown", func(w http.ResponseWriter, r *http.Request) {
 		viewer, err := strconv.ParseInt(r.URL.Query().Get("viewer"), 10, 64)
 		if err != nil {

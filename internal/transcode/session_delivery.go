@@ -392,6 +392,9 @@ func (s *Session) restartLimit() int {
 // restarting it at n: wait when n is at or a little ahead of the encoder,
 // restart when n is behind the run's start, far ahead, or nothing runs.
 func (s *Session) needsRestartLocked(n int) bool {
+	if s.liveRecovering {
+		return false
+	}
 	if s.pendingStart && s.pendingSegment == n && s.pendingTrack == s.wantTrack {
 		return false
 	}

@@ -764,3 +764,18 @@ performs bounded worker stop/status RPCs, retaining claims, input ownership and
 output bytes until exact retirement and reader drainage are proven. A paused
 encoder therefore cannot hold up the public Stop response, and a quick Stop
 response does not claim that the paused process has exited.
+
+
+Media discovery prefers the current playback coordinator when it remains a
+published server replica. Its complete segment reads populate the recovery
+store before forwarding finishes. Serving through a read-only replica while
+that coordinator is alive would bypass capture and leave its published floor
+empty. If the coordinator is unavailable, the existing transport fallback still
+serves through another published server without waiting for election; this does
+not manufacture a retained prefix on the unavailable coordinator.
+
+Explicit TCP connection refusal, absent DNS name, host/network unreachable and
+HTTP 404 on the private status endpoint trigger replacement without the
+transport-failure grace. Timeouts and unclassified transport failures retain
+the grace and consecutive-failure threshold. Endpoint absence is a replacement
+signal only: displaced claims remain until independent retirement proof.

@@ -43,3 +43,37 @@ func TestDatabaseHealthReportsHeldProgress(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func TestDatabaseRecheckPreservesFindingsOnFailure(t *testing.T) {
+	db := store.OpenTest(t)
+	a := &App{db: db, log: quietLog(), cluster: cluster.NewSolo(cluster.Local{}, nil)}
+	prior := store.Integrity{Findings: []string{"preserved evidence"}, Checked: time.Now()}
+	a.recordIntegrity(prior)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := a.checkDatabase(ctx); err == nil {
+		t.Fatal("cancelled check succeeded")
+	}
+	if a.integrity.Load().OK || a.integrity.Load().Findings[0] != "preserved evidence" {
+		t.Fatal("cancel erased evidence")
+	}
+	a.integrityChecking.Store(true)
+	if _, err := a.checkDatabase(context.Background()); err == nil {
+		t.Fatal("concurrent check admitted")
+	}
+	a.integrityChecking.Store(false)
+	if _, err := a.checkDatabase(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !a.integrity.Load().OK {
+		t.Fatal("successful check did not replace stale alarm")
+	}
+	a.recordIntegrity(prior)
+	db.Close()
+	if _, err := a.checkDatabase(context.Background()); err == nil {
+		t.Fatal("closed database check succeeded")
+	}
+	if a.integrity.Load().OK {
+		t.Fatal("failed check erased evidence")
+	}
+}

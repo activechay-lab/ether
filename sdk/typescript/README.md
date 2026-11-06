@@ -87,3 +87,11 @@ export default hello;
 
 Tunnel mode currently makes one connection. Use a process supervisor to
 restart the sidecar after a disconnection.
+
+Searchable settings: a `select` field with `search: true` shows an explicit search
+control in the installed plugin's Settings drawer. Ether forwards `q` and
+`locale` to `GET /ether/options/{key}` in `request.query` (array values when hosted). Return an array of
+`{value, label}` choices. The chosen string is stored verbatim; a JSON string can
+carry coordinates and a display name together. Search never saves settings.
+Background requests receive the server process locale (`LC_ALL`, `LC_MESSAGES`,
+then `LANG`) in the `X-Ether-Locale` header when the caller has not supplied one.

@@ -1,0 +1,8 @@
+{
+  "location": "Konum",
+  "search": "Şehir veya posta kodu",
+  "units": "Birimler",
+  "locale": "Sunucu yerel ayarı",
+  "metric": "Metrik (°C, km/h, mm)",
+  "imperial": "İngiliz (°F, mph, in)"
+}

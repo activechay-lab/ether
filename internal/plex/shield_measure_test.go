@@ -99,7 +99,7 @@ func newShieldMeasureRig(t *testing.T, mode string, cached bool) *shieldMeasureR
 		d.Hooks = Hooks{}
 	})
 	var err error
-	x.mgr, err = playback.New(playback.Deps{Catalog: x.f.catalog, State: x.f.state, Resolver: x.rs, Engine: x.engine, Transcoder: x.f.trans, SelectProfile: x.rs.ProfileFor, NativeProbe: func(ctx context.Context, src core.MediaSource) (*core.MediaInfo, error) {
+	x.mgr, err = playback.New(playback.Deps{Catalog: x.f.catalog, State: x.f.state, Resolver: x.rs, Engine: x.engine, Transcoder: x.f.trans, SelectProfile: func(c core.ClientCaps, u *core.User, _ string) core.QualityProfile { return x.rs.ProfileFor(c, u) }, NativeProbe: func(ctx context.Context, src core.MediaSource) (*core.MediaInfo, error) {
 		if x.probeBlock != nil {
 			select {
 			case <-x.probeBlock:

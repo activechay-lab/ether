@@ -1028,8 +1028,12 @@ func (m *Manager) Test(ctx context.Context, id string) (TestResult, error) {
 }
 
 // Options calls /ether/options/{field} for runtime field options.
-func (m *Manager) Options(ctx context.Context, id, field string) (json.RawMessage, error) {
-	resp, err := m.Call(ctx, id, Request{Method: "GET", Path: "/ether/options/" + field})
+func (m *Manager) Options(ctx context.Context, id, field string, query ...map[string]string) (json.RawMessage, error) {
+	var q map[string]string
+	if len(query) > 0 {
+		q = query[0]
+	}
+	resp, err := m.Call(ctx, id, Request{Method: "GET", Path: "/ether/options/" + field, Query: q})
 	if err != nil {
 		return nil, err
 	}

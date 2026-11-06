@@ -146,6 +146,12 @@ func mergeImportedStreams(imported, previous Channel) []StreamSource {
 	for i := range out {
 		if out[i].ID == stableID(imported.ID, "playlist") {
 			out[i].URL = imported.StreamURL
+			for _, src := range imported.StreamSources {
+				if src.ID == out[i].ID {
+					out[i].Headers = CleanInputHeaders(src.Headers)
+					break
+				}
+			}
 		}
 	}
 	return out

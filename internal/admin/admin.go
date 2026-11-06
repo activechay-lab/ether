@@ -198,6 +198,9 @@ type Deps struct {
 	// "widget" entry is required: it backs GET /ether/api/status.
 	ExtraStatus map[string]StatusFunc
 
+	// DatabaseCheck runs an owner-requested integrity check. Optional for offline consoles.
+	DatabaseCheck StatusFuncE
+
 	// ResolverTraces backs GET /ether/api/traces.
 	ResolverTraces StatusFuncE
 
@@ -405,6 +408,7 @@ func (h *Handler) routes() *http.ServeMux {
 	api("GET /api/system/load", h.handleSystemLoad)
 	api("GET /api/status", h.handleWidget)
 	api("GET /api/status/{name}", h.handleStatus)
+	api("POST /api/status/database/check", h.handleDatabaseCheck)
 	api("GET /api/traces", h.handleTraces)
 	api("GET /api/disk", h.handleDisk)
 

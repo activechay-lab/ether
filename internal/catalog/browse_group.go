@@ -12,6 +12,13 @@ func (c *Catalog) compileBrowseGroup(g *core.FilterGroup, alias string, kind cor
 		copy.ParentOnly = false
 		return c.compileBrowseGroup(&copy, "t", 0)
 	}
+	if g.OnWatchlist != nil {
+		predicate := "EXISTS (SELECT 1 FROM watchlist_items w WHERE w.user_id=? AND w.item_key=" + alias + ".key)"
+		if !*g.OnWatchlist {
+			predicate = "NOT " + predicate
+		}
+		return predicate, []any{g.UserID}, nil
+	}
 	if g.StateField != "" {
 		if g.StateField == "viewedLeafCount" || g.StateField == "viewedOrInProgressLeafCount" || g.StateField == "unviewedLeafCount" || g.StateField == "unwatchedLeaves" {
 			op := ""

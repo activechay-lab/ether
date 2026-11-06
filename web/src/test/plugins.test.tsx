@@ -102,7 +102,7 @@ describe("Server › Plugins (WS10a)", () => {
     expect(screen.getByRole("link", { name: /Build a plugin/i })).toBeTruthy();
   });
 
-  it("opens the plugin drawer with Overview, what it adds, Setup and Activity, and keeps updates, undo and removal in the header", async () => {
+  it("opens the plugin drawer with Overview, what it adds, Settings and Activity, and keeps updates, undo and removal in the header", async () => {
     renderPlugins("/plugins");
 
     fireEvent.click(await screen.findByText("Pluto TV"));
@@ -113,7 +113,7 @@ describe("Server › Plugins (WS10a)", () => {
       within(tabs)
         .getAllByRole("tab")
         .map((t) => t.textContent),
-    ).toEqual(["Overview", "Channels", "Setup", "Activity"]);
+    ).toEqual(["Overview", "Channels", "Settings", "Activity"]);
 
     // Health tiles open the Activity tab, not the Overview.
     expect(screen.queryByText("Responding")).toBeNull();
@@ -131,7 +131,7 @@ describe("Server › Plugins (WS10a)", () => {
     );
 
     // Setup: settings with validation and Test.
-    fireEvent.click(screen.getByRole("tab", { name: "Setup" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
     expect(await screen.findByText("Region")).toBeTruthy();
     expect(
       screen.getByText("Saved. Leave as is to keep it, or type a new value to replace it."),

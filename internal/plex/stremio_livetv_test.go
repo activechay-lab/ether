@@ -81,11 +81,11 @@ func TestStremioAddonGuideOnPlexGrid(t *testing.T) {
 
 func TestMatchedChannelLogoUsesArtworkProxy(t *testing.T) {
 	c := livetv.Channel{ID: "channel", Logo: "https://example.test/logo.png", LogoMatched: true}
-	if got := liveLogo(c); got != "/livetv/channels/channel/logo.svg" {
+	if got := liveLogo(c); got != "/livetv/channels/channel/logo.png" {
 		t.Fatalf("matched logo path = %q", got)
 	}
 	c.LogoMatched = false
-	if got := liveLogo(c); got != c.Logo {
+	if got := liveLogo(c); got != "/livetv/channels/channel/logo.png" {
 		t.Fatalf("original logo path changed: %q", got)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -51,7 +52,16 @@ func QuickCheck(ctx context.Context, db *sql.DB) (Integrity, error) {
 		res.Skipped = true
 		return res, nil
 	}
-	rows, err := db.QueryContext(ctx, `PRAGMA quick_check(`+fmt.Sprint(maxIntegrityFindings)+`)`)
+	// FTS5 xIntegrity can reuse a stale segment structure on a pooled
+	// connection after another connection merges segments. Use a new reader
+	// of the same WAL database, not a copy or immutable view. The PRAGMA holds
+	// one SQLite read snapshot for the whole check.
+	checkDB, closeCheck, err := integrityReader(ctx, db)
+	defer closeCheck()
+	var rows *sql.Rows
+	if err == nil {
+		rows, err = checkDB.QueryContext(ctx, `PRAGMA quick_check(`+fmt.Sprint(maxIntegrityFindings)+`)`)
+	}
 	if err == nil {
 		for rows.Next() {
 			var line string
@@ -91,4 +101,27 @@ func IsCorrupt(err error) bool {
 	return strings.Contains(msg, "malformed") || strings.Contains(msg, "not a database") ||
 		strings.Contains(msg, "sqlite_corrupt") || strings.Contains(msg, "sqlite_notadb") ||
 		strings.Contains(msg, "database corruption")
+}
+
+// integrityReader leaves in-memory databases on their original connection:
+// there is no file to reopen. File readers use the same pinned SQLite driver
+// without the production pool's statement or virtual-table caches.
+func integrityReader(ctx context.Context, db *sql.DB) (*sql.DB, func(), error) {
+	var path string
+	err := db.QueryRowContext(ctx, `SELECT file FROM pragma_database_list WHERE name='main'`).Scan(&path)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	if path == "" {
+		return db, func() {}, nil
+	}
+	uri := url.URL{Scheme: "file", Path: path}
+	q := url.Values{"mode": {"ro"}, "_pragma": {"query_only(1)", "busy_timeout(3000)"}}
+	uri.RawQuery = q.Encode()
+	reader, err := sql.Open("sqlite", uri.String())
+	if err != nil {
+		return nil, func() {}, err
+	}
+	reader.SetMaxOpenConns(1)
+	return reader, func() { _ = reader.Close() }, nil
 }

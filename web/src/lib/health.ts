@@ -672,8 +672,11 @@ export function databaseHealth(v: unknown, now = new Date()): HealthItem | null 
     return {
       ...base,
       href: "/cluster",
-      level: "ok",
-      summary: t("Shared PostgreSQL database reachable"),
+      level: v.state === "ok" && v.reachable === true ? "ok" : "unknown",
+      summary:
+        v.state === "ok" && v.reachable === true
+          ? t("Shared PostgreSQL database reachable")
+          : t("Not reported"),
       details: [],
     };
   }
@@ -682,6 +685,8 @@ export function databaseHealth(v: unknown, now = new Date()): HealthItem | null 
   const integrity = isPlainObject(v.integrity) ? v.integrity : null;
   if (!integrity) return null;
   const checked = parseTime(integrity.checked);
+  if (integrity.skipped === true || !checked || typeof integrity.ok !== "boolean")
+    return { ...base, level: "unknown", summary: t("Not checked"), details: [] };
   if (integrity.ok === true)
     return {
       ...base,
@@ -695,8 +700,8 @@ export function databaseHealth(v: unknown, now = new Date()): HealthItem | null 
   return {
     ...base,
     level: "error",
-    summary: t("The database file is damaged"),
-    details: [t("Restore a backup to recover. Ether keeps running so you can."), ...findings],
+    summary: t("The last database check found an issue"),
+    details: findings,
   };
 }
 
@@ -797,6 +802,10 @@ export interface NowPlaying {
   id: string;
   key: string;
   title: string;
+  isLive: boolean;
+  channelId: string;
+  channelName: string;
+  channelNumber: string;
   user: string;
   device: string;
   product: string;
@@ -847,6 +856,8 @@ export function normalizeSessions(v: unknown): NowPlaying[] {
   return v.filter(isPlainObject).map((s) => {
     const info = (pick(s, "Info", "info") ?? {}) as Record<string, unknown>;
     const client = (pick(s, "Client", "client") ?? {}) as Record<string, unknown>;
+    const channel = pick(s, "liveChannel", "LiveChannel");
+    const liveChannel = isPlainObject(channel) ? channel : null;
     const resolution = (pick(s, "Resolution", "resolution") ?? {}) as Record<string, unknown>;
     const release = isPlainObject(resolution.release) ? resolution.release : {};
     const durationNs = num(pick(info, "duration", "Duration"));
@@ -873,6 +884,10 @@ export function normalizeSessions(v: unknown): NowPlaying[] {
       id: str(pick(s, "ID", "id")),
       key: String(pick(s, "Key", "key") ?? ""),
       title: str(pick(s, "TitleName", "titleName", "title")) || t("Untitled"),
+      isLive: liveChannel !== null,
+      channelId: liveChannel ? str(pick(liveChannel, "id", "ID")).trim() : "",
+      channelName: liveChannel ? str(pick(liveChannel, "name", "Name")).trim() : "",
+      channelNumber: liveChannel ? str(pick(liveChannel, "number", "Number")).trim() : "",
       user: str(pick(s, "Username", "username")) || t("Someone"),
       device:
         str(pick(client, "deviceName", "device")) ||
@@ -906,6 +921,11 @@ export function normalizeSessions(v: unknown): NowPlaying[] {
       subtitle: str(pick(s, "subtitle", "Subtitle")),
     };
   });
+}
+
+/** Selected channel, independent of the programme title. */
+export function channelLabel(s: Pick<NowPlaying, "channelName" | "channelNumber">): string {
+  return [s.channelNumber, s.channelName].filter(Boolean).join(" · ");
 }
 
 /**

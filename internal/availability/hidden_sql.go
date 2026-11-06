@@ -48,7 +48,13 @@ func (s *Service) publishHidden(ctx context.Context, kind, policy string, keys [
 	if _, err = tx.ExecContext(ctx, `DELETE FROM availability_hidden WHERE kind=? AND generation<>? AND created_at<?`, kind, gen, now-int64(time.Hour.Seconds())); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if c, ok := s.d.Catalog.(interface{ ConsoleGateChanged() }); ok {
+		c.ConsoleGateChanged()
+	}
+	return nil
 }
 
 type pagingCut struct {

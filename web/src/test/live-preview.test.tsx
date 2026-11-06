@@ -84,3 +84,15 @@ it("bounds cold manifest retries and refuses permanent HTTP errors", async () =>
   clock.mockRestore();
   view.unmount();
 });
+
+it("advertises HEVC only after the browser confirms MSE decoding", async () => {
+  vi.stubGlobal("MediaSource", { isTypeSupported: vi.fn(() => true) });
+  mocks.play.mockResolvedValueOnce(session("hevc"));
+  const view = render(<LivePreview channel={channel("hevc")} onClose={() => {}} />);
+  try {
+    await waitFor(() => expect(mocks.play).toHaveBeenCalledWith("hevc", undefined, true, true));
+  } finally {
+    view.unmount();
+    vi.unstubAllGlobals();
+  }
+});

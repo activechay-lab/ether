@@ -555,7 +555,7 @@ describe("Live TV preview player", () => {
     const user = userEvent.setup();
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     const calls = backend([iptv("c1")], (url, init) => {
-      if (url.endsWith("/livetv/channels/c1/play") && init?.method === "POST")
+      if (url.split("?")[0]?.endsWith("/livetv/channels/c1/play") && init?.method === "POST")
         return { id: "s1", playlist: "sessions/s1/index.m3u8", activeSourceName: "Samsung" };
       return undefined;
     });

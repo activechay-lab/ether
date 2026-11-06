@@ -1,0 +1,8 @@
+{
+  "location": "Standort",
+  "search": "Stadt oder Postleitzahl",
+  "units": "Einheiten",
+  "locale": "Gebietsschema des Servers",
+  "metric": "Metrisch (°C, km/h, mm)",
+  "imperial": "Imperial (°F, mph, in)"
+}

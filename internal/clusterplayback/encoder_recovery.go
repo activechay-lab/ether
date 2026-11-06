@@ -44,6 +44,9 @@ func (r *Runtime) probeEncoder(ctx context.Context, x *execution) (string, error
 	if err == nil {
 		return "encoder-retired", ErrPending
 	}
+	if errors.Is(err, remotetranscode.ErrStatusUnavailable) {
+		return "status-unreachable", err
+	}
 	if errors.Is(err, remotetranscode.ErrStatusDenied) {
 		return "status-denied", err
 	}

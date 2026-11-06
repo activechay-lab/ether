@@ -257,8 +257,8 @@ export function imageNeedsFetch(src: string | null | undefined): boolean {
   return Boolean(src && src.startsWith(API_BASE) && (routeImagesThroughFetch || getToken()));
 }
 
-/** Fetch an authenticated binary resource (artwork) as a Blob. */
-export async function apiBlob(url: string, signal?: AbortSignal): Promise<Blob> {
+/** Fetch an authenticated console image, keeping the response headers. */
+export async function apiImage(url: string, signal?: AbortSignal): Promise<Response> {
   const res = await fetch(url, { headers: authHeaders({}, isConsoleApiUrl(url)), signal });
   if (!res.ok)
     throw new ApiError(
@@ -266,7 +266,12 @@ export async function apiBlob(url: string, signal?: AbortSignal): Promise<Blob> 
       "http",
       t("Image request failed ({status})", { status: res.status }),
     );
-  return res.blob();
+  return res;
+}
+
+/** Fetch an authenticated binary resource (artwork) as a Blob. */
+export async function apiBlob(url: string, signal?: AbortSignal): Promise<Blob> {
+  return (await apiImage(url, signal)).blob();
 }
 
 function send<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
@@ -474,6 +479,13 @@ export const api = {
   // ---- Catalogue helpers ---------------------------------------------------------
   browseCatalog: (
     params: {
+      noTotal?: string;
+      cursor?: string;
+      after?: string;
+      filter?: string;
+      secondarySort?: string;
+      secondaryDesc?: string;
+      desc?: string;
       ruleVisibility?: string;
       rules?: string;
       ruleFallback?: string;
@@ -487,7 +499,14 @@ export const api = {
       limit?: number;
     },
     signal?: AbortSignal,
-  ) => apiFetch<{ items: TitleCard[]; total: number }>(`/catalog/browse${qs(params)}`, { signal }),
+  ) =>
+    apiFetch<{
+      items: TitleCard[];
+      total: number;
+      totalExact?: boolean;
+      hasMore?: boolean;
+      nextCursor?: string;
+    }>(`/catalog/browse${qs(params)}`, { signal }),
   searchCatalog: async (q: string, type?: string, limit = 24, signal?: AbortSignal) =>
     (
       await apiFetch<{ items: TitleCard[] | null }>(`/catalog/search${qs({ q, type, limit })}`, {

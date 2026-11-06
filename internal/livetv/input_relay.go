@@ -35,7 +35,7 @@ import (
 // stream source. A grant serves the source URL itself and only the
 // resources named by the HLS playlists and DASH manifests it served; it is
 // not a proxy for anything else. Provider headers go only to the source's
-// own origin, and nothing fetched over HTTPS may continue over HTTP.
+// own origin; explicitly declared channel identity/referrer may follow media.
 const (
 	relayPathPrefix    = "/livetv/input/"
 	relayManifestLimit = 4 << 20
@@ -63,20 +63,24 @@ type inputRelay struct {
 }
 
 type inputGrant struct {
-	log     *slog.Logger // immutable, credential-free session correlation
-	token   string
-	origin  string      // the only origin that receives headers
-	headers http.Header // provider headers; immutable
-	ctx     context.Context
-	cancel  context.CancelFunc
-	slots   chan struct{}
-	source  string // the capped provider account behind this input; "" none
+	log          *slog.Logger // immutable, credential-free session correlation
+	token        string
+	origin       string      // the only origin that receives authentication
+	headers      http.Header // provider headers; immutable
+	mediaHeaders http.Header // explicit per-channel playback headers; immutable
+	ctx          context.Context
+	cancel       context.CancelFunc
+	slots        chan struct{}
+	source       string // the capped provider account behind this input; "" none
 
-	mu        sync.Mutex
-	resources map[string]*relayResource
-	byKey     map[string]string
-	order     []string
-	next      int
+	mu               sync.Mutex
+	resources        map[string]*relayResource
+	byKey            map[string]string
+	order            []string
+	next             int
+	upstreamFailures int
+	upstreamPending  int
+	upstreamRetryAt  time.Time
 }
 
 // relayResource is an exact upstream URL, or a DASH SegmentTemplate whose
@@ -125,7 +129,7 @@ func (s *Service) grantInput(ss *session, src StreamSource, headers http.Header)
 	ctx, cancel := context.WithCancel(s.ctx)
 	g := &inputGrant{
 		log:   s.sessionLog(ss).With("input", src.ID),
-		token: base64.RawURLEncoding.EncodeToString(b[:]), origin: relayOrigin(u), headers: headers.Clone(),
+		token: base64.RawURLEncoding.EncodeToString(b[:]), origin: relayOrigin(u), headers: headers.Clone(), mediaHeaders: redirectMediaHeaders(src.Headers),
 		ctx: ctx, cancel: cancel, slots: make(chan struct{}, relayConcurrency), source: source,
 		resources: map[string]*relayResource{"0": {name: relayName("stream", u.Path), url: src.URL}},
 		byKey:     map[string]string{},
@@ -444,10 +448,9 @@ func (s *Service) serveRelayManifest(w http.ResponseWriter, g *inputGrant, base 
 	_, _ = w.Write(out)
 }
 
-// scopeInputRedirects confines every configured source header to its origin.
-// Redirects, including a provider's hop through a plain-HTTP CDN edge, are
-// followed; headers and Referer never leave the source's own origin.
-func scopeInputRedirects(client *http.Client, origin string, headers http.Header, ua string) {
+// scopeInputRedirects confines authentication to the source origin while
+// forwarding only explicitly supplied per-channel playback headers.
+func scopeInputRedirects(client *http.Client, origin string, headers http.Header, ua string, public ...http.Header) {
 	checkRedirect := client.CheckRedirect
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if checkRedirect != nil {
@@ -461,7 +464,8 @@ func scopeInputRedirects(client *http.Client, origin string, headers http.Header
 		// (https panel -> http CDN -> https CDN), and every IPTV player
 		// follows it. The redirect itself arrived over TLS, so the provider
 		// chose the hop. An http URL is never the source's https origin, so
-		// none of its configured headers or Referer are sent (below).
+		// authentication and synthesized Referer are removed below. Explicit
+		// channel playback headers are then reapplied.
 		if relayOrigin(req.URL) != origin {
 			// Go synthesizes Referer from the previous URL, which can carry
 			// source query credentials even without a configured header.
@@ -473,6 +477,9 @@ func scopeInputRedirects(client *http.Client, origin string, headers http.Header
 				req.Header.Set("User-Agent", ua)
 			}
 		}
+		if len(public) > 0 {
+			applyMediaHeaders(req, public[0])
+		}
 		return nil
 	}
 }
@@ -483,8 +490,8 @@ func scopeInputRedirects(client *http.Client, origin string, headers http.Header
 func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *inputGrant, raw string, in *http.Request) (*http.Response, error) {
 	client := *s.o.HTTPClient
 	client.Timeout = 0 // a live input is endless; idle time is bounded instead
-	ua := in.Header.Get("User-Agent")
-	scopeInputRedirects(&client, g.origin, g.headers, ua)
+	ua := defaultUserAgent()
+	scopeInputRedirects(&client, g.origin, g.headers, ua, g.mediaHeaders)
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, errRelayUnsupported
@@ -512,6 +519,7 @@ func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *
 		if relayOrigin(u) == g.origin {
 			req.Header = g.headers.Clone()
 		}
+		applyMediaHeaders(req, g.mediaHeaders)
 		if req.Header.Get("User-Agent") == "" && ua != "" {
 			req.Header.Set("User-Agent", ua)
 		}
@@ -520,9 +528,18 @@ func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *
 				req.Header.Set(name, v)
 			}
 		}
+		if !g.reserveUpstreamAttempt(ctx) {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, errors.New("live provider retry limit reached")
+		}
+		// Backoff consumes the caller's startup deadline, not the per-I/O
+		// response-header timeout for the request that follows it.
 		var timedOut atomic.Bool
 		t := time.AfterFunc(budget(), func() { timedOut.Store(true); cancel() })
 		res, err := client.Do(req)
+		g.finishUpstreamAttempt(err != nil || res.StatusCode >= 400)
 		t.Stop()
 		if timedOut.Load() || errors.Is(err, context.DeadlineExceeded) {
 			if res != nil {
@@ -590,4 +607,50 @@ func (r *idleReader) Read(p []byte) (int, error) {
 	n, err := r.r.Read(p)
 	r.t.Stop()
 	return n, err
+}
+
+// Bound a refusal episode across relay and media-tool retries. Successful
+// responses replenish it; concurrent requests reserve before touching the panel.
+func (g *inputGrant) reserveUpstreamAttempt(ctx context.Context) bool {
+	g.mu.Lock()
+	if g.upstreamFailures+g.upstreamPending >= 28 {
+		g.mu.Unlock()
+		return false
+	}
+	g.upstreamPending++
+	at := g.upstreamRetryAt
+	if g.upstreamFailures > 0 {
+		if at.Before(time.Now()) {
+			at = time.Now()
+		}
+		g.upstreamRetryAt = at.Add(time.Second)
+	}
+	g.mu.Unlock()
+	if wait := time.Until(at); wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			g.mu.Lock()
+			g.upstreamPending--
+			g.mu.Unlock()
+			return false
+		}
+	}
+	return true
+}
+func (g *inputGrant) finishUpstreamAttempt(failed bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.upstreamPending--
+	if failed {
+		g.upstreamFailures++
+		if at := time.Now().Add(time.Second); g.upstreamRetryAt.Before(at) {
+			g.upstreamRetryAt = at
+		}
+	} else {
+		g.upstreamFailures = 0
+		g.upstreamRetryAt = time.Time{}
+	}
 }

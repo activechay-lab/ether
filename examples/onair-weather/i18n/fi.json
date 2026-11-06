@@ -1,0 +1,8 @@
+{
+  "location": "Sijainti",
+  "search": "Kaupunki tai postinumero",
+  "units": "Yksiköt",
+  "locale": "Palvelimen maa-asetus",
+  "metric": "Metriset (°C, km/h, mm)",
+  "imperial": "Imperiaalit (°F, mph, in)"
+}

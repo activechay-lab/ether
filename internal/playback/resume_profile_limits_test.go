@@ -17,7 +17,7 @@ func TestProfileLimitChangeForgetsRememberedRelease(t *testing.T) {
 	caps := defaultCaps("c1")
 
 	profile := core.QualityProfile{Name: "1080p", MaxHeight: 1080, MinHeight: 720, PreferredCodecs: []string{"h264"}}
-	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User) core.QualityProfile { return profile }
+	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User, string) core.QualityProfile { return profile }
 
 	if err := h.m.Remember(ctx, owner, movieKey, caps, &core.Resolution{Release: core.Release{ID: "A"}, NZB: []byte("nzb-A")}); err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestResumeReusedAcrossCapsWithSameConfiguredProfile(t *testing.T) {
 	ctx := context.Background()
 	configured := core.QualityProfile{Name: "Main", MaxHeight: 2160, MinHeight: 720, AllowHDR: true, AllowDolbyVision: true, PreferredCodecs: []string{"hevc", "h264"}}
 	key := configured.ComputeSelectionKey()
-	h.m.deps.SelectProfile = func(caps core.ClientCaps, _ *core.User) core.QualityProfile {
+	h.m.deps.SelectProfile = func(caps core.ClientCaps, _ *core.User, _ string) core.QualityProfile {
 		p := configured // clamped copy per caps, key untouched
 		p.SelectionKey = key
 		if caps.MaxHeight > 0 && p.MaxHeight > caps.MaxHeight {
@@ -146,7 +146,7 @@ func TestPipeNameEditForgetsRememberedRelease(t *testing.T) {
 	ctx := context.Background()
 	caps := defaultCaps("c1")
 	profile := core.QualityProfile{Name: "Owner | 4K", MaxHeight: 1080, MinHeight: 720, PreferredCodecs: []string{"h264"}}
-	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User) core.QualityProfile { return profile }
+	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User, string) core.QualityProfile { return profile }
 
 	if err := h.m.Remember(ctx, owner, movieKey, caps, &core.Resolution{Release: core.Release{ID: "A"}, NZB: []byte("nzb-A")}); err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func TestSameNameRuleEditForgetsRememberedRelease(t *testing.T) {
 		ID: "audio", Name: "Norwegian", Action: "require",
 		Conditions: []core.ReleaseCondition{{Field: "language", Operator: "equals", Value: "no"}},
 	}}}
-	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User) core.QualityProfile { return profile }
+	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User, string) core.QualityProfile { return profile }
 	if err := h.m.Remember(ctx, owner, movieKey, caps, &core.Resolution{Release: core.Release{ID: "A"}, NZB: []byte("nzb-A")}); err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestNonPlexResumeSkipsUnsupportedAV1Release(t *testing.T) {
 	ctx := context.Background()
 	configured := core.QualityProfile{Name: "Auto", MaxHeight: 2160, MinHeight: 720, PreferredCodecs: []string{"av1", "hevc", "h264"}}
 	key := configured.ComputeSelectionKey()
-	h.m.deps.SelectProfile = func(caps core.ClientCaps, _ *core.User) core.QualityProfile {
+	h.m.deps.SelectProfile = func(caps core.ClientCaps, _ *core.User, _ string) core.QualityProfile {
 		p := configured
 		p.SelectionKey = key
 		return p

@@ -84,7 +84,7 @@ func TestPartRangeOutageEndsInRestart(t *testing.T) {
 	f := newFixture(func(d *Deps) { d.DisableEnrichment = true; d.Hooks = Hooks{} })
 	tr := &issue94Transcoder{newFakeTranscoder(core.Decision{})}
 	e := &partOutageEngine{}
-	mgr, err := playback.New(playback.Deps{Catalog: f.catalog, Resolver: rs, Engine: e, Transcoder: tr, SelectProfile: rs.ProfileFor, NativeProbe: func(_ context.Context, _ core.MediaSource) (*core.MediaInfo, error) {
+	mgr, err := playback.New(playback.Deps{Catalog: f.catalog, Resolver: rs, Engine: e, Transcoder: tr, SelectProfile: func(c core.ClientCaps, u *core.User, _ string) core.QualityProfile { return rs.ProfileFor(c, u) }, NativeProbe: func(_ context.Context, _ core.MediaSource) (*core.MediaInfo, error) {
 		info := sampleInfo
 		return &info, nil
 	}}, cfg, playback.Options{DataDir: t.TempDir()})

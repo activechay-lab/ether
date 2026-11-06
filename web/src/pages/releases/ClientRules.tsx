@@ -1,5 +1,6 @@
 import { QualityHelp } from "./QualityHelp";
 import {
+  Badge,
   Button,
   EmptyState,
   Input,
@@ -12,11 +13,20 @@ import { ListFilter, Plus } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
+import { Segmented } from "../../components/fields";
 import { Section } from "../../components/layout";
 import { useViewers, viewerName } from "../../components/pickers";
 import { SettingsRow } from "../../components/SettingsRow";
 import { localized, t } from "../../i18n";
 import type { Viewer } from "../../lib/contract";
+import {
+  MEDIA_MOVIE,
+  MEDIA_TV,
+  compatibleProfiles,
+  mediaApplies,
+  mediaLabel,
+  profileMediaType,
+} from "../../lib/releases";
 import type { QualityRule } from "../../lib/types";
 import {
   OrderButtons,
@@ -52,6 +62,18 @@ const HEIGHTS = localized(() => [
   { value: "2160", label: t("4K (2160p)") },
 ]);
 
+const APPLIES_OPTIONS = localized(() => [
+  { value: "" as const, label: t("Both") },
+  { value: MEDIA_MOVIE as "movie", label: t("Movies") },
+  { value: MEDIA_TV as "tv", label: t("Shows") },
+]);
+
+const FILTER_OPTIONS = localized(() => [
+  { value: "" as const, label: t("All") },
+  { value: MEDIA_MOVIE as "movie", label: t("Movies") },
+  { value: MEDIA_TV as "tv", label: t("Shows") },
+]);
+
 const heightLabel = (h: number) => HEIGHTS.find((x) => x.value === String(h))?.label ?? `${h}p`;
 
 function ruleViewer(r: QualityRule, viewers: Viewer[] | null) {
@@ -77,6 +99,7 @@ export function ClientRulesTab() {
   const { config, quality, commit } = useQuality();
   const { viewers } = useViewers();
   const [editing, setEditing] = useState<{ index: number; draft: QualityRule } | null>(null);
+  const [filter, setFilter] = useState<"" | "movie" | "tv">("");
   const [errors, setErrors] = useState<Errors>({});
   const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
@@ -86,13 +109,29 @@ export function ClientRulesTab() {
 
   const rules = quality.rules ?? [];
   const profiles = quality.profiles ?? [];
-  const names = profiles.map((p) => ({ value: p.name, label: p.name }));
+  const shown = rules
+    .map((rule, index) => ({ rule, index }))
+    .filter(({ rule }) => mediaApplies(rule.mediaType, filter || undefined));
 
   const open = (index: number, draft: QualityRule) => {
+    const compatible = compatibleProfiles(profiles, draft.mediaType).map((p) => p.name);
+    const copy = { ...draft };
+    if (!compatible.includes(copy.profile) && compatible.length) copy.profile = compatible[0]!;
     setErrors({});
     setError(null);
-    setEditing({ index, draft: { ...draft } });
+    setEditing({ index, draft: copy });
   };
+
+  /** Change a rule's media and point its profile at a compatible one when needed. */
+  function setMedia(media: "" | "movie" | "tv") {
+    setEditing((e) => {
+      if (!e) return e;
+      const draft = { ...e.draft, mediaType: media || undefined };
+      const compatible = compatibleProfiles(profiles, media).map((p) => p.name);
+      if (!compatible.includes(draft.profile)) draft.profile = compatible[0] ?? "";
+      return { ...e, draft };
+    });
+  }
 
   async function save() {
     if (!editing || !quality) return;
@@ -167,38 +206,65 @@ export function ClientRulesTab() {
           />
         }
         actions={
-          <Button
-            size="sm"
-            onClick={() =>
-              open(rules.length, { profile: quality.default || profiles[0]?.name || "" })
-            }
-            disabled={!profiles.length}
-          >
-            <Plus size={14} /> {t("Add rule")}
-          </Button>
+          <>
+            {rules.length ? (
+              <Segmented
+                ariaLabel={t("Show rules for")}
+                size="sm"
+                value={filter}
+                options={FILTER_OPTIONS}
+                onChange={setFilter}
+              />
+            ) : null}
+            <Button
+              size="sm"
+              onClick={() =>
+                open(rules.length, {
+                  profile: quality.default || profiles[0]?.name || "",
+                  mediaType: filter || undefined,
+                })
+              }
+              disabled={!profiles.length}
+            >
+              <Plus size={14} /> {t("Add rule")}
+            </Button>
+          </>
         }
         bodyClassName=""
       >
-        {rules.length === 0 ? (
+        {shown.length === 0 ? (
           <EmptyState
             icon={<ListFilter />}
-            title={t("No rules")}
-            description={t("Every app uses the default quality profiles.")}
+            title={rules.length ? t("No matching rules") : t("No rules")}
+            description={
+              rules.length
+                ? t("No rule applies to {media}. Choose All to see every rule.", {
+                    media: mediaLabel(filter || undefined),
+                  })
+                : t("Every app uses the default quality profiles.")
+            }
           />
         ) : (
           <ul className="divide-y divide-border">
-            {rules.map((r, i) => (
+            {shown.map(({ rule: r, index: i }) => (
               <RecordItem
                 key={i}
                 title={`${i + 1}. ${ruleSummary(r, viewers)}`}
                 description={t("Uses {profile}", { profile: r.profile || t("no profile") })}
+                meta={
+                  <Badge variant={r.mediaType ? "info" : "secondary"}>
+                    {mediaLabel(r.mediaType)}
+                  </Badge>
+                }
                 order={
-                  <OrderButtons
-                    label={t("rule {n}", { n: i + 1 })}
-                    i={i}
-                    n={rules.length}
-                    onMove={(d) => void move(i, d)}
-                  />
+                  filter ? undefined : (
+                    <OrderButtons
+                      label={t("rule {n}", { n: i + 1 })}
+                      i={i}
+                      n={rules.length}
+                      onMove={(d) => void move(i, d)}
+                    />
+                  )
                 }
                 editLabel={t("Edit rule {n}", { n: i + 1 })}
                 onEdit={() => open(i, r)}
@@ -227,6 +293,19 @@ export function ClientRulesTab() {
       >
         {draft ? (
           <SettingsSection title={t("Match")}>
+            <SettingsRow
+              title={t("Applies to")}
+              description={t("Which titles this rule can choose a profile for.")}
+              control={
+                <Segmented
+                  ariaLabel={t("Applies to")}
+                  size="sm"
+                  value={profileMediaType(draft) as "" | "movie" | "tv"}
+                  options={APPLIES_OPTIONS}
+                  onChange={setMedia}
+                />
+              }
+            />
             <SettingsRow
               title={t("Protocol")}
               description={t("Choose which kind of app this rule matches.")}
@@ -329,7 +408,10 @@ export function ClientRulesTab() {
                     {...searchSelectLabels()}
                     value={draft.profile}
                     onChange={(v) => set({ profile: v })}
-                    options={names}
+                    options={compatibleProfiles(profiles, draft.mediaType).map((p) => ({
+                      value: p.name,
+                      label: p.name,
+                    }))}
                     ariaLabel={t("Profile")}
                     searchable={false}
                   />

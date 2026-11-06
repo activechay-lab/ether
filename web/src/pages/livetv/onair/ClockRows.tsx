@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { textOf, useRegistry } from "../../../lib/extend";
 import { Button, Input, Select } from "@braedonsaunders/appkit-ui";
 import { Plus, Trash2, CloudSun } from "lucide-react";
@@ -45,6 +46,7 @@ export function ClockRows({
       {slots.map((slot, i) => {
         const set = (patch: Partial<ClockSlot>) =>
           onChange(slots.map((v, n) => (n === i ? { ...v, ...patch } : v)));
+        const owner = segments.descriptors.find((s) => s.id === slot.segmentId)?.owner;
         return (
           <div key={i} className="space-y-3 rounded-lg border border-border p-3">
             <p className="text-sm font-medium text-fg">
@@ -76,6 +78,14 @@ export function ClockRows({
                   ))}
                 </Select>
               </Field>
+              {owner ? (
+                <Link
+                  className="text-sm text-primary hover:underline"
+                  to={`/plugins/installed?plugin=${encodeURIComponent(owner)}&tab=setup`}
+                >
+                  {t("Plugin settings")}
+                </Link>
+              ) : null}
               <Field label={t("Minute")}>
                 <Input
                   type="number"

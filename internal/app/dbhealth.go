@@ -98,3 +98,26 @@ func (a *App) storageStatus(context.Context) any {
 	}
 	return nil
 }
+
+// checkDatabase never changes the last completed observation on a failed or
+// cancelled check. Reject concurrent clicks instead of queueing expensive work.
+func (a *App) checkDatabase(ctx context.Context) (any, error) {
+	if !a.integrityChecking.CompareAndSwap(false, true) {
+		return nil, fmt.Errorf("a database integrity check is already running")
+	}
+	defer a.integrityChecking.Store(false)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if a.db == nil {
+		return nil, fmt.Errorf("database is not available")
+	}
+	res, err := store.QuickCheck(ctx, a.db)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	a.recordIntegrity(res)
+	return a.databaseHealth(), nil
+}

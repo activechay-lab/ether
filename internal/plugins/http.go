@@ -621,7 +621,7 @@ func (m *Manager) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) handleOptions(w http.ResponseWriter, r *http.Request) {
-	body, err := m.Options(r.Context(), r.PathValue("id"), r.PathValue("field"))
+	body, err := m.Options(r.Context(), r.PathValue("id"), r.PathValue("field"), map[string]string{"q": r.URL.Query().Get("q"), "locale": r.URL.Query().Get("locale")})
 	if err != nil {
 		m.fail(w, err)
 		return

@@ -175,6 +175,7 @@ func (a *App) buildAdmin() http.Handler {
 			hw["filtersProbed"] = cap.FiltersProbed
 			return hw
 		},
+		DatabaseCheck: a.checkDatabase,
 		ExtraStatus: map[string]admin.StatusFunc{
 			"stream":   func(context.Context) any { return a.engine.Stats() },
 			"widget":   a.widgetStatus,
