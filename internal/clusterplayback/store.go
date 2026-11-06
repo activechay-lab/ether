@@ -56,13 +56,16 @@ func (r *Runtime) putRoute(ctx context.Context, route Route) error {
 	if e != nil {
 		return e
 	}
-	_, e = r.o.DB.ExecContext(ctx, `INSERT INTO clusterplayback_routes(session,generation,route) VALUES(?,?,?) ON CONFLICT(session) DO UPDATE SET generation=excluded.generation,route=excluded.route WHERE clusterplayback_routes.generation<excluded.generation`, route.Fence.Session, route.Fence.Generation, string(b))
+	result, e := r.o.DB.ExecContext(ctx, `INSERT INTO clusterplayback_routes(session,generation,route) VALUES(?,?,?) ON CONFLICT(session) DO UPDATE SET generation=excluded.generation,route=excluded.route WHERE clusterplayback_routes.generation<excluded.generation`, route.Fence.Session, route.Fence.Generation, string(b))
 	if e != nil {
 		return e
 	}
 	got, e := r.route(ctx, route.Fence.Session)
 	if e != nil || (got != route && (got.Fence != route.Fence || got.SourceGeneration <= route.SourceGeneration)) {
 		return ErrDenied
+	}
+	if changed, err := result.RowsAffected(); err == nil && changed > 0 {
+		r.routeChanged(ctx, route.Fence.Session)
 	}
 	return r.initializeCoordinator(ctx, route)
 }

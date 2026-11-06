@@ -54,6 +54,7 @@ type Identity struct {
 	Generation uint64
 }
 type Start struct {
+	Resume             *core.HLSResume      `json:",omitempty"`
 	RecoveryStart      *core.RecoveryStart  `json:",omitempty"`
 	Keyframes          []core.KeyframePoint `json:",omitempty"`
 	SoftSubtitleStream *int                 `json:",omitempty"`
@@ -191,6 +192,9 @@ func supported(r core.HLSRequest) bool { return SupportsRequest(r, Supported()) 
 
 // SupportsRequest is side-effect-free and shared with placement preflight.
 func SupportsRequest(r core.HLSRequest, c Capabilities) bool {
+	if r.Resume != nil && (r.Resume.FirstSegment < 0 || r.Resume.FirstSegment > 10000000 || r.Resume.Generation == 0 || r.StartOffset != 0 || r.RecoveryStart != nil || r.Decision.VideoCopy || r.LiveInput || r.Protocol != core.ProtocolHLS && r.Protocol != "") {
+		return false
+	}
 	var err error
 	c, err = NormalizeCapabilities(c)
 	if err != nil {
@@ -216,7 +220,7 @@ func SupportsRequest(r core.HLSRequest, c Capabilities) bool {
 			return false
 		}
 	}
-	b, err := json.Marshal(Start{RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: r.Info.Keyframes, ReleaseID: r.ReleaseID, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof})
+	b, err := json.Marshal(Start{Resume: cloneResume(r.Resume), RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: r.Info.Keyframes, ReleaseID: r.ReleaseID, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof})
 	if err != nil || len(b) > MaxMessage-8192 {
 		return false
 	}
@@ -265,4 +269,12 @@ func startInfo(s Start) core.MediaInfo {
 	info := core.CloneMediaInfo(s.Info)
 	info.Keyframes = append([]core.KeyframePoint(nil), s.Keyframes...)
 	return info
+}
+
+func cloneResume(r *core.HLSResume) *core.HLSResume {
+	if r == nil {
+		return nil
+	}
+	c := *r
+	return &c
 }

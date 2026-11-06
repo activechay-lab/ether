@@ -28,12 +28,13 @@ def main():
     p.add_argument('--base',required=True)
     p.add_argument('--host',choices=['ether035-roles.test'],help='Approved lab Ingress Host header')
     p.add_argument('--namespace',default='ether035-ha')
+    p.add_argument('--context', choices=['kind-ether035-ha', 'ether035-multihost'], default='kind-ether035-ha')
     p.add_argument('--kubectl',default='kubectl')
     p.add_argument('--credentials-dir',required=True,type=Path)
     a=p.parse_args()
     if a.namespace != 'ether035-ha' or urlsplit(a.base).hostname not in ('127.0.0.1','localhost'):
         p.error('only ether035-ha namespace and loopback API origin are allowed')
-    k=[a.kubectl,'--context','kind-ether035-ha','--request-timeout=15s','-n',a.namespace]
+    k=[a.kubectl,'--context',a.context,'--request-timeout=15s','-n',a.namespace]
     pg=json.loads(subprocess.check_output(k+['get','pod','ether035-ha-pg-0','-o','json'],timeout=20))
     if pg['metadata']['labels'].get('app')!='ether035-ha-pg':
         p.error('PostgreSQL pod is not the lab fixture')
@@ -59,7 +60,7 @@ def main():
         config=call('/ether/api/config')['config']
         if config['plex'].get('claimed'):
             p.error('refusing a claimed server')
-        if any(v['id']!='ether035-ha-source' for v in config['usenet']['providers']) or any(v['id']!='ether035-ha-source' for v in config['indexers']):
+        if any(v['id']!='ether035-ha-source' for v in (config['usenet']['providers'] or [])) or any(v['id']!='ether035-ha-source' for v in (config['indexers'] or [])):
             p.error('refusing to replace nonfixture sources')
         config['usenet']['providers']=[dict(id='ether035-ha-source',name='Ether generated fixture',
             host='ether035-ha-source.ether035-ha.svc.cluster.local',port=1190,tls=False,

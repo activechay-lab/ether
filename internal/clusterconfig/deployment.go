@@ -16,25 +16,28 @@ import (
 // Deployment contains paths and node-local policy only. Secret CONTENTS must
 // reside in separate mounted files. This document is never a shared setting.
 type Deployment struct {
-	LedgerCapacity  int              `json:"ledgerCapacity,omitempty"`
-	TempDir         string           `json:"tempDir,omitempty"`
-	CacheDir        string           `json:"cacheDir,omitempty"`
-	DrainSeconds    int              `json:"drainSeconds,omitempty"`
-	Capacity        int              `json:"capacity"`
-	ClockSkewMillis int64            `json:"clockSkewMillis"`
-	ClockBoundKnown bool             `json:"clockBoundKnown"`
-	ResourceScope   string           `json:"resourceScope,omitempty"`
-	Bootstrap       bool             `json:"bootstrap"`
-	Roles           config.NodeRoles `json:"roles"`
-	InternalAddress string           `json:"internalAddress"`
-	PrivateListen   string           `json:"privateListen"`
-	ProbeListen     string           `json:"probeListen"`
-	DatabaseURLFile string           `json:"databaseURLFile"`
-	ClusterKeyFile  string           `json:"clusterKeyFile"`
-	CAFile          string           `json:"caFile"`
-	CAKeyFile       string           `json:"caKeyFile"`
-	RootsFile       string           `json:"rootsFile"`
-	CgroupV2Path    string           `json:"cgroupV2Path,omitempty"`
+	EncoderRPCDeadlineMillis  int64            `json:"encoderRPCDeadlineMillis,omitempty"`
+	EncoderFailureGraceMillis int64            `json:"encoderFailureGraceMillis,omitempty"`
+	EncoderSegmentWaitMillis  int64            `json:"encoderSegmentWaitMillis,omitempty"`
+	LedgerCapacity            int              `json:"ledgerCapacity,omitempty"`
+	TempDir                   string           `json:"tempDir,omitempty"`
+	CacheDir                  string           `json:"cacheDir,omitempty"`
+	DrainSeconds              int              `json:"drainSeconds,omitempty"`
+	Capacity                  int              `json:"capacity"`
+	ClockSkewMillis           int64            `json:"clockSkewMillis"`
+	ClockBoundKnown           bool             `json:"clockBoundKnown"`
+	ResourceScope             string           `json:"resourceScope,omitempty"`
+	Bootstrap                 bool             `json:"bootstrap"`
+	Roles                     config.NodeRoles `json:"roles"`
+	InternalAddress           string           `json:"internalAddress"`
+	PrivateListen             string           `json:"privateListen"`
+	ProbeListen               string           `json:"probeListen"`
+	DatabaseURLFile           string           `json:"databaseURLFile"`
+	ClusterKeyFile            string           `json:"clusterKeyFile"`
+	CAFile                    string           `json:"caFile"`
+	CAKeyFile                 string           `json:"caKeyFile"`
+	RootsFile                 string           `json:"rootsFile"`
+	CgroupV2Path              string           `json:"cgroupV2Path,omitempty"`
 }
 
 func ReadDeployment(path string) (Deployment, error) {
@@ -85,6 +88,9 @@ func ReadDeployment(path string) (Deployment, error) {
 	}
 	if d.DrainSeconds < 1 || d.DrainSeconds > 3600 {
 		return Deployment{}, errors.New("deployment: drainSeconds must be 1..3600")
+	}
+	if d.EncoderRPCDeadlineMillis < 0 || d.EncoderRPCDeadlineMillis > 5000 || d.EncoderFailureGraceMillis < 0 || d.EncoderFailureGraceMillis > 60000 || d.EncoderSegmentWaitMillis < 0 || d.EncoderSegmentWaitMillis > 60000 {
+		return d, errors.New("invalid encoder recovery deadlines")
 	}
 	if d.Capacity < 1 || d.Capacity > 4096 || !d.ClockBoundKnown || d.ClockSkewMillis < 0 || d.ClockSkewMillis > 60000 || len(d.ResourceScope) > 200 {
 		return Deployment{}, errors.New("deployment: explicit bounded capacity and known clock skew required")

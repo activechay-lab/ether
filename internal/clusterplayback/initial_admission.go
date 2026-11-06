@@ -27,6 +27,10 @@ type initialAdmission struct {
 // The caller owns q during this copy. A detached request is not synchronization
 // for a caller concurrently modifying its input while the copy itself runs.
 func cloneAdmissionRequest(q core.HLSRequest) core.HLSRequest {
+	if q.Resume != nil {
+		resume := *q.Resume
+		q.Resume = &resume
+	}
 	q.Info = core.CloneMediaInfo(q.Info)
 	q.Decision.AudioFilters = cloneAdmissionStrings(q.Decision.AudioFilters)
 	q.SlateText = cloneAdmissionStrings(q.SlateText)

@@ -10,6 +10,7 @@ import (
 )
 
 type durablePlexBinding interface {
+	PlexHLSDistributed(string) bool
 	SavePlexBinding(context.Context, string, []byte) error
 	LoadPlexBinding(context.Context, string) ([]byte, error)
 }
@@ -21,20 +22,12 @@ type plexBindingSnapshot struct {
 
 func (s *Server) saveDistributedBinding(ctx context.Context, id string) error {
 	storage, ok := s.currentPlexEncoder().(durablePlexBinding)
-	if !ok {
+	if !ok || !storage.PlexHLSDistributed(id) {
 		return nil
 	}
 	entry, ok := s.transcodes.get(id)
 	if !ok {
 		return core.ErrNotAvailable
-	}
-	// Local encoders have no distributed placement; preserve their existing path.
-	if remote, ok := s.currentPlexEncoder().(interface {
-		PlexHLSSession(string) (core.HLSSession, bool)
-	}); ok {
-		if _, owned := remote.PlexHLSSession(id); !owned {
-			return nil
-		}
 	}
 	ps, ok := s.d.Playback.Session(entry.playID)
 	if !ok || ps == nil {

@@ -39,9 +39,12 @@ type Options struct {
 	// ConnConfig is used for the dedicated leader-lock and LISTEN
 	// connections; nil copies the configuration of a pool connection, so
 	// they reach the same server, database and search_path.
-	ConnConfig *pgx.ConnConfig
-	Logger     *slog.Logger
-	Now        func() time.Time
+	ConnConfig      *pgx.ConnConfig
+	Logger          *slog.Logger
+	Now             func() time.Time
+	MonotonicNow    func() time.Time // independent monotonic sample; defaults to time.Now
+	ClockBoundKnown bool
+	ClockSkew       time.Duration // configured pairwise bound; unknown refuses authority
 
 	HeartbeatInterval time.Duration // heartbeat upsert (5s)
 	LiveAfter         time.Duration // a node is live if seen within this (20s)
@@ -100,8 +103,8 @@ func duplicateNodeError(nodeID, path string) error {
 // node is live while now-last_seen <= LiveAfter on the reader's clock.
 // Timestamps are bound Go values (portable SQL, no server now()), so the
 // scheme tolerates clock skew up to LiveAfter-HeartbeatInterval (15s by
-// default); Start warns when this node's clock is more than a quarter of
-// LiveAfter away from the database server's. Nodes should run NTP.
+// default). Clock samples are refreshed on each heartbeat; deployment authority
+// fails closed outside the configured clock bound. Nodes should run NTP.
 //
 // Leadership: a dedicated connection holds pg_try_advisory_lock; the holder
 // probes it with SELECT 1 every ElectionInterval and steps down the moment
@@ -153,7 +156,7 @@ type Postgres struct {
 	lastPrune    time.Time
 	holdUntil    time.Time
 	busUp        bool
-	lastSkew     time.Duration
+	clock        clockGuard
 	lastBeatOK   time.Time
 	beatReceipt  time.Time // process-local monotonic time of the last successful write
 	fatal        error
@@ -178,6 +181,9 @@ func NewPostgres(o Options) (*Postgres, error) {
 	o.Local.Roles = slices.Clone(o.Local.Roles)
 	if o.Logger == nil {
 		o.Logger = slog.Default()
+	}
+	if o.MonotonicNow == nil {
+		o.MonotonicNow = time.Now
 	}
 	if o.Now == nil {
 		o.Now = time.Now
@@ -221,6 +227,9 @@ func NewPostgres(o Options) (*Postgres, error) {
 		Caps: p.local.caps(), InternalAddress: p.local.InternalAddress,
 		ProtocolVersion: p.local.protocol(), Incarnation: p.inc,
 	}
+	p.clock.known = o.ClockBoundKnown
+	p.clock.status.Bound = o.ClockSkew
+	p.clock.maxAge = 3 * o.HeartbeatInterval
 	return p, nil
 }
 
@@ -270,15 +279,17 @@ type Health struct {
 	BusConnected  bool      `json:"busConnected"`
 	LastHeartbeat time.Time `json:"lastHeartbeat,omitempty"`
 	// ClockSkew is this node's clock minus the database server's, measured
-	// at Start.
+	// on every heartbeat.
 	ClockSkew time.Duration `json:"clockSkewNs"`
+	Clock     ClockStatus   `json:"clock"`
 }
 
 // Health reports bus, heartbeat and clock state.
 func (p *Postgres) Health() Health {
+	clock := p.ClockStatus()
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return Health{Channel: p.Channel(), BusConnected: p.busUp, LastHeartbeat: p.lastBeatOK, ClockSkew: p.lastSkew}
+	return Health{Channel: p.Channel(), BusConnected: p.busUp, LastHeartbeat: p.lastBeatOK, ClockSkew: clock.ClockSkew, Clock: clock}
 }
 
 // HeartbeatAge observes this process's successful heartbeat writes without a
@@ -344,7 +355,6 @@ func (p *Postgres) Start(ctx context.Context) error {
 		ch = channelFor(schema)
 	}
 	p.channel.Store(&ch)
-	p.checkClock(joinCtx)
 	// Do not start listeners or background work until this incarnation owns
 	// a durable, versioned heartbeat. Every retry rechecks duplicate ownership.
 	backoff := p.o.MinBackoff
@@ -525,6 +535,7 @@ func (p *Postgres) heartbeatLoop(ctx context.Context) {
 func (p *Postgres) beat(ctx context.Context) error { return p.beatClaim(ctx, nil) }
 
 func (p *Postgres) beatClaim(ctx context.Context, claim *nodeClaim) error {
+	p.checkClock(ctx)
 	now := p.o.Now()
 	p.mu.Lock()
 	addrs := slices.Clone(p.addrs)
@@ -776,25 +787,22 @@ func (p *Postgres) AllNodes(ctx context.Context) ([]Node, error) {
 	return out, rows.Err()
 }
 
-// checkClock warns when this node's clock is far from the server's.
+// checkClock refreshes the bound before publishing this heartbeat. The query is
+// bounded separately so a clock probe failure can still publish diagnostics.
 func (p *Postgres) checkClock(ctx context.Context) {
-	var dbMS int64
-	before := p.o.Now()
-	if err := p.db.QueryRowContext(ctx, `SELECT CAST(EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS BIGINT)`).Scan(&dbMS); err != nil {
-		return
-	}
-	after := p.o.Now()
-	local := before.Add(after.Sub(before) / 2)
-	skew := local.Sub(time.UnixMilli(dbMS))
-	p.mu.Lock()
-	p.lastSkew = skew
-	p.mu.Unlock()
-	if skew < 0 {
-		skew = -skew
-	}
-	if skew > p.o.LiveAfter/4 {
-		p.log.Warn("cluster: this node's clock differs from the database server's; heartbeat liveness assumes synchronised clocks (enable NTP)",
-			"skew", skew.Round(time.Millisecond))
+	ctx, cancel := context.WithTimeout(ctx, p.o.ProbeTimeout)
+	defer cancel()
+	var dbUS int64
+	before, monoBefore := p.o.Now(), p.o.MonotonicNow()
+	err := p.db.QueryRowContext(ctx, `SELECT CAST(EXTRACT(EPOCH FROM clock_timestamp()) * 1000000 AS BIGINT)`).Scan(&dbUS)
+	after, monoAfter := p.o.Now(), p.o.MonotonicNow()
+	p.clock.mu.Lock()
+	previous := p.clock.status.Ready
+	p.clock.mu.Unlock()
+	status, step := p.clock.sample(before, after, monoBefore, monoAfter, time.UnixMicro(dbUS), err == nil)
+	p.logClockStep(step)
+	if previous != status.Ready {
+		p.log.Warn("cluster: clock admission changed", "ready", status.Ready, "reason", status.Reason, "skew", status.ClockSkew, "uncertainty", status.Uncertainty, "bound", status.Bound)
 	}
 }
 

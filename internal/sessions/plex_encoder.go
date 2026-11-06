@@ -109,6 +109,12 @@ func (b *Broker) ForwardPlexGrantMedia(w http.ResponseWriter, r *http.Request, i
 	return false
 }
 
+// PlexHLSDistributed reports allocation before protocol code reads any binding
+// or source snapshot. Local sessions retain their original publication path.
+func (b *Broker) PlexHLSDistributed(id string) bool {
+	return b.deps.DistributedHLS != nil && b.deps.DistributedHLS.Allocated(id)
+}
+
 func (b *Broker) SavePlexBinding(ctx context.Context, id string, raw []byte) error {
 	if b.deps.DistributedHLS == nil || !b.deps.DistributedHLS.Allocated(id) {
 		return nil
