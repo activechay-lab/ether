@@ -35,7 +35,28 @@ func outputFixture(t *testing.T) (*bufferedSession, []byte) {
 		t.Fatal(err)
 	}
 	r := &Runtime{o: Options{OutputBuffer: b, MaxSegmentBytes: int64(len(data) * 2)}, outputScratch: make(chan struct{}, 1), executions: map[string]*execution{}}
-	route := Route{Fence: placement.Fence{Session: "retained", Generation: 1}}
+	db := store.OpenTest(t)
+	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: time.Second}, outputRetirementVerifier{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	target := placement.Target{NodeID: "encoder", Boot: "boot"}
+	if err := ledger.SetPool(ctx, "cpu", config.RoleTranscode, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.SetTarget(ctx, target, config.NodeRoles{config.RoleTranscode}, map[config.NodeRole][]string{config.RoleTranscode: {"cpu"}}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := ledger.Reserve(ctx, placement.Request{Session: "retained", Operation: "operation", Controller: placement.Controller{ID: "controller", Boot: "boot"}, Target: target, Role: config.RoleTranscode, Claims: []placement.Claim{{Scope: "cpu", Units: 1}}, Lease: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.o.DB, r.o.Placement = db, ledger
+	route := Route{Fence: rec.Fence}
+	if err := r.putRoute(ctx, route); err != nil {
+		t.Fatal(err)
+	}
 	s := r.newBufferedSession(route, core.HLSRequest{Decision: core.Decision{Container: "mpegts"}}, &remotetranscode.Session{})
 	if s == nil {
 		t.Fatal("no wrapper")
@@ -144,7 +165,11 @@ func TestOutputBufferPassThroughAndIncomplete(t *testing.T) {
 			calls = 0
 			got := httptest.NewRecorder()
 			s.serveSegment(got, q, 0, serve)
-			if calls != 1 || got.Code != want.Code || got.Body.String() != want.Body.String() || !reflect.DeepEqual(got.Header(), want.Header()) {
+			if test == "cancel" {
+				if got.Code != 409 {
+					t.Fatal("cancelled generation published", got.Code)
+				}
+			} else if calls != 1 || got.Code != want.Code || got.Body.String() != want.Body.String() || !reflect.DeepEqual(got.Header(), want.Header()) {
 				t.Fatal("upstream response changed or retried")
 			}
 			snap, err := s.r.o.OutputBuffer.Snapshot("retained")
@@ -247,6 +272,10 @@ func TestOutputBufferCachedFailureAndAuthority(t *testing.T) {
 	s.route.Fence = rec.Fence
 	s.r.executions["retained"].route = s.route
 	s.r.o.Placement = ledger
+	s.r.o.DB = db
+	if err := s.r.putRoute(ctx, s.route); err != nil {
+		t.Fatal(err)
+	}
 	denied := false
 	s.r.o.MemberRole = func(context.Context, nodewire.Identity, config.NodeRole) error {
 		if denied {
@@ -294,7 +323,7 @@ func TestOutputBufferCachedFailureAndAuthority(t *testing.T) {
 	_ = lease.Close()
 	got = httptest.NewRecorder()
 	s.serveSegment(got, q, 0, failed)
-	if got.Code != 503 {
+	if got.Code != 409 {
 		t.Fatal("retired authority served cache", got.Code)
 	}
 	if err = s.r.ReleaseOutput(ctx, "retained", rec.Fence); err != nil {

@@ -457,6 +457,7 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 	if err == nil && proc == nil {
 		proc, err = s.m.runner.Start(Command{Path: s.m.ffmpeg, Args: args, Dir: runDir, Stdout: stdout, Stderr: stderr})
 	}
+	s.encoder.fenceProcess(proc)
 	err = redactScopedCommandError(err, spec)
 	s.mu.Lock()
 	if s.starting == starting {

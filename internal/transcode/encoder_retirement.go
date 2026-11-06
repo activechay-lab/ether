@@ -419,3 +419,19 @@ func (l *encoderLifetime) decisionEncoding(encoding bool) {
 	}
 	l.mu.Unlock()
 }
+
+// fenceProcess bypasses session locks and the shared cleanup queue. A blocked
+// response or unrelated cleanup must never keep an expired encoder running.
+// The existing run tickets retain responsibility until actual process exit.
+func (l *encoderLifetime) fenceProcess(p Process) {
+	if l == nil || p == nil {
+		return
+	}
+	go func() {
+		select {
+		case <-l.cancel:
+			p.Stop()
+		case <-p.Done():
+		}
+	}()
+}
