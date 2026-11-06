@@ -1,0 +1,133 @@
+# Client-observed HLS loss measurements
+
+Build with `CGO_ENABLED=0 go build -o /tools/hlsplay ./cmd/hlsplay`. The simulator uses the lab viewer's
+`X-Plex-Token`, Plex universal decision and start endpoints, the returned master
+and variant URLs, and timeline/stop calls. URLs and tokens are omitted from the
+reports. Supply a token file rather than a command-line secret. Output must be a
+new directory outside git. Redirects and cross-origin media are refused.
+
+```sh
+hlsplay -url https://ether.lab.example -token-file /private/viewer-token \
+  -rating-key 1000000000900001 -output /private/evidence/reference \
+  -window 90s -buffer 30s -ffmpeg /tools/ffmpeg -ffprobe /tools/ffprobe
+hlsplay -url https://ether.lab.example -token-file /private/viewer-token \
+  -rating-key 1000000000900001 -output /private/evidence/baseline \
+  -reference /private/evidence/reference/report.json
+```
+
+The first capture supplies reference AUs; it exits nonzero with
+`continuity-unverified` because no independent reference was supplied. Repeat
+with that reference to establish a clean baseline. Match media, codec profile,
+segment grid and offset. Reference segments are matched to the fetched index
+window. A reference must contain that whole window. Never use a run as its own
+reference to certify recovery.
+
+`events.jsonl` is flushed continuously, including HTTP attempts and every
+received segment. `report.json` and `report.md` contain hashes, byte counts,
+latency, retries, buffer samples, stalls and shared `internal/splicecheck`
+results. Status zero means a transport failure before an HTTP response.
+First-byte latency is measured with `httptrace`, not response completion.
+Playback begins when the startup buffer reaches the target (default 30s).
+Thereafter buffer consumption uses monotonic elapsed time, including blocked
+requests and exponential retry sleeps. The bounded window includes startup;
+choose a window longer than startup plus the desired steady-state observation.
+Terminal request failure continues consuming the buffer until the window ends,
+so an outage longer than the remaining buffer is measured as a stall.
+
+The current player supports clear MPEG-TS HLS. Encrypted, discontinuous,
+byte-range and fMP4 playlists fail explicitly. The shared checker also supports
+fMP4; adding that representation to the player is a separate capability.
+
+## Loss runner
+
+Use only an isolated lab prepared with generated media and redundant capacity.
+`run.py` accepts any kubeconfig and ingress URL. Run:
+
+```sh
+python3 packaging/kubernetes/losstest/run.py --config /private/loss.json \
+  --output /private/evidence/transcode-loss
+```
+
+Example private configuration (paths and target pod are lab-specific):
+
+```json
+{
+  "url": "https://ether.lab.example",
+  "tokenFile": "/private/viewer-token",
+  "ratingKey": "1000000000900001",
+  "hlsplay": "/tools/hlsplay",
+  "ffmpeg": "/tools/ffmpeg",
+  "ffprobe": "/tools/ffprobe",
+  "reference": "/private/evidence/reference/report.json",
+  "kubeconfig": "/private/kubeconfig",
+  "namespace": "ether-lab",
+  "pod": "ether-transcode-0",
+  "role": "transcode",
+  "action": "force-delete",
+  "phase": "steady",
+  "windowSeconds": 90,
+  "bufferSeconds": 30
+}
+```
+
+Force-delete pins the inspected pod UID in a Kubernetes DeleteOptions precondition;
+it cannot delete a replacement by reusing its name. Other actions (`pause`,
+`partition`, `container-kill`, `host-stop`) require `lossArgv` and `restoreArgv`
+arrays. Use the multihost adapter with an immutable target ID. Both commands
+have 20s deadlines; restore runs even after player failure. No shell expansion
+is performed. Restore must be idempotent after a partially failed loss action.
+A pause lasts through the observation window, so failover must recover while
+the original worker remains unavailable. The runner reaps its player on exit.
+
+For `--matrix`, add `targets` keyed by controller/source/transcode/delivery,
+with each target's `pod`, `lossArgv` and `restoreArgv`. The runner covers each
+role × force-delete/pause × early/steady (16 runs). Early injects 2s after the
+first segment; steady injects 10s after startup buffering completes. Targets
+must have spare capacity and the same shared fixture. The runner captures the
+current UID independently for each run. Actions that do not occur before the
+player exits fail acceptance. No-loss (`action: "none"`) is also supported.
+
+## Honest server interruption evidence
+
+Client receipt latency cannot prove when a replacement encoder produced data.
+An optional trusted observer writes `producerEvidence`, a JSON array with
+`session`, `generation`, `segmentIndex`, `producedAt` (UTC RFC3339). Supply its
+path to the runner; hlsplay consumes the generation mapping before invoking the
+shared checker. The observer must scope rows to the unique session and match
+the exact output artifact. The runner reports kill-to-first-production in a
+new generation only when both pre-loss and replacement production are present.
+Otherwise the server metric is null/unverified. Transcode loss cannot pass
+without that metric. Controller/source/delivery recovery need not replace a
+healthy encoder, so their server metric may remain unverified; client
+continuity acceptance still requires every checker predicate.
+
+`clientFirstPostLossReceiptSeconds` is explicitly separate. It may describe a
+cached segment and is never interpreted as replacement evidence. This harness
+measures playback; it does not itself certify authority or stale-writer fencing.
+
+## Generated-media local lab
+
+The opt-in integration lab runs a single-node Ether Plex handler with a real
+transcode manager, generated H.264/AAC media, and local catalog/auth fixtures.
+It contacts no providers and creates no account/server claims. FFmpeg is paced
+so fault injection cannot occur after all output has already been generated.
+The fault kills only the exact process returned by this lab's encoder runner.
+
+```sh
+CGO_ENABLED=0 GOMAXPROCS=4 \
+HLSPLAY_LAB_OUTPUT=/private/evidence/local-lab \
+HLSPLAY_FFMPEG=/tools/ffmpeg HLSPLAY_FFPROBE=/tools/ffprobe \
+go test -p 2 -tags integration ./internal/plex -run '^TestHLSPlayerLab$' -count=1 -v
+```
+
+This is real-handler local playback evidence, with fixture catalog/auth; it is
+not a full-daemon, Kubernetes, ingress or node-recovery certification. The
+release lab must run the loss matrix against deployed roles for those claims.
+
+To validate the CLI and Python runner together with that same generated fixture,
+set `HLSPLAY_LAB_BINARY` to the built `hlsplay` absolute path,
+`HLSPLAY_LAB_DRIVER` to this directory's `run.py` absolute path, and
+`HLSPLAY_LAB_REFERENCE` to the first lab's `reference/report.json`. Choose a new
+`HLSPLAY_LAB_OUTPUT` and run only `TestHLSPlayerDriverLab` with the same integration
+tag and tool paths. That probe starts another real-handler local node and
+requires the outer no-loss `report.json` to pass.
