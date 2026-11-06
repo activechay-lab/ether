@@ -957,7 +957,12 @@ func (b *broadcast) step(now time.Time) bool {
 	b.lastFrame = frame
 	b.mu.Lock()
 	for id, r := range b.renditions {
-		changed, repeating, pending := r.queue.push(frame, cut)
+		slow := false
+		if encoder, ok := r.encoder.(interface{ RealtimeSpeed() float64 }); ok {
+			speed := encoder.RealtimeSpeed()
+			slow = speed > 0 && speed < 0.98
+		}
+		changed, repeating, pending := r.queue.push(frame, cut, slow)
 		if changed {
 			b.logger.Info("broadcast encoder video cadence changed", "rendition", id, "repeating", repeating, "pendingTicks", pending, "tick", b.tick)
 		}
