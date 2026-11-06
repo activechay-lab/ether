@@ -11,6 +11,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -27,6 +28,13 @@ func remoteIdentity(rt Route) remotetranscode.Identity {
 	return remotetranscode.Identity{Controller: rt.Fence.Controller.Boot, Worker: rt.Fence.Target.Boot, Session: rt.Fence.Session, Generation: uint64(rt.Fence.Generation)}
 }
 func (r *Runtime) authorizeWorker(ctx context.Context, peer, op string, id remotetranscode.Identity, start *remotetranscode.Start) error {
+	if authority, ok := ctx.Value(workerAuthorityKey{}).(workerAuthority); ok {
+		coordinator, err := r.CurrentCoordinator(ctx, id.Session)
+		if err != nil || coordinator.Identity != authority.peer || strconv.FormatInt(coordinator.Epoch, 10) != authority.epoch || !coordinator.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
+			return ErrDenied
+		}
+	}
+
 	rt, e := r.route(ctx, id.Session)
 	if (op == "stop" || op == "status") && (e != nil || remoteIdentity(rt) != id) {
 		historical, err := r.generationRoute(ctx, id.Session, int64(id.Generation))
@@ -112,7 +120,11 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 		return r.authorizeWorker(ctx, peer, "input", s.Identity, nil)
 	}, Client: c, Capacity: 1, MaxRequests: 8, RequestTimeout: 30 * time.Second, ReadTimeout: 2 * time.Second, MaxRecoveries: 3,
 		Recover: func(c context.Context, old nodesource.Grant) (*nodesource.Client, nodesource.Grant, error) {
-			controller := nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: old.Scope.Fence.Controller.ID, Boot: old.Scope.Fence.Controller.Boot}
+			coordinator, e := r.CurrentCoordinator(c, old.Scope.Fence.Session)
+			if e != nil {
+				return nil, nodesource.Grant{}, e
+			}
+			controller := coordinator.Identity
 			reply, e := r.sourceCall(c, Route{Source: controller}, sourceRequest{Op: "source-failover", Old: old})
 			if e != nil {
 				return nil, nodesource.Grant{}, e

@@ -3,7 +3,6 @@ package clusterplayback
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/generationfence"
-	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 	"io"
 	"net/http"
@@ -59,8 +58,13 @@ func (r *Runtime) deliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.NotFound(w, q)
 		return
 	}
+	coordinator, e := r.CurrentCoordinator(q.Context(), parts[0])
+	if e != nil || coordinator.Identity != r.o.Self {
+		http.NotFound(w, q)
+		return
+	}
 	rt, e := r.route(q.Context(), parts[0])
-	if e != nil || rt.Fence.Controller.ID != r.o.Self.NodeID || rt.Fence.Controller.Boot != r.o.Self.Boot {
+	if e != nil {
 		http.NotFound(w, q)
 		return
 	}
@@ -87,15 +91,20 @@ func (r *Runtime) ForwardMedia(w http.ResponseWriter, q *http.Request, id, proto
 	if q.Header.Get(deliveryHop) != "" {
 		return false
 	}
-	rt, e := r.route(q.Context(), id)
-	if e != nil || rt.Fence.Controller.ID == r.o.Self.NodeID && rt.Fence.Controller.Boot == r.o.Self.Boot {
+	coordinator, e := r.CurrentCoordinator(q.Context(), id)
+	if e != nil || coordinator.Identity == r.o.Self {
 		return false
 	}
 	if q.Method != "GET" && q.Method != "HEAD" {
 		http.Error(w, "method", 405)
 		return true
 	}
-	owner := nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: rt.Fence.Controller.ID, Boot: rt.Fence.Controller.Boot}
+	rt, e := r.route(q.Context(), id)
+	if e != nil {
+		http.NotFound(w, q)
+		return true
+	}
+	owner := coordinator.Identity
 	ep, tc, check, e := r.peer(q.Context(), owner, DeliveryPath)
 	if e != nil {
 		http.Error(w, "delivery unavailable", 502)

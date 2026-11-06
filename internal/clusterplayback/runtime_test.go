@@ -75,6 +75,7 @@ func (f fixtureBytes) ReadAtContext(_ context.Context, b []byte, off int64) (int
 }
 
 type fixtureEncoder struct {
+	starts              int
 	mu                  sync.Mutex
 	body                string
 	keyframes, received []core.KeyframePoint
@@ -90,6 +91,9 @@ func (f *fixtureEncoder) Probe(context.Context, string) (*core.MediaInfo, error)
 	return &core.MediaInfo{Size: size, Keyframes: append([]core.KeyframePoint(nil), f.keyframes...), Container: "mkv", Duration: time.Minute, Streams: []core.StreamInfo{{Type: "video", Codec: "h264", Height: 720}}}, nil
 }
 func (f *fixtureEncoder) StartHLSOwned(ctx context.Context, q core.HLSRequest) (core.HLSSession, core.EncoderRetirement, error) {
+	f.mu.Lock()
+	f.starts++
+	f.mu.Unlock()
 	if e := q.InputLease.ClaimInput(func(error) {}); e != nil {
 		return nil, nil, e
 	}

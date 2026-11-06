@@ -76,6 +76,7 @@ type transcodeEntry struct {
 const decisionFailureTTL = 15 * time.Second
 
 type transcodeTable struct {
+	load  func(string) (*transcodeEntry, bool)
 	table *sessions.BindingTable[playRequest]
 }
 
@@ -99,6 +100,9 @@ func (t *transcodeTable) claim(id string, userID int64, clientID string, now tim
 func (t *transcodeTable) get(id string) (*transcodeEntry, bool) {
 	b, ok := t.table.Get(id)
 	if !ok {
+		if t.load != nil {
+			return t.load(id)
+		}
 		return nil, false
 	}
 	return plexBinding(b), true

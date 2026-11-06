@@ -67,7 +67,7 @@ func (r *Runtime) putRoute(ctx context.Context, route Route) error {
 	if changed, err := result.RowsAffected(); err == nil && changed > 0 {
 		r.routeChanged(ctx, route.Fence.Session)
 	}
-	return nil
+	return r.initializeCoordinator(ctx, route)
 }
 
 // Verifier is constructed before placement.New and bound once after NewRuntime.
