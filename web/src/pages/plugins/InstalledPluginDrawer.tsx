@@ -22,7 +22,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel, LoadingRows, MutationError } from "../../components/feedback";
 import { StatusDot } from "../../components/status";
@@ -69,6 +69,7 @@ export function InstalledPluginDrawer({
   onRemoved: () => void;
 }) {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [tab, setTab] = useState<DrawerTab>("overview");
   const [detail, setDetail] = useState<PluginDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -82,7 +83,7 @@ export function InstalledPluginDrawer({
   const [undoFirst, setUndoFirst] = useState(true);
   const { calls, reload: reloadCalls } = usePluginCalls(pluginId, logRevision);
 
-  useEffect(() => setTab("overview"), [pluginId]);
+  useEffect(() => setTab(params.get("tab") === "setup" ? "setup" : "overview"), [pluginId, params]);
   useEffect(() => setBusy(null), [pluginId]);
 
   const loadDetail = useCallback(async (id: string, quiet = false) => {
@@ -262,7 +263,7 @@ export function InstalledPluginDrawer({
   const tabs: { key: DrawerTab; label: string }[] = [
     { key: "overview", label: t("Overview") },
     ...(primary ? [{ key: "adds" as const, label: contributionTab(primary) }] : []),
-    { key: "setup", label: t("Setup") },
+    { key: "setup", label: t("Settings") },
     { key: "activity", label: t("Activity") },
   ];
   const active = tabs.some((x) => x.key === tab) ? tab : "overview";
