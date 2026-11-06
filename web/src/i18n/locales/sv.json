@@ -3068,6 +3068,7 @@
   "m_0cf5ce3e16f9e3": "Ansluten till plex.tv",
   "m_0cf995da27d06e": "{provider} används inte längre för streaming.",
   "m_0cf9cebae0fe0e": "Kontrollerar säkerhetskopian…",
+  "m_0cfc140f167f50": "Förbereder för TV",
   "m_0cfd1448363549": "Ta bort kanalen?",
   "m_0cfdc19f902b63": "Trendar den här veckan",
   "m_0cff0b537cd734": "Kalendervy",
@@ -4653,6 +4654,7 @@
   "m_13555a930fce5c": "Din server körs nu på säkerhetskopian från {date}.",
   "m_1355f04cafa4b7": "Förhandsvisa veckorapport",
   "m_1355f4a6a3cd7b": "Fäst {title}",
+  "m_13578c45a16baf": "Typsnitt från biblioteket",
   "m_1357be1d8582ea": "Stoppar Ether",
   "m_1359acf8dadd16": {
     "one": "Inloggad och sökte: {count} resultat, till exempel:",

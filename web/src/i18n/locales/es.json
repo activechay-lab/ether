@@ -3148,6 +3148,7 @@
   "m_0cf5ce3e16f9e3": "Conectado a plex.tv",
   "m_0cf995da27d06e": "{provider} dejará de usarse para el streaming.",
   "m_0cf9cebae0fe0e": "Comprobando la copia de seguridad…",
+  "m_0cfc140f167f50": "Preparando para TV",
   "m_0cfd1448363549": "¿Eliminar el canal?",
   "m_0cfdc19f902b63": "Tendencias de esta semana",
   "m_0cff0b537cd734": "Vista del calendario",
@@ -4778,6 +4779,7 @@
   "m_13555a930fce5c": "Tu servidor funciona ahora con la copia de seguridad creada el {date}.",
   "m_1355f04cafa4b7": "Vista previa del informe semanal",
   "m_1355f4a6a3cd7b": "Fijar {title}",
+  "m_13578c45a16baf": "Fuente de la biblioteca",
   "m_1357be1d8582ea": "Deteniendo Ether",
   "m_1359acf8dadd16": {
     "many": "Sesión iniciada y búsqueda realizada: {count} resultados, por ejemplo:",

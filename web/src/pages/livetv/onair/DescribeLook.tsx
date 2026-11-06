@@ -11,5 +11,5 @@ export function DescribeLook({
   onChange(style: Style): void;
   sceneId?: string;
 }) {
-  return <CreateTab style={look} onChange={onChange} selectedSceneId={sceneId} />;
+  return <CreateTab style={look} onChange={onChange} selectedSceneId={sceneId} sceneOnly />;
 }

@@ -3228,6 +3228,7 @@
   "m_0cf5ce3e16f9e3": "Połączono z plex.tv",
   "m_0cf995da27d06e": "{provider} nie będzie już używany do streamingu.",
   "m_0cf9cebae0fe0e": "Sprawdzanie kopii zapasowej…",
+  "m_0cfc140f167f50": "Przygotowywanie do telewizji",
   "m_0cfd1448363549": "Usunąć kanał?",
   "m_0cfdc19f902b63": "Na topie w tym tygodniu",
   "m_0cff0b537cd734": "Widok kalendarza",
@@ -4903,6 +4904,7 @@
   "m_13555a930fce5c": "Twój serwer działa teraz na kopii zapasowej z {date}.",
   "m_1355f04cafa4b7": "Podgląd raportu tygodniowego",
   "m_1355f4a6a3cd7b": "Przypnij: {title}",
+  "m_13578c45a16baf": "Czcionka z biblioteki",
   "m_1357be1d8582ea": "Zatrzymywanie Ether",
   "m_1359acf8dadd16": {
     "few": "Zalogowano i wyszukano: {count} wyniki, na przykład:",
