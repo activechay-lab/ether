@@ -354,7 +354,7 @@ type QualityProfile struct {
 	// DownloadDecisionComparer ordering. "ether" is Ether's own evaluation.
 	// "" means servarr for imported profiles that carry QualityOrder, else
 	// ether, so profiles saved before the setting existed are unchanged.
-	EvaluationMode       string         `json:"evaluationMode,omitempty"`
+	EvaluationMode       string                     `json:"evaluationMode,omitempty"`
 	CustomFormatScores   map[string]int             `json:"customFormatScores,omitempty"`
 	MinCustomFormatScore *int                       `json:"minCustomFormatScore,omitempty"`
 	Name                 string                     `json:"name"`
