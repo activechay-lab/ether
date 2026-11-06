@@ -127,7 +127,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 		r.bytes = h
 		r.mux.Handle(nodesource.Path, h)
 		r.mux.HandleFunc(PreparedBytesPath, r.preparedBytes)
-		r.mux.HandleFunc(SourcePath, r.sourceHTTP)
+
 	}
 	if o.Encoder != nil {
 		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Capabilities: o.WorkerCapabilities, Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: r.workerAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
@@ -138,6 +138,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 		r.worker = w
 		r.mux.HandleFunc(WorkerPath, r.workerHTTP)
 	}
+	r.mux.HandleFunc(SourcePath, r.sourceHTTP)
 	r.mux.HandleFunc(DeliveryPath, r.deliveryHTTP)
 	r.mux.HandleFunc(TerminalPath, r.terminalHTTP)
 	r.mux.HandleFunc(EvidencePath, r.evidenceHTTP)
@@ -254,7 +255,7 @@ func (r *Runtime) Close() error {
 }
 func (r *Runtime) sourcePolicy(ctx context.Context, owner placement.Target, s nodesource.Scope) error {
 	route, e := r.route(ctx, s.Fence.Session)
-	if e != nil || route.Fence != s.Fence || route.Source.NodeID != owner.NodeID || route.Source.Boot != owner.Boot || route.Revision != s.Revision || viewerString(route.Viewer) != s.Viewer {
+	if e != nil || route.Fence != s.Fence || route.SourceGeneration != s.SourceGeneration || route.Source.NodeID != owner.NodeID || route.Source.Boot != owner.Boot || route.Revision != s.Revision || viewerString(route.Viewer) != s.Viewer {
 		return ErrDenied
 	}
 	for _, pair := range []struct {

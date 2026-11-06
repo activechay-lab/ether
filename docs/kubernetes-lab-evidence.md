@@ -2,7 +2,8 @@
 
 This record is startup and failed playback evidence. It does not establish remote
 media delivery, clean packet timing, node-loss recovery or distributed GPU use.
-The singleton-role guard commits are LAB ONLY and must remain outside release.
+Single-role specialist deployments (server, source, transcode, delivery) are now
+enabled on the integration branch; combined and background-only subsets stay refused.
 
 The retained kind cluster is `ether035-ha`, namespace `ether035-ha`. The fresh
 `ether035-roles` release uses one dedicated server, source, transcode and delivery

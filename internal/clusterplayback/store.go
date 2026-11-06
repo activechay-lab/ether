@@ -25,9 +25,14 @@ CREATE TABLE clusterplayback_preparation_receipts (
  receipt TEXT NOT NULL,
  PRIMARY KEY(cluster,source,source_boot,controller,controller_boot,operation_hash));
 `)
+	store.Register("clusterplayback", 5, `
+CREATE TABLE clusterplayback_source_recovery (session TEXT NOT NULL, generation BIGINT NOT NULL, request TEXT NOT NULL, PRIMARY KEY(session,generation));
+CREATE TABLE clusterplayback_source_moves (session TEXT NOT NULL, generation BIGINT NOT NULL, source_generation BIGINT NOT NULL, route TEXT NOT NULL, operation TEXT NOT NULL, PRIMARY KEY(session,generation,source_generation));
+`)
 }
 
 type Route struct {
+	SourceGeneration uint64
 	Fence            placement.Fence
 	Source           nodewire.Identity
 	Viewer           int64
@@ -56,7 +61,7 @@ func (r *Runtime) putRoute(ctx context.Context, route Route) error {
 		return e
 	}
 	got, e := r.route(ctx, route.Fence.Session)
-	if e != nil || got != route {
+	if e != nil || (got != route && (got.Fence != route.Fence || got.SourceGeneration <= route.SourceGeneration)) {
 		return ErrDenied
 	}
 	return r.initializeCoordinator(ctx, route)

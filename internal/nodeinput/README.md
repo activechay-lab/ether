@@ -1,7 +1,7 @@
 # Worker-local encoder input
 
-Unwired pure Go composition only. No application, placement, configuration, or
-public routes change. The Go `nodesource.Client` holds verified mTLS credentials
+Pure Go input composition, wired by clusterplayback. Public protocol routes
+remain unchanged. The Go `nodesource.Client` holds verified mTLS credentials
 and opaque rotating source bearer. FFmpeg gets only the loopback capability URL
 and local `X-Ether-Encoder-Input` scope header (which also activates the existing
 encoder command-log redaction). No caller URL, source/provider header, pathname,
@@ -90,3 +90,33 @@ apply within one gateway boot; capacity exhaustion requires host lifecycle handl
 without dropping unresolved ownership. Arbitrary custom trusted-gateway interface
 implementations are the host's trust responsibility, not wire input. No actual
 FFmpeg/GPU/Plex execution or deployment is claimed by the offline fixture.
+
+Source failover is wired by clusterplayback through `Options.Recover`. Each
+network chunk has a two-second worker read bound, and recovery work has a
+30-second per-chunk bound (three recovery attempts per input lifetime). Normal
+reads remain concurrent; source changes wait for readers and renewal. Continuous
+FFmpeg GETs renew their write deadline as bytes progress, rather than expiring
+at a fixed time after opening the file.
+
+A failed or timed-out chunk is never exposed, even when its HTTP body was
+partially received. The complete undelivered chunk is fetched at its original
+byte offset. Replacement HEAD and range responses authenticate the same revision
+and size. The source generation is separate from the unchanged encoder execution
+fence; the controller commits a durable route CAS before issuing a replacement
+grant. Source authority rechecks that generation, including after stalled reads.
+The gateway rejects returned bytes from cancelled operations and closes the old
+reader at replacement. No credentials or new URLs reach FFmpeg.
+
+The exact initial preparation (release, viewer, title, caps, revision and size)
+is recoverable without contacting the failed source. Only source preparations
+captured through the distributed prepare/bind flow support cross-host recovery;
+local callers without that descriptor fail closed. The stream engine's
+`postedFile.locate` and plan layout map arbitrary offsets to article ranges;
+opening another source may probe archive headers/indexes, but does not stream
+all preceding payload bytes. Revision/size checks are identity checks, not a
+whole-file content hash. Source providers must preserve immutable release bytes.
+
+All old source routes remain retirement responsibilities. An unreachable source
+cannot be reported as successfully closed or used to release placement capacity.
+Offline gateway and controller fixtures prove byte continuity, fencing and stable
+encoder identity; they do not claim real FFmpeg or Kubernetes node-loss acceptance.

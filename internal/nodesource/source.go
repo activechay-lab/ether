@@ -23,9 +23,10 @@ const Path = "/internal/source/v1/bytes"
 const CredentialHeader = "X-Ether-Source-Grant"
 
 type Scope struct {
-	Fence    placement.Fence
-	Viewer   string
-	Revision string
+	SourceGeneration uint64
+	Fence            placement.Fence
+	Viewer           string
+	Revision         string
 }
 type Peer struct{ NodeID, Boot string }
 type Grant struct {
