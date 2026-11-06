@@ -4,6 +4,7 @@ import { localized, t } from "../../i18n";
 import { api, apiFetch } from "../../lib/api";
 import { normalizeSessions } from "../../lib/health";
 import { useAsync, useInterval } from "../../lib/hooks";
+import { clusterActivity } from "./cluster";
 import { PlayHistory, ViewingFilters } from "./History";
 import { Experience, ExperiencePeriod } from "./Experience";
 import { NowPlaying, ProtocolFilter, useNowView, ViewSwitch } from "./NowPlaying";
@@ -49,13 +50,18 @@ export default function Activity() {
   const query = viewingQuery(filter);
   const viewingTab = tab === "history" || tab === "viewing" || tab === "delivery";
 
-  const sessions = useAsync(
-    async () =>
-      normalizeSessions(
-        (await apiFetch<{ value: unknown[] | null }>("/status/sessions")).value ?? [],
-      ),
-    [],
-  );
+  const [truncated, setTruncated] = useState(false);
+  const sessions = useAsync(async (signal) => {
+    const [body, status] = await Promise.all([
+      apiFetch<{ value: unknown[] | null }>("/status/sessions", { signal }),
+      api.clusterStatus(signal).catch(() => null),
+    ]);
+    const streams = normalizeSessions(body.value ?? []);
+    if (status?.mode !== "postgres") return streams;
+    const console = await api.clusterConsole(signal);
+    setTruncated(console.truncated);
+    return clusterActivity(streams, status, console);
+  }, []);
   const transcoder = useAsync(async () => {
     const body = await apiFetch<{
       value: { notice?: string; playbackError?: string } | null;
@@ -103,6 +109,14 @@ export default function Activity() {
               {transcoder.data.playbackError || transcoder.data.notice}
             </p>
           ) : null}
+          {sessions.error && sessions.data && (
+            <p role="alert" className="text-sm text-danger">
+              {t("Activity could not be refreshed. Showing the previous sessions.")}
+            </p>
+          )}
+          {truncated && (
+            <p className="text-sm text-fg-muted">{t("Showing the first 200 assignments.")}</p>
+          )}
           <NowPlaying state={sessions} protocol={protocol} view={nowView} />
         </>
       ) : tab === "experience" ? (

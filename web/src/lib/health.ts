@@ -784,6 +784,15 @@ export function computeHealth(
 // ---- Now playing --------------------------------------------------------------
 
 export interface NowPlaying {
+  node?: string;
+  processor?: string;
+  cluster?: {
+    source: string;
+    encoder: string;
+    delivery: string;
+    recovery?: string;
+    recovering: boolean;
+  };
   protocol: string;
   id: string;
   key: string;
@@ -858,6 +867,8 @@ export function normalizeSessions(v: unknown): NowPlaying[] {
     else if (size > 0 && bufferedBytes > 0)
       buffered = Math.min(1, (progress ?? 0) + bufferedBytes / size);
     return {
+      node: str(s.node),
+      processor: isPlainObject(s.encoder) ? str(s.encoder.processor) : undefined,
       protocol: str(pick(client, "protocol", "Protocol")) || "plex",
       id: str(pick(s, "ID", "id")),
       key: String(pick(s, "Key", "key") ?? ""),

@@ -99,7 +99,16 @@ func (a *App) nodeDiagnostics() *cluster.Diagnostics {
 			used := p.encoder.EncodingCount()
 			d.Transcodes = &used
 			d.Codecs = append([]string(nil), p.encoder.HWAccel().Encoders...)
+			d.Codecs = append([]string(nil), p.encoder.HWAccel().Encoders...)
 		}
+	}
+	if p.settings.Roles.Has("source") && a.fetcher != nil {
+		used, capacity := 0, 0
+		for _, provider := range a.fetcher.Stats() {
+			used += provider.ActiveConnections
+			capacity += provider.MaxConnections
+		}
+		d.SourceConnections, d.SourceConnectionCapacity = &used, &capacity
 	}
 	return d
 }

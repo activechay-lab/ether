@@ -121,7 +121,7 @@ func TestTranscodePlacementScoresVerifiedHardwareAndCapacity(t *testing.T) {
 			if tc.local {
 				source = gpuID
 			}
-			target, claims, _, err := front.selectTarget(ctx, req, source)
+			target, claims, _, _, err := front.selectTarget(ctx, req, source)
 			if err != nil || target.NodeID != tc.want || len(claims) != 1 || claims[0].Scope != tc.want+"/streams" {
 				t.Fatalf("target=%+v claims=%+v err=%v; want %s", target, claims, err, tc.want)
 			}

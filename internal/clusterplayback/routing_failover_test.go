@@ -306,6 +306,10 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 		if err != nil || coordinator.Identity != senderID || coordinator.Epoch != 2 {
 			t.Fatalf("takeover %#v %v", coordinator, err)
 		}
+		assignments, assignmentErr := sender.Assignments(ctx)
+		if assignmentErr != nil || len(assignments) != 1 || assignments[0].ControllerNodeID != senderID.NodeID || assignments[0].Generation != original.Generation || assignments[0].EncoderNodeID != original.Target.NodeID {
+			t.Fatalf("console must follow coordinator takeover without moving encoding: %#v %v", assignments, assignmentErr)
+		}
 		for _, test := range []struct {
 			method, byteRange string
 			status            int
