@@ -414,9 +414,14 @@ Every gateway, worker, source and delivery response admits output with a full
 current durable generation check before headers. `generationfence.Writer` shares
 one request-local authority observation between header, read, write and flush
 checks. It repeats durable validation after at most one second of monotonic time
-(measured from the start of validation), independent of body size. A check that
-itself exhausts that interval refuses output. Source handlers may request a
-shorter interval. Failed checks latch denial for that writer.
+(measured from the start of validation), independent of body size. A positive check
+that exhausts that interval or races invalidation is discarded and retried,
+without publishing between attempts. A single resync or slow observation does
+not revoke a healthy writer. At most three attempts are made; each uses a fresh
+start time and event epoch and must complete inside its observation interval.
+The callback's host context/I/O deadline bounds each call; the attempt limit
+bounds retries. Negative authority, failed local checks or exhausted attempts
+latch denial. Source handlers may request a shorter observation interval.
 
 Between durable checks every operation checks local cancellation, sealing and
 monotonic execution/grant deadlines where present. Delivery converts its observed
@@ -445,7 +450,15 @@ splice continuity or exact audio continuity; those remain acceptance gates.
 
 The DB cost of streaming validation is O(requests + active streaming seconds),
 plus invalidation events, rather than O(body writes). Request admission remains
-durable. In particular the current source client's `ReadAt` issues one HTTP range
-request per call: many small range requests still incur per-request admission
-cost. A writer benchmark on one long response must not be reported as the total
-source pipeline query rate.
+durable. The gateway reads sequential source ranges of at most 2 MiB, while
+keeping exact-offset whole-range retries on source failure. Scratch is bounded
+by 2 MiB per active response (less for short ranges). This replaces a source
+HTTP admission on every 64 KiB. At 20 Mbps it reduces admissions from about
+38.15/s to 1.20/s, measured with a 150 MB offline transfer representing 60 seconds
+of media. Each range retains grant verification, exact-source acquisition and
+output admission: at least nine core SELECTs, plus membership/viewer policy SQL
+and transaction overhead. The measured core admission contribution falls from
+343.35 to 10.80 SELECTs/s; slower source responses can also require periodic
+streaming checks. A writer-only benchmark must not be reported as total source
+pipeline query rate. Small client ranges and random seeks still pay per-request
+admission; the sequential rate assumes a continuous encoder input request.

@@ -66,31 +66,38 @@ func (w *Writer) Validate() error {
 		}
 	}
 	now := w.clock()
-	epoch := w.epoch.Load()
-	if w.next.IsZero() || !now.Before(w.next) || epoch != w.checked {
-		if w.Check == nil || w.Check() != nil {
-			w.denied = true
-			return ErrStale
-		}
-		interval := w.Interval
-		if interval <= 0 || interval > MaxStaleness {
-			interval = MaxStaleness
-		}
-		w.next = now.Add(interval)
-		w.checked = epoch
-		// Never publish if a lease expired or local sealing raced the durable check.
+	if !w.next.IsZero() && now.Before(w.next) && w.epoch.Load() == w.checked {
+		return nil
+	}
+	interval := w.Interval
+	if interval <= 0 || interval > MaxStaleness {
+		interval = MaxStaleness
+	}
+	// A notification or a slow positive observation is not revocation. Retry
+	// without publishing, using a fresh epoch/time for each observation. Attempts
+	// are bounded; Check must also honor its host's context/I/O deadline.
+	for attempt := 0; attempt < 3; attempt++ {
 		if w.LocalCheck != nil && w.LocalCheck() != nil {
 			w.denied = true
 			return ErrStale
 		}
-		// A notification racing Check invalidates this result. Refuse this writer
-		// rather than publishing with an observation that may predate the event.
-		if !w.clock().Before(w.next) || w.epoch.Load() != epoch {
+		started, epoch := w.clock(), w.epoch.Load()
+		if w.Check == nil || w.Check() != nil {
 			w.denied = true
 			return ErrStale
 		}
+		if w.LocalCheck != nil && w.LocalCheck() != nil {
+			w.denied = true
+			return ErrStale
+		}
+		next := started.Add(interval)
+		if w.clock().Before(next) && w.epoch.Load() == epoch {
+			w.next, w.checked = next, epoch
+			return nil
+		}
 	}
-	return nil
+	w.denied = true
+	return ErrStale
 }
 func (w *Writer) valid() bool {
 	if w.Validate() == nil {

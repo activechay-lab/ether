@@ -67,41 +67,57 @@ func TestWriterAuthorityBudgetAndFencing(t *testing.T) {
 			}
 		})
 	}
-	for _, reason := range []string{"notification", "local seal", "slow check"} {
+	for _, reason := range []string{"notification", "slow check", "repeated notifications", "repeated slow checks", "negative", "local seal"} {
 		t.Run(reason, func(t *testing.T) {
 			now := time.Now()
-			stale := false
+			calls := 0
 			var notify func()
 			out := httptest.NewRecorder()
-			w := &Writer{ResponseWriter: out, now: func() time.Time { return now }, Check: func() error {
-				if stale {
-					if reason == "slow check" {
-						now = now.Add(MaxStaleness)
-						return nil
+			w := &Writer{ResponseWriter: out, now: func() time.Time { return now }, Watch: func(fn func()) func() { notify = fn; return func() {} }, Check: func() error {
+				calls++
+				if out.Body.Len() != 0 {
+					t.Fatal("published before fresh observation")
+				}
+				switch reason {
+				case "notification":
+					if calls == 1 {
+						notify()
 					}
+				case "slow check":
+					if calls == 1 {
+						now = now.Add(MaxStaleness)
+					}
+				case "repeated notifications":
+					notify()
+				case "repeated slow checks":
+					now = now.Add(MaxStaleness)
+				case "negative":
 					return ErrStale
 				}
 				return nil
 			}, LocalCheck: func() error {
-				if stale && reason == "local seal" {
+				if reason == "local seal" {
 					return ErrStale
 				}
 				return nil
-			}, Watch: func(fn func()) func() { notify = fn; return func() {} }}
+			}}
 			defer w.Close()
-			w.WriteHeader(200)
-			stale = true
-			if reason == "notification" {
-				notify()
-			}
-			if reason == "slow check" {
-				now = now.Add(MaxStaleness)
-			}
-			if _, err := w.Write([]byte("stale")); !errors.Is(err, ErrStale) {
-				t.Fatal("stale bytes published", err)
-			}
-			if out.Body.Len() != 0 {
-				t.Fatal(out.Body.String())
+			_, err := w.Write([]byte("media"))
+			if reason == "notification" || reason == "slow check" {
+				if err != nil || calls != 2 || out.Body.String() != "media" || out.Code != http.StatusOK {
+					t.Fatalf("healthy writer interrupted: checks=%d status=%d body=%q err=%v", calls, out.Code, out.Body.String(), err)
+				}
+			} else {
+				expected := 3
+				if reason == "negative" {
+					expected = 1
+				}
+				if reason == "local seal" {
+					expected = 0
+				}
+				if !errors.Is(err, ErrStale) || calls != expected || out.Code != http.StatusConflict {
+					t.Fatalf("checks=%d status=%d err=%v", calls, out.Code, err)
+				}
 			}
 		})
 	}

@@ -23,6 +23,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 )
 
+const sourceRangeBytes = 2 << 20
+
 var ErrDenied = errors.New("nodeinput: unavailable input")
 
 type Options struct {
@@ -447,7 +449,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "HEAD" {
 		return
 	}
-	buf := make([]byte, 64<<10)
+	// One 2 MiB source range replaces 32 separate 64 KiB admissions. At
+	// 20 Mbps this is ~1.2 admissions/s. Bound scratch by the actual response
+	// length; failed ranges are retried atomically at the same byte offset.
+	buf := make([]byte, min(length, int64(sourceRangeBytes)))
 	for length > 0 {
 		if ctx.Err() != nil {
 			return
