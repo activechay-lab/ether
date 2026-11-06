@@ -79,9 +79,9 @@ export function ClusterPlayback({
                   [t("Generation"), e.generation],
                   [
                     t("Recovery time"),
-                    e.completedAt
+                    e.completedAt && Date.parse(e.completedAt) >= Date.parse(e.startedAt)
                       ? t("{value} ms", {
-                          value: Math.max(0, Date.parse(e.completedAt) - Date.parse(e.startedAt)),
+                          value: Date.parse(e.completedAt) - Date.parse(e.startedAt),
                         })
                       : t("Unknown"),
                   ],

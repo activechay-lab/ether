@@ -41,7 +41,9 @@ func (a *App) clusterConsoleHandler() http.Handler {
 				if out.Truncated {
 					assignments = assignments[:200]
 				}
-				out.Assignments = assignments
+				if assignments != nil {
+					out.Assignments = assignments
+				}
 			}
 			if reader, ok := p.playback.(clusterplayback.RecoveryEventReader); ok {
 				events, err := reader.RecoveryEvents(ctx, 100)
