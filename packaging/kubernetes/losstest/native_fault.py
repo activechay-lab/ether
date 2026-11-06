@@ -18,7 +18,8 @@ def eligible(state, run_id, session, now):
                 -1 <= age < 5 and timeline.get('valid') is True and
                 timeline.get('underHalf') is True and state.get('killEligible') is True and
                 state.get('liveNVENC') is True and state.get('restartCount', -1) >= 2 and
-                state.get('nodeId') and state.get('boot'))
+                state.get('nodeId') and state.get('boot') and
+                state.get('lastNativeProducedIndex', -1) >= 0)
 
 
 def arm(observation, startup, run_id, session, now, retain, enqueue):

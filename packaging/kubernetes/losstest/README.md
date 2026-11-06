@@ -264,3 +264,11 @@ The same client also accepts `-protocol emby -prefix /emby`, declares an Emby
 client identity and authenticates against that independent MediaBrowser surface.
 Jellyfin and Emby use separate credentials/grants, references and output
 artifacts; neither result is inferred from the other surface's success.
+
+Native conditional fault dispatch uses `native_fault.arm`: bind the fresh trigger
+observation and startup identity, retain the accepted or rejected observation,
+and enqueue a single request without a second encoder-state network read. The
+native supervisor must still perform its fresh retained-handle, restart-boundary
+and authored-timeline checks immediately before killing the owned process. An
+armed request is not proof that a fault occurred; acceptance requires the final
+native fault/cleanup proof and new-generation client tail.
