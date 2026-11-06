@@ -11,7 +11,6 @@ import { studio, type Style, type Template } from "./studio-model";
 import { StyleThumbnail } from "./editor/RemixPanel";
 import { LookDrawer } from "./LookDrawer";
 import { ReelDrawer } from "./ReelDrawer";
-import { ScreensDefaults } from "./ScreensDefaults";
 import { MoreHorizontal, Copy, Download, Trash2, Upload, Play, ArrowUpRight } from "lucide-react";
 import { apiBlob, errorMessage } from "../../../lib/api";
 export function useLooks() {
@@ -398,7 +397,6 @@ export function LooksGallery({
           </div>
         </section>
       )}
-      <ScreensDefaults />
       <Drawer
         open={!!deleting}
         size="sm"

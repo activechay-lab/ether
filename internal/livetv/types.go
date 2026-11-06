@@ -374,9 +374,7 @@ type Options struct {
 	GuideAI      GuideAIClient
 	Reels        func(context.Context, string) (ReelSnapshot, error)
 	InputUser    func(context.Context) (*core.User, error)
-	DefaultStyle func() string
 	StyleScreens func(string) *config.LiveTVScreens
-	Screens      func() config.LiveTVScreens
 	Watchlist    interface{ Generation() uint64 }
 	Picker       core.PersonalPicker
 	State        core.State

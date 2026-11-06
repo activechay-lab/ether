@@ -87,10 +87,11 @@ func TestBroadcastSlowStartLargeOffsetRemote(t *testing.T) {
 	}
 	defer manager.Close()
 	runner := &slowRemoteBroadcastRunner{Manager: manager, encoder: &remoteSampleEncoder{}, origin: time.Now()}
-	s := testService(t, Options{Playback: &lookDemoPlayback{path: server.URL + "/long.mkv"}, Screens: func() config.LiveTVScreens { return config.LiveTVScreens{NoSignal: "static", ApplyTo: "all"} }})
+	s := testService(t, Options{Playback: &lookDemoPlayback{path: server.URL + "/long.mkv"}, StyleScreens: func(string) *config.LiveTVScreens { return &config.LiveTVScreens{NoSignal: "static", ApplyTo: "all"} }})
 	format := transcode.RawFormat{Width: 1920, Height: 1080, FPSNum: 30, FPSDen: 1, SampleRate: 48000, Channels: 2, PixelFormat: "yuv420p"}
 	origin := time.Now()
 	c := testChannel()
+	c.Look = &ChannelLook{LookID: "signal-test"}
 	c.Mode = "order"
 	c.Items = []Item{{Key: 1, Title: "Slow remote programme", DurationMS: 24 * 60 * 60 * 1000}}
 	c.Epoch = origin.Add(-6000 * time.Second)
