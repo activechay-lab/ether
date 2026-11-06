@@ -59,6 +59,7 @@ const (
 	mkvLanguageBCP  = 0x22b59d
 	mkvCodecID      = 0x86
 	mkvCodecPrivate = 0x63a2
+	mkvCodecDelay   = 0x56aa
 	mkvVideo        = 0xe0
 	mkvPixelWidth   = 0xb0
 	mkvPixelHeight  = 0xba
@@ -272,6 +273,7 @@ type mkvTrack struct {
 	kind        uint64
 	codecID     string
 	private     []byte
+	codecDelay  uint64 // nanoseconds removed from the decoded frame clock
 	name        string
 	language    string
 	bcp47       string
@@ -958,6 +960,8 @@ func mkvTracksOf(b []byte) ([]mkvTrack, error) {
 				t.codecID = mkvString(f.body)
 			case mkvCodecPrivate:
 				t.private = f.body
+			case mkvCodecDelay:
+				t.codecDelay = mkvUint(f.body)
 			case mkvVideo:
 				vs, ok := mkvNodes(f.body)
 				if !ok {
@@ -1579,6 +1583,14 @@ func (t mkvTrack) audio(si *core.StreamInfo) error {
 	}
 	si.Channels = int(t.channels)
 	si.SampleRate = int(rate)
+	// CodecDelay is expressed in nanoseconds, rounded by the container writer.
+	// Recover the integer sample count rather than truncating (1024 AAC samples
+	// at 48 kHz are recorded as 21333333 ns).
+	padding := math.Round(float64(t.codecDelay) * rate / 1e9)
+	if padding > math.MaxInt32 {
+		return incomplete("audio codec delay out of range")
+	}
+	si.DecodedPadding = int(padding)
 	si.ChannelLayout = defaultChannelLayout(si.Codec, si.Channels)
 	return nil
 }

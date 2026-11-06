@@ -661,6 +661,8 @@ type StreamInfo struct {
 	// decoder with the source's initial PCE before seeking to a later packet.
 	AACConfigPTS   *int64 `json:"aacConfigPts,omitempty"`
 	AACSourceStart *int64 `json:"aacSourceStart,omitempty"`
+	// DecodedPadding is source priming removed by the demuxer from its frame clock.
+	DecodedPadding int    `json:"decodedPadding,omitempty"`
 	SampleRate     int    `json:"sampleRate,omitempty"`
 	BitrateKbps    int    `json:"bitrateKbps,omitempty"`
 	ProviderTitle  string `json:"providerTitle,omitempty"`

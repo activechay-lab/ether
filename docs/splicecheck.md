@@ -12,7 +12,15 @@ Directories contain numeric segment filenames and, for fMP4, `init.mp4`.
 For generation-specific initialization segments or selected windows, use
 `-input artifacts.json` with `Segments` and `Options` matching the exported
 `internal/splicecheck` types. `Segment.InitPath` accompanies each `.m4s`.
-`Options.SegmentDuration` is a Go duration in nanoseconds in JSON. The library
+`Options.SegmentDuration` is a Go duration in nanoseconds in JSON. For an
+authored variable-duration playlist, supply `Options.Timeline` instead: an array
+of title-time boundaries in nanoseconds, indexed by segment number, including
+the terminal end boundary. For example, `[0,2000000000,4000000000,8000000000]`
+describes two 2-second ramp segments followed by a 4-second segment. Obtain it
+from the initial authored playlist, never from the replacement. The verifier
+checks strictly increasing boundaries, candidate index coverage, start spacing
+and each segment span (including a terminal or single segment) within one video
+frame. Omitting `Timeline` preserves the constant-grid checks. The library
 accepts a caller context and executable paths. Callers own their process timeout.
 
 The verifier accepts clear H264 video and ADTS-representable AAC audio. It checks
@@ -35,14 +43,20 @@ source identity, database authority or latency evidence.
 
 A trusted `core.HLSRequest.Resume` names the first segment to regenerate and the
 execution generation. Set `StartOffset` to zero. Generation must be nonzero.
-The HLS manager keeps the full-title zero-origin grid, disables the fast-start
-ramp and starts at `FirstSegment * SegmentDuration`, retaining the original
-segment numbers. `-ss` with `-copyts -start_at_zero`, `-start_number N` and forced
-keyframes retain that grid. Generation fencing belongs to the cluster consumer,
+The HLS manager rebuilds the original full-title zero-origin segment plan from
+the same media information, segment duration and adaptive configuration, including
+FastStart and its ramp lengths. It starts at `plan.Start(FirstSegment)` with
+`-start_number FirstSegment`, retaining the original playlist and segment numbers.
+For the default 2-second, 2-second, then 4-second plan, indices 0, 1, 2 and 3
+start at 0, 2, 4 and 8 seconds. Reject indices outside the authored plan; checking
+`N * SegmentDuration` would incorrectly reject valid tail segments. All replicas
+must use the same planning inputs. `-ss`, timestamp offsets and forced keyframes
+retain the authored timeline. Generation fencing belongs to the cluster consumer,
 not the muxer. `temp_file` publication means an unfinished segment is regenerated;
 only fully renamed, durably retained segments belong before the splice.
 
-The shared software H264 restart fix preserves the fresh-start TS muxer clock.
+For uniform-grid sessions, the shared software H264 restart fix preserves the
+fresh-start TS muxer clock.
 `x264FramePlan` selects the encoder's B-frame/pyramid configuration and its decode
 reorder depth together. At a TS restart, `-output_ts_offset reorder/fps` restores
 the shift that FFmpeg applied to the initial negative DTS. Copied audio is retained
@@ -56,13 +70,19 @@ that term. The microsecond rounding is
 significant: an AU exactly on the nominal boundary can already belong to the
 preceding fragment. No AAC bytes are re-encoded or rewritten by this fix.
 
+Single-rung FastStart sessions keep a session-wide ramp clock through the steady
+runs. The zero-reorder opening encode uses the steady encoder's clock lead without
+adding B-frames; recovery uses the authored segment start in the audio cutoff.
+fMP4 runs supply in-band headers so the retained ramp initialization segment can
+decode the steady encode. These paths require their own ramp recovery matrix;
+a passing uniform-grid check cannot certify them.
+
 Chunked/keyframe-planned runs retain their previous mux clocks and audio cutoffs;
 their slotter authors a separate timeline. Both restart correction helpers refuse
 those run specifications, including a final chunked run with no remaining KeyTimes.
 
 The measured recovery configuration is libx264 with copied LC AAC at 48 kHz.
-Hardware encoder reorder depths, audio re-encoding identity and
-other video codecs require separate proof. Ordinary video-copy arguments remain
+Hardware encoder reorder depths, other video codecs require separate proof. Ordinary video-copy arguments remain
 unchanged. Copy-video HLS uses source keyframes: the session timeline snaps to
 known keyframes; without a source index the muxer cuts at the next source
 keyframe after its requested duration. Such a grid cannot be inferred from N*d;
@@ -78,3 +98,58 @@ an argv-based process runner. `-copy-video` exercises the ordinary remux builder
 Never execute that JSON through a shell. SIGKILL trials must record the exact
 owned child, finalized filenames at death and first missing index; a normal
 completed encode followed by concatenation does not prove a kill trial.
+
+Use `-fast-start -ffmpeg /tools/ffmpeg` to drive the shipping manager through
+the opening ramp and automatic steady-run transition. `-resume -first N` rebuilds
+that same plan for recovery, including N=0. The lab writes the initial playlist,
+`timeline.json`, numbered served media, and owned child PID/argv in `process.json`.
+`-limit N` bounds collection at an exclusive index. Input is throttled only by
+the tagged lab runner to make SIGKILL boundaries observable. Keep all these
+artifacts in thread storage, outside the repository.
+
+## Re-encoded AAC
+
+Use `-reencoded-audio` (JSON `Options.ReencodedAudio: true`) for independently
+encoded AAC. `AudioAUExact` remains false and explicitly inapplicable; acceptance
+uses the distinct `PCMContinuous` result. Copied AAC still requires literal AU
+equality. A reference remains mandatory.
+
+The PCM gate compares every AAC packet timestamp to the uninterrupted reference
+on the output sample clock, with only timestamp serialization rounding allowed
+(less than half a sample). Each handoff reports actual missing/overlapping
+samples and requires both to be zero. It decodes the byte-concatenated stream,
+preserving the preceding AAC overlap state, and compares PCM over +/-100 ms
+around each generation boundary. SNR must be at least 30 dB; the boundary sample
+step must not exceed the reference's local maximum per-channel sample step.
+No fitted lag, asynchronous resampling or inserted silence can conceal a gap.
+`PCMBoundaries` reports sample counts, SNR and both sample-step measurements.
+
+Software H264/AAC replacement runs decode from an integer-second seek preceding
+one second of audio preroll, with another integer second for decoder warmup. Decoded frame PTS are restored to the source frame grid while retaining the
+probe-reported initial decoder padding, before an integer-second trim initializes
+the resampler on its original sample phase. Audio is resampled, trimmed to a multiple of 1024
+output samples, then assigned an integer sample timebase. The AAC encoder runs
+through its priming/lookahead before a packet filter discards preroll at the
+same video-DTS cut used by the initial HLS muxer. Video is trimmed independently
+to the original authored boundary. AAC is not shifted to hide priming: retained
+packets describe the same samples on the original clock. This also applies when
+a lower HLS or DASH rendition starts at the handoff boundary. Fresh-start arguments are
+unchanged. The lab's `-copy-audio=false` exercises stereo AAC re-encoding.
+
+The source probe retains `StreamInfo.DecodedPadding`, the initial padding already
+removed from a nonnegative decoded source clock. A demuxer that instead reports
+a negative origin still includes that priming; subtracting it again would shift
+the waveform. Use the same FFprobe build as FFmpeg when producing lab probe JSON.
+
+The stock 8.0.1 demuxer reports negative Matroska CodecDelay origins for its own
+synthetic AAC/AC3 fixtures. The uninterrupted output already has a shifted video
+origin and, for AAC/resampling, source-clock jitter. The stock-generated AAC adaptive and 44.1 kHz resampling MKV
+cases are explicitly excluded from the clean-reference adaptive/resampling gate
+as pre-existing demuxer behaviour. The tests print that exclusion; it is not a
+claim of seamless playback for those fixtures. Stock-generated 48 kHz AC3 also passes. The fixed-source AC3 kill matrix
+still runs through both encoder/muxer builds, each with its matching source probe.
+
+Re-encoded audio in a FastStart session uses the same session-wide steady clock.
+Its preroll packet cutoff uses the steady reorder depth even in a zero-B-frame
+ramp run, because the ramp video DTS already carries that bias. Audio preload
+remains exclusive to copied AAC.

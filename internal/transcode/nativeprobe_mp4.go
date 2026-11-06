@@ -471,6 +471,9 @@ func mp4Audio(b []byte, e mp4Box, si *core.StreamInfo) error {
 		if d := find("dOps"); len(d) >= 2 && d[1] > 0 {
 			channels = int(d[1])
 		}
+		if d := find("dOps"); len(d) >= 4 {
+			si.DecodedPadding = int(binary.BigEndian.Uint16(d[2:4]))
+		}
 		rate = 48000
 	case "fLaC":
 		si.Codec = "flac"
