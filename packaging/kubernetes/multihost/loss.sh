@@ -7,11 +7,12 @@ fi
 fault=$1; state=$2; peer=$3; shift 3
 [[ $fault == stop || $fault == pause || $fault == partition ]] || exit 64
 [[ $peer =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 64
+source "$(dirname "$0")/lab-config.sh"
 cid=$(cat "$state/node.id")
 [[ $cid =~ ^[a-f0-9]{64}$ ]] || exit 64
 # Inspect captured immutable ID, lab label AND private network namespace.
 read -r label network running <<< "$(docker inspect --format '{{index .Config.Labels "ether.lab"}} {{.HostConfig.NetworkMode}} {{.State.Running}}' "$cid")"
-[[ $label == ether035-multihost && $network != host && $running == true ]] || exit 64
+[[ $label == "$lab" && $network != host && $running == true ]] || exit 64
 active=false
 input_rule=false
 output_rule=false

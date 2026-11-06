@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # Freeze exactly one owned Ether container and its descendants, restore on exit.
 set -euo pipefail
+state=${ETHER_LAB_STATE:-/nonexistent}
+source "$(dirname "$0")/lab-config.sh"
 pod=${1:?usage: role-pause.sh POD VERIFIER [ARGS...]}; shift
 (( $# > 0 )) || exit 64
-[[ $(kubectl config current-context) == ether035-multihost ]] || exit 64
-[[ $pod =~ ^ether035-mh-ether-(server|source|transcode|delivery)-[0-9]+$ ]] || exit 64
-read -r uid node task <<< "$(kubectl -n ether035-ha get pod "$pod" -o 'jsonpath={.metadata.uid}{" "}{.spec.nodeName}{" "}{.status.containerStatuses[?(@.name=="ether")].containerID}')"
+[[ $(kubectl config current-context) == "$context" ]] || exit 64
+[[ $pod =~ ^${prefix}-ether-(server|source|transcode|delivery)-[0-9]+$ ]] || exit 64
+read -r uid node task <<< "$(kubectl -n "$namespace" get pod "$pod" -o 'jsonpath={.metadata.uid}{" "}{.spec.nodeName}{" "}{.status.containerStatuses[?(@.name=="ether")].containerID}')"
 task=${task#containerd://}
-[[ $task =~ ^[a-f0-9]{64}$ && $node =~ ^ether035-mh-(server|agent[12]?)$ ]] || exit 64
+[[ $task =~ ^[a-f0-9]{64}$ && $node =~ ^${prefix}-(server|agent[12]?)$ ]] || exit 64
 read -r cid label <<< "$(docker inspect --format '{{.Id}} {{index .Config.Labels "ether.lab"}}' "$node")"
-[[ $label == ether035-multihost ]] || exit 64
+[[ $label == "$lab" ]] || exit 64
 active=false
 restore() {
  $active || return 0
@@ -26,7 +28,7 @@ restore() {
  fi
  for ((attempt=0; attempt<60; attempt++)); do
   local current_uid current_task ready
-  if read -r current_uid current_task ready <<< "$(kubectl -n ether035-ha get pod "$pod" -o 'jsonpath={.metadata.uid}{" "}{.status.containerStatuses[?(@.name=="ether")].containerID}{" "}{.status.containerStatuses[?(@.name=="ether")].ready}')"; then
+  if read -r current_uid current_task ready <<< "$(kubectl -n "$namespace" get pod "$pod" -o 'jsonpath={.metadata.uid}{" "}{.status.containerStatuses[?(@.name=="ether")].containerID}{" "}{.status.containerStatuses[?(@.name=="ether")].ready}')"; then
    current_task=${current_task#containerd://}
    if [[ $current_task =~ ^[a-f0-9]{64}$ && $current_task != "$task" && $ready == true ]]; then
     printf 'restored by kubelet: original_task_absent=%s replacement_uid=%s replacement_task=%s ready=true\n' "$task" "$current_uid" "$current_task"
