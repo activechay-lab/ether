@@ -2,6 +2,7 @@ package livetv
 
 import (
 	"context"
+	"github.com/braedonsaunders/ether/internal/transcode"
 	"net/http"
 	"strings"
 	"time"
@@ -36,13 +37,27 @@ func (w *relayReadinessWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// The live relay exposes MPEG-TS segments. Constrain its decision to codecs
-// that transport supports, instead of putting HEVC/fMP4 or Matroska in .ts URLs.
+// Live IPTV uses standard TS or fragmented MP4 HLS. Keep the viewer's
+// codec, HDR and quality ceilings; enhanced file-only containers do not apply.
 func (s *Service) startIPTVRelay(ctx context.Context, ss *session, info core.MediaInfo) error {
 	caps := ss.caps
 	caps.VideoCodecs = []string{"h264"}
-	caps.HDR10, caps.DolbyVision = false, false
+	if ss.caps.SupportsVideo("hevc") {
+		caps.VideoCodecs = append(caps.VideoCodecs, "hevc")
+	} else {
+		caps.HDR10, caps.DolbyVision = false, false
+	}
 	caps.HLSContainers = nil
+	tsOnly := false
+	for _, c := range ss.caps.HLSContainers {
+		switch c {
+		case "mpegts":
+			tsOnly = true
+		case "mp4", "fmp4":
+			caps.HLSContainers = append(caps.HLSContainers, c)
+		}
+	}
+	tsOnly = tsOnly && len(caps.HLSContainers) == 0
 	caps.AudioCodecs = nil
 	for _, codec := range ss.caps.AudioCodecs {
 		switch codec {
@@ -61,14 +76,24 @@ func (s *Service) startIPTVRelay(ctx context.Context, ss *session, info core.Med
 		ss.info.Channel = c
 		return s.startBroadcast(ctx, ss)
 	}
-	dec.Container = "mpegts"
+	if tsOnly {
+		dec.Container = "mpegts"
+	}
+	// Copy can publish at the next source keyframe without waiting four seconds.
+	cut := segmentDuration
+	if dec.VideoCopy && dec.VideoCodec == "hevc" {
+		cut = 2 * time.Second
+	}
+	if dec.Container != transcode.ContainerFMP4 && dec.Container != transcode.ContainerMPEGTS {
+		dec.Container = transcode.ContainerMPEGTS
+	}
 	input, err := s.relayInput(ss)
 	if err != nil {
 		return err
 	}
 	started := time.Now()
 	s.sessionLog(ss).Info("live playback path selected", "path", string(dec.Kind), "video_copy", dec.VideoCopy, "audio_copy", dec.AudioCopy, "container", dec.Container, "video_codec", dec.VideoCodec, "audio_codec", dec.AudioCodec)
-	relay, cancel, err := s.startOwnedHLS(ctx, ss, core.HLSRequest{SessionID: "livetv-" + ss.info.ID, InputURL: input, LiveInput: true, Info: info, Decision: dec, SegmentDuration: segmentDuration})
+	relay, cancel, err := s.startOwnedHLS(ctx, ss, core.HLSRequest{SessionID: "livetv-" + ss.info.ID, InputURL: input, LiveInput: true, Info: info, Decision: dec, SegmentDuration: cut})
 	if err != nil {
 		return Diagnose("relay_start", err)
 	}

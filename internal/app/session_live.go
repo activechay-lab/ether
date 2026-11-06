@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/mediasafety"
+	"github.com/braedonsaunders/ether/internal/transcode"
 	"net/http"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -75,8 +75,8 @@ func (l sessionLive) Serve(w http.ResponseWriter, r *http.Request, viewer *core.
 	case len(parts) == 2 && parts[0] == "resource" && parts[1] != "":
 		l.service.ServeResource(p, clean, id, parts[1], viewer)
 	case len(parts) == 2 && parts[0] == "relay":
-		n, err := strconv.Atoi(strings.TrimSuffix(parts[1], ".ts"))
-		if err != nil || n < 0 {
+		n, ok := transcode.ParseSegmentName(parts[1])
+		if !ok {
 			http.NotFound(p, clean)
 			return
 		}
