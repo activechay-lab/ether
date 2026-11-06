@@ -254,6 +254,14 @@ host, preserving paths and query strings:
 | `/sessions/media` | media (full/delivery) | Canonical grant-bearing representations: GET/HEAD only. |
 | `/` and every other path | API (full/server) | Browse, admission, control and control-coupled responses. |
 
+The controller must retain the media routes when their Service has no ready
+endpoints. The pinned Traefik lab controller sets
+`--providers.kubernetesingress.allowemptyservices=true`: an empty media backend
+then returns 503 instead of dropping its route and sending the request to the
+catch-all API backend. Other controllers need the same routing invariant. This
+does not make an unready delivery node eligible or establish why readiness was
+lost. See Traefik's [Kubernetes Ingress provider documentation](https://doc.traefik.io/traefik/reference/install-configuration/providers/kubernetes/kubernetes-ingress/).
+
 The delivery handler rejects non-GET/HEAD requests; they are not alternate API
 control routes. Prefix matching uses complete path elements, so similarly named
 paths such as `/sessions/mediaevil` remain API traffic. Do not broaden either

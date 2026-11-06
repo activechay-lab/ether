@@ -84,6 +84,16 @@ Rerunning the seed refreshes the lab delegation without creating a Plex claim.
 
 ## Measure actual media and actual placement
 
+Before another mixed-role media run, verify the controller's empty-backend
+behavior separately: with an empty disposable media Service and a ready
+disposable API backend under one test origin, both canonical media prefixes
+must return 503 without reaching API, while browse/control paths still reach
+API. The Traefik lab fixture enables `allowemptyservices` for this invariant.
+Capture correlated controller/backend logs and exact resource UIDs; remove only
+the disposable objects with UID preconditions afterward. Do not remove real
+delivery endpoints or create a playback session for this routing check. This
+check establishes routing behavior, not media availability or a readiness cause.
+
 Use the real generated metadata and ordinary Plex transcode request:
 
 ```text
