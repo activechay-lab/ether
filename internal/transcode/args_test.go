@@ -322,11 +322,11 @@ func TestBuildArgsBurnPGS(t *testing.T) {
 	o.SubtitleStream = 2
 	d := Decide(pgs, appleTV, o, Policy{})
 	s := baseSpec(pgs, d)
-	// baseSpec seeks to 200s. This run keeps the title clock (-copyts)
-	// for picture, subtitle and audio alike, so the overlay meets them
-	// as they are.
+	// baseSpec resumes video at 200s, with earlier input for copied AAC.
+	// Preserve the title clock for both overlay inputs, trimming the picture
+	// to its authored boundary before combining it with the subtitle.
 	graph := argValue(buildArgs(s), "-filter_complex")
-	want := "[0:0]null[base];[0:2]scale=1920:800[sub];[base][sub]overlay=eof_action=pass,format=yuv420p[vout]"
+	want := "[0:0]trim=start=200.000[base];[0:2]scale=1920:800[sub];[base][sub]overlay=eof_action=pass,format=yuv420p[vout]"
 	if graph != want {
 		t.Errorf("graph\n got %s\nwant %s", graph, want)
 	}

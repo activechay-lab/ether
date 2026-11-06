@@ -19,9 +19,10 @@ import (
 )
 
 type spliceLabRunner struct {
-	dir string
-	mu  sync.Mutex
-	seq int
+	dir      string
+	mu       sync.Mutex
+	seq      int
+	readRate float64
 }
 
 func (r *spliceLabRunner) Run(ctx context.Context, c Command) error {
@@ -29,10 +30,12 @@ func (r *spliceLabRunner) Run(ctx context.Context, c Command) error {
 }
 func (r *spliceLabRunner) Start(c Command) (Process, error) {
 	a := append([]string(nil), c.Args...)
-	for i, x := range a {
-		if x == "-i" {
-			a = append(a[:i], append([]string{"-readrate", "8"}, a[i:]...)...)
-			break
+	if r.readRate > 0 {
+		for i, x := range a {
+			if x == "-i" {
+				a = append(a[:i], append([]string{"-readrate", strconv.FormatFloat(r.readRate, 'f', -1, 64)}, a[i:]...)...)
+				break
+			}
 		}
 	}
 	c.Args = a
@@ -50,6 +53,7 @@ func (r *spliceLabRunner) Start(c Command) (Process, error) {
 		}
 	}
 	b, _ := json.Marshal(map[string]any{"PID": p.(*execProcess).PID(), "First": first, "Run": r.seq, "Time": time.Now().UnixNano(), "Args": a})
+	os.WriteFile(filepath.Join(r.dir, fmt.Sprintf("process-%d.json", r.seq)), b, 0600)
 	tmp := filepath.Join(r.dir, "process.json.tmp")
 	os.WriteFile(tmp, b, 0600)
 	os.Rename(tmp, filepath.Join(r.dir, "process.json"))
@@ -57,21 +61,25 @@ func (r *spliceLabRunner) Start(c Command) (Process, error) {
 }
 
 // SpliceFastLab drives the shipping manager, including automatic ramp-to-steady
-// run changes. Only this lab wrapper throttles input and records owned PIDs.
-func SpliceFastLab(ctx context.Context, ff, input, dir string, info core.MediaInfo, container string, first int, resume bool, limit int, fastStart, copyAudio bool) error {
+// run changes. Only this lab wrapper optionally throttles input and records PIDs.
+func SpliceFastLab(ctx context.Context, ff, input, dir string, info core.MediaInfo, container string, first int, resume bool, limit int, fastStart, copyAudio bool, o SpliceLabOptions) error {
 	scratch, e := os.MkdirTemp("", "splice-fast-manager-")
 	if e != nil {
 		return e
 	}
 	defer os.RemoveAll(scratch)
-	m, e := New(config.Transcode{FFmpegPath: ff, FFprobePath: filepath.Join(filepath.Dir(ff), "ffprobe"), TempDir: scratch, FastStart: fastStart}, slog.Default(), WithoutHWDetection(), WithRunner(&spliceLabRunner{dir: dir}), WithBuffering(24*time.Second, 0, 0))
+	m, e := New(config.Transcode{FFmpegPath: ff, FFprobePath: filepath.Join(filepath.Dir(ff), "ffprobe"), TempDir: scratch, FastStart: fastStart}, slog.Default(), WithoutHWDetection(), WithRunner(&spliceLabRunner{dir: dir, readRate: o.ReadRate}), WithBuffering(24*time.Second, 0, 0))
 	if e != nil {
 		return e
 	}
 	defer m.Close()
-	req := core.HLSRequest{SessionID: "fast-lab", InputURL: input, Info: info, Decision: core.Decision{Kind: core.DecisionTranscode, VideoCodec: "h264", AudioCodec: "aac", AudioCopy: copyAudio, AudioChannels: 2, AudioStream: 1, Container: container, MaxHeight: 360, BitrateKbps: 1200, SubtitleStream: -1}, SegmentDuration: 4 * time.Second, Protocol: core.ProtocolHLS}
+	req := core.HLSRequest{SessionID: "fast-lab", InputURL: input, Info: info, Decision: spliceLabDecision(container, false, copyAudio, o), SegmentDuration: 4 * time.Second, Protocol: core.ProtocolHLS}
 	if resume {
-		req.Resume = &core.HLSResume{FirstSegment: first, Generation: 2}
+		admissionFirst := first
+		if o.ResumeFirst >= 0 {
+			admissionFirst = o.ResumeFirst
+		}
+		req.Resume = &core.HLSResume{FirstSegment: admissionFirst, Generation: 2}
 	}
 	started := time.Now()
 	hs, e := m.StartHLS(ctx, req)
