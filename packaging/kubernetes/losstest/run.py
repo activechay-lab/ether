@@ -43,6 +43,18 @@ def media_control_passed(media_passed, action_succeeded, control):
     return bool(media_passed and action_succeeded and control['allRequestsPassed'] and control['stopPassed'])
 
 
+def qualify_reference(path):
+    report = json.loads(Path(path).read_text())
+    required = ('IDRStart', 'ClosedGOP', 'PTSContinuity', 'CleanDecode', 'AudioContinuity', 'GridDurations')
+    checks = report.get('Continuity', {}).get('Report', {})
+    failed = [name for name in required if checks.get(name, {}).get('Pass') is not True]
+    controls = [a for a in report.get('Attempts', []) if a.get('Kind') in ('timeline', 'stop')]
+    if (report.get('PlaybackPassed') is not True or failed
+            or not control_summary(controls)['passed']):
+        raise ValueError('reference qualification failed before launch: '+(', '.join(failed) or 'playback/control'))
+    return report
+
+
 def boundary_ready(path, session, index, segments):
     if not path.exists():
         return None
@@ -211,6 +223,8 @@ def run(c, out):
     next_trigger_poll = 0.0
     next_load_sample = 0.0
     try:
+        if c.get('reference'):
+            qualify_reference(c['reference'])
         with (out/'player.log').open('w') as log:
             process = subprocess.Popen(argv, stdout=log, stderr=log)
             deadline = time.monotonic()+window+150

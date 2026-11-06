@@ -329,3 +329,12 @@ input; old constant-duration references cannot qualify a new default profile.
 Retain a fresh no-fault reference per client/title/profile, including ordinary
 cleanup and delivery reruns. Use the initial timeline retained before the fault,
 never a replacement playlist, for the shared splice checker.
+
+
+Before launching any player or fault selector, the loss runner qualifies the
+independent reference: successful playback, all six intrinsic continuity checks,
+clean lifecycle requests and a successful terminal Stop are mandatory. Missing
+frame/AU comparisons are expected for the first no-fault reference and do not
+replace those intrinsic checks. A failed reference produces a failed run report
+without starting the player or injecting a fault; shell command sequencing cannot
+bypass this guard.
