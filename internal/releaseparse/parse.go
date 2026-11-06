@@ -87,11 +87,18 @@ func Parse(name string) core.ReleaseInfo {
 	upper := " " + strings.ToUpper(spaced) + " "
 
 	// Season / episode.
-	markerAt := parseEpisodes(spaced, upper, &info)
+	absolute, absoluteAt := parseAbsoluteEpisode(stem, spaced)
+	markerAt := -1
+	if absolute > 0 {
+		// Explicit anime numbering must not be reinterpreted as packed chapters.
+		markerAt = parseStandardEpisodes(spaced, upper, &info)
+	} else {
+		markerAt = parseEpisodes(spaced, upper, &info)
+	}
 	if markerAt < 0 && leadingEpisode > 0 {
 		info.Episodes = []int{leadingEpisode}
 	}
-	if abs, at := parseAbsoluteEpisode(stem, spaced); abs > 0 && len(info.Seasons) == 0 {
+	if abs, at := absolute, absoluteAt; abs > 0 && len(info.Seasons) == 0 {
 		// Anime numbers episodes from the series start ("Show - 1071");
 		// such a number is only an absolute episode, never a season's
 		// episode, so movie titles and SxxEyy names keep their meaning.
@@ -264,7 +271,7 @@ func overrideSource(source core.Source, spaced string, floor int) core.Source {
 
 func looksLikeMeta(v string) bool {
 	u := strings.ToUpper(v)
-	if reSpanishEpisode.MatchString(spacify(v)) {
+	if len(spanishEpisodeLocations(spacify(v))) > 0 {
 		return true
 	}
 	// An anime CRC32 checksum ("[ABCDEF12]") is not a release group.
@@ -295,11 +302,49 @@ func spacify(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
+// spanishEpisodeLocations accepts canonical packed SSEE/SEE chapter numbers.
+// Years and common resolution numbers are ambiguous and carry no episode
+// evidence. Keep this validation shared with episode-title/year boundaries.
+func spanishEpisodeLocations(spaced string) [][]int {
+	var out [][]int
+	_, yearAt := parseYearAt(spaced)
+	for _, loc := range reSpanishEpisode.FindAllStringSubmatchIndex(spaced, -1) {
+		digits := spaced[loc[2]:loc[3]]
+		n, _ := strconv.Atoi(digits)
+		if digits[0] == '0' || n%100 == 0 || n >= 1888 && n <= 2099 {
+			continue
+		}
+		// Like bare "Episode N", a chapter-like phrase before a release
+		// year can belong to a movie title ("The Cap 205 2019").
+		if yearAt >= loc[1] && !releaseMarkerIn(spaced[loc[1]:yearAt]) {
+			continue
+		}
+		switch n {
+		case 360, 480, 576, 720, 1080, 2160:
+			continue
+		}
+		out = append(out, loc)
+	}
+	return out
+}
+
+func spanishEpisodeIndex(spaced string) []int {
+	for _, loc := range spanishEpisodeLocations(spaced) {
+		if loc[0] > 0 {
+			return loc[:2]
+		}
+	}
+	return nil
+}
+
 // parseEpisodes fills seasons and episodes and returns the offset of the
 // marker it read them from, or -1.
 func parseEpisodes(spaced, upper string, info *core.ReleaseInfo) int {
 	at := parseStandardEpisodes(spaced, upper, info)
-	for _, loc := range reSpanishEpisode.FindAllStringSubmatchIndex(spaced, -1) {
+	for _, loc := range spanishEpisodeLocations(spaced) {
+		if loc[0] == 0 {
+			continue // a title must precede the chapter marker
+		}
 		number, _ := strconv.Atoi(spaced[loc[2]:loc[3]])
 		season, episode := number/100, number%100
 		if season < 1 || episode < 1 {

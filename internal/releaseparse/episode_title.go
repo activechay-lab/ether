@@ -73,7 +73,7 @@ func EpisodeTitleMatches(name, want string) bool {
 		loc = reBareEpisode.FindStringIndex(spaced)
 	}
 	if loc == nil {
-		loc = reSpanishEpisode.FindStringIndex(spaced)
+		loc = spanishEpisodeIndex(spaced)
 	}
 	if loc == nil {
 		if loc = reMiniseriesPart.FindStringIndex(spaced); loc != nil {
@@ -183,7 +183,7 @@ func EpisodeSeriesYear(name string, parsedYear int) int {
 		loc = reXEpisode.FindStringIndex(spaced)
 	}
 	if loc == nil {
-		loc = reSpanishEpisode.FindStringIndex(spaced)
+		loc = spanishEpisodeIndex(spaced)
 	}
 	if loc == nil {
 		loc = reSeasonOnly.FindStringIndex(spaced)
