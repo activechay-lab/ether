@@ -12,11 +12,17 @@ import (
 
 type readinessHeartbeatCluster struct {
 	cluster.Cluster
-	age   time.Duration
-	owned bool
+	age       time.Duration
+	owned     bool
+	published bool
+	wakes     int
 }
 
 func (c *readinessHeartbeatCluster) HeartbeatAge() (time.Duration, bool) { return c.age, c.owned }
+func (c *readinessHeartbeatCluster) PublishedProtocol(v uint32) bool {
+	return c.owned && c.published && v == 1
+}
+func (c *readinessHeartbeatCluster) Beat() { c.wakes++ }
 
 func TestDeliveryReadinessClockAndLateHeartbeatInvariant(t *testing.T) {
 	cfg, err := config.Open(t.TempDir())
@@ -31,6 +37,22 @@ func TestDeliveryReadinessClockAndLateHeartbeatInvariant(t *testing.T) {
 	p := &deploymentRuntime{settings: clusterconfig.Deployment{Roles: roles}}
 	p.started.Store(true)
 	a := &App{cfg: cfg, cluster: c, deployment: p}
+	var publication privateReadinessSnapshot
+	a.setPrivateReady(true, &publication)
+	if p.ready.Load() || p.protocol.Load() != 1 || c.wakes != 1 || publication.reason != readinessPublication {
+		t.Fatal("endpoint admitted before capability publication")
+	}
+	c.published = true
+	a.setPrivateReady(true, &publication)
+	if !p.ready.Load() {
+		t.Fatal("successful publication did not admit endpoint")
+	}
+	c.owned = false
+	a.setPrivateReady(true, &publication)
+	if p.ready.Load() {
+		t.Fatal("lost exact-boot ownership admitted endpoint")
+	}
+	c.owned = true
 	// No placement service is installed: established delivery must never need
 	// an empty target write, even with the quota operation's deadline exhausted.
 	ctx, cancel := context.WithCancel(context.Background())
