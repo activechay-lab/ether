@@ -279,18 +279,31 @@ type HardwareFact struct {
 }
 
 // StorageFact has no cache directory.
+// DatabaseObjectFact describes a table or index allocation, never its row data.
+type DatabaseObjectFact struct {
+	Name  string `json:"name"`
+	Bytes int64  `json:"bytes"`
+}
+
 type StorageFact struct {
-	CacheBudgetBytes int64  `json:"cacheBudgetBytes,omitempty"`
-	DiskFreeBytes    int64  `json:"diskFreeBytes,omitempty"`
-	DiskFreeKnown    bool   `json:"diskFreeKnown"`
-	DatabaseBytes    int64  `json:"databaseBytes,omitempty"`
-	WALBytes         int64  `json:"walBytes,omitempty"`
-	DatabaseKnown    bool   `json:"databaseKnown"`
-	WALKnown         bool   `json:"walKnown"`
-	Filesystem       string `json:"filesystem,omitempty"`
-	CacheFreeBytes   int64  `json:"cacheFreeBytes,omitempty"`
-	CacheFreeKnown   bool   `json:"cacheFreeKnown"`
-	CacheFilesystem  string `json:"cacheFilesystem,omitempty"`
+	DatabaseEngine           string               `json:"databaseEngine,omitempty"`
+	DatabaseAllocationStatus string               `json:"databaseAllocationStatus,omitempty"`
+	DatabasePageSize         int64                `json:"databasePageSize,omitempty"`
+	DatabasePageCount        int64                `json:"databasePageCount,omitempty"`
+	DatabaseFreePages        int64                `json:"databaseFreePages"`
+	DatabaseObjectsStatus    string               `json:"databaseObjectsStatus,omitempty"`
+	DatabaseObjects          []DatabaseObjectFact `json:"databaseLargestObjects,omitempty"`
+	CacheBudgetBytes         int64                `json:"cacheBudgetBytes,omitempty"`
+	DiskFreeBytes            int64                `json:"diskFreeBytes,omitempty"`
+	DiskFreeKnown            bool                 `json:"diskFreeKnown"`
+	DatabaseBytes            int64                `json:"databaseBytes,omitempty"`
+	WALBytes                 int64                `json:"walBytes,omitempty"`
+	DatabaseKnown            bool                 `json:"databaseKnown"`
+	WALKnown                 bool                 `json:"walKnown"`
+	Filesystem               string               `json:"filesystem,omitempty"`
+	CacheFreeBytes           int64                `json:"cacheFreeBytes,omitempty"`
+	CacheFreeKnown           bool                 `json:"cacheFreeKnown"`
+	CacheFilesystem          string               `json:"cacheFilesystem,omitempty"`
 }
 
 // ConnectivityFact has no public host, custom URL, or certificate path.

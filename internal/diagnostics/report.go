@@ -314,6 +314,18 @@ func reportMarkdown(rows []reportRow, findings []Finding, extra []archived) []by
 			var storage StorageFact
 			if json.Unmarshal(file.body, &storage) == nil {
 				fmt.Fprintf(&b, "\n## Storage\n\nDatabase %s; WAL %s; filesystem %s; free space %s.\nCache filesystem %s; free space %s; configured budget %s.\n", reportOptionalBytes(storage.DatabaseBytes, storage.DatabaseKnown), reportOptionalBytes(storage.WALBytes, storage.WALKnown), strconv.Quote(storage.Filesystem), reportOptionalBytes(storage.DiskFreeBytes, storage.DiskFreeKnown), strconv.Quote(storage.CacheFilesystem), reportOptionalBytes(storage.CacheFreeBytes, storage.CacheFreeKnown), reportBytes(storage.CacheBudgetBytes))
+				if storage.DatabaseAllocationStatus == "complete" {
+					fmt.Fprintf(&b, "SQLite allocated pages: %s; free pages retained for reuse: %s (%d pages). Free pages exclude unused space inside occupied pages. These figures are a snapshot, not a growth history.\n", reportBytes(storage.DatabasePageCount*storage.DatabasePageSize), reportBytes(storage.DatabaseFreePages*storage.DatabasePageSize), storage.DatabaseFreePages)
+				}
+				if storage.DatabaseObjectsStatus == "complete" {
+					b.WriteString("\nLargest database tables/indexes (up to 20):\n")
+					for _, object := range storage.DatabaseObjects {
+						fmt.Fprintf(&b, "- %s: %s\n", strconv.Quote(object.Name), reportBytes(object.Bytes))
+					}
+				} else if storage.DatabaseEngine == "sqlite" {
+					b.WriteString("Database object allocation was unavailable within the bounded collection window.\n")
+				}
+
 			}
 		case "logs/capture.log":
 			printed := 0
