@@ -42,9 +42,9 @@ func (r *Runtime) mediaServer(ctx context.Context, id string) (nodewire.Identity
 		c, err := r.CurrentCoordinator(ctx, id)
 		return c.Identity, err
 	}
-	if r.o.Roles.Has(config.RoleServer) {
-		return r.o.Self, nil
-	}
+	// A server role alone does not establish that the calling public handler
+	// can restore this session's protocol binding. Select replicas through the
+	// configured discovery path; without it, preserve the indexed owner hop.
 	if r.o.MediaServers != nil {
 		ids, err := r.o.MediaServers(ctx)
 		if err != nil {
