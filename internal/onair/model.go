@@ -104,6 +104,9 @@ type Asset struct {
 	UsedBy      []string `json:"usedBy"`
 	URL         string   `json:"url,omitempty"`
 	MIME        string   `json:"-"`
+	DurationMS  int64    `json:"durationMs,omitempty"`
+	Width       int      `json:"width,omitempty"`
+	Height      int      `json:"height,omitempty"`
 }
 type Reel struct {
 	Anchor        time.Time  `json:"-"`

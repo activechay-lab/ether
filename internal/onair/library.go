@@ -34,12 +34,9 @@ type LibraryUse struct {
 }
 type LibraryAsset struct {
 	Asset
-	MIME       string       `json:"mime"`
-	UsedBy     []LibraryUse `json:"usedBy"`
-	CreatedAt  int64        `json:"createdAt"`
-	DurationMs int64        `json:"durationMs,omitempty"`
-	Width      int          `json:"width,omitempty"`
-	Height     int          `json:"height,omitempty"`
+	MIME      string       `json:"mime"`
+	UsedBy    []LibraryUse `json:"usedBy"`
+	CreatedAt int64        `json:"createdAt"`
 }
 
 func (s *Service) Library(ctx context.Context) ([]LibraryAsset, error) {
@@ -67,14 +64,6 @@ func (s *Service) libraryInfo(ctx context.Context, a Asset) (LibraryAsset, error
 	}
 	if e := s.db.QueryRowContext(ctx, "SELECT created_at FROM onair_assets WHERE digest=?", a.Digest).Scan(&v.CreatedAt); e != nil {
 		return v, e
-	}
-	// Facts are content-addressed, so replacement cannot leave stale metadata.
-	if b, e := os.ReadFile(filepath.Join(s.o.Dir, "library-"+a.Digest+".json")); e == nil {
-		_ = json.Unmarshal(b, &v)
-		v.Asset = a
-		_ = s.db.QueryRowContext(ctx, "SELECT created_at FROM onair_assets WHERE digest=?", a.Digest).Scan(&v.CreatedAt)
-		v.MIME = a.MIME
-		v.UsedBy = []LibraryUse{}
 	}
 	for _, entry := range []struct{ table, kind string }{{"onair_looks", "style"}, {"onair_reels", "reel"}, {"livetv_channels", "channel"}} {
 		if entry.kind == "channel" {
@@ -134,37 +123,62 @@ func (s *Service) libraryInfo(ctx context.Context, a Asset) (LibraryAsset, error
 func (s *Service) libraryAsset(ctx context.Context, d string) (LibraryAsset, error) {
 	var a Asset
 	a.Digest = d
-	e := s.db.QueryRowContext(ctx, "SELECT name,kind,size,license,mime,source,attribution FROM onair_assets WHERE digest=?", d).Scan(&a.Name, &a.Kind, &a.Size, &a.License, &a.MIME, &a.Source, &a.Attribution)
+	e := s.db.QueryRowContext(ctx, "SELECT name,kind,size,license,mime,source,attribution,COALESCE(duration_ms,0),width,height FROM onair_assets WHERE digest=?", d).Scan(&a.Name, &a.Kind, &a.Size, &a.License, &a.MIME, &a.Source, &a.Attribution, &a.DurationMS, &a.Width, &a.Height)
 	if e != nil {
 		return LibraryAsset{}, ErrNotFound
 	}
 	return s.libraryInfo(ctx, a)
 }
-func (s *Service) recordFacts(ctx context.Context, a Asset, b []byte) {
-	v := LibraryAsset{DurationMs: 0}
+
+// recordFacts probes media dimensions and duration and stores them on the row.
+func (s *Service) recordFacts(ctx context.Context, a Asset, b []byte) Asset {
+	a.DurationMS, a.Width, a.Height = 0, 0, 0
 	if a.Kind == "image" {
 		if c, _, e := image.DecodeConfig(bytes.NewReader(b)); e == nil {
-			v.Width = c.Width
-			v.Height = c.Height
+			a.Width, a.Height = c.Width, c.Height
 		}
 	}
-	if (a.Kind == "audio" || a.Kind == "video") && s.o.Probe != nil {
-		f, e := os.CreateTemp(s.o.Dir, "library-probe-*")
-		if e == nil {
+	if (a.Kind == "audio" || a.Kind == "video" || a.Kind == "reel") && s.o.Probe != nil {
+		if f, e := os.CreateTemp(s.o.Dir, "library-probe-*"); e == nil {
 			defer os.Remove(f.Name())
 			_, _ = f.Write(b)
 			_ = f.Close()
 			if info, e := s.o.Probe(ctx, f.Name()); e == nil {
-				v.DurationMs = info.Duration.Milliseconds()
+				a.DurationMS = info.Duration.Milliseconds()
 				if st := info.Video(); st != nil {
-					v.Width = st.Width
-					v.Height = st.Height
+					a.Width, a.Height = st.Width, st.Height
 				}
 			}
 		}
 	}
-	data, _ := json.Marshal(v)
-	_ = os.WriteFile(filepath.Join(s.o.Dir, "library-"+a.Digest+".json"), data, 0600)
+	if _, e := s.db.ExecContext(ctx, "UPDATE onair_assets SET duration_ms=?,width=?,height=? WHERE digest=?", a.DurationMS, a.Width, a.Height, a.Digest); e != nil {
+		s.o.Logger.Warn("onair asset facts not saved", "asset", a.Digest, "err", e)
+	}
+	return a
+}
+
+// backfillFacts probes assets stored before media facts existed, one at a time.
+func (s *Service) backfillFacts() {
+	defer s.wg.Done()
+	rows, e := s.db.QueryContext(s.ctx, "SELECT digest,name,kind FROM onair_assets WHERE duration_ms IS NULL")
+	if e != nil {
+		return
+	}
+	var pending []Asset
+	for rows.Next() {
+		var a Asset
+		if rows.Scan(&a.Digest, &a.Name, &a.Kind) == nil {
+			pending = append(pending, a)
+		}
+	}
+	rows.Close()
+	for _, a := range pending {
+		var b []byte
+		if s.ctx.Err() != nil || s.db.QueryRowContext(s.ctx, "SELECT content FROM onair_assets WHERE digest=?", a.Digest).Scan(&b) != nil {
+			continue
+		}
+		s.recordFacts(s.ctx, a, b)
+	}
 }
 func (s *Service) libraryDerived(ctx context.Context, a LibraryAsset, wave bool) ([]byte, error) {
 	suffix := ".jpg"
@@ -238,7 +252,7 @@ func (s *Service) libraryDerived(ctx context.Context, a LibraryAsset, wave bool)
 		if wave {
 			args = append(args, "-t", "30", "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1")
 		} else {
-			args = append(args, "-ss", fmt.Sprint(math.Min(1, math.Max(0, float64(a.DurationMs)/1000-0.05))), "-frames:v", "1", "-vf", "scale=480:-2", "-threads", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1")
+			args = append(args, "-ss", fmt.Sprint(math.Min(1, math.Max(0, float64(a.DurationMS)/1000-0.05))), "-frames:v", "1", "-vf", "scale=480:-2", "-threads", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1")
 		}
 		cmd := exec.CommandContext(cctx, s.o.FFmpeg(), args...)
 		cmd.Stdout = &out
@@ -254,7 +268,7 @@ func (s *Service) libraryDerived(ctx context.Context, a LibraryAsset, wave bool)
 				bucket := min(999, i*1000/max(1, samples))
 				peaks[bucket] = max(peaks[bucket], p)
 			}
-			b, _ := json.Marshal(map[string]any{"peaks": peaks, "durationMs": a.DurationMs})
+			b, _ := json.Marshal(map[string]any{"peaks": peaks, "durationMs": a.DurationMS})
 			out.Reset()
 			out.Write(b)
 		}
@@ -421,7 +435,7 @@ func (s *Service) trimLibraryAsset(w http.ResponseWriter, r *http.Request) {
 	if !body(w, r, &p) {
 		return
 	}
-	if s.o.FFmpeg == nil || (a.Kind != "audio" && a.Kind != "video") || math.IsNaN(p.Start) || math.IsNaN(p.End) || p.Start < 0 || p.End <= p.Start || p.End-p.Start > 30 || p.End > float64(a.DurationMs)/1000 {
+	if s.o.FFmpeg == nil || (a.Kind != "audio" && a.Kind != "video") || math.IsNaN(p.Start) || math.IsNaN(p.End) || p.Start < 0 || p.End <= p.Start || p.End-p.Start > 30 || p.End > float64(a.DurationMS)/1000 {
 		result(w, nil, fmt.Errorf("invalid clip interval"))
 		return
 	}

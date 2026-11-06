@@ -137,8 +137,9 @@ func New(o Options) (*Service, error) {
 func (s *Service) Start() {
 	s.startOnce.Do(func() {
 		if s.ctx.Err() == nil {
-			s.wg.Add(1)
+			s.wg.Add(2)
 			go s.run()
+			go s.backfillFacts()
 			for range 2 {
 				s.wg.Add(1)
 				go s.runImports()

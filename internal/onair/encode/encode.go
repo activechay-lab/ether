@@ -8,15 +8,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/onair/scene"
 	"image"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/braedonsaunders/ether/internal/mediaproc"
+	"github.com/braedonsaunders/ether/internal/onair/scene"
 )
 
 const Profile = "1080p30-h264-high-l4.0-yuv420p-g120-aac48k-stereo-v1"
@@ -159,12 +160,12 @@ func WithOptions(ctx context.Context, ffmpegPath string, frames func(int) *image
 		}
 		args = append(args[:len(args)-1], "-af", fmt.Sprintf("volume=%f", v), path)
 	}
-	var cmd *exec.Cmd
+	var cmd *mediaproc.Cmd
 	// nice execs ffmpeg, so CommandContext owns the encoder PID directly.
 	if runtime.GOOS != "windows" {
-		cmd = exec.CommandContext(ctx, "nice", append([]string{"-n", "10", ffmpegPath}, args...)...)
+		cmd = mediaproc.CommandContext(ctx, mediaproc.EncodeTimeout, "nice", append([]string{"-n", "10", ffmpegPath}, args...)...)
 	} else {
-		cmd = exec.CommandContext(ctx, ffmpegPath, args...)
+		cmd = mediaproc.CommandContext(ctx, mediaproc.EncodeTimeout, ffmpegPath, args...)
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

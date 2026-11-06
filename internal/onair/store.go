@@ -17,6 +17,11 @@ import (
 )
 
 func init() {
+	// Media facts live with the asset so every node sees them. duration_ms is
+	// NULL until probed; 0 means the asset has no duration (or could not be read).
+	store.Register("onair", 4, `ALTER TABLE onair_assets ADD COLUMN duration_ms INTEGER;
+ ALTER TABLE onair_assets ADD COLUMN width INTEGER NOT NULL DEFAULT 0;
+ ALTER TABLE onair_assets ADD COLUMN height INTEGER NOT NULL DEFAULT 0;`)
 	store.Register("onair", 3, `CREATE TABLE onair_imports(id TEXT PRIMARY KEY,reel_id TEXT NOT NULL,data TEXT NOT NULL);
  ALTER TABLE onair_assets ADD COLUMN source TEXT NOT NULL DEFAULT '';
  ALTER TABLE onair_assets ADD COLUMN attribution TEXT NOT NULL DEFAULT '';`)

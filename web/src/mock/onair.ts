@@ -159,7 +159,8 @@ export function createOnAirMock(
         return result;
       }
       if (seg[0] !== "onair") return null;
-      const remix = remixMock(method, seg, body); if (remix) return remix;
+      const remix = remixMock(method, seg, body);
+      if (remix) return remix;
       const [, kind, id, action, clipId] = seg;
       if (kind === "clips" && id === "render")
         return {
