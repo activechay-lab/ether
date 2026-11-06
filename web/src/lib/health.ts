@@ -672,8 +672,11 @@ export function databaseHealth(v: unknown, now = new Date()): HealthItem | null 
     return {
       ...base,
       href: "/cluster",
-      level: "ok",
-      summary: t("Shared PostgreSQL database reachable"),
+      level: v.state === "ok" && v.reachable === true ? "ok" : "unknown",
+      summary:
+        v.state === "ok" && v.reachable === true
+          ? t("Shared PostgreSQL database reachable")
+          : t("Not reported"),
       details: [],
     };
   }
@@ -682,6 +685,8 @@ export function databaseHealth(v: unknown, now = new Date()): HealthItem | null 
   const integrity = isPlainObject(v.integrity) ? v.integrity : null;
   if (!integrity) return null;
   const checked = parseTime(integrity.checked);
+  if (integrity.skipped === true || !checked || typeof integrity.ok !== "boolean")
+    return { ...base, level: "unknown", summary: t("Not checked"), details: [] };
   if (integrity.ok === true)
     return {
       ...base,
@@ -695,8 +700,8 @@ export function databaseHealth(v: unknown, now = new Date()): HealthItem | null 
   return {
     ...base,
     level: "error",
-    summary: t("The database file is damaged"),
-    details: [t("Restore a backup to recover. Ether keeps running so you can."), ...findings],
+    summary: t("The last database check found an issue"),
+    details: findings,
   };
 }
 
