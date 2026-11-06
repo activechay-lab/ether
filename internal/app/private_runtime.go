@@ -218,6 +218,7 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 	launch(func() {
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
+		var readiness privateReadinessWindow
 		rotation := time.NewTicker(time.Hour)
 		defer rotation.Stop()
 		for {
@@ -232,7 +233,18 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 				err := a.reconcilePrivatePlacement(op, &observation)
 				_ = p.playback.Tick(op) // pending retirement is healthy retained ownership, not readiness loss
 				c()
-				p.ready.Store(err == nil && a.privateServicesReadyObserved(&observation))
+				// A successful startup/public listener can precede this first tick.
+				if p.ready.Load() && readiness.failedAt.IsZero() {
+					readiness.established = true
+				}
+				var serviceObservation privateReadinessSnapshot
+				services := a.privateServicesReadyObserved(&serviceObservation)
+				if !services {
+					observation = serviceObservation
+				} else if err == nil {
+					observation = privateReadinessSnapshot{}
+				}
+				p.ready.Store(readiness.ready(time.Now(), err == nil, services, observation.reason))
 				if p.ready.Load() {
 					p.started.Store(true)
 				}

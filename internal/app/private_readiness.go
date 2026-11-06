@@ -6,21 +6,21 @@ import (
 	"errors"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/cluster"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/nodewire"
 )
 
-// One loss and one restoration are logged per unavailable interval; changes of
-// reason while unavailable do not replace or repeatedly log the first failure.
+// The first degraded decision, actual readiness loss (if grace expires), and
+// restoration are logged once each. Reason changes preserve the first failure.
 // These diagnostics describe the first failed decision in an unavailable
 // interval. They are never consulted by readiness, admission or authority.
 type privateReadinessReason string
 
 const (
 	readinessCluster  privateReadinessReason = "cluster_mismatch"
-	readinessRead     privateReadinessReason = "membership_read"
 	readinessMissing  privateReadinessReason = "self_missing"
 	readinessBoot     privateReadinessReason = "boot_mismatch"
-	readinessFuture   privateReadinessReason = "age_below_minimum"
 	readinessStale    privateReadinessReason = "age_at_or_above_maximum"
 	readinessNotLive  privateReadinessReason = "not_live"
 	readinessRoles    privateReadinessReason = "invalid_roles"
@@ -36,14 +36,13 @@ const (
 )
 
 type privateReadinessSnapshot struct {
-	reason     privateReadinessReason
-	at         time.Time
-	lastSeen   time.Time
-	memberAt   time.Time
-	age        time.Duration
-	hasMember  bool
-	deadline   time.Time
-	errorClass string
+	ready        bool
+	reason       privateReadinessReason
+	at           time.Time
+	age          time.Duration
+	hasHeartbeat bool
+	deadline     time.Time
+	errorClass   string
 }
 
 // No error text, SQL state/code or identity is retained. Driver error interfaces
@@ -76,9 +75,29 @@ func (a *App) recordPrivateReadiness(s privateReadinessSnapshot) {
 		}
 		return
 	}
+	if s.at.IsZero() {
+		s.at = time.Now()
+	}
+	if s.errorClass == "" {
+		s.errorClass = "none"
+	}
+	s.ready = p.ready.Load()
+	if previous := p.readinessLoss.Load(); previous != nil {
+		if !previous.ready || s.ready {
+			return
+		}
+		// Keep the first failure while recording that grace has now expired.
+		s = *previous
+		s.ready = false
+		if !p.readinessLoss.CompareAndSwap(previous, &s) {
+			return
+		}
+	} else if !p.readinessLoss.CompareAndSwap(nil, &s) {
+		return
+	}
 	stage := "lifecycle"
 	switch s.reason {
-	case readinessCluster, readinessRead, readinessMissing, readinessBoot, readinessFuture, readinessStale, readinessNotLive, readinessRoles:
+	case readinessCluster, readinessMissing, readinessBoot, readinessStale, readinessNotLive, readinessRoles:
 		stage = "membership"
 	case readinessQuota:
 		stage = "quota"
@@ -87,23 +106,18 @@ func (a *App) recordPrivateReadiness(s privateReadinessSnapshot) {
 	case readinessTarget:
 		stage = "placement_target"
 	}
-	if s.at.IsZero() {
-		s.at = time.Now()
-	}
-	if s.errorClass == "" {
-		s.errorClass = "none"
-	}
-	if !p.readinessLoss.CompareAndSwap(nil, &s) {
-		return
-	}
-	attrs := []any{"component", "private-runtime", "stage", stage, "reason", s.reason, "role", privateReadinessRole(p.settings.Roles), "evaluated_at", s.at.UTC(), "error_category", s.errorClass}
+	attrs := []any{"component", "private-runtime", "stage", stage, "reason", s.reason, "role", privateReadinessRole(p.settings.Roles), "evaluated_at", s.at.UTC(), "error_category", s.errorClass, "ready_existing", s.ready}
 	if !s.deadline.IsZero() {
 		attrs = append(attrs, "context_deadline", s.deadline.UTC())
 	}
-	if s.hasMember {
-		attrs = append(attrs, "membership_evaluated_at", s.memberAt.UTC(), "self_last_seen", s.lastSeen.UTC(), "self_age", s.age, "age_min_inclusive", -time.Second, "age_max_exclusive", clusterLiveAfter)
+	if s.hasHeartbeat {
+		attrs = append(attrs, "heartbeat_age_monotonic", s.age, "heartbeat_age_max_exclusive", clusterLiveAfter, "readiness_grace", privateReadinessGrace)
 	}
-	a.log.Warn("private readiness unavailable", attrs...)
+	if s.ready {
+		a.log.Warn("private readiness degraded; existing service retained", attrs...)
+	} else {
+		a.log.Warn("private readiness unavailable", attrs...)
+	}
 }
 
 func privateReadinessRole(roles config.NodeRoles) string {
@@ -117,4 +131,74 @@ func privateReadinessRole(roles config.NodeRoles) string {
 		}
 	}
 	return "mixed_or_unknown"
+}
+
+// privateSelfReady is deliberately separate from privateMember. Self readiness
+// observes an already joined local process, not remote authority. DB timestamps
+// lose Go's monotonic component and must not be subtracted from the local clock
+// to decide whether to remove a healthy delivery endpoint.
+func (a *App) privateSelfReady(id nodewire.Identity, observation *privateReadinessSnapshot) error {
+	self := a.cluster.Self()
+	observation.at = time.Now()
+	switch {
+	case id.Cluster != a.cfg.Get().Server.MachineIdentifier:
+		observation.reason = readinessCluster
+	case self.ID != id.NodeID:
+		observation.reason = readinessMissing
+	case self.Incarnation != id.Boot:
+		observation.reason = readinessBoot
+	case self.Caps.Roles.Validate() != nil:
+		observation.reason = readinessRoles
+	default:
+		if local, ok := a.cluster.(interface{ HeartbeatAge() (time.Duration, bool) }); ok {
+			age, owned := local.HeartbeatAge()
+			observation.age, observation.hasHeartbeat = age, owned
+			if !owned {
+				observation.reason = readinessNotLive
+			} else if age >= clusterLiveAfter {
+				observation.reason = readinessStale
+			} else {
+				return nil
+			}
+		} else if a.cluster.Mode() == cluster.ModeSolo {
+			return nil
+		} else {
+			observation.reason = readinessNotLive
+		}
+	}
+	return nodewire.ErrDenied
+}
+
+// A failed placement transaction or a late heartbeat must not immediately
+// withdraw existing media. This monotonic grace is exclusively a routing
+// decision; it grants no placement, renewal, source or delivery authority.
+const privateReadinessGrace = 20 * time.Second
+
+type privateReadinessWindow struct {
+	failedAt    time.Time
+	established bool
+}
+
+func (w *privateReadinessWindow) ready(now time.Time, reconciled, services bool, reason privateReadinessReason) bool {
+	if !services {
+		w.established = false
+		w.failedAt = time.Time{}
+		return false
+	}
+	if reconciled {
+		w.established = true
+		w.failedAt = time.Time{}
+		return true
+	}
+	switch reason {
+	case readinessStale, readinessPool, readinessTarget:
+		if w.established {
+			if w.failedAt.IsZero() {
+				w.failedAt = now
+			}
+			return now.Sub(w.failedAt) < privateReadinessGrace
+		}
+	}
+	w.established = false
+	return false
 }

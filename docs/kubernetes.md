@@ -167,7 +167,20 @@ must reject startup/unready/draining nodes for new work.
 
 Health probes use separate private HTTP port 32402: `/livez` for process health,
 `/startupz` for completed provisioning, `/readyz` for service of existing work,
-and `/admissionz` for admission of new work. Public pod readiness uses
+and `/admissionz` for admission of new work. Self-readiness measures elapsed time
+since this process completed its last owned heartbeat with Go's monotonic clock;
+it never compares a database timestamp with local wall time. Established service
+gets a 20-second grace after the heartbeat's 20-second freshness window expires.
+Transient placement reconciliation failures receive the same 20-second grace. Listener/runtime failure, invalid roles or
+loss of owned membership fail immediately. Pure delivery registers its empty
+placement target at startup and does not repeat that write during playback.
+Readiness grace only preserves routing: each media request, peer authorization,
+placement and execution renewal still applies its current authority/fence checks.
+A sustained database outage can therefore reject media before routing readiness
+expires. Clock steps can still affect credentials, leases and remote membership;
+this readiness change does not assert clock-independent distributed authority.
+
+Public pod readiness uses
 `/admissionz`; specialist readiness uses `/readyz`. During drain, readiness may
 stay true while admission is false. Public endpoint removal is valid only with
 the runtime's any-frontend session forwarding; validate that with real playback
