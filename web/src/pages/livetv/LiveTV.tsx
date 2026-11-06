@@ -1001,7 +1001,9 @@ export default function LiveTV() {
   const mainClassName = "";
   const main =
     leftTab === "library" ? (
-      <Library />
+      <div className="p-4 sm:p-6">
+        <Library />
+      </div>
     ) : leftTab === "looks" ? (
       <LooksGallery
         looks={looks}

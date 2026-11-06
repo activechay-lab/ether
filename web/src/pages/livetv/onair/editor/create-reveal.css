@@ -154,8 +154,8 @@
     grid-column: 2;
   }
   .studio-create-scenes {
-    grid-template-columns: repeat(3, minmax(0, 230px));
-    justify-content: space-between;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
   }
 }
 .studio-create-swatches.studio-create-arrival {
