@@ -38,7 +38,18 @@ func (r *broadcastRegistry) acquire(ctx context.Context, key broadcastKey, id st
 	r.mu.Lock()
 	existing := r.outputs[key]
 	r.mu.Unlock()
-	r.yieldIdle(existing)
+	needsEncoder := true
+	if existing != nil {
+		existing.mu.Lock()
+		needsEncoder = existing.closed || existing.renditions[id] == nil
+		existing.mu.Unlock()
+	}
+	// Joining an encoded rendition allocates no encoder or server stream unit.
+	// Preserve other warm channels instead of needlessly forcing their next tune
+	// through cold startup. Actual new encoders still yield unused outputs.
+	if needsEncoder {
+		r.yieldIdle(existing)
+	}
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()

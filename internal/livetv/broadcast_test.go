@@ -722,3 +722,37 @@ func TestBroadcastColdDecoderKeepsFillingPublishedCushion(t *testing.T) {
 		}
 	})
 }
+
+// Warm joins consume no new encoder capacity. Alternating two retained channels
+// must preserve both windows rather than make each tune evict the other.
+func TestBroadcastWarmJoinsKeepOtherRetainedChannels(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		runner := &broadcastFakeRunner{}
+		registry := &broadcastRegistry{}
+		defer registry.close()
+		created := 0
+		create := func() (*broadcast, error) {
+			created++
+			return newBroadcast(t.Context(), runner, broadcastFakePlanner{plan: broadcastPlan{id: "screen"}}, smallBroadcastFormat())
+		}
+		acquire := func(channel string) *broadcastLease {
+			l, e := registry.acquire(t.Context(), broadcastKey{channelID: channel}, "main", core.Decision{MaxHeight: 720}, create)
+			if e != nil {
+				t.Fatal(e)
+			}
+			return l
+		}
+		one, two := acquire("one"), acquire("two")
+		time.Sleep(3 * time.Second)
+		synctest.Wait()
+		one.close()
+		two.close()
+		first, second := acquire("one"), acquire("two")
+		defer first.close()
+		defer second.close()
+		synctest.Wait()
+		if created != 2 || len(runner.encoders) != 2 || first.broadcast != one.broadcast || second.broadcast != two.broadcast {
+			t.Fatal("warm join evicted another retained channel")
+		}
+	})
+}
