@@ -30,6 +30,12 @@ func TestCatalogInterpret(t *testing.T) {
 	if rec := serve(h, req("POST", "/ether/api/catalog/interpret", `{"text":"comedies"}`)); rec.Code != 401 {
 		t.Fatalf("unauthenticated: %d", rec.Code)
 	}
+	if rec := serve(h, req("GET", "/ether/api/catalog/interpret", "")); rec.Code != 401 {
+		t.Fatalf("capability unauthenticated: %d", rec.Code)
+	}
+	if rec := serve(h, authed(req("GET", "/ether/api/catalog/interpret", ""))); rec.Code != 200 || rec.Body.String() != "{\"enabled\":true}\n" {
+		t.Fatalf("enabled capability: %d %s", rec.Code, rec.Body)
+	}
 	for _, tt := range []struct {
 		output string
 		status int
@@ -52,6 +58,9 @@ func TestCatalogInterpret(t *testing.T) {
 	}
 	if err := store.Update(func(c *config.Config) error { c.LLM.Enabled = false; return nil }); err != nil {
 		t.Fatal(err)
+	}
+	if cap := serve(h, authed(req("GET", "/ether/api/catalog/interpret", ""))); cap.Code != 200 || cap.Body.String() != "{\"enabled\":false}\n" {
+		t.Fatalf("disabled capability: %d %s", cap.Code, cap.Body)
 	}
 	rec = serve(h, authed(req("POST", "/ether/api/catalog/interpret", `{"text":"comedies"}`)))
 	if rec.Code != 501 {

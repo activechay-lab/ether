@@ -17,8 +17,13 @@ type catalogChip struct {
 	Value string `json:"value"`
 }
 
-// Interpretation is an explicit owner action, independent of the SQL results
+// Interpretation is optional and independent of the SQL results
 // request. The model receives only the owner's sentence, never library data.
+func (h *Handler) handleCatalogInterpretCapability(w http.ResponseWriter, r *http.Request) {
+	client := llm.NewClient(llm.ClientOptions{Config: h.deps.Config.Get().LLM})
+	writeJSON(w, http.StatusOK, map[string]bool{"enabled": client.Enabled()})
+}
+
 func (h *Handler) handleCatalogInterpret(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Text string `json:"text"`
@@ -29,21 +34,21 @@ func (h *Handler) handleCatalogInterpret(w http.ResponseWriter, r *http.Request)
 	}
 	client := llm.NewClient(llm.ClientOptions{Config: h.deps.Config.Get().LLM})
 	if !client.Enabled() {
-		writeError(w, 501, "not_configured", "Use the built-in filter interpreter")
+		writeError(w, 501, "not_configured", "AI filters are unavailable; use title search or filter chips")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	out, err := client.Chat(ctx, []llm.Message{{Role: "system", Content: catalogInterpretGuide}, {Role: "user", Content: input.Text}}, true)
 	if err != nil {
-		writeError(w, 502, "interpretation_unavailable", "Use the built-in filter interpreter")
+		writeError(w, 502, "interpretation_unavailable", "AI filters are unavailable; use title search or filter chips")
 		return
 	}
 	var result struct {
 		Chips []catalogChip `json:"chips"`
 	}
 	if len(out) > 16384 || json.Unmarshal([]byte(out), &result) != nil || len(result.Chips) == 0 || len(result.Chips) > 24 {
-		writeError(w, 502, "invalid_interpretation", "Use the built-in filter interpreter")
+		writeError(w, 502, "invalid_interpretation", "AI filters are unavailable; use title search or filter chips")
 		return
 	}
 	allowed := map[string]bool{}
@@ -52,7 +57,7 @@ func (h *Handler) handleCatalogInterpret(w http.ResponseWriter, r *http.Request)
 	}
 	for _, c := range result.Chips {
 		if !allowed[c.Field] || (c.Op != "is" && c.Op != "min" && c.Op != "max") || strings.TrimSpace(c.Value) == "" || len(c.Value) > 256 {
-			writeError(w, 502, "invalid_interpretation", "Use the built-in filter interpreter")
+			writeError(w, 502, "invalid_interpretation", "AI filters are unavailable; use title search or filter chips")
 			return
 		}
 	}

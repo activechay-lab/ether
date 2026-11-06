@@ -54,6 +54,7 @@ func (h *Handler) collectionRoutes(mux *http.ServeMux, api func(string, http.Han
 
 	api("POST /api/catalog/visibility/preview", h.handleVisibilityPreview)
 	api("GET /api/catalog/browse", h.handleCatalogBrowse)
+	api("GET /api/catalog/interpret", h.handleCatalogInterpretCapability)
 	api("POST /api/catalog/interpret", h.handleCatalogInterpret)
 	api("GET /api/catalog/search", h.handleCatalogSearch)
 	api("GET /api/catalog/facets", h.handleCatalogFacets)

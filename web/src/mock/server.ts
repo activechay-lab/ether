@@ -1,3 +1,4 @@
+import { interpretDemo } from "./catalogInterpret";
 import { matchesCatalogFilter } from "./catalogFilter";
 import { createOnAirMock } from "./onair";
 /**
@@ -3442,6 +3443,12 @@ export function createFakeServer(opts: FakeOptions = {}) {
           shown: shown.slice(0, 48).map(card),
         });
       }
+      case "GET /catalog/interpret":
+        return json({ enabled: Boolean(state.config.llm.enabled && state.config.llm.model) });
+      case "POST /catalog/interpret":
+        return state.config.llm.enabled
+          ? json({ chips: interpretDemo((body as { text: string }).text || "") })
+          : err(501, "not_configured", "AI filters are unavailable");
       case "GET /catalog/browse": {
         const needle = (q.get("q") ?? "").toLowerCase();
         const advanced = JSON.parse(q.get("filter") || "{}");
