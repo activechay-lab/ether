@@ -2,6 +2,8 @@ package clusterplayback
 
 import (
 	"context"
+	"encoding/json"
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/generationfence"
 	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 	"io"
@@ -80,7 +82,7 @@ func (r *Runtime) deliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "scope", 400)
 		return
 	}
-	guarded := r.fencedDelivery(w, q, rt)
+	guarded := r.fencedPublicDelivery(w, q, rt)
 	defer guarded.Close()
 	handler(guarded, clone, q.Header.Get(deliveryProtocol))
 }
@@ -150,7 +152,7 @@ func (r *Runtime) ForwardMedia(w http.ResponseWriter, q *http.Request, id, proto
 		http.Error(w, "delivery unavailable", 502)
 		return true
 	}
-	guarded := r.fencedDelivery(w, q, rt)
+	guarded := r.fencedPublicDelivery(w, q, rt)
 	defer guarded.Close()
 	w = guarded
 	w.WriteHeader(response.StatusCode)
@@ -185,6 +187,12 @@ func (r *Runtime) deliveryAuthorityDeadline(ctx context.Context, expected Route)
 	return time.Time{}, nil
 }
 func (r *Runtime) fencedDelivery(w http.ResponseWriter, q *http.Request, route Route) *generationfence.Writer {
+	return r.fencedDeliveryResolved(w, q, route, nil)
+}
+
+// Resolve at first output, after any encoder wait. A successful durable check
+// pins the response; revalidation never changes its generation mid-body.
+func (r *Runtime) fencedDeliveryResolved(w http.ResponseWriter, q *http.Request, route Route, resolve func() (Route, error)) *generationfence.Writer {
 	var deadline time.Time
 	return &generationfence.Writer{ResponseWriter: w, Watch: func(fn func()) func() { return r.watchAuthority(route.Fence.Session, fn) }, LocalCheck: func() error {
 		if !deadline.IsZero() && !time.Now().Before(deadline) {
@@ -201,11 +209,70 @@ func (r *Runtime) fencedDelivery(w http.ResponseWriter, q *http.Request, route R
 		}
 		return nil
 	}, Check: func() error {
+		if resolve != nil {
+			current, err := resolve()
+			if err != nil {
+				return err
+			}
+			route = current
+		}
 		until, err := r.deliveryAuthorityDeadline(q.Context(), route)
+		if err == nil {
+			resolve = nil
+		}
 		if err == nil && !until.IsZero() {
 			now := time.Now()
 			deadline = now.Add(until.Sub(now))
 		}
 		return err
 	}}
+}
+
+// Only the stable recovery session may cross a recorded encoder replacement
+// before headers. Raw worker and ordinary delivery writers remain exact-fenced.
+func (r *Runtime) fencedPublicDelivery(w http.ResponseWriter, q *http.Request, expected Route) *generationfence.Writer {
+	return r.fencedDeliveryResolved(w, q, expected, func() (Route, error) {
+		current, err := r.route(q.Context(), expected.Fence.Session)
+		if err != nil {
+			return Route{}, err
+		}
+		if current.Fence == expected.Fence {
+			return expected, nil
+		}
+		if expected.Fence.Generation == 0 || current.Viewer != expected.Viewer || current.Revision != expected.Revision || current.Fence.Controller != expected.Fence.Controller {
+			return Route{}, ErrDenied
+		}
+		if current.Fence.Generation <= expected.Fence.Generation || current.Fence.Generation-expected.Fence.Generation > int64(r.o.HistoryCapacity) {
+			return Route{}, ErrDenied
+		}
+		// Delivery replicas have no local execution map. Prove the exact sequence
+		// of committed recovery transitions in one indexed durable read instead.
+		rows, err := r.o.DB.QueryContext(q.Context(), `SELECT decision FROM clusterplayback_recovery_decisions WHERE cluster=? AND session=? AND generation>? AND generation<=? ORDER BY generation`, r.o.Self.Cluster, expected.Fence.Session, expected.Fence.Generation, current.Fence.Generation)
+		if err != nil {
+			return Route{}, err
+		}
+		defer rows.Close()
+		fence := expected.Fence
+		for rows.Next() {
+			var raw string
+			var decision struct {
+				Previous, Next Route
+				Request        core.HLSRequest
+			}
+			if rows.Scan(&raw) != nil || len(raw) > maxAdmissionBytes || json.Unmarshal([]byte(raw), &decision) != nil {
+				return Route{}, ErrDenied
+			}
+			if decision.Previous.Fence != fence || decision.Next.Fence.Generation != fence.Generation+1 || decision.Next.Fence.Session != fence.Session || decision.Next.Fence.Controller != fence.Controller || decision.Next.Viewer != expected.Viewer || decision.Next.Revision != expected.Revision || decision.Request.Decision.Kind != core.DecisionTranscode || decision.Request.Decision.VideoCopy || decision.Request.Resume == nil || decision.Request.Resume.Generation != uint64(decision.Next.Fence.Generation) {
+				return Route{}, ErrDenied
+			}
+			fence = decision.Next.Fence
+		}
+		if err = rows.Err(); err != nil {
+			return Route{}, err
+		}
+		if fence != current.Fence {
+			return Route{}, ErrDenied
+		}
+		return current, nil
+	})
 }

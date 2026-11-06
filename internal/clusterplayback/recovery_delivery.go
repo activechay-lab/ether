@@ -98,6 +98,9 @@ func (s *recoverySession) fetch(w http.ResponseWriter, q *http.Request, rung str
 		// bytes. A partitioned former encoder cannot win a late response race.
 		rec, lookupErr := s.r.o.Placement.Lookup(ctx, s.route.Fence.Session)
 		if lookupErr == nil && rec.Authority && !rec.Retired && out.allowedFence(rec.Fence, n) && finished && !response.overflow && response.status != 0 && response.status != 503 && response.status != 404 {
+			guarded := s.r.fencedDeliveryResolved(w, q, out.route, func() (Route, error) { return out.retainedDeliveryRoute(ctx, n) })
+			defer guarded.Close()
+			w = guarded
 			for k, v := range response.headers {
 				w.Header()[k] = v
 			}
@@ -144,7 +147,9 @@ func (s *recoverySession) ServePlaylist(w http.ResponseWriter, q *http.Request) 
 		http.Error(w, "encoder recovery pending", 503)
 		return
 	}
-	out.ServePlaylist(w, q)
+	guarded := s.r.fencedDelivery(w, q, out.route)
+	defer guarded.Close()
+	out.ServePlaylist(guarded, q)
 }
 
 func (w *pendingSegment) complete(method string) bool {
@@ -175,7 +180,9 @@ func (s *recoverySession) ServeRungPlaylist(w http.ResponseWriter, q *http.Reque
 		http.Error(w, "encoder recovery pending", 503)
 		return
 	}
-	out.Session.ServeRungPlaylist(w, q, rung)
+	guarded := s.r.fencedDelivery(w, q, out.route)
+	defer guarded.Close()
+	out.Session.ServeRungPlaylist(guarded, q, rung)
 }
 func (s *recoverySession) Rungs() []core.HLSRung {
 	if out := s.current(); out != nil {

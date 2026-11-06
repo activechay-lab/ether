@@ -118,7 +118,7 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "scope", 400)
 		return
 	}
-	guarded := r.fencedDelivery(w, q, route)
+	guarded := r.fencedPublicDelivery(w, q, route)
 	defer guarded.Close()
 	handler.ServeHTTP(guarded, clone)
 }
@@ -190,7 +190,7 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 			w.Header()[h] = values
 		}
 	}
-	guarded := r.fencedDelivery(w, q, route)
+	guarded := r.fencedPublicDelivery(w, q, route)
 	defer guarded.Close()
 	w = guarded
 	w.WriteHeader(response.StatusCode)

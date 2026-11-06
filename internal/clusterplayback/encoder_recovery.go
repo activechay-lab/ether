@@ -213,6 +213,7 @@ func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
 		}
 		return err
 	}
+	r.routeChanged(ctx, route.Fence.Session)
 	if snapshot.State.Generation != uint64(route.Fence.Generation) {
 		err = r.o.OutputBuffer.AdvanceGeneration(old.Fence.Session, snapshot.State, uint64(route.Fence.Generation))
 	}

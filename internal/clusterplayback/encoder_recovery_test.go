@@ -193,7 +193,15 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			waiting := make(chan *httptest.ResponseRecorder, 1)
 			go func() {
 				w := httptest.NewRecorder()
-				session.ServeSegment(w, httptest.NewRequest("GET", "https://public/wait", nil).WithContext(ctx), 2)
+				request := httptest.NewRequest("GET", "https://public/wait", nil).WithContext(ctx)
+				// Both public forwarding and controller handlers capture the old route
+				// before waiting. The source runtime supplies a replica with no local
+				// execution map, so successor authorization must use durable history.
+				forwarded := runtimes[0].fencedPublicDelivery(w, request, old.route)
+				defer forwarded.Close()
+				controller := front.fencedPublicDelivery(forwarded, request, old.route)
+				defer controller.Close()
+				session.ServeSegment(controller, request, 2)
 				waiting <- w
 			}()
 			select {
@@ -210,6 +218,13 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				t.Fatalf("waiting segment: %d", response.Code)
 			}
 			fetched[2]++
+			// Explicitly retry a retained historical segment after the generation
+			// switch: its original bytes are valid under current delivery authority.
+			historical := httptest.NewRecorder()
+			session.ServeSegment(historical, httptest.NewRequest("GET", "https://public/history", nil).WithContext(ctx), 0)
+			if historical.Code != 200 || !bytes.Equal(historical.Body.Bytes(), data) {
+				t.Fatalf("historical segment after recovery: %d", historical.Code)
+			}
 
 			record, err := p.Lookup(ctx, q.SessionID)
 			if err != nil || record.Generation != 2 || record.Target.NodeID != "b" {
