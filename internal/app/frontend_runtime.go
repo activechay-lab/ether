@@ -357,6 +357,12 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		}
 	}
 	if a.deployment != nil && a.deployment.playback != nil {
+		// Resolve the current protocol mounts through the original public dispatcher.
+		if receiver, ok := a.deployment.playback.(interface{ BindMediaBrowserDelivery(http.Handler) error }); ok {
+			if err := receiver.BindMediaBrowserDelivery(r.plexHandler()); err != nil {
+				return nil, err
+			}
+		}
 		if receiver, ok := a.deployment.playback.(interface{ BindPlexDelivery(http.Handler) error }); ok {
 			// Replay the entire public protocol handler, including current auth/grant
 			// middleware and dynamic mount. Never bind a bare representation callback.
