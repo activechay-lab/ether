@@ -1,0 +1,1 @@
+function t(n={}){return`/collections/new?${new URLSearchParams({...n,draft:`new-${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`})}`}function o(n,e){return t({pluginSource:n,name:e})}export{t as n,o as p};
