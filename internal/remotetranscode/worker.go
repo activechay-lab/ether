@@ -157,7 +157,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if m.Op == "start" {
-		if m.Start == nil || len(m.Start.ReleaseID) > 512 || m.Start.Identity != m.Identity || len(m.Start.Grant) == 0 || len(m.Start.Grant) > 4096 || !SupportsRequest(core.HLSRequest{RecoveryStart: core.CloneRecoveryStart(m.Start.RecoveryStart), SoftSubtitleStream: m.Start.SoftSubtitleStream, Protocol: m.Start.Protocol, ReleaseID: m.Start.ReleaseID, Info: startInfo(*m.Start), Decision: m.Start.Decision, StartOffset: m.Start.Offset, SegmentDuration: m.Start.SegmentDuration}, w.opts.Capabilities) {
+		if m.Start == nil || len(m.Start.ReleaseID) > 512 || m.Start.Identity != m.Identity || len(m.Start.Grant) == 0 || len(m.Start.Grant) > 4096 || !SupportsRequest(core.HLSRequest{Resume: cloneResume(m.Start.Resume), RecoveryStart: core.CloneRecoveryStart(m.Start.RecoveryStart), SoftSubtitleStream: m.Start.SoftSubtitleStream, Protocol: m.Start.Protocol, ReleaseID: m.Start.ReleaseID, Info: startInfo(*m.Start), Decision: m.Start.Decision, StartOffset: m.Start.Offset, SegmentDuration: m.Start.SegmentDuration}, w.opts.Capabilities) {
 			http.Error(out, "unsupported start", 422)
 			return
 		}
@@ -312,7 +312,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	if backend, ok := w.opts.Encoder.(interface{ SupportsDistributedRequest(core.HLSRequest) bool }); ok {
 		var planStart Start
 		_ = json.Unmarshal(encoded, &planStart)
-		plan := core.HLSRequest{RecoveryStart: core.CloneRecoveryStart(planStart.RecoveryStart), ReleaseID: planStart.ReleaseID, Info: startInfo(planStart), Decision: planStart.Decision, StartOffset: planStart.Offset, SegmentDuration: planStart.SegmentDuration, Protocol: planStart.Protocol, SoftSubtitleStream: planStart.SoftSubtitleStream, RequireIndependentProof: planStart.IndependentProof}
+		plan := core.HLSRequest{Resume: cloneResume(planStart.Resume), RecoveryStart: core.CloneRecoveryStart(planStart.RecoveryStart), ReleaseID: planStart.ReleaseID, Info: startInfo(planStart), Decision: planStart.Decision, StartOffset: planStart.Offset, SegmentDuration: planStart.SegmentDuration, Protocol: planStart.Protocol, SoftSubtitleStream: planStart.SoftSubtitleStream, RequireIndependentProof: planStart.IndependentProof}
 		if !backend.SupportsDistributedRequest(plan) {
 			http.Error(out, "backend plan unsupported", 422)
 			return
@@ -393,7 +393,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 		// Backend receives separate nested slices/pointers; source renewal and duplicate
 		// starts continue comparing the original immutable payload.
 		backendInfo, backendDecision, backendSoft := startInfo(backendStart), backendStart.Decision, backendStart.SoftSubtitleStream
-		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{RecoveryStart: core.CloneRecoveryStart(backendStart.RecoveryStart), ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), ManifestSessionID: s.Identity.Session, InputURL: source.URL, InputLease: input, Info: backendInfo, Decision: backendDecision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, SoftSubtitleStream: backendSoft, Protocol: s.Protocol})
+		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{Resume: cloneResume(backendStart.Resume), RecoveryStart: core.CloneRecoveryStart(backendStart.RecoveryStart), ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), ManifestSessionID: s.Identity.Session, InputURL: source.URL, InputLease: input, Info: backendInfo, Decision: backendDecision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, SoftSubtitleStream: backendSoft, Protocol: s.Protocol})
 	}
 	if err == nil && session != nil {
 		if w.opts.Capabilities.Controls {
