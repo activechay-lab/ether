@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Play, Pause, RotateCcw, Volume2, VolumeX, X } from "lucide-react";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { t } from "../../../../i18n";
+import { useLocale } from "../../../../i18n/react";
 import { onair, type Bindings, type Reel } from "../model";
 import { studio, type Style } from "../studio-model";
 import { StyleThumbnail } from "./RemixPanel";
@@ -30,6 +31,7 @@ export function SequencePreview({
     void onair.bindings({ channel: channelId, at }).then(setBindings);
     void onair.reels().then(setReels);
   }, [channelId, at]);
+  const { locale } = useLocale();
   const chapters = useMemo(() => {
     const scene = (role: string) => style.scenes.find((x) => x.role === role && x.enabled);
     const reel = reels
@@ -62,7 +64,7 @@ export function SequencePreview({
             ? Math.max(1, (c.reel?.durationMs ?? 8000) / 1000)
             : 6,
       }));
-  }, [style, reels, channelId]);
+  }, [style, reels, channelId, locale]);
   const total = chapters.reduce((n, c) => n + c.duration, 0);
   let start = 0,
     index = 0;
