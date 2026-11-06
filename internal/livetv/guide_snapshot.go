@@ -294,7 +294,7 @@ func (s *Service) ProgrammesSnapshot(ctx context.Context, u *core.User, id strin
 	s.virtualGuide.mu.RLock()
 	entry := s.virtualGuide.entries[id]
 	epoch, revision := s.virtualGuide.epoch, s.virtualGuide.revision
-	if view == SnapshotTimeline && entry != nil && (from.Before(entry.from) || until.After(entry.until)) {
+	if view == SnapshotTimeline && entry != nil && entry.channel.Personal == nil && (from.Before(entry.from) || until.After(entry.until)) {
 		entry = s.virtualGuide.timeline[id]
 	}
 	s.virtualGuide.mu.RUnlock()
