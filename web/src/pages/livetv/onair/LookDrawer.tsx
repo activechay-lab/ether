@@ -48,9 +48,7 @@ import { useStageClock } from "./editor/clock";
 import { usePreviewAudio } from "./editor/preview-audio";
 import { RemixPanel, StyleThumbnail } from "./editor/RemixPanel";
 import { SequencePreview } from "./editor/SequencePreview";
-function CreateTab(_p: { style: Style; onChange(style: Style): void; selectedSceneId?: string }) {
-  return <p className="p-6 text-sm text-fg-muted">{t("Describe a scene")}</p>;
-}
+import { CreateTab } from "./editor/CreateTab";
 
 export function LookDrawer({
   look,
