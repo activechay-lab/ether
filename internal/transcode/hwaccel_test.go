@@ -67,7 +67,7 @@ func TestDetectHW(t *testing.T) {
 		{name: "mac hevc test fails", goos: "darwin", mode: "", fail: []string{"hevc_videotoolbox"},
 			want: core.HWAccel{Name: AccelVideoToolbox, Encoders: []string{"h264_videotoolbox"}}},
 		{name: "linux auto: nvenc fails, qsv works", goos: "linux", mode: "auto", fail: []string{"h264_nvenc"},
-			want: core.HWAccel{Name: AccelQSV, Encoders: []string{"h264_qsv"}}},
+			want: core.HWAccel{Name: AccelQSV, Device: DefaultVAAPIDevice, Encoders: []string{"h264_qsv"}, QSVQualityModes: map[string][]string{"h264_qsv": {qsvLA, qsvICQ, qsvVBR}}, QSVBitrateModes: map[string][]string{"h264_qsv": {qsvVBR, qsvICQ, qsvLA}}}},
 		{name: "linux auto: only vaapi works", goos: "linux", mode: "auto", fail: []string{"h264_nvenc", "h264_qsv"}, vaapi: "/dev/dri/renderD129",
 			want: core.HWAccel{Name: AccelVAAPI, Encoders: []string{"h264_vaapi"}, Device: "/dev/dri/renderD129"},
 			checks: func(t *testing.T, fr *fakeRunner) {

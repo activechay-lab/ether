@@ -233,6 +233,7 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 	}
 	s.seekRampSeg = -1
 	spec := runSpec{
+		SilenceAudio:         s.silenceAudio,
 		NormalizeNegativeDTS: s.normalizeNegativeDTS,
 		RTXTimeline:          s.rtxTimeline,
 		AudioGainDB:          s.audioMatch.gain,
@@ -256,7 +257,11 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		FastStart:            rp.fastStart,
 		Rate:                 rp.rate,
 	}
+	if spec.Decision.VideoCodec == s.qsvCodec && spec.Rate.Quality == s.qsvQuality {
+		spec.QSVMode = s.qsvMode
+	}
 	s.normalizeNegativeDTS = false
+	s.silenceAudio = false
 	if s.softSubtitleStream != nil && s.softSubtitleInputIndex >= 0 {
 		spec.SoftSubtitleIndex = s.softSubtitleInputIndex
 		var pathErr error
@@ -457,6 +462,7 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 	if err == nil && proc == nil {
 		proc, err = s.m.runner.Start(Command{Path: s.m.ffmpeg, Args: args, Dir: runDir, Stdout: stdout, Stderr: stderr})
 	}
+	s.encoder.fenceProcess(proc)
 	err = redactScopedCommandError(err, spec)
 	s.mu.Lock()
 	if s.starting == starting {

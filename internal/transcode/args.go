@@ -15,6 +15,8 @@ import (
 
 // runSpec is everything needed to build one ffmpeg HLS run.
 type runSpec struct {
+	QSVMode      string // session-local retry override; never mutates shared capabilities
+	SilenceAudio bool
 	// Only a retry of an initial run whose muxer wrote a wrapped tfdt.
 	NormalizeNegativeDTS bool
 	SoftSubtitlePath     string
@@ -239,12 +241,22 @@ func buildCodecArgs(s runSpec) []string {
 	d := s.Decision
 	v := s.Info.Video()
 	a := findStream(s.Info, d.AudioStream, "audio")
+	if s.SilenceAudio && a != nil {
+		if d.AudioCopy {
+			d.AudioCodec, d.AudioChannels, d.AudioSampleRate = a.Codec, a.Channels, a.SampleRate
+		}
+		d.AudioCopy = false
+	}
+
 	// An ADTS PCE may appear only in the source's first audio packet. Seeking
 	// the input past it leaves the AAC decoder without its channel layout.
 	// Prime the decoder with a short prefix, then seek the same source. When
 	// that is unavailable, only local/short seeks may decode from the start.
-	pceOutputSeek := s.Protocol == core.ProtocolHLS && d.Container != ContainerMatroska && s.Start > 0 && s.Info.Container == "mpegts" && a != nil && a.AACProgramConfig && !d.AudioCopy
-	pceInput, pcePrelude, pceBounded := pceSeekInput(s)
+	pceOutputSeek := !s.SilenceAudio && s.Protocol == core.ProtocolHLS && d.Container != ContainerMatroska && s.Start > 0 && s.Info.Container == "mpegts" && a != nil && a.AACProgramConfig && !d.AudioCopy
+	pceInput, pcePrelude, pceBounded := "", time.Duration(0), false
+	if !s.SilenceAudio {
+		pceInput, pcePrelude, pceBounded = pceSeekInput(s)
+	}
 	segDur := s.SegDur
 	if segDur <= 0 {
 		segDur = DefaultSegmentDuration
@@ -303,6 +315,9 @@ func buildCodecArgs(s runSpec) []string {
 		args = append(args, "-fflags", "+genpts")
 	}
 	vp := planVideo(s, v)
+	if _, hw := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features); hw && s.Accel.Name == AccelQSV && s.Accel.Device != "" && transcodeVideo {
+		args = append(args, "-qsv_device", s.Accel.Device)
+	}
 	args = append(args, vp.inputArgs...)
 	args = append(args, inputTimestampArgs(s)...)
 	if s.LoopInput {
@@ -333,6 +348,21 @@ func buildCodecArgs(s runSpec) []string {
 		}
 		args = append(args, "-i", textSub.ExternalURL)
 	}
+	silenceInput := 1
+	if textSub != nil && textSub.External && textSub.ExternalURL != "" {
+		silenceInput++
+	}
+	if s.SilenceAudio && a != nil {
+		layout := fmt.Sprintf("%dc", decisionAudioChannels(d, a))
+		if s.Decision.AudioCopy {
+			switch a.ChannelLayout {
+			case "mono", "stereo", "2.1", "3.0", "4.0", "quad", "5.0", "5.0(side)", "5.1", "5.1(side)", "6.1", "7.1", "7.1(wide)":
+				layout = a.ChannelLayout
+			}
+		}
+
+		args = append(args, "-re", "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=r=%d:cl=%s", decisionAudioRate(d), layout))
+	}
 	if pceOutputSeek {
 		// Output seeking rebases packet timestamps even with -copyts. Put
 		// the result back on the title clock used by the segment slotter.
@@ -352,7 +382,11 @@ func buildCodecArgs(s runSpec) []string {
 		}
 	}
 	if a != nil {
-		args = append(args, "-map", fmt.Sprintf("0:%d", a.Index))
+		if s.SilenceAudio {
+			args = append(args, "-map", fmt.Sprintf("%d:a:0", silenceInput))
+		} else {
+			args = append(args, "-map", fmt.Sprintf("0:%d", a.Index))
+		}
 	}
 	args = append(args, "-map_metadata", "-1", "-map_chapters", "-1", "-dn")
 	switch {
@@ -1013,15 +1047,11 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 		} else if pic.tenBit {
 			e = append(e, "-profile:v", "main10")
 		}
-	case "h264_qsv", "hevc_qsv":
-		if s.Rate.Quality {
-			e = append(e, "-preset", "veryfast", "-global_quality", "23", "-maxrate", maxr, "-bufsize", buf, "-look_ahead", "1")
-		} else {
-			e = append(e, "-preset", "veryfast", "-b:v", b, "-maxrate", maxr, "-bufsize", buf, "-look_ahead", "0")
-		}
+	case "h264_qsv", "hevc_qsv", "av1_qsv":
+		e = append(e, qsvRateArgs(qsvMode(s, enc), b, maxr, buf)...)
 		if enc == "h264_qsv" {
 			e = append(e, "-profile:v", "high")
-		} else if pic.tenBit {
+		} else if enc == "hevc_qsv" && pic.tenBit {
 			e = append(e, "-profile:v", "main10")
 		}
 	case "h264_vaapi", "hevc_vaapi":

@@ -23,8 +23,23 @@ func validateNodeSettings(server config.Server, database config.Database) error 
 // Deployment is mandatory for isolated roles; plain config edits never bypass
 // the historical fail-closed guard or create an unauthenticated private service.
 func (a *App) validateRuntimeSettings(server config.Server, database config.Database) error {
-	if a.deployment != nil && len(server.NodeRoles) == 1 && server.NodeRoles[0] == config.RoleTranscode {
+	if a.deployment != nil && specialistSingletonRole(server.NodeRoles) {
 		return server.ValidateNodeSettings(database)
 	}
 	return validateNodeSettings(server, database)
+}
+
+// Kubernetes/compose deployments run each specialist as exactly one role
+// (server, source, transcode or delivery). Background-only and combined
+// subsets have no complete construction/route contract and stay refused.
+func specialistSingletonRole(roles config.NodeRoles) bool {
+	if len(roles) != 1 {
+		return false
+	}
+	switch roles[0] {
+	case config.RoleServer, config.RoleSource, config.RoleTranscode, config.RoleDelivery:
+		return true
+	default:
+		return false
+	}
 }

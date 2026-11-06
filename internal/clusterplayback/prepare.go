@@ -55,7 +55,7 @@ func (r *Runtime) PrepareSource(ctx context.Context, owner nodewire.Identity, q 
 	return reply.Prepared, e
 }
 func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *PrepareRequest) (sourceResponse, error) {
-	if q == nil || q.Protocol != "hls" || q.Viewer <= 0 || q.Operation == "" || len(q.Operation) > 128 || r.o.Eligible(ctx, peer, config.RoleServer) != nil || r.o.Eligible(ctx, r.o.Self, config.RoleSource) != nil {
+	if r.o.Playback == nil || q == nil || q.Protocol != "hls" || q.Viewer <= 0 || q.Operation == "" || len(q.Operation) > 128 || r.o.Eligible(ctx, peer, config.RoleServer) != nil || r.o.Eligible(ctx, r.o.Self, config.RoleSource) != nil {
 		return sourceResponse{}, ErrDenied
 	}
 	raw, e := json.Marshal(q)

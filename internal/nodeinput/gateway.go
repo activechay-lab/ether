@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/generationfence"
 	"github.com/braedonsaunders/ether/internal/nodesource"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 )
@@ -25,7 +26,12 @@ import (
 var ErrDenied = errors.New("nodeinput: unavailable input")
 
 type Options struct {
+	// ValidateScope checks current execution generation at the local byte consumer.
+	ValidateScope         func(context.Context, nodesource.Scope) error
 	Client                *nodesource.Client
+	Recover               func(context.Context, nodesource.Grant) (*nodesource.Client, nodesource.Grant, error)
+	ReadTimeout           time.Duration
+	MaxRecoveries         int
 	Capacity, MaxRequests int
 	RequestTimeout        time.Duration
 }
@@ -46,6 +52,10 @@ type Gateway struct {
 // Input is an opaque, exact lease and trusted gateway capability. Never serialize
 // it. String formatting deliberately hides its URL, grant, and scope.
 type Input struct {
+	readMu                    sync.RWMutex
+	grant                     nodesource.Grant
+	recoveries                int
+	ownedClients              []*nodesource.Client
 	g                         *Gateway
 	id                        remotetranscode.Identity
 	handle                    string
@@ -65,6 +75,8 @@ type Input struct {
 	renewing                  bool
 	initialDeadline           time.Time
 	sourceUntil               time.Time
+	deadline                  time.Time
+	timer                     *time.Timer
 }
 
 func (*Gateway) String() string   { return "nodeinput.Gateway[redacted]" }
@@ -76,12 +88,21 @@ func New(o Options) (*Gateway, error) {
 	if o.Client == nil || o.Capacity < 1 || o.Capacity > 4096 || o.MaxRequests < 1 || o.MaxRequests > 4096 || o.RequestTimeout <= 0 || o.RequestTimeout > time.Minute {
 		return nil, ErrDenied
 	}
+	if o.ReadTimeout == 0 {
+		o.ReadTimeout = o.RequestTimeout
+	}
+	if o.ReadTimeout <= 0 || o.ReadTimeout > o.RequestTimeout || o.MaxRecoveries < 0 || o.MaxRecoveries > 8 {
+		return nil, ErrDenied
+	}
+	if o.Recover != nil && o.MaxRecoveries == 0 {
+		o.MaxRecoveries = 3
+	}
 	l, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		return nil, errors.New("nodeinput: loopback bind failed")
 	}
 	g := &Gateway{o: o, listener: &limitedListener{Listener: l, max: o.MaxRequests}, entries: make(map[string]*Input)}
-	g.server = &http.Server{Handler: g, ReadHeaderTimeout: o.RequestTimeout, ReadTimeout: o.RequestTimeout, WriteTimeout: o.RequestTimeout, IdleTimeout: o.RequestTimeout, MaxHeaderBytes: 8192, ErrorLog: log.New(io.Discard, "", 0)}
+	g.server = &http.Server{Handler: g, ReadHeaderTimeout: o.RequestTimeout, ReadTimeout: o.RequestTimeout, WriteTimeout: 0, IdleTimeout: o.RequestTimeout, MaxHeaderBytes: 8192, ErrorLog: log.New(io.Discard, "", 0)}
 	return g, nil
 }
 
@@ -124,7 +145,7 @@ func (g *Gateway) Admit(ctx context.Context, s remotetranscode.Start, grant node
 	}
 	key := hex.EncodeToString(random[:])
 	life, cancel := context.WithCancel(context.Background())
-	in := &Input{g: g, id: s.Identity, handle: s.Grant, scope: grant.Scope, size: size, key: key, initialDeadline: s.Expires, ctx: life, cancel: cancel, done: make(chan struct{})}
+	in := &Input{grant: grant, g: g, id: s.Identity, handle: s.Grant, scope: grant.Scope, size: size, key: key, initialDeadline: s.Expires, ctx: life, cancel: cancel, done: make(chan struct{})}
 	in.url = "http://" + g.listener.Addr().String() + "/input/" + key
 	g.mu.Lock()
 	if g.closed || len(g.entries) >= g.o.Capacity {
@@ -133,6 +154,7 @@ func (g *Gateway) Admit(ctx context.Context, s remotetranscode.Start, grant node
 		return nil, ErrDenied
 	}
 	g.entries[key] = in
+	in.armLocked(s.Expires)
 	end, _ := in.tracker.Begin() // Registered before Open, including its error path.
 	g.mu.Unlock()
 	combined, cancelOpen := context.WithCancel(ctx)
@@ -185,6 +207,9 @@ func (in *Input) HeadersForInput(raw string) (map[string]string, error) {
 func (in *Input) sealLocked() {
 	if !in.sealed {
 		in.sealed = true
+		if in.timer != nil {
+			in.timer.Stop()
+		}
 		in.cancel()
 		in.drained = in.tracker.Seal()
 	}
@@ -227,6 +252,10 @@ func (g *Gateway) Reconcile() Accounting {
 				}
 				if ready {
 					in.reader = nil
+					for _, c := range in.ownedClients {
+						c.Close()
+					}
+					in.ownedClients = nil
 					in.complete = true
 					finished = append(finished, in)
 				}
@@ -268,7 +297,12 @@ type RenewalEvidence struct {
 // Failed attempts may retry only their exact payload against fresh authority.
 func (in *Input) Renew(ctx context.Context, n remotetranscode.Renewal, authority func(context.Context, nodesource.Grant) (nodesource.Grant, error)) (RenewalEvidence, error) {
 	g := in.g
+	in.readMu.RLock()
+	defer in.readMu.RUnlock()
 	g.mu.Lock()
+	if !time.Now().Before(in.deadline) {
+		in.sealLocked()
+	}
 	if in.sealed || in.reader == nil || in.renewing || ctx.Err() != nil || n.Identity != in.id || authority == nil || n.Operation == 0 || n.PreviousVersion == ^uint64(0) || n.Operation != n.PreviousVersion+1 || !n.Deadline.After(n.PreviousDeadline) {
 		g.mu.Unlock()
 		return RenewalEvidence{}, ErrDenied
@@ -300,17 +334,22 @@ func (in *Input) Renew(ctx context.Context, n remotetranscode.Renewal, authority
 	defer cancel()
 	defer stop()
 	var until time.Time
+	var acceptedGrant nodesource.Grant
 	err := reader.Renew(combined, func(c context.Context, old nodesource.Grant) (nodesource.Grant, error) {
 		next, e := authority(c, old)
 		if e != nil || next.Expires.Before(n.Deadline) {
 			return nodesource.Grant{}, ErrDenied
 		}
 		until = next.Expires
+		acceptedGrant = next
 		return next, nil
 	})
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	in.renewing = false
+	if !time.Now().Before(in.deadline) {
+		in.sealLocked()
+	}
 	if err != nil || in.sealed || in.reader != reader || in.renewal != previous {
 		return RenewalEvidence{}, ErrDenied
 	}
@@ -319,6 +358,8 @@ func (in *Input) Renew(ctx context.Context, n remotetranscode.Renewal, authority
 	accepted := n
 	in.renewal = &accepted
 	in.sourceUntil = until
+	in.grant = acceptedGrant
+	in.armLocked(n.Deadline)
 	if combined.Err() != nil {
 		return RenewalEvidence{}, ErrDenied
 	}
@@ -351,14 +392,37 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.active++
-	reader := in.reader
 	g.mu.Unlock()
 	defer func() { end(); g.mu.Lock(); g.active--; g.mu.Unlock() }()
-	ctx, cancel := context.WithTimeout(r.Context(), g.o.RequestTimeout)
+	ctx, cancel := context.WithCancel(r.Context())
+	if g.o.Recover == nil {
+		cancel()
+		ctx, cancel = context.WithTimeout(r.Context(), g.o.RequestTimeout)
+	}
+	responseControl := http.NewResponseController(w)
+	_ = responseControl.SetWriteDeadline(time.Now().Add(g.o.RequestTimeout))
 	stop := context.AfterFunc(in.ctx, cancel)
 	defer cancel()
 	defer stop()
 	ctx = core.WithReadRetirement(ctx, &in.tracker)
+	w = &generationfence.Writer{ResponseWriter: w, Check: func() error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		g.mu.Lock()
+		if !time.Now().Before(in.deadline) {
+			in.sealLocked()
+		}
+		sealed := in.sealed
+		g.mu.Unlock()
+		if sealed {
+			return ErrDenied
+		}
+		if g.o.ValidateScope != nil {
+			return in.validateScope(ctx)
+		}
+		return nil
+	}}
 	start, length, status, err := byteRange(r.Header.Get("Range"), in.size)
 	w.Header().Set("Accept-Ranges", "bytes")
 	if err != nil {
@@ -381,11 +445,12 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		want := min(int64(len(buf)), length)
-		n, e := reader.ReadAtContext(ctx, buf[:want], start)
+		n, e := in.readAt(ctx, buf[:want], start)
 		if ctx.Err() != nil || e != nil {
 			return
 		}
 		if n > 0 {
+			_ = responseControl.SetWriteDeadline(time.Now().Add(g.o.RequestTimeout))
 			written, we := w.Write(buf[:n])
 			if we != nil || written != n {
 				return
@@ -479,4 +544,21 @@ func (c *countedConn) Close() error {
 	err := c.Conn.Close()
 	c.once.Do(func() { c.owner.mu.Lock(); c.owner.active--; c.owner.mu.Unlock() })
 	return err
+}
+
+// The timer owns a monotonic deadline; stale callbacks cannot seal a renewal.
+func (in *Input) armLocked(expiry time.Time) {
+	if in.timer != nil {
+		in.timer.Stop()
+	}
+	now := time.Now()
+	in.deadline = now.Add(expiry.Sub(now))
+	cap := in.deadline
+	in.timer = time.AfterFunc(time.Until(cap), func() {
+		in.g.mu.Lock()
+		defer in.g.mu.Unlock()
+		if in.deadline == cap {
+			in.sealLocked()
+		}
+	})
 }
