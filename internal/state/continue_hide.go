@@ -35,7 +35,7 @@ func (s *State) HideContinue(ctx context.Context, uid int64, key core.RatingKey)
 	if err := saveTx(ctx, tx, uid, cur); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO state_continue_hidden(user_id,item_key) VALUES(?,?)`, uid, int64(continueIdentity(key))); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO state_continue_hidden(user_id,item_key) VALUES(?,?) ON CONFLICT(user_id,item_key) DO NOTHING`, uid, int64(continueIdentity(key))); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
