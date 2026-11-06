@@ -182,7 +182,7 @@ def run(c, out):
                 process.kill(); process.wait()
         if fault_process is not None:
             try:
-                fault_process.communicate(input=b'', timeout=20)
+                fault_process.communicate(input=b'', timeout=min(180, max(1, c.get('restoreTimeoutSeconds', 150))))
             except subprocess.TimeoutExpired:
                 os.killpg(fault_process.pid, signal.SIGTERM)
                 try:

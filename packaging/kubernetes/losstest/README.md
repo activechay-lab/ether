@@ -175,3 +175,9 @@ For admission diagnosis, Plex supports `-max-video-bitrate`,
 `-skip-decision` comparison is always labeled `diagnostic-only` when media
 plays; it can never pass acceptance. Decision followed by start remains the
 primary Plex flow.
+
+Wrapper restoration has a separate `restoreTimeoutSeconds` bound (default150,
+maximum180) so an exact-container adapter can verify an absent old task and a
+ready replacement after kubelet recovery. This does not authorize targeting the
+replacement or infer ownership retirement. Simple command adapters retain the
+20-second command bound.
