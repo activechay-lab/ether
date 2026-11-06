@@ -212,7 +212,7 @@ def run(c, out):
             if process.poll() is None:
                 raise RuntimeError('player exceeded bounded window')
             report['playerExitCode'] = process.returncode
-    except Exception as error:
+    except (Exception, KeyboardInterrupt) as error:
         report['error'] = type(error).__name__ + ': ' + str(error)
     finally:
         if process and process.poll() is None:
@@ -330,6 +330,11 @@ def run(c, out):
 
 def main():
     os.umask(0o077)
+    def interrupted(_signal, _frame):
+        # Route service-manager termination through run()'s bounded cleanup.
+        raise KeyboardInterrupt()
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--config', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)
