@@ -797,6 +797,10 @@ export interface NowPlaying {
   id: string;
   key: string;
   title: string;
+  isLive: boolean;
+  channelId: string;
+  channelName: string;
+  channelNumber: string;
   user: string;
   device: string;
   product: string;
@@ -847,6 +851,8 @@ export function normalizeSessions(v: unknown): NowPlaying[] {
   return v.filter(isPlainObject).map((s) => {
     const info = (pick(s, "Info", "info") ?? {}) as Record<string, unknown>;
     const client = (pick(s, "Client", "client") ?? {}) as Record<string, unknown>;
+    const channel = pick(s, "liveChannel", "LiveChannel");
+    const liveChannel = isPlainObject(channel) ? channel : null;
     const resolution = (pick(s, "Resolution", "resolution") ?? {}) as Record<string, unknown>;
     const release = isPlainObject(resolution.release) ? resolution.release : {};
     const durationNs = num(pick(info, "duration", "Duration"));
@@ -873,6 +879,10 @@ export function normalizeSessions(v: unknown): NowPlaying[] {
       id: str(pick(s, "ID", "id")),
       key: String(pick(s, "Key", "key") ?? ""),
       title: str(pick(s, "TitleName", "titleName", "title")) || t("Untitled"),
+      isLive: liveChannel !== null,
+      channelId: liveChannel ? str(pick(liveChannel, "id", "ID")).trim() : "",
+      channelName: liveChannel ? str(pick(liveChannel, "name", "Name")).trim() : "",
+      channelNumber: liveChannel ? str(pick(liveChannel, "number", "Number")).trim() : "",
       user: str(pick(s, "Username", "username")) || t("Someone"),
       device:
         str(pick(client, "deviceName", "device")) ||
@@ -906,6 +916,11 @@ export function normalizeSessions(v: unknown): NowPlaying[] {
       subtitle: str(pick(s, "subtitle", "Subtitle")),
     };
   });
+}
+
+/** Selected channel, independent of the programme title. */
+export function channelLabel(s: Pick<NowPlaying, "channelName" | "channelNumber">): string {
+  return [s.channelNumber, s.channelName].filter(Boolean).join(" · ");
 }
 
 /**

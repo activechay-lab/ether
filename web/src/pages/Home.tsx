@@ -32,6 +32,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useApp, useLiveDashboard } from "../app-context";
 import { Artwork } from "../components/Artwork";
+import { SessionArtwork } from "../components/SessionArtwork";
 import { Meter, TimeBars } from "../components/charts";
 import { ErrorPanel, LoadingRows } from "../components/feedback";
 import { ServerPanel } from "../components/ServerPanel";
@@ -41,6 +42,7 @@ import { api } from "../lib/api";
 import type { ActivityDay, RowInsight, Viewer } from "../lib/contract";
 import { formatNumber, formatPercent, formatRate, relativeTime } from "../lib/format";
 import {
+  channelLabel,
   countsOverall,
   hasExemptDiagnostic,
   normalizeSessions,
@@ -336,14 +338,17 @@ function SessionCard({ s }: { s: NowPlaying }) {
       <Artwork src={title?.backdrop} alt="" title="" className="absolute inset-0" icon={<span />} />
       <div className="scrim-left absolute inset-0" />
       <div className="relative flex gap-3 p-3">
-        <Artwork
-          src={title?.poster}
-          alt={s.title}
-          title={s.title}
+        <SessionArtwork
+          s={s}
+          poster={title?.poster}
+          posterTitle={s.title}
           className="aspect-[2/3] w-14 shrink-0 rounded-md shadow-md sm:w-16"
         />
         <div className="min-w-0 flex-1 text-on-scrim">
           <p className="truncate font-semibold">{title?.title ?? s.title}</p>
+          {channelLabel(s) && channelLabel(s) !== (title?.title ?? s.title) ? (
+            <p className="truncate text-sm opacity-80">{channelLabel(s)}</p>
+          ) : null}
           <p className="truncate text-sm opacity-80">
             {s.user} · {s.device}
             {s.product && s.product !== s.device ? ` (${s.product})` : ""}
@@ -371,7 +376,9 @@ function SessionCard({ s }: { s: NowPlaying }) {
             {s.speedBps ? <Badge variant="secondary">{formatRate(s.speedBps)}</Badge> : null}
           </div>
           <div className="mt-2 max-w-md">
-            {s.progress !== null ? (
+            {s.isLive ? (
+              <p className="text-xs opacity-80">{t("Live")}</p>
+            ) : s.progress !== null ? (
               <Meter
                 onScrim
                 value={s.progress}

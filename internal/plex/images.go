@@ -331,6 +331,10 @@ func (s *Server) handlePhotoTranscode(w http.ResponseWriter, r *http.Request) {
 		(metadataImageRe.MatchString(u.Path) || discoveryImageRe.MatchString(u.Path) || personImageRe.MatchString(u.Path) || playlistImageRe.MatchString(u.Path))
 	if !u.IsAbs() || s.isSelfHost(r, u.Host) || androidLocal {
 		path := u.Path
+		if m := liveChannelLogoRe.FindStringSubmatch(path); m != nil {
+			s.serveLiveLogo(w, r, m[1], true)
+			return
+		}
 		if m := discoveryImageRe.FindStringSubmatch(path); m != nil {
 			key, err := core.ParseRatingKey(m[1])
 			if err != nil {
@@ -387,6 +391,8 @@ func (s *Server) handlePhotoTranscode(w http.ResponseWriter, r *http.Request) {
 	}
 	s.serveRemoteImage(w, r, resizeTMDBURL(u.String(), width))
 }
+
+var liveChannelLogoRe = regexp.MustCompile(`^/livetv/channels/([^/]+)/logo\.(?:svg|png)$`)
 
 // isSelfHost reports whether host refers to this server.
 func (s *Server) isSelfHost(r *http.Request, host string) bool {

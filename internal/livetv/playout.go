@@ -358,6 +358,7 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	defer cancel()
 	ss.startupCancel = cancel
 	ss.view = core.PlaySession{ID: ss.info.ID, PlaybackGroup: ss.info.ID, UserID: u.ID, Username: u.Username, ClientID: caps.ClientID, Client: caps, TitleName: c.Name, StartedAt: ss.info.StartedAt, Decision: core.DecisionRemux, DecisionReason: "Live channel playout"}
+	ss.view.LiveChannel = &core.LiveChannel{ID: c.ID, Name: c.Name, Number: c.Number}
 	if p != nil {
 		ss.view.Key = p.Item.Key
 		ss.view.TitleName = p.Item.Title
