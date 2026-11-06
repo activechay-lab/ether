@@ -66,6 +66,9 @@ def run(c, out):
             '-rating-key', str(c['ratingKey']), '-output', str(out/'player'),
             '-session', session, '-window', f'{window}s',
             '-buffer', f"{c.get('bufferSeconds', 30)}s"]
+    argv += ['-tries', str(c.get('tries', 8)),
+             '-timeout', f"{c.get('requestTimeoutSeconds', 5)}s",
+             '-backoff', f"{c.get('backoffSeconds', 0.2)}s"]
     for key, flag in [('decisionOrigin', '-decision-origin'), ('startOrigin', '-start-origin'), ('stopOrigin', '-stop-origin'), ('tokenFile', '-token-file'), ('credentialsFile', '-credentials-file'), ('protocol', '-protocol'), ('prefix', '-prefix'), ('deviceID', '-device-id'), ('host', '-host'), ('ffmpeg', '-ffmpeg'), ('ffprobe', '-ffprobe'),
                       ('reference', '-reference'), ('producerEvidence', '-producer-evidence'), ('maxVideoBitrate', '-max-video-bitrate'), ('videoResolution', '-video-resolution')]:
         if c.get(key):
@@ -85,6 +88,9 @@ def run(c, out):
                   'node': pod['spec']['nodeName'], 'containers': pod['status'].get('containerStatuses', [])}
     report = dict(session=session, role=role, action=action, phase=phase,
                   startedAt=stamp(), target=target, killAt=None,
+                  retryPolicy=dict(maxAttempts=c.get('tries', 8),
+                                   requestTimeoutSeconds=c.get('requestTimeoutSeconds', 5),
+                                   backoffSeconds=c.get('backoffSeconds', 0.2)),
                   serverInterruptionSeconds=None, serverInterruptionVerified=False,
                   clientFirstPostLossReceiptSeconds=None, actionSucceeded=action == 'none')
     process = None
