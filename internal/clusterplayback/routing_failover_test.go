@@ -23,8 +23,7 @@ import (
 )
 
 func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
+	fixtureStarted := time.Now()
 	sourceID := nodewire.Identity{Cluster: "plex-composition", NodeID: "source", Boot: "source-boot"}
 	workerID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "worker", Boot: "worker-boot"}
 	ownerID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "owner", Boot: "owner-boot"}
@@ -32,6 +31,8 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	deliveryIDs := []nodewire.Identity{{Cluster: sourceID.Cluster, NodeID: "delivery-a", Boot: "delivery-a-boot"}, {Cluster: sourceID.Cluster, NodeID: "delivery-b", Boot: "delivery-b-boot"}}
 	guards := fixtureGuards(t, sourceID, workerID, ownerID, senderID, deliveryIDs[0], deliveryIDs[1])
 	db := store.OpenTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 45*time.Second))
+	defer cancel()
 	verifier := NewVerifier()
 	ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
 	if err != nil {

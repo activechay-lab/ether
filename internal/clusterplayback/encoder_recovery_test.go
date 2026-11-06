@@ -147,9 +147,9 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			}
 			// OpenTest may create and migrate an isolated PostgreSQL schema.
 			// Fixture construction is not playback: a cold/durable database
-			// must not consume the unchanged placement/recovery time budget.
-			t.Logf("fixture setup: %s (%s); starting 10s execution budget", time.Since(fixtureStarted), store.DialectOf(db))
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			// must not consume the placement/recovery harness budget.
+			t.Logf("fixture setup: %s (%s); starting measured execution budget", time.Since(fixtureStarted), store.DialectOf(db))
+			ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 10*time.Second))
 			defer cancel()
 			front := runtimes[3]
 			if err = v.Bind(front); err != nil {

@@ -48,9 +48,10 @@ func TestDurableAdmissionAcrossCoordinatorRestart(t *testing.T) {
 		t.Fatal("unconstructed token supplied a commitment")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	fixtureStarted := time.Now()
 	db := store.OpenTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 10*time.Second))
+	defer cancel()
 	verifier := NewVerifier()
 	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
 	if err != nil {
@@ -410,9 +411,10 @@ func TestDurableAdmissionAcrossCoordinatorRestart(t *testing.T) {
 // TestOperationGateDurableInvariant extends the real admission DB fixture with
 // storage bookkeeping only. No fake acceptance handle or execution is minted.
 func TestOperationGateDurableInvariant(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	fixtureStarted := time.Now()
 	db := store.OpenTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 30*time.Second))
+	defer cancel()
 	ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: time.Minute, LockTimeout: time.Second}, NewVerifier())
 	if err != nil {
 		t.Fatal(err)

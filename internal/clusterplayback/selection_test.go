@@ -40,9 +40,10 @@ func TestTranscodePlacementScoresVerifiedHardwareAndCapacity(t *testing.T) {
 		{name: "equal scores prefer source locality", cpuSlots: 1, local: true, want: "z-gpu"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
+			fixtureStarted := time.Now()
 			db := store.OpenTest(t)
+			ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 10*time.Second))
+			defer cancel()
 			ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: time.Second}, NewVerifier())
 			if err != nil {
 				t.Fatal(err)
