@@ -127,12 +127,11 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 	} else if programme.Item.Key != 0 {
 		element = "programme"
 	}
-	plan := broadcastPlan{element: element, policy: programme.policyTag, programme: programme.Item.Key != 0, id: programme.ID, start: programme.Start, end: programme.End}
+	plan := broadcastPlan{interstitial: interstitial(programme.Item), fallback: programme.graphicsFallback, element: element, policy: programme.policyTag, programme: programme.Item.Key != 0, id: programme.ID, start: programme.Start, end: programme.End}
 	if interstitial(programme.Item) {
 		plan.failed = func(err error) time.Time {
 			p.s.recordGraphicsSkip(p.channel, programme, err)
-			// Force a fresh background snapshot; it restores gap filler or advances
-			// the following programme before the next frame-clock planning pass.
+			// Refresh the input decision without changing any schedule boundary.
 			select {
 			case p.requests <- p.s.o.Now():
 			default:
