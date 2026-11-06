@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,9 +45,20 @@ func TestRecoveryRebuildsAuthoredTimeline(t *testing.T) {
 					if got := argValue(first, "-start_number"); got != fmt.Sprint(n) {
 						t.Fatalf("start_number %s, want %d", got, n)
 					}
-					want := fmt.Sprintf("%.3f", initial.plan.Start(n).Seconds())
-					if got := argValue(first, "-ss"); n > 0 && got != want {
-						t.Fatalf("segment %d seek %q, want %s", n, got, want)
+					boundary := initial.plan.Start(n).Seconds()
+					if n > 0 {
+						seek, err := strconv.ParseFloat(argValue(first, "-ss"), 64)
+						if err != nil || seek < 0 || seek > boundary || boundary-seek > 3 {
+							t.Fatalf("segment %d input seek %q outside bounded preroll before %.3f", n, argValue(first, "-ss"), boundary)
+						}
+						// Decoder/encoder preroll may read earlier input, but the
+						// first output video frame must remain on the authored grid.
+						if seek < boundary {
+							wantTrim := "trim=start=" + fmt.Sprintf("%.3f", boundary)
+							if vf := argValue(first, "-vf") + argValue(first, "-filter_complex"); !strings.Contains(vf, wantTrim+",") && !strings.Contains(vf, wantTrim+"[") && !strings.HasSuffix(vf, wantTrim) {
+								t.Fatalf("segment %d video filters %q omit authored boundary %s", n, vf, wantTrim)
+							}
+						}
 					}
 					a, b := httptest.NewRecorder(), httptest.NewRecorder()
 					initial.ServePlaylist(a, httptest.NewRequest(http.MethodGet, "/index.m3u8", nil))
