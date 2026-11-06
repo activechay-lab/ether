@@ -1,5 +1,5 @@
 import { Button } from "@braedonsaunders/appkit-ui";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Artwork } from "../../components/Artwork";
 import type { TitleCard } from "../../lib/contract";
 import { fixed } from "../../lib/format";
@@ -39,6 +39,8 @@ export function CatalogueResults({
     pages: {},
   });
   const viewport = useRef<HTMLDivElement>(null);
+  const scrollParent = useRef<HTMLElement | null>(null);
+  const measureView = useRef<(() => void) | null>(null);
   const [size, setSize] = useState({ width: 900, height: 640, top: 0 });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [focused, setFocused] = useState(0);
@@ -59,32 +61,71 @@ export function CatalogueResults({
     setFocused(0);
     setPeek(null);
     requested.current = 0;
-    if (viewport.current) viewport.current.scrollTop = 0;
+    if (scrollParent.current) scrollParent.current.scrollTop = 0;
+    else window.scrollTo(0, 0);
+    measureView.current?.();
   }, [queryKey]);
   useLayoutEffect(() => {
     const el = viewport.current;
     if (!el) return;
-    const measure = () =>
-      setSize({ width: el.clientWidth || 900, height: el.clientHeight || 640, top: el.scrollTop });
+    let surface: HTMLElement | null = el.parentElement;
+    while (surface && surface !== document.body) {
+      if (
+        surface.matches(".catalog-scroll") ||
+        /auto|scroll/.test(getComputedStyle(surface).overflowY)
+      )
+        break;
+      surface = surface.parentElement;
+    }
+    if (surface === document.body) surface = null;
+    scrollParent.current = surface;
+    const measure = () => {
+      const edge = surface ? surface.getBoundingClientRect().top + surface.clientTop : 0;
+      const next = {
+        width: el.clientWidth || 900,
+        height: (surface ? surface.clientHeight : window.innerHeight) || 640,
+        top: edge - el.getBoundingClientRect().top,
+      };
+      setSize((prev) =>
+        prev.width === next.width && prev.height === next.height && prev.top === next.top
+          ? prev
+          : next,
+      );
+    };
+    measureView.current = measure;
     measure();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    observer?.observe(el);
-    el.addEventListener("scroll", measure, { passive: true });
+    const observed = new Set<Element>([
+      el,
+      el.parentElement!,
+      ...(surface ? [surface, ...Array.from(surface.children)] : [document.body]),
+    ]);
+    observed.forEach((node) => observer?.observe(node));
+    const target = surface ?? window;
+    target.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
     return () => {
       observer?.disconnect();
-      el.removeEventListener("scroll", measure);
+      target.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+      measureView.current = null;
     };
   }, []);
-  const stored = pages.key === queryKey ? pages.pages : {};
-  const all = Object.values({ ...stored, ...(!loading ? { [page]: items } : {}) }).flat();
-  const titles = [...new Map(all.map((title) => [title.key, title])).values()];
+  const titles = useMemo(() => {
+    const stored = pages.key === queryKey ? pages.pages : {};
+    const all = Object.values({ ...stored, ...(!loading ? { [page]: items } : {}) }).flat();
+    return [...new Map(all.map((title) => [title.key, title])).values()];
+  }, [pages, queryKey, loading, page, items]); // i18n: memo holds no copy
   const lanes = list ? 1 : Math.max(2, Math.floor(size.width / 165));
   const rowHeight = list ? 84 : Math.round((size.width / lanes - 16) * 1.5) + 114;
   const rowCount = Math.ceil(titles.length / lanes);
   const firstRow = Math.max(0, Math.floor(size.top / rowHeight) - 2);
-  const lastRow = Math.min(rowCount, Math.ceil((size.top + size.height) / rowHeight) + 2);
+  const lastRow = Math.max(
+    0,
+    Math.min(rowCount, Math.ceil((size.top + size.height) / rowHeight) + 2),
+  );
   const visible = titles.slice(firstRow * lanes, lastRow * lanes);
-  const firstVisible = Math.floor(size.top / rowHeight) * lanes;
+  const firstVisible = Math.max(0, Math.floor(size.top / rowHeight)) * lanes;
   const lastVisible = Math.min(
     titles.length,
     Math.ceil((size.top + size.height) / rowHeight) * lanes,
@@ -109,12 +150,21 @@ export function CatalogueResults({
     setFocused(next);
     const el = viewport.current;
     if (!el) return;
-    const top = Math.floor(next / lanes) * rowHeight;
-    if (top < el.scrollTop) el.scrollTop = top;
-    else if (top + rowHeight > el.scrollTop + size.height)
-      el.scrollTop = top + rowHeight - size.height;
+    const surface = scrollParent.current;
+    const scrollTop = surface ? surface.scrollTop : window.scrollY;
+    const edge = surface ? surface.getBoundingClientRect().top + surface.clientTop : 0;
+    const origin = el.getBoundingClientRect().top - edge + scrollTop;
+    const top = origin + Math.floor(next / lanes) * rowHeight;
+    let position = scrollTop;
+    if (top < scrollTop) position = top;
+    else if (top + rowHeight > scrollTop + size.height) position = top + rowHeight - size.height;
+    if (surface) surface.scrollTop = position;
+    else window.scrollTo(0, position);
+    measureView.current?.();
     requestAnimationFrame(() =>
-      el.querySelector<HTMLButtonElement>(`[data-catalog-index="${next}"]`)?.focus(),
+      el
+        .querySelector<HTMLButtonElement>(`[data-catalog-index="${next}"]`)
+        ?.focus({ preventScroll: true }),
     );
   };
   const toggle = (key: string) =>

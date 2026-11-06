@@ -34,12 +34,7 @@
   gap: 0.5rem;
 }
 .catalogue-result-viewport {
-  height: min(72vh, 900px);
-  min-height: 320px;
-  overflow: auto;
   position: relative;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
 }
 .catalogue-result-window {
   position: relative;
