@@ -233,6 +233,7 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 	}
 	s.seekRampSeg = -1
 	spec := runSpec{
+		AuthoredTimeline:     len(s.rungs) > 1 || (s.plan != nil && s.plan.rampSegs > 0),
 		SilenceAudio:         s.silenceAudio,
 		NormalizeNegativeDTS: s.normalizeNegativeDTS,
 		RTXTimeline:          s.rtxTimeline,
