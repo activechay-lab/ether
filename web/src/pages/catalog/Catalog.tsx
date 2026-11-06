@@ -1,4 +1,3 @@
-import ReactMarkdown from "react-markdown";
 import { SubtabNav } from "../../components/layout";
 import { Button, EmptyState, toast } from "@braedonsaunders/appkit-ui";
 import {
@@ -10,7 +9,6 @@ import {
   RefreshCw,
   Search,
   Settings2,
-  Sparkles,
   LoaderCircle,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -335,7 +333,18 @@ export function CatalogBrowser({
     ai.start,
   ]);
   const results = aiResult
-    ? { data: aiResult.preview, loading: aiResult.busy, error: null, reload: ai.start }
+    ? {
+        data: aiResult.preview,
+        loading: aiResult.busy,
+        error: aiResult.error
+          ? new Error(
+              t(
+                "AI search is unavailable or could not interpret this request. Try again or use filters.",
+              ),
+            )
+          : null,
+        reload: ai.start,
+      }
     : regularResults;
   const busy = aiResult ? aiResult.busy : regularBusy;
   const currentCount = count.data?.key === countKey ? count.data : null;
@@ -559,49 +568,6 @@ export function CatalogBrowser({
       </div>
       <div className="catalog-content">
         <section className="catalog-results" aria-label={t("Catalog titles")} aria-busy={busy}>
-          {aiResult ? (
-            <div className="catalog-ai-progress" role="status" aria-live="polite">
-              {aiResult.busy ? (
-                <LoaderCircle size={28} className="animate-spin" aria-hidden />
-              ) : (
-                <Sparkles size={28} aria-hidden />
-              )}
-              <div>
-                <h3>
-                  {aiResult.busy
-                    ? t("Searching with AI…")
-                    : t("AI results for “{query}”", { query: aiResult.query })}
-                </h3>
-                <details className="catalog-ai-description" open={aiResult.busy}>
-                  <summary hidden={aiResult.busy}>{t("Details")}</summary>
-                  <ReactMarkdown
-                    skipHtml
-                    unwrapDisallowed
-                    allowedElements={["p", "strong", "em", "ul", "ol", "li", "br"]}
-                  >
-                    {aiResult.text || t("Ether is checking titles and refining your results.")}
-                  </ReactMarkdown>
-                </details>
-              </div>
-              {aiResult.busy ? (
-                <Button variant="outline" onClick={ai.stop}>
-                  {t("Stop")}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-          {aiResult?.error ? (
-            <div role="alert" className="catalog-ai-error">
-              <p>
-                {t(
-                  "AI search is unavailable or could not interpret this request. Try again or use filters.",
-                )}
-              </p>
-              <Button variant="outline" onClick={() => void ai.start()}>
-                {t("Try again")}
-              </Button>
-            </div>
-          ) : null}
           {viewers.error || membership.error ? (
             <p role="alert">{t("Watchlist status could not be loaded.")}</p>
           ) : null}
@@ -620,9 +586,14 @@ export function CatalogBrowser({
                           ? t("TV shows")
                           : t("Movies & TV shows")}
               </h3>
-              <p role="status">
+              <p role="status" className={aiResult?.busy ? "catalog-search-working" : undefined}>
+                {aiResult?.busy ? (
+                  <LoaderCircle size={20} className="animate-spin" aria-hidden />
+                ) : null}
                 {busy
-                  ? t("Loading titles…")
+                  ? aiActive
+                    ? t("Searching with AI…")
+                    : t("Loading titles…")
                   : results.error
                     ? t("Catalog could not be loaded")
                     : !totalExact
@@ -633,6 +604,11 @@ export function CatalogBrowser({
               </p>
             </div>
             <div className="catalog-tools">
+              {aiResult?.busy ? (
+                <Button variant="ghost" onClick={ai.stop}>
+                  {t("Stop")}
+                </Button>
+              ) : null}
               {collection || aiActive ? null : (
                 <ToolbarPicker
                   ariaLabel={t("Sort titles")}
@@ -696,7 +672,7 @@ export function CatalogBrowser({
             />
           ) : busy && (aiActive ? !items.length : page === 1) ? (
             <PosterSkeletons count={12} className="catalog-grid" />
-          ) : aiResult?.error && !items.length ? null : !items.length && !busy ? (
+          ) : !items.length && !busy ? (
             <EmptyState
               icon={<Search size={30} />}
               title={
