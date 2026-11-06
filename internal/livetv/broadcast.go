@@ -618,6 +618,7 @@ func (b *broadcast) step(now time.Time) bool {
 			b.continuation = nil
 			b.continuationPlan = b.lastPodPlan
 			b.continuationPlan.id = "pod-fill-" + b.lastPodPlan.id
+			b.continuationPlan.failed = nil
 			b.continuationUntil = now.Add(broadcastStartup)
 			b.continuationFrame = b.lastPodFrame
 			b.lastPodPlan = broadcastPlan{}
@@ -688,6 +689,7 @@ func (b *broadcast) step(now time.Time) bool {
 			b.continuation = b.current
 			b.continuationPlan = b.current.plan
 			b.continuationPlan.id = "pod-fill-" + b.current.plan.id
+			b.continuationPlan.failed = nil
 			b.continuationUntil = now.Add(broadcastStartup)
 			b.continuationFrame = b.lastFrame
 			retained = true
