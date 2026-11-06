@@ -1031,6 +1031,7 @@ export interface ClusterDiagnostics {
   transcodeCapacity?: number;
   transcodes?: number;
   sourceConnections?: number;
+  sourceConnectionCapacity?: number;
   deliveryBytesPerSecond?: number;
   codecs?: string[];
 }

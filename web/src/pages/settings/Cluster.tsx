@@ -1518,7 +1518,10 @@ function NodeCapacity({
             : t("Unknown"),
         ],
         [t("Transcode slots"), `${value(d?.transcodes)} / ${value(d?.transcodeCapacity)}`],
-        [t("Source connections"), value(d?.sourceConnections)],
+        [
+          `${t("Source connections")} · ${t("Usenet")}`,
+          `${value(d?.sourceConnections)} / ${value(d?.sourceConnectionCapacity)}`,
+        ],
         [
           t("Delivery bandwidth"),
           fresh && d?.deliveryBytesPerSecond !== undefined

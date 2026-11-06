@@ -38,6 +38,11 @@ func (f *consoleGallery) AllNodes(context.Context) ([]cluster.Node, error) {
 	nodes := []cluster.Node{}
 	for i, role := range []string{"server", "source", "transcode", "delivery"} {
 		d := &cluster.Diagnostics{SampledAt: now, ReadyExisting: true, AcceptingNew: true}
+		if role == "source" {
+			used, capacity := 5, 24
+			d.SourceConnections = &used
+			d.SourceConnectionCapacity = &capacity
+		}
 		if role == "transcode" {
 			capacity, used := 8, 2
 			d.TranscodeCapacity = &capacity
