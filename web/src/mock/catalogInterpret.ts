@@ -73,6 +73,6 @@ export function interpretDemo(text: string): Chip[] {
     .replace(/\b(and|the|that|are|find|me)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (rest) chips.push({ field: "title", op: "is", value: rest });
+  if (rest) chips.push({ field: "keyword", op: "is", value: rest });
   return chips;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileQuery, readQuery } from "./catalogQuery";
+import { compileQuery, mergeAIQuery, readAIQuery, readQuery } from "./catalogQuery";
 
 describe("catalogue query language", () => {
   it("preserves the whole selected insertion day independently of air date", () => {
@@ -77,5 +77,57 @@ describe("catalogue query language", () => {
         }),
       ).chips,
     ).toEqual([]);
+  });
+});
+
+describe("AI filter group transactions", () => {
+  const incoming = readAIQuery({
+    mode: "and",
+    groupMode: "or",
+    chips: [
+      { field: "genre", op: "is", value: "Comedy", group: 1 },
+      { field: "genre", op: "is", value: "Romance", group: 1 },
+    ],
+  });
+  it("keeps an existing flat OR selection together when adding AI constraints", () => {
+    const merged = mergeAIQuery(
+      {
+        mode: "or",
+        chips: [
+          { field: "country", op: "is", value: "CA" },
+          { field: "country", op: "is", value: "US" },
+        ],
+      },
+      incoming,
+    );
+    expect(merged.chips.map((chip) => chip.group)).toEqual([1, 1, 2, 2]);
+    expect(compileQuery(merged).group!.children.map((child) => child.operator)).toEqual([
+      "or",
+      "or",
+    ]);
+  });
+  it("fails atomically if existing grouping or capacity cannot preserve the full draft", () => {
+    expect(() =>
+      mergeAIQuery(
+        { mode: "or", chips: [{ field: "country", op: "is", value: "CA", group: 1 }] },
+        incoming,
+      ),
+    ).toThrow();
+    expect(() =>
+      mergeAIQuery(
+        { mode: "and", chips: Array(32).fill({ field: "type", op: "is", value: "movie" }) },
+        incoming,
+      ),
+    ).toThrow();
+    expect(() =>
+      mergeAIQuery(
+        {
+          mode: "and",
+          groupMode: "or",
+          chips: [1, 2, 3].map((group) => ({ field: "genre", op: "is", value: "Comedy", group })),
+        },
+        incoming,
+      ),
+    ).toThrow();
   });
 });

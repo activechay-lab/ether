@@ -861,7 +861,6 @@
   "m_0350ced4638a5c": "Tím se smaže {name} a všechna jeho data: historie sledování, pozice pokračování, hodnocení, seznam ke zhlédnutí, oblíbené, vkus, metody přihlášení a zařízení. Nelze to vrátit zpět. Chcete-li vše zachovat, ale zastavit přístup, pozastavte ho místo toho.",
   "m_03511d39db6f7f": "Limit vylepšeného rozlišení",
   "m_03528b1ef82f18": "Dokončování probíhajících požadavků, poté zastavení…",
-  "m_03564da3c6631f": "Hledání se nepodařilo interpretovat. Zkuste to znovu.",
   "m_035753a3d0ed4f": "Vychází dnes",
   "m_0357bc87b226c4": "Soubor je připraven k importu",
   "m_035960981be4e1": {
@@ -6596,6 +6595,7 @@
   "m_199c703ae971a2": "V těchto kolekcích",
   "m_199da49eb6db52": "Oprava zapnuta",
   "m_19a03337702a01": "Přejmenovat",
+  "m_19a038c0ecf2ec": "Nezhlédnuté",
   "m_19a0ce986f00a6": "Změny provedené po {date} — historie sledování, nastavení a noví diváci — budou nahrazeny zálohou.",
   "m_19a27400a63e1a": "Tento token nebyl přijat jako token vlastníka.",
   "m_19a33d55392088": "Zpět (⌘Z)",
@@ -8143,6 +8143,7 @@
   "m_1fbaa8117e2804": "Doplněk Stremio",
   "m_1fbb70e2c53e2f": "Server požádal Ether o zpomalení. Synchronizace bude pokračovat sama.",
   "m_1fbb7f90760b76": "Ether může tento díl přehrát, jakmile bude odvysílán.",
+  "m_1fbc6f4325d11f": "Vyhledávání pomocí AI není dostupné nebo tento požadavek nedokázalo zpracovat. Zkuste to znovu nebo použijte filtry.",
   "m_1fbdb0dc814ddc": "Ne",
   "m_1fbe03036dfea2": "Odchylka hodin",
   "m_1fbec30f65907d": "Uložit jako nový klip",

@@ -193,3 +193,56 @@ export function compileQuery(state: QueryState, viewer = "") {
     },
   };
 }
+
+/** AI responses must be complete, supported drafts: never silently drop a term. */
+export function readAIQuery(value: unknown): QueryState {
+  if (!value || typeof value !== "object") throw new Error("Invalid AI draft");
+  const draft = value as Partial<QueryState>;
+  if (
+    (draft.mode !== undefined && draft.mode !== "and") ||
+    (draft.groupMode !== undefined && draft.groupMode !== "or") ||
+    !Array.isArray(draft.chips) ||
+    !draft.chips.length
+  )
+    throw new Error("Invalid AI draft");
+  const result = readQuery(JSON.stringify({ ...draft, mode: "and", groupMode: "or" }));
+  if (
+    result.chips.length !== draft.chips.length ||
+    result.chips.some(
+      (chip) =>
+        chip.field === "title" ||
+        !chip.value.trim() ||
+        (chip.label !== undefined && typeof chip.label !== "string"),
+    )
+  )
+    throw new Error("Invalid AI draft");
+  return result;
+}
+
+/** Combine drafts without changing existing group meaning or truncating constraints. */
+export function mergeAIQuery(current: QueryState, incoming: QueryState): QueryState {
+  if (!current.chips.length) return incoming;
+  if (current.chips.length + incoming.chips.length > 32) throw new Error("Too many filters");
+  let previous = current.chips;
+  if (current.mode === "or") {
+    if (current.groupMode !== "or" && previous.some((chip) => chip.group))
+      throw new Error("Cannot combine nested filter modes");
+    previous = previous.map((chip) => ({ ...chip, group: 1 }));
+  } else if (current.groupMode !== "or") {
+    previous = previous.map((chip) => ({ ...chip, group: undefined }));
+  }
+  const used = new Set(previous.map((chip) => chip.group || 0));
+  const remap = new Map<number, number>();
+  const chips = incoming.chips.map((chip) => {
+    if (!chip.group) return chip;
+    let group = remap.get(chip.group);
+    if (group === undefined) {
+      group = [1, 2, 3].find((id) => !used.has(id));
+      if (group === undefined) throw new Error("Too many filter groups");
+      remap.set(chip.group, group);
+      used.add(group);
+    }
+    return { ...chip, group };
+  });
+  return { mode: "and", groupMode: "or", chips: [...previous, ...chips] };
+}

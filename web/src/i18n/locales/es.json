@@ -838,7 +838,6 @@
   "m_0350ced4638a5c": "Esto elimina a {name} y todos sus datos: historial, puntos de reanudación, valoraciones, lista de seguimiento, favoritos, gustos, métodos de acceso y dispositivos. No se puede deshacer. Para conservar todo pero cortar el acceso, paúsalo en su lugar.",
   "m_03511d39db6f7f": "Límite de resolución mejorada",
   "m_03528b1ef82f18": "Terminando las solicitudes en curso y deteniendo…",
-  "m_03564da3c6631f": "No se pudo interpretar la búsqueda. Inténtalo de nuevo.",
   "m_035753a3d0ed4f": "Sale hoy",
   "m_0357bc87b226c4": "Archivo listo para importar",
   "m_035960981be4e1": {
@@ -6424,6 +6423,7 @@
   "m_199c703ae971a2": "En estas colecciones",
   "m_199da49eb6db52": "Reparación activada",
   "m_19a03337702a01": "Renombrar",
+  "m_19a038c0ecf2ec": "Sin ver",
   "m_19a0ce986f00a6": "Los cambios hechos después del {date} (historial de reproducción, ajustes y nuevos espectadores) se sustituyen por los de la copia de seguridad.",
   "m_19a27400a63e1a": "Ese token no se aceptó como token del propietario.",
   "m_19a33d55392088": "Deshacer (⌘Z)",
@@ -7936,6 +7936,7 @@
   "m_1fbaa8117e2804": "Addon de Stremio",
   "m_1fbb70e2c53e2f": "El servidor pidió a Ether que fuera más despacio. La sincronización se reanudará sola.",
   "m_1fbb7f90760b76": "Ether podrá reproducir este episodio cuando se emita.",
+  "m_1fbc6f4325d11f": "La búsqueda con IA no está disponible o no pudo interpretar esta solicitud. Inténtalo de nuevo o usa filtros.",
   "m_1fbdb0dc814ddc": "Dom.",
   "m_1fbe03036dfea2": "Desfase del reloj",
   "m_1fbec30f65907d": "Guardar como clip nuevo",

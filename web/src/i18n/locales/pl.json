@@ -861,7 +861,6 @@
   "m_0350ced4638a5c": "Spowoduje to usunięcie {name} i wszystkich jego danych: historii oglądania, punktów wznawiania, ocen, listy do obejrzenia, ulubionych, gustów, metod logowania i urządzeń. Nie można tego cofnąć. Aby zachować wszystko, ale zablokować dostęp, wstrzymaj go zamiast tego.",
   "m_03511d39db6f7f": "Limit rozdzielczości po ulepszeniu",
   "m_03528b1ef82f18": "Kończenie trwających żądań, potem zatrzymanie…",
-  "m_03564da3c6631f": "Nie udało się zinterpretować wyszukiwania. Spróbuj ponownie.",
   "m_035753a3d0ed4f": "Premiera dzisiaj",
   "m_0357bc87b226c4": "Plik gotowy do importu",
   "m_035960981be4e1": {
@@ -6596,6 +6595,7 @@
   "m_199c703ae971a2": "W tych kolekcjach",
   "m_199da49eb6db52": "Naprawa włączona",
   "m_19a03337702a01": "Zmień nazwę",
+  "m_19a038c0ecf2ec": "Nieobejrzane",
   "m_19a0ce986f00a6": "Zmiany wprowadzone po {date} — historia oglądania, ustawienia i nowi widzowie — zostaną zastąpione kopią zapasową.",
   "m_19a27400a63e1a": "Ten token nie został zaakceptowany jako token właściciela.",
   "m_19a33d55392088": "Cofnij (⌘Z)",
@@ -8143,6 +8143,7 @@
   "m_1fbaa8117e2804": "Dodatek Stremio",
   "m_1fbb70e2c53e2f": "Serwer poprosił Ether o zwolnienie tempa. Synchronizacja wznowi się sama.",
   "m_1fbb7f90760b76": "Ether odtworzy ten odcinek po jego emisji.",
+  "m_1fbc6f4325d11f": "Wyszukiwanie AI jest niedostępne lub nie zdołało zinterpretować tego zapytania. Spróbuj ponownie lub użyj filtrów.",
   "m_1fbdb0dc814ddc": "Niedz.",
   "m_1fbe03036dfea2": "Odchylenie zegara",
   "m_1fbec30f65907d": "Zapisz jako nowy klip",

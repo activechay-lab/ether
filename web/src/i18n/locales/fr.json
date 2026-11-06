@@ -838,7 +838,6 @@
   "m_0350ced4638a5c": "Ceci supprime {name} et toutes ses données : historique, points de reprise, notes, liste de suivi, favoris, goûts, méthodes de connexion et appareils. C'est irréversible. Pour tout conserver mais couper l'accès, suspendez-le plutôt.",
   "m_03511d39db6f7f": "Limite de résolution améliorée",
   "m_03528b1ef82f18": "Fin des requêtes en cours, puis arrêt…",
-  "m_03564da3c6631f": "La recherche n’a pas pu être interprétée. Réessayez.",
   "m_035753a3d0ed4f": "Sort aujourd’hui",
   "m_0357bc87b226c4": "Fichier prêt à être importé",
   "m_035960981be4e1": {
@@ -6424,6 +6423,7 @@
   "m_199c703ae971a2": "Dans ces collections",
   "m_199da49eb6db52": "Réparation activée",
   "m_19a03337702a01": "Renommer",
+  "m_19a038c0ecf2ec": "Non regardé",
   "m_19a0ce986f00a6": "Les modifications effectuées après le {date} — historique de visionnage, paramètres et nouveaux spectateurs — sont remplacées par la sauvegarde.",
   "m_19a27400a63e1a": "Ce jeton n’a pas été accepté comme jeton du propriétaire.",
   "m_19a33d55392088": "Annuler (⌘Z)",
@@ -7936,6 +7936,7 @@
   "m_1fbaa8117e2804": "Addon Stremio",
   "m_1fbb70e2c53e2f": "Le serveur a demandé à Ether de ralentir. La synchronisation reprendra d’elle-même.",
   "m_1fbb7f90760b76": "Ether pourra lire cet épisode dès sa diffusion.",
+  "m_1fbc6f4325d11f": "La recherche par IA est indisponible ou n’a pas pu interpréter cette demande. Réessayez ou utilisez les filtres.",
   "m_1fbdb0dc814ddc": "Dim.",
   "m_1fbe03036dfea2": "Décalage d’horloge",
   "m_1fbec30f65907d": "Créer un nouvel extrait",

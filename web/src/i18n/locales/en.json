@@ -815,7 +815,6 @@
   "m_0350ced4638a5c": "This deletes {name} and all of their data: watch history, resume points, ratings, watchlist, favourites, taste, sign-in methods and devices. This can't be undone. To keep everything but stop access, pause them instead.",
   "m_03511d39db6f7f": "Enhanced resolution limit",
   "m_03528b1ef82f18": "Finishing requests in progress, then stopping…",
-  "m_03564da3c6631f": "Search could not be interpreted. Try again.",
   "m_035753a3d0ed4f": "Out today",
   "m_0357bc87b226c4": "File ready to import",
   "m_035960981be4e1": {
@@ -6267,6 +6266,7 @@
   "m_199c703ae971a2": "In these collections",
   "m_199da49eb6db52": "Repair enabled",
   "m_19a03337702a01": "Rename",
+  "m_19a038c0ecf2ec": "Unwatched",
   "m_19a0ce986f00a6": "Changes made after {date} — watch history, settings and new viewers — are replaced by the backup.",
   "m_19a27400a63e1a": "That token was not accepted as the owner token.",
   "m_19a33d55392088": "Undo (⌘Z)",
@@ -7750,6 +7750,7 @@
   "m_1fbaa8117e2804": "Stremio addon",
   "m_1fbb70e2c53e2f": "The server asked Ether to slow down. Sync resumes on its own.",
   "m_1fbb7f90760b76": "Ether can play this episode once it airs.",
+  "m_1fbc6f4325d11f": "AI search is unavailable or could not interpret this request. Try again or use filters.",
   "m_1fbdb0dc814ddc": "Sun",
   "m_1fbe03036dfea2": "Clock skew",
   "m_1fbec30f65907d": "Save as new clip",

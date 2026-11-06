@@ -49,8 +49,10 @@ describe("catalogue filter URL transactions", () => {
   });
 });
 
-function SearchHarness({ query = "" }: { query?: string }) {
-  const [params, setParams] = useState(new URLSearchParams(query ? { q: query } : {}));
+function SearchHarness({ query = "", filters = "" }: { query?: string; filters?: string }) {
+  const [params, setParams] = useState(
+    new URLSearchParams({ ...(query ? { q: query } : {}), ...(filters ? { filters } : {}) }),
+  );
   return (
     <>
       <CatalogFilterBar params={params} onChange={setParams} viewers={[]} />
@@ -115,8 +117,90 @@ describe("unified catalogue search", () => {
       ),
     );
     render(<SearchHarness query="80s comedies over 7" />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Search could not be interpreted");
+    expect(await screen.findByRole("alert")).toHaveTextContent("AI search is unavailable");
     expect(screen.getByLabelText("Find a title")).toHaveValue("80s comedies over 7");
+    expect(screen.getByTestId("url").textContent).not.toContain("filters=");
+  });
+});
+
+describe("AI filter drafts", () => {
+  it("retains mandatory constraints and remaps alternative groups when applying mood filters", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (_url: unknown, init?: RequestInit) =>
+          new Response(
+            JSON.stringify(
+              init?.method === "POST"
+                ? {
+                    mode: "and",
+                    groupMode: "or",
+                    chips: [
+                      { field: "type", op: "is", value: "movie" },
+                      { field: "genre", op: "is", value: "Comedy", group: 1 },
+                      { field: "genre", op: "is", value: "Romance", group: 1 },
+                      { field: "keyword", op: "is", value: "friendship", group: 2 },
+                      { field: "keyword", op: "is", value: "whimsical", group: 2 },
+                    ],
+                  }
+                : { enabled: true },
+            ),
+          ),
+      ),
+    );
+    render(
+      <SearchHarness
+        query="cute, whimsical girls' night in movies"
+        filters={JSON.stringify({
+          mode: "and",
+          groupMode: "or",
+          chips: [
+            { field: "quality", op: "is", value: "4k", group: 1 },
+            { field: "quality", op: "is", value: "hdr", group: 1 },
+          ],
+        })}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Turn search into filters" }));
+    await waitFor(() => expect(screen.getByLabelText("Find a title")).toHaveValue(""));
+    const params = new URLSearchParams(screen.getByTestId("url").textContent!);
+    const result = readQuery(params.get("filters"));
+    expect(result).toMatchObject({ mode: "and", groupMode: "or" });
+    expect(result.chips.map((chip) => [chip.field, chip.group || 0])).toEqual([
+      ["quality", 1],
+      ["quality", 1],
+      ["type", 0],
+      ["genre", 2],
+      ["genre", 2],
+      ["keyword", 3],
+      ["keyword", 3],
+    ]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit Keyword filter" })[0]!);
+    expect(screen.getByLabelText("Value")).toBeInTheDocument();
+  });
+
+  it.each([
+    { chips: [{ field: "title", op: "is", value: "cute whimsical movies" }] },
+    {
+      chips: [
+        { field: "genre", op: "is", value: "Comedy" },
+        { field: "invented", op: "is", value: "cute" },
+      ],
+    },
+    { chips: [] },
+    { chips: "malformed" },
+  ])("shows an error for invalid AI output without replacing the search: %j", async (result) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (_url: unknown, init?: RequestInit) =>
+          new Response(JSON.stringify(init?.method === "POST" ? result : { enabled: true })),
+      ),
+    );
+    render(<SearchHarness query="whimsical movies" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Turn search into filters" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("AI search is unavailable");
+    expect(screen.getByLabelText("Find a title")).toHaveValue("whimsical movies");
     expect(screen.getByTestId("url").textContent).not.toContain("filters=");
   });
 });

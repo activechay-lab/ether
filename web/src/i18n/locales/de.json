@@ -815,7 +815,6 @@
   "m_0350ced4638a5c": "Dies löscht {name} und alle zugehörigen Daten: Verlauf, Fortsetzungspunkte, Bewertungen, Watchlist, Favoriten, Geschmack, Anmeldemethoden und Geräte. Das kann nicht rückgängig gemacht werden. Um alles zu behalten, aber den Zugriff zu stoppen, pausieren Sie stattdessen.",
   "m_03511d39db6f7f": "Auflösungslimit der Verbesserung",
   "m_03528b1ef82f18": "Laufende Anfragen werden abgeschlossen, dann wird Ether beendet…",
-  "m_03564da3c6631f": "Die Suche konnte nicht interpretiert werden. Versuchen Sie es erneut.",
   "m_035753a3d0ed4f": "Erscheint heute",
   "m_0357bc87b226c4": "Datei bereit zum Import",
   "m_035960981be4e1": {
@@ -6252,6 +6251,7 @@
   "m_199c703ae971a2": "In diesen Sammlungen",
   "m_199da49eb6db52": "Reparatur aktiviert",
   "m_19a03337702a01": "Umbenennen",
+  "m_19a038c0ecf2ec": "Ungesehen",
   "m_19a0ce986f00a6": "Änderungen nach dem {date} – Wiedergabeverlauf, Einstellungen und neue Zuschauer – werden durch das Backup ersetzt.",
   "m_19a27400a63e1a": "Dieses Token wurde nicht als Besitzer-Token akzeptiert.",
   "m_19a33d55392088": "Rückgängig (⌘Z)",
@@ -7729,6 +7729,7 @@
   "m_1fbaa8117e2804": "Stremio-Addon",
   "m_1fbb70e2c53e2f": "Der Server hat Ether gebeten, langsamer zu machen. Die Synchronisierung geht von selbst weiter.",
   "m_1fbb7f90760b76": "Ether kann diese Folge abspielen, sobald sie ausgestrahlt wurde.",
+  "m_1fbc6f4325d11f": "Die KI-Suche ist nicht verfügbar oder konnte diese Anfrage nicht verstehen. Versuchen Sie es erneut oder verwenden Sie Filter.",
   "m_1fbdb0dc814ddc": "So",
   "m_1fbe03036dfea2": "Uhrabweichung",
   "m_1fbec30f65907d": "Als neuen Clip speichern",

@@ -815,7 +815,6 @@
   "m_0350ced4638a5c": "Dit verwijdert {name} en al hun gegevens: kijkgeschiedenis, hervattingspunten, beoordelingen, kijklijst, favorieten, smaak, aanmeldmethoden en apparaten. Dit kan niet ongedaan worden gemaakt. Wil je alles behouden maar de toegang stoppen, pauzeer dan in plaats daarvan.",
   "m_03511d39db6f7f": "Limiet voor verbeterde resolutie",
   "m_03528b1ef82f18": "Lopende verzoeken afronden en dan stoppen…",
-  "m_03564da3c6631f": "De zoekopdracht kon niet worden geïnterpreteerd. Probeer het opnieuw.",
   "m_035753a3d0ed4f": "Vandaag uit",
   "m_0357bc87b226c4": "Bestand klaar om te importeren",
   "m_035960981be4e1": {
@@ -6252,6 +6251,7 @@
   "m_199c703ae971a2": "In deze collecties",
   "m_199da49eb6db52": "Herstel ingeschakeld",
   "m_19a03337702a01": "Naam wijzigen",
+  "m_19a038c0ecf2ec": "Niet bekeken",
   "m_19a0ce986f00a6": "Wijzigingen na {date} — kijkgeschiedenis, instellingen en nieuwe kijkers — worden vervangen door de back-up.",
   "m_19a27400a63e1a": "Dat token is niet geaccepteerd als eigenaarstoken.",
   "m_19a33d55392088": "Ongedaan maken (⌘Z)",
@@ -7729,6 +7729,7 @@
   "m_1fbaa8117e2804": "Stremio-add-on",
   "m_1fbb70e2c53e2f": "De server vroeg Ether om het rustiger aan te doen. De synchronisatie gaat vanzelf verder.",
   "m_1fbb7f90760b76": "Ether kan deze aflevering afspelen zodra hij is uitgezonden.",
+  "m_1fbc6f4325d11f": "AI-zoeken is niet beschikbaar of kon dit verzoek niet begrijpen. Probeer het opnieuw of gebruik filters.",
   "m_1fbdb0dc814ddc": "Zo",
   "m_1fbe03036dfea2": "Klokafwijking",
   "m_1fbec30f65907d": "Als nieuwe clip opslaan",

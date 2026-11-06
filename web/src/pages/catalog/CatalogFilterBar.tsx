@@ -5,7 +5,15 @@ import { t } from "../../i18n";
 import { catalogValueLabel } from "./catalogValueLabel";
 import { api, apiFetch } from "../../lib/api";
 import { useAsync, useDebouncedValue } from "../../lib/hooks";
-import { compileQuery, emptyQuery, readQuery, type Chip, type QueryState } from "./catalogQuery";
+import {
+  compileQuery,
+  emptyQuery,
+  readAIQuery,
+  mergeAIQuery,
+  readQuery,
+  type Chip,
+  type QueryState,
+} from "./catalogQuery";
 
 type Field = {
   key: string;
@@ -166,21 +174,18 @@ export function CatalogFilterBar({
     setInterpreting(true);
     setAiError(false);
     try {
-      const result = await apiFetch<{ chips: Chip[] }>("/catalog/interpret", {
+      const result = await apiFetch<unknown>("/catalog/interpret", {
         method: "POST",
         body: JSON.stringify({ text }),
         signal: controller.signal,
       });
       if (controller.signal.aborted || latestParams.current.get("q") !== text) return;
-      const chips = readQuery(JSON.stringify({ mode: "and", chips: result.chips })).chips;
-      if (!chips.length) throw new Error("No usable filters");
+      const draft = readAIQuery(result);
       const next = new URLSearchParams(latestParams.current);
-      setUndo(next.toString());
       const current = readQuery(next.get("filters"));
-      next.set(
-        "filters",
-        JSON.stringify({ ...current, chips: [...current.chips, ...chips].slice(0, 32) }),
-      );
+      const merged = mergeAIQuery(current, draft);
+      setUndo(next.toString());
+      next.set("filters", JSON.stringify(merged));
       next.delete("q");
       next.delete("page");
       publish(next);
@@ -384,9 +389,11 @@ export function CatalogFilterBar({
         ) : null}
         {actions ? <div className="catalog-header-actions">{actions}</div> : null}
       </div>
-      {aiError ? (
+      {aiError || ai.error ? (
         <p className="catalog-ai-error" role="alert">
-          {t("Search could not be interpreted. Try again.")}
+          {t(
+            "AI search is unavailable or could not interpret this request. Try again or use filters.",
+          )}
         </p>
       ) : null}
       {state.chips.length || legacy.length || undo !== null ? (

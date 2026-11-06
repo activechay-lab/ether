@@ -815,7 +815,6 @@
   "m_0350ced4638a5c": "Bu, {name} kullanıcısını ve tüm verilerini siler: izleme geçmişi, kalınan yerler, puanlar, izleme listesi, favoriler, zevk, oturum açma yöntemleri ve cihazlar. Bu geri alınamaz. Her şeyi koruyup erişimi durdurmak için bunun yerine duraklatın.",
   "m_03511d39db6f7f": "İyileştirilmiş çözünürlük sınırı",
   "m_03528b1ef82f18": "Devam eden istekler tamamlanıyor, ardından durduruluyor…",
-  "m_03564da3c6631f": "Arama yorumlanamadı. Tekrar deneyin.",
   "m_035753a3d0ed4f": "Bugün çıkıyor",
   "m_0357bc87b226c4": "Dosya içe aktarmaya hazır",
   "m_035960981be4e1": {
@@ -6252,6 +6251,7 @@
   "m_199c703ae971a2": "Bu koleksiyonlarda",
   "m_199da49eb6db52": "Onarım etkin",
   "m_19a03337702a01": "Yeniden adlandır",
+  "m_19a038c0ecf2ec": "İzlenmedi",
   "m_19a0ce986f00a6": "{date} sonrasında yapılan değişikliklerin (izleme geçmişi, ayarlar ve yeni izleyiciler) yerini yedek alır.",
   "m_19a27400a63e1a": "Bu belirteç sahip belirteci olarak kabul edilmedi.",
   "m_19a33d55392088": "Geri al (⌘Z)",
@@ -7729,6 +7729,7 @@
   "m_1fbaa8117e2804": "Stremio eklentisi",
   "m_1fbb70e2c53e2f": "Sunucu Ether'den yavaşlamasını istedi. Senkronizasyon kendiliğinden devam eder.",
   "m_1fbb7f90760b76": "Ether bu bölümü yayınlandığında oynatabilir.",
+  "m_1fbc6f4325d11f": "Yapay zekâ araması kullanılamıyor veya bu isteği yorumlayamadı. Tekrar deneyin ya da filtreleri kullanın.",
   "m_1fbdb0dc814ddc": "Paz",
   "m_1fbe03036dfea2": "Saat sapması",
   "m_1fbec30f65907d": "Yeni klip olarak kaydet",

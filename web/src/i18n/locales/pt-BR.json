@@ -838,7 +838,6 @@
   "m_0350ced4638a5c": "Isso apaga {name} e todos os dados dele: histórico, pontos de retomada, avaliações, lista, favoritos, gostos, métodos de acesso e dispositivos. Não dá para desfazer. Para manter tudo, mas interromper o acesso, pause em vez disso.",
   "m_03511d39db6f7f": "Limite de resolução aprimorada",
   "m_03528b1ef82f18": "Concluindo as solicitações em andamento e parando…",
-  "m_03564da3c6631f": "Não foi possível interpretar a busca. Tente novamente.",
   "m_035753a3d0ed4f": "Sai hoje",
   "m_0357bc87b226c4": "Arquivo pronto para importar",
   "m_035960981be4e1": {
@@ -6424,6 +6423,7 @@
   "m_199c703ae971a2": "Nestas coleções",
   "m_199da49eb6db52": "Reparo ativado",
   "m_19a03337702a01": "Renomear",
+  "m_19a038c0ecf2ec": "Não assistido",
   "m_19a0ce986f00a6": "As alterações feitas após {date} — histórico de reprodução, configurações e novos espectadores — são substituídas pelo backup.",
   "m_19a27400a63e1a": "Esse token não foi aceito como token do proprietário.",
   "m_19a33d55392088": "Desfazer (⌘Z)",
@@ -7936,6 +7936,7 @@
   "m_1fbaa8117e2804": "Addon do Stremio",
   "m_1fbb70e2c53e2f": "O servidor pediu ao Ether para ir mais devagar. A sincronização volta sozinha.",
   "m_1fbb7f90760b76": "O Ether poderá reproduzir este episódio assim que ele for ao ar.",
+  "m_1fbc6f4325d11f": "A busca com IA está indisponível ou não conseguiu interpretar esta solicitação. Tente novamente ou use os filtros.",
   "m_1fbdb0dc814ddc": "Dom",
   "m_1fbe03036dfea2": "Desvio do relógio",
   "m_1fbec30f65907d": "Salvar como novo clipe",

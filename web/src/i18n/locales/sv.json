@@ -815,7 +815,6 @@
   "m_0350ced4638a5c": "Detta tar bort {name} och all deras data: tittarhistorik, återupptagningspunkter, betyg, bevakningslista, favoriter, smak, inloggningsmetoder och enheter. Det går inte att ångra. Vill du behålla allt men stoppa åtkomsten pausar du i stället.",
   "m_03511d39db6f7f": "Gräns för förbättrad upplösning",
   "m_03528b1ef82f18": "Slutför pågående begäranden och stoppar sedan…",
-  "m_03564da3c6631f": "Sökningen kunde inte tolkas. Försök igen.",
   "m_035753a3d0ed4f": "Ute i dag",
   "m_0357bc87b226c4": "Filen är redo att importeras",
   "m_035960981be4e1": {
@@ -6252,6 +6251,7 @@
   "m_199c703ae971a2": "I de här samlingarna",
   "m_199da49eb6db52": "Reparation aktiverad",
   "m_19a03337702a01": "Byt namn",
+  "m_19a038c0ecf2ec": "Inte sett",
   "m_19a0ce986f00a6": "Ändringar som gjorts efter {date} – tittarhistorik, inställningar och nya tittare – ersätts av säkerhetskopian.",
   "m_19a27400a63e1a": "Den token godkändes inte som ägartoken.",
   "m_19a33d55392088": "Ångra (⌘Z)",
@@ -7729,6 +7729,7 @@
   "m_1fbaa8117e2804": "Stremio-tillägg",
   "m_1fbb70e2c53e2f": "Servern bad Ether att sakta ner. Synkroniseringen fortsätter av sig själv.",
   "m_1fbb7f90760b76": "Ether kan spela upp det här avsnittet när det har sänts.",
+  "m_1fbc6f4325d11f": "AI-sökning är inte tillgänglig eller kunde inte tolka den här förfrågan. Försök igen eller använd filter.",
   "m_1fbdb0dc814ddc": "Sön",
   "m_1fbe03036dfea2": "Klockavvikelse",
   "m_1fbec30f65907d": "Spara som nytt klipp",

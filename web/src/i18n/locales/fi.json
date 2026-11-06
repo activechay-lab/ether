@@ -815,7 +815,6 @@
   "m_0350ced4638a5c": "Tämä poistaa {name} ja kaikki hänen tietonsa: katseluhistorian, jatkokohdat, arvosanat, katselulistan, suosikit, maun, kirjautumistavat ja laitteet. Tätä ei voi kumota. Jos haluat säilyttää kaiken mutta estää käytön, keskeytä se sen sijaan.",
   "m_03511d39db6f7f": "Parannetun tarkkuuden raja",
   "m_03528b1ef82f18": "Viimeistellään käynnissä olevat pyynnöt, sitten pysäytetään…",
-  "m_03564da3c6631f": "Hakua ei voitu tulkita. Yritä uudelleen.",
   "m_035753a3d0ed4f": "Julkaistaan tänään",
   "m_0357bc87b226c4": "Tiedosto valmis tuotavaksi",
   "m_035960981be4e1": {
@@ -6252,6 +6251,7 @@
   "m_199c703ae971a2": "Näissä kokoelmissa",
   "m_199da49eb6db52": "Korjaus käytössä",
   "m_19a03337702a01": "Nimeä uudelleen",
+  "m_19a038c0ecf2ec": "Katsomatta",
   "m_19a0ce986f00a6": "Ajankohdan {date} jälkeen tehdyt muutokset – katseluhistoria, asetukset ja uudet katselijat – korvataan varmuuskopiolla.",
   "m_19a27400a63e1a": "Tätä tokenia ei hyväksytty omistajan tokeniksi.",
   "m_19a33d55392088": "Kumoa (⌘Z)",
@@ -7729,6 +7729,7 @@
   "m_1fbaa8117e2804": "Stremio-lisäosa",
   "m_1fbb70e2c53e2f": "Palvelin pyysi Etheriä hidastamaan. Synkronointi jatkuu itsestään.",
   "m_1fbb7f90760b76": "Ether voi toistaa tämän jakson sen esityksen jälkeen.",
+  "m_1fbc6f4325d11f": "Tekoälyhaku ei ole käytettävissä tai ei pystynyt tulkitsemaan tätä pyyntöä. Yritä uudelleen tai käytä suodattimia.",
   "m_1fbdb0dc814ddc": "Su",
   "m_1fbe03036dfea2": "Kellon poikkeama",
   "m_1fbec30f65907d": "Tallenna uutena leikkeenä",

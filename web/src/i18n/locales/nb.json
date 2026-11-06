@@ -815,7 +815,6 @@
   "m_0350ced4638a5c": "Dette sletter {name} og alle dataene deres: seerhistorikk, fortsettelsespunkter, vurderinger, seerliste, favoritter, smak, innloggingsmetoder og enheter. Dette kan ikke angres. Vil du beholde alt, men stoppe tilgangen, setter du dem på pause i stedet.",
   "m_03511d39db6f7f": "Grense for forbedret oppløsning",
   "m_03528b1ef82f18": "Fullfører pågående forespørsler og stopper så …",
-  "m_03564da3c6631f": "Søket kunne ikke tolkes. Prøv igjen.",
   "m_035753a3d0ed4f": "Ute i dag",
   "m_0357bc87b226c4": "Filen er klar til import",
   "m_035960981be4e1": {
@@ -6252,6 +6251,7 @@
   "m_199c703ae971a2": "I disse samlingene",
   "m_199da49eb6db52": "Reparasjon aktivert",
   "m_19a03337702a01": "Gi nytt navn",
+  "m_19a038c0ecf2ec": "Ikke sett",
   "m_19a0ce986f00a6": "Endringer gjort etter {date} – visningshistorikk, innstillinger og nye seere – erstattes av sikkerhetskopien.",
   "m_19a27400a63e1a": "Det tokenet ble ikke godtatt som eier-token.",
   "m_19a33d55392088": "Angre (⌘Z)",
@@ -7729,6 +7729,7 @@
   "m_1fbaa8117e2804": "Stremio-tillegg",
   "m_1fbb70e2c53e2f": "Serveren ba Ether om å senke farten. Synkroniseringen fortsetter av seg selv.",
   "m_1fbb7f90760b76": "Ether kan spille av denne episoden når den er sendt.",
+  "m_1fbc6f4325d11f": "KI-søk er utilgjengelig eller kunne ikke tolke denne forespørselen. Prøv igjen, eller bruk filtre.",
   "m_1fbdb0dc814ddc": "Søn",
   "m_1fbe03036dfea2": "Klokkeavvik",
   "m_1fbec30f65907d": "Lagre som nytt klipp",
