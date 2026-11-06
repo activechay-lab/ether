@@ -275,7 +275,8 @@ type App struct {
 	// readPending reads the restore record (backup.ReadPending when nil).
 	readPending func(dataDir string) (*backup.Pending, error)
 	// integrity is the database's last integrity check (SQLite).
-	integrity atomic.Pointer[store.Integrity]
+	integrity         atomic.Pointer[store.Integrity]
+	integrityChecking atomic.Bool
 	// restart is an owner-requested restart (restart.go).
 	restart restartState
 	// Extensibility (docs/extend/SPEC.md). Each runtime type lives in its own

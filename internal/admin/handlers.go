@@ -701,3 +701,23 @@ func DiskFree(path string) (int64, error) { _, free, err := diskUsage(path); ret
 
 // DiskUsage reports the size and free bytes of the volume holding path.
 func DiskUsage(path string) (total, free int64, err error) { return diskUsage(path) }
+
+func (h *Handler) handleDatabaseCheck(w http.ResponseWriter, r *http.Request) {
+	access, _ := RequestAccess(r.Context())
+	if !access.Owner {
+		writeError(w, http.StatusForbidden, "owner_required", "sign in as the owner to check the database")
+		return
+	}
+	if h.deps.DatabaseCheck == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "database checks are not available")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	value, err := h.deps.DatabaseCheck(ctx)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "database_check_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"value": value})
+}

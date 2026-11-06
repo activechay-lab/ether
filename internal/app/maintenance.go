@@ -93,8 +93,8 @@ func (a *App) maintainDB(ctx context.Context) {
 		case ctx.Err() != nil:
 			return
 		case errors.As(err, &corrupt):
-			// Damage does not heal on a retry: report it and check again
-			// at the next daily pass.
+			// Preserve the finding until a completed owner recheck or the
+			// next daily pass replaces it.
 			a.recordIntegrity(corrupt.Integrity)
 		case store.IsCorrupt(err):
 			a.recordIntegrity(store.Integrity{Findings: []string{err.Error()}, Checked: time.Now().UTC()})
