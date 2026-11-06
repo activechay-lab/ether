@@ -546,9 +546,10 @@ type Hub struct {
 
 // SearchResult wraps one /library/search hit.
 type SearchResult struct {
-	Score     float64    `plex:"score"`
-	Metadata  *Metadata  `plex:"Metadata,object"`
-	Directory *Directory `plex:"Directory,object"`
+	Score     float64        `plex:"score"`
+	Metadata  *Metadata      `plex:"Metadata,object"`
+	Directory *Directory     `plex:"Directory,object"`
+	Channel   *SearchChannel `plex:"Channel,object"`
 }
 
 // Meta describes a section's types, filters, sorts and fields
@@ -910,3 +911,19 @@ type TimelineBandwidth struct {
 	Bandwidth  int    `plex:"bandwidth"`
 	Resolution string `plex:"resolution"`
 }
+
+// SearchChannel is distinct from a programme Metadata hit. Plex Web requires
+// categories even when empty and tunes using the originating source and id.
+type SearchChannel struct {
+	ID         string     `plex:"id"`
+	GridKey    string     `plex:"gridKey"`
+	VCN        string     `plex:"vcn"`
+	Title      string     `plex:"title"`
+	ShortTitle string     `plex:"shortTitle"`
+	Source     string     `plex:"source"`
+	Categories StringList `plex:"categories"`
+}
+
+// StringList encodes primitive strings as a JSON array (including [] when
+// empty) or a comma-separated XML attribute, rather than child objects.
+type StringList []string
