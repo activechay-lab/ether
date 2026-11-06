@@ -37,11 +37,14 @@ func TestRecoveryRebuildsAuthoredTimeline(t *testing.T) {
 					if !reflect.DeepEqual(initial.plan, resumed.plan) {
 						t.Fatalf("segment %d changed authored plan", n)
 					}
-					if got := argValue(fr.starts[0], "-start_number"); got != fmt.Sprint(n) {
+					fr.mu.Lock()
+					first := append([]string(nil), fr.starts[0]...)
+					fr.mu.Unlock()
+					if got := argValue(first, "-start_number"); got != fmt.Sprint(n) {
 						t.Fatalf("start_number %s, want %d", got, n)
 					}
 					want := fmt.Sprintf("%.3f", initial.plan.Start(n).Seconds())
-					if got := argValue(fr.starts[0], "-ss"); n > 0 && got != want {
+					if got := argValue(first, "-ss"); n > 0 && got != want {
 						t.Fatalf("segment %d seek %q, want %s", n, got, want)
 					}
 					a, b := httptest.NewRecorder(), httptest.NewRecorder()
