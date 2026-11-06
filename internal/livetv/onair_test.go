@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/core"
+	"io"
 	"reflect"
 	"testing"
 	"time"
@@ -118,6 +119,16 @@ func TestMissingBroadcastClipPreservesScheduleAndGuide(t *testing.T) {
 					t.Fatalf("airing %d shifted: %v, want %v", i, p, want)
 				}
 				if interstitial(p.Item) && !p.Start.After(now) {
+					// An already-airing clip ending early takes the identical
+					// failure path as the CHROMA pod EOF incident. A refresh
+					// must preserve every later prepared programme identity.
+					s.recordGraphicsSkip(c, p, io.EOF)
+					refreshed := s.broadcastSchedule(context.Background(), c, now, until, true)
+					for j, row := range refreshed {
+						if row.ID != scheduled[j].ID || row.Start != scheduled[j].Start || row.End != scheduled[j].End || broadcastProgrammeID(row) != broadcastProgrammeID(scheduled[j]) {
+							t.Fatal("EOF recompute invalidated prepared input")
+						}
+					}
 					if !p.graphicsFallback {
 						t.Fatal("missing master did not latch fallback")
 					}
