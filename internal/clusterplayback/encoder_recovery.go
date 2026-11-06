@@ -117,7 +117,7 @@ func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
 	if err != nil {
 		return err
 	}
-	admission, err := r.readAdmission(ctx, old)
+	admission, err := r.readExecutionAdmission(ctx, old)
 	if err != nil {
 		return err
 	}
@@ -185,7 +185,19 @@ func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
 		if count != 1 {
 			return ErrDenied
 		}
-		_, err = tx.ExecContext(c, `UPDATE clusterplayback_coordinators SET generation=? WHERE session=? AND generation=?`, rec.Generation, rec.Session, old.Fence.Generation)
+		coordinatorUpdate, err := tx.ExecContext(c, `UPDATE clusterplayback_coordinators SET generation=? WHERE session=? AND generation=? AND node=? AND boot=? AND epoch=? AND deadline>?`, rec.Generation, rec.Session, old.Fence.Generation, r.o.Self.NodeID, r.o.Self.Boot, coordinator.Epoch, time.Now().Add(r.o.ClockSkew).UnixMilli())
+		if err != nil {
+			return err
+		}
+		count, err = coordinatorUpdate.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if count != 1 {
+			return ErrDenied
+		}
+		// Credentials continue authorizing the same title while the execution moves.
+		_, err = tx.ExecContext(c, `UPDATE clusterplayback_plex_bindings SET generation=? WHERE session=? AND generation=?`, rec.Generation, rec.Session, old.Fence.Generation)
 		return err
 	})
 	if err != nil {
@@ -227,6 +239,7 @@ func (r *Runtime) startReplacement(ctx context.Context, x *execution) error {
 	r.mu.Lock()
 	stopping := x.stopping || r.closed
 	if stopping {
+		x.epoch = next.epoch
 		x.route = next.route
 		x.request = next.request
 		x.adapter = next.adapter
@@ -252,7 +265,12 @@ func (r *Runtime) startReplacement(ctx context.Context, x *execution) error {
 		if err != nil {
 			return err
 		}
-		adapter, err := remotetranscode.NewAdapter(remotetranscode.AdapterOptions{Capabilities: next.recoveryCaps, Endpoint: endpoint, Client: &http.Client{Transport: &http.Transport{TLSClientConfig: tc}}, RecheckServer: check, Decide: r.o.Decide, Hardware: r.o.Hardware, Capacity: 1,
+		coordinator, err := r.CurrentCoordinator(ctx, route.Fence.Session)
+		if err != nil || coordinator.Identity != r.o.Self || !r.ownsCoordination(ctx, route.Fence.Session) {
+			return ErrDenied
+		}
+		next.epoch = coordinator.Epoch
+		adapter, err := remotetranscode.NewAdapter(remotetranscode.AdapterOptions{RequestHeaders: r.coordinatorHeaders(route.Fence.Session, coordinator.Epoch), Capabilities: next.recoveryCaps, Endpoint: endpoint, Client: &http.Client{Transport: &http.Transport{TLSClientConfig: tc}}, RecheckServer: check, Decide: r.o.Decide, Hardware: r.o.Hardware, Capacity: 1,
 			Assign: func(context.Context, core.HLSRequest) (remotetranscode.Assignment, error) {
 				return remotetranscode.Assignment{Identity: remoteIdentity(route), Grant: bound.Stable, Expires: rec.Deadline.Add(-2 * r.o.ClockSkew).UTC()}, nil
 			},
@@ -279,6 +297,7 @@ func (r *Runtime) startReplacement(ctx context.Context, x *execution) error {
 	r.mu.Lock()
 	output := &bufferedSession{Session: next.session, r: r, route: route, headers: make(map[int64]http.Header), supersededAt: -1}
 	x.previous = append(x.previous, x.output)
+	x.epoch = next.epoch
 	x.route = route
 	x.request = next.request
 	x.adapter = next.adapter

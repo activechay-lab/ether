@@ -156,13 +156,13 @@ func NewRuntime(o Options) (*Runtime, error) {
 
 	}
 	if o.Encoder != nil {
-		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Capabilities: o.WorkerCapabilities, Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: o.Guard.RemoteAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
+		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Capabilities: o.WorkerCapabilities, Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: r.workerAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
 		if e != nil {
 			return nil, e
 		}
 		r.mux.HandleFunc(CapabilitiesPath, r.capabilitiesHTTP)
 		r.worker = w
-		r.mux.Handle(WorkerPath, w)
+		r.mux.HandleFunc(WorkerPath, r.workerHTTP)
 	}
 	r.mux.HandleFunc(SourcePath, r.sourceHTTP)
 	r.mux.HandleFunc(DeliveryPath, r.deliveryHTTP)
@@ -289,7 +289,6 @@ func (r *Runtime) sourcePolicy(ctx context.Context, owner placement.Target, s no
 		role config.NodeRole
 	}{
 		{route.Source, config.RoleSource},
-		{nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: s.Fence.Controller.ID, Boot: s.Fence.Controller.Boot}, config.RoleServer},
 		{nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: s.Fence.Target.NodeID, Boot: s.Fence.Target.Boot}, config.RoleTranscode},
 	} {
 		if r.o.MemberRole(ctx, pair.id, pair.role) != nil {

@@ -407,3 +407,54 @@ means acceptance failed, even if the node restarts.
 drain failure, a replacement racing the UID-preconditioned delete, successful
 replacement, and container-name reuse safety. These checks run in chart CI and
 do not count as playback or hard-loss acceptance.
+
+## Playback coordinator and delivery loss
+
+Overlay `packaging/kubernetes/routing-ha.values.yaml` on mixed-role values for
+two server and two delivery replicas on distinct Kubernetes hostnames. Supply
+the existing operator-managed Secrets, database and same-origin Ingress. The
+API Service selects **all** full/server replicas through `ether.plex/public`;
+the media Service selects all full/delivery replicas through `ether.plex/media`.
+Neither selector pins a particular ordinal or elected global leader. The
+headless private Service resolves exact source/encoder incarnations; balancing
+those RPCs across a role Service would discard their execution identity.
+Existing readiness probes and per-pool PDBs apply. Hard loss requires spare
+ready replicas; a PDB constrains voluntary disruption only.
+
+Delivery retains no authoritative output or coordination. Every request resolves
+the current coordinator from SQL and forwards once over authenticated node RPC.
+The receiving original protocol handler rechecks viewer/grant, device and media
+policy. Range, conditional requests, HEAD and cancellation follow that handler;
+redirects and additional delivery hops are refused. Output lives at the encoder;
+optional controller retention is a second copy, never delivery's unique data.
+
+Playback coordination uses a separate SQL lease and monotonically increasing
+epoch (`clusterplayback/6`). Its 15-second lease includes twice the configured
+clock-skew bound. A surviving eligible server claims an expired lease by CAS,
+observes the exact healthy worker through status (no Start), and renews its
+placement, source and worker leases. The execution fence/generation and encoder
+process remain unchanged. Worker requests bind the current certificate and
+coordinator epoch; a stale controller cannot stop or renew that execution.
+Source movement keeps its independent source generation. Global cluster
+leadership and registrar epochs are unrelated to either playback generation.
+
+The original Plex stream binding, read capability and source authorization
+snapshot are persisted in the shared database before publishing the HLS master.
+These are credentials: do not export the binding table in evidence or logs.
+Surviving replicas restore protocol facts and run the original live policy
+checks. Binding snapshots are bounded by admitted placement history and become
+unreadable when that execution is retired or loses authority. They do not
+manufacture a new source owner or encoder start. A repeated decision on the
+surviving coordinator can reuse the source manager’s exact protected lifetime;
+obsolete preparations cannot close it, and plan cleanup cannot retire a source
+while the healthy execution still owns its binding.
+
+The in-process `TestDeliveryAndControllerLossKeepExecution` stops delivery and
+controller HTTP listeners, waits for the real coordinator lease, and verifies
+segment response continuity, Range/HEAD/416 parity, timeline availability,
+renewal and one encoder start. Its media backend is an offline fake. It does
+**not** certify decoded playback, real Ingress endpoint removal, a client buffer,
+PostgreSQL availability or physical node loss. Run the acceptance collector
+across each actual loss before release. Budget at least the coordination lease,
+three clock-skew bounds, the control tick and actual RPC latency within the
+measured client forward buffer; configurations with larger skew need more buffer.

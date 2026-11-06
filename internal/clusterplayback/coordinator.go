@@ -15,6 +15,8 @@ import (
 )
 
 type execution struct {
+	epoch                         int64
+	adopted                       bool
 	replacement                   *execution
 	failed                        []*execution
 	previous                      []*bufferedSession
@@ -165,7 +167,14 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if e != nil {
 		return nil, e
 	}
-	adapter, e := remotetranscode.NewAdapter(remotetranscode.AdapterOptions{CommitStart: func(c context.Context, id remotetranscode.Identity, hash [32]byte) error {
+	coordinator, e := r.CurrentCoordinator(ctx, q.SessionID)
+	if e != nil {
+		return nil, e
+	}
+	r.mu.Lock()
+	x.epoch = coordinator.Epoch
+	r.mu.Unlock()
+	adapter, e := remotetranscode.NewAdapter(remotetranscode.AdapterOptions{RequestHeaders: r.coordinatorHeaders(q.SessionID, coordinator.Epoch), CommitStart: func(c context.Context, id remotetranscode.Identity, hash [32]byte) error {
 		return r.persistAdmission(c, x, id, hash)
 	}, Capabilities: capabilities, Endpoint: endpoint, Client: &http.Client{Transport: &http.Transport{TLSClientConfig: tc}, Timeout: 0}, RecheckServer: check, Assign: func(context.Context, core.HLSRequest) (remotetranscode.Assignment, error) {
 		return remotetranscode.Assignment{Identity: remoteIdentity(rt), Grant: bound.Stable, Expires: deadline}, nil
@@ -375,6 +384,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		return ErrPending
 	}
 	defer r.control.Unlock()
+	if err := r.maintainCoordinators(ctx); err != nil {
+		return err
+	}
 	r.mu.Lock()
 	list := make([]*execution, 0, len(r.executions))
 	for _, x := range r.executions {
@@ -401,7 +413,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		if e := ctx.Err(); e != nil {
 			return e
 		}
-		if x.busy || x.retired {
+		if x.busy || x.retired || (x.reserved && !x.stopping && !r.ownsExecution(ctx, x)) {
 			continue
 		}
 		if x.reservePending {
@@ -512,7 +524,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			}
 		}
 		lease := x.session.Lease()
-		if lease.Deadline.After(time.Now().Add(time.Minute)) {
+		if !x.adopted && lease.Deadline.After(time.Now().Add(time.Minute)) {
 			continue
 		}
 		deadline := time.Now().Add(2 * time.Minute).UTC().Truncate(time.Millisecond)
@@ -528,6 +540,11 @@ func (r *Runtime) Tick(ctx context.Context) error {
 				result = ErrPending
 			}
 		}
+		r.mu.Lock()
+		if current := r.executions[x.route.Fence.Session]; current != nil && current.session == x.session {
+			current.adopted = false
+		}
+		r.mu.Unlock()
 	}
 	return result
 }

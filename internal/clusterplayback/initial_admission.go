@@ -8,7 +8,8 @@ import (
 // initialAdmission is private historical admission state, not an
 // output observation or execution permission. Route binds the actual reserved
 // full fence and authenticated source owner/PlayID/revision. It carries the
-// owning controller identity; there is no separate delivery identity in Route.
+// original execution controller identity; current coordination is resolved
+// separately through CurrentCoordinator.
 // The initial request remains unchanged by backend/live observations. No raw
 // input URL, headers, source grant or input-lifetime actor is retained here.
 type initialAdmission struct {

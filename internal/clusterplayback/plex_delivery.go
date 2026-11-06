@@ -1,7 +1,6 @@
 package clusterplayback
 
 import (
-	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 	"io"
 	"net/http"
@@ -97,8 +96,13 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.NotFound(w, q)
 		return
 	}
+	coordinator, e := r.CurrentCoordinator(q.Context(), id)
+	if e != nil || coordinator.Identity != r.o.Self {
+		http.NotFound(w, q)
+		return
+	}
 	route, e := r.route(q.Context(), id)
-	if e != nil || route.Fence.Controller.ID != r.o.Self.NodeID || route.Fence.Controller.Boot != r.o.Self.Boot {
+	if e != nil {
 		http.NotFound(w, q)
 		return
 	}
@@ -130,11 +134,16 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 	if q.Method != "GET" && q.Method != "HEAD" {
 		return false
 	}
-	route, e := r.route(q.Context(), id)
-	if e != nil || route.Fence.Controller.ID == r.o.Self.NodeID && route.Fence.Controller.Boot == r.o.Self.Boot {
+	coordinator, e := r.CurrentCoordinator(q.Context(), id)
+	if e != nil || coordinator.Identity == r.o.Self {
 		return false
 	}
-	owner := nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: route.Fence.Controller.ID, Boot: route.Fence.Controller.Boot}
+	route, e := r.route(q.Context(), id)
+	if e != nil {
+		http.NotFound(w, q)
+		return true
+	}
+	owner := coordinator.Identity
 	ep, tc, check, e := r.peer(q.Context(), owner, PlexDeliveryPath)
 	if e != nil {
 		http.Error(w, "delivery unavailable", 502)
