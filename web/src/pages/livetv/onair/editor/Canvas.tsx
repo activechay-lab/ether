@@ -26,7 +26,6 @@ import {
   selectionPath,
   selectionTarget,
   sharedTextLayers,
-  updateSharedText,
 } from "./scene-edit";
 export type CanvasProps = {
   document: Scene;
@@ -96,6 +95,16 @@ export function Canvas(p: CanvasProps) {
   const canvas = useRef<HTMLCanvasElement>(null),
     host = useRef<HTMLDivElement>(null);
   const [scope, setScope] = useState<string>();
+  useEffect(() => {
+    if (
+      scope &&
+      (!p.selected.length ||
+        p.selected.some(
+          (id) => id === scope || !layerPath(p.document, id).some((l) => l.id === scope),
+        ))
+    )
+      setScope(undefined);
+  }, [p.selected, scope]);
   const [hover, setHover] = useState<string>(),
     [editing, setEditing] = useState<string>(),
     [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number }>(),
@@ -361,6 +370,12 @@ export function Canvas(p: CanvasProps) {
         aria-label={t("Scene canvas")}
         onPointerMove={move}
         onPointerLeave={() => setHover(undefined)}
+        onPointerCancel={() => {
+          gesture.current = undefined;
+          setMarquee(undefined);
+          setGuides({});
+          p.onGestureEnd?.();
+        }}
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest("input")) return;
           p.onGestureStart?.();
@@ -654,15 +669,26 @@ export function Canvas(p: CanvasProps) {
             autoFocus
             className="absolute left-1/4 top-1/2 w-1/2"
             aria-label={t("Edit text")}
-            value={String(findLayer(p.document, editing)?.text ?? "")}
+            value={String(
+              typeof findLayer(p.document, editing)?.text === "string"
+                ? findLayer(p.document, editing)?.text
+                : (evaluate(findLayer(p.document, editing)?.text, p.bindings, p.time) ?? ""),
+            )}
             onChange={(e) => {
               const stack = [...layerPath(p.document, editing)]
                 .reverse()
                 .find((l) => l.type === "group" && sharedTextLayers(l).length > 1);
+              const targets = stack ? sharedTextLayers(stack) : [findLayer(p.document, editing)!];
               p.onChange(
-                stack
-                  ? updateSharedText(p.document, stack.id, { text: e.target.value })
-                  : updateLayer(p.document, editing, { text: e.target.value }),
+                targets.reduce(
+                  (document, layer) =>
+                    updateLayer(
+                      document,
+                      layer.id,
+                      editValue(layer, "text", e.target.value, p.time),
+                    ),
+                  p.document,
+                ),
               );
             }}
             onBlur={() => setEditing(undefined)}

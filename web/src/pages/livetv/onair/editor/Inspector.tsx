@@ -419,7 +419,7 @@ export function Inspector(p: {
       <Select
         aria-label={label}
         value={String(sourceFor(key)[key] ?? options[0]?.[0] ?? "")}
-        onChange={(e) => patch({ [key]: e.target.value })}
+        onChange={(e) => set(key, e.target.value)}
       >
         {options.map(([value, name]) => (
           <option key={value} value={value}>
