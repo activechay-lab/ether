@@ -48,6 +48,12 @@ func (r *Runtime) attachExecution(ctx context.Context, id string) error {
 		adapter.Close()
 		return err
 	}
+	// Coordination adoption transfers the registry once. Media readers never do
+	// this, and a repeated Stop must remain valid after the registry is removed.
+	if _, err := r.o.DB.ExecContext(ctx, `UPDATE plex_sessions SET node_id=?,updated_at=? WHERE id=? AND active=1 AND protocol IN ('jellyfin','emby') AND EXISTS (SELECT 1 FROM clusterplayback_coordinators c WHERE c.session=? AND c.node=? AND c.boot=? AND c.epoch=? AND c.deadline>?)`, r.o.Self.NodeID, time.Now().UnixMilli(), id, id, r.o.Self.NodeID, r.o.Self.Boot, coordinator.Epoch, time.Now().Add(r.o.ClockSkew).UnixMilli()); err != nil {
+		adapter.Close()
+		return err
+	}
 	x := &execution{epoch: coordinator.Epoch, adopted: true, route: route, reserved: true, adapter: adapter, session: session, retirement: session, done: make(chan struct{}), initial: newInitialAdmission(route, admission.Request)}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -65,9 +71,10 @@ func (r *Runtime) attachExecution(ctx context.Context, id string) error {
 	return nil
 }
 
-// workerAuthenticate first authenticates the actual certificate, then resolves
-// its current coordinator lease. The primitive's execution identity remains
-// immutable, including its original controller boot.
+// workerAuthenticate authenticates the actual certificate. Control requests
+// require the coordinator lease; media observers require a server-role peer
+// and are restricted to read operations by authorizeWorker. The primitive's
+// execution identity retains its original controller boot.
 func (r *Runtime) workerAuthenticate(q *http.Request) (string, error) {
 	peer, err := r.o.Guard.Request(q)
 	if err != nil {
@@ -78,6 +85,10 @@ func (r *Runtime) workerAuthenticate(q *http.Request) (string, error) {
 	id, ok := q.Context().Value(workerSessionKey{}).(string)
 	if !ok {
 		return "", ErrDenied
+	}
+	if q.Header.Get(mediaReadHeader) == "1" && r.o.MemberRole(q.Context(), peer, config.RoleServer) == nil {
+		route, err := r.route(q.Context(), id)
+		return route.Fence.Controller.Boot, err
 	}
 	c, err := r.CurrentCoordinator(q.Context(), id)
 	if err != nil || c.Identity != peer || q.Header.Get(coordinatorEpochHeader) != strconv.FormatInt(c.Epoch, 10) || !c.Deadline.After(time.Now().Add(r.o.ClockSkew)) || r.o.MemberRole(q.Context(), peer, config.RoleServer) != nil {
@@ -93,8 +104,9 @@ func (r *Runtime) workerAuthenticate(q *http.Request) (string, error) {
 type workerSessionKey struct{}
 type workerAuthorityKey struct{}
 type workerAuthority struct {
-	peer  nodewire.Identity
-	epoch string
+	readOnly bool
+	peer     nodewire.Identity
+	epoch    string
 }
 
 func (r *Runtime) workerHTTP(w http.ResponseWriter, q *http.Request) {
@@ -113,7 +125,7 @@ func (r *Runtime) workerHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "request", 400)
 		return
 	}
-	ctx := context.WithValue(q.Context(), workerAuthorityKey{}, workerAuthority{peer, q.Header.Get(coordinatorEpochHeader)})
+	ctx := context.WithValue(q.Context(), workerAuthorityKey{}, workerAuthority{peer: peer, epoch: q.Header.Get(coordinatorEpochHeader), readOnly: q.Header.Get(mediaReadHeader) == "1"})
 	clone := q.Clone(context.WithValue(ctx, workerSessionKey{}, envelope.Identity.Session))
 	clone.Body = io.NopCloser(bytes.NewReader(raw))
 	r.worker.ServeHTTP(w, clone)

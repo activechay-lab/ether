@@ -384,7 +384,10 @@ func (r *Runtime) Session(id string) (core.HLSSession, bool) {
 	}
 	r.mu.Unlock()
 	if a == nil {
-		return nil, false
+		if x != nil && !active {
+			return nil, false
+		}
+		return r.mediaSession(id)
 	}
 	// Published local bytes remain available after an encoder failure, while
 	// exact current authority is rechecked at every cache request. This is not

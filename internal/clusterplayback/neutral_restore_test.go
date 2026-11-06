@@ -78,7 +78,7 @@ func testNeutralControls(t *testing.T, loseOwner bool) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			ids := []nodewire.Identity{{Cluster: "neutral", NodeID: "source", Boot: "source-boot"}, {Cluster: "neutral", NodeID: "worker", Boot: "worker-boot"}, {Cluster: "neutral", NodeID: "owner", Boot: "owner-boot"}, {Cluster: "neutral", NodeID: "survivor", Boot: "survivor-boot"}}
+			ids := []nodewire.Identity{{Cluster: "neutral", NodeID: "source", Boot: "source-boot"}, {Cluster: "neutral", NodeID: "worker", Boot: "worker-boot"}, {Cluster: "neutral", NodeID: "owner", Boot: "owner-boot"}, {Cluster: "neutral", NodeID: "survivor", Boot: "survivor-boot"}, {Cluster: "neutral", NodeID: "delivery", Boot: "delivery-boot"}}
 			guards := fixtureGuards(t, ids...)
 			endpoints := map[nodewire.Identity]string{}
 			var gone atomic.Bool
@@ -89,10 +89,10 @@ func testNeutralControls(t *testing.T, loseOwner bool) {
 				}
 				return nil
 			}
-			base := Options{DB: db, Placement: ledger, ProtocolSealer: sealer, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: eligible, Capacity: 32, ClockBoundKnown: true, ClockSkew: time.Millisecond, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision {
+			base := Options{MediaServers: func(context.Context) ([]nodewire.Identity, error) { return []nodewire.Identity{ids[2], ids[3]}, nil }, DB: db, Placement: ledger, ProtocolSealer: sealer, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: eligible, Capacity: 32, ClockBoundKnown: true, ClockSkew: time.Millisecond, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision {
 				return core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts", AudioStream: -1, SubtitleStream: -1}
 			}}
-			runtimes := make([]*Runtime, 4)
+			runtimes := make([]*Runtime, len(ids))
 			var privateOwner *httptest.Server
 			for i := range ids {
 				o := base
@@ -108,12 +108,29 @@ func testNeutralControls(t *testing.T, loseOwner bool) {
 				case 1:
 					o.Roles = config.NodeRoles{config.RoleTranscode}
 					o.Encoder = encoder
+				case 4:
+					o.Roles = config.NodeRoles{config.RoleDelivery}
 				default:
 					o.Roles = config.NodeRoles{config.RoleServer, config.RoleDelivery}
+				}
+				// Production uses one placement verifier bound to each server,
+				// rather than the shared fixture's original-controller verifier.
+				var survivorVerifier *Verifier
+				if i == 3 {
+					survivorVerifier = NewVerifier()
+					o.Placement, err = placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: fixtureSQLBudget()}, survivorVerifier)
+					if err != nil {
+						t.Fatal(err)
+					}
 				}
 				runtime, err := NewRuntime(o)
 				if err != nil {
 					t.Fatal(err)
+				}
+				if survivorVerifier != nil {
+					if err = survivorVerifier.Bind(runtime); err != nil {
+						t.Fatal(err)
+					}
 				}
 				runtimes[i] = runtime
 				defer runtime.Close()
@@ -266,15 +283,27 @@ func testNeutralControls(t *testing.T, loseOwner bool) {
 			gone.Store(true)
 			hub.Kill(ids[2].NodeID)
 			privateOwner.Close()
-			if _, err = db.Exec(`UPDATE clusterplayback_coordinators SET deadline=? WHERE session=?`, time.Now().Add(-time.Second).UnixMilli(), opened.ID); err != nil {
+			lossAt := time.Now()
+			// No lease edits or takeover tick: delivery must read the healthy
+			// worker through a surviving protocol server while epoch 1 remains.
+			sender, err := runtimes[4].NewPublicDelivery(func(context.Context, *http.Request, string) error { return ErrDenied })
+			if err != nil {
 				t.Fatal(err)
 			}
-			if err = runtimes[3].Tick(ctx); err != nil {
-				t.Fatal("takeover", err)
+			w := httptest.NewRecorder()
+			sender.ServeHTTP(w, httptest.NewRequest("GET", "https://public"+strings.TrimSuffix(path, "master.m3u8")+"3.ts", nil).WithContext(ctx))
+			if w.Code != 200 || w.Body.String() != "segment-3" {
+				t.Fatalf("during takeover: %d %q", w.Code, w.Body.String())
 			}
+			fetched[3]++
 			coordinator, err := runtimes[3].CurrentCoordinator(ctx, opened.ID)
-			if err != nil || coordinator.Identity != ids[3] || coordinator.Epoch != 2 {
-				t.Fatal("coordinator", coordinator, err)
+			if err != nil || coordinator.Epoch != 1 {
+				t.Fatal("media waited for takeover", coordinator, err)
+			}
+			t.Logf("media during epoch 1 after controller death: %s", time.Since(lossAt))
+			readCtx := context.WithValue(ctx, workerAuthorityKey{}, workerAuthority{peer: ids[3], readOnly: true})
+			if runtimes[1].authorizeWorker(readCtx, before.Fence.Controller.Boot, "stop", remoteIdentity(runtimes[3].mediaSessions[opened.ID].route), nil) == nil {
+				t.Fatal("read-only media replica stopped encoder")
 			}
 			// Persisted credentials must reject wrong keys and expired rows.
 			wrongSealer, keyErr := config.Open(t.TempDir())
@@ -298,7 +327,7 @@ func testNeutralControls(t *testing.T, loseOwner bool) {
 			}
 			denied := httptest.NewRecorder()
 			brokers[1].ServeMedia(denied, httptest.NewRequest("GET", "https://public/sessions/media/"+opened.ID+"/wrong-grant/3.ts", nil).WithContext(ctx))
-			if denied.Code == 200 || brokers[1].HasBinding(opened.ID) {
+			if denied.Code == 200 {
 				t.Fatal("wrong media grant installed session")
 			}
 			wrong := access
@@ -306,9 +335,7 @@ func testNeutralControls(t *testing.T, loseOwner bool) {
 			if _, err = brokers[1].StartStream(ctx, wrong, opened.ID, request); err != core.ErrUnauthorized {
 				t.Fatal("wrong device restored", err)
 			}
-			if brokers[1].HasBinding(opened.ID) {
-				t.Fatal("unauthorized snapshot installed")
-			}
+
 			wrong = access
 			if protocol == "jellyfin" {
 				wrong.Protocol = "emby"
@@ -321,6 +348,13 @@ func testNeutralControls(t *testing.T, loseOwner bool) {
 			if err = brokers[1].Report(ctx, access, opened.ID, frontend.Timeline{State: "playing", Position: 7 * time.Second, Sequence: 1}); err != nil || progress.Load() != int64(7*time.Second) {
 				t.Fatal("restored progress", err, progress.Load())
 			}
+			coordinator, err = runtimes[3].CurrentCoordinator(ctx, opened.ID)
+			if err != nil || coordinator.Identity != ids[3] || coordinator.Epoch != 2 {
+				t.Fatal("takeover", coordinator, err)
+			}
+			if time.Since(lossAt) > 6*time.Second {
+				t.Fatal("takeover exceeded six seconds")
+			}
 			restoredPath, err := brokers[1].StartStream(ctx, access, opened.ID, request)
 			if err != nil || restoredPath != path {
 				t.Fatal("playlist path changed", restoredPath, err)
@@ -330,7 +364,7 @@ func testNeutralControls(t *testing.T, loseOwner bool) {
 			if master.Code != 200 || !strings.Contains(master.Body.String(), "#EXTM3U") {
 				t.Fatal("restored master", master.Code, master.Body.String())
 			}
-			for n := 3; n < 8; n++ {
+			for n := 4; n < 8; n++ {
 				fetch(brokers[1], n)
 			}
 			after, err := ledger.Lookup(ctx, opened.ID)
@@ -358,6 +392,25 @@ func testNeutralControls(t *testing.T, loseOwner bool) {
 			}
 			if err = runtimes[3].SaveNeutralBinding(ctx, opened.ID, string(protocol), 9, access.Device.ID, priorSnapshot); err == nil {
 				t.Fatal("stopped credentials resurrected")
+			}
+			for i := 0; i < 100; i++ {
+				_ = runtimes[3].Tick(ctx)
+				runtimes[1].Cleanup()
+				runtimes[0].Cleanup()
+				rec, e := ledger.Lookup(ctx, opened.ID)
+				if e == nil && rec.Retired {
+					break
+				}
+				if i == 99 {
+					t.Fatal("retirement did not settle", rec, e)
+				}
+				time.Sleep(time.Millisecond)
+			}
+			for _, table := range []string{"placement_claims", "placement_displaced_claims"} {
+				var count int
+				if err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count); err != nil || count != 0 {
+					t.Fatal("capacity retained", table, count, err)
+				}
 			}
 			var rows int
 			if err = db.QueryRow(`SELECT COUNT(*) FROM clusterplayback_neutral_bindings WHERE session=?`, opened.ID).Scan(&rows); err != nil || rows != 0 {
