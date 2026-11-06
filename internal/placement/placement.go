@@ -207,6 +207,13 @@ func (s *Service) SetTarget(ctx context.Context, target Target, roles config.Nod
 	data, _ := json.Marshal(roles)
 	scopeData, _ := json.Marshal(policy)
 	return s.transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		var removed int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM placement_removed_targets WHERE node=? AND boot=?`, target.NodeID, target.Boot).Scan(&removed); err != nil {
+			return err
+		}
+		if removed != 0 {
+			return ErrFenced
+		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO placement_targets(node,boot,roles,scopes) VALUES(?,?,?,?) ON CONFLICT(node) DO UPDATE SET boot=excluded.boot,roles=excluded.roles,scopes=excluded.scopes`, target.NodeID, target.Boot, string(data), string(scopeData))
 		return err
 	})

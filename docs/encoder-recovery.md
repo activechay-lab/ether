@@ -25,8 +25,21 @@ operation gate, records the exact next segment/immutable request and recovery
 event, and advances the route generation. No missing member, RPC error or elapsed
 lease is recorded as process retirement. Displaced claims remain charged until
 an authenticated exact worker stop/status reports encoder AND input retirement.
-A permanently unreachable host can therefore retain a charge; host retirement
-attestation remains separate. Displaced history is bounded by placement's session
+A fresh authenticated membership observation of the same node ID with a different
+boot also retires displaced claims. This reconciliation reads durable history and
+survives loss of controller-local old-session pointers. A missing member or stale
+replacement policy row is insufficient. For a permanently removed host, an
+operator can attest its exact boot has been removed/fenced:
+
+```sh
+ether cluster retire-node --node-id NODE --boot BOOT --evidence INCIDENT-REFERENCE
+```
+
+This command requires enrolled PostgreSQL credentials and verifies cluster
+identity. It records an exact-boot removal tombstone, removes only that boot's
+placement policy and releases only its displaced claims in one transaction.
+The removed boot cannot be re-admitted; a new incarnation is independent.
+This is an operator attestation, never automatic liveness pruning. Displaced history is bounded by placement's session
 limit. Resource capacity checks include both current and displaced claims.
 Unknown outcomes retry the identical retained replacement operation.
 
@@ -66,7 +79,9 @@ use clusterplayback migration 7; displaced accounting uses placement migration 4
 mTLS RPC and SQLite. It covers encoder exit and an alive but unreachable worker,
 generation increment, immutable plan/resume cursor, sealed/armed old gate,
 late-output rejection, complete unique segments, exact displaced capacity release,
-final encoder/input retirement and output disposal. The TS bytes are an offline
+final encoder/input retirement and output disposal. Additional cases cover an
+unreachable old boot replaced by a freshly authenticated boot, controller-local
+old-session history loss, and explicit permanent-node removal/tombstone fencing. The TS bytes are an offline
 fixture. It proves the ownership/control invariant, not real video decoding,
 PTS/audio continuity, PostgreSQL runtime behavior or zero client stalls. Those
 require the release coordinator's real playback failure matrix.

@@ -3,7 +3,6 @@ package clusterplayback
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -67,8 +66,8 @@ func (s *recoveryTestSession) ServeSegment(w http.ResponseWriter, q *http.Reques
 // The encoded bytes are a recorded offline TS fixture: it tests ownership and
 // complete/unique delivery, not real decoder or audio splice continuity.
 func TestEncoderLossRecoveryInvariant(t *testing.T) {
-	for _, partition := range []bool{false, true} {
-		t.Run(fmt.Sprintf("partition=%v", partition), func(t *testing.T) {
+	for _, mode := range []string{"exit", "partition", "newboot", "removed"} {
+		t.Run(mode, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			data, err := os.ReadFile("../playbackbuffer/testdata/cpu.ts")
@@ -176,7 +175,7 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			front.mu.Lock()
 			old := *front.executions[q.SessionID]
 			front.mu.Unlock()
-			if !partition {
+			if mode == "exit" || mode == "newboot" || mode == "removed" {
 				if err = a.session.RetireEncoder(); err != nil {
 					t.Fatal(err)
 				}
@@ -234,6 +233,37 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			events, eventErr := front.RecoveryEvents(ctx, 256)
 			if eventErr != nil || len(events) != 1 || events[0].Status != "recovered" || events[0].FailedNodeID != "a" || events[0].ReplacementNodeID != "b" || events[0].InterruptionMS == nil || events[0].ClientStalls != nil {
 				t.Fatalf("events: %+v %v", events, eventErr)
+			}
+			if mode == "newboot" {
+				if err = p.SetTarget(ctx, placement.Target{NodeID: "a", Boot: "a-new-boot"}, config.NodeRoles{config.RoleTranscode}, map[config.NodeRole][]string{config.RoleTranscode: {"a/streams"}}); err != nil {
+					t.Fatal(err)
+				}
+				// Reconciliation uses durable displaced history even if no local
+				// old-session pointer remains after controller restart.
+				front.mu.Lock()
+				failed := front.executions[q.SessionID].failed
+				front.executions[q.SessionID].failed = nil
+				front.mu.Unlock()
+				if err = front.reconcileBootRetirements(ctx); err != nil {
+					t.Fatal(err)
+				}
+				front.mu.Lock()
+				front.executions[q.SessionID].failed = failed
+				front.mu.Unlock()
+				if err = db.QueryRow(`SELECT COUNT(*) FROM placement_displaced_claims`).Scan(&charged); err != nil || charged != 0 {
+					t.Fatal("new boot leaked capacity", charged, err)
+				}
+			}
+			if mode == "removed" {
+				if err = p.RemoveTarget(ctx, old.route.Fence.Target, "offline-test/operator-fenced-exact-boot"); err != nil {
+					t.Fatal(err)
+				}
+				if err = db.QueryRow(`SELECT COUNT(*) FROM placement_displaced_claims`).Scan(&charged); err != nil || charged != 0 {
+					t.Fatal("removed node leaked capacity", charged, err)
+				}
+				if err = p.SetTarget(ctx, old.route.Fence.Target, config.NodeRoles{config.RoleTranscode}, map[config.NodeRole][]string{config.RoleTranscode: {"a/streams"}}); err != placement.ErrFenced {
+					t.Fatal("removed boot readmitted", err)
+				}
 			}
 			down.Store(false)
 			late := httptest.NewRecorder()

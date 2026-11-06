@@ -11,12 +11,13 @@ import (
 func init() {
 	store.Register("placement", 4, `
 CREATE TABLE placement_displaced (
- session TEXT NOT NULL, generation BIGINT NOT NULL, record TEXT NOT NULL,
+ session TEXT NOT NULL, generation BIGINT NOT NULL, node TEXT NOT NULL, boot TEXT NOT NULL, record TEXT NOT NULL,
  PRIMARY KEY(session,generation));
 CREATE TABLE placement_displaced_claims (
  session TEXT NOT NULL, generation BIGINT NOT NULL, scope TEXT NOT NULL, units BIGINT NOT NULL,
  PRIMARY KEY(session,generation,scope));
 CREATE INDEX placement_displaced_scope ON placement_displaced_claims(scope);
+CREATE TABLE placement_removed_targets(node TEXT NOT NULL, boot TEXT NOT NULL, evidence TEXT NOT NULL, PRIMARY KEY(node,boot));
 `)
 }
 
@@ -60,7 +61,7 @@ func (s *Service) Supersede(ctx context.Context, failed Fence, request Request, 
 		if err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO placement_displaced(session,generation,record) VALUES(?,?,?)`, old.Session, old.Generation, string(raw)); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO placement_displaced(session,generation,node,boot,record) VALUES(?,?,?,?,?)`, old.Session, old.Generation, old.Target.NodeID, old.Target.Boot, string(raw)); err != nil {
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO placement_displaced_claims(session,generation,scope,units) SELECT session,?,scope,units FROM placement_claims WHERE session=?`, old.Generation, old.Session); err != nil {
@@ -103,6 +104,28 @@ func (s *Service) RetireDisplaced(ctx context.Context, f Fence, evidence string)
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM placement_displaced WHERE session=? AND generation=?`, f.Session, f.Generation)
+		return err
+	})
+}
+
+// RemoveTarget is an explicit trusted operator attestation that an exact boot
+// has been permanently removed/fenced. It is never called by liveness pruning.
+// That incarnation cannot be admitted again. A future boot is independent.
+func (s *Service) RemoveTarget(ctx context.Context, target Target, evidence string) error {
+	if !validTarget(target) || !valid(evidence) {
+		return ErrInvalid
+	}
+	return s.transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO placement_removed_targets(node,boot,evidence) VALUES(?,?,?) ON CONFLICT(node,boot) DO NOTHING`, target.NodeID, target.Boot, evidence); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM placement_targets WHERE node=? AND boot=?`, target.NodeID, target.Boot); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM placement_displaced_claims WHERE (session,generation) IN (SELECT session,generation FROM placement_displaced WHERE node=? AND boot=?)`, target.NodeID, target.Boot); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM placement_displaced WHERE node=? AND boot=?`, target.NodeID, target.Boot)
 		return err
 	})
 }

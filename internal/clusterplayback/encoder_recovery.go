@@ -348,3 +348,50 @@ func (r *Runtime) reconcileDisplaced(ctx context.Context, x *execution) {
 		}
 	}
 }
+
+// Membership must freshly authenticate the DIFFERENT incarnation; mere
+// disappearance of the old boot, an empty role list or elapsed time is unknown.
+func (r *Runtime) replacedWorkerBoot(ctx context.Context, f placement.Fence) error {
+	var boot string
+	if err := r.o.DB.QueryRowContext(ctx, `SELECT boot FROM placement_targets WHERE node=?`, f.Target.NodeID).Scan(&boot); err != nil {
+		return err
+	}
+	if boot == "" || boot == f.Target.Boot {
+		return ErrPending
+	}
+	return r.o.MemberRole(ctx, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: f.Target.NodeID, Boot: boot}, config.RoleTranscode)
+}
+func (r *Runtime) reconcileBootRetirements(ctx context.Context) error {
+	rows, err := r.o.DB.QueryContext(ctx, `SELECT record FROM placement_displaced ORDER BY session,generation LIMIT ?`, r.o.HistoryCapacity)
+	if err != nil {
+		return err
+	}
+	var records []placement.Record
+	for rows.Next() {
+		var raw string
+		var record placement.Record
+		if err = rows.Scan(&raw); err != nil {
+			break
+		}
+		if len(raw) > 16384 || json.Unmarshal([]byte(raw), &record) != nil {
+			err = ErrDenied
+			break
+		}
+		records = append(records, record)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		if r.replacedWorkerBoot(ctx, record.Fence) == nil {
+			if err = r.o.Placement.RetireDisplaced(ctx, record.Fence, "clusterplayback/authenticated-new-boot"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

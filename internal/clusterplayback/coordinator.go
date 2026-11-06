@@ -383,6 +383,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	}
 	r.mu.Unlock()
 	result := r.tickReopenLives(ctx)
+	if err := r.reconcileBootRetirements(ctx); err != nil {
+		result = err
+	}
 	if err := r.persistPreparationReceipts(ctx); err != nil {
 		result = err
 	}
@@ -552,6 +555,13 @@ func (r *Runtime) retire(ctx context.Context, x *execution) error {
 	return r.retireWithEvidence(ctx, x.route, "clusterplayback/exact-retirement")
 }
 func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
+	var displacedRaw string
+	if err := r.o.DB.QueryRowContext(ctx, `SELECT record FROM placement_displaced WHERE session=? AND generation=?`, f.Session, f.Generation).Scan(&displacedRaw); err == nil {
+		var old placement.Record
+		if json.Unmarshal([]byte(displacedRaw), &old) == nil && old.Fence == f && r.replacedWorkerBoot(ctx, f) == nil {
+			return nil
+		}
+	}
 	r.mu.Lock()
 	x := r.executions[f.Session]
 	if x != nil {
