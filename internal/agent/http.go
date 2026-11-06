@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/agent/tools"
 )
@@ -81,6 +82,18 @@ func (s *Service) handleTurn(w http.ResponseWriter, r *http.Request) {
 	} else if _, ok, err := s.store.Thread(ctx, threadID); err != nil || !ok {
 		writeErr(w, http.StatusNotFound, "Conversation not found.")
 		return
+	}
+	// Catalogue AI is an ephemeral use of the collection builder. Its turn
+	// remains request-bound; remove its transcript only after RunTurn unwinds,
+	// including cancellation, never while a tool is still writing messages.
+	if req.Context.Route == CatalogSearchRoute && req.ThreadID == "" {
+		defer func() {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			if err := s.store.DeleteThread(cleanup, threadID); err != nil {
+				s.log.Warn("catalogue search transcript cleanup failed", "err", err)
+			}
+		}()
 	}
 	streamHeaders(w)
 	w.Header().Set("X-Ether-Thread-Id", threadID)

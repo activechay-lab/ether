@@ -697,3 +697,39 @@ func TestStudioRouteNarrowsTools(t *testing.T) {
 		}
 	}
 }
+
+// Catalogue search shares collection curation but cannot expose mutation tools
+// or retain a background conversation after its request has completed.
+func TestCatalogSearchSharesCollectionScopeAndCleansTranscript(t *testing.T) {
+	model := &fakeModel{scripts: [][]llm.Event{{{Kind: llm.EventTextDelta, Text: "Checking matching films."}}}}
+	fx := newFixture(t, model, Options{})
+	request := httptest.NewRequest(http.MethodPost, "/turn", strings.NewReader(`{"prompt":"rainy night films","context":{"route":"/catalog/search"}}`))
+	response := httptest.NewRecorder()
+	fx.svc.Handler().ServeHTTP(response, request)
+	if response.Code != 200 {
+		t.Fatalf("status %d", response.Code)
+	}
+	id := response.Header().Get("X-Ether-Thread-Id")
+	if id == "" {
+		t.Fatal("missing search thread")
+	}
+	if _, ok, err := fx.store.Thread(context.Background(), id); err != nil || ok {
+		t.Fatalf("temporary transcript retained: %v %v", ok, err)
+	}
+	for name := range routeTools[CatalogSearchRoute] {
+		if !routeTools[DescribeCollectionRoute][name] {
+			t.Fatalf("unexpected search tool %s", name)
+		}
+	}
+	if !strings.HasPrefix(routeGuidance[CatalogSearchRoute], routeGuidance[DescribeCollectionRoute]) {
+		t.Fatal("search no longer shares collection curation guidance")
+	}
+	if detachedRoutes[CatalogSearchRoute] {
+		t.Fatal("search must stop on client disconnect")
+	}
+	for _, definition := range model.requests[0].Tools {
+		if !routeTools[CatalogSearchRoute][definition.Name] {
+			t.Fatalf("tool escaped route scope: %s", definition.Name)
+		}
+	}
+}
