@@ -19,9 +19,10 @@ import (
 )
 
 type spliceLabRunner struct {
-	dir string
-	mu  sync.Mutex
-	seq int
+	dir      string
+	mu       sync.Mutex
+	seq      int
+	readRate float64
 }
 
 func (r *spliceLabRunner) Run(ctx context.Context, c Command) error {
@@ -29,10 +30,12 @@ func (r *spliceLabRunner) Run(ctx context.Context, c Command) error {
 }
 func (r *spliceLabRunner) Start(c Command) (Process, error) {
 	a := append([]string(nil), c.Args...)
-	for i, x := range a {
-		if x == "-i" {
-			a = append(a[:i], append([]string{"-readrate", "8"}, a[i:]...)...)
-			break
+	if r.readRate > 0 {
+		for i, x := range a {
+			if x == "-i" {
+				a = append(a[:i], append([]string{"-readrate", strconv.FormatFloat(r.readRate, 'f', -1, 64)}, a[i:]...)...)
+				break
+			}
 		}
 	}
 	c.Args = a
@@ -65,7 +68,7 @@ func SpliceFastLab(ctx context.Context, ff, input, dir string, info core.MediaIn
 		return e
 	}
 	defer os.RemoveAll(scratch)
-	m, e := New(config.Transcode{FFmpegPath: ff, FFprobePath: filepath.Join(filepath.Dir(ff), "ffprobe"), TempDir: scratch, FastStart: fastStart}, slog.Default(), WithoutHWDetection(), WithRunner(&spliceLabRunner{dir: dir}), WithBuffering(24*time.Second, 0, 0))
+	m, e := New(config.Transcode{FFmpegPath: ff, FFprobePath: filepath.Join(filepath.Dir(ff), "ffprobe"), TempDir: scratch, FastStart: fastStart}, slog.Default(), WithoutHWDetection(), WithRunner(&spliceLabRunner{dir: dir, readRate: opts.ReadRate}), WithBuffering(24*time.Second, 0, 0))
 	if e != nil {
 		return e
 	}

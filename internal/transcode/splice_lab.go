@@ -13,6 +13,7 @@ type SpliceLabOptions struct {
 	H264FrameRate              float64
 	BitrateKbps, AudioChannels int
 	ResumeFirst                int
+	ReadRate                   float64
 }
 
 func spliceLabDecision(container string, copyVideo, copyAudio bool, o SpliceLabOptions) core.Decision {

@@ -30,8 +30,9 @@ func main() {
 	bitrate := flag.Int("bitrate", 1200, "negotiated total kbps")
 	channels := flag.Int("audio-channels", 2, "negotiated channels; zero preserves source")
 	resumeFirst := flag.Int("resume-first", -1, "admitted resume index, independently of first requested index")
+	readRate := flag.Float64("read-rate", 8, "lab input throttle; zero uses shipping unthrottled input")
 	flag.Parse()
-	opts := transcode.SpliceLabOptions{H264Level: *level, H264FrameRate: *rate, BitrateKbps: *bitrate, AudioChannels: *channels, ResumeFirst: *resumeFirst}
+	opts := transcode.SpliceLabOptions{H264Level: *level, H264FrameRate: *rate, BitrateKbps: *bitrate, AudioChannels: *channels, ResumeFirst: *resumeFirst, ReadRate: *readRate}
 	b, e := os.ReadFile(*probe)
 	if e != nil {
 		panic(e)
