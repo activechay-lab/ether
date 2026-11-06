@@ -50,6 +50,7 @@ func TestCatalogInterpret(t *testing.T) {
 		{`{"chips":[{"field":"rating","op":"inject","value":"7"}]}`, 502},
 		{`{"chips":[]}`, 502},
 		{`not json`, 502},
+		{`{"chips":[{"field":"type","op":"is","value":"movie"},{"field":"kids","op":"is","value":"true"}]}`, 502},
 		{`{"chips":[{"field":"title","op":"is","value":"cute whimsical girls night"}]}`, 502},
 		{`{"chips":[{"field":"genre","op":"is","value":"Whimsical"}]}`, 502},
 		{`{"chips":[{"field":"rating","op":"min","value":"eleven"}]}`, 502},
