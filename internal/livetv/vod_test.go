@@ -335,6 +335,10 @@ func TestXtreamRefreshRejectsConcurrentSourceChange(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			var attemptedSource []byte
+			if err = s.o.DB.QueryRowContext(t.Context(), `SELECT data FROM livetv_sources WHERE id=?`, src.ID).Scan(&attemptedSource); err != nil {
+				t.Fatal(err)
+			}
 			done := make(chan error, 1)
 			go func() { done <- s.RefreshVOD(t.Context(), src.ID) }()
 			<-started
@@ -358,12 +362,12 @@ func TestXtreamRefreshRejectsConcurrentSourceChange(t *testing.T) {
 					t.Fatalf("stale %s count=%d: %v", table, count, err)
 				}
 			}
-			if operation == "delete" {
-				s.recordVODFailure(t.Context(), src.ID)
+			{
+				s.recordVODFailure(t.Context(), src.ID, attemptedSource)
 				var n int
 				_ = s.o.DB.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM xtream_vod_refresh WHERE provider=?`, src.ID).Scan(&n)
 				if n != 0 {
-					t.Fatal("deleted provider status recreated")
+					t.Fatal("stale failure modified replacement/deleted provider status")
 				}
 			}
 		})

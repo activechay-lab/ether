@@ -30,6 +30,14 @@ CREATE TABLE xtream_vod_refresh(provider TEXT PRIMARY KEY, refreshed INTEGER NOT
 
 var errVODSourceChanged = errors.New("provider changed during index refresh")
 
+// Keep attempt identity private; Error exposes only the sanitized cause.
+type vodRefreshFailure struct {
+	error
+	sourceData []byte
+}
+
+func (e *vodRefreshFailure) Unwrap() error { return e.error }
+
 type VODStatus struct {
 	Movies  int    `json:"movies"`
 	Series  int    `json:"series"`
@@ -110,7 +118,10 @@ func (s *Service) vodLoop() {
 				err = s.RefreshVOD(ctx, v.ID)
 				cancel()
 				if err != nil && s.ctx.Err() == nil && !errors.Is(err, errVODSourceChanged) && !errors.Is(err, sql.ErrNoRows) {
-					s.recordVODFailure(s.ctx, v.ID)
+					var attempt *vodRefreshFailure
+					if errors.As(err, &attempt) {
+						s.recordVODFailure(s.ctx, v.ID, attempt.sourceData)
+					}
 				}
 			}
 		}
@@ -120,7 +131,7 @@ func (s *Service) vodLoop() {
 
 // RefreshVOD streams large lists into a transaction. Unchanged revisions keep
 // cached details; a failed refresh never removes the previous index.
-func (s *Service) RefreshVOD(ctx context.Context, id string) error {
+func (s *Service) RefreshVOD(ctx context.Context, id string) (err error) {
 	if !s.vodRefreshMu.TryLock() {
 		return ErrProviderBusy
 	}
@@ -133,6 +144,11 @@ func (s *Service) RefreshVOD(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			err = &vodRefreshFailure{error: err, sourceData: sourceData}
+		}
+	}()
 	if !src.VOD || src.Auth == nil || src.Auth.Type != "xtream" {
 		return nil
 	}
@@ -617,7 +633,7 @@ func (s *Service) invalidateVODConnection(ctx context.Context, tx *sql.Tx, src S
 
 // Use the CRUD lock when recording a failed attempt as well: deletion or
 // disabling a provider must not be followed by a recreated status row.
-func (s *Service) recordVODFailure(ctx context.Context, id string) {
+func (s *Service) recordVODFailure(ctx context.Context, id string, attemptedSource []byte) {
 	tx, err := s.o.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return
@@ -628,6 +644,9 @@ func (s *Service) recordVODFailure(ctx context.Context, id string) {
 	}
 	var data []byte
 	if tx.QueryRowContext(ctx, `SELECT data FROM livetv_sources WHERE id=?`, id).Scan(&data) != nil {
+		return
+	}
+	if !bytes.Equal(data, attemptedSource) {
 		return
 	}
 	src, _, err := s.decodeSource(data)
