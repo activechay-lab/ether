@@ -635,6 +635,22 @@ past the accepted monotonic deadline self-fences the worker. Displaced capacity
 stays charged until exact retirement proof. Node or pod status can accelerate
 failure detection but never substitutes for these authority checks.
 
+The private recovery buffer retains complete immutable segments even when their
+HTTP response carries `Cache-Control: no-cache`. Replay still validates current
+authority and preserves the original client-facing cache policy; `no-store`
+continues to forbid retention. Successfully retained contiguous segments advance
+the published floor, so recovery starts at the first segment beyond that floor.
+
+An authenticated replacement boot for the same transcode node ID triggers
+encoder recovery immediately, without waiting for the transport-failure grace.
+The coordinator serializes this decision with ordinary dead-boot retirement.
+For a recoverable active session, only the supersession transaction seals the
+old operation gate and advances the generation; temporary lack of spare capacity
+retains that gate for retry. Dead-boot reconciliation then frees the displaced
+old generation's claims. Cancellation or an unsupported recovery plan can retire
+the current session after independent source retirement proof. Missing local
+coordinator memory alone never proves that the viewer abandoned playback.
+
 The current coordinator auto-recovery gate accepts MPEG-TS video transcode with
 copied audio, zero initial offset, no live input, no soft-subtitle stream and no
 pre-existing `RecoveryStart`; video-copy and re-encoded audio are refused here.
