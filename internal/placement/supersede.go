@@ -34,7 +34,7 @@ func (s *Service) Supersede(ctx context.Context, failed Fence, request Request, 
 	if !validFence(failed) || r.Session != failed.Session || r.ExpectedGeneration != failed.Generation || r.Target.NodeID == failed.Target.NodeID || r.Controller != failed.Controller || seal == nil {
 		return out, ErrInvalid
 	}
-	err = s.transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
+	err = s.authorityTransaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		old, oldHash, err := read(ctx, tx, r.Session)
 		if err != nil {
 			return err

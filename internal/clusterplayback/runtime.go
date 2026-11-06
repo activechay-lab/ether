@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodeauthority"
@@ -25,6 +26,9 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
+	// ClockReady continuously gates new and extended time-bounded authority.
+	ClockReady          func() bool
+	Bus                 clusterbus.Bus
 	EncoderSegmentWait  time.Duration
 	EncoderRPCDeadline  time.Duration
 	EncoderFailureGrace time.Duration
@@ -141,12 +145,12 @@ func NewRuntime(o Options) (*Runtime, error) {
 		if o.SourceAccess == nil || o.ActiveViewer == nil || o.SourcePolicy == nil {
 			return nil, ErrDenied
 		}
-		a, e := nodeauthority.New(nodeauthority.Options{Lookup: o.Placement, Policy: r.sourcePolicy, Owner: placement.Target{NodeID: o.Self.NodeID, Boot: o.Self.Boot}, Now: time.Now, ClockBoundKnown: true, ClockSkew: o.ClockSkew, MaxLifetime: 10 * time.Minute, MaxBindings: o.HistoryCapacity, MaxGrants: 4096, MaxGrantsPerBinding: 4})
+		a, e := nodeauthority.New(nodeauthority.Options{ClockReady: o.ClockReady, Lookup: o.Placement, Policy: r.sourcePolicy, Owner: placement.Target{NodeID: o.Self.NodeID, Boot: o.Self.Boot}, Now: time.Now, ClockBoundKnown: true, ClockSkew: o.ClockSkew, MaxLifetime: 10 * time.Minute, MaxBindings: o.HistoryCapacity, MaxGrants: 4096, MaxGrantsPerBinding: 4})
 		if e != nil {
 			return nil, e
 		}
 		r.authority = a
-		h, e := nodesource.NewHandler(nodesource.Options{Authority: trackedAuthority{r: r}, Peer: o.Guard.SourcePeer, Acquire: r.acquireSource, Now: time.Now, MaxRequests: o.Capacity, MaxLifetime: 10 * time.Minute, Revalidate: time.Second})
+		h, e := nodesource.NewHandler(nodesource.Options{WatchAuthority: r.watchAuthority, Authority: trackedAuthority{r: r}, Peer: o.Guard.SourcePeer, Acquire: r.acquireSource, Now: time.Now, MaxRequests: o.Capacity, MaxLifetime: 10 * time.Minute, Revalidate: time.Second})
 		if e != nil {
 			return nil, e
 		}
@@ -156,7 +160,8 @@ func NewRuntime(o Options) (*Runtime, error) {
 
 	}
 	if o.Encoder != nil {
-		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Capabilities: o.WorkerCapabilities, Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: r.workerAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
+		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{WatchAuthority: r.watchAuthority, Capabilities: o.WorkerCapabilities, Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: r.workerAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
+
 		if e != nil {
 			return nil, e
 		}
@@ -443,3 +448,5 @@ func (e recordingEncoder) SupportsDistributedRequest(q core.HLSRequest) bool {
 	backend, ok := e.r.o.Encoder.(requestSupport)
 	return ok && backend.SupportsDistributedRequest(q)
 }
+
+func (r *Runtime) clockReady() bool { return r.o.ClockReady == nil || r.o.ClockReady() }
