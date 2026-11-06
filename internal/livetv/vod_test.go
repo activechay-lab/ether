@@ -63,6 +63,9 @@ func TestXtreamVODIndexResolutionAndRange(t *testing.T) {
 	var fail atomic.Bool
 	var active, peak atomic.Int64
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.UserAgent() != sourceUserAgent {
+			t.Errorf("provider player identity: %q", r.UserAgent())
+		}
 		n := active.Add(1)
 		defer active.Add(-1)
 		for old := peak.Load(); n > old && !peak.CompareAndSwap(old, n); old = peak.Load() {

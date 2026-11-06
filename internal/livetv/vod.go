@@ -372,7 +372,7 @@ func appendVODRelease(out []core.Release, c xtream.Client, src Source, m vodMatc
 		parsed.AudioCodec = info.Audio.Codec
 	}
 	rid := "xtream:" + src.ID + ":" + m.kind + ":" + id
-	headers := map[string]string{}
+	headers := map[string]string{"User-Agent": sourceUserAgent}
 	for k, vs := range src.Auth.header() {
 		headers[k] = strings.Join(vs, ", ")
 	}
