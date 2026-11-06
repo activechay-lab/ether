@@ -46,7 +46,7 @@ import { SceneStrip } from "./editor/SceneStrip";
 import { Timeline } from "./editor/Timeline";
 import { useStageClock } from "./editor/clock";
 import { usePreviewAudio } from "./editor/preview-audio";
-import { RemixPanel } from "./editor/RemixPanel";
+import { RemixPanel, StyleThumbnail } from "./editor/RemixPanel";
 import { SequencePreview } from "./editor/SequencePreview";
 function CreateTab(_p: { style: Style; onChange(style: Style): void; selectedSceneId?: string }) {
   return <p className="p-6 text-sm text-fg-muted">{t("Describe a scene")}</p>;
@@ -444,6 +444,8 @@ export function LookDrawer({
               <BugControls
                 value={draft.bug ?? {}}
                 brand={draft.brand}
+                name={draft.name}
+                backdrop={<StyleThumbnail style={draft} />}
                 onChange={(bug) => change({ ...draft, bug })}
               />
             </section>

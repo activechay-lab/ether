@@ -3,7 +3,9 @@ import type { Brand } from "./studio-model";
 import { useMediaURL } from "./useMediaURL";
 import { Switch } from "@braedonsaunders/appkit-ui";
 import { Field, Segmented } from "../../../components/fields";
+import type { ReactNode } from "react";
 import { t } from "../../../i18n";
+import { normalizeFont } from "./scene-renderer";
 import type { BugSettings } from "./model";
 
 import { resolveBug } from "./bug";
@@ -11,10 +13,16 @@ export { resolveBug } from "./bug";
 export function BugControls({
   value,
   brand,
+  name = "",
+  backdrop,
   onChange,
 }: {
   value: BugSettings;
   brand?: Brand;
+  /** Style name: the wordmark, and the monogram source when there is no logo. */
+  name?: string;
+  /** A still of the style on air, drawn behind the corner logo. */
+  backdrop?: ReactNode;
   onChange: (v: BugSettings) => void;
 }) {
   const b = resolveBug(value);
@@ -27,6 +35,11 @@ export function BugControls({
           className="relative aspect-video overflow-hidden rounded-lg border border-border bg-gradient-to-br from-slate-800 to-slate-950"
           aria-label={t("Corner logo")}
         >
+          {backdrop ? (
+            <div className="pointer-events-none absolute inset-0" aria-hidden>
+              {backdrop}
+            </div>
+          ) : null}
           <span
             className="absolute p-4"
             style={{
@@ -42,10 +55,18 @@ export function BugControls({
             {b.source === "logo" && logo ? (
               <img src={logo} className="h-[2em] max-w-24 object-contain" alt={t("Logo")} />
             ) : (
-              <span className="font-bold text-white">
+              <span
+                className="font-bold text-white drop-shadow"
+                style={{
+                  fontFamily: brand?.type.display
+                    ? `onair-${normalizeFont(brand.type.display)}`
+                    : undefined,
+                }}
+              >
                 {b.source === "wordmark"
-                  ? brand?.tagline || brand?.logo?.slice(0, 3) || t("Wordmark")
-                  : brand?.logo?.slice(0, 3) || t("Logo")}
+                  ? name || t("Wordmark")
+                  : (brand?.logo && brand.logo.length <= 3 ? brand.logo : monogram(name)) ||
+                    t("Logo")}
               </span>
             )}
           </span>
@@ -144,4 +165,13 @@ export function BugControls({
       </div>
     </div>
   );
+}
+
+function monogram(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0]!.toUpperCase())
+    .join("")
+    .slice(0, 3);
 }
