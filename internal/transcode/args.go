@@ -15,8 +15,10 @@ import (
 
 // runSpec is everything needed to build one ffmpeg HLS run.
 type runSpec struct {
-	QSVMode      string // session-local retry override; never mutates shared capabilities
-	SilenceAudio bool
+	// AuthoredTimeline keeps adaptive/ramp sessions on their existing clock.
+	AuthoredTimeline bool
+	QSVMode          string // session-local retry override; never mutates shared capabilities
+	SilenceAudio     bool
 	// Only a retry of an initial run whose muxer wrote a wrapped tfdt.
 	NormalizeNegativeDTS bool
 	SoftSubtitlePath     string
@@ -558,7 +560,7 @@ func buildCodecArgs(s runSpec) []string {
 // own authored timeline and must not receive a uniform-grid mux shift.
 // Never infer a hardware encoder's reorder delay.
 func hlsRestartLead(s runSpec) time.Duration {
-	if s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP || s.Decision.Container != ContainerMPEGTS || s.Decision.VideoCopy || s.FastStart {
+	if s.AuthoredTimeline || s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP || s.Decision.Container != ContainerMPEGTS || s.Decision.VideoCopy || !s.Decision.AudioCopy || s.FastStart {
 		return 0
 	}
 	v := s.Info.Video()
@@ -582,7 +584,7 @@ func hlsRestartLead(s runSpec) time.Duration {
 // ceil-to-microsecond preload can put an AU exactly on the nominal boundary
 // in the preceding fragment; dropping only pts < Start would duplicate it.
 func hlsFMP4AudioCut(s runSpec) (float64, bool) {
-	if s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.Decision.Container != ContainerFMP4 || s.Decision.VideoCopy || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP {
+	if s.AuthoredTimeline || s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.Decision.Container != ContainerFMP4 || s.Decision.VideoCopy || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP {
 		return 0, false
 	}
 	v := s.Info.Video()
