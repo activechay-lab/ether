@@ -26,6 +26,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -255,8 +256,22 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	if e = v.Bind(front); e != nil {
 		t.Fatal(e)
 	}
+	var hungWorker atomic.Bool
+	var hungRequests atomic.Int64
 	for i, r := range []*Runtime{source, worker, front} {
-		server := httptest.NewUnstartedServer(r.Handler())
+		handler := r.Handler()
+		if r == worker {
+			handler = http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+				if hungWorker.Load() {
+					_, _ = io.Copy(io.Discard, q.Body)
+					hungRequests.Add(1)
+					<-q.Context().Done()
+					return
+				}
+				worker.Handler().ServeHTTP(w, q)
+			})
+		}
+		server := httptest.NewUnstartedServer(handler)
 		server.TLS = guards[i].ServerTLS()
 		server.StartTLS()
 		defer server.Close()
@@ -317,7 +332,7 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 		t.Fatalf("delivery %d %s", response.Code, response.Body.String())
 	}
 	// Source rotation and worker acceptance share one exact renewal history.
-	remote := h.(*remotetranscode.Session)
+	remote := h.(*controlledSession).Session
 	lease := remote.Lease()
 	deadline := time.Now().Add(3 * time.Minute).UTC().Truncate(time.Millisecond)
 	record, err := p.Lookup(ctx, request.SessionID)
@@ -438,7 +453,30 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 	if _, e = front.StartPreparedHLS(ctx, 9, prepared, request); e == nil {
 		t.Fatal("duplicate admitted")
 	}
+	hungWorker.Store(true)
+	stopStarted := time.Now()
+	_ = h.(core.OwnedEncoderSession).RetireEncoder()
 	front.Stop(request.SessionID)
+	stopElapsed := time.Since(stopStarted)
+	if stopElapsed >= time.Second || hungRequests.Load() != 0 {
+		t.Fatalf("public stop waited for worker: elapsed=%s RPCs=%d", stopElapsed, hungRequests.Load())
+	}
+	t.Logf("public Stop with hung encoder: %s, worker RPCs=0", stopElapsed)
+	gate, err := front.readOperationGate(ctx, operationKey{frontendID.Cluster, request.SessionID, 1})
+	if err != nil || gate.Gate.Seal == nil || gate.Gate.Seal.Reason != sealCancellation {
+		t.Fatal("stop did not durably seal", gate, err)
+	}
+	if err := front.deliveryAuthority(ctx, front.executions[request.SessionID].route); err == nil {
+		t.Fatal("sealed execution retained delivery authority")
+	}
+	retireCtx, cancelRetire := context.WithTimeout(ctx, 500*time.Millisecond)
+	_ = front.Tick(retireCtx)
+	cancelRetire()
+	heldStop, err := p.Lookup(ctx, request.SessionID)
+	if err != nil || heldStop.Retired {
+		t.Fatal("hung encoder manufactured retirement", heldStop, err)
+	}
+	hungWorker.Store(false)
 	token, owned := front.EncoderRetirement(request.SessionID)
 	if !owned || token == nil {
 		t.Fatal("stop discarded remote ownership")

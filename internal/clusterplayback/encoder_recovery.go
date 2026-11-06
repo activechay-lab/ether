@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -42,6 +43,9 @@ func (r *Runtime) probeEncoder(ctx context.Context, x *execution) (string, error
 	}
 	if err == nil {
 		return "encoder-retired", ErrPending
+	}
+	if errors.Is(err, remotetranscode.ErrStatusDenied) {
+		return "status-denied", err
 	}
 	if c.Err() != nil {
 		return "status-timeout", err
@@ -85,6 +89,7 @@ func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
 	}
 	next := int(snapshot.State.PublishedFloor + 1)
 	q.Resume = &core.HLSResume{FirstSegment: next, Generation: uint64(old.route.Fence.Generation + 1)}
+	slog.Info("encoder recovery watermark", "session", old.route.Fence.Session, "generation", old.route.Fence.Generation, "published_floor", snapshot.State.PublishedFloor, "resume_first_segment", next)
 	target, claims, caps, encoder, err := r.selectTargetExcept(ctx, q, old.route.Fence.Target.NodeID, old.route.Source)
 	if err != nil {
 		return err
@@ -339,7 +344,7 @@ func (r *Runtime) startReplacement(ctx context.Context, x *execution) error {
 		return err
 	}
 	r.mu.Lock()
-	output := &bufferedSession{Session: next.session, r: r, route: route, headers: make(map[int64]http.Header), supersededAt: -1}
+	output := &bufferedSession{controlledSession: &controlledSession{Session: next.session, r: r}, r: r, route: route, headers: make(map[int64]http.Header), supersededAt: -1}
 	x.previous = append(x.previous, x.output)
 	x.epoch = next.epoch
 	x.route = route
@@ -350,6 +355,7 @@ func (r *Runtime) startReplacement(ctx context.Context, x *execution) error {
 	x.output = output
 	x.replacement = nil
 	x.failedSince = time.Time{}
+	x.failedProbes = 0
 	stopped := x.stopping || r.closed
 	r.mu.Unlock()
 	if stopped {

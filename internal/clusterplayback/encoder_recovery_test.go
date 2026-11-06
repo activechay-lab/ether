@@ -278,12 +278,26 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				if err = p.SetPool(ctx, "b/streams", config.RoleTranscode, 1); err != nil {
 					t.Fatal(err)
 				}
-			} else if mode != "tls-replaced" {
+			} else if mode != "tls-replaced" && mode != "tls-denied" && mode != "gone" {
 				_ = front.Tick(ctx)
 				time.Sleep(2 * time.Millisecond)
 			}
 			replacementDone := make(chan error, 1)
-			go func() { replacementDone <- front.Tick(ctx) }()
+			go func() {
+				// A transient failure requires at least three failed observations.
+				for i := 0; i < 3; i++ {
+					err := front.Tick(ctx)
+					front.mu.Lock()
+					replaced := front.executions[q.SessionID].route.Fence.Generation > 1
+					front.mu.Unlock()
+					if replaced {
+						replacementDone <- err
+						return
+					}
+					time.Sleep(2 * time.Millisecond)
+				}
+				replacementDone <- ErrPending
+			}()
 			select {
 			case <-b.ready:
 			case <-ctx.Done():

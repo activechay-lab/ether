@@ -1,6 +1,7 @@
 package releaseparse
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/langtag"
@@ -41,6 +42,56 @@ var isoLanguages = map[string]string{"en": "english", "fr": "french", "es": "spa
 	"et": "estonian", "mk": "macedonian", "sl": "slovenian", "ml": "malayalam", "kn": "kannada", "sq": "albanian",
 	"af": "afrikaans", "mr": "marathi", "tl": "tagalog", "ur": "urdu", "rm": "romansh", "mn": "mongolian",
 	"ka": "georgian", "ga": "irish", "ms": "malay"}
+
+var (
+	reShortLanguageCode  = regexp.MustCompile(`(?i)\b[a-z]{2}(?:-(?:[a-z]{2}|\d{3}))?\b`)
+	reAudioAfterLanguage = regexp.MustCompile(`(?i)^\s+(?:DDP?|AC3|EAC3|AAC|DTS(?:-HD)?|FLAC|TRUEHD|OPUS)(?:\+)?(?:[257] [01])?\b`)
+)
+
+func shortLanguageName(code string) string {
+	if reShortLanguageCode.FindString(code) != code {
+		return ""
+	}
+	base, _, _ := strings.Cut(strings.ToLower(code), "-")
+	if _, known := isoLanguages[base]; !known {
+		return ""
+	}
+	return LanguageName(code)
+}
+
+// shortLanguageTags uses the shared ISO language vocabulary. A short code
+// alone is ambiguous ("IT", "NO", country labels), so it declares audio
+// only beside a codec. Explicit subtitle positions never declare audio.
+func shortLanguageTags(spaced string, floor int, subs map[int]bool) (audio, subtitles []string) {
+	for _, loc := range reShortLanguageCode.FindAllStringIndex(spaced, -1) {
+		at := loc[0]
+		if at <= floor || at > 0 && spaced[at-1] != ' ' {
+			continue
+		}
+		code := spaced[at:loc[1]]
+		name := shortLanguageName(code)
+		if name == "" {
+			continue
+		}
+		// Existing scene tags retain their own handling and language order.
+		legacy := false
+		for _, tag := range languages {
+			if strings.EqualFold(code, tag.token) {
+				legacy = true
+				break
+			}
+		}
+		if legacy {
+			continue
+		}
+		if subs[at] {
+			subtitles = append(subtitles, name)
+		} else if reAudioAfterLanguage.MatchString(spaced[loc[1]:]) {
+			audio = append(audio, name)
+		}
+	}
+	return audio, subtitles
+}
 
 // latinAmerica lists the regions whose Spanish releases are labelled
 // Latino (UN M.49 419 is Latin America and the Caribbean).

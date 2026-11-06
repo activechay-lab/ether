@@ -1,10 +1,13 @@
 package clusterplayback
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -67,7 +70,7 @@ func outputResponse(data []byte) func(http.ResponseWriter, *http.Request) remote
 	return func(w http.ResponseWriter, q *http.Request) remotetranscode.RepresentationCompletion {
 		w.Header().Set("Content-Type", "video/mp2t")
 		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-		w.Header().Set("Cache-Control", "private, max-age=60")
+		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("ETag", `"original"`)
 		w.WriteHeader(200)
 		n, err := w.Write(data)
@@ -76,6 +79,28 @@ func outputResponse(data []byte) func(http.ResponseWriter, *http.Request) remote
 }
 func TestOutputBufferContiguousAndImmutable(t *testing.T) {
 	s, data := outputFixture(t)
+	// Real synthetic lab output has 96 unbounded H.264 PES packets.
+	compressed, err := os.ReadFile("../playbackbuffer/testdata/lab-unbounded.ts.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err = io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = reader.Close()
+	buffer, err := playbackbuffer.New(playbackbuffer.Limits{Global: playbackbuffer.Budget{Bytes: 16 << 20, Segments: 16, Inits: 1}, PerSession: playbackbuffer.Budget{Bytes: 16 << 20, Segments: 16, Inits: 1}, Sessions: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = buffer.OpenSession("retained", playbackbuffer.State{Generation: 1, PublishedFloor: -1}); err != nil {
+		t.Fatal(err)
+	}
+	s.r.o.OutputBuffer, s.r.o.MaxSegmentBytes = buffer, 16<<20
 	q := httptest.NewRequest("GET", "/segment", nil)
 	s.serveSegment(httptest.NewRecorder(), q, 1, outputResponse(data))
 	if _, err := s.r.o.OutputBuffer.Acquire(s.key(1)); err == nil {
@@ -447,5 +472,50 @@ func TestOutputBufferRemoteMTLSCompletion(t *testing.T) {
 	snap, err := s.r.o.OutputBuffer.Snapshot("retained")
 	if err != nil || len(snap.Entries) != 1 || snap.State.PublishedFloor != 0 || calls != 3 {
 		t.Fatal("only complete full TS may publish, exactly one backend read each", snap, calls, err)
+	}
+}
+
+// Retired lifetimes release bounded recovery capacity, but a retained reader
+// still pins its bytes. Exercise the actual maintenance path over many sessions.
+func TestRetiredOutputCapacityReclaimed(t *testing.T) {
+	s, data := outputFixture(t)
+	r := s.r
+	r.o.Roles = config.NodeRoles{config.RoleDelivery}
+	ctx := context.Background()
+	for n := 0; n < 16; n++ {
+		if n > 0 {
+			route := s.route
+			rec, err := r.o.Placement.Reserve(ctx, placement.Request{Session: fmt.Sprintf("next-%d", n), Operation: fmt.Sprintf("op-%d", n), Controller: route.Fence.Controller, Target: route.Fence.Target, Role: config.RoleTranscode, Claims: []placement.Claim{{Scope: "cpu", Units: 1}}, Lease: time.Minute})
+			if err != nil {
+				t.Fatal(err)
+			}
+			route.Fence = rec.Fence
+			if err := r.putRoute(ctx, route); err != nil {
+				t.Fatal(err)
+			}
+			s = r.newBufferedSession(route, core.HLSRequest{Decision: core.Decision{Container: "mpegts"}}, &remotetranscode.Session{})
+			if s == nil {
+				t.Fatalf("session %d exhausted retired buffer slots", n)
+			}
+			r.executions[rec.Session] = &execution{route: route, output: s}
+		}
+		s.serveSegment(httptest.NewRecorder(), httptest.NewRequest("GET", "/segment", nil), 0, outputResponse(data))
+		lease, err := r.o.OutputBuffer.Acquire(s.key(0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := r.o.Placement.Retire(ctx, s.route.Fence, "test"); err != nil {
+			t.Fatal(err)
+		}
+		r.executions[s.route.Fence.Session].retired = true
+		_ = r.Tick(ctx)
+		if _, err := r.o.OutputBuffer.Snapshot(s.route.Fence.Session); err != nil {
+			t.Fatal("reader lost pinned output", err)
+		}
+		_ = lease.Close()
+		_ = r.Tick(ctx)
+		if _, err := r.o.OutputBuffer.Snapshot(s.route.Fence.Session); err == nil {
+			t.Fatal("retired output not disposed")
+		}
 	}
 }

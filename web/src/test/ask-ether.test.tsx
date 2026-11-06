@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setMockAgentEnabled } from "../mock/extend/agent";
@@ -37,12 +37,13 @@ describe("Ask Ether", () => {
   });
 
   it("toggles with the keyboard shortcut", async () => {
+    const user = userEvent.setup();
     renderApp("/");
     await screen.findByRole("button", { name: "Ask Ether" });
-    fireEvent.keyDown(window, { key: "j", metaKey: true });
+    await user.keyboard("{Meta>}j{/Meta}");
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(await screen.findByPlaceholderText("Ask Ether…")).toBeInTheDocument();
-    fireEvent.keyDown(window, { key: "j", ctrlKey: true });
+    await user.keyboard("{Control>}j{/Control}");
     await expectDrawerClosed();
   });
 
@@ -95,6 +96,17 @@ describe("Ask Ether", () => {
   it("stores a secret without ever echoing it", async () => {
     const user = userEvent.setup();
     const secretValue = "mock-secret-value-12345";
+    // Hold the opening autofocus until credential entry has begun, regardless
+    // of machine load. Other timers, including user-event's, run normally.
+    let focusComposer: (() => void) | undefined;
+    const schedule = vi.fn(window.setTimeout);
+    vi.spyOn(window, "setTimeout").mockImplementation((callback, delay, ...args) => {
+      if (delay === 80 && typeof callback === "function") {
+        focusComposer = () => callback(...args);
+        return schedule(() => {}, 0);
+      }
+      return schedule(callback, delay, ...args);
+    });
     renderApp("/");
     const dialog = await openAskEther();
     const composer = await within(dialog).findByPlaceholderText("Ask Ether…");
@@ -102,9 +114,16 @@ describe("Ask Ether", () => {
     await user.click(within(dialog).getByRole("button", { name: "Send" }));
 
     expect(await within(dialog).findByText("Real-Debrid")).toBeInTheDocument();
-    const field = dialog.querySelector<HTMLInputElement>('input[type="password"]');
-    expect(field).not.toBeNull();
-    await user.type(field!, secretValue);
+    const field = await within(dialog).findByLabelText("API token");
+    expect(field).toHaveAttribute("type", "password");
+    await user.type(field, secretValue[0]!);
+    expect(focusComposer).toBeTypeOf("function");
+    act(() => focusComposer!());
+    expect(field).toHaveFocus();
+    await user.keyboard(secretValue.slice(1));
+    expect(field).toHaveValue(secretValue);
+    expect(composer).toHaveValue("");
+    expect(document.body.textContent).not.toContain(secretValue);
     await user.click(within(dialog).getByRole("button", { name: "Save securely" }));
 
     await settleUi(() => {

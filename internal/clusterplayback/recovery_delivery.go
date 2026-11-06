@@ -243,21 +243,10 @@ func (s *recoverySession) RetireEncoder() error {
 	return s.EncoderErr()
 }
 func (s *recoverySession) RetireEncoderContext(ctx context.Context) error {
-	s.r.mu.Lock()
-	x := s.r.executions[s.route.Fence.Session]
-	if x != nil {
-		x.stopping = true
-	}
-	var remote *remotetranscode.Session
-	if x != nil {
-		remote = x.session
-	}
-	s.r.mu.Unlock()
-	if remote != nil {
-		_ = remote.RetireEncoderContext(ctx)
-	}
+	s.r.stop(ctx, s.route.Fence.Session)
 	return s.EncoderErr()
 }
+
 func (s *recoverySession) Observe(ctx context.Context) (*remotetranscode.ObservedSession, error) {
 	return s.r.ObserveExecution(ctx, s.route.Fence.Session, time.Minute)
 }

@@ -2,7 +2,9 @@ package clusterplayback
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/generationfence"
 	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
@@ -193,6 +195,17 @@ func (r *Runtime) deliveryAuthorityDeadline(ctx context.Context, expected Route)
 		return time.Time{}, ErrDenied
 	}
 	if expected.Fence.Generation > 0 {
+		if r.o.Self.Cluster != "" {
+			h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, expected.Fence.Session, expected.Fence.Generation})
+			// An operation gate records distributed execution cancellation; it
+			// is not a prerequisite for independently authorized delivery. Local
+			// frontend routes can have a placement fence without that history.
+			// Absence is not cancellation. Unreadable/corrupt history remains
+			// uncertain, while only an explicit cancellation seal revokes media.
+			if err != nil && !errors.Is(err, sql.ErrNoRows) || err == nil && h.Gate.Seal != nil && h.Gate.Seal.Reason == sealCancellation {
+				return time.Time{}, ErrDenied
+			}
+		}
 		record, err := r.o.Placement.Lookup(ctx, expected.Fence.Session)
 		if err != nil || record.Fence != expected.Fence || !record.Authority || record.Retired || !record.Deadline.Add(-r.o.ClockSkew).After(time.Now()) {
 			return time.Time{}, ErrDenied

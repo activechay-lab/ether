@@ -23,6 +23,7 @@ type execution struct {
 	previous                      []*bufferedSession
 	recoveryCaps                  remotetranscode.Capabilities
 	failedSince                   time.Time
+	failedProbes                  int
 	initial                       *initialAdmission
 	output                        *bufferedSession
 	foreign                       bool
@@ -231,7 +232,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if encoderRecoverySupported(q) {
 		slog.Warn("encoder recovery unavailable", "session", rt.Fence.Session, "generation", rt.Fence.Generation, "detector", "output-buffer-unavailable", "rungs", len(x.session.Rungs()), "protocol", q.Protocol)
 	}
-	return hs, nil
+	return &controlledSession{Session: x.session, r: r}, nil
 }
 func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, string, error) {
 	return r.selectTargetExcept(ctx, q, "", source)
@@ -388,6 +389,9 @@ func (r *Runtime) Session(id string) (core.HLSSession, bool) {
 		output = x.output
 	}
 	r.mu.Unlock()
+	if x != nil && !active {
+		return nil, false
+	}
 	if a == nil {
 		if x != nil && !active {
 			return nil, false
@@ -408,6 +412,9 @@ func (r *Runtime) Session(id string) (core.HLSSession, bool) {
 	session, ok := a.Session(id)
 	if ok && output != nil {
 		return r.recoveryDelivery(output), true
+	}
+	if ok {
+		return &controlledSession{Session: session.(*remotetranscode.Session), r: r}, true
 	}
 	return session, ok
 }
@@ -445,28 +452,29 @@ func (r *Runtime) Stop(id string) {
 	// Publish cancellation for the exact durable generation even when this
 	// replica never started it. The coordinator still collects independent
 	// encoder, input and source retirement proof before releasing capacity.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	r.stop(context.Background(), id)
+}
+
+func (r *Runtime) stop(ctx context.Context, id string) {
+	// Public Stop seals authority; only the controller maintenance loop may
+	// perform worker retirement RPCs. A hung encoder cannot delay this path.
+	r.stopLocal(id)
+	ctx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
 	defer cancel()
 	if route, err := r.route(ctx, id); err == nil {
 		if h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, id, route.Fence.Generation}); err == nil && h.Gate.Seal == nil && h.Gate.Binding.Route.Fence == route.Fence && r.o.MemberRole(ctx, r.o.Self, config.RoleServer) == nil {
 			_, _ = r.recordOperationSeal(ctx, h.Gate.Binding, operationSeal{Actor: r.o.Self, Reason: sealCancellation})
 		}
 	}
-	r.stopLocal(id)
 }
 
 func (r *Runtime) stopLocal(id string) {
 	r.mu.Lock()
 	x := r.executions[id]
-	var s *remotetranscode.Session
 	if x != nil {
 		x.stopping = true
-		s = x.session
 	}
 	r.mu.Unlock()
-	if s != nil {
-		_ = s.RetireEncoder()
-	}
 }
 
 // Tick owns only bounded control work; Cleanup runs separately. A lost renewal
@@ -501,6 +509,11 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	for _, x := range list {
 		if e := ctx.Err(); e != nil {
 			return e
+		}
+		if x.retired && x.output != nil {
+			// Stop has removed public admission and exact durable retirement was
+			// confirmed. Retry disposal when a last retained reader drains.
+			_ = r.ReleaseOutput(ctx, x.route.Fence.Session, x.route.Fence)
 		}
 		if x.busy || x.retired || (x.reserved && !x.stopping && !r.ownsExecution(ctx, x)) {
 			continue
@@ -600,6 +613,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 					}
 				}
 				r.mu.Unlock()
+				if x.output != nil {
+					_ = r.ReleaseOutput(ctx, x.route.Fence.Session, x.route.Fence)
+				}
 				if x.adapter != nil {
 					x.adapter.Close()
 				}
@@ -614,6 +630,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			probeStarted := time.Now()
 			detector, probeErr := r.probeEncoder(ctx, x)
 			probeElapsed := time.Since(probeStarted)
+			slog.Debug("encoder recovery probe", "session", x.route.Fence.Session, "detector", detector, "probe_elapsed", probeElapsed, "probe_deadline", r.o.EncoderRPCDeadline)
 			// A worker idle close after viewer activity ceased is terminal, not
 			// an invitation to place an endless chain of replacement encoders.
 			if x.session.EncoderErr() == nil && time.Since(x.output.LastAccess()) > 2*time.Minute {
@@ -624,21 +641,25 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			current := r.executions[x.route.Fence.Session]
 			if probeErr == nil && current != nil && current.replacement == nil {
 				current.failedSince = time.Time{}
+				current.failedProbes = 0
+			}
+			if probeErr != nil && current != nil {
+				current.failedProbes++
 			}
 			if probeErr != nil && current != nil && current.failedSince.IsZero() {
 				current.failedSince = time.Now()
 				slog.Warn("encoder recovery probe failed", "session", x.route.Fence.Session, "generation", x.route.Fence.Generation, "detector", detector, "probe_elapsed", probeElapsed, "probe_deadline", r.o.EncoderRPCDeadline, "failure_grace", r.o.EncoderFailureGrace)
 			}
-			recoverNow := current != nil && (current.replacement != nil || !current.failedSince.IsZero() && time.Since(current.failedSince) >= r.o.EncoderFailureGrace)
+			recoverNow := current != nil && (current.replacement != nil || current.failedProbes >= 3 && !current.failedSince.IsZero() && time.Since(current.failedSince) >= r.o.EncoderFailureGrace)
 			r.mu.Unlock()
 			// Authenticated replacement is positive loss evidence; unlike a
 			// transient transport failure it needs no grace period. Ordinary
 			// boot retirement preserved this gate for our supersession CAS.
-			if !recoverNow && detector == "worker-boot-replaced" {
+			if !recoverNow && (detector == "worker-boot-replaced" || detector == "encoder-retired" || detector == "status-denied") {
 				recoverNow = true
 			}
 			if recoverNow {
-				slog.Warn("encoder recovery decision", "session", x.route.Fence.Session, "generation", x.route.Fence.Generation, "worker", x.route.Fence.Target.NodeID, "worker_boot", x.route.Fence.Target.Boot, "detector", detector, "probe_elapsed", probeElapsed, "probe_deadline", r.o.EncoderRPCDeadline, "failure_grace", r.o.EncoderFailureGrace, "failure_since", current.failedSince, "failure_elapsed", time.Since(current.failedSince), "continuing_replacement", current.replacement != nil)
+				slog.Warn("encoder recovery decision", "session", x.route.Fence.Session, "generation", x.route.Fence.Generation, "worker", x.route.Fence.Target.NodeID, "worker_boot", x.route.Fence.Target.Boot, "detector", detector, "probe_elapsed", probeElapsed, "probe_deadline", r.o.EncoderRPCDeadline, "failure_grace", r.o.EncoderFailureGrace, "failure_since", current.failedSince, "failure_elapsed", time.Since(current.failedSince), "consecutive_failures", current.failedProbes, "continuing_replacement", current.replacement != nil)
 				if e := r.recoverEncoder(ctx, x); e != nil {
 					result = e
 				}
@@ -704,9 +725,24 @@ func (r *Runtime) retire(ctx context.Context, x *execution) error {
 	if x.foreign {
 		return r.retireForeign(ctx, x)
 	}
+	// A public Stop with an expired SQL budget retains local intent. Persist
+	// its cancellation before worker cleanup, so takeover cannot resurrect it.
+	if x.initial != nil && x.initial.hasCommitment {
+		h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, x.route.Fence.Session, x.route.Fence.Generation})
+		if err != nil {
+			return err
+		}
+		if h.Gate.Seal == nil {
+			if _, err = r.recordOperationSeal(ctx, h.Gate.Binding, operationSeal{Actor: r.o.Self, Reason: sealCancellation}); err != nil {
+				return err
+			}
+		}
+	}
 	if x.session != nil {
-		_ = x.session.RetireEncoder()
-		_ = x.session.Reconcile(ctx)
+		c, cancel := context.WithTimeout(ctx, r.o.EncoderRPCDeadline)
+		_ = x.session.RetireEncoderContext(c)
+		_ = x.session.Reconcile(c)
+		cancel()
 		if e := x.session.EncoderErr(); e != nil {
 			return e
 		}
