@@ -2,12 +2,16 @@ package clusterplayback
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodeinput"
 	"github.com/braedonsaunders/ether/internal/nodesource"
+	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -24,24 +28,60 @@ func remoteIdentity(rt Route) remotetranscode.Identity {
 	return remotetranscode.Identity{Controller: rt.Fence.Controller.Boot, Worker: rt.Fence.Target.Boot, Session: rt.Fence.Session, Generation: uint64(rt.Fence.Generation)}
 }
 func (r *Runtime) authorizeWorker(ctx context.Context, peer, op string, id remotetranscode.Identity, start *remotetranscode.Start) error {
+	if authority, ok := ctx.Value(workerAuthorityKey{}).(workerAuthority); ok {
+		if authority.readOnly {
+			if !readOperation(op) || r.o.MemberRole(ctx, authority.peer, config.RoleServer) != nil {
+				return ErrDenied
+			}
+		} else {
+			coordinator, err := r.CurrentCoordinator(ctx, id.Session)
+			if err != nil || coordinator.Identity != authority.peer || strconv.FormatInt(coordinator.Epoch, 10) != authority.epoch || !coordinator.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
+				return ErrDenied
+			}
+		}
+	}
+
 	rt, e := r.route(ctx, id.Session)
+	if (op == "stop" || op == "status") && (e != nil || remoteIdentity(rt) != id) {
+		historical, err := r.generationRoute(ctx, id.Session, int64(id.Generation))
+		if err == nil {
+			rt = historical
+			e = nil
+		}
+	}
+
 	if e != nil || remoteIdentity(rt) != id || rt.Fence.Target.NodeID != r.o.Self.NodeID || rt.Fence.Target.Boot != r.o.Self.Boot || peer != rt.Fence.Controller.Boot {
 		return ErrDenied
 	}
 	rec, e := r.o.Placement.Lookup(ctx, id.Session)
-	if e != nil || rec.Fence != rt.Fence {
+	if e != nil || rec.Fence != rt.Fence && op != "stop" && op != "status" {
 		return ErrDenied
 	}
 	// Exact stop/status remains available after expiry and role removal.
 	if op == "stop" || op == "status" {
 		return nil
 	}
+	if (op == "start" || op == "renew") && !r.clockReady() {
+		return ErrDenied
+	}
 	if op == "start" && start != nil {
+		if start.Resume != nil && start.Resume.Generation != id.Generation {
+			return ErrDenied
+		}
+		gate, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, id.Session, int64(id.Generation)})
+		if err != nil || gate.Gate.Seal != nil || gate.Gate.Binding.Identity != id {
+			return ErrDenied
+		}
+		raw, err := json.Marshal(start)
+		if err != nil || sha256.Sum256(raw) != gate.Gate.Binding.StartHash {
+			return ErrDenied
+		}
+
 		info := core.CloneMediaInfo(start.Info)
 		info.Keyframes = append([]core.KeyframePoint(nil), start.Keyframes...)
 		// ManifestSessionID is set only by the primitive after request admission;
 		// the external SupportsRequest gate intentionally rejects caller markers.
-		request := core.HLSRequest{SessionID: id.Session, ReleaseID: start.ReleaseID, Info: info, Decision: start.Decision, Protocol: start.Protocol, StartOffset: start.Offset, SegmentDuration: start.SegmentDuration, SoftSubtitleStream: start.SoftSubtitleStream, RequireIndependentProof: start.IndependentProof, RecoveryStart: core.CloneRecoveryStart(start.RecoveryStart)}
+		request := core.HLSRequest{Resume: start.Resume, SessionID: id.Session, ReleaseID: start.ReleaseID, Info: info, Decision: start.Decision, Protocol: start.Protocol, StartOffset: start.Offset, SegmentDuration: start.SegmentDuration, SoftSubtitleStream: start.SoftSubtitleStream, RequireIndependentProof: start.IndependentProof, RecoveryStart: core.CloneRecoveryStart(start.RecoveryStart)}
 		if !r.supportsBackend(request) {
 			return ErrDenied
 		}
@@ -70,7 +110,7 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 	if e != nil {
 		return remotetranscode.Source{}, e
 	}
-	if response.Stable != s.Grant || response.Grant.Scope.Fence != rt.Fence || response.Grant.Scope.Revision != rt.Revision || response.Grant.Scope.Viewer != viewerString(rt.Viewer) || response.Grant.Expires.Add(-r.o.ClockSkew).Before(s.Expires) {
+	if response.Stable != s.Grant || response.Grant.Scope != scopeForRoute(rt) || response.Grant.Expires.Add(-r.o.ClockSkew).Before(s.Expires) {
 		return remotetranscode.Source{}, ErrDenied
 	}
 	ep, tc, check, e := r.peer(ctx, rt.Source, nodesource.Path)
@@ -81,7 +121,30 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 	if e != nil {
 		return remotetranscode.Source{}, e
 	}
-	gateway, e := nodeinput.New(nodeinput.Options{Client: c, Capacity: 1, MaxRequests: 8, RequestTimeout: 30 * time.Second})
+	gateway, e := nodeinput.New(nodeinput.Options{WatchAuthority: r.watchAuthority, ValidateScope: func(ctx context.Context, scope nodesource.Scope) error {
+		current, err := r.route(ctx, s.Identity.Session)
+		if err != nil || scope.Fence != rt.Fence || scope != scopeForRoute(current) {
+			return ErrDenied
+		}
+		return r.authorizeWorker(ctx, peer, "input", s.Identity, nil)
+	}, Client: c, Capacity: 1, MaxRequests: 8, RequestTimeout: 30 * time.Second, ReadTimeout: 2 * time.Second, MaxRecoveries: 3,
+		Recover: func(c context.Context, old nodesource.Grant) (*nodesource.Client, nodesource.Grant, error) {
+			coordinator, e := r.CurrentCoordinator(c, old.Scope.Fence.Session)
+			if e != nil {
+				return nil, nodesource.Grant{}, e
+			}
+			controller := coordinator.Identity
+			reply, e := r.sourceCall(c, Route{Source: controller}, sourceRequest{Op: "source-failover", Old: old})
+			if e != nil {
+				return nil, nodesource.Grant{}, e
+			}
+			current, e := r.route(c, old.Scope.Fence.Session)
+			if e != nil || reply.Grant.Scope != scopeForRoute(current) {
+				return nil, nodesource.Grant{}, ErrDenied
+			}
+			client, e := r.sourceClient(c, current.Source)
+			return client, reply.Grant, e
+		}})
 	if e != nil {
 		c.Close()
 		return remotetranscode.Source{}, e
@@ -124,7 +187,11 @@ func (r *Runtime) renewInput(ctx context.Context, peer string, s remotetranscode
 		return remotetranscode.RenewalReceipt{}, ErrDenied
 	}
 	evidence, e := input.Renew(ctx, n, func(c context.Context, old nodesource.Grant) (nodesource.Grant, error) {
-		reply, e := r.sourceCall(c, v.route, sourceRequest{Op: "renew", Stable: s.Grant, Old: old, Expires: n.Deadline.Add(r.o.ClockSkew)})
+		current, e := r.route(c, s.Identity.Session)
+		if e != nil || current.Fence != v.route.Fence {
+			return nodesource.Grant{}, ErrDenied
+		}
+		reply, e := r.sourceCall(c, current, sourceRequest{Op: "renew", Stable: s.Grant, Old: old, Expires: n.Deadline.Add(r.o.ClockSkew)})
 		if e != nil {
 			return nodesource.Grant{}, e
 		}
@@ -136,8 +203,19 @@ func (r *Runtime) renewInput(ctx context.Context, peer string, s remotetranscode
 	if e != nil {
 		return remotetranscode.RenewalReceipt{}, e
 	}
+	if !r.clockReady() {
+		return remotetranscode.RenewalReceipt{}, ErrDenied
+	}
 	return remotetranscode.RenewalReceipt{Renewal: n, PlacementUntil: rec.Deadline.Add(-r.o.ClockSkew), SourceUntil: evidence.SourceUntil.Add(-r.o.ClockSkew)}, nil
 }
 
 // URL is created by peer after trusted endpoint validation.
 func mustHostname(ep string) string { u, _ := url.Parse(ep); return u.Hostname() }
+
+func (r *Runtime) sourceClient(ctx context.Context, source nodewire.Identity) (*nodesource.Client, error) {
+	ep, tc, check, e := r.peer(ctx, source, nodesource.Path)
+	if e != nil {
+		return nil, e
+	}
+	return nodesource.NewClient(nodesource.ClientOptions{Endpoint: ep, TLS: tc, BindServer: r.o.Guard.BindServer(source, mustHostname(ep)), RecheckServer: check, Peer: nodesource.Peer{NodeID: r.o.Self.NodeID, Boot: r.o.Self.Boot}, MaxLifetime: 10 * time.Minute, Timeout: 10 * time.Second, Now: time.Now})
+}

@@ -56,6 +56,37 @@ func TestClusterCleanupPreservesPlexRows(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM plex_sessions`).Scan(&count); err != nil || count != 2 {
 		t.Fatalf("plex rows lost: %d, %v", count, err)
 	}
+	// A frontend may adopt the same Plex identity after another frontend's
+	// decision, but a reused public ID cannot cross viewer/device/title scope.
+	s.Protocol = "plex"
+	if err := c.put(ctx, s, "decision-source", core.Viewer{ID: 1}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var originalKey int64
+	if err := db.QueryRowContext(ctx, `SELECT session_key FROM plex_sessions WHERE id=?`, s.ID).Scan(&originalKey); err != nil {
+		t.Fatal(err)
+	}
+	other := clusterStore{db: db, node: "other"}
+	for _, mutate := range []func(*frontend.Session){
+		func(s *frontend.Session) { s.ViewerID = 2 },
+		func(s *frontend.Session) { s.Device.ID = "other-device" },
+		func(s *frontend.Session) { s.Item = core.MovieKey(2) },
+	} {
+		changed := s
+		mutate(&changed)
+		if err := other.put(ctx, changed, "wrong-source", core.Viewer{ID: changed.ViewerID}, time.Now()); !errors.Is(err, core.ErrUnauthorized) {
+			t.Fatalf("foreign Plex identity adopted: %v", err)
+		}
+	}
+	if err := other.put(ctx, s, "start-source", core.Viewer{ID: 1}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var adoptedKey int64
+	var node string
+	if err := db.QueryRowContext(ctx, `SELECT node_id,session_key FROM plex_sessions WHERE id=?`, s.ID).Scan(&node, &adoptedKey); err != nil || node != "other" || adoptedKey != originalKey {
+		t.Fatal("adoption changed session identity", node, adoptedKey, err)
+	}
+
 }
 
 func TestClusterBrokerListsStopsAndOrdersReportsAcrossNodes(t *testing.T) {

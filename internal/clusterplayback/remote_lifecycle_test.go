@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"github.com/braedonsaunders/ether/internal/config"
-	"github.com/braedonsaunders/ether/internal/store"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -209,7 +208,7 @@ func TestRemoteTickRequiresExactReceiptEvenWithSourceGone(t *testing.T) {
 			}
 			// No activity is queued: this test isolates lifecycle reconciliation.
 			e.sentActivity = e.activity
-			db := store.OpenTest(t)
+			db := openFixtureDB(t)
 			self := nodewire.Identity{Cluster: "cluster", NodeID: "controller", Boot: "controller-boot"}
 			calls := 0
 			p.r = &Runtime{o: Options{DB: db, Self: self, MemberRole: func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }, Endpoint: func(_ context.Context, owner nodewire.Identity) (string, error) {

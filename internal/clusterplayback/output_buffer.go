@@ -19,26 +19,9 @@ import (
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 )
 
-// Retained-cache failure support is limited to unconditional full GET requests.
-// Range, HEAD, and conditional requests use the original worker and can fail
-// when that worker is unavailable. This is a remaining recovery gap, not
-// evidence that every client can continue playback through encoder failure.
-//
-// Cache replay requires the current live exact fence and original outer broker
-// authorization. Serving old generations after that authority expires or is
-// replaced needs a separate delivery mapping and is not enabled here.
-//
-// Retention has a lifetime budget: committed output is never evicted. Once
-// capacity is exhausted ordinary delivery continues without recovery retention.
-// A future rolling API needs an exact publication-floor CAS, explicit manifest
-// withdrawal, and reader pins preventing reclamation until all leases close.
-// This consumer implements none of that policy and never switches encoders.
-// The first recovery candidate remains same-source AAC copy at an independently
-// proven exact aligned access-unit cursor plus H264 reencode. Cold AAC encoding
-// adds samples; structural PES facts cannot admit generic restart or seamlessness.
-//
-// OutputBufferSnapshot reports retained container observations, never client
-// receipt/retention, decoded samples, sample ends or permission to recover.
+// OutputBufferSnapshot reports retained container observations. Fixed-grid
+// recovery maps the immutable prefix to its original generations; observations
+// do not prove viewer delivery, decoder continuity or permission to retire.
 type OutputBufferSnapshot struct {
 	Fence     placement.Fence
 	Retaining bool
@@ -54,12 +37,16 @@ type bufferedSession struct {
 	published                atomic.Bool
 	mu                       sync.Mutex
 	headers                  map[int64]http.Header // At most one entry per retained segment.
+	supersededAt             int64                 // -1 until a fixed-grid replacement is committed (Runtime.mu).
 	reason                   string
 }
 
 func (r *Runtime) newBufferedSession(route Route, q core.HLSRequest, s *remotetranscode.Session) *bufferedSession {
 	// No implicit conversion, ABR, seek, subtitle or other representation cache.
 	// Those operations continue using the existing exact remote adapter.
+	if r.automaticOutput && (q.Decision.Kind != core.DecisionTranscode || q.Decision.VideoCopy || !q.Decision.AudioCopy) {
+		return nil
+	}
 	if r.o.OutputBuffer == nil || s == nil || q.StartOffset != 0 || q.LiveInput || q.Decision.Container != "mpegts" || (q.Protocol != "" && q.Protocol != core.ProtocolHLS) || len(s.Rungs()) > 1 {
 		return nil
 	}
@@ -67,7 +54,7 @@ func (r *Runtime) newBufferedSession(route Route, q core.HLSRequest, s *remotetr
 	if err := r.o.OutputBuffer.OpenSession(route.Fence.Session, state); err != nil {
 		return nil // Existing public sequences are never overwritten or evicted.
 	}
-	return &bufferedSession{Session: s, r: r, route: route, headers: make(map[int64]http.Header)}
+	return &bufferedSession{Session: s, r: r, route: route, headers: make(map[int64]http.Header), supersededAt: -1}
 }
 
 func (r *Runtime) SnapshotOutput(id string) (OutputBufferSnapshot, error) {
@@ -144,6 +131,15 @@ func (s *bufferedSession) ServeRungSegment(w http.ResponseWriter, q *http.Reques
 }
 
 func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n int, serve func(http.ResponseWriter, *http.Request) remotetranscode.RepresentationCompletion) {
+	retained := false
+	guarded := s.r.fencedDeliveryResolved(w, q, s.route, func() (Route, error) {
+		if !retained {
+			return s.route, nil
+		}
+		return s.retainedDeliveryRoute(q.Context(), n)
+	})
+	defer guarded.Close()
+	w = guarded
 	// Conditional and partial requests keep the exact upstream semantics. A 206,
 	// HEAD, or even a Range request answered 200 is not capture admission.
 	if n < 0 || n > 10000000 || q.Method != http.MethodGet || q.Header.Get("Range") != "" ||
@@ -164,18 +160,19 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 			// The outer authenticated broker owns current viewer/media policy. Cache
 			// delivery additionally requires the exact current controller authority.
 			record, err := s.r.o.Placement.Lookup(q.Context(), s.route.Fence.Session)
-			if err != nil || record.Fence != s.route.Fence || !record.Authority || record.Retired || s.r.o.MemberRole(q.Context(), s.r.o.Self, config.RoleServer) != nil {
+			if err != nil || !s.allowedFence(record.Fence, n) || !record.Authority || record.Retired || s.r.o.MemberRole(q.Context(), s.r.o.Self, config.RoleServer) != nil {
 				http.Error(w, "output authority unavailable", http.StatusServiceUnavailable)
 				return
 			}
 			s.r.mu.Lock()
 			x := s.r.executions[s.route.Fence.Session]
-			active := !s.r.closed && x != nil && x.route == s.route && !x.stopping && !x.retired
+			active := !s.r.closed && x != nil && s.allowedExecution(x, n) && !x.stopping && !x.retired
 			s.r.mu.Unlock()
 			if !active {
 				http.Error(w, "execution stopped", http.StatusGone)
 				return
 			}
+			retained = true
 			s.access.Store(time.Now().UnixNano())
 			for name, values := range headers {
 				w.Header()[name] = values
@@ -207,6 +204,9 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 		s.degrade("incomplete or unsupported full segment response")
 		return
 	}
+	if s.r.deliveryAuthority(q.Context(), s.route) != nil {
+		return
+	}
 	if err := s.r.o.OutputBuffer.Retain(q.Context(), key, playbackbuffer.MPEGTS, int64(len(capture.body)), bytes.NewReader(capture.body)); err != nil {
 		s.degrade("segment retention unavailable")
 		return
@@ -229,6 +229,14 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 		return
 	}
 	s.mu.Lock()
+	s.r.mu.Lock()
+	current := s.r.executions[s.route.Fence.Session]
+	active := current != nil && current.route == s.route && current.replacement == nil && !current.stopping
+	s.r.mu.Unlock()
+	if !active {
+		s.mu.Unlock()
+		return
+	}
 	s.headers[int64(n)] = capture.headers
 	// Staged future segments may arrive out of order. Publish only the complete
 	// contiguous range; old public keys remain immutable at the store boundary.
@@ -244,7 +252,10 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 			keys = append(keys, candidate)
 		}
 		if len(keys) > 0 {
-			err = s.r.o.OutputBuffer.Publish(key.Session, snapshot.State, keys)
+			err = s.r.deliveryAuthority(q.Context(), s.route)
+			if err == nil {
+				err = s.r.o.OutputBuffer.Publish(key.Session, snapshot.State, keys)
+			}
 			if err == nil {
 				s.published.Store(true)
 			}
@@ -297,8 +308,11 @@ func (w *segmentCapture) WriteHeader(status int) {
 	}
 	for _, directive := range strings.Split(w.Header().Get("Cache-Control"), ",") {
 		name := strings.TrimSpace(strings.SplitN(directive, "=", 2)[0])
-		// No revalidation mechanism exists for retained output.
-		if strings.EqualFold(name, "no-store") || strings.EqualFold(name, "no-cache") {
+		// no-cache controls HTTP reuse, not this private immutable recovery
+		// log. Every replay rechecks current authority, and preserves the
+		// original client-facing cache policy. Explicit no-store still refuses
+		// retention of the representation.
+		if strings.EqualFold(name, "no-store") {
 			w.failed = true
 		}
 	}
@@ -356,4 +370,37 @@ func outputHeader(name string) bool {
 		}
 	}
 	return false
+}
+
+func (s *bufferedSession) allowedExecution(x *execution, n int) bool {
+	if x == nil {
+		return false
+	}
+	if x.route == s.route && x.replacement == nil {
+		return true
+	}
+	return s.supersededAt >= 0 && int64(n) < s.supersededAt
+}
+func (s *bufferedSession) allowedFence(f placement.Fence, n int) bool {
+	s.r.mu.Lock()
+	defer s.r.mu.Unlock()
+	x := s.r.executions[s.route.Fence.Session]
+	if x == nil {
+		return false
+	}
+	current := x.route.Fence
+	if x.replacement != nil {
+		current = x.replacement.route.Fence
+	}
+	return current == f && s.allowedExecution(x, n)
+}
+
+// Historical immutable bytes are authorized by their published prefix, while
+// the writer is fenced by the currently authoritative execution generation.
+func (s *bufferedSession) retainedDeliveryRoute(ctx context.Context, n int) (Route, error) {
+	current, err := s.r.route(ctx, s.route.Fence.Session)
+	if err != nil || current.Viewer != s.route.Viewer || current.Revision != s.route.Revision || !s.allowedFence(current.Fence, n) {
+		return Route{}, ErrDenied
+	}
+	return current, nil
 }

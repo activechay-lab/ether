@@ -1,7 +1,6 @@
 package clusterplayback
 
 import (
-	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 	"io"
 	"net/http"
@@ -98,7 +97,7 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		return
 	}
 	route, e := r.route(q.Context(), id)
-	if e != nil || route.Fence.Controller.ID != r.o.Self.NodeID || route.Fence.Controller.Boot != r.o.Self.Boot {
+	if e != nil {
 		http.NotFound(w, q)
 		return
 	}
@@ -114,7 +113,9 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "scope", 400)
 		return
 	}
-	handler.ServeHTTP(w, clone)
+	guarded := r.fencedPublicDelivery(w, q, route)
+	defer guarded.Close()
+	handler.ServeHTTP(guarded, clone)
 }
 
 // ForwardPlexMedia forwards only validated representation paths. The receiver
@@ -130,21 +131,26 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 	if q.Method != "GET" && q.Method != "HEAD" {
 		return false
 	}
-	route, e := r.route(q.Context(), id)
-	if e != nil || route.Fence.Controller.ID == r.o.Self.NodeID && route.Fence.Controller.Boot == r.o.Self.Boot {
+	owner, e := r.mediaServer(q.Context(), id)
+	if e != nil || owner == r.o.Self {
 		return false
 	}
-	owner := nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: route.Fence.Controller.ID, Boot: route.Fence.Controller.Boot}
+	route, e := r.route(q.Context(), id)
+	if e != nil {
+		http.NotFound(w, q)
+		return true
+	}
 	ep, tc, check, e := r.peer(q.Context(), owner, PlexDeliveryPath)
 	if e != nil {
 		http.Error(w, "delivery unavailable", 502)
 		return true
 	}
-	transport, e := outbound.New(ep, tc, 5*time.Second, check)
+	transport, e := outbound.New(ep, tc, 500*time.Millisecond, check)
 	if e != nil {
 		http.Error(w, "delivery unavailable", 502)
 		return true
 	}
+	transport.ResponseHeaderTimeout(r.o.EncoderSegmentWait)
 	defer transport.CloseIdleConnections()
 	request, e := http.NewRequestWithContext(q.Context(), q.Method, ep, nil)
 	if e != nil {
@@ -163,7 +169,7 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 	request.Header.Set(deliveryOrigin, origin)
 	request.Header.Set(deliveryHop, "1")
 	request.Header.Set(deliveryURI, q.URL.RequestURI())
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: &mediaFailoverTransport{runtime: r, first: transport, owner: owner, path: PlexDeliveryPath}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, e := client.Do(request)
 	if e != nil {
 		http.Error(w, "delivery unavailable", 502)
@@ -179,6 +185,9 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 			w.Header()[h] = values
 		}
 	}
+	guarded := r.fencedPublicDelivery(w, q, route)
+	defer guarded.Close()
+	w = guarded
 	w.WriteHeader(response.StatusCode)
 	if q.Method != "HEAD" {
 		_, _ = io.Copy(w, response.Body)

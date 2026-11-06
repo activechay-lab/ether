@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/generationfence"
 )
 
 type WorkerOptions struct {
+	WatchAuthority  func(string, func()) func()
 	Capabilities    Capabilities    // Explicit backend contract; zero retains fixed HLS.
 	ValidateRenewal ValidateRenewal // Nil explicitly disables renewal.
 	Boot            string
@@ -156,7 +158,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if m.Op == "start" {
-		if m.Start == nil || len(m.Start.ReleaseID) > 512 || m.Start.Identity != m.Identity || len(m.Start.Grant) == 0 || len(m.Start.Grant) > 4096 || !SupportsRequest(core.HLSRequest{RecoveryStart: core.CloneRecoveryStart(m.Start.RecoveryStart), SoftSubtitleStream: m.Start.SoftSubtitleStream, Protocol: m.Start.Protocol, ReleaseID: m.Start.ReleaseID, Info: startInfo(*m.Start), Decision: m.Start.Decision, StartOffset: m.Start.Offset, SegmentDuration: m.Start.SegmentDuration}, w.opts.Capabilities) {
+		if m.Start == nil || len(m.Start.ReleaseID) > 512 || m.Start.Identity != m.Identity || len(m.Start.Grant) == 0 || len(m.Start.Grant) > 4096 || !SupportsRequest(core.HLSRequest{Resume: cloneResume(m.Start.Resume), RecoveryStart: core.CloneRecoveryStart(m.Start.RecoveryStart), SoftSubtitleStream: m.Start.SoftSubtitleStream, Protocol: m.Start.Protocol, ReleaseID: m.Start.ReleaseID, Info: startInfo(*m.Start), Decision: m.Start.Decision, StartOffset: m.Start.Offset, SegmentDuration: m.Start.SegmentDuration}, w.opts.Capabilities) {
 			http.Error(out, "unsupported start", 422)
 			return
 		}
@@ -270,7 +272,28 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		replyStatus(out, snapshot)
 		return
 	}
-	w.serveMedia(out, request, m, s, e.start.Protocol, e.rungs)
+	guarded := &generationfence.Writer{ResponseWriter: out, Check: func() error {
+		if err := w.opts.Security.Authorize(request.Context(), peer, m.Op, m.Identity, nil); err != nil {
+			return err
+		}
+		return nil
+	}, LocalCheck: func() error {
+		if err := request.Context().Err(); err != nil {
+			return err
+		}
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		w.expire(e)
+		if e.stopped || w.closed || w.highest[m.Identity.Controller+"/"+m.Identity.Session] != m.Identity.Generation {
+			return generationfence.ErrStale
+		}
+		return nil
+	}}
+	if w.opts.WatchAuthority != nil {
+		guarded.Watch = func(fn func()) func() { return w.opts.WatchAuthority(m.Identity.Session, fn) }
+	}
+	defer guarded.Close()
+	w.serveMedia(guarded, request, m, s, e.start.Protocol, e.rungs)
 }
 func reply(out http.ResponseWriter, state string, id Identity) {
 	out.Header().Set("Content-Type", "application/json")
@@ -299,7 +322,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	if backend, ok := w.opts.Encoder.(interface{ SupportsDistributedRequest(core.HLSRequest) bool }); ok {
 		var planStart Start
 		_ = json.Unmarshal(encoded, &planStart)
-		plan := core.HLSRequest{RecoveryStart: core.CloneRecoveryStart(planStart.RecoveryStart), ReleaseID: planStart.ReleaseID, Info: startInfo(planStart), Decision: planStart.Decision, StartOffset: planStart.Offset, SegmentDuration: planStart.SegmentDuration, Protocol: planStart.Protocol, SoftSubtitleStream: planStart.SoftSubtitleStream, RequireIndependentProof: planStart.IndependentProof}
+		plan := core.HLSRequest{Resume: cloneResume(planStart.Resume), RecoveryStart: core.CloneRecoveryStart(planStart.RecoveryStart), ReleaseID: planStart.ReleaseID, Info: startInfo(planStart), Decision: planStart.Decision, StartOffset: planStart.Offset, SegmentDuration: planStart.SegmentDuration, Protocol: planStart.Protocol, SoftSubtitleStream: planStart.SoftSubtitleStream, RequireIndependentProof: planStart.IndependentProof}
 		if !backend.SupportsDistributedRequest(plan) {
 			http.Error(out, "backend plan unsupported", 422)
 			return
@@ -380,7 +403,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 		// Backend receives separate nested slices/pointers; source renewal and duplicate
 		// starts continue comparing the original immutable payload.
 		backendInfo, backendDecision, backendSoft := startInfo(backendStart), backendStart.Decision, backendStart.SoftSubtitleStream
-		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{RecoveryStart: core.CloneRecoveryStart(backendStart.RecoveryStart), ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), ManifestSessionID: s.Identity.Session, InputURL: source.URL, InputLease: input, Info: backendInfo, Decision: backendDecision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, SoftSubtitleStream: backendSoft, Protocol: s.Protocol})
+		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{Resume: cloneResume(backendStart.Resume), RecoveryStart: core.CloneRecoveryStart(backendStart.RecoveryStart), ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), ManifestSessionID: s.Identity.Session, InputURL: source.URL, InputLease: input, Info: backendInfo, Decision: backendDecision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, SoftSubtitleStream: backendSoft, Protocol: s.Protocol})
 	}
 	if err == nil && session != nil {
 		if w.opts.Capabilities.Controls {
@@ -479,6 +502,16 @@ func executionID(i Identity) string {
 // All lease transitions and deadline checks run under mu. Timer.Stop alone is
 // insufficient: an already queued old callback must compare the accepted lease.
 func (w *Worker) expire(e *execution) {
+	// A backend may retire itself on idle timeout. Its encoder outcome does
+	// not seal the independently owned gateway input; do that explicitly so
+	// status can eventually report exact joined retirement to the controller.
+	if !e.starting && !e.stopped && e.retirement != nil {
+		select {
+		case <-e.retirement.EncoderDone():
+			w.stop(e)
+		default:
+		}
+	}
 	if w.expired(e, time.Now()) {
 		w.stop(e)
 	}

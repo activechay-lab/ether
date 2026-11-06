@@ -15,7 +15,12 @@ import (
 
 // runSpec is everything needed to build one ffmpeg HLS run.
 type runSpec struct {
-	SilenceAudio bool
+	// RampClock keeps every run of a fast-start session on the steady clock.
+	RampClock bool
+	// AuthoredTimeline preserves adaptive sessions with a separate clock.
+	AuthoredTimeline bool
+	QSVMode          string // session-local retry override; never mutates shared capabilities
+	SilenceAudio     bool
 	// Only a retry of an initial run whose muxer wrote a wrapped tfdt.
 	NormalizeNegativeDTS bool
 	SoftSubtitlePath     string
@@ -314,6 +319,9 @@ func buildCodecArgs(s runSpec) []string {
 		args = append(args, "-fflags", "+genpts")
 	}
 	vp := planVideo(s, v)
+	if _, hw := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features); hw && s.Accel.Name == AccelQSV && s.Accel.Device != "" && transcodeVideo {
+		args = append(args, "-qsv_device", s.Accel.Device)
+	}
 	args = append(args, vp.inputArgs...)
 	args = append(args, inputTimestampArgs(s)...)
 	if s.LoopInput {
@@ -472,6 +480,12 @@ func buildCodecArgs(s runSpec) []string {
 				dropAt := "0"
 				if len(inputTimestampArgs(s)) > 0 {
 					dropAt = secs(s.Start)
+					if lead := hlsRestartLead(s); lead > 0 {
+						dropAt = strconv.FormatFloat(hlsGridVideoStart(s, hlsOutputFPS(s))-lead.Seconds(), 'f', 9, 64)
+					}
+					if cutoff, ok := hlsFMP4AudioCut(s); ok {
+						dropAt = strconv.FormatFloat(cutoff, 'f', 9, 64)
+					}
 				}
 				audioFilters = append(audioFilters, "noise=amount=0:drop='lt(pts*tb,"+dropAt+")'")
 			}
@@ -532,7 +546,158 @@ func buildCodecArgs(s runSpec) []string {
 	if s.LoopInput {
 		args = append(args, "-output_ts_offset", secs(loopStart))
 	}
+	// The TS child muxer adds twice its default muxdelay (1.4s), then
+	// shifts a zero-origin encoder's negative DTS to zero. A positive-origin
+	// restart does not receive that second shift. Restore it explicitly,
+	// retaining the initial run's clock and its copied-audio segment cutoff.
+	lead := hlsRestartLead(s)
+	if fastLead := hlsFastStartClock(s); fastLead > 0 {
+		lead = fastLead
+		args = appendVideoClockBSF(args, "setts=dts=DTS-"+strconv.FormatFloat(fastLead.Seconds(), 'f', 9, 64)+"/TB")
+	}
+	if lead > 0 {
+		args = append(args, "-output_ts_offset", strconv.FormatFloat(lead.Seconds(), 'f', 9, 64))
+	}
 	return args
+}
+
+// hlsRestartLead retains the measured software H264 clock across restarts.
+// Fast-start fMP4 also carries the ramp origin into every steady run; its
+// edit-list correction already handles the encoder reorder difference.
+// Copies, hardware, live, alternate muxers and unknown output clocks retain
+// their existing arguments. Chunked/keyframe-planned runs are slotted on their
+// own authored timeline and must not receive a uniform-grid mux shift.
+// Never infer a hardware encoder's reorder delay.
+func hlsRestartLead(s runSpec) time.Duration {
+	if (s.AuthoredTimeline && !s.RampClock) || s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP || (s.Decision.Container != ContainerMPEGTS && !(s.RampClock && s.Decision.Container == ContainerFMP4)) || s.Decision.VideoCopy || !s.Decision.AudioCopy || (s.FastStart && hlsFastStartClock(s) == 0) {
+		return 0
+	}
+	v := s.Info.Video()
+	if v == nil || v.FrameRate < 1 {
+		return 0
+	}
+	enc, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features)
+	if enc != "libx264" {
+		return 0
+	}
+	fps := hlsOutputFPS(s)
+	if fps <= 0 {
+		return 0
+	}
+	clockSpec := s
+	if s.FastStart {
+		clockSpec.FastStart = false
+	}
+	_, _, _, delay := x264FramePlan(clockSpec)
+	return time.Duration(math.Round(float64(delay) / fps * float64(time.Second)))
+}
+
+// The HLS cut compares audio DTS with video DTS, biased by audio_preload.
+// Retain exactly the AUs the initial run put after that cut. In particular,
+// ceil-to-microsecond preload can put an AU exactly on the nominal boundary
+// in the preceding fragment; dropping only pts < Start would duplicate it.
+func hlsFMP4AudioCut(s runSpec) (float64, bool) {
+	if (s.AuthoredTimeline && !s.RampClock) || s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.Decision.Container != ContainerFMP4 || s.Decision.VideoCopy || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP {
+		return 0, false
+	}
+	v := s.Info.Video()
+	if v == nil || v.FrameRate < 1 {
+		return 0, false
+	}
+	enc, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features)
+	if enc != "libx264" {
+		return 0, false
+	}
+	fps := hlsOutputFPS(s)
+	if fps <= 0 {
+		return 0, false
+	}
+	clockSpec := s
+	if hlsFastStartClock(s) > 0 {
+		clockSpec.FastStart = false
+	}
+	_, _, _, delay := x264FramePlan(clockSpec)
+	preload := 0.0
+	if !v.VariableFrameRate {
+		preload = math.Ceil(2_000_000/v.FrameRate) / 1_000_000
+	}
+	return hlsGridVideoStart(s, fps) + preload - float64(delay)/fps, true
+}
+
+// hlsFastStartClock gives the zero-reorder ramp the steady clock without
+// adding B-frames or changing its low-latency encoder preset.
+func hlsFastStartClock(s runSpec) time.Duration {
+	if !s.RampClock || !s.FastStart || s.LiveInput || s.LoopInput || s.RTXTimeline || s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Decision.VideoCopy || (s.Decision.Container != ContainerMPEGTS && s.Decision.Container != ContainerFMP4) || (s.Protocol != "" && s.Protocol != core.ProtocolHLS) {
+		return 0
+	}
+	enc, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features)
+	if enc != "libx264" {
+		return 0
+	}
+	fps := hlsOutputFPS(s)
+	if fps <= 0 {
+		return 0
+	}
+	s.FastStart = false
+	_, _, _, delay := x264FramePlan(s)
+	return time.Duration(math.Round(float64(delay) / fps * float64(time.Second)))
+}
+
+func appendVideoClockBSF(args []string, filter string) []string {
+	for i := len(args) - 2; i >= 0; i-- {
+		if args[i] == "-bsf:v" {
+			args[i+1] += "," + filter
+			return args
+		}
+	}
+	return append(args, "-bsf:v", filter)
+}
+
+// FFmpeg's HLS CFR output clock uses the reference (nominal) demuxer rate,
+// not a VFR source's average rate. Negotiated -r takes precedence.
+func hlsOutputFPS(s runSpec) float64 {
+	v := s.Info.Video()
+	if v == nil {
+		return 0
+	}
+	fps := v.FrameRate
+	if v.VariableFrameRate && v.ReferenceFrameRate == nil {
+		return 0
+	}
+	if v.ReferenceFrameRate != nil && *v.ReferenceFrameRate >= 1 {
+		fps = *v.ReferenceFrameRate
+	}
+	if s.Decision.H264Level > 0 && s.Decision.H264FrameRate > 0 {
+		fps = s.Decision.H264FrameRate
+	}
+	return fps
+}
+
+// Fractional rates put the first frame at or after the authored boundary.
+// Audio must follow that actual video cut, not an integer-second approximation.
+func hlsGridVideoStart(s runSpec, fps float64) float64 {
+	return math.Ceil(s.Start.Seconds()*fps-1e-7) / fps
+}
+
+// x264FramePlan is the single decision for preset, B-frame limit, pyramid and
+// decode reorder depth. The seek clock uses exactly the encoder's decision.
+func x264FramePlan(s runSpec) (preset string, bframes int, pyramid string, reorder int) {
+	preset = "veryfast"
+	bframes = 3
+	pyramid = "normal"
+	reorder = 2
+	if s.FastStart {
+		preset = "ultrafast"
+		bframes = 0
+		pyramid = "none"
+		reorder = 0
+	}
+	if s.Decision.H264Level > 0 {
+		bframes = 2
+		pyramid = "none"
+		reorder = 1
+	}
+	return
 }
 
 // hlsMuxArgs is the HLS muxer part of a run's command line.
@@ -991,6 +1156,12 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 	}
 	switch enc {
 	case "libx264":
+		preset, bframes, pyramid, _ := x264FramePlan(s)
+		xPreset = preset
+		e = append(e, "-bf", strconv.Itoa(bframes))
+		if s.Decision.H264Level == 0 {
+			e = append(e, "-x264-params", "b-pyramid="+pyramid)
+		}
 		// Preserve fine detail at the bounded software thread budget. The
 		// natural-footage baseline validates CRF 18 at the same VBV cap;
 		// throughput improvements must not rely on lowering image quality.
@@ -1043,15 +1214,11 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 		} else if pic.tenBit {
 			e = append(e, "-profile:v", "main10")
 		}
-	case "h264_qsv", "hevc_qsv":
-		if s.Rate.Quality {
-			e = append(e, "-preset", "veryfast", "-global_quality", "23", "-maxrate", maxr, "-bufsize", buf, "-look_ahead", "1")
-		} else {
-			e = append(e, "-preset", "veryfast", "-b:v", b, "-maxrate", maxr, "-bufsize", buf, "-look_ahead", "0")
-		}
+	case "h264_qsv", "hevc_qsv", "av1_qsv":
+		e = append(e, qsvRateArgs(qsvMode(s, enc), b, maxr, buf)...)
 		if enc == "h264_qsv" {
 			e = append(e, "-profile:v", "high")
-		} else if pic.tenBit {
+		} else if enc == "hevc_qsv" && pic.tenBit {
 			e = append(e, "-profile:v", "main10")
 		}
 	case "h264_vaapi", "hevc_vaapi":
@@ -1100,7 +1267,8 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 		if enc == "libx264" {
 			// ultrafast otherwise disables the High-only transform and can emit
 			// Constrained Baseline despite -profile:v high.
-			e = append(e, "-x264-params", "8x8dct=1:b-pyramid=none")
+			_, _, pyramid, _ := x264FramePlan(s)
+			e = append(e, "-x264-params", "8x8dct=1:b-pyramid="+pyramid)
 		}
 	}
 	if codec == "hevc" {

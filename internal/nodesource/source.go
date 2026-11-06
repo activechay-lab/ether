@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/generationfence"
 	"github.com/braedonsaunders/ether/internal/placement"
 )
 
@@ -23,9 +24,10 @@ const Path = "/internal/source/v1/bytes"
 const CredentialHeader = "X-Ether-Source-Grant"
 
 type Scope struct {
-	Fence    placement.Fence
-	Viewer   string
-	Revision string
+	SourceGeneration uint64
+	Fence            placement.Fence
+	Viewer           string
+	Revision         string
 }
 type Peer struct{ NodeID, Boot string }
 type Grant struct {
@@ -55,13 +57,14 @@ type Hold struct {
 	Release func()
 }
 type Options struct {
-	Authority   Authority
-	Peer        func(*x509.Certificate) (Peer, error)
-	Acquire     func(context.Context, Scope) (Hold, error)
-	Now         func() time.Time
-	MaxRequests int
-	MaxLifetime time.Duration
-	Revalidate  time.Duration
+	WatchAuthority func(string, func()) func()
+	Authority      Authority
+	Peer           func(*x509.Certificate) (Peer, error)
+	Acquire        func(context.Context, Scope) (Hold, error)
+	Now            func() time.Time
+	MaxRequests    int
+	MaxLifetime    time.Duration
+	Revalidate     time.Duration
 }
 type pending struct {
 	scope   Scope
@@ -197,11 +200,31 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return errors.New("nodesource: revoked")
 		}
 		return nil
-	}, now: h.o.Now, cadence: h.o.Revalidate, next: h.o.Now().Add(h.o.Revalidate)}
+	}}
 	w.Header().Set("ETag", etag(grant.Scope))
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/octet-stream")
-	http.ServeContent(w, r.WithContext(ctx), "source", time.Time{}, sr)
+	guarded := &generationfence.Writer{ResponseWriter: w, Check: sr.check, Interval: h.o.Revalidate, LocalCheck: func() error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if !h.o.Now().Before(grant.Expires) {
+			return generationfence.ErrStale
+		}
+		if local, ok := h.o.Authority.(interface {
+			CheckLocal(context.Context, Peer, string) error
+		}); ok {
+			return local.CheckLocal(ctx, peer, grant.Credential)
+		}
+		return nil
+	}}
+	if h.o.WatchAuthority != nil {
+		guarded.Watch = func(fn func()) func() { return h.o.WatchAuthority(grant.Scope.Fence.Session, fn) }
+	}
+	defer guarded.Close()
+	sr.check = guarded.Validate
+
+	http.ServeContent(guarded, r.WithContext(ctx), "source", time.Time{}, sr)
 }
 func etag(s Scope) string { b, _ := json.Marshal(s); return fmt.Sprintf("\"%x\"", sha256.Sum256(b)) }
 
@@ -210,20 +233,14 @@ type sourceReader struct {
 	source    core.ContextReaderAt
 	size, pos int64
 	check     func() error
-	now       func() time.Time
-	cadence   time.Duration
-	next      time.Time
 }
 
 func (s *sourceReader) Read(b []byte) (int, error) {
 	if err := s.ctx.Err(); err != nil {
 		return 0, err
 	}
-	if !s.now().Before(s.next) {
-		if err := s.check(); err != nil {
-			return 0, err
-		}
-		s.next = s.now().Add(s.cadence)
+	if err := s.check(); err != nil {
+		return 0, err
 	}
 	if s.pos >= s.size {
 		return 0, io.EOF
@@ -235,11 +252,8 @@ func (s *sourceReader) Read(b []byte) (int, error) {
 	if cancelled := s.ctx.Err(); cancelled != nil {
 		return 0, cancelled
 	}
-	if !s.now().Before(s.next) {
-		if e := s.check(); e != nil {
-			return 0, e
-		}
-		s.next = s.now().Add(s.cadence)
+	if e := s.check(); e != nil {
+		return 0, e
 	}
 	s.pos += int64(n)
 	return n, err

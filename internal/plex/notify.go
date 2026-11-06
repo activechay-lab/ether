@@ -523,7 +523,9 @@ func (s *Server) WatchStateChanged(userID int64, key core.RatingKey) {
 	s.notifyTimeline(key, kind, "", userID)
 }
 
-// notifyTimeline publishes a library timeline entry (watched-state change).
+// notifyTimeline publishes a completed metadata change (watch state or versions).
+// PMS terminal state 5 must omit metadataState/mediaState: carrying "created"
+// is a processing hint, not the completed invalidation native detail pages need.
 func (s *Server) notifyTimeline(key core.RatingKey, t core.MediaType, title string, userID int64) {
 	sec, _ := s.sectionFor(t)
 	typeNum := map[core.MediaType]int{core.TypeMovie: 1, core.TypeShow: 2, core.TypeSeason: 3, core.TypeEpisode: 4}[t]

@@ -137,3 +137,10 @@ func (m *Manager) preemptBackgroundLocked() bool {
 	}
 	return false
 }
+
+// EncodingCount reports held encoding slots, including runs awaiting retirement.
+func (m *Manager) EncodingCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.encodingLocked("")
+}

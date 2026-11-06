@@ -2,11 +2,12 @@
 
 This chart packages the v0.3.5 deployment runtime. Use an image that implements
 `ETHER_DEPLOYMENT_FILE`, role isolation, authenticated private transport and the
-probe/drain contract below. Older Ether images are incompatible. At the time of
-chart preparation, the runtime accepts full nodes and a guarded transcode
-implementation; source, delivery and server-only graphs remain gated. The mixed
-role example is an acceptance target, not a claim that those roles already work. Chart rendering
-checks do not establish playback continuity; that requires the acceptance run.
+probe/drain contract below. Older Ether images are incompatible. The integration
+runtime composes server,
+source, transcode and delivery specialists beneath the protocol adapters.
+Mixed public-role deployment still requires the explicit chart lab gate described
+below. Implemented recovery paths are not a seamless-playback certification:
+that requires the measured loss matrix in [the acceptance guide](kubernetes-acceptance.md).
 
 The chart uses external PostgreSQL, one StatefulSet for each enabled role pool,
 and a separate persistent config volume for each pod ordinal. The default pool
@@ -20,8 +21,8 @@ not required. Media bytes never pass through PostgreSQL.
 
 Requirements: Kubernetes 1.32+, Helm 3.19+, a dynamic provisioner (or matching
 preprovisioned PVCs), a working cluster DNS suffix, synchronized clocks with a
-verified error bound, and an external PostgreSQL database reachable from every
-pool. Select an explicit immutable image tag or digest before installation.
+verified error bound (host NTP is mandatory), and an external PostgreSQL database
+reachable from every pool. Select an explicit immutable image tag or digest before installation.
 
 ```sh
 kubectl create namespace ether
@@ -76,7 +77,7 @@ kubectl -n ether get pods,pvc,svc
 provides browse/control and responses that combine admission with streaming;
 `delivery` provides the fixed public representation sender. `source` and
 `transcode` have no public Plex listeners. Enabling a pool in values does not
-remove a runtime guard or establish that its shipping graph passes acceptance.
+establish that its shipping graph passes playback acceptance.
 The API Service selects only full/server pods; the separate media Service selects
 only full/delivery pods. See the same-origin routing requirements below.
 Specialists are runtime roles, not separate products; changing role mix does not
@@ -99,6 +100,61 @@ retirement. Helm's replica update itself does not invoke drain. Per-role PDBs
 limit voluntary eviction; they do not protect direct pod deletion, forced loss,
 or guarantee spare capacity. A one-replica pool with maxUnavailable 1 can become
 fully unavailable. Choose PDB and scheduling rules to match the capacity plan.
+
+## Continuous clock enforcement
+
+`runtime.clockSkewMillis` is the maximum **pairwise** wall-clock error used by
+lease and grant consumers; `runtime.clockBoundKnown=true` remains mandatory.
+Every PostgreSQL membership heartbeat (normally five seconds) now performs one
+additional bounded scalar `clock_timestamp()` query, before publishing caps.
+The estimate is local wall time at the monotonic round-trip midpoint minus DB
+time. Admission uses `abs(skew) + RTT/2 + 1 microsecond` (timestamp precision).
+Each node must fit within **half** the configured pairwise bound against the
+common database reference, so nodes on opposite sides of that reference cannot
+exceed the peer-to-peer budget. A zero bound therefore cannot admit work.
+
+Unknown, failed or stale samples (older than three heartbeat intervals) refuse
+new authority. Local wall elapsed is also compared with monotonic elapsed on
+heartbeats and authority checks: a step above the smaller of 10 ms and one tenth
+of the configured bound (minimum 1 ms) closes admission immediately and logs its
+signed size. A step during a query invalidates that query. Two consecutive good
+samples at or below 80% of the half-bound restore admission automatically.
+Keep host NTP/time synchronization running; this monitor neither sets clocks nor
+proves an external synchronization service's future drift guarantee. PostgreSQL
+must remain a common stable clock reference for the cluster.
+
+During a clock fault `/admissionz` returns HTTP 503 with `reason: "clock_skew"`.
+Placement reservation, source binding/grant minting, worker start acceptance and
+**renewal issuance and acceptance** fail closed. Extending a lease with an
+unbounded clock could outlive a peer's fencing deadline, so existing leases
+cannot be renewed as a special exception. Failed remote renewals are retried
+without proactively revoking the last accepted lease; its original monotonic
+expiry still bounds the worker and source authority. Clock quarantine itself
+does not revoke grants, stop encoders, remove media routes or change `/readyz`.
+Existing media remains subject to normal authority/expiry checks, and an outage
+longer than the previously granted lifetime can therefore interrupt playback.
+No retirement or resource reclamation follows from clock failure.
+
+A healthy controller probes encoder eligibility before attempting renewal. Once
+heartbeat diagnostics report a worker's clock quarantine, the failure grace
+triggers replacement on another eligible node without waiting for expiry. If
+that report is delayed, a refused renewal leaves the worker's last accepted
+monotonic deadline intact; its expiry timer self-fences the execution and a
+subsequent status probe triggers the same replacement. Supersession preserves
+old displaced capacity claims until exact retirement proof, advances execution
+generation, and resumes at the delivery watermark. A clock-quarantined controller
+also stops coordinator lease issuance/renewal/adoption; a healthy replica can
+win the next coordination epoch and continue recovery. This requires healthy
+spare capacity and a surviving database/controller. The offline recovery fixture
+covers quarantine with live RPC transport; it does not certify a client-buffer
+budget or actual decoder/audio continuity. Those remain measured lab gates.
+
+Heartbeat `caps.diagnostics.clock` and local cluster health expose
+`clockSkewNs`, `rttNs`, `uncertaintyNs`, `boundNs`, `sampledAt`, `ready`, `reason`
+and `lastStepNs`. The diagnostic readiness reason is `clock_skew` while blocked;
+`readyExisting` remains the serving-readiness observation. Remote clock
+diagnostics exclude nodes from new selection, while the node's own fresh guard
+is the enforcement boundary. Diagnostics alone never grant authority.
 
 ## Durable ledger quota
 
@@ -167,7 +223,20 @@ must reject startup/unready/draining nodes for new work.
 
 Health probes use separate private HTTP port 32402: `/livez` for process health,
 `/startupz` for completed provisioning, `/readyz` for service of existing work,
-and `/admissionz` for admission of new work. Public pod readiness uses
+and `/admissionz` for admission of new work. Self-readiness measures elapsed time
+since this process completed its last owned heartbeat with Go's monotonic clock;
+it never compares a database timestamp with local wall time. Established service
+gets a 20-second grace after the heartbeat's 20-second freshness window expires.
+Transient placement reconciliation failures receive the same 20-second grace. Listener/runtime failure, invalid roles or
+loss of owned membership fail immediately. Pure delivery registers its empty
+placement target at startup and does not repeat that write during playback.
+Readiness grace only preserves routing: each media request, peer authorization,
+placement and execution renewal still applies its current authority/fence checks.
+A sustained database outage can therefore reject media before routing readiness
+expires. Clock steps can still affect credentials, leases and remote membership;
+this readiness change does not assert clock-independent distributed authority.
+
+Public pod readiness uses
 `/admissionz`; specialist readiness uses `/readyz`. During drain, readiness may
 stay true while admission is false. Public endpoint removal is valid only with
 the runtime's any-frontend session forwarding; validate that with real playback
@@ -252,10 +321,19 @@ host, preserving paths and query strings:
 | --- | --- | --- |
 | `/video/:/transcode/universal/session` | media (full/delivery) | Canonical representation namespace; unrecognized resources receive 404. |
 | `/sessions/media` | media (full/delivery) | Canonical grant-bearing representations: GET/HEAD only. |
+| `/jellyfin/sessions/media`, `/emby/sessions/media` | media (full/delivery) | Original mounted MediaBrowser media handlers; GET/HEAD and their OPTIONS preflight. |
 | `/` and every other path | API (full/server) | Browse, admission, control and control-coupled responses. |
 
-The delivery handler rejects non-GET/HEAD requests; they are not alternate API
-control routes. Prefix matching uses complete path elements, so similarly named
+The controller must retain the media routes when their Service has no ready
+endpoints. The pinned Traefik lab controller sets
+`--providers.kubernetesingress.allowemptyservices=true`: an empty media backend
+then returns 503 instead of dropping its route and sending the request to the
+catch-all API backend. Other controllers need the same routing invariant. This
+does not make an unready delivery node eligible or establish why readiness was
+lost. See Traefik's [Kubernetes Ingress provider documentation](https://doc.traefik.io/traefik/reference/install-configuration/providers/kubernetes/kubernetes-ingress/).
+
+Delivery accepts GET/HEAD representations and MediaBrowser alias OPTIONS
+preflights. Other methods are not alternate API control routes. Prefix matching uses complete path elements, so similarly named
 paths such as `/sessions/mediaevil` remain API traffic. Do not broaden either
 prefix to `/video/:/transcode/universal` or `/library/parts`. Plex decision,
 start/start.m3u8/start.mpd/start.mkv, ping/stop, `/transcode/sessions`, direct parts
@@ -282,14 +360,21 @@ acceptance. It is not justified by invented representation URLs. No controller
 CRDs, suffix widening, URL rewrite or authentication relaxation are added.
 Full-only public pools remain supported.
 
-Jellyfin/Emby media aliases require the explicit
-auth-preserving runtime adapter and matching approved routing before being
-claimed; the chart currently leaves `/jellyfin/sessions/media` and
-`/emby/sessions/media` on API. Silo playback paths likewise remain on API until a
-typed authenticated seam is implemented. Do not add stripping/rewrite annotations
-or generic alias prefixes to imply unverified compatibility. Manual lab replay of
-the same returned path from server pod to delivery pod proves that role path
-only; it does not replace a real client test through the shared Ingress origin.
+Jellyfin/Emby media aliases use the same stateless SQL-owner hop and generation
+fencing as canonical media. The private receiver replays the original mounted
+frontend; it preserves the complete path/query, bounded account/device headers,
+origin and representation headers. The shipping broker still authenticates the
+path grant, protocol, active viewer and current policy on every request. Account
+credentials (`api_key`/`ApiKey`, token headers and MediaBrowser/Emby authorization
+headers) retain their original precedence and authority; none replaces the path
+grant. Emby cache/CORS and both protocols' media-safety headers are preserved.
+Their ordinary OPTIONS response comes from the original frontend. Direct
+`/Videos/...`, lazy admission and control routes remain on API. Silo playback
+paths likewise remain on API until their authenticated seam is implemented.
+Full nodes publish the exact local source owner before returning a MediaBrowser
+session; remote-source sessions publish their existing gen-zero route at Open.
+Standalone brokers do neither. No Ingress path rewrite or broad protocol
+catch-all is used.
 
 Select the controller class, hostname, TLS Secret and controller-specific stream
 timeouts. For the explicitly gated HLS lab, the controller must accept the literal colon
@@ -345,10 +430,26 @@ not playback acceptance. Include full+transcode+delivery, then source, and test
 hard loss separately from graceful drain. Do not use an owner's production
 Plex claim or provider credentials for acceptance.
 
-The initial GPU-workstation inventory found Docker usable, but NVIDIA NVML GPU
-access blocked by the host OS and no NVIDIA Docker runtime. CPU chart acceptance
-is possible; RTX4080 hardware acceptance remains a separate gate. Do not change
+WSL GPU/container availability and native Windows NVENC availability are separate
+capabilities. A native Windows transcode specialist can join over authenticated
+private transport and use the host driver without a Kubernetes GPU pod. Its
+private HTTPS endpoint and database must be reachable by the cluster, with the
+same trust, identity, clock and capacity rules as container workers. The lab
+`packaging/kubernetes/native-launcher` contains Ether and its FFmpeg descendants
+in a kill-on-close Windows Job Object; terminating that owned launcher bounds
+child cleanup. It is a lab launcher, not a Windows service installer. A native
+probe does not prove distributed placement or loss recovery. Do not change
 WSL/host drivers or the shared Docker daemon as part of chart installation.
+
+Transcode placement first requires a live eligible incarnation, available
+capacity and a successful exact-request capability probe. It then ranks verified
+hardware encoding ahead of software, followed by spare slots (the bottleneck
+across required resource scopes), source-node locality and stable node/boot
+identity. Capacity reservation rechecks atomically, including displaced claims.
+An exhausted or incapable GPU can fall back to an eligible CPU worker; an
+unschedulable GPU pod itself is not converted into a CPU pod. Shared-device
+workers must share a physical resource scope. Keep enough eligible CPU capacity
+to recover when the only GPU specialist is lost.
 
 See [the complete values reference](kubernetes-values.md).
 
@@ -386,3 +487,231 @@ means acceptance failed, even if the node restarts.
 drain failure, a replacement racing the UID-preconditioned delete, successful
 replacement, and container-name reuse safety. These checks run in chart CI and
 do not count as playback or hard-loss acceptance.
+
+### Generation checks during media bodies
+
+Every gateway, worker, source and delivery response admits output with a full
+current durable generation check before headers. `generationfence.Writer` shares
+one request-local authority observation between header, read, write and flush
+checks. It repeats durable validation after at most one second of monotonic time
+(measured from the start of validation), independent of body size. A positive check
+that exhausts that interval or races invalidation is discarded and retried,
+without publishing between attempts. A single resync or slow observation does
+not revoke a healthy writer. At most three attempts are made; each uses a fresh
+start time and event epoch and must complete inside its observation interval.
+The callback's host context/I/O deadline bounds each call; the attempt limit
+bounds retries. Negative authority, failed local checks or exhausted attempts
+latch denial. Source handlers may request a shorter observation interval.
+
+Between durable checks every operation checks local cancellation, sealing and
+monotonic execution/grant deadlines where present. Delivery converts its observed
+placement deadline to a monotonic cap. A blocked producer returning after a cap
+or the revalidation interval cannot bypass these checks. An already admitted
+socket write cannot be recalled; an idle writer does not poll or retain an extra
+goroutine and revalidates before its next output operation.
+
+Committed route updates publish the session ID on the existing cluster bus as
+`playback.route`. Active writers subscribe only for their request lifetime;
+route notifications and bus reconnect/resync invalidate their observations.
+Callbacks perform only local invalidation, so the next output operation performs
+the durable check. This normally detects supersession at the next write, within
+milliseconds for an actively streaming producer. Lost notifications retain the
+one-second bound. Notifications never grant authority or release resources.
+
+This is bounded streaming staleness, not instantaneous distributed revocation.
+Replacement output starts at the first unavailable fixed-grid segment N under the
+next generation; every new segment request validates current authority before
+headers and a response remains bound to its admitted generation. No request
+switches encoder generations in the middle of its body. Existing in-flight
+responses can emit old-generation bytes within the bound; after denial clients
+must retry through current authority. Output retention/publication keeps its own
+durable checks. This optimization alone does not prove client-side zero stalls,
+splice continuity or exact audio continuity; those remain acceptance gates.
+
+The DB cost of streaming validation is O(requests + active streaming seconds),
+plus invalidation events, rather than O(body writes). Request admission remains
+durable. The gateway reads sequential source ranges of at most 2 MiB, while
+keeping exact-offset whole-range retries on source failure. Scratch is bounded
+by 2 MiB per active response (less for short ranges). This replaces a source
+HTTP admission on every 64 KiB. At 20 Mbps it reduces admissions from about
+38.15/s to 1.20/s, measured with a 150 MB offline transfer representing 60 seconds
+of media. Each range retains grant verification, exact-source acquisition and
+output admission: at least nine core SELECTs, plus membership/viewer policy SQL
+and transaction overhead. The measured core admission contribution falls from
+343.35 to 10.80 SELECTs/s; slower source responses can also require periodic
+streaming checks. A writer-only benchmark must not be reported as total source
+pipeline query rate. Small client ranges and random seeks still pay per-request
+admission; the sequential rate assumes a continuous encoder input request.
+
+## Playback coordinator and delivery loss
+
+Overlay `packaging/kubernetes/routing-ha.values.yaml` on mixed-role values for
+two server and two delivery replicas on distinct Kubernetes hostnames. Supply
+the existing operator-managed Secrets, database and same-origin Ingress. The
+API Service selects **all** full/server replicas through `ether.plex/public`;
+the media Service selects all full/delivery replicas through `ether.plex/media`.
+Neither selector pins a particular ordinal or elected global leader. The
+headless private Service resolves exact source/encoder incarnations; balancing
+those RPCs across a role Service would discard their execution identity.
+Existing readiness probes and per-pool PDBs apply. Hard loss requires spare
+ready replicas; a PDB constrains voluntary disruption only.
+
+Delivery retains no authoritative output or coordination. Every encoder-media request resolves the current execution generation from SQL
+and forwards over authenticated node RPC to an available server replica. A failed
+connection can retry another replica before response headers. Preparation-only
+direct media retains its source/controller route.
+The receiving original protocol handler rechecks viewer/grant, device and media
+policy. Range, conditional requests, HEAD and cancellation follow that handler;
+redirects and additional delivery hops are refused. Output lives at the encoder;
+optional controller retention is a second copy, never delivery's unique data.
+
+Playback coordination uses a separate SQL lease and monotonically increasing
+epoch (`clusterplayback/6`). Its two-second lease includes twice the configured
+clock-skew bound. A surviving eligible server claims an expired lease by CAS,
+observes the exact healthy worker through status (no Start), and renews its
+placement, source and worker leases. The execution fence/generation and encoder
+process remain unchanged. Worker requests bind the current certificate and
+coordinator epoch; a stale controller cannot stop or renew that execution.
+Source movement keeps its independent source generation. Global cluster
+leadership and registrar epochs are unrelated to either playback generation.
+
+The original Plex stream binding, read capability and source authorization
+snapshot are persisted in the shared database before publishing the HLS master.
+These are credentials: do not export the binding table in evidence or logs.
+Surviving replicas restore protocol facts and run the original live policy
+checks. Binding snapshots are bounded by admitted placement history and become
+unreadable when that execution is retired or loses authority. They do not
+manufacture a new source owner or encoder start. A repeated decision on the
+surviving coordinator can reuse the source manager’s exact protected lifetime;
+obsolete preparations cannot close it, and plan cleanup cannot retire a source
+while the healthy execution still owns its binding.
+
+The in-process `TestDeliveryAndControllerLossKeepExecution` stops delivery and
+controller HTTP listeners, waits for the real coordinator lease, and verifies
+segment response continuity, Range/HEAD/416 parity, timeline availability,
+renewal and one encoder start. Its media backend is an offline fake. It does
+**not** certify decoded playback, real Ingress endpoint removal, a client buffer,
+PostgreSQL availability or physical node loss. Run the acceptance collector
+across each actual loss before release. Media reads do not wait for the coordination lease: a surviving server restores
+the original protocol authorization snapshot, checks the live viewer/grant/policy,
+and reads the healthy encoder under its exact execution generation. Read-only
+worker RPC credentials allow status, inspection and representations; start, stop,
+renewal and playback mutations still require the current coordinator epoch.
+Media restoration does not claim the public registry row.
+
+Coordination detection is bounded by the two-second lease, three clock-skew
+bounds, the one-second control tick and SQL/RPC latency. With a one-second
+pairwise clock bound this is at most six seconds plus I/O. Stop/progress requests
+wait and retry during election, bounded by that lease plus three skew bounds and
+four seconds of I/O headroom (or the client deadline). They never acknowledge
+a queued Stop before the coordinator executes it. Expiry transfers control only;
+a healthy execution retains its generation. Database or worker outages beyond
+these bounds can still return an error and retain responsibility.
+
+
+## Specialist roles and recovery boundaries
+
+The role presets are deployment-time responsibilities. Empty runtime roles mean
+`full`, including server, source, transcode, delivery and background duties;
+explicit role arrays compose only the selected responsibilities. Specialist
+roles require PostgreSQL. Change a pool's role by a reviewed deployment change
+and drain/replacement, not by copying identity files or changing a running node.
+
+| Helm pool | Responsibility | Public routing |
+| --- | --- | --- |
+| `pools.server` | Protocol admission, browse/control, session coordination and lease renewal; remote source/encoder adapters | API Service |
+| `pools.source` | Provider acquisition and exact-release byte-range serving | Private transport only |
+| `pools.transcode` | Worker-local input gateway, FFmpeg and segment output | Private transport only |
+| `pools.delivery` | Stateless representation forwarding through any available server to the SQL-fenced encoder | Media Service |
+| `pools.full` | All responsibilities, including background work | API and media Services |
+
+A four-specialist lab configuration is shown in
+[the values reference](kubernetes-values.md#four-specialist-pools). Use at least
+two eligible instances per role in separate failure domains and surviving
+PostgreSQL authority. Spare capacity must cover the failed execution. Replicas
+on separate Kubernetes nodes on one machine do not prove physical-host HA.
+
+Source loss is handled beneath FFmpeg by `internal/nodeinput`. The gateway
+retries an exact byte range through another eligible source, which reopens the
+same release and validates revision and size. Source route CAS advances an
+independent source generation, fencing old reads without restarting a healthy
+encoder. The current implementation permits at most three source moves per
+encoder generation and needs a persisted exact-source recovery descriptor;
+an arbitrary local source without that descriptor cannot be recovered remotely.
+
+Encoder loss advances the execution generation and resumes from the first
+segment beyond delivery's durably published contiguous prefix. Cached published
+segments remain serviceable under current authority. The replacement uses the
+same title-time segment grid, start number and output timestamp offset, with a
+forced IDR and closed GOP at each boundary on supported re-encode paths.
+Generation checks reject a stale encoder's publication; lease-renewal failure
+past the accepted monotonic deadline self-fences the worker. Displaced capacity
+stays charged until exact retirement proof. Node or pod status can accelerate
+failure detection but never substitutes for these authority checks.
+
+The private recovery buffer retains complete immutable segments even when their
+HTTP response carries `Cache-Control: no-cache`. Replay still validates current
+authority and preserves the original client-facing cache policy; `no-store`
+continues to forbid retention. Successfully retained contiguous segments advance
+the published floor, so recovery starts at the first segment beyond that floor.
+
+An authenticated replacement boot for the same transcode node ID triggers
+encoder recovery immediately, without waiting for the transport-failure grace.
+The coordinator serializes this decision with ordinary dead-boot retirement.
+For a recoverable active session, only the supersession transaction seals the
+old operation gate and advances the generation; temporary lack of spare capacity
+retains that gate for retry. Dead-boot reconciliation then frees the displaced
+old generation's claims. Cancellation or an unsupported recovery plan can retire
+the current session after independent source retirement proof. Missing local
+coordinator memory alone never proves that the viewer abandoned playback.
+
+The current coordinator auto-recovery gate accepts MPEG-TS video transcode with
+copied audio, zero initial offset, no live input, no soft-subtitle stream and no
+pre-existing `RecoveryStart`; video-copy and re-encoded audio are refused here.
+Local splice proofs for other formats do not broaden this distributed gate.
+Any change to that gate must be reflected here after integration and validation.
+Controller takeover and stateless delivery behavior are described above; neither
+moves a healthy encoder merely because a public replica disappears.
+
+Membership `last_seen` writes and age calculations both use PostgreSQL's clock,
+so a node wall-clock step cannot manufacture membership freshness. Membership
+liveness remains distinct from lease authority and confirmed process retirement.
+Host NTP is mandatory even with DB-clock membership and continuous skew checks.
+Clock checks derive wall and monotonic readings from one observation. In-bound
+corrections are logged without quarantine; measured skew plus uncertainty must
+remain inside each node's half of the configured pairwise bound. Clock quarantine
+blocks new authority and lease extension, while a healthy running encoder remains
+observable under its accepted lease. Recovery probes check exact membership and
+encoder status, independently of eligibility for new work. Recovery decision logs
+name the detector, probe duration/deadline, and failure grace.
+
+
+## Known limits and release gates
+
+These limits remain open until their explicit acceptance evidence is recorded.
+Use the bundled FFmpeg (pinned 8.1.3); stock 8.0.x has known fMP4 copy-path test
+failures that also reproduce on the release baseline.
+
+- Re-encoded-audio restart timing and multi-rendition quality switches require
+  the AC3 5.1 to AAC kill matrix (TS and fMP4, boundaries 1–8) and adaptive rapid
+  handoff proof on both pinned and stock builds.
+- FastStart has a pre-existing ramp-to-steady clock jump of about 45 ms and one
+  duplicated AAC frame. Uninterrupted and boundary 0–8 kill proofs, with no TTFF
+  regression, are required before claiming seamless FastStart recovery.
+- Cluster Resume refuses video-copy. Ordinary copy seeks retain their behavior.
+- Hardware restart reorder depth is unmeasured. Keep current hardware encoder
+  arguments until NVENC and other supported devices have their own splice proof.
+- Native NVENC distributed playback, five minutes of clean media and native-node
+  kill to CPU recovery require measured harness evidence. Hardware probing alone
+  does not close this gate.
+- Physical multi-host loss requires a separate host-pause report. A lab memory
+  guard abort or an unperformed fault is pending infrastructure evidence.
+- Normal Stop across replicas requires repeated-session capacity accounting and
+  dead-boot claim retirement confirmation; a Stop HTTP 200 alone is insufficient.
+- The complete role-loss matrix remains required for release. Local Plex and
+  Jellyfin baselines, offline failover tests and negative controls are supporting
+  evidence, not role-loss passes. The mixed-role chart lab gate remains enabled.
+
+See [the acceptance guide](kubernetes-acceptance.md) for exact verdict rules,
+multihost scripts and the evidence index contract. Live reports belong in private
+thread storage, not in this repository.

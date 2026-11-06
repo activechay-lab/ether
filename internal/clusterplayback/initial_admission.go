@@ -8,7 +8,8 @@ import (
 // initialAdmission is private historical admission state, not an
 // output observation or execution permission. Route binds the actual reserved
 // full fence and authenticated source owner/PlayID/revision. It carries the
-// owning controller identity; there is no separate delivery identity in Route.
+// original execution controller identity; current coordination is resolved
+// separately through CurrentCoordinator.
 // The initial request remains unchanged by backend/live observations. No raw
 // input URL, headers, source grant or input-lifetime actor is retained here.
 type initialAdmission struct {
@@ -26,6 +27,10 @@ type initialAdmission struct {
 // The caller owns q during this copy. A detached request is not synchronization
 // for a caller concurrently modifying its input while the copy itself runs.
 func cloneAdmissionRequest(q core.HLSRequest) core.HLSRequest {
+	if q.Resume != nil {
+		resume := *q.Resume
+		q.Resume = &resume
+	}
 	q.Info = core.CloneMediaInfo(q.Info)
 	q.Decision.AudioFilters = cloneAdmissionStrings(q.Decision.AudioFilters)
 	q.SlateText = cloneAdmissionStrings(q.SlateText)

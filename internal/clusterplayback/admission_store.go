@@ -76,7 +76,7 @@ func (r *Runtime) readAdmission(ctx context.Context, route Route) (admissionReco
 // operation, authenticated source binding or retained Start hash.
 func (r *Runtime) persistAdmission(ctx context.Context, x *execution, id remotetranscode.Identity, hash [32]byte) error {
 	r.mu.Lock()
-	if r.closed || x.stopping || r.executions[x.route.Fence.Session] != x || x.initial == nil || x.initial.route != x.route || id != remoteIdentity(x.route) {
+	if r.closed || x.stopping || !r.ownsExecutionLocked(x) || x.initial == nil || x.initial.route != x.route || id != remoteIdentity(x.route) {
 		r.mu.Unlock()
 		return ErrPending
 	}
@@ -121,7 +121,7 @@ func (r *Runtime) persistAdmission(ctx context.Context, x *execution, id remotet
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.closed || x.stopping || r.executions[a.Route.Fence.Session] != x || x.initial == nil || x.initial.route != a.Route {
+	if r.closed || x.stopping || !r.ownsExecutionLocked(x) || x.initial == nil || x.initial.route != a.Route {
 		return ErrPending
 	}
 	x.initial.commitmentIdentity, x.initial.commitment, x.initial.hasCommitment = id, hash, true
@@ -262,4 +262,25 @@ func (r *Runtime) recoveryAdmissionPolicy(ctx context.Context, peer nodewire.Ide
 		return sourceResponse{}, ErrDenied
 	}
 	return sourceResponse{}, nil
+}
+
+func (r *Runtime) ownsExecutionLocked(x *execution) bool {
+	owner := r.executions[x.route.Fence.Session]
+	return owner == x || owner != nil && owner.replacement == x && !owner.stopping
+}
+
+func (r *Runtime) generationRoute(ctx context.Context, id string, generation int64) (Route, error) {
+	var raw string
+	var a admissionRecord
+	err := r.o.DB.QueryRowContext(ctx, `SELECT admission FROM clusterplayback_admissions WHERE cluster=? AND session=? AND generation=?`, r.o.Self.Cluster, id, generation).Scan(&raw)
+	if err != nil {
+		return Route{}, err
+	}
+	if len(raw) > maxAdmissionBytes || json.Unmarshal([]byte(raw), &a) != nil || a.Route.Fence.Session != id || a.Route.Fence.Generation != generation {
+		return Route{}, ErrDenied
+	}
+	if _, err = a.encode(); err != nil {
+		return Route{}, err
+	}
+	return a.Route, nil
 }
