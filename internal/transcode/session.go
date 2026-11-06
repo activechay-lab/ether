@@ -60,7 +60,6 @@ func (s *Session) IndependentSegments() bool { return s.segmentsIndependent }
 
 // sessionInput owns one aspect of the session. Fields are guarded by Session.mu.
 type sessionInput struct {
-	fixedGrid              bool
 	softSubtitleStream     *int
 	softSubtitleInputIndex int
 	rtxConfig              config.RTXVideo

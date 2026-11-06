@@ -15,8 +15,6 @@ import (
 
 // runSpec is everything needed to build one ffmpeg HLS run.
 type runSpec struct {
-	// FixedGrid selects the explicitly coordinated recovery timeline.
-	FixedGrid bool
 	// Only a retry of an initial run whose muxer wrote a wrapped tfdt.
 	NormalizeNegativeDTS bool
 	SoftSubtitlePath     string
@@ -160,7 +158,7 @@ func buildArgs(s runSpec) []string {
 	}
 	if s.Decision.Container == ContainerMPEGTS {
 		var segmentOptions []string
-		if s.RTXTimeline || s.FixedGrid {
+		if s.RTXTimeline {
 			// Both HLS and its child TS muxer must preserve timestamps: the
 			// child otherwise shifts a zero-origin B-frame run to positive DTS.
 			args = append(args, "-muxdelay", "0", "-muxpreload", "0")
@@ -186,8 +184,8 @@ func buildArgs(s runSpec) []string {
 	// copied audio that far ahead so an HLS cut closes with audio reaching
 	// the video boundary. Otherwise restarting at that boundary drops the
 	// ~80ms of audio left in the next old fragment (at 24fps).
-	if (s.Decision.Container == ContainerFMP4 || s.FixedGrid) && !s.Decision.VideoCopy && s.Decision.AudioCopy {
-		if v := s.Info.Video(); v != nil && v.FrameRate >= 1 && (!v.VariableFrameRate || s.FixedGrid) {
+	if s.Decision.Container == ContainerFMP4 && !s.Decision.VideoCopy && s.Decision.AudioCopy {
+		if v := s.Info.Video(); v != nil && v.FrameRate >= 1 && !v.VariableFrameRate {
 			if encoder, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features); encoder == "libx264" {
 				args = append(args, "-audio_preload", strconv.FormatInt(int64(math.Ceil(2_000_000/v.FrameRate)), 10))
 			}
@@ -409,9 +407,6 @@ func buildCodecArgs(s runSpec) []string {
 			}
 		} else {
 			args = append(args, vp.encodeArgs...)
-			if s.FixedGrid {
-				args = append(args, "-flags", "+cgop", "-sc_threshold", "0")
-			}
 			args = append(args, videotoolboxCaptionArgs(v, vp.encodeArgs)...)
 			if d.Container == ContainerMatroska || s.InBandHeaders {
 				// Encoders emit Annex B with the global header as extradata;

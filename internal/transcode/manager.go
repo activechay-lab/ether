@@ -834,7 +834,6 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		log:                     m.log.With("session", id, "initialRelease", req.ReleaseID),
 		created:                 time.Now(),
 		sessionInput: sessionInput{
-			fixedGrid:          req.Resume != nil,
 			softSubtitleStream: softSubtitleStream,
 			rtxTimeline:        enhancementSelected(d),
 			rtxConfig:          rtxConfig,

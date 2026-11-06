@@ -233,7 +233,6 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 	}
 	s.seekRampSeg = -1
 	spec := runSpec{
-		FixedGrid:            s.fixedGrid,
 		NormalizeNegativeDTS: s.normalizeNegativeDTS,
 		RTXTimeline:          s.rtxTimeline,
 		AudioGainDB:          s.audioMatch.gain,
