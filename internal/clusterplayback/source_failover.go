@@ -153,6 +153,7 @@ func (r *Runtime) sourceFailover(ctx context.Context, peer nodewire.Identity, m 
 			if e = tx.Commit(); e != nil {
 				return sourceResponse{}, ErrPending
 			}
+			r.routeChanged(ctx, next.Fence.Session)
 			rt = next
 			moved = true
 			break

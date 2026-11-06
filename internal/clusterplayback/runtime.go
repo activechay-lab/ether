@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodeauthority"
@@ -25,6 +26,7 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
+	Bus                 clusterbus.Bus
 	EncoderSegmentWait  time.Duration
 	EncoderRPCDeadline  time.Duration
 	EncoderFailureGrace time.Duration
@@ -146,7 +148,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 			return nil, e
 		}
 		r.authority = a
-		h, e := nodesource.NewHandler(nodesource.Options{Authority: trackedAuthority{r: r}, Peer: o.Guard.SourcePeer, Acquire: r.acquireSource, Now: time.Now, MaxRequests: o.Capacity, MaxLifetime: 10 * time.Minute, Revalidate: time.Second})
+		h, e := nodesource.NewHandler(nodesource.Options{WatchAuthority: r.watchAuthority, Authority: trackedAuthority{r: r}, Peer: o.Guard.SourcePeer, Acquire: r.acquireSource, Now: time.Now, MaxRequests: o.Capacity, MaxLifetime: 10 * time.Minute, Revalidate: time.Second})
 		if e != nil {
 			return nil, e
 		}
@@ -156,7 +158,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 
 	}
 	if o.Encoder != nil {
-		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Capabilities: o.WorkerCapabilities, Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: o.Guard.RemoteAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
+		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{WatchAuthority: r.watchAuthority, Capabilities: o.WorkerCapabilities, Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: o.Guard.RemoteAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
 		if e != nil {
 			return nil, e
 		}
