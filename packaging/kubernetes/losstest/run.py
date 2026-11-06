@@ -164,6 +164,7 @@ def run(c, out):
                     (out/'fault-dispatch.json').write_text(json.dumps({
                         'session': session, 'dispatchedAt': report['killAt'],
                         'role': role, 'action': action,
+                        'target': target, 'targetSelection': report.get('targetSelection'),
                         'lastClientIndex': report['lastPreLossIndex']})+'\n')
                     if action == 'force-delete':
                         options = {'apiVersion':'v1', 'kind':'DeleteOptions', 'gracePeriodSeconds':0,
