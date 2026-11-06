@@ -87,46 +87,86 @@ export function blankStyle(): Style {
     channelIds: [],
   };
 }
+const DECADES = ["retro", "grunge", "aqua", "flat"];
+/** Which styles or templates the gallery shows; the lineup panel and gallery share it. */
+export function styleFilter(params: URLSearchParams, owned: number) {
+  const view = params.get("view") ?? (owned ? "yours" : "make");
+  return { view, show: params.get("show") ?? "all" };
+}
 export function LooksAside({
   looks,
-  query,
-  onSelect,
 }: {
   looks: Style[];
   reels: Reel[];
   query: string;
   onSelect(kind: string, id: string): void;
 }) {
-  const slots = useSlots();
+  const templates = useTemplates();
+  const [params, setParams] = useSearchParams();
+  const { view, show } = styleFilter(params, looks.length);
+  const onAir = looks.filter((l) => (l.channelCount ?? l.channelIds.length) > 0).length;
+  const decades = templates.filter((x) => DECADES.includes(x.id)).length;
+  const groups: { label: string; rows: [string, string, string, number][] }[] = [
+    {
+      label: t("Your styles"),
+      rows: [
+        ["yours", "all", t("All styles"), looks.length],
+        ["yours", "onair", t("On air"), onAir],
+        ["yours", "unused", t("Not on air"), looks.length - onAir],
+      ],
+    },
+    {
+      label: t("Make it yours"),
+      rows: [
+        ["make", "all", t("All templates"), templates.length],
+        ["make", "decades", t("Decades"), decades],
+        ["make", "timeless", t("Timeless"), templates.length - decades],
+      ],
+    },
+  ];
   return (
-    <div className="space-y-3 p-3">
-      {looks
-        .filter((l) => l.name.toLowerCase().includes(query.toLowerCase()))
-        .map((l) => (
-          <button
-            key={l.id}
-            className="w-full rounded-lg border border-border p-2 text-left"
-            onClick={() => onSelect("look", l.id)}
-          >
-            <StyleThumbnail style={l} slots={slots} />
-            <p className="truncate text-sm">{l.name}</p>
-            <p className="text-xs text-fg-muted">
-              {tn(
-                l.channelCount ?? l.channelIds.length,
-                "Used by {count} channel",
-                "Used by {count} channels",
-              )}
-            </p>
-          </button>
-        ))}
-    </div>
+    <nav aria-label={t("Styles")} className="space-y-4 p-3">
+      {groups.map((group) => (
+        <div key={group.label} className="space-y-1">
+          <p className="px-3 text-xs font-medium uppercase tracking-wide text-fg-subtle">
+            {group.label}
+          </p>
+          {group.rows.map(([v, k, label, count]) => (
+            <button
+              key={v + k}
+              type="button"
+              aria-current={view === v && show === k ? "page" : undefined}
+              onClick={() =>
+                setParams((p) => {
+                  p.set("view", v);
+                  if (k === "all") p.delete("show");
+                  else p.set("show", k);
+                  return p;
+                })
+              }
+              className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                view === v && show === k
+                  ? "bg-primary-subtle text-primary"
+                  : "text-fg-muted hover:bg-surface-hover hover:text-fg"
+              }`}
+            >
+              <span className="flex-1">{label}</span>
+              <span className="text-xs tabular-nums">{count}</span>
+            </button>
+          ))}
+        </div>
+      ))}
+    </nav>
   );
 }
 export function LooksGallery({
   looks,
   onSelect,
+  query = "",
 }: {
   looks: Style[];
+  /** The lineup panel's search text. */
+  query?: string;
   onNew(): void;
   onSelect(id: string): void;
 }) {
@@ -145,7 +185,8 @@ export function LooksGallery({
   const [params, setParams] = useSearchParams();
   const owned = looks.filter((l) => !deleted.includes(l.id));
   // Owners with styles land on their styles; a fresh install lands on templates.
-  const view = params.get("view") ?? (owned.length ? "yours" : "make");
+  const { view, show } = styleFilter(params, owned.length);
+  const matches = (name: string) => name.toLowerCase().includes(query.trim().toLowerCase());
   const create = async (style: Style) => {
     setWorking(true);
     setError("");
@@ -188,6 +229,7 @@ export function LooksGallery({
           onSelect={(next) =>
             setParams((p) => {
               p.set("view", next);
+              p.delete("show");
               return p;
             })
           }
@@ -232,14 +274,18 @@ export function LooksGallery({
           ) : null}
           <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {looks
-              .filter((l) => !deleted.includes(l.id))
+              .filter((l) => !deleted.includes(l.id) && matches(l.name))
+              .filter((l) => {
+                const used = (l.channelCount ?? l.channelIds.length) > 0;
+                return show === "onair" ? used : show === "unused" ? !used : true;
+              })
               .map((l) => (
                 <article
                   key={l.id}
                   className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm"
                 >
                   <button className="block w-full text-left" onClick={() => onSelect(l.id)}>
-                    <StyleThumbnail style={l} slots={slots} />
+                    <StyleThumbnail style={l} slots={{ ...slots, "channel.name": l.name }} />
                   </button>
                   <div className="space-y-3 p-4">
                     <div className="flex items-start justify-between gap-4">
@@ -350,50 +396,62 @@ export function LooksGallery({
             }}
           />
           <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-            {templates.map((template) => (
-              <article
-                key={template.id}
-                className="group overflow-hidden rounded-2xl border border-border bg-surface"
-              >
-                <div className="relative">
-                  <StyleThumbnail style={template.style} slots={slots} />
-                  <span className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
-                    <Play size={12} />
-                    {t("Hover to play")}
-                  </span>
-                </div>
-                <div className="space-y-4 p-5">
-                  <div className="flex flex-wrap gap-2">
-                    {templateTags(template.id, template.tags).map((tag) => (
-                      <Badge key={tag}>{t(tag)}</Badge>
-                    ))}
+            {templates
+              .filter((x) => matches(x.name))
+              .filter((x) =>
+                show === "decades"
+                  ? DECADES.includes(x.id)
+                  : show === "timeless"
+                    ? !DECADES.includes(x.id)
+                    : true,
+              )
+              .map((template) => (
+                <article
+                  key={template.id}
+                  className="group overflow-hidden rounded-2xl border border-border bg-surface"
+                >
+                  <div className="relative">
+                    <StyleThumbnail
+                      style={template.style}
+                      slots={{ ...slots, "channel.name": template.name }}
+                    />
+                    <span className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
+                      <Play size={12} />
+                      {t("Hover to play")}
+                    </span>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-semibold">{template.name}</h3>
-                    <p className="mt-2 min-h-12 text-sm leading-relaxed text-fg-muted">
-                      {templateBlurb(template.id, template.blurb)}
-                    </p>
+                  <div className="space-y-4 p-5">
+                    <div className="flex flex-wrap gap-2">
+                      {templateTags(template.id, template.tags).map((tag) => (
+                        <Badge key={tag}>{t(tag)}</Badge>
+                      ))}
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold">{template.name}</h3>
+                      <p className="mt-2 min-h-12 text-sm leading-relaxed text-fg-muted">
+                        {templateBlurb(template.id, template.blurb)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-between"
+                      disabled={working}
+                      onClick={() =>
+                        void create({
+                          ...template.style,
+                          brand: {
+                            ...template.style.brand,
+                            tagline: template.style.brand.tagline || templateTagline(template.id),
+                          },
+                        })
+                      }
+                    >
+                      {t("Use template")}
+                      <ArrowUpRight size={16} />
+                    </Button>
                   </div>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-between"
-                    disabled={working}
-                    onClick={() =>
-                      void create({
-                        ...template.style,
-                        brand: {
-                          ...template.style.brand,
-                          tagline: template.style.brand.tagline || templateTagline(template.id),
-                        },
-                      })
-                    }
-                  >
-                    {t("Use template")}
-                    <ArrowUpRight size={16} />
-                  </Button>
-                </div>
-              </article>
-            ))}
+                </article>
+              ))}
           </div>
         </section>
       )}

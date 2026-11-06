@@ -57,7 +57,8 @@ func familyLook(id, name string) Look {
 			case string:
 				x = strings.ReplaceAll(x, "{type.mono}", "{type.body}")
 				for k, t := range b.Tokens {
-					if strings.HasPrefix(k, "words.") || k == "moon" || k == "fog" {
+					// The tagline stays a live token bound to brand.tagline.
+					if (strings.HasPrefix(k, "words.") && k != "words.tagline") || k == "moon" || k == "fog" {
 						x = strings.ReplaceAll(x, "{"+k+"}", fmt.Sprint(t))
 					}
 				}
