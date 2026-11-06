@@ -80,6 +80,10 @@ func (a *App) extensionHandlers() map[string]http.Handler {
 	m["cluster"] = a.clusterHandler()
 	if a.resolver != nil {
 		ua := "Ether/" + a.opts.Version + " (+https://github.com/braedonsaunders/ether)"
+		var syncQuality func(ctx context.Context) (resolver.QualitySyncReport, error)
+		if a.qualitySync != nil {
+			syncQuality = a.qualitySync.Sync
+		}
 		m["releases"] = a.resolver.ConsoleHandler(resolver.ConsoleDeps{
 			Catalog: a.catalog,
 			Invalidate: func(key core.RatingKey) {
@@ -92,6 +96,7 @@ func (a *App) extensionHandlers() map[string]http.Handler {
 			Guides:      resolver.NewTrashGuides(resolver.TrashOptions{UserAgent: ua}),
 			Dictionarry: resolver.NewDictionarry(resolver.DictionarryOptions{UserAgent: ua}),
 			SaveConfig:  a.saveValidated,
+			SyncQuality: syncQuality,
 		})
 	}
 

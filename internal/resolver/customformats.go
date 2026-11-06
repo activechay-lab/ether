@@ -300,6 +300,7 @@ func (s *FormatScorer) ScoreForTitle(r core.Release, overrides map[string]int, o
 		if !ok {
 			continue
 		}
+		// Sparse owner maps inherit global scores for formats they do not override.
 		score := f.def.Scores["default"]
 		if v, ok := s.scores[f.def.ID]; ok {
 			score = v

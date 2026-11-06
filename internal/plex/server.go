@@ -131,7 +131,7 @@ type Deps struct {
 	// ApplyClientRules adjusts caps for the owner's quality rules. Nil leaves
 	// the request caps unchanged. The app wires resolver.ApplyClientRules so
 	// this package stays outside the resolver.
-	ApplyClientRules func(config.Quality, core.ClientCaps, *core.User) core.ClientCaps
+	ApplyClientRules func(config.Quality, core.ClientCaps, *core.User, string) core.ClientCaps
 	// Config returns the current settings snapshot.
 	Config func() config.Config
 	// OwnerSubscription returns the current entitlement snapshot from plex.tv.

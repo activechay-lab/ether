@@ -232,6 +232,48 @@ type Resolution struct {
 	ResolvedAt      time.Time `json:"resolvedAt"`
 }
 
+// Media scopes a quality profile or rule. The empty string applies to both
+// movies and shows, preserving profiles saved before the split.
+const (
+	MediaAny   = ""
+	MediaMovie = "movie"
+	MediaTV    = "tv"
+)
+
+// MediaApplies reports whether a scope (a profile or rule's MediaType)
+// applies when choosing for media. An empty media means the caller has no
+// title context and accepts any scope.
+func MediaApplies(scope, media string) bool {
+	if media == MediaAny {
+		return true
+	}
+	return scope == MediaAny || scope == media
+}
+
+// MediaTypeForApp maps a Starr app to the media its profiles describe.
+func MediaTypeForApp(app string) string {
+	switch strings.ToLower(strings.TrimSpace(app)) {
+	case "radarr":
+		return MediaMovie
+	case "sonarr":
+		return MediaTV
+	}
+	return MediaAny
+}
+
+// ProfileImport records where a synced quality profile came from. Manual
+// profiles leave it nil; a profile with Import set is updated in place by
+// the guide sync instead of being duplicated.
+type ProfileImport struct {
+	Source   string    `json:"source"`             // "trash" or "dictionarry"
+	App      string    `json:"app"`                // "radarr" or "sonarr"
+	Profile  string    `json:"profile"`            // source profile id/slug
+	TrashID  string    `json:"trashId,omitempty"`  // source trash_id
+	ScoreSet string    `json:"scoreSet,omitempty"` // TRaSH score set
+	Groups   []string  `json:"groups,omitempty"`   // selected cf-group trash IDs
+	SyncedAt time.Time `json:"syncedAt,omitempty"`
+}
+
 // QualityProfile is an owner-editable rule set ranking releases for a class
 // of client.
 type QualityProfile struct {
@@ -242,7 +284,9 @@ type QualityProfile struct {
 	CustomFormatScores   map[string]int             `json:"customFormatScores,omitempty"`
 	MinCustomFormatScore *int                       `json:"minCustomFormatScore,omitempty"`
 	Name                 string                     `json:"name"`
-	MaxHeight            int                        `json:"maxHeight"` // cap, e.g. 1080
+	MediaType            string                     `json:"mediaType,omitempty"` // "", "movie" or "tv"; "" applies to both
+	Import               *ProfileImport             `json:"import,omitempty"`    // set on imported, syncable profiles
+	MaxHeight            int                        `json:"maxHeight"`           // cap, e.g. 1080
 	// ConfiguredMaxHeight is MaxHeight as the owner configured it,
 	// before download reshaping or a client's caps clamped the
 	// effective MaxHeight. -1 means the owner set no ceiling ("Any");
@@ -375,6 +419,9 @@ func (p QualityProfile) SizeBoundsFor(t *Title) (minMBPerMin, maxMBPerMin float6
 // never enter it.
 func (p QualityProfile) ComputeSelectionKey() string {
 	p.SelectionKey = ""
+	// Provenance is not part of the ranking definition: a sync updating
+	// SyncedAt must not change the key that keys resumes and warm entries.
+	p.Import = nil
 	eff := p.EffectiveRanking()
 	if slices.Equal(eff, DefaultRanking(p.ReleaseRules)) {
 		p.Ranking = nil

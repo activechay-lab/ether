@@ -641,7 +641,7 @@ func TestWarmCachesKeyframes(t *testing.T) {
 	// profile's size floor so warm-acceptance checks the other rules.
 	profile := config.DefaultQuality().Profiles[1]
 	profile.MinSizeMBPerMin = 0
-	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User) core.QualityProfile { return profile }
+	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User, string) core.QualityProfile { return profile }
 	caps := defaultCaps("c1")
 	if !h.m.Prewarm(context.Background(), owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("warm skipped")

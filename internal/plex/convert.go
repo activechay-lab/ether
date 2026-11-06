@@ -549,14 +549,14 @@ func (s *Server) mediaInfoWithSource(ctx context.Context, pr *Request, t *core.T
 			return info, nil, true
 		}
 		if wp, ok := s.d.Playback.(core.WarmProber); ok {
-			caps := s.clientCaps(pr)
+			caps := s.clientCapsForKey(pr, t.Key)
 			if info, warm := wp.WarmProbeInfo(pr.User, caps, t.Key); warm {
 				return info, nil, true
 			}
 		}
 	}
 	info, ps := sessions.Estimate(ctx, s.d.Playback, pr.User, pr.ClientID, t, func() core.ClientCaps {
-		return s.clientCaps(pr)
+		return s.clientCapsForKey(pr, t.Key)
 	})
 	return info, ps, false
 }
@@ -584,7 +584,7 @@ func (s *Server) resumedTracks(ctx context.Context, pr *Request, t *core.Title) 
 	if !ok {
 		return core.MediaInfo{}, "", false
 	}
-	info, releaseID, ok := src.ResumedTracks(ctx, pr.User, t.Key, s.clientCaps(pr))
+	info, releaseID, ok := src.ResumedTracks(ctx, pr.User, t.Key, s.clientCapsForKey(pr, t.Key))
 	if !ok || releaseID == "" || info.Estimated || len(info.Streams) == 0 || info.Video() == nil {
 		return core.MediaInfo{}, "", false
 	}

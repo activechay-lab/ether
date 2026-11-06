@@ -376,7 +376,7 @@ func (s *Server) parsePlayRequest(r *http.Request) (playRequest, error) {
 	if key == 0 || !isPlayableKey(key) {
 		return playRequest{}, fmt.Errorf("no playable item in request")
 	}
-	caps := s.clientCaps(pr)
+	caps := s.clientCapsForKey(pr, key)
 	if s.dvBaseOnly(pr, key) {
 		caps.DolbyVisionBaseOnly = true // this start stalled in Dolby Vision
 	}
@@ -1836,7 +1836,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 			s.writeErr(w, r, err)
 			return
 		}
-		caps := s.clientCaps(pr)
+		caps := s.clientCapsForKey(pr, key)
 		ps, err = s.prepareForRelease(ctx, pr.User, key, caps, releaseID)
 		if err != nil {
 			s.log.Info("direct play failed", "key", key, "reason", playbackMessage(err), "err", err)

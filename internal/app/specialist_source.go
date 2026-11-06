@@ -65,8 +65,8 @@ func (a *App) buildSourceRole(ctx context.Context, cfg config.Config) error {
 			return transcode.ProbeTrailer(ctx, src, src.Size(), info)
 		},
 		FetchNZB: playbackFetchNZB(a, a.opts.DataDir),
-		SelectProfile: func(caps core.ClientCaps, u *core.User) core.QualityProfile {
-			return resolver.SelectProfile(a.cfg.Read().Quality, caps, u)
+		SelectProfile: func(caps core.ClientCaps, u *core.User, media string) core.QualityProfile {
+			return resolver.SelectProfileForMedia(a.cfg.Read().Quality, caps, u, media)
 		},
 	}, cfg, playback.Options{IdleTimeout: specialistPlaybackIdleTimeout, DataDir: a.opts.DataDir, PayloadReplayGrace: 5 * time.Second})
 	if err != nil {

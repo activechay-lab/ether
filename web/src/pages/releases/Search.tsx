@@ -18,14 +18,18 @@ import { Field } from "../../components/fields";
 import { Section } from "../../components/layout";
 import { TitleSearch } from "../../components/pickers";
 import { t, tn, tx } from "../../i18n";
-import { errorMessage } from "../../lib/api";
+import { api, errorMessage } from "../../lib/api";
 import type { TitleCard } from "../../lib/contract";
 import { formatBytes, formatNanos, relativeTime } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
 import {
+  MEDIA_MOVIE,
+  MEDIA_TV,
   PROFILE_DOWNLOAD,
   PROFILE_NONE,
   ageDays,
+  mediaApplies,
+  mediaLabel,
   qualityLabel,
   rangeLabel,
   releaseConsole,
@@ -41,7 +45,11 @@ import { PinStatusBadge } from "./Pinned";
 const pad = (n: number | undefined) => String(n ?? 0).padStart(2, "0");
 
 /** Pick a movie, or a show then a season then an episode. */
-export function TitlePicker({ onPick }: { onPick: (key: string, name: string) => void }) {
+export function TitlePicker({
+  onPick,
+}: {
+  onPick: (key: string, name: string, media?: "movie" | "tv") => void;
+}) {
   const id = useId();
   const [show, setShow] = useState<TitleCard | null>(null);
   const [season, setSeason] = useState("");
@@ -67,7 +75,7 @@ export function TitlePicker({ onPick }: { onPick: (key: string, name: string) =>
             return;
           }
           setShow(null);
-          onPick(title.key, title.year ? `${title.title} (${title.year})` : title.title);
+          onPick(title.key, title.year ? `${title.title} (${title.year})` : title.title, "movie");
         }}
       />
       {show ? (
@@ -101,6 +109,7 @@ export function TitlePicker({ onPick }: { onPick: (key: string, name: string) =>
                   onPick(
                     ep.key,
                     `${show.title} S${pad(ep.season)}E${pad(ep.episode)}${ep.title ? ` · ${ep.title}` : ""}`,
+                    "tv",
                   );
               }}
             >
@@ -182,8 +191,17 @@ export function ReleaseSearch({ onPinsChanged }: { onPinsChanged?: () => void })
   const [params, setParams] = useSearchParams();
   const key = params.get("key") ?? "";
   const titleName = params.get("title") ?? "";
+  const kind = params.get("media");
+  const media = kind === MEDIA_MOVIE || kind === MEDIA_TV ? kind : "";
   const [profile, setProfile] = useState("");
-  const profiles = useAsync(() => releaseConsole.profiles(), []);
+  const profiles = useAsync(() => releaseConsole.profiles(media || undefined), [media]);
+  const config = useAsync(() => api.getConfig(), []);
+  const profileMedia = new Map(
+    (config.data?.quality.profiles ?? []).map((p) => [p.name, p.mediaType]),
+  );
+  const listed = (profiles.data?.profiles ?? []).filter((name) =>
+    mediaApplies(profileMedia.get(name), media || undefined),
+  );
   const result = useAsync<ConsoleSearch | null>(
     (signal) => (key ? releaseConsole.search(key, { profile }, signal) : Promise.resolve(null)),
     [key, profile],
@@ -301,7 +319,12 @@ export function ReleaseSearch({ onPinsChanged }: { onPinsChanged?: () => void })
           "Search the indexers for one movie or episode and see every release, scored and judged exactly as playback would. Pin the one you want, or block a bad one.",
         )}
       >
-        <TitlePicker onPick={(k, n) => setParams({ key: k, title: n })} />
+        <TitlePicker
+          onPick={(k, n, picked) => {
+            setProfile("");
+            setParams({ key: k, title: n, ...(picked ? { media: picked } : {}) });
+          }}
+        />
         <div className="flex flex-wrap items-end gap-3">
           <Field label={t("Quality profile")} htmlFor={`${id}-profile`} className="w-64">
             <Select
@@ -313,9 +336,9 @@ export function ReleaseSearch({ onPinsChanged }: { onPinsChanged?: () => void })
               <option value="">
                 {def ? t("Default ({profile})", { profile: def }) : t("Default")}
               </option>
-              {(profiles.data?.profiles ?? []).map((p) => (
+              {listed.map((p) => (
                 <option key={p} value={p}>
-                  {p}
+                  {media ? p : `${p} · ${mediaLabel(profileMedia.get(p))}`}
                 </option>
               ))}
               <option value={PROFILE_NONE}>{t("No profile limits")}</option>
