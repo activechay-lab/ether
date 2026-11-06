@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileQuery, parseNatural, readQuery } from "./catalogQuery";
+import { compileQuery, readQuery } from "./catalogQuery";
 
 describe("catalogue query language", () => {
   it("preserves the whole selected insertion day independently of air date", () => {
@@ -22,32 +22,6 @@ describe("catalogue query language", () => {
     });
     expect(JSON.stringify(query)).toContain('"dateAddedFrom":1767225600');
     expect(JSON.stringify(query)).toContain('"dateAddedTo":1767311999');
-  });
-  it("turns the owner example into inspectable predicates", () => {
-    const chips = parseNatural("80s comedies over 7 with Tom Hanks under 2h");
-    expect(chips).toEqual(
-      expect.arrayContaining([
-        { field: "decade", op: "is", value: "1980" },
-        { field: "genre", op: "is", value: "Comedy" },
-        { field: "rating", op: "min", value: "7" },
-        { field: "cast", op: "is", value: "Tom Hanks" },
-        { field: "runtime", op: "max", value: "120" },
-      ]),
-    );
-    expect(chips).toHaveLength(5);
-  });
-  it("understands the unwatched playable 4K persona without a model", () => {
-    const chips = parseNatural(
-      "find unwatched 90s thrillers under 2 hours rated above 7 that are playable in 4K",
-    );
-    expect(chips).toHaveLength(7);
-    expect(chips).toEqual(
-      expect.arrayContaining([
-        { field: "playable", op: "is", value: "yes" },
-        { field: "quality", op: "is", value: "4k" },
-      ]),
-    );
-    expect(chips.some((c) => c.field === "title")).toBe(false);
   });
   it("compiles nested groups and viewer context without applying metadata filters to state", () => {
     const query = compileQuery(
@@ -92,13 +66,6 @@ describe("catalogue query language", () => {
       { operator: "and", filter: { qualities: ["4k", "dv"] } },
     ]);
     expect(compileQuery({ mode: "or", chips }).group!.children).toHaveLength(2);
-  });
-  it("preserves unrecognised phrases rather than silently discarding them", () => {
-    expect(parseNatural("obscure moon film")).toContainEqual({
-      field: "title",
-      op: "is",
-      value: "obscure moon",
-    });
   });
   it("rejects corrupt or unbounded URL state", () => {
     expect(readQuery("invalid")).toEqual({ chips: [], mode: "and" });

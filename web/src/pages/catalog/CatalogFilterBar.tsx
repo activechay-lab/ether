@@ -1,21 +1,11 @@
 import { Button, Input } from "@braedonsaunders/appkit-ui";
-import { Plus, Search, Sparkles, Undo2, X, Bookmark, ChevronDown } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { Plus, Search, Sparkles, Undo2, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../../i18n";
-import { useNavigate } from "react-router-dom";
-import { newCollectionHref } from "../collections/links";
-import { collectionDraft } from "./catalogSavedView";
 import { catalogValueLabel } from "./catalogValueLabel";
 import { api, apiFetch } from "../../lib/api";
 import { useAsync, useDebouncedValue } from "../../lib/hooks";
-import {
-  compileQuery,
-  emptyQuery,
-  parseNatural,
-  readQuery,
-  type Chip,
-  type QueryState,
-} from "./catalogQuery";
+import { compileQuery, emptyQuery, readQuery, type Chip, type QueryState } from "./catalogQuery";
 
 type Field = {
   key: string;
@@ -133,11 +123,15 @@ export function CatalogFilterBar({
   onChange,
   viewers,
   collection = false,
+  leading,
+  actions,
 }: {
   params: URLSearchParams;
   onChange: (params: URLSearchParams) => void;
   viewers: { id: number; title?: string; username?: string }[];
   collection?: boolean;
+  leading?: ReactNode;
+  actions?: ReactNode;
 }) {
   const latestParams = useRef(params);
   useLayoutEffect(() => {
@@ -147,13 +141,6 @@ export function CatalogFilterBar({
     latestParams.current = next;
     onChange(next);
   };
-  const navigate = useNavigate();
-  const naturalRef = useRef<HTMLDetailsElement>(null);
-  const savedRef = useRef<HTMLDetailsElement>(null);
-  const closeMenus = () => {
-    if (naturalRef.current) naturalRef.current.open = false;
-    if (savedRef.current) savedRef.current.open = false;
-  };
   const raw = params.get("filters");
   const state = readQuery(raw);
   const [undo, setUndo] = useState<string | null>(null);
@@ -161,22 +148,58 @@ export function CatalogFilterBar({
   const [pickerSearch, setPickerSearch] = useState("");
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState<Chip>({ field: "genre", op: "is", value: "" });
-  const [natural, setNatural] = useState("");
-  const [saved, setSaved] = useState<{ name: string; query: string }[]>(() => {
-    try {
-      const value = JSON.parse(localStorage.getItem("ether.catalog.views") || "[]");
-      return Array.isArray(value)
-        ? value
-            .filter((v) => v && typeof v.name === "string" && typeof v.query === "string")
-            .slice(0, 30)
-        : [];
-    } catch {
-      return [];
-    }
-  });
   const [interpreting, setInterpreting] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [name, setName] = useState("");
+  const [aiError, setAiError] = useState(false);
+  const ai = useAsync(
+    (signal) => apiFetch<{ enabled: boolean }>("/catalog/interpret", { signal }),
+    [],
+  );
+  const pendingInterpret = useRef<AbortController | null>(null);
+  const lastInterpreted = useRef("");
+  const phrase = useDebouncedValue(params.get("q") || "", 750);
+  async function interpret(text: string) {
+    if (!ai.data?.enabled || !text.trim()) return;
+    pendingInterpret.current?.abort();
+    const controller = new AbortController();
+    pendingInterpret.current = controller;
+    lastInterpreted.current = text;
+    setInterpreting(true);
+    setAiError(false);
+    try {
+      const result = await apiFetch<{ chips: Chip[] }>("/catalog/interpret", {
+        method: "POST",
+        body: JSON.stringify({ text }),
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || latestParams.current.get("q") !== text) return;
+      const chips = readQuery(JSON.stringify({ mode: "and", chips: result.chips })).chips;
+      if (!chips.length) throw new Error("No usable filters");
+      const next = new URLSearchParams(latestParams.current);
+      setUndo(next.toString());
+      const current = readQuery(next.get("filters"));
+      next.set(
+        "filters",
+        JSON.stringify({ ...current, chips: [...current.chips, ...chips].slice(0, 32) }),
+      );
+      next.delete("q");
+      next.delete("page");
+      publish(next);
+    } catch {
+      if (!controller.signal.aborted) setAiError(true);
+    } finally {
+      if (pendingInterpret.current === controller) setInterpreting(false);
+    }
+  }
+  useEffect(() => {
+    if (
+      ai.data?.enabled &&
+      looksLikeCatalogRequest(phrase) &&
+      lastInterpreted.current !== phrase &&
+      latestParams.current.get("q") === phrase
+    )
+      void interpret(phrase);
+  }, [phrase, ai.data?.enabled]);
+  useEffect(() => () => pendingInterpret.current?.abort(), []);
   const definitions = fields();
   const field = definitions.find((f) => f.key === draft.field)!;
   const search = useDebouncedValue(draft.label || draft.value, 250);
@@ -250,7 +273,6 @@ export function CatalogFilterBar({
     publish(p);
   }
   function edit(index: number, chip?: Chip) {
-    closeMenus();
     setEditing(index);
     setDraft(chip || { field: "genre", op: "is", value: "" });
     setPicker(false);
@@ -268,7 +290,7 @@ export function CatalogFilterBar({
     Boolean(draft.value.trim()) &&
     (!(field.kind === "number") ||
       (Number.isFinite(Number(draft.value)) && Number(draft.value) >= 0));
-  const legacy = ["q", "genre", "decade", "waiting"].filter((k) => params.get(k));
+  const legacy = ["genre", "decade", "waiting"].filter((k) => params.get(k));
   const hasActivity = state.chips.some((c) =>
     ["watched", "progress", "rated", "watchlist"].includes(c.field),
   );
@@ -278,151 +300,79 @@ export function CatalogFilterBar({
       aria-label={t("Catalog filters")}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
-          closeMenus();
           setEditing(null);
           setPicker(false);
         }
       }}
     >
       <div className="catalog-query-search">
-        <Search size={17} aria-hidden />
-        <Input
-          aria-label={t("Find a title")}
-          placeholder={t("Search catalog…")}
-          value={params.get("q") || ""}
-          onChange={(e) => {
-            const p = new URLSearchParams(latestParams.current);
-            p.delete("page");
-            e.target.value ? p.set("q", e.target.value) : p.delete("q");
-            publish(p);
+        {leading}
+        <form
+          className="catalog-unified-search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const text = latestParams.current.get("q") || "";
+            if (ai.data?.enabled && looksLikeCatalogRequest(text)) void interpret(text);
           }}
-        />
-        <details ref={naturalRef} className="catalog-natural">
-          <summary>
-            <Sparkles size={14} />
-            {t("Describe what you want")}
-          </summary>
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              closeMenus();
-              setInterpreting(true);
-              let chips: Chip[];
-              try {
-                const result = await apiFetch<{ chips: Chip[] }>("/catalog/interpret", {
-                  method: "POST",
-                  body: JSON.stringify({ text: natural }),
-                });
-                chips = readQuery(JSON.stringify({ mode: "and", chips: result.chips })).chips;
-              } catch {
-                chips = parseNatural(natural);
-              } finally {
-                setInterpreting(false);
-              }
-              commit((current) => ({ ...current, chips: [...current.chips, ...chips] }));
-              setNatural("");
-            }}
-          >
-            <label htmlFor="catalog-natural">{t("Turn a description into editable filters")}</label>
-            <Input
-              id="catalog-natural"
-              value={natural}
-              onChange={(e) => setNatural(e.target.value)}
-              placeholder={t("80s comedies over 7 with Tom Hanks under 2h")}
-            />
-            <Button size="sm" disabled={!natural.trim() || interpreting}>
-              {t("Create filters")}
-            </Button>
-            <p>
-              {t("Review the chips before exploring. Unrecognized words become title searches.")}
-            </p>
-          </form>
-        </details>
-      </div>
-      <div className="catalog-query-chips">
-        {state.chips.length > 1 ? (
-          <select
-            aria-label={t("Match filters")}
-            value={state.mode}
-            onChange={(e) =>
-              commit((current) => ({ ...current, mode: e.target.value as "and" | "or" }))
+        >
+          <Search size={16} aria-hidden />
+          <Input
+            aria-label={t("Find a title")}
+            maxLength={1000}
+            placeholder={
+              ai.data?.enabled
+                ? t("Search titles or describe what you want…")
+                : t("Search catalog…")
             }
-          >
-            <option value="and">{t("Match all")}</option>
-            <option value="or">{t("Match any")}</option>
-          </select>
-        ) : null}
-        {state.chips.some((c) => c.group) ? (
-          <select
-            aria-label={t("Match within groups")}
-            value={state.groupMode || "and"}
-            onChange={(e) =>
-              commit((current) => ({ ...current, groupMode: e.target.value as "and" | "or" }))
-            }
-          >
-            <option value="and">{t("All in each group")}</option>
-            <option value="or">{t("Any in each group")}</option>
-          </select>
-        ) : null}
-        {state.chips.map((chip, index) => (
-          <div className="catalog-query-chip" key={index}>
-            <button
-              onClick={() => edit(index, chip)}
-              aria-label={t("Edit {filter} filter", {
-                filter: definitions.find((f) => f.key === chip.field)?.label || chip.field,
-              })}
-            >
-              {chip.group ? (
-                <span className="catalog-query-group">
-                  {t("Group")} {chip.group}
-                </span>
-              ) : null}
-              <span>{definitions.find((f) => f.key === chip.field)?.label || chip.field}</span>
-              <span className="catalog-query-op">
-                {chip.op === "min" ? "≥" : chip.op === "max" ? "≤" : "="}
-              </span>
-              <strong>{catalogValueLabel(chip.field, chip.label || chip.value)}</strong>
-            </button>
-            <button
-              aria-label={t("Remove {filter} filter", {
-                filter: catalogValueLabel(chip.field, chip.label || chip.value),
-              })}
-              onClick={() =>
-                commit((current) => ({
-                  ...current,
-                  chips: current.chips.filter((_, i) => i !== index),
-                }))
-              }
-            >
-              <X size={13} />
-            </button>
-          </div>
-        ))}
-        {legacy.map((key) => (
-          <button
-            key={key}
-            aria-label={t("Remove {filter} filter", {
-              filter: key === "waiting" ? t("Waiting for a release") : params.get(key) || "",
-            })}
-            className="catalog-query-chip"
-            onClick={() => {
-              setUndo(latestParams.current.toString());
+            value={params.get("q") || ""}
+            onChange={(e) => {
+              pendingInterpret.current?.abort();
+              setInterpreting(false);
+              setAiError(false);
               const p = new URLSearchParams(latestParams.current);
-              p.delete(key);
               p.delete("page");
+              e.target.value ? p.set("q", e.target.value) : p.delete("q");
               publish(p);
             }}
-          >
-            {key === "waiting" ? t("Waiting for a release") : params.get(key)}
-            <X size={13} />
-          </button>
-        ))}
+          />
+          {params.get("q") || "" ? (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label={t("Clear search")}
+              onClick={() => {
+                pendingInterpret.current?.abort();
+                setInterpreting(false);
+                setAiError(false);
+                setUndo(latestParams.current.toString());
+                const next = new URLSearchParams(latestParams.current);
+                next.delete("q");
+                next.delete("page");
+                publish(next);
+              }}
+            >
+              <X size={14} />
+            </Button>
+          ) : null}
+          {ai.data?.enabled ? (
+            <Button
+              size="icon"
+              type="button"
+              variant="ghost"
+              aria-label={t("Turn search into filters")}
+              disabled={interpreting || !(params.get("q") || "").trim()}
+              onClick={() => void interpret(latestParams.current.get("q") || "")}
+            >
+              <Sparkles size={15} className={interpreting ? "animate-pulse" : ""} />
+            </Button>
+          ) : null}
+        </form>
         {!collection ? (
           <Button
             size="sm"
             variant="outline"
             onClick={() => {
-              closeMenus();
               setPicker(!picker);
               setEditing(null);
             }}
@@ -432,108 +382,121 @@ export function CatalogFilterBar({
             {t("Filter")}
           </Button>
         ) : null}
-        {state.chips.length || legacy.length ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              setUndo(latestParams.current.toString());
-              const p = new URLSearchParams(latestParams.current);
-              ["filters", "q", "genre", "decade", "waiting", "page"].forEach((k) => p.delete(k));
-              publish(p);
-            }}
-          >
-            {t("Clear filters")}
-          </Button>
-        ) : null}
-        {undo !== null ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              publish(new URLSearchParams(undo));
-              setUndo(null);
-            }}
-          >
-            <Undo2 size={13} />
-            {t("Undo")}
-          </Button>
-        ) : null}
-        <div className="catalog-query-spacer" />
-        <details ref={savedRef} className="catalog-saved">
-          <summary>
-            <Bookmark size={13} />
-            {t("Saved views")}
-            <ChevronDown size={12} />
-          </summary>
-          <div>
-            {saved.map((view, index) => (
-              <div className="catalog-saved-row" key={index}>
-                <button
-                  onClick={() => {
-                    setUndo(latestParams.current.toString());
-                    publish(new URLSearchParams(view.query));
-                  }}
-                >
-                  {view.name}
-                </button>
-                {collectionDraft(view.name, new URLSearchParams(view.query)) ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      const spec = collectionDraft(view.name, new URLSearchParams(view.query));
-                      if (spec) navigate(newCollectionHref(), { state: { spec } });
-                    }}
-                  >
-                    {t("Create collection")}
-                  </Button>
-                ) : null}
-                <button
-                  aria-label={t("Delete {name}", { name: view.name })}
-                  onClick={() => {
-                    const next = saved.filter((_, i) => i !== index);
-                    setSaved(next);
-                    localStorage.setItem("ether.catalog.views", JSON.stringify(next));
-                  }}
-                >
-                  <X size={12} />
-                </button>
-              </div>
-            ))}
-            {saving ? (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const next = [
-                    ...saved.filter((v) => v.name !== name.trim()),
-                    { name: name.trim(), query: latestParams.current.toString() },
-                  ].slice(-30);
-                  setSaved(next);
-                  localStorage.setItem("ether.catalog.views", JSON.stringify(next));
-                  setSaving(false);
-                  setName("");
-                }}
-              >
-                <Input
-                  aria-label={t("View name")}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  autoFocus
-                />
-                <Button size="sm" disabled={!name.trim()}>
-                  {t("Save")}
-                </Button>
-              </form>
-            ) : (
-              <Button size="sm" variant="ghost" onClick={() => setSaving(true)}>
-                {t("Save current view")}
-              </Button>
-            )}
-            <p>{t("Saved on this browser. Copy the URL to share a view.")}</p>
-          </div>
-        </details>
+        {actions ? <div className="catalog-header-actions">{actions}</div> : null}
       </div>
+      {aiError ? (
+        <p className="catalog-ai-error" role="alert">
+          {t("Search could not be interpreted. Try again.")}
+        </p>
+      ) : null}
+      {state.chips.length || legacy.length || undo !== null ? (
+        <div className="catalog-query-chips">
+          {state.chips.length > 1 ? (
+            <select
+              aria-label={t("Match filters")}
+              value={state.mode}
+              onChange={(e) =>
+                commit((current) => ({ ...current, mode: e.target.value as "and" | "or" }))
+              }
+            >
+              <option value="and">{t("Match all")}</option>
+              <option value="or">{t("Match any")}</option>
+            </select>
+          ) : null}
+          {state.chips.some((c) => c.group) ? (
+            <select
+              aria-label={t("Match within groups")}
+              value={state.groupMode || "and"}
+              onChange={(e) =>
+                commit((current) => ({ ...current, groupMode: e.target.value as "and" | "or" }))
+              }
+            >
+              <option value="and">{t("All in each group")}</option>
+              <option value="or">{t("Any in each group")}</option>
+            </select>
+          ) : null}
+          {state.chips.map((chip, index) => (
+            <div className="catalog-query-chip" key={index}>
+              <button
+                onClick={() => edit(index, chip)}
+                aria-label={t("Edit {filter} filter", {
+                  filter: definitions.find((f) => f.key === chip.field)?.label || chip.field,
+                })}
+              >
+                {chip.group ? (
+                  <span className="catalog-query-group">
+                    {t("Group")} {chip.group}
+                  </span>
+                ) : null}
+                <span>{definitions.find((f) => f.key === chip.field)?.label || chip.field}</span>
+                <span className="catalog-query-op">
+                  {chip.op === "min" ? "≥" : chip.op === "max" ? "≤" : "="}
+                </span>
+                <strong>{catalogValueLabel(chip.field, chip.label || chip.value)}</strong>
+              </button>
+              <button
+                aria-label={t("Remove {filter} filter", {
+                  filter: catalogValueLabel(chip.field, chip.label || chip.value),
+                })}
+                onClick={() =>
+                  commit((current) => ({
+                    ...current,
+                    chips: current.chips.filter((_, i) => i !== index),
+                  }))
+                }
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ))}
+          {legacy.map((key) => (
+            <button
+              key={key}
+              aria-label={t("Remove {filter} filter", {
+                filter: key === "waiting" ? t("Waiting for a release") : params.get(key) || "",
+              })}
+              className="catalog-query-chip"
+              onClick={() => {
+                setUndo(latestParams.current.toString());
+                const p = new URLSearchParams(latestParams.current);
+                p.delete(key);
+                p.delete("page");
+                publish(p);
+              }}
+            >
+              {key === "waiting" ? t("Waiting for a release") : params.get(key)}
+              <X size={13} />
+            </button>
+          ))}
+          {state.chips.length || legacy.length ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setUndo(latestParams.current.toString());
+                const p = new URLSearchParams(latestParams.current);
+                ["filters", "q", "genre", "decade", "waiting", "page"].forEach((k) => p.delete(k));
+                publish(p);
+              }}
+            >
+              {t("Clear filters")}
+            </Button>
+          ) : null}
+          {undo !== null ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                publish(new URLSearchParams(undo));
+                setUndo(null);
+              }}
+            >
+              <Undo2 size={13} />
+              {t("Undo")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       {picker ? (
         <div className="catalog-filter-picker">
           <Input
@@ -710,10 +673,21 @@ export function CatalogFilterBar({
           </select>
         </label>
       ) : null}
-      {state.chips.some((c) => ["released", "dateAdded", "etherAdded"].includes(c.field)) ? (
-        <p className="catalog-query-note">{t("Date added follows the release or air date.")}</p>
-      ) : null}
     </section>
   );
 }
 export { compileQuery, readQuery, emptyQuery };
+
+// This only routes clearly descriptive input to the configured model; it never
+// invents predicates locally. Literal title searches stay literal.
+export function looksLikeCatalogRequest(text: string) {
+  return (
+    text.trim().split(/\s+/).length >= 4 &&
+    (/^(?:find|show me|movies|films|series|shows)\s/i.test(text.trim()) ||
+      (
+        text.match(
+          /\b(?:under|over|above|below|rated|unwatched|watched|starring|with|before|after|\d{2}s|playable|comedies|thrillers|hours?)\b/gi,
+        ) || []
+      ).length >= 2)
+  );
+}

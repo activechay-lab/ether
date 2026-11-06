@@ -10,7 +10,7 @@ import {
   Search,
   Settings2,
 } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useApp } from "../../app-context";
 import { Drawer } from "../../components/Drawer";
@@ -52,39 +52,42 @@ export default function Catalog() {
   const { health, refreshDashboard } = useApp();
   const status = health.find((h) => h.id === "catalog");
   const catalogPath = `/catalog${params.size ? `?${params}` : ""}`;
-  return (
-    <Workspace
-      title={t("Catalog")}
-      actions={
-        <>
-          {status && !onSettings ? (
-            <span className="hidden xl:inline-flex">
-              <LevelBadge
-                level={status.level}
-                label={status.level === "ok" ? t("Catalog healthy") : status.summary}
-              />
-            </span>
-          ) : null}
-          {onSettings ? (
-            <Button size="sm" variant="outline" onClick={() => navigate(catalogPath)}>
-              <ArrowLeft size={14} />
-              {t("Back to catalog")}
-            </Button>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => navigate("/catalog/settings")}>
-              <Settings2 size={14} />
-              {t("Settings")}
-            </Button>
-          )}
-        </>
-      }
-    >
-      {visibility || settings ? (
+  const actions = (
+    <>
+      {status && !onSettings ? (
+        <span className="hidden xl:inline-flex">
+          <LevelBadge
+            level={status.level}
+            label={status.level === "ok" ? t("Catalog healthy") : status.summary}
+          />
+        </span>
+      ) : null}
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => navigate(onSettings ? catalogPath : "/catalog/settings")}
+      >
+        {onSettings ? <ArrowLeft size={14} /> : <Settings2 size={14} />}
+        {onSettings ? t("Back to catalog") : t("Settings")}
+      </Button>
+    </>
+  );
+  if (onSettings)
+    return (
+      <Workspace title={t("Catalog")} actions={actions}>
         <CatalogSettings />
-      ) : (
-        <CatalogBrowser params={params} setParams={setParams} refreshHealth={refreshDashboard} />
-      )}
-    </Workspace>
+      </Workspace>
+    );
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <CatalogBrowser
+        params={params}
+        setParams={setParams}
+        refreshHealth={refreshDashboard}
+        heading={t("Catalog")}
+        headerActions={actions}
+      />
+    </div>
   );
 }
 
@@ -94,7 +97,11 @@ export function CatalogBrowser({
   refreshHealth,
   ruleFilter,
   collection,
+  heading,
+  headerActions,
 }: {
+  heading?: string;
+  headerActions?: ReactNode;
   ruleFilter?: { ruleVisibility: string; rules: string; ruleFallback: string };
   /** Browse one collection's titles, in its own order, instead of the catalogue. */
   collection?: CollectionSpec;
@@ -103,6 +110,10 @@ export function CatalogBrowser({
   refreshHealth: () => Promise<void>;
 }) {
   const { dashboard } = useApp();
+  useEffect(() => {
+    // Remove data written by the retired catalogue view feature on upgrade.
+    try { localStorage.removeItem("ether.catalog.views"); } catch { /* Storage may be unavailable. */ }
+  }, []);
   const query = params.get("q") ?? "";
   const debouncedQuery = useDebouncedValue(query, 300);
   const type = ["movie", "show"].includes(params.get("type") ?? "") ? params.get("type")! : "";
@@ -419,6 +430,17 @@ export function CatalogBrowser({
   };
   return (
     <div className="catalog-scroll app-scroll">
+      <CatalogFilterBar
+        leading={heading ? <h1 className="catalog-page-title">{heading}</h1> : undefined}
+        actions={headerActions}
+        params={params}
+        viewers={viewers.data || []}
+        collection={!!collection}
+        onChange={(next) => {
+          latestParams.current = next;
+          setParams(next);
+        }}
+      />
       <div className="catalog-toolbar">
         <SubtabNav
           ariaLabel={t("Catalog media type")}
@@ -470,15 +492,6 @@ export function CatalogBrowser({
           </div>
         </div>
       </div>
-      <CatalogFilterBar
-        params={params}
-        viewers={viewers.data || []}
-        collection={!!collection}
-        onChange={(next) => {
-          latestParams.current = next;
-          setParams(next);
-        }}
-      />
       <div className="catalog-content">
         <section className="catalog-results" aria-label={t("Catalog titles")} aria-busy={busy}>
           {viewers.error || membership.error ? (
