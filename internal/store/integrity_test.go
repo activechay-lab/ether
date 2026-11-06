@@ -2,9 +2,13 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -130,5 +134,55 @@ func TestOpenReportsMigrationProgress(t *testing.T) {
 	}
 	if len(seen) != total {
 		t.Fatalf("reported %d steps for %d migrations", len(seen), total)
+	}
+}
+
+// The pinned SQLite xIntegrity does not invalidate its cached FTS structure
+// when another connection merges segments. This reproduces the lab alarm
+// without corrupting any bytes, and also checks genuine FTS damage afterward.
+func TestQuickCheckFreshFTSReader(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "fts #? alarm.db")
+	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: path}).String()+"?_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	writer, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: path}).String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	exec := func(d *sql.DB, q string) {
+		t.Helper()
+		if _, err := d.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(db, `CREATE VIRTUAL TABLE people USING fts5(name, prefix='1 2 3'); INSERT INTO people VALUES('Alice Smith')`)
+	var before string
+	if err := db.QueryRowContext(ctx, `PRAGMA quick_check`).Scan(&before); err != nil || before != "ok" {
+		t.Fatalf("initial: %s %v", before, err)
+	}
+	for i := 0; i < 20; i++ {
+		exec(writer, fmt.Sprintf("INSERT INTO people VALUES('Bob Jones %d')", i))
+	}
+	exec(writer, `INSERT INTO people(people) VALUES('optimize')`)
+	var stale string
+	if err := db.QueryRowContext(ctx, `PRAGMA quick_check`).Scan(&stale); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stale, "corruption found reading blob") {
+		t.Fatalf("expected pinned SQLite stale FTS regression, got %q", stale)
+	}
+	res, err := QuickCheck(ctx, db)
+	if err != nil || !res.OK {
+		t.Fatalf("fresh check: %+v %v", res, err)
+	}
+	exec(writer, `DELETE FROM people_data WHERE id>10`)
+	res, err = QuickCheck(ctx, db)
+	if err != nil || res.OK || len(res.Findings) == 0 {
+		t.Fatalf("real FTS damage: %+v %v", res, err)
 	}
 }
