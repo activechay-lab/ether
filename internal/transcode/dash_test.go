@@ -760,6 +760,23 @@ func TestDASHCollectPublishesAfterBoundedPass(t *testing.T) {
 }
 
 func TestLiveMPDOnlyAdvertisesCompletedWindow(t *testing.T) {
+	// A lazy lower rendition may advance while the abandoned primary stays
+	// at segment zero. Audio still bounds the shared advertised live edge.
+	s := &Session{
+		dash: &dashState{reps: []dashRep{{Kind: "video"}, {Kind: "audio"}, {Kind: "video"}}},
+		done: []map[int]bool{{0: true}, {0: true, 1: true, 2: true}, {0: true, 1: true, 2: true, 3: true}},
+	}
+	if got := s.commonDoneLocked(); got != 2 {
+		t.Fatalf("lower-rung live edge = %d, want audio-bounded 2", got)
+	}
+	delete(s.done[1], 2)
+	if got := s.commonDoneLocked(); got != 1 {
+		t.Fatalf("advertised video without audio: %d", got)
+	}
+	delete(s.done[2], 1)
+	if got := s.commonDoneLocked(); got != 0 {
+		t.Fatalf("advertised audio without any video: %d", got)
+	}
 	start := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 	init, media := PlexDASHURLs("live")
 	b := string(renderLiveMPD(start, start.Add(time.Hour), 4*time.Second, 100, init, media, []dashRep{{ID: 0, Kind: "video", Codecs: "avc1.640028", Bandwidth: 4000000}}))
