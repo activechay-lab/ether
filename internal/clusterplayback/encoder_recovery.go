@@ -21,6 +21,13 @@ import (
 func (r *Runtime) probeEncoder(ctx context.Context, x *execution) (string, error) {
 	c, cancel := context.WithTimeout(ctx, r.o.EncoderRPCDeadline)
 	defer cancel()
+	// A StatefulSet can publish membership with a new TLS incarnation before
+	// the replacement advertises placement capacity. Authenticate that boot
+	// directly; waiting for placement (or probing the old certificate) delays
+	// recovery despite positive evidence that the bound execution is gone.
+	if r.retiredWorkerBoot(c, x.route.Fence) == nil {
+		return "worker-boot-replaced", ErrPending
+	}
 	// Eligibility governs NEW placement. A draining or clock-quarantined
 	// member can still own a healthy execution under its accepted lease.
 	if err := r.o.MemberRole(c, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: x.route.Fence.Target.NodeID, Boot: x.route.Fence.Target.Boot}, config.RoleTranscode); err != nil {
@@ -436,6 +443,13 @@ func (r *Runtime) retiredWorkerBoot(ctx context.Context, f placement.Fence) erro
 	}
 
 	var boot string
+	err := r.o.DB.QueryRowContext(ctx, `SELECT incarnation FROM cluster_nodes WHERE id=?`, f.Target.NodeID).Scan(&boot)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if boot != "" && boot != f.Target.Boot {
+		return r.o.MemberRole(ctx, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: f.Target.NodeID, Boot: boot}, config.RoleTranscode)
+	}
 	if err := r.o.DB.QueryRowContext(ctx, `SELECT boot FROM placement_targets WHERE node=?`, f.Target.NodeID).Scan(&boot); err != nil {
 		return err
 	}

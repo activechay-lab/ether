@@ -225,7 +225,11 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		r.mu.Lock()
 		x.output = output
 		r.mu.Unlock()
+		slog.Info("encoder recovery armed", "session", rt.Fence.Session, "generation", rt.Fence.Generation, "worker", rt.Fence.Target.NodeID, "worker_boot", rt.Fence.Target.Boot)
 		return r.recoveryDelivery(output), nil
+	}
+	if encoderRecoverySupported(q) {
+		slog.Warn("encoder recovery unavailable", "session", rt.Fence.Session, "generation", rt.Fence.Generation, "detector", "output-buffer-unavailable", "rungs", len(x.session.Rungs()), "protocol", q.Protocol)
 	}
 	return hs, nil
 }
@@ -630,7 +634,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			// Authenticated replacement is positive loss evidence; unlike a
 			// transient transport failure it needs no grace period. Ordinary
 			// boot retirement preserved this gate for our supersession CAS.
-			if !recoverNow && r.retiredWorkerBoot(ctx, x.route.Fence) == nil {
+			if !recoverNow && detector == "worker-boot-replaced" {
 				recoverNow = true
 			}
 			if recoverNow {
