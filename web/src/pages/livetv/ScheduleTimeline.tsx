@@ -8,6 +8,7 @@ import {
   HOUR,
   flattenElements,
   daypartBands,
+  TIMELINE_KINDS,
   kindLabel,
   layoutElements,
   mergeTimelineElements,
@@ -25,20 +26,7 @@ function validElement(e: TimelineElement, depth = 0): boolean {
     typeof e.id === "string" &&
     typeof e.title === "string" &&
     typeof e.rule === "string" &&
-    [
-      "programme",
-      "pod",
-      "spot",
-      "ident",
-      "upnext",
-      "break",
-      "back",
-      "stationId",
-      "plugin",
-      "special",
-      "gap",
-      "offair",
-    ].includes(e.kind) &&
+    TIMELINE_KINDS.includes(e.kind) &&
     Number.isFinite(e.start) &&
     Number.isFinite(e.end) &&
     e.end > e.start &&
@@ -142,7 +130,6 @@ export function ScheduleTimeline({
             !Array.isArray(d.dayparts) ||
             typeof d.timezone !== "string" ||
             !d.timezone ||
-            !d.elements.every((e) => validElement(e)) ||
             !d.dayparts.every(
               (b) =>
                 b && Number.isFinite(b.start) && Number.isFinite(b.end) && Array.isArray(b.days),
@@ -150,15 +137,20 @@ export function ScheduleTimeline({
           )
             throw new Error("Invalid timeline snapshot");
           new Intl.DateTimeFormat("en", { timeZone: d.timezone }).format(0);
+          const elements = d.elements.filter(
+            (element) => !!element && TIMELINE_KINDS.includes(element.kind),
+          );
+          if (!elements.every((element) => validElement(element)))
+            throw new Error("Invalid timeline snapshot");
           if (live) {
             loaded.current = range.to;
             setData((prior) =>
               append && prior
                 ? {
                     ...d,
-                    elements: mergeTimelineElements(prior.elements, d.elements),
+                    elements: mergeTimelineElements(prior.elements, elements),
                   }
-                : d,
+                : { ...d, elements },
             );
           }
         })
@@ -513,22 +505,7 @@ export function ScheduleTimeline({
         className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-fg-muted"
         aria-label={t("Legend")}
       >
-        {(
-          [
-            "programme",
-            "pod",
-            "spot",
-            "ident",
-            "upnext",
-            "break",
-            "back",
-            "stationId",
-            "plugin",
-            "special",
-            "gap",
-            "offair",
-          ] as const
-        ).map((k) => (
+        {TIMELINE_KINDS.map((k) => (
           <span key={k} className="inline-flex items-center gap-1">
             <i className={`schedule-key schedule-${k}`} />
             {kindLabel(k)}
