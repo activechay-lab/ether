@@ -58,11 +58,12 @@ func (s deliveryPlaylistSession) ServePlaylist(w http.ResponseWriter, r *http.Re
 // The actual mounted frontends and broker own grants/policy; only the encoder
 // and source bytes are offline doubles. Both senders start without session data.
 func TestMediaBrowserDeliveryReplaysOriginalFrontendAndFencesLoss(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
+	fixtureStarted := time.Now()
 	ids := []nodewire.Identity{{Cluster: "mb-delivery", NodeID: "owner", Boot: "owner-boot"}, {Cluster: "mb-delivery", NodeID: "delivery-a", Boot: "delivery-a-boot"}, {Cluster: "mb-delivery", NodeID: "delivery-b", Boot: "delivery-b-boot"}}
 	guards := fixtureGuards(t, ids...)
 	db := store.OpenTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 20*time.Second))
+	defer cancel()
 	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 2 * time.Minute, LockTimeout: time.Second}, outputRetirementVerifier{})
 	if err != nil {
 		t.Fatal(err)

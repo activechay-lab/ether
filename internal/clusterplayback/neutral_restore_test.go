@@ -50,9 +50,10 @@ func (s *neutralRestoreSession) ServeSegment(w http.ResponseWriter, r *http.Requ
 func TestNeutralControllerLossKeepsHealthyEncoder(t *testing.T) {
 	for _, protocol := range []frontend.Protocol{"jellyfin", "emby"} {
 		t.Run(string(protocol), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
+			fixtureStarted := time.Now()
 			db := store.OpenTest(t)
+			ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 20*time.Second))
+			defer cancel()
 			hub := clusterbus.NewHub()
 			sealer, err := config.Open(t.TempDir())
 			if err != nil {

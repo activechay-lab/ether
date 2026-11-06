@@ -18,12 +18,13 @@ import (
 )
 
 func TestCompleteIndexedSourceCapabilityStartAndReopen(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	fixtureStarted := time.Now()
 	sourceID := nodewire.Identity{Cluster: "indexed", NodeID: "source", Boot: "source-boot"}
 	workerID := nodewire.Identity{Cluster: "indexed", NodeID: "worker", Boot: "worker-boot"}
 	guards := fixtureGuards(t, sourceID, workerID)
 	db := store.OpenTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 10*time.Second))
+	defer cancel()
 	verifier := NewVerifier()
 	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
 	if err != nil {

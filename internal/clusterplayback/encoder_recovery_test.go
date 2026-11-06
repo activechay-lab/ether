@@ -68,8 +68,7 @@ func (s *recoveryTestSession) ServeSegment(w http.ResponseWriter, q *http.Reques
 func TestEncoderLossRecoveryInvariant(t *testing.T) {
 	for _, mode := range []string{"exit", "partition", "newboot", "removed", "clock"} {
 		t.Run(mode, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
+			fixtureStarted := time.Now()
 			data, err := os.ReadFile("../playbackbuffer/testdata/cpu.ts")
 			if err != nil {
 				t.Fatal(err)
@@ -146,6 +145,12 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				defer server.Close()
 				endpoints[ids[i]] = server.URL
 			}
+			// OpenTest may create and migrate an isolated PostgreSQL schema.
+			// Fixture construction is not playback: a cold/durable database
+			// must not consume the placement/recovery harness budget.
+			t.Logf("fixture setup: %s (%s); starting measured execution budget", time.Since(fixtureStarted), store.DialectOf(db))
+			ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 10*time.Second))
+			defer cancel()
 			front := runtimes[3]
 			if err = v.Bind(front); err != nil {
 				t.Fatal(err)

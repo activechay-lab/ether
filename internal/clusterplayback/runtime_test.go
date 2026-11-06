@@ -172,9 +172,10 @@ func (s *fixtureSession) EncoderErr() error {
 func (s *fixtureSession) EncoderRetirement() core.EncoderRetirement { return s }
 
 func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	fixtureStarted := time.Now()
 	db := store.OpenTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 10*time.Second))
+	defer cancel()
 	v := NewVerifier()
 	p, e := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, v)
 	if e != nil {
@@ -561,7 +562,14 @@ mismatchRetired:
 		t.Fatal("changed revision accepted")
 	}
 	_ = restarted
-	if _, err = db.ExecContext(ctx, `CREATE TRIGGER reject_retirement_receipt BEFORE INSERT ON placement_history_receipts BEGIN SELECT RAISE(ABORT,'fixture receipt write'); END`); err != nil {
+	rejectSQL := `CREATE TRIGGER reject_retirement_receipt BEFORE INSERT ON placement_history_receipts BEGIN SELECT RAISE(ABORT,'fixture receipt write'); END`
+	if store.DialectOf(db) == store.Postgres {
+		if _, err = db.ExecContext(ctx, `CREATE FUNCTION reject_retirement_receipt_fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture receipt write'; END $$`); err != nil {
+			t.Fatal(err)
+		}
+		rejectSQL = `CREATE TRIGGER reject_retirement_receipt BEFORE INSERT ON placement_history_receipts FOR EACH ROW EXECUTE FUNCTION reject_retirement_receipt_fn()`
+	}
+	if _, err = db.ExecContext(ctx, rejectSQL); err != nil {
 		t.Fatal(err)
 	}
 	front.Stop(request.SessionID)
@@ -584,7 +592,11 @@ mismatchRetired:
 	if _, receiptErr = front.history.Lookup(ctx, placement.HistoryKey{Cluster: front.o.Self.Cluster, Fence: nextRecord.Fence}); receiptErr == nil {
 		t.Fatal("failed atomic receipt write persisted partial history")
 	}
-	if _, err = db.ExecContext(ctx, `DROP TRIGGER reject_retirement_receipt`); err != nil {
+	dropSQL := `DROP TRIGGER reject_retirement_receipt`
+	if store.DialectOf(db) == store.Postgres {
+		dropSQL += ` ON placement_history_receipts`
+	}
+	if _, err = db.ExecContext(ctx, dropSQL); err != nil {
 		t.Fatal(err)
 	}
 	// Simulate a committed atomic write whose response never reached the owner:
