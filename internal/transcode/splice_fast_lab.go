@@ -61,14 +61,14 @@ func (r *spliceLabRunner) Start(c Command) (Process, error) {
 }
 
 // SpliceFastLab drives the shipping manager, including automatic ramp-to-steady
-// run changes. Only this lab wrapper throttles input and records owned PIDs.
+// run changes. Only this lab wrapper optionally throttles input and records PIDs.
 func SpliceFastLab(ctx context.Context, ff, input, dir string, info core.MediaInfo, container string, first int, resume bool, limit int, fastStart, copyAudio bool, o SpliceLabOptions) error {
 	scratch, e := os.MkdirTemp("", "splice-fast-manager-")
 	if e != nil {
 		return e
 	}
 	defer os.RemoveAll(scratch)
-	m, e := New(config.Transcode{FFmpegPath: ff, FFprobePath: filepath.Join(filepath.Dir(ff), "ffprobe"), TempDir: scratch, FastStart: fastStart}, slog.Default(), WithoutHWDetection(), WithRunner(&spliceLabRunner{dir: dir, readRate: opts.ReadRate}), WithBuffering(24*time.Second, 0, 0))
+	m, e := New(config.Transcode{FFmpegPath: ff, FFprobePath: filepath.Join(filepath.Dir(ff), "ffprobe"), TempDir: scratch, FastStart: fastStart}, slog.Default(), WithoutHWDetection(), WithRunner(&spliceLabRunner{dir: dir, readRate: o.ReadRate}), WithBuffering(24*time.Second, 0, 0))
 	if e != nil {
 		return e
 	}
