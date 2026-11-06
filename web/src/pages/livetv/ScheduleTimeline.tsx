@@ -294,7 +294,10 @@ export function ScheduleTimeline({
               (["ArrowLeft", "ArrowUp"].includes(e.key) ? -1 : 1),
           );
         }
-        if (e.key === "Escape") setTip(undefined);
+        if (e.key === "Escape" && tip) {
+          e.stopPropagation();
+          setTip(undefined);
+        }
       }}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
