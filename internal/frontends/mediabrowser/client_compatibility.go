@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/contentrating"
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/route"
+	kitsort "github.com/braedonsaunders/ether/internal/frontend/kit/sort"
 )
 
 func (i *instance) clientCompatibilityRoutes() error {
@@ -103,10 +103,10 @@ func (i *instance) upcomingEpisodes(w http.ResponseWriter, r *http.Request) {
 	q := itemQuery(r)
 	q.Types = []frontend.MediaType{"episode"}
 	q.Recursive = true
-	q.Sort = core.SortReleased
+	q.Sort, _ = kitsort.Order("PremiereDate")
 	q.Desc = false
 	now := time.Now().UTC().Truncate(24 * time.Hour)
-	q.Filter.ReleasedFilters = []core.DateFilter{{Op: ">=", Unix: now.AddDate(0, 0, -1).Unix()}}
+	q.Filter.ReleasedFilters = []frontend.DateFilter{{Op: ">=", Unix: now.AddDate(0, 0, -1).Unix()}}
 	if len(route.Query(r.URL.Query(), "Limit")) == 0 {
 		q.Limit = showChildPageMax
 	}

@@ -76,6 +76,9 @@ func infuseDirectResume(ctx context.Context, client *http.Client, base string, h
 		if _, err := fetch(http.MethodGet, label+":part", part, http.StatusPartialContent); err != nil {
 			return nil, err
 		}
+		if _, err := fetch(http.MethodGet, label+":bare-part", "/library/parts/{{movieKey}}", http.StatusPartialContent); err != nil {
+			return nil, err
+		}
 		h.Del("Range")
 		for _, state := range []string{"playing", "stopped"} {
 			path := fmt.Sprintf("/:/timeline?ratingKey={{movieKey}}&key=%%2Flibrary%%2Fmetadata%%2F{{movieKey}}&state=%s&time=%d&duration=5820000", state, millis)

@@ -59,12 +59,12 @@ func TestInfuseDirectResumeNeverNeedsDecision(t *testing.T) {
 	}))
 	defer s.Close()
 	captures, err := infuseDirectResume(context.Background(), s.Client(), s.URL, http.Header{}, map[string]string{"movieKey": "123", "movieSection": "1"})
-	if err != nil || len(captures) != 25 || len(events) != 25 {
+	if err != nil || len(captures) != 29 || len(events) != 29 {
 		t.Fatalf("captures=%d requests=%d err=%v", len(captures), len(events), err)
 	}
-	for i := 1; i < len(events); i += 6 {
-		if events[i+1] != "GET /library/parts/456/1792324800/file.mp4" || events[i+2] != "POST /:/timeline" || events[i+3] != "POST /:/timeline" {
-			t.Fatalf("wrong direct/timeline sequence: %v", events[i:i+6])
+	for i := 1; i < len(events); i += 7 {
+		if events[i+1] != "GET /library/parts/456/1792324800/file.mp4" || events[i+2] != "GET /library/parts/456" || events[i+3] != "POST /:/timeline" || events[i+4] != "POST /:/timeline" {
+			t.Fatalf("wrong direct/timeline sequence: %v", events[i:i+7])
 		}
 	}
 }

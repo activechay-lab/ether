@@ -290,6 +290,12 @@ func TestDecide(t *testing.T) {
 // TestPlexIntegration runs the real Plex front end over the spike.
 func TestPlexIntegration(t *testing.T) {
 	lib, files := newTestLibrary(t, Options{})
+	// Timeline duration comes from prepared media, not the client query.
+	// This byte-range fixture has no decodable container to probe.
+	media, _ := lib.file(fileKey(files[0]))
+	media.info.Duration = 10 * time.Second
+	media.info.Estimated = false
+	media.title.Runtime = 10 * time.Second
 	srv, closeBroker, err := lib.OpenPlex()
 	if err != nil {
 		t.Fatal(err)
@@ -346,6 +352,8 @@ func TestPlexIntegration(t *testing.T) {
 	if ws.ViewOffset != 5*time.Second {
 		t.Fatalf("timeline state: %+v", ws)
 	}
+	// A terminal report alone cannot advance past the last playing position.
+	get("/:/timeline?ratingKey=" + key + "&state=playing&time=9500&duration=10000").Body.Close()
 	get("/:/timeline?ratingKey=" + key + "&state=stopped&time=9500&duration=10000").Body.Close()
 	if ws, _ := lib.State().Get(context.Background(), 1, fileKey(files[0])); ws.ViewCount != 1 {
 		t.Fatalf("not watched: %+v", ws)

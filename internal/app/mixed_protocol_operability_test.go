@@ -211,6 +211,7 @@ func TestMixedProtocolOperability(t *testing.T) {
 			"stremio":  {Enabled: true},
 			"webdav":   {Enabled: true},
 			"m3u":      {Enabled: true},
+			"xtream":   {Enabled: true},
 			"dlna":     {Enabled: true, Settings: map[string]any{"discovery": false}},
 		}
 		for i := range c.Quality.Profiles {
@@ -391,7 +392,7 @@ func TestMixedProtocolOperability(t *testing.T) {
 				t.Fatalf("health %s %d %s", item.Descriptor.ID, hcode, hbody)
 			}
 		}
-		for _, id := range []string{"plex", "jellyfin", "emby", "silo", "stremio", "webdav", "m3u", "dlna"} {
+		for _, id := range []string{"plex", "jellyfin", "emby", "silo", "stremio", "webdav", "m3u", "xtream", "dlna"} {
 			if !seen[id] {
 				t.Fatalf("missing %s in %+v", id, seen)
 			}

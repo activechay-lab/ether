@@ -178,6 +178,10 @@ type ItemRequest struct {
 	Device core.Device
 	Key    core.RatingKey
 }
+
+// DateFilter is the date predicate accepted by the shared catalogue boundary.
+type DateFilter = core.DateFilter
+
 type ItemQuery struct {
 	// AdjacentTo selects the anchor and its immediately neighboring visible items.
 	AdjacentTo core.RatingKey

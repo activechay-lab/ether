@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -35,6 +36,7 @@ type session struct {
 	file   *localFile
 	src    *localSource
 	active time.Time
+	bytes  atomic.Int64
 }
 
 // playback implements core.Playback for local files: direct play from disk.
@@ -77,7 +79,7 @@ func (p *playback) Prepare(_ context.Context, u *core.User, k core.RatingKey, ca
 	for _, s := range p.sessions {
 		if s.ps.UserID == u.ID && s.ps.ClientID == caps.ClientID && s.ps.Key == k {
 			s.active = p.now()
-			return s.ps, nil
+			return s.snapshot(), nil
 		}
 		if s.ps.UserID == u.ID {
 			active++
@@ -120,7 +122,7 @@ func (p *playback) Session(id string) (*core.PlaySession, bool) {
 	if !ok {
 		return nil, false
 	}
-	return s.ps, true
+	return s.snapshot(), true
 }
 
 func (p *playback) SessionFor(userID int64, clientID string, k core.RatingKey) (*core.PlaySession, bool) {
@@ -128,7 +130,7 @@ func (p *playback) SessionFor(userID int64, clientID string, k core.RatingKey) (
 	defer p.mu.Unlock()
 	for _, s := range p.sessions {
 		if s.ps.UserID == userID && s.ps.ClientID == clientID && s.ps.Key == k {
-			return s.ps, true
+			return s.snapshot(), true
 		}
 	}
 	return nil, false
@@ -157,7 +159,7 @@ func (p *playback) ServeRange(w http.ResponseWriter, r *http.Request, id string)
 		w.Header().Set("Content-Type", ct)
 	}
 	w.Header().Set("Accept-Ranges", "bytes")
-	http.ServeContent(w, r, s.src.name, s.file.mtime, io.NewSectionReader(s.src, 0, s.src.size))
+	http.ServeContent(&deliveredWriter{ResponseWriter: w, bytes: &s.bytes}, r, s.src.name, s.file.mtime, io.NewSectionReader(s.src, 0, s.src.size))
 }
 
 // InputURL is the local path; ffmpeg reads files directly.
@@ -189,7 +191,7 @@ func (p *playback) Sessions() []*core.PlaySession {
 	defer p.mu.Unlock()
 	out := make([]*core.PlaySession, 0, len(p.sessions))
 	for _, s := range p.sessions {
-		out = append(out, s.ps)
+		out = append(out, s.snapshot())
 	}
 	return out
 }
@@ -216,4 +218,36 @@ func (p *playback) expire(now time.Time, idle time.Duration) {
 	for _, s := range stale {
 		_ = s.src.Close()
 	}
+}
+
+// snapshot keeps delivery counters synchronized without mutating a PlaySession
+// already handed to a caller.
+func (s *session) snapshot() *core.PlaySession {
+	out := *s.ps
+	out.BytesServed = s.bytes.Load()
+	return &out
+}
+
+type deliveredWriter struct {
+	http.ResponseWriter
+	bytes  *atomic.Int64
+	status int
+}
+
+func (w *deliveredWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w *deliveredWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+func (w *deliveredWriter) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	n, err := w.ResponseWriter.Write(p)
+	if n > 0 && (w.status == http.StatusOK || w.status == http.StatusPartialContent) {
+		w.bytes.Add(int64(n))
+	}
+	return n, err
 }
