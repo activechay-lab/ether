@@ -20,6 +20,8 @@ var ErrDenied = errors.New("nodewire: peer denied")
 
 const MaxLifetime = 24 * time.Hour
 
+const minimumBackdate = 5 * time.Minute
+
 // Identity binds the shared cluster, persistent node ID and unique process boot.
 // Boot must be the membership incarnation, never a separately generated TLS boot.
 type Identity struct{ Cluster, NodeID, Boot string }
@@ -73,8 +75,10 @@ func CertificateIdentity(c *x509.Certificate) (Identity, error) {
 // Issue signs only a checked Ed25519 CSR with an explicitly supplied Ed25519 CA.
 // CSR extensions/names are never copied; enrollment must authorize id and hosts
 // independently before calling Issue. Returns leaf DER, never a CA private key.
-func Issue(caDER []byte, caKey ed25519.PrivateKey, csrDER []byte, id Identity, hosts []string, now time.Time, lifetime time.Duration) ([]byte, error) {
-	if !id.valid() || len(caDER) > 16384 || len(csrDER) > 8192 || len(caKey) != ed25519.PrivateKeySize || lifetime <= 0 || lifetime > MaxLifetime || now.IsZero() || len(hosts) == 0 || len(hosts) > 8 {
+// Backdating covers clock corrections without relaxing verification. The useful
+// lifetime is capped so the entire encoded validity span stays within MaxLifetime.
+func Issue(caDER []byte, caKey ed25519.PrivateKey, csrDER []byte, id Identity, hosts []string, now time.Time, lifetime, clockSkew time.Duration) ([]byte, error) {
+	if clockSkew < 0 || clockSkew >= MaxLifetime || !id.valid() || len(caDER) > 16384 || len(csrDER) > 8192 || len(caKey) != ed25519.PrivateKeySize || lifetime <= 0 || lifetime > MaxLifetime || now.IsZero() || len(hosts) == 0 || len(hosts) > 8 {
 		return nil, ErrInvalid
 	}
 	ca, e := x509.ParseCertificate(caDER)
@@ -97,7 +101,12 @@ func Issue(caDER []byte, caKey ed25519.PrivateKey, csrDER []byte, id Identity, h
 		return nil, ErrInvalid
 	}
 	serial.Add(serial, big.NewInt(1))
-	t := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{}, NotBefore: now, NotAfter: now.Add(lifetime), BasicConstraintsValid: true, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, URIs: []*url.URL{id.uri()}}
+	notBefore := now.Add(-max(clockSkew, minimumBackdate))
+	if notBefore.Before(ca.NotBefore) {
+		notBefore = ca.NotBefore
+	}
+	notAfter := minTime(now.Add(lifetime), notBefore.Add(MaxLifetime))
+	t := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{}, NotBefore: notBefore, NotAfter: notAfter, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, URIs: []*url.URL{id.uri()}}
 	seen := map[string]bool{}
 	for _, h := range hosts {
 		if !validHost(h) || seen[h] {
@@ -134,4 +143,11 @@ func validHost(h string) bool {
 		}
 	}
 	return true
+}
+
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
 }

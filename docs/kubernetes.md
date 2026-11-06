@@ -320,6 +320,7 @@ host, preserving paths and query strings:
 | --- | --- | --- |
 | `/video/:/transcode/universal/session` | media (full/delivery) | Canonical representation namespace; unrecognized resources receive 404. |
 | `/sessions/media` | media (full/delivery) | Canonical grant-bearing representations: GET/HEAD only. |
+| `/jellyfin/sessions/media`, `/emby/sessions/media` | media (full/delivery) | Original mounted MediaBrowser media handlers; GET/HEAD and their OPTIONS preflight. |
 | `/` and every other path | API (full/server) | Browse, admission, control and control-coupled responses. |
 
 The controller must retain the media routes when their Service has no ready
@@ -330,8 +331,8 @@ catch-all API backend. Other controllers need the same routing invariant. This
 does not make an unready delivery node eligible or establish why readiness was
 lost. See Traefik's [Kubernetes Ingress provider documentation](https://doc.traefik.io/traefik/reference/install-configuration/providers/kubernetes/kubernetes-ingress/).
 
-The delivery handler rejects non-GET/HEAD requests; they are not alternate API
-control routes. Prefix matching uses complete path elements, so similarly named
+Delivery accepts GET/HEAD representations and MediaBrowser alias OPTIONS
+preflights. Other methods are not alternate API control routes. Prefix matching uses complete path elements, so similarly named
 paths such as `/sessions/mediaevil` remain API traffic. Do not broaden either
 prefix to `/video/:/transcode/universal` or `/library/parts`. Plex decision,
 start/start.m3u8/start.mpd/start.mkv, ping/stop, `/transcode/sessions`, direct parts
@@ -358,14 +359,21 @@ acceptance. It is not justified by invented representation URLs. No controller
 CRDs, suffix widening, URL rewrite or authentication relaxation are added.
 Full-only public pools remain supported.
 
-Jellyfin/Emby media aliases require the explicit
-auth-preserving runtime adapter and matching approved routing before being
-claimed; the chart currently leaves `/jellyfin/sessions/media` and
-`/emby/sessions/media` on API. Silo playback paths likewise remain on API until a
-typed authenticated seam is implemented. Do not add stripping/rewrite annotations
-or generic alias prefixes to imply unverified compatibility. Manual lab replay of
-the same returned path from server pod to delivery pod proves that role path
-only; it does not replace a real client test through the shared Ingress origin.
+Jellyfin/Emby media aliases use the same stateless SQL-owner hop and generation
+fencing as canonical media. The private receiver replays the original mounted
+frontend; it preserves the complete path/query, bounded account/device headers,
+origin and representation headers. The shipping broker still authenticates the
+path grant, protocol, active viewer and current policy on every request. Account
+credentials (`api_key`/`ApiKey`, token headers and MediaBrowser/Emby authorization
+headers) retain their original precedence and authority; none replaces the path
+grant. Emby cache/CORS and both protocols' media-safety headers are preserved.
+Their ordinary OPTIONS response comes from the original frontend. Direct
+`/Videos/...`, lazy admission and control routes remain on API. Silo playback
+paths likewise remain on API until their authenticated seam is implemented.
+Full nodes publish the exact local source owner before returning a MediaBrowser
+session; remote-source sessions publish their existing gen-zero route at Open.
+Standalone brokers do neither. No Ingress path rewrite or broad protocol
+catch-all is used.
 
 Select the controller class, hostname, TLS Secret and controller-specific stream
 timeouts. For the explicitly gated HLS lab, the controller must accept the literal colon

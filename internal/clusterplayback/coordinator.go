@@ -128,7 +128,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if e == nil {
 		expected = old.Generation
 	}
-	target, claims, capabilities, e := r.selectTarget(ctx, q)
+	target, claims, capabilities, e := r.selectTarget(ctx, q, prepared.Owner)
 	if e != nil {
 		return nil, e
 	}
@@ -221,10 +221,10 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	}
 	return hs, nil
 }
-func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
-	return r.selectTargetExcept(ctx, q, "")
+func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
+	return r.selectTargetExcept(ctx, q, "", source)
 }
-func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exclude string) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
+func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exclude string, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
 	rows, e := r.o.DB.QueryContext(ctx, `SELECT node,boot,roles,scopes FROM placement_targets ORDER BY node LIMIT 4096`)
 	if e != nil {
 		return placement.Target{}, nil, remotetranscode.Capabilities{}, e
@@ -248,6 +248,11 @@ func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exc
 		return placement.Target{}, nil, remotetranscode.Capabilities{}, err
 	}
 	failure := &SelectionError{}
+	var bestTarget placement.Target
+	var bestClaims []placement.Claim
+	var bestCaps remotetranscode.Capabilities
+	var bestScore transcodeTargetScore
+	chosen := false
 	for _, candidate := range candidates {
 		target, rolesJSON, scopesJSON := candidate.target, candidate.rolesJSON, candidate.scopesJSON
 		if target.NodeID == exclude {
@@ -268,6 +273,7 @@ func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exc
 		failure.Eligible++
 		claims := make([]placement.Claim, len(names))
 		available := true
+		spare := int64(0)
 		for i, name := range names {
 			var remaining int64
 			err := r.o.DB.QueryRowContext(ctx, `SELECT p.capacity-COALESCE(SUM(c.units),0) FROM placement_pools p LEFT JOIN (SELECT scope,units FROM placement_claims UNION ALL SELECT scope,units FROM placement_displaced_claims) c ON c.scope=p.scope WHERE p.scope=? AND p.role=? GROUP BY p.scope,p.capacity`, name, string(config.RoleTranscode)).Scan(&remaining)
@@ -281,13 +287,16 @@ func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exc
 				available = false
 				break
 			}
+			if i == 0 || remaining < spare {
+				spare = remaining
+			}
 			claims[i] = placement.Claim{Scope: name, Units: 1}
 		}
 		// This read is advisory only; Reserve remains the atomic admission authority.
 		if !available {
 			continue
 		}
-		caps, e := r.workerCapabilities(ctx, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: target.NodeID, Boot: target.Boot}, q)
+		caps, hardwareEncoder, e := r.workerCapabilities(ctx, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: target.NodeID, Boot: target.Boot}, q)
 		if e != nil {
 			if errors.Is(e, remotetranscode.ErrUnsupported) {
 				failure.Unsupported++
@@ -300,9 +309,41 @@ func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exc
 			failure.Unsupported++
 			continue
 		}
-		return target, claims, caps, nil
+		score := transcodeTargetScore{hardware: hardwareEncoder != "" && !q.Decision.VideoCopy && q.Info.Video() != nil, spare: spare, local: target.NodeID == source.NodeID && target.Boot == source.Boot, target: target}
+		if !chosen || score.betterThan(bestScore) {
+			bestTarget, bestClaims, bestCaps, bestScore, chosen = target, claims, caps, score, true
+		}
+	}
+	if chosen {
+		return bestTarget, bestClaims, bestCaps, nil
 	}
 	return placement.Target{}, nil, remotetranscode.Capabilities{}, failure
+}
+
+// Eligibility and exact-plan support are hard gates. Scores rank only admitted
+// candidates; remaining capacity is the bottleneck across all required scopes.
+// Reserve still rechecks capacity atomically, including displaced claims.
+type transcodeTargetScore struct {
+	hardware bool
+	spare    int64
+	local    bool
+	target   placement.Target
+}
+
+func (s transcodeTargetScore) betterThan(other transcodeTargetScore) bool {
+	if s.hardware != other.hardware {
+		return s.hardware
+	}
+	if s.spare != other.spare {
+		return s.spare > other.spare
+	}
+	if s.local != other.local {
+		return s.local
+	}
+	if s.target.NodeID != other.target.NodeID {
+		return s.target.NodeID < other.target.NodeID
+	}
+	return s.target.Boot < other.target.Boot
 }
 
 func (r *Runtime) Session(id string) (core.HLSSession, bool) {

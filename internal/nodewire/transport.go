@@ -6,7 +6,10 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -97,7 +100,7 @@ func (s *Snapshot) verify(chain []*x509.Certificate, expected Identity, hostname
 	}
 	_, e = leaf.Verify(x509.VerifyOptions{Roots: s.roots, Intermediates: intermediates, DNSName: hostname, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{usage}})
 	if e != nil {
-		return Identity{}, ErrDenied
+		return Identity{}, fmt.Errorf("%w: certificate chain: %v", ErrDenied, e)
 	}
 	return id, nil
 }
@@ -110,9 +113,12 @@ type Policy func(context.Context, Identity, *x509.Certificate) error
 // Guard atomically replaces immutable credentials/trust. Policy is mandatory and
 // called outside locks on each check, including operations on reused connections.
 type Guard struct {
-	current atomic.Pointer[Snapshot]
-	policy  Policy
-	now     func() time.Time
+	denialMu      sync.Mutex
+	denialAt      time.Time
+	denialSkipped uint64
+	current       atomic.Pointer[Snapshot]
+	policy        Policy
+	now           func() time.Time
 }
 
 func NewGuard(s *Snapshot, p Policy, now func() time.Time) (*Guard, error) {
@@ -139,11 +145,16 @@ func (g *Guard) check(ctx context.Context, cs tls.ConnectionState, expected Iden
 	}
 	id, e := g.current.Load().verify(cs.PeerCertificates, expected, hostname, usage, g.now())
 	if e != nil {
+		g.logDenial("certificate", expected, e)
 		return Identity{}, e
 	}
 	// Give policy its own parsed copy, not TLS's shared certificate slices.
 	leaf, e := x509.ParseCertificate(append([]byte(nil), cs.PeerCertificates[0].Raw...))
-	if e != nil || g.policy(ctx, id, leaf) != nil {
+	if e == nil {
+		e = g.policy(ctx, id, leaf)
+	}
+	if e != nil {
+		g.logDenial("membership_policy", id, e)
 		return Identity{}, ErrDenied
 	}
 	return id, nil
@@ -192,11 +203,11 @@ func (g *Guard) ClientTLS(expected Identity, hostname string) (*tls.Config, erro
 	if expected.Cluster != s.local.Cluster {
 		return nil, ErrInvalid
 	}
-	return &tls.Config{MinVersion: tls.VersionTLS12, ServerName: hostname, RootCAs: s.roots.Clone(), Certificates: []tls.Certificate{s.credential()}, VerifyConnection: g.BindServer(expected, hostname), SessionTicketsDisabled: true}, nil
+	return &tls.Config{Time: g.now, MinVersion: tls.VersionTLS12, ServerName: hostname, RootCAs: s.roots.Clone(), Certificates: []tls.Certificate{s.credential()}, VerifyConnection: g.BindServer(expected, hostname), SessionTicketsDisabled: true}, nil
 }
 func (g *Guard) serverSnapshot() *tls.Config {
 	s := g.current.Load()
-	return &tls.Config{MinVersion: tls.VersionTLS12, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: s.roots.Clone(), Certificates: []tls.Certificate{s.credential()}, SessionTicketsDisabled: true, VerifyConnection: func(cs tls.ConnectionState) error {
+	return &tls.Config{Time: g.now, MinVersion: tls.VersionTLS12, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: s.roots.Clone(), Certificates: []tls.Certificate{s.credential()}, SessionTicketsDisabled: true, VerifyConnection: func(cs tls.ConnectionState) error {
 		_, e := g.check(context.Background(), cs, Identity{}, "", x509.ExtKeyUsageClientAuth)
 		return e
 	}}
@@ -208,4 +219,20 @@ func (g *Guard) ServerTLS() *tls.Config {
 	c := g.serverSnapshot()
 	c.GetConfigForClient = func(*tls.ClientHelloInfo) (*tls.Config, error) { return g.serverSnapshot(), nil }
 	return c
+}
+
+// Bound repeated denials per Guard without a peer-controlled map. Successful
+// unrelated requests do not reset the rate limit or conceal the failure reason.
+func (g *Guard) logDenial(stage string, peer Identity, err error) {
+	now := time.Now()
+	g.denialMu.Lock()
+	if !g.denialAt.IsZero() && now.Sub(g.denialAt) < time.Minute {
+		g.denialSkipped++
+		g.denialMu.Unlock()
+		return
+	}
+	skipped := g.denialSkipped
+	g.denialAt, g.denialSkipped = now, 0
+	g.denialMu.Unlock()
+	slog.Warn("private TLS peer denied", "component", "nodewire", "stage", stage, "node", peer.NodeID, "boot", peer.Boot, "reason", err, "suppressed", skipped)
 }

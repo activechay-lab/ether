@@ -98,13 +98,10 @@ func duplicateNodeError(nodeID, path string) error {
 
 // Postgres is the clustered runtime.
 //
-// Heartbeats: every node upserts its cluster_nodes row every
-// HeartbeatInterval with last_seen = its own clock in Unix milliseconds; a
-// node is live while now-last_seen <= LiveAfter on the reader's clock.
-// Timestamps are bound Go values (portable SQL, no server now()), so the
-// scheme tolerates clock skew up to LiveAfter-HeartbeatInterval (15s by
-// default). Clock samples are refreshed on each heartbeat; deployment authority
-// fails closed outside the configured clock bound. Nodes should run NTP.
+// Heartbeats use the database clock for both last_seen writes and age reads.
+// Process wall-clock corrections cannot change membership freshness. Local
+// readiness uses a monotonic write receipt; independent clock-skew checks still
+// fence new authority when the process clock is outside its configured bound.
 //
 // Leadership: a dedicated connection holds pg_try_advisory_lock; the holder
 // probes it with SELECT 1 every ElectionInterval and steps down the moment
@@ -146,20 +143,22 @@ type Postgres struct {
 	busReady chan struct{}
 	busOnce  sync.Once
 
-	mu           sync.Mutex
-	self         Node
-	addrs        []string
-	beatAddrs    []string // addrs in the last successful heartbeat
-	beatDraining bool     // draining flag in the last successful heartbeat
-	resigned     bool     // StepDown: never lead again in this process
-	joined       bool
-	lastPrune    time.Time
-	holdUntil    time.Time
-	busUp        bool
-	clock        clockGuard
-	lastBeatOK   time.Time
-	beatReceipt  time.Time // process-local monotonic time of the last successful write
-	fatal        error
+	mu              sync.Mutex
+	self            Node
+	addrs           []string
+	beatAddrs       []string // addrs in the last successful heartbeat
+	beatDraining    bool     // draining flag in the last successful heartbeat
+	resigned        bool     // StepDown: never lead again in this process
+	joined          bool
+	clampLogged     time.Time
+	clampSuppressed uint64
+	lastPrune       time.Time
+	holdUntil       time.Time
+	busUp           bool
+	clock           clockGuard
+	lastBeatOK      time.Time
+	beatReceipt     time.Time // process-local monotonic time of the last successful write
+	fatal           error
 }
 
 var _ Cluster = (*Postgres)(nil)
@@ -564,19 +563,21 @@ func (p *Postgres) beatClaim(ctx context.Context, claim *nodeClaim) error {
 	if fatal != nil {
 		return fatal
 	}
+	var seenMS int64
+	clockSQL := p.membershipClockSQL()
 	if joined {
 		// Once joined, only this process may write the row: an update that
 		// finds another incarnation's row means a second live process
 		// shares our node ID.
-		res, err := p.db.ExecContext(ctx, `UPDATE cluster_nodes SET name=?, version=?, addrs=?, caps=?, active_sessions=?, started_at=?, last_seen=?,
+		err := p.db.QueryRowContext(ctx, `UPDATE cluster_nodes SET name=?, version=?, addrs=?, caps=?, active_sessions=?, started_at=?, last_seen=`+clockSQL+`,
 draining=?, migrations=?, internal_address=?, protocol_version=?
-WHERE id=? AND incarnation=?`,
+WHERE id=? AND incarnation=? RETURNING last_seen`,
 			p.local.Identity.Name, p.local.Version, string(addrsJSON), string(capsJSON), load,
-			started.UnixMilli(), now.UnixMilli(), drainFlag, migJSON, p.local.InternalAddress, protocol, id, p.inc)
-		if err != nil {
+			started.UnixMilli(), drainFlag, migJSON, p.local.InternalAddress, protocol, id, p.inc).Scan(&seenMS)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		if n, _ := res.RowsAffected(); n == 0 {
+		if errors.Is(err, sql.ErrNoRows) {
 			var other string
 			err := p.db.QueryRowContext(ctx, `SELECT incarnation FROM cluster_nodes WHERE id=?`, id).Scan(&other)
 			switch {
@@ -593,25 +594,23 @@ WHERE id=? AND incarnation=?`,
 	}
 	if !joined {
 		query := `INSERT INTO cluster_nodes(id,name,version,addrs,caps,active_sessions,started_at,last_seen,incarnation,draining,migrations,internal_address,protocol_version)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+VALUES(?,?,?,?,?,?,?,` + clockSQL + `,?,?,?,?,?)
 ON CONFLICT(id) DO NOTHING`
-		args := []any{id, p.local.Identity.Name, p.local.Version, string(addrsJSON), string(capsJSON), load, started.UnixMilli(), now.UnixMilli(), p.inc, drainFlag, migJSON, p.local.InternalAddress, protocol}
+		args := []any{id, p.local.Identity.Name, p.local.Version, string(addrsJSON), string(capsJSON), load, started.UnixMilli(), p.inc, drainFlag, migJSON, p.local.InternalAddress, protocol}
 		if claim != nil && claim.exists {
 			query = `INSERT INTO cluster_nodes(id,name,version,addrs,caps,active_sessions,started_at,last_seen,incarnation,draining,migrations,internal_address,protocol_version)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+VALUES(?,?,?,?,?,?,?,` + clockSQL + `,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET name=excluded.name, version=excluded.version, addrs=excluded.addrs, caps=excluded.caps,
 active_sessions=excluded.active_sessions, started_at=excluded.started_at, last_seen=excluded.last_seen, incarnation=excluded.incarnation,
 draining=excluded.draining, migrations=excluded.migrations, internal_address=excluded.internal_address, protocol_version=excluded.protocol_version
 WHERE cluster_nodes.incarnation=? AND cluster_nodes.last_seen=?`
 			args = append(args, claim.incarnation, claim.lastSeen)
 		}
-		res, err := p.db.ExecContext(ctx, query, args...)
-		if err != nil {
+		err := p.db.QueryRowContext(ctx, query+` RETURNING last_seen`, args...).Scan(&seenMS)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
-			return err
-		} else if n != 1 {
+		if errors.Is(err, sql.ErrNoRows) {
 			err := duplicateNodeError(id, p.o.IdentityPath)
 			if claim == nil {
 				p.fail(err)
@@ -620,11 +619,12 @@ WHERE cluster_nodes.incarnation=? AND cluster_nodes.last_seen=?`
 		}
 	}
 	p.mu.Lock()
-	p.self.Addrs, p.self.Caps, p.self.Load, p.self.LastSeen = addrs, caps, load, now
+	p.self.Addrs, p.self.Caps, p.self.Load, p.self.LastSeen = addrs, caps, load, time.UnixMilli(seenMS)
 	p.self.Draining, p.self.Migrations = draining, p.local.Migrations
 	announce := !p.joined || !slices.Equal(addrs, p.beatAddrs) || draining != p.beatDraining
 	p.joined, p.beatAddrs, p.lastBeatOK, p.beatDraining = true, addrs, now, draining
 	p.beatReceipt = time.Now()
+	p.self.seenAge, p.self.seenSample = 0, p.beatReceipt
 	prune := now.Sub(p.lastPrune) > time.Hour
 	if prune {
 		p.lastPrune = now
@@ -636,8 +636,7 @@ WHERE cluster_nodes.incarnation=? AND cluster_nodes.last_seen=?`
 		}
 	}
 	if prune {
-		cut := now.Add(-p.o.PruneAfter).UnixMilli()
-		if res, err := p.db.ExecContext(ctx, `DELETE FROM cluster_nodes WHERE last_seen < ?`, cut); err != nil {
+		if res, err := p.db.ExecContext(ctx, `DELETE FROM cluster_nodes WHERE last_seen < (`+clockSQL+` - ?)`, p.o.PruneAfter.Milliseconds()); err != nil {
 			p.log.Debug("cluster: prune dead nodes", "err", err)
 		} else if n, _ := res.RowsAffected(); n > 0 {
 			p.log.Info("cluster: pruned dead nodes", "rows", n)
@@ -659,8 +658,9 @@ type nodeClaim struct {
 
 func (p *Postgres) checkDuplicate(ctx context.Context) (nodeClaim, error) {
 	id := p.local.Identity.NodeID
+	var ageMS int64
 	read := func() (inc string, seen int64, ok bool, err error) {
-		err = p.db.QueryRowContext(ctx, `SELECT incarnation, last_seen FROM cluster_nodes WHERE id=?`, id).Scan(&inc, &seen)
+		err = p.db.QueryRowContext(ctx, `SELECT incarnation, last_seen, (`+p.membershipClockSQL()+` - last_seen) FROM cluster_nodes WHERE id=?`, id).Scan(&inc, &seen, &ageMS)
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", 0, false, nil
 		}
@@ -677,7 +677,7 @@ func (p *Postgres) checkDuplicate(ctx context.Context) (nodeClaim, error) {
 	if inc == p.inc {
 		return claim, nil
 	}
-	if p.o.Now().Sub(time.UnixMilli(seen)) > p.o.LiveAfter {
+	if time.Duration(ageMS)*time.Millisecond > p.o.LiveAfter {
 		return claim, nil // long dead: claim only if this exact row is unchanged
 	}
 	p.log.Info("cluster: this node's heartbeat row is recent; checking that no other process uses this node ID", "wait", 2*p.o.HeartbeatInterval)
@@ -751,7 +751,8 @@ func (p *Postgres) AllNodes(ctx context.Context) ([]Node, error) {
 	if err := p.db.QueryRowContext(ctx, `SELECT node_id FROM cluster_leader WHERE id=1`).Scan(&leaderID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	rows, err := p.db.QueryContext(ctx, `SELECT id,name,version,addrs,caps,active_sessions,started_at,last_seen,draining,migrations,internal_address,protocol_version,incarnation FROM cluster_nodes ORDER BY name, id`)
+	sampled := time.Now()
+	rows, err := p.db.QueryContext(ctx, `SELECT id,name,version,addrs,caps,active_sessions,started_at,last_seen,draining,migrations,internal_address,protocol_version,incarnation, (`+p.membershipClockSQL()+` - last_seen) FROM cluster_nodes ORDER BY name, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -761,12 +762,12 @@ func (p *Postgres) AllNodes(ctx context.Context) ([]Node, error) {
 	var out []Node
 	for rows.Next() {
 		var (
-			n                 Node
-			addrs, caps, migs string
-			startedMS, seenMS int64
-			draining          int
+			n                        Node
+			addrs, caps, migs        string
+			startedMS, seenMS, ageMS int64
+			draining                 int
 		)
-		if err := rows.Scan(&n.ID, &n.Name, &n.Version, &addrs, &caps, &n.Load, &startedMS, &seenMS, &draining, &migs, &n.InternalAddress, &n.ProtocolVersion, &n.Incarnation); err != nil {
+		if err := rows.Scan(&n.ID, &n.Name, &n.Version, &addrs, &caps, &n.Load, &startedMS, &seenMS, &draining, &migs, &n.InternalAddress, &n.ProtocolVersion, &n.Incarnation, &ageMS); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(addrs), &n.Addrs)
@@ -776,7 +777,9 @@ func (p *Postgres) AllNodes(ctx context.Context) ([]Node, error) {
 		}
 		n.Draining = draining != 0
 		n.StartedAt, n.LastSeen = time.UnixMilli(startedMS), time.UnixMilli(seenMS)
-		n.Live = now.Sub(n.LastSeen) <= p.o.LiveAfter
+		n.seenAge, n.seenSample = p.membershipAge(time.Duration(ageMS)*time.Millisecond), sampled
+		age := n.LastSeenAge(now)
+		n.Live = age >= 0 && age < p.o.LiveAfter
 		if n.ID == p.local.Identity.NodeID {
 			n.Leader = selfLeads
 		} else {
@@ -935,8 +938,8 @@ RETURNING epoch`, p.local.Identity.NodeID, p.o.Now().UnixMilli()).Scan(&epoch)
 func (p *Postgres) othersCanLead(ctx context.Context) bool {
 	qctx, cancel := context.WithTimeout(ctx, p.o.ProbeTimeout)
 	defer cancel()
-	rows, err := p.db.QueryContext(qctx, `SELECT caps FROM cluster_nodes WHERE id<>? AND draining=0 AND last_seen>=?`,
-		p.local.Identity.NodeID, p.o.Now().Add(-p.o.LiveAfter).UnixMilli())
+	rows, err := p.db.QueryContext(qctx, `SELECT caps FROM cluster_nodes WHERE id<>? AND draining=0 AND last_seen > (`+p.membershipClockSQL()+` - ?) AND last_seen < (`+p.membershipClockSQL()+` + ?)`,
+		p.local.Identity.NodeID, p.o.LiveAfter.Milliseconds(), p.o.LiveAfter.Milliseconds())
 	if err != nil {
 		return false
 	}
@@ -1161,4 +1164,35 @@ func channelFor(schema string) string {
 	h := fnv.New32a()
 	h.Write([]byte(schema))
 	return fmt.Sprintf("%s_%08x", DefaultChannel, h.Sum32())
+}
+
+// SQLite supports the same ownership SQL in offline tests; production uses PG.
+func (p *Postgres) membershipClockSQL() string {
+	if store.DialectOf(p.db) == store.Postgres {
+		return `CAST(FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT)`
+	}
+	return `CAST(unixepoch('subsec') * 1000 AS INTEGER)`
+}
+
+// Writers cannot supply this timestamp. A bounded negative database age means
+// the database clock stepped backward since its own write. Hold membership
+// fresh for that correction; this grants no new placement/execution authority.
+func (p *Postgres) membershipAge(age time.Duration) time.Duration {
+	if age >= 0 || age <= -p.o.LiveAfter {
+		return age
+	}
+	now := time.Now()
+	p.mu.Lock()
+	log := p.clampLogged.IsZero() || now.Sub(p.clampLogged) >= time.Minute
+	skipped := p.clampSuppressed
+	if log {
+		p.clampLogged, p.clampSuppressed = now, 0
+	} else {
+		p.clampSuppressed++
+	}
+	p.mu.Unlock()
+	if log {
+		p.log.Warn("cluster: clamped backward database heartbeat age", "age", age, "minimum_exclusive", -p.o.LiveAfter, "suppressed", skipped)
+	}
+	return 0
 }

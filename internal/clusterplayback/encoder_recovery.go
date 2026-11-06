@@ -64,7 +64,7 @@ func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
 	}
 	next := int(snapshot.State.PublishedFloor + 1)
 	q.Resume = &core.HLSResume{FirstSegment: next, Generation: uint64(old.route.Fence.Generation + 1)}
-	target, claims, caps, err := r.selectTargetExcept(ctx, q, old.route.Fence.Target.NodeID)
+	target, claims, caps, err := r.selectTargetExcept(ctx, q, old.route.Fence.Target.NodeID, old.route.Source)
 	if err != nil {
 		return err
 	}
