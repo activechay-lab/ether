@@ -14,6 +14,8 @@ chmod 700 "$state"
 [[ -s $state/token ]] || { echo 'provision private token file first' >&2; exit 1; }
 printf 'K3S_TOKEN=%s\n' "$(cat "$state/token")" > "$state/node.env"
 name=ether035-mh-$mode
+node_cpus=2
+if [[ $mode == agent ]]; then node_cpus=1; fi
 # WireGuard overhead fits inside the 1280-byte Tailscale interface.
 # Lower bridge MTU also makes Flannel's interface-derived MTU conservative.
 if [[ ! -s $state/network.id ]]; then
@@ -22,7 +24,7 @@ if [[ ! -s $state/network.id ]]; then
 fi
 args=(--name "$name" --hostname "$name" --label ether.lab=ether035-multihost
   --privileged --cgroupns=private --network "$(cat "$state/network.id")"
-  --memory=2g --memory-swap=2g --cpus=2 --pids-limit=4096
+  --memory=2g --memory-swap=2g --cpus="$node_cpus" --pids-limit=4096
   --tmpfs /run --tmpfs /var/run --env-file "$state/node.env"
   -v "$state/data:/var/lib/rancher/k3s" -v "$state/kubelet:/var/lib/kubelet"
   -p "$external:51820:51820/udp" -p "$external:18035:30080/tcp")
@@ -35,7 +37,7 @@ if [[ $mode == server ]]; then
     --flannel-backend wireguard-native --flannel-external-ip
     --kube-apiserver-arg kubelet-preferred-address-types=ExternalIP,InternalIP)
 else
-  node+=(--server "https://$server:16443" --node-label ether.lab/workload=true)
+  node+=(--server "https://$server:16443" --node-label ether.lab/delivery=true)
 fi
 docker run -d "${args[@]}" rancher/k3s:v1.34.1-k3s1 "${node[@]}" > "$state/node.id"
 cat "$state/node.id"

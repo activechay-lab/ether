@@ -42,6 +42,6 @@ def listen(port, target_port):
             else:
                 client.close()
 
-with concurrent.futures.ThreadPoolExecutor(max_workers=9) as pool:
-    ports = [15432]+[base+ordinal for base in (18410,18420,18430,18440) for ordinal in (0,1)]
+ports = [15432, 18442]+[base+ordinal for base in (18410,18420,18430,18440) for ordinal in (0,1)]
+with concurrent.futures.ThreadPoolExecutor(max_workers=len(ports)) as pool:
     list(pool.map(lambda port: listen(port, 30432 if port == 15432 else port+13000), ports))

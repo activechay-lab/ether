@@ -31,6 +31,7 @@ def main():
     p.add_argument('--context', choices=['kind-ether035-ha', 'ether035-multihost'], default='kind-ether035-ha')
     p.add_argument('--kubectl',default='kubectl')
     p.add_argument('--credentials-dir',required=True,type=Path)
+    p.add_argument('--refresh-only',action='store_true',help='Refresh fixture delegation without rewriting source configuration')
     a=p.parse_args()
     if a.namespace != 'ether035-ha' or urlsplit(a.base).hostname not in ('127.0.0.1','localhost'):
         p.error('only ether035-ha namespace and loopback API origin are allowed')
@@ -60,16 +61,17 @@ def main():
         config=call('/ether/api/config')['config']
         if config['plex'].get('claimed'):
             p.error('refusing a claimed server')
-        if any(v['id']!='ether035-ha-source' for v in (config['usenet']['providers'] or [])) or any(v['id']!='ether035-ha-source' for v in (config['indexers'] or [])):
-            p.error('refusing to replace nonfixture sources')
-        config['usenet']['providers']=[dict(id='ether035-ha-source',name='Ether generated fixture',
-            host='ether035-ha-source.ether035-ha.svc.cluster.local',port=1190,tls=False,
-            username='',password='',connections=4,enabled=True,priority=0)]
-        config['usenet']['minIdle']=1
-        config['indexers']=[dict(id='ether035-ha-source',name='Ether generated fixture',
-            url='http://ether035-ha-source.ether035-ha.svc.cluster.local:8080',apiKey='',priority=0,
-            enabled=True,protocol='usenet',movieCategories=[2000])]
-        call('/ether/api/config','PUT',config)
+        if not a.refresh_only:
+            if any(v['id']!='ether035-ha-source' for v in (config['usenet']['providers'] or [])) or any(v['id']!='ether035-ha-source' for v in (config['indexers'] or [])):
+                p.error('refusing to replace nonfixture sources')
+            config['usenet']['providers']=[dict(id='ether035-ha-source',name='Ether generated fixture',
+                host='ether035-ha-source.ether035-ha.svc.cluster.local',port=1190,tls=False,
+                username='',password='',connections=4,enabled=True,priority=0)]
+            config['usenet']['minIdle']=1
+            config['indexers']=[dict(id='ether035-ha-source',name='Ether generated fixture',
+                url='http://ether035-ha-source.ether035-ha.svc.cluster.local:8080',apiKey='',priority=0,
+                enabled=True,protocol='usenet',movieCategories=[2000])]
+            call('/ether/api/config','PUT',config)
     except Exception as error:
         # HTTP exception strings/response bodies can contain credential material.
         raise SystemExit('lab owner/config API failed: '+type(error).__name__)
