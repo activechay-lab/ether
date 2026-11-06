@@ -126,6 +126,16 @@ func testIntegrationAdaptiveRapidMediaHandoff(t *testing.T, copyPrimary bool) {
 			}
 			elapsed := time.Since(started)
 			first, end, key := e.videoSpanKey(t, container, init, body, "switched-"+transport)
+			if !copyPrimary {
+				previousVideo := previousBody
+				if proto != core.ProtocolDASH {
+					previousVideo = previousAudioBody
+				}
+				_, previousEnd, _ := e.videoSpanKey(t, container, nil, previousVideo, "before-switch-"+transport)
+				if math.Abs(first-previousEnd) > 0.5/24 || math.Abs(end-first-2) > 0.5/24 {
+					t.Fatalf("handoff leaves authored grid: previous end %.9f switched %.9f..%.9f", previousEnd, first, end)
+				}
+			}
 			if math.Abs(first-4) > 0.1 || math.Abs(end-6) > 0.1 || !key {
 				t.Fatalf("switched span %.3f..%.3f key=%v", first, end, key)
 			}
