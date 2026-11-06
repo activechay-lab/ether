@@ -2,11 +2,12 @@
 
 This chart packages the v0.3.5 deployment runtime. Use an image that implements
 `ETHER_DEPLOYMENT_FILE`, role isolation, authenticated private transport and the
-probe/drain contract below. Older Ether images are incompatible. At the time of
-chart preparation, the runtime accepts full nodes and a guarded transcode
-implementation; source, delivery and server-only graphs remain gated. The mixed
-role example is an acceptance target, not a claim that those roles already work. Chart rendering
-checks do not establish playback continuity; that requires the acceptance run.
+probe/drain contract below. Older Ether images are incompatible. The integration
+runtime composes server,
+source, transcode and delivery specialists beneath the protocol adapters.
+Mixed public-role deployment still requires the explicit chart lab gate described
+below. Implemented recovery paths are not a seamless-playback certification:
+that requires the measured loss matrix in [the acceptance guide](kubernetes-acceptance.md).
 
 The chart uses external PostgreSQL, one StatefulSet for each enabled role pool,
 and a separate persistent config volume for each pod ordinal. The default pool
@@ -20,8 +21,8 @@ not required. Media bytes never pass through PostgreSQL.
 
 Requirements: Kubernetes 1.32+, Helm 3.19+, a dynamic provisioner (or matching
 preprovisioned PVCs), a working cluster DNS suffix, synchronized clocks with a
-verified error bound, and an external PostgreSQL database reachable from every
-pool. Select an explicit immutable image tag or digest before installation.
+verified error bound (host NTP is mandatory), and an external PostgreSQL database
+reachable from every pool. Select an explicit immutable image tag or digest before installation.
 
 ```sh
 kubectl create namespace ether
@@ -76,7 +77,7 @@ kubectl -n ether get pods,pvc,svc
 provides browse/control and responses that combine admission with streaming;
 `delivery` provides the fixed public representation sender. `source` and
 `transcode` have no public Plex listeners. Enabling a pool in values does not
-remove a runtime guard or establish that its shipping graph passes acceptance.
+establish that its shipping graph passes playback acceptance.
 The API Service selects only full/server pods; the separate media Service selects
 only full/delivery pods. See the same-origin routing requirements below.
 Specialists are runtime roles, not separate products; changing role mix does not
@@ -429,10 +430,26 @@ not playback acceptance. Include full+transcode+delivery, then source, and test
 hard loss separately from graceful drain. Do not use an owner's production
 Plex claim or provider credentials for acceptance.
 
-The initial GPU-workstation inventory found Docker usable, but NVIDIA NVML GPU
-access blocked by the host OS and no NVIDIA Docker runtime. CPU chart acceptance
-is possible; RTX4080 hardware acceptance remains a separate gate. Do not change
+WSL GPU/container availability and native Windows NVENC availability are separate
+capabilities. A native Windows transcode specialist can join over authenticated
+private transport and use the host driver without a Kubernetes GPU pod. Its
+private HTTPS endpoint and database must be reachable by the cluster, with the
+same trust, identity, clock and capacity rules as container workers. The lab
+`packaging/kubernetes/native-launcher` contains Ether and its FFmpeg descendants
+in a kill-on-close Windows Job Object; terminating that owned launcher bounds
+child cleanup. It is a lab launcher, not a Windows service installer. A native
+probe does not prove distributed placement or loss recovery. Do not change
 WSL/host drivers or the shared Docker daemon as part of chart installation.
+
+Transcode placement first requires a live eligible incarnation, available
+capacity and a successful exact-request capability probe. It then ranks verified
+hardware encoding ahead of software, followed by spare slots (the bottleneck
+across required resource scopes), source-node locality and stable node/boot
+identity. Capacity reservation rechecks atomically, including displaced claims.
+An exhausted or incapable GPU can fall back to an eligible CPU worker; an
+unschedulable GPU pod itself is not converted into a CPU pod. Shared-device
+workers must share a physical resource scope. Keep enough eligible CPU capacity
+to recover when the only GPU specialist is lost.
 
 See [the complete values reference](kubernetes-values.md).
 
@@ -576,3 +593,87 @@ PostgreSQL availability or physical node loss. Run the acceptance collector
 across each actual loss before release. Budget at least the coordination lease,
 three clock-skew bounds, the control tick and actual RPC latency within the
 measured client forward buffer; configurations with larger skew need more buffer.
+
+
+## Specialist roles and recovery boundaries
+
+The role presets are deployment-time responsibilities. Empty runtime roles mean
+`full`, including server, source, transcode, delivery and background duties;
+explicit role arrays compose only the selected responsibilities. Specialist
+roles require PostgreSQL. Change a pool's role by a reviewed deployment change
+and drain/replacement, not by copying identity files or changing a running node.
+
+| Helm pool | Responsibility | Public routing |
+| --- | --- | --- |
+| `pools.server` | Protocol admission, browse/control, session coordination and lease renewal; remote source/encoder adapters | API Service |
+| `pools.source` | Provider acquisition and exact-release byte-range serving | Private transport only |
+| `pools.transcode` | Worker-local input gateway, FFmpeg and segment output | Private transport only |
+| `pools.delivery` | Stateless representation forwarding to the current SQL-resolved coordinator | Media Service |
+| `pools.full` | All responsibilities, including background work | API and media Services |
+
+A four-specialist lab configuration is shown in
+[the values reference](kubernetes-values.md#four-specialist-pools). Use at least
+two eligible instances per role in separate failure domains and surviving
+PostgreSQL authority. Spare capacity must cover the failed execution. Replicas
+on separate Kubernetes nodes on one machine do not prove physical-host HA.
+
+Source loss is handled beneath FFmpeg by `internal/nodeinput`. The gateway
+retries an exact byte range through another eligible source, which reopens the
+same release and validates revision and size. Source route CAS advances an
+independent source generation, fencing old reads without restarting a healthy
+encoder. The current implementation permits at most three source moves per
+encoder generation and needs a persisted exact-source recovery descriptor;
+an arbitrary local source without that descriptor cannot be recovered remotely.
+
+Encoder loss advances the execution generation and resumes from the first
+segment beyond delivery's durably published contiguous prefix. Cached published
+segments remain serviceable under current authority. The replacement uses the
+same title-time segment grid, start number and output timestamp offset, with a
+forced IDR and closed GOP at each boundary on supported re-encode paths.
+Generation checks reject a stale encoder's publication; lease-renewal failure
+past the accepted monotonic deadline self-fences the worker. Displaced capacity
+stays charged until exact retirement proof. Node or pod status can accelerate
+failure detection but never substitutes for these authority checks.
+
+The current coordinator auto-recovery gate accepts MPEG-TS video transcode with
+copied audio, zero initial offset, no live input, no soft-subtitle stream and no
+pre-existing `RecoveryStart`; video-copy and re-encoded audio are refused here.
+Local splice proofs for other formats do not broaden this distributed gate.
+Any change to that gate must be reflected here after integration and validation.
+Controller takeover and stateless delivery behavior are described above; neither
+moves a healthy encoder merely because a public replica disappears.
+
+Membership `last_seen` writes and age calculations both use PostgreSQL's clock,
+so a node wall-clock step cannot manufacture membership freshness. Membership
+liveness remains distinct from lease authority and confirmed process retirement.
+Host NTP is mandatory even with DB-clock membership and continuous skew checks.
+
+## Known limits and release gates
+
+These limits remain open until their explicit acceptance evidence is recorded.
+Use the bundled FFmpeg (pinned 8.1.3); stock 8.0.x has known fMP4 copy-path test
+failures that also reproduce on the release baseline.
+
+- Re-encoded-audio restart timing and multi-rendition quality switches require
+  the AC3 5.1 to AAC kill matrix (TS and fMP4, boundaries 1–8) and adaptive rapid
+  handoff proof on both pinned and stock builds.
+- FastStart has a pre-existing ramp-to-steady clock jump of about 45 ms and one
+  duplicated AAC frame. Uninterrupted and boundary 0–8 kill proofs, with no TTFF
+  regression, are required before claiming seamless FastStart recovery.
+- Cluster Resume refuses video-copy. Ordinary copy seeks retain their behavior.
+- Hardware restart reorder depth is unmeasured. Keep current hardware encoder
+  arguments until NVENC and other supported devices have their own splice proof.
+- Native NVENC distributed playback, five minutes of clean media and native-node
+  kill to CPU recovery require measured harness evidence. Hardware probing alone
+  does not close this gate.
+- Physical multi-host loss requires a separate host-pause report. A lab memory
+  guard abort or an unperformed fault is pending infrastructure evidence.
+- Normal Stop across replicas requires repeated-session capacity accounting and
+  dead-boot claim retirement confirmation; a Stop HTTP 200 alone is insufficient.
+- The complete role-loss matrix remains required for release. Local Plex and
+  Jellyfin baselines, offline failover tests and negative controls are supporting
+  evidence, not role-loss passes. The mixed-role chart lab gate remains enabled.
+
+See [the acceptance guide](kubernetes-acceptance.md) for exact verdict rules,
+multihost scripts and the evidence index contract. Live reports belong in private
+thread storage, not in this repository.
