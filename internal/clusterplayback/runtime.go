@@ -98,10 +98,10 @@ type Runtime struct {
 
 func NewRuntime(o Options) (*Runtime, error) {
 	if o.EncoderRPCDeadline == 0 {
-		o.EncoderRPCDeadline = 500 * time.Millisecond
+		o.EncoderRPCDeadline = 2 * time.Second
 	}
 	if o.EncoderFailureGrace == 0 {
-		o.EncoderFailureGrace = 2 * time.Second
+		o.EncoderFailureGrace = 4 * time.Second
 	}
 	if o.EncoderRPCDeadline < time.Millisecond || o.EncoderRPCDeadline > 5*time.Second || o.EncoderFailureGrace < time.Millisecond || o.EncoderFailureGrace > time.Minute {
 		return nil, ErrDenied

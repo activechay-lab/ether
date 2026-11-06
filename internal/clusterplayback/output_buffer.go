@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"strconv"
@@ -52,6 +53,7 @@ func (r *Runtime) newBufferedSession(route Route, q core.HLSRequest, s *remotetr
 	}
 	state := playbackbuffer.State{Generation: uint64(route.Fence.Generation), PublishedFloor: -1}
 	if err := r.o.OutputBuffer.OpenSession(route.Fence.Session, state); err != nil {
+		slog.Warn("recovery buffer admission refused", "session", route.Fence.Session, "error", err)
 		return nil // Existing public sequences are never overwritten or evicted.
 	}
 	return &bufferedSession{Session: s, r: r, route: route, headers: make(map[int64]http.Header), supersededAt: -1}

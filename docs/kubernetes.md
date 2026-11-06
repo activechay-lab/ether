@@ -683,7 +683,40 @@ remain inside each node's half of the configured pairwise bound. Clock quarantin
 blocks new authority and lease extension, while a healthy running encoder remains
 observable under its accepted lease. Recovery probes check exact membership and
 encoder status, independently of eligibility for new work. Recovery decision logs
-name the detector, probe duration/deadline, and failure grace.
+name the detector, probe duration/deadline, failure grace and consecutive-failure
+count. Status observation has a two-second RPC deadline. Transport loss needs
+at least three consecutive failures and four seconds since the first failed
+probe completed; any healthy probe resets both. Authenticated replacement boot,
+explicit TLS identity/policy denial, HTTP 401/403/410 status refusal and confirmed
+encoder retirement bypass this grace. None of these observations alone releases
+old capacity or proves process retirement.
+
+For one session with an available controller ticking every second, a silent
+hang is detected conservatively within ten seconds plus control SQL/scheduling
+latency: up to one second to the next tick, two seconds for the first probe,
+four seconds of grace, and up to one tick plus one probe (three seconds) to
+observe expiry. The three-failure minimum fits inside this bound. The runtime
+has a three-second operation budget per tick; overloaded SQL or many serialized
+sessions can delay progress further, so this is not a universal wall-clock SLA.
+Explicit loss signals take the next successful probe without the four-second
+wait. Placement and replacement startup add their own recovery time.
+
+The shared-host lab's eight logged failed/decision probes had p50 500.582 ms,
+p99/max 501.244 ms, including six 500 ms timeouts. Before the fault, only two failed probes were
+logged: p50 500.760 ms, p99/max 501.104 ms. These are failure-only,
+timeout-censored observations, not healthy RPC percentiles. The two-second
+budget exceeds three times that observed p99; the three-failure minimum prevents
+two isolated slow observations from triggering recovery. Enable debug logging
+for `encoder recovery probe` to measure the complete healthy/failing distribution
+in subsequent labs. Recalibrate against those uncensored observations.
+
+The bounded recovery store releases a session slot only after exact durable
+retirement and after pending retention/readers drain. Maintenance retries pinned
+slots; no active published prefix is evicted to admit another session. MPEG-TS
+inspection accepts H.264 PES with omitted packet length (zero), delimited by the
+next payload-unit start or segment end; AAC still requires its explicit length.
+This permits the real generated-media pipeline to publish its contiguous prefix
+and restart at floor+1.
 
 
 ## Known limits and release gates

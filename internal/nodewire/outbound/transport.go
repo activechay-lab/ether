@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+// ErrPeerDenied identifies explicit TLS identity/policy refusal, not a timeout
+// or connection failure. Callers may replace work but cannot infer retirement.
+var ErrPeerDenied = errors.New("outbound: peer denied")
+
 type operationContext struct{}
 
 // Transport admits one fresh, fully verified HTTP/1.1 TLS connection per
@@ -34,6 +38,14 @@ func New(endpoint string, config *tls.Config, timeout time.Duration, check func(
 		return nil, errors.New("outbound: invalid dependencies")
 	}
 	tc := config.Clone()
+	if verify := tc.VerifyConnection; verify != nil {
+		tc.VerifyConnection = func(state tls.ConnectionState) error {
+			if err := verify(state); err != nil {
+				return ErrPeerDenied
+			}
+			return nil
+		}
+	}
 	tc.RootCAs = config.RootCAs.Clone()
 	tc.NextProtos = []string{"http/1.1"}
 	tc.SessionTicketsDisabled = true
@@ -95,6 +107,9 @@ func New(endpoint string, config *tls.Config, timeout time.Duration, check func(
 				e = errors.New("outbound: unverified peer")
 			} else {
 				e = check(ctx, state)
+				if e != nil && ctx.Err() == nil {
+					e = ErrPeerDenied
+				}
 			}
 		}
 		if e == nil {
@@ -102,6 +117,10 @@ func New(endpoint string, config *tls.Config, timeout time.Duration, check func(
 		}
 		if e != nil {
 			conn.Close()
+			var certificateError *tls.CertificateVerificationError
+			if ctx.Err() == nil && (errors.Is(e, ErrPeerDenied) || errors.As(e, &certificateError)) {
+				return nil, ErrPeerDenied
+			}
 			return nil, errors.New("outbound: connection denied")
 		}
 		return conn, nil
