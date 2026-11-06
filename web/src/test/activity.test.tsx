@@ -30,7 +30,7 @@ const schedule = {
   lastStatus: "",
 };
 
-function backend() {
+function backend(cluster = false) {
   const calls: { url: string; init?: RequestInit }[] = [];
   vi.stubGlobal(
     "fetch",
@@ -38,7 +38,40 @@ function backend() {
       const url = String(input);
       calls.push({ url, init });
       let v: unknown = { ok: true };
-      if (url.includes("/extend/registry")) v = { version: 1, descriptors: notifyDescriptors };
+      if (url.endsWith("/cluster/"))
+        v = cluster
+          ? {
+              mode: "postgres",
+              self: { id: "server" },
+              nodes: [
+                { id: "source", name: "Media source" },
+                { id: "gpu", name: "GPU worker" },
+              ],
+            }
+          : { mode: "solo" };
+      else if (url.endsWith("/cluster/console"))
+        v = {
+          sampledAt: new Date().toISOString(),
+          truncated: false,
+          assignments: [
+            {
+              sessionId: "execution",
+              playId: "live",
+              sourceNodeId: "source",
+              encoderNodeId: "gpu",
+              encoder: "h264_nvenc",
+            },
+            {
+              sessionId: "remote",
+              sourceNodeId: "source",
+              encoderNodeId: "gpu",
+              encoder: "cpu",
+              playback: { title: "Remote film", viewer: "Jordan", decision: "transcode" },
+            },
+          ],
+          events: [{ sessionId: "execution", status: "recovering" }],
+        };
+      else if (url.includes("/extend/registry")) v = { version: 1, descriptors: notifyDescriptors };
       else if (url.includes("/stats/summary")) v = emptySummary;
       else if (url.includes("/stats/history")) v = [];
       else if (url.endsWith("/users"))
@@ -203,6 +236,23 @@ describe("Activity", () => {
         WAIT,
       ),
     ).toBeInTheDocument();
+  });
+
+  it("joins cluster assignments without duplicating the source session and includes remote executions", async () => {
+    backend(true);
+    renderAt("/activity");
+    await screen.findByText("Remote film", {}, WAIT);
+    expect(screen.getAllByText("Example film")).toHaveLength(1);
+    const card = screen.getByText("Example film").closest("article")!;
+    expect(within(card).getByText("Media source")).toBeVisible();
+    expect(within(card).getByText("GPU worker · GPU · h264_nvenc")).toBeVisible();
+    expect(within(card).getByText("Any delivery node")).toBeVisible();
+    expect(within(card).getByText("Recovering")).toBeVisible();
+    expect(within(card).getByRole("link", { name: /Recovery history/ })).toHaveAttribute(
+      "href",
+      "/cluster?tab=recovery&session=execution",
+    );
+    expect(screen.getByText("GPU worker · CPU")).toBeVisible();
   });
 
   it("filters by a named viewer while sending the existing account ID", async () => {

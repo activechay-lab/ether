@@ -13,6 +13,7 @@ import {
   Square,
 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Artwork } from "../../components/Artwork";
 import { Meter } from "../../components/charts";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
@@ -61,6 +62,29 @@ function Flow({ from, to }: { from: string; to: string }) {
       <ArrowRight size={12} className="mx-1 inline text-fg-subtle" aria-label={t("becomes")} />
       <span>{to}</span>
     </span>
+  );
+}
+
+/** Cluster details share the existing card and inline list layouts. */
+function ClusterDetails({ s }: { s: Stream }) {
+  if (!s.cluster) return null;
+  return (
+    <div className="space-y-3 border-t border-border p-4">
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <Fact label={t("Source node")}>{s.cluster.source}</Fact>
+        <Fact label={t("Transcoding node")}>{s.cluster.encoder}</Fact>
+        <Fact label={t("Delivery")}>{s.cluster.delivery}</Fact>
+      </dl>
+      {s.cluster.recovery && (
+        <Link
+          className="inline-flex items-center gap-2 text-sm text-primary underline"
+          to={s.cluster.recovery}
+        >
+          {s.cluster.recovering && <Badge variant="warning">{t("Recovering")}</Badge>}
+          {t("Recovery history")}
+        </Link>
+      )}
+    </div>
   );
 }
 
@@ -180,6 +204,7 @@ function StreamCard({ s, stopping, onStop }: { s: Stream; stopping: boolean; onS
         <Fact label={t("Source")}>{s.origin || null}</Fact>
         <Fact label={t("App")}>{s.protocol}</Fact>
       </dl>
+      <ClusterDetails s={s} />
       {converting && s.decisionReason ? (
         <p className="border-t border-border px-4 py-2.5 text-xs text-fg-muted">
           <Cpu size={12} className="mr-1.5 inline text-warning" aria-hidden />
@@ -321,6 +346,7 @@ function StreamRow({ s, stopping, onStop }: { s: Stream; stopping: boolean; onSt
           <Square size={13} /> {t("Stop")}
         </Button>
       </div>
+      <ClusterDetails s={s} />
     </li>
   );
 }

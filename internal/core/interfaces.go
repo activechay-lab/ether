@@ -661,6 +661,8 @@ type StreamInfo struct {
 	// decoder with the source's initial PCE before seeking to a later packet.
 	AACConfigPTS   *int64 `json:"aacConfigPts,omitempty"`
 	AACSourceStart *int64 `json:"aacSourceStart,omitempty"`
+	// DecodedPadding is source priming removed by the demuxer from its frame clock.
+	DecodedPadding int    `json:"decodedPadding,omitempty"`
 	SampleRate     int    `json:"sampleRate,omitempty"`
 	BitrateKbps    int    `json:"bitrateKbps,omitempty"`
 	ProviderTitle  string `json:"providerTitle,omitempty"`
@@ -781,6 +783,9 @@ type HWAccel struct {
 	// NoGPUTonemap: the device's VAAPI VPP cannot run tonemap_vaapi, so HDR
 	// tone-mapping falls back to the software zscale/tonemap path.
 	NoGPUTonemap bool `json:"noGpuTonemap,omitempty"`
+	// QSV modes are ordered, successfully probed rate-control choices for Device.
+	QSVQualityModes map[string][]string `json:"qsvQualityModes,omitempty"`
+	QSVBitrateModes map[string][]string `json:"qsvBitrateModes,omitempty"`
 	// VAAPIQualityRC / VAAPIBitrateRC record the probed VAAPI rate-control
 	// modes ("QVBR", "VBR", "CBR", "CQP") per encoder ("h264_vaapi",
 	// "hevc_vaapi"); nil/empty falls back to the default QVBR/VBR modes.

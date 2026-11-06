@@ -194,7 +194,7 @@ export function policyIn(
   return pageOf(doc, layer, section)?.rows.find((r) => r.row === row);
 }
 
-/** How specifically a policy's row targets a row: 3 hub id, 2 kind, 1 glob, 0 none. */
+/** How specifically a policy's row targets a row: 3 full hub id, 2 kind, 1 stem or glob, 0 none. */
 export function matchRank(pattern: string, hubId: string, kind: string): number {
   let stem = hubId;
   for (const p of ["home.", "movie.", "tv."]) {
@@ -203,8 +203,9 @@ export function matchRank(pattern: string, hubId: string, kind: string): number 
       break;
     }
   }
-  if (pattern === hubId || pattern === stem) return 3;
+  if (pattern === hubId) return 3;
   if (pattern === kind) return 2;
+  if (pattern === stem) return 1;
   if (/[*?[]/.test(pattern)) {
     const re = globToRegExp(pattern);
     if (re && (re.test(hubId) || re.test(stem) || re.test(kind))) return 1;
@@ -237,7 +238,8 @@ function bestIn(page: LayoutPage | undefined, hubId: string, kind: string): RowP
   let rank = 0;
   for (const r of page?.rows ?? []) {
     const m = matchRank(r.row, hubId, kind);
-    if (m > rank) {
+    // Equally specific rules: the later one wins, as on the server.
+    if (m > 0 && m >= rank) {
       best = r;
       rank = m;
     }
@@ -579,6 +581,61 @@ export function removePolicy(
     ...page,
     rows: page.rows.filter((r) => r.row !== row),
   }));
+}
+
+/**
+ * Set several rows' status in a layer at once. A row the layer already has
+ * keeps its other constraints; a new one starts from `inherited` (what the
+ * row gets now, e.g. Everyone's policy for a viewer override), as a
+ * single-row edit does.
+ */
+export function setStatuses(
+  doc: HomeLayout,
+  layer: LayerKey,
+  section: LayoutSection,
+  rows: string[],
+  status: RowStatus,
+  inherited: (row: string) => RowPolicy | undefined = () => undefined,
+): HomeLayout {
+  const targets = new Set(rows);
+  const next = (p: RowPolicy) =>
+    tidyPolicy({ ...p, status, slot: status === "off" ? undefined : p.slot });
+  return updatePage(doc, layer, section, (page) => {
+    let out = page.rows.map((r) => (targets.has(r.row) ? next(r) : r));
+    const have = new Set(page.rows.map((r) => r.row));
+    for (const row of targets)
+      if (!have.has(row)) out.push(next({ ...(inherited(row) ?? { status }), row }));
+    // As in setPolicy, an anchored slot is freed from any other row in the layer.
+    // Several targets can inherit the same pattern's anchor. As with repeated
+    // single-row edits, the last target owns it; never emit duplicate anchors.
+    const held = new Map<number, string>();
+    for (const r of out) if (targets.has(r.row) && r.slot) held.set(r.slot, r.row);
+    out = out.map((r) =>
+      r.slot && held.has(r.slot) && held.get(r.slot) !== r.row
+        ? tidyPolicy({ ...r, slot: undefined })
+        : r,
+    );
+    return { ...page, rows: out };
+  });
+}
+
+/** Remove several rows' policies from a layer at once. */
+export function removePolicies(
+  doc: HomeLayout,
+  layer: LayerKey,
+  section: LayoutSection,
+  rows: string[],
+): HomeLayout {
+  const targets = new Set(rows);
+  return updatePage(doc, layer, section, (page) => ({
+    ...page,
+    rows: page.rows.filter((r) => !targets.has(r.row)),
+  }));
+}
+
+/** Whether a layout row is a pattern (glob) rather than one row. */
+export function isPattern(row: string): boolean {
+  return /[*?[]/.test(row);
 }
 
 /** Set or clear (undefined) a page length, for all devices (device null) or one. */

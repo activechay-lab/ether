@@ -274,6 +274,8 @@ func matchingPolicy(p *core.LayoutPage, row core.HomeRow) *core.RowPolicy {
 			if r.Row == row.Kind {
 				n = 2
 			}
+			// Preserve the existing server ranking: only the full hub id
+			// outranks a kind; a screen-less stem has rank 1.
 			if r.Row == row.HubID {
 				n = 3
 			}

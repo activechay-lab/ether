@@ -57,6 +57,10 @@ func TestExactCreditNameFilter(t *testing.T) {
 			}
 		})
 	}
+	// The behaviour assertions above apply to both engines; the plan syntax below is SQLite-only.
+	if store.DialectOf(db) != store.SQLite {
+		return
+	}
 	rows, err := db.QueryContext(ctx, `EXPLAIN QUERY PLAN SELECT key FROM catalog_credits WHERE person_tmdb IN (SELECT person_tmdb FROM catalog_person_names WHERE LOWER(name)=?) AND kind='cast'`, "zoë north")
 	if err != nil {
 		t.Fatal(err)

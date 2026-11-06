@@ -697,10 +697,25 @@ export const minutesOfDay = (value: string) => {
   const [h = NaN, m = NaN] = value.split(":").map(Number);
   return h * 60 + m;
 };
-export const clock = (d: Date | string) =>
-  new Date(d).toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
-export const dayClock = (d: Date | string) =>
-  new Date(d).toLocaleString(getLocale(), { weekday: "short", hour: "numeric", minute: "2-digit" });
+// Reuse ICU formatters: the guide formats each programme's endpoints several
+// times per render. Date.toLocale* constructs a formatter for every call.
+const clockFormats = new Map<string, Intl.DateTimeFormat>();
+function clockFormat(day: boolean) {
+  const locale = getLocale();
+  const key = `${locale}:${day}`;
+  let format = clockFormats.get(key);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, {
+      ...(day ? { weekday: "short" as const } : {}),
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    clockFormats.set(key, format);
+  }
+  return format;
+}
+export const clock = (d: Date | string) => clockFormat(false).format(new Date(d));
+export const dayClock = (d: Date | string) => clockFormat(true).format(new Date(d));
 export function duration(ms: number): string {
   const m = Math.max(0, Math.round(ms / MINUTE));
   const h = Math.floor(m / 60);

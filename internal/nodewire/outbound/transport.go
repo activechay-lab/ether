@@ -9,8 +9,17 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"syscall"
 	"time"
 )
+
+// ErrEndpointUnavailable means an explicit refusal, absent DNS name, or no
+// network/host route. It allows replacement, never resource retirement.
+var ErrEndpointUnavailable = errors.New("outbound: endpoint unavailable")
+
+// ErrPeerDenied identifies explicit TLS identity/policy refusal, not a timeout
+// or connection failure. Callers may replace work but cannot infer retirement.
+var ErrPeerDenied = errors.New("outbound: peer denied")
 
 type operationContext struct{}
 
@@ -34,6 +43,14 @@ func New(endpoint string, config *tls.Config, timeout time.Duration, check func(
 		return nil, errors.New("outbound: invalid dependencies")
 	}
 	tc := config.Clone()
+	if verify := tc.VerifyConnection; verify != nil {
+		tc.VerifyConnection = func(state tls.ConnectionState) error {
+			if err := verify(state); err != nil {
+				return ErrPeerDenied
+			}
+			return nil
+		}
+	}
 	tc.RootCAs = config.RootCAs.Clone()
 	tc.NextProtos = []string{"http/1.1"}
 	tc.SessionTicketsDisabled = true
@@ -84,6 +101,10 @@ func New(endpoint string, config *tls.Config, timeout time.Duration, check func(
 		defer cancel()
 		raw, e := (&net.Dialer{}).DialContext(ctx, network, addr)
 		if e != nil {
+			var dns *net.DNSError
+			if ctx.Err() == nil && (errors.Is(e, syscall.ECONNREFUSED) || errors.Is(e, syscall.ENETUNREACH) || errors.Is(e, syscall.EHOSTUNREACH) || errors.As(e, &dns) && dns.IsNotFound) {
+				return nil, ErrEndpointUnavailable
+			}
 			return nil, errors.New("outbound: connection denied")
 		}
 		conn := tls.Client(raw, tc)
@@ -95,6 +116,9 @@ func New(endpoint string, config *tls.Config, timeout time.Duration, check func(
 				e = errors.New("outbound: unverified peer")
 			} else {
 				e = check(ctx, state)
+				if e != nil && ctx.Err() == nil {
+					e = ErrPeerDenied
+				}
 			}
 		}
 		if e == nil {
@@ -102,6 +126,10 @@ func New(endpoint string, config *tls.Config, timeout time.Duration, check func(
 		}
 		if e != nil {
 			conn.Close()
+			var certificateError *tls.CertificateVerificationError
+			if ctx.Err() == nil && (errors.Is(e, ErrPeerDenied) || errors.As(e, &certificateError)) {
+				return nil, ErrPeerDenied
+			}
 			return nil, errors.New("outbound: connection denied")
 		}
 		return conn, nil
@@ -129,3 +157,10 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return t.http.RoundTrip(r)
 }
 func (t *Transport) CloseIdleConnections() { t.http.CloseIdleConnections() }
+
+// ResponseHeaderTimeout sets the wait for the first response headers separately
+// from TCP/TLS admission. Call only before the transport's first request.
+// Media may wait for an encoder segment while dead endpoints must fail quickly.
+func (t *Transport) ResponseHeaderTimeout(timeout time.Duration) {
+	t.http.ResponseHeaderTimeout = timeout
+}

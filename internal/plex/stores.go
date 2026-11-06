@@ -76,6 +76,7 @@ type transcodeEntry struct {
 const decisionFailureTTL = 15 * time.Second
 
 type transcodeTable struct {
+	load  func(string) (*transcodeEntry, bool)
 	table *sessions.BindingTable[playRequest]
 }
 
@@ -98,6 +99,17 @@ func (t *transcodeTable) claim(id string, userID int64, clientID string, now tim
 }
 func (t *transcodeTable) get(id string) (*transcodeEntry, bool) {
 	b, ok := t.table.Get(id)
+	// Decision and start may land on different server replicas. A local
+	// decision is not the started stream binding: its grant and source facts
+	// predate the durable snapshot published by the starting server. Restore
+	// that snapshot without replacing the local decision/settings or token.
+	if t.load != nil && (!ok || !b.Started) {
+		if restored, found := t.load(id); found {
+			if !ok || restored.userID == b.UserID && restored.clientID == b.ClientID {
+				return restored, true
+			}
+		}
+	}
 	if !ok {
 		return nil, false
 	}

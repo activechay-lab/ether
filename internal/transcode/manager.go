@@ -554,6 +554,10 @@ func (m *Manager) encodingLocked(except string) int {
 // prior exact session has completed its process and directory cleanup.
 func (m *Manager) StartHLS(ctx context.Context, req core.HLSRequest) (core.HLSSession, error) {
 	req.RecoveryStart = core.CloneRecoveryStart(req.RecoveryStart)
+	if req.Resume != nil {
+		resume := *req.Resume
+		req.Resume = &resume
+	}
 	life, err := m.reserveEncoder()
 	if err != nil {
 		return nil, err
@@ -702,6 +706,12 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 			}
 		}
 	}
+	if req.Resume != nil {
+		n := req.Resume.FirstSegment
+		if n < 0 || n > 10000000 || req.Resume.Generation == 0 || req.LiveInput || req.StartOffset != 0 || proto != core.ProtocolHLS || d.VideoCopy || (d.Container != ContainerMPEGTS && d.Container != ContainerFMP4) || time.Duration(n) > time.Duration(1<<63-1)/segDur {
+			return nil, errors.New("transcode: unsupported authored-timeline resume request")
+		}
+	}
 	offset := req.StartOffset
 	if offset < 0 {
 		offset = 0
@@ -716,6 +726,10 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	// HLS playlists start at the offset; a DASH MPD always spans the whole
 	// title and the first run starts at the offset's segment.
 	base, startSeg, total := offset, 0, 0
+	if req.Resume != nil {
+		base = 0
+		startSeg = req.Resume.FirstSegment
+	}
 	tracks := 1
 	var reps []dashRep
 	var plan *Timeline
@@ -757,6 +771,8 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 				segDur = short
 			}
 		}
+		// Recovery reconstructs the original plan; segment numbers are not
+		// steady-grid offsets while FastStart is enabled.
 		fastStart := !req.LiveInput && adapt.FastStart && v != nil && (!d.VideoCopy || d.Container == ContainerMPEGTS)
 		plan = buildTimeline(span, segDur, timelineOptions{
 			steadyMode: steadyMode,
@@ -770,6 +786,10 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		total = plan.Total()
 		tracks = len(rungs) // one segment track per rung
 	}
+	if req.Resume != nil && plan != nil && total > 0 && startSeg >= total {
+		return nil, errors.New("transcode: resume segment outside authored timeline")
+	}
+
 	id := req.SessionID
 	if id == "" {
 		id = randomHex(12)

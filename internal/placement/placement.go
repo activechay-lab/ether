@@ -87,9 +87,11 @@ type RetirementVerifier interface {
 	VerifyRetired(context.Context, Fence, string) error
 }
 type Options struct {
-	MaxSessions int // hard ledger bound, including terminal generation floors
-	MaxLease    time.Duration
-	LockTimeout time.Duration
+	// AuthorityReady gates creation and extension, never reads or retirement.
+	AuthorityReady func() bool
+	MaxSessions    int // hard ledger bound, including terminal generation floors
+	MaxLease       time.Duration
+	LockTimeout    time.Duration
 }
 type Service struct {
 	db       *sql.DB
@@ -159,7 +161,7 @@ func (s *Service) SetPool(ctx context.Context, scope string, role config.NodeRol
 	}
 	return s.transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var used int64
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(units),0) FROM placement_claims WHERE scope=?`, scope).Scan(&used); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(units),0) FROM (SELECT scope,units FROM placement_claims UNION ALL SELECT scope,units FROM placement_displaced_claims) charged WHERE scope=?`, scope).Scan(&used); err != nil {
 			return err
 		}
 		if used > capacity {
@@ -207,6 +209,13 @@ func (s *Service) SetTarget(ctx context.Context, target Target, roles config.Nod
 	data, _ := json.Marshal(roles)
 	scopeData, _ := json.Marshal(policy)
 	return s.transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		var removed int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM placement_removed_targets WHERE node=? AND boot=?`, target.NodeID, target.Boot).Scan(&removed); err != nil {
+			return err
+		}
+		if removed != 0 {
+			return ErrFenced
+		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO placement_targets(node,boot,roles,scopes) VALUES(?,?,?,?) ON CONFLICT(node) DO UPDATE SET boot=excluded.boot,roles=excluded.roles,scopes=excluded.scopes`, target.NodeID, target.Boot, string(data), string(scopeData))
 		return err
 	})
@@ -278,104 +287,108 @@ func (s *Service) Reserve(ctx context.Context, request Request) (Record, error) 
 	if err != nil {
 		return out, err
 	}
-	err = s.transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		old, oldHash, e := read(ctx, tx, r.Session)
-		exists := e == nil
-		if e != nil && e != sql.ErrNoRows {
+	err = s.authorityTransaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		return s.reserveInTx(ctx, tx, r, hash, &out)
+	})
+	return out, err
+}
+
+func (s *Service) reserveInTx(ctx context.Context, tx *sql.Tx, r Request, hash string, out *Record) error {
+	old, oldHash, e := read(ctx, tx, r.Session)
+	exists := e == nil
+	if e != nil && e != sql.ErrNoRows {
+		return e
+	}
+	now, e := s.now(ctx, tx)
+	if e != nil {
+		return e
+	}
+	if exists && old.Operation == r.Operation {
+		if oldHash != hash {
+			return ErrConflict
+		}
+		*out = old
+		out.Deadline = old.InitialDeadline
+		out.Authority = !old.Retired && out.Deadline.UnixMilli() > now
+		return nil
+	}
+	if e := s.checkLedgerQuota(ctx, tx); e != nil {
+		return e
+	}
+	if (!exists && r.ExpectedGeneration != 0) || (exists && old.Generation != r.ExpectedGeneration) {
+		return ErrFenced
+	}
+	if exists && !old.Retired {
+		return ErrRetirement
+	}
+	if !exists {
+		var n int
+		if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM placement_sessions`).Scan(&n); e != nil {
 			return e
 		}
-		now, e := s.now(ctx, tx)
-		if e != nil {
-			return e
+		if n >= s.options.MaxSessions {
+			return ErrQuota
 		}
-		if exists && old.Operation == r.Operation {
-			if oldHash != hash {
-				return ErrConflict
-			}
-			out = old
-			out.Deadline = old.InitialDeadline
-			out.Authority = !old.Retired && out.Deadline.UnixMilli() > now
-			return nil
+	}
+	var boot, rolesJSON, scopesJSON string
+	e = tx.QueryRowContext(ctx, `SELECT boot,roles,scopes FROM placement_targets WHERE node=?`, r.Target.NodeID).Scan(&boot, &rolesJSON, &scopesJSON)
+	if e == sql.ErrNoRows {
+		return ErrPolicy
+	}
+	if e != nil {
+		return e
+	}
+	var roles config.NodeRoles
+	if boot != r.Target.Boot || json.Unmarshal([]byte(rolesJSON), &roles) != nil || len(roles) == 0 || roles.Validate() != nil || !roles.Has(r.Role) {
+		return ErrPolicy
+	}
+	var scopes map[config.NodeRole][]string
+	if json.Unmarshal([]byte(scopesJSON), &scopes) != nil || len(scopes[r.Role]) != len(r.Claims) {
+		return ErrPolicy
+	}
+	required := map[string]bool{}
+	for _, name := range scopes[r.Role] {
+		required[name] = true
+	}
+	for _, c := range r.Claims {
+		if !required[c.Scope] {
+			return ErrPolicy
 		}
-		if e := s.checkLedgerQuota(ctx, tx); e != nil {
-			return e
-		}
-		if (!exists && r.ExpectedGeneration != 0) || (exists && old.Generation != r.ExpectedGeneration) {
-			return ErrFenced
-		}
-		if exists && !old.Retired {
-			return ErrRetirement
-		}
-		if !exists {
-			var n int
-			if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM placement_sessions`).Scan(&n); e != nil {
-				return e
-			}
-			if n >= s.options.MaxSessions {
-				return ErrQuota
-			}
-		}
-		var boot, rolesJSON, scopesJSON string
-		e = tx.QueryRowContext(ctx, `SELECT boot,roles,scopes FROM placement_targets WHERE node=?`, r.Target.NodeID).Scan(&boot, &rolesJSON, &scopesJSON)
+	}
+	for _, c := range r.Claims {
+		var role string
+		var capacity, used int64
+		e = tx.QueryRowContext(ctx, `SELECT role,capacity FROM placement_pools WHERE scope=?`, c.Scope).Scan(&role, &capacity)
 		if e == sql.ErrNoRows {
 			return ErrPolicy
 		}
 		if e != nil {
 			return e
 		}
-		var roles config.NodeRoles
-		if boot != r.Target.Boot || json.Unmarshal([]byte(rolesJSON), &roles) != nil || len(roles) == 0 || roles.Validate() != nil || !roles.Has(r.Role) {
+		if role != string(r.Role) {
 			return ErrPolicy
 		}
-		var scopes map[config.NodeRole][]string
-		if json.Unmarshal([]byte(scopesJSON), &scopes) != nil || len(scopes[r.Role]) != len(r.Claims) {
-			return ErrPolicy
-		}
-		required := map[string]bool{}
-		for _, name := range scopes[r.Role] {
-			required[name] = true
-		}
-		for _, c := range r.Claims {
-			if !required[c.Scope] {
-				return ErrPolicy
-			}
-		}
-		for _, c := range r.Claims {
-			var role string
-			var capacity, used int64
-			e = tx.QueryRowContext(ctx, `SELECT role,capacity FROM placement_pools WHERE scope=?`, c.Scope).Scan(&role, &capacity)
-			if e == sql.ErrNoRows {
-				return ErrPolicy
-			}
-			if e != nil {
-				return e
-			}
-			if role != string(r.Role) {
-				return ErrPolicy
-			}
-			if e = tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(units),0) FROM placement_claims WHERE scope=?`, c.Scope).Scan(&used); e != nil {
-				return e
-			}
-			if c.Units > capacity || used > capacity-c.Units {
-				return ErrCapacity
-			}
-		}
-		claimsData, _ := json.Marshal(r.Claims)
-		generation := r.ExpectedGeneration + 1
-		deadline := now + r.Lease.Milliseconds()
-		_, e = tx.ExecContext(ctx, `INSERT INTO placement_sessions(session,generation,operation,fingerprint,controller,controller_boot,node,boot,role,claims,initial_deadline,deadline,retired) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0) ON CONFLICT(session) DO UPDATE SET generation=excluded.generation,operation=excluded.operation,fingerprint=excluded.fingerprint,controller=excluded.controller,controller_boot=excluded.controller_boot,node=excluded.node,boot=excluded.boot,role=excluded.role,claims=excluded.claims,initial_deadline=excluded.initial_deadline,deadline=excluded.deadline,retired=0`, r.Session, generation, r.Operation, hash, r.Controller.ID, r.Controller.Boot, r.Target.NodeID, r.Target.Boot, string(r.Role), string(claimsData), deadline, deadline)
-		if e != nil {
+		if e = tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(units),0) FROM (SELECT scope,units FROM placement_claims UNION ALL SELECT scope,units FROM placement_displaced_claims) charged WHERE scope=?`, c.Scope).Scan(&used); e != nil {
 			return e
 		}
-		for _, c := range r.Claims {
-			if _, e = tx.ExecContext(ctx, `INSERT INTO placement_claims(session,scope,units) VALUES(?,?,?)`, r.Session, c.Scope, c.Units); e != nil {
-				return e
-			}
+		if c.Units > capacity || used > capacity-c.Units {
+			return ErrCapacity
 		}
-		out = Record{Fence: Fence{r.Session, generation, r.Controller, r.Target}, Operation: r.Operation, Role: r.Role, Deadline: time.UnixMilli(deadline), InitialDeadline: time.UnixMilli(deadline), Authority: true, Claims: r.Claims}
-		return nil
-	})
-	return out, err
+	}
+	claimsData, _ := json.Marshal(r.Claims)
+	generation := r.ExpectedGeneration + 1
+	deadline := now + r.Lease.Milliseconds()
+	_, e = tx.ExecContext(ctx, `INSERT INTO placement_sessions(session,generation,operation,fingerprint,controller,controller_boot,node,boot,role,claims,initial_deadline,deadline,retired) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0) ON CONFLICT(session) DO UPDATE SET generation=excluded.generation,operation=excluded.operation,fingerprint=excluded.fingerprint,controller=excluded.controller,controller_boot=excluded.controller_boot,node=excluded.node,boot=excluded.boot,role=excluded.role,claims=excluded.claims,initial_deadline=excluded.initial_deadline,deadline=excluded.deadline,retired=0`, r.Session, generation, r.Operation, hash, r.Controller.ID, r.Controller.Boot, r.Target.NodeID, r.Target.Boot, string(r.Role), string(claimsData), deadline, deadline)
+	if e != nil {
+		return e
+	}
+	for _, c := range r.Claims {
+		if _, e = tx.ExecContext(ctx, `INSERT INTO placement_claims(session,scope,units) VALUES(?,?,?)`, r.Session, c.Scope, c.Units); e != nil {
+			return e
+		}
+	}
+	*out = Record{Fence: Fence{r.Session, generation, r.Controller, r.Target}, Operation: r.Operation, Role: r.Role, Deadline: time.UnixMilli(deadline), InitialDeadline: time.UnixMilli(deadline), Authority: true, Claims: r.Claims}
+	return nil
 }
 
 // Renew uses an absolute deadline, so retries cannot extend the requested lease.
@@ -384,7 +397,7 @@ func (s *Service) Renew(ctx context.Context, f Fence, deadline time.Time) error 
 	if !validFence(f) {
 		return ErrInvalid
 	}
-	return s.transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
+	return s.authorityTransaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		r, _, err := read(ctx, tx, f.Session)
 		if err == sql.ErrNoRows {
 			return ErrFenced
@@ -465,4 +478,23 @@ func retireRecord(ctx context.Context, tx *sql.Tx, r Record) error {
 func (s *Service) LedgerUsage(ctx context.Context) (used, retired int, err error) {
 	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(retired),0) FROM placement_sessions`).Scan(&used, &retired)
 	return
+}
+
+func (s *Service) authorityTransaction(ctx context.Context, fn func(context.Context, *sql.Tx) error) error {
+	ready := func() bool { return s.options.AuthorityReady == nil || s.options.AuthorityReady() }
+	if !ready() {
+		return ErrFenced
+	}
+	return s.transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		if !ready() {
+			return ErrFenced
+		}
+		if err := fn(ctx, tx); err != nil {
+			return err
+		}
+		if !ready() {
+			return ErrFenced
+		}
+		return nil
+	})
 }

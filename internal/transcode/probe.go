@@ -178,6 +178,8 @@ type ffprobeStream struct {
 	AvgFrameRate   string            `json:"avg_frame_rate"`
 	SampleFmt      string            `json:"sample_fmt"`
 	BitsPerRaw     string            `json:"bits_per_raw_sample"`
+	InitialPadding int               `json:"initial_padding"`
+	StartTime      string            `json:"start_time"`
 	SampleRate     string            `json:"sample_rate"`
 	Channels       int               `json:"channels"`
 	ChannelLayout  string            `json:"channel_layout"`
@@ -446,6 +448,11 @@ func mapStream(s ffprobeStream) (core.StreamInfo, bool) {
 			si.AACProgramConfig = aacASCProgramConfig(probeExtradata(s.Extradata), si.Channels)
 		}
 		si.SampleRate = int(atoi64(s.SampleRate))
+		// A negative origin still includes the priming on its clock. Do not
+		// subtract it again when restoring decoded frame sample positions.
+		if start, err := strconv.ParseFloat(s.StartTime, 64); err == nil && start >= 0 {
+			si.DecodedPadding = max(0, s.InitialPadding)
+		}
 	}
 	return si, true
 }

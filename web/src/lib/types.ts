@@ -715,6 +715,7 @@ export interface ClusterNode {
   caps: {
     /** Empty or absent preserves the full-server responsibilities. */
     roles?: string[] | null;
+    diagnostics?: ClusterDiagnostics;
     transcode: boolean;
     hwAccel?: string;
     weight?: number;
@@ -1003,4 +1004,67 @@ export interface ClusterRolePreflight {
     impact: string;
     execution: string;
   };
+}
+
+export interface ClusterDiagnostics {
+  clock?: {
+    clockSkewNs: number;
+    rttNs: number;
+    uncertaintyNs: number;
+    boundNs: number;
+    sampledAt: string;
+    ready: boolean;
+    reason?: string;
+    lastStepNs: number;
+  };
+  sampledAt: string;
+  readyExisting: boolean;
+  acceptingNew: boolean;
+  draining: boolean;
+  readinessReason?: string;
+  transcodeCapacity?: number;
+  transcodes?: number;
+  sourceConnections?: number;
+  sourceConnectionCapacity?: number;
+  deliveryBytesPerSecond?: number;
+  codecs?: string[];
+}
+export interface ClusterConsole {
+  sampledAt: string;
+  truncated: boolean;
+  assignments: {
+    playback?: {
+      protocol?: string;
+      decision?: string;
+      videoCopy?: boolean;
+      audioCopy?: boolean;
+      title?: string;
+      titleKey?: string;
+      viewer?: string;
+      device?: string;
+      app?: string;
+      video?: string;
+      bitrateKbps?: number;
+    };
+    sessionId: string;
+    playId?: string;
+    encoder?: string;
+    sourceNodeId?: string;
+    encoderNodeId: string;
+    controllerNodeId: string;
+    deliveryNodeId?: string;
+    generation: number;
+  }[];
+  events: {
+    sessionId: string;
+    role: string;
+    failedNodeId: string;
+    replacementNodeId?: string;
+    generation: number;
+    startedAt: string;
+    completedAt?: string;
+    status: string;
+    interruptionMs?: number;
+    clientStalls?: number;
+  }[];
 }

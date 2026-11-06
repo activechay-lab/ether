@@ -235,10 +235,9 @@ func finishPES(t *tsTrack) bool {
 		return false
 	}
 	n := int(binary.BigEndian.Uint16(b[4:6]))
-	if n == 0 || n+6 != len(b) {
-		return false
-	}
-	if t.fact.StreamType == 0x0f && n == 0 {
+	// H.264 PES commonly omits packet length. The enclosing TS payload-unit
+	// starts (or segment end) already delimit the assembled video packet.
+	if (n == 0 && t.fact.StreamType != 0x1b) || (n != 0 && n+6 != len(b)) {
 		return false
 	}
 	flags := b[7] >> 6

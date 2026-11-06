@@ -76,6 +76,9 @@ func TestOutboundConsumersCurrentTrust(t *testing.T) {
 				tc, _ := guard.ClientTLS(peer, "127.0.0.1")
 				// Isolate per-operation admission from handshake policy. Ordinary Go chain,
 				// hostname and EKU checks still run before this preserved original callback.
+				// Hold native TLS time steady in this fixture so expiry reaches the
+				// per-operation recheck; clock-step handshakes are tested separately.
+				tc.Time = time.Now
 				tc.VerifyConnection = func(tls.ConnectionState) error { callbacks.Add(1); return nil }
 				recheck := func(ctx context.Context, cs tls.ConnectionState) error {
 					checks.Add(1)

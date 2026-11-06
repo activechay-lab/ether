@@ -13,15 +13,16 @@ import (
 )
 
 var (
-	reYear        = regexp.MustCompile(`\b(188[89]|189\d|19\d{2}|20\d{2})\b`)
-	reSE          = regexp.MustCompile(`(?i)\bS(\d{1,2})[\s-]*E(\d{1,3})((?:\s*E\d{1,3})*)(?:\s*-\s*E?(\d{1,3}))?\b`)
-	reSeasonAndEp = regexp.MustCompile(`(?i)\b(?:Season|Series|Saison|Stagione|Temporada)\s*(\d{1,2})\b[\s-]*\b(?:Episode|Ep)\s*(\d{1,3})\b`)
-	reSeasonOnly  = regexp.MustCompile(`(?i)\bS(\d{1,2})(?:\s*(?:-|to)\s*S?(\d{1,2}))?\b`)
-	reSeasonWord  = regexp.MustCompile(`(?i)\b(?:Seasons?|Saison|Stagione|Temporada)\s*(\d{1,2})(?:\s*(?:-|to)\s*(?:Seasons?|S)?\s*(\d{1,2}))?\b`)
-	reXEpisode    = regexp.MustCompile(`\b(\d{1,2})x(\d{1,3})\b`)
-	reBareEpisode = regexp.MustCompile(`(?i)\b(?:Episodes?\s*(\d{1,3})|Ep\s*(\d{1,3})|E(\d{2,3}))(?:\s*(?:-|~|to)\s*(?:Episodes?\s*|Ep\s*|E)?(\d{1,3}))?\b`)
-	reDashEpisode = regexp.MustCompile(`(?i)\s-\s*(\d{2,3})\s+(?:\d{3,4}[pi]\b|BD\b|BLURAY\b|WEB|HDTV\b|DVD|X264\b|X265\b|HEVC\b|H264\b|H265\b|AV1\b|XVID\b)`)
-	reEpRange     = regexp.MustCompile(`(?i)E(\d{1,3})`)
+	reYear           = regexp.MustCompile(`\b(188[89]|189\d|19\d{2}|20\d{2})\b`)
+	reSE             = regexp.MustCompile(`(?i)\bS(\d{1,2})[\s\p{So}\x{FE0F}\x{200D}-]*E(\d{1,3})((?:\s*E\d{1,3})*)(?:\s*-\s*E?(\d{1,3}))?\b`)
+	reSpanishEpisode = regexp.MustCompile(`(?i)\b(?:Cap|Cap[ií]tulo)\s*(\d{3,4})\b`)
+	reSeasonAndEp    = regexp.MustCompile(`(?i)\b(?:Season|Series|Saison|Stagione|Temporada)\s*(\d{1,2})\b[\s-]*\b(?:Episode|Ep)\s*(\d{1,3})\b`)
+	reSeasonOnly     = regexp.MustCompile(`(?i)\bS(\d{1,2})(?:\s*(?:-|to)\s*S?(\d{1,2}))?\b`)
+	reSeasonWord     = regexp.MustCompile(`(?i)\b(?:Seasons?|Saison|Stagione|Temporada)\s*(\d{1,2})(?:\s*(?:-|to)\s*(?:Seasons?|S)?\s*(\d{1,2}))?\b`)
+	reXEpisode       = regexp.MustCompile(`\b(\d{1,2})x(\d{1,3})\b`)
+	reBareEpisode    = regexp.MustCompile(`(?i)\b(?:Episodes?\s*(\d{1,3})|Ep\s*(\d{1,3})|E(\d{2,3}))(?:\s*(?:-|~|to)\s*(?:Episodes?\s*|Ep\s*|E)?(\d{1,3}))?\b`)
+	reDashEpisode    = regexp.MustCompile(`(?i)\s-\s*(\d{2,3})\s+(?:\d{3,4}[pi]\b|BD\b|BLURAY\b|WEB|HDTV\b|DVD|X264\b|X265\b|HEVC\b|H264\b|H265\b|AV1\b|XVID\b)`)
+	reEpRange        = regexp.MustCompile(`(?i)E(\d{1,3})`)
 	// Anime absolute numbering and "Season N - EE" (parseAbsoluteEpisode,
 	// parseSeasonDashEpisode).
 	reAbsoluteBracket   = regexp.MustCompile(`(?i)(?:^|\s)-\s+(\d{1,4})(?:v\d{1,2})?(?:\s*[\[(]|\s*$|\s+(?:END|FINAL)\b)`)
@@ -86,11 +87,18 @@ func Parse(name string) core.ReleaseInfo {
 	upper := " " + strings.ToUpper(spaced) + " "
 
 	// Season / episode.
-	markerAt := parseEpisodes(spaced, upper, &info)
+	absolute, absoluteAt := parseAbsoluteEpisode(stem, spaced)
+	markerAt := -1
+	if absolute > 0 {
+		// Explicit anime numbering must not be reinterpreted as packed chapters.
+		markerAt = parseStandardEpisodes(spaced, upper, &info)
+	} else {
+		markerAt = parseEpisodes(spaced, upper, &info)
+	}
 	if markerAt < 0 && leadingEpisode > 0 {
 		info.Episodes = []int{leadingEpisode}
 	}
-	if abs, at := parseAbsoluteEpisode(stem, spaced); abs > 0 && len(info.Seasons) == 0 {
+	if abs, at := absolute, absoluteAt; abs > 0 && len(info.Seasons) == 0 {
 		// Anime numbers episodes from the series start ("Show - 1071");
 		// such a number is only an absolute episode, never a season's
 		// episode, so movie titles and SxxEyy names keep their meaning.
@@ -160,7 +168,13 @@ func Parse(name string) core.ReleaseInfo {
 		info.Languages = append(info.Languages, LanguageMulti)
 	}
 	subs := subtitlePositions(spaced, floor)
-	var subOnly []string
+	shortAudio, subOnly := shortLanguageTags(spaced, floor, subs)
+	for _, name := range shortAudio {
+		if !seen[name] {
+			seen[name] = true
+			info.Languages = append(info.Languages, name)
+		}
+	}
 	for _, l := range languages {
 		audio, sub := languageTagRole(spaced, l.token, floor, subs)
 		switch {
@@ -257,6 +271,9 @@ func overrideSource(source core.Source, spaced string, floor int) core.Source {
 
 func looksLikeMeta(v string) bool {
 	u := strings.ToUpper(v)
+	if len(spanishEpisodeLocations(spacify(v))) > 0 {
+		return true
+	}
 	// An anime CRC32 checksum ("[ABCDEF12]") is not a release group.
 	if len(u) == 8 && strings.Trim(u, "0123456789ABCDEF") == "" {
 		return true
@@ -285,14 +302,78 @@ func spacify(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
+// spanishEpisodeLocations accepts canonical packed SSEE/SEE chapter numbers.
+// Years and common resolution numbers are ambiguous and carry no episode
+// evidence. Keep this validation shared with episode-title/year boundaries.
+func spanishEpisodeLocations(spaced string) [][]int {
+	var out [][]int
+	_, yearAt := parseYearAt(spaced)
+	for _, loc := range reSpanishEpisode.FindAllStringSubmatchIndex(spaced, -1) {
+		digits := spaced[loc[2]:loc[3]]
+		n, _ := strconv.Atoi(digits)
+		if digits[0] == '0' || n%100 == 0 || n >= 1888 && n <= 2099 {
+			continue
+		}
+		// Like bare "Episode N", a chapter-like phrase before a release
+		// year can belong to a movie title ("The Cap 205 2019").
+		if yearAt >= loc[1] && !releaseMarkerIn(spaced[loc[1]:yearAt]) {
+			continue
+		}
+		switch n {
+		case 360, 480, 576, 720, 1080, 2160:
+			continue
+		}
+		out = append(out, loc)
+	}
+	return out
+}
+
+func spanishEpisodeIndex(spaced string) []int {
+	for _, loc := range spanishEpisodeLocations(spaced) {
+		if loc[0] > 0 {
+			return loc[:2]
+		}
+	}
+	return nil
+}
+
 // parseEpisodes fills seasons and episodes and returns the offset of the
 // marker it read them from, or -1.
 func parseEpisodes(spaced, upper string, info *core.ReleaseInfo) int {
+	at := parseStandardEpisodes(spaced, upper, info)
+	for _, loc := range spanishEpisodeLocations(spaced) {
+		if loc[0] == 0 {
+			continue // a title must precede the chapter marker
+		}
+		number, _ := strconv.Atoi(spaced[loc[2]:loc[3]])
+		season, episode := number/100, number%100
+		if season < 1 || episode < 1 {
+			continue
+		}
+		if info.FullSeason && slices.Contains(info.Seasons, season) {
+			// A matching season declaration is refined by its explicit chapter.
+			info.Seasons, info.Episodes, info.FullSeason = []int{season}, []int{episode}, false
+		}
+		if at >= 0 && !EpisodeMatches(*info, season, episode) {
+			// Contradictory markers must not become a matching episode or pack.
+			info.Episodes, info.AbsoluteEpisodes, info.FullSeason = nil, nil, false
+			return min(at, loc[0])
+		}
+		if at < 0 {
+			info.Seasons, info.Episodes = []int{season}, []int{episode}
+			at = loc[0]
+		}
+	}
+	return at
+}
+
+func parseStandardEpisodes(spaced, upper string, info *core.ReleaseInfo) int {
 	if containsAny(upper, "СЕЗОН", "СЕРИ") {
 		if at := parseRussianEpisodes(spaced, info); at >= 0 {
 			return at
 		}
 	}
+
 	hasS := strings.Contains(upper, " S")
 	if hasS {
 		if seasons, episodes, at, ok := parseSEEpisode(spaced); ok {
@@ -717,6 +798,9 @@ func subtitlePositions(spaced string, floor int) map[int]bool {
 	}
 	isTag := func(s string) bool {
 		head, _, _ := strings.Cut(s, "-") // "FRE-GRP": the group follows the last tag
+		if _, known := isoLanguages[strings.ToLower(head)]; known {
+			return true
+		}
 		for _, l := range languages {
 			if strings.EqualFold(s, l.token) || strings.EqualFold(head, l.token) {
 				return true

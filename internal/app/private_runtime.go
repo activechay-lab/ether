@@ -66,7 +66,7 @@ func (a *App) prepareDeployment(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !d.Roles.FullServer() && !(len(d.Roles) == 1 && d.Roles[0] == config.RoleTranscode) {
+	if !d.Roles.FullServer() && !specialistSingletonRole(d.Roles) {
 		return errors.New("specialist runtime is not yet enabled for this role set")
 	}
 	p := &deploymentRuntime{settings: d, errors: make(chan error, 3), probeDone: make(chan struct{})}
@@ -91,8 +91,9 @@ func (a *App) prepareDeployment(ctx context.Context) error {
 		}
 		_ = json.NewEncoder(w).Encode(struct {
 			Accepting bool                   `json:"accepting"`
+			Reason    string                 `json:"reason,omitempty"`
 			Ledger    *placement.QuotaStatus `json:"ledger,omitempty"`
-		}{a.privateAdmissionReady(), p.quotaStatus()})
+		}{a.privateAdmissionReady(), a.privateAdmissionReason(), p.quotaStatus()})
 	})
 	p.probes = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	p.probeListener, err = net.Listen("tcp", d.ProbeListen)
@@ -215,9 +216,47 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		}
 	})
 	launch(func() { _ = p.telemetry.Run(runCtx) })
+	// Keep the short coordinator lease independent of source/encoder RPCs in
+	// Tick and of placement/readiness reconciliation. A paused source may consume
+	// their entire operation deadline while the server remains healthy.
+	if coordinator, ok := p.playback.(interface{ MaintainCoordination(context.Context) error }); ok {
+		launch(func() {
+			ticker := time.NewTicker(250 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-runCtx.Done():
+					return
+				case <-ticker.C:
+					op, cancel := context.WithTimeout(runCtx, time.Second)
+					_ = coordinator.MaintainCoordination(op)
+					cancel()
+				}
+			}
+		})
+	}
+
+	// Recovery must get its own operation budget. Quota/placement readiness
+	// writes can consume their full deadline during worker replacement; passing
+	// that expired context to Tick prevents even the first encoder loss probe.
+	launch(func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-ticker.C:
+				op, cancel := context.WithTimeout(runCtx, 3*time.Second)
+				_ = p.playback.Tick(op)
+				cancel()
+			}
+		}
+	})
 	launch(func() {
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
+		var readiness privateReadinessWindow
 		rotation := time.NewTicker(time.Hour)
 		defer rotation.Stop()
 		for {
@@ -230,9 +269,19 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 				_ = a.refreshPrivateQuota(op)
 				var observation privateReadinessSnapshot
 				err := a.reconcilePrivatePlacement(op, &observation)
-				_ = p.playback.Tick(op) // pending retirement is healthy retained ownership, not readiness loss
 				c()
-				p.ready.Store(err == nil && a.privateServicesReadyObserved(&observation))
+				// A successful startup/public listener can precede this first tick.
+				if p.ready.Load() && readiness.failedAt.IsZero() {
+					readiness.established = true
+				}
+				var serviceObservation privateReadinessSnapshot
+				services := a.privateServicesReadyObserved(&serviceObservation)
+				if !services {
+					observation = serviceObservation
+				} else if err == nil {
+					observation = privateReadinessSnapshot{}
+				}
+				p.ready.Store(readiness.ready(time.Now(), err == nil, services, observation.reason))
 				if p.ready.Load() {
 					p.started.Store(true)
 				}

@@ -208,5 +208,5 @@ func (r *Runtime) verifyReopen(ctx context.Context, peer nodewire.Identity, m so
 var _ playbackcontinuity.SourceReopenVerifier = (*Runtime)(nil)
 
 func scopeForRoute(route Route) nodesource.Scope {
-	return nodesource.Scope{Fence: route.Fence, Viewer: viewerString(route.Viewer), Revision: route.Revision}
+	return nodesource.Scope{SourceGeneration: route.SourceGeneration, Fence: route.Fence, Viewer: viewerString(route.Viewer), Revision: route.Revision}
 }

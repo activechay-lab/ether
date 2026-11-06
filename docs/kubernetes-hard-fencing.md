@@ -1,5 +1,11 @@
 # Proposed authenticated encoder-host fencing
 
+Execution safety uses [generation fencing and autonomous lease expiry](generation-fencing.md).
+The host provider described here is optional physical-extinction evidence for
+reclaiming uncertain old capacity; it is outside the playback recovery critical
+path. Pod absence and Node NotReady never constitute this evidence. The existing
+`hostfenceprobe` is read-only diagnostics, not an installed provider.
+
 Design only. No provider, key, host process, daemon change, kill or automatic
 claim-release path is installed by this document. CPU media and clean packet
 timing must pass before any loss experiment. Windows JobObject fencing is a

@@ -232,7 +232,10 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		rp.decision = s.trackDecisionLocked(s.wantTrack)
 	}
 	s.seekRampSeg = -1
+	rampClock := len(s.rungs) <= 1 && s.plan != nil && s.plan.rampSegs > 0
 	spec := runSpec{
+		AuthoredTimeline:     len(s.rungs) > 1 || (s.plan != nil && s.plan.rampSegs > 0),
+		RampClock:            rampClock,
 		SilenceAudio:         s.silenceAudio,
 		NormalizeNegativeDTS: s.normalizeNegativeDTS,
 		RTXTimeline:          s.rtxTimeline,
@@ -252,10 +255,13 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		Accel:                accel,
 		Features:             s.featuresLocked(),
 		BigProbe:             bigProbe,
-		InBandHeaders:        s.forceCPU && s.container == ContainerFMP4,
+		InBandHeaders:        (s.forceCPU || rampClock) && s.container == ContainerFMP4,
 		Protocol:             s.proto,
 		FastStart:            rp.fastStart,
 		Rate:                 rp.rate,
+	}
+	if spec.Decision.VideoCodec == s.qsvCodec && spec.Rate.Quality == s.qsvQuality {
+		spec.QSVMode = s.qsvMode
 	}
 	s.normalizeNegativeDTS = false
 	s.silenceAudio = false
@@ -459,6 +465,7 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 	if err == nil && proc == nil {
 		proc, err = s.m.runner.Start(Command{Path: s.m.ffmpeg, Args: args, Dir: runDir, Stdout: stdout, Stderr: stderr})
 	}
+	s.encoder.fenceProcess(proc)
 	err = redactScopedCommandError(err, spec)
 	s.mu.Lock()
 	if s.starting == starting {

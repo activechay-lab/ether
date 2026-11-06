@@ -994,7 +994,7 @@ func (b *broadcast) step(now time.Time) bool {
 	// while a quick decoder gets its first picture. If that cold preparation
 	// takes longer, the ready live screen must fill the playable cushion too;
 	// otherwise the ident can leave an already-playing client at a bare edge.
-	b.burstReady = b.burstReady || (introActive && !b.intro.fill) || (coldWaiting && mode == "screen")
+	b.burstReady = b.burstReady || (introActive && !b.intro.fill) || (mode == "screen" && frame.Video != nil && time.Since(b.origin) >= 250*time.Millisecond)
 	frame.OutputTime = now
 	b.lastFrame = frame
 	b.mu.Lock()

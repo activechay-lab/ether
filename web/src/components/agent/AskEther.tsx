@@ -141,6 +141,12 @@ export function AskEther() {
     if (!open || !status?.enabled) return;
     const timer = window.setTimeout(() => {
       const dialog = document.querySelector('[role="dialog"]');
+      // Opening can finish after the owner has already started entering a
+      // credential. Never redirect those keystrokes into the visible composer.
+      if (
+        dialog?.querySelector("input:focus, textarea:focus, select:focus, [contenteditable]:focus")
+      )
+        return;
       dialog?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
     }, 80);
     return () => window.clearTimeout(timer);

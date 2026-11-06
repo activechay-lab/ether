@@ -30,7 +30,7 @@ type runtimeQuotaSnapshot struct {
 
 func (a *App) privateAdmissionReady() bool {
 	p := a.deployment
-	return p != nil && p.ready.Load() && p.quotaOpen.Load() && !a.nodeDraining()
+	return p != nil && p.ready.Load() && p.quotaOpen.Load() && !a.nodeDraining() && a.privateClockReady()
 }
 
 func (p *deploymentRuntime) quotaStatus() *placement.QuotaStatus {
@@ -59,4 +59,56 @@ func (a *App) selfRuntimeSnapshot(self cluster.Node) *selfRuntimeStatus {
 		st.Resources = &resources
 	}
 	return st
+}
+
+func (a *App) privateClockReady() bool {
+	if clock, ok := a.cluster.(interface{ ClockReady() bool }); ok {
+		return clock.ClockReady()
+	}
+	return true
+}
+func (a *App) privateAdmissionReason() string {
+	if !a.privateClockReady() {
+		return "clock_skew"
+	}
+	return ""
+}
+
+// Diagnostics uses local observations only, without membership callbacks.
+func (a *App) nodeDiagnostics() *cluster.Diagnostics {
+	p := a.deployment
+	if p == nil {
+		return nil
+	}
+	d := &cluster.Diagnostics{SampledAt: time.Now().UTC(), ReadyExisting: p.ready.Load(), AcceptingNew: a.privateAdmissionReady(), Draining: a.nodeDraining()}
+	if loss := p.readinessLoss.Load(); loss != nil {
+		d.ReadinessReason = string(loss.reason)
+	}
+	if clock, ok := a.cluster.(interface{ ClockStatus() cluster.ClockStatus }); ok {
+		sample := clock.ClockStatus()
+		d.Clock = &sample
+		if !sample.Ready {
+			d.AcceptingNew = false
+			d.ReadinessReason = "clock_skew"
+		}
+	}
+	if p.settings.Roles.Has("transcode") && !p.settings.Roles.FullServer() {
+		capacity := p.settings.Capacity
+		d.TranscodeCapacity = &capacity
+		if p.encoder != nil {
+			used := p.encoder.EncodingCount()
+			d.Transcodes = &used
+			d.Codecs = append([]string(nil), p.encoder.HWAccel().Encoders...)
+			d.Codecs = append([]string(nil), p.encoder.HWAccel().Encoders...)
+		}
+	}
+	if p.settings.Roles.Has("source") && a.fetcher != nil {
+		used, capacity := 0, 0
+		for _, provider := range a.fetcher.Stats() {
+			used += provider.ActiveConnections
+			capacity += provider.MaxConnections
+		}
+		d.SourceConnections, d.SourceConnectionCapacity = &used, &capacity
+	}
+	return d
 }
