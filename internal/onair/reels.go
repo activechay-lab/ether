@@ -179,8 +179,22 @@ func (s *Service) setClip(ctx context.Context, reel string, c ReelClip) error {
 	}
 	return e
 }
-func (s *Service) UploadClip(ctx context.Context, reel, name string, r io.Reader) (ReelClip, error) {
-	return s.uploadClip(ctx, reel, name, "", "", r)
+
+// ClipUploadMetadata preserves provenance when a local file is imported into a reel.
+type ClipUploadMetadata struct {
+	Source      string
+	Attribution string
+}
+
+func (s *Service) UploadClip(ctx context.Context, reel, name string, r io.Reader, metadata ...ClipUploadMetadata) (ReelClip, error) {
+	if len(metadata) > 1 {
+		return ReelClip{}, fmt.Errorf("one clip metadata record is allowed")
+	}
+	var m ClipUploadMetadata
+	if len(metadata) == 1 {
+		m = metadata[0]
+	}
+	return s.uploadClip(ctx, reel, name, m.Source, m.Attribution, r)
 }
 func (s *Service) uploadClip(ctx context.Context, reel, name, source, attribution string, r io.Reader, importID ...string) (ReelClip, error) {
 	if _, e := s.Reel(ctx, reel); e != nil {
