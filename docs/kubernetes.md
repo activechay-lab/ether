@@ -407,3 +407,45 @@ means acceptance failed, even if the node restarts.
 drain failure, a replacement racing the UID-preconditioned delete, successful
 replacement, and container-name reuse safety. These checks run in chart CI and
 do not count as playback or hard-loss acceptance.
+
+### Generation checks during media bodies
+
+Every gateway, worker, source and delivery response admits output with a full
+current durable generation check before headers. `generationfence.Writer` shares
+one request-local authority observation between header, read, write and flush
+checks. It repeats durable validation after at most one second of monotonic time
+(measured from the start of validation), independent of body size. A check that
+itself exhausts that interval refuses output. Source handlers may request a
+shorter interval. Failed checks latch denial for that writer.
+
+Between durable checks every operation checks local cancellation, sealing and
+monotonic execution/grant deadlines where present. Delivery converts its observed
+placement deadline to a monotonic cap. A blocked producer returning after a cap
+or the revalidation interval cannot bypass these checks. An already admitted
+socket write cannot be recalled; an idle writer does not poll or retain an extra
+goroutine and revalidates before its next output operation.
+
+Committed route updates publish the session ID on the existing cluster bus as
+`playback.route`. Active writers subscribe only for their request lifetime;
+route notifications and bus reconnect/resync invalidate their observations.
+Callbacks perform only local invalidation, so the next output operation performs
+the durable check. This normally detects supersession at the next write, within
+milliseconds for an actively streaming producer. Lost notifications retain the
+one-second bound. Notifications never grant authority or release resources.
+
+This is bounded streaming staleness, not instantaneous distributed revocation.
+Replacement output starts at the first unavailable fixed-grid segment N under the
+next generation; every new segment request validates current authority before
+headers and a response remains bound to its admitted generation. No request
+switches encoder generations in the middle of its body. Existing in-flight
+responses can emit old-generation bytes within the bound; after denial clients
+must retry through current authority. Output retention/publication keeps its own
+durable checks. This optimization alone does not prove client-side zero stalls,
+splice continuity or exact audio continuity; those remain acceptance gates.
+
+The DB cost of streaming validation is O(requests + active streaming seconds),
+plus invalidation events, rather than O(body writes). Request admission remains
+durable. In particular the current source client's `ReadAt` issues one HTTP range
+request per call: many small range requests still incur per-request admission
+cost. A writer benchmark on one long response must not be reported as the total
+source pipeline query rate.

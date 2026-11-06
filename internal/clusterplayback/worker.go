@@ -82,7 +82,7 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 	if e != nil {
 		return remotetranscode.Source{}, e
 	}
-	gateway, e := nodeinput.New(nodeinput.Options{ValidateScope: func(ctx context.Context, scope nodesource.Scope) error {
+	gateway, e := nodeinput.New(nodeinput.Options{WatchAuthority: r.watchAuthority, ValidateScope: func(ctx context.Context, scope nodesource.Scope) error {
 		current, err := r.route(ctx, s.Identity.Session)
 		if err != nil || scope.Fence != rt.Fence || scope != scopeForRoute(current) {
 			return ErrDenied

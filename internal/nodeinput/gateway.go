@@ -28,6 +28,7 @@ var ErrDenied = errors.New("nodeinput: unavailable input")
 type Options struct {
 	// ValidateScope checks current execution generation at the local byte consumer.
 	ValidateScope         func(context.Context, nodesource.Scope) error
+	WatchAuthority        func(string, func()) func()
 	Client                *nodesource.Client
 	Recover               func(context.Context, nodesource.Grant) (*nodesource.Client, nodesource.Grant, error)
 	ReadTimeout           time.Duration
@@ -405,7 +406,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	defer stop()
 	ctx = core.WithReadRetirement(ctx, &in.tracker)
-	w = &generationfence.Writer{ResponseWriter: w, Check: func() error {
+	guarded := &generationfence.Writer{ResponseWriter: w, LocalCheck: func() error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -418,11 +419,18 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if sealed {
 			return ErrDenied
 		}
+		return nil
+	}, Check: func() error {
 		if g.o.ValidateScope != nil {
 			return in.validateScope(ctx)
 		}
 		return nil
 	}}
+	if g.o.WatchAuthority != nil {
+		guarded.Watch = func(fn func()) func() { return g.o.WatchAuthority(in.id.Session, fn) }
+	}
+	defer guarded.Close()
+	w = guarded
 	start, length, status, err := byteRange(r.Header.Get("Range"), in.size)
 	w.Header().Set("Accept-Ranges", "bytes")
 	if err != nil {

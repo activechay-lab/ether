@@ -76,7 +76,9 @@ func (r *Runtime) deliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "scope", 400)
 		return
 	}
-	handler(r.fencedDelivery(w, q, rt), clone, q.Header.Get(deliveryProtocol))
+	guarded := r.fencedDelivery(w, q, rt)
+	defer guarded.Close()
+	handler(guarded, clone, q.Header.Get(deliveryProtocol))
 }
 
 // ForwardMedia performs at most one indexed ownership hop. No redirect or private
@@ -139,7 +141,9 @@ func (r *Runtime) ForwardMedia(w http.ResponseWriter, q *http.Request, id, proto
 		http.Error(w, "delivery unavailable", 502)
 		return true
 	}
-	w = r.fencedDelivery(w, q, rt)
+	guarded := r.fencedDelivery(w, q, rt)
+	defer guarded.Close()
+	w = guarded
 	w.WriteHeader(response.StatusCode)
 	if q.Method != "HEAD" {
 		_, _ = io.Copy(w, response.Body)
@@ -154,18 +158,45 @@ var _ = context.Background
 // Moving its exact source preserves encoder output authority: SourceGeneration,
 // source node and PlayID belong to input fencing rather than delivery fencing.
 func (r *Runtime) deliveryAuthority(ctx context.Context, expected Route) error {
+	_, err := r.deliveryAuthorityDeadline(ctx, expected)
+	return err
+}
+func (r *Runtime) deliveryAuthorityDeadline(ctx context.Context, expected Route) (time.Time, error) {
 	current, err := r.route(ctx, expected.Fence.Session)
 	if err != nil || current.Fence != expected.Fence || current.Viewer != expected.Viewer || current.Revision != expected.Revision || (expected.Fence.Generation == 0 && current != expected) {
-		return ErrDenied
+		return time.Time{}, ErrDenied
 	}
 	if expected.Fence.Generation > 0 {
 		record, err := r.o.Placement.Lookup(ctx, expected.Fence.Session)
 		if err != nil || record.Fence != expected.Fence || !record.Authority || record.Retired || !record.Deadline.Add(-r.o.ClockSkew).After(time.Now()) {
+			return time.Time{}, ErrDenied
+		}
+		return record.Deadline.Add(-r.o.ClockSkew), nil
+	}
+	return time.Time{}, nil
+}
+func (r *Runtime) fencedDelivery(w http.ResponseWriter, q *http.Request, route Route) *generationfence.Writer {
+	var deadline time.Time
+	return &generationfence.Writer{ResponseWriter: w, Watch: func(fn func()) func() { return r.watchAuthority(route.Fence.Session, fn) }, LocalCheck: func() error {
+		if !deadline.IsZero() && !time.Now().Before(deadline) {
 			return ErrDenied
 		}
-	}
-	return nil
-}
-func (r *Runtime) fencedDelivery(w http.ResponseWriter, q *http.Request, route Route) http.ResponseWriter {
-	return &generationfence.Writer{ResponseWriter: w, Check: func() error { return r.deliveryAuthority(q.Context(), route) }}
+		if q.Context().Err() != nil {
+			return q.Context().Err()
+		}
+		r.mu.Lock()
+		closed := r.closed
+		r.mu.Unlock()
+		if closed {
+			return ErrDenied
+		}
+		return nil
+	}, Check: func() error {
+		until, err := r.deliveryAuthorityDeadline(q.Context(), route)
+		if err == nil && !until.IsZero() {
+			now := time.Now()
+			deadline = now.Add(until.Sub(now))
+		}
+		return err
+	}}
 }

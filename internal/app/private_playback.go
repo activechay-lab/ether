@@ -28,7 +28,7 @@ func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
 		return err
 	}
 	self := a.cluster.Self()
-	o := clusterplayback.Options{DB: a.db, Guard: p.guard, Self: nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: self.ID, Boot: self.Incarnation}, Roles: p.settings.Roles, Placement: ledger, Endpoint: a.privateEndpoint, MemberRole: a.privateMemberRole, Eligible: a.privateEligible, Capacity: p.settings.Capacity, ClockSkew: time.Duration(p.settings.ClockSkewMillis) * time.Millisecond, ClockBoundKnown: p.settings.ClockBoundKnown}
+	o := clusterplayback.Options{Bus: a.clusterNode(), DB: a.db, Guard: p.guard, Self: nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: self.ID, Boot: self.Incarnation}, Roles: p.settings.Roles, Placement: ledger, Endpoint: a.privateEndpoint, MemberRole: a.privateMemberRole, Eligible: a.privateEligible, Capacity: p.settings.Capacity, ClockSkew: time.Duration(p.settings.ClockSkewMillis) * time.Millisecond, ClockBoundKnown: p.settings.ClockBoundKnown}
 	// The reviewed complete source/capability/start/observation chain preserves
 	// bounded indexes without truncation. The same dedicated manager below owns
 	// both real worker preflight and execution; all other extensions stay closed.

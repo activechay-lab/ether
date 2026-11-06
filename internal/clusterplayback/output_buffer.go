@@ -144,7 +144,9 @@ func (s *bufferedSession) ServeRungSegment(w http.ResponseWriter, q *http.Reques
 }
 
 func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n int, serve func(http.ResponseWriter, *http.Request) remotetranscode.RepresentationCompletion) {
-	w = s.r.fencedDelivery(w, q, s.route)
+	guarded := s.r.fencedDelivery(w, q, s.route)
+	defer guarded.Close()
+	w = guarded
 	// Conditional and partial requests keep the exact upstream semantics. A 206,
 	// HEAD, or even a Range request answered 200 is not capture admission.
 	if n < 0 || n > 10000000 || q.Method != http.MethodGet || q.Header.Get("Range") != "" ||
