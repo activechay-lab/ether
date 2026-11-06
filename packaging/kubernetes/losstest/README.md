@@ -33,6 +33,9 @@ requests and exponential retry sleeps. The bounded window includes startup;
 choose a window longer than startup plus the desired steady-state observation.
 Terminal request failure continues consuming the buffer until the window ends,
 so an outage longer than the remaining buffer is measured as a stall.
+No further media requests are sent after retry exhaustion. That stall is the
+configured client's outcome; it does not establish how long the server remained
+unavailable after the last attempt.
 
 The current player supports clear MPEG-TS HLS. Encrypted, discontinuous,
 byte-range and fMP4 playlists fail explicitly. The shared checker also supports
@@ -69,6 +72,18 @@ Example private configuration (paths and target pod are lab-specific):
   "bufferSeconds": 30
 }
 ```
+
+Optional `tries` (default 8), `requestTimeoutSeconds` (5) and `backoffSeconds`
+(0.2, exponential with a 16× cap) configure the client retry policy. The runner
+records that policy. `control` reports the final Stop status and all failed
+lifecycle requests separately. Overall acceptance requires a successful final
+Stop; transient periodic progress failures remain visible in `failedRequests`
+and `allRequestsPassed`. Media continuity alone cannot certify session cleanup.
+
+`fault-dispatch.json` records the session, local time before action dispatch and
+immutable target inventory. A trusted post-check can use this time with a
+replacement production event on the same host clock to establish a conservative
+interruption upper bound; client receipt time is still reported separately.
 
 Force-delete pins the inspected pod UID in a Kubernetes DeleteOptions precondition;
 it cannot delete a replacement by reusing its name. Other actions (`pause`,
