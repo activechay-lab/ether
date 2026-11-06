@@ -3,6 +3,7 @@ package clusterplayback
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -67,7 +68,7 @@ func (s *recoveryTestSession) ServeSegment(w http.ResponseWriter, q *http.Reques
 // The encoded bytes are a recorded offline TS fixture: it tests ownership and
 // complete/unique delivery, not real decoder or audio splice continuity.
 func TestEncoderLossRecoveryInvariant(t *testing.T) {
-	for _, mode := range []string{"exit", "partition", "newboot", "boot-before-recovery", "removed", "clock"} {
+	for _, mode := range []string{"exit", "partition", "newboot", "boot-before-recovery", "removed", "clock", "tls-replaced", "tls-denied", "gone"} {
 		t.Run(mode, func(t *testing.T) {
 			fixtureStarted := time.Now()
 			data, err := os.ReadFile("../playbackbuffer/testdata/cpu.ts")
@@ -92,10 +93,18 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				t.Fatal(err)
 			}
 			ids := []nodewire.Identity{{Cluster: "loss", NodeID: "source", Boot: "source-boot"}, {Cluster: "loss", NodeID: "a", Boot: "a-boot"}, {Cluster: "loss", NodeID: "b", Boot: "b-boot"}, {Cluster: "loss", NodeID: "controller", Boot: "controller-boot"}}
-			guards := fixtureGuards(t, ids...)
+			newID := ids[1]
+			newID.Boot = "a-new-boot"
+			guards := fixtureGuards(t, append(append([]nodewire.Identity{}, ids...), newID)...)
+			var replaced, gone atomic.Bool
 			endpoints := map[nodewire.Identity]string{}
 			var clockFault atomic.Bool
-			member := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
+			member := func(_ context.Context, id nodewire.Identity, _ config.NodeRole) error {
+				if id == ids[1] && (replaced.Load() && mode != "tls-denied" || gone.Load()) {
+					return nodewire.ErrDenied
+				}
+				return nil
+			}
 			eligible := func(_ context.Context, id nodewire.Identity, _ config.NodeRole) error {
 				if id == ids[1] && clockFault.Load() {
 					return ErrDenied
@@ -142,6 +151,15 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				}
 				server := httptest.NewUnstartedServer(handler)
 				server.TLS = guards[i].ServerTLS()
+				if i == 1 {
+					server.Config.SetKeepAlivesEnabled(false)
+					server.TLS.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+						if replaced.Load() {
+							return guards[4].ServerTLS(), nil
+						}
+						return guards[1].ServerTLS(), nil
+					}
+				}
 				server.StartTLS()
 				defer server.Close()
 				endpoints[ids[i]] = server.URL
@@ -153,6 +171,7 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 10*time.Second))
 			defer cancel()
 			front := runtimes[3]
+			front.o.Roles = config.NodeRoles{config.RoleServer}
 			if err = v.Bind(front); err != nil {
 				t.Fatal(err)
 			}
@@ -193,6 +212,21 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			front.mu.Lock()
 			old := *front.executions[q.SessionID]
 			front.mu.Unlock()
+			lossStarted := time.Now()
+			if mode == "tls-denied" {
+				replaced.Store(true)
+			}
+			if mode == "tls-replaced" {
+				replaced.Store(true)
+				front.o.EncoderFailureGrace = time.Hour
+				if _, err = db.ExecContext(ctx, `INSERT INTO cluster_nodes(id,incarnation,started_at,last_seen) VALUES(?,?,?,?)`, newID.NodeID, newID.Boot, time.Now().UnixMilli(), time.Now().UnixMilli()); err != nil {
+					t.Fatal(err)
+				}
+				// Membership changes before the replacement publishes placement capacity.
+			}
+			if mode == "gone" {
+				gone.Store(true)
+			}
 			if mode == "exit" || mode == "newboot" || mode == "boot-before-recovery" || mode == "removed" {
 				if err = a.session.RetireEncoder(); err != nil {
 					t.Fatal(err)
@@ -244,7 +278,7 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				if err = p.SetPool(ctx, "b/streams", config.RoleTranscode, 1); err != nil {
 					t.Fatal(err)
 				}
-			} else {
+			} else if mode != "tls-replaced" {
 				_ = front.Tick(ctx)
 				time.Sleep(2 * time.Millisecond)
 			}
@@ -296,6 +330,10 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				t.Fatalf("historical segment after recovery: %d", historical.Code)
 			}
 
+			t.Logf("recovery latency: %s", time.Since(lossStarted))
+			if time.Since(lossStarted) > 3*time.Second {
+				t.Fatal("recovery exceeded 3 second bound")
+			}
 			record, err := p.Lookup(ctx, q.SessionID)
 			if err != nil || record.Generation != 2 || record.Target.NodeID != "b" {
 				t.Fatalf("replacement: %+v %v", record, err)
@@ -316,7 +354,7 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			if eventErr != nil || len(events) != 1 || events[0].Status != "recovered" || events[0].FailedNodeID != "a" || events[0].ReplacementNodeID != "b" || events[0].InterruptionMS == nil || events[0].ClientStalls != nil {
 				t.Fatalf("events: %+v %v", events, eventErr)
 			}
-			if mode == "newboot" || mode == "boot-before-recovery" {
+			if mode == "newboot" || mode == "boot-before-recovery" || mode == "tls-replaced" {
 				if err = p.SetTarget(ctx, placement.Target{NodeID: "a", Boot: "a-new-boot"}, config.NodeRoles{config.RoleTranscode}, map[config.NodeRole][]string{config.RoleTranscode: {"a/streams"}}); err != nil {
 					t.Fatal(err)
 				}
@@ -362,6 +400,8 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				fetch(n)
 			}
 			down.Store(false)
+			gone.Store(false)
+			replaced.Store(false)
 			late := httptest.NewRecorder()
 			old.session.ServeSegment(late, httptest.NewRequest("GET", "https://public/late", nil).WithContext(ctx), 2)
 			if late.Code == 200 {

@@ -9,61 +9,11 @@
   ],
   "layers": [
     {
-      "id": "bg",
-      "type": "rect",
-      "x": 0,
-      "y": 0,
-      "w": 1920,
-      "h": 1080,
-      "fill": "#777777"
-    },
-    {
       "id": "static",
       "type": "noise",
       "w": 1920,
       "h": 1080,
-      "opacity": 0.65
-    },
-    {
-      "id": "band",
-      "type": "rect",
-      "x": 0,
-      "y": {
-        "keys": [
-          [
-            0,
-            -220
-          ],
-          [
-            8,
-            1300
-          ]
-        ]
-      },
-      "w": 1920,
-      "h": 220,
-      "fill": {
-        "linear": [
-          0,
-          0,
-          0,
-          220
-        ],
-        "stops": [
-          [
-            0,
-            "#000000@0"
-          ],
-          [
-            0.5,
-            "#000000@0.45"
-          ],
-          [
-            1,
-            "#000000@0"
-          ]
-        ]
-      }
+      "name": "Static"
     },
     {
       "id": "panel",
@@ -73,7 +23,8 @@
       "fill": "#000000@0.9",
       "stroke": "{text}@0.5",
       "strokeWidth": 2,
-      "path": "M 30 0 H 850 Q 880 0 880 30 V 350 Q 880 380 850 380 H 30 Q 0 380 0 350 V 30 Q 0 0 30 0 Z"
+      "path": "M 30 0 H 850 Q 880 0 880 30 V 350 Q 880 380 850 380 H 30 Q 0 380 0 350 V 30 Q 0 0 30 0 Z",
+      "name": "Panel"
     },
     {
       "id": "brand",
@@ -87,7 +38,8 @@
       "align": "center",
       "track": 10,
       "maxWidth": 820,
-      "fit": "shrink"
+      "fit": "shrink",
+      "name": "Brand"
     },
     {
       "id": "sleep",
@@ -99,7 +51,8 @@
       "font": "specialelite",
       "fill": "{text}",
       "align": "center",
-      "track": 6
+      "track": 6,
+      "name": "Sleep"
     },
     {
       "id": "return",
@@ -112,21 +65,8 @@
       "fill": "{accent}",
       "align": "center",
       "maxWidth": 800,
-      "fit": "shrink"
-    }
-  ],
-  "post": [
-    {
-      "type": "grain",
-      "amount": "{textures.grain}"
-    },
-    {
-      "type": "flicker",
-      "amount": 0.09
-    },
-    {
-      "type": "vignette",
-      "amount": 0.8
+      "fit": "shrink",
+      "name": "Return"
     }
   ]
 }

@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// SetupOwnerID is the reserved source-ownership principal for an admitted LAN
+// open-setup request. It is never persisted as a user or accepted as a login.
+// Producers must stop using it immediately when any real owner exists.
+const SetupOwnerID int64 = 1<<63 - 1
+
 // MediaType matches Plex's metadata "type" attribute.
 type MediaType string
 

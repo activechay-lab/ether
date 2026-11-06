@@ -7,27 +7,22 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/onair/raster"
+	"github.com/braedonsaunders/ether/internal/onair/signal"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
-func (s *Service) screenDefaults() config.LiveTVScreens {
-	if s.o.Screens != nil {
-		defaults := s.o.Screens()
-		if defaults.NoSignal == "" {
-			defaults.NoSignal = "error"
+func (s *Service) screenDefaults(c Channel) config.LiveTVScreens {
+	defaults := config.LiveTVScreens{NoSignal: "error", OffAir: "card", ApplyTo: "converted"}
+	if c.Look != nil && c.Look.LookID != "" && s.o.StyleScreens != nil {
+		if v := s.o.StyleScreens(c.Look.LookID); v != nil {
+			defaults = *v
 		}
-		if defaults.OffAir == "" {
-			defaults.OffAir = "card"
-		}
-		if defaults.ApplyTo == "" {
-			defaults.ApplyTo = "converted"
-		}
-		return defaults
 	}
-	return config.LiveTVScreens{NoSignal: "error", OffAir: "card", ApplyTo: "converted"}
+	return defaults
 }
 func (s *Service) screenStyle(c Channel, offair bool) string {
-	defaults := s.screenDefaults()
+	defaults := s.screenDefaults(c)
 	style := defaults.NoSignal
 	if offair {
 		style = defaults.OffAir
@@ -53,7 +48,7 @@ func (s *Service) useBroadcast(c Channel) bool {
 	if c.Kind == "virtual" {
 		return true
 	}
-	return c.Kind == "iptv" && s.screenStyle(c, false) != "error" && (c.Transcode || s.screenDefaults().ApplyTo == "all")
+	return c.Kind == "iptv" && s.screenStyle(c, false) != "error" && (c.Transcode || s.screenDefaults(c).ApplyTo == "all")
 }
 func (s *Service) screenRequest(c Channel, reason string) core.ClipRequest {
 	offair := reason == offAirSlate
@@ -65,11 +60,21 @@ func (s *Service) screenRequest(c Channel, reason string) core.ClipRequest {
 		reason = "reconnecting"
 	}
 	station := "0"
-	if s.screenDefaults().StationID {
+	stationID := s.screenDefaults(c).StationID
+	id := ""
+	if c.Look != nil && c.Look.LookID != "" {
+		id = c.Look.LookID
+	}
+	if id != "" && s.o.StyleScreens != nil {
+		if v := s.o.StyleScreens(id); v != nil {
+			stationID = v.StationID
+		}
+	}
+	if stationID {
 		station = "1"
 	}
-	lookID := ""
-	if c.Look != nil {
+	lookID := id
+	if c.Look != nil && c.Look.LookID != "" {
 		lookID = c.Look.LookID
 	}
 	return core.ClipRequest{LookID: lookID, Moment: "screen." + style, ChannelID: c.ID, Bind: map[string]string{"screen.reason": reason, "screen.back": "", "channel.name": c.Name, "channel.number": c.Number, "screen.stationId": station}}
@@ -77,6 +82,15 @@ func (s *Service) screenRequest(c Channel, reason string) core.ClipRequest {
 func (s *Service) openGraphicsDecoder(ctx context.Context, runner transcode.ContinuousRunner, request core.ClipRequest, format transcode.RawFormat, loop bool) (transcode.Decoder, func(), error) {
 	if s.o.Graphics == nil {
 		return nil, nil, core.ErrNotAvailable
+	}
+	// A static scene owns a live phosphor engine, never a looping cached clip.
+	if source, ok := s.o.Graphics.(overlaySource); ok {
+		if doc, bindings, found := source.Overlay(ctx, request); found {
+			if foreground, live := doc.StaticForeground(); live {
+				overlay := compactOverlay(raster.Render(foreground, bindings, doc.Poster, format.Width, format.Height), format)
+				return &signalInputDecoder{engine: signal.NewStatic(format.Width, format.Height, int64Hash(request.ChannelID+request.LookID)), overlay: overlay, format: format, tick: s.o.Now().Unix() * 30, audio: make([]int16, 3200), closed: make(chan struct{})}, nil, nil
+			}
+		}
 	}
 	clip, ok := s.o.Graphics.Clip(ctx, request)
 	if !ok {
@@ -88,6 +102,17 @@ func (s *Service) openGraphicsDecoder(ctx context.Context, runner transcode.Cont
 }
 func (p *scheduleBroadcastPlanner) screen(time.Time) broadcastPlan {
 	return p.s.screenPlan(p.channel, p.runner, p.format)
+}
+
+// Keep a style plate ready independently of provider outage screens. A missing
+// scheduled master is presentation fallback, never a source reconnection.
+func (p *scheduleBroadcastPlanner) momentScreen() broadcastPlan {
+	c := p.channel
+	request := p.s.clipRequest(c, Programme{Item: Item{Slate: "ident"}})
+	request.Bind["screen.reason"] = "moment"
+	return broadcastPlan{id: "moment-card-" + c.ID, element: "card", open: func(ctx context.Context) (transcode.Decoder, func(), error) {
+		return p.s.openSignalDecoder(ctx, request, p.format)
+	}}
 }
 func (p *providerBroadcastPlanner) screen(time.Time) broadcastPlan {
 	return p.s.screenPlan(p.channel, p.runner, p.format)
@@ -213,7 +238,7 @@ func (p *scheduleBroadcastPlanner) introPlan(now time.Time) (broadcastPlan, time
 	if !ok || clip.Duration <= 0 || clip.Duration%segmentDuration != 0 {
 		return broadcastPlan{}, 0
 	}
-	return broadcastPlan{id: "intro-" + c.ID, fill: true, open: func(ctx context.Context) (transcode.Decoder, func(), error) {
+	return broadcastPlan{element: "ident", id: "intro-" + c.ID, fill: true, open: func(ctx context.Context) (transcode.Decoder, func(), error) {
 		return p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, false)
 	}}, min(clip.Duration, 4*time.Second)
 }

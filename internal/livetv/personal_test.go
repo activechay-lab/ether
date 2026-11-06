@@ -76,7 +76,8 @@ func TestPersonalViewersIsolated(t *testing.T) {
 
 func TestPersonalCursorOnlyAdvancesDuringSessions(t *testing.T) {
 	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
-	s := testService(t, Options{Picker: personalTestPicker{}, Now: func() time.Time { return now }})
+	clock := &testClock{now: now}
+	s := testService(t, Options{Picker: personalTestPicker{}, Now: clock.Now})
 	c := testChannel()
 	c.Personal = &PersonalRecipe{PauseWhenAway: true}
 	u := &core.User{ID: 7, Title: "Alice"}
@@ -85,22 +86,28 @@ func TestPersonalCursorOnlyAdvancesDuringSessions(t *testing.T) {
 	if _, err := s.o.DB.Exec(`INSERT INTO livetv_personal(viewer_id,channel_id,day,rundown,cursor_ms,built_at) VALUES(?,?,?,?,?,?)`, u.ID, c.ID, "current", b, now.UnixMilli(), now.UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.backfillPersonalIndex(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	c = s.personalChannel(context.Background(), c, u)
 	s.beginPersonal(c, u)
 	start := now
 	now = now.Add(5 * time.Minute)
+	clock.Set(now)
 	s.endPersonal(c, u.ID)
 	row, err := s.readPersonal(context.Background(), personalKey{u.ID, c.ID})
 	if err != nil || row.cursor != start.Add(5*time.Minute).UnixMilli() {
 		t.Fatal("watched time not persisted", row.cursor, err)
 	}
 	now = now.Add(time.Hour)
+	clock.Set(now)
 	ps, err := s.personalProgrammes(context.Background(), c, u, now, now.Add(time.Hour))
 	if err != nil || len(ps) != 1 || ps[0].Offset(now) != 5*time.Minute {
 		t.Fatal("away time advanced rundown", ps, err)
 	}
 	s.beginPersonal(c, u)
 	now = now.Add(2 * time.Minute)
+	clock.Set(now)
 	s.endPersonal(c, u.ID)
 	row, err = s.readPersonal(context.Background(), personalKey{u.ID, c.ID})
 	if err != nil || row.cursor != start.Add(7*time.Minute).UnixMilli() {

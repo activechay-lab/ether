@@ -2,6 +2,7 @@ package livetv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"math"
@@ -34,7 +35,9 @@ func (s *Service) broadcastWindow(ctx context.Context, ss *session, r *http.Requ
 		defer cancel()
 		latest, err = index.Wait(wait, -1)
 		if err != nil {
-			return nil, nil, err
+			// No playlist exists yet, including when a cold encoder exits before
+			// publishing. Tell clients to retry rather than report a bad gateway.
+			return nil, nil, core.ErrNotAvailable
 		}
 	}
 	end := latest.Start.Add(latest.Duration)
@@ -47,44 +50,37 @@ func (s *Service) broadcastWindow(ctx context.Context, ss *session, r *http.Requ
 		end = end.Add(-time.Duration(seconds * float64(time.Second)))
 		from = end.Add(-24 * time.Second)
 	}
+	ss.mu.Lock()
+	user := ss.user
+	ss.mu.Unlock()
+	ctx, err = s.broadcastPolicyContext(ctx, ss, &user)
+	if err != nil {
+		return nil, nil, err
+	}
 	segments := index.Window(from, end)
 	if len(segments) == 0 {
 		return nil, nil, core.ErrNotAvailable
 	}
-	var visible []transcode.Segment
+
 	for _, seg := range segments {
 		if !s.broadcastSegmentAllowed(ctx, ss, seg) {
 			return nil, nil, core.ErrUnauthorized
 		}
-		visible = append(visible, seg)
 	}
-	return index, visible, nil
-}
-func (s *Service) broadcastSegmentAllowed(ctx context.Context, ss *session, seg transcode.Segment) bool {
-	ss.mu.Lock()
-	c, user := ss.info.Channel, ss.user
-	ss.mu.Unlock()
-	ps, err := s.programmes(ctx, c, seg.Start, seg.Start.Add(seg.Duration))
-	if err != nil {
-		return false
-	}
-	if len(ps) == 0 {
-		return s.allowed(ctx, &user, c, nil)
-	}
-	for _, p := range ps {
-		if !s.allowed(ctx, &user, c, &p) {
-			return false
-		}
-	}
-	return true
+	return index, segments, nil
 }
 func (s *Service) serveBroadcastPlaylist(w http.ResponseWriter, r *http.Request, ss *session) {
 	_, segments, err := s.broadcastWindow(r.Context(), ss, r)
 	if err != nil {
+		if errors.Is(err, core.ErrNotAvailable) {
+			w.Header().Set("Retry-After", "1")
+		}
 		writeStreamError(w, err)
 		return
 	}
-	target := 1
+	// TARGETDURATION is a property of the rendition, including its short
+	// startup segments, and must not change as the window advances.
+	target := 4
 	for _, seg := range segments {
 		target = max(target, int(math.Ceil(seg.Duration.Seconds())))
 	}

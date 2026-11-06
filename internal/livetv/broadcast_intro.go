@@ -11,9 +11,9 @@ import (
 // complete saved duration. Keep decoding its next frames during the 300ms cut.
 func (b *broadcast) finishIntro(now time.Time) {
 	b.introUntil = now
-	if b.introFade == nil && b.fallback != nil && b.fallback.plan.id == b.intro.id {
-		b.introFade = b.fallback
-		b.fallback = nil
+	if b.introFade == nil && b.introInput != nil {
+		b.introFade = b.introInput
+		b.introInput = nil
 		b.introFadeFrame = b.lastFrame
 		b.introFadeStart = now
 	}
@@ -25,7 +25,7 @@ func (b *broadcast) blendIntro(now time.Time, target *transcode.RawFrame, fresh 
 	const duration = 300 * time.Millisecond
 	age := now.Sub(b.introFadeStart)
 	if age >= duration {
-		b.introFade.close()
+		b.closeInput(b.introFade)
 		b.introFade = nil
 		b.introFadeFrame = transcode.RawFrame{}
 		return

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/braedonsaunders/ether/internal/config"
 	"io"
 	"net/http"
@@ -84,16 +85,29 @@ func (r *Runtime) workerAuthenticate(q *http.Request) (string, error) {
 	// the exact execution session in context after decoding a copy of that body.
 	id, ok := q.Context().Value(workerSessionKey{}).(string)
 	if !ok {
-		return "", ErrDenied
+		return "", fmt.Errorf("%w: worker session context missing", ErrDenied)
 	}
 	if q.Header.Get(mediaReadHeader) == "1" && r.o.MemberRole(q.Context(), peer, config.RoleServer) == nil {
 		route, err := r.route(q.Context(), id)
 		return route.Fence.Controller.Boot, err
 	}
 	c, err := r.CurrentCoordinator(q.Context(), id)
-	if err != nil || c.Identity != peer || q.Header.Get(coordinatorEpochHeader) != strconv.FormatInt(c.Epoch, 10) || !c.Deadline.After(time.Now().Add(r.o.ClockSkew)) || r.o.MemberRole(q.Context(), peer, config.RoleServer) != nil {
-		return "", ErrDenied
+	if err != nil {
+		return "", fmt.Errorf("%w: coordinator lookup", ErrDenied)
 	}
+	if c.Identity != peer {
+		return "", fmt.Errorf("%w: coordinator peer changed", ErrDenied)
+	}
+	if q.Header.Get(coordinatorEpochHeader) != strconv.FormatInt(c.Epoch, 10) {
+		return "", fmt.Errorf("%w: coordinator epoch mismatch", ErrDenied)
+	}
+	if !c.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
+		return "", fmt.Errorf("%w: coordinator lease expired", ErrDenied)
+	}
+	if r.o.MemberRole(q.Context(), peer, config.RoleServer) != nil {
+		return "", fmt.Errorf("%w: coordinator server membership", ErrDenied)
+	}
+
 	route, err := r.route(q.Context(), id)
 	if err != nil {
 		return "", err

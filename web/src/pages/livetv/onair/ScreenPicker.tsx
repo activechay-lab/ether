@@ -1,10 +1,10 @@
-import { api } from "../../../lib/api";
+import { useCanvasResolution } from "./useCanvasResolution";
 import { useAsync } from "../../../lib/hooks";
 import { onair, type Look } from "./model";
 import {
-  renderLook,
   renderDocument,
-  documentFor,
+  type Scene,
+  styleBindings,
   loadOnAirFonts,
   releaseRenderer,
 } from "./scene-renderer";
@@ -16,6 +16,21 @@ import type { Channel } from "../model";
 import { InfoTip } from "./RecipeTab";
 export type ScreenStyle = "" | "card" | "static" | "bars" | "brb" | "testcard" | "error";
 
+let systemScreens: Record<string, Scene> = Object.fromEntries(
+  Object.entries(
+    import.meta.glob<Scene>("../../../../../internal/onair/families/documents/signal-*.json", {
+      eager: true,
+      import: "default",
+    }),
+  ).map(([path, doc]) => [path.split("/").at(-1)!.slice(7, -5), doc]),
+);
+let screenLoad: Promise<void> | undefined;
+function loadSystemScreens() {
+  if (import.meta.env.MODE === "mock" || import.meta.env.MODE === "test") return Promise.resolve();
+  return (screenLoad ??= import("../../../lib/api").then(async ({ apiFetch }) => {
+    systemScreens = await apiFetch<Record<string, Scene>>("/onair/system-screens");
+  }));
+}
 function ScreenCard({
   style,
   name,
@@ -34,6 +49,7 @@ function ScreenCard({
   onSelect: () => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const resolution = useCanvasResolution(canvas);
   const [hover, setHover] = useState(false);
   const [sound, setSound] = useState(false);
   useEffect(() => {
@@ -66,24 +82,24 @@ function ScreenCard({
     let frame = 0;
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const draw = (time: number) => {
-      const w = 320,
-        h = 180;
+      const w = ctx.canvas.width,
+        h = ctx.canvas.height;
       ctx.fillStyle = "#101827";
       ctx.fillRect(0, 0, w, h);
       if ((style === "card" || !style || style === "brb") && look) {
-        ctx.save();
-        ctx.scale(320 / 1920, 180 / 1080);
-        renderLook(
-          ctx,
-          look,
-          style === "brb" ? "break" : "offair",
-          { channel: { name: station } },
-          hover ? time / 1000 : 3,
+        const scene = look.scenes.find(
+          (s) => s.enabled && s.role === (style === "brb" ? "break" : "offair"),
         );
-        ctx.restore();
+        if (scene)
+          renderDocument(
+            ctx,
+            scene.document,
+            styleBindings(look, { channel: { name: station } }),
+            hover ? (time / 1000) % scene.document.duration : scene.document.poster,
+          );
       } else {
         const selected = style || fallback || "card";
-        const doc = documentFor("signal", `screen.${selected === "error" ? "card" : selected}`);
+        const doc = systemScreens[`screen.${selected === "error" ? "card" : selected}`];
         if (doc)
           renderDocument(
             ctx,
@@ -101,12 +117,12 @@ function ScreenCard({
       }
       if (hover && !reduced) frame = requestAnimationFrame(draw);
     };
-    void loadOnAirFonts().then(() => draw(0));
+    void Promise.all([loadOnAirFonts(), loadSystemScreens()]).then(() => draw(0));
     return () => {
       cancelAnimationFrame(frame);
       releaseRenderer(ctx);
     };
-  }, [style, station, hover, look, fallback]);
+  }, [style, station, hover, look, fallback, resolution]);
   const audible = style === "static" || style === "bars" || style === "testcard";
   return (
     <div
@@ -169,9 +185,7 @@ export function ScreenPicker({
   allowError?: boolean;
 }) {
   const options: { value: ScreenStyle; label: string }[] = [
-    ...(defaultLabel
-      ? [{ value: "" as const, label: t("Default ({style})", { style: defaultLabel }) }]
-      : []),
+    ...(defaultLabel ? [{ value: "" as const, label: defaultLabel }] : []),
     { value: "card", label: t("Modern card") },
     { value: "static", label: t("Analogue static") },
     { value: "bars", label: t("Colour bars") },
@@ -189,7 +203,7 @@ export function ScreenPicker({
           )}
         />
       </h4>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {options.map((o) => (
           <ScreenCard
             key={o.value}
@@ -213,7 +227,6 @@ export function ChannelScreens({
   channel: Channel;
   onChange: (patch: Partial<Channel>) => void;
 }) {
-  const config = useAsync(() => api.getConfig(), []);
   const looks = useAsync(() => onair.looks(), []);
   const look = looks.data?.find((v) => v.id === channel.look?.lookId);
   const names: Record<string, string> = {
@@ -227,25 +240,25 @@ export function ChannelScreens({
   return (
     <section className="space-y-5">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
-        {t("Screens")}
+        {t("Screens for {name}", { name: channel.name })}
       </h3>
       <ScreenPicker
         label={t("When a channel is off air")}
         value={channel.screens?.offAir || ""}
         onChange={(offAir) => onChange({ screens: { ...channel.screens, offAir } })}
-        station={channel.name}
+        station={(look?.screens?.stationId ?? false) ? channel.name : ""}
         look={look}
-        fallback={config.data?.liveTV?.screens?.offAir || "card"}
-        defaultLabel={names[config.data?.liveTV?.screens?.offAir || "card"]}
+        fallback={look?.screens?.offAir || "card"}
+        defaultLabel={look ? names[look.screens?.offAir || "card"] : t("Built-in")}
       />
       <ScreenPicker
         label={t("When a channel can't play")}
         value={channel.screens?.noSignal || ""}
         onChange={(noSignal) => onChange({ screens: { ...channel.screens, noSignal } })}
-        station={channel.name}
+        station={(look?.screens?.stationId ?? false) ? channel.name : ""}
         look={look}
-        fallback={config.data?.liveTV?.screens?.noSignal || "card"}
-        defaultLabel={names[config.data?.liveTV?.screens?.noSignal || "card"]}
+        fallback={look?.screens?.noSignal || "error"}
+        defaultLabel={look ? names[look.screens?.noSignal || "error"] : t("Built-in")}
       />
     </section>
   );

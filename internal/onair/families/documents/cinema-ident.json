@@ -5,176 +5,214 @@
   "poster": 5.5,
   "layers": [
     {
-      "id": "bg",
-      "type": "rect",
-      "x": 0,
-      "y": 0,
-      "w": 1920,
-      "h": 1080,
-      "fill": {
-        "radial": [
-          960,
-          480,
-          0,
-          1300
-        ],
-        "stops": [
-          [
-            0,
-            "{glow}"
-          ],
-          [
-            1,
-            "{bg}"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "beam",
-      "type": "path",
-      "path": "M 150 0 L 520 0 L 1500 1080 L 700 1080 Z",
-      "fill": {
-        "linear": [
-          0,
-          0,
-          0,
-          1080
-        ],
-        "stops": [
-          [
-            0,
-            "{accent}@0.06"
-          ],
-          [
-            1,
-            "{accent}@0"
-          ]
-        ]
-      }
-    },
-    {
-      "id": "dust",
-      "type": "particles",
-      "count": 70,
-      "fill": "{accent}@0.4",
-      "seed": 11
-    },
-    {
-      "id": "medallion",
-      "type": "ellipse",
-      "x": 800,
-      "y": 270,
-      "w": 320,
-      "h": 320,
-      "fill": "#000000@0",
-      "stroke": "{accent}",
-      "strokeWidth": 3,
-      "reveal": {
-        "wipe": "ltr",
-        "from": 0.2,
-        "to": 2
-      }
-    },
-    {
-      "id": "star",
-      "type": "path",
-      "x": 960,
-      "y": 430,
-      "path": "M 70.00 0.00 L 10.89 10.89 L 0.00 70.00 L -10.89 10.89 L -70.00 0.00 L -10.89 -10.89 L -0.00 -70.00 L 10.89 -10.89 Z",
-      "fill": "{accent}",
-      "rotate": {
+      "id": "ident-envelope",
+      "type": "group",
+      "opacity": {
         "keys": [
           [
             0,
             0
+          ],
+          [
+            0.4,
+            1,
+            "inOut"
+          ],
+          [
+            7.6,
+            1
           ],
           [
             8,
-            1.2
-          ]
-        ]
-      }
-    },
-    {
-      "id": "left-rule",
-      "type": "rect",
-      "x": 380,
-      "y": 430,
-      "w": 420,
-      "h": 2,
-      "fill": "{accent}"
-    },
-    {
-      "id": "right-rule",
-      "type": "rect",
-      "x": 1120,
-      "y": 430,
-      "w": 420,
-      "h": 2,
-      "fill": "{accent}"
-    },
-    {
-      "id": "Title",
-      "type": "text",
-      "text": "{channel.name}",
-      "x": 960,
-      "y": 760,
-      "size": 150,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "track": 26,
-      "opacity": {
-        "keys": [
-          [
             0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
+            "inOut"
           ]
         ]
-      }
-    },
-    {
-      "id": "Tagline",
-      "type": "text",
-      "text": "{words.tagline}",
-      "x": 960,
-      "y": 850,
-      "size": 30,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "align": "center",
-      "track": 12,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
+      },
+      "layers": [
+        {
+          "id": "bg",
+          "type": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 1920,
+          "h": 1080,
+          "fill": {
+            "radial": [
+              960,
+              480,
+              0,
+              1300
+            ],
+            "stops": [
+              [
+                0,
+                "{glow}"
+              ],
+              [
+                1,
+                "{bg}"
+              ]
+            ]
+          },
+          "name": "Background"
+        },
+        {
+          "id": "beam",
+          "type": "path",
+          "path": "M 150 0 L 520 0 L 1500 1080 L 700 1080 Z",
+          "fill": {
+            "linear": [
+              0,
+              0,
+              0,
+              1080
+            ],
+            "stops": [
+              [
+                0,
+                "{accent}@0.06"
+              ],
+              [
+                1,
+                "{accent}@0"
+              ]
+            ]
+          },
+          "name": "Beam"
+        },
+        {
+          "id": "dust",
+          "type": "particles",
+          "count": 70,
+          "fill": "{accent}@0.4",
+          "seed": 11,
+          "name": "Dust"
+        },
+        {
+          "id": "medallion",
+          "type": "ellipse",
+          "x": 800,
+          "y": 270,
+          "w": 320,
+          "h": 320,
+          "fill": "#000000@0",
+          "stroke": "{accent}",
+          "strokeWidth": 3,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.2,
+            "to": 2
+          },
+          "name": "Medallion"
+        },
+        {
+          "id": "star",
+          "type": "path",
+          "x": 960,
+          "y": 430,
+          "path": "M 70.00 0.00 L 10.89 10.89 L 0.00 70.00 L -10.89 10.89 L -70.00 0.00 L -10.89 -10.89 L -0.00 -70.00 L 10.89 -10.89 Z",
+          "fill": "{accent}",
+          "rotate": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                8,
+                1.2
+              ]
+            ]
+          },
+          "name": "Star"
+        },
+        {
+          "id": "left-rule",
+          "type": "rect",
+          "x": 380,
+          "y": 430,
+          "w": 420,
+          "h": 2,
+          "fill": "{accent}",
+          "name": "Left rule"
+        },
+        {
+          "id": "right-rule",
+          "type": "rect",
+          "x": 1120,
+          "y": 430,
+          "w": 420,
+          "h": 2,
+          "fill": "{accent}",
+          "name": "Right rule"
+        },
+        {
+          "id": "Title",
+          "type": "text",
+          "text": "{channel.name}",
+          "x": 960,
+          "y": 760,
+          "size": 150,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "track": 26,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Channel title"
+        },
+        {
+          "id": "Tagline",
+          "type": "text",
+          "text": "{words.tagline}",
+          "x": 960,
+          "y": 850,
+          "size": 30,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "fit": "shrink",
+          "maxWidth": 1600,
+          "align": "center",
+          "track": 12,
+          "opacity": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.4,
+                0
+              ],
+              [
+                1.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Tagline"
+        }
+      ],
+      "name": "Scene entrance and exit"
     }
   ],
   "post": [
@@ -184,7 +222,7 @@
     },
     {
       "type": "vignette",
-      "amount": 0.45
+      "amount": "{control.effect-vignette}"
     }
   ],
   "slots": [

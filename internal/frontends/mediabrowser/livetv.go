@@ -1,6 +1,8 @@
 package mediabrowser
 
 import (
+	"errors"
+
 	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
@@ -141,11 +143,13 @@ func (i *instance) channels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if i.host.LiveTV == nil {
+		w.Header().Set("Retry-After", "1")
 		http.Error(w, "Unavailable", 503)
 		return
 	}
 	channels, err := i.host.LiveTV.Channels(r.Context(), viewer)
 	if err != nil {
+		w.Header().Set("Retry-After", "1")
 		http.Error(w, "Unavailable", 503)
 		return
 	}
@@ -263,6 +267,7 @@ func (i *instance) writeLiveChannelItems(w http.ResponseWriter, r *http.Request,
 	}
 	channels, err := i.host.LiveTV.Channels(r.Context(), viewer)
 	if err != nil {
+		w.Header().Set("Retry-After", "1")
 		http.Error(w, "Unavailable", 503)
 		return
 	}
@@ -392,6 +397,7 @@ func (i *instance) channel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if i.host.LiveTV == nil {
+		w.Header().Set("Retry-After", "1")
 		http.Error(w, "Unavailable", 503)
 		return
 	}
@@ -414,6 +420,7 @@ func (i *instance) programmes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if i.host.LiveTV == nil {
+		w.Header().Set("Retry-After", "1")
 		http.Error(w, "Unavailable", 503)
 		return
 	}
@@ -441,6 +448,11 @@ func (i *instance) programmes(w http.ResponseWriter, r *http.Request) {
 		for _, id := range strings.Split(value, ",") {
 			ch, e := i.host.LiveTV.ResolveChannelGUID(r.Context(), viewer, id)
 			if e != nil {
+				if errors.Is(e, frontend.ErrNotAvailable) {
+					w.Header().Set("Retry-After", "1")
+					http.Error(w, "Unavailable", http.StatusServiceUnavailable)
+					return
+				}
 				http.NotFound(w, r)
 				return
 			}
@@ -449,6 +461,7 @@ func (i *instance) programmes(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := i.host.LiveTV.Guide(r.Context(), viewer, q)
 	if err != nil {
+		w.Header().Set("Retry-After", "1")
 		http.Error(w, "Unavailable", 503)
 		return
 	}
@@ -462,6 +475,7 @@ func (i *instance) recommendedProgrammes(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if i.host.LiveTV == nil {
+		w.Header().Set("Retry-After", "1")
 		http.Error(w, "Unavailable", 503)
 		return
 	}
@@ -480,6 +494,7 @@ func (i *instance) recommendedProgrammes(w http.ResponseWriter, r *http.Request)
 	}
 	rows, err := i.host.LiveTV.Guide(r.Context(), viewer, q)
 	if err != nil {
+		w.Header().Set("Retry-After", "1")
 		http.Error(w, "Unavailable", 503)
 		return
 	}

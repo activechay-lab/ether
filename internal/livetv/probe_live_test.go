@@ -31,7 +31,8 @@ func (p *fixtureLiveProber) ProbeLive(context.Context, string) (*core.MediaInfo,
 func TestLiveCodecCacheExpiresAndDoesNotCacheFailures(t *testing.T) {
 	now := time.Unix(100, 0)
 	p := &fixtureLiveProber{}
-	s := testService(t, Options{Transcoder: p, Now: func() time.Time { return now }})
+	clock := &testClock{now: now}
+	s := testService(t, Options{Transcoder: p, Now: clock.Now})
 	for i := 0; i < 2; i++ {
 		info, err := s.probeLiveInput(context.Background(), "https://fixture.invalid/channel")
 		if err != nil || info.Video() == nil {
@@ -42,7 +43,7 @@ func TestLiveCodecCacheExpiresAndDoesNotCacheFailures(t *testing.T) {
 	if p.calls != 1 {
 		t.Fatal("retune repeated the expensive live probe")
 	}
-	now = now.Add(liveProbeTTL + time.Second)
+	clock.Set(now.Add(liveProbeTTL + time.Second))
 	s.probeLiveInput(context.Background(), "https://fixture.invalid/channel")
 	if p.calls != 2 {
 		t.Fatal("expired live metadata was reused")

@@ -1,199 +1,247 @@
-import type { Look } from "./model";
-import { useState } from "react";
-import { Button, Input } from "@braedonsaunders/appkit-ui";
-import { Eye, EyeOff, Lock, Unlock, Diamond, Link2 } from "lucide-react";
-import { Field } from "../../../components/fields";
+import { useEffect, useRef, useState } from "react";
+import { Button, Input, Popover } from "@braedonsaunders/appkit-ui";
+import {
+  Type,
+  Square,
+  Image,
+  Folder,
+  Grid2X2,
+  Sparkles,
+  GripVertical,
+  Eye,
+  EyeOff,
+  Lock,
+  Unlock,
+  ChevronDown,
+  ChevronRight,
+  MoreHorizontal,
+  Copy,
+  Trash2,
+  Pencil,
+  Film,
+} from "lucide-react";
 import { t } from "../../../i18n";
-export function LayersPanel({
-  selected,
-  onSelect,
-  look,
-  onChange,
-}: {
-  look: Look;
-  onChange: (l: Look) => void;
-  selected: string;
-  onSelect: (s: string) => void;
+import type { Scene, Layer } from "./scene-renderer";
+import {
+  updateLayer,
+  moveLayer,
+  duplicateLayers,
+  removeLayers,
+  layerPath,
+} from "./editor/scene-edit";
+export function LayersPanel(p: {
+  document: Scene;
+  selected: string[];
+  onSelect(ids: string[]): void;
+  onChange(doc: Scene): void;
 }) {
-  const [hidden, setHidden] = useState<string[]>([]),
-    [locked, setLocked] = useState<string[]>([]),
-    [keyframes, setKeyframes] = useState(0);
-  const layer = look.layers?.[selected] || {};
-  const patch = (p: NonNullable<Look["layers"]>[string]) =>
-    onChange({ ...look, layers: { ...look.layers, [selected]: { ...layer, ...p } } });
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">{t("Layer · {name}", { name: t(selected) })}</h3>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setKeyframes((n) => n + 1)}
-          aria-label={t("Add keyframe")}
-        >
-          <Diamond size={14} />
-        </Button>
-      </div>
-      <Field label={t("Text")}>
-        <Input
-          value={layer.text ?? "{next.title}"}
-          onChange={(e) => patch({ text: e.target.value })}
-          key={selected}
-        />
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={(e) => {
-            const input = e.currentTarget.previousElementSibling as HTMLInputElement;
-            patch({ text: input.value.startsWith("{") ? t("Your title") : "{next.title}" });
+  const [expanded, setExpanded] = useState<string[]>(() =>
+      p.document.layers.filter((l) => l.type === "group").map((l) => l.id),
+    ),
+    [rename, setRename] = useState(""),
+    [menu, setMenu] = useState("");
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  useEffect(() => {
+    const parents = p.selected.flatMap((id) =>
+      layerPath(p.document, id)
+        .slice(0, -1)
+        .map((l) => l.id),
+    );
+    setExpanded((current) => [...new Set([...current, ...parents])]);
+    const frame = requestAnimationFrame(() => {
+      rowRefs.current
+        .get(p.selected[0] ?? "")
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [p.selected]);
+  const names: Record<string, string> = {
+    text: t("Text"),
+    path: t("Shape"),
+    rect: t("Rectangle"),
+    ellipse: t("Ellipse"),
+    group: t("Group"),
+    image: t("Image"),
+    art: t("Image"),
+    logo: t("Logo"),
+    grid: t("Perspective grid"),
+    particles: t("Particles"),
+    noise: t("Noise"),
+    gradient: t("Gradient"),
+    video: t("Video"),
+  };
+  const icons: Record<string, typeof Type> = {
+    text: Type,
+    path: Square,
+    rect: Square,
+    ellipse: Square,
+    group: Folder,
+    image: Image,
+    art: Image,
+    logo: Image,
+    grid: Grid2X2,
+    particles: Sparkles,
+    noise: Sparkles,
+    gradient: Square,
+    video: Film,
+  };
+  const rows = (layers: Layer[], parent?: string, depth = 0): React.ReactNode =>
+    [...layers].reverse().map((l) => (
+      <div
+        key={l.id}
+        role="treeitem"
+        aria-level={depth + 1}
+        aria-selected={p.selected.includes(l.id)}
+        aria-expanded={l.type === "group" ? expanded.includes(l.id) : undefined}
+      >
+        <div
+          draggable
+          onDragStart={(e) => e.dataTransfer.setData("text/plain", l.id)}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            const id = e.dataTransfer.getData("text/plain");
+            p.onChange(
+              moveLayer(
+                p.document,
+                id,
+                e.shiftKey && l.type === "group" ? l.id : parent,
+                e.shiftKey ? (l.layers?.length ?? 0) : layers.indexOf(l),
+              ),
+            );
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setMenu(l.id);
+          }}
+          className={`group flex h-8 items-center gap-1 rounded-md pr-1 text-fg-muted transition-colors ${p.selected.includes(l.id) ? "bg-primary-subtle text-primary" : "hover:bg-surface-hover"}`}
+          style={{
+            paddingLeft: depth * 12 + 2,
+            borderLeft: depth ? "1px solid var(--color-border)" : undefined,
           }}
         >
-          <Link2 size={12} />
-          {t("next.title")}
-        </Button>
-      </Field>
-      <Field label={t("Fit mode")}>
-        <select
-          value={layer.fit || "Shrink"}
-          onChange={(e) => patch({ fit: e.target.value })}
-          className="w-full rounded-md border border-border bg-surface p-2 text-sm"
-        >
-          {["Shrink", "Wrap", "Clip"].map((x) => (
-            <option key={x}>{t(x)}</option>
-          ))}
-        </select>
-      </Field>
-      <div className="grid grid-cols-2 gap-3">
-        {["Size", "Opacity", "Position X", "Position Y"].map((x) => (
-          <Field label={t(x)} key={x}>
-            <div className="flex">
-              <Input
-                type="number"
-                key={selected + x}
-                value={
-                  layer[
-                    (
-                      {
-                        Size: "size",
-                        Opacity: "opacity",
-                        "Position X": "x",
-                        "Position Y": "y",
-                      } as const
-                    )[x as "Size"]
-                  ] ?? (x === "Opacity" ? 100 : x === "Size" ? 128 : 0)
-                }
-                onChange={(e) =>
-                  patch({
-                    [(
-                      {
-                        Size: "size",
-                        Opacity: "opacity",
-                        "Position X": "x",
-                        "Position Y": "y",
-                      } as const
-                    )[x as "Size"]]: +e.target.value,
-                  })
-                }
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label={t("Add keyframe")}
-                onClick={() => setKeyframes((n) => n + 1)}
-              >
-                <Diamond size={12} />
-              </Button>
-            </div>
-          </Field>
-        ))}
-      </div>
-      <Field label={t("Behaviour")}>
-        <select
-          value={layer.behaviour || "Typewriter"}
-          onChange={(e) => patch({ behaviour: e.target.value })}
-          className="w-full rounded-md border border-border bg-surface p-2 text-sm"
-        >
-          {[
-            "Typewriter",
-            "Flicker",
-            "Wiggle",
-            "Bounce",
-            "Glint",
-            "Chroma split",
-            "Drift",
-            "Pop",
-          ].map((x) => (
-            <option key={x}>{t(x)}</option>
-          ))}
-        </select>
-      </Field>
-      <p className="text-xs text-fg-muted">{t("{count} keyframes added", { count: keyframes })}</p>
-      <div className="space-y-1 border-t border-border pt-4">
-        {["Title", "Tagline", "Underline", "Moon", "Atmosphere", "Particles"].map((name) => (
-          <div
-            key={name}
-            className={`flex items-center rounded-md p-2 ${selected === name ? "bg-primary-subtle text-primary" : "text-fg-muted"}`}
-          >
-            <button className="flex-1 text-left text-sm" onClick={() => onSelect(name)}>
-              {t(name)}
+          <GripVertical
+            size={10}
+            className="shrink-0 cursor-grab opacity-0 group-hover:opacity-50"
+          />
+          {l.type === "group" ? (
+            <button
+              className="shrink-0 rounded p-0.5 hover:bg-surface-hover"
+              aria-label={expanded.includes(l.id) ? t("Collapse group") : t("Expand group")}
+              onClick={() =>
+                setExpanded((c) =>
+                  c.includes(l.id) ? c.filter((id) => id !== l.id) : [...c, l.id],
+                )
+              }
+            >
+              {expanded.includes(l.id) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             </button>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={t("Toggle visibility")}
-              onClick={() =>
-                setHidden((h) => (h.includes(name) ? h.filter((x) => x !== name) : [...h, name]))
-              }
+          ) : (
+            <span className="w-4 shrink-0" />
+          )}
+          {(() => {
+            const Icon = icons[l.type] ?? Square;
+            return <Icon size={13} className="mr-1 shrink-0 opacity-70" />;
+          })()}
+          {rename === l.id ? (
+            <Input
+              autoFocus
+              aria-label={t("Layer name")}
+              value={l.name ?? names[l.type] ?? t("Layer")}
+              onChange={(e) => p.onChange(updateLayer(p.document, l.id, { name: e.target.value }))}
+              onBlur={() => setRename("")}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") setRename("");
+              }}
+            />
+          ) : (
+            <button
+              className="min-w-0 flex-1 truncate text-left text-xs text-fg"
+              onDoubleClick={() => setRename(l.id)}
+              onClick={(e) => p.onSelect(e.shiftKey ? [...new Set([...p.selected, l.id])] : [l.id])}
             >
-              {hidden.includes(name) ? <EyeOff size={13} /> : <Eye size={13} />}
+              {l.name || names[l.type] || t("Layer")}
+            </button>
+          )}
+          <button
+            className={`rounded p-1 hover:bg-surface-hover ${l.hidden ? "text-primary" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"}`}
+            aria-label={l.hidden ? t("Show layer") : t("Hide layer")}
+            onClick={() => p.onChange(updateLayer(p.document, l.id, { hidden: !l.hidden }))}
+          >
+            {l.hidden ? <EyeOff size={12} /> : <Eye size={12} />}
+          </button>
+          <button
+            className={`rounded p-1 hover:bg-surface-hover ${l.locked ? "text-primary" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"}`}
+            aria-label={l.locked ? t("Unlock layer") : t("Lock layer")}
+            onClick={() => p.onChange(updateLayer(p.document, l.id, { locked: !l.locked }))}
+          >
+            {l.locked ? <Lock size={12} /> : <Unlock size={12} />}
+          </button>
+          <Popover
+            open={menu === l.id}
+            onOpenChange={(open) => setMenu(open ? l.id : "")}
+            className="w-44 p-1"
+            trigger={
+              <button
+                className="rounded p-1 opacity-0 hover:bg-surface-hover group-hover:opacity-100 group-focus-within:opacity-100"
+                aria-label={t("Layer actions")}
+                onClick={() => setMenu(menu === l.id ? "" : l.id)}
+              >
+                <MoreHorizontal size={12} />
+              </button>
+            }
+          >
+            <Button
+              size="sm"
+              variant="ghost"
+              className="w-full justify-start gap-2"
+              onClick={() => {
+                setRename(l.id);
+                setMenu("");
+              }}
+            >
+              <Pencil size={13} />
+              {t("Rename")}
             </Button>
             <Button
-              variant="ghost"
               size="sm"
-              aria-label={t("Toggle lock")}
-              onClick={() =>
-                setLocked((h) => (h.includes(name) ? h.filter((x) => x !== name) : [...h, name]))
-              }
+              variant="ghost"
+              className="w-full justify-start gap-2"
+              onClick={() => {
+                p.onChange(duplicateLayers(p.document, [l.id]));
+                setMenu("");
+              }}
             >
-              {locked.includes(name) ? <Lock size={13} /> : <Unlock size={13} />}
+              <Copy size={13} />
+              {t("Duplicate")}
             </Button>
-          </div>
-        ))}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="w-full justify-start gap-2 text-danger"
+              onClick={() => {
+                p.onChange(removeLayers(p.document, [l.id]));
+                setMenu("");
+              }}
+            >
+              <Trash2 size={13} />
+              {t("Delete")}
+            </Button>
+          </Popover>
+        </div>
+        {l.layers && expanded.includes(l.id) && (
+          <div role="group">{rows(l.layers, l.id, depth + 1)}</div>
+        )}
       </div>
-    </div>
-  );
-}
-export function Timeline({
-  selected,
-  onSelect,
-}: {
-  selected: string;
-  onSelect: (s: string) => void;
-}) {
+    ));
   return (
-    <div className="relative mt-5 overflow-hidden rounded-lg border border-border bg-surface p-3">
-      <div className="mb-3 flex justify-between text-xs text-fg-subtle">
-        {[0, 2, 4, 6, 8].map((n) => (
-          <span key={n}>{n}s</span>
-        ))}
+    <section aria-label={t("Layers")} className="space-y-3">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
+        {t("Layers")}
+      </h3>
+      <div role="tree" aria-label={t("Scene layers")}>
+        {rows(p.document.layers)}
       </div>
-      <div className="pointer-events-none absolute inset-y-2 left-[43%] z-10 w-px bg-primary" />
-      {["Title", "Tagline", "Underline", "Moon", "Atmosphere", "Particles"].map((name, i) => (
-        <button
-          key={name}
-          onClick={() => onSelect(name)}
-          className={`flex h-8 w-full items-center gap-3 border-t border-border text-left text-xs ${selected === name ? "text-primary" : "text-fg-muted"}`}
-        >
-          <span className="w-24 shrink-0">{t(name)}</span>
-          <span className="flex flex-1 items-center gap-12">
-            <span className="text-primary">◆</span>
-            <span className="h-px flex-1 bg-border" />
-            <span className="text-primary" style={{ marginRight: `${i * 7}%` }}>
-              ◆
-            </span>
-          </span>
-        </button>
-      ))}
-    </div>
+    </section>
   );
 }

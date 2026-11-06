@@ -12,13 +12,53 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/mediaproc"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
+
+type dippingContinuousRunner struct {
+	transcode.ContinuousRunner
+	starts atomic.Int64
+	dipped atomic.Bool
+}
+
+func (r *dippingContinuousRunner) StartEncoder(ctx context.Context, request transcode.EncoderRequest) (transcode.ContinuousEncoder, error) {
+	encoder, err := r.ContinuousRunner.StartEncoder(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	r.starts.Add(1)
+	return &dippingContinuousEncoder{ContinuousEncoder: encoder, origin: time.Now(), dipped: &r.dipped}, nil
+}
+
+type dippingContinuousEncoder struct {
+	transcode.ContinuousEncoder
+	origin time.Time
+	once   sync.Once
+	dipped *atomic.Bool
+}
+
+func (e *dippingContinuousEncoder) Write(ctx context.Context, frame transcode.RawFrame) error {
+	if time.Since(e.origin) >= 15*time.Second {
+		e.once.Do(func() {
+			e.dipped.Store(true)
+			timer := time.NewTimer(3 * time.Second)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+			}
+		})
+	}
+	return e.ContinuousEncoder.Write(ctx, frame)
+}
 
 // The broadcast clock, not a hand-fed encoder, owns this outage and recovery.
 // Decode both viewer transports straight through, including the screen cut.
@@ -49,7 +89,10 @@ func TestBroadcastRealContinuity(t *testing.T) {
 		attempts++
 		return &broadcastFakeDecoder{origin: origin, format: format, closed: make(chan struct{}), stall: true}, nil, nil
 	}}
-	b, err := newBroadcast(ctx, manager, broadcastFakePlanner{plan: plan}, format)
+	// A sleeping encoder represents a scheduling dip after viewers have joined.
+	// It must not drop audio ticks, restart the rendition, or break either mux.
+	runner := &dippingContinuousRunner{ContinuousRunner: manager}
+	b, err := newBroadcast(ctx, runner, broadcastFakePlanner{plan: plan}, format)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,6 +137,9 @@ func TestBroadcastRealContinuity(t *testing.T) {
 		}
 	}
 	segments := index.Since(-1, 100)
+	if runner.starts.Load() != 1 || !runner.dipped.Load() {
+		t.Fatal("encoder dip did not preserve the original rendition")
+	}
 	if len(segments) < 8 {
 		t.Fatalf("only %d segments", len(segments))
 	}
@@ -165,10 +211,10 @@ func TestBroadcastRealContinuity(t *testing.T) {
 		if err := os.WriteFile(path, data, 0600); err != nil {
 			t.Fatal(err)
 		}
-		if out, err := exec.CommandContext(ctx, ff, "-v", "warning", "-xerror", "-i", path, "-f", "null", "-").CombinedOutput(); err != nil || len(bytes.TrimSpace(out)) != 0 {
+		if out, err := mediaproc.CommandContext(ctx, 2*time.Minute, ff, "-v", "warning", "-xerror", "-i", path, "-f", "null", "-").CombinedOutput(); err != nil || len(bytes.TrimSpace(out)) != 0 {
 			t.Fatalf("%s straight decode: %v %s", name, err, out)
 		}
-		out, err := exec.CommandContext(ctx, fp, "-v", "error", "-show_packets", "-show_streams", "-of", "json", path).Output()
+		out, err := mediaproc.CommandContext(ctx, 2*time.Minute, fp, "-v", "error", "-show_packets", "-show_streams", "-of", "json", path).Output()
 		if err != nil {
 			t.Fatal(err)
 		}

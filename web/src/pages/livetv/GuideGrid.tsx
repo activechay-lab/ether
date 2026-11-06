@@ -1,3 +1,4 @@
+import { programmeArtwork } from "./model";
 import { Badge, Button, Checkbox, cn } from "@braedonsaunders/appkit-ui";
 import {
   AlertTriangle,
@@ -476,7 +477,16 @@ export function GuideGrid({
                     {ps.map((p) => {
                       const s = Math.max(Date.parse(p.start), start);
                       const e = Math.min(Date.parse(p.end), until.getTime());
-                      if (e <= s) return null;
+                      // The guide is virtual in both directions. Rendering a
+                      // whole day's cards for every visible row blocks drawer
+                      // transitions even though most cards are offscreen.
+                      const overscan = 60 * ppm;
+                      if (
+                        e <= s ||
+                        x(e) < view.left - overscan ||
+                        x(s) > view.left + view.width - chCol + overscan
+                      )
+                        return null;
                       const left = x(s);
                       const w = Math.max(2, x(e) - left);
                       const airing = live?.id === p.id;
@@ -525,7 +535,7 @@ export function GuideGrid({
                           >
                             {p.item.thumb && w > 220 ? (
                               <Artwork
-                                src={p.item.thumb}
+                                src={programmeArtwork(p.item.thumb)}
                                 alt=""
                                 title=""
                                 className="h-10 w-7 shrink-0 rounded"
@@ -806,7 +816,7 @@ export function OnNowStrip({
             >
               {p.item.thumb || c.logo ? (
                 <Artwork
-                  src={p.item.thumb || c.logo}
+                  src={programmeArtwork(p.item.thumb) || c.logo}
                   alt=""
                   title=""
                   className="absolute inset-y-0 right-0 w-24 opacity-90 [mask-image:linear-gradient(to_left,black_40%,transparent)]"

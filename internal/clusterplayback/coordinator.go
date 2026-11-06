@@ -225,7 +225,11 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		r.mu.Lock()
 		x.output = output
 		r.mu.Unlock()
+		slog.Info("encoder recovery armed", "session", rt.Fence.Session, "generation", rt.Fence.Generation, "worker", rt.Fence.Target.NodeID, "worker_boot", rt.Fence.Target.Boot)
 		return r.recoveryDelivery(output), nil
+	}
+	if encoderRecoverySupported(q) {
+		slog.Warn("encoder recovery unavailable", "session", rt.Fence.Session, "generation", rt.Fence.Generation, "detector", "output-buffer-unavailable", "rungs", len(x.session.Rungs()), "protocol", q.Protocol)
 	}
 	return hs, nil
 }
@@ -487,20 +491,12 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			return err
 		}
 	}
-	result := r.tickReopenLives(ctx)
+	var result error
 	if err := r.reconcileBootRetirements(ctx); err != nil {
 		result = err
 	}
 	if err := r.persistPreparationReceipts(ctx); err != nil {
 		result = err
-	}
-	r.mu.Lock()
-	remote := r.remotePlayback
-	r.mu.Unlock()
-	if remote != nil {
-		if e := remote.tick(ctx); e != nil {
-			result = e
-		}
 	}
 	for _, x := range list {
 		if e := ctx.Err(); e != nil {
@@ -638,7 +634,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			// Authenticated replacement is positive loss evidence; unlike a
 			// transient transport failure it needs no grace period. Ordinary
 			// boot retirement preserved this gate for our supersession CAS.
-			if !recoverNow && r.retiredWorkerBoot(ctx, x.route.Fence) == nil {
+			if !recoverNow && detector == "worker-boot-replaced" {
 				recoverNow = true
 			}
 			if recoverNow {
@@ -682,6 +678,21 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		}
 		r.mu.Unlock()
 	}
+	// Source activity/retirement can wait on a paused old source after movement.
+	// Reconcile healthy encoders and extend their leases before spending the
+	// remaining tick budget on that I/O.
+	if err := r.tickReopenLives(ctx); err != nil {
+		result = err
+	}
+	r.mu.Lock()
+	remote := r.remotePlayback
+	r.mu.Unlock()
+	if remote != nil {
+		if e := remote.tick(ctx); e != nil {
+			result = e
+		}
+	}
+
 	return result
 }
 func (r *Runtime) retire(ctx context.Context, x *execution) error {

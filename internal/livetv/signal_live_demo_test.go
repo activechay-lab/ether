@@ -27,6 +27,9 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/mediaproc"
+	"github.com/braedonsaunders/ether/internal/onair/families"
+	"github.com/braedonsaunders/ether/internal/onair/raster"
 	"github.com/braedonsaunders/ether/internal/onair/signal"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
@@ -37,6 +40,7 @@ var liveSignalNotify = flag.String("live-signal-notify", "", "notify requesting 
 
 type liveSignalDecoder struct {
 	engine   *signal.Engine
+	overlay  *videoOverlay
 	format   transcode.RawFormat
 	tick     int64
 	origin   time.Time
@@ -60,6 +64,7 @@ func (d *liveSignalDecoder) Next(ctx context.Context) (transcode.RawFrame, error
 	var pcm [3200]int16
 	start := time.Now()
 	d.engine.Render(frame.Video, pcm[:], d.tick)
+	d.overlay.blend(frame.Video, d.format, 255)
 	d.renderNS.Add(time.Since(start).Nanoseconds())
 	for i, v := range pcm {
 		binary.LittleEndian.PutUint16(frame.PCM[i*2:], uint16(v))
@@ -128,7 +133,7 @@ func TestLiveSignalDemo(t *testing.T) {
 	}
 	os.MkdirAll(*liveSignalDemo, 0755)
 	type spec struct{ name, style, overlay string }
-	specs := []spec{{"static-a", "shimmer", ""}, {"static-b", "classic", ""}, {"static-c", "ghost", ""}, {"bars", "bars", ""}, {"card-back-at-6pm", "card", "back-at-6pm"}, {"card-reconnecting", "card", "reconnecting"}, {"card-waiting", "card", "waiting"}, {"brb", "brb", ""}, {"testcard", "testcard", ""}}
+	specs := []spec{{"static", "crisp", ""}, {"nocturne", "crisp", ""}, {"bars", "bars", ""}, {"card-back-at-6pm", "card", "back-at-6pm"}, {"card-reconnecting", "card", "reconnecting"}, {"card-waiting", "card", "waiting"}, {"brb", "brb", ""}, {"testcard", "testcard", ""}}
 	for _, s := range specs {
 		for _, h := range []int{1080, 720} {
 			t.Run(fmt.Sprintf("%s-%d", s.name, h), func(t *testing.T) {
@@ -160,8 +165,14 @@ func TestLiveSignalDemo(t *testing.T) {
 					return im
 				}
 				var engine *signal.Engine
-				if strings.HasPrefix(s.name, "static") {
-					engine = signal.NewStatic(w, h, s.style, 20261105)
+				var foreground *videoOverlay
+				if strings.HasPrefix(s.name, "static") || s.name == "nocturne" {
+					engine = signal.NewStatic(w, h, 20261105)
+					if s.name == "nocturne" {
+						doc, _ := families.Get("late-night", "offair")
+						plate, _ := doc.StaticForeground()
+						foreground = compactOverlay(raster.Render(plate, raster.Bindings{Bindings: families.Defaults("late-night")}, doc.Poster, w, h), transcode.RawFormat{Width: w, Height: h})
+					}
 				} else {
 					overlay := "screen-" + s.style + "-text"
 					if s.style == "card" {
@@ -170,18 +181,19 @@ func TestLiveSignalDemo(t *testing.T) {
 					engine = signal.NewPlate(w, h, s.style, load("screen-"+s.style+"-plate"), load(overlay), 20261105)
 				}
 				report := filepath.Join(*liveSignalDemo, name+"-encoder-cpu.txt")
-				manager, err := transcode.New(config.Transcode{FFmpegPath: ff, FFprobePath: fp, TempDir: filepath.Join(t.TempDir(), "out"), HWAccel: "none"}, slog.New(slog.NewTextHandler(io.Discard, nil)), transcode.WithoutHWDetection(), transcode.WithRunner(liveSignalTimedRunner{report: report}))
+				manager, err := transcode.New(config.Transcode{FFmpegPath: ff, FFprobePath: fp, TempDir: filepath.Join(t.TempDir(), "out"), HWAccel: "none"}, slog.New(slog.NewTextHandler(os.Stderr, nil)), transcode.WithoutHWDetection(), transcode.WithRunner(liveSignalTimedRunner{report: report}))
 				if err != nil {
 					t.Fatal(err)
 				}
 				defer manager.Close()
 				format := transcode.RawFormat{Width: w, Height: h, FPSNum: 30, FPSDen: 1, SampleRate: 48000, Channels: 2, PixelFormat: "yuv420p"}
-				decoder := &liveSignalDecoder{engine: engine, format: format, origin: time.Now(), closed: make(chan struct{})}
+				decoder := &liveSignalDecoder{engine: engine, overlay: foreground, format: format, origin: time.Now(), closed: make(chan struct{})}
 				plan := broadcastPlan{id: "live-" + name, open: func(context.Context) (transcode.Decoder, func(), error) { return decoder, nil, nil }}
 				b, err := newBroadcast(ctx, manager, liveSignalPlanner{plan: plan}, format)
 				if err != nil {
 					t.Fatal(err)
 				}
+				b.logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
 				defer b.close()
 				if _, err := b.addRendition(ctx, "signal", core.Decision{Kind: core.DecisionTranscode, VideoCodec: "h264", AudioCodec: "aac", MaxHeight: h, BitrateKbps: ceiling, AudioBitrateKbps: 192, AudioChannels: 2, AudioSampleRate: 48000, H264Level: 40}); err != nil {
 					t.Fatal(err)
@@ -233,6 +245,14 @@ func TestLiveSignalDemo(t *testing.T) {
 					body, _ := io.ReadAll(res.Body)
 					res.Body.Close()
 					if res.StatusCode != 200 {
+						if next == 0 && time.Since(started) < 15*time.Second {
+							select {
+							case <-ctx.Done():
+								t.Fatal(ctx.Err())
+							case <-time.After(100 * time.Millisecond):
+							}
+							continue
+						}
 						t.Fatalf("playlist%d %s", res.StatusCode, body)
 					}
 					if strings.Contains(string(body), "DISCONTINUITY") {
@@ -289,13 +309,13 @@ func TestLiveSignalDemo(t *testing.T) {
 				b.close()
 				manager.Close()
 				output := filepath.Join(*liveSignalDemo, name+".mp4")
-				if out, err := exec.CommandContext(ctx, ff, "-v", "error", "-y", "-i", capture, "-t", "20", "-c", "copy", "-movflags", "+faststart", output).CombinedOutput(); err != nil {
+				if out, err := mediaproc.CommandContext(ctx, 2*time.Minute, ff, "-v", "error", "-y", "-i", capture, "-t", "20", "-c", "copy", "-movflags", "+faststart", output).CombinedOutput(); err != nil {
 					t.Fatalf("remux: %v %s", err, out)
 				}
-				if out, err := exec.CommandContext(ctx, ff, "-v", "error", "-xerror", "-i", output, "-f", "null", "-").CombinedOutput(); err != nil {
+				if out, err := mediaproc.CommandContext(ctx, 2*time.Minute, ff, "-v", "error", "-xerror", "-i", output, "-f", "null", "-").CombinedOutput(); err != nil {
 					t.Fatalf("decode: %v %s", err, out)
 				}
-				raw, err := exec.CommandContext(ctx, fp, "-v", "error", "-show_packets", "-show_format", "-show_entries", "packet=pts_time,size:format=duration,bit_rate", "-of", "json", output).Output()
+				raw, err := mediaproc.CommandContext(ctx, 2*time.Minute, fp, "-v", "error", "-show_packets", "-show_format", "-show_entries", "packet=pts_time,size:format=duration,bit_rate", "-of", "json", output).Output()
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -344,7 +364,7 @@ func TestLiveSignalDemo(t *testing.T) {
 				bytes, _ := json.MarshalIndent(metadata, "", "  ")
 				os.WriteFile(filepath.Join(*liveSignalDemo, name+".json"), append(bytes, '\n'), 0644)
 				crop := filepath.Join(*liveSignalDemo, name+"-crop.jpg")
-				exec.CommandContext(ctx, ff, "-v", "error", "-y", "-ss", "5", "-i", output, "-vf", fmt.Sprintf("crop=%d:%d:%d:%d", w/2, h/2, w/4, h/4), "-frames:v", "1", crop).Run()
+				mediaproc.CommandContext(ctx, 2*time.Minute, ff, "-v", "error", "-y", "-ss", "5", "-i", output, "-vf", fmt.Sprintf("crop=%d:%d:%d:%d", w/2, h/2, w/4, h/4), "-frames:v", "1", crop).Run()
 				os.Remove(capture)
 				if false && *liveSignalNotify != "" {
 					message := fmt.Sprintf("LANDED LIVE %s.mp4 +json+crop in %s. Real switcher/shared HLS, avg%.1f peak1s%.1f kb/s ceiling%d; generation+encode %.3f cores; -xerror decode passed.", name, *liveSignalDemo, bitrate/1000, float64(peak)/1000, ceiling, generationCPU+encodeCPU)
@@ -361,7 +381,7 @@ func inspectSignalSample(t *testing.T, ctx context.Context, ff, output, dir, nam
 	var means []float64
 	var hashes []uint64
 	for _, second := range []string{"2", "8", "14"} {
-		raw, err := exec.CommandContext(ctx, ff, "-v", "error", "-ss", second, "-i", output, "-frames:v", "1", "-pix_fmt", "gray", "-f", "rawvideo", "-").Output()
+		raw, err := mediaproc.CommandContext(ctx, 2*time.Minute, ff, "-v", "error", "-ss", second, "-i", output, "-frames:v", "1", "-pix_fmt", "gray", "-f", "rawvideo", "-").Output()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -382,7 +402,7 @@ func inspectSignalSample(t *testing.T, ctx context.Context, ff, output, dir, nam
 		t.Fatal("frozen live output")
 	}
 	preview := filepath.Join(dir, name+"-inspection.jpg")
-	if out, err := exec.CommandContext(ctx, ff, "-v", "error", "-y", "-i", output, "-vf", `select='eq(n,60)+eq(n,240)+eq(n,420)',scale=640:360,tile=3x1`, "-frames:v", "1", preview).CombinedOutput(); err != nil {
+	if out, err := mediaproc.CommandContext(ctx, 2*time.Minute, ff, "-v", "error", "-y", "-i", output, "-vf", `select='eq(n,60)+eq(n,240)+eq(n,420)',scale=640:360,tile=3x1`, "-frames:v", "1", preview).CombinedOutput(); err != nil {
 		t.Fatalf("inspection: %v %s", err, out)
 	}
 	return means

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -48,11 +49,14 @@ type execution struct {
 	monotonicDeadline         time.Time // Local elapsed-time cap; never serialized.
 }
 type Worker struct {
-	mu      sync.Mutex
-	opts    WorkerOptions
-	records map[Identity]*execution
-	highest map[string]uint64
-	closed  bool
+	denialMu      sync.Mutex
+	denialAt      time.Time
+	denialSkipped uint64
+	mu            sync.Mutex
+	opts          WorkerOptions
+	records       map[Identity]*execution
+	highest       map[string]uint64
+	closed        bool
 }
 
 func NewWorker(o WorkerOptions) (*Worker, error) {
@@ -134,11 +138,17 @@ func result(e *execution) string {
 func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 	// TLS verification is mandatory even when an injected callback is permissive.
 	if r.TLS == nil || len(r.TLS.VerifiedChains) == 0 {
+		w.logAuthDenial("tls_unverified", nil)
 		http.Error(out, "peer authentication required", 401)
 		return
 	}
 	peer, err := w.opts.Security.Authenticate(r)
 	if err != nil || !token(peer) {
+		reason := "authenticate"
+		if err == nil {
+			reason = "invalid_peer"
+		}
+		w.logAuthDenial(reason, err)
 		http.Error(out, "peer authentication required", 401)
 		return
 	}
@@ -636,4 +646,19 @@ func (w *Worker) canRenew(e *execution, n Renewal) bool {
 	return !w.closed && !e.stopped && !e.failed && !e.starting && !w.expired(e, now) && e.lease.Deadline.After(now) && result(e) == "running" &&
 		e.lease.Version == n.PreviousVersion && e.lease.Deadline.Equal(n.PreviousDeadline) &&
 		n.Deadline.After(now) && n.Deadline.Sub(now) <= w.opts.MaxLease
+}
+
+// One bounded limiter per worker; do not log request bodies, credentials or URLs.
+func (w *Worker) logAuthDenial(reason string, err error) {
+	now := time.Now()
+	w.denialMu.Lock()
+	if !w.denialAt.IsZero() && now.Sub(w.denialAt) < time.Minute {
+		w.denialSkipped++
+		w.denialMu.Unlock()
+		return
+	}
+	skipped := w.denialSkipped
+	w.denialAt, w.denialSkipped = now, 0
+	w.denialMu.Unlock()
+	slog.Warn("worker peer authentication denied", "component", "remotetranscode", "reason", reason, "error", err, "suppressed", skipped)
 }

@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/mediaproc"
 )
 
 // The held middle phase represents a ten-second source outage. The switcher's
@@ -69,7 +69,7 @@ func TestContinuousPlayout(t *testing.T) {
 		if err := os.WriteFile(path, b, 0600); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.CommandContext(ctx, e.ffmpeg, "-hide_banner", "-loglevel", "error", "-xerror", "-i", path, "-t", "12", "-f", "null", "-")
+		cmd := mediaproc.CommandContext(ctx, 2*time.Minute, e.ffmpeg, "-hide_banner", "-loglevel", "error", "-xerror", "-i", path, "-t", "12", "-f", "null", "-")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("decode %s: %v %s manifest=%s", name, err, out, b)
 		}
@@ -89,7 +89,7 @@ func TestContinuousPlayout(t *testing.T) {
 	if err := os.WriteFile(path, capture, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.CommandContext(ctx, e.ffmpeg, "-v", "error", "-xerror", "-i", path, "-f", "null", "-").CombinedOutput(); err != nil {
+	if out, err := mediaproc.CommandContext(ctx, 2*time.Minute, e.ffmpeg, "-v", "error", "-xerror", "-i", path, "-f", "null", "-").CombinedOutput(); err != nil {
 		t.Fatalf("fMP4 decode: %v %s", err, out)
 	}
 	segments := runner.Segments().Since(-1, 100)
@@ -112,7 +112,7 @@ func TestContinuousPlayout(t *testing.T) {
 	last[1] = math.Inf(-1)
 	for n := 0; n < 5; n++ {
 		path := filepath.Join(enc.dir, fmt.Sprintf("seg-%09d.ts", n))
-		out, err := exec.CommandContext(ctx, e.ffprobe, "-v", "error", "-show_streams", "-show_packets", "-of", "json", path).Output()
+		out, err := mediaproc.CommandContext(ctx, 2*time.Minute, e.ffprobe, "-v", "error", "-show_streams", "-show_packets", "-of", "json", path).Output()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -208,6 +208,10 @@ func TestContinuousSegmentIndex(t *testing.T) {
 	start := time.Unix(1000, 0)
 	index.setStart(start)
 	for n := int64(0); n < 6; n++ {
+		first, count := continuousSegmentFrames(e.req.Source, n)
+		for tick := first; tick < first+count; tick++ {
+			index.recordPolicy(tick, []any{"programme", n})
+		}
 		for _, path := range []string{index.ts(n), index.mp4(n)} {
 			if err := os.WriteFile(path, []byte("finished"), 0600); err != nil {
 				t.Fatal(err)
@@ -220,6 +224,9 @@ func TestContinuousSegmentIndex(t *testing.T) {
 		t.Fatal(segments)
 	}
 	for _, seg := range segments {
+		if len(seg.PolicyTags) != 2 || seg.PolicyTags[0] != "programme" || seg.PolicyTags[1] != seg.Seq {
+			t.Fatalf("lost policy: %+v", seg)
+		}
 		if seg.Duration != 4004*time.Millisecond || !seg.Start.Equal(start.Add(time.Duration(seg.Seq-2)*4004*time.Millisecond)) {
 			t.Fatal(seg)
 		}
