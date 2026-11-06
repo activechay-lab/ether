@@ -241,8 +241,13 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	if !ok {
 		return renderJob{}, false
 	}
+	// Plans mutate their own document (durations, bug layout, bindings). Copy it
+	// into a FRESH value: decoding into d would reuse the stored style's slice
+	// backing arrays and write into shared scenes while other plans hash them.
+	var own scene.Document
 	raw, _ := json.Marshal(d)
-	_ = json.Unmarshal(raw, &d)
+	_ = json.Unmarshal(raw, &own)
+	d = own
 	assetDigest := ""
 	if selected.Video != nil && selected.Video.Mode == "replace" {
 		assetDigest = selected.Video.AssetDigest
