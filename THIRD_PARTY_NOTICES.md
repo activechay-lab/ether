@@ -24,14 +24,14 @@ Installers and the Docker image bundle `ffmpeg` and `ffprobe` from the
   and compatible. If you build Ether yourself you may equally point it
   at your system's ffmpeg (`transcode.ffmpegPath` in the config).
 
-## Vendored pure-Go yEnc SIMD kernels
+## RapidYenc
 
-`internal/yenc/internal/rapidyenc` adapts the ARM64 NEON and AMD64 AVX2
-line kernels from [mnightingale/rapidyenc](https://github.com/mnightingale/rapidyenc),
-pinned to commit `6657b7ca854e05728fa4a67f29ebc90ecd304428` (2026-10-08).
-Only Go SIMD source is vendored; no C or cgo files are included.
-Ether retains its own framing, limits, CRC checks and portable SWAR fallback.
-Local changes and provenance are documented alongside the vendored source.
+`internal/yenc` imports [mnightingale/rapidyenc](https://github.com/mnightingale/rapidyenc),
+pinned in `go.mod`/`go.sum` to commit `6657b7ca854e05728fa4a67f29ebc90ecd304428`
+(2026-10-08). Pure-Go SIMD builds use its public `NewDecoder` API behind
+Ether's bounded input adapter. Ether uses SWAR when SIMD is unavailable or
+cgo is enabled; the decoder dependency graph in shipped `CGO_ENABLED=0`
+builds contains no cgo files. The dependency is MIT-licensed:
 
 MIT License
 
@@ -66,6 +66,7 @@ SOFTWARE.
 | `github.com/jackc/pgx/v5` (+ `github.com/jackc/pgpassfile`, `github.com/jackc/pgservicefile`, `github.com/jackc/puddle/v2`) | Pure-Go PostgreSQL driver (database/sql adapter) for clustered mode, `internal/store` | MIT (© Jack Christensen) |
 | `github.com/kardianos/service` | OS service (systemd/launchd/Windows SCM), `internal/service` | Zlib-style (“as-is”, © Daniel Theophanes) |
 | `github.com/ulikunitz/xz` | 7z header LZMA decoding, `internal/archive` | BSD-3-Clause |
+| `github.com/mnightingale/rapidyenc` | Pure-Go SIMD Usenet yEnc article decoding, `internal/yenc` | MIT (© Michael Nightingale) |
 | `golang.org/x/crypto` (`argon2`) | Local password hashing, `internal/identity` | BSD-3-Clause |
 | `golang.org/x/text` | Legacy subtitle code pages, `internal/subtitles`; language names, `internal/collections` | BSD-3-Clause |
 | `golang.org/x/image` | Collection poster rendering (scaling, WebP decoding, OpenType text), `internal/artwork` | BSD-3-Clause |

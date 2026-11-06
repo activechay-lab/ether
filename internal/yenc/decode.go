@@ -8,8 +8,6 @@ import (
 	"hash/crc32"
 	"io"
 	"math/bits"
-
-	"github.com/braedonsaunders/ether/internal/yenc/internal/rapidyenc"
 )
 
 // DefaultMaxSize bounds the buffer a header can make the decoder allocate.
@@ -62,6 +60,18 @@ func DecodeLines(lr LineReader, opt *DecodeOptions) (*Part, error) {
 	// A slice cannot exceed the platform's addressable size, even when a
 	// caller supplies a larger int64 limit on a 32-bit target.
 	o.MaxSize = min(o.MaxSize, int64(int(^uint(0)>>1)))
+
+	p, err := readBegin(lr)
+	if err != nil {
+		return nil, err
+	}
+	if rapidEnabled() {
+		return decodeRapidBody(lr, o, p)
+	}
+	return decodeBodySWAR(lr, o, p, nil, true, false, bodyWireBudget(o.MaxSize))
+}
+
+func readBegin(lr LineReader) (*Part, error) {
 	p := &Part{}
 	preamble := 0
 	// 1. Find =ybegin.
@@ -90,21 +100,23 @@ func DecodeLines(lr LineReader, opt *DecodeOptions) (*Part, error) {
 		}
 	}
 
+	return p, nil
+}
+
+func bodyWireBudget(maxSize int64) int64 {
+	if maxSize > (int64(^uint64(0)>>1)-MaxPreambleSize)/6 {
+		return int64(^uint64(0) >> 1)
+	}
+	return maxSize*6 + MaxPreambleSize
+}
+
+func decodeBodySWAR(lr LineReader, o DecodeOptions, p *Part, dst []byte, first, escaped bool, wireBudget int64) (*Part, error) {
 	// 2. Optional =ypart, then data lines up to =yend.
-	first := true
-	escaped := false
-	var dst []byte
 	var smallScratch [512]byte
 	scratch := smallScratch[:]
 	// Count wire bytes as well as decoded bytes: empty lines and redundant
 	// escape line breaks must not permit unlimited work for a tiny part.
 	// Six wire bytes permit every escaped byte to be split across CRLF lines.
-	wireBudget := o.MaxSize
-	if wireBudget > (int64(^uint64(0)>>1)-MaxPreambleSize)/6 {
-		wireBudget = int64(^uint64(0) >> 1)
-	} else {
-		wireBudget = wireBudget*6 + MaxPreambleSize
-	}
 	alloc := func(hint int64) error {
 		if hint > o.MaxSize {
 			return fmt.Errorf("%w: %d bytes", ErrTooLarge, hint)
@@ -201,6 +213,14 @@ func DecodeLines(lr LineReader, opt *DecodeOptions) (*Part, error) {
 }
 
 func verify(p *Part, skipCRC bool) error {
+	var got uint32
+	if !skipCRC && (p.Trailer.HasPartCRC || p.Trailer.HasCRC) {
+		got = crc32.ChecksumIEEE(p.Data)
+	}
+	return verifyChecksum(p, skipCRC, got)
+}
+
+func verifyChecksum(p *Part, skipCRC bool, got uint32) error {
 	n := int64(len(p.Data))
 	if p.Trailer.Size != n {
 		return fmt.Errorf("%w: decoded %d bytes, =yend size=%d", ErrSizeMismatch, n, p.Trailer.Size)
@@ -213,7 +233,6 @@ func verify(p *Part, skipCRC bool) error {
 	}
 	whole := !p.Header.Multipart || (p.Header.Begin == 1 && p.Header.End == p.Header.Size)
 	if p.Trailer.HasPartCRC || (p.Trailer.HasCRC && whole) {
-		got := crc32.ChecksumIEEE(p.Data)
 		if p.Trailer.HasPartCRC && got != p.Trailer.PartCRC32 {
 			return fmt.Errorf("%w: pcrc32 got %08x want %08x", ErrCRCMismatch, got, p.Trailer.PartCRC32)
 		}
@@ -229,24 +248,14 @@ func verify(p *Part, skipCRC bool) error {
 // bytes. escaped carries a dangling '=' from the end of the previous line,
 // and the returned flag reports a dangling '=' at the end of this one.
 //
-// Supported SIMD builds decode 64-byte blocks first. The portable hot loop
-// handles remaining bytes and CPUs without SIMD. Each native word detects
-// '=' and subtracts 42 from eight independent byte lanes. Fusing detection with decoding avoids
+// This is the hot loop. Each native word both detects '=' and subtracts 42
+// from eight independent byte lanes. Fusing detection with decoding avoids
 // scanning each escaped run twice and calling a search routine per escape.
 // The first set lane in the zero-byte mask is the first real escape even
 // when subtraction borrows into a following lane. The short tail is scalar.
-// Both paths allocate nothing and support exact in-place decoding.
+// No allocation, lookup table, unsafe access or architecture-specific ISA
+// requirement is involved. Exact in-place decoding is supported.
 func DecodeLine(dst, src []byte, escaped bool) (int, bool) {
-	if len(src) >= 64 && rapidyenc.Available() {
-		consumed, produced, nextEscaped := rapidyenc.Decode(dst, src, escaped)
-		n, escaped := decodeLineSWAR(dst[produced:], src[consumed:], nextEscaped)
-		return produced + n, escaped
-	}
-	return decodeLineSWAR(dst, src, escaped)
-}
-
-// decodeLineSWAR is the portable decoder and the tail of the SIMD path.
-func decodeLineSWAR(dst, src []byte, escaped bool) (int, bool) {
 	const (
 		high   = uint64(0x8080808080808080)
 		ones   = uint64(0x0101010101010101)
