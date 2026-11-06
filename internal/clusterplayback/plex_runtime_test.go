@@ -2,6 +2,7 @@ package clusterplayback
 
 import (
 	"context"
+	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodewire"
@@ -85,14 +86,14 @@ func (e forwardOnlyEncoder) ForwardPlexGrantMedia(w http.ResponseWriter, q *http
 }
 
 func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
 	sourceID := nodewire.Identity{Cluster: "plex-composition", NodeID: "source", Boot: "source-boot"}
 	workerID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "worker", Boot: "worker-boot"}
 	ownerID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "owner", Boot: "owner-boot"}
 	senderID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "sender", Boot: "sender-boot"}
 	guards := fixtureGuards(t, sourceID, workerID, ownerID, senderID)
 	db := store.OpenTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	verifier := NewVerifier()
 	ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
 	if err != nil {
@@ -189,7 +190,9 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	}
 	events := sessions.NewEventBus(nil, auth.ActiveUser)
 	defer events.Close()
-	broker, err := sessions.NewBroker(sessions.BrokerDeps{Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
+	hub := clusterbus.NewHub()
+	ownerNode, senderNode := hub.Node(ownerID.NodeID), hub.Node(senderID.NodeID)
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{DB: db, Cluster: ownerNode, Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
 		return fixtureCatalog{}.Get(c, k)
 	}})
 	if err != nil {
@@ -200,7 +203,7 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	cfg.Plex.Claimed = true
 	cfg.Server.MachineIdentifier = "offline-machine"
 	cfg.Server.TrustedProxyCIDRs = []string{"10.1.0.0/16"}
-	deps := plex.Deps{DB: db, Catalog: fixtureCatalog{}, State: composedState{}, Auth: auth, AccessPolicy: policy, Playback: remote, Transcoder: decision, PlexEncoder: broker, DisableEnrichment: true, Config: func() config.Config { return cfg }}
+	deps := plex.Deps{DB: db, Cluster: ownerNode, Catalog: fixtureCatalog{}, State: composedState{}, Auth: auth, AccessPolicy: policy, Playback: remote, Transcoder: decision, PlexEncoder: broker, DisableEnrichment: true, Config: func() config.Config { return cfg }}
 	publicOwner := plex.NewServer(deps)
 	defer publicOwner.Close()
 	publicOwner.UsePlaybackBroker(broker)
@@ -216,17 +219,19 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 		t.Fatal(err)
 	}
 	senderDeps := brokerTestDeps(remoteSender, senderDecision, sender, events, auth, policy)
+	senderDeps.DB, senderDeps.Cluster = db, senderNode
 	senderBroker, err := sessions.NewBroker(senderDeps)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer senderBroker.Close(ctx)
 	deps.Playback, deps.Transcoder, deps.PlexEncoder = remoteSender, senderDecision, senderBroker
+	deps.Cluster = senderNode
 	publicSender := plex.NewServer(deps)
 	defer publicSender.Close()
 	publicSender.UsePlaybackBroker(senderBroker)
 	forwardDeps := deps
-	forwardDeps.DB = nil
+	forwardDeps.DB, forwardDeps.Cluster = nil, nil
 	forwardDeps.Playback, forwardDeps.Transcoder, forwardDeps.PlexEncoder = remote, decision, forwardOnlyEncoder{r: sender}
 	publicForward := plex.NewServer(forwardDeps)
 	defer publicForward.Close()
@@ -363,8 +368,14 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	if len(sender.executions) != 0 {
 		t.Fatal("sender synthesized an encoder")
 	}
+	stopRequest := httptest.NewRequest("GET", "https://public/video/:/transcode/universal/stop?session=real-composed-plex", nil)
+	stopRequest.RemoteAddr, stopRequest.Header = start.RemoteAddr, start.Header.Clone()
+	stopResponse := httptest.NewRecorder()
+	publicOwner.ServeHTTP(stopResponse, stopRequest)
+	if stopResponse.Code != 200 {
+		t.Fatalf("cluster stop status %d", stopResponse.Code)
+	}
 	owner.Stop("real-composed-plex")
-	remote.Stop(remote.Sessions()[0].ID)
 	for i := 0; i < 50; i++ {
 		_ = owner.Tick(ctx)
 		_ = sender.Tick(ctx)
