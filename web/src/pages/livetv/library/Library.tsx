@@ -505,7 +505,7 @@ export function LibraryGrid({
     >
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex-1">
-          <h2 className="text-xl font-semibold">{t("Your station’s creative Library")}</h2>
+          <h2 className="text-xl font-semibold">{t("Your station’s creative library")}</h2>
           <p className="text-sm text-fg-muted">
             {t("Bumpers, stings, logos and type. Make every moment yours.")}
           </p>

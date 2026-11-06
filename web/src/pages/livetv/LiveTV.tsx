@@ -23,6 +23,7 @@ import {
   Tv,
   UserRound,
   Palette,
+  Upload,
   Undo2,
 } from "lucide-react";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -1007,6 +1008,7 @@ export default function LiveTV() {
     ) : leftTab === "looks" ? (
       <LooksGallery
         looks={looks}
+        query={q}
         onNew={() => setParams(new URLSearchParams({ look: "new" }))}
         onSelect={(id) => setParams(new URLSearchParams({ look: id }))}
       />
@@ -1450,7 +1452,7 @@ function AddMenu({
             {item(Palette, styleCopy("Style"), t("Design your channel’s on-air graphics"), () =>
               navigate("/livetv/looks?look=new"),
             )}
-            {item(Palette, t("Upload to library"), t("Upload files"), () =>
+            {item(Upload, t("Upload to library"), t("Bumpers, stings, logos and fonts"), () =>
               navigate("/livetv/library?upload=1"),
             )}
             {item(ListVideo, t("Break reel"), t("Clips to play between programmes"), () =>
