@@ -35,14 +35,14 @@ func neutralBindingName(id string, generation int64) string {
 	return fmt.Sprintf("clusterplayback/neutral/%s/%d", id, generation)
 }
 func (r *Runtime) NeutralSessionCurrent(ctx context.Context, id string) bool {
-	if !r.ownsCoordination(ctx, id) {
+	if !r.clockReady() || !r.ownsCoordination(ctx, id) {
 		return false
 	}
 	var stopped int
 	return r.o.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM clusterplayback_neutral_stops WHERE session=?`, id).Scan(&stopped) == nil && stopped == 0
 }
 func (r *Runtime) SaveNeutralBinding(ctx context.Context, id, protocol string, viewer int64, device string, raw []byte) error {
-	if r.o.ProtocolSealer == nil || len(raw) == 0 || len(raw) > maxAdmissionBytes || protocol != "jellyfin" && protocol != "emby" || viewer <= 0 || device == "" || len(device) > 256 || !r.ownsCoordination(ctx, id) {
+	if !r.clockReady() || r.o.ProtocolSealer == nil || len(raw) == 0 || len(raw) > maxAdmissionBytes || protocol != "jellyfin" && protocol != "emby" || viewer <= 0 || device == "" || len(device) > 256 || !r.ownsCoordination(ctx, id) {
 		return ErrDenied
 	}
 	route, err := r.route(ctx, id)
@@ -86,7 +86,7 @@ func (r *Runtime) SaveNeutralBinding(ctx context.Context, id, protocol string, v
 }
 
 func (r *Runtime) LoadNeutralBinding(ctx context.Context, id string) ([]byte, error) {
-	if r.o.ProtocolSealer == nil || r.o.MemberRole(ctx, r.o.Self, config.RoleServer) != nil {
+	if !r.clockReady() || r.o.ProtocolSealer == nil || r.o.MemberRole(ctx, r.o.Self, config.RoleServer) != nil {
 		return nil, ErrDenied
 	}
 	rec, err := r.o.Placement.Lookup(ctx, id)
@@ -114,7 +114,7 @@ func (r *Runtime) NeutralBindingIDs(ctx context.Context, protocol string, viewer
 	if r.o.ProtocolSealer == nil {
 		return nil, nil
 	}
-	if viewer <= 0 || device == "" || protocol != "jellyfin" && protocol != "emby" || r.o.MemberRole(ctx, r.o.Self, config.RoleServer) != nil {
+	if !r.clockReady() || viewer <= 0 || device == "" || protocol != "jellyfin" && protocol != "emby" || r.o.MemberRole(ctx, r.o.Self, config.RoleServer) != nil {
 		return nil, ErrDenied
 	}
 	rows, err := r.o.DB.QueryContext(ctx, `SELECT b.session FROM clusterplayback_neutral_bindings b JOIN placement_sessions p ON p.session=b.session AND p.generation>=b.generation WHERE b.protocol=? AND b.viewer=? AND b.device=? AND b.expires>? AND p.retired=0 ORDER BY b.session LIMIT 4096`, protocol, viewer, device, time.Now().UnixMilli())
@@ -175,6 +175,9 @@ func (r *Runtime) DeleteNeutralBinding(ctx context.Context, id string) error {
 // Stop and snapshot writes serialize here, including on PostgreSQL: a late
 // pre-stop save cannot resurrect deleted credentials after waiting on a lock.
 func (r *Runtime) withNeutralCoordinator(ctx context.Context, id string, c Coordinator, write func(*sql.Tx) error) error {
+	if !r.clockReady() {
+		return ErrDenied
+	}
 	tx, err := r.o.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err

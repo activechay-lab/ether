@@ -397,7 +397,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		list = append(list, &copy)
 	}
 	r.mu.Unlock()
-	if r.o.ProtocolSealer != nil {
+	if r.o.ProtocolSealer != nil && r.clockReady() {
 		if _, err := r.o.DB.ExecContext(ctx, `DELETE FROM clusterplayback_neutral_bindings WHERE expires<?`, time.Now().UnixMilli()); err != nil {
 			return err
 		}

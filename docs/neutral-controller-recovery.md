@@ -18,7 +18,9 @@ and process lifetimes. Restoring metadata cannot recreate any of those owners.
 
 Snapshots expire after ten minutes. Successful media requests refresh them at
 most once per thirty seconds; progress writes refresh the current bookkeeping.
-The runtime prunes expired ciphertext during its ordinary control tick. Live
+The runtime prunes expired ciphertext during its ordinary control tick.
+Unhealthy clock observations block restoration, snapshot writes and expiry
+cleanup, matching the deployment's continuous clock enforcement. Live
 snapshot count is bounded by existing durable session/admission bounds, with a
 256 KiB plaintext / 512 KiB ciphertext limit. Stop deletes the ciphertext and
 records a non-secret session tombstone. Save and Stop lock the same coordinator
