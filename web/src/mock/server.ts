@@ -4140,6 +4140,11 @@ export function createFakeServer(opts: FakeOptions = {}) {
     if (seg[0] === "auth" && seg[1] === "pin" && seg[2])
       return json({ done: true, token: "mock-owner-token" });
     if (seg[0] === "plex" && seg[1] === "pin" && seg[2]) return json({ done: true });
+    if (method === "POST" && seg.join("/") === "status/database/check") {
+      const value = dashboard().sections.database;
+      if (value.integrity) value.integrity.checked = new Date().toISOString();
+      return json({ value });
+    }
     if (seg[0] === "status" && seg[1])
       return json({
         name: seg[1],

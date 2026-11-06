@@ -32,6 +32,7 @@ import {
 } from "../../lib/api";
 import { listPlexServers } from "../../lib/plex-servers";
 import { useAsync } from "../../lib/hooks";
+import { DatabaseRecovery } from "./DatabaseRecovery";
 import { formatBytes } from "../../lib/format";
 import type { EtherUser } from "../../lib/types";
 import { pagedTableLabels, searchSelectLabels } from "../../i18n/appkit-labels";
@@ -263,6 +264,7 @@ export function BackupsAndImport({ tab = "backups" }: { tab?: "backups" | "impor
   return (
     <>
       <div hidden={tab !== "backups"} className="space-y-6">
+        <DatabaseRecovery />
         {loadError && !data ? (
           <ErrorPanel error={loadError} onRetry={() => void load()} />
         ) : (
@@ -400,7 +402,9 @@ export function BackupsAndImport({ tab = "backups" }: { tab?: "backups" | "impor
                   rows={data.snapshots ?? []}
                   rowKey={(s) => s.name}
                   pageSize={10}
-                  empty={t("No snapshots yet. Create your first backup.")}
+                  empty={t(
+                    "No snapshots available here. If you saved a backup elsewhere, choose it below.",
+                  )}
                   defaultSort={{ key: "created", dir: "desc" }}
                   labels={pagedTableLabels({ searchLabel: t("Search backups") })}
                   columns={[

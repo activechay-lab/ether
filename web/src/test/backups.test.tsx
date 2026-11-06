@@ -1,6 +1,8 @@
 import { ConfirmRoot } from "@braedonsaunders/appkit-ui";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
+import { DatabaseRecovery } from "../pages/settings/DatabaseRecovery";
 import { setToken } from "../lib/api";
 import { BackupsAndImport } from "../pages/settings/Backups";
 
@@ -232,4 +234,93 @@ describe("Backups & import", () => {
     expect(screen.queryByRole("button", { name: /Add folder|Scan now|Match file/ })).toBeNull();
     expect(calls.some((c) => c.url.includes("/libraries"))).toBe(false);
   });
+});
+
+// Exercise the existing Backups destination independently of Health navigation.
+describe("Database recovery context", () => {
+  const previous = {
+    clustered: false,
+    integrity: { ok: false, checked: "2026-11-06T12:00:00Z", findings: ["FTS finding <raw>"] },
+  };
+  it("keeps the last finding on a failed check and replaces it only after a successful check", async () => {
+    const existing = backend();
+    const original = globalThis.fetch;
+    let attempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/status/database/check")) {
+          expect(init?.method).toBe("POST");
+          attempts++;
+          return attempts === 1
+            ? new Response(
+                JSON.stringify({
+                  error: { code: "database_check_failed", message: "Check timed out" },
+                }),
+                { status: 503 },
+              )
+            : new Response(
+                JSON.stringify({
+                  value: {
+                    clustered: false,
+                    integrity: { ok: true, checked: "2026-11-06T13:00:00Z" },
+                  },
+                }),
+              );
+        }
+        if (url.endsWith("/status/database"))
+          return new Response(JSON.stringify({ value: previous }));
+        if (url.endsWith("/adoption/backups/"))
+          return new Response(
+            JSON.stringify({ snapshots: [], settings: { intervalHours: 24, retain: 7 } }),
+          );
+        return original(input, init);
+      }),
+    );
+    render(<BackupsAndImport />);
+    expect(await screen.findByText("The last database check found an issue")).toBeInTheDocument();
+    expect(screen.getByText("FTS finding <raw>")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "No snapshots available here. If you saved a backup elsewhere, choose it below.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Choose backup file")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(await screen.findByText("Check timed out")).toBeInTheDocument();
+    expect(screen.getByText("FTS finding <raw>")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(await screen.findByText(/No damage found · checked/)).toBeInTheDocument();
+    expect(screen.queryByText("FTS finding <raw>")).not.toBeInTheDocument();
+    expect(screen.queryByText("Check timed out")).not.toBeInTheDocument();
+    expect(existing.some((c) => c.init?.method === "POST")).toBe(false);
+  });
+});
+
+it.each([
+  [{ clustered: false }, "Not checked"],
+  [
+    { clustered: false, integrity: { ok: true, skipped: true, checked: "2026-11-06T12:00:00Z" } },
+    "Not checked",
+  ],
+  [{ clustered: true, state: "ok", reachable: true }, "Shared PostgreSQL database reachable"],
+  [
+    { clustered: true, state: "degraded", reachable: false, lastError: "connection refused" },
+    "Shared database unreachable",
+  ],
+  [{ clustered: true }, "Not reported"],
+])("distinguishes database status %j without suggesting corruption", async (value, summary) => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ value }))),
+  );
+  render(
+    <MemoryRouter>
+      <DatabaseRecovery />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText(summary)).toBeInTheDocument();
+  expect(screen.queryByText("The last database check found an issue")).not.toBeInTheDocument();
+  expect(screen.queryByText(/Check again before choosing recovery/)).not.toBeInTheDocument();
 });
