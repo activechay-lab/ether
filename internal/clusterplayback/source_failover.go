@@ -51,7 +51,7 @@ func (r *Runtime) sourceFailover(ctx context.Context, peer nodewire.Identity, m 
 	defer r.control.Unlock()
 	old := m.Old
 	f := old.Scope.Fence
-	if f.Controller.ID != r.o.Self.NodeID || f.Controller.Boot != r.o.Self.Boot || peer.Cluster != r.o.Self.Cluster || peer.NodeID != f.Target.NodeID || peer.Boot != f.Target.Boot || r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil {
+	if !r.ownsCoordination(ctx, f.Session) || peer.Cluster != r.o.Self.Cluster || peer.NodeID != f.Target.NodeID || peer.Boot != f.Target.Boot || r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil {
 		return sourceResponse{}, ErrDenied
 	}
 	rec, err := r.o.Placement.Lookup(ctx, f.Session)
@@ -153,6 +153,7 @@ func (r *Runtime) sourceFailover(ctx context.Context, peer nodewire.Identity, m 
 			if e = tx.Commit(); e != nil {
 				return sourceResponse{}, ErrPending
 			}
+			r.routeChanged(ctx, next.Fence.Session)
 			rt = next
 			moved = true
 			break
@@ -202,6 +203,12 @@ func (r *Runtime) retireSourceRoutes(ctx context.Context, initial Route, op stri
 	}
 	pending := false
 	for _, rt := range append(prior, current) {
+		// A normal encoder Stop can outlive an independently replaced source
+		// boot. Authenticate that replacement just as in dead-worker cleanup;
+		// silence or expiry alone must still retain the source responsibility.
+		if r.retiredSourceBoot(ctx, rt.Source) == nil {
+			continue
+		}
 		reply, e := r.sourceCall(ctx, rt, sourceRequest{Op: op})
 		if e != nil || !reply.Retired {
 			pending = true

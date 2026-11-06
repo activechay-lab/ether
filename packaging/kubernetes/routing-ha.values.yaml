@@ -1,0 +1,24 @@
+# Overlay the mixed-role values and operator-provided Secrets/Ingress settings.
+# Controllers and delivery replicas must survive different physical nodes.
+pools:
+  full: {replicas: 0}
+  server:
+    replicas: 2
+    disruptionBudget: {enabled: true, maxUnavailable: 1}
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - {key: ether.plex/role, operator: In, values: [server]}
+            topologyKey: kubernetes.io/hostname
+  delivery:
+    replicas: 2
+    disruptionBudget: {enabled: true, maxUnavailable: 1}
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - {key: ether.plex/role, operator: In, values: [delivery]}
+            topologyKey: kubernetes.io/hostname

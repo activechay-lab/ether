@@ -92,6 +92,12 @@ func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
 }
 func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m sourceRequest) (sourceResponse, error) {
 	deny := func() (sourceResponse, error) { return sourceResponse{}, ErrDenied }
+	switch m.Op {
+	case "prepare", "reopen", "source-failover", "bind", "resolve", "resolve-failover", "renew":
+		if !r.clockReady() {
+			return deny()
+		}
+	}
 	if m.Op == "file-check" {
 		return r.checkSourceFile(ctx, peer, m.Prepare)
 	}
@@ -143,6 +149,10 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 	}
 	f := rt.Fence
 	controller := peer.Cluster == r.o.Self.Cluster && peer.NodeID == f.Controller.ID && peer.Boot == f.Controller.Boot
+	if m.Op == "bind" || m.Op == "resolve-failover" || m.Op == "retire" || m.Op == "status" {
+		c, err := r.CurrentCoordinator(ctx, f.Session)
+		controller = err == nil && c.Identity == peer
+	}
 	target := peer.Cluster == r.o.Self.Cluster && peer.NodeID == f.Target.NodeID && peer.Boot == f.Target.Boot
 	if (m.Op == "bind" || m.Op == "retire" || m.Op == "status" || m.Op == "resolve-failover") && !controller {
 		return deny()
@@ -381,6 +391,9 @@ func (r *Runtime) sourceCall(ctx context.Context, rt Route, m sourceRequest) (so
 		return sourceResponse{}, ErrPending
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusServiceUnavailable {
+		return sourceResponse{}, ErrPending
+	}
 	if resp.StatusCode != 200 {
 		return sourceResponse{}, ErrDenied
 	}

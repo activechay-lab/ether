@@ -116,6 +116,7 @@ export function RatingSources({
   const reset = controlled ? external.reset : internal.reset;
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const providerDraftKeys = useRef<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -141,6 +142,7 @@ export function RatingSources({
           method: "PUT",
           body: JSON.stringify(body),
         });
+        providerDraftKeys.current = {};
         if (controlled) {
           external.adopt(next);
           onPersisted?.(next);
@@ -167,10 +169,25 @@ export function RatingSources({
       onSave={save}
       onDiscard={() => {
         reset();
+        providerDraftKeys.current = {};
         setError(null);
       }}
     />
   );
+  // Keep explicit replacements and clears when a provider temporarily leaves
+  // the draft. Discard and a successful save end this draft's lifetime.
+  const rememberKeys = () => {
+    providerDraftKeys.current[draft.provider] = draft.apiKey;
+    if (draft.backupProvider) providerDraftKeys.current[draft.backupProvider] = draft.backupApiKey;
+  };
+  const draftKeyFor = (provider: string) => {
+    if (Object.hasOwn(providerDraftKeys.current, provider))
+      return providerDraftKeys.current[provider];
+    const current = controlled ? saved : doc.data;
+    if (provider === current?.provider) return current.apiKey;
+    if (provider && provider === current?.backupProvider) return current.backupApiKey;
+    return "";
+  };
   const providerRow = (
     <SettingsRow
       stacked
@@ -183,14 +200,21 @@ export function RatingSources({
           id="ratings-provider"
           className={`${nativeSelect} sm:w-48`}
           value={draft.provider}
-          onChange={(e) =>
-            set({
-              provider: e.currentTarget.value,
-              ...(e.currentTarget.value === draft.backupProvider
-                ? { backupProvider: "", backupApiKey: "" }
-                : {}),
-            })
-          }
+          onChange={(e) => {
+            const provider = e.currentTarget.value;
+            if (provider === draft.provider) return;
+            rememberKeys();
+            if (provider === draft.backupProvider) {
+              set({
+                provider,
+                apiKey: draft.backupApiKey,
+                backupProvider: draft.provider,
+                backupApiKey: draft.apiKey,
+              });
+            } else {
+              set({ provider, apiKey: draftKeyFor(provider) });
+            }
+          }}
         >
           <option value="omdb">OMDb</option>
           <option value="mdblist">MDBList</option>
@@ -243,7 +267,13 @@ export function RatingSources({
                 id="ratings-backup"
                 className={`${nativeSelect} sm:w-48`}
                 value={draft.backupProvider || ""}
-                onChange={(e) => set({ backupProvider: e.currentTarget.value, backupApiKey: "" })}
+                onChange={(e) => {
+                  const backupProvider = e.currentTarget.value;
+                  if (backupProvider !== draft.backupProvider) {
+                    rememberKeys();
+                    set({ backupProvider, backupApiKey: draftKeyFor(backupProvider) });
+                  }
+                }}
               >
                 <option value="">{t("None")}</option>
                 {draft.provider !== "omdb" && <option value="omdb">OMDb</option>}

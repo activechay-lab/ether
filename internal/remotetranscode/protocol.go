@@ -192,6 +192,9 @@ func supported(r core.HLSRequest) bool { return SupportsRequest(r, Supported()) 
 
 // SupportsRequest is side-effect-free and shared with placement preflight.
 func SupportsRequest(r core.HLSRequest, c Capabilities) bool {
+	if r.Resume != nil && (r.Resume.FirstSegment < 0 || r.Resume.FirstSegment > 10000000 || r.Resume.Generation == 0 || r.StartOffset != 0 || r.RecoveryStart != nil || r.Decision.VideoCopy || r.LiveInput || r.Protocol != core.ProtocolHLS && r.Protocol != "") {
+		return false
+	}
 	var err error
 	c, err = NormalizeCapabilities(c)
 	if err != nil {

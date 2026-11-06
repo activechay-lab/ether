@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodeauthority"
@@ -25,8 +26,15 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
-	// OutputBuffer is an opt-in surviving-controller segment store. Scratch has
-	// one slot of MaxSegmentBytes; nil leaves existing delivery unchanged.
+	ProtocolSealer ProtocolSealer
+	// ClockReady continuously gates new and extended time-bounded authority.
+	ClockReady          func() bool
+	Bus                 clusterbus.Bus
+	EncoderSegmentWait  time.Duration
+	EncoderRPCDeadline  time.Duration
+	EncoderFailureGrace time.Duration
+	// OutputBuffer supplies surviving-controller segment retention. Nil allocates
+	// a bounded lazy store used only by eligible reencoded-video HLS sessions.
 	OutputBuffer                           *playbackbuffer.Store
 	MaxSegmentBytes                        int64
 	WorkerCapabilities, RemoteCapabilities remotetranscode.Capabilities
@@ -55,33 +63,58 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
-	outputScratch  chan struct{}
-	history        *placement.History
-	credentials    map[string]sourceCredential
-	reopenLives    map[string]*ReopenResponsibility
-	publicDelivery bool
-	reopens        map[string]*reopenRecord
-	plexDelivery   http.Handler
-	remotePlayback *RemotePlayback
-	control        sync.Mutex
-	preparations   map[string]*preparation
-	delivery       func(http.ResponseWriter, *http.Request, string)
-	workerStarting int
-	encoderTokens  []core.EncoderRetirement
-	o              Options
-	mu             sync.Mutex
-	closed         bool
-	mux            *http.ServeMux
-	authority      *nodeauthority.Authority
-	bytes          *nodesource.Handler
-	sources        map[string]*ownedSource
-	worker         *remotetranscode.Worker
-	inputs         map[remotetranscode.Identity]*workerInput
-	executions     map[string]*execution
+	mediaBrowserDelivery http.Handler
+
+	deliveryScratch chan struct{}
+	automaticOutput bool
+	outputScratch   chan struct{}
+	history         *placement.History
+	credentials     map[string]sourceCredential
+	reopenLives     map[string]*ReopenResponsibility
+	publicDelivery  bool
+	reopens         map[string]*reopenRecord
+	plexDelivery    http.Handler
+	remotePlayback  *RemotePlayback
+	control         sync.Mutex
+	preparations    map[string]*preparation
+	delivery        func(http.ResponseWriter, *http.Request, string)
+	workerStarting  int
+	encoderTokens   []core.EncoderRetirement
+	o               Options
+	mu              sync.Mutex
+	closed          bool
+	mux             *http.ServeMux
+	authority       *nodeauthority.Authority
+	bytes           *nodesource.Handler
+	sources         map[string]*ownedSource
+	worker          *remotetranscode.Worker
+	inputs          map[remotetranscode.Identity]*workerInput
+	executions      map[string]*execution
 }
 
 func NewRuntime(o Options) (*Runtime, error) {
+	if o.EncoderRPCDeadline == 0 {
+		o.EncoderRPCDeadline = 500 * time.Millisecond
+	}
+	if o.EncoderFailureGrace == 0 {
+		o.EncoderFailureGrace = 2 * time.Second
+	}
+	if o.EncoderRPCDeadline < time.Millisecond || o.EncoderRPCDeadline > 5*time.Second || o.EncoderFailureGrace < time.Millisecond || o.EncoderFailureGrace > time.Minute {
+		return nil, ErrDenied
+	}
+
 	if o.OutputBuffer != nil && (o.MaxSegmentBytes <= 0 || o.MaxSegmentBytes > 64<<20) {
+		return nil, ErrDenied
+	}
+	automaticOutput := o.OutputBuffer == nil
+	if automaticOutput {
+		o.OutputBuffer, _ = playbackbuffer.New(playbackbuffer.Limits{Global: playbackbuffer.Budget{Bytes: 256 << 20, Segments: 4096, Inits: 1}, PerSession: playbackbuffer.Budget{Bytes: 64 << 20, Segments: 256, Inits: 1}, Sessions: o.Capacity})
+		o.MaxSegmentBytes = 16 << 20
+	}
+	if o.EncoderSegmentWait == 0 {
+		o.EncoderSegmentWait = 30 * time.Second
+	}
+	if o.EncoderSegmentWait < time.Millisecond || o.EncoderSegmentWait > time.Minute {
 		return nil, ErrDenied
 	}
 	var capErr error
@@ -102,7 +135,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 	if o.DB == nil || o.Guard == nil || o.Placement == nil || o.Endpoint == nil || o.Eligible == nil || o.MemberRole == nil || o.Self.Cluster == "" || o.Self.NodeID == "" || o.Self.Boot == "" || !o.ClockBoundKnown || o.ClockSkew < 0 || o.ClockSkew > time.Minute || o.Capacity < 1 || o.Capacity > 4096 {
 		return nil, ErrDenied
 	}
-	r := &Runtime{credentials: map[string]sourceCredential{}, reopenLives: map[string]*ReopenResponsibility{}, reopens: map[string]*reopenRecord{}, preparations: map[string]*preparation{}, o: o, mux: http.NewServeMux(), sources: map[string]*ownedSource{}, inputs: map[remotetranscode.Identity]*workerInput{}, executions: map[string]*execution{}}
+	r := &Runtime{deliveryScratch: make(chan struct{}, 4), automaticOutput: automaticOutput, credentials: map[string]sourceCredential{}, reopenLives: map[string]*ReopenResponsibility{}, reopens: map[string]*reopenRecord{}, preparations: map[string]*preparation{}, o: o, mux: http.NewServeMux(), sources: map[string]*ownedSource{}, inputs: map[remotetranscode.Identity]*workerInput{}, executions: map[string]*execution{}}
 	if o.OutputBuffer != nil {
 		r.outputScratch = make(chan struct{}, 1)
 	}
@@ -115,12 +148,12 @@ func NewRuntime(o Options) (*Runtime, error) {
 		if o.SourceAccess == nil || o.ActiveViewer == nil || o.SourcePolicy == nil {
 			return nil, ErrDenied
 		}
-		a, e := nodeauthority.New(nodeauthority.Options{Lookup: o.Placement, Policy: r.sourcePolicy, Owner: placement.Target{NodeID: o.Self.NodeID, Boot: o.Self.Boot}, Now: time.Now, ClockBoundKnown: true, ClockSkew: o.ClockSkew, MaxLifetime: 10 * time.Minute, MaxBindings: o.HistoryCapacity, MaxGrants: 4096, MaxGrantsPerBinding: 4})
+		a, e := nodeauthority.New(nodeauthority.Options{ClockReady: o.ClockReady, Lookup: o.Placement, Policy: r.sourcePolicy, Owner: placement.Target{NodeID: o.Self.NodeID, Boot: o.Self.Boot}, Now: time.Now, ClockBoundKnown: true, ClockSkew: o.ClockSkew, MaxLifetime: 10 * time.Minute, MaxBindings: o.HistoryCapacity, MaxGrants: 4096, MaxGrantsPerBinding: 4})
 		if e != nil {
 			return nil, e
 		}
 		r.authority = a
-		h, e := nodesource.NewHandler(nodesource.Options{Authority: trackedAuthority{r: r}, Peer: o.Guard.SourcePeer, Acquire: r.acquireSource, Now: time.Now, MaxRequests: o.Capacity, MaxLifetime: 10 * time.Minute, Revalidate: time.Second})
+		h, e := nodesource.NewHandler(nodesource.Options{WatchAuthority: r.watchAuthority, Authority: trackedAuthority{r: r}, Peer: o.Guard.SourcePeer, Acquire: r.acquireSource, Now: time.Now, MaxRequests: o.Capacity, MaxLifetime: 10 * time.Minute, Revalidate: time.Second})
 		if e != nil {
 			return nil, e
 		}
@@ -130,13 +163,14 @@ func NewRuntime(o Options) (*Runtime, error) {
 
 	}
 	if o.Encoder != nil {
-		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{Capabilities: o.WorkerCapabilities, Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: o.Guard.RemoteAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
+		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{WatchAuthority: r.watchAuthority, Capabilities: o.WorkerCapabilities, Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: r.workerAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
+
 		if e != nil {
 			return nil, e
 		}
 		r.mux.HandleFunc(CapabilitiesPath, r.capabilitiesHTTP)
 		r.worker = w
-		r.mux.Handle(WorkerPath, w)
+		r.mux.HandleFunc(WorkerPath, r.workerHTTP)
 	}
 	r.mux.HandleFunc(SourcePath, r.sourceHTTP)
 	r.mux.HandleFunc(DeliveryPath, r.deliveryHTTP)
@@ -263,7 +297,6 @@ func (r *Runtime) sourcePolicy(ctx context.Context, owner placement.Target, s no
 		role config.NodeRole
 	}{
 		{route.Source, config.RoleSource},
-		{nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: s.Fence.Controller.ID, Boot: s.Fence.Controller.Boot}, config.RoleServer},
 		{nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: s.Fence.Target.NodeID, Boot: s.Fence.Target.Boot}, config.RoleTranscode},
 	} {
 		if r.o.MemberRole(ctx, pair.id, pair.role) != nil {
@@ -398,6 +431,9 @@ func (r *Runtime) PendingDetails(ctx context.Context) (ResponsibilityCounts, err
 type recordingEncoder struct{ r *Runtime }
 
 func (e recordingEncoder) StartHLSOwned(ctx context.Context, q core.HLSRequest) (core.HLSSession, core.EncoderRetirement, error) {
+	if err := e.r.armAcceptedExecution(ctx, q); err != nil {
+		return nil, nil, err
+	}
 	e.r.mu.Lock()
 	e.r.workerStarting++
 	e.r.mu.Unlock()
@@ -415,3 +451,5 @@ func (e recordingEncoder) SupportsDistributedRequest(q core.HLSRequest) bool {
 	backend, ok := e.r.o.Encoder.(requestSupport)
 	return ok && backend.SupportsDistributedRequest(q)
 }
+
+func (r *Runtime) clockReady() bool { return r.o.ClockReady == nil || r.o.ClockReady() }

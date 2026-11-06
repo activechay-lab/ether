@@ -3,6 +3,7 @@ package clusterplayback
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -133,6 +134,16 @@ func TestPartitionedGenerationCannotPublishRenewOrReleaseReplacement(t *testing.
 	defer client.CloseIdleConnections()
 	id := remoteIdentity(route)
 	start := remotetranscode.Start{Identity: id, Grant: bound.Stable, Expires: time.Now().Add(750 * time.Millisecond), Info: ps.Info, Decision: core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, SubtitleStream: -1}}
+	// Production worker admission now requires the exact durable operation gate.
+	startBytes, _ := json.Marshal(start)
+	admission := admissionRecord{Version: 1, Route: route, Operation: sha256.Sum256([]byte("initial")), Request: core.HLSRequest{SessionID: id.Session, Info: ps.Info, Decision: start.Decision}, Identity: id, StartHash: sha256.Sum256(startBytes)}
+	admissionRaw, err := admission.encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = source.insertAdmission(ctx, admission, admissionRaw); err != nil {
+		t.Fatal(err)
+	}
 	rpc := func(op string, extra map[string]any) *http.Response {
 		t.Helper()
 		m := map[string]any{"Version": remotetranscode.Version, "Op": op, "Identity": id}
@@ -140,7 +151,10 @@ func TestPartitionedGenerationCannotPublishRenewOrReleaseReplacement(t *testing.
 			m[k] = v
 		}
 		b, _ := json.Marshal(m)
-		res, e := client.Post(ep, "application/json", bytes.NewReader(b))
+		request, _ := http.NewRequestWithContext(ctx, "POST", ep, bytes.NewReader(b))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set(coordinatorEpochHeader, "1")
+		res, e := client.Do(request)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -155,7 +169,10 @@ func TestPartitionedGenerationCannotPublishRenewOrReleaseReplacement(t *testing.
 	delayed := make(chan *http.Response, 1)
 	go func() {
 		b, _ := json.Marshal(map[string]any{"Version": remotetranscode.Version, "Op": "playlist", "Identity": id})
-		res, _ := client.Post(ep, "application/json", bytes.NewReader(b))
+		request, _ := http.NewRequestWithContext(ctx, "POST", ep, bytes.NewReader(b))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set(coordinatorEpochHeader, "1")
+		res, _ := client.Do(request)
 		delayed <- res
 	}()
 	select {

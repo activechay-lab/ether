@@ -1,7 +1,6 @@
 package clusterplayback
 
 import (
-	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 	"io"
 	"net/http"
@@ -97,8 +96,13 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.NotFound(w, q)
 		return
 	}
+	coordinator, e := r.CurrentCoordinator(q.Context(), id)
+	if e != nil || coordinator.Identity != r.o.Self {
+		http.NotFound(w, q)
+		return
+	}
 	route, e := r.route(q.Context(), id)
-	if e != nil || route.Fence.Controller.ID != r.o.Self.NodeID || route.Fence.Controller.Boot != r.o.Self.Boot {
+	if e != nil {
 		http.NotFound(w, q)
 		return
 	}
@@ -114,7 +118,9 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "scope", 400)
 		return
 	}
-	handler.ServeHTTP(r.fencedDelivery(w, q, route), clone)
+	guarded := r.fencedPublicDelivery(w, q, route)
+	defer guarded.Close()
+	handler.ServeHTTP(guarded, clone)
 }
 
 // ForwardPlexMedia forwards only validated representation paths. The receiver
@@ -130,11 +136,16 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 	if q.Method != "GET" && q.Method != "HEAD" {
 		return false
 	}
-	route, e := r.route(q.Context(), id)
-	if e != nil || route.Fence.Controller.ID == r.o.Self.NodeID && route.Fence.Controller.Boot == r.o.Self.Boot {
+	coordinator, e := r.CurrentCoordinator(q.Context(), id)
+	if e != nil || coordinator.Identity == r.o.Self {
 		return false
 	}
-	owner := nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: route.Fence.Controller.ID, Boot: route.Fence.Controller.Boot}
+	route, e := r.route(q.Context(), id)
+	if e != nil {
+		http.NotFound(w, q)
+		return true
+	}
+	owner := coordinator.Identity
 	ep, tc, check, e := r.peer(q.Context(), owner, PlexDeliveryPath)
 	if e != nil {
 		http.Error(w, "delivery unavailable", 502)
@@ -179,7 +190,9 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 			w.Header()[h] = values
 		}
 	}
-	w = r.fencedDelivery(w, q, route)
+	guarded := r.fencedPublicDelivery(w, q, route)
+	defer guarded.Close()
+	w = guarded
 	w.WriteHeader(response.StatusCode)
 	if q.Method != "HEAD" {
 		_, _ = io.Copy(w, response.Body)

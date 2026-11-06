@@ -23,6 +23,8 @@ type Assignment struct {
 	Expires  time.Time
 }
 type AdapterOptions struct {
+	// RequestHeaders binds each operation to an external coordination epoch.
+	RequestHeaders func(context.Context) (http.Header, error)
 	// CommitStart durably binds the installed immutable Start before any Start
 	// bytes leave this adapter. It runs synchronously outside locks, with a
 	// context bounded to five seconds; implementations must honor cancellation.
@@ -224,6 +226,15 @@ func (a *Adapter) callPayload(ctx context.Context, b []byte, headers http.Header
 			req.Header[h] = v
 		}
 	}
+	if a.opts.RequestHeaders != nil {
+		extra, err := a.opts.RequestHeaders(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for key, values := range extra {
+			req.Header[key] = append([]string(nil), values...)
+		}
+	}
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return nil, ErrUncertain
@@ -274,11 +285,15 @@ func (s *Session) SwapInput(context.Context, string, core.MediaInfo, time.Durati
 }
 func (s *Session) Close() error { return s.RetireEncoder() }
 func (s *Session) RetireEncoder() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return s.RetireEncoderContext(ctx)
+}
+
+func (s *Session) RetireEncoderContext(ctx context.Context) error {
 	s.mu.Lock()
 	s.stopped = true
 	s.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	r, e := s.adapter.call(ctx, message{Op: "stop", Identity: s.id}, nil)
 	if e != nil {
 		return ErrUncertain

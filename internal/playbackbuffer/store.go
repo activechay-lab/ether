@@ -451,3 +451,19 @@ func (ss *session) accepts(k Key) bool {
 	}
 	return k.SeekEpoch == ss.state.SeekEpoch && k.Generation >= ss.state.Generation
 }
+
+// AdvanceGeneration is a controller-authorized fixed-grid ownership change.
+// The contiguous published prefix remains immutable and readable. Old staged
+// bytes cannot publish after this CAS; the next generation begins at floor+1.
+// This method does not certify media/audio continuity; the encoder resume
+// contract and independent playback acceptance must establish those facts.
+func (s *Store) AdvanceGeneration(id string, expected State, generation uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ss := s.sessions[id]
+	if ss == nil || ss.state != expected || ss.frozen != nil || generation != expected.Generation+1 {
+		return errors.New("generation CAS failed")
+	}
+	ss.state.Generation = generation
+	return nil
+}

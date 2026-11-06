@@ -91,6 +91,38 @@ func (c clusterStore) putOnce(ctx context.Context, s frontend.Session, sourceID 
 	if _, err = tx.ExecContext(ctx, `UPDATE plex_sessions SET active=0 WHERE active=1 AND user_id=? AND surface=? AND device_id=? AND protocol IS NOT NULL AND protocol<>'plex'`, s.ViewerID, s.Protocol, d.ID); err != nil {
 		return err
 	}
+	if s.Protocol == "plex" {
+		// Decision and start may use different brokers. Adopt only the exact
+		// authenticated public identity; keep its original session key/time.
+		var oldData, oldProtocol, oldDevice, oldNode string
+		var oldViewer int64
+		err := tx.QueryRowContext(ctx, `SELECT node_id,user_id,COALESCE(protocol,''),COALESCE(device_id,''),data FROM plex_sessions WHERE id=?`, s.ID).Scan(&oldNode, &oldViewer, &oldProtocol, &oldDevice, &oldData)
+		if err == nil {
+			var old clusterEntry
+			if oldViewer != s.ViewerID || oldProtocol != "plex" || oldDevice != d.ID || json.Unmarshal([]byte(oldData), &old) != nil || old.ID != s.ID || old.ViewerID != s.ViewerID || old.Item != s.Item {
+				return core.ErrUnauthorized
+			}
+			data, err = json.Marshal(clusterEntry{ID: s.ID, ViewerID: viewer.ID, Item: s.Item, StartedAt: old.StartedAt, SourceID: sourceID, Channel: s.Channel, ClientSessionID: s.ClientSessionID})
+			if err != nil {
+				return err
+			}
+			result, err := tx.ExecContext(ctx, `UPDATE plex_sessions SET node_id=?,data=?,device_data=?,updated_at=?,active=1 WHERE id=? AND node_id=? AND user_id=? AND protocol='plex' AND device_id=? AND data=?`, c.node, string(data), string(device), now.UnixMilli(), s.ID, oldNode, s.ViewerID, d.ID, oldData)
+			if err != nil {
+				return err
+			}
+			n, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if n != 1 {
+				return core.ErrNotAvailable
+			}
+			return tx.Commit()
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO plex_sessions(id,node_id,user_id,session_key,data,updated_at,protocol,surface,device_id,device_data,active) VALUES(?,?,?,?,?,?,?,?,?,?,1)`, s.ID, c.node, s.ViewerID, key, string(data), now.UnixMilli(), s.Protocol, s.Protocol, d.ID, string(device)); err != nil {
 		return err
 	}

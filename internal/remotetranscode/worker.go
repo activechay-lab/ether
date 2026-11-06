@@ -15,6 +15,7 @@ import (
 )
 
 type WorkerOptions struct {
+	WatchAuthority  func(string, func()) func()
 	Capabilities    Capabilities    // Explicit backend contract; zero retains fixed HLS.
 	ValidateRenewal ValidateRenewal // Nil explicitly disables renewal.
 	Boot            string
@@ -275,6 +276,11 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		if err := w.opts.Security.Authorize(request.Context(), peer, m.Op, m.Identity, nil); err != nil {
 			return err
 		}
+		return nil
+	}, LocalCheck: func() error {
+		if err := request.Context().Err(); err != nil {
+			return err
+		}
 		w.mu.Lock()
 		defer w.mu.Unlock()
 		w.expire(e)
@@ -283,6 +289,10 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	}}
+	if w.opts.WatchAuthority != nil {
+		guarded.Watch = func(fn func()) func() { return w.opts.WatchAuthority(m.Identity.Session, fn) }
+	}
+	defer guarded.Close()
 	w.serveMedia(guarded, request, m, s, e.start.Protocol, e.rungs)
 }
 func reply(out http.ResponseWriter, state string, id Identity) {
@@ -492,6 +502,16 @@ func executionID(i Identity) string {
 // All lease transitions and deadline checks run under mu. Timer.Stop alone is
 // insufficient: an already queued old callback must compare the accepted lease.
 func (w *Worker) expire(e *execution) {
+	// A backend may retire itself on idle timeout. Its encoder outcome does
+	// not seal the independently owned gateway input; do that explicitly so
+	// status can eventually report exact joined retirement to the controller.
+	if !e.starting && !e.stopped && e.retirement != nil {
+		select {
+		case <-e.retirement.EncoderDone():
+			w.stop(e)
+		default:
+		}
+	}
 	if w.expired(e, time.Now()) {
 		w.stop(e)
 	}

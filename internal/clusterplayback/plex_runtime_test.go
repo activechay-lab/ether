@@ -2,6 +2,7 @@ package clusterplayback
 
 import (
 	"context"
+	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodewire"
@@ -84,15 +85,16 @@ func (e forwardOnlyEncoder) ForwardPlexGrantMedia(w http.ResponseWriter, q *http
 	return e.r.ForwardPlexGrantMedia(w, q, id)
 }
 
-func TestRealPlexRuntimeOwnerAuthorizationAndProvenance(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	sourceID := nodewire.Identity{Cluster: "plex-composition", NodeID: "source", Boot: "source-boot"}
 	workerID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "worker", Boot: "worker-boot"}
 	ownerID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "owner", Boot: "owner-boot"}
 	senderID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "sender", Boot: "sender-boot"}
 	guards := fixtureGuards(t, sourceID, workerID, ownerID, senderID)
+	fixtureStarted := time.Now()
 	db := store.OpenTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 15*time.Second))
+	defer cancel()
 	verifier := NewVerifier()
 	ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
 	if err != nil {
@@ -189,7 +191,9 @@ func TestRealPlexRuntimeOwnerAuthorizationAndProvenance(t *testing.T) {
 	}
 	events := sessions.NewEventBus(nil, auth.ActiveUser)
 	defer events.Close()
-	broker, err := sessions.NewBroker(sessions.BrokerDeps{Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
+	hub := clusterbus.NewHub()
+	ownerNode, senderNode := hub.Node(ownerID.NodeID), hub.Node(senderID.NodeID)
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{DB: db, Cluster: ownerNode, Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
 		return fixtureCatalog{}.Get(c, k)
 	}})
 	if err != nil {
@@ -200,16 +204,38 @@ func TestRealPlexRuntimeOwnerAuthorizationAndProvenance(t *testing.T) {
 	cfg.Plex.Claimed = true
 	cfg.Server.MachineIdentifier = "offline-machine"
 	cfg.Server.TrustedProxyCIDRs = []string{"10.1.0.0/16"}
-	deps := plex.Deps{Catalog: fixtureCatalog{}, State: composedState{}, Auth: auth, AccessPolicy: policy, Playback: remote, Transcoder: decision, PlexEncoder: broker, DisableEnrichment: true, Config: func() config.Config { return cfg }}
+	deps := plex.Deps{DB: db, Cluster: ownerNode, Catalog: fixtureCatalog{}, State: composedState{}, Auth: auth, AccessPolicy: policy, Playback: remote, Transcoder: decision, PlexEncoder: broker, DisableEnrichment: true, Config: func() config.Config { return cfg }}
 	publicOwner := plex.NewServer(deps)
 	defer publicOwner.Close()
 	publicOwner.UsePlaybackBroker(broker)
 	if err = owner.BindPlexDelivery(publicOwner); err != nil {
 		t.Fatal(err)
 	}
-	deps.PlexEncoder = forwardOnlyEncoder{r: sender}
+	remoteSender, err := NewRemotePlayback(sender, RemotePlaybackOptions{Estimate: func(context.Context, *core.Title, core.ClientCaps) core.MediaInfo { return core.MediaInfo{} }, SelectSource: func(context.Context) (nodewire.Identity, error) { return sourceID, nil }, Capacity: 32})
+	if err != nil {
+		t.Fatal(err)
+	}
+	senderDecision, err := sender.DecisionTranscoder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	senderDeps := brokerTestDeps(remoteSender, senderDecision, sender, events, auth, policy)
+	senderDeps.DB, senderDeps.Cluster = db, senderNode
+	senderBroker, err := sessions.NewBroker(senderDeps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer senderBroker.Close(ctx)
+	deps.Playback, deps.Transcoder, deps.PlexEncoder = remoteSender, senderDecision, senderBroker
+	deps.Cluster = senderNode
 	publicSender := plex.NewServer(deps)
 	defer publicSender.Close()
+	publicSender.UsePlaybackBroker(senderBroker)
+	forwardDeps := deps
+	forwardDeps.DB, forwardDeps.Cluster = nil, nil
+	forwardDeps.Playback, forwardDeps.Transcoder, forwardDeps.PlexEncoder = remote, decision, forwardOnlyEncoder{r: sender}
+	publicForward := plex.NewServer(forwardDeps)
+	defer publicForward.Close()
 	startURI := "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F" + core.MovieKey(1).String() + "&session=real-composed-plex&directPlay=0&directStream=1"
 	start := httptest.NewRequest("GET", "https://public"+startURI, nil)
 	start.RemoteAddr = "192.168.1.9:1234"
@@ -225,7 +251,7 @@ func TestRealPlexRuntimeOwnerAuthorizationAndProvenance(t *testing.T) {
 	decisionRequest.RemoteAddr = start.RemoteAddr
 	decisionRequest.Header = start.Header.Clone()
 	decisionResponse := httptest.NewRecorder()
-	publicOwner.ServeHTTP(decisionResponse, decisionRequest)
+	publicSender.ServeHTTP(decisionResponse, decisionRequest)
 	if decisionResponse.Code != http.StatusOK {
 		t.Fatalf("real Plex decision status %d: %s", decisionResponse.Code, decisionResponse.Body.String())
 	}
@@ -233,6 +259,31 @@ func TestRealPlexRuntimeOwnerAuthorizationAndProvenance(t *testing.T) {
 	publicOwner.ServeHTTP(master, start)
 	if master.Code != 200 {
 		t.Fatalf("real Plex start status %d: %s", master.Code, master.Body.String())
+	}
+	// A seek decision may return to the first frontend while the other owns
+	// healthy playback. It must reuse the exact preparation without moving it.
+	seek := decisionRequest.Clone(ctx)
+	seek.URL, _ = url.Parse(decisionRequest.URL.String() + "&offset=30&maxVideoBitrate=1000")
+	seekResponse := httptest.NewRecorder()
+	publicSender.ServeHTTP(seekResponse, seek)
+	if seekResponse.Code != 200 || !strings.Contains(seekResponse.Body.String(), `generalDecisionCode="1001"`) {
+		t.Fatalf("seek decision status %d: %s", seekResponse.Code, seekResponse.Body.String())
+	}
+	if len(manager.Sessions()) != 1 {
+		t.Fatal("frontends opened independent source lifetimes")
+	}
+	// Sealing the decision frontend must not retire the source now owned by
+	// the starting frontend, or publish a source-retired receipt prematurely.
+	decisionPlay := remoteSender.Sessions()[0]
+	remoteSender.Stop(decisionPlay.ID)
+	_ = sender.Tick(ctx)
+	if _, ok := manager.Session(source.preparations[senderID.NodeID+"/"+senderID.Boot+"/"+remoteSender.entries[decisionPlay.ID].operation].result.PlayID); !ok {
+		t.Fatal("decision retirement detached the shared source")
+	}
+	select {
+	case <-remoteSender.lifetime(decisionPlay.ID).Done():
+		t.Fatal("premature shared retirement receipt")
+	default:
 	}
 	var media string
 	for _, line := range strings.Split(master.Body.String(), "\n") {
@@ -260,7 +311,7 @@ func TestRealPlexRuntimeOwnerAuthorizationAndProvenance(t *testing.T) {
 		q.Header.Set("Range", "bytes=1-3")
 		q.Header.Set(deliveryOrigin, `{"RemoteAddr":"127.0.0.1:1","Host":"private","Scheme":"http"}`)
 		out := httptest.NewRecorder()
-		publicSender.ServeHTTP(out, q)
+		publicForward.ServeHTTP(out, q)
 		return out
 	}
 	for _, method := range []string{"GET", "HEAD"} {
@@ -285,7 +336,7 @@ func TestRealPlexRuntimeOwnerAuthorizationAndProvenance(t *testing.T) {
 			q.Header.Set("X-Plex-Client-Identifier", test.device)
 		}
 		out := httptest.NewRecorder()
-		publicSender.ServeHTTP(out, q)
+		publicForward.ServeHTTP(out, q)
 		if out.Code != test.status {
 			t.Fatalf("real Plex readcap fallback status %d expected %d", out.Code, test.status)
 		}
@@ -318,10 +369,16 @@ func TestRealPlexRuntimeOwnerAuthorizationAndProvenance(t *testing.T) {
 	if len(sender.executions) != 0 {
 		t.Fatal("sender synthesized an encoder")
 	}
-	owner.Stop("real-composed-plex")
-	remote.Stop(remote.Sessions()[0].ID)
+	stopRequest := httptest.NewRequest("GET", "https://public/video/:/transcode/universal/stop?session=real-composed-plex", nil)
+	stopRequest.RemoteAddr, stopRequest.Header = start.RemoteAddr, start.Header.Clone()
+	stopResponse := httptest.NewRecorder()
+	publicSender.ServeHTTP(stopResponse, stopRequest)
+	if stopResponse.Code != 200 {
+		t.Fatalf("cluster stop status %d", stopResponse.Code)
+	}
 	for i := 0; i < 50; i++ {
 		_ = owner.Tick(ctx)
+		_ = sender.Tick(ctx)
 		worker.Cleanup()
 		source.Cleanup()
 		record, e := ledger.Lookup(ctx, "real-composed-plex")
@@ -331,4 +388,10 @@ func TestRealPlexRuntimeOwnerAuthorizationAndProvenance(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("composed Plex retirement stayed pending")
+}
+
+func brokerTestDeps(remote *RemotePlayback, decision core.Transcoder, owner *Runtime, events *sessions.EventBus, auth *composedAuth, policy *composedPolicy) sessions.BrokerDeps {
+	return sessions.BrokerDeps{Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
+		return fixtureCatalog{}.Get(c, k)
+	}}
 }

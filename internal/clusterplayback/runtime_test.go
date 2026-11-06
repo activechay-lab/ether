@@ -75,6 +75,7 @@ func (f fixtureBytes) ReadAtContext(_ context.Context, b []byte, off int64) (int
 }
 
 type fixtureEncoder struct {
+	starts              int
 	mu                  sync.Mutex
 	body                string
 	keyframes, received []core.KeyframePoint
@@ -90,6 +91,9 @@ func (f *fixtureEncoder) Probe(context.Context, string) (*core.MediaInfo, error)
 	return &core.MediaInfo{Size: size, Keyframes: append([]core.KeyframePoint(nil), f.keyframes...), Container: "mkv", Duration: time.Minute, Streams: []core.StreamInfo{{Type: "video", Codec: "h264", Height: 720}}}, nil
 }
 func (f *fixtureEncoder) StartHLSOwned(ctx context.Context, q core.HLSRequest) (core.HLSSession, core.EncoderRetirement, error) {
+	f.mu.Lock()
+	f.starts++
+	f.mu.Unlock()
 	if e := q.InputLease.ClaimInput(func(error) {}); e != nil {
 		return nil, nil, e
 	}
@@ -168,9 +172,10 @@ func (s *fixtureSession) EncoderErr() error {
 func (s *fixtureSession) EncoderRetirement() core.EncoderRetirement { return s }
 
 func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	fixtureStarted := time.Now()
 	db := store.OpenTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 10*time.Second))
+	defer cancel()
 	v := NewVerifier()
 	p, e := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, v)
 	if e != nil {
@@ -557,7 +562,14 @@ mismatchRetired:
 		t.Fatal("changed revision accepted")
 	}
 	_ = restarted
-	if _, err = db.ExecContext(ctx, `CREATE TRIGGER reject_retirement_receipt BEFORE INSERT ON placement_history_receipts BEGIN SELECT RAISE(ABORT,'fixture receipt write'); END`); err != nil {
+	rejectSQL := `CREATE TRIGGER reject_retirement_receipt BEFORE INSERT ON placement_history_receipts BEGIN SELECT RAISE(ABORT,'fixture receipt write'); END`
+	if store.DialectOf(db) == store.Postgres {
+		if _, err = db.ExecContext(ctx, `CREATE FUNCTION reject_retirement_receipt_fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture receipt write'; END $$`); err != nil {
+			t.Fatal(err)
+		}
+		rejectSQL = `CREATE TRIGGER reject_retirement_receipt BEFORE INSERT ON placement_history_receipts FOR EACH ROW EXECUTE FUNCTION reject_retirement_receipt_fn()`
+	}
+	if _, err = db.ExecContext(ctx, rejectSQL); err != nil {
 		t.Fatal(err)
 	}
 	front.Stop(request.SessionID)
@@ -580,7 +592,11 @@ mismatchRetired:
 	if _, receiptErr = front.history.Lookup(ctx, placement.HistoryKey{Cluster: front.o.Self.Cluster, Fence: nextRecord.Fence}); receiptErr == nil {
 		t.Fatal("failed atomic receipt write persisted partial history")
 	}
-	if _, err = db.ExecContext(ctx, `DROP TRIGGER reject_retirement_receipt`); err != nil {
+	dropSQL := `DROP TRIGGER reject_retirement_receipt`
+	if store.DialectOf(db) == store.Postgres {
+		dropSQL += ` ON placement_history_receipts`
+	}
+	if _, err = db.ExecContext(ctx, dropSQL); err != nil {
 		t.Fatal(err)
 	}
 	// Simulate a committed atomic write whose response never reached the owner:
@@ -678,7 +694,7 @@ func fixtureGuards(t *testing.T, ids ...nodewire.Identity) []*nodewire.Guard {
 	for _, id := range ids {
 		_, leaf, _ := ed25519.GenerateKey(rand.Reader)
 		csr, _ := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, leaf)
-		cert, e := nodewire.Issue(der, key, csr, id, []string{"127.0.0.1"}, now, time.Hour)
+		cert, e := nodewire.Issue(der, key, csr, id, []string{"127.0.0.1"}, now, time.Hour, 0)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -708,7 +724,13 @@ func testRemoteNeutralBroker(t *testing.T, ctx context.Context, base Options, gu
 	if err != nil {
 		t.Fatal(err)
 	}
+	sealer, err := config.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sealer.Close()
 	o := base
+	o.ProtocolSealer = sealer
 	o.Placement = ownPlacement
 	o.Self = self
 	o.Guard = guard

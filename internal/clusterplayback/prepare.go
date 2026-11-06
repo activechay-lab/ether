@@ -113,7 +113,13 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 		return sourceResponse{}, ErrDenied
 	}
 	// The native Manager can deduplicate this source identity across controllers.
-	// Different operations may not independently own/retire that same lifetime.
+	// Operations alias that lifetime; retirement waits for every alias to seal.
+	for _, other := range r.preparations {
+		if !other.receipt && !other.retiring && samePreparationIdentity(other.request, *q) {
+			r.mu.Unlock()
+			return r.sharePreparation(ctx, peer, *q, key, hash, other)
+		}
+	}
 	for _, other := range r.preparations {
 		if !other.receipt && samePreparationIdentity(other.request, *q) {
 			r.mu.Unlock()
@@ -245,6 +251,11 @@ func (r *Runtime) retirePreparation(ctx context.Context, peer nodewire.Identity,
 	}
 	entry.retiring = true
 	running, life, id, request := entry.running || entry.operations != 0, entry.life, entry.result.PlayID, entry.request
+	for _, other := range r.preparations {
+		if other != entry && entry.life != nil && other.life == entry.life && (!other.retiring || other.running || other.operations != 0) {
+			running = true
+		}
+	}
 	r.mu.Unlock()
 	if running {
 		return sourceResponse{Phase: "preparing"}, ErrPending
@@ -276,6 +287,9 @@ func (r *Runtime) retirePreparation(ctx context.Context, peer nodewire.Identity,
 	}
 	if id == "" {
 		return sourceResponse{Phase: "owned-error"}, ErrPending
+	}
+	if err := r.preparationController(ctx, peer, entry, true); err != nil {
+		return sourceResponse{}, err
 	}
 	if e := r.o.Playback.RetireSource(id, life); e != nil {
 		return sourceResponse{Phase: "owned-error"}, e

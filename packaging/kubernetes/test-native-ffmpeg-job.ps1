@@ -1,7 +1,7 @@
 # Credential-free test: exact owned launcher -> branch -> pinned NVENC FFmpeg.
 # Native execution belongs to the coordinator after source/hash review.
+param([ValidateSet('C:\ether-gpu-lab','D:\ether-gpu-lab')][string]$Lab = 'C:\ether-gpu-lab')
 $ErrorActionPreference = 'Stop'
-$Lab = 'C:\ether-gpu-lab'
 $LauncherPath = Join-Path $Lab 'ether-lab-launcher.exe'
 $FFmpegPath = Join-Path $Lab 'ffmpeg-8.1.3-1\ffmpeg.exe'
 $BranchFile = Join-Path $Lab 'specialist.child.pid'

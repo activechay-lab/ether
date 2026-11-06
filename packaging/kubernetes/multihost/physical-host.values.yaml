@@ -1,0 +1,12 @@
+pools:
+  delivery:
+    replicas: 3
+    nodeSelector: {ether.lab/delivery: 'true'}
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/instance: ether035-mh
+            ether.plex/role: delivery

@@ -15,6 +15,13 @@ import (
 )
 
 type execution struct {
+	epoch                         int64
+	adopted                       bool
+	replacement                   *execution
+	failed                        []*execution
+	previous                      []*bufferedSession
+	recoveryCaps                  remotetranscode.Capabilities
+	failedSince                   time.Time
 	initial                       *initialAdmission
 	output                        *bufferedSession
 	foreign                       bool
@@ -64,6 +71,9 @@ func (r *Runtime) StartDistributedHLS(ctx context.Context, viewer int64, playID,
 // StartPreparedHLS composes a concrete remote source-owner preparation with the
 // same durable encoder placement. The broker's remote planning seam can use it.
 func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared PreparedSource, q core.HLSRequest) (core.HLSSession, error) {
+	if !r.clockReady() {
+		return nil, ErrDenied
+	}
 	q = cloneAdmissionRequest(q)
 	playID, revision := prepared.PlayID, prepared.Revision
 	if r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil || r.o.Eligible(ctx, prepared.Owner, config.RoleSource) != nil {
@@ -118,7 +128,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if e == nil {
 		expected = old.Generation
 	}
-	target, claims, capabilities, e := r.selectTarget(ctx, q)
+	target, claims, capabilities, e := r.selectTarget(ctx, q, prepared.Owner)
 	if e != nil {
 		return nil, e
 	}
@@ -160,7 +170,14 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if e != nil {
 		return nil, e
 	}
-	adapter, e := remotetranscode.NewAdapter(remotetranscode.AdapterOptions{CommitStart: func(c context.Context, id remotetranscode.Identity, hash [32]byte) error {
+	coordinator, e := r.CurrentCoordinator(ctx, q.SessionID)
+	if e != nil {
+		return nil, e
+	}
+	r.mu.Lock()
+	x.epoch = coordinator.Epoch
+	r.mu.Unlock()
+	adapter, e := remotetranscode.NewAdapter(remotetranscode.AdapterOptions{RequestHeaders: r.coordinatorHeaders(q.SessionID, coordinator.Epoch), CommitStart: func(c context.Context, id remotetranscode.Identity, hash [32]byte) error {
 		return r.persistAdmission(c, x, id, hash)
 	}, Capabilities: capabilities, Endpoint: endpoint, Client: &http.Client{Transport: &http.Transport{TLSClientConfig: tc}, Timeout: 0}, RecheckServer: check, Assign: func(context.Context, core.HLSRequest) (remotetranscode.Assignment, error) {
 		return remotetranscode.Assignment{Identity: remoteIdentity(rt), Grant: bound.Stable, Expires: deadline}, nil
@@ -200,11 +217,14 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		r.mu.Lock()
 		x.output = output
 		r.mu.Unlock()
-		return output, nil
+		return r.recoveryDelivery(output), nil
 	}
 	return hs, nil
 }
-func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
+func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
+	return r.selectTargetExcept(ctx, q, "", source)
+}
+func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exclude string, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
 	rows, e := r.o.DB.QueryContext(ctx, `SELECT node,boot,roles,scopes FROM placement_targets ORDER BY node LIMIT 4096`)
 	if e != nil {
 		return placement.Target{}, nil, remotetranscode.Capabilities{}, e
@@ -228,8 +248,16 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placemen
 		return placement.Target{}, nil, remotetranscode.Capabilities{}, err
 	}
 	failure := &SelectionError{}
+	var bestTarget placement.Target
+	var bestClaims []placement.Claim
+	var bestCaps remotetranscode.Capabilities
+	var bestScore transcodeTargetScore
+	chosen := false
 	for _, candidate := range candidates {
 		target, rolesJSON, scopesJSON := candidate.target, candidate.rolesJSON, candidate.scopesJSON
+		if target.NodeID == exclude {
+			continue
+		}
 		var roles config.NodeRoles
 		var scopes map[config.NodeRole][]string
 		if json.Unmarshal([]byte(rolesJSON), &roles) != nil || !roles.Has(config.RoleTranscode) || json.Unmarshal([]byte(scopesJSON), &scopes) != nil {
@@ -245,9 +273,10 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placemen
 		failure.Eligible++
 		claims := make([]placement.Claim, len(names))
 		available := true
+		spare := int64(0)
 		for i, name := range names {
 			var remaining int64
-			err := r.o.DB.QueryRowContext(ctx, `SELECT p.capacity-COALESCE(SUM(c.units),0) FROM placement_pools p LEFT JOIN placement_claims c ON c.scope=p.scope WHERE p.scope=? AND p.role=? GROUP BY p.scope,p.capacity`, name, string(config.RoleTranscode)).Scan(&remaining)
+			err := r.o.DB.QueryRowContext(ctx, `SELECT p.capacity-COALESCE(SUM(c.units),0) FROM placement_pools p LEFT JOIN (SELECT scope,units FROM placement_claims UNION ALL SELECT scope,units FROM placement_displaced_claims) c ON c.scope=p.scope WHERE p.scope=? AND p.role=? GROUP BY p.scope,p.capacity`, name, string(config.RoleTranscode)).Scan(&remaining)
 			if err != nil {
 				failure.Unavailable++
 				available = false
@@ -258,13 +287,16 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placemen
 				available = false
 				break
 			}
+			if i == 0 || remaining < spare {
+				spare = remaining
+			}
 			claims[i] = placement.Claim{Scope: name, Units: 1}
 		}
 		// This read is advisory only; Reserve remains the atomic admission authority.
 		if !available {
 			continue
 		}
-		caps, e := r.workerCapabilities(ctx, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: target.NodeID, Boot: target.Boot}, q)
+		caps, hardwareEncoder, e := r.workerCapabilities(ctx, nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: target.NodeID, Boot: target.Boot}, q)
 		if e != nil {
 			if errors.Is(e, remotetranscode.ErrUnsupported) {
 				failure.Unsupported++
@@ -277,9 +309,41 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placemen
 			failure.Unsupported++
 			continue
 		}
-		return target, claims, caps, nil
+		score := transcodeTargetScore{hardware: hardwareEncoder != "" && !q.Decision.VideoCopy && q.Info.Video() != nil, spare: spare, local: target.NodeID == source.NodeID && target.Boot == source.Boot, target: target}
+		if !chosen || score.betterThan(bestScore) {
+			bestTarget, bestClaims, bestCaps, bestScore, chosen = target, claims, caps, score, true
+		}
+	}
+	if chosen {
+		return bestTarget, bestClaims, bestCaps, nil
 	}
 	return placement.Target{}, nil, remotetranscode.Capabilities{}, failure
+}
+
+// Eligibility and exact-plan support are hard gates. Scores rank only admitted
+// candidates; remaining capacity is the bottleneck across all required scopes.
+// Reserve still rechecks capacity atomically, including displaced claims.
+type transcodeTargetScore struct {
+	hardware bool
+	spare    int64
+	local    bool
+	target   placement.Target
+}
+
+func (s transcodeTargetScore) betterThan(other transcodeTargetScore) bool {
+	if s.hardware != other.hardware {
+		return s.hardware
+	}
+	if s.spare != other.spare {
+		return s.spare > other.spare
+	}
+	if s.local != other.local {
+		return s.local
+	}
+	if s.target.NodeID != other.target.NodeID {
+		return s.target.NodeID < other.target.NodeID
+	}
+	return s.target.Boot < other.target.Boot
 }
 
 func (r *Runtime) Session(id string) (core.HLSSession, bool) {
@@ -304,12 +368,12 @@ func (r *Runtime) Session(id string) (core.HLSSession, bool) {
 			return nil, false
 		}
 		if output.published.Load() {
-			return output, true
+			return r.recoveryDelivery(output), true
 		}
 	}
 	session, ok := a.Session(id)
 	if ok && output != nil {
-		return output, true
+		return r.recoveryDelivery(output), true
 	}
 	return session, ok
 }
@@ -344,6 +408,20 @@ func (t executionRetirement) EncoderErr() error {
 }
 
 func (r *Runtime) Stop(id string) {
+	// Publish cancellation for the exact durable generation even when this
+	// replica never started it. The coordinator still collects independent
+	// encoder, input and source retirement proof before releasing capacity.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if route, err := r.route(ctx, id); err == nil {
+		if h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, id, route.Fence.Generation}); err == nil && h.Gate.Seal == nil && h.Gate.Binding.Route.Fence == route.Fence && r.o.MemberRole(ctx, r.o.Self, config.RoleServer) == nil {
+			_, _ = r.recordOperationSeal(ctx, h.Gate.Binding, operationSeal{Actor: r.o.Self, Reason: sealCancellation})
+		}
+	}
+	r.stopLocal(id)
+}
+
+func (r *Runtime) stopLocal(id string) {
 	r.mu.Lock()
 	x := r.executions[id]
 	var s *remotetranscode.Session
@@ -364,6 +442,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		return ErrPending
 	}
 	defer r.control.Unlock()
+	if err := r.maintainCoordinators(ctx); err != nil {
+		return err
+	}
 	r.mu.Lock()
 	list := make([]*execution, 0, len(r.executions))
 	for _, x := range r.executions {
@@ -371,7 +452,15 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		list = append(list, &copy)
 	}
 	r.mu.Unlock()
+	if r.o.ProtocolSealer != nil && r.clockReady() {
+		if _, err := r.o.DB.ExecContext(ctx, `DELETE FROM clusterplayback_neutral_bindings WHERE expires<?`, time.Now().UnixMilli()); err != nil {
+			return err
+		}
+	}
 	result := r.tickReopenLives(ctx)
+	if err := r.reconcileBootRetirements(ctx); err != nil {
+		result = err
+	}
 	if err := r.persistPreparationReceipts(ctx); err != nil {
 		result = err
 	}
@@ -387,10 +476,14 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		if e := ctx.Err(); e != nil {
 			return e
 		}
-		if x.busy || x.retired {
+		if x.busy || x.retired || (x.reserved && !x.stopping && !r.ownsExecution(ctx, x)) {
 			continue
 		}
 		if x.reservePending {
+			if !r.clockReady() {
+				result = ErrDenied
+				continue
+			}
 			rec, e := r.o.Placement.Reserve(ctx, x.request)
 			if e != nil {
 				var unknown *placement.UnknownOutcome
@@ -433,6 +526,35 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		if !x.reserved {
 			continue
 		}
+		if x.replacement != nil {
+			r.mu.Lock()
+			current := r.executions[x.route.Fence.Session]
+			r.mu.Unlock()
+			if current != nil {
+				if e := r.finishSupersession(ctx, current); e != nil {
+					result = e
+				}
+			}
+			continue
+		}
+		// Stop intent survives frontend changes and coordinator takeover. A seal
+		// requests cleanup; it never attests that any producer has exited.
+		if h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, x.route.Fence.Session, x.route.Fence.Generation}); err == nil && h.Gate.Binding.Route.Fence == x.route.Fence && h.Gate.Seal != nil && h.Gate.Seal.Reason == sealCancellation {
+			r.stopLocal(x.route.Fence.Session)
+			x.stopping = true
+		}
+		// Remux has no recovery probe. Without status reconciliation an encoder
+		// closed by its idle reaper leaves a durable claim charged forever.
+		if !x.stopping && x.session != nil && x.output == nil {
+			c, cancel := context.WithTimeout(ctx, r.o.EncoderRPCDeadline)
+			err := x.session.Reconcile(c)
+			cancel()
+			if err == nil {
+				r.stopLocal(x.route.Fence.Session)
+				x.stopping = true
+			}
+		}
+		r.reconcileDisplaced(ctx, x)
 		if e := r.putRoute(ctx, x.route); e != nil {
 			result = e
 			continue
@@ -462,13 +584,45 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			result = ErrPending
 			continue
 		}
+		if x.output != nil && x.initial != nil && x.initial.request.Decision.Kind == core.DecisionTranscode && !x.initial.request.Decision.VideoCopy {
+			probeErr := r.probeEncoder(ctx, x)
+			// A worker idle close after viewer activity ceased is terminal, not
+			// an invitation to place an endless chain of replacement encoders.
+			if x.session.EncoderErr() == nil && time.Since(x.output.LastAccess()) > 2*time.Minute {
+				r.stopLocal(x.route.Fence.Session)
+				continue
+			}
+			r.mu.Lock()
+			current := r.executions[x.route.Fence.Session]
+			if probeErr == nil && current != nil && current.replacement == nil {
+				current.failedSince = time.Time{}
+			}
+			if probeErr != nil && current != nil && current.failedSince.IsZero() {
+				current.failedSince = time.Now()
+			}
+			recoverNow := current != nil && (current.replacement != nil || !current.failedSince.IsZero() && time.Since(current.failedSince) >= r.o.EncoderFailureGrace)
+			r.mu.Unlock()
+			if recoverNow {
+				if e := r.recoverEncoder(ctx, x); e != nil {
+					result = e
+				}
+				continue
+			}
+			if probeErr != nil {
+				result = probeErr
+				continue
+			}
+		}
 		lease := x.session.Lease()
-		if lease.Deadline.After(time.Now().Add(time.Minute)) {
+		if !x.adopted && lease.Deadline.After(time.Now().Add(time.Minute)) {
+			continue
+		}
+		if !r.clockReady() {
+			result = ErrDenied
 			continue
 		}
 		deadline := time.Now().Add(2 * time.Minute).UTC().Truncate(time.Millisecond)
 		if e := r.o.Placement.Renew(ctx, x.route.Fence, deadline.Add(2*r.o.ClockSkew)); e != nil {
-			r.Stop(x.route.Fence.Session)
 			result = e
 			continue
 		}
@@ -477,10 +631,16 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			_ = x.session.Reconcile(ctx)
 			accepted := x.session.Lease().Accepted
 			if accepted == nil || !equalRenewal(*accepted, n) {
-				r.Stop(x.route.Fence.Session)
+				// A peer may be clock-quarantined. Refusing extension does not
+				// revoke the previously accepted monotonic lease; retry until its cap.
 				result = ErrPending
 			}
 		}
+		r.mu.Lock()
+		if current := r.executions[x.route.Fence.Session]; current != nil && current.session == x.session {
+			current.adopted = false
+		}
+		r.mu.Unlock()
 	}
 	return result
 }
@@ -508,8 +668,32 @@ func (r *Runtime) retire(ctx context.Context, x *execution) error {
 	return r.retireWithEvidence(ctx, x.route, "clusterplayback/exact-retirement")
 }
 func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
+	if route, err := r.route(ctx, f.Session); err == nil && route.Fence == f && r.retiredWorkerBoot(ctx, f) == nil {
+		if err := r.sourcesAfterWorkerBoot(ctx, route, "status"); err == nil {
+			return nil
+		}
+	}
+	var displacedRaw string
+	if err := r.o.DB.QueryRowContext(ctx, `SELECT record FROM placement_displaced WHERE session=? AND generation=?`, f.Session, f.Generation).Scan(&displacedRaw); err == nil {
+		var old placement.Record
+		if json.Unmarshal([]byte(displacedRaw), &old) == nil && old.Fence == f && r.retiredWorkerBoot(ctx, f) == nil {
+			return nil
+		}
+	}
 	r.mu.Lock()
 	x := r.executions[f.Session]
+	if x != nil {
+		for _, old := range x.failed {
+			if old.route.Fence == f {
+				session := old.session
+				r.mu.Unlock()
+				if session != nil && session.EncoderErr() == nil {
+					return nil
+				}
+				return ErrPending
+			}
+		}
+	}
 	if x == nil || x.route.Fence != f || x.busy || !x.stopping {
 		r.mu.Unlock()
 		return ErrPending
@@ -535,8 +719,18 @@ func (r *Runtime) Supports(q core.HLSRequest) bool {
 }
 func (r *Runtime) Allocated(id string) bool {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.executions[id] != nil
+	local := r.executions[id] != nil
+	r.mu.Unlock()
+	if local {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if r.o.MemberRole(ctx, r.o.Self, config.RoleServer) != nil {
+		return false
+	}
+	record, err := r.o.Placement.Lookup(ctx, id)
+	return err == nil && !record.Retired
 }
 
 func equalRenewal(a, b remotetranscode.Renewal) bool {
