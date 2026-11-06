@@ -1,4 +1,4 @@
-//go:build !cgo && goexperiment.simd && (amd64 || arm64)
+//go:build (!cgo && goexperiment.simd && (amd64 || arm64)) || (cgo && !android && !ios && (((darwin || linux) && (amd64 || arm64)) || (windows && amd64)))
 
 package usenet
 

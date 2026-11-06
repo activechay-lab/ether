@@ -29,12 +29,25 @@ upstream's computed CRC. The guard counts escape pairs; it does not decode
 payload bytes. Output allocation hints are bounded before use.
 
 The portable `yenc.DecodeLines`/`DecodeLine` implementation is restored.
-There are no SIMD files or RapidYenc imports in `internal/yenc`. Explicit
-caller buffers always use SWAR to preserve exact buffer reuse; unsupported
-CPUs/architectures, builds without `GOEXPERIMENT=simd`, and cgo-enabled builds
-also use SWAR. The cgo rule avoids selecting upstream's C backend. Release
-builds use `CGO_ENABLED=0 GOEXPERIMENT=simd`. See `THIRD_PARTY_NOTICES.md` for
-the MIT notice.
+There are no SIMD files or RapidYenc imports in `internal/yenc`. Backend
+selection happens at build time:
+
+| Build | Decoder |
+|---|---|
+| `CGO_ENABLED=0`, `GOEXPERIMENT=simd`, AMD64/ARM64 with SIMD available | RapidYenc pure-Go SIMD |
+| `CGO_ENABLED=1`, macOS/Linux AMD64 or ARM64, or Windows AMD64 | RapidYenc C backend with native CPU dispatch |
+| Neither supported backend, or selected kernel is generic | Ether SWAR |
+
+The C branch explicitly excludes Android and iOS: Go's `linux`/`darwin` tags
+also match those OSes, but upstream supplies desktop native archives only.
+Unsupported cgo targets, including Windows ARM64, retain SWAR without importing
+RapidYenc. Supported cgo builds require a C/C++ toolchain and the pinned native
+archive; they select C even if `GOEXPERIMENT=simd` is enabled. Upstream's build
+tags do not permit Go SIMD and C to coexist as runtime alternatives.
+
+Explicit caller buffers always use SWAR to preserve exact buffer reuse.
+Release builds remain `CGO_ENABLED=0 GOEXPERIMENT=simd` and contain no cgo
+decoder dependency. See `THIRD_PARTY_NOTICES.md` for the MIT notice.
 
 One deliberate malformed-input difference at the NNTP boundary: payloads
 that exceed their declared part size fail early with `ErrSizeMismatch` and
@@ -47,7 +60,7 @@ Ether and upstream interpret differently are rejected with `ErrMalformed`
 before forwarding. This prevents upstream decoding/allocation from exceeding
 the guard's validated interpretation.
 
-## Boundary benchmarks
+## Boundary benchmarks (pure-Go SIMD)
 
 Median of three 500 ms samples, one benchmark CPU, fresh output. Includes
 BodyReader, NNTP framing, bounds checks and CRC for both paths. Runs were
@@ -75,6 +88,27 @@ standalone decoder measurements do not describe this implementation.
 CGO_ENABLED=0 GOEXPERIMENT=simd go test ./internal/usenet -run '^$' -bench '^BenchmarkBodyDecode$' -benchmem -benchtime=500ms -count=3 -cpu=1
 ```
 
+## Boundary benchmarks (C backend)
+
+Same harness and machine, `CGO_ENABLED=1 GOEXPERIMENT=`, native `NEON`,
+median of three 500 ms samples, measured without concurrent test workloads:
+
+| Article | Line length | SWAR MB/s | RapidYenc C MB/s | Throughput ratio |
+|---|---:|---:|---:|---:|
+| 384 KiB | 128 | 2,271 | 1,676 | 0.74× |
+| 768 KiB | 128 | 2,017 | 1,793 | 0.89× |
+| 384 KiB | 256 | 2,623 | 2,413 | 0.92× |
+| 768 KiB | 256 | 2,231 | 2,191 | 0.98× |
+
+These samples also do not establish a performance win. Backend selection
+alone does not remove the bounded adapter's scan/copy/allocation overhead.
+C uses the same 35–36 allocations/article versus SWAR's 22. No C performance
+claim is made for other CPUs or operating systems.
+
+```sh
+CGO_ENABLED=1 GOEXPERIMENT= go test ./internal/usenet -run '^$' -bench '^BenchmarkBodyDecode$' -benchmem -benchtime=500ms -count=3 -cpu=1
+```
+
 ## Validation
 
 - Affected yEnc, Usenet and stream suites pass with pure-Go SIMD. Usenet tests
@@ -87,11 +121,20 @@ CGO_ENABLED=0 GOEXPERIMENT=simd go test ./internal/usenet -run '^$' -bench '^Ben
   numeric fields and unexpected control-header injection.
 - Portable yEnc/Usenet suites pass with the SIMD experiment disabled.
 - AMD64 boundary tests run under Rosetta with AVX2 enabled and disabled.
-- Race checks cover yEnc and Usenet using the SWAR path (race enables cgo).
-  They do not exercise the pure-Go SIMD adapter.
+- The same raw-response regression suite passes on macOS ARM64 using the C
+  backend (`NEON`) without the Go SIMD experiment. C and Go SIMD AMD64 builds
+  pass under Rosetta (native C reports `SSSE3`; Go SIMD reports `AVX2`), and
+  Go SIMD tests also pass with AVX2 disabled.
+- Race checks pass for yEnc and Usenet with the newly selected C backend.
+  This covers the Go adapter around C; it does not instrument the native C
+  archive or exercise the pure-Go SIMD backend.
+- A 15-case build-tag matrix checks backend/fallback selection, including
+  unsupported cgo architectures and Android/iOS desktop-OS aliases. CI runs
+  the Go SIMD, C-without-Go-SIMD, portable, and AVX2-disabled paths.
 - Repository vet and pure-Go builds, including Windows/ARM64 and Linux/AMD64,
-  pass. All six release OS/architecture cross-builds pass on this revision. Release
-  configuration validation passed before this boundary-only revision.
+  pass. All six release OS/architecture cross-builds passed before the backend
+  selection change; Windows ARM64 and Linux AMD64 were reconfirmed afterward.
+  Release configuration validation passed before the boundary-only revision.
 - No new fuzz-coverage claim is made for this adapter. Previous adapter-specific
   fuzz tests and measurements were removed with that implementation.
 
