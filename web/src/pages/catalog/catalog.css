@@ -1556,3 +1556,9 @@ button.catalog-next:hover {
     flex-basis: calc(100% - 44px);
   }
 }
+.catalog-ai-description summary {
+  margin-top: 8px;
+  cursor: pointer;
+  color: var(--color-primary);
+  font-size: 13px;
+}

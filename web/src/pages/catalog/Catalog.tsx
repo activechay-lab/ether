@@ -1,3 +1,4 @@
+import ReactMarkdown from "react-markdown";
 import { SubtabNav } from "../../components/layout";
 import { Button, EmptyState, toast } from "@braedonsaunders/appkit-ui";
 import {
@@ -571,7 +572,16 @@ export function CatalogBrowser({
                     ? t("Searching with AI…")
                     : t("AI results for “{query}”", { query: aiResult.query })}
                 </h3>
-                <p>{aiResult.text || t("Ether is checking titles and refining your results.")}</p>
+                <details className="catalog-ai-description" open={aiResult.busy}>
+                  <summary hidden={aiResult.busy}>{t("Details")}</summary>
+                  <ReactMarkdown
+                    skipHtml
+                    unwrapDisallowed
+                    allowedElements={["p", "strong", "em", "ul", "ol", "li", "br"]}
+                  >
+                    {aiResult.text || t("Ether is checking titles and refining your results.")}
+                  </ReactMarkdown>
+                </details>
               </div>
               {aiResult.busy ? (
                 <Button variant="outline" onClick={ai.stop}>

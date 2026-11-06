@@ -61,7 +61,7 @@ export function useCatalogAISearch(key: string, query: string, mediaType: string
         signal,
         body: JSON.stringify({
           prompt: query,
-          context: { route: "/catalog/search", mediaType: mediaType || "mixed" },
+          context: { route: "/catalog/search", mediaType: mediaType || "movie" },
         }),
       });
       if (!response.ok || !response.body) throw new Error("AI search unavailable");
