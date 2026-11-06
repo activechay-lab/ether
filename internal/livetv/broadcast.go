@@ -25,14 +25,15 @@ const broadcastDVR = 30 * time.Minute
 // broadcastPlan is immutable. Open performs blocking resolution away from the
 // frame clock. Its release closes the playback/provider reservation exactly once.
 type broadcastPlan struct {
-	element    string
-	policy     *broadcastPolicyTag
-	fill       bool
-	programme  bool
-	id         string
-	start, end time.Time
-	open       func(context.Context) (transcode.Decoder, func(), error)
-	failed     func(error) time.Time
+	interstitial, fallback bool
+	element                string
+	policy                 *broadcastPolicyTag
+	fill                   bool
+	programme              bool
+	id                     string
+	start, end             time.Time
+	open                   func(context.Context) (transcode.Decoder, func(), error)
+	failed                 func(error) time.Time
 }
 type broadcastPlanner interface {
 	plans(time.Time) (broadcastPlan, *broadcastPlan)
@@ -47,6 +48,10 @@ type broadcastRendition struct {
 	queue      *broadcastFrameQueue
 	cancel     context.CancelFunc
 	viewers    int
+}
+type broadcastMomentInput struct {
+	fallback bool
+	end      time.Time
 }
 type broadcastInput struct {
 	policy                  *broadcastPolicyTag
@@ -168,6 +173,8 @@ type broadcast struct {
 	screenPlan           broadcastPlan
 	retryRequests        chan struct{}
 	mode                 string
+	plannedID            string
+	momentInputs         map[string]broadcastMomentInput
 	tick                 int64
 	// yieldIdle asks the registry to close outputs nobody is watching when
 	// this output hits the stream limit (see broadcastRegistry.yieldIdle).
@@ -357,6 +364,9 @@ func (b *broadcast) idle(now time.Time) bool {
 	return b.viewers == 0 && now.Sub(b.lastViewer) >= broadcastIdle
 }
 func (b *broadcast) open(plan broadcastPlan, now time.Time) {
+	if b.momentInputs[plan.id].fallback {
+		return
+	}
 	if plan.id == "" || plan.open == nil || b.opening[plan.id] || now.Before(b.retry[plan.id]) {
 		return
 	}
@@ -418,6 +428,10 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 				continue
 			}
 			input := result.input
+			if b.momentInputs[result.plan.id].fallback {
+				b.closeInput(input)
+				continue
+			}
 			if result.plan.id == current.id {
 				b.closeInput(b.current)
 				b.current = input
@@ -562,6 +576,10 @@ func (b *broadcast) step(now time.Time) bool {
 	fresh := false
 	previousPCM := b.lastFrame.PCM
 	current, next := b.planner.plans(now)
+	if b.plannedID != current.id {
+		b.plannedID = current.id
+		b.freshAt = time.Time{}
+	}
 	clear(b.future)
 	if planner, ok := b.planner.(interface {
 		prewarmPlans(time.Time) []broadcastPlan
@@ -646,10 +664,21 @@ func (b *broadcast) step(now time.Time) bool {
 			b.open(plan, now)
 		}
 	}
+	// The last tick before a moment selects its input once. Decoders that
+	// become ready after that deadline must not replace a live fallback in
+	// the middle of the interval.
+	frameDuration := time.Second * time.Duration(b.format.FPSDen) / time.Duration(b.format.FPSNum)
+	if next != nil && !next.start.After(now.Add(frameDuration)) {
+		b.latchMomentInput(*next, now)
+	}
+	if !introActive {
+		b.latchMomentInput(current, now)
+	}
+	momentFallback := b.momentInputs[current.id].fallback
 	samples := tickSamples(b.format, b.tick)
 	frame := transcode.RawFrame{}
 	mode := "screen"
-	if b.current != nil && (!introActive || b.intro.fill) {
+	if b.current != nil && !momentFallback && (!introActive || b.intro.fill) {
 		select {
 		case f, ok := <-b.current.frames:
 			if ok && validRawFrame(b.format, f) {
@@ -703,7 +732,7 @@ func (b *broadcast) step(now time.Time) bool {
 	// the live fallback flowing even when resolution has not produced a frame;
 	// otherwise a missing source can prevent an opening segment from finishing.
 	// An exhausted file's final picture still bridges its rounded slot duration.
-	if b.bursting && now.After(time.Now()) && frame.Video == nil && !introActive && b.current != nil {
+	if b.bursting && now.After(time.Now()) && frame.Video == nil && !introActive && b.current != nil && !momentFallback {
 		return false
 	}
 	if frame.Video == nil && !introActive && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
@@ -742,6 +771,9 @@ func (b *broadcast) step(now time.Time) bool {
 			}
 		}
 	}
+	if momentFallback && !introActive {
+		mode = "fallback/" + current.id
+	}
 	// PCM follows the output tick, including fractional frame rates. Never let a
 	// malformed decoder chunk shift every subsequent audio timestamp.
 	pcm := make([]byte, samples*b.format.Channels*2)
@@ -764,7 +796,7 @@ func (b *broadcast) step(now time.Time) bool {
 		if b.introFade != nil {
 			transition = "crossfade"
 		}
-		b.logger.Debug("broadcast output switched", "element", element, "transition", transition, "from", b.mode, "input", mode, "tick", b.tick, "scheduledAt", now, "clockLag", time.Since(now))
+		b.logger.Debug("broadcast output switched", "element", element, "fallback", momentFallback, "transition", transition, "from", b.mode, "input", mode, "tick", b.tick, "scheduledAt", now, "clockLag", time.Since(now))
 		if b.introFade == nil {
 			b.fade.start(previousPCM, b.format)
 		}
@@ -824,6 +856,36 @@ func (b *broadcast) requestRetry() {
 	select {
 	case b.retryRequests <- struct{}{}:
 	default:
+	}
+}
+
+func (b *broadcast) latchMomentInput(plan broadcastPlan, now time.Time) {
+	if !plan.interstitial {
+		return
+	}
+	if _, decided := b.momentInputs[plan.id]; decided {
+		return
+	}
+	input := b.current
+	if input == nil || input.plan.id != plan.id {
+		input = b.next
+	}
+	if input == nil || input.plan.id != plan.id {
+		input = b.later[plan.id]
+	}
+	ready := input != nil && len(input.frames) > 0 && !plan.fallback
+	if b.momentInputs == nil {
+		b.momentInputs = map[string]broadcastMomentInput{}
+	}
+	b.momentInputs[plan.id] = broadcastMomentInput{fallback: !ready, end: plan.end}
+	for id, decision := range b.momentInputs {
+		if decision.end.Before(now) {
+			delete(b.momentInputs, id)
+		}
+	}
+	if !ready {
+		b.closeInput(input)
+		b.logger.Debug("broadcast moment live fallback selected", "input", plan.id, "element", plan.element, "boundary", plan.start, "decisionAt", now)
 	}
 }
 
