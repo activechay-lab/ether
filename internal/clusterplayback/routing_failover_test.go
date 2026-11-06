@@ -10,7 +10,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/plex"
 	"github.com/braedonsaunders/ether/internal/sessions"
-	"github.com/braedonsaunders/ether/internal/store"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,17 +22,18 @@ import (
 )
 
 func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
+	fixtureStarted := time.Now()
 	sourceID := nodewire.Identity{Cluster: "plex-composition", NodeID: "source", Boot: "source-boot"}
 	workerID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "worker", Boot: "worker-boot"}
 	ownerID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "owner", Boot: "owner-boot"}
 	senderID := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: "sender", Boot: "sender-boot"}
 	deliveryIDs := []nodewire.Identity{{Cluster: sourceID.Cluster, NodeID: "delivery-a", Boot: "delivery-a-boot"}, {Cluster: sourceID.Cluster, NodeID: "delivery-b", Boot: "delivery-b-boot"}}
 	guards := fixtureGuards(t, sourceID, workerID, ownerID, senderID, deliveryIDs[0], deliveryIDs[1])
-	db := store.OpenTest(t)
+	db := openFixtureDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 45*time.Second))
+	defer cancel()
 	verifier := NewVerifier()
-	ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
+	ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: fixtureSQLBudget()}, verifier)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,6 +305,10 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 		coordinator, err := sender.CurrentCoordinator(ctx, "routing-loss")
 		if err != nil || coordinator.Identity != senderID || coordinator.Epoch != 2 {
 			t.Fatalf("takeover %#v %v", coordinator, err)
+		}
+		assignments, assignmentErr := sender.Assignments(ctx)
+		if assignmentErr != nil || len(assignments) != 1 || assignments[0].ControllerNodeID != senderID.NodeID || assignments[0].Generation != original.Generation || assignments[0].EncoderNodeID != original.Target.NodeID {
+			t.Fatalf("console must follow coordinator takeover without moving encoding: %#v %v", assignments, assignmentErr)
 		}
 		for _, test := range []struct {
 			method, byteRange string

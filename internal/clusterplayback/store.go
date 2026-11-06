@@ -32,6 +32,8 @@ CREATE TABLE clusterplayback_source_moves (session TEXT NOT NULL, generation BIG
 }
 
 type Route struct {
+	// Encoder is the request-specific plan selected at placement, not node capability.
+	Encoder          string `json:",omitempty"`
 	SourceGeneration uint64
 	Fence            placement.Fence
 	Source           nodewire.Identity

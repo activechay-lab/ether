@@ -18,7 +18,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/sessions"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 type neutralRestoreEncoder struct {
@@ -47,12 +46,17 @@ func (s *neutralRestoreSession) ServeSegment(w http.ResponseWriter, r *http.Requ
 // The invariant exercises the actual neutral broker, sealed shared SQL state,
 // cluster registry election, source gateway, mTLS worker attach and epoch CAS.
 // Synthetic segment bodies prove request continuity, not codec continuity.
-func TestNeutralControllerLossKeepsHealthyEncoder(t *testing.T) {
+func TestNeutralControllerLossKeepsHealthyEncoder(t *testing.T) { testNeutralControls(t, true) }
+
+func TestNeutralLiveCoordinatorControls(t *testing.T) { testNeutralControls(t, false) }
+
+func testNeutralControls(t *testing.T, loseOwner bool) {
 	for _, protocol := range []frontend.Protocol{"jellyfin", "emby"} {
 		t.Run(string(protocol), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			fixtureStarted := time.Now()
+			db := openFixtureDB(t)
+			ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 20*time.Second))
 			defer cancel()
-			db := store.OpenTest(t)
 			hub := clusterbus.NewHub()
 			sealer, err := config.Open(t.TempDir())
 			if err != nil {
@@ -60,7 +64,7 @@ func TestNeutralControllerLossKeepsHealthyEncoder(t *testing.T) {
 			}
 			defer sealer.Close()
 			verifier := NewVerifier()
-			ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, verifier)
+			ledger, err := placement.New(db, placement.Options{MaxSessions: 32, MaxLease: 10 * time.Minute, LockTimeout: fixtureSQLBudget()}, verifier)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -193,6 +197,71 @@ func TestNeutralControllerLossKeepsHealthyEncoder(t *testing.T) {
 			before, err := ledger.Lookup(ctx, opened.ID)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if !loseOwner {
+				wrong := access
+				wrong.Device.ID = "wrong-device"
+				if err = brokers[1].Stop(ctx, wrong, opened.ID); err != core.ErrUnauthorized {
+					t.Fatal("foreign stop", err)
+				}
+				if err = brokers[1].Report(ctx, access, opened.ID, frontend.Timeline{State: "playing", Position: 7 * time.Second, Sequence: 1}); err != nil || progress.Load() != int64(7*time.Second) {
+					t.Fatal("cross-replica progress", err, progress.Load())
+				}
+				remotePath, streamErr := brokers[1].StartStream(ctx, access, opened.ID, request)
+				if streamErr != nil || remotePath != path {
+					t.Fatal("cross-replica stream", remotePath, streamErr)
+				}
+				coordinator, coordErr := runtimes[3].CurrentCoordinator(ctx, opened.ID)
+				if coordErr != nil || coordinator.Identity != ids[2] || coordinator.Epoch != 1 || encoder.starts.Load() != 1 || brokers[1].HasBinding(opened.ID) {
+					t.Fatal("forwarding moved healthy ownership", coordinator, coordErr)
+				}
+				commands, subscribeErr := brokers[0].Events(ctx, frontend.EventScope{Viewer: access.Viewer, Protocol: protocol, Device: access.Device, SessionID: opened.ID})
+				if subscribeErr != nil {
+					t.Fatal(subscribeErr)
+				}
+				if err = brokers[1].Command(ctx, access.Viewer, opened.ID, frontend.Command{Kind: frontend.CommandSeek, Position: 12 * time.Second}); err != nil {
+					t.Fatal("cross-replica seek", err)
+				}
+				select {
+				case event := <-commands:
+					if event.Command == nil || event.Command.Kind != frontend.CommandSeek || event.Command.Position != 12*time.Second || event.TargetDeviceID != access.Device.ID {
+						t.Fatal("incorrect seek delivery", event)
+					}
+				case <-ctx.Done():
+					t.Fatal("seek was not delivered", ctx.Err())
+				}
+				if protocol == "jellyfin" {
+					if err = brokers[1].Report(ctx, access, opened.ID, frontend.Timeline{State: "stopped", Position: 12 * time.Second, Sequence: 2}); err != nil {
+						t.Fatal("cross-replica stopped timeline", err)
+					}
+				}
+				if err = brokers[1].Stop(ctx, access, opened.ID); err != nil {
+					t.Fatal("cross-replica stop", err)
+				}
+				for i := 0; i < 100; i++ {
+					_ = runtimes[2].Tick(ctx)
+					runtimes[1].Cleanup()
+					runtimes[0].Cleanup()
+					record, lookupErr := ledger.Lookup(ctx, opened.ID)
+					if lookupErr == nil && record.Retired {
+						break
+					}
+					if i == 99 {
+						t.Fatal("retirement did not settle", record, lookupErr)
+					}
+					time.Sleep(time.Millisecond)
+				}
+				for _, table := range []string{"placement_claims", "placement_displaced_claims", "clusterplayback_neutral_bindings", "plex_sessions"} {
+					var count int
+					if err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count); err != nil || count != 0 {
+						t.Fatal("stop leaked", table, count, err)
+					}
+				}
+				if brokers[0].HasBinding(opened.ID) || brokers[1].HasBinding(opened.ID) {
+					t.Fatal("stopped binding retained")
+				}
+				t.Log("progress, stream, seek command and Stop reached live coordinator synchronously; unchanged epoch/encoder; exact retirement restored all capacity")
+				return
 			}
 			gone.Store(true)
 			hub.Kill(ids[2].NodeID)

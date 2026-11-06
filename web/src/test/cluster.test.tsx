@@ -145,7 +145,7 @@ describe("Server › Cluster", () => {
     const den = rowOf(nodes, "den");
     expect(within(den).getByText("Leader")).toBeInTheDocument();
     expect(within(den).getByText("This node")).toBeInTheDocument();
-    expect(within(den).getByText("Online")).toBeInTheDocument();
+    expect(within(den).getByText("Healthy")).toBeInTheDocument();
     expect(within(den).getByText("videotoolbox")).toBeInTheDocument();
     expect(within(den).getByLabelText("den weight")).toHaveTextContent("1");
 
@@ -158,7 +158,7 @@ describe("Server › Cluster", () => {
 
     const garage = rowOf(nodes, "garage");
     expect(within(garage).getByText("Offline")).toBeInTheDocument();
-    expect(within(garage).getByText(/Last seen 3 hours ago/)).toBeInTheDocument();
+    expect(within(garage).queryByText(/Last seen/)).toBeNull();
     expect(within(garage).getByText("Version 0.8.4")).toBeInTheDocument();
     expect(within(garage).getByText("Software")).toBeInTheDocument();
 
@@ -169,6 +169,7 @@ describe("Server › Cluster", () => {
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Overview",
       "Nodes",
+      "Recovery history",
       "Join tokens",
     ]);
     fireEvent.click(screen.getByRole("tab", { name: "Join tokens" }));
@@ -177,7 +178,7 @@ describe("Server › Cluster", () => {
     expect(screen.getByRole("button", { name: "Create join token" })).toBeEnabled();
   });
 
-  it("shows independent local serving/admission observations and leaves peers unknown", async () => {
+  it("keeps runtime details in the drawer while showing admission status", async () => {
     renderApp("/cluster", { cluster: true }, (fake) => {
       const fetch = fake.fetch;
       fake.fetch = async (...args) => {
@@ -202,16 +203,11 @@ describe("Server › Cluster", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "Nodes" }, WAIT));
     const nodes = await screen.findByRole("region", { name: "Nodes" }, WAIT);
     const local = rowOf(nodes, "den");
-    expect(within(local).getByText("Serving existing work").nextElementSibling).toHaveTextContent(
-      "Yes",
-    );
-    expect(within(local).getByText("Accepting new work").nextElementSibling).toHaveTextContent(
-      "No",
-    );
-    const peer = rowOf(nodes, "attic");
-    expect(within(peer).getByText("Serving existing work").nextElementSibling).toHaveTextContent(
-      "Unknown",
-    );
+    expect(within(local).getByText("Not taking new streams")).toBeInTheDocument();
+    expect(within(local).getByText("Draining")).toBeInTheDocument();
+    expect(within(local).queryByText("Serving existing work")).toBeNull();
+    const peer = rowOf(nodes, "source-02");
+    expect(within(peer).getByText("Not reported")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Manage this node" }));
     const drawer = await screen.findByRole("dialog", { name: "Manage" });
     expect(within(drawer).getByText("Accepting new work").nextElementSibling).toHaveTextContent(
@@ -223,12 +219,12 @@ describe("Server › Cluster", () => {
     renderApp("/cluster", { cluster: true });
     fireEvent.click(await screen.findByRole("tab", { name: "Join tokens" }, WAIT));
     const tokens = await screen.findByRole("region", { name: "Join tokens" }, WAIT);
-    await within(tokens).findByText("q9wd", {}, WAIT);
+    await within(tokens).findByText("Join token 1", {}, WAIT);
     expect(within(tokens).queryByText("t7k2")).toBeNull();
     expect(within(tokens).queryByText("expired-example")).toBeNull();
-    const open = rowOf(tokens, "q9wd");
+    const open = rowOf(tokens, "Join token 1");
     expect(within(open).getByText("Unused")).toBeInTheDocument();
-    expect(within(open).getByRole("button", { name: "Revoke token q9wd" })).toBeEnabled();
+    expect(within(open).getByRole("button", { name: "Revoke token 1" })).toBeEnabled();
   });
 
   it("creates a join token in a drawer and shows it only once", async () => {
@@ -252,9 +248,8 @@ describe("Server › Cluster", () => {
     expect(within(drawer).queryByRole("button", { name: /Copy command/ })).toBeNull();
     expect(calls(fake, "POST", "/cluster/join-tokens")[0]!.body).toEqual({ ttlMinutes: 15 });
 
-    // The new token is listed (by id only), and closing the drawer forgets the secret.
-    const id = fake.state.joinTokens[0]!.id;
-    expect(await within(tokens).findByText(id, {}, WAIT)).toBeInTheDocument();
+    // A second readable label appears; closing the drawer forgets the secret.
+    expect(await within(tokens).findByText("Join token 2", {}, WAIT)).toBeInTheDocument();
     fireEvent.click(within(drawer).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.queryByText(token)).toBeNull();
@@ -267,11 +262,11 @@ describe("Server › Cluster", () => {
     const { fake } = renderApp("/cluster", { cluster: true });
     fireEvent.click(await screen.findByRole("tab", { name: "Join tokens" }, WAIT));
     const tokens = await screen.findByRole("region", { name: "Join tokens" }, WAIT);
-    fireEvent.click(await within(tokens).findByRole("button", { name: "Revoke token q9wd" }, WAIT));
+    fireEvent.click(await within(tokens).findByRole("button", { name: "Revoke token 1" }, WAIT));
     const confirm = await screen.findByRole("dialog", { name: "Revoke join token?" });
     fireEvent.click(within(confirm).getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(calls(fake, "DELETE", "/cluster/join-tokens/q9wd")).toHaveLength(1));
-    await waitFor(() => expect(within(tokens).queryByText("q9wd")).toBeNull(), WAIT);
+    await waitFor(() => expect(within(tokens).queryByText("Join token 1")).toBeNull(), WAIT);
     expect(within(tokens).queryByText("t7k2")).toBeNull();
   });
 
@@ -443,7 +438,12 @@ describe("cluster helpers", () => {
     expect(tokenState(t, now)).toBe("unused");
     expect(tokenState({ ...t, expiresAt: "2026-10-19T11:30:00Z" }, now)).toBe("expired");
     expect(tokenState({ ...t, usedAt: "2026-10-19T11:10:00Z" }, now)).toBe("used");
-    expect(transcodeLabel({ ...base.self, caps: { transcode: false } })).toBe("Unavailable");
+    expect(transcodeLabel({ ...base.self, caps: { roles: ["source"], transcode: false } })).toBe(
+      "—",
+    );
+    expect(transcodeLabel({ ...base.self, caps: { roles: ["transcode"], transcode: false } })).toBe(
+      "Unavailable",
+    );
     expect(transcodeLabel({ ...base.self, caps: { transcode: true, hwAccel: "none" } })).toBe(
       "Software",
     );

@@ -231,6 +231,11 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 		go func() { defer close(b.historyDone); b.runSourceHistory(ctx) }()
 	}
 
+	if remote, ok := b.deps.DistributedHLS.(neutralControl); ok {
+		if err := remote.BindNeutralControl(b.neutralControl); err != nil {
+			return nil, err
+		}
+	}
 	return b, nil
 }
 func (b *Broker) viewer(ctx context.Context, v *core.Viewer) (*core.Viewer, error) {
@@ -1065,6 +1070,9 @@ func (b *Broker) Sessions(ctx context.Context, a frontend.SessionAccess) ([]fron
 	return visible, nil
 }
 func (b *Broker) Report(ctx context.Context, a frontend.SessionAccess, id string, t frontend.Timeline) error {
+	if _, handled, err := b.forwardNeutralControl(ctx, a, id, "report", t, frontend.StreamRequest{}); handled {
+		return err
+	}
 	s, _, err := b.accessSession(ctx, a, id, t.State != "stopped")
 	if errors.Is(err, core.ErrNotFound) {
 		item, retired, retiredErr := b.retiredAccess(ctx, a, id)
@@ -1311,6 +1319,9 @@ func (b *Broker) ReportProgress(ctx context.Context, a frontend.SessionAccess, i
 	return nil
 }
 func (b *Broker) Stop(ctx context.Context, a frontend.SessionAccess, id string) error {
+	if _, handled, err := b.forwardNeutralControl(ctx, a, id, "stop", frontend.Timeline{}, frontend.StreamRequest{}); handled {
+		return err
+	}
 	s, _, err := b.accessSession(ctx, a, id, false)
 	if errors.Is(err, core.ErrNotFound) {
 		if b.cluster == nil {

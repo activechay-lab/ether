@@ -128,7 +128,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if e == nil {
 		expected = old.Generation
 	}
-	target, claims, capabilities, e := r.selectTarget(ctx, q, prepared.Owner)
+	target, claims, capabilities, encoder, e := r.selectTarget(ctx, q, prepared.Owner)
 	if e != nil {
 		return nil, e
 	}
@@ -139,7 +139,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	request := placement.Request{Session: q.SessionID, Operation: operation, ExpectedGeneration: expected, Controller: placement.Controller{ID: r.o.Self.NodeID, Boot: r.o.Self.Boot}, Target: target, Role: config.RoleTranscode, Claims: claims, Lease: 2 * time.Minute}
 	r.mu.Lock()
 	x.request = request
-	x.route = Route{Fence: placement.Fence{Session: q.SessionID, Generation: expected + 1, Controller: request.Controller, Target: target}, Source: prepared.Owner, Viewer: viewer, PlayID: playID, Revision: revision}
+	x.route = Route{Fence: placement.Fence{Session: q.SessionID, Generation: expected + 1, Controller: request.Controller, Target: target}, Source: prepared.Owner, Viewer: viewer, PlayID: playID, Revision: revision, Encoder: encoder}
 	x.reservePending = true
 	r.mu.Unlock()
 	rec, e := r.o.Placement.Reserve(ctx, request)
@@ -152,7 +152,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		}
 		return nil, e
 	}
-	rt := Route{Fence: rec.Fence, Source: prepared.Owner, Viewer: viewer, PlayID: playID, Revision: revision}
+	rt := Route{Fence: rec.Fence, Source: prepared.Owner, Viewer: viewer, PlayID: playID, Revision: revision, Encoder: encoder}
 	r.mu.Lock()
 	x.route = rt
 	x.reserved = true
@@ -221,13 +221,13 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	}
 	return hs, nil
 }
-func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
+func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, string, error) {
 	return r.selectTargetExcept(ctx, q, "", source)
 }
-func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exclude string, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
+func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exclude string, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, string, error) {
 	rows, e := r.o.DB.QueryContext(ctx, `SELECT node,boot,roles,scopes FROM placement_targets ORDER BY node LIMIT 4096`)
 	if e != nil {
-		return placement.Target{}, nil, remotetranscode.Capabilities{}, e
+		return placement.Target{}, nil, remotetranscode.Capabilities{}, "", e
 	}
 	type candidate struct {
 		target                placement.Target
@@ -238,19 +238,20 @@ func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exc
 		var c candidate
 		if e = rows.Scan(&c.target.NodeID, &c.target.Boot, &c.rolesJSON, &c.scopesJSON); e != nil {
 			rows.Close()
-			return placement.Target{}, nil, remotetranscode.Capabilities{}, e
+			return placement.Target{}, nil, remotetranscode.Capabilities{}, "", e
 		}
 		candidates = append(candidates, c)
 	}
 	err := rows.Err()
 	rows.Close()
 	if err != nil {
-		return placement.Target{}, nil, remotetranscode.Capabilities{}, err
+		return placement.Target{}, nil, remotetranscode.Capabilities{}, "", err
 	}
 	failure := &SelectionError{}
 	var bestTarget placement.Target
 	var bestClaims []placement.Claim
 	var bestCaps remotetranscode.Capabilities
+	var bestEncoder string
 	var bestScore transcodeTargetScore
 	chosen := false
 	for _, candidate := range candidates {
@@ -312,12 +313,16 @@ func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exc
 		score := transcodeTargetScore{hardware: hardwareEncoder != "" && !q.Decision.VideoCopy && q.Info.Video() != nil, spare: spare, local: target.NodeID == source.NodeID && target.Boot == source.Boot, target: target}
 		if !chosen || score.betterThan(bestScore) {
 			bestTarget, bestClaims, bestCaps, bestScore, chosen = target, claims, caps, score, true
+			bestEncoder = "cpu"
+			if score.hardware {
+				bestEncoder = hardwareEncoder
+			}
 		}
 	}
 	if chosen {
-		return bestTarget, bestClaims, bestCaps, nil
+		return bestTarget, bestClaims, bestCaps, bestEncoder, nil
 	}
-	return placement.Target{}, nil, remotetranscode.Capabilities{}, failure
+	return placement.Target{}, nil, remotetranscode.Capabilities{}, "", failure
 }
 
 // Eligibility and exact-plan support are hard gates. Scores rank only admitted
@@ -408,6 +413,20 @@ func (t executionRetirement) EncoderErr() error {
 }
 
 func (r *Runtime) Stop(id string) {
+	// Publish cancellation for the exact durable generation even when this
+	// replica never started it. The coordinator still collects independent
+	// encoder, input and source retirement proof before releasing capacity.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if route, err := r.route(ctx, id); err == nil {
+		if h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, id, route.Fence.Generation}); err == nil && h.Gate.Seal == nil && h.Gate.Binding.Route.Fence == route.Fence && r.o.MemberRole(ctx, r.o.Self, config.RoleServer) == nil {
+			_, _ = r.recordOperationSeal(ctx, h.Gate.Binding, operationSeal{Actor: r.o.Self, Reason: sealCancellation})
+		}
+	}
+	r.stopLocal(id)
+}
+
+func (r *Runtime) stopLocal(id string) {
 	r.mu.Lock()
 	x := r.executions[id]
 	var s *remotetranscode.Session
@@ -523,6 +542,23 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			}
 			continue
 		}
+		// Stop intent survives frontend changes and coordinator takeover. A seal
+		// requests cleanup; it never attests that any producer has exited.
+		if h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, x.route.Fence.Session, x.route.Fence.Generation}); err == nil && h.Gate.Binding.Route.Fence == x.route.Fence && h.Gate.Seal != nil && h.Gate.Seal.Reason == sealCancellation {
+			r.stopLocal(x.route.Fence.Session)
+			x.stopping = true
+		}
+		// Remux has no recovery probe. Without status reconciliation an encoder
+		// closed by its idle reaper leaves a durable claim charged forever.
+		if !x.stopping && x.session != nil && x.output == nil {
+			c, cancel := context.WithTimeout(ctx, r.o.EncoderRPCDeadline)
+			err := x.session.Reconcile(c)
+			cancel()
+			if err == nil {
+				r.stopLocal(x.route.Fence.Session)
+				x.stopping = true
+			}
+		}
 		r.reconcileDisplaced(ctx, x)
 		if e := r.putRoute(ctx, x.route); e != nil {
 			result = e
@@ -555,6 +591,12 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		}
 		if x.output != nil && x.initial != nil && x.initial.request.Decision.Kind == core.DecisionTranscode && !x.initial.request.Decision.VideoCopy {
 			probeErr := r.probeEncoder(ctx, x)
+			// A worker idle close after viewer activity ceased is terminal, not
+			// an invitation to place an endless chain of replacement encoders.
+			if x.session.EncoderErr() == nil && time.Since(x.output.LastAccess()) > 2*time.Minute {
+				r.stopLocal(x.route.Fence.Session)
+				continue
+			}
 			r.mu.Lock()
 			current := r.executions[x.route.Fence.Session]
 			if probeErr == nil && current != nil && current.replacement == nil {
@@ -631,6 +673,11 @@ func (r *Runtime) retire(ctx context.Context, x *execution) error {
 	return r.retireWithEvidence(ctx, x.route, "clusterplayback/exact-retirement")
 }
 func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
+	if route, err := r.route(ctx, f.Session); err == nil && route.Fence == f && r.retiredWorkerBoot(ctx, f) == nil {
+		if err := r.sourcesAfterWorkerBoot(ctx, route, "status"); err == nil {
+			return nil
+		}
+	}
 	var displacedRaw string
 	if err := r.o.DB.QueryRowContext(ctx, `SELECT record FROM placement_displaced WHERE session=? AND generation=?`, f.Session, f.Generation).Scan(&displacedRaw); err == nil {
 		var old placement.Record
@@ -677,8 +724,18 @@ func (r *Runtime) Supports(q core.HLSRequest) bool {
 }
 func (r *Runtime) Allocated(id string) bool {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.executions[id] != nil
+	local := r.executions[id] != nil
+	r.mu.Unlock()
+	if local {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if r.o.MemberRole(ctx, r.o.Self, config.RoleServer) != nil {
+		return false
+	}
+	record, err := r.o.Placement.Lookup(ctx, id)
+	return err == nil && !record.Retired
 }
 
 func equalRenewal(a, b remotetranscode.Renewal) bool {

@@ -232,7 +232,10 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		rp.decision = s.trackDecisionLocked(s.wantTrack)
 	}
 	s.seekRampSeg = -1
+	rampClock := len(s.rungs) <= 1 && s.plan != nil && s.plan.rampSegs > 0
 	spec := runSpec{
+		AuthoredTimeline:     len(s.rungs) > 1 || (s.plan != nil && s.plan.rampSegs > 0),
+		RampClock:            rampClock,
 		SilenceAudio:         s.silenceAudio,
 		NormalizeNegativeDTS: s.normalizeNegativeDTS,
 		RTXTimeline:          s.rtxTimeline,
@@ -252,7 +255,7 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		Accel:                accel,
 		Features:             s.featuresLocked(),
 		BigProbe:             bigProbe,
-		InBandHeaders:        s.forceCPU && s.container == ContainerFMP4,
+		InBandHeaders:        (s.forceCPU || rampClock) && s.container == ContainerFMP4,
 		Protocol:             s.proto,
 		FastStart:            rp.fastStart,
 		Rate:                 rp.rate,

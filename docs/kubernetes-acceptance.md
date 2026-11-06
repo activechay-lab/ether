@@ -6,14 +6,12 @@ a real multipart yEnc NNTP service. Do not run it against production namespaces,
 provider accounts or a claimed Plex server. Use the named `ether035-ha` kind
 cluster and namespace. Fixture health is infrastructure readiness only.
 
-Current staging evidence: runtime `a73b5c7a7` starts full+transcode pools; generated
-NNTP media plays through the ordinary Plex route but that candidate encodes
-locally. Its Plex adapter bypasses the distributed broker. The observed zero
-placement rows make this **local pipeline evidence only**. A later reviewed
-candidate must enable Plex distributed composition before this can pass remote
-encoding or node-loss acceptance. Never strip genuine stream metadata to force a
-plan through an unsupported gate. Source/server-only/delivery roles remain
-runtime-gated until their actual graphs are implemented and tested.
+The current integration implements the distributed specialist graphs. Historical
+`a73b5c7a7` results showed local encoding and zero placement rows; those results
+are baseline diagnostics, not evidence for current remote execution or recovery.
+Pin the exact integration SHA/image for every new run. Never strip genuine
+stream metadata to force a plan through an unsupported gate. The chart's mixed
+public-role lab acknowledgement remains required.
 
 ## Start the isolated fixtures
 
@@ -256,3 +254,75 @@ fetches the next segment through the other. This is offline path evidence,
 not a physical-node loss or a decoded playback measurement. Repeat these URLs
 through the real Ingress and client probe during delivery-node loss; combine
 with the durable neutral-session restoration gate for controller loss.
+
+
+## Release loss matrix and verdicts
+
+Record Plex × {source, transcode, delivery, controller} × {force-delete, pause}
+× {startup, steady}. Also record Jellyfin controller and transcode loss, an Emby
+baseline, physical second-host pause and native GPU kill with CPU recovery.
+Expand Jellyfin action/phase coverage explicitly in the report; do not infer it
+from Plex. A baseline is not a loss case. A paused lab node/container is not an
+actual physical power cut; state the precise fault domain and surviving database.
+
+Every required case starts PENDING. A case can pass only with a harness report
+identifying protocol, session, candidate revision, role/boot/generation, fault
+action and timing, and measuring all of the following:
+
+- Zero stalls: the simulated player's forward buffer never empties.
+- Every expected segment index fetched exactly once with HTTP 200.
+- Strict decode across the splice without errors; PTS discontinuity no greater
+  than one frame duration.
+- Audio access-unit sequence exact, proven with ordered AU hashes: no duplicate
+  or gap. Packet DTS monotonicity alone does not prove this.
+- Server interruption below the measured client buffer, with the interruption
+  definition and observation interval recorded.
+- Independent placement, fencing and retirement observations for the exact
+  execution; surviving healthy encoders must not restart on controller loss.
+
+Missing exact-reference checks are UNVERIFIED, even when structural timing and
+decode pass. A failed metric is FAIL. An uninjected case stays PENDING with its
+blocking reason. A detected stall in a deliberate negative control proves the
+oracle detects that fault, not that production recovery passes. Repeat reference
+and fault runs on the same reviewed candidate; never combine segment sequences
+of different lengths as an exact continuity proof.
+
+The release worker maintains `evidence-index.md` and `evidence-index.json` in its
+private BB thread storage. Each row includes role, action, protocol, phase,
+session, server interruption, client stalls, segment/PTS/decode/AU checks,
+verdict, harness report paths and SHA256s. Unknown metrics are null, never zero.
+Supporting baselines, local splice experiments and superseded runs are labeled
+separately. Hash the actual report files; a directory name or a worker summary
+is not a report digest. Record source revisions and capture times so mutable
+reports cannot silently replace the evidence behind a decision. The live index
+and private media, credentials, logs and dumps must not be committed.
+
+## Multihost lab scripts
+
+`packaging/kubernetes/multihost/` provides an isolated K3s lab across hosts over
+Tailscale. These scripts mutate only the explicitly named lab resources; review
+private state, exact identities, resource budgets and the real verifier before
+running them. They are not production cluster installers.
+
+| Script | Purpose |
+| --- | --- |
+| `node.sh MODE STATE_DIR EXTERNAL_IP [SERVER_IP]` | Create a bounded, labeled lab K3s container on each host; capture exact container/network IDs and keep token files private |
+| `join.sh`, `local-agents.sh` | Join the remote agent or add bounded local agents; local agents remain one physical failure domain |
+| `install.sh PRIVATE_STATE IMAGE_TAG` | Install isolated fixtures, trusted inputs and four specialist pools in context `ether035-multihost`, namespace `ether035-ha` |
+| `redeploy.sh PRIVATE_STATE INTEGRATION_SHA` | Build/import a reviewed candidate and update OnDelete templates; drain/replace separately |
+| `role-loss.sh POD` | Force-delete one captured role pod with zero grace and a UID precondition |
+| `role-pause.sh POD VERIFIER [ARGS...]` | Freeze the exact captured Ether task and descendants, run the verifier and restore that task on exit |
+| `loss.sh FAULT STATE_DIR PEER_TAILSCALE_IP VERIFIER [ARGS...]` | Fault the captured local lab-node container; partition only its network namespace; restore on exit |
+| `remote-loss.py --container-id ID --fault FAULT -- VERIFIER ARGS...` | Fault one captured second-host lab container over authenticated BB terminals and restore; pressure aborts cannot count as completed host-loss cases |
+| `pressure-gate.py` | Check sustained second-host memory headroom before starting work |
+| `physical-host.values.yaml` | Delivery placement overlay; verify all role placements before interpreting a host fault |
+| `relay.sh`, `relay.py`, `external-private.py` | Lab transport for explicitly configured external/private endpoints |
+| `teardown.sh PRIVATE_STATE` | Retire only captured owned lab resources after workloads and verifiers finish |
+
+Keep lab reports under thread storage. Run the harness continuously across the
+fault and correlate exact Pod UID/container/boot identities before and after.
+Capture real physical placement rather than relying on Kubernetes hostnames.
+A force-delete is an abrupt-fault experiment, not the normal rollout procedure:
+normal updates use [explicit drain and UID-safe replacement](kubernetes.md#drain-upgrade-and-rollback).
+Memory pressure checks and restoration outcomes are part of the report; an
+infrastructure guard blocking a run leaves its acceptance row PENDING.

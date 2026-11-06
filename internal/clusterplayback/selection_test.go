@@ -11,7 +11,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 type scoredFixtureEncoder struct {
@@ -40,10 +39,11 @@ func TestTranscodePlacementScoresVerifiedHardwareAndCapacity(t *testing.T) {
 		{name: "equal scores prefer source locality", cpuSlots: 1, local: true, want: "z-gpu"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			fixtureStarted := time.Now()
+			db := openFixtureDB(t)
+			ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 10*time.Second))
 			defer cancel()
-			db := store.OpenTest(t)
-			ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: time.Second}, NewVerifier())
+			ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: fixtureSQLBudget()}, NewVerifier())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -121,7 +121,7 @@ func TestTranscodePlacementScoresVerifiedHardwareAndCapacity(t *testing.T) {
 			if tc.local {
 				source = gpuID
 			}
-			target, claims, _, err := front.selectTarget(ctx, req, source)
+			target, claims, _, _, err := front.selectTarget(ctx, req, source)
 			if err != nil || target.NodeID != tc.want || len(claims) != 1 || claims[0].Scope != tc.want+"/streams" {
 				t.Fatalf("target=%+v claims=%+v err=%v; want %s", target, claims, err, tc.want)
 			}

@@ -10,7 +10,7 @@ import (
 
 func TestHistoryPersistentIdentityAndKinds(t *testing.T) {
 	s, now := newTestState(t)
-	ctx := WithOrigin(context.Background(), Origin{DeviceID: 7})
+	ctx := WithOrigin(context.Background(), Origin{DeviceID: 1 << 40})
 	key := core.MovieKey(1)
 	if err := s.Scrobble(ctx, 1, key); err != nil {
 		t.Fatal(err)
@@ -19,7 +19,7 @@ func TestHistoryPersistentIdentityAndKinds(t *testing.T) {
 	if err != nil || len(first) != 1 {
 		t.Fatalf("%+v %v", first, err)
 	}
-	if first[0].ID == 0 || first[0].DeviceID != 7 {
+	if first[0].ID == 0 || first[0].DeviceID != 1<<40 {
 		t.Fatalf("identity lost: %+v", first[0])
 	}
 	if err := s.DeleteHistory(ctx, 2, first[0].ID); err == nil {

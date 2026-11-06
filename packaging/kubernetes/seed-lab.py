@@ -26,17 +26,20 @@ def save(path, text):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--base',required=True)
-    p.add_argument('--host',choices=['ether035-roles.test'],help='Approved lab Ingress Host header')
+    p.add_argument('--host',choices=['ether035-roles.test','ether035-lab2.test'],help='Approved lab Ingress Host header')
     p.add_argument('--namespace',default='ether035-ha')
-    p.add_argument('--context', choices=['kind-ether035-ha', 'ether035-multihost'], default='kind-ether035-ha')
+    p.add_argument('--context', choices=['kind-ether035-ha', 'ether035-multihost', 'ether035-lab2'], default='kind-ether035-ha')
     p.add_argument('--kubectl',default='kubectl')
     p.add_argument('--credentials-dir',required=True,type=Path)
+    p.add_argument('--fixture-quality',action='store_true',help='Allow the real 360p generated fixture in lab quality profiles')
+    p.add_argument('--enable-mediabrowser',action='store_true',help='Enable Jellyfin/Emby and save device-bound fixture auth responses')
+    p.add_argument('--refresh-only',action='store_true',help='Refresh fixture delegation without rewriting source configuration')
     a=p.parse_args()
-    if a.namespace != 'ether035-ha' or urlsplit(a.base).hostname not in ('127.0.0.1','localhost'):
-        p.error('only ether035-ha namespace and loopback API origin are allowed')
+    if (a.namespace, a.context) not in (('ether035-ha','kind-ether035-ha'), ('ether035-ha','ether035-multihost'), ('ether035-lab2','ether035-lab2')) or urlsplit(a.base).hostname not in ('127.0.0.1','localhost'):
+        p.error('only approved isolated lab namespace/context pairs and loopback origins are allowed')
     k=[a.kubectl,'--context',a.context,'--request-timeout=15s','-n',a.namespace]
-    pg=json.loads(subprocess.check_output(k+['get','pod','ether035-ha-pg-0','-o','json'],timeout=20))
-    if pg['metadata']['labels'].get('app')!='ether035-ha-pg':
+    pg=json.loads(subprocess.check_output(k+['get','pod',a.namespace+'-pg-0','-o','json'],timeout=20))
+    if pg['metadata']['labels'].get('app')!=a.namespace+'-pg':
         p.error('PostgreSQL pod is not the lab fixture')
     a.credentials_dir.mkdir(parents=True,exist_ok=True)
     a.credentials_dir.chmod(0o700)
@@ -60,19 +63,32 @@ def main():
         config=call('/ether/api/config')['config']
         if config['plex'].get('claimed'):
             p.error('refusing a claimed server')
-        if any(v['id']!='ether035-ha-source' for v in (config['usenet']['providers'] or [])) or any(v['id']!='ether035-ha-source' for v in (config['indexers'] or [])):
-            p.error('refusing to replace nonfixture sources')
-        config['usenet']['providers']=[dict(id='ether035-ha-source',name='Ether generated fixture',
-            host='ether035-ha-source.ether035-ha.svc.cluster.local',port=1190,tls=False,
-            username='',password='',connections=4,enabled=True,priority=0)]
-        config['usenet']['minIdle']=1
-        config['indexers']=[dict(id='ether035-ha-source',name='Ether generated fixture',
-            url='http://ether035-ha-source.ether035-ha.svc.cluster.local:8080',apiKey='',priority=0,
-            enabled=True,protocol='usenet',movieCategories=[2000])]
-        call('/ether/api/config','PUT',config)
+        if not a.refresh_only:
+            if any(v['id']!='ether035-ha-source' for v in (config['usenet']['providers'] or [])) or any(v['id']!='ether035-ha-source' for v in (config['indexers'] or [])):
+                p.error('refusing to replace nonfixture sources')
+            config['usenet']['providers']=[dict(id='ether035-ha-source',name='Ether generated fixture',
+                host=a.namespace+'-source.'+a.namespace+'.svc.cluster.local',port=1190,tls=False,
+                username='',password='',connections=4,enabled=True,priority=0)]
+            config['usenet']['minIdle']=1
+            config['indexers']=[dict(id='ether035-ha-source',name='Ether generated fixture',
+                url='http://'+a.namespace+'-source.'+a.namespace+'.svc.cluster.local:8080',apiKey='',priority=0,
+                enabled=True,protocol='usenet',movieCategories=[2000])]
+            if a.fixture_quality:
+                for profile in config['quality']['profiles']:
+                    profile['minHeight']=min(profile.get('minHeight',0),360)
+                    profile['minSizeMbPerMin']=0
+            call('/ether/api/config','PUT',config)
     except Exception as error:
         # HTTP exception strings/response bodies can contain credential material.
         raise SystemExit('lab owner/config API failed: '+type(error).__name__)
+    if a.enable_mediabrowser:
+        for surface in ('jellyfin','emby'):
+            call('/ether/api/frontends/'+surface+'/enabled','PUT',{'enabled':True})
+            headers['X-Emby-Authorization']='MediaBrowser Client="Ether lab harness", Device="Generated fixture", DeviceId="'+a.namespace+'-'+surface+'", Version="0.3.5"'
+            auth=call('/'+surface+'/Users/AuthenticateByName','POST',
+                      {'Username':credentials['username'],'Pw':credentials['password']})
+            save(a.credentials_dir/(surface+'-auth.json'),json.dumps(auth))
+        del headers['X-Emby-Authorization']
     token='ether-cast-'+secrets.token_urlsafe(24)
     save(a.credentials_dir/'playback-token',token)
     save(a.credentials_dir/'playback-headers.json',json.dumps({
@@ -90,7 +106,7 @@ SELECT '{hashlib.sha256(token.encode()).hexdigest()}',id,{now+900} FROM auth_use
 WHERE username='ether035-lab-owner' AND active=1 AND origin='local';
 COMMIT;
 '''
-    result=subprocess.run(k+['exec','-i','ether035-ha-pg-0','--','psql','-U','ether','-d','ether',
+    result=subprocess.run(k+['exec','-i',a.namespace+'-pg-0','--','psql','-U','ether','-d','ether',
         '-v','ON_ERROR_STOP=1','-q'],input=sql,text=True,capture_output=True)
     if result.returncode: raise SystemExit('isolated lab data seed failed (details withheld)')
     print('generated title, fixture sources and short-lived local playback delegation seeded; credentials saved privately')

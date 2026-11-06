@@ -19,7 +19,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 type partitionEncoder struct {
@@ -53,8 +52,8 @@ func (s *partitionSession) ServePlaylist(w http.ResponseWriter, q *http.Request)
 // retirement proof or a production supersession implementation.
 func TestPartitionedGenerationCannotPublishRenewOrReleaseReplacement(t *testing.T) {
 	ctx := context.Background()
-	db := store.OpenTest(t)
-	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: time.Second}, outputRetirementVerifier{})
+	db := openFixtureDB(t)
+	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: fixtureSQLBudget()}, outputRetirementVerifier{})
 	if err != nil {
 		t.Fatal(err)
 	}
