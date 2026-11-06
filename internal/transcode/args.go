@@ -573,14 +573,33 @@ func hlsRestartLead(s runSpec) time.Duration {
 	if v.VariableFrameRate && v.ReferenceFrameRate == nil {
 		return 0
 	}
-	delay := 2.0
-	if s.Decision.H264Level > 0 {
-		delay = 1
-		if s.Decision.H264FrameRate > 0 {
-			fps = s.Decision.H264FrameRate
-		}
+
+	_, _, _, delay := x264FramePlan(s)
+	if s.Decision.H264Level > 0 && s.Decision.H264FrameRate > 0 {
+		fps = s.Decision.H264FrameRate
 	}
-	return time.Duration(math.Round(delay / fps * float64(time.Second)))
+	return time.Duration(math.Round(float64(delay) / fps * float64(time.Second)))
+}
+
+// x264FramePlan is the single decision for preset, B-frame limit, pyramid and
+// decode reorder depth. The seek clock uses exactly the encoder's decision.
+func x264FramePlan(s runSpec) (preset string, bframes int, pyramid string, reorder int) {
+	preset = "veryfast"
+	bframes = 3
+	pyramid = "normal"
+	reorder = 2
+	if s.FastStart {
+		preset = "ultrafast"
+		bframes = 0
+		pyramid = "none"
+		reorder = 0
+	}
+	if s.Decision.H264Level > 0 {
+		bframes = 2
+		pyramid = "none"
+		reorder = 1
+	}
+	return
 }
 
 // hlsMuxArgs is the HLS muxer part of a run's command line.
@@ -1039,6 +1058,12 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 	}
 	switch enc {
 	case "libx264":
+		preset, bframes, pyramid, _ := x264FramePlan(s)
+		xPreset = preset
+		e = append(e, "-bf", strconv.Itoa(bframes))
+		if s.Decision.H264Level == 0 {
+			e = append(e, "-x264-params", "b-pyramid="+pyramid)
+		}
 		// Preserve fine detail at the bounded software thread budget. The
 		// natural-footage baseline validates CRF 18 at the same VBV cap;
 		// throughput improvements must not rely on lowering image quality.
@@ -1144,7 +1169,8 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 		if enc == "libx264" {
 			// ultrafast otherwise disables the High-only transform and can emit
 			// Constrained Baseline despite -profile:v high.
-			e = append(e, "-x264-params", "8x8dct=1:b-pyramid=none")
+			_, _, pyramid, _ := x264FramePlan(s)
+			e = append(e, "-x264-params", "8x8dct=1:b-pyramid="+pyramid)
 		}
 	}
 	if codec == "hevc" {
