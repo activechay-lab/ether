@@ -110,8 +110,6 @@ function selectionFrom(params: URLSearchParams): Selection {
  */
 export default function LiveTV() {
   const { tab } = useParams();
-  const desktop = useMediaQuery("(min-width: 1024px)");
-  const [lineupEdge, setLineupEdge] = useState<number>();
   const { looks, reels, reload: reloadLooks } = useLooks();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -1044,7 +1042,6 @@ export default function LiveTV() {
   const lineupGuide = (
     <div className="flex min-h-0 flex-1 flex-col">
       <GuideGrid
-        onLineupEdge={setLineupEdge}
         selection={{
           ids: checked,
           busy: bulkBusy,
@@ -1197,7 +1194,6 @@ export default function LiveTV() {
         onClose={() => void go({ kind: "guide" })}
         title={channelTitle}
         initialFullscreen
-        dockLeft={desktop && leftTab === "channels" ? lineupEdge : undefined}
         bodyClassName={draft ? "overflow-y-auto p-0" : undefined}
         description={
           draft?.channel.kind === "iptv"

@@ -534,7 +534,6 @@ describe("Live TV studio", () => {
     fireEvent.click(screen.getByRole("button", { name: /Create channel/ }));
     await waitFor(() => expect(sent(calls, "POST", /\/livetv\/channels$/)).toHaveLength(1));
     expect(await screen.findByLabelText("Name")).toHaveValue("Movie night");
-    expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "false");
     const lineup = screen.getByRole("grid", { name: "Programme guide" });
     fireEvent.click(await within(lineup).findByRole("button", { name: "2 News 24" }));
     expect(await screen.findByLabelText("Name")).toHaveValue("News 24");
