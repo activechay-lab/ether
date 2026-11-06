@@ -109,10 +109,27 @@ func TestBroadcastLookDemo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	look.Family = "clean"
+	templates, err := graphics.Templates(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, template := range templates {
+		if template.ID == "clean" {
+			id := look.ID
+			look = template.Style
+			look.ID = id
+			break
+		}
+	}
 	look.Brand.Textures = nil
 	for _, moment := range []string{"ident", "break", "back"} {
-		look.Moments[moment] = onair.Moment{Duration: 4, Poster: 2}
+		look.Roles[moment] = onair.RoleConfig{Duration: 4}
+		for i := range look.Scenes {
+			if look.Scenes[i].Role == moment {
+				look.Scenes[i].Document.Duration = 4
+				look.Scenes[i].Document.Poster = 2
+			}
+		}
 	}
 	if _, err = graphics.SaveLook(ctx, look); err != nil {
 		t.Fatal(err)

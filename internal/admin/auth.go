@@ -117,7 +117,7 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		if !h.setupClosed(r) {
 			if setupOpen(false, r, h.proxyPrefixes()...) {
-				next.ServeHTTP(w, withAccess(r, Access{}))
+				next.ServeHTTP(w, withAccess(r, Access{SetupPlayback: setupPlaybackHost(r)}))
 				return
 			}
 			if isLocalOrLAN(r, h.proxyPrefixes()...) {
@@ -137,6 +137,8 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 type Access struct {
 	Owner         bool
 	SetupComplete bool
+	// SetupPlayback is narrower than setup-page access; it excludes DNS suffixes.
+	SetupPlayback bool
 }
 
 type accessKey struct{}
@@ -192,4 +194,18 @@ func (h *Handler) proxyPrefixes() []netip.Prefix {
 // while leaving Plex's existing claim wizard behavior unchanged.
 func (h *Handler) setupClosed(r *http.Request) bool {
 	return h.deps.Config.Get().SetupComplete || (h.deps.LocalOwnerConfigured != nil && h.deps.LocalOwnerConfigured(r.Context()))
+}
+
+// setupPlaybackHost narrows existing setup admission for the temporary source
+// principal; setup pages retain their established local suffix policy.
+func setupPlaybackHost(r *http.Request) bool {
+	if !localHost(r) {
+		return false
+	}
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(strings.ToLower(strings.Trim(host, "[]")), ".")
+	return net.ParseIP(host) != nil || host == "localhost" || strings.HasSuffix(host, ".localhost") || !strings.Contains(host, ".")
 }

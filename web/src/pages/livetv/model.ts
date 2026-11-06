@@ -852,3 +852,10 @@ export const isChannelSource = (s: Source) =>
   s.kind !== "plex" &&
   s.hasPlaylist !== false &&
   !(!s.playlistUrl && !s.channelCount && (s.guideChannelCount ?? 0) > 0);
+
+/** Catalogue snapshots retain TMDB paths; console images use the image proxy. */
+export function programmeArtwork(src?: string): string | undefined {
+  return src && /^\/[A-Za-z0-9_-]+\.(jpg|png|webp)$/i.test(src)
+    ? `/ether/api/image?path=${encodeURIComponent(src)}&w=342`
+    : src;
+}

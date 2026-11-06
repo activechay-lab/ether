@@ -315,7 +315,7 @@ export function ReelDrawer({
                       {c.status === "queued" || c.status === "downloading"
                         ? t("Importing…")
                         : c.status === "converting"
-                          ? t("Converting {progress}%", { progress: c.progress || 0 })
+                          ? t("Converting {progress}%", { progress: Math.round(c.progress || 0) })
                           : c.status === "error"
                             ? t("Conversion failed")
                             : t("Ready")}

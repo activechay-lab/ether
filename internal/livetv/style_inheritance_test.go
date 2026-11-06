@@ -1,6 +1,7 @@
 package livetv
 
 import (
+	"context"
 	"github.com/braedonsaunders/ether/internal/config"
 	"testing"
 )
@@ -27,5 +28,26 @@ func TestStyleInheritance(t *testing.T) {
 	c.Screens = &ChannelScreens{OffAir: "static"}
 	if s.screenStyle(c, true) != "static" {
 		t.Fatal("channel screen must win")
+	}
+}
+
+func TestStyleUsageFollowsChannelAssignmentAndDefault(t *testing.T) {
+	s := testService(t, Options{})
+	ctx := context.Background()
+	c, err := s.SaveChannel(ctx, Channel{Name: "Style usage", Number: "1", Kind: "virtual", Enabled: true, Items: []Item{{Key: 1, Title: "Fixture", DurationMS: 60000}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, err := s.StyleChannelIDs(ctx, "default")
+	if err != nil || len(usage["default"]) != 1 {
+		t.Fatal(usage, err)
+	}
+	c.Look = &ChannelLook{LookID: "custom"}
+	if _, err = s.SaveChannel(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	usage, err = s.StyleChannelIDs(ctx, "default")
+	if err != nil || len(usage["default"]) != 0 || len(usage["custom"]) != 1 {
+		t.Fatal(usage, err)
 	}
 }

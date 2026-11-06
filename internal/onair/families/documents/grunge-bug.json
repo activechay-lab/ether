@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "moment": "bug",
+  "duration": 8,
+  "poster": 4,
+  "layers": [
+    {
+      "id": "Wordmark",
+      "type": "text",
+      "text": "{channel.name}",
+      "x": 1780,
+      "y": 960,
+      "size": 45,
+      "font": "{type.display}",
+      "fill": "{text}",
+      "fit": "shrink",
+      "maxWidth": 400,
+      "align": "right",
+      "name": "Wordmark"
+    }
+  ]
+}

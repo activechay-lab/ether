@@ -17,7 +17,7 @@ from fontTools.varLib.instancer import instantiateVariableFont
 ROOT = pathlib.Path(__file__).resolve().parents[1] / 'internal/onair/fonts/data'
 # families.Defaults, literal fonts in families/documents, and raster's fallback.
 FAMILIES = ['inter', 'spacegrotesk', 'fraunces', 'playfairdisplay', 'bungee',
-            'fredoka', 'specialelite', 'orbitron', 'vt323', 'ibmplexmono', 'notosans']
+            'fredoka', 'specialelite', 'orbitron', 'vt323', 'ibmplexmono', 'notosans', 'archivoblack']
 # Rename all modified faces, including RFNs Playfair Display, Orbitron and Plex.
 # API/file IDs stay stable; embedded primary and PostScript names are distinct.
 NAMES = {family: f'EtherAir{i+1:02d}' for i, family in enumerate(FAMILIES)}
