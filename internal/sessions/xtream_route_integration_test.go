@@ -139,6 +139,9 @@ func TestXtreamOfflineRoutesThroughRealBroker(t *testing.T) {
 	if w.Code != 200 || live.tunes != 1 {
 		t.Fatalf("live broker: %d %s tunes=%d", w.Code, w.Body.String(), live.tunes)
 	}
+	// The live backend can expire before the broker receives a client switch.
+	// Exact authenticated retirement is idempotent when that backend is absent.
+	live.stopErr = core.ErrNotFound
 	epPath := fmt.Sprintf("/xtream/series/%s/%s/%d.mkv", frontend.XtreamUsername(password), password, episode)
 	w = call(epPath, "bytes=0-6")
 	if w.Code != 206 || w.Body.String() != "offline" {

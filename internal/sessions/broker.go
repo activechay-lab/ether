@@ -1430,6 +1430,12 @@ func (b *Broker) stopLocked(ctx context.Context, s *brokerSession) error {
 	b.bindings.Remove(s.public.ID)
 	if s.live {
 		err := b.deps.Live.Stop(ctx, &core.Viewer{ID: s.public.ViewerID}, s.playID)
+		// The broker already authenticated and removed this exact session.
+		// A live idle reaper may have joined its backend before the next switch;
+		// absence is successful retirement, not a failure to start the new item.
+		if errors.Is(err, core.ErrNotFound) {
+			err = nil
+		}
 		b.settleRetirement(context.WithoutCancel(ctx), s, err == nil)
 		b.publish(ctx, sessionEvent("SessionStopped", s.public, nil))
 		return err

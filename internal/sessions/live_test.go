@@ -13,7 +13,10 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
-type fakeLive struct{ tunes, stops int }
+type fakeLive struct {
+	tunes, stops int
+	stopErr      error
+}
 
 func (*fakeLive) Allowed(_ context.Context, _ *core.Viewer, id string) error {
 	if id != "channel" {
@@ -28,7 +31,7 @@ func (l *fakeLive) Tune(context.Context, *core.Viewer, string, core.ClientCaps, 
 func (*fakeLive) Serve(w http.ResponseWriter, _ *http.Request, _ *core.Viewer, _, tail, base string) {
 	_, _ = w.Write([]byte(base + tail))
 }
-func (l *fakeLive) Stop(context.Context, *core.Viewer, string) error { l.stops++; return nil }
+func (l *fakeLive) Stop(context.Context, *core.Viewer, string) error { l.stops++; return l.stopErr }
 
 func TestLiveChannelEstimateOpenAndScopedMedia(t *testing.T) {
 	ctx := context.Background()
