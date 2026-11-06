@@ -34,8 +34,11 @@ export function ClusterPlayback({
   if (state.error) return <ErrorPanel error={state.error} onRetry={() => void state.reload()} />;
   if (!state.data) return <LoadingRows rows={3} />;
   const data = state.data;
-  const name = (id?: string) =>
-    id ? status.nodes?.find((n) => n.id === id)?.name || id : t("Not reported");
+  const name = (id?: string) => {
+    if (!id) return t("Not reported");
+    const node = status.nodes?.find((n) => n.id === id);
+    return node ? node.name || t("Unnamed node") : t("Previous node");
+  };
   const fresh = runtimeFresh(data.sampledAt);
   return (
     <section
@@ -60,7 +63,9 @@ export function ClusterPlayback({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 space-y-2">
                     {assignment?.playback?.title && (
-                      <p className="font-semibold">{assignment.playback.title}</p>
+                      <p className="min-w-0 break-words font-semibold">
+                        {assignment.playback.title}
+                      </p>
                     )}
                     <p className="text-sm font-medium">{recoverySentence(e, name)}</p>
                     {e.clientStalls === 0 ? (
@@ -128,6 +133,20 @@ export function ClusterPlayback({
             {[
               [t("Session"), detail.sessionId],
               [t("Generation"), detail.generation],
+              [
+                t("Nodes"),
+                ("encoderNodeId" in detail
+                  ? [
+                      detail.sourceNodeId,
+                      detail.encoderNodeId,
+                      detail.deliveryNodeId,
+                      detail.controllerNodeId,
+                    ]
+                  : [detail.failedNodeId, detail.replacementNodeId]
+                )
+                  .filter(Boolean)
+                  .join(" · "),
+              ],
               ...("encoderNodeId" in detail
                 ? [
                     [t("Source"), name(detail.sourceNodeId)],
@@ -194,13 +213,13 @@ function PlaybackCard({
         />
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-start justify-between gap-2">
-            <h2 className="font-semibold">{label}</h2>
+            <h2 className="min-w-0 break-words font-semibold">{label}</h2>
             <Button size="sm" variant="ghost" onClick={onDetails}>
               {t("Details")}
             </Button>
           </div>
           {p && (
-            <p className="text-sm text-fg-muted">
+            <p className="break-words text-sm text-fg-muted">
               {[p.viewer, p.device, p.app].filter(Boolean).join(" · ")}
             </p>
           )}
@@ -222,7 +241,7 @@ function PlaybackCard({
             ].map(([label, value]) => (
               <div key={label}>
                 <dt className="text-xs text-fg-muted">{label}</dt>
-                <dd className="font-medium">{value}</dd>
+                <dd className="break-words font-medium">{value}</dd>
               </div>
             ))}
           </dl>

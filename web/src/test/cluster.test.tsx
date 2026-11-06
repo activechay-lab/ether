@@ -220,12 +220,12 @@ describe("Server › Cluster", () => {
     renderApp("/cluster", { cluster: true });
     fireEvent.click(await screen.findByRole("tab", { name: "Join tokens" }, WAIT));
     const tokens = await screen.findByRole("region", { name: "Join tokens" }, WAIT);
-    await within(tokens).findByText("q9wd", {}, WAIT);
+    await within(tokens).findByText("Join token 1", {}, WAIT);
     expect(within(tokens).queryByText("t7k2")).toBeNull();
     expect(within(tokens).queryByText("expired-example")).toBeNull();
-    const open = rowOf(tokens, "q9wd");
+    const open = rowOf(tokens, "Join token 1");
     expect(within(open).getByText("Unused")).toBeInTheDocument();
-    expect(within(open).getByRole("button", { name: "Revoke token q9wd" })).toBeEnabled();
+    expect(within(open).getByRole("button", { name: "Revoke token 1" })).toBeEnabled();
   });
 
   it("creates a join token in a drawer and shows it only once", async () => {
@@ -249,9 +249,8 @@ describe("Server › Cluster", () => {
     expect(within(drawer).queryByRole("button", { name: /Copy command/ })).toBeNull();
     expect(calls(fake, "POST", "/cluster/join-tokens")[0]!.body).toEqual({ ttlMinutes: 15 });
 
-    // The new token is listed (by id only), and closing the drawer forgets the secret.
-    const id = fake.state.joinTokens[0]!.id;
-    expect(await within(tokens).findByText(id, {}, WAIT)).toBeInTheDocument();
+    // A second readable label appears; closing the drawer forgets the secret.
+    expect(await within(tokens).findByText("Join token 2", {}, WAIT)).toBeInTheDocument();
     fireEvent.click(within(drawer).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.queryByText(token)).toBeNull();
@@ -264,11 +263,11 @@ describe("Server › Cluster", () => {
     const { fake } = renderApp("/cluster", { cluster: true });
     fireEvent.click(await screen.findByRole("tab", { name: "Join tokens" }, WAIT));
     const tokens = await screen.findByRole("region", { name: "Join tokens" }, WAIT);
-    fireEvent.click(await within(tokens).findByRole("button", { name: "Revoke token q9wd" }, WAIT));
+    fireEvent.click(await within(tokens).findByRole("button", { name: "Revoke token 1" }, WAIT));
     const confirm = await screen.findByRole("dialog", { name: "Revoke join token?" });
     fireEvent.click(within(confirm).getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(calls(fake, "DELETE", "/cluster/join-tokens/q9wd")).toHaveLength(1));
-    await waitFor(() => expect(within(tokens).queryByText("q9wd")).toBeNull(), WAIT);
+    await waitFor(() => expect(within(tokens).queryByText("Join token 1")).toBeNull(), WAIT);
     expect(within(tokens).queryByText("t7k2")).toBeNull();
   });
 
@@ -440,7 +439,12 @@ describe("cluster helpers", () => {
     expect(tokenState(t, now)).toBe("unused");
     expect(tokenState({ ...t, expiresAt: "2026-10-19T11:30:00Z" }, now)).toBe("expired");
     expect(tokenState({ ...t, usedAt: "2026-10-19T11:10:00Z" }, now)).toBe("used");
-    expect(transcodeLabel({ ...base.self, caps: { transcode: false } })).toBe("Unavailable");
+    expect(transcodeLabel({ ...base.self, caps: { roles: ["source"], transcode: false } })).toBe(
+      "—",
+    );
+    expect(transcodeLabel({ ...base.self, caps: { roles: ["transcode"], transcode: false } })).toBe(
+      "Unavailable",
+    );
     expect(transcodeLabel({ ...base.self, caps: { transcode: true, hwAccel: "none" } })).toBe(
       "Software",
     );

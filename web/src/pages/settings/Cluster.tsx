@@ -65,11 +65,12 @@ export function useClustered(): boolean {
 }
 
 function nodeName(n: ClusterNode): string {
-  return n.name || n.id;
+  return n.name || t("Unnamed node");
 }
 
-/** "videotoolbox", "Software" or "Unavailable" (no ffmpeg on the node). */
+/** Configured roles decide applicability; capability decides encoder availability. */
 export function transcodeLabel(n: ClusterNode): string {
+  if (n.caps?.roles?.length && !n.caps.roles.includes("transcode")) return t("—");
   if (!n.caps?.transcode) return t("Unavailable");
   const hw = n.caps.hwAccel;
   return hw && hw !== "none" ? hw : t("Software");
@@ -288,6 +289,7 @@ export function ClusterOverview() {
         <p className="text-sm text-fg-muted">{t("Servers that share one database.")}</p>
       </header>
       <SubtabNav
+        className="max-sm:flex-wrap max-sm:overflow-visible"
         ariaLabel={t("Cluster")}
         active={tab}
         onSelect={setTab}
@@ -450,10 +452,16 @@ function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: b
               ))}
             </div>
             <div className="space-y-2">
+              {nodes.length === 0 ? (
+                <EmptyState
+                  title={t("No nodes reported")}
+                  description={t("The database couldn't be read. Nodes appear here once it can.")}
+                />
+              ) : null}
               {nodes.map((n) => (
                 <article key={n.id} className="rounded-lg border border-border px-3 py-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <strong className="text-sm">{nodeName(n)}</strong>
+                    <strong className="break-words text-sm">{nodeName(n)}</strong>
                     <Badge variant={n.draining ? "warning" : "outline"}>
                       {nodeRoles(n).join(" · ")}
                     </Badge>
@@ -517,7 +525,7 @@ function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: b
           className={`${panel !== "nodes" ? "grid" : "hidden"} min-h-0 gap-3 lg:grid lg:grid-rows-[minmax(0,1fr)_minmax(0,0.65fr)]`}
         >
           <div
-            className={`${panel === "health" ? "block" : "hidden"} min-h-0 overflow-auto lg:block`}
+            className={`${panel === "health" ? "block" : "hidden"} min-h-0 overflow-auto lg:block [&_.text-fg-subtle]:text-fg-muted`}
           >
             <HealthPanel loading={false} items={items} />
           </div>
@@ -656,7 +664,7 @@ function Nodes({
               cell: (n) => (
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-medium text-fg">{nodeName(n)}</span>
+                    <span className="break-words font-medium text-fg">{nodeName(n)}</span>
                     {n.leader ? <Badge variant="info">{t("Leader")}</Badge> : null}
                     {n.id === status.self?.id ? (
                       <Badge variant="outline">{t("This node")}</Badge>
@@ -1176,7 +1184,7 @@ function JoinTokens({ settings }: { settings: SettingsState }) {
       title: t("Revoke join token?"),
       message: t(
         "Token {id} stops working right away. Nodes that already joined are not affected.",
-        { id: token.id },
+        { id: tokens.indexOf(token) + 1 },
       ),
       confirmLabel: t("Revoke"),
       tone: "danger",
@@ -1230,10 +1238,9 @@ function JoinTokens({ settings }: { settings: SettingsState }) {
                 key: "id",
                 header: t("Token"),
                 cell: (token) => (
-                  <div>
-                    <span className="block text-xs text-fg-muted sm:hidden">{t("Token")}</span>
-                    <code className="text-xs">{token.id}</code>
-                  </div>
+                  <span className="text-sm font-medium">
+                    {t("Join token {number}", { number: tokens.indexOf(token) + 1 })}
+                  </span>
                 ),
               },
               {
@@ -1291,7 +1298,7 @@ function JoinTokens({ settings }: { settings: SettingsState }) {
                       variant="outline"
                       size="sm"
                       disabled={busy === token.id}
-                      aria-label={t("Revoke token {id}", { id: token.id })}
+                      aria-label={t("Revoke token {id}", { id: tokens.indexOf(token) + 1 })}
                       onClick={() => void revoke(token)}
                     >
                       {t("Revoke")}
@@ -1447,43 +1454,45 @@ function NodeCapacity({ node, cached }: { node: ClusterNode; cached: boolean }) 
   const fresh = !cached && nodeStatusFresh(node) && !!d && runtimeFresh(d.sampledAt);
   const value = (n: number | undefined) =>
     fresh && n !== undefined ? n.toLocaleString() : t("Unknown");
+  const rows: [string, string][] = [];
+  if (!node.caps?.roles?.length || node.caps.roles.includes("transcode"))
+    rows.push([t("Transcoding"), transcodeLabel(node)]);
+  if (d?.clock)
+    rows.push([
+      t("Clock skew"),
+      fresh && runtimeFresh(d.clock.sampledAt)
+        ? t("{value} ms", { value: Math.round(d.clock.clockSkewNs / 1e6) })
+        : t("Stale status"),
+    ]);
+  if (d?.transcodes !== undefined && d.transcodeCapacity !== undefined)
+    rows.push([t("Transcode slots"), `${value(d.transcodes)} / ${value(d.transcodeCapacity)}`]);
+  if (d?.sourceConnections !== undefined && d.sourceConnectionCapacity !== undefined)
+    rows.push([
+      `${t("Source connections")} · ${t("Usenet")}`,
+      `${value(d.sourceConnections)} / ${value(d.sourceConnectionCapacity)}`,
+    ]);
+  if (d?.deliveryBytesPerSecond !== undefined)
+    rows.push([
+      t("Delivery bandwidth"),
+      fresh ? t("{value} B/s", { value: value(d.deliveryBytesPerSecond) }) : t("Stale status"),
+    ]);
+  if (d?.codecs?.length) rows.push([t("Codecs"), fresh ? d.codecs.join(", ") : t("Stale status")]);
+  if (d) {
+    rows.push([
+      t("Readiness"),
+      !fresh
+        ? t("Stale status")
+        : d.readinessReason
+          ? readinessReason(d.readinessReason)
+          : d.readyExisting
+            ? t("Ready")
+            : t("Runtime unavailable"),
+    ]);
+    rows.push([t("Telemetry"), fresh ? relativeTime(d.sampledAt) : t("Stale status")]);
+  }
   return (
     <dl className="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
-      {[
-        [t("Transcoding"), transcodeLabel(node)],
-        [
-          t("Clock skew"),
-          fresh && d?.clock && runtimeFresh(d.clock.sampledAt)
-            ? t("{value} ms", { value: Math.round(d.clock.clockSkewNs / 1e6) })
-            : t("Unknown"),
-        ],
-        [t("Transcode slots"), `${value(d?.transcodes)} / ${value(d?.transcodeCapacity)}`],
-        [
-          `${t("Source connections")} · ${t("Usenet")}`,
-          `${value(d?.sourceConnections)} / ${value(d?.sourceConnectionCapacity)}`,
-        ],
-        [
-          t("Delivery bandwidth"),
-          fresh && d?.deliveryBytesPerSecond !== undefined
-            ? t("{value} B/s", { value: value(d.deliveryBytesPerSecond) })
-            : t("Unknown"),
-        ],
-        [t("Codecs"), fresh && d?.codecs?.length ? d.codecs.join(", ") : t("Unknown")],
-        [
-          t("Readiness"),
-          fresh
-            ? d?.readinessReason
-              ? readinessReason(d.readinessReason)
-              : d?.readyExisting
-                ? t("Ready")
-                : t("Runtime unavailable")
-            : t("Unknown"),
-        ],
-        [
-          t("Telemetry"),
-          d?.sampledAt ? (fresh ? relativeTime(d.sampledAt) : t("Stale status")) : t("Unknown"),
-        ],
-      ].map(([label, v]) => (
+      {rows.map(([label, v]) => (
         <div key={label}>
           <dt className="text-fg-muted">{label}</dt>
           <dd>{v}</dd>
