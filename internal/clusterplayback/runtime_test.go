@@ -682,7 +682,7 @@ func fixtureGuards(t *testing.T, ids ...nodewire.Identity) []*nodewire.Guard {
 	for _, id := range ids {
 		_, leaf, _ := ed25519.GenerateKey(rand.Reader)
 		csr, _ := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, leaf)
-		cert, e := nodewire.Issue(der, key, csr, id, []string{"127.0.0.1"}, now, time.Hour)
+		cert, e := nodewire.Issue(der, key, csr, id, []string{"127.0.0.1"}, now, time.Hour, 0)
 		if e != nil {
 			t.Fatal(e)
 		}

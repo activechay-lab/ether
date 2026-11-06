@@ -77,6 +77,8 @@ type Caps struct {
 
 // Node is one cluster member.
 type Node struct {
+	seenAge    time.Duration
+	seenSample time.Time
 	// InternalAddress is a private authenticated transport origin. Never use
 	// Addrs as a fallback or publish this address to clients.
 	InternalAddress string `json:"internalAddress,omitempty"`
@@ -108,6 +110,16 @@ type Node struct {
 	// (component -> highest version); nil when the node predates this
 	// report.
 	Migrations map[string]int `json:"migrations,omitempty"`
+}
+
+// LastSeenAge uses the database's age observation for persisted membership,
+// advanced only by elapsed monotonic time. Solo and synthetic nodes retain
+// their local timestamp behavior. LastSeen itself is for display, not authority.
+func (n Node) LastSeenAge(now time.Time) time.Duration {
+	if !n.seenSample.IsZero() {
+		return n.seenAge + time.Since(n.seenSample)
+	}
+	return now.Sub(n.LastSeen)
 }
 
 // Cluster is the runtime the rest of the app uses.
@@ -207,7 +219,8 @@ func PeerAddrs(nodes []Node, selfID string, now time.Time, grace time.Duration) 
 	for _, n := range nodes {
 		// A draining node is about to restart: clients should reach the
 		// server through the other nodes.
-		if n.ID == selfID || !n.ServerEligible() || n.Draining || now.Sub(n.LastSeen) > grace {
+		age := n.LastSeenAge(now)
+		if n.ID == selfID || !n.ServerEligible() || n.Draining || age < 0 || age > grace {
 			continue
 		}
 		peers = append(peers, n)
