@@ -62,7 +62,6 @@ func (in *Input) ReadRecoveryAt(ctx context.Context, expectedRevision string, p 
 		return 0, ErrDenied
 	}
 	g.active++
-	reader := in.reader
 	g.mu.Unlock()
 	defer func() {
 		g.mu.Lock()
@@ -75,10 +74,10 @@ func (in *Input) ReadRecoveryAt(ctx context.Context, expectedRevision string, p 
 	defer cancel()
 	defer stop()
 	combined = core.WithReadRetirement(combined, &in.tracker)
-	n, readErr := reader.ReadAtContext(combined, p, off)
+	n, readErr := in.readAt(combined, p, off)
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if in.sealed || in.reader != reader {
+	if in.sealed {
 		return 0, ErrDenied
 	}
 	if err := combined.Err(); err != nil {
