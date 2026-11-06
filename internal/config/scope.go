@@ -313,6 +313,7 @@ func MergeShared(local Config, sharedJSON []byte) (Config, error) {
 	if err := json.Unmarshal(sharedJSON, &shared); err != nil {
 		return Config{}, err
 	}
+	stripRetiredLiveTV(shared)
 	base, _ := splitDoc(toDoc(Defaults("")))
 	overlayDeep(base, shared)
 	doc := toDoc(local)
