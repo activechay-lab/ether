@@ -10,6 +10,7 @@ import {
   daypartBands,
   kindLabel,
   layoutElements,
+  mergeTimelineElements,
   tooltipContent,
   type TimelineElement,
   type TimelineRange,
@@ -155,11 +156,7 @@ export function ScheduleTimeline({
               append && prior
                 ? {
                     ...d,
-                    elements: [
-                      ...new Map(
-                        [...prior.elements, ...d.elements].map((el) => [el.id, el]),
-                      ).values(),
-                    ],
+                    elements: mergeTimelineElements(prior.elements, d.elements),
                   }
                 : d,
             );

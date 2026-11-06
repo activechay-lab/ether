@@ -161,3 +161,30 @@ export function daypartBands(data: TimelineResponse, range: TimelineRange) {
   }
   return result;
 }
+
+// Adjacent API windows clip programmes at their shared edge. Rejoin repeated
+// identities so a programme crossing that edge keeps both halves and children.
+export function mergeTimelineElements(
+  prior: TimelineElement[],
+  next: TimelineElement[],
+): TimelineElement[] {
+  const elements = new Map(prior.map((element) => [element.id, element]));
+  for (const element of next) {
+    const previous = elements.get(element.id);
+    elements.set(
+      element.id,
+      previous
+        ? {
+            ...element,
+            start: Math.min(previous.start, element.start),
+            end: Math.max(previous.end, element.end),
+            children:
+              previous.children || element.children
+                ? mergeTimelineElements(previous.children ?? [], element.children ?? [])
+                : undefined,
+          }
+        : element,
+    );
+  }
+  return [...elements.values()].sort((a, b) => a.start - b.start);
+}
