@@ -8,7 +8,6 @@ import { ToolbarPicker } from "../../../components/ToolbarPicker";
 import { Field } from "../../../components/fields";
 import { ErrorPanel } from "../../../components/feedback";
 import { useAsync } from "../../../lib/hooks";
-import { api } from "../../../lib/api";
 import { t } from "../../../i18n";
 import type { Channel } from "../model";
 import { onair, type ChannelLook, type Moment } from "./model";
@@ -26,7 +25,6 @@ export function LookTab({
   onChange: (patch: Partial<Channel>) => void;
   viewerName?: string;
 }) {
-  const config = useAsync(() => api.getConfig(), []);
   const looks = useAsync(() => onair.looks(), []);
   const bindings = useAsync(
     () =>
@@ -48,9 +46,7 @@ export function LookTab({
     breakSeconds: 60,
   };
   const set = (patch: Partial<ChannelLook>) => onChange({ look: { ...settings, ...patch } });
-  const baseLook = looks.data?.find(
-    (v) => v.id === (settings.lookId || config.data?.liveTV?.defaultStyleId),
-  );
+  const baseLook = looks.data?.find((v) => v.id === settings.lookId);
   const look = baseLook
     ? {
         ...baseLook,
@@ -73,9 +69,7 @@ export function LookTab({
   return (
     <div className="space-y-6">
       <h3 className="text-sm font-semibold">
-        {settings.lookId
-          ? t("Override for {name}", { name: channel.name })
-          : styleCopy("Default style · {name}", { name: look?.name ?? styleCopy("No style") })}
+        {settings.lookId ? t("Override for {name}", { name: channel.name }) : t("Built-in")}
       </h3>
       {looks.error ? <ErrorPanel error={looks.error} onRetry={() => void looks.reload()} /> : null}
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
@@ -115,7 +109,7 @@ export function LookTab({
               </>
             }
             options={[
-              { value: "", label: styleCopy("Use default style") },
+              { value: "", label: t("Built-in") },
               ...(looks.data ?? []).map((v) => ({
                 value: v.id,
                 label: v.name,

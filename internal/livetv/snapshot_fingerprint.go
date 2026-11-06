@@ -75,13 +75,9 @@ func (s *Service) snapshotFingerprintAt(c Channel, revision, availability uint64
 	deps := struct {
 		Programming  string
 		Availability uint64
-		DefaultStyle string
 		Durations    []durationInput
 		Reels        []reelInput
 	}{Programming: snapshotInputFingerprint(c, revision), Availability: availability}
-	if s.o.DefaultStyle != nil {
-		deps.DefaultStyle = s.o.DefaultStyle()
-	}
 	looks := []*ChannelLook{c.Look}
 	for _, b := range c.Blocks {
 		looks = append(looks, b.Breaks)
@@ -107,9 +103,6 @@ func (s *Service) snapshotFingerprintAt(c Channel, revision, availability uint64
 			continue
 		}
 		lookID := look.LookID
-		if lookID == "" {
-			lookID = deps.DefaultStyle
-		}
 		if s.o.Graphics != nil && !seenLook[lookID] {
 			seenLook[lookID] = true
 			for _, moment := range []string{"ident", "upnext", "tonight", "break", "back", "offair", "welcome"} {
@@ -126,13 +119,6 @@ func (s *Service) snapshotFingerprintAt(c Channel, revision, availability uint64
 		}
 		for _, id := range look.SegmentIDs {
 			segment(id)
-		}
-	}
-	// A configured default style applies even when the saved channel has no Look.
-	if c.Look == nil && deps.DefaultStyle != "" && s.o.Graphics != nil && !seenLook[deps.DefaultStyle] {
-		for _, moment := range []string{"ident", "upnext", "tonight", "break", "back", "offair", "welcome"} {
-			duration, ok := s.o.Graphics.Duration(deps.DefaultStyle, moment)
-			deps.Durations = append(deps.Durations, durationInput{Look: deps.DefaultStyle, Moment: moment, Duration: duration, Available: ok})
 		}
 	}
 	for _, slot := range c.Clock {
