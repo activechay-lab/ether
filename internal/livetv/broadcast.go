@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -25,6 +26,8 @@ const broadcastDVR = 30 * time.Minute
 // broadcastPlan is immutable. Open performs blocking resolution away from the
 // frame clock. Its release closes the playback/provider reservation exactly once.
 type broadcastPlan struct {
+	mediaKey               core.RatingKey
+	sourceOffset           time.Duration
 	interstitial, fallback bool
 	element                string
 	policy                 *broadcastPolicyTag
@@ -58,6 +61,7 @@ type broadcastInput struct {
 	logger                  *slog.Logger
 	openedAt, outputOrigin  time.Time
 	wallStart               time.Time
+	parkedDuration          atomic.Int64
 	fpsNum, fpsDen          int
 	overlays                *programmeOverlays
 	started                 time.Time
@@ -99,7 +103,7 @@ func (i *broadcastInput) run() {
 			return
 		}
 		if !i.wallStart.IsZero() {
-			at := i.wallStart.Add(time.Duration(frameNo) * time.Second * time.Duration(i.fpsDen) / time.Duration(i.fpsNum))
+			at := i.wallStart.Add(time.Duration(i.parkedDuration.Load())).Add(time.Duration(frameNo) * time.Second * time.Duration(i.fpsDen) / time.Duration(i.fpsNum))
 			frameNo++
 			if at.Add(time.Second * time.Duration(i.fpsDen) / time.Duration(i.fpsNum)).Before(time.Now()) {
 				continue
@@ -140,6 +144,12 @@ type broadcast struct {
 	bursting, burstReady bool
 	introShownAt         time.Time
 	introInput           *broadcastInput
+	continuation         *broadcastInput
+	continuationPlan     broadcastPlan
+	continuationFrame    transcode.RawFrame
+	continuationUntil    time.Time
+	lastPodPlan          broadcastPlan
+	lastPodFrame         transcode.RawFrame
 	introFallback        bool
 	introFade            *broadcastInput
 	introFadeFrame       transcode.RawFrame
@@ -369,6 +379,9 @@ func (b *broadcast) idle(now time.Time) bool {
 	return b.viewers == 0 && now.Sub(b.lastViewer) >= broadcastIdle
 }
 func (b *broadcast) open(plan broadcastPlan, now time.Time) {
+	if b.current != nil && !b.current.lastFrameAt.IsZero() && resumesBroadcastInput(b.current.plan, plan) {
+		return
+	}
 	if plan.id == b.intro.id && (b.introFallback || b.introInput != nil) {
 		return
 	}
@@ -440,7 +453,11 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 				b.closeInput(input)
 				continue
 			}
-			if result.plan.id == b.intro.id {
+			if result.plan.id == b.continuationPlan.id {
+				b.closeInput(b.continuation)
+				b.continuation = input
+				input.activateNow()
+			} else if result.plan.id == b.intro.id {
 				if b.introFallback {
 					b.closeInput(input)
 					continue
@@ -528,6 +545,7 @@ func (b *broadcast) run() {
 		}
 		b.closeInput(b.fallback)
 		b.closeInput(b.introInput)
+		b.closeInput(b.continuation)
 		b.closeInput(b.introFade)
 		b.mu.Lock()
 		for _, r := range b.renditions {
@@ -595,6 +613,16 @@ func (b *broadcast) step(now time.Time) bool {
 	previousPCM := b.lastFrame.PCM
 	current, next := b.planner.plans(now)
 	if b.plannedID != current.id {
+		if current.programme && b.lastPodPlan.id != "" && b.plannedID != "" {
+			b.closeInput(b.continuation)
+			b.continuation = nil
+			b.continuationPlan = b.lastPodPlan
+			b.continuationPlan.id = "pod-fill-" + b.lastPodPlan.id
+			b.continuationUntil = now.Add(broadcastStartup)
+			b.continuationFrame = b.lastPodFrame
+			b.lastPodPlan = broadcastPlan{}
+			b.lastPodFrame = transcode.RawFrame{}
+		}
 		b.plannedID = current.id
 		b.freshAt = time.Time{}
 	}
@@ -638,7 +666,35 @@ func (b *broadcast) step(now time.Time) bool {
 		b.open(b.screenPlan, now)
 	}
 	if b.current != nil && b.current.plan.id != current.id {
-		b.closeInput(b.current)
+		retained := false
+		for id, plan := range b.future {
+			if !b.current.lastFrameAt.IsZero() && resumesBroadcastInput(b.current.plan, plan) && (b.current.policy == nil || b.current.policy.programme.Item.Key == plan.mediaKey) {
+				b.closeInput(b.later[id])
+				if b.next != nil && b.next.plan.id == id {
+					b.closeInput(b.next)
+					b.next = nil
+				}
+				b.current.parkedDuration.Add(int64(plan.start.Sub(b.current.plan.end)))
+				b.current.plan = plan
+				b.current.policy = plan.policy
+				b.later[id] = b.current
+				b.logger.Debug("broadcast programme parked for pod", "resume", id, "boundary", plan.start)
+				retained = true
+				break
+			}
+		}
+		if !retained && b.current.plan.interstitial && current.programme && !b.current.lastFrameAt.IsZero() {
+			b.closeInput(b.continuation)
+			b.continuation = b.current
+			b.continuationPlan = b.current.plan
+			b.continuationPlan.id = "pod-fill-" + b.current.plan.id
+			b.continuationUntil = now.Add(broadcastStartup)
+			b.continuationFrame = b.lastFrame
+			retained = true
+		}
+		if !retained {
+			b.closeInput(b.current)
+		}
 		b.current = nil
 		b.freshAt = time.Time{}
 	}
@@ -678,7 +734,7 @@ func (b *broadcast) step(now time.Time) bool {
 		b.open(*next, now)
 	}
 	for id, plan := range b.future {
-		if (b.next == nil || b.next.plan.id != id) && b.later[id] == nil {
+		if (b.next == nil || b.next.plan.id != id) && b.later[id] == nil && !resumesBroadcastInput(current, plan) {
 			b.open(plan, now)
 		}
 	}
@@ -721,6 +777,10 @@ func (b *broadcast) step(now time.Time) bool {
 				if b.current.lastFrameAt.IsZero() && current.programme {
 					b.logger.Debug("broadcast programme first aired", "input", current.id, "prepareLatency", now.Sub(b.current.started), "sinceOutputStart", now.Sub(b.origin))
 				}
+				if current.interstitial && current.element != "offair" {
+					b.lastPodPlan = current
+					b.lastPodFrame = frame
+				}
 				b.freshAt = now
 				b.current.lastFrameAt = now
 				fresh = true
@@ -755,6 +815,33 @@ func (b *broadcast) step(now time.Time) bool {
 	if frame.Video == nil && !introActive && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
 		frame = transcode.RawFrame{Video: b.lastFrame.Video, PolicyTags: b.lastFrame.PolicyTags}
 		mode = "hold"
+	}
+	if fresh || !current.programme || !now.Before(b.continuationUntil) {
+		b.closeInput(b.continuation)
+		b.continuation = nil
+		b.continuationPlan = broadcastPlan{}
+		b.continuationFrame = transcode.RawFrame{}
+	} else if frame.Video == nil && b.continuationPlan.id != "" {
+		if b.continuation != nil {
+			select {
+			case f, ok := <-b.continuation.frames:
+				if ok && validRawFrame(b.format, f) {
+					b.continuationFrame = f
+					frame = f
+				} else {
+					b.closeInput(b.continuation)
+					b.continuation = nil
+				}
+			default:
+			}
+		}
+		if b.continuation == nil {
+			b.open(b.continuationPlan, now)
+		}
+		if frame.Video == nil {
+			frame = transcode.RawFrame{Video: b.continuationFrame.Video}
+		}
+		mode = "pod-extension"
 	}
 	if frame.Video == nil && introActive && !b.introFallback && b.introInput != nil {
 		select {
@@ -822,7 +909,9 @@ func (b *broadcast) step(now time.Time) bool {
 	cut := mode != b.mode
 	if cut {
 		element := current.element
-		if mode == "intro" {
+		if mode == "pod-extension" {
+			element = b.continuationPlan.element
+		} else if mode == "intro" {
 			element = b.intro.element
 			if element == "" {
 				element = "ident"
@@ -969,4 +1058,10 @@ func (b *broadcast) startupOutputReady(now time.Time) bool {
 		}
 	}
 	return true
+}
+
+// Only consecutive slices of the same media can share a decoder. Repeated
+// episodes beginning at offset zero still receive a fresh input.
+func resumesBroadcastInput(previous, next broadcastPlan) bool {
+	return previous.programme && next.programme && previous.mediaKey != 0 && previous.mediaKey == next.mediaKey && next.sourceOffset > 0 && !next.start.Before(previous.end) && next.sourceOffset == previous.sourceOffset+previous.end.Sub(previous.start)
 }

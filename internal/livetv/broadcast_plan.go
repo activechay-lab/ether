@@ -2,6 +2,7 @@ package livetv
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -109,12 +110,26 @@ func (p *scheduleBroadcastPlanner) prewarmPlans(now time.Time) []broadcastPlan {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	var plans []broadcastPlan
+	inPod := false
 	for _, programme := range p.window {
-		if programme.Start.After(now) && !programme.Start.After(now.Add(broadcastPrewarm)) {
+		if !now.Before(programme.Start) && now.Before(programme.End) {
+			inPod = programme.Item.Key == 0 && programme.Item.Slate != offAirSlate
+			break
+		}
+	}
+	programmePrepared := false
+	for _, programme := range p.window {
+		if !programme.Start.After(now) {
+			continue
+		}
+		imminent := !programme.Start.After(now.Add(broadcastPrewarm))
+		// A pod's first programme is prepared from the beginning of the pod,
+		// even when short intervening elements hide it beyond the usual lead.
+		if (imminent && len(plans) < 7) || (inPod && !programmePrepared && programme.Item.Key != 0) {
 			plans = append(plans, p.programme(programme))
-			if len(plans) == 8 {
-				break
-			}
+		}
+		if programme.Item.Key != 0 {
+			programmePrepared = true
 		}
 	}
 	return plans
@@ -127,7 +142,7 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 	} else if programme.Item.Key != 0 {
 		element = "programme"
 	}
-	plan := broadcastPlan{interstitial: interstitial(programme.Item), fallback: programme.graphicsFallback, element: element, policy: programme.policyTag, programme: programme.Item.Key != 0, id: programme.ID, start: programme.Start, end: programme.End}
+	plan := broadcastPlan{mediaKey: programme.Item.Key, sourceOffset: programme.sourceOffset, interstitial: interstitial(programme.Item), fallback: programme.graphicsFallback, element: element, policy: programme.policyTag, programme: programme.Item.Key != 0, id: broadcastProgrammeID(programme), start: programme.Start, end: programme.End}
 	if interstitial(programme.Item) {
 		plan.failed = func(err error) time.Time {
 			p.s.recordGraphicsSkip(p.channel, programme, err)
@@ -520,3 +535,12 @@ func (p *providerBroadcastPlanner) startPlanner(parent context.Context) {
 	}()
 }
 func (p *providerBroadcastPlanner) closePlanner() { p.guideCancel(); <-p.guideDone }
+
+// Runtime preparation and retry identity includes the media and full interval.
+// Guide IDs remain unchanged; an edited item can never inherit another input's
+// prepared decoder, failure deadline, or latched fallback decision.
+func broadcastProgrammeID(p Programme) string {
+	identity := fmt.Sprintf("%s/%s/%d/%s/%s/%s/%d/%d/%d", p.SourceID, p.Item.SourceID, p.Item.Key, p.Item.Slate, p.Item.ReelID, p.Item.ReelClipID, p.sourceOffset, p.Start.UnixNano(), p.End.UnixNano())
+	hash := sha256.Sum256([]byte(identity))
+	return fmt.Sprintf("%x-%s", hash[:8], p.ID)
+}
