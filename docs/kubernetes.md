@@ -370,7 +370,10 @@ grant. Emby cache/CORS and both protocols' media-safety headers are preserved.
 Their ordinary OPTIONS response comes from the original frontend. Direct
 `/Videos/...`, lazy admission and control routes remain on API. Silo playback
 paths likewise remain on API until their authenticated seam is implemented.
-No Ingress path rewrite or broad protocol catch-all is used.
+Full nodes publish the exact local source owner before returning a MediaBrowser
+session; remote-source sessions publish their existing gen-zero route at Open.
+Standalone brokers do neither. No Ingress path rewrite or broad protocol
+catch-all is used.
 
 Select the controller class, hostname, TLS Secret and controller-specific stream
 timeouts. For the explicitly gated HLS lab, the controller must accept the literal colon

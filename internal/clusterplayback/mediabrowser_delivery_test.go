@@ -148,11 +148,36 @@ func TestMediaBrowserDeliveryReplaysOriginalFrontendAndFencesLoss(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
+			// Full-node local sources publish gen-zero routing before returning
+			// their grant URL; the same route can later acquire an encoder fence.
+			ps := manager.Sessions()[0]
+			localOptions := base
+			localOptions.Self = ids[0]
+			localOptions.Guard = guards[0]
+			localOptions.Roles = config.NodeRoles{config.RoleServer, config.RoleSource}
+			localOptions.Playback = manager
+			localOptions.ActiveViewer = auth.ActiveUser
+			localOptions.SourcePolicy = func(context.Context, *core.User, *core.PlaySession) error { return nil }
+			localOptions.SourceAccess, err = playback.NewSourceAccess(manager, 16, 16)
+			if err != nil {
+				t.Fatal(err)
+			}
+			localRuntime, err := NewRuntime(localOptions)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer localRuntime.Close()
+			if err = localRuntime.BindLocalClientSession(ctx, opened.ID, ps); err != nil {
+				t.Fatal(err)
+			}
+			localRoute, err := owner.route(ctx, opened.ID)
+			if err != nil || localRoute.Fence.Generation != 0 || localRoute.Source != ids[0] {
+				t.Fatal("missing local direct owner route", err)
+			}
 			record, err := ledger.Reserve(ctx, placement.Request{Session: opened.ID, Operation: "mb-route", Controller: placement.Controller{ID: ids[0].NodeID, Boot: ids[0].Boot}, Target: target, Role: config.RoleTranscode, Claims: []placement.Claim{{Scope: "mb-output", Units: 1}}, Lease: time.Minute})
 			if err != nil {
 				t.Fatal(err)
 			}
-			ps := manager.Sessions()[0]
 			if err = owner.putRoute(ctx, Route{Fence: record.Fence, Source: ids[0], Viewer: 9, PlayID: ps.ID, Revision: core.SourceRevision(ps)}); err != nil {
 				t.Fatal(err)
 			}
