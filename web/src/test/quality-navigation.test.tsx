@@ -1,6 +1,6 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { expect, it } from "vitest";
-import { renderApp } from "./harness";
+import { calls, renderApp } from "./harness";
 import { RELEASE_SEARCH } from "../pages/settings/schema";
 import { destinations } from "../lib/sitemap";
 import { settingsIndex } from "../lib/settings-index";
@@ -44,6 +44,41 @@ it("orders profile sections before away, source order, and versions", async () =
   expect(order).toEqual([...order].sort((a, b) => a - b));
   expect(screen.queryByTestId("quality-headline")).not.toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: "Import from TRaSH Guides" }),
+    screen.queryByRole("button", { name: "Import a quality profile" }),
   ).not.toBeInTheDocument();
+});
+
+it("switches profiles between movies and shows and badges each card", async () => {
+  renderApp("/quality/profiles", {}, (fake) => {
+    const profiles = fake.state.config.quality.profiles!;
+    profiles.push({ ...structuredClone(profiles[1]!), name: "Shows 1080p", mediaType: "tv" });
+  });
+  const movies = await screen.findByRole("radio", { name: "Movies" }, { timeout: 10000 });
+  const shows = screen.getByRole("radio", { name: "Shows" });
+  expect(movies).toHaveAttribute("aria-checked", "true");
+  expect(await screen.findByText("4K", {}, { timeout: 10000 })).toBeInTheDocument();
+  expect(screen.getByText("Movies & shows")).toBeInTheDocument();
+
+  fireEvent.click(shows);
+  expect(await screen.findByText("Shows 1080p", {}, { timeout: 10000 })).toBeInTheDocument();
+  expect(screen.queryByText("4K")).not.toBeInTheDocument();
+  expect(screen.getAllByText("Shows").length).toBeGreaterThan(1);
+});
+
+it("saves the automatic sync cadence as a patch and runs it", async () => {
+  const { fake } = renderApp("/quality/profiles");
+  await screen.findByRole("switch", { name: "Keep imported profiles in sync" }, { timeout: 10000 });
+  fireEvent.click(screen.getByRole("switch", { name: "Keep imported profiles in sync" }));
+  fireEvent.click(screen.getByRole("button", { name: "Check for changes" }));
+  fireEvent.click(await screen.findByRole("option", { name: "Every 3 days" }, { timeout: 4000 }));
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(calls(fake, "PUT", "/config/quality")).toHaveLength(1));
+  expect(calls(fake, "PUT", "/config/quality")[0]!.body).toEqual({
+    sync: { enabled: true, interval: "72h" },
+  });
+  await waitFor(() => expect(fake.state.config.quality.sync?.interval).toBe("72h"));
+
+  fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+  await waitFor(() => expect(calls(fake, "POST", "/releases/quality/sync")).toHaveLength(1));
+  expect(await screen.findByText("2 formats added")).toBeInTheDocument();
 });

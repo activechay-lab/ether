@@ -4,6 +4,7 @@
  * Used by mock mode and the tests; never shipped.
  */
 import type { ImportFormat, QualityImportPlan, StarrApp, TrashProfile } from "../lib/releases";
+import { mediaTypeForApp } from "../lib/releases";
 import type { EtherConfig, QualityProfile } from "../lib/types";
 
 type Reply = { status: number; body: unknown };
@@ -107,6 +108,7 @@ const PROFILES: Record<StarrApp, FakeProfile[]> = {
       group: 1,
       url: "https://trash-guides.info/Radarr/radarr-setup-quality-profiles/",
       formats: 6,
+      defaultFormats: 12,
       items: [
         { name: "Bluray-1080p", allowed: true },
         WEB("1080p"),
@@ -143,6 +145,7 @@ const PROFILES: Record<StarrApp, FakeProfile[]> = {
       group: 98,
       scoreSet: "sqp-1-2160p",
       formats: 3,
+      defaultFormats: 32,
       items: [
         { name: "Bluray-2160p", allowed: true },
         WEB("2160p"),
@@ -151,6 +154,17 @@ const PROFILES: Record<StarrApp, FakeProfile[]> = {
       minFormatScore: 1000,
       language: "Original",
       formatItems: formatItems("radarr", ["BR-DISK", "WEB Tier 01", "DV (w/o HDR fallback)"]),
+    },
+    {
+      id: "impossible",
+      name: "Needs a perfect release",
+      description: "A profile whose minimum score no release can reach.",
+      group: 99,
+      formats: 1,
+      defaultFormats: 0,
+      items: [{ name: "Bluray-1080p", allowed: true }],
+      minFormatScore: 100,
+      formatItems: formatItems("radarr", ["LQ"]),
     },
   ],
   sonarr: [
@@ -285,6 +299,7 @@ function plan(
   native: Native,
   scoreSet: string | undefined,
   config: EtherConfig,
+  meta: { id?: string; source?: "trash" | "dictionarry" | "" } = {},
 ): QualityImportPlan | Reply {
   const allowed: string[] = [];
   const sources: string[] = [];
@@ -364,7 +379,26 @@ function plan(
     warnings.push(
       `${lost} custom ${lost === 1 ? "format" : "formats"} can't be imported and won't score releases for this profile.`,
     );
-  return { app, profile, scoreSet, formats, skippedQualities: skipped, warnings };
+  const best = formats
+    .filter((f) => f.status === "present" || f.status === "add")
+    .reduce((sum, f) => sum + Math.max(0, f.score), 0);
+  const minScore = native.minFormatScore ?? 0;
+  const unusable =
+    minScore > best
+      ? `Its minimum custom format score (${minScore}) is higher than the best score it can reach (${best}), so no release would ever play.`
+      : undefined;
+  return {
+    app,
+    source: meta.source ?? "trash",
+    profileId: meta.id,
+    mediaType: mediaTypeForApp(app),
+    ...(unusable ? { unusable } : {}),
+    profile,
+    scoreSet,
+    formats,
+    skippedQualities: skipped,
+    warnings,
+  };
 }
 
 function isReply(v: QualityImportPlan | Reply): v is Reply {
@@ -382,7 +416,7 @@ export function createTrashMock() {
     if (body.source === "dictionarry") {
       const p = DICTIONARRY_PROFILES[a].find((x) => x.id === body.profile);
       if (!p) return fail(404, "not_found", "Profilarr (Dictionarry) has no such profile");
-      return plan(a, p, p.scoreSet, config);
+      return plan(a, p, p.scoreSet, config, { id: p.id, source: "dictionarry" });
     }
     if (typeof body.json === "string" && body.json.trim()) {
       let native: Native;
@@ -394,11 +428,11 @@ export function createTrashMock() {
       if (!native?.name || !Array.isArray(native.items) || !native.items.length)
         return fail(400, "invalid", "Name and items are required.");
       if (JSON.stringify(native.items).includes(" Remux")) a = "sonarr";
-      return plan(a, native, native.trash_score_set, config);
+      return plan(a, native, native.trash_score_set, config, { source: "" });
     }
     const p = PROFILES[a].find((x) => x.id === body.profile);
     if (!p) return fail(404, "not_found", "TRaSH Guides has no such profile");
-    return plan(a, p, p.scoreSet, config);
+    return plan(a, p, p.scoreSet, config, { id: p.id, source: "trash" });
   }
 
   function handle(method: string, seg: string[], body: unknown, config: EtherConfig): Reply | null {
@@ -420,6 +454,7 @@ export function createTrashMock() {
         items: DICTIONARRY_PROFILES[a].map(
           ({ items: _i, minFormatScore: _m, language: _l, formatItems: _f, ...summary }) => summary,
         ),
+        warning: "A Profilarr (Dictionarry) group didn't load; format counts may be short.",
       });
     }
     const route = `${method} /${seg.slice(1).join("/")}`;
@@ -430,6 +465,7 @@ export function createTrashMock() {
     if (route === "POST /quality-import") {
       const p = resolve(b, config);
       if (isReply(p)) return p;
+      if (p.unusable) return fail(400, "invalid", `This profile can't be imported: ${p.unusable}`);
       const name = String(b.name ?? "").trim() || p.profile.name;
       const profiles = config.quality.profiles ?? [];
       if (profiles.some((x) => x.name === name))
@@ -446,10 +482,46 @@ export function createTrashMock() {
           name: f.name,
           trash_scores: { default: f.score },
           specifications: [],
+          ...(p.app === "sonarr" ? { app: "sonarr" } : {}),
         }));
       resolver.customFormats = [...(resolver.customFormats ?? []), ...added];
-      config.quality.profiles = [...profiles, { ...p.profile, name }];
+      config.quality.profiles = [
+        ...profiles,
+        {
+          ...p.profile,
+          name,
+          mediaType: p.mediaType,
+          ...(p.source
+            ? {
+                import: {
+                  source: p.source,
+                  app: p.app,
+                  profile: p.profileId ?? "",
+                  ...(p.trashId ? { trashId: p.trashId } : {}),
+                  ...(p.scoreSet ? { scoreSet: p.scoreSet } : {}),
+                },
+              }
+            : {}),
+        },
+      ];
       return ok({ name, formatsAdded: added.length });
+    }
+    if (route === "POST /quality/sync") {
+      const profiles = config.quality.profiles ?? [];
+      const imported = profiles.filter((p) => p.import?.source);
+      for (const p of imported) p.import!.syncedAt = new Date().toISOString();
+      config.quality.sync = {
+        ...(config.quality.sync ?? { enabled: false }),
+        lastRun: new Date().toISOString(),
+        lastError: "",
+      };
+      return ok({
+        profilesUpdated: imported.length,
+        formatsAdded: 2,
+        formatsUpdated: 1,
+        formatsRemoved: 0,
+        warnings: imported.length ? [] : ["No imported profiles to sync yet."],
+      });
     }
     return null;
   }

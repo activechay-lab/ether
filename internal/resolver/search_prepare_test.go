@@ -15,6 +15,7 @@ type pipelinedIndexer struct {
 	fakeIndexer
 	first, final []core.Release
 	checked      chan struct{}
+	finalReady   chan struct{}
 	grabs        atomic.Int32
 }
 
@@ -67,6 +68,9 @@ func (p *pipelinedIndexer) SearchWith(ctx context.Context, _ core.SearchRequest,
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+	if p.finalReady != nil {
+		close(p.finalReady)
+	}
 	return p.final, nil
 }
 func (p *pipelinedIndexer) FetchNZB(ctx context.Context, r core.Release) ([]byte, error) {
@@ -75,13 +79,21 @@ func (p *pipelinedIndexer) FetchNZB(ctx context.Context, r core.Release) ([]byte
 }
 
 type pipelineHealth struct {
-	checked chan struct{}
-	calls   atomic.Int32
+	checked    chan struct{}
+	finalReady chan struct{}
+	calls      atomic.Int32
 }
 
 func (h *pipelineHealth) Check(ctx context.Context, nzb []byte) (bool, error) {
 	if h.calls.Add(1) == 1 {
 		close(h.checked)
+		if h.finalReady != nil {
+			select {
+			case <-h.finalReady:
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
+		}
 	}
 	return true, nil
 }
@@ -113,8 +125,12 @@ func TestEarlyHealthDoesNotPromoteLowerQuality(t *testing.T) {
 	lo := rel("lo", "The.Signal.1999.1080p.BluRay.x264-GROUP", 4000)
 	hi := rel("hi", "The.Signal.1999.2160p.UHD.BluRay.HEVC-GROUP", 20000)
 	checked := make(chan struct{})
-	idx := &pipelinedIndexer{first: []core.Release{lo}, final: []core.Release{lo, hi}, checked: checked}
-	s := New(idx, &pipelineHealth{checked: checked}, nil, testCfg(), Options{})
+	finalReady := make(chan struct{})
+	idx := &pipelinedIndexer{
+		first: []core.Release{lo}, final: []core.Release{lo, hi},
+		checked: checked, finalReady: finalReady,
+	}
+	s := New(idx, &pipelineHealth{checked: checked, finalReady: finalReady}, nil, testCfg(), Options{})
 	defer s.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()

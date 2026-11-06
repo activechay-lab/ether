@@ -358,7 +358,7 @@ export interface EtherConfig {
     healthRace?: number;
     sourcePreference?: string;
     sourceAlwaysFirst?: boolean;
-    customFormats?: unknown[];
+    customFormats?: CustomFormatDefinition[] | null;
     customFormatScores?: Record<string, number>;
   };
   quality: {
@@ -366,6 +366,12 @@ export interface EtherConfig {
     rules: QualityRule[] | null;
     default: string;
     remote: string;
+    /** Media-specific defaults; absent falls back to default/remote. */
+    defaultMovie?: string;
+    defaultTv?: string;
+    remoteMovie?: string;
+    remoteTv?: string;
+    sync?: QualitySync;
   };
   transcode: {
     ffmpegPath: string;
@@ -459,7 +465,42 @@ export interface EtherConfig {
   setupComplete: boolean;
 }
 
+/** A custom format definition (internal/core.CustomFormat). */
+export interface CustomFormatDefinition {
+  /** TRaSH Guides trash_id; the default key for an imported format. */
+  trash_id?: string;
+  id?: string;
+  name?: string;
+  /** "radarr" or "sonarr"; empty means Radarr. */
+  app?: string;
+  [key: string]: unknown;
+}
+
+/** Where an imported profile came from and when it last synced. */
+export interface ProfileImport {
+  source: string;
+  app: "radarr" | "sonarr" | string;
+  profile: string;
+  trashId?: string;
+  scoreSet?: string;
+  groups?: string[] | null;
+  syncedAt?: string;
+}
+
+/** Automatic guide sync (config.QualitySync). */
+export interface QualitySync {
+  enabled: boolean;
+  /** Go duration string, e.g. "24h". */
+  interval?: string;
+  lastRun?: string;
+  lastError?: string;
+}
+
 export interface QualityProfile {
+  /** "", "movie" or "tv"; absent/"" applies to both. */
+  mediaType?: string;
+  /** Set on imported profiles that automatic sync updates in place. */
+  import?: ProfileImport;
   releaseRules?: ReleaseRule[] | null;
   ranking?: string[] | null;
   rankingConfig?: Record<string, Record<string, unknown>> | null;
@@ -491,6 +532,8 @@ export interface QualityRule {
   product?: string;
   platform?: string;
   userId?: number;
+  /** "", "movie" or "tv"; absent/"" matches both. */
+  mediaType?: string;
   profile: string;
   /** Caps this device below the profile. 0 or absent means the profile's ceiling. */
   maxHeight?: number;
@@ -916,6 +959,8 @@ export interface QualityQuestion {
   userId: number;
   clientId?: string;
   titleKey?: string;
+  /** "movie" or "tv"; sent when no title is picked. */
+  mediaType?: string;
   client?: { product: string; platform?: string; device?: string };
   remote: boolean;
 }
@@ -956,6 +1001,8 @@ export interface QualityLayer {
 
 export interface QualityAnswer {
   profile: string;
+  /** "movie" or "tv" when the answer is scoped to one media. */
+  mediaType?: string;
   /** 0 = no ceiling. */
   maxHeight: number;
   hdr: boolean;

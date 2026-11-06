@@ -377,17 +377,18 @@ func ValidateConfig(cfg config.Config) []FieldError {
 		v.add("resolver.sameQualityAlternatives", "must be between 0 and 3")
 	}
 
-	profiles := map[string]bool{}
+	profiles := map[string]core.QualityProfile{}
 	for i, p := range cfg.Quality.Profiles {
 		f := fmt.Sprintf("quality.profiles[%d]", i)
+		v.oneOf(f+".mediaType", p.MediaType, core.MediaAny, core.MediaMovie, core.MediaTV)
 		if strings.TrimSpace(p.Name) == "" {
 			v.add(f+".name", "is required")
 			continue
 		}
-		if profiles[p.Name] {
+		if _, exists := profiles[p.Name]; exists {
 			v.add(f+".name", "duplicate profile name %q", p.Name)
 		}
-		profiles[p.Name] = true
+		profiles[p.Name] = p
 		if _, err := releasepolicy.Compile(p.ReleaseRules); err != nil {
 			v.add(f+".releaseRules", "%s", err)
 		} else if msg := releasepolicy.Conflict(p.ReleaseRules); msg != "" {
@@ -408,21 +409,55 @@ func ValidateConfig(cfg config.Config) []FieldError {
 			v.add(f+".episodeMinSizeMbPerMin", "must be <= episodeMaxSizeMbPerMin")
 		}
 	}
-	if cfg.Quality.Default != "" && len(profiles) > 0 && !profiles[cfg.Quality.Default] {
-		v.add("quality.default", "names a profile that does not exist")
+	if cfg.Quality.Default != "" && len(profiles) > 0 {
+		if _, ok := profiles[cfg.Quality.Default]; !ok {
+			v.add("quality.default", "names a profile that does not exist")
+		}
 	}
-	if cfg.Quality.Remote != "" && len(profiles) > 0 && !profiles[cfg.Quality.Remote] {
-		v.add("quality.remote", "names a profile that does not exist")
+	if cfg.Quality.Remote != "" && len(profiles) > 0 {
+		if _, ok := profiles[cfg.Quality.Remote]; !ok {
+			v.add("quality.remote", "names a profile that does not exist")
+		}
 	}
+	checkMediaProfile := func(field, name, media string) {
+		if name == "" {
+			return
+		}
+		p, ok := profiles[name]
+		if !ok {
+			v.add(field, "names a profile that does not exist")
+			return
+		}
+		if !core.MediaApplies(p.MediaType, media) {
+			noun := "movies"
+			if media == core.MediaTV {
+				noun = "shows"
+			}
+			v.add(field, "names a profile that does not apply to %s", noun)
+		}
+	}
+	checkMediaProfile("quality.defaultMovie", cfg.Quality.DefaultMovie, core.MediaMovie)
+	checkMediaProfile("quality.defaultTv", cfg.Quality.DefaultTV, core.MediaTV)
+	checkMediaProfile("quality.remoteMovie", cfg.Quality.RemoteMovie, core.MediaMovie)
+	checkMediaProfile("quality.remoteTv", cfg.Quality.RemoteTV, core.MediaTV)
 	for i, r := range cfg.Quality.Rules {
+		f := fmt.Sprintf("quality.rules[%d]", i)
+		v.oneOf(f+".mediaType", r.MediaType, core.MediaAny, core.MediaMovie, core.MediaTV)
 		if r.Profile == "" {
-			v.add(fmt.Sprintf("quality.rules[%d].profile", i), "is required")
-		} else if len(profiles) > 0 && !profiles[r.Profile] {
-			v.add(fmt.Sprintf("quality.rules[%d].profile", i), "names a profile that does not exist")
+			v.add(f+".profile", "is required")
+		} else if len(profiles) > 0 {
+			if p, ok := profiles[r.Profile]; !ok {
+				v.add(f+".profile", "names a profile that does not exist")
+			} else if r.MediaType != core.MediaAny && !core.MediaApplies(p.MediaType, r.MediaType) {
+				v.add(f+".profile", "names a profile that does not apply to this rule's media")
+			}
 		}
 		if r.MaxHeight < 0 {
-			v.add(fmt.Sprintf("quality.rules[%d].maxHeight", i), "must be >= 0")
+			v.add(f+".maxHeight", "must be >= 0")
 		}
+	}
+	if cfg.Quality.Sync.Enabled && time.Duration(cfg.Quality.Sync.Interval) <= 0 {
+		v.add("quality.sync.interval", "must be positive when sync is enabled")
 	}
 
 	if cfg.Transcode.HWAccel != "" {

@@ -200,7 +200,7 @@ func TestPlanMarksSonarrFormats(t *testing.T) {
 	found := map[string]core.CustomFormat{"r1": format("r1", "Remux Tier 01", map[string]int{"default": 1900},
 		`[{"name":"Remux","implementation":"SourceSpecification","required":true,"fields":{"value":7}}]`)}
 	plan := PlanQualityImport(imp, AppSonarr, found, config.Config{})
-	if len(plan.add) != 1 || plan.add[0].App != AppSonarr || plan.Formats[0].Status != FormatAdd {
+	if len(plan.Definitions) != 1 || plan.Definitions[0].App != AppSonarr || plan.Formats[0].Status != FormatAdd {
 		t.Fatalf("plan %+v", plan)
 	}
 }
@@ -249,5 +249,141 @@ func TestSonarrSourceEnum(t *testing.T) {
 		if _, err := NewFormatScorer([]core.CustomFormat{bad}, nil); err == nil {
 			t.Errorf("%s accepted", bad.Name)
 		}
+	}
+}
+
+func TestImportQualityProfileDetectsApp(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body string
+		want string
+	}{
+		"language names radarr": {
+			`{"name":"Radarr","language":"Original","items":[{"name":"WEBDL-1080p","allowed":true}]}`, AppRadarr,
+		},
+		"quality definition names sonarr": {
+			`{"name":"Sonarr","trash_quality_definition":{"series":"s1"},"items":[{"name":"WEBDL-1080p","allowed":true}]}`, AppSonarr,
+		},
+		"sonarr marker wins over language": {
+			`{"name":"Sonarr","trash_quality_definition":{"series":"s1"},"language":"Original","items":[{"name":"WEBDL-1080p","allowed":true}]}`, AppSonarr,
+		},
+		"remux prefix falls back to radarr": {
+			`{"name":"Radarr remux","items":[{"name":"Remux-1080p","allowed":true}]}`, AppRadarr,
+		},
+		"remux suffix falls back to sonarr": {
+			`{"name":"Sonarr remux","items":[{"name":"Bluray-1080p Remux","allowed":true}]}`, AppSonarr,
+		},
+		"plain names leave it unknown": {
+			`{"name":"Plain","items":[{"name":"WEBDL-1080p","allowed":true}]}`, "",
+		},
+	} {
+		imp, err := ImportQualityProfile([]byte(tc.body))
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if imp.App != tc.want {
+			t.Errorf("%s: app %q, want %q", name, imp.App, tc.want)
+		}
+	}
+}
+
+func TestImportQualityProfileLosslessAudio(t *testing.T) {
+	lossless := []string{"truehd", "dtshd", "eac3", "ac3", "dts", "aac"}
+	for name, tc := range map[string]struct {
+		body string
+		want []string
+	}{
+		"1080p web": {
+			`{"name":"Web","items":[{"name":"WEBDL-1080p","allowed":true}]}`,
+			[]string{"eac3", "ac3", "aac"},
+		},
+		"2160p": {
+			`{"name":"UHD","items":[{"name":"WEBDL-2160p","allowed":true}]}`,
+			lossless,
+		},
+		"1080p remux": {
+			`{"name":"Remux","items":[{"name":"Bluray-1080p Remux","allowed":true}]}`,
+			lossless,
+		},
+	} {
+		imp, err := ImportQualityProfile([]byte(tc.body))
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if !slices.Equal(imp.Profile.PreferredAudio, tc.want) {
+			t.Errorf("%s: audio %v, want %v", name, imp.Profile.PreferredAudio, tc.want)
+		}
+	}
+}
+
+func TestPlanMarksUnusableWhenMinimumScoreIsImpossible(t *testing.T) {
+	min := 5000
+	imp := QualityImport{
+		Source: ImportSourceTrash,
+		Profile: core.QualityProfile{
+			Name:                 "Strict",
+			AllowedQualities:     []string{"webdl-1080"},
+			MinCustomFormatScore: &min,
+		},
+		FormatIDs: map[string]string{"Low": "low"},
+	}
+	found := map[string]core.CustomFormat{"low": format("low", "Low", map[string]int{"default": 100}, titleSpec)}
+	cfg := config.Config{Quality: config.Quality{Profiles: []core.QualityProfile{{Name: "Other"}}}}
+	plan := PlanQualityImport(imp, AppRadarr, found, cfg)
+	if plan.Unusable == "" || !strings.Contains(plan.Unusable, "at most 100") {
+		t.Fatalf("unusable %q", plan.Unusable)
+	}
+	if plan.Profile.CustomFormatScores["low"] != 100 {
+		t.Fatalf("scores %v", plan.Profile.CustomFormatScores)
+	}
+	if err := plan.Apply(&cfg, "Strict"); !errors.Is(err, ErrImportUnusable) {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(cfg.Quality.Profiles) != 1 || len(cfg.Resolver.CustomFormats) != 0 {
+		t.Fatalf("unusable import was saved: %+v", cfg)
+	}
+	// Exactly the best possible score is still reachable.
+	min = 100
+	plan = PlanQualityImport(imp, AppRadarr, found, cfg)
+	if plan.Unusable != "" {
+		t.Fatalf("minimum equal to the best score marked unusable: %q", plan.Unusable)
+	}
+}
+
+func TestPlanExposesFetchedDefinitionsForSync(t *testing.T) {
+	imp, found, cfg := planFixture()
+	plan := PlanQualityImport(imp, AppRadarr, found, cfg)
+	got := map[string]core.CustomFormat{}
+	for _, f := range plan.Definitions {
+		got[f.ID] = f
+	}
+	if len(got) != 3 || got["have"].Name != "Have" || got["new"].Name != "New" || got["plain"].Name != "Plain" {
+		t.Fatalf("definitions %+v", plan.Definitions)
+	}
+	if got["have"].App != AppRadarr {
+		t.Fatalf("definition app %q", got["have"].App)
+	}
+}
+
+func TestQualityGateMatchesUnknownHeightBySource(t *testing.T) {
+	profile := core.QualityProfile{AllowedQualities: []string{"webdl-1080"}}
+	if got := rejectPolicy(core.Release{Info: core.ReleaseInfo{Source: core.SourceWEBDL}}, nil, profile, core.ClientCaps{}, false, false); got != "" {
+		t.Fatalf("unknown-height WEB-DL rejected: %q", got)
+	}
+	profile.MinHeight = 1080
+	if got := rejectPolicy(core.Release{Info: core.ReleaseInfo{Source: core.SourceWEBDL}}, nil, profile, core.ClientCaps{}, false, false); got != "below profile min height" {
+		t.Fatalf("min height not applied: %q", got)
+	}
+	profile.MinHeight = 0
+	if got := rejectPolicy(core.Release{Info: core.ReleaseInfo{Source: core.SourceBluRay}}, nil, profile, core.ClientCaps{}, false, false); got != "quality excluded by imported profile" {
+		t.Fatalf("other source allowed: %q", got)
+	}
+	profile.AllowedQualities = []string{"webdl-2160"}
+	if got := rejectPolicy(core.Release{Info: core.ReleaseInfo{Source: core.SourceWEBDL}}, nil, profile, core.ClientCaps{}, false, false); got != "" {
+		t.Fatalf("unknown height should match any height of its source: %q", got)
+	}
+	if got := rejectPolicy(core.Release{Info: core.ReleaseInfo{Source: core.SourceWEBDL, Height: 720}}, nil, profile, core.ClientCaps{}, false, false); got != "quality excluded by imported profile" {
+		t.Fatalf("known wrong height allowed: %q", got)
 	}
 }

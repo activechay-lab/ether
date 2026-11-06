@@ -20,7 +20,7 @@ const feedRejectedReason = "not accepted by the current quality policy"
 // searching. Broad capabilities mean the default owner's profile determines
 // eligibility; this is source evidence, never a claim about every device.
 func (s *Service) FeedCandidate(ctx context.Context, t *core.Title, r core.Release) (core.Release, string, error) {
-	e, err := s.feedEvaluation(ctx)
+	e, err := s.feedEvaluationForMedia(ctx, titleMedia(t))
 	if err != nil {
 		return r, "", err
 	}
@@ -32,24 +32,64 @@ func (s *Service) FeedCandidate(ctx context.Context, t *core.Title, r core.Relea
 // rules, resolver settings and catalogue language are read once and shared
 // by every release the pass judges.
 func (s *Service) FeedEvaluation(ctx context.Context) (core.FeedEvaluation, error) {
-	return s.feedEvaluation(ctx)
+	return s.feedEvaluationSet(ctx)
 }
 
-func (s *Service) feedEvaluation(ctx context.Context) (*feedEvaluation, error) {
-	p := s.ProfileFor(feedClient, nil)
+func (s *Service) feedEvaluationForMedia(ctx context.Context, media string) (*feedEvaluation, error) {
+	p := SelectProfileForMedia(s.qualityCfg(), feedClient, nil, media)
 	policy, err := s.compileRules(p.ReleaseRules)
 	if err != nil {
 		return nil, err
 	}
-	e := &feedEvaluation{s: s, profile: p, env: rankEnv{policy: policy, exclude: map[string]bool{}, rcfg: s.resolverCfg(), lang: s.catalogLanguage()}}
+	e := &feedEvaluation{s: s, media: normalizeMedia(media), profile: p, env: rankEnv{policy: policy, exclude: map[string]bool{}, rcfg: s.resolverCfg(), lang: s.catalogLanguage()}}
 	if usesPluginRanking(p) {
 		e.env.hot = s.rankingSession(ctx, feedClient)
 	}
 	return e, nil
 }
 
+// feedEvaluationSet judges a mixed feed under each media's profile. Key
+// covers both so a stored verdict is exact for either title kind.
+type feedEvaluationSet struct {
+	movie, tv *feedEvaluation
+}
+
+func (s *Service) feedEvaluationSet(ctx context.Context) (*feedEvaluationSet, error) {
+	movie, err := s.feedEvaluationForMedia(ctx, core.MediaMovie)
+	if err != nil {
+		return nil, err
+	}
+	tv, err := s.feedEvaluationForMedia(ctx, core.MediaTV)
+	if err != nil {
+		movie.Close()
+		return nil, err
+	}
+	return &feedEvaluationSet{movie: movie, tv: tv}, nil
+}
+
+func (e *feedEvaluationSet) forTitle(t *core.Title) *feedEvaluation {
+	if titleMedia(t) == core.MediaTV {
+		return e.tv
+	}
+	return e.movie
+}
+
+func (e *feedEvaluationSet) Key() string { return e.movie.Key() + "|" + e.tv.Key() }
+
+func (e *feedEvaluationSet) Evaluate(ctx context.Context, t *core.Title, rs []core.Release) ([]core.FeedVerdict, error) {
+	return e.forTitle(t).Evaluate(ctx, t, rs)
+}
+
+func (e *feedEvaluationSet) Transient(id string) string { return e.movie.Transient(id) }
+
+func (e *feedEvaluationSet) Close() {
+	e.movie.Close()
+	e.tv.Close()
+}
+
 type feedEvaluation struct {
 	s       *Service
+	media   string
 	profile core.QualityProfile
 	env     rankEnv
 	key     string
@@ -67,7 +107,9 @@ func (e *feedEvaluation) Key() string {
 	if r := e.s.extendRegistry(); r != nil {
 		registry = r.Version()
 	}
-	b, _ := json.Marshal([]any{"feed-verdict-v2", e.profile.SelectionKey, e.profile, e.env.rcfg, e.env.lang, e.s.profileAllowsCam(), registry})
+	profile := e.profile
+	profile.Import = nil // provenance is not policy; SyncedAt must not invalidate verdicts
+	b, _ := json.Marshal([]any{"feed-verdict-v3", e.media, profile.SelectionKey, profile, e.env.rcfg, e.env.lang, e.s.profileAllowsCam(), registry})
 	sum := sha256.Sum256(b)
 	e.key = hex.EncodeToString(sum[:])
 	return e.key

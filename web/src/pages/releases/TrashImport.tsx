@@ -19,6 +19,8 @@ import { ApiError, errorMessage, isAbort } from "../../lib/api";
 import { formatNumber } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
 import {
+  mediaLabel,
+  mediaTypeForApp,
   qualityGateLabel,
   releaseConsole,
   sourceLabel,
@@ -26,7 +28,7 @@ import {
   type QualityImportPlan,
   type QualityImportSource,
   type StarrApp,
-  type TrashProfile,
+  type TrashProfileList,
 } from "../../lib/releases";
 import type { QualityProfile } from "../../lib/types";
 import { RecordDrawer, TextRow } from "../sources/form";
@@ -36,8 +38,8 @@ import { useLocale } from "../../i18n/react";
 type ImportMode = "guides" | "dictionarry" | "paste";
 
 const APPS = localized(() => [
-  { value: "radarr" as const, label: t("Radarr (movies)") },
-  { value: "sonarr" as const, label: t("Sonarr (shows)") },
+  { value: "radarr" as const, label: t("Movies (Radarr)") },
+  { value: "sonarr" as const, label: t("Shows (Sonarr)") },
 ]);
 
 const MODES = localized(() => [
@@ -45,6 +47,12 @@ const MODES = localized(() => [
   { value: "dictionarry" as const, label: "Profilarr (Dictionarry)" },
   { value: "paste" as const, label: t("Paste JSON") },
 ]);
+
+const SOURCE_LABEL = localized<Record<string, string>>(() => ({
+  trash: "TRaSH Guides",
+  dictionarry: "Profilarr (Dictionarry)",
+  "": t("Pasted JSON"),
+}));
 
 /** A pasted profile is a few KiB; the server takes up to 1 MiB. */
 const MAX_PASTE = 1 << 20;
@@ -85,7 +93,7 @@ const STATUS: Record<
 
 /**
  * Import a Radarr or Sonarr quality profile from TRaSH Guides, Profilarr
- * (Dictionarry), or from pasted profile JSON: preview what Ether makes of it,
+ * (Dictionarry), or pasted profile JSON: preview what Ether makes of it,
  * then add it as a new profile.
  */
 export function TrashImport({
@@ -115,14 +123,17 @@ export function TrashImport({
   const listing = open && (mode === "guides" || mode === "dictionarry");
   const profiles = useAsync(
     (signal) => {
-      if (!listing) return Promise.resolve<TrashProfile[]>([]);
+      if (!listing) return Promise.resolve<TrashProfileList>({ items: [] });
       return mode === "dictionarry"
         ? releaseConsole.dictionarryProfiles(app, signal)
         : releaseConsole.trashProfiles(app, signal);
     },
     [listing, mode, app],
   );
-  const list = useMemo(() => (listing ? (profiles.data ?? []) : []), [listing, profiles.data]);
+  const list = useMemo(
+    () => (listing ? (profiles.data?.items ?? []) : []),
+    [listing, profiles.data],
+  );
   const { locale } = useLocale();
   const options = useMemo(
     () =>
@@ -130,7 +141,13 @@ export function TrashImport({
         value: p.id,
         label: p.name,
         group: profileGroup(p.name, mode),
-        hint: tn(p.formats, "{count} custom format", "{count} custom formats"),
+        hint:
+          mode === "guides" && p.defaultFormats != null
+            ? t("{own} own · {defaults} default", {
+                own: formatNumber(p.formats),
+                defaults: formatNumber(p.defaultFormats),
+              })
+            : tn(p.formats, "{count} custom format", "{count} custom formats"),
       })),
     [list, mode, locale],
   );
@@ -234,14 +251,14 @@ export function TrashImport({
     <RecordDrawer
       open={open}
       onClose={() => !saving && onClose()}
-      title={t("Import from TRaSH Guides")}
+      title={t("Import a quality profile")}
       description={t(
-        "Turn a Radarr or Sonarr quality profile from TRaSH Guides or Profilarr (Dictionarry) into an Ether profile, custom format scores included.",
+        "Turn a Radarr or Sonarr quality profile from TRaSH Guides, Profilarr (Dictionarry), or pasted JSON into an Ether profile, custom format scores included.",
       )}
       onSave={() => void save()}
       saving={saving}
       saveLabel={t("Add profile")}
-      saveDisabled={!plan || previewing}
+      saveDisabled={!plan || previewing || Boolean(plan.unusable)}
       error={saveError}
     >
       <SettingsSection title={t("Profile to import")}>
@@ -313,6 +330,12 @@ export function TrashImport({
                   searchable
                 />
               )}
+              {profiles.data?.warning ? (
+                <Alert variant="warning">
+                  <AlertTitle>{t("Some guide groups didn't load")}</AlertTitle>
+                  <AlertDescription>{profiles.data.warning}</AlertDescription>
+                </Alert>
+              ) : null}
               {chosen?.description ? (
                 <p className="whitespace-pre-line text-xs text-fg-muted">{chosen.description}</p>
               ) : null}
@@ -334,7 +357,7 @@ export function TrashImport({
             stacked
             title={t("Profile JSON")}
             description={t(
-              "A quality profile file from TRaSH Guides (docs/json/radarr or sonarr/quality-profiles).",
+              "Paste a Radarr or Sonarr quality profile file, from TRaSH Guides or anywhere else.",
             )}
           >
             <div className="space-y-2">
@@ -420,10 +443,30 @@ function ImportPreview({
     .join(" · ");
   return (
     <>
+      {plan.unusable ? (
+        <Alert variant="destructive" role="alert">
+          <AlertTitle>{t("This profile can't be added")}</AlertTitle>
+          <AlertDescription>{plan.unusable}</AlertDescription>
+        </Alert>
+      ) : null}
       <SettingsSection
         title={t("New profile")}
         description={t("Edit it like any other profile once added.")}
       >
+        <SettingsRow
+          title={t("Imported from")}
+          description={
+            plan.profileId ? t("Source profile: {profile}", { profile: plan.profileId }) : undefined
+          }
+          control={
+            <span className="flex flex-wrap items-center gap-1.5">
+              <Badge variant="secondary">
+                {mediaLabel(plan.mediaType ?? mediaTypeForApp(plan.app))}
+              </Badge>
+              <Badge variant="outline">{SOURCE_LABEL[plan.source ?? ""] ?? plan.source}</Badge>
+            </span>
+          }
+        />
         <TextRow
           label={t("Name")}
           value={name}
