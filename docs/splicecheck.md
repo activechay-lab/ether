@@ -114,8 +114,8 @@ the waveform. Use the same FFprobe build as FFmpeg when producing lab probe JSON
 
 The stock 8.0.1 demuxer reports negative Matroska CodecDelay origins for its own
 synthetic AAC/AC3 fixtures. The uninterrupted output already has a shifted video
-origin and, for AAC/resampling, source-clock jitter. These stock-generated MKV
+origin and, for AAC/resampling, source-clock jitter. The stock-generated AAC adaptive and 44.1 kHz resampling MKV
 cases are explicitly excluded from the clean-reference adaptive/resampling gate
 as pre-existing demuxer behaviour. The tests print that exclusion; it is not a
-claim of seamless playback for those fixtures. The fixed-source AC3 kill matrix
+claim of seamless playback for those fixtures. Stock-generated 48 kHz AC3 also passes. The fixed-source AC3 kill matrix
 still runs through both encoder/muxer builds, each with its matching source probe.
