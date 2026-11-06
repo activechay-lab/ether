@@ -54,7 +54,7 @@ def run(c, out):
         raise ValueError('invalid action')
     if phase not in ('early', 'steady'):
         raise ValueError('invalid phase')
-    if action not in ('none', 'force-delete') and not (c.get('lossArgv') and c.get('restoreArgv')):
+    if action not in ('none', 'force-delete') and not (c.get('targetArgv') or c.get('lossWrapperArgv') or (c.get('lossArgv') and c.get('restoreArgv'))):
         raise ValueError('loss and restoration argv required')
     window = c.get('windowSeconds', 90)
     if not 15 <= window <= 3600:
@@ -71,7 +71,7 @@ def run(c, out):
     k = ['kubectl', '--kubeconfig', c.get('kubeconfig', ''), '--request-timeout=10s',
          '-n', c.get('namespace', '')]
     target = None
-    if action == 'force-delete':
+    if action == 'force-delete' and not c.get('targetArgv'):
         result = command(k+['get', 'pod', c['pod'], '-o', 'json'])
         if result.returncode:
             raise RuntimeError('target inspection failed')
@@ -83,6 +83,8 @@ def run(c, out):
                   serverInterruptionSeconds=None, serverInterruptionVerified=False,
                   clientFirstPostLossReceiptSeconds=None, actionSucceeded=action == 'none')
     process = None
+    fault_process = None
+    fault_handles = []
     restoration_needed = False
     try:
         with (out/'player.log').open('w') as log:
@@ -90,6 +92,8 @@ def run(c, out):
             deadline = time.monotonic()+window+150
             injected = action == 'none'
             while process.poll() is None and time.monotonic() < deadline:
+                if fault_process is not None and fault_process.poll() is not None:
+                    raise RuntimeError('fault wrapper exited before observation completed')
                 events = out/'player'/'events.jsonl'
                 rows = []
                 if events.exists():
@@ -106,6 +110,25 @@ def run(c, out):
                 ready = ready or (phase == 'steady' and playing and time.time()-parsed(playing[0]['wallTime']) >= 10)
                 if ready and not injected:
                     injected = True
+                    if c.get('targetArgv'):
+                        selected = command([x.replace('{session}', session) for x in c['targetArgv']])
+                        if selected.returncode:
+                            raise RuntimeError('active target lookup failed')
+                        selection = json.loads(selected.stdout)
+                        report['targetSelection'] = selection
+                        for key in ('pod', 'lossArgv', 'restoreArgv', 'lossWrapperArgv'):
+                            if key in selection:
+                                c[key] = selection[key]
+                        if action == 'force-delete':
+                            inspected = command(k+['get', 'pod', c['pod'], '-o', 'json'])
+                            if inspected.returncode:
+                                raise RuntimeError('active pod inspection failed')
+                            pod = json.loads(inspected.stdout)
+                            target = {'name':pod['metadata']['name'], 'uid':pod['metadata']['uid'],
+                                      'node':pod['spec']['nodeName'], 'containers':pod['status'].get('containerStatuses', [])}
+                            if selection.get('uid', target['uid']) != target['uid']:
+                                raise RuntimeError('active pod incarnation changed')
+                            report['target'] = target
                     report['killAt'] = stamp()
                     report['lastPreLossIndex'] = segments[-1]['Index'] if segments else None
                     if action == 'force-delete':
@@ -114,13 +137,27 @@ def run(c, out):
                         deletion = out/'delete-options.json'
                         deletion.write_text(json.dumps(options))
                         result = command(k+['delete', '--raw', f"/api/v1/namespaces/{c['namespace']}/pods/{target['name']}", '-f', str(deletion)])
+                    elif c.get('lossWrapperArgv'):
+                        ready_file = out/'fault-ready'
+                        fault_argv = [x.replace('{readyFile}', str(ready_file)) for x in c['lossWrapperArgv']]
+                        fault_handles = [(out/'action.stdout').open('wb'), (out/'action.stderr').open('wb')]
+                        fault_process = subprocess.Popen(fault_argv, stdin=subprocess.PIPE,
+                            stdout=fault_handles[0], stderr=fault_handles[1], start_new_session=True)
+                        ready_deadline = time.monotonic()+20
+                        while not ready_file.exists() and fault_process.poll() is None and time.monotonic()<ready_deadline:
+                            time.sleep(0.05)
+                        if not ready_file.exists() or fault_process.poll() is not None:
+                            raise RuntimeError('fault wrapper did not become ready')
+                        report['faultReadyAt'] = stamp()
+                        result = subprocess.CompletedProcess(fault_argv, 0, b'fault wrapper ready', b'')
                     else:
                         restoration_needed = True
                         result = command(c['lossArgv'])
                     report['actionSucceeded'] = result.returncode == 0
                     # Output may contain private host inventory; retained privately.
-                    (out/'action.stdout').write_bytes(result.stdout)
-                    (out/'action.stderr').write_bytes(result.stderr)
+                    if fault_process is None:
+                        (out/'action.stdout').write_bytes(result.stdout)
+                        (out/'action.stderr').write_bytes(result.stderr)
                     if result.returncode:
                         raise RuntimeError('loss action failed')
                 time.sleep(0.1)
@@ -136,6 +173,20 @@ def run(c, out):
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill(); process.wait()
+        if fault_process is not None:
+            try:
+                fault_process.communicate(input=b'', timeout=20)
+            except subprocess.TimeoutExpired:
+                os.killpg(fault_process.pid, signal.SIGTERM)
+                try:
+                    fault_process.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    os.killpg(fault_process.pid, signal.SIGKILL)
+                    fault_process.wait()
+            report['restored'] = fault_process.returncode == 0
+            report['faultRestoredAt'] = stamp()
+            for handle in fault_handles:
+                handle.close()
         if restoration_needed:
             result = command(c['restoreArgv'])
             report['restored'] = result.returncode == 0

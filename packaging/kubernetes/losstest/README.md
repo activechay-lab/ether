@@ -131,3 +131,19 @@ set `HLSPLAY_LAB_BINARY` to the built `hlsplay` absolute path,
 `HLSPLAY_LAB_OUTPUT` and run only `TestHLSPlayerDriverLab` with the same integration
 tag and tool paths. That probe starts another real-handler local node and
 requires the outer no-loss `report.json` to pass.
+
+For replicated labs, optional `targetArgv` resolves the session's active role at
+injection time. Each argv element may contain `{session}`. The command emits a
+JSON object with `pod` and optionally `uid`, `lossArgv`, `restoreArgv`. Force-delete
+re-inspects that pod, verifies the selected UID if provided, and pins the delete
+to it. This avoids injecting into an idle replica selected before playback.
+Pause adapters can return commands scoped to the selected container. The lookup
+and its result are retained in the run report.
+
+An adapter that owns restoration with a trap can use `lossWrapperArgv` instead
+of separate loss/restore commands. The runner keeps that process alive through
+the observation window and gives it piped stdin. Its verifier writes the path
+substituted for `{readyFile}` only after the fault is active, then blocks on
+stdin. Closing stdin on completion lets the verifier exit and the adapter
+restore its exact container. The runner waits for restoration and reaps the
+adapter; premature adapter exit fails the run.
