@@ -49,21 +49,34 @@ def boundary_ready(path, session, index, segments):
     ready = json.loads(path.read_text())
     if (ready.get('session') != session or ready.get('index') != index
             or ready.get('lastReceivedIndex') != index-1
-            or [s['Index'] for s in segments] != list(range(index))
             or not isinstance(ready.get('playlistSHA256'), str)
             or len(ready['playlistSHA256']) != 64):
-        raise RuntimeError('request barrier differs from session/index/received prefix')
+        raise RuntimeError('request barrier differs from session/index/initial playlist')
+    timeline = json.loads((path.parent.parent/'player'/'initial-timeline.json').read_text())
+    if timeline.get('session') != session or timeline.get('playlistSHA256') != ready['playlistSHA256']:
+        raise RuntimeError('barrier differs from retained initial authored timeline')
+    indices = [s['Index'] for s in segments]
+    if len(indices) > index or indices != list(range(len(indices))):
+        raise RuntimeError('request barrier has excess or noncontiguous received prefix')
+    # ready.json can appear after this poll's events snapshot. A valid shorter
+    # prefix is pending; the next iteration re-reads events after the marker.
+    if len(indices) < index:
+        return None
     return ready
 
 
 def release_boundary(directory, ready, target, proof):
+    node = target['barrierNodeInventory']
     old = [c['containerID'] for c in target['containers'] if c['name'] == 'ether']
     if (not old or proof.get('session') != ready['session']
             or proof.get('index') != ready['index']
             or proof.get('oldPodUID') != target['uid']
             or proof.get('oldContainerIDs') != old
             or proof.get('originalTasksAbsent') is not True
-            or not proof.get('ownedNodeContainerID')):
+            or proof.get('ownedNodeContainerID') != node['ownedNodeContainerID']
+            or proof.get('kubernetesNode') != target['node']
+            or proof.get('kubernetesNode') != node['kubernetesNode']
+            or proof.get('kubernetesNodeUID') != node['kubernetesNodeUID']):
         raise RuntimeError('barrier requires exact original-task absence proof')
     data = (json.dumps(proof, sort_keys=True)+'\n').encode()
     digest = hashlib.sha256(data).hexdigest()
@@ -75,6 +88,27 @@ def release_boundary(directory, ready, target, proof):
     temp.write_text(json.dumps(release)+'\n')
     temp.rename(directory/'release.json')
     return release
+
+
+def read_events(path):
+    rows = []
+    if path.exists():
+        for line in path.read_text().splitlines():
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass  # Writer may be in the middle of its last row.
+    return rows
+
+
+def bind_boundary_node(target, selection):
+    node = selection.get('barrierNodeInventory', {})
+    if (node.get('kubernetesNode') != target['node']
+            or not node.get('kubernetesNodeUID')
+            or not isinstance(node.get('ownedNodeContainerID'), str)
+            or len(node['ownedNodeContainerID']) != 64):
+        raise RuntimeError('boundary requires trusted original-node incarnation inventory')
+    target['barrierNodeInventory'] = dict(node)
 
 
 def sample_host_load(out):
@@ -129,7 +163,7 @@ def run(c, out):
         if (role != 'transcode' or action != 'force-delete' or type(index) is not int or index < 1
                 or not isinstance(c.get('barrierFaultProofArgv'), list) or not c['barrierFaultProofArgv']
                 or not all(isinstance(x, str) and x for x in c['barrierFaultProofArgv'])
-                or not c.get('reference') or c.get('faultTriggerArgv')):
+                or not c.get('reference') or not c.get('targetArgv') or c.get('faultTriggerArgv')):
             raise ValueError('boundary phase requires transcode deletion, positive index, independent reference and task-absence adapter')
     barrier_dir = out/'segment-barrier'
     window = c.get('windowSeconds', 90)
@@ -188,13 +222,13 @@ def run(c, out):
                 if fault_process is not None and fault_process.poll() is not None:
                     raise RuntimeError('fault wrapper exited before observation completed')
                 events = out/'player'/'events.jsonl'
-                rows = []
-                if events.exists():
-                    for line in events.read_text().splitlines():
-                        try:
-                            rows.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            pass  # Writer may be in the middle of its last row.
+                rows = read_events(events)
+                boundary_path = barrier_dir/'ready.json'
+                # Observe the marker first, then the events it follows. This also
+                # observes a MediaBrowser's admitted session before binding it.
+                boundary_visible = phase == 'boundary' and boundary_path.exists()
+                if boundary_visible:
+                    rows = read_events(events)
                 server_sessions = [r['session'] for r in rows if r.get('kind') == 'session']
                 if server_sessions:
                     session = server_sessions[-1]
@@ -208,7 +242,7 @@ def run(c, out):
                 if phase == 'state':
                     ready = bool(playing)
                 if phase == 'boundary' and not injected:
-                    barrier = boundary_ready(barrier_dir/'ready.json', session, c['pauseBeforeIndex'], segments)
+                    barrier = boundary_ready(boundary_path, session, c['pauseBeforeIndex'], segments) if boundary_visible else None
                     ready = barrier is not None
                     if ready:
                         report['requestBarrier'] = barrier
@@ -248,6 +282,12 @@ def run(c, out):
                                       'node':pod['spec']['nodeName'], 'containers':pod['status'].get('containerStatuses', [])}
                             if selection.get('uid', target['uid']) != target['uid']:
                                 raise RuntimeError('active pod incarnation changed')
+                            if phase == 'boundary':
+                                bind_boundary_node(target, selection)
+                                inventory = target['barrierNodeInventory']
+                                checked_node = command(k+['get', 'node', target['node'], '-o', 'json'])
+                                if checked_node.returncode or json.loads(checked_node.stdout)['metadata']['uid'] != inventory['kubernetesNodeUID']:
+                                    raise RuntimeError('original Kubernetes node incarnation differs')
                             report['target'] = target
                     report['killAt'] = stamp()
                     report['lastPreLossIndex'] = segments[-1]['Index'] if segments else None

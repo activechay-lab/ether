@@ -287,7 +287,13 @@ release. The monotonic playback clock and buffer model continue normally; a
 barrier before startup contributes to startup latency, and a barrier during
 playback can produce a stall. Neither buffer size nor segment grid changes.
 
-The ordinary fault selector and UID-preconditioned deletion then run. Kubernetes
+The trusted `targetArgv` selector must also return `barrierNodeInventory` with
+`kubernetesNode`, `kubernetesNodeUID` and the immutable `ownedNodeContainerID`.
+The selector verifies the owned lab-container label and matches its name to the
+Kubernetes node. Before deletion the runner rechecks that node UID and binds
+this inventory to the inspected original pod in `fault-dispatch.json`.
+
+The ordinary UID-preconditioned deletion then runs. Kubernetes
 object deletion alone does not release the barrier. `barrierFaultProofArgv` is a
 bounded, read-only lab adapter, with `{session}`, `{index}` and `{runDir}` replaced
 as argv values. It must verify that the original execution's exact container task
@@ -299,13 +305,17 @@ is absent on the original owned node and emit JSON:
   "index": 2,
   "oldPodUID": "original-pod-uid",
   "oldContainerIDs": ["containerd://original-ether-container-id"],
-  "ownedNodeContainerID": "verified-lab-node-container-id",
+  "ownedNodeContainerID": "verified-original-lab-node-container-id",
+  "kubernetesNode": "original-kubernetes-node-name",
+  "kubernetesNodeUID": "original-kubernetes-node-uid",
   "originalTasksAbsent": true
 }
 ```
 
-The runner matches every identity to `fault-dispatch.json` and the request
-barrier. It preserves this proof and atomically writes a session/index/playlist-
+The runner compares the proof to both original node identities, pod UID and
+Ether container IDs in `fault-dispatch.json`, plus the request barrier session
+and index. A shorter contiguous event snapshot remains pending and is re-read
+after the marker; gaps, excess indices and changed bindings fail closed. It preserves this proof and atomically writes a session/index/playlist-
 bound `release.json` containing its SHA256. The player verifies the proof digest
 before requesting N. Missing, stale or mismatched evidence fails closed; timeout
 or failed task retirement leaves N unrequested. The normal post-check must still
