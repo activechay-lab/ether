@@ -281,3 +281,58 @@ func TestBroadcastPodFailuresKeepWarmProgrammeIdentity(t *testing.T) {
 		}
 	})
 }
+
+// The playback manager supersedes different titles on one client. Adjacent
+// programme decoders must retain separate identities inside one channel group.
+type podIdentityPlayback struct {
+	fakePlayback
+	clients []string
+	groups  []string
+}
+
+func (p *podIdentityPlayback) PrepareChannel(ctx context.Context, u *core.User, key core.RatingKey, caps core.ClientCaps, group string) (*core.PlaySession, error) {
+	p.clients = append(p.clients, caps.ClientID)
+	p.groups = append(p.groups, group)
+	return p.fakePlayback.PrepareChannel(ctx, u, key, caps, group)
+}
+func TestBroadcastPodProgrammeInputsRetainSeparateIdentities(t *testing.T) {
+	playback := &podIdentityPlayback{}
+	s := testService(t, Options{Playback: playback})
+	format := smallBroadcastFormat()
+	runner := &broadcastFakeRunner{decoder: func(context.Context, transcode.DecoderRequest) (transcode.Decoder, error) {
+		return &broadcastFakeDecoder{format: format, closed: make(chan struct{})}, nil
+	}}
+	channel := testChannel()
+	planner := &scheduleBroadcastPlanner{s: s, channel: channel, user: core.User{ID: 1, IsOwner: true}, format: format, runner: runner}
+	now := time.Now()
+	first := Programme{ID: "first", ChannelID: channel.ID, Start: now, End: now.Add(time.Minute), Item: channel.Items[0]}
+	next := first
+	next.ID = "next"
+	next.Start = first.End.Add(time.Minute)
+	next.End = next.Start.Add(time.Minute)
+	next.Item = channel.Items[1]
+	var releases []func()
+	for _, airing := range []Programme{first, next} {
+		decoder, release, err := planner.programme(airing).open(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		releases = append(releases, func() {
+			decoder.Close()
+			if release != nil {
+				release()
+			}
+		})
+	}
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
+	if len(playback.clients) != 2 || playback.clients[0] == "" || playback.clients[0] == playback.clients[1] {
+		t.Fatalf("overlapping sources would supersede each other: %v", playback.clients)
+	}
+	if playback.groups[0] != playback.groups[1] || playback.groups[0] != "broadcast-"+channel.ID {
+		t.Fatalf("sources left the channel budget: %v", playback.groups)
+	}
+}

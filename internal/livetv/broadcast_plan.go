@@ -229,6 +229,11 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 			if c.Personal != nil {
 				group += "-viewer-" + strconv.FormatInt(p.user.ID, 10)
 			}
+			// Programme inputs overlap while a pod or next airing is prewarmed.
+			// They share one channel budget, but each keeps its own playback
+			// identity so preparing the next title cannot supersede this one.
+			caps := p.caps
+			caps.ClientID = "channel-input/" + plan.id
 			if candidate.Item.BreakReleaseID != "" && len(candidate.Item.BreakPointsMS) > 0 {
 				planned, ok := p.s.o.Playback.(interface {
 					PrepareChannelRelease(context.Context, *core.User, core.RatingKey, core.ClientCaps, string, string) (*core.PlaySession, error)
@@ -238,7 +243,7 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 					last = core.ErrSourceChanged
 					continue
 				}
-				ps, err = planned.PrepareChannelRelease(attempt, &p.user, candidate.Item.Key, p.caps, group, candidate.Item.BreakReleaseID)
+				ps, err = planned.PrepareChannelRelease(attempt, &p.user, candidate.Item.Key, caps, group, candidate.Item.BreakReleaseID)
 				if err == nil {
 					pin, ok := p.s.o.Playback.(core.PlaybackRevisionPin)
 					if !ok {
@@ -251,9 +256,9 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 					}
 				}
 			} else if grouped, ok := p.s.o.Playback.(core.ChannelPreparer); ok {
-				ps, err = grouped.PrepareChannel(attempt, &p.user, candidate.Item.Key, p.caps, group)
+				ps, err = grouped.PrepareChannel(attempt, &p.user, candidate.Item.Key, caps, group)
 			} else {
-				ps, err = p.s.o.Playback.Prepare(attempt, &p.user, candidate.Item.Key, p.caps)
+				ps, err = p.s.o.Playback.Prepare(attempt, &p.user, candidate.Item.Key, caps)
 			}
 			cancel()
 			if err != nil {
