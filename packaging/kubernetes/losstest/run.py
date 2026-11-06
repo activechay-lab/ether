@@ -159,6 +159,12 @@ def run(c, out):
                             report['target'] = target
                     report['killAt'] = stamp()
                     report['lastPreLossIndex'] = segments[-1]['Index'] if segments else None
+                    # Local monotonic ordering: this timestamp precedes dispatch,
+                    # so a same-host production timestamp yields an upper bound.
+                    (out/'fault-dispatch.json').write_text(json.dumps({
+                        'session': session, 'dispatchedAt': report['killAt'],
+                        'role': role, 'action': action,
+                        'lastClientIndex': report['lastPreLossIndex']})+'\n')
                     if action == 'force-delete':
                         options = {'apiVersion':'v1', 'kind':'DeleteOptions', 'gracePeriodSeconds':0,
                                    'preconditions':{'uid':target['uid']}}
@@ -234,6 +240,14 @@ def run(c, out):
                 p = {}
                 report['error'] = 'player report is unreadable'
             report['playback'] = p
+            controls = [a for a in p.get('Attempts', []) if a.get('Kind') == 'timeline']
+            # The client sends Stop last, after its bounded playback window.
+            # Media continuity alone must not hide failed lifecycle requests.
+            report['control'] = {
+                'stopStatus': controls[-1].get('Status') if controls else None,
+                'failedRequests': sum(not 200 <= a.get('Status', 0) < 300 for a in controls),
+                'requests': len(controls)}
+            report['control']['passed'] = bool(controls) and report['control']['failedRequests'] == 0
             kill = parsed(report['killAt']) if report['killAt'] else None
             if kill:
                 report['postLossObservationSeconds'] = max(0, parsed(p['StartedAt'])+p.get('ElapsedSeconds', 0)-kill)
@@ -263,6 +277,7 @@ def run(c, out):
                         report['serverInterruptionVerified'] = True
                     report['producerEvidenceSHA256'] = hashlib.sha256(evidence.read_bytes()).hexdigest()
             report['passed'] = (p.get('Outcome') == 'passed' and report['actionSucceeded']
+                                and report['control']['passed']
                                 and (action == 'none' or report['killAt'] is not None)
                                 and report.get('restored', True) and 'error' not in report
                                 and report.get('playerExitCode') == 0
@@ -297,6 +312,7 @@ def run(c, out):
         p = report.get('playback', {})
         text = (f"# {role} / {action} / {phase}\n\nPassed: **{report['passed']}**\n\n"
                 f"Client outcome: {p.get('Outcome', 'missing')}; stalls: {len(p.get('Stalls') or [])}; retries: {p.get('Retries', 0)}.\n\n"
+                f"Lifecycle control: {report.get('control', {})}.\n\n"
                 f"Server interruption: {report['serverInterruptionSeconds']} seconds (verified: {report['serverInterruptionVerified']}).\n\n"
                 f"First post-loss receipt: {report['clientFirstPostLossReceiptSeconds']} seconds.\n")
         (out/'report.md').write_text(text)
