@@ -360,7 +360,13 @@ func (p *RemotePlayback) tick(c context.Context) error {
 		result = err
 	}
 	for _, e := range list {
-
+		// Stop/idle has already sealed this preparation and joined its local
+		// uses. An authenticated replacement proves the old source process
+		// and its callbacks are gone even when no RPC receipt can be fetched.
+		if p.r.retiredSourceBoot(c, e.owner) == nil {
+			p.finishRetirement(e)
+			continue
+		}
 		retired, err := p.r.RetirePreparedSource(c, e.owner, e.operation)
 		if err != nil || !retired {
 			result = ErrPending
