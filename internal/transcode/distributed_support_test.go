@@ -90,6 +90,26 @@ func TestDistributedRequestUsesExactProbedPlan(t *testing.T) {
 	if m.SupportsDistributedRequest(req) {
 		t.Fatal("unknown decoder inventory admitted")
 	}
+	// The advertised hardware offer must come from the verified encoder selected
+	// for the exact supported plan, never from the configured accelerator name.
+	m, req = distributedFixture()
+	req.Decision.VideoCopy = false
+	req.Decision.VideoCodec = "h264"
+	m.hw = core.HWAccel{Name: AccelNVENC, Encoders: []string{"h264_nvenc"}}
+	m.feat.encoders["h264_nvenc"] = true
+	if got := m.DistributedHardwareEncoder(req); got != "h264_nvenc" {
+		t.Fatalf("verified hardware offer = %q", got)
+	}
+	req.Decision.VideoCodec = "hevc"
+	if got := m.DistributedHardwareEncoder(req); got != "" {
+		t.Fatalf("software HEVC fallback advertised hardware: %q", got)
+	}
+	req.Decision.VideoCodec = "h264"
+	delete(m.feat.encoders, "h264_nvenc")
+	if got := m.DistributedHardwareEncoder(req); got != "" {
+		t.Fatalf("unavailable encoder advertised hardware: %q", got)
+	}
+
 }
 
 func TestDistributedStartupInventoryIsBoundedAndOptional(t *testing.T) {
