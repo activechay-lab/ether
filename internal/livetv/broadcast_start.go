@@ -103,6 +103,17 @@ func (s *Service) openGraphicsDecoder(ctx context.Context, runner transcode.Cont
 func (p *scheduleBroadcastPlanner) screen(time.Time) broadcastPlan {
 	return p.s.screenPlan(p.channel, p.runner, p.format)
 }
+
+// Keep a style plate ready independently of provider outage screens. A missing
+// scheduled master is presentation fallback, never a source reconnection.
+func (p *scheduleBroadcastPlanner) momentScreen() broadcastPlan {
+	c := p.channel
+	request := p.s.clipRequest(c, Programme{Item: Item{Slate: "ident"}})
+	request.Bind["screen.reason"] = "moment"
+	return broadcastPlan{id: "moment-card-" + c.ID, element: "card", open: func(ctx context.Context) (transcode.Decoder, func(), error) {
+		return p.s.openSignalDecoder(ctx, request, p.format)
+	}}
+}
 func (p *providerBroadcastPlanner) screen(time.Time) broadcastPlan {
 	return p.s.screenPlan(p.channel, p.runner, p.format)
 }

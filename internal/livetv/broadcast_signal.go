@@ -88,6 +88,8 @@ func (s *Service) openSignalDecoder(ctx context.Context, request core.ClipReques
 			if back := request.Bind["screen.back"]; back != "" {
 				bindings.Slots["screen.line1"] = "Back at " + back
 			}
+		case "moment":
+			bindings.Slots["screen.line1"] = request.Bind["channel.name"]
 		case "busy":
 			bindings.Slots["screen.line1"] = "Waiting for a free connection"
 		default:

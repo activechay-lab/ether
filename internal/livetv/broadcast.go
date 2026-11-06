@@ -182,6 +182,8 @@ type broadcast struct {
 	freshAt              time.Time
 	fade                 pcmFade
 	fallback             *broadcastInput
+	momentCard           *broadcastInput
+	momentCardPlan       broadcastPlan
 	screenPlan           broadcastPlan
 	retryRequests        chan struct{}
 	mode                 string
@@ -471,6 +473,11 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 				b.current = input
 				input.started = now
 				input.activateNow()
+			} else if result.plan.id == b.momentCardPlan.id {
+				b.closeInput(b.momentCard)
+				b.momentCard = input
+				input.activateNow()
+				input.started = now
 			} else if result.plan.id == b.screenPlan.id {
 				b.closeInput(b.fallback)
 				b.fallback = input
@@ -544,6 +551,7 @@ func (b *broadcast) run() {
 			b.closeInput(input)
 		}
 		b.closeInput(b.fallback)
+		b.closeInput(b.momentCard)
 		b.closeInput(b.introInput)
 		b.closeInput(b.continuation)
 		b.closeInput(b.introFade)
@@ -640,6 +648,9 @@ func (b *broadcast) step(now time.Time) bool {
 	if planner, ok := b.planner.(interface{ screen(time.Time) broadcastPlan }); ok {
 		b.screenPlan = planner.screen(now)
 	}
+	if planner, ok := b.planner.(interface{ momentScreen() broadcastPlan }); ok {
+		b.momentCardPlan = planner.momentScreen()
+	}
 	if !now.Before(b.introUntil) && b.introInput != nil {
 		b.finishIntro(now)
 	}
@@ -667,6 +678,9 @@ func (b *broadcast) step(now time.Time) bool {
 	// initialization on the frame clock or an intervening black frame.
 	if b.fallback == nil {
 		b.open(b.screenPlan, now)
+	}
+	if b.momentCard == nil {
+		b.open(b.momentCardPlan, now)
 	}
 	if b.current != nil && b.current.plan.id != current.id {
 		retained := false
@@ -861,6 +875,19 @@ func (b *broadcast) step(now time.Time) bool {
 				}
 			}
 		default:
+		}
+	}
+	if momentFallback && !introActive && b.momentCard != nil {
+		select {
+		case f, ok := <-b.momentCard.frames:
+			if ok && validRawFrame(b.format, f) {
+				frame = f
+				b.burstReady = true
+			}
+		default:
+		}
+		if frame.Video == nil && b.mode == "fallback/"+current.id {
+			frame = transcode.RawFrame{Video: b.lastFrame.Video}
 		}
 	}
 	if frame.Video == nil {
