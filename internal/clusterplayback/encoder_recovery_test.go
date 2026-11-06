@@ -24,11 +24,22 @@ import (
 type recoveryTestEncoder struct {
 	fixtureEncoder
 	requests []core.HLSRequest
+	ready    chan struct{}
+	proceed  chan struct{}
 	data     []byte
 }
 
 func (e *recoveryTestEncoder) SupportsDistributedRequest(core.HLSRequest) bool { return true }
 func (e *recoveryTestEncoder) StartHLSOwned(ctx context.Context, q core.HLSRequest) (core.HLSSession, core.EncoderRetirement, error) {
+	if e.ready != nil {
+		close(e.ready)
+		select {
+		case <-e.proceed:
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		}
+	}
+
 	_, token, err := e.fixtureEncoder.StartHLSOwned(ctx, q)
 	if err != nil {
 		return nil, token, err
@@ -71,7 +82,7 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				t.Fatal(err)
 			}
 			a := &recoveryTestEncoder{data: data}
-			b := &recoveryTestEncoder{data: data}
+			b := &recoveryTestEncoder{data: data, ready: make(chan struct{}), proceed: make(chan struct{})}
 			manager, err := playback.New(playback.Deps{Catalog: fixtureCatalog{}, Resolver: fixtureResolver{}, Engine: fixtureEngine{}, Transcoder: &a.fixtureEncoder, SelectProfile: func(core.ClientCaps, *core.User) core.QualityProfile { return core.QualityProfile{} }}, config.Defaults(t.TempDir()), playback.Options{})
 			if err != nil {
 				t.Fatal(err)
@@ -173,9 +184,34 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			down.Store(true)
 			_ = front.Tick(ctx)
 			time.Sleep(2 * time.Millisecond)
-			if err = front.Tick(ctx); err != nil {
+			replacementDone := make(chan error, 1)
+			go func() { replacementDone <- front.Tick(ctx) }()
+			select {
+			case <-b.ready:
+			case <-ctx.Done():
+				t.Fatal("replacement not started")
+			}
+			waiting := make(chan *httptest.ResponseRecorder, 1)
+			go func() {
+				w := httptest.NewRecorder()
+				session.ServeSegment(w, httptest.NewRequest("GET", "https://public/wait", nil).WithContext(ctx), 2)
+				waiting <- w
+			}()
+			select {
+			case <-waiting:
+				t.Fatal("segment request failed before replacement ready")
+			case <-time.After(10 * time.Millisecond):
+			}
+			close(b.proceed)
+			if err = <-replacementDone; err != nil {
 				t.Fatal("replacement", err)
 			}
+			response := <-waiting
+			if response.Code != 200 || !bytes.Equal(response.Body.Bytes(), data) {
+				t.Fatalf("waiting segment: %d", response.Code)
+			}
+			fetched[2]++
+
 			record, err := p.Lookup(ctx, q.SessionID)
 			if err != nil || record.Generation != 2 || record.Target.NodeID != "b" {
 				t.Fatalf("replacement: %+v %v", record, err)
@@ -192,8 +228,12 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			if err = db.QueryRow(`SELECT COUNT(*) FROM placement_displaced_claims`).Scan(&charged); err != nil || charged != 1 {
 				t.Fatalf("lost charge: %d %v", charged, err)
 			}
-			for n := 2; n < 6; n++ {
+			for n := 3; n < 6; n++ {
 				fetch(n)
+			}
+			events, eventErr := front.RecoveryEvents(ctx, 256)
+			if eventErr != nil || len(events) != 1 || events[0].Status != "recovered" || events[0].FailedNodeID != "a" || events[0].ReplacementNodeID != "b" || events[0].InterruptionMS == nil || events[0].ClientStalls != nil {
+				t.Fatalf("events: %+v %v", events, eventErr)
 			}
 			down.Store(false)
 			late := httptest.NewRecorder()

@@ -48,6 +48,9 @@ func (r *Runtime) authorizeWorker(ctx context.Context, peer, op string, id remot
 		return nil
 	}
 	if op == "start" && start != nil {
+		if start.Resume != nil && start.Resume.Generation != id.Generation {
+			return ErrDenied
+		}
 		gate, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, id.Session, int64(id.Generation)})
 		if err != nil || gate.Gate.Seal != nil || gate.Gate.Binding.Identity != id {
 			return ErrDenied

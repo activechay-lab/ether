@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -90,11 +91,12 @@ func (s *recoverySession) fetch(w http.ResponseWriter, q *http.Request, rung str
 		} else {
 			out.ServeRungSegment(response, q.WithContext(attempt), rung, n)
 		}
+		finished := attempt.Err() == nil && response.complete(q.Method)
 		cancelAttempt()
 		// Validate AFTER receiving the complete representation, before any client
 		// bytes. A partitioned former encoder cannot win a late response race.
 		rec, lookupErr := s.r.o.Placement.Lookup(ctx, s.route.Fence.Session)
-		if lookupErr == nil && rec.Authority && !rec.Retired && out.allowedFence(rec.Fence, n) && !response.overflow && response.status != 0 && response.status != 503 && response.status != 404 {
+		if lookupErr == nil && rec.Authority && !rec.Retired && out.allowedFence(rec.Fence, n) && finished && !response.overflow && response.status != 0 && response.status != 503 && response.status != 404 {
 			for k, v := range response.headers {
 				w.Header()[k] = v
 			}
@@ -142,4 +144,12 @@ func (s *recoverySession) ServePlaylist(w http.ResponseWriter, q *http.Request) 
 		return
 	}
 	out.ServePlaylist(w, q)
+}
+
+func (w *pendingSegment) complete(method string) bool {
+	if method == http.MethodHead || w.status == http.StatusNotModified || w.status >= 400 {
+		return true
+	}
+	length, err := strconv.ParseInt(w.headers.Get("Content-Length"), 10, 64)
+	return err == nil && length >= 0 && length == int64(w.body.Len())
 }

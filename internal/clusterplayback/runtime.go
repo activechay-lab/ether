@@ -28,8 +28,8 @@ type Options struct {
 	EncoderSegmentWait  time.Duration
 	EncoderRPCDeadline  time.Duration
 	EncoderFailureGrace time.Duration
-	// OutputBuffer is an opt-in surviving-controller segment store. Scratch has
-	// one slot of MaxSegmentBytes; nil leaves existing delivery unchanged.
+	// OutputBuffer supplies surviving-controller segment retention. Nil allocates
+	// a bounded lazy store used only by eligible reencoded-video HLS sessions.
 	OutputBuffer                           *playbackbuffer.Store
 	MaxSegmentBytes                        int64
 	WorkerCapabilities, RemoteCapabilities remotetranscode.Capabilities

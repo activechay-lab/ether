@@ -70,7 +70,11 @@ func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
 		return err
 	}
 	request := placement.Request{Session: old.route.Fence.Session, Operation: op, ExpectedGeneration: old.route.Fence.Generation, Controller: old.route.Fence.Controller, Target: target, Role: config.RoleTranscode, Claims: claims, Lease: 2 * time.Minute}
-	route := old.route
+	route, err := r.route(ctx, old.route.Fence.Session)
+	if err != nil || route.Fence != old.route.Fence {
+		return ErrDenied
+	}
+	route.SourceGeneration = 0 // Source generations are scoped to this encoder generation.
 	route.Fence.Generation++
 	route.Fence.Target = target
 	replacement := &execution{route: route, request: request, initial: newInitialAdmission(route, q), done: x.done, recoveryCaps: caps}
@@ -156,7 +160,27 @@ func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(c, `UPDATE clusterplayback_routes SET generation=?,route=? WHERE session=? AND generation=?`, rec.Generation, string(data), rec.Session, old.Fence.Generation)
+		// Preserve source affinity if a source move raced replacement planning.
+		var currentRaw string
+		if err = tx.QueryRowContext(c, `SELECT route FROM clusterplayback_routes WHERE session=? AND generation=?`, old.Fence.Session, old.Fence.Generation).Scan(&currentRaw); err != nil {
+			return err
+		}
+		var current Route
+		if json.Unmarshal([]byte(currentRaw), &current) != nil || current.Source != route.Source || current.PlayID != route.PlayID || current.Revision != route.Revision {
+			return ErrDenied
+		}
+		updated, err := tx.ExecContext(c, `UPDATE clusterplayback_routes SET generation=?,route=? WHERE session=? AND generation=? AND route=?`, rec.Generation, string(data), rec.Session, old.Fence.Generation, currentRaw)
+		if err != nil {
+			return err
+		}
+		count, err := updated.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if count != 1 {
+			return ErrDenied
+		}
+		_, err = tx.ExecContext(c, `UPDATE clusterplayback_coordinators SET generation=? WHERE session=? AND generation=?`, rec.Generation, rec.Session, old.Fence.Generation)
 		return err
 	})
 	if err != nil {

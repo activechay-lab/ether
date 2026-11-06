@@ -19,26 +19,9 @@ import (
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 )
 
-// Retained-cache failure support is limited to unconditional full GET requests.
-// Range, HEAD, and conditional requests use the original worker and can fail
-// when that worker is unavailable. This is a remaining recovery gap, not
-// evidence that every client can continue playback through encoder failure.
-//
-// Cache replay requires the current live exact fence and original outer broker
-// authorization. Serving old generations after that authority expires or is
-// replaced needs a separate delivery mapping and is not enabled here.
-//
-// Retention has a lifetime budget: committed output is never evicted. Once
-// capacity is exhausted ordinary delivery continues without recovery retention.
-// A future rolling API needs an exact publication-floor CAS, explicit manifest
-// withdrawal, and reader pins preventing reclamation until all leases close.
-// This consumer implements none of that policy and never switches encoders.
-// The first recovery candidate remains same-source AAC copy at an independently
-// proven exact aligned access-unit cursor plus H264 reencode. Cold AAC encoding
-// adds samples; structural PES facts cannot admit generic restart or seamlessness.
-//
-// OutputBufferSnapshot reports retained container observations, never client
-// receipt/retention, decoded samples, sample ends or permission to recover.
+// OutputBufferSnapshot reports retained container observations. Fixed-grid
+// recovery maps the immutable prefix to its original generations; observations
+// do not prove viewer delivery, decoder continuity or permission to retire.
 type OutputBufferSnapshot struct {
 	Fence     placement.Fence
 	Retaining bool
