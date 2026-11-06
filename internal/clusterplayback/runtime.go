@@ -263,7 +263,6 @@ func (r *Runtime) sourcePolicy(ctx context.Context, owner placement.Target, s no
 		role config.NodeRole
 	}{
 		{route.Source, config.RoleSource},
-
 		{nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: s.Fence.Target.NodeID, Boot: s.Fence.Target.Boot}, config.RoleTranscode},
 	} {
 		if r.o.MemberRole(ctx, pair.id, pair.role) != nil {

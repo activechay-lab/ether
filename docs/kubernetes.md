@@ -444,7 +444,10 @@ These are credentials: do not export the binding table in evidence or logs.
 Surviving replicas restore protocol facts and run the original live policy
 checks. Binding snapshots are bounded by admitted placement history and become
 unreadable when that execution is retired or loses authority. They do not
-manufacture a new source owner or encoder start.
+manufacture a new source owner or encoder start. A repeated decision on the
+surviving coordinator can reuse the source manager’s exact protected lifetime;
+obsolete preparations cannot close it, and plan cleanup cannot retire a source
+while the healthy execution still owns its binding.
 
 The in-process `TestDeliveryAndControllerLossKeepExecution` stops delivery and
 controller HTTP listeners, waits for the real coordinator lease, and verifies

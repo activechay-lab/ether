@@ -91,8 +91,18 @@ func (r *Runtime) workerAuthenticate(q *http.Request) (string, error) {
 }
 
 type workerSessionKey struct{}
+type workerAuthorityKey struct{}
+type workerAuthority struct {
+	peer  nodewire.Identity
+	epoch string
+}
 
 func (r *Runtime) workerHTTP(w http.ResponseWriter, q *http.Request) {
+	peer, err := r.o.Guard.Request(q)
+	if err != nil {
+		http.Error(w, "denied", 401)
+		return
+	}
 	raw, err := io.ReadAll(http.MaxBytesReader(w, q.Body, remotetranscode.MaxMessage))
 	if err != nil {
 		http.Error(w, "request", 400)
@@ -103,7 +113,8 @@ func (r *Runtime) workerHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "request", 400)
 		return
 	}
-	clone := q.Clone(context.WithValue(q.Context(), workerSessionKey{}, envelope.Identity.Session))
+	ctx := context.WithValue(q.Context(), workerAuthorityKey{}, workerAuthority{peer, q.Header.Get(coordinatorEpochHeader)})
+	clone := q.Clone(context.WithValue(ctx, workerSessionKey{}, envelope.Identity.Session))
 	clone.Body = io.NopCloser(bytes.NewReader(raw))
 	r.worker.ServeHTTP(w, clone)
 }

@@ -244,7 +244,7 @@ func (r *Runtime) retirePreparation(ctx context.Context, peer nodewire.Identity,
 		return sourceResponse{}, ErrDenied
 	}
 	r.mu.Unlock()
-	if err := r.preparationController(ctx, peer, entry); err != nil {
+	if err := r.preparationController(ctx, peer, entry, true); err != nil {
 		return sourceResponse{}, err
 	}
 	r.mu.Lock()

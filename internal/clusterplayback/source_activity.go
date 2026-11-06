@@ -22,7 +22,7 @@ func (r *Runtime) sourceActivity(ctx context.Context, peer nodewire.Identity, m 
 	if entry == nil {
 		return sourceResponse{}, ErrDenied
 	}
-	if err := r.preparationController(ctx, peer, entry); err != nil {
+	if err := r.preparationController(ctx, peer, entry, false); err != nil {
 		return sourceResponse{}, err
 	}
 	use.ActivityMu.Lock()

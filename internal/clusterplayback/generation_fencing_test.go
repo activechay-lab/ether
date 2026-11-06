@@ -140,7 +140,10 @@ func TestPartitionedGenerationCannotPublishRenewOrReleaseReplacement(t *testing.
 			m[k] = v
 		}
 		b, _ := json.Marshal(m)
-		res, e := client.Post(ep, "application/json", bytes.NewReader(b))
+		request, _ := http.NewRequestWithContext(ctx, "POST", ep, bytes.NewReader(b))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set(coordinatorEpochHeader, "1")
+		res, e := client.Do(request)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -155,7 +158,10 @@ func TestPartitionedGenerationCannotPublishRenewOrReleaseReplacement(t *testing.
 	delayed := make(chan *http.Response, 1)
 	go func() {
 		b, _ := json.Marshal(map[string]any{"Version": remotetranscode.Version, "Op": "playlist", "Identity": id})
-		res, _ := client.Post(ep, "application/json", bytes.NewReader(b))
+		request, _ := http.NewRequestWithContext(ctx, "POST", ep, bytes.NewReader(b))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set(coordinatorEpochHeader, "1")
+		res, _ := client.Do(request)
 		delayed <- res
 	}()
 	select {

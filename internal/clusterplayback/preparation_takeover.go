@@ -49,16 +49,21 @@ func (r *Runtime) transferPreparation(ctx context.Context, peer nodewire.Identit
 
 // An obsolete preparation cannot close a source protected by a different live
 // coordinator. Terminal reconciliation continues after execution authority ends.
-func (r *Runtime) preparationController(ctx context.Context, peer nodewire.Identity, entry *preparation) error {
+func (r *Runtime) preparationController(ctx context.Context, peer nodewire.Identity, entry *preparation, retiring bool) error {
 	r.mu.Lock()
-	var routes []Route
+	type binding struct {
+		route    Route
+		retiring bool
+	}
+	var routes []binding
 	for _, source := range r.sources {
 		if source.life == entry.life && source.route.PlayID == entry.result.PlayID {
-			routes = append(routes, source.route)
+			routes = append(routes, binding{source.route, source.retiring})
 		}
 	}
 	r.mu.Unlock()
-	for _, route := range routes {
+	for _, bound := range routes {
+		route := bound.route
 		record, err := r.o.Placement.Lookup(ctx, route.Fence.Session)
 		if err != nil {
 			return err
@@ -72,6 +77,9 @@ func (r *Runtime) preparationController(ctx context.Context, peer nodewire.Ident
 		}
 		if c.Identity != peer {
 			return ErrDenied
+		}
+		if retiring && !bound.retiring {
+			return ErrPending
 		}
 	}
 	return nil

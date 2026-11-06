@@ -189,6 +189,13 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	start := httptest.NewRequest("GET", "https://public"+startURI, nil)
 	start.Header.Set("X-Plex-Token", "offline-account")
 	start.Header.Set("X-Plex-Client-Identifier", "composed-client")
+	initialDecisionRequest := httptest.NewRequest("GET", "https://public"+strings.Replace(startURI, "start.m3u8", "decision", 1), nil)
+	initialDecisionRequest.Header = start.Header.Clone()
+	decisionResult := httptest.NewRecorder()
+	publicOwner.ServeHTTP(decisionResult, initialDecisionRequest)
+	if decisionResult.Code != 200 || strings.Contains(decisionResult.Body.String(), `generalDecisionCode="2000"`) {
+		t.Fatalf("initial decision %d", decisionResult.Code)
+	}
 	master := httptest.NewRecorder()
 	publicOwner.ServeHTTP(master, start)
 	if master.Code != 200 {

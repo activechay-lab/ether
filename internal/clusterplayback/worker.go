@@ -9,6 +9,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -25,6 +26,13 @@ func remoteIdentity(rt Route) remotetranscode.Identity {
 	return remotetranscode.Identity{Controller: rt.Fence.Controller.Boot, Worker: rt.Fence.Target.Boot, Session: rt.Fence.Session, Generation: uint64(rt.Fence.Generation)}
 }
 func (r *Runtime) authorizeWorker(ctx context.Context, peer, op string, id remotetranscode.Identity, start *remotetranscode.Start) error {
+	if authority, ok := ctx.Value(workerAuthorityKey{}).(workerAuthority); ok {
+		coordinator, err := r.CurrentCoordinator(ctx, id.Session)
+		if err != nil || coordinator.Identity != authority.peer || strconv.FormatInt(coordinator.Epoch, 10) != authority.epoch || !coordinator.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
+			return ErrDenied
+		}
+	}
+
 	rt, e := r.route(ctx, id.Session)
 	if e != nil || remoteIdentity(rt) != id || rt.Fence.Target.NodeID != r.o.Self.NodeID || rt.Fence.Target.Boot != r.o.Self.Boot || peer != rt.Fence.Controller.Boot {
 		return ErrDenied
