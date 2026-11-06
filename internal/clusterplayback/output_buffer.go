@@ -144,6 +144,7 @@ func (s *bufferedSession) ServeRungSegment(w http.ResponseWriter, q *http.Reques
 }
 
 func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n int, serve func(http.ResponseWriter, *http.Request) remotetranscode.RepresentationCompletion) {
+	w = s.r.fencedDelivery(w, q, s.route)
 	// Conditional and partial requests keep the exact upstream semantics. A 206,
 	// HEAD, or even a Range request answered 200 is not capture admission.
 	if n < 0 || n > 10000000 || q.Method != http.MethodGet || q.Header.Get("Range") != "" ||
@@ -207,6 +208,9 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 		s.degrade("incomplete or unsupported full segment response")
 		return
 	}
+	if s.r.deliveryAuthority(q.Context(), s.route) != nil {
+		return
+	}
 	if err := s.r.o.OutputBuffer.Retain(q.Context(), key, playbackbuffer.MPEGTS, int64(len(capture.body)), bytes.NewReader(capture.body)); err != nil {
 		s.degrade("segment retention unavailable")
 		return
@@ -244,7 +248,10 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 			keys = append(keys, candidate)
 		}
 		if len(keys) > 0 {
-			err = s.r.o.OutputBuffer.Publish(key.Session, snapshot.State, keys)
+			err = s.r.deliveryAuthority(q.Context(), s.route)
+			if err == nil {
+				err = s.r.o.OutputBuffer.Publish(key.Session, snapshot.State, keys)
+			}
 			if err == nil {
 				s.published.Store(true)
 			}

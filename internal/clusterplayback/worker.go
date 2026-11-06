@@ -81,7 +81,12 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 	if e != nil {
 		return remotetranscode.Source{}, e
 	}
-	gateway, e := nodeinput.New(nodeinput.Options{Client: c, Capacity: 1, MaxRequests: 8, RequestTimeout: 30 * time.Second})
+	gateway, e := nodeinput.New(nodeinput.Options{ValidateScope: func(ctx context.Context, scope nodesource.Scope) error {
+		if scope.Fence != rt.Fence {
+			return ErrDenied
+		}
+		return r.authorizeWorker(ctx, peer, "input", s.Identity, nil)
+	}, Client: c, Capacity: 1, MaxRequests: 8, RequestTimeout: 30 * time.Second})
 	if e != nil {
 		c.Close()
 		return remotetranscode.Source{}, e
