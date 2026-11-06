@@ -21,6 +21,15 @@ if ([IO.Path]::GetFullPath($LabRoot).TrimEnd('\') -notin @('C:\ether-gpu-lab','D
 if ($LASTEXITCODE -ne 0) { throw 'Native NVIDIA inventory failed' }
 Get-NetIPAddress -AddressFamily IPv4 | Select-Object InterfaceAlias,IPAddress | ConvertTo-Json -Compress
 if ($Action -eq 'Inventory') { return }
+function Assert-WSLMemoryHeadroom {
+    # Read the existing distro's PSI immediately before each heavy operation.
+    # Never restart WSL or change its memory configuration to pass this gate.
+    $Pressure = (& wsl.exe --distribution Ubuntu-24.04 --exec cat /proc/pressure/memory) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or $Pressure -notmatch '(?m)^full avg10=([0-9]+(?:\.[0-9]+)?)') { throw 'Cannot verify WSL memory pressure' }
+    $Full = [double]::Parse($Matches[1],[Globalization.CultureInfo]::InvariantCulture)
+    Write-Output $Pressure
+    if ($Full -gt 10) { throw 'WSL full avg10 exceeds 10; wait and recheck before encoding or starting the specialist' }
+}
 New-Item -ItemType Directory -Force -Path $LabRoot | Out-Null
 $Secrets = Join-Path $LabRoot 'secrets'
 $Data = Join-Path $LabRoot 'config'
@@ -44,6 +53,7 @@ $Launcher = Join-Path $LabRoot 'ether-lab-launcher.exe'
 if (-not (Test-Path $FFmpeg)) { throw 'Stage the checksum-verified pinned Windows FFmpeg bundle in the lab directory first' }
 & $FFmpeg -hide_banner -version | Select-Object -First 1
 # This executes an actual native NVENC encode; encoder listings alone are not proof.
+Assert-WSLMemoryHeadroom
 & $FFmpeg -hide_banner -nostdin -f lavfi -i 'testsrc2=size=640x360:rate=24' -frames:v 48 -c:v h264_nvenc -f null - 2> (Join-Path $Logs 'nvenc-smoke.log')
 if ($LASTEXITCODE -ne 0) { throw 'Native NVENC encode failed; inspect the owned lab log' }
 if ($Action -eq 'Encode') { Write-Output 'Native generated NVENC encode passed; distributed playback not tested'; return }
@@ -82,6 +92,7 @@ $env:PATH = $FFmpegDirectory + [IO.Path]::PathSeparator + $env:PATH
 if (-not (Test-Path $Launcher)) { throw 'Stage reviewed owned job launcher before Start' }
 $Process = $null
 try {
+    Assert-WSLMemoryHeadroom
     $Process = Start-Process -FilePath $Launcher -WorkingDirectory $LabRoot -PassThru `
         -RedirectStandardOutput (Join-Path $Logs 'ether.stdout.log') -RedirectStandardError (Join-Path $Logs 'ether.stderr.log')
     $OwnedHandle = $Process.Handle # Retain the exact native object before status/exit inspection.
