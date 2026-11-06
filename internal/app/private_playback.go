@@ -112,8 +112,14 @@ func (a *App) reconcilePrivatePlacement(ctx context.Context, observation *privat
 	p := a.deployment
 	self := a.cluster.Self()
 	id := nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: self.ID, Boot: self.Incarnation}
-	if _, err := a.privateMemberObserved(ctx, id, observation); err != nil {
+	if err := a.privateSelfReady(id, observation); err != nil {
 		return err
+	}
+	// Delivery owns no encoder pool or placement authority. After the initial
+	// empty target is registered, its ability to forward existing media does
+	// not depend on repeating that write (or on the quota refresh deadline).
+	if len(p.settings.Roles) == 1 && p.settings.Roles[0] == config.RoleDelivery && p.started.Load() {
+		return nil
 	}
 	var roles config.NodeRoles
 	scopes := map[config.NodeRole][]string{}
