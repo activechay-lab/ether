@@ -61,8 +61,7 @@ their slotter authors a separate timeline. Both restart correction helpers refus
 those run specifications, including a final chunked run with no remaining KeyTimes.
 
 The measured recovery configuration is libx264 with copied LC AAC at 48 kHz.
-Hardware encoder reorder depths, audio re-encoding identity and
-other video codecs require separate proof. Ordinary video-copy arguments remain
+Hardware encoder reorder depths, other video codecs require separate proof. Ordinary video-copy arguments remain
 unchanged. Copy-video HLS uses source keyframes: the session timeline snaps to
 known keyframes; without a source index the muxer cuts at the next source
 keyframe after its requested duration. Such a grid cannot be inferred from N*d;
@@ -78,3 +77,45 @@ an argv-based process runner. `-copy-video` exercises the ordinary remux builder
 Never execute that JSON through a shell. SIGKILL trials must record the exact
 owned child, finalized filenames at death and first missing index; a normal
 completed encode followed by concatenation does not prove a kill trial.
+
+## Re-encoded AAC
+
+Use `-reencoded-audio` (JSON `Options.ReencodedAudio: true`) for independently
+encoded AAC. `AudioAUExact` remains false and explicitly inapplicable; acceptance
+uses the distinct `PCMContinuous` result. Copied AAC still requires literal AU
+equality. A reference remains mandatory.
+
+The PCM gate compares every AAC packet timestamp to the uninterrupted reference
+on the output sample clock, with only timestamp serialization rounding allowed
+(less than half a sample). Each handoff reports actual missing/overlapping
+samples and requires both to be zero. It decodes the byte-concatenated stream,
+preserving the preceding AAC overlap state, and compares PCM over +/-100 ms
+around each generation boundary. SNR must be at least 30 dB; the boundary sample
+step must not exceed the reference's local maximum per-channel sample step.
+No fitted lag, asynchronous resampling or inserted silence can conceal a gap.
+`PCMBoundaries` reports sample counts, SNR and both sample-step measurements.
+
+Software H264/AAC replacement runs decode from an integer-second seek preceding
+one second of audio preroll, with another integer second for decoder warmup. Decoded frame PTS are restored to the source frame grid while retaining the
+probe-reported initial decoder padding, before an integer-second trim initializes
+the resampler on its original sample phase. Audio is resampled, trimmed to a multiple of 1024
+output samples, then assigned an integer sample timebase. The AAC encoder runs
+through its priming/lookahead before a packet filter discards preroll at the
+same video-DTS cut used by the initial HLS muxer. Video is trimmed independently
+to the original authored boundary. AAC is not shifted to hide priming: retained
+packets describe the same samples on the original clock. This also applies when
+a lower HLS or DASH rendition starts at the handoff boundary. Fresh-start arguments are
+unchanged. The lab's `-copy-audio=false` exercises stereo AAC re-encoding.
+
+The source probe retains `StreamInfo.DecodedPadding`, the initial padding already
+removed from a nonnegative decoded source clock. A demuxer that instead reports
+a negative origin still includes that priming; subtracting it again would shift
+the waveform. Use the same FFprobe build as FFmpeg when producing lab probe JSON.
+
+The stock 8.0.1 demuxer reports negative Matroska CodecDelay origins for its own
+synthetic AAC/AC3 fixtures. The uninterrupted output already has a shifted video
+origin and, for AAC/resampling, source-clock jitter. These stock-generated MKV
+cases are explicitly excluded from the clean-reference adaptive/resampling gate
+as pre-existing demuxer behaviour. The tests print that exclusion; it is not a
+claim of seamless playback for those fixtures. The fixed-source AC3 kill matrix
+still runs through both encoder/muxer builds, each with its matching source probe.

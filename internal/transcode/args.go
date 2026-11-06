@@ -324,7 +324,12 @@ func buildCodecArgs(s runSpec) []string {
 		args = append(args, "-stream_loop", "-1")
 	}
 	if s.Start > 0 && !pceOutputSeek {
-		args = append(args, "-ss", secs(s.Start))
+		seek := secs(s.Start)
+		if start, ok := hlsAudioPreroll(s); ok {
+			seek = strconv.FormatFloat(math.Max(0, math.Floor(start)-1), 'f', 0, 64)
+			args = append(args, "-noaccurate_seek")
+		}
+		args = append(args, "-ss", seek)
 	}
 	if s.httpCopyTimestamps() {
 		args = append(args, "-copyts")
@@ -524,6 +529,18 @@ func buildCodecArgs(s runSpec) []string {
 			args = append(args, "-c:a", enc, "-ac", strconv.Itoa(ch), "-ar", strconv.Itoa(decisionAudioRate(d)),
 				"-b:a", fmt.Sprintf("%dk", kbps))
 			filters := append([]string(nil), d.AudioFilters...)
+			if start, ok := hlsAudioPreroll(s); ok {
+				rate := decisionAudioRate(d)
+				// Coarse demuxer clocks round packet PTS. Recover the decoded
+				// frame grid before resampling, retaining source codec padding.
+				// The first frame may be shortened by decoder priming.
+				if a.SampleRate > 0 {
+					filters = append(filters, fmt.Sprintf("asettb=1/%d,asetpts='if(eq(N,0),PTS,round((PTS+%d)/NB_SAMPLES)*NB_SAMPLES-%d)',atrim=start=%.0f", a.SampleRate, a.DecodedPadding, a.DecodedPadding, math.Floor(start)))
+				}
+				filters = append(filters, fmt.Sprintf("aresample=%d,atrim=start=%.9f,asettb=1/%d,asetpts=N+%d", rate, start, rate, int64(math.Round(start*float64(rate)))))
+				cut := hlsAudioRestartCut(s)
+				args = append(args, "-bsf:a", fmt.Sprintf("noise=amount=0:drop='lt(pts*tb,%.9f)'", cut))
+			}
 			if s.AudioGainDB != 0 {
 				filters = append(filters, fmt.Sprintf("volume=%.1fdB", s.AudioGainDB))
 				if s.AudioGainDB > 0 {
@@ -550,6 +567,35 @@ func buildCodecArgs(s runSpec) []string {
 		args = append(args, "-output_ts_offset", strconv.FormatFloat(lead.Seconds(), 'f', 9, 64))
 	}
 	return args
+}
+
+// hlsAudioPreroll warms the AAC encoder on its original sample grid. Only
+// replacement runs change: the initial encode's bytes and mux clock are retained.
+// One second of encoder preroll covers AAC overlap/lookahead. Input decode
+// starts one further integer second earlier to warm decoder/resampler state.
+func hlsAudioPreroll(s runSpec) (float64, bool) {
+	if s.Start <= 0 || s.Decision.AudioCopy || s.SilenceAudio || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Decision.VideoCopy || s.ChunkDir != "" || len(s.KeyTimes) > 0 || (s.Protocol != core.ProtocolHLS && s.Protocol != core.ProtocolDASH) || (s.Decision.Container != ContainerMPEGTS && s.Decision.Container != ContainerFMP4) || (s.Decision.AudioCodec != "" && s.Decision.AudioCodec != "aac") {
+		return 0, false
+	}
+	if a := findStream(s.Info, s.Decision.AudioStream, "audio"); a == nil || a.SampleRate <= 0 {
+		return 0, false
+	}
+	enc, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features)
+	if enc != "libx264" || hlsOutputFPS(s) <= 0 {
+		return 0, false
+	}
+	rate := float64(decisionAudioRate(s.Decision))
+	return math.Max(0, math.Floor((s.Start.Seconds()-1)*rate/1024)*1024/rate), true
+}
+
+func hlsAudioRestartCut(s runSpec) float64 {
+	if s.Protocol == core.ProtocolDASH {
+		rate := float64(decisionAudioRate(s.Decision))
+		return math.Floor(s.Start.Seconds()*rate/1024) * 1024 / rate
+	}
+	fps := hlsOutputFPS(s)
+	_, _, _, delay := x264FramePlan(s)
+	return hlsGridVideoStart(s, fps) - float64(delay)/fps
 }
 
 // hlsRestartLead covers only the measured software H264 CFR configuration.
@@ -1331,6 +1377,9 @@ func planVideo(s runSpec, v *core.StreamInfo) videoPlan {
 	if pic.tonemap && !toneMapped(chain, hwFrames) {
 		p.err = &GraphError{Message: toneMapUnavailableMessage()}
 		return p
+	}
+	if _, ok := hlsAudioPreroll(s); ok {
+		chain = append([]string{"trim=start=" + secs(s.Start)}, chain...)
 	}
 	p.inputArgs = append(p.inputArgs, chainInput...)
 

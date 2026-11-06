@@ -17,6 +17,7 @@ func main() {
 	container := flag.String("container", "mpegts", "mpegts or fmp4")
 	first := flag.Int("first", 0, "first segment")
 	copyVideo := flag.Bool("copy-video", false, "remux source keyframe grid")
+	copyAudio := flag.Bool("copy-audio", true, "copy source AAC; false encodes stereo AAC")
 	flag.Parse()
 	b, e := os.ReadFile(*probe)
 	if e != nil {
@@ -26,5 +27,5 @@ func main() {
 	if e != nil {
 		panic(e)
 	}
-	json.NewEncoder(os.Stdout).Encode(transcode.SpliceLabArgs(*input, *dir, *info, *container, *first, *copyVideo))
+	json.NewEncoder(os.Stdout).Encode(transcode.SpliceLabArgs(*input, *dir, *info, *container, *first, *copyVideo, *copyAudio))
 }
