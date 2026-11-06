@@ -112,7 +112,11 @@ export function CatalogBrowser({
   const { dashboard } = useApp();
   useEffect(() => {
     // Remove data written by the retired catalogue view feature on upgrade.
-    try { localStorage.removeItem("ether.catalog.views"); } catch { /* Storage may be unavailable. */ }
+    try {
+      localStorage.removeItem("ether.catalog.views");
+    } catch {
+      /* Storage may be unavailable. */
+    }
   }, []);
   const query = params.get("q") ?? "";
   const debouncedQuery = useDebouncedValue(query, 300);
