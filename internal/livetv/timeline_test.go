@@ -3,6 +3,8 @@ package livetv
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/braedonsaunders/ether/internal/core"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -134,5 +136,42 @@ func TestProgrammingMigrationPreservesSchedules(t *testing.T) {
 		if !reflect.DeepEqual(oldSchedule, newSchedule) {
 			t.Fatalf("migration changed %s", before.ID)
 		}
+	}
+}
+
+// The timeline horizon must stay isolated from guide output and remain cold
+// until a background publication matches the current recipe generation.
+func TestTimelineExtendedSnapshotIsolation(t *testing.T) {
+	s := testService(t, Options{})
+	ctx := context.Background()
+	c := testChannel()
+	c.Items[0].DurationMS = int64((2 * time.Hour) / time.Millisecond)
+	c, err := s.SaveChannel(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := s.o.Now()
+	before, err := s.ProgrammesSnapshot(ctx, &core.User{IsOwner: true}, c.ID, now, now.Add(time.Hour), SnapshotGuide)
+	if err != nil {
+		t.Fatal(err)
+	}
+	from, until := now.Add(20*24*time.Hour), now.Add(21*24*time.Hour)
+	cold := &Service{o: s.o, virtualGuide: virtualGuideCache{entries: s.virtualGuide.entries, epoch: s.virtualGuide.epoch, revision: s.virtualGuide.revision}}
+	if _, err = cold.ProgrammesSnapshot(ctx, &core.User{IsOwner: true}, c.ID, from, until, SnapshotTimeline); !errors.Is(err, core.ErrNotAvailable) {
+		t.Fatalf("cold timeline: %v", err)
+	}
+	if err = cold.refreshTimelineGuide(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ps, err := cold.ProgrammesSnapshot(ctx, &core.User{IsOwner: true}, c.ID, from, until, SnapshotTimeline)
+	if err != nil || len(ps) == 0 {
+		t.Fatalf("extended timeline: %d %v", len(ps), err)
+	}
+	if _, err = cold.ProgrammesSnapshot(ctx, &core.User{IsOwner: true}, c.ID, from, until, SnapshotGuide); !errors.Is(err, core.ErrNotAvailable) {
+		t.Fatalf("guide horizon changed: %v", err)
+	}
+	after, err := cold.ProgrammesSnapshot(ctx, &core.User{IsOwner: true}, c.ID, now, now.Add(time.Hour), SnapshotGuide)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatal("timeline warm changed guide")
 	}
 }

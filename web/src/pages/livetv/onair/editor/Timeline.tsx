@@ -15,7 +15,15 @@ import { ToolButton } from "./InsertBar";
 import { t } from "../../../../i18n";
 import { studio, type StyleScene, type LibraryAsset } from "../studio-model";
 import { renderScene, type Layer } from "../scene-renderer";
-import { isAnimated, moveKeyframe, removeKeyframe, setEase, type Ease } from "./keyframes";
+import {
+  setKeyframe,
+  valueAt,
+  isAnimated,
+  moveKeyframe,
+  removeKeyframe,
+  setEase,
+  type Ease,
+} from "./keyframes";
 import { applyAnimation, presets, type AnimationPreset } from "./animation-presets";
 import { SoundLane } from "./SoundLane";
 
@@ -210,7 +218,53 @@ export function Timeline(p: {
             </div>
           </div>
           {expanded.includes(l.id) && (
-            <div className="pl-12">
+            <div className="space-y-2 bg-bg-subtle py-2 pl-8 pr-2">
+              {!Object.values(l).some(isAnimated) && !l.behave?.length && !l.reveal && (
+                <p className="text-fg-muted">{t("Select a layer to give it motion.")}</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    edit(l.id, (old) =>
+                      setKeyframe(old, "opacity", p.time, valueAt(old.opacity ?? 1, p.time)),
+                    )
+                  }
+                >
+                  {t("Add keyframe at playhead")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    p.onSelect([l.id]);
+                    setAnimateOpen(true);
+                  }}
+                >
+                  {t("Animate")}
+                  <ChevronDown size={11} />
+                </Button>
+              </div>
+              {l.reveal && (
+                <div className="flex flex-wrap items-center gap-2 rounded-full border border-border px-3 py-1">
+                  <span>{t("Reveal")}</span>
+                  <span>{propertyName(l.reveal.wipe)}</span>
+                  <span>
+                    {t("{time} / {duration}s", { time: l.reveal.from, duration: l.reveal.to })}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      p.onTime(l.reveal!.from);
+                      p.onSelect([l.id]);
+                    }}
+                  >
+                    {t("Preview")}
+                  </Button>
+                </div>
+              )}
               {Object.entries(l)
                 .filter(([, v]) => isAnimated(v))
                 .map(([key, v]) => (
@@ -283,8 +337,13 @@ export function Timeline(p: {
                 ))}
               {l.behave?.map((b, i) =>
                 Object.entries(b).map(([kind, params]) => (
-                  <div key={i} className="flex flex-wrap gap-2 rounded border p-2">
-                    <span>{propertyName(kind)}</span>
+                  <div
+                    key={i}
+                    className="flex flex-wrap items-center gap-2 rounded-xl border border-border p-2"
+                  >
+                    <span className="rounded-full bg-primary/10 px-3 py-1 font-medium text-primary">
+                      {propertyName(kind)}
+                    </span>
                     <Button
                       variant="ghost"
                       onClick={() =>
@@ -320,7 +379,7 @@ export function Timeline(p: {
               )}
             </div>
           )}
-          {l.layers && rows(l.layers, depth + 1)}
+          {expanded.includes(l.id) && l.layers && rows(l.layers, depth + 1)}
         </div>
       );
     });
@@ -345,7 +404,7 @@ export function Timeline(p: {
     setPicker(false);
   };
   return (
-    <section className="space-y-1 text-xs" aria-label={t("Timeline")}>
+    <section className="text-xs" aria-label={t("Timeline")}>
       <div className="sticky top-0 z-20 flex h-8 items-center gap-1 border-b border-border bg-surface pb-1">
         <ToolButton
           label={p.playing ? t("Pause") : t("Play")}

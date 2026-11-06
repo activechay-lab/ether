@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { HOUR, labelDetail, layoutElements, tooltipContent, daypartBands } from "./schedule-layout";
+import {
+  HOUR,
+  mergeTimelineElements,
+  labelDetail,
+  layoutElements,
+  tooltipContent,
+  daypartBands,
+} from "./schedule-layout";
 import { scheduleFixture } from "../../mock/schedule-timeline";
 describe("schedule layout", () => {
   const from = Date.UTC(2026, 10, 5),
@@ -40,5 +47,24 @@ describe("schedule layout", () => {
     expect(bands).toHaveLength(1);
     expect(bands[0]!.start).toBe(Date.UTC(2026, 10, 5, 4));
     expect(bands[0]!.end).toBe(Date.UTC(2026, 10, 5, 7));
+  });
+});
+
+it("joins clipped identities and nested children across lazy windows", () => {
+  const element = scheduleFixture("edge", 0, HOUR).elements[0]!;
+  const child = { ...element, id: "child" };
+  const left = { ...element, start: 0, end: HOUR, children: [{ ...child, start: 0, end: HOUR }] };
+  const right = {
+    ...element,
+    start: HOUR,
+    end: HOUR * 2,
+    children: [{ ...child, start: HOUR, end: HOUR * 2 }],
+  };
+  const joined = mergeTimelineElements([left], [right]);
+  expect(joined).toHaveLength(1);
+  expect(joined[0]).toMatchObject({
+    start: 0,
+    end: HOUR * 2,
+    children: [{ id: "child", start: 0, end: HOUR * 2 }],
   });
 });

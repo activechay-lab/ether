@@ -105,7 +105,7 @@ func (s *Service) timelineRoute(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	programmes, err := s.ProgrammesSnapshot(r.Context(), user, c.ID, time.UnixMilli(start), time.UnixMilli(end), SnapshotPlayback)
+	programmes, err := s.ProgrammesSnapshot(r.Context(), user, c.ID, time.UnixMilli(start), time.UnixMilli(end), SnapshotTimeline)
 	if errors.Is(err, core.ErrNotAvailable) {
 		w.Header().Set("Retry-After", "2")
 		http.Error(w, "Guide snapshot is warming", http.StatusServiceUnavailable)

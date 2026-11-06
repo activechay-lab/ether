@@ -34,6 +34,8 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 type Service struct {
 	maintenance        maintenanceHealth
 	virtualGuide       virtualGuideCache
+	breakObserved      chan breakObservation
+	observedBreaks     map[core.RatingKey]breakObservation
 	guideAIMu          sync.Mutex
 	graphicsWake       chan struct{}
 	reelSnapshots      map[string]*ReelSnapshot
@@ -62,6 +64,8 @@ type Service struct {
 	kinds              *KindRegistry
 	policyReads        atomic.Uint64
 	mu                 sync.Mutex
+	breakOwners        map[string]int64 // admitted save identities; never persisted
+	breakOwnerRevision uint64           // identity admission invalidates background retries
 	lineupUnix         int64
 	onChange           func()
 	sessions           map[string]*session
@@ -106,7 +110,7 @@ func New(o Options) (*Service, error) {
 	if kinds == nil {
 		kinds = NewKindRegistry()
 	}
-	s := &Service{graphicsWake: make(chan struct{}, 1), o: o, kinds: kinds, sessions: map[string]*session{}, ctx: ctx, cancel: cancel, lineupUnix: o.Now().Unix()}
+	s := &Service{breakObserved: make(chan breakObservation, 64), observedBreaks: map[core.RatingKey]breakObservation{}, graphicsWake: make(chan struct{}, 1), o: o, kinds: kinds, sessions: map[string]*session{}, ctx: ctx, cancel: cancel, lineupUnix: o.Now().Unix()}
 	if o.Picker != nil && o.Users != nil {
 		s.wg.Add(1)
 		go s.personalLoop()
@@ -114,6 +118,10 @@ func New(o Options) (*Service, error) {
 	s.virtualGuide.wake = make(chan struct{}, 1)
 	s.wg.Add(1)
 	go s.virtualGuideLoop()
+	if o.BreakInput != nil && o.BreakAnalyzer != nil {
+		s.wg.Add(1)
+		go s.breakLoop()
+	}
 	s.wg.Add(3)
 	go s.maintain()
 	go s.refreshLoop()
@@ -788,6 +796,7 @@ func (s *Service) SaveChannel(ctx context.Context, c Channel) (Channel, error) {
 	}
 	_, err = s.o.DB.ExecContext(ctx, `INSERT INTO livetv_channels(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, c.ID, b)
 	if err == nil {
+		s.captureBreakOwner(ctx, c.ID)
 		s.invalidate(c.ID, "")
 		if err = s.refreshVirtualGuide(ctx); err != nil {
 			return c, err
@@ -799,6 +808,9 @@ func (s *Service) SaveChannel(ctx context.Context, c Channel) (Channel, error) {
 func (s *Service) DeleteChannel(ctx context.Context, id string) error {
 	_, err := s.o.DB.ExecContext(ctx, `DELETE FROM livetv_channels WHERE id=?`, id)
 	if err == nil {
+		s.mu.Lock()
+		delete(s.breakOwners, id)
+		s.mu.Unlock()
 		s.invalidate(id, "")
 		if err = s.refreshVirtualGuide(ctx); err != nil {
 			return err

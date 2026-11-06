@@ -26,25 +26,25 @@ func interstitial(it Item) bool {
 func (c Channel) moments(at time.Time) []Item { return c.momentsWithin(at, 0) }
 func (c Channel) momentsWithin(at time.Time, budget time.Duration) []Item {
 	if c.Look != nil && c.Look.BreakPattern != nil {
+		// Era pods compose with the ordinary channel moments. Reserve their
+		// time first so a full pod cannot silently consume ident/up-next.
+		plain := c
 		look := *c.Look
 		look.BreakPattern = nil
 		look.Breaks = ""
-		creative := c
-		creative.Look = &look
-		extras := creative.momentsWithin(at, budget)
-		var reserved time.Duration
-		for _, it := range extras {
-			reserved += time.Duration(it.DurationMS) * time.Millisecond
-		}
-		available := budget
+		plain.Look = &look
+		regular := plain.momentsWithin(at, budget)
+		remaining := budget
 		if budget > 0 {
-			available -= reserved
-			if available <= 0 {
-				return extras
+			for _, item := range regular {
+				remaining -= time.Duration(item.DurationMS) * time.Millisecond
+			}
+			if remaining <= 0 {
+				return regular
 			}
 		}
-		pods := c.podItems(at, available)
-		return append(pods, extras...)
+		pod := c.podItems(at, remaining)
+		return append(pod, regular...)
 	}
 	if c.Look == nil || c.clipDuration == nil {
 		return nil
@@ -239,18 +239,6 @@ func (s *Service) clipRequest(c Channel, p Programme, snapshots ...[]Programme) 
 	return r
 }
 func (s *Service) graphicsChannel(c Channel) Channel {
-	if c.Kind == "virtual" && s.o.DefaultStyle != nil {
-		id := s.o.DefaultStyle()
-		if id != "" && (c.Look == nil || c.Look.LookID == "") {
-			if c.Look == nil {
-				c.Look = &ChannelLook{Ident: true, UpNext: true, OffAir: true}
-			} else {
-				cp := *c.Look
-				c.Look = &cp
-			}
-			c.Look.LookID = id
-		}
-	}
 
 	if s.o.Graphics != nil {
 		c.clipDuration = s.o.Graphics.Duration

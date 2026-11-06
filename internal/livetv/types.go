@@ -11,6 +11,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/markers"
 )
 
 const Provider = "tv.plex.providers.epg.xmltv:1"
@@ -22,26 +23,29 @@ type BreakPoint struct {
 }
 
 type Item struct {
-	SourceID      string         `json:"sourceId,omitempty"`
-	BreakPoints   []BreakPoint   `json:"breakPoints,omitempty"`
-	BreakPointsMS []int64        `json:"breakPointsMs,omitempty"`
-	ReelID        string         `json:"reelId,omitempty"`
-	ReelClipID    string         `json:"reelClipId,omitempty"`
-	EpisodeTitle  string         `json:"episodeTitle,omitempty"`
-	ShowTitle     string         `json:"showTitle,omitempty"`
-	Art           string         `json:"art,omitempty"`
-	Genres        []string       `json:"genres,omitempty"`
-	GUID          string         `json:"guid,omitempty"`
-	ShowGUID      string         `json:"showGuid,omitempty"`
-	MediaType     string         `json:"mediaType,omitempty"`
-	Premiere      bool           `json:"premiere,omitempty"`
-	Live          bool           `json:"live,omitempty"`
-	Key           core.RatingKey `json:"key"`
-	Title         string         `json:"title"`
-	DurationMS    int64          `json:"durationMs"`
-	Summary       string         `json:"summary,omitempty"`
-	Rating        string         `json:"rating,omitempty"`
-	Thumb         string         `json:"thumb,omitempty"`
+	BreakAvailableAfterMS int64          `json:"breakAvailableAfterMs,omitempty"`
+	SourceID              string         `json:"sourceId,omitempty"`
+	BreakReleaseID        string         `json:"breakReleaseId,omitempty"`
+	BreakRevision         string         `json:"breakRevision,omitempty"`
+	BreakPoints           []BreakPoint   `json:"breakPoints,omitempty"`
+	BreakPointsMS         []int64        `json:"breakPointsMs,omitempty"`
+	ReelID                string         `json:"reelId,omitempty"`
+	ReelClipID            string         `json:"reelClipId,omitempty"`
+	EpisodeTitle          string         `json:"episodeTitle,omitempty"`
+	ShowTitle             string         `json:"showTitle,omitempty"`
+	Art                   string         `json:"art,omitempty"`
+	Genres                []string       `json:"genres,omitempty"`
+	GUID                  string         `json:"guid,omitempty"`
+	ShowGUID              string         `json:"showGuid,omitempty"`
+	MediaType             string         `json:"mediaType,omitempty"`
+	Premiere              bool           `json:"premiere,omitempty"`
+	Live                  bool           `json:"live,omitempty"`
+	Key                   core.RatingKey `json:"key"`
+	Title                 string         `json:"title"`
+	DurationMS            int64          `json:"durationMs"`
+	Summary               string         `json:"summary,omitempty"`
+	Rating                string         `json:"rating,omitempty"`
+	Thumb                 string         `json:"thumb,omitempty"`
 	// Show metadata keeps episodes in season order inside a shuffle,
 	// marathon or newest-first playout. Zero values are movies and items
 	// saved before weekly scheduling, which stay in their stored order.
@@ -329,6 +333,7 @@ type Programme struct {
 	SourceID         string `json:"sourceId,omitempty"`
 	Pinned           bool   `json:"pinned,omitempty"`
 	Rule             string `json:"rule,omitempty"`
+	naturalBreaks    bool
 	policyTag        *broadcastPolicyTag
 	sourceOffset     time.Duration
 	graphicsRequest  *core.ClipRequest
@@ -372,16 +377,19 @@ type Policy struct {
 	channelSet map[string]struct{} // Channels as a set for long lists; see indexChannels
 }
 type Options struct {
-	GuideAI      GuideAIClient
-	Reels        func(context.Context, string) (ReelSnapshot, error)
-	InputUser    func(context.Context) (*core.User, error)
-	DefaultStyle func() string
-	StyleScreens func(string) *config.LiveTVScreens
-	Screens      func() config.LiveTVScreens
-	Watchlist    interface{ Generation() uint64 }
-	Picker       core.PersonalPicker
-	State        core.State
-	Users        interface {
+	// BreakInput opens an exclusive background playback source, never a viewer session.
+	// The final argument is an identity captured from an admitted save, never
+	// a request context. The callback must revalidate it on each background run.
+	BreakInput    func(context.Context, core.RatingKey, int64) (markers.BreakInput, error)
+	BreakAnalyzer *markers.BreakAnalyzer
+	GuideAI       GuideAIClient
+	Reels         func(context.Context, string) (ReelSnapshot, error)
+	InputUser     func(context.Context) (*core.User, error)
+	StyleScreens  func(string) *config.LiveTVScreens
+	Watchlist     interface{ Generation() uint64 }
+	Picker        core.PersonalPicker
+	State         core.State
+	Users         interface {
 		Users(context.Context) ([]core.User, error)
 	}
 	PersonalChanged func(int64)

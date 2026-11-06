@@ -1,6 +1,4 @@
 import { useCanvasResolution } from "./useCanvasResolution";
-import { styleCopy } from "./naming";
-import { api } from "../../../lib/api";
 import { useAsync } from "../../../lib/hooks";
 import { onair, type Look } from "./model";
 import {
@@ -187,9 +185,7 @@ export function ScreenPicker({
   allowError?: boolean;
 }) {
   const options: { value: ScreenStyle; label: string }[] = [
-    ...(defaultLabel
-      ? [{ value: "" as const, label: styleCopy("Default ({style})", { style: defaultLabel }) }]
-      : []),
+    ...(defaultLabel ? [{ value: "" as const, label: defaultLabel }] : []),
     { value: "card", label: t("Modern card") },
     { value: "static", label: t("Analogue static") },
     { value: "bars", label: t("Colour bars") },
@@ -207,7 +203,7 @@ export function ScreenPicker({
           )}
         />
       </h4>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {options.map((o) => (
           <ScreenCard
             key={o.value}
@@ -231,11 +227,8 @@ export function ChannelScreens({
   channel: Channel;
   onChange: (patch: Partial<Channel>) => void;
 }) {
-  const config = useAsync(() => api.getConfig(), []);
   const looks = useAsync(() => onair.looks(), []);
-  const look = looks.data?.find(
-    (v) => v.id === (channel.look?.lookId || config.data?.liveTV?.defaultStyleId),
-  );
+  const look = looks.data?.find((v) => v.id === channel.look?.lookId);
   const names: Record<string, string> = {
     card: t("Modern card"),
     static: t("Analogue static"),
@@ -253,31 +246,19 @@ export function ChannelScreens({
         label={t("When a channel is off air")}
         value={channel.screens?.offAir || ""}
         onChange={(offAir) => onChange({ screens: { ...channel.screens, offAir } })}
-        station={
-          (look?.screens?.stationId ?? config.data?.liveTV?.screens?.stationId ?? true)
-            ? channel.name
-            : ""
-        }
+        station={(look?.screens?.stationId ?? false) ? channel.name : ""}
         look={look}
-        fallback={look?.screens?.offAir || config.data?.liveTV?.screens?.offAir || "card"}
-        defaultLabel={
-          names[look?.screens?.offAir || config.data?.liveTV?.screens?.offAir || "card"]
-        }
+        fallback={look?.screens?.offAir || "card"}
+        defaultLabel={look ? names[look.screens?.offAir || "card"] : t("Built-in")}
       />
       <ScreenPicker
         label={t("When a channel can't play")}
         value={channel.screens?.noSignal || ""}
         onChange={(noSignal) => onChange({ screens: { ...channel.screens, noSignal } })}
-        station={
-          (look?.screens?.stationId ?? config.data?.liveTV?.screens?.stationId ?? true)
-            ? channel.name
-            : ""
-        }
+        station={(look?.screens?.stationId ?? false) ? channel.name : ""}
         look={look}
-        fallback={look?.screens?.noSignal || config.data?.liveTV?.screens?.noSignal || "card"}
-        defaultLabel={
-          names[look?.screens?.noSignal || config.data?.liveTV?.screens?.noSignal || "card"]
-        }
+        fallback={look?.screens?.noSignal || "error"}
+        defaultLabel={look ? names[look.screens?.noSignal || "error"] : t("Built-in")}
       />
     </section>
   );

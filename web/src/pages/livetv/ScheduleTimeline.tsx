@@ -11,8 +11,8 @@ import {
   TIMELINE_KINDS,
   kindLabel,
   layoutElements,
+  mergeTimelineElements,
   tooltipContent,
-  timeLabel,
   type TimelineElement,
   type TimelineRange,
   type TimelineResponse,
@@ -65,17 +65,30 @@ const NowMarker = memo(function NowMarker({
 });
 export function ScheduleTimeline({
   channelId,
-  range,
+  range: requestedRange,
+  loadMore = false,
   onSelect,
   onAdd,
   selectedId,
 }: {
   channelId: string;
   range: TimelineRange;
+  loadMore?: boolean;
   onSelect?: (element: TimelineElement) => void;
   onAdd?: (value: { start: number; blockId?: string }) => void;
   selectedId?: string;
 }) {
+  const [extended, setExtended] = useState({
+    channelId,
+    from: requestedRange.from,
+    to: requestedRange.to,
+  });
+  if (extended.channelId !== channelId) setExtended({ channelId, ...requestedRange });
+  const range = loadMore ? extended : requestedRange;
+  const loaded = useRef(range.from);
+  useEffect(() => {
+    loaded.current = range.from;
+  }, [channelId, range.from]);
   const root = useRef<HTMLDivElement>(null),
     scroll = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(1),
@@ -99,13 +112,14 @@ export function ScheduleTimeline({
   }, []);
   useEffect(() => {
     let live = true;
-    setData(undefined);
+    const append = loadMore && loaded.current > range.from;
+    if (!append) setData(undefined);
     setError("");
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const load = () =>
       apiFetch<TimelineResponse>(
-        `/livetv/channels/${encodeURIComponent(channelId)}/timeline?from=${range.from}&to=${range.to}`,
+        `/livetv/channels/${encodeURIComponent(channelId)}/timeline?from=${append ? loaded.current : range.from}&to=${range.to}`,
         { signal: controller.signal },
       )
         .then((d) => {
@@ -123,12 +137,22 @@ export function ScheduleTimeline({
           )
             throw new Error("Invalid timeline snapshot");
           new Intl.DateTimeFormat("en", { timeZone: d.timezone }).format(0);
-          // An element kind this console doesn't know yet is skipped, so it can't
-          // hide the whole schedule; a malformed element of a known kind is still
-          // an invalid snapshot.
-          const elements = d.elements.filter((e) => !!e && TIMELINE_KINDS.includes(e.kind));
-          if (!elements.every((e) => validElement(e))) throw new Error("Invalid timeline snapshot");
-          if (live) setData({ ...d, elements });
+          const elements = d.elements.filter(
+            (element) => !!element && TIMELINE_KINDS.includes(element.kind),
+          );
+          if (!elements.every((element) => validElement(element)))
+            throw new Error("Invalid timeline snapshot");
+          if (live) {
+            loaded.current = range.to;
+            setData((prior) =>
+              append && prior
+                ? {
+                    ...d,
+                    elements: mergeTimelineElements(prior.elements, elements),
+                  }
+                : { ...d, elements },
+            );
+          }
         })
         .catch((error) => {
           if (!live) return;
@@ -141,7 +165,7 @@ export function ScheduleTimeline({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [channelId, range.from, range.to]);
+  }, [channelId, range.from, range.to, loadMore]);
   const scale = width / (hours * HOUR),
     total = Math.max(width, (range.to - range.from) * scale);
   const items = useMemo(
@@ -218,10 +242,6 @@ export function ScheduleTimeline({
     at += HOUR
   )
     ticks.push(at);
-  const preview =
-    tip?.el ??
-    items.find((i) => i.el.id === (active ?? selectedId))?.el ??
-    visible.find((i) => i.lane === 0)?.el;
   const locale = getLocale(),
     timezone = data?.timezone ?? "UTC";
   const dayFormat = new Intl.DateTimeFormat(locale, {
@@ -266,7 +286,10 @@ export function ScheduleTimeline({
               (["ArrowLeft", "ArrowUp"].includes(e.key) ? -1 : 1),
           );
         }
-        if (e.key === "Escape") setTip(undefined);
+        if (e.key === "Escape" && tip) {
+          e.stopPropagation();
+          setTip(undefined);
+        }
       }}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -310,16 +333,6 @@ export function ScheduleTimeline({
           )}
         </div>
       </div>
-      {preview && (
-        <div className="min-w-0 rounded-lg border border-border bg-surface px-3 py-2">
-          <p className="text-sm font-medium text-fg">{preview.title}</p>
-          <p className="text-xs text-fg-muted">{preview.subtitle || kindLabel(preview.kind)}</p>
-          <p className="text-xs tabular-nums text-fg-subtle">
-            {timeLabel(preview.start, timezone, locale)} –{" "}
-            {timeLabel(preview.end, timezone, locale)}
-          </p>
-        </div>
-      )}
       <div
         ref={scroll}
         className="schedule-scroll rounded-xl border border-border bg-bg-subtle"
@@ -328,6 +341,18 @@ export function ScheduleTimeline({
         tabIndex={0}
         onScroll={(e) => {
           setLeft(e.currentTarget.scrollLeft);
+          if (
+            loadMore &&
+            loaded.current === range.to &&
+            data &&
+            !error &&
+            e.currentTarget.scrollLeft + width * 2 >= total
+          ) {
+            setExtended((prior) => ({
+              ...prior,
+              to: Math.min(prior.from + 28 * 24 * HOUR, prior.to + 7 * 24 * HOUR),
+            }));
+          }
           setTip(undefined);
         }}
         onPointerDown={(e) => {
@@ -418,9 +443,10 @@ export function ScheduleTimeline({
               style={{
                 left: x,
                 width: w,
-                padding: w < 64 || lane > 0 ? 0 : "3px 6px",
-                top: lane === 0 ? 30 : lane === 1 ? 66 : 80,
-                height: lane === 0 ? 32 : 11,
+                padding: w < 64 ? 0 : 6,
+                top: 30,
+                height: 40,
+                zIndex: lane,
               }}
               type="button"
               tabIndex={active === el.id || (!active && items[0]?.el.id === el.id) ? 0 : -1}
@@ -470,6 +496,11 @@ export function ScheduleTimeline({
           )}
         </div>
       </div>
+      {error && data && (
+        <p role="alert" className="text-xs text-danger">
+          {error}
+        </p>
+      )}
       <div
         className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-fg-muted"
         aria-label={t("Legend")}

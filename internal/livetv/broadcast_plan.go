@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/markers"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -207,6 +208,9 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 			now = p.joinAt
 		}
 		candidates := p.s.virtualCandidates(c, programme)
+		if programme.Item.BreakReleaseID != "" && len(programme.Item.BreakPointsMS) > 0 {
+			candidates = []Programme{programme}
+		}
 		var last error = core.ErrNotAvailable
 		for attempt, candidate := range candidates {
 			if attempt >= virtualMaxAttempts {
@@ -225,7 +229,28 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 			if c.Personal != nil {
 				group += "-viewer-" + strconv.FormatInt(p.user.ID, 10)
 			}
-			if grouped, ok := p.s.o.Playback.(core.ChannelPreparer); ok {
+			if candidate.Item.BreakReleaseID != "" && len(candidate.Item.BreakPointsMS) > 0 {
+				planned, ok := p.s.o.Playback.(interface {
+					PrepareChannelRelease(context.Context, *core.User, core.RatingKey, core.ClientCaps, string, string) (*core.PlaySession, error)
+				})
+				if !ok {
+					cancel()
+					last = core.ErrSourceChanged
+					continue
+				}
+				ps, err = planned.PrepareChannelRelease(attempt, &p.user, candidate.Item.Key, p.caps, group, candidate.Item.BreakReleaseID)
+				if err == nil {
+					pin, ok := p.s.o.Playback.(core.PlaybackRevisionPin)
+					if !ok {
+						err = core.ErrSourceChanged
+					} else {
+						err = pin.PinSourceRevision(attempt, ps.ID, candidate.Item.BreakRevision)
+					}
+					if err != nil {
+						p.s.o.Playback.Stop(ps.ID)
+					}
+				}
+			} else if grouped, ok := p.s.o.Playback.(core.ChannelPreparer); ok {
 				ps, err = grouped.PrepareChannel(attempt, &p.user, candidate.Item.Key, p.caps, group)
 			} else {
 				ps, err = p.s.o.Playback.Prepare(attempt, &p.user, candidate.Item.Key, p.caps)
@@ -272,6 +297,13 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 				p.s.o.Playback.Stop(ps.ID)
 				last = err
 				continue
+			}
+			if programme.naturalBreaks && p.s.o.BreakAnalyzer != nil && candidate.Item.Key.Kind() == core.KindEpisode {
+				input := markers.PlaybackBreakInput(ps)
+				input.Info = core.MediaInfo{Duration: ps.Info.Duration, Size: ps.Info.Size, Estimated: ps.Info.Estimated}
+				if input.Revision != "" {
+					decoder = &breakTapDecoder{Decoder: decoder, tap: markers.NewBreakTap(ps.Info.Duration), input: input, format: p.format, at: offset, output: p.s.breakObserved}
+				}
 			}
 			return &overlayDecoder{policy: p.s.programmePolicy(ctx, candidate), Decoder: decoder, wallStart: sourceWall, format: p.format, overlays: p.prepareProgrammeOverlays(ctx, programme, ps.Info.Chapters)}, func() { p.s.o.Playback.Stop(ps.ID) }, nil
 		}
