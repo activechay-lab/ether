@@ -19,6 +19,18 @@ rechecks current title/parent/library/rating/release policy using local facts.
 Worker roles supply the real core.OwnedTranscoder (CPU or GPU manager). There is no
 alternate encoder or provider implementation inside this package.
 
+Transcode selection first excludes ineligible boots, exhausted pools and workers
+whose authenticated preflight cannot execute the exact request. It then prefers
+the request-specific hardware encoder reported by the actual Manager, followed
+by spare slots, source-node locality and stable node/boot order. The hardware
+offer uses startup-probed encoders and the same normalized plan dependency
+checks as execution; configured GPU names alone earn no preference. A worker
+using software for that codec remains eligible without a hardware preference.
+Spare slots are the minimum remaining capacity across required scopes, counting
+both current and displaced claims. These scores do not reserve capacity: the
+durable Reserve transaction remains the atomic authority. Encoder replacement
+uses the same scores while excluding the failed node.
+
 Private Handler registers SourcePath, nodesource.Path and WorkerPath where those
 roles exist, and DeliveryPath. Host supplies verified mTLS listener. NewRuntime
 does not change placement targets/pools or start cluster membership. Application
