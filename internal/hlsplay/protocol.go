@@ -115,7 +115,11 @@ func (p *player) progress(ctx context.Context, state string, played float64, sta
 			tail = "/Sessions/Playing/Stopped"
 		}
 		body, _ := json.Marshal(map[string]any{"PlaySessionId": p.playSession, "ItemId": p.itemID, "MediaSourceId": p.mediaSource, "PositionTicks": int64(played * 10000000), "IsPaused": false, "PlayMethod": "Transcode"})
-		_, e := p.request(ctx, strings.TrimSuffix(p.c.Prefix, "/")+tail, "timeline", -1, false, "POST", body)
+		kind := "timeline"
+		if state == "stopped" {
+			kind = "stop"
+		}
+		_, e := p.request(ctx, strings.TrimSuffix(p.c.Prefix, "/")+tail, kind, -1, false, "POST", body)
 		return e
 	}
 	q := url.Values{"ratingKey": {p.c.RatingKey}, "key": {"/library/metadata/" + p.c.RatingKey}, "state": {state}, "time": {strconv.FormatInt(int64(played*1000), 10)}, "duration": {"0"}, "session": {p.c.Session}}

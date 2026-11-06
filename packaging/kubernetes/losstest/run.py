@@ -28,16 +28,19 @@ def parsed(s):
 
 
 def control_summary(controls):
-    status = controls[-1].get('Status') if controls else None
+    terminal_stop = bool(controls) and controls[-1].get('Kind') == 'stop'
+    stops = [attempt for attempt in controls if attempt.get('Kind') == 'stop']
+    status = stops[-1].get('Status') if stops else None
     failed = sum(not 200 <= attempt.get('Status', 0) < 300 for attempt in controls)
     clean = bool(controls) and failed == 0
     return {'stopStatus': status, 'failedRequests': failed, 'requests': len(controls),
-            'stopPassed': bool(controls) and 200 <= status < 300,
-            'allRequestsPassed': clean, 'passed': clean}
+            'stopPassed': terminal_stop and status is not None and 200 <= status < 300,
+            'allRequestsPassed': clean,
+            'passed': clean and terminal_stop and status is not None and 200 <= status < 300}
 
 
 def media_control_passed(media_passed, action_succeeded, control):
-    return bool(media_passed and action_succeeded and control['allRequestsPassed'])
+    return bool(media_passed and action_succeeded and control['allRequestsPassed'] and control['stopPassed'])
 
 
 def sample_host_load(out):
@@ -102,7 +105,7 @@ def run(c, out):
                       ('reference', '-reference'), ('producerEvidence', '-producer-evidence'), ('maxVideoBitrate', '-max-video-bitrate'), ('videoResolution', '-video-resolution')]:
         if c.get(key):
             argv += [flag, str(c[key])]
-    for key, flag in [('skipDecision', '-skip-decision'), ('directStream', '-direct-stream'), ('directPlay', '-direct-play')]:
+    for key, flag in [('reencodedAudio', '-reencoded-audio'), ('skipDecision', '-skip-decision'), ('directStream', '-direct-stream'), ('directPlay', '-direct-play')]:
         if c.get(key):
             argv += [flag]
     k = ['kubectl', '--kubeconfig', c.get('kubeconfig', ''), '--request-timeout=10s',

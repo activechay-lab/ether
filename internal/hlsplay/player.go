@@ -21,6 +21,7 @@ import (
 )
 
 type Config struct {
+	ReencodedAudio                                                  bool
 	DecisionOrigin, StartOrigin, StopOrigin                         string
 	ReferenceTimeline                                               []time.Duration
 	Protocol, Prefix, CredentialsFile, DeviceID                     string
@@ -65,6 +66,7 @@ type Continuity struct {
 	Report   splicecheck.Report
 }
 type Report struct {
+	ReencodedAudio                               bool
 	ControlOriginsPinned                         bool
 	InitialTimeline                              []time.Duration
 	InitialPlaylistSHA256                        string
@@ -302,7 +304,7 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	}
 	defer events.Close()
 	p := &player{c: c, start: time.Now(), events: events, client: &http.Client{Timeout: c.RequestTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
-	r = Report{ControlOriginsPinned: c.DecisionOrigin != "" || c.StartOrigin != "" || c.StopOrigin != "", Protocol: c.Protocol, Session: c.Session, StartedAt: p.start.UTC(), DecisionSkipped: c.SkipDecision, IndicesExact: true, Outcome: "failed"}
+	r = Report{ReencodedAudio: c.ReencodedAudio, ControlOriginsPinned: c.DecisionOrigin != "" || c.StartOrigin != "" || c.StopOrigin != "", Protocol: c.Protocol, Session: c.Session, StartedAt: p.start.UTC(), DecisionSkipped: c.SkipDecision, IndicesExact: true, Outcome: "failed"}
 	b := Buffer{}
 	defer func() {
 		if p.playSession != "" {
@@ -356,12 +358,16 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			if len(expectedTimeline) == 0 {
 				expectedTimeline = r.InitialTimeline
 			}
-			cr, ce := splicecheck.Check(checkCtx, segs, splicecheck.Options{Timeline: expectedTimeline, SegmentDuration: c.SegmentDuration, Reference: matchingReference(c.Reference, segs), FFprobe: c.FFprobe, FFmpeg: c.FFmpeg})
+			cr, ce := splicecheck.Check(checkCtx, segs, splicecheck.Options{ReencodedAudio: c.ReencodedAudio, Timeline: expectedTimeline, SegmentDuration: c.SegmentDuration, Reference: matchingReference(c.Reference, segs), FFprobe: c.FFprobe, FFmpeg: c.FFmpeg})
 			r.Continuity.Report = cr
 			if ce != nil {
 				r.Continuity.Error = ce.Error()
 			} else {
-				r.Continuity.Verified = cr.FrameCountVsReference.Pass && cr.IDRStart.Pass && cr.ClosedGOP.Pass && cr.PTSContinuity.Pass && cr.CleanDecode.Pass && cr.AudioAUExact.Pass && cr.AudioContinuity.Pass && cr.GridDurations.Pass
+				audioVerified := cr.AudioAUExact.Pass
+				if c.ReencodedAudio {
+					audioVerified = cr.PCMContinuous.Pass
+				}
+				r.Continuity.Verified = cr.FrameCountVsReference.Pass && cr.IDRStart.Pass && cr.ClosedGOP.Pass && cr.PTSContinuity.Pass && cr.CleanDecode.Pass && audioVerified && cr.AudioContinuity.Pass && cr.GridDurations.Pass
 			}
 		}
 		r.PlaybackPassed = r.WindowComplete && r.IndicesExact && len(r.Stalls) == 0 && len(r.Segments) > 0

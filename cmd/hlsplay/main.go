@@ -33,6 +33,7 @@ func main() {
 	flag.StringVar(&c.FFprobe, "ffprobe", "ffprobe", "packet checker executable")
 	flag.StringVar(&reference, "reference", "", "prior no-loss report.json for exact audio AU comparison")
 	flag.StringVar(&c.ProducerEvidence, "producer-evidence", "", "trusted observer JSON array of session/segmentIndex/generation rows")
+	flag.BoolVar(&c.ReencodedAudio, "reencoded-audio", false, "verify decoded PCM continuity against the reference instead of AAC AU equality")
 	flag.BoolVar(&c.SkipDecision, "skip-decision", false, "diagnostic only: omit decision preflight (cannot pass acceptance)")
 	flag.BoolVar(&c.PrivateHTTP, "private-http", true, "retain playlists and failed HTTP bodies privately, capped at 64 KiB each")
 	flag.IntVar(&c.MaxVideoBitrate, "max-video-bitrate", 0, "optional client maxVideoBitrate (kbps)")
