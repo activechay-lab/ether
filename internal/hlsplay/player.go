@@ -21,6 +21,8 @@ import (
 )
 
 type Config struct {
+	SegmentBarrierDir                                               string
+	PauseBeforeIndex                                                int
 	ReencodedAudio                                                  bool
 	DecisionOrigin, StartOrigin, StopOrigin                         string
 	ReferenceTimeline                                               []time.Duration
@@ -66,6 +68,8 @@ type Continuity struct {
 	Report   splicecheck.Report
 }
 type Report struct {
+	Barrier                                      *SegmentBarrier `json:",omitempty"`
+	PlaybackStarted                              bool
 	ReencodedAudio                               bool
 	ControlOriginsPinned                         bool
 	InitialTimeline                              []time.Duration
@@ -260,6 +264,9 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	if c.Window <= 0 || c.ForwardBuffer <= 0 || c.RequestTimeout <= 0 || c.Tries < 1 || c.Backoff <= 0 || c.SegmentDuration <= 0 {
 		return r, fmt.Errorf("positive timing and retry settings required")
 	}
+	if c.SegmentBarrierDir != "" && c.PauseBeforeIndex < 1 {
+		return r, fmt.Errorf("positive barrier segment index required")
+	}
 	base, e := url.Parse(c.BaseURL)
 	if e != nil || base.Host == "" || (base.Scheme != "http" && base.Scheme != "https") || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
 		return r, fmt.Errorf("invalid origin")
@@ -370,7 +377,8 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 				r.Continuity.Verified = cr.FrameCountVsReference.Pass && cr.IDRStart.Pass && cr.ClosedGOP.Pass && cr.PTSContinuity.Pass && cr.CleanDecode.Pass && audioVerified && cr.AudioContinuity.Pass && cr.GridDurations.Pass
 			}
 		}
-		r.PlaybackPassed = r.WindowComplete && r.IndicesExact && len(r.Stalls) == 0 && len(r.Segments) > 0
+		r.PlaybackStarted = b.Started
+		r.PlaybackPassed = b.Started && r.WindowComplete && r.IndicesExact && len(r.Stalls) == 0 && len(r.Segments) > 0
 		if c.SkipDecision && r.PlaybackPassed {
 			r.Outcome = "diagnostic-only"
 		} else if r.PlaybackPassed && r.Continuity.Verified {
@@ -478,6 +486,9 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			if next != nil && en.index != *next {
 				r.IndicesExact = false
 				err = fmt.Errorf("missing segment index %d", *next)
+				return
+			}
+			if err = p.waitForSegment(runCtx, &b, &r, en.index); err != nil {
 				return
 			}
 			data, err = p.fetch(runCtx, en.url, "segment", en.index, true)
