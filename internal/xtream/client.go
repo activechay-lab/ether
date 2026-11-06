@@ -136,8 +136,19 @@ func (c Client) read(ctx context.Context, action string, p url.Values, fn func(*
 	if limit <= 0 {
 		limit = 64 << 20
 	}
-	d := json.NewDecoder(io.LimitReader(rc, limit))
-	if err = fn(d); err != nil {
+	bounded := &io.LimitedReader{R: rc, N: limit + 1}
+	d := json.NewDecoder(bounded)
+	err = fn(d)
+	if err == nil {
+		var extra any
+		if e := d.Decode(&extra); e != io.EOF {
+			err = errors.New("trailing document")
+		}
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err != nil || bounded.N == 0 {
 		return fmt.Errorf("Xtream provider sent an unreadable %s reply", action)
 	}
 	return nil
@@ -146,7 +157,9 @@ func (c Client) Get(ctx context.Context, action string, p url.Values, into any) 
 	return c.read(ctx, action, p, func(d *json.Decoder) error { return d.Decode(into) })
 }
 func (c Client) Items(ctx context.Context, action string, visit func(Item) error) error {
-	c.MaxBytes = 512 << 20
+	if c.MaxBytes <= 0 {
+		c.MaxBytes = 512 << 20
+	}
 	var visitErr error
 	err := c.read(ctx, action, nil, func(d *json.Decoder) error {
 		t, e := d.Token()

@@ -1,12 +1,15 @@
 package livetv
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +27,16 @@ CREATE INDEX xtream_vod_identity ON xtream_vod(kind,tmdb);
 CREATE INDEX xtream_vod_title ON xtream_vod(kind,title,year);
 CREATE TABLE xtream_vod_refresh(provider TEXT PRIMARY KEY, refreshed INTEGER NOT NULL DEFAULT 0, next INTEGER NOT NULL DEFAULT 0, failures INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '');`)
 }
+
+var errVODSourceChanged = errors.New("provider changed during index refresh")
+
+// Keep attempt identity private; Error exposes only the sanitized cause.
+type vodRefreshFailure struct {
+	error
+	sourceData []byte
+}
+
+func (e *vodRefreshFailure) Unwrap() error { return e.error }
 
 type VODStatus struct {
 	Movies  int    `json:"movies"`
@@ -104,12 +117,11 @@ func (s *Service) vodLoop() {
 				ctx, cancel := context.WithTimeout(s.ctx, 10*time.Minute)
 				err = s.RefreshVOD(ctx, v.ID)
 				cancel()
-				if err != nil && s.ctx.Err() == nil {
-					var failures int
-					_ = s.o.DB.QueryRowContext(s.ctx, `SELECT failures FROM xtream_vod_refresh WHERE provider=?`, v.ID).Scan(&failures)
-					failures = min(failures+1, 8)
-					// Store fixed text only: a provider may echo credentials in any response.
-					_, _ = s.o.DB.ExecContext(s.ctx, `INSERT INTO xtream_vod_refresh(provider,next,failures,error) VALUES(?,?,?,?) ON CONFLICT(provider) DO UPDATE SET next=excluded.next,failures=excluded.failures,error=excluded.error`, v.ID, s.o.Now().Add(time.Minute*time.Duration(1<<failures)).Unix(), failures, "Provider unavailable; retry scheduled")
+				if err != nil && s.ctx.Err() == nil && !errors.Is(err, errVODSourceChanged) && !errors.Is(err, sql.ErrNoRows) {
+					var attempt *vodRefreshFailure
+					if errors.As(err, &attempt) {
+						s.recordVODFailure(s.ctx, v.ID, attempt.sourceData)
+					}
 				}
 			}
 		}
@@ -119,15 +131,24 @@ func (s *Service) vodLoop() {
 
 // RefreshVOD streams large lists into a transaction. Unchanged revisions keep
 // cached details; a failed refresh never removes the previous index.
-func (s *Service) RefreshVOD(ctx context.Context, id string) error {
+func (s *Service) RefreshVOD(ctx context.Context, id string) (err error) {
 	if !s.vodRefreshMu.TryLock() {
 		return ErrProviderBusy
 	}
 	defer s.vodRefreshMu.Unlock()
-	src, err := s.storedSourceByID(ctx, id)
+	var sourceData []byte
+	if err := s.o.DB.QueryRowContext(ctx, `SELECT data FROM livetv_sources WHERE id=?`, id).Scan(&sourceData); err != nil {
+		return err
+	}
+	src, _, err := s.decodeSource(sourceData)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			err = &vodRefreshFailure{error: err, sourceData: sourceData}
+		}
+	}()
 	if !src.VOD || src.Auth == nil || src.Auth.Type != "xtream" {
 		return nil
 	}
@@ -136,13 +157,46 @@ func (s *Service) RefreshVOD(ctx context.Context, id string) error {
 	if err = c.Get(ctx, "get_vod_categories", nil, &cats); err != nil {
 		return err
 	}
-	// Fetch into a temporary staging table in the same transaction. It stores
-	// only the current provider, and is discarded on rollback.
+	// Stage streamed documents before taking database locks. This keeps a
+	// slow provider from blocking source edits, and uses bounded memory.
+	staged, err := os.CreateTemp("", "ether-vod-index-*")
+	if err != nil {
+		return err
+	}
+	defer func() { staged.Close(); os.Remove(staged.Name()) }()
+	type entry struct {
+		Kind string
+		Item xtream.Item
+	}
+	enc := json.NewEncoder(staged)
+	for _, kind := range []string{"movie", "series"} {
+		action := "get_vod_streams"
+		if kind == "series" {
+			action = "get_series"
+		}
+		if err = c.Items(ctx, action, func(v xtream.Item) error { return enc.Encode(entry{kind, v}) }); err != nil {
+			return err
+		}
+	}
+	if _, err = staged.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
 	tx, err := s.o.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	// Match CRUD lock ordering before writing any index rows.
+	if err = s.lockSourceEdits(ctx, tx, []string{id}); err != nil {
+		return err
+	}
+	var current []byte
+	if err = tx.QueryRowContext(ctx, `SELECT data FROM livetv_sources WHERE id=?`, id).Scan(&current); err != nil {
+		return errVODSourceChanged
+	}
+	if !bytes.Equal(current, sourceData) {
+		return errVODSourceChanged
+	}
 	if _, err = tx.ExecContext(ctx, `CREATE TEMP TABLE IF NOT EXISTS xtream_vod_seen(kind TEXT,id TEXT,PRIMARY KEY(kind,id))`); err != nil {
 		return err
 	}
@@ -159,41 +213,44 @@ func (s *Service) RefreshVOD(ctx context.Context, id string) error {
 		return err
 	}
 	defer seen.Close()
-	for _, kind := range []string{"movie", "series"} {
-		action := "get_vod_streams"
-		if kind == "series" {
-			action = "get_series"
+	dec := json.NewDecoder(staged)
+	for {
+		var row entry
+		err = dec.Decode(&row)
+		if err == io.EOF {
+			break
 		}
-		err = c.Items(ctx, action, func(v xtream.Item) error {
-			sid := string(v.ID)
-			if kind == "series" {
-				sid = string(v.SeriesID)
-			}
-			if sid == "" {
-				return nil
-			}
-			info := releaseparse.Parse(v.Name)
-			year := int(v.Year.Int())
-			if year == 0 {
-				year = info.Year
-			}
-			title := releaseparse.NormalizeTitle(info.Title)
-			if title == "" {
-				title = releaseparse.NormalizeTitle(v.Name)
-			}
-			tmdb := v.TMDB.Int()
-			if tmdb == 0 {
-				tmdb = v.TMDBAlt.Int()
-			}
-			b, _ := json.Marshal(v)
-			if _, e := up.ExecContext(ctx, id, kind, sid, tmdb, title, year, string(v.Modified)+":"+string(v.Added), string(b)); e != nil {
-				return e
-			}
-			_, e := seen.ExecContext(ctx, kind, sid)
-			return e
-		})
 		if err != nil {
 			return err
+		}
+		kind, v := row.Kind, row.Item
+
+		sid := string(v.ID)
+		if kind == "series" {
+			sid = string(v.SeriesID)
+		}
+		if sid == "" {
+			continue
+		}
+		info := releaseparse.Parse(v.Name)
+		year := int(v.Year.Int())
+		if year == 0 {
+			year = info.Year
+		}
+		title := releaseparse.NormalizeTitle(info.Title)
+		if title == "" {
+			title = releaseparse.NormalizeTitle(v.Name)
+		}
+		tmdb := v.TMDB.Int()
+		if tmdb == 0 {
+			tmdb = v.TMDBAlt.Int()
+		}
+		b, _ := json.Marshal(v)
+		if _, e := up.ExecContext(ctx, id, kind, sid, tmdb, title, year, string(v.Modified)+":"+string(v.Added), string(b)); e != nil {
+			return e
+		}
+		if _, e := seen.ExecContext(ctx, kind, sid); e != nil {
+			return e
 		}
 	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM xtream_vod WHERE provider=? AND NOT EXISTS(SELECT 1 FROM xtream_vod_seen s WHERE s.kind=xtream_vod.kind AND s.id=xtream_vod.id)`, id); err != nil {
@@ -283,6 +340,9 @@ func (s *Service) VODSearch(ctx context.Context, req core.SearchRequest) ([]core
 			if e = c.Get(ctx, action, url.Values{param: {m.id}}, &doc); e != nil {
 				if errors.Is(e, xtream.ErrBusy) {
 					return out, ErrProviderBusy
+				}
+				if ctx.Err() != nil {
+					return out, ctx.Err()
 				}
 				continue
 			}
@@ -394,6 +454,13 @@ func (v *VODIndexer) SearchWith(ctx context.Context, r core.SearchRequest, arriv
 		releases []core.Release
 		err      error
 	}
+	// Inner indexers may stream concurrently. Serialize callbacks from both
+	// source families so callers need no new synchronization contract.
+	if arrived != nil {
+		callback := arrived
+		var callbackMu sync.Mutex
+		arrived = func(batch []core.Release) { callbackMu.Lock(); defer callbackMu.Unlock(); callback(batch) }
+	}
 	done := make(chan result, 1)
 	go func() {
 		s := v.Service()
@@ -418,6 +485,9 @@ func (v *VODIndexer) SearchWith(ctx context.Context, r core.SearchRequest, arriv
 		}
 	}
 	b := <-done
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if len(a) > 0 || len(b.releases) > 0 {
 		return append(a, b.releases...), nil
 	}
@@ -530,5 +600,64 @@ func (s *Service) enrichVODMatch(ctx context.Context, m *vodMatch, info xtream.M
 	}
 	if m.tmdb != oldTMDB || m.year != oldYear {
 		_, _ = s.o.DB.ExecContext(ctx, `UPDATE xtream_vod SET tmdb=?,year=? WHERE provider=? AND kind=? AND id=? AND revision=?`, m.tmdb, m.year, m.provider, m.kind, m.id, m.revision)
+	}
+}
+
+// Connection identity changes invalidate the previous account's catalogue in
+// the same transaction as the source save. Regular refreshes retain details.
+func (s *Service) invalidateVODConnection(ctx context.Context, tx *sql.Tx, src Source) error {
+	var data []byte
+	err := tx.QueryRowContext(ctx, `SELECT data FROM livetv_sources WHERE id=?`, src.ID).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	old, _, err := s.decodeSource(data)
+	if err != nil {
+		return err
+	}
+	a, _ := json.Marshal(old.Auth)
+	b, _ := json.Marshal(src.Auth)
+	if src.VOD && bytes.Equal(a, b) {
+		return nil
+	}
+	for _, q := range []string{`DELETE FROM xtream_vod WHERE provider=?`, `DELETE FROM xtream_vod_refresh WHERE provider=?`} {
+		if _, err = tx.ExecContext(ctx, q, src.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Use the CRUD lock when recording a failed attempt as well: deletion or
+// disabling a provider must not be followed by a recreated status row.
+func (s *Service) recordVODFailure(ctx context.Context, id string, attemptedSource []byte) {
+	tx, err := s.o.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	if s.lockSourceEdits(ctx, tx, []string{id}) != nil {
+		return
+	}
+	var data []byte
+	if tx.QueryRowContext(ctx, `SELECT data FROM livetv_sources WHERE id=?`, id).Scan(&data) != nil {
+		return
+	}
+	if !bytes.Equal(data, attemptedSource) {
+		return
+	}
+	src, _, err := s.decodeSource(data)
+	if err != nil || !src.VOD || src.Auth == nil || src.Auth.Type != "xtream" {
+		return
+	}
+	var failures int
+	_ = tx.QueryRowContext(ctx, `SELECT failures FROM xtream_vod_refresh WHERE provider=?`, id).Scan(&failures)
+	failures = min(failures+1, 8)
+	_, err = tx.ExecContext(ctx, `INSERT INTO xtream_vod_refresh(provider,next,failures,error) VALUES(?,?,?,?) ON CONFLICT(provider) DO UPDATE SET next=excluded.next,failures=excluded.failures,error=excluded.error`, id, s.o.Now().Add(time.Minute*time.Duration(1<<failures)).Unix(), failures, "Provider unavailable; retry scheduled")
+	if err == nil {
+		_ = tx.Commit()
 	}
 }
