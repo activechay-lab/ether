@@ -69,7 +69,7 @@ func (p *RemotePlayback) RestorePlexSource(ctx context.Context, id string, snaps
 	if err != nil || record.Retired || !record.Authority || record.Fence != route.Fence || route.Viewer != snapshot.UserID {
 		return ErrDenied
 	}
-	admission, err := p.r.readAdmission(ctx, route)
+	admission, err := p.r.readExecutionAdmission(ctx, route)
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (p *RemotePlayback) RestorePlexSource(ctx context.Context, id string, snaps
 	snapshot.Source = remoteSource{revision: route.Revision, release: admission.Request.ReleaseID, size: snapshot.Info.Size}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.observed[snapshot.ID] == nil && len(p.observed) >= p.o.Capacity {
+	if p.observed[snapshot.ID] == nil && len(p.observed) >= p.r.o.HistoryCapacity {
 		return ErrPending
 	}
 	p.observed[snapshot.ID] = copyPlaySession(&snapshot)

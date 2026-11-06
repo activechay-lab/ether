@@ -110,6 +110,9 @@ func (b *Broker) ForwardPlexGrantMedia(w http.ResponseWriter, r *http.Request, i
 }
 
 func (b *Broker) SavePlexBinding(ctx context.Context, id string, raw []byte) error {
+	if b.deps.DistributedHLS == nil || !b.deps.DistributedHLS.Allocated(id) {
+		return nil
+	}
 	if remote, ok := b.deps.DistributedHLS.(interface {
 		SavePlexBinding(context.Context, string, []byte) error
 	}); ok {

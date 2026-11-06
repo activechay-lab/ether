@@ -44,6 +44,9 @@ func (r *Runtime) CurrentCoordinator(ctx context.Context, id string) (Coordinato
 	var generation, deadline int64
 	err = r.o.DB.QueryRowContext(ctx, `SELECT generation,node,boot,epoch,deadline FROM clusterplayback_coordinators WHERE session=?`, id).Scan(&generation, &c.Identity.NodeID, &c.Identity.Boot, &c.Epoch, &deadline)
 	if errors.Is(err, sql.ErrNoRows) {
+		if route.Fence.Generation > 0 {
+			return Coordinator{}, ErrPending
+		}
 		return Coordinator{Identity: nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: route.Fence.Controller.ID, Boot: route.Fence.Controller.Boot}}, nil
 	}
 	if err != nil {
@@ -104,7 +107,6 @@ func (r *Runtime) maintainCoordinators(ctx context.Context) error {
 		now := time.Now()
 		if c.Identity == r.o.Self && c.Deadline.After(now.Add(r.o.ClockSkew)) {
 			// Once a lease has expired even its former owner must win a new epoch.
-
 			_, e = r.o.DB.ExecContext(ctx, `UPDATE clusterplayback_coordinators SET deadline=? WHERE session=? AND node=? AND boot=? AND epoch=? AND deadline>?`, now.Add(coordinationLease+2*r.o.ClockSkew).UnixMilli(), id, r.o.Self.NodeID, r.o.Self.Boot, c.Epoch, now.Add(r.o.ClockSkew).UnixMilli())
 		} else if c.Deadline.Before(now.Add(-r.o.ClockSkew)) {
 			_, e = r.o.DB.ExecContext(ctx, `UPDATE clusterplayback_coordinators SET node=?,boot=?,epoch=epoch+1,deadline=? WHERE session=? AND epoch=? AND deadline<?`, r.o.Self.NodeID, r.o.Self.Boot, now.Add(coordinationLease+2*r.o.ClockSkew).UnixMilli(), id, c.Epoch, now.Add(-r.o.ClockSkew).UnixMilli())

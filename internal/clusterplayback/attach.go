@@ -24,7 +24,7 @@ func (r *Runtime) attachExecution(ctx context.Context, id string) error {
 	if err != nil || record.Fence != route.Fence || !record.Authority || record.Retired || !r.ownsCoordination(ctx, id) {
 		return ErrDenied
 	}
-	admission, err := r.readAdmission(ctx, route)
+	admission, err := r.readExecutionAdmission(ctx, route)
 	if err != nil {
 		return err
 	}
@@ -106,4 +106,21 @@ func (r *Runtime) workerHTTP(w http.ResponseWriter, q *http.Request) {
 	clone := q.Clone(context.WithValue(q.Context(), workerSessionKey{}, envelope.Identity.Session))
 	clone.Body = io.NopCloser(bytes.NewReader(raw))
 	r.worker.ServeHTTP(w, clone)
+}
+
+// Source movement changes routing beneath the admitted execution. Only a
+// recorded exact source-move chain can supply its historical admission.
+func (r *Runtime) readExecutionAdmission(ctx context.Context, route Route) (admissionRecord, error) {
+	if route.SourceGeneration == 0 {
+		return r.readAdmission(ctx, route)
+	}
+	prior := r.sourceRoutes(ctx, route)
+	if len(prior) != int(route.SourceGeneration) || len(prior) == 0 {
+		return admissionRecord{}, ErrDenied
+	}
+	original := prior[0]
+	if original.SourceGeneration != 0 || original.Fence != route.Fence || original.Viewer != route.Viewer || original.Revision != route.Revision {
+		return admissionRecord{}, ErrDenied
+	}
+	return r.readAdmission(ctx, original)
 }

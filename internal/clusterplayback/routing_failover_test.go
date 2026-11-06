@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"testing"
 	"time"
@@ -54,7 +55,14 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 		}
 		return ep, nil
 	}
-	eligible := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
+	var ownerGone atomic.Bool
+	eligible := func(_ context.Context, id nodewire.Identity, _ config.NodeRole) error {
+		if id == ownerID && ownerGone.Load() {
+			return ErrDenied
+		}
+		return nil
+	}
+	var timelineProgress atomic.Int64
 	auth := &composedAuth{}
 	policy := &composedPolicy{}
 	base := Options{DB: db, Placement: ledger, Endpoint: endpoint, Eligible: eligible, MemberRole: eligible, Capacity: 32, ClockBoundKnown: true, ClockSkew: time.Millisecond, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision {
@@ -131,7 +139,9 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	}
 	events := sessions.NewEventBus(nil, auth.ActiveUser)
 	defer events.Close()
-	broker, err := sessions.NewBroker(sessions.BrokerDeps{Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(_ *core.User, _ core.RatingKey, position time.Duration, _ time.Duration, _ string) {
+		timelineProgress.Store(int64(position))
+	}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
 		return fixtureCatalog{}.Get(c, k)
 	}})
 	if err != nil {
@@ -157,7 +167,9 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	survivorBroker, err := sessions.NewBroker(sessions.BrokerDeps{Playback: survivorRemote, Transcoder: survivorDecision, DistributedHLS: sender, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
+	survivorBroker, err := sessions.NewBroker(sessions.BrokerDeps{Playback: survivorRemote, Transcoder: survivorDecision, DistributedHLS: sender, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(_ *core.User, _ core.RatingKey, position time.Duration, _ time.Duration, _ string) {
+		timelineProgress.Store(int64(position))
+	}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
 		return fixtureCatalog{}.Get(c, k)
 	}})
 	if err != nil {
@@ -259,10 +271,17 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 		t.Logf("eight segment indices fetched once; delivery-a stopped after index 3; latency %s", time.Since(began))
 	})
 
+	parity := map[string]*httptest.ResponseRecorder{}
+	for _, method := range []string{"GET", "HEAD"} {
+		for _, byteRange := range []string{"", "bytes=0-2", "bytes=999999-"} {
+			parity[method+byteRange] = fetch(publicOwner, method, byteRange)
+		}
+	}
 	t.Run("controller", func(t *testing.T) {
 		// Stop the old controller's private HTTP listener, retaining healthy source
 		// and encoder nodes. Wait for the real coordination lease to expire.
 		ownerPrivate.Close()
+		ownerGone.Store(true)
 		began := time.Now()
 		for !sender.ownsCoordination(ctx, "routing-loss") {
 			if err = sender.Tick(ctx); err != nil {
@@ -284,7 +303,7 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 			method, byteRange string
 			status            int
 		}{{"GET", "", 200}, {"HEAD", "", 200}, {"GET", "bytes=0-2", 206}, {"GET", "bytes=999999-", 416}} {
-			before := fetch(publicOwner, test.method, test.byteRange)
+			before := parity[test.method+test.byteRange]
 			after := fetch(publicSender, test.method, test.byteRange)
 			if after.Code != test.status || after.Code != before.Code || after.Body.String() != before.Body.String() || after.Header().Get("Content-Range") != before.Header().Get("Content-Range") {
 				t.Fatalf("%s %s status %d/%d body %q/%q", test.method, test.byteRange, before.Code, after.Code, before.Body.String(), after.Body.String())
@@ -301,8 +320,19 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 		timeline.Header.Set("X-Plex-Client-Identifier", "composed-client")
 		timelineResult := httptest.NewRecorder()
 		publicSender.ServeHTTP(timelineResult, timeline)
+		if timelineProgress.Load() == 0 {
+			t.Fatal("surviving timeline did not record progress")
+		}
 		if timelineResult.Code != 200 {
 			t.Fatalf("surviving timeline %d", timelineResult.Code)
+		}
+		decisionRequest := httptest.NewRequest("GET", "https://public"+strings.ReplaceAll(strings.Replace(startURI, "start.m3u8", "decision", 1), "session=routing-loss", "session=next-api-decision"), nil)
+		decisionRequest.Header.Set("X-Plex-Token", "offline-account")
+		decisionRequest.Header.Set("X-Plex-Client-Identifier", "composed-client")
+		decisionResponse := httptest.NewRecorder()
+		publicSender.ServeHTTP(decisionResponse, decisionRequest)
+		if decisionResponse.Code != 200 || strings.Contains(decisionResponse.Body.String(), `generalDecisionCode="2000"`) {
+			t.Fatalf("surviving decision %d", decisionResponse.Code)
 		}
 		current, err := ledger.Lookup(ctx, "routing-loss")
 		if err != nil || current.Fence != original.Fence {

@@ -210,12 +210,6 @@ func (p *RemotePlayback) SessionForSurface(surface string, viewer int64, client 
 			return copyPlaySession(s), true
 		}
 	}
-	for _, snapshot := range p.observed {
-		if snapshot.UserID == viewer && snapshot.ClientID == client && snapshot.Key == k && (surface == "" || string(snapshot.Client.Protocol) == surface) && (!exact || snapshot.SourceReleaseID() == release) {
-			return copyPlaySession(snapshot), true
-		}
-	}
-
 	return nil, false
 }
 func (p *RemotePlayback) Sessions() []*core.PlaySession {

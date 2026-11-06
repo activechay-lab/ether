@@ -84,7 +84,11 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 	}
 	gateway, e := nodeinput.New(nodeinput.Options{Client: c, Capacity: 1, MaxRequests: 8, RequestTimeout: 30 * time.Second, ReadTimeout: 2 * time.Second, MaxRecoveries: 3,
 		Recover: func(c context.Context, old nodesource.Grant) (*nodesource.Client, nodesource.Grant, error) {
-			controller := nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: old.Scope.Fence.Controller.ID, Boot: old.Scope.Fence.Controller.Boot}
+			coordinator, e := r.CurrentCoordinator(c, old.Scope.Fence.Session)
+			if e != nil {
+				return nil, nodesource.Grant{}, e
+			}
+			controller := coordinator.Identity
 			reply, e := r.sourceCall(c, Route{Source: controller}, sourceRequest{Op: "source-failover", Old: old})
 			if e != nil {
 				return nil, nodesource.Grant{}, e
