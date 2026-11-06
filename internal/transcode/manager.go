@@ -707,7 +707,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	}
 	if req.Resume != nil {
 		n := req.Resume.FirstSegment
-		if n < 0 || n > 10000000 || req.Resume.Generation == 0 || req.LiveInput || req.StartOffset != 0 || proto != core.ProtocolHLS || d.VideoCopy || (d.Container != ContainerMPEGTS && d.Container != ContainerFMP4) || time.Duration(n) > time.Duration(1<<63-1)/segDur || (req.Info.Duration > 0 && time.Duration(n)*segDur >= req.Info.Duration) {
+		if n < 0 || n > 10000000 || req.Resume.Generation == 0 || req.LiveInput || req.StartOffset != 0 || proto != core.ProtocolHLS || d.VideoCopy || (d.Container != ContainerMPEGTS && d.Container != ContainerFMP4) || time.Duration(n) > time.Duration(1<<63-1)/segDur {
 			return nil, errors.New("transcode: unsupported fixed-grid resume request")
 		}
 	}
@@ -770,7 +770,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 				segDur = short
 			}
 		}
-		fastStart := req.Resume == nil && !req.LiveInput && adapt.FastStart && v != nil && (!d.VideoCopy || d.Container == ContainerMPEGTS)
+		fastStart := !req.LiveInput && adapt.FastStart && v != nil && (!d.VideoCopy || d.Container == ContainerMPEGTS)
 		plan = buildTimeline(span, segDur, timelineOptions{
 			steadyMode: steadyMode,
 			fastStart:  fastStart,
@@ -783,6 +783,10 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		total = plan.Total()
 		tracks = len(rungs) // one segment track per rung
 	}
+	if req.Resume != nil && plan != nil && total > 0 && startSeg >= total {
+		return nil, errors.New("transcode: resume segment outside authored timeline")
+	}
+
 	id := req.SessionID
 	if id == "" {
 		id = randomHex(12)

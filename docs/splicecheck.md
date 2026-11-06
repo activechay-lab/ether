@@ -56,6 +56,10 @@ that term. The microsecond rounding is
 significant: an AU exactly on the nominal boundary can already belong to the
 preceding fragment. No AAC bytes are re-encoded or rewritten by this fix.
 
+Chunked/keyframe-planned runs retain their previous mux clocks and audio cutoffs;
+their slotter authors a separate timeline. Both restart correction helpers refuse
+those run specifications, including a final chunked run with no remaining KeyTimes.
+
 The measured recovery configuration is libx264 with copied LC AAC at 48 kHz.
 Hardware encoder reorder depths, audio re-encoding identity and
 other video codecs require separate proof. Ordinary video-copy arguments remain

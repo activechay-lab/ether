@@ -554,9 +554,11 @@ func buildCodecArgs(s runSpec) []string {
 
 // hlsRestartLead covers only the measured software H264 CFR configuration.
 // Copies, hardware, live, alternate muxers and unknown output clocks retain
-// their existing arguments. Never infer a hardware encoder's reorder delay.
+// their existing arguments. Chunked/keyframe-planned runs are slotted on their
+// own authored timeline and must not receive a uniform-grid mux shift.
+// Never infer a hardware encoder's reorder delay.
 func hlsRestartLead(s runSpec) time.Duration {
-	if s.Start <= 0 || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP || s.Decision.Container != ContainerMPEGTS || s.Decision.VideoCopy || s.FastStart {
+	if s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP || s.Decision.Container != ContainerMPEGTS || s.Decision.VideoCopy || s.FastStart {
 		return 0
 	}
 	v := s.Info.Video()
@@ -580,7 +582,7 @@ func hlsRestartLead(s runSpec) time.Duration {
 // ceil-to-microsecond preload can put an AU exactly on the nominal boundary
 // in the preceding fragment; dropping only pts < Start would duplicate it.
 func hlsFMP4AudioCut(s runSpec) (float64, bool) {
-	if s.Start <= 0 || s.LiveInput || s.Decision.Container != ContainerFMP4 || s.Decision.VideoCopy || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP {
+	if s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.Decision.Container != ContainerFMP4 || s.Decision.VideoCopy || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP {
 		return 0, false
 	}
 	v := s.Info.Video()

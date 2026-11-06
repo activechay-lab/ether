@@ -166,7 +166,7 @@ func validate(ctx context.Context, segs []Segment, o Options, dir string, r *Rep
 	}
 	return obs, paths, nil
 }
-func timing(obs []observation, r *Report, o Options) {
+func timing(obs []observation, segs []Segment, r *Report, o Options) {
 	var lastVideo, lastAudio float64
 	var haveVideo, haveAudio bool
 	var lastFrame float64
@@ -212,11 +212,15 @@ func timing(obs []observation, r *Report, o Options) {
 				haveAudio = true
 			}
 		}
-		if i > 0 && o.SegmentDuration > 0 {
+		if i > 0 {
+			expected := o.SegmentDuration.Seconds()
+			if len(o.Timeline) > 0 {
+				expected = (o.Timeline[segs[i].Index] - o.Timeline[segs[i-1].Index]).Seconds()
+			}
 			delta := x.first - obs[i-1].first
 			tol := frameTolerance(obs[i-1])
-			if math.Abs(delta-o.SegmentDuration.Seconds()) > tol {
-				r.GridDurations = Result{false, fmt.Sprintf("segment %d spacing %.9fs, want %.9fs (+/- %.9f)", i, delta, o.SegmentDuration.Seconds(), tol)}
+			if math.Abs(delta-expected) > tol {
+				r.GridDurations = Result{false, fmt.Sprintf("segment %d spacing %.9fs, want %.9fs (+/- %.9f)", i, delta, expected, tol)}
 			}
 		}
 	}
@@ -294,7 +298,18 @@ func check(ctx context.Context, segs []Segment, o Options) (Report, error) {
 	if len(segs) == 0 {
 		return r, fmt.Errorf("splicecheck: no segments")
 	}
-	if o.SegmentDuration <= 0 {
+	if len(o.Timeline) > 0 {
+		for i, t := range o.Timeline {
+			if t < 0 || (i > 0 && t <= o.Timeline[i-1]) {
+				return r, fmt.Errorf("splicecheck: timeline must increase strictly")
+			}
+		}
+		for _, s := range segs {
+			if s.Index < 0 || s.Index >= len(o.Timeline)-1 {
+				return r, fmt.Errorf("splicecheck: segment %d outside expected timeline", s.Index)
+			}
+		}
+	} else if o.SegmentDuration <= 0 {
 		return r, fmt.Errorf("splicecheck: positive segment duration required")
 	}
 	if o.FFmpeg == "" {
@@ -312,7 +327,7 @@ func check(ctx context.Context, segs []Segment, o Options) (Report, error) {
 	if e != nil {
 		return r, e
 	}
-	timing(obs, &r, o)
+	timing(obs, segs, &r, o)
 	// Byte concatenation retains packet clocks. The concat demuxer would rebase
 	// each segment and conceal exactly the discontinuity under test.
 	joined, e := os.CreateTemp(dir, "joined-*")
