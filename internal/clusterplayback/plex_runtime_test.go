@@ -28,6 +28,9 @@ type composedAuth struct {
 func (a *composedAuth) Authenticate(_ context.Context, token string) (*core.User, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+	if token == "offline-foreign" && !a.revoked {
+		return &core.User{ID: 10, Username: "foreign"}, nil
+	}
 	if token != "offline-account" || a.revoked {
 		return nil, core.ErrUnauthorized
 	}
@@ -123,6 +126,7 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	base := Options{DB: db, Placement: ledger, Endpoint: endpoint, Eligible: eligible, MemberRole: eligible, Capacity: 32, ClockBoundKnown: true, ClockSkew: time.Millisecond, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision {
 		return core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts", AudioStream: -1, SubtitleStream: -1}
 	}}
+	base.MediaServers = func(context.Context) ([]nodewire.Identity, error) { return []nodewire.Identity{senderID}, nil }
 	sourceOpts := base
 	sourceOpts.Self = sourceID
 	sourceOpts.Guard = guards[0]
@@ -230,9 +234,12 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	publicSender := plex.NewServer(deps)
 	defer publicSender.Close()
 	publicSender.UsePlaybackBroker(senderBroker)
+	if err = sender.BindPlexDelivery(publicSender); err != nil {
+		t.Fatal(err)
+	}
 	forwardDeps := deps
 	forwardDeps.DB, forwardDeps.Cluster = nil, nil
-	forwardDeps.Playback, forwardDeps.Transcoder, forwardDeps.PlexEncoder = remote, decision, forwardOnlyEncoder{r: sender}
+	forwardDeps.Playback, forwardDeps.Transcoder, forwardDeps.PlexEncoder = remote, decision, forwardOnlyEncoder{r: owner}
 	publicForward := plex.NewServer(forwardDeps)
 	defer publicForward.Close()
 	startURI := "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F" + core.MovieKey(1).String() + "&session=real-composed-plex&directPlay=0&directStream=1"
@@ -299,6 +306,52 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	uri := baseURL.ResolveReference(part)
 	if !strings.Contains(uri.RawQuery, "X-Ether-Stream-Token=") || !strings.Contains(uri.RawQuery, "X-Ether-Read-Token=") {
 		t.Fatal("master omitted genuine dual grant envelope")
+	}
+	// Replay to the decision frontend, whose local binding predates the start
+	// on the other server. The durable started binding must win.
+	q := httptest.NewRequest("GET", uri.String(), nil)
+	q.RemoteAddr = start.RemoteAddr
+	q.Header = start.Header.Clone()
+	variant := httptest.NewRecorder()
+	if !owner.ForwardPlexMedia(variant, q, "real-composed-plex") {
+		t.Fatal("variant was not forwarded")
+	}
+	if variant.Code != 200 {
+		t.Fatalf("replayed variant status %d", variant.Code)
+	}
+	segmentURI := *uri
+	segmentURI.Path = strings.TrimSuffix(segmentURI.Path, "index.m3u8") + "segment-0.ts"
+	for _, target := range []*url.URL{uri, &segmentURI} {
+		for _, test := range []struct {
+			name, account string
+			invalid       bool
+			status        int
+		}{
+			{"stream grant", "", false, 200},
+			{"foreign viewer", "offline-foreign", false, 403},
+			{"invalid capabilities", "", true, 401},
+		} {
+			t.Run(test.name+"/"+target.Path[strings.LastIndex(target.Path, "/")+1:], func(t *testing.T) {
+				address := *target
+				if test.invalid {
+					query := address.Query()
+					query.Set("X-Ether-Stream-Token", "invalid")
+					query.Set("X-Ether-Read-Token", "invalid")
+					address.RawQuery = query.Encode()
+				}
+				q := httptest.NewRequest("GET", address.String(), nil)
+				q.RemoteAddr = start.RemoteAddr
+				q.Header.Set("X-Plex-Client-Identifier", "composed-client")
+				if test.account != "" {
+					q.Header.Set("X-Plex-Token", test.account)
+				}
+				out := httptest.NewRecorder()
+				publicForward.ServeHTTP(out, q)
+				if out.Code != test.status {
+					t.Fatalf("replayed media status %d, want %d", out.Code, test.status)
+				}
+			})
+		}
 	}
 	uri.Path = strings.TrimSuffix(uri.Path, "index.m3u8") + "0.ts"
 	request := func(method, peer, xff string) *httptest.ResponseRecorder {
