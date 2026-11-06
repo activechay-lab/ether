@@ -179,7 +179,7 @@
       "name": "Channel title"
     },
     {
-      "id": "Tagline",
+      "id": "ResumingCaption",
       "type": "text",
       "text": "{words.back}",
       "x": 960,
@@ -206,7 +206,7 @@
           ]
         ]
       },
-      "name": "Tagline"
+      "name": "Resuming caption"
     }
   ],
   "post": [
