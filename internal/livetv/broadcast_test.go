@@ -3,6 +3,7 @@ package livetv
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -688,39 +689,47 @@ func (s burstSampleIndex) Latest() (transcode.Segment, bool) {
 // The first picture may take seconds to decode after a fast cold ident. That
 // wait must not strand a newly joined client at the short opening live edge.
 func TestBroadcastColdDecoderKeepsFillingPublishedCushion(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		format := smallBroadcastFormat()
-		open := func(context.Context) (transcode.Decoder, func(), error) {
-			return &broadcastFakeDecoder{format: format, closed: make(chan struct{}), value: 42}, nil, nil
-		}
-		planner := burstTestPlanner{broadcastFakePlanner: broadcastFakePlanner{plan: broadcastPlan{id: "programme", programme: true, open: func(context.Context) (transcode.Decoder, func(), error) {
-			return &burstBlockedDecoder{broadcastFakeDecoder: &broadcastFakeDecoder{format: format, closed: make(chan struct{})}}, nil, nil
-		}}, screenPlan: broadcastPlan{id: "signal", open: open}}}
-		runner := &broadcastFakeRunner{}
-		b, err := newBroadcast(t.Context(), runner, planner, format)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer b.close()
-		if _, err = b.addRendition(t.Context(), "main", core.Decision{}); err != nil {
-			t.Fatal(err)
-		}
-		runner.encoders[0].mu.Lock()
-		runner.encoders[0].index = burstSampleIndex{encoder: runner.encoders[0]}
-		runner.encoders[0].mu.Unlock()
-		b.start()
-		time.Sleep(3 * time.Second)
-		synctest.Wait()
-		frames := runner.encoders[0].snapshot()
-		if len(frames) < 360 {
-			t.Fatalf("cold decoder stranded the opening buffer: %d ticks", len(frames))
-		}
-		for n, f := range frames {
-			if len(f.PCM) != 6400 || f.OutputTime != b.origin.Add(time.Duration(n)*time.Second/30) {
-				t.Fatalf("cold fallback discontinuity at tick%d", n)
-			}
-		}
-	})
+	for _, pendingOpen := range []bool{false, true} {
+		t.Run(fmt.Sprint(pendingOpen), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				format := smallBroadcastFormat()
+				open := func(context.Context) (transcode.Decoder, func(), error) {
+					return &broadcastFakeDecoder{format: format, closed: make(chan struct{}), value: 42}, nil, nil
+				}
+				planner := burstTestPlanner{broadcastFakePlanner: broadcastFakePlanner{plan: broadcastPlan{id: "programme", programme: true, open: func(ctx context.Context) (transcode.Decoder, func(), error) {
+					if pendingOpen {
+						<-ctx.Done()
+						return nil, nil, ctx.Err()
+					}
+					return &burstBlockedDecoder{broadcastFakeDecoder: &broadcastFakeDecoder{format: format, closed: make(chan struct{})}}, nil, nil
+				}}, screenPlan: broadcastPlan{id: "signal", open: open}}}
+				runner := &broadcastFakeRunner{}
+				b, err := newBroadcast(t.Context(), runner, planner, format)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer b.close()
+				if _, err = b.addRendition(t.Context(), "main", core.Decision{}); err != nil {
+					t.Fatal(err)
+				}
+				runner.encoders[0].mu.Lock()
+				runner.encoders[0].index = burstSampleIndex{encoder: runner.encoders[0]}
+				runner.encoders[0].mu.Unlock()
+				b.start()
+				time.Sleep(3 * time.Second)
+				synctest.Wait()
+				frames := runner.encoders[0].snapshot()
+				if len(frames) < 360 {
+					t.Fatalf("cold decoder stranded the opening buffer: %d ticks", len(frames))
+				}
+				for n, f := range frames {
+					if len(f.PCM) != 6400 || f.OutputTime != b.origin.Add(time.Duration(n)*time.Second/30) {
+						t.Fatalf("cold fallback discontinuity at tick%d", n)
+					}
+				}
+			})
+		})
+	}
 }
 
 // Warm joins consume no new encoder capacity. Alternating two retained channels
