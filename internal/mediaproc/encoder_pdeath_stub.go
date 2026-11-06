@@ -1,6 +1,6 @@
 //go:build !windows && !linux
 
-package transcode
+package mediaproc
 
 import "syscall"
 

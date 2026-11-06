@@ -1,20 +1,27 @@
 //go:build windows
 
-package transcode
+package mediaproc
 
 import (
 	"fmt"
 	"os/exec"
 	"sync"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-func prepareEncoder(cmd *exec.Cmd) { cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED }
+func Prepare(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.HideWindow = true
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
+}
 
 // Closing a kill-on-close job terminates the encoder and its descendants.
-func ownEncoder(cmd *exec.Cmd) (func(), error) {
+func Own(cmd *exec.Cmd) (func(), error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return nil, err
@@ -46,4 +53,6 @@ func ownEncoder(cmd *exec.Cmd) (func(), error) {
 	var once sync.Once
 	return func() { once.Do(func() { windows.CloseHandle(job) }) }, nil
 }
-func stopEncoder(cmd *exec.Cmd) { _ = cmd.Process.Kill() }
+func Stop(cmd *exec.Cmd) { _ = cmd.Process.Kill() }
+
+func PrepareGuardian(cmd *exec.Cmd) { Prepare(cmd) }
