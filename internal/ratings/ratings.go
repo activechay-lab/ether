@@ -253,17 +253,6 @@ func (s *Service) SaveSettings(ctx context.Context, v Settings) error {
 	if v.CacheHours < 1 || v.CacheHours > 2160 {
 		return errors.New("cache interval must be 1–2160 hours")
 	}
-	if v.APIKey == Redacted {
-		old, e := s.settings(ctx)
-		if e != nil {
-			return e
-		}
-		// A key belongs to its provider: never send it to the other one.
-		if old.APIKey != "" && old.Provider != v.Provider {
-			return errors.New("enter the API key for the new ratings provider")
-		}
-		v.APIKey = old.APIKey
-	}
 	if v.Missing != "" && v.Missing != "none" && v.Missing != "tmdb" {
 		return errors.New("invalid missing rating behavior")
 	}
@@ -273,15 +262,35 @@ func (s *Service) SaveSettings(ctx context.Context, v Settings) error {
 	if v.BackupProvider != "" && v.BackupProvider == v.Provider {
 		return errors.New("backup provider must differ from primary")
 	}
-	if v.BackupAPIKey == Redacted {
+	if v.APIKey == Redacted || v.BackupAPIKey == Redacted {
+		// Open one snapshot in its original slot/provider contexts. Masked
+		// keys refer to providers, even when they move to the other slot.
 		old, err := s.settings(ctx)
 		if err != nil {
 			return err
 		}
-		if old.BackupProvider != v.BackupProvider {
-			return errors.New("enter the API key for the new backup provider")
+		keyFor := func(provider string) string {
+			switch provider {
+			case old.Provider:
+				return old.APIKey
+			case old.BackupProvider:
+				return old.BackupAPIKey
+			default:
+				return ""
+			}
 		}
-		v.BackupAPIKey = old.BackupAPIKey
+		if v.APIKey == Redacted {
+			v.APIKey = keyFor(v.Provider)
+			if v.APIKey == "" && v.Provider != old.Provider {
+				return errors.New("enter the API key for the new ratings provider")
+			}
+		}
+		if v.BackupAPIKey == Redacted {
+			v.BackupAPIKey = keyFor(v.BackupProvider)
+			if v.BackupProvider != "" && v.BackupAPIKey == "" {
+				return errors.New("enter the API key for the new backup provider")
+			}
+		}
 	}
 	if v.BackupProvider != "" && strings.TrimSpace(v.BackupAPIKey) == "" {
 		return errors.New("backup provider requires an API key")
