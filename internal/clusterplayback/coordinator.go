@@ -558,7 +558,7 @@ func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
 	var displacedRaw string
 	if err := r.o.DB.QueryRowContext(ctx, `SELECT record FROM placement_displaced WHERE session=? AND generation=?`, f.Session, f.Generation).Scan(&displacedRaw); err == nil {
 		var old placement.Record
-		if json.Unmarshal([]byte(displacedRaw), &old) == nil && old.Fence == f && r.replacedWorkerBoot(ctx, f) == nil {
+		if json.Unmarshal([]byte(displacedRaw), &old) == nil && old.Fence == f && r.retiredWorkerBoot(ctx, f) == nil {
 			return nil
 		}
 	}

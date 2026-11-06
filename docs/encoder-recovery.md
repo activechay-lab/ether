@@ -2,7 +2,10 @@
 
 The controller probes the exact accepted worker with status RPCs from `Tick`.
 `Options.EncoderRPCDeadline` defaults to 500 ms and
-`Options.EncoderFailureGrace` to 2 seconds. Membership rejection, expired worker
+`Options.EncoderFailureGrace` to 2 seconds. Deployment JSON exposes
+`encoderRPCDeadlineMillis`, `encoderFailureGraceMillis` and
+`encoderSegmentWaitMillis`; zero selects these runtime defaults (segment wait:
+30 seconds). RPC deadlines are bounded to 5 seconds and grace/wait to 60 seconds. Membership rejection, expired worker
 leases and failed RPCs feed the same detector. Successful status reporting a
 pending encoder retirement means the encoder is still active. The private
 runtime calls Tick once per second, with a three-second aggregate control budget.

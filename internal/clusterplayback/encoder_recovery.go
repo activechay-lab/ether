@@ -334,6 +334,17 @@ func (r *Runtime) armAcceptedExecution(ctx context.Context, q core.HLSRequest) e
 
 func (r *Runtime) reconcileDisplaced(ctx context.Context, x *execution) {
 	for _, old := range x.failed {
+		if old.retired {
+			continue
+		}
+		var retained int
+		if err := r.o.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM placement_displaced WHERE session=? AND generation=?`, old.route.Fence.Session, old.route.Fence.Generation).Scan(&retained); err == nil && retained == 0 {
+			old.retired = true
+			if old.adapter != nil {
+				old.adapter.Close()
+			}
+			continue
+		}
 		if old.session == nil {
 			continue
 		}
@@ -343,15 +354,26 @@ func (r *Runtime) reconcileDisplaced(ctx context.Context, x *execution) {
 		if old.session.EncoderErr() != nil {
 			continue
 		}
-		if r.o.Placement.RetireDisplaced(ctx, old.route.Fence, "clusterplayback/exact-displaced-retirement") == nil && old.adapter != nil {
-			old.adapter.Close()
+		if r.o.Placement.RetireDisplaced(ctx, old.route.Fence, "clusterplayback/exact-displaced-retirement") == nil {
+			old.retired = true
+			if old.adapter != nil {
+				old.adapter.Close()
+			}
 		}
 	}
 }
 
 // Membership must freshly authenticate the DIFFERENT incarnation; mere
 // disappearance of the old boot, an empty role list or elapsed time is unknown.
-func (r *Runtime) replacedWorkerBoot(ctx context.Context, f placement.Fence) error {
+func (r *Runtime) retiredWorkerBoot(ctx context.Context, f placement.Fence) error {
+	var removed int
+	if err := r.o.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM placement_removed_targets WHERE node=? AND boot=?`, f.Target.NodeID, f.Target.Boot).Scan(&removed); err != nil {
+		return err
+	}
+	if removed > 0 {
+		return nil
+	}
+
 	var boot string
 	if err := r.o.DB.QueryRowContext(ctx, `SELECT boot FROM placement_targets WHERE node=?`, f.Target.NodeID).Scan(&boot); err != nil {
 		return err
@@ -387,7 +409,7 @@ func (r *Runtime) reconcileBootRetirements(ctx context.Context) error {
 		return err
 	}
 	for _, record := range records {
-		if r.replacedWorkerBoot(ctx, record.Fence) == nil {
+		if r.retiredWorkerBoot(ctx, record.Fence) == nil {
 			if err = r.o.Placement.RetireDisplaced(ctx, record.Fence, "clusterplayback/authenticated-new-boot"); err != nil {
 				return err
 			}
