@@ -640,6 +640,9 @@ func (i *instance) browseRoutes() error {
 	if err := add("GET", "/Library/VirtualFolders", i.virtualFolders); err != nil {
 		return err
 	}
+	if err := i.clientCompatibilityRoutes(); err != nil {
+		return err
+	}
 	return i.playlistRoutes()
 }
 
@@ -734,6 +737,10 @@ func withBrowseMemo(r *http.Request) *http.Request {
 }
 
 func (i *instance) pageWithVersion(w http.ResponseWriter, r *http.Request, v *frontend.Viewer, page frontend.Page, offset int, anchor frontend.RatingKey, version string) {
+	i.pageWithCount(w, r, v, page, offset, anchor, version, nil)
+}
+
+func (i *instance) pageWithCount(w http.ResponseWriter, r *http.Request, v *frontend.Viewer, page frontend.Page, offset int, anchor frontend.RatingKey, version string, count *bool) {
 	r = withJellyfinListFiles(withBrowseMemo(withListMediaEstimate(withSeriesStudioCache(r))))
 	keys := make([]frontend.RatingKey, 0, len(page.Items))
 	for _, title := range page.Items {
@@ -801,7 +808,14 @@ func (i *instance) pageWithVersion(w http.ResponseWriter, r *http.Request, v *fr
 	if total < len(items) {
 		total = len(items)
 	}
-	i.replyItems(w, r, i.queryResult(items, total, offset))
+	if count != nil && !*count {
+		total = 0
+	}
+	result := i.queryResult(items, total, offset)
+	if count != nil {
+		result["StartIndex"] = offset
+	}
+	i.replyItems(w, r, result)
 }
 func (i *instance) children(w http.ResponseWriter, r *http.Request) {
 	v, _, err := i.viewer(r)

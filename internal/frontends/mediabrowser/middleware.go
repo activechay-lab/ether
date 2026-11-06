@@ -15,6 +15,8 @@ import (
 // existing anonymous response before sign-in (see public_test.go).
 // Media and image routes instead verify their own unguessable scoped grants.
 var publicRoutesAllowlist = map[route.Route]bool{
+	{Method: "GET", Pattern: "/Branding/Css"}:                               true,
+	{Method: "GET", Pattern: "/Branding/Css.css"}:                           true,
 	{Method: "GET", Pattern: "/System/Info/Public"}:                         true,
 	{Method: "GET", Pattern: "/System/Endpoint"}:                            true,
 	{Method: "GET", Pattern: "/System/Ping"}:                                true,
