@@ -28,6 +28,9 @@ type clockGuard struct {
 }
 
 func absClock(d time.Duration) time.Duration {
+	if d == time.Duration(-1<<63) {
+		return time.Duration(1<<63 - 1)
+	}
 	if d < 0 {
 		return -d
 	}
@@ -67,7 +70,13 @@ func (c *clockGuard) sample(before, after, monoBefore, monoAfter, database time.
 		// Use the after wall sample so diagnostics reflect the new clock.
 		c.status.ClockSkew = after.Round(0).Add(-rtt / 2).Sub(database)
 		c.status.RTT = rtt
-		c.status.Uncertainty = absClock(c.status.ClockSkew) + rtt/2 + time.Microsecond
+		skew := absClock(c.status.ClockSkew)
+		const maximum = time.Duration(1<<63 - 1)
+		if skew > maximum-rtt/2-time.Microsecond {
+			c.status.Uncertainty = maximum
+		} else {
+			c.status.Uncertainty = skew + rtt/2 + time.Microsecond
+		}
 		c.status.SampledAt, c.receipt = after.Round(0).UTC(), monoAfter
 	}
 	if !ok || step != 0 || rtt < 0 {

@@ -179,5 +179,15 @@ func TestContinuousClockAuthorityInvariant(t *testing.T) {
 	advance(0)
 	advance(0)
 	denied("stale")
+	f.wall = f.wall.AddDate(-500, 0, 0)
+	sample()
+	advance(0)
+	sample()
+	advance(0)
+	sample()
+	denied("extreme-step")
+	if p.ClockStatus().Uncertainty <= 0 {
+		t.Fatal("extreme clock error overflowed")
+	}
 	t.Logf("drift, -2.35s step, RTT uncertainty, outage, stale sample and hysteretic recovery verified; existing placement preserved")
 }
