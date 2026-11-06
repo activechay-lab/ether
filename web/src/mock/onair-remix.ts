@@ -1,3 +1,4 @@
+import { uuid } from "../lib/api";
 import type { Style, Template, StyleControl } from "../pages/livetv/onair/studio-model";
 import type { Scene } from "../pages/livetv/onair/scene-renderer";
 const documents = import.meta.glob("../../../internal/onair/families/documents/*.json", {
@@ -119,7 +120,7 @@ export function remixMock(
     // executing or decoding uploaded plugin packages in the mock browser.
     const template = templates.find((entry) => entry.id === "retro")!;
     const style = structuredClone(template.style);
-    style.id = crypto.randomUUID();
+    style.id = uuid();
     style.name =
       file.name
         .replace(/\.etherpkg$/i, "")
@@ -128,7 +129,7 @@ export function remixMock(
     style.brand.tagline = "Stay tuned to the future";
     style.channelIds = [];
     style.channelCount = 0;
-    style.scenes = style.scenes.map((scene) => ({ ...scene, id: crypto.randomUUID() }));
+    style.scenes = style.scenes.map((scene) => ({ ...scene, id: uuid() }));
     styles.push(style);
     return { status: 201, body: style };
   }
@@ -140,7 +141,7 @@ export function remixMock(
       return { body: null };
     }
     const style = structuredClone(body) as Style;
-    style.id = id ?? crypto.randomUUID();
+    style.id = id ?? uuid();
     styles = styles.filter((s) => s.id !== style.id).concat(style);
     return { body: style };
   }
@@ -149,7 +150,7 @@ export function remixMock(
     const style = structuredClone(request.style);
     for (const scene of style.scenes.filter((s) => !request.sceneId || s.id === request.sceneId)) {
       scene.document.layers.push({
-        id: crypto.randomUUID(),
+        id: uuid(),
         type: "text",
         text: request.prompt.slice(0, 100),
         x: 960,
