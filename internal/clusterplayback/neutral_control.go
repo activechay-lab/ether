@@ -41,6 +41,31 @@ func (r *Runtime) BindNeutralControl(control func(context.Context, frontend.Sess
 }
 
 func (r *Runtime) ForwardNeutralControl(ctx context.Context, a frontend.SessionAccess, id, operation string, timeline frontend.Timeline, stream frontend.StreamRequest) (string, bool, error) {
+	if ctx.Value(neutralControlHop{}) != nil {
+		return r.forwardNeutralControlOnce(ctx, a, id, operation, timeline, stream)
+	}
+	ctx, cancel := context.WithTimeout(ctx, coordinationLease+3*r.o.ClockSkew+4*time.Second)
+	defer cancel()
+	for {
+		path, handled, err := r.forwardNeutralControlOnce(ctx, a, id, operation, timeline, stream)
+		if !errors.Is(err, core.ErrNotAvailable) || !handled {
+			return path, handled, err
+		}
+		if ctx.Err() != nil {
+			return "", true, ctx.Err()
+		}
+		if !r.clockReady() || r.o.MemberRole(ctx, r.o.Self, config.RoleServer) != nil {
+			return "", true, core.ErrNotAvailable
+		}
+		_ = r.Tick(ctx)
+		select {
+		case <-ctx.Done():
+			return "", true, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+func (r *Runtime) forwardNeutralControlOnce(ctx context.Context, a frontend.SessionAccess, id, operation string, timeline frontend.Timeline, stream frontend.StreamRequest) (string, bool, error) {
 	if a.Protocol != "jellyfin" && a.Protocol != "emby" {
 		return "", false, nil
 	}
@@ -64,7 +89,7 @@ func (r *Runtime) ForwardNeutralControl(ctx context.Context, a frontend.SessionA
 	if err != nil {
 		return "", true, core.ErrNotAvailable
 	}
-	transport, err := outbound.New(endpoint, tls, 5*time.Second, check)
+	transport, err := outbound.New(endpoint, tls, 500*time.Millisecond, check)
 	if err != nil {
 		return "", true, core.ErrNotAvailable
 	}
@@ -77,7 +102,7 @@ func (r *Runtime) ForwardNeutralControl(ctx context.Context, a frontend.SessionA
 	if err != nil {
 		return "", true, core.ErrNotAvailable
 	}
-	client := &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: transport, Timeout: time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := client.Do(q)
 	if err != nil {
 		return "", true, core.ErrNotAvailable

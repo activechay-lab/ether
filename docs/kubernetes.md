@@ -556,15 +556,17 @@ those RPCs across a role Service would discard their execution identity.
 Existing readiness probes and per-pool PDBs apply. Hard loss requires spare
 ready replicas; a PDB constrains voluntary disruption only.
 
-Delivery retains no authoritative output or coordination. Every request resolves
-the current coordinator from SQL and forwards once over authenticated node RPC.
+Delivery retains no authoritative output or coordination. Every encoder-media request resolves the current execution generation from SQL
+and forwards over authenticated node RPC to an available server replica. A failed
+connection can retry another replica before response headers. Preparation-only
+direct media retains its source/controller route.
 The receiving original protocol handler rechecks viewer/grant, device and media
 policy. Range, conditional requests, HEAD and cancellation follow that handler;
 redirects and additional delivery hops are refused. Output lives at the encoder;
 optional controller retention is a second copy, never delivery's unique data.
 
 Playback coordination uses a separate SQL lease and monotonically increasing
-epoch (`clusterplayback/6`). Its 15-second lease includes twice the configured
+epoch (`clusterplayback/6`). Its two-second lease includes twice the configured
 clock-skew bound. A surviving eligible server claims an expired lease by CAS,
 observes the exact healthy worker through status (no Start), and renews its
 placement, source and worker leases. The execution fence/generation and encoder
@@ -590,9 +592,21 @@ segment response continuity, Range/HEAD/416 parity, timeline availability,
 renewal and one encoder start. Its media backend is an offline fake. It does
 **not** certify decoded playback, real Ingress endpoint removal, a client buffer,
 PostgreSQL availability or physical node loss. Run the acceptance collector
-across each actual loss before release. Budget at least the coordination lease,
-three clock-skew bounds, the control tick and actual RPC latency within the
-measured client forward buffer; configurations with larger skew need more buffer.
+across each actual loss before release. Media reads do not wait for the coordination lease: a surviving server restores
+the original protocol authorization snapshot, checks the live viewer/grant/policy,
+and reads the healthy encoder under its exact execution generation. Read-only
+worker RPC credentials allow status, inspection and representations; start, stop,
+renewal and playback mutations still require the current coordinator epoch.
+Media restoration does not claim the public registry row.
+
+Coordination detection is bounded by the two-second lease, three clock-skew
+bounds, the one-second control tick and SQL/RPC latency. With a one-second
+pairwise clock bound this is at most six seconds plus I/O. Stop/progress requests
+wait and retry during election, bounded by that lease plus three skew bounds and
+four seconds of I/O headroom (or the client deadline). They never acknowledge
+a queued Stop before the coordinator executes it. Expiry transfers control only;
+a healthy execution retains its generation. Database or worker outages beyond
+these bounds can still return an error and retain responsibility.
 
 
 ## Specialist roles and recovery boundaries
@@ -608,7 +622,7 @@ and drain/replacement, not by copying identity files or changing a running node.
 | `pools.server` | Protocol admission, browse/control, session coordination and lease renewal; remote source/encoder adapters | API Service |
 | `pools.source` | Provider acquisition and exact-release byte-range serving | Private transport only |
 | `pools.transcode` | Worker-local input gateway, FFmpeg and segment output | Private transport only |
-| `pools.delivery` | Stateless representation forwarding to the current SQL-resolved coordinator | Media Service |
+| `pools.delivery` | Stateless representation forwarding through any available server to the SQL-fenced encoder | Media Service |
 | `pools.full` | All responsibilities, including background work | API and media Services |
 
 A four-specialist lab configuration is shown in

@@ -29,9 +29,15 @@ func remoteIdentity(rt Route) remotetranscode.Identity {
 }
 func (r *Runtime) authorizeWorker(ctx context.Context, peer, op string, id remotetranscode.Identity, start *remotetranscode.Start) error {
 	if authority, ok := ctx.Value(workerAuthorityKey{}).(workerAuthority); ok {
-		coordinator, err := r.CurrentCoordinator(ctx, id.Session)
-		if err != nil || coordinator.Identity != authority.peer || strconv.FormatInt(coordinator.Epoch, 10) != authority.epoch || !coordinator.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
-			return ErrDenied
+		if authority.readOnly {
+			if !readOperation(op) || r.o.MemberRole(ctx, authority.peer, config.RoleServer) != nil {
+				return ErrDenied
+			}
+		} else {
+			coordinator, err := r.CurrentCoordinator(ctx, id.Session)
+			if err != nil || coordinator.Identity != authority.peer || strconv.FormatInt(coordinator.Epoch, 10) != authority.epoch || !coordinator.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
+				return ErrDenied
+			}
 		}
 	}
 

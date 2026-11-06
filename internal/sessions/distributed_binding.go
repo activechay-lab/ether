@@ -96,6 +96,9 @@ func (b *Broker) neutralCurrent(ctx context.Context, s *brokerSession) bool {
 // Authentication facts may be restored, but no source ownership, encoder,
 // preparation, plan capacity or new admission is synthesized from a snapshot.
 func (b *Broker) restoreNeutralBinding(ctx context.Context, id string, access *frontend.SessionAccess, grant, protocol string) error {
+	return b.restoreNeutralBindingMode(ctx, id, access, grant, protocol, false)
+}
+func (b *Broker) restoreNeutralBindingMode(ctx context.Context, id string, access *frontend.SessionAccess, grant, protocol string, media bool) error {
 	storage, ok := b.deps.DistributedHLS.(neutralBindingStore)
 	if !ok {
 		return core.ErrNotFound
@@ -145,7 +148,7 @@ func (b *Broker) restoreNeutralBinding(ctx context.Context, id string, access *f
 	if !b.currentMediaPolicy(ctx, viewer, s) {
 		return core.ErrUnauthorized
 	}
-	if !storage.NeutralSessionCurrent(ctx, id) {
+	if !storage.NeutralSessionCurrent(ctx, id) && !(media && b.neutralMediaCurrent(ctx, s)) {
 		return core.ErrNotAvailable
 	}
 	if hs, ok := b.deps.DistributedHLS.Session(id); !ok || hs == nil {
@@ -160,7 +163,7 @@ func (b *Broker) restoreNeutralBinding(ctx context.Context, id string, access *f
 	if err = restore.RestoreNeutralSource(ctx, id, snapshot.Source); err != nil {
 		return err
 	}
-	if b.cluster != nil {
+	if b.cluster != nil && !media {
 		if err = storage.ClaimNeutralBinding(ctx, id, b.cluster.store.node); err != nil {
 			return err
 		}
@@ -207,4 +210,14 @@ func (b *Broker) restoreNeutralScope(ctx context.Context, a frontend.SessionAcce
 		}
 	}
 	return nil
+}
+
+func (b *Broker) neutralMediaCurrent(ctx context.Context, s *brokerSession) bool {
+	if !s.distributed {
+		return true
+	}
+	storage, ok := b.deps.DistributedHLS.(interface {
+		NeutralMediaCurrent(context.Context, string) bool
+	})
+	return ok && storage.NeutralMediaCurrent(ctx, s.public.ID)
 }

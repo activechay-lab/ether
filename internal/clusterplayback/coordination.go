@@ -60,7 +60,7 @@ func (r *Runtime) CurrentCoordinator(ctx context.Context, id string) (Coordinato
 	return c, nil
 }
 
-const coordinationLease = 15 * time.Second
+const coordinationLease = 2 * time.Second
 
 func (r *Runtime) initializeCoordinator(ctx context.Context, route Route) error {
 	if !r.clockReady() {

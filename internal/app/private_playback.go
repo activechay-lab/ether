@@ -29,6 +29,16 @@ func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
 	}
 	self := a.cluster.Self()
 	o := clusterplayback.Options{ProtocolSealer: a.cfg, ClockReady: a.privateClockReady, Bus: a.clusterNode(), DB: a.db, Guard: p.guard, Self: nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: self.ID, Boot: self.Incarnation}, Roles: p.settings.Roles, Placement: ledger, Endpoint: a.privateEndpoint, MemberRole: a.privateMemberRole, Eligible: a.privateEligible, Capacity: p.settings.Capacity, ClockSkew: time.Duration(p.settings.ClockSkewMillis) * time.Millisecond, ClockBoundKnown: p.settings.ClockBoundKnown}
+	o.MediaServers = func(ctx context.Context) ([]nodewire.Identity, error) {
+		nodes, err := a.cluster.Nodes(ctx)
+		var ids []nodewire.Identity
+		for _, n := range nodes {
+			if n.Caps.Roles.Has(config.RoleServer) && !n.Draining {
+				ids = append(ids, nodewire.Identity{Cluster: o.Self.Cluster, NodeID: n.ID, Boot: n.Incarnation})
+			}
+		}
+		return ids, err
+	}
 	o.EncoderRPCDeadline = time.Duration(p.settings.EncoderRPCDeadlineMillis) * time.Millisecond
 	o.EncoderFailureGrace = time.Duration(p.settings.EncoderFailureGraceMillis) * time.Millisecond
 	o.EncoderSegmentWait = time.Duration(p.settings.EncoderSegmentWaitMillis) * time.Millisecond
