@@ -51,9 +51,10 @@ const (
 
 // Options configure a Service.
 type Options struct {
-	DB     *sql.DB // nil keeps state in memory
-	Logger *slog.Logger
-	Now    func() time.Time
+	AcquireStreamProvider func(context.Context, string) (func(), error)
+	DB                    *sql.DB // nil keeps state in memory
+	Logger                *slog.Logger
+	Now                   func() time.Time
 	// Provider options (tests point them at httptest servers).
 	ProviderOptions ProviderOptions
 	// NewProvider overrides provider construction (tests).

@@ -216,9 +216,10 @@ type Release struct {
 	// addon requires) can carry the addon's credentials, so they never
 	// leave the server. StreamOrigin is the owner-configured addon origin
 	// (scheme://host:port), the only private address the URL may reach.
-	StreamURL     string            `json:"streamUrl,omitempty"`
-	StreamHeaders map[string]string `json:"streamHeaders,omitempty"`
-	StreamOrigin  string            `json:"streamOrigin,omitempty"`
+	StreamProvider string            `json:"streamProvider,omitempty"` // stored provider connection budget
+	StreamURL      string            `json:"streamUrl,omitempty"`
+	StreamHeaders  map[string]string `json:"streamHeaders,omitempty"`
+	StreamOrigin   string            `json:"streamOrigin,omitempty"`
 }
 
 // Resolution is the resolver's answer for a title and client: the winning

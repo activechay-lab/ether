@@ -976,6 +976,9 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	if optimisticErr != nil {
 		return nil, optimisticErr
 	}
+	if errors.Is(searchErr, core.ErrStreamLimit) {
+		return nil, searchErr
+	}
 	if searchErr != nil {
 		return nil, failed(nil)
 	}
@@ -989,6 +992,15 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 			return s.acceptResolution(ctx, t.Key, all, i, payload, &trace), nil
 		}
 		return nil, uerr
+	}
+	// An occupied provider is temporary; keep the title available and expose
+	// the actionable busy outcome instead of remembering a failed title.
+	for _, c := range all {
+		ct := &trace.Candidates[c.trace]
+		if c.rel.StreamProvider != "" && errors.Is(ct.err, core.ErrStreamLimit) {
+			trace.Err = "provider busy"
+			return nil, fmt.Errorf("provider busy: %w", ct.err)
+		}
 	}
 	// A capped warm-up did not check every candidate, so it proves nothing.
 	if !clientRejected && !rescueSkipped && len(req.Exclude) == 0 && len(cands) <= maxHealthAttempts && !(core.IsSpeculative(ctx) && len(cands) > speculativeHealthAttempts) && !coverage.Incomplete() {
@@ -2097,3 +2109,6 @@ func fallbackHeight(info core.ReleaseInfo) int {
 	}
 	return floorHeight(info)
 }
+
+// SourcesChanged invalidates remembered results when a database-backed source changes.
+func (s *Service) SourcesChanged(ctx context.Context) { s.forgetSourceResults(ctx) }

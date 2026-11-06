@@ -28,7 +28,11 @@ func (a *App) buildLiveTV() error {
 	if a.transcoder != nil {
 		ffmpeg = a.transcoder.FFmpegPath()
 	}
-	svc, err := livetv.New(livetv.Options{BreakInput: a.channelBreakInput, BreakAnalyzer: &markers.BreakAnalyzer{DB: a.db, FFmpeg: ffmpeg, OnEvidence: a.opts.BreakEvidenceObserver, Hardware: func() core.HWAccel {
+	svc, err := livetv.New(livetv.Options{VODChanged: func() {
+		if a.resolver != nil {
+			a.resolver.SourcesChanged(context.Background())
+		}
+	}, BreakInput: a.channelBreakInput, BreakAnalyzer: &markers.BreakAnalyzer{DB: a.db, FFmpeg: ffmpeg, OnEvidence: a.opts.BreakEvidenceObserver, Hardware: func() core.HWAccel {
 		if a.transcoder == nil {
 			return core.HWAccel{}
 		}

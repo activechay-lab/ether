@@ -240,15 +240,19 @@ type Channel struct {
 	adult bool
 }
 type Source struct {
-	LineupID    string `json:"lineupId,omitempty"`
-	Country     string `json:"country,omitempty"`
-	PostalCode  string `json:"postalCode,omitempty"`
-	PlexCursor  int    `json:"plexCursor,omitempty"`
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Kind        string `json:"kind,omitempty"` // a source kind id, e.g. plugin:<id>/channels
-	PlaylistURL string `json:"playlistUrl,omitempty"`
-	GuideURL    string `json:"guideUrl,omitempty"`
+	// LiveTV defaults to true for existing connections; VOD is opt-in.
+	LiveTV      *bool      `json:"useLiveTV,omitempty"`
+	VOD         bool       `json:"useVOD,omitempty"`
+	VODStatus   *VODStatus `json:"vodStatus,omitempty"`
+	LineupID    string     `json:"lineupId,omitempty"`
+	Country     string     `json:"country,omitempty"`
+	PostalCode  string     `json:"postalCode,omitempty"`
+	PlexCursor  int        `json:"plexCursor,omitempty"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Kind        string     `json:"kind,omitempty"` // a source kind id, e.g. plugin:<id>/channels
+	PlaylistURL string     `json:"playlistUrl,omitempty"`
+	GuideURL    string     `json:"guideUrl,omitempty"`
 	// Inline uploads are supplied on import and are not returned by GET.
 	Playlist  string    `json:"playlist,omitempty"`
 	Guide     string    `json:"guide,omitempty"`
@@ -377,6 +381,7 @@ type Policy struct {
 	channelSet map[string]struct{} // Channels as a set for long lists; see indexChannels
 }
 type Options struct {
+	VODChanged func() // provider index or connection changed
 	// BreakInput opens an exclusive background playback source, never a viewer session.
 	// The final argument is an identity captured from an admitted save, never
 	// a request context. The callback must revalidate it on each background run.

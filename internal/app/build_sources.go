@@ -12,6 +12,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/debrid"
 	"github.com/braedonsaunders/ether/internal/egress"
+	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/newznab"
 	"github.com/braedonsaunders/ether/internal/resolver"
 	"github.com/braedonsaunders/ether/internal/segcache"
@@ -78,7 +79,12 @@ func (a *App) buildSources(ctx context.Context, cfg config.Config) error {
 			return a.sites.Backend(ix)
 		},
 	})
-	a.debrid = debrid.NewService(cfg.Debrid, debrid.Options{DB: a.db, Logger: log.With("component", "debrid")})
+	a.debrid = debrid.NewService(cfg.Debrid, debrid.Options{AcquireStreamProvider: func(ctx context.Context, id string) (func(), error) {
+		if a.livetv == nil {
+			return nil, core.ErrSourceUnavailable
+		}
+		return a.livetv.AcquireProvider(ctx, id)
+	}, DB: a.db, Logger: log.With("component", "debrid")})
 	ss := a.initStreamSources(a.indexers)
 	ss.SetAnimeIDs(a.addons.AnimeIDs())
 	usenetReady := func() bool {
@@ -96,7 +102,7 @@ func (a *App) buildSources(ctx context.Context, cfg config.Config) error {
 	eng := ss.WrapEngine(a.engine)
 	a.media = debrid.NewEngine(a.debrid, debrid.EngineOptions{Inner: eng, Health: eng, Cache: a.cache, Logger: log.With("component", "debrid")})
 	a.closers = append(a.closers, func() { a.media.Close() })
-	a.sources = debrid.NewIndexer(ss, a.debrid)
+	a.sources = debrid.NewIndexer(&livetv.VODIndexer{Inner: ss, Service: func() *livetv.Service { return a.livetv }}, a.debrid)
 	a.sources.SetUsenetReady(func() bool {
 		return usenetReady() || a.hasEnabledPluginSources()
 	})
