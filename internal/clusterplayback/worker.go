@@ -2,6 +2,8 @@ package clusterplayback
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodeinput"
@@ -34,11 +36,19 @@ func (r *Runtime) authorizeWorker(ctx context.Context, peer, op string, id remot
 	}
 
 	rt, e := r.route(ctx, id.Session)
+	if (op == "stop" || op == "status") && (e != nil || remoteIdentity(rt) != id) {
+		historical, err := r.generationRoute(ctx, id.Session, int64(id.Generation))
+		if err == nil {
+			rt = historical
+			e = nil
+		}
+	}
+
 	if e != nil || remoteIdentity(rt) != id || rt.Fence.Target.NodeID != r.o.Self.NodeID || rt.Fence.Target.Boot != r.o.Self.Boot || peer != rt.Fence.Controller.Boot {
 		return ErrDenied
 	}
 	rec, e := r.o.Placement.Lookup(ctx, id.Session)
-	if e != nil || rec.Fence != rt.Fence {
+	if e != nil || rec.Fence != rt.Fence && op != "stop" && op != "status" {
 		return ErrDenied
 	}
 	// Exact stop/status remains available after expiry and role removal.
@@ -46,11 +56,23 @@ func (r *Runtime) authorizeWorker(ctx context.Context, peer, op string, id remot
 		return nil
 	}
 	if op == "start" && start != nil {
+		if start.Resume != nil && start.Resume.Generation != id.Generation {
+			return ErrDenied
+		}
+		gate, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, id.Session, int64(id.Generation)})
+		if err != nil || gate.Gate.Seal != nil || gate.Gate.Binding.Identity != id {
+			return ErrDenied
+		}
+		raw, err := json.Marshal(start)
+		if err != nil || sha256.Sum256(raw) != gate.Gate.Binding.StartHash {
+			return ErrDenied
+		}
+
 		info := core.CloneMediaInfo(start.Info)
 		info.Keyframes = append([]core.KeyframePoint(nil), start.Keyframes...)
 		// ManifestSessionID is set only by the primitive after request admission;
 		// the external SupportsRequest gate intentionally rejects caller markers.
-		request := core.HLSRequest{SessionID: id.Session, ReleaseID: start.ReleaseID, Info: info, Decision: start.Decision, Protocol: start.Protocol, StartOffset: start.Offset, SegmentDuration: start.SegmentDuration, SoftSubtitleStream: start.SoftSubtitleStream, RequireIndependentProof: start.IndependentProof, RecoveryStart: core.CloneRecoveryStart(start.RecoveryStart)}
+		request := core.HLSRequest{Resume: start.Resume, SessionID: id.Session, ReleaseID: start.ReleaseID, Info: info, Decision: start.Decision, Protocol: start.Protocol, StartOffset: start.Offset, SegmentDuration: start.SegmentDuration, SoftSubtitleStream: start.SoftSubtitleStream, RequireIndependentProof: start.IndependentProof, RecoveryStart: core.CloneRecoveryStart(start.RecoveryStart)}
 		if !r.supportsBackend(request) {
 			return ErrDenied
 		}

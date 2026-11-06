@@ -17,6 +17,11 @@ import (
 type execution struct {
 	epoch                         int64
 	adopted                       bool
+	replacement                   *execution
+	failed                        []*execution
+	previous                      []*bufferedSession
+	recoveryCaps                  remotetranscode.Capabilities
+	failedSince                   time.Time
 	initial                       *initialAdmission
 	output                        *bufferedSession
 	foreign                       bool
@@ -209,11 +214,14 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		r.mu.Lock()
 		x.output = output
 		r.mu.Unlock()
-		return output, nil
+		return r.recoveryDelivery(output), nil
 	}
 	return hs, nil
 }
 func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
+	return r.selectTargetExcept(ctx, q, "")
+}
+func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exclude string) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
 	rows, e := r.o.DB.QueryContext(ctx, `SELECT node,boot,roles,scopes FROM placement_targets ORDER BY node LIMIT 4096`)
 	if e != nil {
 		return placement.Target{}, nil, remotetranscode.Capabilities{}, e
@@ -239,6 +247,9 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placemen
 	failure := &SelectionError{}
 	for _, candidate := range candidates {
 		target, rolesJSON, scopesJSON := candidate.target, candidate.rolesJSON, candidate.scopesJSON
+		if target.NodeID == exclude {
+			continue
+		}
 		var roles config.NodeRoles
 		var scopes map[config.NodeRole][]string
 		if json.Unmarshal([]byte(rolesJSON), &roles) != nil || !roles.Has(config.RoleTranscode) || json.Unmarshal([]byte(scopesJSON), &scopes) != nil {
@@ -256,7 +267,7 @@ func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest) (placemen
 		available := true
 		for i, name := range names {
 			var remaining int64
-			err := r.o.DB.QueryRowContext(ctx, `SELECT p.capacity-COALESCE(SUM(c.units),0) FROM placement_pools p LEFT JOIN placement_claims c ON c.scope=p.scope WHERE p.scope=? AND p.role=? GROUP BY p.scope,p.capacity`, name, string(config.RoleTranscode)).Scan(&remaining)
+			err := r.o.DB.QueryRowContext(ctx, `SELECT p.capacity-COALESCE(SUM(c.units),0) FROM placement_pools p LEFT JOIN (SELECT scope,units FROM placement_claims UNION ALL SELECT scope,units FROM placement_displaced_claims) c ON c.scope=p.scope WHERE p.scope=? AND p.role=? GROUP BY p.scope,p.capacity`, name, string(config.RoleTranscode)).Scan(&remaining)
 			if err != nil {
 				failure.Unavailable++
 				available = false
@@ -313,12 +324,12 @@ func (r *Runtime) Session(id string) (core.HLSSession, bool) {
 			return nil, false
 		}
 		if output.published.Load() {
-			return output, true
+			return r.recoveryDelivery(output), true
 		}
 	}
 	session, ok := a.Session(id)
 	if ok && output != nil {
-		return output, true
+		return r.recoveryDelivery(output), true
 	}
 	return session, ok
 }
@@ -384,6 +395,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	}
 	r.mu.Unlock()
 	result := r.tickReopenLives(ctx)
+	if err := r.reconcileBootRetirements(ctx); err != nil {
+		result = err
+	}
 	if err := r.persistPreparationReceipts(ctx); err != nil {
 		result = err
 	}
@@ -445,6 +459,18 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		if !x.reserved {
 			continue
 		}
+		if x.replacement != nil {
+			r.mu.Lock()
+			current := r.executions[x.route.Fence.Session]
+			r.mu.Unlock()
+			if current != nil {
+				if e := r.finishSupersession(ctx, current); e != nil {
+					result = e
+				}
+			}
+			continue
+		}
+		r.reconcileDisplaced(ctx, x)
 		if e := r.putRoute(ctx, x.route); e != nil {
 			result = e
 			continue
@@ -474,13 +500,35 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			result = ErrPending
 			continue
 		}
+		if x.output != nil && x.initial != nil && x.initial.request.Decision.Kind == core.DecisionTranscode && !x.initial.request.Decision.VideoCopy {
+			probeErr := r.probeEncoder(ctx, x)
+			r.mu.Lock()
+			current := r.executions[x.route.Fence.Session]
+			if probeErr == nil && current != nil && current.replacement == nil {
+				current.failedSince = time.Time{}
+			}
+			if probeErr != nil && current != nil && current.failedSince.IsZero() {
+				current.failedSince = time.Now()
+			}
+			recoverNow := current != nil && (current.replacement != nil || !current.failedSince.IsZero() && time.Since(current.failedSince) >= r.o.EncoderFailureGrace)
+			r.mu.Unlock()
+			if recoverNow {
+				if e := r.recoverEncoder(ctx, x); e != nil {
+					result = e
+				}
+				continue
+			}
+			if probeErr != nil {
+				result = probeErr
+				continue
+			}
+		}
 		lease := x.session.Lease()
 		if !x.adopted && lease.Deadline.After(time.Now().Add(time.Minute)) {
 			continue
 		}
 		deadline := time.Now().Add(2 * time.Minute).UTC().Truncate(time.Millisecond)
 		if e := r.o.Placement.Renew(ctx, x.route.Fence, deadline.Add(2*r.o.ClockSkew)); e != nil {
-			r.Stop(x.route.Fence.Session)
 			result = e
 			continue
 		}
@@ -489,7 +537,6 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			_ = x.session.Reconcile(ctx)
 			accepted := x.session.Lease().Accepted
 			if accepted == nil || !equalRenewal(*accepted, n) {
-				r.Stop(x.route.Fence.Session)
 				result = ErrPending
 			}
 		}
@@ -525,8 +572,27 @@ func (r *Runtime) retire(ctx context.Context, x *execution) error {
 	return r.retireWithEvidence(ctx, x.route, "clusterplayback/exact-retirement")
 }
 func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
+	var displacedRaw string
+	if err := r.o.DB.QueryRowContext(ctx, `SELECT record FROM placement_displaced WHERE session=? AND generation=?`, f.Session, f.Generation).Scan(&displacedRaw); err == nil {
+		var old placement.Record
+		if json.Unmarshal([]byte(displacedRaw), &old) == nil && old.Fence == f && r.retiredWorkerBoot(ctx, f) == nil {
+			return nil
+		}
+	}
 	r.mu.Lock()
 	x := r.executions[f.Session]
+	if x != nil {
+		for _, old := range x.failed {
+			if old.route.Fence == f {
+				session := old.session
+				r.mu.Unlock()
+				if session != nil && session.EncoderErr() == nil {
+					return nil
+				}
+				return ErrPending
+			}
+		}
+	}
 	if x == nil || x.route.Fence != f || x.busy || !x.stopping {
 		r.mu.Unlock()
 		return ErrPending
