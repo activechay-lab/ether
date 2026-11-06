@@ -63,6 +63,7 @@ spec:
           args:
             - --entrypoints.web.address=:8000
             - --providers.kubernetesingress=true
+            - --providers.kubernetesingress.allowemptyservices=true
             - --providers.kubernetesingress.namespaces=ether035-ha
             - --providers.kubernetesingress.ingressclass=ether035-ha
             - --providers.kubernetesingress.disableclusterscoperesources=true

@@ -686,6 +686,8 @@ type StreamInfo struct {
 	// decoder with the source's initial PCE before seeking to a later packet.
 	AACConfigPTS   *int64 `json:"aacConfigPts,omitempty"`
 	AACSourceStart *int64 `json:"aacSourceStart,omitempty"`
+	// DecodedPadding is source priming removed by the demuxer from its frame clock.
+	DecodedPadding int    `json:"decodedPadding,omitempty"`
 	SampleRate     int    `json:"sampleRate,omitempty"`
 	BitrateKbps    int    `json:"bitrateKbps,omitempty"`
 	ProviderTitle  string `json:"providerTitle,omitempty"`
@@ -722,16 +724,18 @@ type Chapter struct {
 // ProbeFactsVersion is the generation of facts a probe is expected to carry,
 // including H.264/HEVC reference frames and descriptive audio handler titles.
 // Persisted probes from an older generation are cache misses.
-const ProbeFactsVersion = 5
+const ProbeFactsVersion = 6
 
 type MediaInfo struct {
-	Chapters    []Chapter     `json:"chapters,omitempty"`
-	Container   string        `json:"container"` // mkv, mp4, avi, mpegts
-	Duration    time.Duration `json:"duration"`
-	Size        int64         `json:"size"`
-	BitrateKbps int           `json:"bitrateKbps"`
-	Streams     []StreamInfo  `json:"streams"`
-	Estimated   bool          `json:"estimated"` // derived from release name, not probed
+	Has64bitOffsets       *bool         `json:"has64bitOffsets,omitempty"`
+	OptimizedForStreaming *bool         `json:"optimizedForStreaming,omitempty"`
+	Chapters              []Chapter     `json:"chapters,omitempty"`
+	Container             string        `json:"container"` // mkv, mp4, avi, mpegts
+	Duration              time.Duration `json:"duration"`
+	Size                  int64         `json:"size"`
+	BitrateKbps           int           `json:"bitrateKbps"`
+	Streams               []StreamInfo  `json:"streams"`
+	Estimated             bool          `json:"estimated"` // derived from release name, not probed
 
 	// Keyframes is the container's keyframe/cue index, sorted, when it was
 	// read on open or probe; empty when unknown. Not serialized: it can hold
@@ -804,6 +808,9 @@ type HWAccel struct {
 	// NoGPUTonemap: the device's VAAPI VPP cannot run tonemap_vaapi, so HDR
 	// tone-mapping falls back to the software zscale/tonemap path.
 	NoGPUTonemap bool `json:"noGpuTonemap,omitempty"`
+	// QSV modes are ordered, successfully probed rate-control choices for Device.
+	QSVQualityModes map[string][]string `json:"qsvQualityModes,omitempty"`
+	QSVBitrateModes map[string][]string `json:"qsvBitrateModes,omitempty"`
 	// VAAPIQualityRC / VAAPIBitrateRC record the probed VAAPI rate-control
 	// modes ("QVBR", "VBR", "CBR", "CQP") per encoder ("h264_vaapi",
 	// "hevc_vaapi"); nil/empty falls back to the default QVBR/VBR modes.

@@ -23,6 +23,8 @@ type Assignment struct {
 	Expires  time.Time
 }
 type AdapterOptions struct {
+	// RequestHeaders binds each operation to an external coordination epoch.
+	RequestHeaders func(context.Context) (http.Header, error)
 	// CommitStart durably binds the installed immutable Start before any Start
 	// bytes leave this adapter. It runs synchronously outside locks, with a
 	// context bounded to five seconds; implementations must honor cancellation.
@@ -107,7 +109,7 @@ func (a *Adapter) StartHLSOwned(ctx context.Context, r core.HLSRequest) (core.HL
 	if !validIdentity(assignment.Identity) || assignment.Identity.Session != r.SessionID || len(assignment.Grant) == 0 || len(assignment.Grant) > 4096 || !assignment.Expires.After(time.Now()) {
 		return nil, nil, errors.New("remotetranscode: invalid assignment")
 	}
-	start := Start{RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: append([]core.KeyframePoint(nil), r.Info.Keyframes...), SoftSubtitleStream: r.SoftSubtitleStream, Protocol: r.Protocol, ReleaseID: r.ReleaseID, Identity: assignment.Identity, Grant: assignment.Grant, Expires: assignment.Expires, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof}
+	start := Start{Resume: cloneResume(r.Resume), RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: append([]core.KeyframePoint(nil), r.Info.Keyframes...), SoftSubtitleStream: r.SoftSubtitleStream, Protocol: r.Protocol, ReleaseID: r.ReleaseID, Identity: assignment.Identity, Grant: assignment.Grant, Expires: assignment.Expires, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof}
 	b, err := json.Marshal(start)
 	if err != nil || len(b) > MaxMessage-1024 {
 		return nil, nil, ErrUnsupported
@@ -224,12 +226,33 @@ func (a *Adapter) callPayload(ctx context.Context, b []byte, headers http.Header
 			req.Header[h] = v
 		}
 	}
+	if a.opts.RequestHeaders != nil {
+		extra, err := a.opts.RequestHeaders(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for key, values := range extra {
+			req.Header[key] = append([]string(nil), values...)
+		}
+	}
 	resp, err := a.client.Do(req)
 	if err != nil {
+		if op == "status" && errors.Is(err, outbound.ErrEndpointUnavailable) {
+			return nil, ErrStatusUnavailable
+		}
+		if op == "status" && errors.Is(err, outbound.ErrPeerDenied) {
+			return nil, ErrStatusDenied
+		}
 		return nil, ErrUncertain
 	}
 	if !mediaOperation(op) && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
 		resp.Body.Close()
+		if op == "status" && resp.StatusCode == http.StatusNotFound {
+			return nil, ErrStatusUnavailable
+		}
+		if op == "status" && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusGone) {
+			return nil, ErrStatusDenied
+		}
 		if (op == "renew" || op == "inspect") && resp.StatusCode == http.StatusUnprocessableEntity {
 			return nil, ErrUnsupported
 		}
@@ -274,11 +297,15 @@ func (s *Session) SwapInput(context.Context, string, core.MediaInfo, time.Durati
 }
 func (s *Session) Close() error { return s.RetireEncoder() }
 func (s *Session) RetireEncoder() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return s.RetireEncoderContext(ctx)
+}
+
+func (s *Session) RetireEncoderContext(ctx context.Context) error {
 	s.mu.Lock()
 	s.stopped = true
 	s.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	r, e := s.adapter.call(ctx, message{Op: "stop", Identity: s.id}, nil)
 	if e != nil {
 		return ErrUncertain

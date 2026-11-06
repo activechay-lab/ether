@@ -65,7 +65,7 @@ func (c *Catalog) browsePlaylist(ctx context.Context, q core.BrowseQuery) (core.
 		case core.TypeShow:
 			projection = "show_key"
 		case core.TypeSeason:
-			projection = "CAST(" + fmt.Sprint(int64(core.KindSeason)*1_000_000_000_000_000) + " + (show_key % 1000000000000000)*10000 + season AS INTEGER)"
+			projection = "CAST(" + fmt.Sprint(int64(core.KindSeason)*1_000_000_000_000_000) + " + (show_key % 1000000000000000)*10000 + season AS BIGINT)"
 		}
 	}
 	alias, from := "t", "catalog_titles t"

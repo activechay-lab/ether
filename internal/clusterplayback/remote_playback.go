@@ -23,6 +23,7 @@ type RemotePlaybackOptions struct {
 	Now func() time.Time
 }
 type RemotePlayback struct {
+	observed map[string]*core.PlaySession
 	draining bool
 	r        *Runtime
 	o        RemotePlaybackOptions
@@ -81,7 +82,7 @@ func NewRemotePlayback(r *Runtime, o RemotePlaybackOptions) (*RemotePlayback, er
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	p := &RemotePlayback{r: r, o: o, entries: map[string]*remotePreparation{}}
+	p := &RemotePlayback{observed: map[string]*core.PlaySession{}, r: r, o: o, entries: map[string]*remotePreparation{}}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.remotePlayback != nil || r.closed {
@@ -189,7 +190,8 @@ func (p *RemotePlayback) Session(id string) (*core.PlaySession, bool) {
 	defer p.mu.Unlock()
 	e := p.entries[id]
 	if e == nil || e.retired || e.retiring || e.snapshot == nil {
-		return nil, false
+		snapshot := p.observed[id]
+		return copyPlaySession(snapshot), snapshot != nil
 	}
 	return copyPlaySession(e.snapshot), true
 }
@@ -358,7 +360,13 @@ func (p *RemotePlayback) tick(c context.Context) error {
 		result = err
 	}
 	for _, e := range list {
-
+		// Stop/idle has already sealed this preparation and joined its local
+		// uses. An authenticated replacement proves the old source process
+		// and its callbacks are gone even when no RPC receipt can be fetched.
+		if p.r.retiredSourceBoot(c, e.owner) == nil {
+			p.finishRetirement(e)
+			continue
+		}
 		retired, err := p.r.RetirePreparedSource(c, e.owner, e.operation)
 		if err != nil || !retired {
 			result = ErrPending

@@ -1,11 +1,11 @@
+import { styleCopy } from "./naming";
 import { Button, Input, Select, Switch } from "@braedonsaunders/appkit-ui";
-import { textOf, useRegistry } from "../../../lib/extend";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { MoreOptions } from "../../../components/ConfigSection";
 import { SettingsRow } from "../../../components/SettingsRow";
 import { ToolbarPicker } from "../../../components/ToolbarPicker";
-import { Field, NumberInput, Segmented } from "../../../components/fields";
+import { Field } from "../../../components/fields";
 import { ErrorPanel } from "../../../components/feedback";
 import { useAsync } from "../../../lib/hooks";
 import { t } from "../../../i18n";
@@ -13,9 +13,9 @@ import type { Channel } from "../model";
 import { onair, type ChannelLook, type Moment } from "./model";
 import { LookTile } from "./Stage";
 import { InfoTip } from "./RecipeTab";
-import { ReelDrawer } from "./ReelDrawer";
 import { ChannelScreens } from "./ScreenPicker";
 
+import { BugControls, resolveBug } from "./BugControls";
 export function LookTab({
   channel,
   onChange,
@@ -25,7 +25,6 @@ export function LookTab({
   onChange: (patch: Partial<Channel>) => void;
   viewerName?: string;
 }) {
-  const segments = useRegistry<{ duration: number }>("onairSegment");
   const looks = useAsync(() => onair.looks(), []);
   const bindings = useAsync(
     () =>
@@ -35,10 +34,8 @@ export function LookTab({
       }),
     [channel.id],
   );
-  const reels = useAsync(() => onair.reels(), []);
   const [, setParams] = useSearchParams();
   const [moment, setMoment] = useState<Moment>("ident");
-  const [reel, setReel] = useState<string | null>(null);
   const settings: ChannelLook = channel.look ?? {
     lookId: "",
     ident: true,
@@ -49,7 +46,20 @@ export function LookTab({
     breakSeconds: 60,
   };
   const set = (patch: Partial<ChannelLook>) => onChange({ look: { ...settings, ...patch } });
-  const look = looks.data?.find((v) => v.id === settings.lookId);
+  const baseLook = looks.data?.find((v) => v.id === settings.lookId);
+  const look = baseLook
+    ? {
+        ...baseLook,
+        brand: {
+          ...baseLook.brand,
+          tagline: settings.tagline || baseLook.brand.tagline,
+          palette: {
+            ...baseLook.brand.palette,
+            accent: settings.accent || baseLook.brand.palette.accent,
+          },
+        },
+      }
+    : undefined;
   const navigateLook = (id: string) =>
     setParams((p) => {
       p.set("look", id);
@@ -58,27 +68,34 @@ export function LookTab({
   if (channel.kind === "iptv") return <ChannelScreens channel={channel} onChange={onChange} />;
   return (
     <div className="space-y-6">
+      <h3 className="text-sm font-semibold">
+        {settings.lookId ? t("Override for {name}", { name: channel.name }) : t("Built-in")}
+      </h3>
       {looks.error ? <ErrorPanel error={looks.error} onRetry={() => void looks.reload()} /> : null}
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
         {look ? (
           <LookTile
-            look={look}
+            look={{ ...look, bug: resolveBug(look.bug, settings.bug) }}
             channel={
               channel.personal
                 ? channel.personal.nameFormat.replace("{viewer}", viewerName || "")
                 : channel.name
             }
-            moment={moment}
-            bindings={{ ...bindings.data, viewer: { name: viewerName || "" } }}
+            moment={settings.bug ? "bug" : moment}
+            bindings={{
+              ...bindings.data,
+              channel: { name: channel.name, logo: channel.logo },
+              viewer: { name: viewerName || "" },
+            }}
           />
         ) : (
           <div className="grid aspect-video place-items-center rounded-lg border border-dashed border-border bg-surface text-sm text-fg-muted">
-            {t("Choose a look")}
+            {styleCopy("Choose a style")}
           </div>
         )}
         <div className="flex min-w-0 flex-col items-start gap-3">
           <ToolbarPicker
-            ariaLabel={t("Look")}
+            ariaLabel={styleCopy("Style")}
             value={settings.lookId}
             onChange={(id) => (id === "new" ? navigateLook("new") : set({ lookId: id }))}
             className="w-full"
@@ -92,7 +109,7 @@ export function LookTab({
               </>
             }
             options={[
-              { value: "", label: t("None") },
+              { value: "", label: t("Built-in") },
               ...(looks.data ?? []).map((v) => ({
                 value: v.id,
                 label: v.name,
@@ -105,12 +122,12 @@ export function LookTab({
                   />
                 ),
               })),
-              { value: "new", label: t("New look…") },
+              { value: "new", label: styleCopy("New style…") },
             ]}
           />
           {look ? (
             <Button variant="outline" onClick={() => navigateLook(look.id)}>
-              {t("Edit look")}
+              {styleCopy("Edit style")}
             </Button>
           ) : null}
         </div>
@@ -142,171 +159,6 @@ export function LookTab({
         <h3 className="pb-2 text-xs font-semibold uppercase tracking-wider text-fg-muted">
           {t("On this channel")}
         </h3>
-        <SettingsRow
-          title={t("Ident when someone tunes in")}
-          control={
-            <Switch
-              checked={settings.ident}
-              aria-label={t("Ident when someone tunes in")}
-              onChange={(e) => set({ ident: e.currentTarget.checked })}
-            />
-          }
-        />
-        <SettingsRow
-          title={t("Up next before each programme")}
-          control={
-            <Switch
-              checked={settings.upNext}
-              aria-label={t("Up next before each programme")}
-              onChange={(e) => set({ upNext: e.currentTarget.checked })}
-            />
-          }
-        />
-        <SettingsRow
-          title={
-            <span className="flex items-center gap-2">
-              {t("Breaks")}
-              <InfoTip
-                text={t(
-                  "Inside programmes needs break-point analysis. Between programmes uses gaps in the schedule.",
-                )}
-              />
-            </span>
-          }
-          control={
-            <div className="min-w-0">
-              <Segmented
-                ariaLabel={t("Breaks")}
-                size="sm"
-                className="w-full flex-nowrap justify-between [&>button]:px-1"
-                value={settings.breaks || ""}
-                onChange={(breaks) => set({ breaks })}
-                options={[
-                  { value: "", label: t("Off") },
-                  { value: "between", label: t("Between programmes") },
-                  { value: "inside", label: t("Inside programmes"), disabled: true },
-                ]}
-              />
-            </div>
-          }
-        />
-        {settings.breaks ? (
-          <>
-            <SettingsRow
-              title={t("During breaks")}
-              control={
-                <Select
-                  aria-label={t("During breaks")}
-                  value={settings.breakContent || "look"}
-                  onChange={(e) =>
-                    set({ breakContent: e.currentTarget.value as ChannelLook["breakContent"] })
-                  }
-                >
-                  <option value="look">{t("Look's break screen")}</option>
-                  <option value="reel">{t("Clips from a reel")}</option>
-                  <option value="segments">{t("Plugin segments")}</option>
-                </Select>
-              }
-            />
-            {settings.breakContent === "reel" ? (
-              <SettingsRow
-                title={t("Reel")}
-                control={
-                  <div className="flex flex-wrap items-center gap-2">
-                    <ToolbarPicker
-                      className="max-w-full"
-                      menuClassName="max-w-[calc(100vw-2rem)]"
-                      value={settings.reelId || ""}
-                      ariaLabel={t("Reel")}
-                      onChange={(id) => (id === "new" ? setReel("new") : set({ reelId: id }))}
-                      options={[
-                        { value: "", label: t("Choose a reel…") },
-                        ...(reels.data ?? []).map((v) => ({ value: v.id, label: v.name })),
-                        { value: "new", label: t("New reel…") },
-                      ]}
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={!settings.reelId}
-                      onClick={() => setReel(settings.reelId!)}
-                    >
-                      {t("Edit reel")}
-                    </Button>
-                  </div>
-                }
-              />
-            ) : null}
-            {settings.breakContent === "segments" ? (
-              <>
-                <SettingsRow
-                  title={t("Plugin segments")}
-                  control={
-                    <div className="space-y-2">
-                      {segments.descriptors.map((segment) => (
-                        <label key={segment.id} className="flex items-center gap-2 text-sm">
-                          <Switch
-                            checked={settings.segmentIds?.includes(segment.id) || false}
-                            aria-label={textOf(segment.label)}
-                            onChange={(e) =>
-                              set({
-                                segmentIds: e.currentTarget.checked
-                                  ? [...(settings.segmentIds ?? []), segment.id]
-                                  : (settings.segmentIds ?? []).filter((id) => id !== segment.id),
-                              })
-                            }
-                          />
-                          {t("{name} · {minutes} min", {
-                            name: textOf(segment.label),
-                            minutes: (segment.meta?.duration ?? 0) / 60,
-                          })}
-                          <span className="text-xs text-fg-muted">{segment.group}</span>
-                        </label>
-                      ))}
-                    </div>
-                  }
-                />
-                {channel.rating || channel.filter?.maxContentRating ? (
-                  <SettingsRow
-                    title={
-                      <span className="flex items-center gap-2">
-                        {t("Allow unrated plugin segments")}
-                        <InfoTip
-                          text={t(
-                            "Plugin segments have no rating. Off keeps them off this channel because it has a rating limit.",
-                          )}
-                        />
-                      </span>
-                    }
-                    control={
-                      <Switch
-                        checked={settings.allowUnratedSegments ?? false}
-                        aria-label={t("Allow unrated plugin segments")}
-                        onChange={(e) => set({ allowUnratedSegments: e.currentTarget.checked })}
-                      />
-                    }
-                  />
-                ) : null}
-              </>
-            ) : null}
-            <SettingsRow
-              title={t("Break length")}
-              control={
-                <Segmented
-                  ariaLabel={t("Break length")}
-                  value={String(settings.breakSeconds || 60)}
-                  onChange={(v) => set({ breakSeconds: Number(v) })}
-                  options={[
-                    { value: "30", label: t("30 s") },
-                    { value: "60", label: t("1 min") },
-                    { value: "120", label: t("2 min") },
-                    { value: "180", label: t("3 min") },
-                  ]}
-                />
-              }
-            />
-          </>
-        ) : null}
         <SettingsRow
           title={t("Off-air screen")}
           control={
@@ -341,16 +193,31 @@ export function LookTab({
           }
         />
       </section>
+      {look ? (
+        <section className="space-y-4 border-t border-border pt-4">
+          <label className="flex items-center justify-between gap-3 text-sm font-medium">
+            {t("Customize corner logo")}
+            <Switch
+              aria-label={t("Customize corner logo")}
+              checked={settings.bug !== undefined}
+              onChange={(e) => {
+                set({ bug: e.currentTarget.checked ? resolveBug(look.bug) : undefined });
+                setMoment("bug");
+              }}
+            />
+          </label>
+          {settings.bug ? (
+            <BugControls
+              value={resolveBug(look.bug, settings.bug)}
+              onChange={(bug) => set({ bug })}
+            />
+          ) : (
+            <p className="text-sm text-fg-muted">{t("Uses the look’s corner logo.")}</p>
+          )}
+        </section>
+      ) : null}
       <MoreOptions label={t("More options")}>
         <div className="grid gap-4 p-4 sm:grid-cols-3">
-          <Field label={t("Break frequency (minutes)")}>
-            <NumberInput
-              min={0}
-              max={240}
-              value={settings.breakEvery || 0}
-              onChange={(breakEvery) => set({ breakEvery })}
-            />
-          </Field>
           <Field label={t("Tagline")}>
             <Input
               value={settings.tagline || ""}
@@ -367,18 +234,6 @@ export function LookTab({
         </div>
       </MoreOptions>
       <ChannelScreens channel={channel} onChange={onChange} />
-      {reel ? (
-        <ReelDrawer
-          open
-          reelId={reel}
-          onClose={() => setReel(null)}
-          onSaved={(saved) => {
-            set({ reelId: saved.id });
-            void reels.reload();
-            setReel(null);
-          }}
-        />
-      ) : null}
     </div>
   );
 }

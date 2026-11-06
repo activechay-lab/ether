@@ -7,20 +7,110 @@ import (
 	"github.com/braedonsaunders/ether/internal/transcode"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
-type Encoder struct{ Index transcode.SegmentIndex }
+// Encoder stamps the planner's latest policy identities on every segment, as
+// the real continuous index does, so adapters exercise tag authorization.
+type Encoder struct {
+	Index transcode.SegmentIndex
+	mu    sync.Mutex
+	tags  []any
+	ready chan struct{}
+}
 
-func (e *Encoder) Write(context.Context, transcode.RawFrame) error { return nil }
-func (e *Encoder) Segments() transcode.SegmentIndex                { return e.Index }
-func (e *Encoder) Close() error                                    { return nil }
+func (e *Encoder) Write(_ context.Context, f transcode.RawFrame) error {
+	if len(f.PolicyTags) > 0 {
+		e.mu.Lock()
+		if e.tags == nil {
+			close(e.readyChan())
+		}
+		e.tags = append([]any(nil), f.PolicyTags...)
+		e.mu.Unlock()
+	}
+	return nil
+}
+func (e *Encoder) readyChan() chan struct{} {
+	if e.ready == nil {
+		e.ready = make(chan struct{})
+	}
+	return e.ready
+}
+func (e *Encoder) Segments() transcode.SegmentIndex { return taggedIndex{e.Index, e} }
+func (e *Encoder) Close() error                     { return nil }
 
-type Decoder struct{}
+type taggedIndex struct {
+	transcode.SegmentIndex
+	e *Encoder
+}
 
-func (*Decoder) Next(ctx context.Context) (transcode.RawFrame, error) {
-	<-ctx.Done()
-	return transcode.RawFrame{}, ctx.Err()
+// A real index publishes a segment only after an encoded, tagged frame, so
+// viewer reads (Window, Wait) wait, bounded, for the first one. Latest and Since
+// stay immediate: the broadcast reads its origin and startup state through them
+// before frames flow.
+func (t taggedIndex) aired() {
+	t.e.mu.Lock()
+	ready := t.e.readyChan()
+	t.e.mu.Unlock()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+	}
+}
+func (t taggedIndex) stamp(segments ...transcode.Segment) []transcode.Segment {
+	t.e.mu.Lock()
+	defer t.e.mu.Unlock()
+	for i := range segments {
+		segments[i].PolicyTags = t.e.tags
+	}
+	return segments
+}
+func (t taggedIndex) Latest() (transcode.Segment, bool) {
+	seg, ok := t.SegmentIndex.Latest()
+	return t.stamp(seg)[0], ok
+}
+func (t taggedIndex) Window(from, until time.Time) []transcode.Segment {
+	t.aired()
+	return t.stamp(t.SegmentIndex.Window(from, until)...)
+}
+func (t taggedIndex) Since(seq int64, max int) []transcode.Segment {
+	return t.stamp(t.SegmentIndex.Since(seq, max)...)
+}
+func (t taggedIndex) Wait(ctx context.Context, after int64) (transcode.Segment, error) {
+	t.aired()
+	seg, err := t.SegmentIndex.Wait(ctx, after)
+	return t.stamp(seg)[0], err
+}
+
+// Decoder yields black frames in Format, paced at about 100 fps, so the
+// broadcast airs (and tags) programme output. A zero Format never yields.
+type Decoder struct{ Format transcode.RawFormat }
+
+func (d *Decoder) Next(ctx context.Context) (transcode.RawFrame, error) {
+	f := d.Format
+	if f.Width == 0 || f.Height == 0 {
+		<-ctx.Done()
+		return transcode.RawFrame{}, ctx.Err()
+	}
+	select {
+	case <-ctx.Done():
+		return transcode.RawFrame{}, ctx.Err()
+	case <-time.After(10 * time.Millisecond):
+	}
+	video := make([]byte, f.Width*f.Height*3/2)
+	for i := range video {
+		if i < f.Width*f.Height {
+			video[i] = 16
+		} else {
+			video[i] = 128
+		}
+	}
+	samples := 0
+	if f.FPSNum > 0 {
+		samples = f.SampleRate * f.FPSDen / f.FPSNum
+	}
+	return transcode.RawFrame{Video: video, PCM: make([]byte, samples*f.Channels*2)}, nil
 }
 func (*Decoder) Close() error { return nil }
 

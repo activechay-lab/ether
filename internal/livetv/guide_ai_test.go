@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -100,6 +101,17 @@ func seedGuideAI(t *testing.T, f *guideFake, count int) *Service {
 	return s
 }
 func TestGuideAIMessyMeasurement(t *testing.T) {
+	if raceEnabled {
+		// Keep the complete fixture without charging race instrumentation against
+		// the production matcher's wall-clock deadline. Normal measurements use
+		// real time; the offline fake client never needs an actual timeout here.
+		synctest.Test(t, guideAIMessyMeasurement)
+		return
+	}
+	guideAIMessyMeasurement(t)
+}
+
+func guideAIMessyMeasurement(t *testing.T) {
 	ctx := context.Background()
 	f := &guideFake{labels: map[string]string{}}
 	s := seedGuideAI(t, f, 640)

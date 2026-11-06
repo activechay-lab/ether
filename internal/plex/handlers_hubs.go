@@ -1185,6 +1185,7 @@ func (s *Server) handlePostplay(w http.ResponseWriter, r *http.Request) {
 	}
 	count := countParam(r, 12)
 	mc := hubContainer()
+	mc.SetSyncProjection(false)
 	mc.Hub, err = experience.AssemblePostPlay(ctx, s.postPlaySelection(ctx, pr, k, !s.viewerRestricted(pr.User)), pr.User, k, count,
 		func() (core.RatingKey, model.Hub, bool) {
 			hub, ok := s.upNextHub(ctx, pr, k)

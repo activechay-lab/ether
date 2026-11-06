@@ -55,7 +55,14 @@ func (a *App) buildCluster(dialect store.Dialect) error {
 	}
 	a.clusterFatal = make(chan error, 1)
 	a.dbAvail = store.NewAvailability(nil)
+	var clockBound time.Duration
+	var clockKnown bool
+	if p := a.deployment; p != nil {
+		clockBound = time.Duration(p.settings.ClockSkewMillis) * time.Millisecond
+		clockKnown = p.settings.ClockBoundKnown
+	}
 	pg, err := cluster.NewPostgres(cluster.Options{
+		ClockSkew: clockBound, ClockBoundKnown: clockKnown,
 		DB: a.db, Local: local, Logger: log, Availability: a.dbAvail,
 		IdentityPath: filepath.Join(a.opts.DataDir, cluster.NodeFile),
 		// A clone of this node (copied node.json) is running: stop serving.
@@ -168,7 +175,7 @@ func (a *App) nodeAddrs(ctx context.Context) []string {
 }
 
 func (a *App) nodeCaps() cluster.Caps {
-	caps := cluster.Caps{Weight: a.cfg.Get().Server.ClusterWeight, EgressIP: a.egress.get()}
+	caps := cluster.Caps{Diagnostics: a.nodeDiagnostics(), Weight: a.cfg.Get().Server.ClusterWeight, EgressIP: a.egress.get()}
 	if a.transcoder != nil {
 		caps.Transcode, caps.HWAccel = true, a.transcoder.HWAccel().Name
 	}
@@ -176,6 +183,7 @@ func (a *App) nodeCaps() cluster.Caps {
 		caps.Transcode = true
 		caps.HWAccel = a.deployment.encoder.HWAccel().Name
 	}
+	caps.Diagnostics = a.nodeDiagnostics()
 	return caps
 }
 
@@ -345,6 +353,7 @@ func (a *App) clusterHandler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(st)
 	})
+	mux.Handle("GET /console", a.clusterConsoleHandler())
 	mux.Handle("/node", a.clusterManageHandler())
 	mux.Handle("GET /nodes/{id}/control", a.nodeControlHandler())
 	mux.Handle("GET /nodes/{id}/role-preflight", a.nodeRolePreflightHandler())

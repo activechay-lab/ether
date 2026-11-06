@@ -19,6 +19,21 @@ rechecks current title/parent/library/rating/release policy using local facts.
 Worker roles supply the real core.OwnedTranscoder (CPU or GPU manager). There is no
 alternate encoder or provider implementation inside this package.
 
+Transcode selection first excludes ineligible boots, exhausted pools and workers
+whose authenticated preflight cannot execute the exact request. It then prefers
+the request-specific hardware encoder reported by the actual Manager, followed
+by spare slots, source-node locality and stable node/boot order. The hardware
+offer uses startup-probed encoders and the same normalized plan dependency
+checks as execution; configured GPU names alone earn no preference. A worker
+using software for that codec remains eligible without a hardware preference.
+Spare slots are the minimum remaining capacity across required scopes, counting
+both current and displaced claims. These scores do not reserve capacity: the
+durable Reserve transaction remains the atomic authority. Encoder replacement
+uses the same scores while excluding the failed node. A definite capacity
+refusal refreshes the scores and tries each remaining node at most once within
+the caller deadline, for both initial admission and replacement. Unknown
+transaction outcomes retain the identical operation for reconciliation.
+
 Private Handler registers SourcePath, nodesource.Path and WorkerPath where those
 roles exist, and DeliveryPath. Host supplies verified mTLS listener. NewRuntime
 does not change placement targets/pools or start cluster membership. Application
@@ -310,3 +325,47 @@ encoder. This adds no public observation API, output observation, successful
 splice, client-buffer evidence or recovery enablement. Later receipt consumers
 still need reviewed actual source-index, complete packaged-picture/sample ends,
 final transformed bytes, current authority and fencing contracts.
+
+## Private exact-operation gate storage prerequisite
+
+Migration v4 reserves one private operation gate atomically with each NEW
+immutable admission, under the same cluster-wide durable HistoryCapacity.
+Every original boot and retired/replaced generation remains charged. There is
+one accepted-attempt nonce/worker-boot slot, one arm association (at most 16 KiB),
+and one irreversible seal with closed reasons and bounded actor identity.
+Admission digest v1 covers the exact sanitized original record, including the
+explicit keyframes/slate, entire Route, operation hash and exact Start identity
+and hash. No independent attempt history, expiry, eviction or compaction exists.
+Exact historical retries, reads and sealing remain usable at capacity.
+
+Package-private storage methods serialize reservation, claim, seal and arm on the
+same component-owned transaction lock on SQLite and PostgreSQL. Ambiguous writes
+require independent exact readback. Typed historical results distinguish unknown,
+absent/unsupported, unclaimed, claimed and both sealed states. A missing gate on a
+legacy admission is unsupported/unknown; retries never backfill one or declare
+that operation never started. A matching sealed retry returns history only.
+Conflicts deny replacement of immutable bindings, slots or seal metadata.
+
+The production Start authorizer now checks the unsealed gate and exact Start
+hash. The host joins Worker-owned accepted handles to immutable acceptance and
+arming history before invoking the backend. Supersession seals the gate in the
+same transaction as placement generation and route advancement. These records
+never prove process retirement. See [encoder recovery](../../docs/encoder-recovery.md)
+for supported paths, bounds and acceptance limits.
+
+Normal Stop resolves durable allocation on every server replica and seals the
+exact generation's operation gate with cancellation. The current coordinator
+consumes that intent on Tick, including after takeover, and releases placement
+only through the existing exact encoder/input/source retirement verifier or
+receipt. A cancellation seal alone never frees a claim. Worker status also seals
+its gateway when the backend retires itself (for example on idle timeout); remux
+coordinators reconcile that status even without an encoder recovery probe.
+
+Ordinary reservations also reconcile after authenticated worker boot replacement
+or explicit exact-boot operator removal. The operation gate is sealed first;
+every current/prior source must separately prove boot replacement/removal or
+exact joined retirement. The placement verifier repeats the proof before the
+full-fence transaction releases capacity. Expiry, missing membership and an
+unauthenticated replacement row retain the claim. Boot-based retirement logs
+the session, generation and exact old worker/source identities and does not
+fabricate a terminal receipt for history compaction.

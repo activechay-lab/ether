@@ -19,16 +19,18 @@ import {
 } from "@braedonsaunders/appkit-ui";
 import { Copy, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
 import { Field, Segmented } from "../../components/fields";
+import { ClusterRecovery } from "./ClusterRecovery";
 import { ClusterSetup } from "./ClusterSetup";
 import { Section } from "../../components/layout";
 import { SettingsRow } from "../../components/SettingsRow";
 import { pagedTableLabels } from "../../i18n/appkit-labels";
 import { localized, t, tn } from "../../i18n";
-import { api, errorMessage } from "../../lib/api";
-import { formatDateTime, parseTime, relativeTime } from "../../lib/format";
+import { api, errorMessage, uuid } from "../../lib/api";
+import { fixed, formatDateTime, parseTime, relativeTime } from "../../lib/format";
 import { useAsync, useInterval, type AsyncState } from "../../lib/hooks";
 import type {
   ClusterNode,
@@ -64,11 +66,12 @@ export function useClustered(): boolean {
 }
 
 function nodeName(n: ClusterNode): string {
-  return n.name || n.id;
+  return n.name || t("Unnamed node");
 }
 
-/** "videotoolbox", "Software" or "Unavailable" (no ffmpeg on the node). */
+/** Configured roles decide applicability; capability decides encoder availability. */
 export function transcodeLabel(n: ClusterNode): string {
+  if (n.caps?.roles?.length && !n.caps.roles.includes("transcode")) return t("—");
   if (!n.caps?.transcode) return t("Unavailable");
   const hw = n.caps.hwAccel;
   return hw && hw !== "none" ? hw : t("Software");
@@ -129,7 +132,10 @@ function RuntimeObservation({
   const [, tick] = useState(0);
   useInterval(() => tick((n) => n + 1), 1_000);
   const now = Date.now();
-  const runtime = nodeRuntime(status, node);
+  const observed = node.caps?.diagnostics;
+  const runtime =
+    nodeRuntime(status, node) ??
+    (observed ? { ...observed, runtimeSampledAt: observed.sampledAt } : undefined);
   const fresh = !!runtime && !cached && runtimeFresh(runtime.runtimeSampledAt, now);
   const value = (v: boolean | undefined) =>
     !fresh || typeof v !== "boolean" ? t("Unknown") : v ? t("Yes") : t("No");
@@ -242,7 +248,11 @@ function copyToken(text: string) {
 export function ClusterOverview() {
   const status = useAsync((signal) => api.clusterStatus(signal), []);
   const clustered = isClustered(status.data);
-  const [tab, setTab] = useState("overview");
+  const [params, setParams] = useSearchParams();
+  const tab = ["nodes", "recovery", "tokens"].includes(params.get("tab") ?? "")
+    ? params.get("tab")!
+    : "overview";
+  const setTab = (next: string) => setParams({ tab: next });
   const [, tick] = useState(0);
   useInterval(() => tick((n) => n + 1), 1000);
   const [addingNode, setAddingNode] = useState(false);
@@ -284,17 +294,21 @@ export function ClusterOverview() {
         <p className="text-sm text-fg-muted">{t("Servers that share one database.")}</p>
       </header>
       <SubtabNav
+        className="max-sm:flex-wrap max-sm:overflow-visible"
         ariaLabel={t("Cluster")}
         active={tab}
         onSelect={setTab}
         tabs={[
           { key: "overview", label: t("Overview") },
           { key: "nodes", label: t("Nodes") },
+          { key: "recovery", label: t("Recovery history") },
           { key: "tokens", label: t("Join tokens") },
         ]}
       />
       {tab === "overview" ? (
         <FleetOverview status={s} cached={cached} />
+      ) : tab === "recovery" ? (
+        <ClusterRecovery status={s} />
       ) : (
         <div className="min-h-0 flex-1 space-y-4 overflow-auto">
           {tab === "nodes" ? (
@@ -335,6 +349,9 @@ export function clusterNodeHealth(
     runtimeFresh(observation.sampledAt)
   )
     return observation.level;
+  const diagnostic = n.caps?.diagnostics;
+  if (diagnostic && nodeStatusFresh(n) && runtimeFresh(diagnostic.sampledAt))
+    return !diagnostic.readyExisting ? "error" : diagnostic.readinessReason ? "warn" : "ok";
   const runtime = nodeRuntime(s, n);
   return runtime && runtimeFresh(runtime.runtimeSampledAt)
     ? runtime.readyExisting
@@ -415,7 +432,8 @@ function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: b
               {t("Health")}: {t("Healthy")}{" "}
               <strong>{nodes.filter((n) => healthOf(n) === "ok").length}</strong> · {t("Failing")}{" "}
               <strong>{nodes.filter((n) => healthOf(n) === "error").length}</strong> ·{" "}
-              {t("Unknown")}{" "}
+              {t("Needs attention")}{" "}
+              <strong>{nodes.filter((n) => healthOf(n) === "warn").length}</strong> · {t("Unknown")}{" "}
               <strong>{nodes.filter((n) => healthOf(n) === "unknown").length}</strong>
             </div>
             <div>
@@ -438,57 +456,70 @@ function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: b
               ))}
             </div>
             <div className="space-y-2">
+              {nodes.length === 0 ? (
+                <EmptyState
+                  title={t("No nodes reported")}
+                  description={t("The database couldn't be read. Nodes appear here once it can.")}
+                />
+              ) : null}
               {nodes.map((n) => (
                 <article key={n.id} className="rounded-lg border border-border px-3 py-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <strong className="text-sm">{nodeName(n)}</strong>
-                    <span className="ml-auto">
-                      <Badge
-                        variant={
-                          healthOf(n) === "error"
-                            ? "destructive"
-                            : healthOf(n) === "ok"
-                              ? "success"
-                              : "outline"
-                        }
-                      >
-                        {healthOf(n) === "error"
-                          ? t("Failing")
-                          : healthOf(n) === "ok"
-                            ? t("Healthy")
-                            : t("Unknown")}
-                      </Badge>
-                    </span>
+                    <strong className="break-words text-sm">{nodeName(n)}</strong>
                     <Badge variant={n.draining ? "warning" : "outline"}>
-                      {n.draining ? t("Draining") : nodeRoles(n).join(" · ")}
+                      {nodeRoles(n).join(" · ")}
                     </Badge>
                   </div>
-                  <dl className="mt-2 grid grid-cols-4 gap-2 text-[11px] sm:text-xs">
-                    {[
-                      [t("Streams"), !cached && nodeStatusFresh(n) ? n.load : t("Unknown")],
-                      [
-                        t("Transcoding"),
-                        n.live && preview
-                          ? (preview.metrics[n.id]?.transcodes ?? t("Unknown"))
-                          : t("Unknown"),
-                      ],
-                      [
-                        t("Capacity"),
-                        n.live && preview
-                          ? (preview.metrics[n.id]?.capacity ?? t("Unknown"))
-                          : t("Unknown"),
-                      ],
-                      [
-                        t("Load"),
-                        n.live && preview ? `${preview.metrics[n.id]?.load}%` : t("Unknown"),
-                      ],
-                    ].map(([label, value]) => (
-                      <div key={label}>
-                        <dt className="text-fg-muted">{label}</dt>
-                        <dd className="font-medium tabular-nums">{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
+                  <div className="mt-2">
+                    <NodePlainStatus status={s} node={n} cached={cached} />
+                  </div>
+                  {!cached && n.caps?.diagnostics && runtimeFresh(n.caps.diagnostics.sampledAt) ? (
+                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-fg-muted">
+                      {n.caps.diagnostics.transcodes !== undefined &&
+                      n.caps.diagnostics.transcodeCapacity !== undefined ? (
+                        <span>
+                          {t("Transcode slots")}: {n.caps.diagnostics.transcodes} /{" "}
+                          {n.caps.diagnostics.transcodeCapacity}
+                        </span>
+                      ) : null}
+                      {n.caps.diagnostics.sourceConnections !== undefined &&
+                      n.caps.diagnostics.sourceConnectionCapacity !== undefined ? (
+                        <span>
+                          {t("Source connections")} · {t("Usenet")}:{" "}
+                          {n.caps.diagnostics.sourceConnections} /{" "}
+                          {n.caps.diagnostics.sourceConnectionCapacity}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {preview ? (
+                    <dl className="mt-2 grid grid-cols-4 gap-2 text-[11px] sm:text-xs">
+                      {[
+                        [t("Streams"), !cached && nodeStatusFresh(n) ? n.load : t("Unknown")],
+                        [
+                          t("Transcoding"),
+                          n.live && preview
+                            ? (preview.metrics[n.id]?.transcodes ?? t("Unknown"))
+                            : t("Unknown"),
+                        ],
+                        [
+                          t("Capacity"),
+                          n.live && preview
+                            ? (preview.metrics[n.id]?.capacity ?? t("Unknown"))
+                            : t("Unknown"),
+                        ],
+                        [
+                          t("Load"),
+                          n.live && preview ? `${preview.metrics[n.id]?.load}%` : t("Unknown"),
+                        ],
+                      ].map(([label, value]) => (
+                        <div key={label}>
+                          <dt className="text-fg-muted">{label}</dt>
+                          <dd className="font-medium tabular-nums">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : null}
                 </article>
               ))}
             </div>
@@ -498,7 +529,7 @@ function FleetOverview({ status: s, cached }: { status: ClusterStatus; cached: b
           className={`${panel !== "nodes" ? "grid" : "hidden"} min-h-0 gap-3 lg:grid lg:grid-rows-[minmax(0,1fr)_minmax(0,0.65fr)]`}
         >
           <div
-            className={`${panel === "health" ? "block" : "hidden"} min-h-0 overflow-auto lg:block`}
+            className={`${panel === "health" ? "block" : "hidden"} min-h-0 overflow-auto lg:block [&_.text-fg-subtle]:text-fg-muted`}
           >
             <HealthPanel loading={false} items={items} />
           </div>
@@ -637,7 +668,7 @@ function Nodes({
               cell: (n) => (
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-medium text-fg">{nodeName(n)}</span>
+                    <span className="break-words font-medium text-fg">{nodeName(n)}</span>
                     {n.leader ? <Badge variant="info">{t("Leader")}</Badge> : null}
                     {n.id === status.self?.id ? (
                       <Badge variant="outline">{t("This node")}</Badge>
@@ -660,54 +691,8 @@ function Nodes({
             },
             {
               key: "status",
-              header: t("Heartbeat"),
-              cell: (n) => (
-                <div className="flex flex-col items-start gap-1">
-                  <span className="text-xs text-fg-muted sm:hidden">{t("Heartbeat")}</span>
-                  <Badge
-                    variant={
-                      cached || (n.live && !nodeStatusFresh(n))
-                        ? "warning"
-                        : n.live
-                          ? "success"
-                          : "secondary"
-                    }
-                  >
-                    {cached || (n.live && !nodeStatusFresh(n))
-                      ? t("Stale status")
-                      : n.live
-                        ? t("Online")
-                        : t("Offline")}
-                  </Badge>
-                  <span className="text-xs text-fg-muted" title={formatDateTime(n.lastSeen)}>
-                    {t("Last seen {when}", { when: relativeTime(n.lastSeen) })}
-                  </span>
-                </div>
-              ),
-            },
-            {
-              key: "admission",
-              header: t("New streams"),
-              cell: (n) =>
-                status.selfRuntime ? (
-                  <RuntimeObservation status={status} node={n} cached={cached} />
-                ) : (
-                  <div className="space-y-1">
-                    <span className="block text-xs text-fg-muted sm:hidden">
-                      {t("New streams")}
-                    </span>
-                    <Badge variant={n.draining ? "warning" : "secondary"}>
-                      {cached || !nodeStatusFresh(n)
-                        ? t("Unknown")
-                        : n.draining
-                          ? t("Paused")
-                          : t("Not reported")}
-                    </Badge>
-                    <p className="max-w-48 text-xs text-fg-muted">
-                      {t("Playback readiness is not reported.")}
-                    </p>
-                  </div>
-                ),
+              header: t("Status"),
+              cell: (n) => <NodePlainStatus status={status} node={n} cached={cached} />,
             },
             {
               key: "load",
@@ -813,6 +798,7 @@ function NodeDrawer({
       }
     >
       <div className="space-y-5">
+        <NodeCapacity node={node} cached={cached} />
         <SettingsSection title={t("Configured roles")}>
           <SettingsRow
             title={nodeRoles(node).join(", ")}
@@ -821,6 +807,9 @@ function NodeDrawer({
             )}
           />
         </SettingsSection>
+        <p className="text-xs text-fg-muted">
+          {t("Last seen {when}", { when: formatDateTime(node.lastSeen) })}
+        </p>
         <RuntimeObservation status={status} node={node} cached={cached} />
         <NodeControls node={node} cached={cached} onChanged={onChanged} />
         <RolePlan status={status} node={node} />
@@ -903,7 +892,7 @@ function NodeControls({
     setError("");
     try {
       const result = await api.updateClusterControl(node.id, {
-        requestId: crypto.randomUUID(),
+        requestId: uuid(),
         boot: node.incarnation!,
         expectedVersion: c.requestedVersion,
         patch,
@@ -1199,7 +1188,7 @@ function JoinTokens({ settings }: { settings: SettingsState }) {
       title: t("Revoke join token?"),
       message: t(
         "Token {id} stops working right away. Nodes that already joined are not affected.",
-        { id: token.id },
+        { id: tokens.indexOf(token) + 1 },
       ),
       confirmLabel: t("Revoke"),
       tone: "danger",
@@ -1253,10 +1242,9 @@ function JoinTokens({ settings }: { settings: SettingsState }) {
                 key: "id",
                 header: t("Token"),
                 cell: (token) => (
-                  <div>
-                    <span className="block text-xs text-fg-muted sm:hidden">{t("Token")}</span>
-                    <code className="text-xs">{token.id}</code>
-                  </div>
+                  <span className="text-sm font-medium">
+                    {t("Join token {number}", { number: tokens.indexOf(token) + 1 })}
+                  </span>
                 ),
               },
               {
@@ -1314,7 +1302,7 @@ function JoinTokens({ settings }: { settings: SettingsState }) {
                       variant="outline"
                       size="sm"
                       disabled={busy === token.id}
-                      aria-label={t("Revoke token {id}", { id: token.id })}
+                      aria-label={t("Revoke token {id}", { id: tokens.indexOf(token) + 1 })}
                       onClick={() => void revoke(token)}
                     >
                       {t("Revoke")}
@@ -1439,5 +1427,149 @@ function JoinTokenDrawer({ onClose, onCreated }: { onClose: () => void; onCreate
         )}
       </div>
     </Drawer>
+  );
+}
+
+function readinessReason(reason: string): string {
+  switch (reason) {
+    case "age_at_or_above_maximum":
+    case "not_live":
+    case "self_missing":
+      return t("Heartbeat unavailable");
+    case "set_pool":
+    case "set_target":
+    case "initial_quota_read":
+      return t("Placement unavailable");
+    case "invalid_roles":
+    case "cluster_mismatch":
+    case "boot_mismatch":
+    case "mounted_identity_changed":
+      return t("Node identity or roles need attention");
+    case "clock_skew":
+      return t("Clock skew");
+    case "credential_rotation_failed":
+      return t("Credentials need attention");
+    default:
+      return t("Runtime unavailable");
+  }
+}
+function NodeCapacity({ node, cached }: { node: ClusterNode; cached: boolean }) {
+  const d = node.caps?.diagnostics;
+  const fresh = !cached && nodeStatusFresh(node) && !!d && runtimeFresh(d.sampledAt);
+  const value = (n: number | undefined) =>
+    fresh && n !== undefined ? n.toLocaleString() : t("Unknown");
+  const rows: [string, string][] = [];
+  if (!node.caps?.roles?.length || node.caps.roles.includes("transcode"))
+    rows.push([t("Transcoding"), transcodeLabel(node)]);
+  if (d?.clock)
+    rows.push([
+      t("Clock skew"),
+      fresh && runtimeFresh(d.clock.sampledAt)
+        ? t("{value} ms", { value: Math.round(d.clock.clockSkewNs / 1e6) })
+        : t("Stale status"),
+    ]);
+  if (d?.transcodes !== undefined && d.transcodeCapacity !== undefined)
+    rows.push([t("Transcode slots"), `${value(d.transcodes)} / ${value(d.transcodeCapacity)}`]);
+  if (d?.sourceConnections !== undefined && d.sourceConnectionCapacity !== undefined)
+    rows.push([
+      `${t("Source connections")} · ${t("Usenet")}`,
+      `${value(d.sourceConnections)} / ${value(d.sourceConnectionCapacity)}`,
+    ]);
+  if (d?.deliveryBytesPerSecond !== undefined)
+    rows.push([
+      t("Delivery bandwidth"),
+      fresh ? t("{value} B/s", { value: value(d.deliveryBytesPerSecond) }) : t("Stale status"),
+    ]);
+  if (d?.codecs?.length) rows.push([t("Codecs"), fresh ? d.codecs.join(", ") : t("Stale status")]);
+  if (d) {
+    rows.push([
+      t("Readiness"),
+      !fresh
+        ? t("Stale status")
+        : d.readinessReason
+          ? readinessReason(d.readinessReason)
+          : d.readyExisting
+            ? t("Ready")
+            : t("Runtime unavailable"),
+    ]);
+    rows.push([t("Telemetry"), fresh ? relativeTime(d.sampledAt) : t("Stale status")]);
+  }
+  return (
+    <dl className="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
+      {rows.map(([label, v]) => (
+        <div key={label}>
+          <dt className="text-fg-muted">{label}</dt>
+          <dd>{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function NodePlainStatus({
+  status,
+  node,
+  cached,
+}: {
+  status: ClusterStatus;
+  node: ClusterNode;
+  cached: boolean;
+}) {
+  const d = node.caps?.diagnostics;
+  const self = nodeRuntime(status, node);
+  const ready =
+    d && runtimeFresh(d.sampledAt)
+      ? d
+      : self && runtimeFresh(self.runtimeSampledAt)
+        ? self
+        : undefined;
+  if (cached) return <Badge variant="outline">{t("Stale status")}</Badge>;
+  if (!node.live || !nodeStatusFresh(node))
+    return <Badge variant="secondary">{t("Offline")}</Badge>;
+  if (node.draining && !ready)
+    return (
+      <div className="space-y-1">
+        <Badge variant="warning">{t("Not taking new streams")}</Badge>
+        <p className="text-xs text-fg-muted">{t("Draining")}</p>
+      </div>
+    );
+  if (!ready)
+    return (
+      <div className="space-y-1">
+        <Badge variant="outline">{t("Not reported")}</Badge>
+        <p className="max-w-56 text-xs text-fg-muted">{t("Playback readiness is not reported.")}</p>
+      </div>
+    );
+  const reason = d?.readinessReason;
+  const healthy =
+    ready.readyExisting && ready.acceptingNew && !ready.draining && !node.draining && !reason;
+  const clock = d?.clock;
+  const detail =
+    ready.draining || node.draining
+      ? t("Draining")
+      : reason === "clock_skew" && clock && runtimeFresh(clock.sampledAt)
+        ? t("Clock out of sync by {value} s", {
+            value: fixed(Math.abs(clock.clockSkewNs) / 1e9, 1),
+          })
+        : reason === "age_at_or_above_maximum" || reason === "not_live"
+          ? t("Database unreachable")
+          : reason &&
+              [
+                "invalid_roles",
+                "cluster_mismatch",
+                "boot_mismatch",
+                "mounted_identity_changed",
+              ].includes(reason)
+            ? t("Node identity or roles need attention")
+            : reason === "credential_rotation_failed"
+              ? t("Credentials need attention")
+              : t("Waiting for playback services");
+  return (
+    <div className="space-y-1">
+      <Badge variant={healthy ? "success" : "warning"}>
+        {healthy ? t("Healthy") : t("Not taking new streams")}
+      </Badge>
+      {!healthy && <p className="max-w-56 text-xs text-fg-muted">{detail}</p>}
+    </div>
   );
 }

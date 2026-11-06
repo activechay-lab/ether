@@ -36,8 +36,6 @@ var loadBearingSkips = func() []loadBearingSkip {
 	add := func(id, endpoint, path, reason string) {
 		out = append(out, loadBearingSkip{ID: id, Endpoint: endpoint, Path: path, Fixture: "*", Reason: reason})
 	}
-	add("sections-directory-allowSync-xml", "/library/sections", "/MediaContainer/Directory/@allowSync", "Directory@allowSync is 0 on Ether and 1 on PMS 1.43.4; production change is out of this slice")
-	add("sections-directory-allowSync-json", "/library/sections", "$/MediaContainer/Directory[]/allowSync", "Directory@allowSync is 0 on Ether and 1 on PMS 1.43.4; production change is out of this slice")
 
 	sectionAll := "/library/sections/{{section}}/all?X-Plex-Container-Start=0&X-Plex-Container-Size=50"
 	add("section-all-allowSync-xml", sectionAll, "/MediaContainer/@allowSync", allowSyncReason)

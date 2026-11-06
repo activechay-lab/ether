@@ -323,8 +323,14 @@ func (s *Session) finish(r *run) {
 		}
 		s.log.Info("ffmpeg run", "event", "stop", "reason", why, "run", r.seq, "segment", r.startSeg, "maxDone", r.maxDone, "planEnd", r.planEnd, "playhead", s.lastReq, "err", err)
 	}
+	if err != nil && s.cur == r && s.retryQSVLocked(r) {
+		return
+	}
 	log := s.log.With("run", r.seq)
 	if s.liveInput && s.cur == r {
+		if err != nil && s.retryMissingLiveAudioLocked(r) {
+			return
+		}
 		if err != nil && r.hw && !s.forceCPU && looksLikeEncoderFailure(r.stderr.String(), r.spec) {
 			s.forceCPU = true
 			log.Warn("live hardware encoder failed; falling back to CPU", "hwaccel", r.spec.Accel.Name, "segment", r.next())

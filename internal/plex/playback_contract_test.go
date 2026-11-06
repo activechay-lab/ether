@@ -35,6 +35,9 @@ func TestPlaybackCorpusLifecycle(t *testing.T) {
 					for k, v := range probe.Headers[key] {
 						hdr[k] = strings.ReplaceAll(v[0], "{{token}}", ownerToken)
 					}
+					if probe.Name == "transcode-start" {
+						f.request(t, "GET", decisionPath(path), hdr)
+					}
 					rec := f.request(t, probe.Method, path, hdr)
 					if rec.Code != http.StatusOK {
 						t.Fatalf("%s: %d %s", probe.Name, rec.Code, rec.Body.String())

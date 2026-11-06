@@ -145,12 +145,13 @@ func (o *ownedPlayback) RetireSource(id string, _ core.SourceRetirement) error {
 
 type ownedSession struct {
 	stubHLS
-	done chan struct{}
-	err  error
+	done    chan struct{}
+	err     error
+	stopErr error
 }
 
 func (s ownedSession) EncoderRetirement() core.EncoderRetirement { return s }
-func (s ownedSession) RetireEncoder() error                      { return nil }
+func (s ownedSession) RetireEncoder() error                      { return s.stopErr }
 func (s ownedSession) EncoderDone() <-chan struct{}              { return s.done }
 func (s ownedSession) EncoderErr() error {
 	select {
@@ -193,17 +194,23 @@ func TestBrokerTransferSurvivesUnverifiedInputAndFailedSource(t *testing.T) {
 		encErr  error
 		srcErr  error
 		dropped bool
+		pending bool
 	}{
 		{name: "unverified-input", encErr: core.ErrEncoderInputUnverified},
 		{name: "source-close", srcErr: errors.New("close failed")},
 		{name: "drained", dropped: true},
+		{name: "pending-then-drained", dropped: true, pending: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			db := store.OpenTest(t)
 			playback := &ownedPlayback{fakePlayback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 4}, outcome: scriptOutcome{done: make(chan struct{}), err: tc.srcErr}}
 			enc := ownedTranscoder{sess: ownedSession{done: make(chan struct{}), err: tc.encErr}}
-			close(enc.sess.done)
+			if tc.pending {
+				enc.sess.stopErr = core.ErrEncoderPending
+			} else {
+				close(enc.sess.done)
+			}
 			viewer := &core.Viewer{ID: 3}
 			device := core.Device{ID: "tv"}
 			active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
@@ -230,6 +237,12 @@ func TestBrokerTransferSurvivesUnverifiedInputAndFailedSource(t *testing.T) {
 			}
 			if err = b.Stop(ctx, frontend.SessionAccess{Viewer: viewer, Device: device, Protocol: "jellyfin"}, opened.ID); err != nil {
 				t.Fatal(err)
+			}
+			if tc.pending {
+				if err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM capability_claims WHERE purpose=?`, capability.RetirementOwnerClaim).Scan(&claims); err != nil || claims != 1 {
+					t.Fatal("pending encoder lost transfer", claims, err)
+				}
+				close(enc.sess.done)
 			}
 			deadline := time.Now().Add(2 * time.Second)
 			for {

@@ -39,6 +39,7 @@ var sectionScopes = map[string]Scope{
 	"quality":        Shared,
 	"trakt":          Shared,
 	"simkl":          Shared,
+	"plexServers":    Shared,
 	"openSubtitles":  Shared,
 	"llm":            Shared,
 	"updates":        Shared, // incl. maxDrain: every node drains the same way
@@ -312,6 +313,7 @@ func MergeShared(local Config, sharedJSON []byte) (Config, error) {
 	if err := json.Unmarshal(sharedJSON, &shared); err != nil {
 		return Config{}, err
 	}
+	stripRetiredLiveTV(shared)
 	base, _ := splitDoc(toDoc(Defaults("")))
 	overlayDeep(base, shared)
 	doc := toDoc(local)

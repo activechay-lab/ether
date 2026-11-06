@@ -25,6 +25,10 @@ import (
 // track per representation (video, audio); ffmpeg's dash muxer writes short
 // chunks that the session regroups into numbered segments by timestamp.
 type Session struct {
+	qsvCodec                string
+	qsvQuality              bool
+	qsvMode                 string
+	qsvRetried              bool
 	normalizeNegativeDTS    bool
 	encoder                 *encoderLifetime
 	id                      string
@@ -60,6 +64,7 @@ func (s *Session) IndependentSegments() bool { return s.segmentsIndependent }
 
 // sessionInput owns one aspect of the session. Fields are guarded by Session.mu.
 type sessionInput struct {
+	silenceAudio           bool // one replacement run only; later live reconnects retry source audio
 	softSubtitleStream     *int
 	softSubtitleInputIndex int
 	rtxConfig              config.RTXVideo

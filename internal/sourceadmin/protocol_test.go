@@ -33,7 +33,7 @@ func guards(t *testing.T, policy nodewire.Policy) (*nodewire.Guard, *nodewire.Gu
 	makeGuard := func(id nodewire.Identity, p nodewire.Policy) *nodewire.Guard {
 		_, k, _ := ed25519.GenerateKey(rand.Reader)
 		csr, _ := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, k)
-		cert, e := nodewire.Issue(der, key, csr, id, []string{"127.0.0.1"}, now, time.Hour)
+		cert, e := nodewire.Issue(der, key, csr, id, []string{"127.0.0.1"}, now, time.Hour, 0)
 		if e != nil {
 			t.Fatal(e)
 		}

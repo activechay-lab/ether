@@ -76,7 +76,7 @@ func (r *Runtime) readAdmission(ctx context.Context, route Route) (admissionReco
 // operation, authenticated source binding or retained Start hash.
 func (r *Runtime) persistAdmission(ctx context.Context, x *execution, id remotetranscode.Identity, hash [32]byte) error {
 	r.mu.Lock()
-	if r.closed || x.stopping || r.executions[x.route.Fence.Session] != x || x.initial == nil || x.initial.route != x.route || id != remoteIdentity(x.route) {
+	if r.closed || x.stopping || !r.ownsExecutionLocked(x) || x.initial == nil || x.initial.route != x.route || id != remoteIdentity(x.route) {
 		r.mu.Unlock()
 		return ErrPending
 	}
@@ -121,7 +121,7 @@ func (r *Runtime) persistAdmission(ctx context.Context, x *execution, id remotet
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.closed || x.stopping || r.executions[a.Route.Fence.Session] != x || x.initial == nil || x.initial.route != a.Route {
+	if r.closed || x.stopping || !r.ownsExecutionLocked(x) || x.initial == nil || x.initial.route != a.Route {
 		return ErrPending
 	}
 	x.initial.commitmentIdentity, x.initial.commitment, x.initial.hasCommitment = id, hash, true
@@ -144,16 +144,8 @@ func (r *Runtime) insertAdmission(ctx context.Context, a admissionRecord, raw st
 		return err
 	}
 	defer tx.Rollback()
-	if err = store.LockKey(ctx, store.DialectOf(r.o.DB), tx, "clusterplayback:admissions"); err != nil {
+	if err = r.lockAdmissionHistory(ctx, tx); err != nil {
 		return err
-	}
-	// Acquire a real SQLite write lock before reads even for deferred test DBs.
-	// Constant false avoids scanning retained history; PostgreSQL already has
-	// the component advisory lock and needs no synthetic write at all.
-	if store.DialectOf(r.o.DB) == store.SQLite {
-		if _, err = tx.ExecContext(ctx, `UPDATE clusterplayback_admissions SET generation=generation WHERE 1=0`); err != nil {
-			return err
-		}
 	}
 	// This is a historical route observation, not a PostgreSQL row lock shared
 	// with putRoute. Replacement can race this insert, leaving an inert old row.
@@ -189,6 +181,13 @@ func (r *Runtime) insertAdmission(ctx context.Context, a admissionRecord, raw st
 		return ErrPending
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO clusterplayback_admissions(cluster,session,generation,controller,controller_boot,admission) VALUES(?,?,?,?,?,?)`, a.Route.Source.Cluster, a.Route.Fence.Session, a.Route.Fence.Generation, a.Route.Fence.Controller.ID, a.Route.Fence.Controller.Boot, raw); err != nil {
+		return err
+	}
+	gateRaw, err := (operationGate{Binding: admissionBinding(a, raw)}).encode()
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO clusterplayback_operation_gates(cluster,session,generation,gate) VALUES(?,?,?,?)`, a.Route.Source.Cluster, a.Route.Fence.Session, a.Route.Fence.Generation, gateRaw); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -263,4 +262,25 @@ func (r *Runtime) recoveryAdmissionPolicy(ctx context.Context, peer nodewire.Ide
 		return sourceResponse{}, ErrDenied
 	}
 	return sourceResponse{}, nil
+}
+
+func (r *Runtime) ownsExecutionLocked(x *execution) bool {
+	owner := r.executions[x.route.Fence.Session]
+	return owner == x || owner != nil && owner.replacement == x && !owner.stopping
+}
+
+func (r *Runtime) generationRoute(ctx context.Context, id string, generation int64) (Route, error) {
+	var raw string
+	var a admissionRecord
+	err := r.o.DB.QueryRowContext(ctx, `SELECT admission FROM clusterplayback_admissions WHERE cluster=? AND session=? AND generation=?`, r.o.Self.Cluster, id, generation).Scan(&raw)
+	if err != nil {
+		return Route{}, err
+	}
+	if len(raw) > maxAdmissionBytes || json.Unmarshal([]byte(raw), &a) != nil || a.Route.Fence.Session != id || a.Route.Fence.Generation != generation {
+		return Route{}, ErrDenied
+	}
+	if _, err = a.encode(); err != nil {
+		return Route{}, err
+	}
+	return a.Route, nil
 }

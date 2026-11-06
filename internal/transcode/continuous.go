@@ -2,7 +2,6 @@ package transcode
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -25,11 +24,16 @@ type RawFormat struct {
 // floor((n+1)*SR*FPSDen/FPSNum) - floor(n*SR*FPSDen/FPSNum) samples per channel,
 // so audio never drifts (1600 every tick at 48 kHz / 30 fps).
 type RawFrame struct {
+	OutputTime time.Time // scheduled output-clock time, independent of delivery/burst time
+	// PolicyTags are immutable comparable identities supplied by the planner.
+	// Every identity represented in a segment survives encoder publication.
+	PolicyTags []any
 	// SourcePTS is the original live input presentation time, before re-timing
 	// onto the output clock. Live decoders always set SourcePTSValid; encoders
 	// ignore this metadata. It detects stale media across provider reconnects.
 	SourcePTS      time.Duration
 	SourcePTSValid bool
+	RepeatVideo    bool   // encoder may repeat this picture at a lower input cadence
 	Video          []byte // len = W*H*3/2
 	PCM            []byte // len = samples*Channels*2
 }
@@ -44,7 +48,10 @@ type DecoderRequest struct {
 	// Offset is then a small forward trim, without another demuxer seek.
 	Seeked bool
 	Live   bool // IPTV/live input: no seeking, no prewarm hold
-	Loop   bool // repeat a local cached master seamlessly; incompatible with Live and URLs
+	// PrimeLive reads four provider segments on the first open only. Callers
+	// with an aired source timestamp must leave it false on reconnect.
+	PrimeLive bool
+	Loop      bool // repeat a local cached master seamlessly; incompatible with Live and URLs
 }
 
 // Decoder yields frames already in Format, one per call, paced by the caller.
@@ -69,9 +76,9 @@ type EncoderRequest struct {
 
 // ContinuousEncoder never restarts and never changes output parameters.
 // Its timestamps come from the tick counter (monotonic, no discontinuities).
-// Write takes exactly one tick and must not block longer than about one tick
-// under normal load; sustained backpressure returns ErrEncoderBehind so P3
-// can drop the rendition rather than stall the switcher.
+// Write takes exactly one tick and may block during encoder scheduling dips.
+// Callers buffer ticks independently of the output clock, preserving PCM while
+// repeating pictures under pressure. Context cancellation interrupts a write.
 // Segments exposes finished media for Live TV to build viewer responses.
 type ContinuousEncoder interface {
 	Write(ctx context.Context, f RawFrame) error
@@ -83,9 +90,10 @@ type ContinuousEncoder interface {
 // encoder's life; Start is the wall-clock time of its first frame
 // (PROGRAM-DATE-TIME); Duration is exact (120 frames at 30000/1001 = 4.004 s).
 type Segment struct {
-	Seq      int64
-	Start    time.Time
-	Duration time.Duration
+	PolicyTags []any
+	Seq        int64
+	Start      time.Time
+	Duration   time.Duration
 }
 
 // SegmentIndex is safe for concurrent use. Only finished segments are listed.
@@ -107,5 +115,3 @@ type ContinuousRunner interface {
 	StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, error)
 	StartEncoder(ctx context.Context, r EncoderRequest) (ContinuousEncoder, error)
 }
-
-var ErrEncoderBehind = errors.New("continuous encoder is behind real time")

@@ -371,6 +371,16 @@ func (d hwDetector) detect(ctx context.Context, mode, vaapiDevice string, f feat
 				continue
 			}
 		}
+		if c.name == AccelQSV {
+			if d.goos == "linux" {
+				device = vaapiDevice
+			}
+			hw := d.detectQSV(ctx, device, f)
+			if len(hw.Encoders) > 0 {
+				return hw
+			}
+			continue
+		}
 		if err := d.testEncode(ctx, c.name, c.h264, device); err != nil {
 			d.log.Info("hardware encoder test failed", "hwaccel", c.name, "encoder", c.h264, "err", err)
 			continue

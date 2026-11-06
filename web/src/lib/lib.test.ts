@@ -271,7 +271,7 @@ describe("layout", () => {
     };
     expect(
       effectivePolicy(doc, null, "home", "home.because.42", "because-you-watched")?.policy.row,
-    ).toBe("because.42");
+    ).toBe("because-you-watched");
     expect(
       effectivePolicy(doc, null, "home", "home.because.7", "because-you-watched")?.policy.row,
     ).toBe("because-you-watched");
@@ -283,6 +283,25 @@ describe("layout", () => {
     );
     expect(effectivePolicy(doc, 5, "movies", "movie.because.42", "because-you-watched")).toBeNull();
     expect(matchRank("collection:*", "collection.7", "collection:7")).toBe(1);
+  });
+
+  it("lets the later of two equally specific rules win, as the server does", () => {
+    const doc: HomeLayout = {
+      global: [
+        {
+          section: "home",
+          rows: [
+            { row: "collection:*", status: "off" },
+            { row: "collection:c1*", status: "always" },
+          ],
+        },
+      ],
+      viewers: [],
+    };
+    const at = (id: string) =>
+      effectivePolicy(doc, null, "home", `collection:${id}`, `collection:${id}`)?.policy.row;
+    expect(at("c10")).toBe("collection:c1*");
+    expect(at("c2")).toBe("collection:*");
   });
 
   it("resolves page lengths: viewer device, viewer page, Global device, Global page, default", () => {

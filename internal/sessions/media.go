@@ -44,6 +44,9 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 	if req.Position < 0 || req.SegmentDuration < 0 {
 		return "", core.ErrNotAvailable
 	}
+	if path, handled, err := b.forwardNeutralControl(ctx, a, id, "stream", frontend.Timeline{}, req); handled {
+		return path, err
+	}
 	s, _, err := b.access(ctx, a, id)
 	if err != nil {
 		return "", err
@@ -71,6 +74,18 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 	}
 	if err != nil || !b.currentMediaPolicy(ctx, viewer, s) {
 		return "", core.ErrUnauthorized
+	}
+	if s.restored {
+		if req.Format != s.format || req.Position != s.streamPosition || req.SegmentDuration != s.segmentDuration {
+			return "", core.ErrNotAvailable
+		}
+		if hs, ok := b.transcodeSession(id); !ok || hs == nil {
+			return "", core.ErrNotAvailable
+		}
+		if err = b.saveNeutralBinding(ctx, id, false); err != nil {
+			return "", err
+		}
+		return "/sessions/media/" + s.public.ID + "/" + s.grant + "/master.m3u8", nil
 	}
 	if remote, ok := b.deps.Playback.(interface {
 		RevalidateSession(context.Context, string) error
@@ -248,6 +263,10 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 		b.transcodeStop(id)
 		return "", err
 	}
+	if err = b.saveNeutralBinding(ctx, id, true); err != nil {
+		b.transcodeStop(id)
+		return "", err
+	}
 	if req.Format == frontend.StreamDASH {
 		return path + "manifest.mpd", nil
 	}
@@ -291,6 +310,10 @@ func (b *Broker) ServeMediaAccess(w http.ResponseWriter, r *http.Request, a fron
 // must not copy it into a client URL.
 func (b *Broker) ServeSessionMedia(w http.ResponseWriter, r *http.Request, a frontend.SessionAccess, sessionID, resource string) {
 	if !sessionResource(sessionID, resource) {
+		http.NotFound(w, r)
+		return
+	}
+	if err := b.restoreNeutralBindingMode(r.Context(), sessionID, &a, "", string(a.Protocol), true); err != nil && err != core.ErrNotFound {
 		http.NotFound(w, r)
 		return
 	}
@@ -402,6 +425,7 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 		http.NotFound(w, r)
 		return
 	}
+	_ = b.restoreNeutralBindingMode(r.Context(), parts[0], access, parts[1], string(protocol), true)
 	b.mu.Lock()
 	live, ok := b.sessions[parts[0]]
 	var tracker *core.ReadRetirement
@@ -464,6 +488,16 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 		http.NotFound(w, r)
 		return
 	}
+	if !b.neutralMediaCurrent(r.Context(), s) {
+		http.Error(w, "session coordinator unavailable", 503)
+		return
+	}
+	if b.neutralCurrent(r.Context(), s) {
+		if err := b.saveNeutralBinding(r.Context(), s.public.ID, false); err != nil {
+			http.Error(w, "session state unavailable", 503)
+			return
+		}
+	}
 	if remote, ok := b.deps.Playback.(interface{ Touch(string) }); ok {
 		remote.Touch(s.playID)
 	}
@@ -522,7 +556,10 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 		}
 		if len(tail) == 2 {
 			rung, name := tail[0], tail[1]
-			if ls, ok := hs.(core.HLSLadderSession); ok {
+			// Remote sessions expose the ladder interface even when ABR is
+			// disabled. An empty ladder still uses the base rendition emitted
+			// by serveMaster, through the ordinary playlist/segment operations.
+			if ls, ok := hs.(core.HLSLadderSession); ok && len(ls.Rungs()) > 0 {
 				for _, candidate := range ls.Rungs() {
 					if candidate.ID == rung && validRung(rung) {
 						if name == "index.m3u8" {

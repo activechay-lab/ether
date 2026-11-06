@@ -3,8 +3,10 @@ package transcode
 import (
 	"bytes"
 	"log/slog"
+	"math"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -294,7 +296,7 @@ func TestBuildArgsNVENCAndQSV(t *testing.T) {
 	s.Accel = core.HWAccel{Name: AccelNVENC, Encoders: []string{"h264_nvenc"}}
 	mustContain(t, buildArgs(s), "-hwaccel cuda", "-c:v h264_nvenc", "-forced-idr 1", "-rc vbr")
 	s.Accel = core.HWAccel{Name: AccelQSV, Encoders: []string{"h264_qsv"}}
-	mustContain(t, buildArgs(s), "-c:v h264_qsv", "format=nv12", "-look_ahead 0")
+	mustContain(t, buildArgs(s), "-c:v h264_qsv", "format=nv12", "-b:v")
 	// HEVC requested but only an h264 hw encoder: hevc goes to libx265.
 	d.VideoCodec = "hevc"
 	s.Decision = d
@@ -322,11 +324,11 @@ func TestBuildArgsBurnPGS(t *testing.T) {
 	o.SubtitleStream = 2
 	d := Decide(pgs, appleTV, o, Policy{})
 	s := baseSpec(pgs, d)
-	// baseSpec seeks to 200s. This run keeps the title clock (-copyts)
-	// for picture, subtitle and audio alike, so the overlay meets them
-	// as they are.
+	// baseSpec resumes video at 200s, with earlier input for copied AAC.
+	// Preserve the title clock for both overlay inputs, trimming the picture
+	// to its authored boundary before combining it with the subtitle.
 	graph := argValue(buildArgs(s), "-filter_complex")
-	want := "[0:0]null[base];[0:2]scale=1920:800[sub];[base][sub]overlay=eof_action=pass,format=yuv420p[vout]"
+	want := "[0:0]trim=start=200.000[base];[0:2]scale=1920:800[sub];[base][sub]overlay=eof_action=pass,format=yuv420p[vout]"
 	if graph != want {
 		t.Errorf("graph\n got %s\nwant %s", graph, want)
 	}
@@ -547,4 +549,48 @@ func TestBuildArgsVAAPIRCModesAndNoGPUTonemap(t *testing.T) {
 	tmArgs := buildArgs(sTonemap)
 	mustContain(t, tmArgs, "-vaapi_device /dev/dri/renderD128", "tonemap=tonemap=hable", "hwupload", "-c:v h264_vaapi")
 	mustNotContain(t, tmArgs, "tonemap_vaapi", "scale_vaapi")
+}
+
+// The timestamp clock must come from the emitted NVENC plan, including the
+// zero-reorder level contract; has_b_frames is not the muxer's delay in frames.
+func TestNVENCFramePlanClock(t *testing.T) {
+	info := mustParse(t, "mkv_truehd_atmos.json")
+	for _, level := range []int{0, 41} {
+		for _, fast := range []bool{false, true} {
+			s := baseSpec(info, core.Decision{VideoCodec: "h264", AudioCopy: true, Container: ContainerMPEGTS, H264Level: level})
+			s.Accel = core.HWAccel{Name: AccelNVENC, Encoders: []string{"h264_nvenc"}}
+			s.FastStart = fast
+			preset, bf, reorder := nvencFramePlan(s)
+			wantPreset, wantBF := "p4", 3
+			if fast {
+				wantPreset = "p1"
+			}
+			if level > 0 {
+				wantBF = 0
+			}
+			if preset != wantPreset || bf != wantBF || reorder != wantBF {
+				t.Fatalf("level=%d fast=%v: plan=%s,%d,%d", level, fast, preset, bf, reorder)
+			}
+			mustContain(t, buildArgs(s), "-bf "+strconv.Itoa(wantBF), "-preset "+wantPreset)
+			options := argValue(buildArgs(s), "-hls_segment_options")
+			if strings.Contains(options, "avoid_negative_ts=disabled") != (wantBF == 0) {
+				t.Fatalf("bf=%d: child TS clock options=%q", wantBF, options)
+			}
+			wantLead := time.Duration(math.Round(float64(wantBF) / hlsOutputFPS(s) * float64(time.Second)))
+			if got := hlsRestartLead(s); got != wantLead {
+				t.Fatalf("restart lead=%s, want %s", got, wantLead)
+			}
+			mustContain(t, buildArgs(s), "-ss "+secs(max(0, s.Start-wantLead).Truncate(time.Millisecond)))
+			if wantLead > 0 {
+				mustContain(t, buildArgs(s), "trim=start="+secs(s.Start))
+			} else {
+				mustNotContain(t, buildArgs(s), "trim=start=")
+			}
+			s.Decision.Container = ContainerFMP4
+			cut, ok := hlsFMP4AudioCut(s)
+			if !ok || math.Abs(cut-hlsGridVideoStart(s, hlsOutputFPS(s))) > 0.0000011 {
+				t.Fatalf("fMP4 audio cut=%f, ok=%v", cut, ok)
+			}
+		}
+	}
 }

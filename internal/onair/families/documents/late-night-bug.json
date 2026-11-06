@@ -5,43 +5,47 @@
   "poster": 5.5,
   "layers": [
     {
-      "id": "badge",
-      "type": "ellipse",
-      "x": 1700,
-      "y": 65,
-      "w": 140,
-      "h": 140,
-      "fill": "{accent}@0.85"
-    },
-    {
-      "id": "Title",
-      "type": "text",
-      "text": "{channel.name}",
-      "x": 1770,
-      "y": 150,
-      "size": 32,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 120,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      }
+      "id": "station-bug",
+      "type": "group",
+      "x": 1440,
+      "y": 872,
+      "opacity": 0.3,
+      "layers": [
+        {
+          "id": "bug-shadow",
+          "type": "text",
+          "text": "{channel.name}",
+          "x": 0,
+          "y": 66,
+          "font": "{type.display}",
+          "size": 48,
+          "weight": 600,
+          "track": 2,
+          "fill": "{control.detail2}",
+          "maxWidth": 288,
+          "fit": "shrink",
+          "glow": 0,
+          "blur": 2,
+          "name": "Bug shadow"
+        },
+        {
+          "id": "Title",
+          "type": "text",
+          "text": "{channel.name}",
+          "x": 0,
+          "y": 64,
+          "font": "{type.display}",
+          "size": 48,
+          "weight": 600,
+          "track": 2,
+          "fill": "{control.detail4}",
+          "maxWidth": 288,
+          "fit": "shrink",
+          "glow": 2,
+          "name": "Channel title"
+        }
+      ],
+      "name": "Station bug"
     }
   ],
   "post": [],

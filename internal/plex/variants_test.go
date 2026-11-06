@@ -307,21 +307,21 @@ func TestMediaIndexSelectsVariant(t *testing.T) {
 	if rec.Code != http.StatusOK || pb.prepared != 1 || len(pb.variantCalls) != 1 {
 		t.Fatalf("auto decision code=%d prepared=%d variantCalls=%v", rec.Code, pb.prepared, pb.variantCalls)
 	}
-	// Out-of-range index falls back to Auto instead of failing.
+	// An out-of-range index refuses rather than silently playing another version.
 	rec = f.get(t, base+"&mediaIndex=9&session=v3")
-	if rec.Code != http.StatusOK || len(pb.variantCalls) != 1 {
+	if rec.Code != http.StatusBadRequest || len(pb.variantCalls) != 1 {
 		t.Fatalf("oob decision code=%d variantCalls=%v", rec.Code, pb.variantCalls)
 	}
 }
 
-func TestMediaIndexWithoutIssuedListUsesAuto(t *testing.T) {
+func TestMediaIndexWithoutIssuedListRefusesUnknownVersion(t *testing.T) {
 	f, pb := newVariantPlaybackFixture(t)
 	// No issued list: a stored position must not select a new candidate.
 	rec := f.get(t, "/video/:/transcode/universal/decision?path=/library/metadata/"+fightClub.Key.String()+"&mediaIndex=2&session=v9")
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
-	if len(pb.variantCalls) != 0 || pb.prepared != 1 {
+	if len(pb.variantCalls) != 0 || pb.prepared != 0 {
 		t.Fatalf("variant calls %v", pb.variantCalls)
 	}
 }
@@ -605,11 +605,15 @@ func TestSameQualityAlternativesAreSeparateVersions(t *testing.T) {
 			t.Fatalf("mediaIndex %d prepared %v, want %s", i+1, pb.variantCalls, want)
 		}
 	}
-	// Plain Play (no mediaIndex, or index 0) prepares Auto only.
-	n := len(pb.variantCalls)
-	f.get(t, base+"&session=plain")
-	f.get(t, base+"&mediaIndex=0&session=plain0")
-	if pb.prepared != 2 || len(pb.variantCalls) != n {
+	// A multi-version decision requires an explicit selector; index 0 is Auto.
+	n, prepared := len(pb.variantCalls), pb.prepared
+	if rec := f.get(t, base+"&session=plain"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing selector: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := f.get(t, base+"&mediaIndex=0&session=plain0"); rec.Code != http.StatusOK {
+		t.Fatalf("Auto selector: %d %s", rec.Code, rec.Body.String())
+	}
+	if pb.prepared != prepared+1 || len(pb.variantCalls) != n {
 		t.Errorf("plain play prepared=%d variantCalls=%v", pb.prepared, pb.variantCalls)
 	}
 }
@@ -775,35 +779,56 @@ func TestAutoScope1080pAndSecondRowReleaseConsistency(t *testing.T) {
 // A detail page opened before the title's search finished shows one
 // version. Once discovery finishes, an ordinary detail gains the picker
 // immediately. Only explicit pre-play/queue flows retain a version list.
+// Refs #282: the native detail cache needs a terminal PMS metadata event,
+// not a state-5 frame that still carries metadataState="created". Check the
+// actual version-discovery path and both transport projections, rather than
+// merely checking that a subsequent manual fetch contains more versions.
 func TestDetailPageRefreshesWhenVersionsArrive(t *testing.T) {
 	saved := variantWatchSchedule
 	variantWatchSchedule = []time.Duration{10 * time.Millisecond, 10 * time.Millisecond, 10 * time.Millisecond, 10 * time.Millisecond}
 	t.Cleanup(func() { variantWatchSchedule = saved })
-	f, _ := newVariantPlaybackFixture(t)
-	full := f.resolver.byKey[fightClub.Key]
-	f.resolver.mu.Lock()
-	f.resolver.byKey[fightClub.Key] = full[:1]
-	f.resolver.mu.Unlock()
-	sub, _ := f.srv.notifier.subscribe([]string{"timeline"}, &ownerUser)
-	defer f.srv.notifier.unsubscribe(sub)
-
-	rec := f.get(t, "/library/metadata/"+fightClub.Key.String())
-	if n := strings.Count(rec.Body.String(), "<Media "); n != 1 {
-		t.Fatalf("media count %d before the search, want 1", n)
-	}
-	f.resolver.mu.Lock()
-	f.resolver.byKey[fightClub.Key] = full
-	f.resolver.mu.Unlock()
-	select {
-	case msg := <-sub.ch:
-		if !strings.Contains(string(msg.data), `"itemID":"`+fightClub.Key.String()+`"`) {
-			t.Fatalf("refresh names another item: %s", msg.data)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("no refresh after the versions arrived")
-	}
-	if n := strings.Count(f.get(t, "/library/metadata/"+fightClub.Key.String()).Body.String(), "<Media "); n != 3 {
-		t.Fatalf("media count %d after refill without a play flow, want 3", n)
+	for _, client := range []struct{ name, product, platform string }{
+		{"Shield", "Plex for Android (TV)", "Android"},
+		{"iOS", "Plex for iOS", "iOS"},
+	} {
+		t.Run(client.name, func(t *testing.T) {
+			f, _ := newVariantPlaybackFixture(t)
+			full := f.resolver.byKey[fightClub.Key]
+			f.resolver.mu.Lock()
+			f.resolver.byKey[fightClub.Key] = full[:1]
+			f.resolver.mu.Unlock()
+			// Subscribe before opening the page, as an already-connected native app.
+			sub, _ := f.srv.notifier.subscribe([]string{"timeline"}, &ownerUser)
+			defer f.srv.notifier.unsubscribe(sub)
+			headers := []string{"X-Plex-Product", client.product, "X-Plex-Platform", client.platform}
+			path := "/library/metadata/" + fightClub.Key.String()
+			rec := f.get(t, path, headers...)
+			if n := strings.Count(rec.Body.String(), "<Media "); n != 1 {
+				t.Fatalf("media count %d before the search, want 1", n)
+			}
+			f.resolver.mu.Lock()
+			f.resolver.byKey[fightClub.Key] = full
+			f.resolver.mu.Unlock()
+			select {
+			case msg := <-sub.ch:
+				// PMS terminal state 5 omits metadataState and mediaState. itemID
+				// and rootItemID are the server ratingKey, never the plex:// GUID.
+				entry := fmt.Sprintf(`{"identifier":"com.plexapp.plugins.library","sectionID":"1","itemID":"%s","rootItemID":"%s","type":1,"title":"","state":5,"updatedAt":%d}`, fightClub.Key, fightClub.Key, fixedNow.Unix())
+				want := `{"NotificationContainer":{"type":"timeline","size":1,"TimelineEntry":[` + entry + `]}}`
+				if msg.typ != "timeline" || string(msg.data) != want {
+					t.Fatalf("native detail refresh:\n got %s\nwant %s", msg.data, want)
+				}
+				wantSSE := `{"TimelineEntry":` + entry + `}`
+				if len(msg.sse) != 1 || string(msg.sse[0]) != wantSSE {
+					t.Fatalf("eventsource refresh: %q, want %s", msg.sse, wantSSE)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("no refresh after the versions arrived")
+			}
+			if n := strings.Count(f.get(t, path, headers...).Body.String(), "<Media "); n != 3 {
+				t.Fatalf("media count %d after refill without a play flow, want 3", n)
+			}
+		})
 	}
 }
 

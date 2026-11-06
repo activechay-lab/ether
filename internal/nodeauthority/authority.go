@@ -1,5 +1,5 @@
 // Package nodeauthority binds boot-local source capabilities to durable placement.
-// It installs no routes and owns no source retirement or background work.
+// It installs no routes and owns lease-expiry timers, never source retirement.
 package nodeauthority
 
 import (
@@ -31,6 +31,8 @@ var _ Lookup = (*placement.Service)(nil)
 // ClockBoundKnown asserts synchronized local/DB/worker clocks with absolute
 // pairwise skew <= ClockSkew, including drift over MaxLifetime. Unknown fails closed.
 type Options struct {
+	// ClockReady gates binds and minting (including renewal), never existing reads.
+	ClockReady                                  func() bool
 	Lookup                                      Lookup
 	Policy                                      func(context.Context, placement.Target, nodesource.Scope) error
 	Owner                                       placement.Target
@@ -64,17 +66,20 @@ type localSource interface {
 	Revoke()
 }
 type binding struct {
-	handle  Handle
-	scope   nodesource.Scope
-	source  localSource
-	size    int64
-	sealed  bool
-	epoch   uint64 // changes only once: permanent sealing; cannot overflow
-	current string
+	handle   Handle
+	scope    nodesource.Scope
+	source   localSource
+	size     int64
+	sealed   bool
+	epoch    uint64 // changes only once: permanent sealing; cannot overflow
+	current  string
+	timer    *time.Timer
+	deadline time.Time // monotonic local cap, never serialized
 }
 type credential struct {
-	binding *binding
-	grant   nodesource.Grant
+	binding  *binding
+	grant    nodesource.Grant
+	deadline time.Time // monotonic immutable bearer expiry
 }
 type Authority struct {
 	o        Options
@@ -119,7 +124,7 @@ func (a *Authority) Bind(ctx context.Context, s nodesource.Scope, h *playback.So
 	return a.bind(ctx, s, h, size)
 }
 func (a *Authority) bind(ctx context.Context, s nodesource.Scope, h localSource, size int64) (Handle, error) {
-	if !validScope(s) || size <= 0 || h.Revision() != s.Revision || h.Size() != size {
+	if !a.clockReady() || !validScope(s) || size <= 0 || h.Revision() != s.Revision || h.Size() != size {
 		return Handle{}, ErrDenied
 	}
 	b := &binding{scope: s, source: h, size: size}
@@ -141,11 +146,12 @@ func (a *Authority) bind(ctx context.Context, s nodesource.Scope, h localSource,
 			return Handle{}, ErrDenied
 		}
 	}
-	if a.bindings[id] != nil {
+	if !a.clockReady() || a.bindings[id] != nil {
 		return Handle{}, ErrDenied
 	}
 	a.bindings[id] = b
 	a.scopes[s] = b
+	a.armLocked(b, a.o.Now().Add(a.o.MaxLifetime))
 	return b.handle, nil
 }
 
@@ -176,11 +182,11 @@ func (a *Authority) check(ctx context.Context, b *binding, expiry time.Time) err
 	return nil
 }
 func (a *Authority) live(b *binding, epoch uint64) bool {
-	return b != nil && !b.sealed && b.epoch == epoch && a.bindings[b.handle.value] == b
+	return b != nil && !b.sealed && time.Now().Before(b.deadline) && b.epoch == epoch && a.bindings[b.handle.value] == b
 }
 func (a *Authority) prune(now time.Time) {
 	for key, c := range a.grants {
-		if !c.grant.Expires.After(now) {
+		if !c.grant.Expires.After(now) || !time.Now().Before(c.deadline) {
 			delete(a.grants, key)
 		}
 	}
@@ -202,7 +208,7 @@ func (a *Authority) Renew(ctx context.Context, h Handle, old nodesource.Grant, e
 	return a.mint(ctx, h, old.Credential, expiry)
 }
 func (a *Authority) mint(ctx context.Context, h Handle, old string, expiry time.Time) (Lease, error) {
-	if expiry.IsZero() {
+	if !a.clockReady() || expiry.IsZero() {
 		return Lease{}, ErrDenied
 	}
 	a.mu.Lock()
@@ -224,12 +230,12 @@ func (a *Authority) mint(ctx context.Context, h Handle, old string, expiry time.
 	now := a.o.Now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.live(b, epoch) || b.current != old || !expiry.After(now.Add(a.o.ClockSkew)) {
+	if !a.clockReady() || !a.live(b, epoch) || b.current != old || !expiry.After(now.Add(a.o.ClockSkew)) {
 		return Lease{}, ErrDenied
 	}
 	if old != "" {
 		c := a.grants[old]
-		if c == nil || !c.grant.Expires.After(now.Add(a.o.ClockSkew)) {
+		if c == nil || !time.Now().Before(c.deadline) || !c.grant.Expires.After(now.Add(a.o.ClockSkew)) {
 			return Lease{}, ErrDenied
 		}
 	}
@@ -247,7 +253,8 @@ func (a *Authority) mint(ctx context.Context, h Handle, old string, expiry time.
 		return Lease{}, ErrDenied
 	}
 	g := nodesource.Grant{Scope: b.scope, Credential: key, Expires: expiry.UTC().Round(0)}
-	a.grants[key] = &credential{b, g}
+	a.grants[key] = &credential{binding: b, grant: g, deadline: time.Now().Add(expiry.Sub(now) - a.o.ClockSkew)}
+	a.armLocked(b, expiry)
 	b.current = key
 	return Lease{g}, nil
 }
@@ -271,7 +278,7 @@ func (a *Authority) Verify(ctx context.Context, p nodesource.Peer, key string) (
 	now := a.o.Now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.live(b, epoch) || a.grants[key] != c || !c.grant.Expires.After(now.Add(a.o.ClockSkew)) {
+	if !a.live(b, epoch) || a.grants[key] != c || !time.Now().Before(c.deadline) || !c.grant.Expires.After(now.Add(a.o.ClockSkew)) {
 		return nodesource.Grant{}, ErrDenied
 	}
 	return c.grant, nil
@@ -321,6 +328,9 @@ func (a *Authority) Revoke(h Handle) error {
 		a.mu.Unlock()
 		return ErrDenied
 	}
+	if b.timer != nil {
+		b.timer.Stop()
+	}
 	if !b.sealed {
 		b.sealed = true
 		b.epoch++
@@ -361,4 +371,48 @@ func (a *Authority) Resolve(ctx context.Context, peer nodesource.Peer, stable st
 		return deny()
 	}
 	return b.handle, b.scope, b.size, nil
+}
+
+// armLocked bounds local authority even if wall time moves backwards or the
+// controller disappears. A queued callback must compare the accepted cap before
+// sealing; an old timer can never revoke a successfully renewed binding.
+func (a *Authority) armLocked(b *binding, expiry time.Time) {
+	if b.timer != nil {
+		b.timer.Stop()
+	}
+	b.deadline = time.Now().Add(expiry.Sub(a.o.Now()) - a.o.ClockSkew)
+	cap := b.deadline
+	b.timer = time.AfterFunc(time.Until(cap), func() {
+		a.mu.Lock()
+		if b.sealed || b.deadline != cap {
+			a.mu.Unlock()
+			return
+		}
+		b.sealed = true
+		b.epoch++
+		for key, c := range a.grants {
+			if c.binding == b {
+				delete(a.grants, key)
+			}
+		}
+		a.mu.Unlock()
+		b.source.Revoke()
+	})
+}
+
+func (a *Authority) clockReady() bool { return a.o.ClockReady == nil || a.o.ClockReady() }
+
+// CheckLocal checks revocation and monotonic lease expiry without durable I/O.
+// It supplements Verify during an already admitted streaming request.
+func (a *Authority) CheckLocal(ctx context.Context, p nodesource.Peer, key string) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	c := a.grants[key]
+	if c == nil || c.binding.sealed || !time.Now().Before(c.deadline) || !time.Now().Before(c.binding.deadline) || p != (nodesource.Peer{NodeID: c.binding.scope.Fence.Target.NodeID, Boot: c.binding.scope.Fence.Target.Boot}) {
+		return ErrDenied
+	}
+	return nil
 }

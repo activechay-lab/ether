@@ -646,7 +646,7 @@ func (s *Server) mediaFor(ctx context.Context, pr *Request, t *core.Title, withS
 		}
 		m.Part[0].Key = s.playIDs.partKey(ik, m.ID, m.Part[0].Key, s.now())
 	}
-	if ps != nil && ps.Resolution != nil && s.d.Trickplay != nil && s.d.Trickplay.TrickplayAvailable(ps.Resolution.Release.ID) {
+	if ps != nil && ps.Resolution != nil && s.d.Trickplay != nil && s.d.Trickplay.TrickplayAvailable(core.TrickplayCacheKey(ps)) {
 		m.Part[0].Indexes = "sd"
 	}
 	if withStreams || probedSource {
@@ -692,6 +692,9 @@ func partFileName(t *core.Title, ext string) string {
 func buildMedia(t *core.Title, info core.MediaInfo, stamp int64) model.Media {
 	container := plexContainer(info.Container)
 	ext := containerExt(container)
+	if strings.EqualFold(info.Container, "webm") {
+		ext = "webm"
+	}
 	dur := ms(info.Duration)
 	if dur <= 0 {
 		dur = ms(t.Runtime)
@@ -709,6 +712,16 @@ func buildMedia(t *core.Title, info core.MediaInfo, stamp int64) model.Media {
 	if isMP4 {
 		m.OptimizedForStreaming = model.Ptr(1)
 		m.Has64bitOffsets = model.Ptr(false)
+		if info.Has64bitOffsets != nil {
+			m.Has64bitOffsets = info.Has64bitOffsets
+		}
+		if info.OptimizedForStreaming != nil {
+			value := 0
+			if *info.OptimizedForStreaming {
+				value = 1
+			}
+			m.OptimizedForStreaming = &value
+		}
 	}
 	var firstAudio *core.StreamInfo
 	for i := range info.Streams {
@@ -721,25 +734,12 @@ func buildMedia(t *core.Title, info core.MediaInfo, stamp int64) model.Media {
 	if v := info.Video(); v != nil {
 		m.Width, m.Height = v.Width, v.Height
 		if v.Height > 0 {
-			ratio := float64(v.Width) / float64(v.Height)
-			if a, b, ok := strings.Cut(v.SampleAspectRatio, ":"); ok {
-				n, e1 := strconv.ParseFloat(a, 64)
-				d, e2 := strconv.ParseFloat(b, 64)
-				if e1 == nil && e2 == nil && n > 0 && d > 0 {
-					ratio *= n / d
-				}
-			}
-			m.AspectRatio = 1.33
-			for _, candidate := range []float64{1.66, 1.78, 1.85, 2.2, 2.35} {
-				if math.Abs(candidate-ratio) < math.Abs(m.AspectRatio-ratio) {
-					m.AspectRatio = candidate
-				}
-			}
+			m.AspectRatio = plexAspectRatio(*v)
 		}
 		m.VideoCodec = plexCodec(v.Codec)
 		m.VideoResolution = videoResolution(v.Width, v.Height)
 		m.VideoFrameRate = frameRateName(v.FrameRate)
-		m.VideoProfile = strings.ToLower(v.Profile)
+		m.VideoProfile = plexVideoProfile(v.Profile)
 	}
 	if firstAudio != nil {
 		m.AudioChannels = firstAudio.Channels
@@ -760,9 +760,18 @@ func buildMedia(t *core.Title, info core.MediaInfo, stamp int64) model.Media {
 		Container:    container,
 		VideoProfile: m.VideoProfile,
 	}
+	if container == "mpegts" {
+		p.PacketLength = 188
+	}
 	if isMP4 {
 		p.Has64bitOffsets = model.Ptr(false)
 		p.OptimizedForStreaming = model.Ptr(true)
+		if info.Has64bitOffsets != nil {
+			p.Has64bitOffsets = info.Has64bitOffsets
+		}
+		if info.OptimizedForStreaming != nil {
+			p.OptimizedForStreaming = info.OptimizedForStreaming
+		}
 	}
 	m.Part = []model.Part{p}
 	return m
@@ -869,43 +878,40 @@ func (s *Server) renderStreams(key core.RatingKey, info core.MediaInfo, sel sele
 		switch st.Type {
 		case "video":
 			ps.StreamType = 1
-			if st.CodecTag != "" && st.CodecTag != "avc1" && st.CodecTag != "[0][0][0][0]" {
+			ps.Width, ps.Height = st.Width, st.Height
+			ps.FrameRate = math.Round(st.FrameRate*1000) / 1000
+			ps.BitDepth, ps.Level = st.BitDepth, st.Level
+			if ps.Level < 0 {
+				ps.Level = 0
+			}
+			ps.ColorRange = st.ColorRange
+			ps.ChromaLocation, ps.CodedWidth, ps.CodedHeight = st.ChromaLocation, st.CodedWidth, st.CodedHeight
+			if ps.Codec == "h264" && ps.CodedHeight <= 0 {
+				ps.CodedHeight = st.Height
+			}
+			if ps.Codec == "h264" && ps.CodedHeight > 0 {
+				ps.CodedHeight = ((ps.CodedHeight + 15) / 16) * 16
+			}
+			switch st.CodecTag {
+			case "hev1", "hvc1", "dvhe", "XVID", "DX50", "HDMV":
 				ps.CodecID = st.CodecTag
 			}
-			if a, b, ok := strings.Cut(st.SampleAspectRatio, ":"); ok {
-				n, e1 := strconv.ParseFloat(a, 64)
-				d, e2 := strconv.ParseFloat(b, 64)
-				if e1 == nil && e2 == nil && n > 0 && d > 0 && n != d {
-					ps.PixelAspectRatio = st.SampleAspectRatio
-					ps.Anamorphic = model.Ptr(math.Round(n/d*10) != 10)
+			if n, d, ok := plexSAR(st.SampleAspectRatio); ok && n != d {
+				ps.PixelAspectRatio = st.SampleAspectRatio
+				delta := n - d
+				if delta < 0 {
+					delta = -delta
 				}
+				ps.Anamorphic = model.Ptr(delta*20 > d)
 			}
-			ps.Width, ps.Height = st.Width, st.Height
-			ps.ColorRange = st.ColorRange
+
 			if st.FieldOrder != "" && st.FieldOrder != "unknown" {
 				ps.ScanType = "progressive"
 				if st.Interlaced {
 					ps.ScanType = "interlaced"
 				}
 			}
-			ps.CodedHeight = st.CodedHeight
-			ps.CodedWidth = st.CodedWidth
-			ps.ChromaLocation = st.ChromaLocation
-			if plexCodec(st.Codec) == "h264" && st.Height > 0 {
-				ps.CodedHeight = (st.Height + 15) / 16 * 16
-			}
-			ps.FrameRate = math.Round(st.FrameRate*1000) / 1000
-			ps.BitDepth, ps.Level = st.BitDepth, st.Level
-			if ps.Level < 0 {
-				ps.Level = 0
-			}
-			ps.Profile = strings.ToLower(st.Profile)
-			if ps.Profile == "0" || ps.Profile == "unknown" {
-				ps.Profile = ""
-			}
-			if ps.Profile == "simple profile" {
-				ps.Profile = "simple"
-			}
+			ps.Profile = plexVideoProfile(st.Profile)
 			ps.ChromaSubsampling = "4:2:0"
 			switch st.ColorTransfer {
 			case "smpte2084", "arib-std-b67":
@@ -1050,42 +1056,84 @@ func containerExt(c string) string {
 	return c
 }
 
+func plexVideoProfile(profile string) string {
+	switch v := strings.ToLower(strings.TrimSpace(profile)); v {
+	case "0", "unknown", "n/a":
+		return ""
+	case "simple profile":
+		return "simple"
+	default:
+		return v
+	}
+}
+
+func plexSAR(raw string) (int64, int64, bool) {
+	a, b, ok := strings.Cut(raw, ":")
+	if !ok {
+		return 0, 0, false
+	}
+	n, e1 := strconv.ParseInt(a, 10, 32)
+	d, e2 := strconv.ParseInt(b, 10, 32)
+	return n, d, e1 == nil && e2 == nil && n > 0 && d > 0
+}
+
+func plexAspectRatio(v core.StreamInfo) float64 {
+	if v.Width <= 0 || v.Height <= 0 {
+		return 0
+	}
+	ratio := float64(v.Width) / float64(v.Height)
+	if n, d, ok := plexSAR(v.SampleAspectRatio); ok {
+		ratio *= float64(n) / float64(d)
+	}
+	best := 1.33
+	for _, candidate := range []float64{1.66, 1.78, 1.85, 2.2, 2.35} {
+		if math.Abs(candidate-ratio) < math.Abs(best-ratio) {
+			best = candidate
+		}
+	}
+	return best
+}
+
 // videoResolution is PMS's videoResolution value.
 func videoResolution(w, h int) string {
+	// These uncommon shapes have independently recorded nominal classes.
+	// Keep unmeasured dimensions on the established general tier mapping.
 	switch {
-	case w >= 2876:
-		return "4k"
-	case h >= 1396:
+	case w == 1920 && (h == 1600 || h == 2160):
 		return "2.7k"
-	case w >= 2048 || h >= 1376:
+	case w == 2048 && h == 858, w == 2560 && h == 1376:
 		return "2k"
-	case w >= 1884 || h >= 1068:
-		return "1080"
-	case w >= 1272 || h >= 688:
+	case w == 1440 && h == 1048, w == 1852 && h == 800:
 		return "720"
-	case w >= 864 || h >= 560:
-		return "576"
-	case w >= 856 || h >= 436:
-		return "480"
-	case w > 0 || h > 0:
+	}
+
+	if w > 0 && w < 800 && h > 0 && h < 480 {
+		return "sd"
+	}
+	switch tier := core.ResolutionTier(w, h); tier {
+	case 2160:
+		return "4k"
+	case 0:
+		return ""
+	case 240:
 		return "sd"
 	default:
-		return ""
+		return strconv.Itoa(tier)
 	}
 }
 
 func resolutionLabel(w, h int) string {
-	switch label := videoResolution(w, h); label {
+	switch tier := videoResolution(w, h); tier {
+	case "", "sd":
+		return "SD"
 	case "4k":
 		return "4K"
 	case "2k":
 		return "2K"
 	case "2.7k":
 		return "2.7K"
-	case "sd", "":
-		return "SD"
 	default:
-		return label + "p"
+		return tier + "p"
 	}
 }
 

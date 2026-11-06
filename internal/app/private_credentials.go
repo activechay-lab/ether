@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"net/url"
 	"time"
 
@@ -56,7 +57,7 @@ func issuePrivateSnapshot(d clusterconfig.Deployment, self nodewire.Identity) (*
 		return nil, nodewire.ErrInvalid
 	}
 	now := time.Now()
-	leaf, err := nodewire.Issue(cb.Bytes, signer, csr, self, []string{origin.Hostname()}, now, 12*time.Hour)
+	leaf, err := nodewire.Issue(cb.Bytes, signer, csr, self, []string{origin.Hostname()}, now, 12*time.Hour, time.Duration(d.ClockSkewMillis)*time.Millisecond)
 	if err != nil {
 		return nil, err
 	}
@@ -70,23 +71,47 @@ func issuePrivateSnapshot(d clusterconfig.Deployment, self nodewire.Identity) (*
 // privateMember always queries current DB authority; no cached success survives
 // a lost heartbeat, changed boot, removal, unknown role, or database outage.
 func (a *App) privateMember(ctx context.Context, id nodewire.Identity) (cluster.Node, error) {
+	deny := func(reason string) (cluster.Node, error) {
+		return cluster.Node{}, fmt.Errorf("%w: membership %s", nodewire.ErrDenied, reason)
+	}
 	if id.Cluster != a.cfg.Get().Server.MachineIdentifier {
-		return cluster.Node{}, nodewire.ErrDenied
+		return deny("cluster_mismatch")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	nodes, err := a.cluster.AllNodes(ctx)
 	if err != nil {
-		return cluster.Node{}, nodewire.ErrDenied
+		return deny("query_unavailable")
+	}
+	bound := time.Duration(0)
+	if a.deployment != nil {
+		bound = time.Duration(a.deployment.settings.ClockSkewMillis) * time.Millisecond
 	}
 	for _, n := range nodes {
-		age := time.Since(n.LastSeen)
-		if n.ID == id.NodeID && n.Incarnation == id.Boot && age >= -time.Second && age < clusterLiveAfter && n.Live && n.Caps.Roles.Validate() == nil {
-			return n, nil
+		if n.ID != id.NodeID {
+			continue
 		}
+		if n.Incarnation != id.Boot {
+			return deny("boot_mismatch")
+		}
+		age := n.LastSeenAge(time.Now())
+		if age < -bound {
+			return deny(fmt.Sprintf("heartbeat_future age=%s bound=%s", age, bound))
+		}
+		if age >= clusterLiveAfter {
+			return deny(fmt.Sprintf("heartbeat_stale age=%s", age))
+		}
+		if !n.Live {
+			return deny("not_live")
+		}
+		if n.Caps.Roles.Validate() != nil {
+			return deny("invalid_roles")
+		}
+		return n, nil
 	}
-	return cluster.Node{}, nodewire.ErrDenied
+	return deny("node_missing")
 }
+
 func (a *App) privateEndpoint(ctx context.Context, id nodewire.Identity) (string, error) {
 	n, err := a.privateMember(ctx, id)
 	if err != nil {

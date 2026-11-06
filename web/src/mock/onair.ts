@@ -1,6 +1,8 @@
+import { remixMock } from "./onair-remix";
+import { libraryMock } from "./onair-library";
 import type { Programme } from "../pages/livetv/model";
 import clipPreview from "./clip-preview.mp4?url";
-import { referenceLooks, families } from "../pages/livetv/onair/fixtures";
+import { referenceLooks, templates } from "../pages/livetv/onair/fixtures";
 import type { Look, Reel, OnAirAsset } from "../pages/livetv/onair/model";
 export function createOnAirMock(
   tv: {
@@ -55,14 +57,14 @@ export function createOnAirMock(
       name: "Station wordmark.svg",
       kind: "image",
       size: 18400,
-      usedBy: ["Corner logo"],
+      usedBy: ["nocturne", "meridian"],
     },
     {
       digest: "sting",
       name: "Midnight sting.wav",
       kind: "audio",
       size: 284000,
-      usedBy: ["Ident", "Back from break"],
+      usedBy: ["nocturne"],
     },
   ];
   // Deterministic layout states for the On Air visual acceptance sweep.
@@ -118,6 +120,26 @@ export function createOnAirMock(
       q: URLSearchParams,
       body: unknown,
     ): { body: unknown; status?: number } | null {
+      const library = libraryMock(method, seg, body);
+      if (library) return library;
+      if (seg[0] === "onair" && seg[1] === "scenes" && seg[2] === "validate" && method === "POST") {
+        const sc = body as import("../pages/livetv/onair/studio-model").StyleScene;
+        const valid =
+          sc.document?.v === 1 &&
+          sc.document.duration >= 4 &&
+          sc.document.duration <= 30 &&
+          sc.document.duration % 4 === 0 &&
+          sc.sounds.length <= 4;
+        return valid
+          ? { body: structuredClone(sc) }
+          : {
+              body: {
+                error:
+                  "Scene duration must be a multiple of four seconds and use at most four sounds",
+              },
+              status: 400,
+            };
+      }
       if (seg[0] === "livetv" && seg[3] === "rundown") {
         const result = tv.handle(method, seg, q, body);
         if (!result || !Array.isArray(result.body)) return result;
@@ -137,6 +159,8 @@ export function createOnAirMock(
         return result;
       }
       if (seg[0] !== "onair") return null;
+      const remix = remixMock(method, seg, body);
+      if (remix) return remix;
       const [, kind, id, action, clipId] = seg;
       if (kind === "clips" && id === "render")
         return {
@@ -149,7 +173,7 @@ export function createOnAirMock(
       if (kind === "packs")
         return { body: { message: "Channel packs arrive in a later build" }, status: 501 };
       const data = body as Look & Reel;
-      if (kind === "families") return { body: families };
+      if (kind === "templates") return { body: templates };
       if (kind === "bindings") {
         const channels = tv.handle("GET", ["livetv", "channels"], q, null)?.body as {
           id: string;

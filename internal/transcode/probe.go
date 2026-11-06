@@ -150,8 +150,8 @@ type ffprobeOutput struct {
 
 type ffprobeStream struct {
 	ID             string            `json:"id"`
-	CodedWidth     int               `json:"coded_width"`
 	ChromaLocation string            `json:"chroma_location"`
+	CodedWidth     int               `json:"coded_width"`
 	CodedHeight    int               `json:"coded_height"`
 	FieldOrder     string            `json:"field_order"`
 	Extradata      string            `json:"extradata"`
@@ -178,6 +178,8 @@ type ffprobeStream struct {
 	AvgFrameRate   string            `json:"avg_frame_rate"`
 	SampleFmt      string            `json:"sample_fmt"`
 	BitsPerRaw     string            `json:"bits_per_raw_sample"`
+	InitialPadding int               `json:"initial_padding"`
+	StartTime      string            `json:"start_time"`
 	SampleRate     string            `json:"sample_rate"`
 	Channels       int               `json:"channels"`
 	ChannelLayout  string            `json:"channel_layout"`
@@ -209,7 +211,7 @@ func ParseProbe(b []byte) (*core.MediaInfo, error) {
 		Container:   NormalizeContainer(out.Format.FormatName),
 		Duration:    parseSeconds(out.Format.Duration),
 		Size:        atoi64(out.Format.Size),
-		BitrateKbps: int((atoi64(out.Format.BitRate) + 500) / 1000),
+		BitrateKbps: probeKbps(atoi64(out.Format.BitRate)),
 	}
 	for _, c := range out.Chapters {
 		start, e1 := strconv.ParseFloat(c.Start, 64)
@@ -227,7 +229,7 @@ func ParseProbe(b []byte) (*core.MediaInfo, error) {
 		m.Streams = append(m.Streams, si)
 	}
 	if m.BitrateKbps == 0 && m.Size > 0 && m.Duration > 0 {
-		m.BitrateKbps = int(math.Round(float64(m.Size*8) / m.Duration.Seconds() / 1000))
+		m.BitrateKbps = int(math.Round(float64(m.Size) * 8 / m.Duration.Seconds() / 1000))
 	}
 	// Only a complete successful MP4/Matroska probe can establish that its
 	// container has no DV configuration record. Partial best-effort probes
@@ -316,12 +318,12 @@ func mapStream(s ffprobeStream) (core.StreamInfo, bool) {
 	if n, err := strconv.Atoi(strings.TrimSpace(s.BitsPerRaw)); err == nil && n > 0 {
 		si.BitsPerRawSample = &n
 	}
-	si.BitrateKbps = int((atoi64(s.BitRate) + 500) / 1000)
+	si.BitrateKbps = probeKbps(atoi64(s.BitRate))
 	if si.BitrateKbps == 0 {
 		// mkvmerge statistics tags
 		for _, k := range []string{"BPS", "BPS-eng"} {
 			if v := tag(s.Tags, k); v != "" {
-				si.BitrateKbps = int((atoi64(v) + 500) / 1000)
+				si.BitrateKbps = probeKbps(atoi64(v))
 				break
 			}
 		}
@@ -329,6 +331,8 @@ func mapStream(s ffprobeStream) (core.StreamInfo, bool) {
 	switch s.CodecType {
 	case "video":
 		si.Width, si.Height = s.Width, s.Height
+		si.ChromaLocation = probedColour(s.ChromaLocation)
+		si.CodedWidth, si.CodedHeight = s.CodedWidth, s.CodedHeight
 		si.Interlaced = s.FieldOrder != "" && s.FieldOrder != "unknown" && s.FieldOrder != "progressive"
 		switch s.FieldOrder {
 		case "progressive", "tt", "bb", "tb", "bt":
@@ -444,6 +448,11 @@ func mapStream(s ffprobeStream) (core.StreamInfo, bool) {
 			si.AACProgramConfig = aacASCProgramConfig(probeExtradata(s.Extradata), si.Channels)
 		}
 		si.SampleRate = int(atoi64(s.SampleRate))
+		// A negative origin still includes the priming on its clock. Do not
+		// subtract it again when restoring decoded frame sample positions.
+		if start, err := strconv.ParseFloat(s.StartTime, 64); err == nil && start >= 0 {
+			si.DecodedPadding = max(0, s.InitialPadding)
+		}
 	}
 	return si, true
 }
@@ -769,4 +778,16 @@ func probeExtradata(raw string) []byte {
 		out = append(out, b...)
 	}
 	return out
+}
+
+// probeKbps uses the nearest decimal kilobit, without overflowing the input.
+func probeKbps(bits int64) int {
+	if bits <= 0 {
+		return 0
+	}
+	kb := bits / 1000
+	if bits%1000 >= 500 {
+		kb++
+	}
+	return int(kb)
 }

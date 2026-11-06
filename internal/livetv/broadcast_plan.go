@@ -2,6 +2,7 @@ package livetv
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/markers"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -34,10 +36,19 @@ type scheduleBroadcastPlanner struct {
 	mu           sync.Mutex
 }
 
+func (p *scheduleBroadcastPlanner) startupLead() time.Duration { return 12 * time.Second }
+func (p *providerBroadcastPlanner) startupLead() time.Duration { return 12 * time.Second }
+
 func (p *scheduleBroadcastPlanner) startPlanner(parent context.Context) {
 	p.workerCtx, p.workerCancel = context.WithCancel(parent)
 	p.requests = make(chan time.Time, 1)
 	p.workerDone = make(chan struct{})
+	// Seed audience/rating identity before the first neutral startup frame.
+	// These are already materialized time slices; no schedule or availability
+	// expansion runs during a tune, even for a large/personal recipe.
+	now := time.Now()
+	c := p.s.personalChannel(p.workerCtx, p.channel, &p.user)
+	p.window, _ = p.s.programmes(p.workerCtx, c, now, now.Add(12*time.Minute))
 	go p.planWorker()
 }
 func (p *scheduleBroadcastPlanner) closePlanner() { p.workerCancel(); <-p.workerDone }
@@ -52,12 +63,15 @@ func (p *scheduleBroadcastPlanner) planWorker() {
 			c = p.s.personalChannel(p.workerCtx, c, &p.user)
 			var ps []Programme
 			if c.Personal != nil {
-				ps, _ = p.s.programmes(p.workerCtx, c, now, now.Add(2*time.Minute))
+				ps, _ = p.s.programmes(p.workerCtx, c, now, now.Add(12*time.Minute))
 				if welcome, ok := p.s.personalWelcome(c, now); ok {
 					ps = append([]Programme{welcome}, ps...)
 				}
 			} else {
-				ps = p.s.broadcastSchedule(p.workerCtx, c, now, now.Add(2*time.Minute), true)
+				ps = p.s.broadcastSchedule(p.workerCtx, p.s.plannedChannel(c), now, now.Add(12*time.Minute), true)
+			}
+			for i := range ps {
+				ps[i].policyTag = p.s.programmePolicy(p.workerCtx, ps[i])
 			}
 			p.mu.Lock()
 			p.window = ps
@@ -81,7 +95,7 @@ func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 		if current.id != "screen-"+p.channel.ID && programme.Start.Before(current.end) {
 			continue
 		}
-		plan := p.programme(programme)
+		plan := p.programme(programme, now)
 		if !now.Before(programme.Start) && now.Before(programme.End) {
 			current = plan
 		} else if programme.Start.After(now) {
@@ -92,13 +106,48 @@ func (p *scheduleBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 	return current, next
 }
 
-func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan {
-	plan := broadcastPlan{programme: programme.Item.Key != 0, id: programme.ID, start: programme.Start, end: programme.End}
+// A short ident must not hide the programme after it from prewarming.
+func (p *scheduleBroadcastPlanner) prewarmPlans(now time.Time) []broadcastPlan {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var plans []broadcastPlan
+	inPod := false
+	for _, programme := range p.window {
+		if !now.Before(programme.Start) && now.Before(programme.End) {
+			inPod = programme.Item.Key == 0 && programme.Item.Slate != offAirSlate
+			break
+		}
+	}
+	programmePrepared := false
+	for _, programme := range p.window {
+		if !programme.Start.After(now) {
+			continue
+		}
+		imminent := !programme.Start.After(now.Add(broadcastPrewarm))
+		// A pod's first programme is prepared from the beginning of the pod,
+		// even when short intervening elements hide it beyond the usual lead.
+		if (imminent && len(plans) < 7) || (inPod && !programmePrepared && programme.Item.Key != 0) {
+			plans = append(plans, p.programme(programme))
+		}
+		if programme.Item.Key != 0 {
+			programmePrepared = true
+		}
+	}
+	return plans
+}
+
+func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...time.Time) broadcastPlan {
+	element := programme.Item.Slate
+	if programme.Item.ReelClipID != "" {
+		element = "reel"
+	} else if programme.Item.Key != 0 {
+		element = "programme"
+	}
+	plan := broadcastPlan{mediaKey: programme.Item.Key, sourceOffset: programme.sourceOffset, interstitial: interstitial(programme.Item), fallback: programme.graphicsFallback, element: element, policy: programme.policyTag, programme: programme.Item.Key != 0, id: broadcastProgrammeID(programme), start: programme.Start, end: programme.End}
 	if interstitial(programme.Item) {
 		plan.failed = func(err error) time.Time {
 			p.s.recordGraphicsSkip(p.channel, programme, err)
-			// Force a fresh background snapshot; it restores gap filler or advances
-			// the following programme before the next frame-clock planning pass.
+			// Refresh the input decision without changing any schedule boundary.
 			select {
 			case p.requests <- p.s.o.Now():
 			default:
@@ -113,8 +162,8 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 		}
 		if programme.Item.ReelClipID != "" {
 			var path string
-			if c.reel != nil {
-				for _, clip := range c.reel.Clips {
+			if reel := c.reelForItem(programme.Item); reel != nil {
+				for _, clip := range reel.Clips {
 					if clip.ID == programme.Item.ReelClipID {
 						path = clip.Path
 						break
@@ -138,9 +187,11 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 				}
 				return p.s.openSignalDecoder(ctx, p.s.screenRequestWithBack(c, offAirSlate, back), p.format)
 			}
-			request := p.s.clipRequest(c, programme)
+			var request core.ClipRequest
 			if programme.graphicsRequest != nil {
 				request = *programme.graphicsRequest
+			} else {
+				request = p.s.clipRequest(c, programme)
 			}
 			decoder, release, err := p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, programme.Item.Slate == offAirSlate)
 			if err != nil && programme.Item.Slate == offAirSlate {
@@ -150,10 +201,16 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 		}
 
 		now := p.s.o.Now()
+		if len(plannedAt) > 0 && plannedAt[0].After(now) {
+			now = plannedAt[0]
+		}
 		if p.joinAt.After(now) {
 			now = p.joinAt
 		}
 		candidates := p.s.virtualCandidates(c, programme)
+		if programme.Item.BreakReleaseID != "" && len(programme.Item.BreakPointsMS) > 0 {
+			candidates = []Programme{programme}
+		}
 		var last error = core.ErrNotAvailable
 		for attempt, candidate := range candidates {
 			if attempt >= virtualMaxAttempts {
@@ -172,10 +229,36 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 			if c.Personal != nil {
 				group += "-viewer-" + strconv.FormatInt(p.user.ID, 10)
 			}
-			if grouped, ok := p.s.o.Playback.(core.ChannelPreparer); ok {
-				ps, err = grouped.PrepareChannel(attempt, &p.user, candidate.Item.Key, p.caps, group)
+			// Programme inputs overlap while a pod or next airing is prewarmed.
+			// They share one channel budget, but each keeps its own playback
+			// identity so preparing the next title cannot supersede this one.
+			caps := p.caps
+			caps.ClientID = "channel-input/" + plan.id
+			if candidate.Item.BreakReleaseID != "" && len(candidate.Item.BreakPointsMS) > 0 {
+				planned, ok := p.s.o.Playback.(interface {
+					PrepareChannelRelease(context.Context, *core.User, core.RatingKey, core.ClientCaps, string, string) (*core.PlaySession, error)
+				})
+				if !ok {
+					cancel()
+					last = core.ErrSourceChanged
+					continue
+				}
+				ps, err = planned.PrepareChannelRelease(attempt, &p.user, candidate.Item.Key, caps, group, candidate.Item.BreakReleaseID)
+				if err == nil {
+					pin, ok := p.s.o.Playback.(core.PlaybackRevisionPin)
+					if !ok {
+						err = core.ErrSourceChanged
+					} else {
+						err = pin.PinSourceRevision(attempt, ps.ID, candidate.Item.BreakRevision)
+					}
+					if err != nil {
+						p.s.o.Playback.Stop(ps.ID)
+					}
+				}
+			} else if grouped, ok := p.s.o.Playback.(core.ChannelPreparer); ok {
+				ps, err = grouped.PrepareChannel(attempt, &p.user, candidate.Item.Key, caps, group)
 			} else {
-				ps, err = p.s.o.Playback.Prepare(attempt, &p.user, candidate.Item.Key, p.caps)
+				ps, err = p.s.o.Playback.Prepare(attempt, &p.user, candidate.Item.Key, caps)
 			}
 			cancel()
 			if err != nil {
@@ -183,6 +266,9 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 				continue
 			}
 			now = p.s.o.Now()
+			if len(plannedAt) > 0 && plannedAt[0].After(now) {
+				now = plannedAt[0]
+			}
 			if p.joinAt.After(now) {
 				now = p.joinAt
 			}
@@ -195,7 +281,10 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 				offset = programme.Offset(at)
 			}
 			sourceWall := time.Now()
-			if candidate.ID == programme.ID && programme.Start.After(now) {
+			// Alternate content occupies this same future airing. Anchoring it to
+			// preparation time would discard the parked decoder's opening frames
+			// as stale when a long pod or plugin interval finally ends.
+			if programme.Start.After(now) {
 				sourceWall = sourceWall.Add(programme.Start.Sub(now))
 			}
 			p.s.o.Logger.Debug("broadcast programme decoder start", "channel", c.ID, "programme", programme.ID, "playback", ps.ID, "offset", offset)
@@ -217,7 +306,14 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme) broadcastPlan 
 				last = err
 				continue
 			}
-			return &overlayDecoder{Decoder: decoder, wallStart: sourceWall, format: p.format, overlays: p.prepareProgrammeOverlays(ctx, programme)}, func() { p.s.o.Playback.Stop(ps.ID) }, nil
+			if programme.naturalBreaks && p.s.o.BreakAnalyzer != nil && candidate.Item.Key.Kind() == core.KindEpisode {
+				input := markers.PlaybackBreakInput(ps)
+				input.Info = core.MediaInfo{Duration: ps.Info.Duration, Size: ps.Info.Size, Estimated: ps.Info.Estimated}
+				if input.Revision != "" {
+					decoder = &breakTapDecoder{Decoder: decoder, tap: markers.NewBreakTap(ps.Info.Duration), input: input, format: p.format, at: offset, output: p.s.breakObserved}
+				}
+			}
+			return &overlayDecoder{policy: p.s.programmePolicy(ctx, candidate), Decoder: decoder, wallStart: sourceWall, format: p.format, overlays: p.prepareProgrammeOverlays(ctx, programme, ps.Info.Chapters)}, func() { p.s.o.Playback.Stop(ps.ID) }, nil
 		}
 		return nil, nil, last
 	}
@@ -266,17 +362,39 @@ func (s *Service) reserveBroadcastProvider(account, channel, id string, limit in
 }
 
 type providerBroadcastPlanner struct {
-	s         *Service
-	channel   Channel
-	format    transcode.RawFormat
-	runner    transcode.ContinuousRunner
-	mu        sync.Mutex
-	selected  StreamSource
-	lastAired map[string]time.Duration
+	guideCancel           context.CancelFunc
+	guideDone             chan struct{}
+	guideFrom, guideUntil time.Time
+	guide                 []Programme
+	s                     *Service
+	channel               Channel
+	format                transcode.RawFormat
+	runner                transcode.ContinuousRunner
+	mu                    sync.Mutex
+	selected              StreamSource
+	lastAired             map[string]time.Duration
 }
 
-func (p *providerBroadcastPlanner) plans(time.Time) (broadcastPlan, *broadcastPlan) {
-	return broadcastPlan{programme: true, id: "provider-" + p.channel.ID, open: p.open, failed: p.failed}, nil
+func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadcastPlan) {
+	p.mu.Lock()
+	ready := !now.Before(p.guideFrom) && now.Before(p.guideUntil)
+	var tag *broadcastPolicyTag
+	if ready {
+		for _, programme := range p.guide {
+			if !now.Before(programme.Start) && now.Before(programme.End) {
+				tag = programme.policyTag
+				break
+			}
+		}
+	}
+	p.mu.Unlock()
+	if !ready {
+		// Hold on a neutral signal screen until the background EPG snapshot is
+		// ready. A placeholder denial must never poison a published screen segment.
+		// Changing identity also retires an active source if its policy expires.
+		return broadcastPlan{id: "provider-policy-wait-" + p.channel.ID}, nil
+	}
+	return broadcastPlan{element: "programme", policy: tag, programme: true, id: "provider-" + p.channel.ID, open: p.open, failed: p.failed}, nil
 }
 func (p *providerBroadcastPlanner) failed(err error) time.Time {
 	p.mu.Lock()
@@ -346,7 +464,10 @@ func (p *providerBroadcastPlanner) open(ctx context.Context) (transcode.Decoder,
 		}
 		var decoder transcode.Decoder
 		if err == nil {
-			decoder, err = p.runner.StartDecoder(inputCtx, transcode.DecoderRequest{SessionID: ss.info.ID, InputURL: input, Format: p.format, Live: true})
+			p.mu.Lock()
+			_, aired := p.lastAired[src.ID]
+			p.mu.Unlock()
+			decoder, err = p.runner.StartDecoder(inputCtx, transcode.DecoderRequest{SessionID: ss.info.ID, InputURL: input, Format: p.format, Live: true, PrimeLive: !aired})
 		}
 		cleanup := func() { cancel(); p.s.revokeInput(ss); release() }
 		if err != nil {
@@ -421,4 +542,45 @@ func (d *providerBroadcastDecoder) Diagnostics() string {
 		details = source.Diagnostics()
 	}
 	return fmt.Sprintf("lastAiredSourcePTS=%s %s", floor, details)
+}
+
+// IPTV outputs retain EPG policy at exact frame-clock boundaries as well.
+// Fetching/hydrating the bounded upcoming window is background work.
+func (p *providerBroadcastPlanner) startPlanner(parent context.Context) {
+	ctx, cancel := context.WithCancel(parent)
+	p.guideCancel = cancel
+	p.guideDone = make(chan struct{})
+	go func() {
+		defer close(p.guideDone)
+		tick := time.NewTicker(30 * time.Second)
+		defer tick.Stop()
+		for {
+			now := p.s.o.Now()
+			until := now.Add(2 * time.Minute)
+			ps, err := p.s.programmes(ctx, p.channel, now, until)
+			if err == nil {
+				for i := range ps {
+					ps[i].policyTag = p.s.programmePolicy(ctx, ps[i])
+				}
+				p.mu.Lock()
+				p.guideFrom, p.guideUntil, p.guide = now, until, ps
+				p.mu.Unlock()
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
+		}
+	}()
+}
+func (p *providerBroadcastPlanner) closePlanner() { p.guideCancel(); <-p.guideDone }
+
+// Runtime preparation and retry identity includes the media and full interval.
+// Guide IDs remain unchanged; an edited item can never inherit another input's
+// prepared decoder, failure deadline, or latched fallback decision.
+func broadcastProgrammeID(p Programme) string {
+	identity := fmt.Sprintf("%s/%s/%d/%s/%s/%s/%d/%d/%d", p.SourceID, p.Item.SourceID, p.Item.Key, p.Item.Slate, p.Item.ReelID, p.Item.ReelClipID, p.sourceOffset, p.Start.UnixNano(), p.End.UnixNano())
+	hash := sha256.Sum256([]byte(identity))
+	return fmt.Sprintf("%x-%s", hash[:8], p.ID)
 }

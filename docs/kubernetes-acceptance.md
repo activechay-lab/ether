@@ -6,14 +6,12 @@ a real multipart yEnc NNTP service. Do not run it against production namespaces,
 provider accounts or a claimed Plex server. Use the named `ether035-ha` kind
 cluster and namespace. Fixture health is infrastructure readiness only.
 
-Current staging evidence: runtime `a73b5c7a7` starts full+transcode pools; generated
-NNTP media plays through the ordinary Plex route but that candidate encodes
-locally. Its Plex adapter bypasses the distributed broker. The observed zero
-placement rows make this **local pipeline evidence only**. A later reviewed
-candidate must enable Plex distributed composition before this can pass remote
-encoding or node-loss acceptance. Never strip genuine stream metadata to force a
-plan through an unsupported gate. Source/server-only/delivery roles remain
-runtime-gated until their actual graphs are implemented and tested.
+The current integration implements the distributed specialist graphs. Historical
+`a73b5c7a7` results showed local encoding and zero placement rows; those results
+are baseline diagnostics, not evidence for current remote execution or recovery.
+Pin the exact integration SHA/image for every new run. Never strip genuine
+stream metadata to force a plan through an unsupported gate. The chart's mixed
+public-role lab acknowledgement remains required.
 
 ## Start the isolated fixtures
 
@@ -84,6 +82,16 @@ Rerunning the seed refreshes the lab delegation without creating a Plex claim.
 
 ## Measure actual media and actual placement
 
+Before another mixed-role media run, verify the controller's empty-backend
+behavior separately: with an empty disposable media Service and a ready
+disposable API backend under one test origin, both canonical media prefixes
+must return 503 without reaching API, while browse/control paths still reach
+API. The Traefik lab fixture enables `allowemptyservices` for this invariant.
+Capture correlated controller/backend logs and exact resource UIDs; remove only
+the disposable objects with UID preconditions afterward. Do not remove real
+delivery endpoints or create a playback session for this routing check. This
+check establishes routing behavior, not media availability or a readiness cause.
+
 Use the real generated metadata and ordinary Plex transcode request:
 
 ```text
@@ -95,6 +103,67 @@ Send the saved playback headers, then follow the returned playlists/segment URLs
 Store grant-bearing URLs only in a private probe config. Do not print the
 playlist or token. The MPEG4 input requires a genuine H264 transcode; fetching a
 source file or a direct-play response cannot substitute for that work.
+
+For a fresh reviewed Plex attempt, use `plex-baseline.py` to own the complete
+Start, authored HLS collection and normal Stop in one synchronous process. The
+earlier separate collector workflow allowed setup after Start and a 161-second
+gap before the first variant request. Its failed request proves neither media
+delivery nor an expiry cause. Prepare collectors and review the private request
+config before another attempt; never extend grants or idle policy to accommodate
+collector setup.
+
+The private config contains `session`, `requestID`, exact `startURL`/`stopURL`,
+original `headers`, absolute pinned `ffmpeg`/`ffprobe` paths and their SHA256
+values in `ffmpegSHA256`/`ffprobeSHA256`. Keep the real original request/plan,
+fixture and quality unchanged. Optional bounds are `durationSeconds` (5–30,
+default30), `minimumSegments` (1–8, default5), `requestTimeoutSeconds` (1–10,
+default5) and `maximumFirstGETDelaySeconds` (0.05–1, default1). The config must be
+mode0600. Raw manifests, arguments, bodies and observer data remain private.
+
+Exactly one `samplers` entry declares `name`, a Python `argv`, `scriptSHA256`
+and `inputs` (absolute `path`/`sha256` pairs). Use the reviewed
+`baseline-observer.py` with `--kubectl`, `--expected`, `--session`, `--request-id`,
+`--ready-file {readyFile}` and `--output-dir {outputDir}`. Its expectation file
+pins the four roles' node/boot/Pod UID/container/image tuples from the strict
+allocation oracle, the held server's exact instance, and fixture/Ingress Pod
+UIDs. The observer performs read-only checks, rejects an already allocated
+session, verifies singleton API/media endpoints, captures source fixture counters
+and observes encoder processes and durable placement. It emits readiness only
+after initial checks. No source, provider, database policy or runtime control is
+mutated. Its exact command, inputs and hashes need review with the attempt.
+
+```sh
+# Both commands below perform ZERO HTTP requests and start ZERO children.
+python3 packaging/kubernetes/plex-baseline.py --config /tmp/attempt.private.json
+python3 packaging/kubernetes/plex-baseline.py --config /tmp/attempt.private.json \
+  --dry-parse-master /tmp/previous-master.private
+
+# Separate authorization is required for one fresh session. Output must be new.
+nice -n 10 python3 packaging/kubernetes/plex-baseline.py \
+  --config /tmp/attempt.private.json --output /tmp/attempt-private-output --run
+```
+
+The live group starts the bounded observer and waits for readiness BEFORE its
+only Start. It parses the returned master and immediately fetches the authored
+variant without a tool/message roundtrip. Monotonic timestamps bracket the end
+of the Start body read and the first media GET; a delay above the configured
+bound aborts before sending that GET. It preserves authored queries, enforces
+the same loopback transport origin/approved lab Host, refuses redirects and
+stops on the first HTTP, protocol, packet or decoder failure. It collects at
+most30 seconds of media, with a50-second collection wall bound; individual
+requests, analysis children, observer setup and cleanup have separate finite
+bounds. Every collected packet's PTS/DTS is retained and all audio/video tracks'
+DTS must strictly increase across segments. Strict decoder exit is recorded
+separately and does not prove decoded completeness.
+
+Normal Stop runs in `finally`, even after an unknown Start outcome. The observer
+then finishes its bounded read-only children and is reaped; a forced observer
+cleanup or surviving process group fails the harness. Stop HTTP200 never sets
+`retirementVerified`: independently check the actual source-preparation and
+encoder/input/source retirement receipts before releasing any responsibility.
+Likewise, collection does not prove placement, fencing, node-loss continuity or
+native GPU execution. The offline check covers orchestration and failure paths
+with stubs, without contacting the lab or claiming actual media acceptance.
 
 `media-probe.py` accepts this private JSON config (replace the manifest URL with
 the actual request/returned URL; header file is generated by the seed script):
@@ -163,3 +232,97 @@ is missing. Repeat separately for graceful drain, abrupt encoder loss, source
 loss and public ingress/controller loss with surviving authority/capacity. Stop
 owned port-forwards and verifier children afterward; preserve the explicitly
 requested kind lab.
+
+## MediaBrowser delivery aliases
+
+The chart routes `/jellyfin/sessions/media` and `/emby/sessions/media` to the
+media Service. Admission, `/Videos/...` and lazy/control routes remain on API.
+Returned grant-bearing representation URLs keep the same origin and prefix;
+no Ingress path rewrite is required. GET/HEAD and MediaBrowser OPTIONS preflight
+requests resolve the current coordinator and replay its original mounted
+frontend. Original query and bounded account/device headers are preserved, and
+the broker rechecks the path grant, protocol, active viewer and current policy.
+
+`TestMediaBrowserDeliveryReplaysOriginalFrontendAndFencesLoss` compares actual
+HTTP responses from standalone mounted frontends with responses through two
+stateless delivery senders. It uses the real broker and offline source/encoder
+bytes. For each protocol it checks master/media playlists, segments, direct
+files, seven grant/account credential envelopes, GET/HEAD/OPTIONS, Range/206/416,
+response/security/CORS/cache headers, viewer and policy revocation, wrong grants,
+protocol isolation and generation fencing. It closes one delivery listener and
+fetches the next segment through the other. This is offline path evidence,
+not a physical-node loss or a decoded playback measurement. Repeat these URLs
+through the real Ingress and client probe during delivery-node loss; combine
+with the durable neutral-session restoration gate for controller loss.
+
+
+## Release loss matrix and verdicts
+
+Record Plex × {source, transcode, delivery, controller} × {force-delete, pause}
+× {startup, steady}. Also record Jellyfin controller and transcode loss, an Emby
+baseline, physical second-host pause and native GPU kill with CPU recovery.
+Expand Jellyfin action/phase coverage explicitly in the report; do not infer it
+from Plex. A baseline is not a loss case. A paused lab node/container is not an
+actual physical power cut; state the precise fault domain and surviving database.
+
+Every required case starts PENDING. A case can pass only with a harness report
+identifying protocol, session, candidate revision, role/boot/generation, fault
+action and timing, and measuring all of the following:
+
+- Zero stalls: the simulated player's forward buffer never empties.
+- Every expected segment index fetched exactly once with HTTP 200.
+- Strict decode across the splice without errors; PTS discontinuity no greater
+  than one frame duration.
+- Audio access-unit sequence exact, proven with ordered AU hashes: no duplicate
+  or gap. Packet DTS monotonicity alone does not prove this.
+- Server interruption below the measured client buffer, with the interruption
+  definition and observation interval recorded.
+- Independent placement, fencing and retirement observations for the exact
+  execution; surviving healthy encoders must not restart on controller loss.
+
+Missing exact-reference checks are UNVERIFIED, even when structural timing and
+decode pass. A failed metric is FAIL. An uninjected case stays PENDING with its
+blocking reason. A detected stall in a deliberate negative control proves the
+oracle detects that fault, not that production recovery passes. Repeat reference
+and fault runs on the same reviewed candidate; never combine segment sequences
+of different lengths as an exact continuity proof.
+
+The release worker maintains `evidence-index.md` and `evidence-index.json` in its
+private BB thread storage. Each row includes role, action, protocol, phase,
+session, server interruption, client stalls, segment/PTS/decode/AU checks,
+verdict, harness report paths and SHA256s. Unknown metrics are null, never zero.
+Supporting baselines, local splice experiments and superseded runs are labeled
+separately. Hash the actual report files; a directory name or a worker summary
+is not a report digest. Record source revisions and capture times so mutable
+reports cannot silently replace the evidence behind a decision. The live index
+and private media, credentials, logs and dumps must not be committed.
+
+## Multihost lab scripts
+
+`packaging/kubernetes/multihost/` provides an isolated K3s lab across hosts over
+Tailscale. These scripts mutate only the explicitly named lab resources; review
+private state, exact identities, resource budgets and the real verifier before
+running them. They are not production cluster installers.
+
+| Script | Purpose |
+| --- | --- |
+| `node.sh MODE STATE_DIR EXTERNAL_IP [SERVER_IP]` | Create a bounded, labeled lab K3s container on each host; capture exact container/network IDs and keep token files private |
+| `join.sh`, `local-agents.sh` | Join the remote agent or add bounded local agents; local agents remain one physical failure domain |
+| `install.sh PRIVATE_STATE IMAGE_TAG` | Install isolated fixtures, trusted inputs and four specialist pools in context `ether035-multihost`, namespace `ether035-ha` |
+| `redeploy.sh PRIVATE_STATE INTEGRATION_SHA` | Build/import a reviewed candidate and update OnDelete templates; drain/replace separately |
+| `role-loss.sh POD` | Force-delete one captured role pod with zero grace and a UID precondition |
+| `role-pause.sh POD VERIFIER [ARGS...]` | Freeze the exact captured Ether task and descendants, run the verifier and restore that task on exit |
+| `loss.sh FAULT STATE_DIR PEER_TAILSCALE_IP VERIFIER [ARGS...]` | Fault the captured local lab-node container; partition only its network namespace; restore on exit |
+| `remote-loss.py --container-id ID --fault FAULT -- VERIFIER ARGS...` | Fault one captured second-host lab container over authenticated BB terminals and restore; pressure aborts cannot count as completed host-loss cases |
+| `pressure-gate.py` | Check sustained second-host memory headroom before starting work |
+| `physical-host.values.yaml` | Delivery placement overlay; verify all role placements before interpreting a host fault |
+| `relay.sh`, `relay.py`, `external-private.py` | Lab transport for explicitly configured external/private endpoints |
+| `teardown.sh PRIVATE_STATE` | Retire only captured owned lab resources after workloads and verifiers finish |
+
+Keep lab reports under thread storage. Run the harness continuously across the
+fault and correlate exact Pod UID/container/boot identities before and after.
+Capture real physical placement rather than relying on Kubernetes hostnames.
+A force-delete is an abrupt-fault experiment, not the normal rollout procedure:
+normal updates use [explicit drain and UID-safe replacement](kubernetes.md#drain-upgrade-and-rollback).
+Memory pressure checks and restoration outcomes are part of the report; an
+infrastructure guard blocking a run leaves its acceptance row PENDING.

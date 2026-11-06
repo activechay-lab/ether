@@ -118,12 +118,18 @@ func TestPlaybackInfoExplicitEstimateOmitsSyntheticSourceFacts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r := httptest.NewRequest("POST", "/Items/"+ids.RatingKeyGUID(5)+"/PlaybackInfo", strings.NewReader(`{"IsPlayback":false}`))
-		r.Header.Set("X-Emby-Token", "grant")
-		w := httptest.NewRecorder()
-		inst.Handler().ServeHTTP(w, r)
-		if w.Code != 200 || strings.Contains(w.Body.String(), `"Container":"mkv"`) || strings.Contains(w.Body.String(), `1203120000`) || strings.Contains(w.Body.String(), `"Codec":"h264"`) {
-			t.Fatal(w.Code, w.Body.String())
+		for _, method := range []string{"POST", "GET"} {
+			body := `{"IsPlayback":false}`
+			if method == "GET" {
+				body = ""
+			}
+			r := httptest.NewRequest(method, "/Items/"+ids.RatingKeyGUID(5)+"/PlaybackInfo", strings.NewReader(body))
+			r.Header.Set("X-Emby-Token", "grant")
+			w := httptest.NewRecorder()
+			inst.Handler().ServeHTTP(w, r)
+			if w.Code != 200 || strings.Contains(w.Body.String(), `"Container":"mkv"`) || strings.Contains(w.Body.String(), `1203120000`) || strings.Contains(w.Body.String(), `"Codec":"h264"`) {
+				t.Fatal(w.Code, w.Body.String())
+			}
 		}
 	}
 }

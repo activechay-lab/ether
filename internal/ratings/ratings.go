@@ -95,11 +95,12 @@ type Options struct {
 }
 
 type refreshKey struct {
-	key       core.RatingKey
-	settings  Settings
-	imdb      string
-	tmdb      int64
-	titleType core.MediaType
+	generation uint64
+	key        core.RatingKey
+	settings   Settings
+	imdb       string
+	tmdb       int64
+	titleType  core.MediaType
 }
 
 type Service struct {
@@ -110,6 +111,8 @@ type Service struct {
 	qmu     sync.Mutex
 	queued  map[core.RatingKey]bool
 	retryAt map[core.RatingKey]time.Time
+	// retryGeneration prevents a pre-save lookup from restoring an obsolete delay.
+	retryGeneration uint64
 	// backfillAfter is Backfill's position in the catalogue (by key).
 	backfillAfter core.RatingKey
 }
@@ -253,17 +256,6 @@ func (s *Service) SaveSettings(ctx context.Context, v Settings) error {
 	if v.CacheHours < 1 || v.CacheHours > 2160 {
 		return errors.New("cache interval must be 1–2160 hours")
 	}
-	if v.APIKey == Redacted {
-		old, e := s.settings(ctx)
-		if e != nil {
-			return e
-		}
-		// A key belongs to its provider: never send it to the other one.
-		if old.APIKey != "" && old.Provider != v.Provider {
-			return errors.New("enter the API key for the new ratings provider")
-		}
-		v.APIKey = old.APIKey
-	}
 	if v.Missing != "" && v.Missing != "none" && v.Missing != "tmdb" {
 		return errors.New("invalid missing rating behavior")
 	}
@@ -273,15 +265,35 @@ func (s *Service) SaveSettings(ctx context.Context, v Settings) error {
 	if v.BackupProvider != "" && v.BackupProvider == v.Provider {
 		return errors.New("backup provider must differ from primary")
 	}
-	if v.BackupAPIKey == Redacted {
+	if v.APIKey == Redacted || v.BackupAPIKey == Redacted {
+		// Open one snapshot in its original slot/provider contexts. Masked
+		// keys refer to providers, even when they move to the other slot.
 		old, err := s.settings(ctx)
 		if err != nil {
 			return err
 		}
-		if old.BackupProvider != v.BackupProvider {
-			return errors.New("enter the API key for the new backup provider")
+		keyFor := func(provider string) string {
+			switch provider {
+			case old.Provider:
+				return old.APIKey
+			case old.BackupProvider:
+				return old.BackupAPIKey
+			default:
+				return ""
+			}
 		}
-		v.BackupAPIKey = old.BackupAPIKey
+		if v.APIKey == Redacted {
+			v.APIKey = keyFor(v.Provider)
+			if v.APIKey == "" && v.Provider != old.Provider {
+				return errors.New("enter the API key for the new ratings provider")
+			}
+		}
+		if v.BackupAPIKey == Redacted {
+			v.BackupAPIKey = keyFor(v.BackupProvider)
+			if v.BackupProvider != "" && v.BackupAPIKey == "" {
+				return errors.New("enter the API key for the new backup provider")
+			}
+		}
 	}
 	if v.BackupProvider != "" && strings.TrimSpace(v.BackupAPIKey) == "" {
 		return errors.New("backup provider requires an API key")
@@ -299,6 +311,12 @@ func (s *Service) SaveSettings(ctx context.Context, v Settings) error {
 		return e
 	}
 	_, e = s.db.ExecContext(ctx, `INSERT INTO ratings_settings(id,value) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value`, raw)
+	if e == nil {
+		s.qmu.Lock()
+		s.retryGeneration++
+		s.retryAt = map[core.RatingKey]time.Time{}
+		s.qmu.Unlock()
+	}
 	return e
 }
 
@@ -400,12 +418,16 @@ func (s *Service) Refresh(ctx context.Context, t *core.Title) ([]Badge, error) {
 	if t == nil {
 		return s.refresh(ctx, t)
 	}
+	// A successful save also separates identical settings from older flights.
+	s.qmu.Lock()
+	generation := s.retryGeneration
+	s.qmu.Unlock()
 	ctx = s.WithSettingsSnapshot(ctx)
 	cfg, err := s.settings(ctx)
 	if err != nil {
 		return nil, err
 	}
-	key := refreshKey{key: t.Key, settings: cfg, imdb: t.IDs.IMDB, tmdb: t.IDs.TMDB, titleType: t.Type}
+	key := refreshKey{generation: generation, key: t.Key, settings: cfg, imdb: t.IDs.IMDB, tmdb: t.IDs.TMDB, titleType: t.Type}
 	return s.flights.Do(ctx, key, func(ctx context.Context) ([]Badge, error) { return s.refresh(ctx, t) })
 }
 
@@ -618,12 +640,15 @@ func (s *Service) Run(ctx context.Context) {
 		case <-backfill.C:
 			s.Backfill(ctx)
 		case t := <-s.queue:
+			s.qmu.Lock()
+			generation := s.retryGeneration
+			s.qmu.Unlock()
 			job, cancel := context.WithTimeout(ctx, 20*time.Second)
 			_, err := s.Refresh(job, &t)
 			cancel()
 			s.qmu.Lock()
 			delete(s.queued, t.Key)
-			if err != nil {
+			if err != nil && generation == s.retryGeneration {
 				if len(s.retryAt) > 2048 {
 					s.retryAt = map[core.RatingKey]time.Time{}
 				}

@@ -54,6 +54,7 @@ type deploymentRuntime struct {
 	probeDone     chan struct{}
 	errors        chan error
 	closeOnce     sync.Once
+	readinessLoss atomic.Pointer[privateReadinessSnapshot]
 }
 
 func (a *App) prepareDeployment(ctx context.Context) error {
@@ -65,7 +66,7 @@ func (a *App) prepareDeployment(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !d.Roles.FullServer() && !(len(d.Roles) == 1 && d.Roles[0] == config.RoleTranscode) {
+	if !d.Roles.FullServer() && !specialistSingletonRole(d.Roles) {
 		return errors.New("specialist runtime is not yet enabled for this role set")
 	}
 	p := &deploymentRuntime{settings: d, errors: make(chan error, 3), probeDone: make(chan struct{})}
@@ -90,8 +91,9 @@ func (a *App) prepareDeployment(ctx context.Context) error {
 		}
 		_ = json.NewEncoder(w).Encode(struct {
 			Accepting bool                   `json:"accepting"`
+			Reason    string                 `json:"reason,omitempty"`
 			Ledger    *placement.QuotaStatus `json:"ledger,omitempty"`
-		}{a.privateAdmissionReady(), p.quotaStatus()})
+		}{a.privateAdmissionReady(), a.privateAdmissionReason(), p.quotaStatus()})
 	})
 	p.probes = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	p.probeListener, err = net.Listen("tcp", d.ProbeListen)
@@ -178,6 +180,7 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		return func() {}, nil
 	}
 	if p.playback == nil || !p.playback.Ready() {
+		a.recordPrivateReadiness(privateReadinessSnapshot{reason: readinessRuntime})
 		return nil, errors.New("deployment: compatible private playback services are not ready")
 	}
 	ln, err := net.Listen("tcp", p.settings.PrivateListen)
@@ -205,6 +208,7 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			p.ready.Store(false)
 			p.protocol.Store(0)
+			a.recordPrivateReadiness(privateReadinessSnapshot{reason: readinessListener, errorClass: privateReadinessError(err)})
 			select {
 			case p.errors <- err:
 			default:
@@ -212,9 +216,47 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		}
 	})
 	launch(func() { _ = p.telemetry.Run(runCtx) })
+	// Keep the short coordinator lease independent of source/encoder RPCs in
+	// Tick and of placement/readiness reconciliation. A paused source may consume
+	// their entire operation deadline while the server remains healthy.
+	if coordinator, ok := p.playback.(interface{ MaintainCoordination(context.Context) error }); ok {
+		launch(func() {
+			ticker := time.NewTicker(250 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-runCtx.Done():
+					return
+				case <-ticker.C:
+					op, cancel := context.WithTimeout(runCtx, time.Second)
+					_ = coordinator.MaintainCoordination(op)
+					cancel()
+				}
+			}
+		})
+	}
+
+	// Recovery must get its own operation budget. Quota/placement readiness
+	// writes can consume their full deadline during worker replacement; passing
+	// that expired context to Tick prevents even the first encoder loss probe.
+	launch(func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-ticker.C:
+				op, cancel := context.WithTimeout(runCtx, 3*time.Second)
+				_ = p.playback.Tick(op)
+				cancel()
+			}
+		}
+	})
 	launch(func() {
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
+		var readiness privateReadinessWindow
 		rotation := time.NewTicker(time.Hour)
 		defer rotation.Stop()
 		for {
@@ -225,10 +267,21 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 				op, c := context.WithTimeout(runCtx, 3*time.Second)
 				a.pollDrain(op)
 				_ = a.refreshPrivateQuota(op)
-				err := a.reconcilePrivatePlacement(op)
-				_ = p.playback.Tick(op) // pending retirement is healthy retained ownership, not readiness loss
+				var observation privateReadinessSnapshot
+				err := a.reconcilePrivatePlacement(op, &observation)
 				c()
-				p.ready.Store(err == nil && a.privateServicesReady())
+				// A successful startup/public listener can precede this first tick.
+				if p.ready.Load() && readiness.failedAt.IsZero() {
+					readiness.established = true
+				}
+				var serviceObservation privateReadinessSnapshot
+				services := a.privateServicesReadyObserved(&serviceObservation)
+				if !services {
+					observation = serviceObservation
+				} else if err == nil {
+					observation = privateReadinessSnapshot{}
+				}
+				p.ready.Store(readiness.ready(time.Now(), err == nil, services, observation.reason))
 				if p.ready.Load() {
 					p.started.Store(true)
 				}
@@ -237,6 +290,7 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 				} else {
 					p.protocol.Store(0)
 				}
+				a.recordPrivateReadiness(observation)
 			case <-rotation.C:
 				// Configuration/identity are immutable for this process. Only revalidated
 				// issuer/root contents rotate; no caller document is applied at renewal.
@@ -244,6 +298,7 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 				if trustErr != nil || a.cfg.KeyFingerprint() != config.KeyFingerprint(o.Key) {
 					p.ready.Store(false)
 					p.protocol.Store(0)
+					a.recordPrivateReadiness(privateReadinessSnapshot{reason: readinessIdentity, errorClass: privateReadinessError(trustErr)})
 					select {
 					case p.errors <- errors.New("deployment: mounted cluster identity changed"):
 					default:
@@ -257,6 +312,7 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 				if err != nil {
 					p.ready.Store(false)
 					p.protocol.Store(0)
+					a.recordPrivateReadiness(privateReadinessSnapshot{reason: readinessRotation, errorClass: privateReadinessError(err)})
 					select {
 					case p.errors <- errors.New("deployment: private credential rotation failed"):
 					default:
@@ -281,12 +337,18 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		}
 	})
 	initial, done := context.WithTimeout(runCtx, 3*time.Second)
+	var observation privateReadinessSnapshot
 	err = a.refreshPrivateQuota(initial)
+	if err != nil {
+		observation = privateReadinessSnapshot{reason: readinessQuota, at: time.Now(), errorClass: privateReadinessError(err)}
+		observation.deadline, _ = initial.Deadline()
+	}
 	if err == nil {
-		err = a.reconcilePrivatePlacement(initial)
+		err = a.reconcilePrivatePlacement(initial, &observation)
 	}
 	done()
 	if err != nil {
+		a.recordPrivateReadiness(observation)
 		cancel()
 		_ = srv.Close()
 		workers.Wait()
@@ -298,16 +360,18 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		workers.Wait()
 		return nil, err
 	}
-	p.ready.Store(a.privateServicesReady())
+	p.ready.Store(a.privateServicesReadyObserved(&observation))
 	if p.ready.Load() {
 		p.started.Store(true)
 		p.protocol.Store(1)
 	}
+	a.recordPrivateReadiness(observation)
 	return func() {
 		a.drainPrivate()
 		p.protocol.Store(0)
 		_ = p.playback.Close()
 		p.ready.Store(false)
+		a.recordPrivateReadiness(privateReadinessSnapshot{reason: readinessClosed})
 		cancel()
 		_ = srv.Close()
 		workers.Wait()
@@ -368,11 +432,26 @@ func (a *App) runSpecialist(ctx context.Context) error {
 // its complete handler have been installed. Private-only workers need no public
 // frontend. Transient health loss does not clear the completed startup probe.
 func (a *App) privateServicesReady() bool {
+	return a.privateServicesReadyObserved(nil)
+}
+
+func (a *App) privateServicesReadyObserved(observation *privateReadinessSnapshot) bool {
+	if observation != nil {
+		observation.reason, observation.at = readinessRuntime, time.Now()
+		observation.errorClass, observation.deadline = "none", time.Time{}
+	}
 	p := a.deployment
 	if p == nil || p.playback == nil || !p.playback.Ready() {
 		return false
 	}
-	return !(p.settings.Roles.Has(config.RoleServer) || p.settings.Roles.Has(config.RoleDelivery)) || p.publicReady.Load()
+	if observation != nil {
+		observation.reason = readinessPublic
+	}
+	ready := !(p.settings.Roles.Has(config.RoleServer) || p.settings.Roles.Has(config.RoleDelivery)) || p.publicReady.Load()
+	if ready && observation != nil {
+		*observation = privateReadinessSnapshot{}
+	}
+	return ready
 }
 func (a *App) markPublicReady() {
 	if p := a.deployment; p != nil {
@@ -381,6 +460,7 @@ func (a *App) markPublicReady() {
 			p.started.Store(true)
 			p.ready.Store(true)
 			p.protocol.Store(1)
+			a.recordPrivateReadiness(privateReadinessSnapshot{})
 		}
 	}
 }

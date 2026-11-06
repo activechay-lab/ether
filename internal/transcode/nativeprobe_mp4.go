@@ -30,6 +30,7 @@ func isISOBMFF(head []byte) bool {
 
 func (s *nativeSource) mp4() (*core.MediaInfo, error) {
 	var moov []byte
+	mediaBeforeMoov := false
 	for off, n := int64(0), 0; off < s.size && n < 64; n++ {
 		h, err := s.read(off, int(min(16, s.size-off)))
 		if err != nil {
@@ -51,6 +52,9 @@ func (s *nativeSource) mp4() (*core.MediaInfo, error) {
 		if size < hdr || size > s.size-off {
 			return nil, incomplete("bad top-level box size")
 		}
+		if string(h[4:8]) == "mdat" {
+			mediaBeforeMoov = true
+		}
 		if string(h[4:8]) == "moov" {
 			if size > nativeMoovLimit {
 				return nil, incomplete("moov too large")
@@ -67,7 +71,12 @@ func (s *nativeSource) mp4() (*core.MediaInfo, error) {
 	if moov == nil {
 		return nil, incomplete("no moov")
 	}
-	return mp4Info(moov, s.size)
+	info, err := mp4Info(moov, s.size)
+	if err == nil {
+		optimized := !mediaBeforeMoov
+		info.OptimizedForStreaming = &optimized
+	}
+	return info, err
 }
 
 // mp4Info maps a whole moov box (header included) to MediaInfo the way
@@ -89,7 +98,8 @@ func mp4Info(b []byte, size int64) (*core.MediaInfo, error) {
 	if scale == 0 || dur == 0 {
 		return nil, incomplete("no movie duration")
 	}
-	m := &core.MediaInfo{Container: "mp4", Size: size, Duration: ticksToDuration(int64(dur), scale)}
+	offsets64 := false
+	m := &core.MediaInfo{Container: "mp4", Size: size, Duration: ticksToDuration(int64(dur), scale), Has64bitOffsets: &offsets64}
 	if m.Duration <= 0 {
 		return nil, incomplete("bad movie duration")
 	}
@@ -106,6 +116,9 @@ func mp4Info(b []byte, size int64) (*core.MediaInfo, error) {
 		}
 		if _, ok := path(b, k, "tref", "chap"); ok {
 			return nil, incomplete("quicktime chapter track")
+		}
+		if _, ok := path(b, k, "mdia", "minf", "stbl", "co64"); ok {
+			*m.Has64bitOffsets = true
 		}
 		si, ok, err := mp4Track(b, k, scale)
 		if err != nil {
@@ -457,6 +470,9 @@ func mp4Audio(b []byte, e mp4Box, si *core.StreamInfo) error {
 		si.Codec = "opus"
 		if d := find("dOps"); len(d) >= 2 && d[1] > 0 {
 			channels = int(d[1])
+		}
+		if d := find("dOps"); len(d) >= 4 {
+			si.DecodedPadding = int(binary.BigEndian.Uint16(d[2:4]))
 		}
 		rate = 48000
 	case "fLaC":

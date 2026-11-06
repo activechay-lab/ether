@@ -12,50 +12,32 @@ export const MOMENTS: Moment[] = [
   "bug",
   "lowerthird",
 ];
-export type BrandTokens = {
-  palette: { background: string; accent: string; text: string; glow: string };
-  type: { display: string; body: string };
-  energy: number;
-  textures: string[];
-  sting: string;
-  volume: number;
-  seed: number;
-  tagline: string;
-  words: Partial<Record<Moment, string>>;
-  language: string;
-  logo?: string;
+export type StyleScreens = {
+  offAir: import("./ScreenPicker").ScreenStyle;
+  noSignal: import("./ScreenPicker").ScreenStyle;
+  stationId: boolean;
+  applyTo?: "converted" | "all";
 };
-export type Look = {
-  id: string;
-  name: string;
-  family: string;
-  brand: BrandTokens;
-  moments: Partial<Record<Moment, { duration: number; poster: number }>>;
-  layers?: Record<
-    string,
-    {
-      text?: string;
-      size?: number;
-      opacity?: number;
-      x?: number;
-      y?: number;
-      fit?: string;
-      behaviour?: string;
-      hidden?: boolean;
-      locked?: boolean;
-    }
-  >;
-  channelIds: string[];
-  pack?: { id: string; name: string };
-  render?: { done: number; total: number };
+export type BugSettings = {
+  position?: "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+  opacity?: number;
+  style?: "monochrome" | "original";
+  size?: "small" | "medium" | "large";
+  source?: "logo" | "wordmark";
+  fadeBreaks?: boolean;
+  fadeCredits?: boolean;
 };
-export type Family = { id: string; name: string; look: Look };
+import type { Style as Look } from "./studio-model";
+export type { Style as Look } from "./studio-model";
 export type ReelClip = {
   id: string;
   name: string;
   durationMs: number;
   sourceDigest?: string;
-  status: "ready" | "converting" | "error";
+  status: "ready" | "converting" | "error" | "queued" | "downloading";
+  source?: string;
+  attribution?: string;
+  error?: string;
   progress?: number;
   size?: number;
   preview?: string;
@@ -71,7 +53,27 @@ export type Reel = {
   clips: ReelClip[];
   channelIds: string[];
 };
+export type BreakPattern = {
+  preset: string;
+  seconds: number;
+  minSeconds: number;
+  maxSeconds: number;
+  spots: number;
+  minSpots: number;
+  maxSpots: number;
+  podsPerHalfHour: number;
+  inside: boolean;
+  noRepeatMinutes: number;
+  stationId: boolean;
+  bumperStyle: string;
+  clockAlignment: string;
+};
 export type ChannelLook = {
+  momentAssets?: Record<string, string>;
+  breakPlacement?: "natural" | "even" | "between";
+  tonight?: boolean;
+  bug?: BugSettings;
+  breakPattern?: BreakPattern;
   lookId: string;
   ident: boolean;
   upNext: boolean;
@@ -107,7 +109,7 @@ export type PersonalRecipe = {
   nightMaxMinutes: number;
 };
 export type Bindings = {
-  channel?: { name: string };
+  channel?: { name: string; logo?: string };
   viewer?: { name: string; greeting?: string };
   now?: { title: string };
   next?: {
@@ -123,6 +125,11 @@ export type Bindings = {
   greeting?: string;
 };
 export type OnAirAsset = {
+  source?: string;
+  attribution?: string;
+  status?: string;
+  progress?: number;
+  error?: string;
   digest: string;
   name: string;
   kind: string;
@@ -142,7 +149,7 @@ export const onair = {
   deleteLook: (id: string) => write<void>(`/onair/looks/${enc(id)}`, "DELETE"),
   duplicateLook: (id: string) => write<Look>(`/onair/looks/${enc(id)}/duplicate`, "POST"),
   detachLook: (id: string) => write<Look>(`/onair/looks/${enc(id)}/detach`, "POST"),
-  families: () => apiFetch<Family[]>("/onair/families"),
+
   bindings: (q: { channel?: string; at?: string; viewer?: string; moment?: string }) =>
     apiFetch<Bindings>(
       `/onair/bindings?${new URLSearchParams(Object.entries(q).filter((x): x is [string, string] => !!x[1]))}`,

@@ -95,27 +95,29 @@ type brokerPlan struct {
 	external bool
 }
 type brokerSession struct {
-	trickplay        *trickplay.Holder
-	public           frontend.Session
-	grant            string
-	playID           string
-	clientID         string
-	playbackID       string
-	caps             core.ClientCaps
-	opts             core.DecideOptions
-	decision         core.Decision
-	allowTranscoding *bool
-	format           frontend.StreamFormat
-	streamPosition   time.Duration
-	segmentDuration  time.Duration
-	live             bool
-	sequence         uint64
-	historyEpoch     int64
-	historySequence  int64
-	versionHandle    string
-	exactRelease     string
-	sourcePinned     bool
-	sourceETag       string
+	distributed, restored bool
+	distributedSaved      time.Time
+	trickplay             *trickplay.Holder
+	public                frontend.Session
+	grant                 string
+	playID                string
+	clientID              string
+	playbackID            string
+	caps                  core.ClientCaps
+	opts                  core.DecideOptions
+	decision              core.Decision
+	allowTranscoding      *bool
+	format                frontend.StreamFormat
+	streamPosition        time.Duration
+	segmentDuration       time.Duration
+	live                  bool
+	sequence              uint64
+	historyEpoch          int64
+	historySequence       int64
+	versionHandle         string
+	exactRelease          string
+	sourcePinned          bool
+	sourceETag            string
 	// transferBarrier is this session's admission ticket. A later open of the
 	// same title, part and device reuses it. Stop drops it once no live
 	// session still holds it; an unverified retirement leaves it until the
@@ -229,6 +231,11 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 		go func() { defer close(b.historyDone); b.runSourceHistory(ctx) }()
 	}
 
+	if remote, ok := b.deps.DistributedHLS.(neutralControl); ok {
+		if err := remote.BindNeutralControl(b.neutralControl); err != nil {
+			return nil, err
+		}
+	}
 	return b, nil
 }
 func (b *Broker) viewer(ctx context.Context, v *core.Viewer) (*core.Viewer, error) {
@@ -833,6 +840,14 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 		if err := binding.BindClientSession(ctx, id, ps.ID); err != nil {
 			return frontend.Session{}, err
 		}
+	} else if req.Protocol == "jellyfin" || req.Protocol == "emby" {
+		if binding, ok := b.deps.DistributedHLS.(interface {
+			BindLocalClientSession(context.Context, string, *core.PlaySession) error
+		}); ok {
+			if err := binding.BindLocalClientSession(ctx, id, ps); err != nil {
+				return frontend.Session{}, err
+			}
+		}
 	}
 	if req.Protocol == "plex" && p.external {
 		if !validPlexTranscodeID(p.request.Intent.ClientSessionID) {
@@ -956,7 +971,22 @@ func (b *Broker) accessSession(ctx context.Context, a frontend.SessionAccess, id
 	}
 	b.mu.Unlock()
 	if !ok {
-		return nil, nil, core.ErrNotFound
+		if err := b.restoreNeutralBinding(ctx, id, &a, "", string(a.Protocol)); err != nil {
+			return nil, nil, err
+		}
+		b.mu.Lock()
+		s = b.sessions[id]
+		if s != nil {
+			copy := *s
+			s = &copy
+		}
+		b.mu.Unlock()
+		if s == nil {
+			return nil, nil, core.ErrNotFound
+		}
+	}
+	if !b.neutralCurrent(ctx, s) {
+		return nil, nil, core.ErrNotAvailable
 	}
 	owner := a.Owner && viewer.IsOwner && !viewer.Delegated
 	if !owner && (s.public.ViewerID != viewer.ID || s.public.Protocol != a.Protocol || a.Device.ID == "" || s.public.Device.ID != a.Device.ID) {
@@ -994,6 +1024,9 @@ func (b *Broker) Sessions(ctx context.Context, a frontend.SessionAccess) ([]fron
 	owner := a.Owner && v.IsOwner && !v.Delegated
 	if a.Owner && !owner {
 		return nil, core.ErrUnauthorized
+	}
+	if err = b.restoreNeutralScope(ctx, a); err != nil {
+		return nil, err
 	}
 	b.mu.Lock()
 	liveness, checkLiveness := b.deps.Playback.(interface{ SessionActive(string) bool })
@@ -1037,6 +1070,9 @@ func (b *Broker) Sessions(ctx context.Context, a frontend.SessionAccess) ([]fron
 	return visible, nil
 }
 func (b *Broker) Report(ctx context.Context, a frontend.SessionAccess, id string, t frontend.Timeline) error {
+	if _, handled, err := b.forwardNeutralControl(ctx, a, id, "report", t, frontend.StreamRequest{}); handled {
+		return err
+	}
 	s, _, err := b.accessSession(ctx, a, id, t.State != "stopped")
 	if errors.Is(err, core.ErrNotFound) {
 		item, retired, retiredErr := b.retiredAccess(ctx, a, id)
@@ -1174,6 +1210,9 @@ func (b *Broker) Report(ctx context.Context, a frontend.SessionAccess, id string
 	if t.State == "stopped" {
 		return b.stopLocked(ctx, s)
 	}
+	if err = b.saveNeutralBinding(ctx, id, true); err != nil {
+		return err
+	}
 	b.ensureTrickplay(ctx, s, t.Position)
 	return nil
 }
@@ -1280,6 +1319,9 @@ func (b *Broker) ReportProgress(ctx context.Context, a frontend.SessionAccess, i
 	return nil
 }
 func (b *Broker) Stop(ctx context.Context, a frontend.SessionAccess, id string) error {
+	if _, handled, err := b.forwardNeutralControl(ctx, a, id, "stop", frontend.Timeline{}, frontend.StreamRequest{}); handled {
+		return err
+	}
 	s, _, err := b.accessSession(ctx, a, id, false)
 	if errors.Is(err, core.ErrNotFound) {
 		if b.cluster == nil {
@@ -1333,6 +1375,13 @@ func (b *Broker) Stop(ctx context.Context, a frontend.SessionAccess, id string) 
 	return b.stopLocked(ctx, s)
 }
 func (b *Broker) stopLocked(ctx context.Context, s *brokerSession) error {
+	if s.distributed {
+		if storage, ok := b.deps.DistributedHLS.(neutralBindingStore); ok {
+			if err := storage.DeleteNeutralBinding(ctx, s.public.ID); err != nil {
+				return err
+			}
+		}
+	}
 	b.mu.Lock()
 	current, ok := b.sessions[s.public.ID]
 	var hold *trickplay.Holder
@@ -1377,6 +1426,7 @@ func (b *Broker) stopLocked(ctx context.Context, s *brokerSession) error {
 		b.cluster.announceRetired(ctx, s)
 	}
 	b.cleanupSampleReceipt(ctx, s)
+
 	b.bindings.Remove(s.public.ID)
 	if s.live {
 		err := b.deps.Live.Stop(ctx, &core.Viewer{ID: s.public.ViewerID}, s.playID)
