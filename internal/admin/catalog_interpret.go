@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,6 +22,46 @@ type catalogChip struct {
 	Value string `json:"value"`
 	Group int    `json:"group,omitempty"`
 }
+
+// Models occasionally encode numeric values as JSON numbers despite the string
+// schema. Canonicalize that harmless variation only for numeric fields; never
+// coerce booleans, objects, nulls or categorical values into strings.
+func (c *catalogChip) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Field string          `json:"field"`
+		Op    string          `json:"op"`
+		Value json.RawMessage `json:"value"`
+		Group int             `json:"group"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	c.Field, c.Op, c.Group = raw.Field, raw.Op, raw.Group
+	if len(raw.Value) == 0 || bytes.Equal(bytes.TrimSpace(raw.Value), []byte("null")) {
+		return fmt.Errorf("missing chip value")
+	}
+	if err := json.Unmarshal(raw.Value, &c.Value); err == nil {
+		return nil
+	}
+	switch c.Field {
+	case "year", "decade", "rating", "votes", "popularity", "runtime", "seasons", "episodes", "collection":
+	default:
+		return fmt.Errorf("non-string categorical value")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw.Value))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	number, ok := value.(json.Number)
+	if !ok {
+		return fmt.Errorf("invalid numeric chip value")
+	}
+	c.Value = number.String()
+	return nil
+}
+
 type catalogInterpretation struct {
 	Chips     []catalogChip `json:"chips"`
 	Mode      string        `json:"mode"`
@@ -207,7 +248,7 @@ func validateCatalogInterpretation(result *catalogInterpretation, vocab map[stri
 }
 
 const catalogInterpretGuide = `Translate the user's natural-language film/TV wishes into REAL editable catalogue filters. Return JSON only: {"mode":"and","groupMode":"or","chips":[{"field":"type","op":"is","value":"movie"},{"field":"genre","op":"is","value":"Comedy","group":1},{"field":"genre","op":"is","value":"Romance","group":1}]}.
-Values are strings. Ungrouped chips are mandatory AND constraints. Chips sharing group 1, 2 or 3 are OR alternatives; each group is ANDed with mandatory constraints. Use OR genre alternatives for moods, never require every suggested genre simultaneously. Use actual values from the supplied vocabulary for genre, language, country, certification, studio and tag. Map intent and tone, not literal title words. Cute/whimsical/girls' night movies suggests movie + Comedy/Romance/Family/Animation alternatives as appropriate, plus relevant catalogue keyword alternatives such as female friendship, friendship, whimsical, feel-good when present. Kids/family-friendly MOVIES require actual Family/Animation genre values and available age-appropriate certifications such as G/PG, using OR alternatives where appropriate. NEVER emit kids=true for movies: that flag means the canonical TV Kids genre, NOT a generic child audience. The combination type=movie and kids=true is invalid. Only use kids=true for an explicit TV Kids genre request. Do not assume all films are for kids. Dark/gritty thrillers suggests Thriller/Crime and matching keywords. Feel-good does not mean a title called feel-good.
+Values are strings. Ungrouped chips are mandatory AND constraints. Chips sharing group 1, 2 or 3 are OR alternatives; each group is ANDed with mandatory constraints. Use OR genre alternatives for moods, never require every suggested genre simultaneously. Mood/tone keyword suggestions are ALTERNATIVES: put them in the SAME nonzero OR group, never separate mandatory AND chips, unless the user explicitly requires all concepts. For example whimsical/feel-good/friendship are alternative mood signals, not three required keywords. Group genre alternatives separately from keyword alternatives. Use actual values from the supplied vocabulary for genre, language, country, certification, studio and tag. Map intent and tone, not literal title words. Cute/whimsical/girls' night movies suggests movie + Comedy/Romance/Family/Animation alternatives as appropriate, plus relevant catalogue keyword alternatives such as female friendship, friendship, whimsical, feel-good when present. Kids/family-friendly MOVIES require actual Family/Animation genre values and available age-appropriate certifications such as G/PG, using OR alternatives where appropriate. NEVER emit kids=true for movies: that flag means the canonical TV Kids genre, NOT a generic child audience. The combination type=movie and kids=true is invalid. Only use kids=true for an explicit TV Kids genre request. Do not assume all films are for kids. Dark/gritty thrillers suggests Thriller/Crime and matching keywords. Feel-good does not mean a title called feel-good.
 For mood/tone or concepts without an existing facet, use concise keyword concepts, preferentially matching supplied TMDB keyword vocabulary (e.g. female friendship, magical realism). Unknown concepts MUST remain keyword matches, never title queries. There is NO title field. Never return the whole sentence as a keyword either: extract the concepts. Do not invent categorical vocabulary values. Do not infer numerical ratings/runtime/era unless requested.
 Fields: type (movie/show), genre, decade (1980), year, rating (0-10), votes, popularity, runtime (minutes), language, country, certification, studio, keyword, tag, cast/director/writer/composer (exact person name), collection (numeric TMDB collection ID only when explicitly supplied), released/dateAdded/etherAdded (YYYY-MM-DD), watched (watched/unwatched), progress/rated/watchlist (true/false), playable (yes/unknown), cached (yes/unknown), quality (4k/hdr/dv/atmos), anime (true), kids (true; explicit TV Kids genre ONLY, never movies or generic family audience), status (Returning Series/Ended/Canceled/In Production), seasons, episodes, gate (admitted/held/unknown).
 Operators: is, not (categorical only), min/max (numeric and dates only). Use two chips for a range; decades use is. At most 24 chips. Examples: "90s thrillers above 7 under two hours" -> type movie, decade1990, genre Thriller, rating min7, runtime max120; "80s comedies with Tom Hanks" -> type movie, decade1980, genre Comedy, cast Tom Hanks; "French romantic movies" -> type movie, language fr, genre Romance (only if present). Subjective adjectives are keywords or guide genre choices, never titles.`

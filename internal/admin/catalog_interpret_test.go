@@ -46,6 +46,13 @@ func TestCatalogInterpret(t *testing.T) {
 		status int
 	}{
 		{output, 200},
+		{`{"chips":[{"field":"runtime","op":"max","value":100}]}`, 200},
+		{`{"chips":[{"field":"rating","op":"min","value":7.5}]}`, 200},
+		{`{"chips":[{"field":"runtime","op":"max","value":true}]}`, 502},
+		{`{"chips":[{"field":"runtime","op":"max","value":null}]}`, 502},
+		{`{"chips":[{"field":"runtime","op":"max","value":{}}]}`, 502},
+		{`{"chips":[{"field":"runtime","op":"max","value":[]}]}`, 502},
+		{`{"chips":[{"field":"genre","op":"is","value":100}]}`, 502},
 		{`{"chips":[{"field":"sql","op":"is","value":"DROP"}]}`, 502},
 		{`{"chips":[{"field":"rating","op":"inject","value":"7"}]}`, 502},
 		{`{"chips":[]}`, 502},
@@ -63,6 +70,10 @@ func TestCatalogInterpret(t *testing.T) {
 		if rec.Code != tt.status {
 			t.Fatalf("status %d want %d: %s", rec.Code, tt.status, rec.Body)
 		}
+		if strings.Contains(tt.output, `"value":100`) && rec.Code == 200 && !strings.Contains(rec.Body.String(), `"value":"100"`) {
+			t.Fatalf("numeric value was not canonicalized: %s", rec.Body)
+		}
+
 	}
 	status = 503
 	unavailable := serve(h, authed(req("POST", "/ether/api/catalog/interpret", `{"text":"feel-good movies"}`)))
