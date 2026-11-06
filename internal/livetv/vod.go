@@ -244,7 +244,7 @@ func (s *Service) VODSearch(ctx context.Context, req core.SearchRequest) ([]core
 	}
 	// Identity lookups use SQL indexes. Name fallback requires a known matching
 	// year and no conflicting provider ID; punctuation/case are normalized.
-	rows, err := s.o.DB.QueryContext(ctx, `SELECT provider,id,tmdb,year,data,detail,revision FROM xtream_vod WHERE kind=? AND ((tmdb>0 AND tmdb=?) OR (title=? AND year=? AND year>0 AND (tmdb=0 OR ?=0))) LIMIT 64`, kind, req.IDs.TMDB, releaseparse.NormalizeTitle(req.Title), req.Year, req.IDs.TMDB)
+	rows, err := s.o.DB.QueryContext(ctx, `SELECT provider,id,tmdb,year,data,detail,revision FROM xtream_vod WHERE kind=? AND ((tmdb>0 AND tmdb=?) OR (title=? AND (year=? OR year=0) AND ?>0 AND (tmdb=0 OR ?=0))) LIMIT 64`, kind, req.IDs.TMDB, releaseparse.NormalizeTitle(req.Title), req.Year, req.Year, req.IDs.TMDB)
 	if err != nil {
 		return nil, err
 	}
@@ -294,6 +294,7 @@ func (s *Service) VODSearch(ctx context.Context, req core.SearchRequest) ([]core
 			if json.Unmarshal([]byte(detail), &info) != nil {
 				continue
 			}
+			s.enrichVODMatch(ctx, &m, info.Info)
 			ext := m.item.Extension
 			if info.MovieData.Extension != "" {
 				ext = info.MovieData.Extension
@@ -304,6 +305,7 @@ func (s *Service) VODSearch(ctx context.Context, req core.SearchRequest) ([]core
 			if json.Unmarshal([]byte(detail), &info) != nil {
 				continue
 			}
+			s.enrichVODMatch(ctx, &m, info.Info)
 			if m.tmdb == 0 {
 				m.tmdb = info.Info.TMDB.Int()
 				if m.tmdb == 0 {
@@ -342,6 +344,9 @@ func appendVODRelease(out []core.Release, c xtream.Client, src Source, m vodMatc
 		if m.tmdb == 0 {
 			m.tmdb = info.TMDBAlt.Int()
 		}
+	}
+	if !(req.IDs.TMDB > 0 && req.IDs.TMDB == m.tmdb) && (req.Year <= 0 || m.year <= 0 || req.Year != m.year) {
+		return out
 	}
 	if req.IDs.TMDB > 0 && m.tmdb > 0 && req.IDs.TMDB != m.tmdb {
 		return out
@@ -507,4 +512,23 @@ func (s *Service) reserveVODProvider(id string, limit int, background bool) (fun
 	}
 
 	return s.inputRelay.taps.reserveWithLive(id, limit, background, len(channels))
+}
+
+func (s *Service) enrichVODMatch(ctx context.Context, m *vodMatch, info xtream.MediaInfo) {
+	oldTMDB, oldYear := m.tmdb, m.year
+	if m.tmdb == 0 {
+		m.tmdb = info.TMDB.Int()
+		if m.tmdb == 0 {
+			m.tmdb = info.TMDBAlt.Int()
+		}
+	}
+	if m.year == 0 && len(info.ReleaseDate) >= 4 {
+		m.year, _ = strconv.Atoi(info.ReleaseDate[:4])
+	}
+	if m.year == 0 {
+		m.year = releaseparse.Parse(info.Name).Year
+	}
+	if m.tmdb != oldTMDB || m.year != oldYear {
+		_, _ = s.o.DB.ExecContext(ctx, `UPDATE xtream_vod SET tmdb=?,year=? WHERE provider=? AND kind=? AND id=? AND revision=?`, m.tmdb, m.year, m.provider, m.kind, m.id, m.revision)
+	}
 }

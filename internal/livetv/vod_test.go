@@ -80,11 +80,15 @@ func TestXtreamVODIndexResolutionAndRange(t *testing.T) {
 				fmt.Fprint(w, `{"password":"secret-pass"}`)
 				return
 			}
-			fmt.Fprintf(w, `[{"stream_id":1,"name":"Film.2020.1080p.WEB-DL.H264","tmdb_id":"123","container_extension":"mkv","added":"%d"},{"stream_id":2,"name":"A Different Film (2021)","container_extension":"mp4"}]`, revision.Load())
+			fmt.Fprintf(w, `[{"stream_id":1,"name":"Film.2020.1080p.WEB-DL.H264","tmdb_id":"123","container_extension":"mkv","added":"%d"},{"stream_id":2,"name":"A Different Film (2021)","container_extension":"mp4"},{"stream_id":5,"name":"Undated Film","container_extension":"mkv"}]`, revision.Load())
 		case "get_series":
 			fmt.Fprint(w, `[{"series_id":"3","name":"A Show (2019)","tmdb":"456"}]`)
 		case "get_vod_info":
 			infos.Add(1)
+			if r.URL.Query().Get("vod_id") == "5" {
+				fmt.Fprint(w, `{"info":{"tmdb_id":789,"releasedate":"2022-01-01","size":41943040}}`)
+				return
+			}
 			fmt.Fprint(w, `{"info":{"size":"41943040","video":{"codec_name":"h264","height":1080}}}`)
 		case "get_series_info":
 			fmt.Fprint(w, `{"episodes":{"2":[{"id":"4","season":"2","episode_num":3,"container_extension":"mkv","info":{"size":41943040,"video":{"height":"1080","codec_name":"h264"}}}]}}`)
@@ -113,6 +117,14 @@ func TestXtreamVODIndexResolutionAndRange(t *testing.T) {
 	fuzzy, err := s.VODSearch(t.Context(), core.SearchRequest{Type: core.TypeMovie, Title: "A: Different Film", Year: 2021})
 	if err != nil || len(fuzzy) != 1 {
 		t.Fatalf("normalized match: %d %v", len(fuzzy), err)
+	}
+	undatedWrong, _ := s.VODSearch(t.Context(), core.SearchRequest{Type: core.TypeMovie, Title: "Undated Film", Year: 2021})
+	if len(undatedWrong) != 0 {
+		t.Fatal("detail year mismatch accepted")
+	}
+	undated, err := s.VODSearch(t.Context(), core.SearchRequest{Type: core.TypeMovie, Title: "Undated Film", Year: 2022})
+	if err != nil || len(undated) != 1 || undated[0].TitleIDs.TMDB != 789 {
+		t.Fatalf("detail identity: %d %v", len(undated), err)
 	}
 	wrong, _ := s.VODSearch(t.Context(), core.SearchRequest{Type: core.TypeMovie, Title: "Film", Year: 2020, IDs: core.IDs{TMDB: 999}})
 	if len(wrong) != 0 {
