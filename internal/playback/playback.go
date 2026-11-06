@@ -243,6 +243,7 @@ type Manager struct {
 	// titleInval broadcasts title invalidations (nil standalone).
 	titleInval           *clusterbus.Invalidator
 	bufs                 sync.Pool
+	analysisBufs         sync.Pool
 	swapLatency          swapLatencyWindow
 	reserveConfigVersion atomic.Uint64
 
@@ -440,6 +441,7 @@ func New(deps Deps, cfg config.Config, opts Options) (*Manager, error) {
 	m.resumeSaveCond = sync.NewCond(&m.resumeSaveMu)
 	chunk := opts.ChunkSize
 	m.bufs.New = func() any { b := make([]byte, chunk); return &b }
+	m.analysisBufs.New = func() any { b := make([]byte, 8<<20); return &b }
 	if deps.DB != nil {
 		if opts.DataDir == "" {
 			return nil, errors.New("playback: DataDir is required with DB")
@@ -927,7 +929,11 @@ func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, us
 		}
 	}
 	if f == nil {
-		wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), m.opts.PrepareTimeout)
+		parent := context.WithoutCancel(ctx)
+		if core.IsBackgroundAnalysis(ctx) {
+			parent = ctx
+		}
+		wctx, cancel := context.WithTimeout(parent, m.opts.PrepareTimeout)
 		f = &flight{sources: newSourceLifetime(user.ID, string(caps.Protocol), caps.ClientID), done: make(chan struct{}), cancel: cancel}
 		m.flights[fk] = f
 		u := *user
@@ -1757,4 +1763,39 @@ func (m *Manager) BackgroundReadMeter(id string) func() int64 {
 	}
 	counter := &g.backgroundReadBytes
 	return counter.Load
+}
+
+// BackgroundErrorMeter remains readable after the held source is retired.
+func (m *Manager) BackgroundErrorMeter(id string) func() int64 {
+	s := m.lookup(id)
+	if s == nil {
+		return func() int64 { return 0 }
+	}
+	g := s.current()
+	if g == nil {
+		return func() int64 { return 0 }
+	}
+	counter := &g.backgroundReadErrors
+	return counter.Load
+}
+
+func (m *Manager) DrainBackgroundSource(ctx context.Context, id string) error {
+	s := m.lookup(id)
+	if s == nil {
+		return core.ErrNotAvailable
+	}
+	g := s.current()
+	if g == nil {
+		return core.ErrNotAvailable
+	}
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for g.backgroundRequests.Load() > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tick.C:
+		}
+	}
+	return nil
 }

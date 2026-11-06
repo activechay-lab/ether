@@ -31,7 +31,7 @@ CREATE TABLE markers_breaks_cache (
 );
 ```
 
-Release key combines core source revision (title, release, file name/size or local file identity), NZB payload SHA-256 and exact duration. No viewer/channel in the cache key. Empty completed results persist too; incomplete/failed decoding never persists. Version 1 permits future threshold changes to invalidate old analyses.
+Release key combines core source revision (title, release, file name/size or local file identity), NZB payload SHA-256 and exact duration. No viewer/channel in the cache key. Empty completed results persist too; incomplete/failed decoding never persists. Version 2 invalidates results from the old path that accepted an early EOF with ffmpeg exit 0. Future threshold or coverage changes must bump the version.
 
 Background publication uses compare-and-swap on saved channel JSON, invalidates existing guide caches and signals lineup changes. It traverses nested materialized sources, blocks and pins, honoring complete break-policy overrides. Even/between/disabled sections are excluded; non-null empty breaks disables inheritance. No source opening, detector or per-library metadata enrichment runs on requests. Existing schedule logic absorbs pods within the programme/block slot.
 
@@ -39,7 +39,7 @@ Saved Item JSON adds `breakPoints: [{atMs,source,confidence}]`, alongside `break
 
 ## Offline labelled evidence
 
-Generated 3-minute FFV1/PCM fixture: white video, a one-second black + silent interval at 70–71 seconds, and a black interval with continuing tone at 130–131 seconds. Unit signal fixture also includes a five-second black + silent run as a trap. Chapter fixture has one labelled act, a generic chapter and credits.
+Generated 200-second FFV1/PCM fixture: white video, a one-second black + silent interval at 70–71 seconds, and a black interval with continuing tone at 130–131 seconds. Unit signal fixture also includes a five-second black + silent run as a trap. Chapter fixture has one labelled act, a generic chapter and credits.
 
 These are tiny synthetic fixtures, **not real-episode accuracy estimates**. Timing tolerance for the accepted act is ±0.5 seconds. Recall below is relative to the fixture's one known true act.
 
@@ -117,3 +117,31 @@ Evidence media live only in thread storage. W17 copied synthetic stills to `/Use
 
 
 W17 runtime fixes integrated locally: bounded prepared-source ownership holds prevent idle reaping during an analysis job (`ff91dbc55`, locally `e30709fc18`), and a newly admitted setup owner invalidates stale retry backoff (`1d91476ee`, locally `53f3052273`). Normal producer reads still do not refresh abandoned viewer sessions; explicit Stop, cancellation, deadline, owner conversion and shutdown retain their revocation behavior. Focused tests pass. Both full and partial caches include the detector version for future threshold invalidation.
+
+
+## Provider safety and decode optimization (final held set)
+
+Account coordination is **in process**, keyed by the configured provider-account record ID. There are no coordination directories, credential hashes, or new cluster infrastructure. Admission is conservatively idle-only: any existing live source blocks new preparation; each account permits one analysis job and one analysis range. A live reader immediately cancels that account's in-flight background range and suppresses further background reads for its active window. API backoff and media 429/Retry-After are honored across all files on that account. Repeated 429s use exponential delays (30-second minimum, up to 30 minutes, never shortening a longer Retry-After) with bounded jitter. Starts are paced at least 500 ms apart. Existing cluster account-backoff broadcasts are reused; cross-node background concurrency leasing remains a follow-up because the existing update lease is a singleton upgrade primitive, not a reusable keyed account lease. Other independent installs are outside this product coordination scope, as directed.
+
+Held prepared analysis sources use **8 MiB** playback buffers and a two-buffer queue, continuing through `ReadAtPrefetchContext` priority via a named `AnalysisReaderAt` capability. Ordinary viewer, subtitle and probe transport behavior is unchanged. Analysis roles survive detached prefetch work. Automatic duplicate index/trailer fills are skipped for the dedicated analysis source; its explicit bounded chapter probe remains. Source/loopback producers drain before result publication, so late errors cannot become successful full-cache entries. Expected consumer cancellation is excluded from provider-error counts.
+
+`BreakEvidence` now reports provider request count, actual HTTP body bytes, errors and known/unknown status, including source preparation. Logical loopback-delivered bytes remain separately metered. A lasting engine test proves an 8 MiB analysis read produces **one** provider range request and exactly 8 MiB of body-byte accounting. Tests also verify per-account job/range exclusion, viewer cancellation, pacing, cross-file 429 suppression and exponential Retry-After behavior.
+
+Coverage is proved with ffmpeg `progress=end`, decoded timestamps, and video frame count. Long passes must reach the expected end within two seconds; short confirmation windows within 250 ms. A full confirmation also requires the expected 10 fps output count within that tolerance. A successful process exit alone is insufficient. Any source/loopback failure makes the result Partial; verified earlier finished breaks can enter the separate partial cache, and a dark run ending at truncated EOF is excluded. The reproduced 129-second EOF against an expected 1497.455-second episode leaves **zero full-cache rows** and marks Partial. Cache version 2 excludes all old successes, including the invalid empty S1E5 record.
+
+Pre-air decode uses the configured, already-probed hardware backend where available (VideoToolbox, VAAPI, QSV or NVDEC), with software fallback. Software uses one low-priority decoder/filter thread and grayscale decode flags; supported MPEG-2 decoding uses its low-resolution mode. The first filter scales to 160×90 and discards chroma with explicit limited-range luma normalization. No detection threshold changed.
+
+For seekable MKV/MP4 inter-frame video, a first pass computes an 8 kHz mono, 20 ms RMS envelope and sparse keyframe luma. RMS intervals propose conservative windows padded by 1.5 seconds; keyframes do not gate acceptance. Windows merge, then use full-rate decode with the same black/silence/scene confirmation rules. Silence-rich material falls back to one full confirmation pass to avoid a seek storm; all-intra/nonseekable media use a single luma pass. The first pass still reads the entire muxed source: this optimization reduces decode work, **not the mux's first-pass byte requirement**. Candidate seeks can add bytes; budgets bound that cost. Batching reduces request count. Live sampling is the path with zero extra source bytes.
+
+Offline cost/conformance comparison on the worker (200-second fixtures, software backend, same accepted break within 30 ms and dark-with-audio trap rejected):
+
+| Fixture | Original CPU/h | Optimized CPU/h | Original wall/h | Optimized wall/h |
+| --- | ---: | ---: | ---: | ---: |
+| Tiny FFV1/PCM | 6.52 s | 5.92 s | 2.79 s | 2.56 s |
+| 720p H.264/PCM, generated moving pattern | 239.35 s | 19.85 s | 195.28 s | 10.44 s |
+
+The HD fixture improved CPU by **91.7%** and wall by **94.7%** in the latest run; an earlier run measured 87.3%/91.6%. These are local generated fixtures, not a claim about real remux/GPU performance. Fixture encoded sizes were 3,652,239 and 52,385,591 bytes. They use local files, so provider requests/bytes are not applicable (meter unknown). Raw `scan-cost.json` is in `/data/bb/thread-storage/thr_cv85pewpp2/w24-breakpoints/`; no fixture recordings or images are committed.
+
+W17's valid pre-optimization Cheers S1E4 scan: 1499.915 s video, 421.662 CPU seconds and 576.966 wall seconds, approximately **16.87 CPU-minutes and 23.08 wall-minutes per video hour**. Source size was approximately 4.55 GB, roughly **10.92 GB of encoded source per video hour** for a complete first mux pass; exact provider request/body counters were unavailable in that old binary. Raw detected points contain 188950 ms at confidence 0.91. The 653.4–656.7 s black interval was 3.3 s and was excluded by the unchanged maximum. Human labels, full per-signal precision/recall and the final real-ad playback demonstration remain pending resumed safe validation; no threshold was tuned from unreviewed candidates.
+
+Core additions are additive: W17's `SetupOwnerID` constant, two optional analysis reader/stats interfaces, and an internal boolean background-analysis context marker. It carries no caller identity or request values into detached work. Config additions remain exactly the four LiveTV byte-policy fields already documented. App wiring additionally supplies hardware inventory, provider account admission, error/drain hooks and provider statistics to the analyzer. No UI or protected style files changed.
