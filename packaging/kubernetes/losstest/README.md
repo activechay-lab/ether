@@ -147,3 +147,31 @@ substituted for `{readyFile}` only after the fault is active, then blocks on
 stdin. Closing stdin on completion lets the verifier exit and the adapter
 restore its exact container. The runner waits for restoration and reaps the
 adapter; premature adapter exit fails the run.
+
+## Jellyfin client
+
+Use `-protocol jellyfin -prefix /jellyfin` against an enabled MediaBrowser
+surface. Supply either its device-bound token with `-token-file` and
+`-device-id`, or `-credentials-file` pointing to private JSON with `username`
+and `password`. The latter performs `Users/AuthenticateByName` with a fresh
+device identity; passwords and granted tokens are never printed or persisted.
+The client verifies `Users/Me`, posts PlaybackInfo with an HLS H264/AAC TS
+profile, fetches the authored master and variant, and posts Playing,
+Playing/Progress and Playing/Stopped with the actual PlaySessionId and ticks.
+It shares the buffer, retry, segment ledger and continuity checker with Plex.
+The matrix requires a `jellyfin` object containing that surface's URL/auth and
+independent no-loss reference. It appends Jellyfin controller force-delete and
+transcode force-delete cases to the 16 Plex cases. A disabled or unrouted
+Jellyfin surface is an unmet prerequisite, never a successful skipped case.
+
+`TestHLSJellyfinLab` (integration tag) validates login, real MediaBrowser
+handlers, real broker, encoder and media grants with fixture catalog/auth.
+Set the same FFmpeg/FFprobe/output variables as the Plex lab and additionally
+`HLSPLAY_LAB_INPUT` to the generated MP4. It captures its own independent
+reference before requiring clean no-loss playback and HTTP204 progress replies.
+
+For admission diagnosis, Plex supports `-max-video-bitrate`,
+`-video-resolution`, `-direct-stream` and `-direct-play`. The explicit
+`-skip-decision` comparison is always labeled `diagnostic-only` when media
+plays; it can never pass acceptance. Decision followed by start remains the
+primary Plex flow.

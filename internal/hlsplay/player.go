@@ -1,6 +1,7 @@
 package hlsplay
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -13,7 +14,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
@@ -21,6 +21,11 @@ import (
 )
 
 type Config struct {
+	Protocol, Prefix, CredentialsFile, DeviceID                     string
+	DirectPlay, DirectStream                                        bool
+	SkipDecision                                                    bool
+	MaxVideoBitrate                                                 int
+	VideoResolution                                                 string
 	ProducerEvidence                                                string
 	BaseURL, Token, RatingKey, Output, Session, Host                string
 	Window, ForwardBuffer, RequestTimeout, Backoff, SegmentDuration time.Duration
@@ -56,6 +61,8 @@ type Continuity struct {
 	Report   splicecheck.Report
 }
 type Report struct {
+	Protocol                                     string
+	DecisionSkipped                              bool
 	Session                                      string
 	StartedAt                                    time.Time
 	StartupSeconds, ElapsedSeconds               float64
@@ -69,12 +76,13 @@ type Report struct {
 	Continuity                                   Continuity
 }
 type player struct {
-	c        Config
-	client   *http.Client
-	start    time.Time
-	mu       sync.Mutex
-	attempts []Attempt
-	events   *os.File
+	playSession, itemID, mediaSource string
+	c                                Config
+	client                           *http.Client
+	start                            time.Time
+	mu                               sync.Mutex
+	attempts                         []Attempt
+	events                           *os.File
 }
 
 func (p *player) elapsed() float64 { return time.Since(p.start).Seconds() }
@@ -84,6 +92,9 @@ func (p *player) event(v any) {
 	_ = json.NewEncoder(p.events).Encode(v)
 }
 func (p *player) fetch(ctx context.Context, raw, kind string, index int, retry bool) ([]byte, error) {
+	return p.request(ctx, raw, kind, index, retry, "GET", nil)
+}
+func (p *player) request(ctx context.Context, raw, kind string, index int, retry bool, method string, body []byte) ([]byte, error) {
 	u, e := resolve(p.c.BaseURL, raw)
 	if e != nil {
 		return nil, e
@@ -95,15 +106,25 @@ func (p *player) fetch(ctx context.Context, raw, kind string, index int, retry b
 	for n := 1; n <= tries; n++ {
 		a := Attempt{Kind: kind, Index: index, RequestedAt: time.Now().UTC(), ElapsedSeconds: p.elapsed(), Try: n, FirstByteSeconds: -1}
 		begin := time.Now()
-		req, e := http.NewRequestWithContext(ctx, "GET", u, nil)
+		req, e := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(body))
 		if e != nil {
 			return nil, fmt.Errorf("request construction failed")
 		}
-		req.Header.Set("X-Plex-Token", p.c.Token)
-		req.Header.Set("X-Plex-Client-Identifier", p.c.Session)
-		req.Header.Set("X-Plex-Session-Identifier", p.c.Session)
-		req.Header.Set("X-Plex-Product", "Plex Web")
-		req.Header.Set("X-Plex-Platform", "Chrome")
+		if p.c.Protocol == "jellyfin" {
+			req.Header.Set("X-Emby-Token", p.c.Token)
+			req.Header.Set("X-Emby-Device-Id", p.c.DeviceID)
+			req.Header.Set("Authorization", `MediaBrowser Client="Jellyfin Web", Device="Ether lab", DeviceId="`+p.c.DeviceID+`", Version="10.10.0"`)
+		} else {
+			req.Header.Set("X-Plex-Token", p.c.Token)
+			req.Header.Set("X-Plex-Client-Identifier", p.c.Session)
+			req.Header.Set("X-Plex-Session-Identifier", p.c.Session)
+			req.Header.Set("X-Plex-Product", "Plex Web")
+			req.Header.Set("X-Plex-Platform", "Chrome")
+		}
+		if method == "POST" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
 		req.Header.Set("Accept", "application/json")
 		if p.c.Host != "" {
 			req.Host = p.c.Host
@@ -137,7 +158,7 @@ func (p *player) fetch(ctx context.Context, raw, kind string, index int, retry b
 		p.attempts = append(p.attempts, a)
 		p.mu.Unlock()
 		p.event(a)
-		if err == nil && a.Status == 200 {
+		if err == nil && (a.Status == 200 || method == "POST" && a.Status == 204) {
 			return data, nil
 		}
 		retriable := err != nil || a.Status == 404 || a.Status >= 500
@@ -172,8 +193,17 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	if e != nil || base.Host == "" || (base.Scheme != "http" && base.Scheme != "https") || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
 		return r, fmt.Errorf("invalid origin")
 	}
-	if c.Token == "" || c.RatingKey == "" {
+	if (c.Token == "" && c.CredentialsFile == "") || c.RatingKey == "" {
 		return r, fmt.Errorf("viewer token and rating key required")
+	}
+	if c.Protocol == "" {
+		c.Protocol = "plex"
+	}
+	if c.Protocol != "plex" && c.Protocol != "jellyfin" {
+		return r, fmt.Errorf("protocol must be plex or jellyfin")
+	}
+	if c.Prefix == "" {
+		c.Prefix = "/jellyfin"
 	}
 	if c.Session == "" {
 		var nonce [12]byte
@@ -181,6 +211,9 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			return r, e
 		}
 		c.Session = "hlsplay-" + hex.EncodeToString(nonce[:])
+	}
+	if c.DeviceID == "" {
+		c.DeviceID = c.Session
 	}
 	if e = os.Mkdir(c.Output, 0700); e != nil {
 		return r, e
@@ -191,9 +224,12 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	}
 	defer events.Close()
 	p := &player{c: c, start: time.Now(), events: events, client: &http.Client{Timeout: c.RequestTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
-	r = Report{Session: c.Session, StartedAt: p.start.UTC(), IndicesExact: true, Outcome: "failed"}
+	r = Report{Protocol: c.Protocol, Session: c.Session, StartedAt: p.start.UTC(), DecisionSkipped: c.SkipDecision, IndicesExact: true, Outcome: "failed"}
 	b := Buffer{}
 	defer func() {
+		if p.playSession != "" {
+			r.Session = p.playSession
+		}
 		b.Advance(min(p.elapsed(), c.Window.Seconds()))
 		r.Stalls = b.Stalls
 		r.ElapsedSeconds = min(p.elapsed(), c.Window.Seconds())
@@ -224,7 +260,7 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			} else {
 				for i := range r.Segments {
 					for _, row := range rows {
-						if row.Session == c.Session && row.Index == r.Segments[i].Index {
+						if row.Session == r.Session && row.Index == r.Segments[i].Index {
 							r.Segments[i].Generation = row.Generation
 						}
 					}
@@ -247,7 +283,9 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			}
 		}
 		r.PlaybackPassed = r.WindowComplete && r.IndicesExact && len(r.Stalls) == 0 && len(r.Segments) > 0
-		if r.PlaybackPassed && r.Continuity.Verified {
+		if c.SkipDecision && r.PlaybackPassed {
+			r.Outcome = "diagnostic-only"
+		} else if r.PlaybackPassed && r.Continuity.Verified {
 			r.Outcome = "passed"
 		} else if r.PlaybackPassed {
 			r.Outcome = "continuity-unverified"
@@ -264,24 +302,18 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			err = me
 		}
 	}()
-	q := url.Values{"path": {"/library/metadata/" + c.RatingKey}, "session": {c.Session}, "protocol": {"hls"}, "directPlay": {"0"}, "directStream": {"0"}, "videoCodec": {"h264"}, "audioCodec": {"aac"}, "mediaIndex": {"0"}, "partIndex": {"0"}, "offset": {"0"}}
-	control := "/video/:/transcode/universal/"
+	runCtx, cancel := context.WithTimeout(ctx, c.Window)
+	defer cancel()
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		_, _ = p.fetch(cleanup, control+"stop?session="+url.QueryEscape(c.Session), "stop", -1, false)
+		p.finish(cleanup, b.Played)
 	}()
-	runCtx, cancel := context.WithTimeout(ctx, c.Window)
-	defer cancel()
-	if _, err = p.fetch(runCtx, control+"decision?"+q.Encode(), "decision", -1, false); err != nil {
+	absolute, data, openErr := p.open(runCtx)
+	if openErr != nil {
+		err = openErr
 		return
 	}
-	var data []byte
-	startURL := control + "start.m3u8?" + q.Encode()
-	if data, err = p.fetch(runCtx, startURL, "master", -1, false); err != nil {
-		return
-	}
-	absolute, _ := resolve(c.BaseURL, startURL)
 	pl, e := parsePlaylist(absolute, data)
 	if e != nil {
 		err = e
@@ -308,8 +340,8 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			if b.Level == 0 {
 				state = "buffering"
 			}
-			tq := url.Values{"ratingKey": {c.RatingKey}, "key": {"/library/metadata/" + c.RatingKey}, "state": {state}, "time": {strconv.FormatInt(int64(b.Played*1000), 10)}, "duration": {"0"}, "session": {c.Session}}
-			_, _ = p.fetch(runCtx, "/:/timeline?"+tq.Encode(), "timeline", -1, false)
+			_ = p.progress(runCtx, state, b.Played, false)
+
 		}
 		if b.Started && b.Level >= c.ForwardBuffer.Seconds() {
 			sleep(runCtx, 100*time.Millisecond)
@@ -377,8 +409,11 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			progressed = true
 			if !b.Started && b.Level >= c.ForwardBuffer.Seconds() {
 				b.Started = true
+				if c.Protocol == "jellyfin" {
+					_ = p.progress(runCtx, "playing", b.Played, true)
+				}
 				r.StartupSeconds = p.elapsed()
-				p.event(map[string]any{"kind": "playing", "elapsedSeconds": r.StartupSeconds, "wallTime": time.Now().UTC()})
+				p.event(map[string]any{"kind": "playing", "elapsedSeconds": r.StartupSeconds, "wallTime": time.Now().UTC(), "session": p.playSession})
 			}
 		}
 		if err != nil {
@@ -395,6 +430,9 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			ended = true
 			if !b.Started {
 				b.Started = true
+				if c.Protocol == "jellyfin" {
+					_ = p.progress(runCtx, "playing", b.Played, true)
+				}
 				r.StartupSeconds = p.elapsed()
 			}
 		}

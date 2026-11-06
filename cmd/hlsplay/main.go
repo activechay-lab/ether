@@ -33,10 +33,23 @@ func main() {
 	flag.StringVar(&c.FFprobe, "ffprobe", "ffprobe", "packet checker executable")
 	flag.StringVar(&reference, "reference", "", "prior no-loss report.json for exact audio AU comparison")
 	flag.StringVar(&c.ProducerEvidence, "producer-evidence", "", "trusted observer JSON array of session/segmentIndex/generation rows")
+	flag.BoolVar(&c.SkipDecision, "skip-decision", false, "diagnostic only: omit decision preflight (cannot pass acceptance)")
+	flag.IntVar(&c.MaxVideoBitrate, "max-video-bitrate", 0, "optional client maxVideoBitrate (kbps)")
+	flag.StringVar(&c.VideoResolution, "video-resolution", "", "optional client videoResolution")
+	flag.BoolVar(&c.DirectStream, "direct-stream", false, "allow direct stream in client decision")
+	flag.BoolVar(&c.DirectPlay, "direct-play", false, "allow direct play in client decision")
+	flag.StringVar(&c.Protocol, "protocol", "plex", "plex or jellyfin client path")
+	flag.StringVar(&c.Prefix, "prefix", "/jellyfin", "MediaBrowser surface prefix")
+	flag.StringVar(&c.DeviceID, "device-id", "", "bound viewer grant device ID (default random client ID)")
+	flag.StringVar(&c.CredentialsFile, "credentials-file", "", "Jellyfin lab login JSON with username/password; credentials never printed")
 	flag.Parse()
-	token, e := os.ReadFile(tokenFile)
-	if e != nil {
-		fmt.Fprintln(os.Stderr, "cannot read viewer token file")
+	var token []byte
+	var e error
+	if tokenFile != "" {
+		token, e = os.ReadFile(tokenFile)
+	}
+	if e != nil || (tokenFile == "" && c.CredentialsFile == "") {
+		fmt.Fprintln(os.Stderr, "supply readable viewer token or Jellyfin credentials file")
 		os.Exit(2)
 	}
 	c.Token = strings.TrimSpace(string(token))

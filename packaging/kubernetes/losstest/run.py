@@ -60,14 +60,17 @@ def run(c, out):
     if not 15 <= window <= 3600:
         raise ValueError('window must be 15..3600 seconds')
     session = 'loss-' + os.urandom(12).hex()
-    argv = [c['hlsplay'], '-url', c['url'], '-token-file', c['tokenFile'],
+    argv = [c['hlsplay'], '-url', c['url'],
             '-rating-key', str(c['ratingKey']), '-output', str(out/'player'),
             '-session', session, '-window', f'{window}s',
             '-buffer', f"{c.get('bufferSeconds', 30)}s"]
-    for key, flag in [('host', '-host'), ('ffmpeg', '-ffmpeg'), ('ffprobe', '-ffprobe'),
-                      ('reference', '-reference'), ('producerEvidence', '-producer-evidence')]:
+    for key, flag in [('tokenFile', '-token-file'), ('credentialsFile', '-credentials-file'), ('protocol', '-protocol'), ('prefix', '-prefix'), ('deviceID', '-device-id'), ('host', '-host'), ('ffmpeg', '-ffmpeg'), ('ffprobe', '-ffprobe'),
+                      ('reference', '-reference'), ('producerEvidence', '-producer-evidence'), ('maxVideoBitrate', '-max-video-bitrate'), ('videoResolution', '-video-resolution')]:
         if c.get(key):
-            argv += [flag, c[key]]
+            argv += [flag, str(c[key])]
+    for key, flag in [('skipDecision', '-skip-decision'), ('directStream', '-direct-stream'), ('directPlay', '-direct-play')]:
+        if c.get(key):
+            argv += [flag]
     k = ['kubectl', '--kubeconfig', c.get('kubeconfig', ''), '--request-timeout=10s',
          '-n', c.get('namespace', '')]
     target = None
@@ -102,6 +105,10 @@ def run(c, out):
                             rows.append(json.loads(line))
                         except json.JSONDecodeError:
                             pass  # Writer may be in the middle of its last row.
+                server_sessions = [r['session'] for r in rows if r.get('kind') == 'session']
+                if server_sessions:
+                    session = server_sessions[-1]
+                    report['session'] = session
                 segments = [r for r in rows if 'ReceivedAt' in r]
                 playing = [r for r in rows if r.get('kind') == 'playing']
                 # Early = 2s after first received segment, before 10s of media.
@@ -250,16 +257,23 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--config', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)
-    ap.add_argument('--matrix', action='store_true', help='run controller/source/transcode/delivery x force-delete/pause x early/steady; config needs targets[role]')
+    ap.add_argument('--matrix', action='store_true', help='run 16 Plex role/action/phase cases plus Jellyfin controller/transcode loss; config needs targets[role] and jellyfin')
     a = ap.parse_args()
     c = json.loads(a.config.read_text())
     if a.matrix:
+        if not c.get('jellyfin'):
+            ap.error('--matrix requires jellyfin client config for controller/transcode cases')
         ok = True
         for role in ('controller', 'source', 'transcode', 'delivery'):
             for action in ('force-delete', 'pause'):
                 for phase in ('early', 'steady'):
-                    case = dict(c, **c['targets'][role]); case.update(role=role, action=action, phase=phase)
+                    case = dict(c, **c['targets'][role]); case.update(protocol='plex', role=role, action=action, phase=phase)
                     ok = run(case, a.output/f'{role}-{action}-{phase}') and ok
+        if c.get('jellyfin'):
+            for role in ('controller', 'transcode'):
+                case = dict(c, **c['jellyfin']); case.update(c['targets'][role])
+                case.update(protocol='jellyfin', role=role, action='force-delete', phase='steady')
+                ok = run(case, a.output/f'jellyfin-{role}-force-delete-steady') and ok
     else:
         ok = run(c, a.output)
     return 0 if ok else 1

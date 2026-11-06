@@ -6,6 +6,7 @@ package plex
 // loopback media. Catalog/auth are deterministic local fixtures; no provider or
 // account is contacted. Evidence lives in HLSPLAY_LAB_OUTPUT, outside the repo.
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -19,7 +20,13 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/caps"
+	"github.com/braedonsaunders/ether/internal/frontends/mediabrowser"
 	"github.com/braedonsaunders/ether/internal/hlsplay"
+	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -223,3 +230,111 @@ func TestHLSPlayerDriverLab(t *testing.T) {
 		t.Fatalf("driver report: %v passed=%t", e, report.Passed)
 	}
 }
+
+// TestHLSJellyfinLab mounts the shipping MediaBrowser front end on the same
+// real broker and encoder as the Plex lab. Only catalog and identity are fakes.
+func TestHLSJellyfinLab(t *testing.T) {
+	root, input, ff, fp := os.Getenv("HLSPLAY_LAB_OUTPUT"), os.Getenv("HLSPLAY_LAB_INPUT"), os.Getenv("HLSPLAY_FFMPEG"), os.Getenv("HLSPLAY_FFPROBE")
+	if root == "" || input == "" || ff == "" || fp == "" {
+		t.Skip("explicit generated-media Jellyfin lab only")
+	}
+	if e := os.MkdirAll(root, 0700); e != nil {
+		t.Fatal(e)
+	}
+	credentials := filepath.Join(root, "credentials.json")
+	if e := os.WriteFile(credentials, []byte(`{"username":"lab-viewer","password":"offline-lab"}`), 0600); e != nil {
+		t.Fatal(e)
+	}
+	source := httptest.NewServer(http.FileServer(http.Dir(filepath.Dir(input))))
+	defer source.Close()
+	for _, name := range []string{"reference", "baseline"} {
+		t.Run(name, func(t *testing.T) {
+			manager, e := transcode.New(config.Transcode{FFmpegPath: ff, FFprobePath: fp, HWAccel: "none", TempDir: filepath.Join(root, name+"-scratch")}, slog.Default(), transcode.WithRunner(&playerLabRunner{}))
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer manager.Close()
+			info, e := manager.Probe(context.Background(), source.URL+"/"+filepath.Base(input))
+			if e != nil {
+				t.Fatal(e)
+			}
+			f := newFixture(func(d *Deps) { d.Hooks = Hooks{} })
+			defer f.srv.Close()
+			f.playback.info = *info
+			mediaBytes, readErr := os.ReadFile(input)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			f.srv.d.Playback = &jellyfinLabPlayback{playerLabPlayback: &playerLabPlayback{f.playback, source.URL + "/" + filepath.Base(input)}, source: &jellyfinLabSource{bytes.NewReader(mediaBytes)}}
+			f.srv.d.Transcoder = manager
+			identity := frontendtest.Identity{ResolveFunc: func(_ context.Context, token string) (*core.Viewer, error) {
+				if token != ownerToken {
+					return nil, core.ErrUnauthorized
+				}
+				v := ownerUser
+				return &v, nil
+			}, SignInFunc: func(_ context.Context, user, password string, device core.Device) (string, error) {
+				if user != "lab-viewer" || password != "offline-lab" || device.ID == "" {
+					return "", core.ErrUnauthorized
+				}
+				return ownerToken, nil
+			}}
+			var server *httptest.Server
+			inst, e := (mediabrowser.Jellyfin{MachineID: "hlsplay-lab"}).Mount(context.Background(), frontend.Host{Identity: identity, Sessions: sessions.BindSurface(f.broker, "jellyfin"), Capabilities: frontendtest.Capabilities{BuildFunc: func(ctx context.Context, req frontend.CapabilityRequest) (frontend.CapabilityResult, error) {
+				client, e := (caps.Builder{}).Build(ctx, req.Device, req.Profile, req.ProtocolInfo, req.UserAgent)
+				return frontend.CapabilityResult{Client: client}, e
+			}}, SurfaceURL: func(context.Context, *http.Request) (string, error) { return server.URL + "/jellyfin", nil }})
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer inst.Close(context.Background())
+			server = httptest.NewServer(inst.Handler())
+			defer server.Close()
+			c := hlsplay.Config{Protocol: "jellyfin", BaseURL: server.URL, CredentialsFile: credentials, RatingKey: fightClub.Key.String(), Output: filepath.Join(root, name), Window: 22 * time.Second, ForwardBuffer: 8 * time.Second, RequestTimeout: 10 * time.Second, Backoff: 100 * time.Millisecond, Tries: 2, SegmentDuration: 4 * time.Second, FFmpeg: ff, FFprobe: fp}
+			if name == "baseline" {
+				c.Reference, e = hlsplay.LoadReference(filepath.Join(root, "reference/report.json"))
+				if e != nil {
+					t.Fatal(e)
+				}
+			}
+			r, e := hlsplay.Run(context.Background(), c)
+			if e != nil || !r.PlaybackPassed {
+				t.Fatalf("Jellyfin playback: err=%v outcome=%s segments=%d", e, r.Outcome, len(r.Segments))
+			}
+			if name == "baseline" && !r.Continuity.Verified {
+				t.Fatalf("Jellyfin continuity: %+v", r.Continuity)
+			}
+			for _, a := range r.Attempts {
+				if a.Kind == "timeline" && a.Status != 204 {
+					t.Fatalf("Jellyfin progress HTTP %d", a.Status)
+				}
+			}
+			t.Logf("Jellyfin %s: %s, segments=%d stalls=%d", name, r.Outcome, len(r.Segments), len(r.Stalls))
+		})
+	}
+}
+
+type jellyfinLabSource struct{ *bytes.Reader }
+
+func (*jellyfinLabSource) Name() string      { return "fixture.mp4" }
+func (*jellyfinLabSource) ReleaseID() string { return "hlsplay-generated" }
+func (*jellyfinLabSource) Close() error      { return nil }
+
+type jellyfinLabPlayback struct {
+	*playerLabPlayback
+	source core.MediaSource
+}
+
+func (p *jellyfinLabPlayback) PrepareSurface(ctx context.Context, v *core.User, k core.RatingKey, c core.ClientCaps, _ string, _ bool) (*core.PlaySession, error) {
+	s, e := p.Prepare(ctx, v, k, c)
+	if e == nil {
+		s.Source = p.source
+		s.Resolution = &core.Resolution{Release: core.Release{ID: p.source.ReleaseID()}}
+	}
+	return s, e
+}
+func (p *jellyfinLabPlayback) SessionForSurface(_ string, v int64, c string, k core.RatingKey, _ string, _ bool) (*core.PlaySession, bool) {
+	return p.SessionFor(v, c, k)
+}
+func (p *jellyfinLabPlayback) MarkSurfaceOpened(id string) bool   { _, ok := p.Session(id); return ok }
+func (p *jellyfinLabPlayback) MarkSurfacePrepared(id string) bool { _, ok := p.Session(id); return ok }
