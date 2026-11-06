@@ -51,7 +51,15 @@ export function clusterActivity(
     if (!s.cluster)
       s.cluster = {
         source: name(s.node || status.self.id),
-        encoder: s.decision === "directplay" ? t("Not needed") : t("Not reported"),
+        encoder:
+          s.decision === "directplay"
+            ? t("Not needed")
+            : s.processor === "gpu"
+              ? t("GPU · {encoder}", { encoder: name(s.node || status.self.id) })
+              : t("{node} · {encoder}", {
+                  node: name(s.node || status.self.id),
+                  encoder: s.processor === "cpu" ? t("CPU") : t("Not reported"),
+                }),
         delivery: t("Any delivery node"),
         recovering: false,
       };
