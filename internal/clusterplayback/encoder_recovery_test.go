@@ -73,7 +73,19 @@ func (s *recoveryTestSession) ServeSegment(w http.ResponseWriter, q *http.Reques
 // The encoded bytes are a recorded offline TS fixture: it tests ownership and
 // complete/unique delivery, not real decoder or audio splice continuity.
 func TestEncoderLossRecoveryInvariant(t *testing.T) {
-	for _, mode := range []string{"ramp", "exit", "partition", "newboot", "boot-before-recovery", "removed", "clock", "tls-replaced", "tls-denied", "gone", "pause", "refused"} {
+	testEncoderLossRecoveryInvariant(t, false)
+}
+
+func TestReencodedAACLossRecoveryInvariant(t *testing.T) {
+	testEncoderLossRecoveryInvariant(t, true)
+}
+
+func testEncoderLossRecoveryInvariant(t *testing.T, reencoded bool) {
+	modes := []string{"exit", "partition", "newboot", "boot-before-recovery", "removed", "clock", "tls-replaced", "tls-denied", "gone", "pause", "refused"}
+	if !reencoded {
+		modes = append(modes, "ramp")
+	}
+	for _, mode := range modes {
 		t.Run(mode, func(t *testing.T) {
 			fixtureStarted := time.Now()
 			data, err := os.ReadFile("../playbackbuffer/testdata/cpu.ts")
@@ -217,6 +229,15 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				t.Fatal(err)
 			}
 			q := core.HLSRequest{SessionID: "recover", Info: core.MediaInfo{Duration: time.Minute, Container: "mkv", Streams: []core.StreamInfo{{Type: "video", Codec: "h264", Height: 720}}}, SegmentDuration: 4 * time.Second, Decision: core.Decision{Kind: core.DecisionTranscode, VideoCopy: false, AudioCopy: true, Container: "mpegts", SubtitleStream: -1}}
+			if reencoded {
+				q.Decision.AudioCopy = false
+				q.Decision.VideoCodec = "h264"
+				q.Decision.AudioCodec = "aac"
+				q.Decision.AudioStream = 1
+				q.Decision.AudioChannels = 2
+				q.Info.Streams[0].FrameRate = 24
+				q.Info.Streams = append(q.Info.Streams, core.StreamInfo{Index: 1, Type: "audio", Codec: "ac3", SampleRate: 48000, DecodedPadding: 256, Channels: 6})
+			}
 			session, err := front.StartPreparedHLS(ctx, 9, prepared, q)
 			if err != nil {
 				t.Fatal(err)
@@ -437,7 +458,7 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			if err != nil || record.Generation != 2 || record.Target.NodeID != "b" {
 				t.Fatalf("replacement: %+v %v", record, err)
 			}
-			if len(b.requests) != 1 || b.requests[0].Resume == nil || *b.requests[0].Resume != (core.HLSResume{FirstSegment: int(prefix.Buffer.State.PublishedFloor + 1), Generation: 2}) || !reflect.DeepEqual(b.requests[0].Decision, q.Decision) {
+			if len(b.requests) != 1 || b.requests[0].Resume == nil || *b.requests[0].Resume != (core.HLSResume{FirstSegment: int(prefix.Buffer.State.PublishedFloor + 1), Generation: 2}) || !reflect.DeepEqual(b.requests[0].Decision, q.Decision) || !reflect.DeepEqual(b.requests[0].Info, q.Info) {
 				t.Fatalf("immutable plan/resume: %+v", b.requests)
 			}
 			if mode == "ramp" && (b.requests[0].Ramp != (core.HLSRamp{Version: 1, Segments: 2, Duration: 2 * time.Second}) || a.requests[0].Ramp != b.requests[0].Ramp) {

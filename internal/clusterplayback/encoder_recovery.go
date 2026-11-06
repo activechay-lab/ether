@@ -58,8 +58,32 @@ func (r *Runtime) probeEncoder(ctx context.Context, x *execution) (string, error
 
 // encoderRecoverySupported is shared with dead-boot retirement: lack of spare
 // capacity or a temporary RPC failure must not turn a recoverable plan terminal.
-func encoderRecoverySupported(q core.HLSRequest) bool {
-	return !q.Decision.VideoCopy && q.Decision.AudioCopy && q.Decision.Kind == core.DecisionTranscode && q.Decision.Container == "mpegts" && q.StartOffset == 0 && q.RecoveryStart == nil && !q.LiveInput && q.SoftSubtitleStream == nil
+func encoderRecoverySupported(q core.HLSRequest, encoder string) bool {
+	if q.Decision.VideoCopy || q.Decision.Kind != core.DecisionTranscode || q.Decision.Container != "mpegts" || q.StartOffset != 0 || q.RecoveryStart != nil || q.LiveInput || q.SoftSubtitleStream != nil || (q.Protocol != "" && q.Protocol != core.ProtocolHLS) {
+		return false
+	}
+	// Preserve the existing copied-audio scope. Reencoded audio has separate
+	// PCM/sample-grid proof; copied access-unit equality is not its oracle.
+	if q.Decision.AudioCopy {
+		return true
+	}
+	// Initially admit only the measured software H264 / AC3 -> AAC profile.
+	// Zero output rate is the encoder's fixed 48kHz default. Source padding
+	// is the durable probe fact (zero is valid), never inferred on recovery.
+	d := q.Decision
+	if q.Ramp.Segments != 0 || encoder != "cpu" || d.VideoCodec != "h264" || d.AudioCodec != "aac" || q.Info.Duration <= 0 || len(q.SlateText) != 0 || d.BurnSubtitles || d.ToneMap || d.Enhancement != (core.VideoEnhancement{}) || len(d.AudioFilters) != 0 || (d.AudioSampleRate != 0 && d.AudioSampleRate != 48000) || (d.AudioChannels != 0 && d.AudioChannels != 2) {
+		return false
+	}
+	v := q.Info.Video()
+	if v == nil || v.FrameRate <= 0 || v.VariableFrameRate {
+		return false
+	}
+	for _, a := range q.Info.Streams {
+		if a.Type == "audio" && a.Index == d.AudioStream {
+			return a.Codec == "ac3" && (a.SampleRate == 48000 || a.SampleRate == 44100) && a.DecodedPadding >= 0
+		}
+	}
+	return false
 }
 
 func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
@@ -87,7 +111,7 @@ func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
 		return err
 	}
 	q := cloneAdmissionRequest(x.initial.request)
-	if !encoderRecoverySupported(q) {
+	if !encoderRecoverySupported(q, old.route.Encoder) {
 		return remotetranscode.ErrUnsupported
 	}
 	next := int(snapshot.State.PublishedFloor + 1)

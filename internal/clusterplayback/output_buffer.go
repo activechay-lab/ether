@@ -45,7 +45,7 @@ type bufferedSession struct {
 func (r *Runtime) newBufferedSession(route Route, q core.HLSRequest, s *remotetranscode.Session) *bufferedSession {
 	// No implicit conversion, ABR, seek, subtitle or other representation cache.
 	// Those operations continue using the existing exact remote adapter.
-	if r.automaticOutput && (q.Decision.Kind != core.DecisionTranscode || q.Decision.VideoCopy || !q.Decision.AudioCopy) {
+	if r.automaticOutput && !encoderRecoverySupported(q, route.Encoder) {
 		return nil
 	}
 	if r.o.OutputBuffer == nil || s == nil || q.StartOffset != 0 || q.LiveInput || q.Decision.Container != "mpegts" || (q.Protocol != "" && q.Protocol != core.ProtocolHLS) || len(s.Rungs()) > 1 {

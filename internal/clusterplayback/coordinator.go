@@ -232,7 +232,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		slog.Info("encoder recovery armed", "session", rt.Fence.Session, "generation", rt.Fence.Generation, "worker", rt.Fence.Target.NodeID, "worker_boot", rt.Fence.Target.Boot)
 		return r.recoveryDelivery(output), nil
 	}
-	if encoderRecoverySupported(q) {
+	if encoderRecoverySupported(q, rt.Encoder) {
 		slog.Warn("encoder recovery unavailable", "session", rt.Fence.Session, "generation", rt.Fence.Generation, "detector", "output-buffer-unavailable", "rungs", len(x.session.Rungs()), "protocol", q.Protocol)
 	}
 	return &controlledSession{Session: x.session, r: r}, nil
@@ -334,6 +334,12 @@ func (r *Runtime) selectTargetCandidates(ctx context.Context, q core.HLSRequest,
 			} else {
 				failure.Unavailable++
 			}
+			continue
+		}
+		// Reencoded AAC recovery is proven only on the software encoder. This
+		// also applies to capacity retries, which pass through this selector.
+		if q.Resume != nil && !q.Decision.AudioCopy && (!encoderRecoverySupported(q, "cpu") || hardwareEncoder != "") {
+			failure.Unsupported++
 			continue
 		}
 		if !supportedRequest(q, caps) {
