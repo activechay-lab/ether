@@ -175,6 +175,7 @@ type PlaySession struct {
 	// Status for the admin dashboard and /status/sessions, filled on the
 	// snapshots Playback returns.
 	TitleName        string       // "Movie (2024)" or "Show - S01E02 - Episode"
+	LiveChannel      *LiveChannel `json:"liveChannel,omitempty"` // selected channel, including when programme metadata is available
 	Username         string       // user display name
 	Client           ClientCaps   // the client's product, device and limits
 	DecisionReason   string       `json:"decisionReason,omitempty"`
@@ -217,6 +218,13 @@ type PlaySession struct {
 	// and mid-play buffering (additive). Nil for a source no play request
 	// or client timeline has reached.
 	Experience *PlayExperience `json:"experience,omitempty"`
+}
+
+// LiveChannel identifies a live session's selected channel independently of its programme.
+type LiveChannel struct {
+	ID     string `json:"id,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Number string `json:"number,omitempty"`
 }
 
 // SourceReleaseID identifies the selected release when one is available.

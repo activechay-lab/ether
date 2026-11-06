@@ -1,7 +1,7 @@
 import { cn } from "@braedonsaunders/appkit-ui";
 import { Film } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiBlob, imageNeedsFetch } from "../lib/api";
+import { apiImage, imageNeedsFetch } from "../lib/api";
 import { initials } from "../lib/format";
 
 /**
@@ -18,6 +18,7 @@ export function Artwork({
   imgClassName,
   eager,
   icon,
+  onImageResponse,
 }: {
   src?: string | null;
   alt: string;
@@ -27,6 +28,12 @@ export function Artwork({
   imgClassName?: string;
   eager?: boolean;
   icon?: React.ReactNode;
+  /**
+   * Runs once when an authenticated image is fetched, before its blob is
+   * shown. Only images that go through fetch() carry response headers; a plain
+   * <img> never reports one. Keep it stable across renders.
+   */
+  onImageResponse?: (response: Response) => void;
 }) {
   const needsFetch = imageNeedsFetch(src);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -42,9 +49,10 @@ export function Artwork({
     let url: string | null = null;
     const ctl = new AbortController();
     const load = () => {
-      apiBlob(src, ctl.signal)
-        .then((b) => {
-          url = URL.createObjectURL(b);
+      apiImage(src, ctl.signal)
+        .then(async (response) => {
+          onImageResponse?.(response);
+          url = URL.createObjectURL(await response.blob());
           setBlobUrl(url);
         })
         .catch(() => {
@@ -72,7 +80,7 @@ export function Artwork({
       if (url) URL.revokeObjectURL(url);
       setBlobUrl(null);
     };
-  }, [needsFetch, src, eager]);
+  }, [needsFetch, src, eager, onImageResponse]);
 
   const shown = needsFetch ? blobUrl : (src ?? null);
   const failed = Boolean(src) && failedSrc === src;

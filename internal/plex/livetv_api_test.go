@@ -2,6 +2,7 @@ package plex
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"html"
 	"net/http"
@@ -68,6 +69,53 @@ func TestLiveTuneTimeoutIsRetryableUnavailable(t *testing.T) {
 		t.Fatalf("timeout returned internal error or leaked session: status=%d retry=%q", r.Code, r.Header().Get("Retry-After"))
 	}
 }
+
+func TestLiveChannelIdentifiersForTuning(t *testing.T) {
+	f, _, channel := liveFixture(t)
+	paths := []string{
+		liveProviderPath + "/lineups/dvr/channels",
+		"/livetv/epg/channels", "/livetv/epg/lineupchannels", "/livetv/epg/channelmap",
+		"/media/grabbers/devices/1/channels", "/media/grabbers/devices/1/channelmap",
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			jsonResponse := f.request(t, "GET", path, map[string]string{"Accept": "application/json"})
+			if jsonResponse.Code != http.StatusOK {
+				t.Fatalf("JSON status %d: %s", jsonResponse.Code, jsonResponse.Body.String())
+			}
+			channels := decodeJSON(t, jsonResponse)["Channel"].([]any)
+			if len(channels) != 1 {
+				t.Fatalf("channels: %s", jsonResponse.Body.String())
+			}
+			ch := channels[0].(map[string]any)
+			if _, exists := ch["key"]; exists || ch["id"] != channel.ID || ch["gridKey"] != channel.ID {
+				t.Fatalf("channel identifiers: %s", jsonResponse.Body.String())
+			}
+			xmlResponse := f.request(t, "GET", path, map[string]string{"Accept": "application/xml"})
+			var container struct {
+				Channels []struct {
+					Attrs []xml.Attr `xml:",any,attr"`
+				} `xml:"Channel"`
+			}
+			if xmlResponse.Code != http.StatusOK || xml.Unmarshal(xmlResponse.Body.Bytes(), &container) != nil || len(container.Channels) != 1 {
+				t.Fatalf("XML channels: %d %s", xmlResponse.Code, xmlResponse.Body.String())
+			}
+			attrs := map[string]string{}
+			for _, attr := range container.Channels[0].Attrs {
+				attrs[attr.Name.Local] = attr.Value
+			}
+			if _, exists := attrs["key"]; exists || attrs["id"] != channel.ID || attrs["gridKey"] != channel.ID {
+				t.Fatalf("XML channel identifiers: %s", xmlResponse.Body.String())
+			}
+		})
+	}
+	// Plezy falls back to id when key is absent and uses it in the tune path.
+	tune := f.request(t, "POST", "/livetv/dvrs/1/channels/"+url.PathEscape(channel.ID)+"/tune", map[string]string{"Accept": "application/json"})
+	if tune.Code != http.StatusOK {
+		t.Fatalf("tune by channel id: %d %s", tune.Code, tune.Body.String())
+	}
+}
+
 func TestLiveTVDVRGuideProviderAndTuneShapes(t *testing.T) {
 	f, _, channel := liveFixture(t)
 	// Official PMS contract uses a Dvr list, Device children, Channel grid keys,
