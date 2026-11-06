@@ -584,7 +584,9 @@ func (b *broadcast) run() {
 		}
 		// Feed a bounded amount ahead of the encoder. Startup must not turn a
 		// healthy fast encoder into a video-degradation event through queue growth.
-		if b.bursting && (scheduled.After(now.Add(b.startupTarget+4*time.Second)) || b.startupQueueFull()) {
+		// Due ticks still enter the continuous PCM queue: pacing those behind a
+		// slow encoder would prevent the queue's picture degradation from helping.
+		if b.bursting && scheduled.After(now) && (scheduled.After(now.Add(b.startupTarget+4*time.Second)) || b.startupQueueFull()) {
 			timer.Reset(2 * time.Millisecond)
 			continue
 		}
