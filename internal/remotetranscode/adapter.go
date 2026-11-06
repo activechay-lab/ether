@@ -107,7 +107,7 @@ func (a *Adapter) StartHLSOwned(ctx context.Context, r core.HLSRequest) (core.HL
 	if !validIdentity(assignment.Identity) || assignment.Identity.Session != r.SessionID || len(assignment.Grant) == 0 || len(assignment.Grant) > 4096 || !assignment.Expires.After(time.Now()) {
 		return nil, nil, errors.New("remotetranscode: invalid assignment")
 	}
-	start := Start{RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: append([]core.KeyframePoint(nil), r.Info.Keyframes...), SoftSubtitleStream: r.SoftSubtitleStream, Protocol: r.Protocol, ReleaseID: r.ReleaseID, Identity: assignment.Identity, Grant: assignment.Grant, Expires: assignment.Expires, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof}
+	start := Start{Resume: cloneResume(r.Resume), RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: append([]core.KeyframePoint(nil), r.Info.Keyframes...), SoftSubtitleStream: r.SoftSubtitleStream, Protocol: r.Protocol, ReleaseID: r.ReleaseID, Identity: assignment.Identity, Grant: assignment.Grant, Expires: assignment.Expires, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof}
 	b, err := json.Marshal(start)
 	if err != nil || len(b) > MaxMessage-1024 {
 		return nil, nil, ErrUnsupported
@@ -274,11 +274,15 @@ func (s *Session) SwapInput(context.Context, string, core.MediaInfo, time.Durati
 }
 func (s *Session) Close() error { return s.RetireEncoder() }
 func (s *Session) RetireEncoder() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return s.RetireEncoderContext(ctx)
+}
+
+func (s *Session) RetireEncoderContext(ctx context.Context) error {
 	s.mu.Lock()
 	s.stopped = true
 	s.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	r, e := s.adapter.call(ctx, message{Op: "stop", Identity: s.id}, nil)
 	if e != nil {
 		return ErrUncertain

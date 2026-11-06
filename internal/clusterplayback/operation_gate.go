@@ -24,10 +24,9 @@ CREATE TABLE clusterplayback_operation_gates (
 `)
 }
 
-// All types and methods here are storage-only historical bookkeeping. They do
-// not authenticate a Worker handle or observer, issue a permit, authorize a seal,
-// prove retirement, or implement an execution veto. No production caller uses
-// the mutation methods. A separate reviewed integration must own those checks.
+// Gate records bind durable admission to exact worker acceptance and arming.
+// Their values are historical bookkeeping; live authority is rechecked by the
+// Start authorizer and every generation consumer. They never prove retirement.
 type operationKey struct {
 	Cluster, Session string
 	Generation       int64

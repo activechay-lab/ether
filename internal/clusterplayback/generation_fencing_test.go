@@ -3,6 +3,7 @@ package clusterplayback
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -133,6 +134,16 @@ func TestPartitionedGenerationCannotPublishRenewOrReleaseReplacement(t *testing.
 	defer client.CloseIdleConnections()
 	id := remoteIdentity(route)
 	start := remotetranscode.Start{Identity: id, Grant: bound.Stable, Expires: time.Now().Add(750 * time.Millisecond), Info: ps.Info, Decision: core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, SubtitleStream: -1}}
+	// Production worker admission now requires the exact durable operation gate.
+	startBytes, _ := json.Marshal(start)
+	admission := admissionRecord{Version: 1, Route: route, Operation: sha256.Sum256([]byte("initial")), Request: core.HLSRequest{SessionID: id.Session, Info: ps.Info, Decision: start.Decision}, Identity: id, StartHash: sha256.Sum256(startBytes)}
+	admissionRaw, err := admission.encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = source.insertAdmission(ctx, admission, admissionRaw); err != nil {
+		t.Fatal(err)
+	}
 	rpc := func(op string, extra map[string]any) *http.Response {
 		t.Helper()
 		m := map[string]any{"Version": remotetranscode.Version, "Op": op, "Identity": id}
