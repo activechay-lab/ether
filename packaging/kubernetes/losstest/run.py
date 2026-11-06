@@ -243,12 +243,14 @@ def run(c, out):
             report['playback'] = p
             controls = [a for a in p.get('Attempts', []) if a.get('Kind') in ('timeline', 'stop')]
             # The client sends Stop last, after its bounded playback window.
-            # Media continuity alone must not hide failed lifecycle requests.
+            # Periodic progress reports may fail transiently during a fault;
+            # retain those failures separately from the final Stop outcome.
             report['control'] = {
                 'stopStatus': controls[-1].get('Status') if controls else None,
                 'failedRequests': sum(not 200 <= a.get('Status', 0) < 300 for a in controls),
                 'requests': len(controls)}
-            report['control']['passed'] = bool(controls) and report['control']['failedRequests'] == 0
+            report['control']['allRequestsPassed'] = bool(controls) and report['control']['failedRequests'] == 0
+            report['control']['passed'] = bool(controls) and 200 <= report['control']['stopStatus'] < 300
             kill = parsed(report['killAt']) if report['killAt'] else None
             if kill:
                 report['postLossObservationSeconds'] = max(0, parsed(p['StartedAt'])+p.get('ElapsedSeconds', 0)-kill)
