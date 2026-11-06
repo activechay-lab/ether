@@ -196,3 +196,11 @@ keep the shared ingress origin. Redirects remain refused; origin pins cannot
 contain credentials, queries, fragments or path prefixes. Reports mark
 `ControlOriginsPinned` so this diagnostic placement is distinguishable from
 ordinary ingress load balancing.
+
+A coordinated supervised encoder run may supply a unique `session` and
+`steadySeconds` (default10). The latter schedules loss after that much actual
+playback time following startup buffering. For a 180s fixture, a 170s window
+with `steadySeconds: 60` leaves approximately90s after the fault; report the
+actual timestamps and generation boundary rather than assuming that entire
+tail was produced by the replacement. Verify hardware placement and the live
+encoder before invoking a native supervisor's exact-process kill hook.

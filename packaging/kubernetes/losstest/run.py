@@ -59,7 +59,7 @@ def run(c, out):
     window = c.get('windowSeconds', 90)
     if not 15 <= window <= 3600:
         raise ValueError('window must be 15..3600 seconds')
-    session = 'loss-' + os.urandom(12).hex()
+    session = c.get('session') or 'loss-' + os.urandom(12).hex()
     argv = [c['hlsplay'], '-url', c['url'],
             '-rating-key', str(c['ratingKey']), '-output', str(out/'player'),
             '-session', session, '-window', f'{window}s',
@@ -114,7 +114,7 @@ def run(c, out):
                 # Early = 2s after first received segment, before 10s of media.
                 # Steady = buffered playback established plus 10s of play time.
                 ready = (phase == 'early' and segments and time.time()-parsed(segments[0]['ReceivedAt']) >= 2)
-                ready = ready or (phase == 'steady' and playing and time.time()-parsed(playing[0]['wallTime']) >= 10)
+                ready = ready or (phase == 'steady' and playing and time.time()-parsed(playing[0]['wallTime']) >= c.get('steadySeconds', 10))
                 if ready and not injected:
                     injected = True
                     if c.get('targetArgv'):
