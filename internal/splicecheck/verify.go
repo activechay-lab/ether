@@ -212,6 +212,16 @@ func timing(obs []observation, segs []Segment, r *Report, o Options) {
 				haveAudio = true
 			}
 		}
+		if len(o.Timeline) > 0 {
+			// Check the terminal boundary too: spacing alone cannot detect a
+			// truncated final segment (or a one-segment candidate).
+			expected := (o.Timeline[segs[i].Index+1] - o.Timeline[segs[i].Index]).Seconds()
+			frame := frameTolerance(x) - 0.000025
+			span := x.last - x.first + frame
+			if math.Abs(span-expected) > frameTolerance(x) {
+				r.GridDurations = Result{false, fmt.Sprintf("segment %d span %.9fs, want %.9fs", segs[i].Index, span, expected)}
+			}
+		}
 		if i > 0 {
 			expected := o.SegmentDuration.Seconds()
 			if len(o.Timeline) > 0 {
