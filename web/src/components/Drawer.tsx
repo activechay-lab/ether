@@ -7,6 +7,7 @@ import {
   useEffect,
   useId,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 import { t } from "../i18n";
@@ -67,6 +68,8 @@ export function Drawer({
   );
 }
 
+const DOCKED_EXIT_MS = 300;
+
 /** A desktop record pane beside a live list. No backdrop or focus trap: owners
  * can click and Tab between the list and editor. Child editors remain modal. */
 function DockedDrawer({
@@ -109,20 +112,40 @@ function DockedDrawer({
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
     };
   }, [open]);
-  if (!open) return null;
+  // Stay mounted through the exit so the pane slides out like the AppKit
+  // drawers instead of vanishing; reduced motion fades instead of sliding.
+  const [mounted, setMounted] = useState(open);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      const frame = requestAnimationFrame(() => setShown(true));
+      return () => cancelAnimationFrame(frame);
+    }
+    setShown(false);
+    const timer = window.setTimeout(() => setMounted(false), DOCKED_EXIT_MS);
+    return () => clearTimeout(timer);
+  }, [open]);
+  if (!mounted) return null;
   return createPortal(
     <div
       data-drawer-layer="base"
-      className="fixed bottom-0 right-0 top-[var(--drawer-top,0px)] z-50"
+      className="pointer-events-none fixed bottom-0 right-0 top-[var(--drawer-top,0px)] z-50"
       style={{ left: dockLeft }}
     >
       <aside
         ref={panel}
         role="dialog"
         aria-modal="false"
+        aria-hidden={!open || undefined}
         tabIndex={-1}
         className={cn(
+          open ? "pointer-events-auto" : "pointer-events-none",
           "absolute inset-0 flex flex-col overflow-hidden border-l border-border bg-surface text-fg shadow-lg",
+          "transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-opacity motion-reduce:duration-[120ms]",
+          shown
+            ? "translate-x-0 opacity-100"
+            : "translate-x-full opacity-0 motion-reduce:translate-x-0",
           panelClassName,
         )}
       >
