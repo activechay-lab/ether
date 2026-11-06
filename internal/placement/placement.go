@@ -87,9 +87,11 @@ type RetirementVerifier interface {
 	VerifyRetired(context.Context, Fence, string) error
 }
 type Options struct {
-	MaxSessions int // hard ledger bound, including terminal generation floors
-	MaxLease    time.Duration
-	LockTimeout time.Duration
+	// AuthorityReady gates creation and extension, never reads or retirement.
+	AuthorityReady func() bool
+	MaxSessions    int // hard ledger bound, including terminal generation floors
+	MaxLease       time.Duration
+	LockTimeout    time.Duration
 }
 type Service struct {
 	db       *sql.DB
@@ -278,7 +280,7 @@ func (s *Service) Reserve(ctx context.Context, request Request) (Record, error) 
 	if err != nil {
 		return out, err
 	}
-	err = s.transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
+	err = s.authorityTransaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		old, oldHash, e := read(ctx, tx, r.Session)
 		exists := e == nil
 		if e != nil && e != sql.ErrNoRows {
@@ -384,7 +386,7 @@ func (s *Service) Renew(ctx context.Context, f Fence, deadline time.Time) error 
 	if !validFence(f) {
 		return ErrInvalid
 	}
-	return s.transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
+	return s.authorityTransaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		r, _, err := read(ctx, tx, f.Session)
 		if err == sql.ErrNoRows {
 			return ErrFenced
@@ -465,4 +467,23 @@ func retireRecord(ctx context.Context, tx *sql.Tx, r Record) error {
 func (s *Service) LedgerUsage(ctx context.Context) (used, retired int, err error) {
 	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(retired),0) FROM placement_sessions`).Scan(&used, &retired)
 	return
+}
+
+func (s *Service) authorityTransaction(ctx context.Context, fn func(context.Context, *sql.Tx) error) error {
+	ready := func() bool { return s.options.AuthorityReady == nil || s.options.AuthorityReady() }
+	if !ready() {
+		return ErrFenced
+	}
+	return s.transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		if !ready() {
+			return ErrFenced
+		}
+		if err := fn(ctx, tx); err != nil {
+			return err
+		}
+		if !ready() {
+			return ErrFenced
+		}
+		return nil
+	})
 }

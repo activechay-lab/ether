@@ -31,6 +31,8 @@ var _ Lookup = (*placement.Service)(nil)
 // ClockBoundKnown asserts synchronized local/DB/worker clocks with absolute
 // pairwise skew <= ClockSkew, including drift over MaxLifetime. Unknown fails closed.
 type Options struct {
+	// ClockReady gates binds and minting (including renewal), never existing reads.
+	ClockReady                                  func() bool
 	Lookup                                      Lookup
 	Policy                                      func(context.Context, placement.Target, nodesource.Scope) error
 	Owner                                       placement.Target
@@ -122,7 +124,7 @@ func (a *Authority) Bind(ctx context.Context, s nodesource.Scope, h *playback.So
 	return a.bind(ctx, s, h, size)
 }
 func (a *Authority) bind(ctx context.Context, s nodesource.Scope, h localSource, size int64) (Handle, error) {
-	if !validScope(s) || size <= 0 || h.Revision() != s.Revision || h.Size() != size {
+	if !a.clockReady() || !validScope(s) || size <= 0 || h.Revision() != s.Revision || h.Size() != size {
 		return Handle{}, ErrDenied
 	}
 	b := &binding{scope: s, source: h, size: size}
@@ -144,7 +146,7 @@ func (a *Authority) bind(ctx context.Context, s nodesource.Scope, h localSource,
 			return Handle{}, ErrDenied
 		}
 	}
-	if a.bindings[id] != nil {
+	if !a.clockReady() || a.bindings[id] != nil {
 		return Handle{}, ErrDenied
 	}
 	a.bindings[id] = b
@@ -206,7 +208,7 @@ func (a *Authority) Renew(ctx context.Context, h Handle, old nodesource.Grant, e
 	return a.mint(ctx, h, old.Credential, expiry)
 }
 func (a *Authority) mint(ctx context.Context, h Handle, old string, expiry time.Time) (Lease, error) {
-	if expiry.IsZero() {
+	if !a.clockReady() || expiry.IsZero() {
 		return Lease{}, ErrDenied
 	}
 	a.mu.Lock()
@@ -228,7 +230,7 @@ func (a *Authority) mint(ctx context.Context, h Handle, old string, expiry time.
 	now := a.o.Now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.live(b, epoch) || b.current != old || !expiry.After(now.Add(a.o.ClockSkew)) {
+	if !a.clockReady() || !a.live(b, epoch) || b.current != old || !expiry.After(now.Add(a.o.ClockSkew)) {
 		return Lease{}, ErrDenied
 	}
 	if old != "" {
@@ -397,3 +399,5 @@ func (a *Authority) armLocked(b *binding, expiry time.Time) {
 		b.source.Revoke()
 	})
 }
+
+func (a *Authority) clockReady() bool { return a.o.ClockReady == nil || a.o.ClockReady() }

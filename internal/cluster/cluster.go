@@ -58,6 +58,7 @@ var (
 
 // Caps are a node's capabilities.
 type Caps struct {
+	Diagnostics *Diagnostics `json:"diagnostics,omitempty"`
 	// Roles describes configured responsibilities. Empty means full server.
 	// Local.Roles is the sole source of truth for locally published roles.
 	Roles config.NodeRoles `json:"roles,omitempty"`
