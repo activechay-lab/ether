@@ -204,3 +204,34 @@ with `steadySeconds: 60` leaves approximately90s after the fault; report the
 actual timestamps and generation boundary rather than assuming that entire
 tail was produced by the replacement. Verify hardware placement and the live
 encoder before invoking a native supervisor's exact-process kill hook.
+
+## Encoder-state loss and independent recovery proof
+
+`phase: "state"` requires `faultTriggerArgv`. After playback begins, the runner
+polls this command (default once per second); `{session}` is substituted in argv.
+It must return JSON with boolean `ready` and observed evidence. Polls are saved
+in `trigger-events.jsonl`; the ready observation is retained in the report.
+The native owner validates a LIVE HLS/NVENC process, at least two actual ahead
+throttle restarts, matching node/boot/session placement, fresh state and less
+than half the title produced. Elapsed time alone never triggers this case.
+
+The kill-only wrapper rechecks those predicates immediately before killing its
+retained Ether process. With `requireFaultReadyJSON: true`, its ready file must
+contain JSON with `verified: true` and the exact `session`. Include final native
+produced cutoff *after* the job is empty. It then blocks on stdin through the
+CPU tail and verifies cleanup on EOF; it never restarts the native worker.
+
+Optional `postCheckArgv` runs a bounded independent observer after playback and
+restoration. Placeholders: `{session}`, `{playerReport}`, `{faultReadyFile}`,
+`{runDir}`. JSON must contain `passed: true` and the exact `session`; otherwise
+it fails the run. Native acceptance must show fetched segments after the FINAL
+native-produced cutoff belonging to a new CPU execution generation, plus the
+retained pre-kill NVENC/restart proof and all shared continuity checks. Serving
+already-encoded buffered output does not satisfy this condition.
+
+A server production observer may report `serverInterruptionUpperBoundSeconds`
+and `serverInterruptionUpperBoundVerified`. This is separate from exact
+production interruption and client receipt latency, and must be below the
+configured buffer. For example, kill-dispatch to the first verified CPU segment
+ready on the same measured host clock is a conservative upper bound; do not
+substitute a startup/RPC acknowledgement or a fabricated production timestamp.
