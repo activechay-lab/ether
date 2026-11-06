@@ -502,9 +502,8 @@ func (r *Runtime) retire(ctx context.Context, x *execution) error {
 	} else if x.retirement != nil {
 		return ErrPending
 	}
-	source, e := r.sourceCall(ctx, x.route, sourceRequest{Op: "retire"})
-	if e != nil || !source.Retired {
-		return ErrPending
+	if e := r.retireSourceRoutes(ctx, x.route, "retire"); e != nil {
+		return e
 	}
 	return r.retireWithEvidence(ctx, x.route, "clusterplayback/exact-retirement")
 }
@@ -525,9 +524,8 @@ func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
 	if s != nil && s.EncoderErr() != nil {
 		return ErrPending
 	}
-	reply, e := r.sourceCall(ctx, rt, sourceRequest{Op: "status"})
-	if e != nil || !reply.Retired {
-		return ErrPending
+	if e := r.retireSourceRoutes(ctx, rt, "status"); e != nil {
+		return e
 	}
 	return nil
 }

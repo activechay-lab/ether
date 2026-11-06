@@ -6,6 +6,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodeinput"
 	"github.com/braedonsaunders/ether/internal/nodesource"
+	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"net/url"
 	"time"
@@ -70,7 +71,7 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 	if e != nil {
 		return remotetranscode.Source{}, e
 	}
-	if response.Stable != s.Grant || response.Grant.Scope.Fence != rt.Fence || response.Grant.Scope.Revision != rt.Revision || response.Grant.Scope.Viewer != viewerString(rt.Viewer) || response.Grant.Expires.Add(-r.o.ClockSkew).Before(s.Expires) {
+	if response.Stable != s.Grant || response.Grant.Scope != scopeForRoute(rt) || response.Grant.Expires.Add(-r.o.ClockSkew).Before(s.Expires) {
 		return remotetranscode.Source{}, ErrDenied
 	}
 	ep, tc, check, e := r.peer(ctx, rt.Source, nodesource.Path)
@@ -81,7 +82,26 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 	if e != nil {
 		return remotetranscode.Source{}, e
 	}
-	gateway, e := nodeinput.New(nodeinput.Options{Client: c, Capacity: 1, MaxRequests: 8, RequestTimeout: 30 * time.Second})
+	gateway, e := nodeinput.New(nodeinput.Options{ValidateScope: func(ctx context.Context, scope nodesource.Scope) error {
+		current, err := r.route(ctx, s.Identity.Session)
+		if err != nil || scope.Fence != rt.Fence || scope != scopeForRoute(current) {
+			return ErrDenied
+		}
+		return r.authorizeWorker(ctx, peer, "input", s.Identity, nil)
+	}, Client: c, Capacity: 1, MaxRequests: 8, RequestTimeout: 30 * time.Second, ReadTimeout: 2 * time.Second, MaxRecoveries: 3,
+		Recover: func(c context.Context, old nodesource.Grant) (*nodesource.Client, nodesource.Grant, error) {
+			controller := nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: old.Scope.Fence.Controller.ID, Boot: old.Scope.Fence.Controller.Boot}
+			reply, e := r.sourceCall(c, Route{Source: controller}, sourceRequest{Op: "source-failover", Old: old})
+			if e != nil {
+				return nil, nodesource.Grant{}, e
+			}
+			current, e := r.route(c, old.Scope.Fence.Session)
+			if e != nil || reply.Grant.Scope != scopeForRoute(current) {
+				return nil, nodesource.Grant{}, ErrDenied
+			}
+			client, e := r.sourceClient(c, current.Source)
+			return client, reply.Grant, e
+		}})
 	if e != nil {
 		c.Close()
 		return remotetranscode.Source{}, e
@@ -124,7 +144,11 @@ func (r *Runtime) renewInput(ctx context.Context, peer string, s remotetranscode
 		return remotetranscode.RenewalReceipt{}, ErrDenied
 	}
 	evidence, e := input.Renew(ctx, n, func(c context.Context, old nodesource.Grant) (nodesource.Grant, error) {
-		reply, e := r.sourceCall(c, v.route, sourceRequest{Op: "renew", Stable: s.Grant, Old: old, Expires: n.Deadline.Add(r.o.ClockSkew)})
+		current, e := r.route(c, s.Identity.Session)
+		if e != nil || current.Fence != v.route.Fence {
+			return nodesource.Grant{}, ErrDenied
+		}
+		reply, e := r.sourceCall(c, current, sourceRequest{Op: "renew", Stable: s.Grant, Old: old, Expires: n.Deadline.Add(r.o.ClockSkew)})
 		if e != nil {
 			return nodesource.Grant{}, e
 		}
@@ -141,3 +165,11 @@ func (r *Runtime) renewInput(ctx context.Context, peer string, s remotetranscode
 
 // URL is created by peer after trusted endpoint validation.
 func mustHostname(ep string) string { u, _ := url.Parse(ep); return u.Hostname() }
+
+func (r *Runtime) sourceClient(ctx context.Context, source nodewire.Identity) (*nodesource.Client, error) {
+	ep, tc, check, e := r.peer(ctx, source, nodesource.Path)
+	if e != nil {
+		return nil, e
+	}
+	return nodesource.NewClient(nodesource.ClientOptions{Endpoint: ep, TLS: tc, BindServer: r.o.Guard.BindServer(source, mustHostname(ep)), RecheckServer: check, Peer: nodesource.Peer{NodeID: r.o.Self.NodeID, Boot: r.o.Self.Boot}, MaxLifetime: 10 * time.Minute, Timeout: 10 * time.Second, Now: time.Now})
+}

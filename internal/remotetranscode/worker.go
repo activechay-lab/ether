@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/generationfence"
 )
 
 type WorkerOptions struct {
@@ -270,7 +271,19 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		replyStatus(out, snapshot)
 		return
 	}
-	w.serveMedia(out, request, m, s, e.start.Protocol, e.rungs)
+	guarded := &generationfence.Writer{ResponseWriter: out, Check: func() error {
+		if err := w.opts.Security.Authorize(request.Context(), peer, m.Op, m.Identity, nil); err != nil {
+			return err
+		}
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		w.expire(e)
+		if e.stopped || w.closed || w.highest[m.Identity.Controller+"/"+m.Identity.Session] != m.Identity.Generation {
+			return generationfence.ErrStale
+		}
+		return nil
+	}}
+	w.serveMedia(guarded, request, m, s, e.start.Protocol, e.rungs)
 }
 func reply(out http.ResponseWriter, state string, id Identity) {
 	out.Header().Set("Content-Type", "application/json")

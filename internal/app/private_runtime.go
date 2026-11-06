@@ -66,7 +66,7 @@ func (a *App) prepareDeployment(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !d.Roles.FullServer() && !(len(d.Roles) == 1 && d.Roles[0] == config.RoleTranscode) {
+	if !d.Roles.FullServer() && !specialistSingletonRole(d.Roles) {
 		return errors.New("specialist runtime is not yet enabled for this role set")
 	}
 	p := &deploymentRuntime{settings: d, errors: make(chan error, 3), probeDone: make(chan struct{})}
