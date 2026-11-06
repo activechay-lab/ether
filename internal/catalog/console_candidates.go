@@ -6,10 +6,9 @@ import (
 )
 
 func init() {
-	// Evidence/credit key sets should not fetch wide title rows merely to test
-	// visibility or sort a narrow page. SQLite needs explicit covering keys;
-	// PostgreSQL keeps the same payload in leaf INCLUDE columns.
-	store.Register("catalog", 41, `CREATE INDEX catalog_titles_console_candidate_page ON catalog_titles(key,type,browsable,adult,released_ts,popularity,year,rating,runtime_sec,language,vote_count,sort_title,show_added_ts,content_rating_rank);`)
+	// PostgreSQL's MVCC planner benefits from leaf payload for evidence key
+	// sets. SQLite instead uses the bounded ordered pilot plus key fallback.
+	store.Register("catalog", 41, `SELECT 1;`)
 	store.RegisterDialect("catalog", 41, store.Postgres, `CREATE INDEX catalog_titles_console_candidate_page ON catalog_titles(key) INCLUDE(type,browsable,adult,release_known,released_ts,popularity,year,rating,runtime_sec,language,vote_count,sort_title,show_added_ts,content_rating_rank);`)
 }
 

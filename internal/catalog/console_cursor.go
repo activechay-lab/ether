@@ -90,9 +90,7 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 		// Availability projections can be much smaller than the title domain;
 		// let the planner drive those key sets before ordering the candidates.
 		selectiveEvidence := typed.Playable != "" || typed.DebridCached != "" || len(typed.Qualities) > 0 || typed.ReleaseGate != ""
-		if store.DialectOf(c.db) != store.Postgres && consolePositiveEvidence(typed) {
-			hint = " INDEXED BY catalog_titles_console_candidate_page"
-		} else if store.DialectOf(c.db) != store.Postgres && !selectiveEvidence && !consoleHasSparseCandidates(typed) {
+		if store.DialectOf(c.db) != store.Postgres && !selectiveEvidence && !consoleHasSparseCandidates(typed) {
 			if specs[0].Sort == core.SortPopularity && specs[0].Desc && len(specs) == 1 {
 				hint = " INDEXED BY catalog_titles_console_pop_page"
 			}
@@ -101,6 +99,18 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 			}
 		}
 		for _, seek := range consoleSeekRanges(columns, specs, after, q.AfterKey) {
+			if store.DialectOf(c.db) != store.Postgres && consolePositiveEvidence(typed) && len(specs) == 1 && specs[0].Sort == core.SortPopularity && specs[0].Desc && !c.config().ShowUpcomingMovies {
+				matches, complete, err := c.consoleEvidencePilot(ctx, typ, where, args, seek, limit)
+				if err != nil {
+					return core.Page{}, err
+				}
+				if complete {
+					for _, r := range matches {
+						all = append(all, row{key: r.key, values: []any{r.popularity}})
+					}
+					continue
+				}
+			}
 			sqlArgs := append(append([]any{}, args...), string(typ))
 			sqlArgs = append(sqlArgs, seek.args...)
 			sqlArgs = append(sqlArgs, limit)

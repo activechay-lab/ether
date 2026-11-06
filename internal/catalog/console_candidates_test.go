@@ -61,3 +61,45 @@ func TestConsoleEvidenceCandidatePagesPreservePositiveAndUnknownMembership(t *te
 		}
 	}
 }
+
+func TestConsoleEvidencePilotFallsBackForSparseKeysAndPreservesDenseOrder(t *testing.T) {
+	c := largeCatalogue(t, 5000)
+	ctx := context.Background()
+	c.SetConsoleAvailabilityPolicy(func() string { return "pilot-test" })
+	until := time.Now().Add(time.Hour).Unix()
+	release := core.Release{ID: "fixture", Info: core.ReleaseInfo{Height: 2160}}
+	if err := c.RecordConsoleReleaseEvidence(ctx, core.MovieKey(5000), release, "fixture", "pilot-test", until, until, 1); err != nil {
+		t.Fatal(err)
+	}
+	q := core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie, LocalOnly: true, Playable: "yes", Qualities: []string{"4k"}}, Sort: core.SortPopularity, Desc: true, Limit: 49, NoTotal: true, CursorPage: true}
+	page, err := c.Browse(ctx, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Key != core.MovieKey(5000) {
+		t.Fatalf("sparse key beyond pilot lost: %+v", page)
+	}
+	if _, err := c.db.ExecContext(ctx, `INSERT INTO catalog_release_evidence(rating_key,release_id,source_id,policy,verified_until,height) SELECT key,'fixture','fixture','pilot-test',?,2160 FROM catalog_titles WHERE tmdb_id<=100`, until); err != nil {
+		t.Fatal(err)
+	}
+	page, err = c.Browse(ctx, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 49 {
+		t.Fatalf("dense page size %d", len(page.Items))
+	}
+	for i, item := range page.Items {
+		if item.Key != core.MovieKey(int64(i+1)) {
+			t.Fatalf("dense page order at %d: %v", i, item.Key)
+		}
+	}
+	q.AfterKey = page.Items[len(page.Items)-1].Key
+	next, err := c.Browse(ctx, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Items) != 49 || next.Items[0].Key != core.MovieKey(50) {
+		t.Fatalf("pilot cursor boundary lost: %+v", next)
+	}
+}
