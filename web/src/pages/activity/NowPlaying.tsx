@@ -15,6 +15,7 @@ import {
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Artwork } from "../../components/Artwork";
+import { SessionArtwork } from "../../components/SessionArtwork";
 import { Meter } from "../../components/charts";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
 import { Segmented } from "../../components/fields";
@@ -22,7 +23,7 @@ import { Kpi, KpiRow } from "../../components/Kpi";
 import { apiFetch, errorMessage } from "../../lib/api";
 import { t, tn } from "../../i18n";
 import { formatNumber, formatPercent } from "../../lib/format";
-import { decisionLabel, type NowPlaying as Stream } from "../../lib/health";
+import { channelLabel, decisionLabel, type NowPlaying as Stream } from "../../lib/health";
 import type { AsyncState } from "../../lib/hooks";
 import { qualityFallback } from "../../lib/quality-fallback";
 import { useTitle } from "../../lib/titles";
@@ -111,10 +112,10 @@ function StreamCard({ s, stopping, onStop }: { s: Stream; stopping: boolean; onS
         />
         <div className="absolute inset-0 -z-10 bg-gradient-to-t from-black/90 via-black/55 to-black/20" />
         <div className="flex h-full items-end gap-4 p-4">
-          <Artwork
-            src={title?.poster}
-            alt={s.title}
-            title=""
+          <SessionArtwork
+            s={s}
+            poster={title?.poster}
+            posterTitle=""
             className="aspect-[2/3] w-20 shrink-0 rounded-lg shadow-lg ring-1 ring-white/15"
           />
           <div className="min-w-0 flex-1 space-y-2 pb-0.5">
@@ -130,9 +131,14 @@ function StreamCard({ s, stopping, onStop }: { s: Stream; stopping: boolean; onS
               <h3 className="truncate text-lg font-semibold text-on-scrim">
                 {title?.title || s.title}
               </h3>
+              {channelLabel(s) && channelLabel(s) !== (title?.title || s.title) ? (
+                <p className="truncate text-sm text-on-scrim/75">{channelLabel(s)}</p>
+              ) : null}
               {subtitle ? <p className="truncate text-sm text-on-scrim/75">{subtitle}</p> : null}
             </div>
-            {s.progress !== null ? (
+            {s.isLive ? (
+              <p className="text-xs text-on-scrim/75">{t("Live")}</p>
+            ) : s.progress !== null ? (
               <Meter
                 onScrim
                 value={s.progress}
@@ -245,10 +251,10 @@ function StreamRow({ s, stopping, onStop }: { s: Stream; stopping: boolean; onSt
         imgClassName="size-full object-cover"
       />
       <div className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-x-5 gap-y-3 p-4 lg:grid-cols-[3.5rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.9fr)_11rem_auto]">
-        <Artwork
-          src={title?.poster}
-          alt={s.title}
-          title=""
+        <SessionArtwork
+          s={s}
+          poster={title?.poster}
+          posterTitle=""
           className="aspect-[2/3] w-14 rounded-md shadow-md ring-1 ring-white/10"
         />
         <div className="min-w-0 space-y-1">
@@ -258,6 +264,9 @@ function StreamRow({ s, stopping, onStop }: { s: Stream; stopping: boolean; onSt
               {decisionLabel(s)}
             </Badge>
           </div>
+          {channelLabel(s) && channelLabel(s) !== (title?.title || s.title) ? (
+            <p className="truncate text-sm text-fg-muted">{channelLabel(s)}</p>
+          ) : null}
           {subtitle ? <p className="truncate text-sm text-fg-muted">{subtitle}</p> : null}
           <p className="flex min-w-0 items-center gap-1.5 text-xs text-fg-muted">
             <span className="grid size-4 shrink-0 place-items-center rounded-full bg-primary-subtle text-[9px] font-semibold uppercase text-primary">
@@ -309,7 +318,9 @@ function StreamRow({ s, stopping, onStop }: { s: Stream; stopping: boolean; onSt
           </p>
         </div>
         <div className="col-span-2 min-w-0 lg:col-span-1">
-          {s.progress !== null ? (
+          {s.isLive ? (
+            <p className="text-xs text-fg-muted">{t("Live")}</p>
+          ) : s.progress !== null ? (
             <Meter
               value={s.progress}
               buffered={s.buffered}

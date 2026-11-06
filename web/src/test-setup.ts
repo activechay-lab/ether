@@ -47,9 +47,17 @@ class NoopObserver {
   }
 }
 if (!("ResizeObserver" in window))
-  Object.defineProperty(window, "ResizeObserver", { writable: true, value: NoopObserver });
+  Object.defineProperty(window, "ResizeObserver", {
+    configurable: true,
+    writable: true,
+    value: NoopObserver,
+  });
 if (!("IntersectionObserver" in window))
-  Object.defineProperty(window, "IntersectionObserver", { writable: true, value: NoopObserver });
+  Object.defineProperty(window, "IntersectionObserver", {
+    configurable: true,
+    writable: true,
+    value: NoopObserver,
+  });
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 if (!Element.prototype.scrollBy) Element.prototype.scrollBy = () => {};
 if (!window.scrollTo) window.scrollTo = () => {};

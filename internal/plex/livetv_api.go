@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
@@ -33,7 +34,6 @@ type liveChannel struct {
 	Title    string `plex:"title"`
 	CallSign string `plex:"callSign"`
 	Language string `plex:"language"`
-	Key      string `plex:"key"`
 }
 type liveMapping struct {
 	ChannelKey       string `plex:"channelKey"`
@@ -137,6 +137,7 @@ func (s *Server) registerLiveTVRoutes(r chi.Router) {
 		s.d.LiveTV.ServeXMLTV(w, r, FromContext(r.Context()).User)
 	})
 	get("/livetv/channels/{channel}/logo.svg", s.handleLiveLogo)
+	get("/livetv/channels/{channel}/logo.png", s.handleLiveRasterLogo)
 	get("/livetv/sessions", s.handleLiveSessions)
 	get("/livetv/sessions/{session}", s.handleLiveSession)
 	r.Delete("/livetv/sessions/{session}", guard(func(w http.ResponseWriter, r *http.Request) {
@@ -277,10 +278,7 @@ func (s *Server) handleLiveDevices(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, &liveContainer{Size: len(devices), Identifier: livetv.Provider, Device: devices})
 }
 func liveLogo(c livetv.Channel) string {
-	if c.Logo != "" && !c.LogoMatched {
-		return c.Logo
-	}
-	return "/livetv/channels/" + url.PathEscape(c.ID) + "/logo.svg"
+	return "/livetv/channels/" + url.PathEscape(c.ID) + "/logo.png"
 }
 func (s *Server) handleLiveChannels(w http.ResponseWriter, r *http.Request) {
 	cs, err := s.d.LiveTV.AllowedChannels(r.Context(), FromContext(r.Context()).User)
@@ -291,7 +289,7 @@ func (s *Server) handleLiveChannels(w http.ResponseWriter, r *http.Request) {
 	out := []liveChannel{}
 	maps := []liveMapping{}
 	for _, c := range cs {
-		out = append(out, liveChannel{ID: c.ID, GridKey: c.ID, VCN: c.Number, Thumb: liveLogo(c), Title: c.Name, CallSign: c.Name, Language: "eng", Key: liveProviderPath + "/grid?channelGridKey=" + url.QueryEscape(c.ID)})
+		out = append(out, liveChannel{ID: c.ID, GridKey: c.ID, VCN: c.Number, Thumb: liveLogo(c), Title: c.Name, CallSign: c.Name, Language: "eng"})
 		maps = append(maps, liveMapping{c.ID, c.Number, "1", c.GuideID})
 	}
 	s.write(w, r, &liveContainer{Size: len(out), Identifier: livetv.Provider, Channel: out, ChannelMapping: maps})
@@ -748,7 +746,24 @@ func (s *Server) writeLiveDASHError(w http.ResponseWriter, r *http.Request, info
 	})
 }
 func (s *Server) handleLiveLogo(w http.ResponseWriter, r *http.Request) {
-	c, err := s.d.LiveTV.AllowedChannel(r.Context(), FromContext(r.Context()).User, chi.URLParam(r, "channel"))
+	s.serveLiveLogo(w, r, chi.URLParam(r, "channel"), false)
+}
+
+func (s *Server) handleLiveRasterLogo(w http.ResponseWriter, r *http.Request) {
+	s.serveLiveLogo(w, r, chi.URLParam(r, "channel"), true)
+}
+
+func (s *Server) serveLiveLogo(w http.ResponseWriter, r *http.Request, id string, raster bool) {
+	pr := FromContext(r.Context())
+	if !s.liveTVEnabled() || !s.d.LiveTV.VisibleTo(r.Context(), pr.User) {
+		writeHTTPError(w, 404)
+		return
+	}
+	if p, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !p.CanPlay(pr.User, pr.Remote, s.now()) {
+		writeHTTPError(w, 403)
+		return
+	}
+	c, err := s.d.LiveTV.AllowedChannel(r.Context(), pr.User, id)
 	if errors.Is(err, core.ErrNotFound) {
 		writeHTTPError(w, 404)
 		return
@@ -757,8 +772,11 @@ func (s *Server) handleLiveLogo(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, r, err)
 		return
 	}
-	if c.LogoMatched && c.Logo != "" && s.channelLogos != nil {
+	if c.Logo != "" && s.channelLogos != nil {
 		data, ct, err := s.channelLogos.GetUntrustedURL(r.Context(), c.Logo)
+		if err == nil && raster && strings.HasPrefix(ct, "image/svg+xml") {
+			data, ct, err = s.channelRaster.Rasterize(r.Context(), c.Logo, data, artwork.RasterOptions{Format: "png"})
+		}
 		if err == nil && len(data) > 0 {
 			setArtworkHeaders(w.Header(), ct)
 			w.Header().Set("Cache-Control", "private, max-age=300")
@@ -767,6 +785,19 @@ func (s *Server) handleLiveLogo(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+	}
+	if raster {
+		data, ct, err := s.channelRaster.ChannelLogo(r.Context(), c.ID, c.Number, c.Name, artwork.RasterOptions{Format: "png"})
+		if err != nil {
+			writeHTTPError(w, 404)
+			return
+		}
+		setArtworkHeaders(w.Header(), ct)
+		w.Header().Set("Cache-Control", "private, max-age=300")
+		if r.Method != "HEAD" {
+			_, _ = w.Write(data)
+		}
+		return
 	}
 	setArtworkHeaders(w.Header(), "image/svg+xml")
 	w.Header().Set("Cache-Control", "private, max-age=300")
