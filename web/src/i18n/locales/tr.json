@@ -322,6 +322,7 @@
     "one": "{count} ıskalama",
     "other": "{count} ıskalama"
   },
+  "m_015bee8cceee5b": "Aralar ve reklamlar",
   "m_015f6c1164ab16": "{name} kaldırıldı",
   "m_016092af66360a": "Tüm indeksleyiciler",
   "m_01611b2cfb0ba0": "~{minutes} dk kaldı",
@@ -1559,6 +1560,7 @@
   "m_066a8a91babdd8": "Dikkat gerekiyor",
   "m_066bcd3e1cdbf5": "{field}: {value} veya öncesinde",
   "m_066bde54fa19f1": "fiziksel yayın",
+  "m_066cced5258f1b": "Bloklar",
   "m_066cd852a9f5c7": "Bir video dosyası seçin",
   "m_066dc8d3967318": "Tüm türler",
   "m_066fba65ba094e": "Kural yok",
@@ -2639,6 +2641,7 @@
   "m_0b015cb1633194": "Bu bilgisayarın Intel grafikleri videoyu dönüştürür.",
   "m_0b0377f6f73793": "Şekli değiştirmek için tuvaldeki yol düğümlerini sürükleyin.",
   "m_0b03d86bb83e05": "Özel ürün",
+  "m_0b0535abc42eed": "Sabit saatler ve özel programlar",
   "m_0b05f3af17e509": "Bu oynatma, başlatma süresi ve arabelleğe alma ölçülmeden önce kaydedildi.",
   "m_0b08ee7d4474bd": "Başlıktaki ilk içeriğin arka planı, üzerinde ad yazılı olarak.",
   "m_0b09abc7c21f66": "Kaynak ekle",

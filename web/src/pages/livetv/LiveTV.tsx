@@ -1156,6 +1156,7 @@ export default function LiveTV() {
         open={channelOpen}
         onClose={() => void go({ kind: "guide" })}
         title={channelTitle}
+        initialFullscreen
         bodyClassName={draft ? "overflow-y-auto p-0" : undefined}
         description={
           draft?.channel.kind === "iptv"

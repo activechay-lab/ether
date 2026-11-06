@@ -329,6 +329,7 @@
     "one": "{count} fallo",
     "other": "{count} fallos"
   },
+  "m_015bee8cceee5b": "Pausas y anuncios",
   "m_015f6c1164ab16": "{name} eliminado",
   "m_016092af66360a": "Todos los indexadores",
   "m_01611b2cfb0ba0": "quedan ~{minutes} min",
@@ -1602,6 +1603,7 @@
   "m_066a8a91babdd8": "Requiere atención",
   "m_066bcd3e1cdbf5": "{field} el o antes del {value}",
   "m_066bde54fa19f1": "lanzamiento físico",
+  "m_066cced5258f1b": "Bloques",
   "m_066cd852a9f5c7": "Elegir un archivo de vídeo",
   "m_066dc8d3967318": "Todos los géneros",
   "m_066fba65ba094e": "Sin reglas",
@@ -2710,6 +2712,7 @@
   "m_0b015cb1633194": "Los gráficos Intel de este ordenador convierten el vídeo.",
   "m_0b0377f6f73793": "Arrastra los nodos del trazado en el lienzo para cambiar su forma.",
   "m_0b03d86bb83e05": "Producto personalizado",
+  "m_0b0535abc42eed": "Franjas fijas y especiales",
   "m_0b05f3af17e509": "Esta reproducción se registró antes de que se midieran el tiempo de inicio y el búfer.",
   "m_0b08ee7d4474bd": "El fondo del título principal con el nombre encima.",
   "m_0b09abc7c21f66": "Añadir fuente",

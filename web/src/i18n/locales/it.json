@@ -329,6 +329,7 @@
     "one": "{count} mancato",
     "other": "{count} mancati"
   },
+  "m_015bee8cceee5b": "Pause e pubblicità",
   "m_015f6c1164ab16": "{name} rimosso",
   "m_016092af66360a": "Tutti gli indexer",
   "m_01611b2cfb0ba0": "~{minutes} min rimanenti",
@@ -1602,6 +1603,7 @@
   "m_066a8a91babdd8": "Richiede attenzione",
   "m_066bcd3e1cdbf5": "{field} fino al {value}",
   "m_066bde54fa19f1": "uscita fisica",
+  "m_066cced5258f1b": "Blocchi",
   "m_066cd852a9f5c7": "Scegli un file video",
   "m_066dc8d3967318": "Tutti i generi",
   "m_066fba65ba094e": "Nessuna regola",
@@ -2710,6 +2712,7 @@
   "m_0b015cb1633194": "La grafica Intel di questo computer converte il video.",
   "m_0b0377f6f73793": "Trascina i nodi del tracciato sulla tela per modificarne la forma.",
   "m_0b03d86bb83e05": "Prodotto personalizzato",
+  "m_0b0535abc42eed": "Fasce fisse e speciali",
   "m_0b05f3af17e509": "Questa riproduzione è stata registrata prima che venissero misurati tempo di avvio e buffering.",
   "m_0b08ee7d4474bd": "Lo sfondo del titolo principale con il nome sovrapposto.",
   "m_0b09abc7c21f66": "Aggiungi fonte",

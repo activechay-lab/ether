@@ -336,6 +336,7 @@
     "one": "{count} brak",
     "other": "{count} braku"
   },
+  "m_015bee8cceee5b": "Przerwy i reklamy",
   "m_015f6c1164ab16": "Usunięto {name}",
   "m_016092af66360a": "Każdy indekser",
   "m_01611b2cfb0ba0": "pozostało ~{minutes} min",
@@ -1645,6 +1646,7 @@
   "m_066a8a91babdd8": "Wymaga uwagi",
   "m_066bcd3e1cdbf5": "{field} w dniu {value} lub wcześniej",
   "m_066bde54fa19f1": "wydanie fizyczne",
+  "m_066cced5258f1b": "Bloki",
   "m_066cd852a9f5c7": "Wybierz plik wideo",
   "m_066dc8d3967318": "Wszystkie gatunki",
   "m_066fba65ba094e": "Brak reguł",
@@ -2781,6 +2783,7 @@
   "m_0b015cb1633194": "Grafika Intel tego komputera konwertuje wideo.",
   "m_0b0377f6f73793": "Przeciągnij węzły ścieżki w obszarze roboczym, by zmienić kształt.",
   "m_0b03d86bb83e05": "Własny produkt",
+  "m_0b0535abc42eed": "Stałe pory i programy specjalne",
   "m_0b05f3af17e509": "To odtworzenie zarejestrowano, zanim zaczęto mierzyć czas startu i buforowanie.",
   "m_0b08ee7d4474bd": "Tło głównego tytułu z nałożoną nazwą.",
   "m_0b09abc7c21f66": "Dodaj źródło",

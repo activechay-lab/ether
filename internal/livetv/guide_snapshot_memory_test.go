@@ -83,6 +83,9 @@ func TestGuideSnapshotBulkMetadataMemory(t *testing.T) {
 	if err = s.refreshVirtualGuide(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err = s.refreshTimelineGuide(ctx); err != nil {
+		t.Fatal(err)
+	}
 	sample()
 	s.virtualGuide.mu.RLock()
 	originals := make(map[string]*compactProgrammes, len(ids))
@@ -101,6 +104,16 @@ func TestGuideSnapshotBulkMetadataMemory(t *testing.T) {
 		}
 	}
 	s.virtualGuide.mu.RUnlock()
+	s.virtualGuide.mu.RLock()
+	timelineTables := map[*compactProgrammes]bool{}
+	for _, entry := range s.virtualGuide.timeline {
+		timelineTables[entry.playback] = true
+		if entry.until.Before(now.Add(28 * 24 * time.Hour)) {
+			t.Fatal("short timeline horizon")
+		}
+	}
+	s.virtualGuide.mu.RUnlock()
+	t.Logf("timeline_channels=%d unique_timeline_tables=%d", len(ids), len(timelineTables))
 	initial := time.Since(started)
 	first, err := s.Channel(ctx, ids[0])
 	if err != nil {
