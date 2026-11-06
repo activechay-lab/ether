@@ -17,6 +17,7 @@ type Segment struct {
 type Options struct {
 	// Timeline contains title-time boundaries, indexed by Segment.Index, including
 	// the terminal end boundary. When present it replaces SegmentDuration.
+	ReencodedAudio  bool // verify PCM continuity instead of compressed AU equality
 	Timeline        []time.Duration
 	SegmentDuration time.Duration
 	Reference       []Segment
@@ -33,10 +34,20 @@ type Boundary struct {
 type Report struct {
 	IDRStart, ClosedGOP, PTSContinuity, FrameCountVsReference Result
 	CleanDecode, AudioAUExact, AudioContinuity, GridDurations Result
+	PCMContinuous                                             Result
+	PCMBoundaries                                             []PCMMeasurement
 	Boundaries                                                []Boundary
 	Segments, VideoFrames, AudioAUs                           int
 }
 
 func Check(ctx context.Context, segs []Segment, o Options) (Report, error) {
 	return check(ctx, segs, o)
+}
+
+// PCMMeasurement reports decoded audio at an execution handoff. Samples count
+// per channel; AAC priming is represented by packet PTS, never a fitted shift.
+type PCMMeasurement struct {
+	Index                                 int
+	MissingSamples, OverlappingSamples    int
+	SNRDB, BoundaryStep, ReferenceMaxStep float64
 }

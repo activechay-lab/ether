@@ -53,6 +53,7 @@ func main() {
 	grid := flag.Duration("grid", 4*time.Second, "authored segment duration")
 	ffmpeg := flag.String("ffmpeg", "ffmpeg", "FFmpeg executable")
 	ffprobe := flag.String("ffprobe", "ffprobe", "FFprobe executable")
+	pcm := flag.Bool("reencoded-audio", false, "verify PCM sample continuity against the reference")
 	flag.Parse()
 	var req struct {
 		Segments []splicecheck.Segment
@@ -68,7 +69,7 @@ func main() {
 			f.Close()
 		}
 	} else if *candidate != "" {
-		req.Options = splicecheck.Options{SegmentDuration: *grid, FFmpeg: *ffmpeg, FFprobe: *ffprobe}
+		req.Options = splicecheck.Options{ReencodedAudio: *pcm, SegmentDuration: *grid, FFmpeg: *ffmpeg, FFprobe: *ffprobe}
 		req.Segments, e = directory(*candidate, *boundary)
 		if e == nil && *reference != "" {
 			req.Options.Reference, e = directory(*reference, -1)

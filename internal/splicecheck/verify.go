@@ -304,7 +304,7 @@ func compare(a, b []observation, r *Report) {
 }
 func check(ctx context.Context, segs []Segment, o Options) (Report, error) {
 	good := Result{true, "verified"}
-	r := Report{IDRStart: good, ClosedGOP: good, PTSContinuity: good, FrameCountVsReference: good, CleanDecode: good, AudioAUExact: good, AudioContinuity: good, GridDurations: good, Segments: len(segs)}
+	r := Report{IDRStart: good, ClosedGOP: good, PTSContinuity: good, FrameCountVsReference: good, CleanDecode: good, AudioAUExact: good, AudioContinuity: good, GridDurations: good, PCMContinuous: Result{true, "not requested (copied audio)"}, Segments: len(segs)}
 	if len(segs) == 0 {
 		return r, fmt.Errorf("splicecheck: no segments")
 	}
@@ -373,15 +373,28 @@ func check(ctx context.Context, segs []Segment, o Options) (Report, error) {
 			return r, fmt.Errorf("reference: %w", e)
 		}
 		compare(obs, ref, &r)
+		if o.ReencodedAudio {
+			r.AudioAUExact = Result{false, "not applicable: independently encoded AAC"}
+			if e := checkPCM(ctx, segs, o.Reference, obs, ref, o, dir, &r); e != nil {
+				return r, e
+			}
+		}
 	} else {
 		r.FrameCountVsReference = Result{false, "reference required to prove no missing frames"}
 		r.AudioAUExact = Result{false, "reference required to prove AU identity"}
+		r.PCMContinuous = Result{false, "reference required to prove sample continuity"}
 	}
 	var failed []string
+	if o.ReencodedAudio && !r.PCMContinuous.Pass {
+		failed = append(failed, "PCMContinuous")
+	}
 	for _, c := range []struct {
 		name string
 		r    Result
 	}{{"IDRStart", r.IDRStart}, {"ClosedGOP", r.ClosedGOP}, {"PTSContinuity", r.PTSContinuity}, {"FrameCountVsReference", r.FrameCountVsReference}, {"CleanDecode", r.CleanDecode}, {"AudioAUExact", r.AudioAUExact}, {"AudioContinuity", r.AudioContinuity}, {"GridDurations", r.GridDurations}} {
+		if c.name == "AudioAUExact" && o.ReencodedAudio {
+			continue
+		}
 		if !c.r.Pass {
 			failed = append(failed, c.name)
 		}

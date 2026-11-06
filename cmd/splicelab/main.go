@@ -23,6 +23,8 @@ func main() {
 	ff := flag.String("ffmpeg", "ffmpeg", "pinned FFmpeg")
 	resume := flag.Bool("resume", false, "explicit Resume, including segment0")
 	limit := flag.Int("limit", 0, "stop real manager after this exclusive segment index")
+	copyAudio := flag.Bool("copy-audio", true, "copy source AAC; false encodes stereo AAC")
+	manager := flag.Bool("manager", false, "drive the real manager with optional FastStart")
 	flag.Parse()
 	b, e := os.ReadFile(*probe)
 	if e != nil {
@@ -32,14 +34,14 @@ func main() {
 	if e != nil {
 		panic(e)
 	}
-	if *fast {
+	if *fast || *manager {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer cancel()
-		if e := transcode.SpliceFastLab(ctx, *ff, *input, *dir, *info, *container, *first, *resume, *limit); e != nil {
+		if e := transcode.SpliceFastLab(ctx, *ff, *input, *dir, *info, *container, *first, *resume, *limit, *fast, *copyAudio); e != nil {
 			os.Stderr.WriteString(e.Error() + "\n")
 			os.Exit(1)
 		}
 		return
 	}
-	json.NewEncoder(os.Stdout).Encode(transcode.SpliceLabArgs(*input, *dir, *info, *container, *first, *copyVideo))
+	json.NewEncoder(os.Stdout).Encode(transcode.SpliceLabArgs(*input, *dir, *info, *container, *first, *copyVideo, *copyAudio))
 }
