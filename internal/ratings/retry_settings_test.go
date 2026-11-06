@@ -223,3 +223,54 @@ func TestRetryWorkingProviderAfterSave(t *testing.T) {
 		t.Fatalf("working provider not fetched/cached immediately: %v %v calls=%d", badges, err, calls.Load())
 	}
 }
+
+// A save of unchanged settings must not let a new worker inherit an old
+// foreground flight's error and turn it into a new retry deadline.
+func TestRetrySaveSeparatesIdenticalSettingsFlight(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	s := refreshTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-release
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(omdbOK))
+	})
+	defer close(release)
+	title := core.Title{Key: core.MovieKey(42), IDs: core.IDs{IMDB: "tt0000042"}}
+	old := callRefresh(s, ctx, &title)
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("old lookup not started")
+	}
+	cfg, err := s.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SaveSettings(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { defer close(done); s.Run(ctx) }()
+	defer func() { cancel(); <-done; awaitResult(t, old, "old lookup cancellation") }()
+	s.Queue(title)
+	waitRatingsIdle(t, s, title.Key)
+	badges, err := s.Cached(ctx, &title)
+	if err != nil || len(badges) != 1 || badges[0].Value != 8 || calls.Load() != 2 {
+		t.Fatalf("new generation reused old flight: badges=%v err=%v calls=%d", badges, err, calls.Load())
+	}
+	if err = s.SaveSettings(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	s.Queue(title)
+	waitRatingsIdle(t, s, title.Key)
+	badges, err = s.Cached(ctx, &title)
+	if err != nil || len(badges) != 1 || badges[0].Value != 8 || calls.Load() != 2 {
+		t.Fatalf("save discarded successful cache: badges=%v err=%v calls=%d", badges, err, calls.Load())
+	}
+}

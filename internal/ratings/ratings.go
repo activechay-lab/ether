@@ -95,11 +95,12 @@ type Options struct {
 }
 
 type refreshKey struct {
-	key       core.RatingKey
-	settings  Settings
-	imdb      string
-	tmdb      int64
-	titleType core.MediaType
+	generation uint64
+	key        core.RatingKey
+	settings   Settings
+	imdb       string
+	tmdb       int64
+	titleType  core.MediaType
 }
 
 type Service struct {
@@ -417,12 +418,16 @@ func (s *Service) Refresh(ctx context.Context, t *core.Title) ([]Badge, error) {
 	if t == nil {
 		return s.refresh(ctx, t)
 	}
+	// A successful save also separates identical settings from older flights.
+	s.qmu.Lock()
+	generation := s.retryGeneration
+	s.qmu.Unlock()
 	ctx = s.WithSettingsSnapshot(ctx)
 	cfg, err := s.settings(ctx)
 	if err != nil {
 		return nil, err
 	}
-	key := refreshKey{key: t.Key, settings: cfg, imdb: t.IDs.IMDB, tmdb: t.IDs.TMDB, titleType: t.Type}
+	key := refreshKey{generation: generation, key: t.Key, settings: cfg, imdb: t.IDs.IMDB, tmdb: t.IDs.TMDB, titleType: t.Type}
 	return s.flights.Do(ctx, key, func(ctx context.Context) ([]Badge, error) { return s.refresh(ctx, t) })
 }
 
