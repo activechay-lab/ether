@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/transcode"
 	"html"
 	"net/http"
 	"net/url"
@@ -167,8 +168,8 @@ func (s *Server) registerLiveTVRoutes(r chi.Router) {
 		s.d.LiveTV.ServePlaylist(w, r, chi.URLParam(r, "session"), FromContext(r.Context()).User)
 	})
 	get("/livetv/sessions/{session}/{consumer}/relay/{segment}", func(w http.ResponseWriter, r *http.Request) {
-		n, err := strconv.Atoi(strings.TrimSuffix(chi.URLParam(r, "segment"), ".ts"))
-		if err != nil {
+		n, ok := transcode.ParseSegmentName(chi.URLParam(r, "segment"))
+		if !ok {
 			writeHTTPError(w, 404)
 			return
 		}

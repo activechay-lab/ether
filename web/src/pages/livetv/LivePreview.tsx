@@ -67,7 +67,11 @@ export function LivePreview({
       try {
         await previousStop;
         if (!live) return;
-        tune = tv.play(channel.id, viewer);
+        const hevc =
+          typeof MediaSource !== "undefined" &&
+          MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L153.B0"');
+        const hevc10 = hevc && MediaSource.isTypeSupported('video/mp4; codecs="hvc1.2.4.L153.B0"');
+        tune = hevc ? tv.play(channel.id, viewer, true, hevc10) : tv.play(channel.id, viewer);
         const s = await tune;
         if (!live) return;
         setSession(s);

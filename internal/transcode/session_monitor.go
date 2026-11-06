@@ -546,8 +546,8 @@ func (s *Session) continueAfterExitLocked(r *run, reason string) error {
 }
 
 // recoverLiveLocked reconnects an active live HLS session at the next
-// unpublished segment. A sliding cap also bounds failures that emit a small
-// amount of media before exiting, rather than only empty runs.
+// unpublished segment. Delivered media replenishes the consecutive-failure
+// allowance; a separate sliding ceiling still bounds rapid reconnects.
 func (s *Session) recoverLiveLocked(r *run, err error) {
 	now := time.Now()
 	next := r.next()
@@ -560,7 +560,8 @@ func (s *Session) recoverLiveLocked(r *run, err error) {
 		reason += " (corrupt input observed)"
 	}
 	idle := s.m.opts.idleTimeout > 0 && now.Sub(s.LastAccess()) >= s.m.opts.idleTimeout
-	if idle || !s.liveRestarts.take(now, 3, 2*time.Minute) {
+	delay, allowed := s.liveRecoveryDelay(now, r)
+	if idle || !allowed {
 		endReason := "restart limit reached"
 		if idle {
 			endReason = "session idle"
@@ -569,6 +570,23 @@ func (s *Session) recoverLiveLocked(r *run, err error) {
 		s.inputFailed = true
 		s.failErr = fmt.Errorf("live source ended: %s: %s", endReason, reason)
 		s.log.Warn("live encoder recovery ended", "reason", endReason, "exit", reason, "restarts", len(s.liveRestarts), "lastSegment", s.endSeg)
+		return
+	}
+	s.liveRecovering = true
+	timer := time.NewTimer(delay)
+	cancel := s.encoder.cancel
+	s.mu.Unlock()
+	select {
+	case <-timer.C:
+	case <-cancel:
+	}
+	timer.Stop()
+	s.mu.Lock()
+	if s.cur != r {
+		return
+	}
+	s.liveRecovering = false
+	if s.closed {
 		return
 	}
 	if next > 0 {
@@ -684,4 +702,19 @@ func (s *Session) reportGraphLocked(err error) error {
 		go h(id, at, ferr)
 	}
 	return err
+}
+
+// Two delivered segments covering at least four seconds are useful playback,
+// rather than an HTTP 200 or a few corrupt packets. Keep the burst ceiling
+// independent of this replenishment so progress cannot create a retry storm.
+func (s *Session) liveRecoveryDelay(now time.Time, r *run) (time.Duration, bool) {
+	healthy := r.produced >= 2 && s.deliveredSeg >= r.startSeg+1 && s.deliveredCount >= 2 && time.Duration(s.deliveredCount)*s.segDur >= 4*time.Second && now.Sub(r.started) >= 2*time.Second
+	if healthy {
+		s.liveFailures = 0
+	}
+	if s.liveFailures >= 7 || !s.liveRestarts.take(now, 28, 30*time.Second) {
+		return 0, false
+	}
+	s.liveFailures++
+	return 250 * time.Millisecond << min(s.liveFailures-1, 4), true
 }

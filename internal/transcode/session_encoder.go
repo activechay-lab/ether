@@ -148,6 +148,7 @@ func (s *Session) stopRunForLocked(reason string) {
 }
 
 func (s *Session) startRunLocked(seg int, bigProbe bool) error {
+	s.liveRecovering = false
 	cause := s.traceCause
 	s.traceCause = ""
 	if s.closed {

@@ -466,9 +466,9 @@ export const tv = {
     );
     return Array.isArray(r) ? r : (r?.sources ?? []);
   },
-  play: (id: string, viewer?: string) =>
+  play: (id: string, viewer?: string, hevc = false, hevc10 = false) =>
     apiFetch<PreviewSession>(
-      `/livetv/channels/${enc(id)}/play${viewer ? `?viewer=${enc(viewer)}` : ""}`,
+      `/livetv/channels/${enc(id)}/play?${new URLSearchParams({ ...(viewer ? { viewer } : {}), ...(hevc ? { hevc: "1" } : {}), ...(hevc10 ? { hevc10: "1" } : {}) })}`,
       { method: "POST", body: "{}" },
     ),
   stopPreview: (session: string) =>

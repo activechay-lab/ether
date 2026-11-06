@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/mediasafety"
+	"github.com/braedonsaunders/ether/internal/transcode"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -21,11 +22,28 @@ var previewCaps = core.ClientCaps{
 	Platform:      "Web",
 	Device:        "Browser",
 	DeviceName:    "Owner preview",
-	MaxHeight:     1080,
+	MaxHeight:     0,
 	VideoCodecs:   []string{"h264"},
 	AudioCodecs:   []string{"aac", "mp3"},
 	Containers:    []string{"mpegts", "mp4"},
 	HLSContainers: []string{"mpegts"},
+}
+
+// The console advertises only profiles confirmed by its MSE probes. These
+// are device limits, independent of the owner's uncapped quality default.
+func previewClientCaps(r *http.Request) core.ClientCaps {
+	caps := previewCaps
+	if r.URL.Query().Get("hevc") == "1" {
+		caps.VideoCodecs = []string{"h264", "hevc"}
+		caps.HLSContainers = []string{"fmp4"}
+		caps.VideoProfiles = map[string][]string{"hevc": {"Main"}}
+		if r.URL.Query().Get("hevc10") == "1" {
+			caps.VideoProfiles["hevc"] = append(caps.VideoProfiles["hevc"], "Main 10")
+		}
+		caps.VideoLevels = map[string]int{"hevc": 153}
+		caps.MaxHeight = 2160 // the probed HEVC level 5.1 ceiling
+	}
+	return caps
 }
 
 // PreviewSession is what the owner UI needs to play a tuned channel. Stream
@@ -76,7 +94,7 @@ func (s *Service) previewRoutes(r chi.Router, owner *core.User) {
 				return
 			}
 		}
-		caps := previewCaps
+		caps := previewClientCaps(r)
 		caps.ClientID = "ether-preview-" + randomID()[:12]
 		info, err := s.TuneWithSession(r.Context(), viewer, chi.URLParam(r, "id"), caps, caps.ClientID)
 		if err != nil {
@@ -121,8 +139,8 @@ func (s *Service) previewRoutes(r chi.Router, owner *core.User) {
 	})
 	r.Get("/sessions/{session}/relay/{segment}", func(w http.ResponseWriter, r *http.Request) {
 		mediasafety.SetHeaders(w)
-		n, err := strconv.Atoi(strings.TrimSuffix(chi.URLParam(r, "segment"), ".ts"))
-		if err != nil {
+		n, ok := transcode.ParseSegmentName(chi.URLParam(r, "segment"))
+		if !ok {
 			http.NotFound(w, r)
 			return
 		}
