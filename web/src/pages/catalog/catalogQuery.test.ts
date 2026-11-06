@@ -101,9 +101,9 @@ describe("AI filter group transactions", () => {
       incoming,
     );
     expect(merged.chips.map((chip) => chip.group)).toEqual([1, 1, 2, 2]);
-    expect(compileQuery(merged).group!.children.map((child) => child.operator)).toEqual([
-      "or",
-      "or",
+    expect(compileQuery(merged).group!.children).toMatchObject([
+      { operator: "or" },
+      { operator: "or" },
     ]);
   });
   it("fails atomically if existing grouping or capacity cannot preserve the full draft", () => {
