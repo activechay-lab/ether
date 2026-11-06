@@ -164,6 +164,17 @@ func buildArgs(s runSpec) []string {
 	}
 	if s.Decision.Container == ContainerMPEGTS {
 		var segmentOptions []string
+		if !s.Decision.VideoCopy && s.Decision.AudioCopy && !s.LiveInput && !s.LoopInput && !s.RTXTimeline && s.ChunkDir == "" && len(s.KeyTimes) == 0 && (!s.AuthoredTimeline || s.RampClock) {
+			if encoder, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features); encoder == "h264_nvenc" {
+				_, _, reorder := nvencFramePlan(s)
+				if reorder == 0 {
+					// With no video reorder, negative copied-audio priming
+					// otherwise shifts only the initial child muxer's clock.
+					// Keep the planned zero-reorder clock on every run.
+					segmentOptions = append(segmentOptions, "avoid_negative_ts=disabled")
+				}
+			}
+		}
 		if s.RTXTimeline {
 			// Both HLS and its child TS muxer must preserve timestamps: the
 			// child otherwise shifts a zero-origin B-frame run to positive DTS.
@@ -186,14 +197,21 @@ func buildArgs(s runSpec) []string {
 		// working directory, which is the session root even for lower rungs.
 		s.InitName = filepath.Join(s.Dir, s.InitName)
 	}
-	// x264 reorders two frames with its default B-frame pyramid. Interleave
-	// copied audio that far ahead so an HLS cut closes with audio reaching
+	// Interleave copied audio by the planned encoder delay (two frames for
+	// the historic x264 mux clock) so an HLS cut closes with audio reaching
 	// the video boundary. Otherwise restarting at that boundary drops the
 	// ~80ms of audio left in the next old fragment (at 24fps).
 	if s.Decision.Container == ContainerFMP4 && !s.Decision.VideoCopy && s.Decision.AudioCopy {
 		if v := s.Info.Video(); v != nil && v.FrameRate >= 1 && !v.VariableFrameRate {
-			if encoder, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features); encoder == "libx264" {
-				args = append(args, "-audio_preload", strconv.FormatInt(int64(math.Ceil(2_000_000/v.FrameRate)), 10))
+			encoder, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features)
+			preloadFrames := 2
+			preloadFPS := v.FrameRate
+			if encoder == "h264_nvenc" {
+				_, _, preloadFrames = nvencFramePlan(s)
+				preloadFPS = hlsOutputFPS(s)
+			}
+			if encoder == "libx264" || encoder == "h264_nvenc" {
+				args = append(args, "-audio_preload", strconv.FormatInt(int64(math.Ceil(float64(preloadFrames)*1_000_000/preloadFPS)), 10))
 			}
 		}
 	}
@@ -329,7 +347,10 @@ func buildCodecArgs(s runSpec) []string {
 	}
 	if s.Start > 0 && !pceOutputSeek {
 		seek := secs(s.Start)
-		if start, ok := hlsAudioPreroll(s); ok {
+		if lead := hlsNVENCPreroll(s); lead > 0 {
+			// Keep the measured NVENC seek and its hardware-frame trim.
+			seek = secs(max(0, s.Start-lead).Truncate(time.Millisecond))
+		} else if start, ok := hlsAudioPreroll(s); ok {
 			seek = strconv.FormatFloat(math.Max(0, math.Floor(start)-1), 'f', 0, 64)
 			args = append(args, "-noaccurate_seek")
 		} else if start, ok := hlsCopiedAudioPreroll(s); ok {
@@ -606,6 +627,10 @@ func hlsAudioPreroll(s runSpec) (float64, bool) {
 // bounded earlier prefix and trim video separately; keep the existing exact AU
 // cutoff and all fresh-start arguments.
 func hlsCopiedAudioPreroll(s runSpec) (float64, bool) {
+	// Hardware plans keep their separately measured input and mux clocks.
+	if enc, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features); enc != "libx264" {
+		return 0, false
+	}
 	if s.Start <= 0 || !s.Decision.AudioCopy || s.SilenceAudio || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Decision.VideoCopy || s.ChunkDir != "" || len(s.KeyTimes) > 0 || (s.Protocol != "" && s.Protocol != core.ProtocolHLS) {
 		return 0, false
 	}
@@ -639,17 +664,17 @@ func hlsAudioRestartCut(s runSpec) float64 {
 	return hlsGridVideoStart(s, fps) - float64(delay)/fps
 }
 
-// hlsRestartLead retains the measured software H264 clock across restarts.
+// hlsRestartLead retains the planned H264 mux clock across restarts.
 // Fast-start fMP4 also carries the ramp origin into every steady run; its
 // edit-list correction already handles the encoder reorder difference.
 
-// Copies, hardware, live, alternate muxers and unknown output clocks retain
+// Copies, unplanned encoders, live, alternate muxers and unknown clocks retain
 // their existing arguments. Chunked/keyframe-planned runs are slotted on their
 // own authored timeline and must not receive a uniform-grid mux shift.
-// Never infer a hardware encoder's reorder delay.
+// NVENC delay comes from its explicit B-frame plan, never the driver preset.
 func hlsRestartLead(s runSpec) time.Duration {
 	_, encodedAudio := hlsAudioPreroll(s)
-	if (s.AuthoredTimeline && !s.RampClock && !encodedAudio) || s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP || (s.Decision.Container != ContainerMPEGTS && !(s.RampClock && s.Decision.Container == ContainerFMP4)) || s.Decision.VideoCopy || (!s.Decision.AudioCopy && !encodedAudio) || (s.FastStart && hlsFastStartClock(s) == 0) {
+	if (s.AuthoredTimeline && !s.RampClock && !encodedAudio) || s.ChunkDir != "" || len(s.KeyTimes) > 0 || s.Start <= 0 || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP || (s.Decision.Container != ContainerMPEGTS && !(s.RampClock && s.Decision.Container == ContainerFMP4)) || s.Decision.VideoCopy || (!s.Decision.AudioCopy && !encodedAudio) {
 		return 0
 	}
 	v := s.Info.Video()
@@ -657,7 +682,13 @@ func hlsRestartLead(s runSpec) time.Duration {
 		return 0
 	}
 	enc, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features)
-	if enc != "libx264" {
+	if enc != "libx264" && enc != "h264_nvenc" {
+		return 0
+	}
+	if enc == "h264_nvenc" && s.Decision.Container != ContainerMPEGTS {
+		return 0
+	}
+	if enc == "libx264" && s.FastStart && hlsFastStartClock(s) == 0 {
 		return 0
 	}
 	fps := hlsOutputFPS(s)
@@ -668,8 +699,19 @@ func hlsRestartLead(s runSpec) time.Duration {
 	if s.FastStart {
 		clockSpec.FastStart = false
 	}
-	_, _, _, delay := x264FramePlan(clockSpec)
+	delay := h264ReorderFrames(clockSpec)
 	return time.Duration(math.Round(float64(delay) / fps * float64(time.Second)))
+}
+
+// hlsNVENCPreroll retains the copied audio preceding an NVENC TS boundary.
+// Seeking exactly to the video keyframe can omit that audio before the BSF
+// sees it. The same planned lead bounds input preroll and the audio cutoff.
+func hlsNVENCPreroll(s runSpec) time.Duration {
+	enc, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features)
+	if enc != "h264_nvenc" {
+		return 0
+	}
+	return hlsRestartLead(s)
 }
 
 // The HLS cut compares audio DTS with video DTS, biased by audio_preload.
@@ -685,7 +727,7 @@ func hlsFMP4AudioCut(s runSpec) (float64, bool) {
 		return 0, false
 	}
 	enc, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features)
-	if enc != "libx264" {
+	if enc != "libx264" && enc != "h264_nvenc" {
 		return 0, false
 	}
 	fps := hlsOutputFPS(s)
@@ -696,10 +738,16 @@ func hlsFMP4AudioCut(s runSpec) (float64, bool) {
 	if hlsFastStartClock(s) > 0 {
 		clockSpec.FastStart = false
 	}
-	_, _, _, delay := x264FramePlan(clockSpec)
+	delay := h264ReorderFrames(clockSpec)
 	preload := 0.0
 	if !v.VariableFrameRate {
-		preload = math.Ceil(2_000_000/v.FrameRate) / 1_000_000
+		preloadFrames := 2
+		preloadFPS := v.FrameRate
+		if enc == "h264_nvenc" {
+			preloadFrames = delay
+			preloadFPS = fps
+		}
+		preload = math.Ceil(float64(preloadFrames)*1_000_000/preloadFPS) / 1_000_000
 	}
 	return hlsGridVideoStart(s, fps) + preload - float64(delay)/fps, true
 }
@@ -778,6 +826,31 @@ func x264FramePlan(s runSpec) (preset string, bframes int, pyramid string, reord
 		reorder = 1
 	}
 	return
+}
+
+// nvencFramePlan pins H264 B-frames instead of inheriting driver presets.
+// FFmpeg nvenc_set_timestamp uses frameIntervalP-1 (= bf) timestamp slots,
+// even though the stream reports has_b_frames=2 for any nonzero B-frame count.
+// The native 30fps p4 baseline has three slots (100ms); level plans use none.
+func nvencFramePlan(s runSpec) (preset string, bframes, reorder int) {
+	preset, bframes = "p4", 3
+	if s.FastStart {
+		preset = "p1"
+	}
+	if s.Decision.H264Level > 0 {
+		bframes = 0
+	}
+	return preset, bframes, bframes
+}
+
+func h264ReorderFrames(s runSpec) int {
+	enc, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features)
+	if enc == "h264_nvenc" {
+		_, _, delay := nvencFramePlan(s)
+		return delay
+	}
+	_, _, _, delay := x264FramePlan(s)
+	return delay
 }
 
 // hlsMuxArgs is the HLS muxer part of a run's command line.
@@ -1284,6 +1357,11 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 		if s.FastStart {
 			preset = "p1"
 		}
+		if enc == "h264_nvenc" {
+			var bframes int
+			preset, bframes, _ = nvencFramePlan(s)
+			e = append(e, "-bf", strconv.Itoa(bframes))
+		}
 		if s.Rate.Quality {
 			e = append(e, "-preset", preset, "-rc", "vbr", "-cq", "21", "-maxrate", maxr, "-bufsize", buf, "-forced-idr", "1")
 		} else {
@@ -1337,7 +1415,7 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 		if enc == "h264_nvenc" {
 			// NVENC adds references internally; refs=3,bf=2 requires level
 			// 6.0 at 4K even when the generic four-picture budget fits 5.1.
-			e = append(e, "-refs", "1", "-bf", "0")
+			e = append(e, "-refs", "1")
 		} else {
 			e = append(e, "-refs", "3", "-bf", "2")
 		}
@@ -1462,7 +1540,7 @@ func planVideo(s runSpec, v *core.StreamInfo) videoPlan {
 	}
 	_, encodedPreroll := hlsAudioPreroll(s)
 	_, copiedPreroll := hlsCopiedAudioPreroll(s)
-	if encodedPreroll || copiedPreroll {
+	if encodedPreroll || copiedPreroll || hlsNVENCPreroll(s) > 0 {
 		chain = append([]string{"trim=start=" + secs(s.Start)}, chain...)
 	}
 	p.inputArgs = append(p.inputArgs, chainInput...)

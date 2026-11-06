@@ -3,8 +3,10 @@ package transcode
 import (
 	"bytes"
 	"log/slog"
+	"math"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -547,4 +549,48 @@ func TestBuildArgsVAAPIRCModesAndNoGPUTonemap(t *testing.T) {
 	tmArgs := buildArgs(sTonemap)
 	mustContain(t, tmArgs, "-vaapi_device /dev/dri/renderD128", "tonemap=tonemap=hable", "hwupload", "-c:v h264_vaapi")
 	mustNotContain(t, tmArgs, "tonemap_vaapi", "scale_vaapi")
+}
+
+// The timestamp clock must come from the emitted NVENC plan, including the
+// zero-reorder level contract; has_b_frames is not the muxer's delay in frames.
+func TestNVENCFramePlanClock(t *testing.T) {
+	info := mustParse(t, "mkv_truehd_atmos.json")
+	for _, level := range []int{0, 41} {
+		for _, fast := range []bool{false, true} {
+			s := baseSpec(info, core.Decision{VideoCodec: "h264", AudioCopy: true, Container: ContainerMPEGTS, H264Level: level})
+			s.Accel = core.HWAccel{Name: AccelNVENC, Encoders: []string{"h264_nvenc"}}
+			s.FastStart = fast
+			preset, bf, reorder := nvencFramePlan(s)
+			wantPreset, wantBF := "p4", 3
+			if fast {
+				wantPreset = "p1"
+			}
+			if level > 0 {
+				wantBF = 0
+			}
+			if preset != wantPreset || bf != wantBF || reorder != wantBF {
+				t.Fatalf("level=%d fast=%v: plan=%s,%d,%d", level, fast, preset, bf, reorder)
+			}
+			mustContain(t, buildArgs(s), "-bf "+strconv.Itoa(wantBF), "-preset "+wantPreset)
+			options := argValue(buildArgs(s), "-hls_segment_options")
+			if strings.Contains(options, "avoid_negative_ts=disabled") != (wantBF == 0) {
+				t.Fatalf("bf=%d: child TS clock options=%q", wantBF, options)
+			}
+			wantLead := time.Duration(math.Round(float64(wantBF) / hlsOutputFPS(s) * float64(time.Second)))
+			if got := hlsRestartLead(s); got != wantLead {
+				t.Fatalf("restart lead=%s, want %s", got, wantLead)
+			}
+			mustContain(t, buildArgs(s), "-ss "+secs(max(0, s.Start-wantLead).Truncate(time.Millisecond)))
+			if wantLead > 0 {
+				mustContain(t, buildArgs(s), "trim=start="+secs(s.Start))
+			} else {
+				mustNotContain(t, buildArgs(s), "trim=start=")
+			}
+			s.Decision.Container = ContainerFMP4
+			cut, ok := hlsFMP4AudioCut(s)
+			if !ok || math.Abs(cut-hlsGridVideoStart(s, hlsOutputFPS(s))) > 0.0000011 {
+				t.Fatalf("fMP4 audio cut=%f, ok=%v", cut, ok)
+			}
+		}
+	}
 }

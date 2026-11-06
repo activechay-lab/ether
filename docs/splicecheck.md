@@ -77,12 +77,35 @@ fMP4 runs supply in-band headers so the retained ramp initialization segment can
 decode the steady encode. These paths require their own ramp recovery matrix;
 a passing uniform-grid check cannot certify them.
 
+H264 NVENC uses `nvencFramePlan` to select the preset, explicit B-frame count
+and timestamp reorder depth together. The default plan pins `-bf 3`; negotiated
+H264 levels retain `-bf 0` and `-refs 1`. FFmpeg's `nvenc_set_timestamp` uses
+`frameIntervalP-1` timestamp slots, equal to the configured B-frame count, even
+though `has_b_frames` reports 2 for any nonzero count. At 30 fps the default
+plan therefore requires a 100 ms TS restart lead; the level plan requires zero.
+The zero-reorder TS plan explicitly disables the child muxer's automatic negative
+timestamp normalization: a negative copied-audio priming packet would otherwise
+shift only the initial run, even though video has no B-frames. This keeps the
+clock independent of the input audio's priming duration without changing its AUs.
+TS input seeking also opens that far before the requested boundary, rounded down
+to milliseconds, so the demuxer retains the required copied AUs. A video `trim`
+keeps the authored first frame and its absolute PTS while passing GPU frames
+through. The audio bitstream filter still applies the planned cutoff.
+The same plan supplies fMP4 audio preload, rounded up to microseconds using the
+output frame rate, and the matching audio cut. fMP4 receives no TS mux shift.
+This changes neither the software encoder plans nor their historical preload.
+
 Chunked/keyframe-planned runs retain their previous mux clocks and audio cutoffs;
 their slotter authors a separate timeline. Both restart correction helpers refuse
 those run specifications, including a final chunked run with no remaining KeyTimes.
 
-The measured recovery configuration is libx264 with copied LC AAC at 48 kHz.
-Hardware encoder reorder depths, other video codecs require separate proof. Ordinary video-copy arguments remain
+The measured configurations use copied LC AAC at 48 kHz: libx264, and native
+Windows H264 NVENC on an RTX 4080 with pinned FFmpeg 8.1.3 at 30 fps. The NVENC
+steady p4 default and level-4.1 plans pass all eight local splice checks at
+boundaries 1–4 in TS and fMP4, including original and generation-specific fMP4
+initialization segments. These are restart-clock proofs; distributed loss and
+client-buffer acceptance remain separate gates. Other hardware encoder reorder
+depths and other video codecs require separate proof. Ordinary video-copy arguments remain
 unchanged. Copy-video HLS uses source keyframes: the session timeline snaps to
 known keyframes; without a source index the muxer cuts at the next source
 keyframe after its requested duration. Such a grid cannot be inferred from N*d;
