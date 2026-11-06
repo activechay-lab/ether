@@ -23,7 +23,7 @@ import {
   Trash2,
   Tv,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { MoreOptions } from "../../components/ConfigSection";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
@@ -41,7 +41,6 @@ import {
   MEDIA_MOVIE,
   MEDIA_TV,
   appForMedia,
-  compatibleProfiles,
   mediaApplies,
   mediaLabel,
   mediaTypeForApp,
@@ -1043,13 +1042,6 @@ function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Pr
 export function QualityTab() {
   const { config, quality, commit, refresh } = useQuality();
   const [media, setMedia] = useState<ProfileMedia>(MEDIA_MOVIE);
-  useEffect(() => {
-    if (!quality) return;
-    const has = (m: ProfileMedia) => compatibleProfiles(quality.profiles, m).length > 0;
-    if (!has(media) && has(media === MEDIA_MOVIE ? MEDIA_TV : MEDIA_MOVIE)) {
-      setMedia(media === MEDIA_MOVIE ? MEDIA_TV : MEDIA_MOVIE);
-    }
-  }, [quality, media]);
   if (config.error) return <ErrorPanel error={config.error} onRetry={() => void config.reload()} />;
   if (!quality) return <LoadingRows rows={4} />;
   return (

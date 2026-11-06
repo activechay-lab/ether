@@ -233,6 +233,9 @@ func TestApplyClientRulesForMediaScopesRules(t *testing.T) {
 		}
 		return false
 	}
+	if caps := ApplyClientRules(q, appleTVCaps(), nil); !hasTrueHD(caps) {
+		t.Fatal("title-neutral capabilities applied a movie-only audio rule")
+	}
 	if caps, _ := applyClientRules(q, appleTVCaps(), nil, core.MediaMovie); hasTrueHD(caps) {
 		t.Fatalf("movie rule did not convert surround audio: %+v", caps.AudioCodecs)
 	}

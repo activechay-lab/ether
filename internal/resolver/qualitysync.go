@@ -109,6 +109,15 @@ func (s *QualitySyncer) Sync(ctx context.Context) (QualitySyncReport, error) {
 			report.Warnings = append(report.Warnings, fmt.Sprintf("%s: %s", prof.Name, syncReason(err)))
 			continue
 		}
+		missing := false
+		for _, format := range plan.Formats {
+			missing = missing || format.Status == FormatMissing
+		}
+		if missing {
+			failed = true
+			report.Warnings = append(report.Warnings, fmt.Sprintf("%s: incomplete custom format definitions; profile was kept", prof.Name))
+			continue
+		}
 		if plan.Unusable != "" {
 			failed = true
 			report.Warnings = append(report.Warnings, fmt.Sprintf("%s: %s", prof.Name, plan.Unusable))
@@ -212,6 +221,11 @@ func (s *QualitySyncer) plan(ctx context.Context, imp core.ProfileImport, cfg co
 		if err != nil {
 			return QualityImportPlan{}, fmt.Errorf("custom formats: %w", err)
 		}
+		for _, id := range qimp.FormatIDs {
+			if _, ok := found[id]; !ok {
+				return QualityImportPlan{}, fmt.Errorf("custom format %q is missing from the guide", id)
+			}
+		}
 		if qimp.App != "" {
 			app = qimp.App
 		}
@@ -258,6 +272,10 @@ func (s *QualitySyncer) apply(c *config.Config, name string, saved core.ProfileI
 		return // deleted while fetching; nothing to overwrite
 	}
 	cur := c.Quality.Profiles[idx]
+	// A same-name replacement during the fetch must not become guide-owned.
+	if cur.Import == nil || cur.Import.Source != saved.Source || cur.Import.App != saved.App || cur.Import.Profile != saved.Profile {
+		return
+	}
 	app := plan.App
 	if !validApp(app) {
 		app = saved.App
@@ -328,12 +346,34 @@ func (s *QualitySyncer) apply(c *config.Config, name string, saved core.ProfileI
 		}
 		if at < 0 {
 			c.Resolver.CustomFormats = append(c.Resolver.CustomFormats, def)
+			// Adding a guide format must not change any other profile's scores.
+			for i := range c.Quality.Profiles {
+				p := &c.Quality.Profiles[i]
+				if _, exists := p.CustomFormatScores[id]; !exists {
+					if p.CustomFormatScores == nil {
+						p.CustomFormatScores = map[string]int{}
+					}
+					p.CustomFormatScores[id] = 0
+				}
+			}
 			report.FormatsAdded++
 			continue
 		}
-		if !sameFormatDefinition(c.Resolver.CustomFormats[at], def) {
+		if c.Resolver.CustomFormats[at].ManagedBy != "" && !sameFormatDefinition(c.Resolver.CustomFormats[at], def) {
 			c.Resolver.CustomFormats[at] = def
 			report.FormatsUpdated++
+		}
+	}
+	// Imported profiles explicitly opt out of unrelated shared formats while
+	// ordinary sparse owner maps retain their global-score inheritance.
+	if next.CustomFormatScores == nil {
+		next.CustomFormatScores = map[string]int{}
+	}
+	for _, def := range c.Resolver.CustomFormats {
+		if id := formatID(def); id != "" {
+			if _, exists := next.CustomFormatScores[id]; !exists {
+				next.CustomFormatScores[id] = 0
+			}
 		}
 	}
 	if !sameProfileDefinition(cur, next) {

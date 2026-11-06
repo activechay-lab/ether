@@ -519,7 +519,7 @@ func (m *Manager) findWarmEntryLocked(user *core.User, caps core.ClientCaps, key
 			return e
 		}
 	}
-	if m.deps.SelectProfile == nil && m.deps.SelectProfileFor == nil {
+	if m.deps.SelectProfile == nil {
 		return nil
 	}
 	pk := profileKey(m.selectProfile(caps, user, key))

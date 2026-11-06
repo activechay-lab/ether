@@ -7,7 +7,7 @@ import (
 
 func TestMergeQualitySyncPreservesServerRunState(t *testing.T) {
 	current := json.RawMessage(`{"profiles":[],"sync":{"enabled":false,"interval":"24h0m0s","lastRun":"2026-11-05T10:00:00Z","lastError":"old"}}`)
-	patch := json.RawMessage(`{"sync":{"enabled":true,"interval":"6h"}}`)
+	patch := json.RawMessage(`{"sync":{"enabled":true,"interval":"6h","lastRun":"1999-01-01T00:00:00Z","lastError":"forged"}}`)
 	merged, err := mergeSection(current, patch)
 	if err != nil {
 		t.Fatal(err)

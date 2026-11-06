@@ -263,7 +263,17 @@ func stripSurroundAudioCaps(caps core.ClientCaps) core.ClientCaps {
 // default remote bitrate cap is cleared so 4K releases are not demoted below
 // 8 Mbps.
 func ApplyClientRules(q config.Quality, caps core.ClientCaps, user *core.User) core.ClientCaps {
-	caps, _ = applyClientRules(q, caps, user, core.MediaAny)
+	return ApplyClientRulesForMedia(q, caps, user, core.MediaAny)
+}
+
+// ApplyClientRulesForMedia applies only shared policy until the title is known.
+// Scoped rules must never irreversibly narrow another media's capabilities.
+func ApplyClientRulesForMedia(q config.Quality, caps core.ClientCaps, user *core.User, media string) core.ClientCaps {
+	if media == core.MediaAny {
+		q.Profiles = slices.DeleteFunc(slices.Clone(q.Profiles), func(p core.QualityProfile) bool { return p.MediaType != core.MediaAny })
+		q.Rules = slices.DeleteFunc(slices.Clone(q.Rules), func(r config.QualityRule) bool { return r.MediaType != core.MediaAny })
+	}
+	caps, _ = applyClientRules(q, caps, user, media)
 	return caps
 }
 

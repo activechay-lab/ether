@@ -65,7 +65,7 @@ func TestRealSourceAccessBindingAndErrorOwnership(t *testing.T) {
 	ctx := context.Background()
 	src := &fixtureBytes{}
 	src.size.Store(10)
-	m, err := playback.New(playback.Deps{Catalog: fixtureCatalog{}, Resolver: fixtureResolver{}, Engine: fixtureEngine{src: src}, Transcoder: fixtureTranscoder{}, SelectProfile: func(core.ClientCaps, *core.User) core.QualityProfile { return core.QualityProfile{} }}, config.Defaults(t.TempDir()), playback.Options{})
+	m, err := playback.New(playback.Deps{Catalog: fixtureCatalog{}, Resolver: fixtureResolver{}, Engine: fixtureEngine{src: src}, Transcoder: fixtureTranscoder{}, SelectProfile: func(core.ClientCaps, *core.User, string) core.QualityProfile { return core.QualityProfile{} }}, config.Defaults(t.TempDir()), playback.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

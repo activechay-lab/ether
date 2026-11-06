@@ -82,3 +82,23 @@ it("saves the automatic sync cadence as a patch and runs it", async () => {
   await waitFor(() => expect(calls(fake, "POST", "/releases/quality/sync")).toHaveLength(1));
   expect(await screen.findByText("2 formats added")).toBeInTheDocument();
 });
+
+it("keeps an empty media tab selected so its first profile can be added", async () => {
+  renderApp("/quality/profiles", {}, (fake) => {
+    fake.state.config.quality.profiles = fake.state.config.quality.profiles!.map((p) => ({
+      ...p,
+      mediaType: "movie",
+    }));
+  });
+  await screen.findByRole("button", { name: "Add profile" });
+  fireEvent.click(screen.getByRole("radio", { name: "Shows" }));
+  await waitFor(() =>
+    expect(screen.getByRole("radio", { name: "Shows" })).toHaveAttribute("aria-checked", "true"),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add profile" }));
+  const drawer = await screen.findByRole("dialog");
+  expect(within(drawer).getByRole("radio", { name: "Shows" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+});

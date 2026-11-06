@@ -16,15 +16,7 @@ func ratingMedia(key core.RatingKey) string {
 	return core.MediaAny
 }
 
-// selectProfile picks the profile for a title key. When the app wires the
-// media-aware selector, movie and show profiles choose their own defaults
-// and rules; tests and older embeddings fall back to the neutral selector.
+// selectProfile picks the profile for a title key.
 func (m *Manager) selectProfile(caps core.ClientCaps, user *core.User, key core.RatingKey) core.QualityProfile {
-	if m.deps.SelectProfileFor != nil {
-		return m.deps.SelectProfileFor(caps, user, ratingMedia(key))
-	}
-	if m.deps.SelectProfile != nil {
-		return m.deps.SelectProfile(caps, user)
-	}
-	return core.QualityProfile{}
+	return m.deps.SelectProfile(caps, user, ratingMedia(key))
 }

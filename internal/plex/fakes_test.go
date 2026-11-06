@@ -1215,7 +1215,7 @@ func newFixture(opts ...func(*Deps)) *fixture {
 		Auth:             &fakeAuth{users: map[string]core.User{ownerToken: ownerUser, friendToken: friendUser}},
 		Playback:         f.playback,
 		Transcoder:       f.trans,
-		ApplyClientRules: resolver.ApplyClientRules,
+		ApplyClientRules: resolver.ApplyClientRulesForMedia,
 		HTTPClient:       &http.Client{Transport: f.art},
 		Config: func() config.Config {
 			c := config.Config{}

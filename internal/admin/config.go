@@ -409,6 +409,14 @@ func mergeQualitySync(current, merged json.RawMessage) json.RawMessage {
 	if json.Unmarshal(curSync, &cs) != nil || json.Unmarshal(nextSync, &ns) != nil {
 		return merged
 	}
+	// Run state belongs to the server even when a stale form sends it back.
+	for _, k := range []string{"lastRun", "lastError"} {
+		if v, ok := cs[k]; ok {
+			ns[k] = v
+		} else {
+			delete(ns, k)
+		}
+	}
 	for k, v := range cs {
 		if _, ok := ns[k]; !ok {
 			ns[k] = v

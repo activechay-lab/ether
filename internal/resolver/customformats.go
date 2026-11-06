@@ -300,15 +300,13 @@ func (s *FormatScorer) ScoreForTitle(r core.Release, overrides map[string]int, o
 		if !ok {
 			continue
 		}
-		// A profile that carries its own score map scores every format in
-		// it and every other format 0, as Radarr and Sonarr do. With no
-		// map the definition's default (or the owner's global score) applies.
+		// Sparse owner maps inherit global scores for formats they do not override.
 		score := f.def.Scores["default"]
 		if v, ok := s.scores[f.def.ID]; ok {
 			score = v
 		}
-		if overrides != nil {
-			score = overrides[f.def.ID]
+		if v, ok := overrides[f.def.ID]; ok {
+			score = v
 		}
 		total += score
 		matches = append(matches, FormatMatch{f.def.ID, f.def.Name, score})

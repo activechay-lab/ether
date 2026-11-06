@@ -48,14 +48,8 @@ type Deps struct {
 	Cache core.SegmentCache
 	// State, when set, tells which titles are in progress (cache protection).
 	State core.State
-	// SelectProfile picks the quality profile for a client and user. It is
-	// implemented by the resolver package.
-	SelectProfile func(caps core.ClientCaps, user *core.User) core.QualityProfile
-	// SelectProfileFor is SelectProfile scoped to the title's media
-	// ("movie", "tv", or "" when unknown). Optional; when set, title-aware
-	// paths (Prepare, estimates, resume, warm-up) use it so a show never
-	// borrows a movie profile or the reverse.
-	SelectProfileFor func(caps core.ClientCaps, user *core.User, media string) core.QualityProfile
+	// SelectProfile picks the quality profile for the title's media and client.
+	SelectProfile func(caps core.ClientCaps, user *core.User, media string) core.QualityProfile
 	// HLSLookup finds the HLS session fed by a playback session, for
 	// mid-stream failover. Defaults to Transcoder.Session(sessionID).
 	HLSLookup func(sessionID string) (core.HLSSession, bool)
@@ -414,7 +408,7 @@ func New(deps Deps, cfg config.Config, opts Options) (*Manager, error) {
 		return nil, errors.New("playback: Transcoder is required")
 	case deps.Catalog == nil:
 		return nil, errors.New("playback: Catalog is required")
-	case deps.SelectProfile == nil && deps.SelectProfileFor == nil:
+	case deps.SelectProfile == nil:
 		return nil, errors.New("playback: SelectProfile is required")
 	}
 	opts.defaults()
