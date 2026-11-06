@@ -47,7 +47,7 @@ func (p *scheduleBroadcastPlanner) startPlanner(parent context.Context) {
 	// expansion runs during a tune, even for a large/personal recipe.
 	now := time.Now()
 	c := p.s.personalChannel(p.workerCtx, p.channel, &p.user)
-	p.window, _ = p.s.programmes(p.workerCtx, c, now, now.Add(2*time.Minute))
+	p.window, _ = p.s.programmes(p.workerCtx, c, now, now.Add(12*time.Minute))
 	go p.planWorker()
 }
 func (p *scheduleBroadcastPlanner) closePlanner() { p.workerCancel(); <-p.workerDone }
@@ -62,12 +62,12 @@ func (p *scheduleBroadcastPlanner) planWorker() {
 			c = p.s.personalChannel(p.workerCtx, c, &p.user)
 			var ps []Programme
 			if c.Personal != nil {
-				ps, _ = p.s.programmes(p.workerCtx, c, now, now.Add(2*time.Minute))
+				ps, _ = p.s.programmes(p.workerCtx, c, now, now.Add(12*time.Minute))
 				if welcome, ok := p.s.personalWelcome(c, now); ok {
 					ps = append([]Programme{welcome}, ps...)
 				}
 			} else {
-				ps = p.s.broadcastSchedule(p.workerCtx, p.s.plannedChannel(c), now, now.Add(2*time.Minute), true)
+				ps = p.s.broadcastSchedule(p.workerCtx, p.s.plannedChannel(c), now, now.Add(12*time.Minute), true)
 			}
 			for i := range ps {
 				ps[i].policyTag = p.s.programmePolicy(p.workerCtx, ps[i])
