@@ -4,6 +4,12 @@ Branch: `perf/yenc-pure-go-simd`; base: `release/0.3.5` at
 `c9297236e827b41b5a4833af9899fb2b10ad0067`.
 Recorded on 2026-11-06, Apple M4, macOS ARM64, Go 1.27.3.
 
+The [expanded backend benchmark report](yenc-backend-benchmarks.md) contains
+newer four-build measurements, process CPU cost, fresh/reused buffers,
+concurrent readers, bare-package comparisons and CPU projections. It includes
+longer confirmation samples and raw outputs; the smaller tables below record
+earlier targeted runs.
+
 ## Implementation
 
 `internal/usenet` imports `github.com/mnightingale/rapidyenc`, pinned to

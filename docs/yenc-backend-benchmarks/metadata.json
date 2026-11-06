@@ -1,0 +1,54 @@
+{
+  "started_utc": "2026-11-06T21:26:48.014193+00:00",
+  "implementation_commit": "1dd6edb0fe61186460c1a0ca9e67890bef5fd954",
+  "go_version": "go version go1.27.3 darwin/arm64",
+  "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+  "cpu_model": "Apple M4",
+  "logical_cpus": 10,
+  "duration": "300ms",
+  "samples": 3,
+  "serial_gomaxprocs": 1,
+  "concurrent_gomaxprocs": 8,
+  "workers": [
+    1,
+    4,
+    8,
+    16
+  ],
+  "sizes_kib": [
+    384,
+    768
+  ],
+  "line_lengths": [
+    128,
+    256
+  ],
+  "fixture_seed": 95,
+  "crc": true,
+  "units": "decoded decimal MB/s",
+  "scenarios": {
+    "go-simd": {
+      "CGO_ENABLED": "0",
+      "GOEXPERIMENT": "simd"
+    },
+    "cgo-no-simd": {
+      "CGO_ENABLED": "1",
+      "GOEXPERIMENT": ""
+    },
+    "swar": {
+      "CGO_ENABLED": "0",
+      "GOEXPERIMENT": ""
+    },
+    "cgo-with-simd": {
+      "CGO_ENABLED": "1",
+      "GOEXPERIMENT": "simd"
+    }
+  },
+  "finished_utc": "2026-11-06T21:36:38.069913+00:00",
+  "timing_note": "Start is the completion of the first backend-selection check; finish is the final benchmark output timestamp.",
+  "memory_bytes": 17179869184,
+  "confirmation": {
+    "duration": "1s",
+    "samples": 5
+  }
+}

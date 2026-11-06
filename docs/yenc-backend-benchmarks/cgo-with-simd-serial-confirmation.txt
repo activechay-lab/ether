@@ -1,0 +1,16 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/braedonsaunders/ether/internal/usenet
+cpu: Apple M4
+BenchmarkBodyDecode/line128/768KiB/bufferfresh/SWARfalse         	    2754	    437036 ns/op	1799.47 MB/s	        98.78 cpu-%	       589.4 cpu-ms/GiB	    431682 cpu-ns/op	  796160 B/op	      35 allocs/op
+BenchmarkBodyDecode/line128/768KiB/bufferfresh/SWARfalse         	    2835	    423734 ns/op	1855.96 MB/s	        99.07 cpu-%	       573.2 cpu-ms/GiB	    419796 cpu-ns/op	  796160 B/op	      35 allocs/op
+BenchmarkBodyDecode/line128/768KiB/bufferfresh/SWARfalse         	    2860	    420500 ns/op	1870.23 MB/s	        99.07 cpu-%	       568.8 cpu-ms/GiB	    416589 cpu-ns/op	  796160 B/op	      35 allocs/op
+BenchmarkBodyDecode/line128/768KiB/bufferfresh/SWARfalse         	    2829	    454108 ns/op	1731.82 MB/s	        97.98 cpu-%	       607.5 cpu-ms/GiB	    444919 cpu-ns/op	  796160 B/op	      35 allocs/op
+BenchmarkBodyDecode/line128/768KiB/bufferfresh/SWARfalse         	    2574	    496580 ns/op	1583.70 MB/s	        96.04 cpu-%	       651.2 cpu-ms/GiB	    476926 cpu-ns/op	  796160 B/op	      35 allocs/op
+BenchmarkBodyDecode/line128/768KiB/bufferfresh/SWARtrue          	    2830	    381751 ns/op	2060.06 MB/s	        98.89 cpu-%	       515.4 cpu-ms/GiB	    377503 cpu-ns/op	  787523 B/op	      22 allocs/op
+BenchmarkBodyDecode/line128/768KiB/bufferfresh/SWARtrue          	    3112	    373301 ns/op	2106.70 MB/s	        98.93 cpu-%	       504.2 cpu-ms/GiB	    369296 cpu-ns/op	  787523 B/op	      22 allocs/op
+BenchmarkBodyDecode/line128/768KiB/bufferfresh/SWARtrue          	    3266	    375051 ns/op	2096.86 MB/s	        98.91 cpu-%	       506.5 cpu-ms/GiB	    370979 cpu-ns/op	  787523 B/op	      22 allocs/op
+BenchmarkBodyDecode/line128/768KiB/bufferfresh/SWARtrue          	    3187	    382244 ns/op	2057.41 MB/s	        98.53 cpu-%	       514.2 cpu-ms/GiB	    376629 cpu-ns/op	  787523 B/op	      22 allocs/op
+BenchmarkBodyDecode/line128/768KiB/bufferfresh/SWARtrue          	    3054	    377300 ns/op	2084.37 MB/s	        98.93 cpu-%	       509.6 cpu-ms/GiB	    373256 cpu-ns/op	  787523 B/op	      22 allocs/op
+PASS
+ok  	github.com/braedonsaunders/ether/internal/usenet	12.715s

@@ -1,0 +1,30 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/braedonsaunders/ether/internal/usenet
+cpu: Apple M4
+BenchmarkRapidDirect/line128/384KiB/reusefalse         	    3288	     94340 ns/op	4168.08 MB/s	        97.21 cpu-%	       250.4 cpu-ms/GiB	     91705 cpu-ns/op	  401822 B/op	      14 allocs/op
+BenchmarkRapidDirect/line128/384KiB/reusefalse         	    3856	     93669 ns/op	4197.95 MB/s	       101.1 cpu-%	       258.6 cpu-ms/GiB	     94706 cpu-ns/op	  401822 B/op	      14 allocs/op
+BenchmarkRapidDirect/line128/384KiB/reusefalse         	    3876	     93759 ns/op	4193.88 MB/s	        99.64 cpu-%	       255.1 cpu-ms/GiB	     93425 cpu-ns/op	  401822 B/op	      14 allocs/op
+BenchmarkRapidDirect/line128/384KiB/reusetrue          	    4748	     75834 ns/op	5185.22 MB/s	       100.1 cpu-%	       207.4 cpu-ms/GiB	     75942 cpu-ns/op	     392 B/op	      13 allocs/op
+BenchmarkRapidDirect/line128/384KiB/reusetrue          	    4686	     74763 ns/op	5259.47 MB/s	        99.82 cpu-%	       203.8 cpu-ms/GiB	     74631 cpu-ns/op	     392 B/op	      13 allocs/op
+BenchmarkRapidDirect/line128/384KiB/reusetrue          	    4939	     74365 ns/op	5287.64 MB/s	        99.88 cpu-%	       202.8 cpu-ms/GiB	     74276 cpu-ns/op	     392 B/op	      13 allocs/op
+BenchmarkRapidDirect/line128/768KiB/reusefalse         	    2092	    179745 ns/op	4375.26 MB/s	        96.95 cpu-%	       237.9 cpu-ms/GiB	    174271 cpu-ns/op	  795043 B/op	      14 allocs/op
+BenchmarkRapidDirect/line128/768KiB/reusefalse         	    1872	    227082 ns/op	3463.21 MB/s	        89.29 cpu-%	       276.8 cpu-ms/GiB	    202754 cpu-ns/op	  795043 B/op	      14 allocs/op
+BenchmarkRapidDirect/line128/768KiB/reusefalse         	    1954	    191757 ns/op	4101.19 MB/s	        97.06 cpu-%	       254.1 cpu-ms/GiB	    186113 cpu-ns/op	  795043 B/op	      14 allocs/op
+BenchmarkRapidDirect/line128/768KiB/reusetrue          	    2431	    154053 ns/op	5104.93 MB/s	        99.39 cpu-%	       209.1 cpu-ms/GiB	    153115 cpu-ns/op	     392 B/op	      13 allocs/op
+BenchmarkRapidDirect/line128/768KiB/reusetrue          	    2364	    184235 ns/op	4268.63 MB/s	        88.31 cpu-%	       222.1 cpu-ms/GiB	    162691 cpu-ns/op	     392 B/op	      13 allocs/op
+BenchmarkRapidDirect/line128/768KiB/reusetrue          	    2341	    161050 ns/op	4883.17 MB/s	        98.70 cpu-%	       217.0 cpu-ms/GiB	    158957 cpu-ns/op	     392 B/op	      13 allocs/op
+BenchmarkRapidDirect/line256/384KiB/reusefalse         	    3748	    133291 ns/op	2950.06 MB/s	        80.86 cpu-%	       294.3 cpu-ms/GiB	    107777 cpu-ns/op	  401822 B/op	      14 allocs/op
+BenchmarkRapidDirect/line256/384KiB/reusefalse         	    3847	     92069 ns/op	4270.88 MB/s	        97.51 cpu-%	       245.2 cpu-ms/GiB	     89780 cpu-ns/op	  401822 B/op	      14 allocs/op
+BenchmarkRapidDirect/line256/384KiB/reusefalse         	    3724	     97499 ns/op	4033.04 MB/s	        97.14 cpu-%	       258.6 cpu-ms/GiB	     94706 cpu-ns/op	  401822 B/op	      14 allocs/op
+BenchmarkRapidDirect/line256/384KiB/reusetrue          	    4806	     69428 ns/op	5663.65 MB/s	        99.86 cpu-%	       189.3 cpu-ms/GiB	     69334 cpu-ns/op	     392 B/op	      13 allocs/op
+BenchmarkRapidDirect/line256/384KiB/reusetrue          	    5371	     84097 ns/op	4675.74 MB/s	        91.09 cpu-%	       209.2 cpu-ms/GiB	     76602 cpu-ns/op	     392 B/op	      13 allocs/op
+BenchmarkRapidDirect/line256/384KiB/reusetrue          	    4368	     86064 ns/op	4568.86 MB/s	        89.32 cpu-%	       209.9 cpu-ms/GiB	     76875 cpu-ns/op	     392 B/op	      13 allocs/op
+BenchmarkRapidDirect/line256/768KiB/reusefalse         	    2115	    178118 ns/op	4415.24 MB/s	        96.44 cpu-%	       234.5 cpu-ms/GiB	    171771 cpu-ns/op	  795043 B/op	      14 allocs/op
+BenchmarkRapidDirect/line256/768KiB/reusefalse         	    2001	    164411 ns/op	4783.32 MB/s	        97.54 cpu-%	       219.0 cpu-ms/GiB	    160367 cpu-ns/op	  795043 B/op	      14 allocs/op
+BenchmarkRapidDirect/line256/768KiB/reusefalse         	    2210	    162778 ns/op	4831.32 MB/s	        97.35 cpu-%	       216.4 cpu-ms/GiB	    158471 cpu-ns/op	  795043 B/op	      14 allocs/op
+BenchmarkRapidDirect/line256/768KiB/reusetrue          	    2662	    136114 ns/op	5777.76 MB/s	        99.96 cpu-%	       185.8 cpu-ms/GiB	    136055 cpu-ns/op	     392 B/op	      13 allocs/op
+BenchmarkRapidDirect/line256/768KiB/reusetrue          	    2649	    135771 ns/op	5792.33 MB/s	        99.92 cpu-%	       185.2 cpu-ms/GiB	    135664 cpu-ns/op	     392 B/op	      13 allocs/op
+BenchmarkRapidDirect/line256/768KiB/reusetrue          	    2515	    135678 ns/op	5796.33 MB/s	        99.94 cpu-%	       185.1 cpu-ms/GiB	    135591 cpu-ns/op	     392 B/op	      13 allocs/op
+PASS
+ok  	github.com/braedonsaunders/ether/internal/usenet	10.274s
