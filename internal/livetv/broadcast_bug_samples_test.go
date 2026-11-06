@@ -9,12 +9,12 @@ import (
 	"image/jpeg"
 	_ "image/png"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/mediaproc"
 	"github.com/braedonsaunders/ether/internal/onair"
 	"github.com/braedonsaunders/ether/internal/onair/families"
 	"github.com/braedonsaunders/ether/internal/onair/raster"
@@ -131,7 +131,7 @@ func TestBroadcastBugSamples(t *testing.T) {
 	b := raster.Bindings{Bindings: families.Defaults("clean")}
 	b.Slots["channel.name"] = "ETHER"
 	o := &programmeOverlays{bug: compactOverlay(raster.Render(d, b, 3, 1920, 1080), f), fadeBreaks: true}
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", "1920x1080", "-r", "30", "-i", "pipe:0", "-an", "-c:v", "libx264", "-threads", "2", "-preset", "fast", "-crf", "20", "-movflags", "+faststart", filepath.Join(*bugSamples, "break-fade.mp4"))
+	cmd := mediaproc.CommandContext(ctx, 2*time.Minute, "ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", "1920x1080", "-r", "30", "-i", "pipe:0", "-an", "-c:v", "libx264", "-threads", "2", "-preset", "fast", "-crf", "20", "-movflags", "+faststart", filepath.Join(*bugSamples, "break-fade.mp4"))
 	cmd.Stderr = os.Stderr
 	pipe, e := cmd.StdinPipe()
 	if e != nil {
