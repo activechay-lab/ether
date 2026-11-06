@@ -37,6 +37,7 @@ type Config struct {
 	Reference                                                       []splicecheck.Segment
 }
 type Attempt struct {
+	Origin                         string // scheme and host only; excludes credentials, path and query
 	Kind                           string
 	Index                          int
 	RequestedAt                    time.Time
@@ -135,6 +136,7 @@ func (p *player) request(ctx context.Context, raw, kind string, index int, retry
 		if e != nil {
 			return nil, fmt.Errorf("request construction failed")
 		}
+		a.Origin = req.URL.Scheme + "://" + req.URL.Host
 		if p.isMediaBrowser() {
 			req.Header.Set("X-Emby-Token", p.c.Token)
 			req.Header.Set("X-Emby-Device-Id", p.c.DeviceID)
