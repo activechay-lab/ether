@@ -1013,6 +1013,16 @@ export interface ClusterRolePreflight {
 }
 
 export interface ClusterDiagnostics {
+  clock?: {
+    clockSkewNs: number;
+    rttNs: number;
+    uncertaintyNs: number;
+    boundNs: number;
+    sampledAt: string;
+    ready: boolean;
+    reason?: string;
+    lastStepNs: number;
+  };
   sampledAt: string;
   readyExisting: boolean;
   acceptingNew: boolean;

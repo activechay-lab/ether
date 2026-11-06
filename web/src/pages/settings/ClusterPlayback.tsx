@@ -63,7 +63,16 @@ export function ClusterPlayback({
                 </Badge>
               </div>
               <p className="text-sm">
-                {name(e.failedNodeId)} → {name(e.replacementNodeId)}
+                {e.role === "source"
+                  ? t("Source")
+                  : e.role === "transcode"
+                    ? t("Transcoding")
+                    : e.role === "delivery"
+                      ? t("Delivery")
+                      : e.role === "server"
+                        ? t("Server")
+                        : t("Unknown")}{" "}
+                · {name(e.failedNodeId)} → {name(e.replacementNodeId)}
               </p>
               <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 {[

@@ -1472,6 +1472,8 @@ function readinessReason(reason: string): string {
     case "boot_mismatch":
     case "mounted_identity_changed":
       return t("Node identity or roles need attention");
+    case "clock_skew":
+      return t("Clock skew");
     case "credential_rotation_failed":
       return t("Credentials need attention");
     default:
@@ -1487,6 +1489,14 @@ function NodeCapacity({ node, cached }: { node: ClusterNode; cached: boolean }) 
     <dl className="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
       {[
         [t("Transcoding"), transcodeLabel(node)],
+        [t("Accepting new work"), fresh ? (d?.acceptingNew ? t("Yes") : t("No")) : t("Unknown")],
+        [t("Draining"), fresh ? (d?.draining ? t("Yes") : t("No")) : t("Unknown")],
+        [
+          t("Clock skew"),
+          fresh && d?.clock && runtimeFresh(d.clock.sampledAt)
+            ? t("{value} ms", { value: Math.round(d.clock.clockSkewNs / 1e6) })
+            : t("Unknown"),
+        ],
         [t("Transcode slots"), `${value(d?.transcodes)} / ${value(d?.transcodeCapacity)}`],
         [t("Source connections"), value(d?.sourceConnections)],
         [

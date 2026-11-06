@@ -12,7 +12,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -117,6 +119,7 @@ func TestConsoleGallery(t *testing.T) {
 		f.mu.Lock()
 		f.scenario = r.PathValue("scenario")
 		f.mu.Unlock()
+		_ = a.cfg.Update(func(c *config.Config) error { c.SetupComplete = true; return nil })
 		w.WriteHeader(204)
 	})
 	mux.Handle("/", a.Handler())
@@ -126,6 +129,19 @@ func TestConsoleGallery(t *testing.T) {
 	}
 	server := &http.Server{Handler: mux}
 	defer server.Close()
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-stop:
+			_ = server.Close()
+		case <-done:
+		}
+	}()
+
 	fmt.Println("console gallery fixture http://127.0.0.1:18735/ether/cluster")
 	if err = server.Serve(listener); err != http.ErrServerClosed {
 		t.Fatal(err)
