@@ -167,7 +167,7 @@ def run(c, out):
                         result = command(k+['delete', '--raw', f"/api/v1/namespaces/{c['namespace']}/pods/{target['name']}", '-f', str(deletion)])
                     elif c.get('lossWrapperArgv'):
                         ready_file = out/'fault-ready'
-                        fault_argv = [x.replace('{readyFile}', str(ready_file)) for x in c['lossWrapperArgv']]
+                        fault_argv = [x.replace('{readyFile}', str(ready_file)).replace('{session}', session).replace('{runDir}', str(out)) for x in c['lossWrapperArgv']]
                         fault_handles = [(out/'action.stdout').open('wb'), (out/'action.stderr').open('wb')]
                         fault_process = subprocess.Popen(fault_argv, stdin=subprocess.PIPE,
                             stdout=fault_handles[0], stderr=fault_handles[1], start_new_session=True)
