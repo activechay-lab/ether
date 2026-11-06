@@ -179,7 +179,9 @@ export function CatalogueResults({
       <div className="catalogue-result-options">
         {onBulkWatchlist ? (
           <>
-            <span role="status">{tn(selected.size, "{count} selected", "{count} selected")}</span>
+            {!!selected.size && (
+              <span role="status">{tn(selected.size, "{count} selected", "{count} selected")}</span>
+            )}
             <Button
               size="sm"
               variant="ghost"

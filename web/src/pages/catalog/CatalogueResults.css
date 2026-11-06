@@ -2,9 +2,16 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  min-height: 2.75rem;
+  min-height: 1.75rem;
   font-size: 0.8rem;
   color: var(--color-fg-muted);
+}
+.catalogue-result-options button {
+  height: 28px;
+  min-height: 28px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 0.75rem;
 }
 .catalogue-columns {
   margin-left: auto;
@@ -12,7 +19,8 @@
 }
 .catalogue-columns summary {
   cursor: pointer;
-  padding: 0.4rem 0.7rem;
+  padding: 0.2rem 0.6rem;
+  line-height: 20px;
   border: 1px solid var(--color-border);
   border-radius: 0.5rem;
 }
