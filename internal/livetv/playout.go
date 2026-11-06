@@ -2,6 +2,7 @@ package livetv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +25,7 @@ type channelLimiter interface {
 }
 
 type session struct {
+	broadcastPolicy     broadcastViewerPolicy
 	broadcast           *broadcastLease
 	inputURL            string // selected upstream, immutable once the tune is ready
 	inputSource         StreamSource
@@ -366,7 +368,38 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	s.mu.Unlock()
 	s.beginPersonal(c, u)
 	if limiter, ok := s.o.Playback.(channelLimiter); ok {
-		if err = limiter.BeginChannel(u, caps, ss.info.ID); err != nil {
+		if joined, ok := s.o.Playback.(interface {
+			JoinChannel(*core.User, core.ClientCaps, string, string) error
+		}); ok && s.useBroadcast(c) {
+			group := "broadcast-" + c.ID
+			if c.Personal != nil {
+				group += "-viewer-" + strconv.FormatInt(u.ID, 10)
+			}
+			err = joined.JoinChannel(u, caps, ss.info.ID, group)
+			if errors.Is(err, core.ErrStreamLimit) && s.broadcasts.yieldIdle(nil) {
+				deadline := time.NewTimer(2 * time.Second)
+				tick := time.NewTicker(25 * time.Millisecond)
+				defer deadline.Stop()
+				defer tick.Stop()
+			retryJoin:
+				for {
+					select {
+					case <-ctx.Done():
+						break retryJoin
+					case <-deadline.C:
+						break retryJoin
+					case <-tick.C:
+						err = joined.JoinChannel(u, caps, ss.info.ID, group)
+						if !errors.Is(err, core.ErrStreamLimit) {
+							break retryJoin
+						}
+					}
+				}
+			}
+		} else {
+			err = limiter.BeginChannel(u, caps, ss.info.ID)
+		}
+		if err != nil {
 			s.Stop(ctx, ss.info.ID, u)
 			return SessionInfo{}, err
 		}
@@ -423,21 +456,34 @@ func (s *Service) getSession(ctx context.Context, id string, u *core.User) (*ses
 	if u == nil || ss.info.UserID != u.ID || s.o.CanPlay != nil && !s.o.CanPlay(u, ss.caps.Remote, s.o.Now()) {
 		return nil, core.ErrUnauthorized
 	}
-	c, err := s.Channel(ctx, ss.info.Channel.ID)
-	if err != nil {
-		return nil, err
-	}
-	c = s.personalChannel(ctx, c, u)
-	ps, err := s.programmes(ctx, c, s.o.Now(), s.o.Now().Add(time.Second))
-	if err != nil {
-		return nil, err
-	}
-	var p *Programme
-	if len(ps) > 0 {
-		p = &ps[0]
-	}
-	if !s.allowed(ctx, u, c, p) {
-		return nil, core.ErrUnauthorized
+	ss.mu.Lock()
+	shared := ss.broadcast != nil
+	ss.mu.Unlock()
+	if shared {
+		ctx, err := s.broadcastPolicyContext(ctx, ss, u)
+		if err != nil {
+			return nil, err
+		}
+		if !s.broadcastTagsAllowed(ctx, ss, nil) {
+			return nil, core.ErrUnauthorized
+		}
+	} else {
+		c, err := s.Channel(ctx, ss.info.Channel.ID)
+		if err != nil {
+			return nil, err
+		}
+		c = s.personalChannel(ctx, c, u)
+		ps, err := s.programmes(ctx, c, s.o.Now(), s.o.Now().Add(time.Second))
+		if err != nil {
+			return nil, err
+		}
+		var p *Programme
+		if len(ps) > 0 {
+			p = &ps[0]
+		}
+		if !s.allowed(ctx, u, c, p) {
+			return nil, core.ErrUnauthorized
+		}
 	}
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
@@ -595,6 +641,7 @@ func writeStreamError(w http.ResponseWriter, err error) {
 	case core.ErrStreamLimit:
 		code = 429
 	case core.ErrNotAvailable:
+		w.Header().Set("Retry-After", "1")
 		code = 503
 	}
 	http.Error(w, http.StatusText(code), code)

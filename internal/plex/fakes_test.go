@@ -1520,6 +1520,6 @@ func (discardProgress) Progress(context.Context, int64, core.RatingKey, time.Dur
 func (t *fakeTranscoder) StartEncoder(_ context.Context, r transcode.EncoderRequest) (transcode.ContinuousEncoder, error) {
 	return &livetvtest.Encoder{Index: livetvtest.Index{Payload: "shared-ts-", Height: r.Decision.MaxHeight}}, nil
 }
-func (t *fakeTranscoder) StartDecoder(context.Context, transcode.DecoderRequest) (transcode.Decoder, error) {
-	return &livetvtest.Decoder{}, nil
+func (t *fakeTranscoder) StartDecoder(_ context.Context, r transcode.DecoderRequest) (transcode.Decoder, error) {
+	return &livetvtest.Decoder{Format: r.Format}, nil
 }

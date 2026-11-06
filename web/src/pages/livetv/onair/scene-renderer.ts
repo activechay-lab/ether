@@ -1,5 +1,6 @@
+import { crispStatic } from "./crisp-static";
 import { getToken, SESSION_HEADER } from "../../../lib/api";
-import type { Bindings, Look, Moment } from "./model";
+import type { Bindings, Look } from "./model";
 
 let resourceToken = "";
 export function setResourceToken(token: string) {
@@ -28,6 +29,11 @@ export type Params = {
 };
 export type Layer = {
   id: string;
+  name?: string;
+  hidden?: boolean;
+  locked?: boolean;
+  start?: number;
+  end?: number;
   type: string;
   x?: Value;
   y?: Value;
@@ -64,10 +70,8 @@ export type Layer = {
   count?: number;
   seed?: number;
   repeat?: number;
-  grainSize?: number;
-  noiseFps?: number;
   behave?: Record<string, Params>[];
-  reveal?: { wipe: string; from: number; to: number; ease?: string };
+  reveal?: { out?: boolean; wipe: string; from: number; to: number; ease?: string };
   layers?: Layer[];
 };
 export type Scene = {
@@ -202,6 +206,165 @@ const blend = (s?: string): GlobalCompositeOperation =>
 // Static scene plates (including text) are reused; deterministic post effects
 // still run at the requested time. No asset copies or animation approximations.
 const staticFrames = new Map<string, ReturnType<typeof surface>>();
+/** Shared text layout used by drawing and editor geometry. Measurements use loaded fonts. */
+export function measureText(c: Context, l: Layer, bindings: SceneBindings, t: number) {
+  const n = (v: Value | undefined, fallback = 0) => number(evaluate(v, bindings, t), fallback);
+  const s = (v: Value | undefined) => String(evaluate(v, bindings, t) ?? "");
+  let value = s(l.text),
+    size = n(l.size, 60);
+  let track = n(l.track);
+  for (const b of l.behave ?? [])
+    if (b.typewriter)
+      value = [...value]
+        .slice(
+          0,
+          Math.max(
+            0,
+            Math.floor((t - (b.typewriter.start ?? 0)) / Math.max(0.001, b.typewriter.step ?? 0)) +
+              1,
+          ),
+        )
+        .join("");
+  const setFont = () => {
+    c.font = `${l.weight ?? 400} ${size}px "onair-${normalizeFont(s(l.font))}", "onair-notosans"`;
+  };
+  setFont();
+  const measure = (line: string) =>
+    c.measureText(line).width + Math.max(0, [...line].length - 1) * track;
+  if (l.fit === "shrink" && l.maxWidth && measure(value) > l.maxWidth) {
+    const ratio = l.maxWidth / measure(value);
+    size *= ratio;
+    track *= ratio;
+    setFont();
+  }
+  let lines = [value];
+  if (l.fit === "wrap" && l.maxWidth) {
+    lines = [];
+    let line = "";
+    for (const word of value.trim().split(/\s+/)) {
+      const test = line ? line + " " + word : word;
+      if (line && measure(test) > l.maxWidth) {
+        lines.push(line);
+        line = word;
+      } else line = test;
+    }
+    lines.push(line);
+  }
+  if (l.maxLines && lines.length > l.maxLines) {
+    lines = lines.slice(0, l.maxLines);
+    let last = [...lines.at(-1)!];
+    while (last.length && measure(last.join("") + "…") > (l.maxWidth ?? Infinity)) last.pop();
+    lines[lines.length - 1] = last.join("") + "…";
+  }
+  const widths = lines.map(measure);
+  const w = Math.max(0, ...widths);
+  const metrics = c.measureText("Mg");
+  const ascent = metrics.actualBoundingBoxAscent || size * 0.8;
+  const descent = metrics.actualBoundingBoxDescent || size * 0.2;
+  return {
+    lines,
+    widths,
+    size,
+    track,
+    font: c.font,
+    x: l.align === "center" ? -w / 2 : l.align === "right" ? -w : 0,
+    y: -ascent,
+    w,
+    h: ascent + descent + Math.max(0, lines.length - 1) * size * 1.15,
+  };
+}
+export function resolvedTransform(l: Layer, bindings: SceneBindings, t: number) {
+  const n = (v: Value | undefined, fallback = 0) => number(evaluate(v, bindings, t), fallback);
+  const energy = number(lookup(bindings.tokens, "energy"), 1);
+  let x = n(l.x),
+    y = n(l.y),
+    sx = n(l.scale, 1) * n(l.scaleX, 1),
+    sy = n(l.scale, 1) * n(l.scaleY, 1),
+    rot = n(l.rotate),
+    alpha = n(l.opacity, 1);
+  for (const b of l.behave ?? [])
+    for (const [kind, p] of Object.entries(b)) {
+      const u = Math.max(0, t - (p.start ?? 0)),
+        speed = p.speed || 1,
+        a = (p.amplitude ?? 0) * energy;
+      switch (kind) {
+        case "wiggle":
+          rot += Math.sin(u * speed * 6.28) * a;
+          break;
+        case "bounce":
+          y -= Math.abs(Math.sin(u * speed * Math.PI)) * a;
+          break;
+        case "drift":
+          x += u * a;
+          y += Math.sin(u * speed) * a * 0.2;
+          break;
+        case "pop":
+          sx *= ease("back", u * speed, energy);
+          sy *= ease("back", u * speed, energy);
+          break;
+        case "squash": {
+          const k = Math.sin(u * speed * 6.28) * a * 0.01;
+          sx *= 1 + k;
+          sy /= Math.max(0.1, 1 + k);
+          break;
+        }
+        case "flicker":
+          alpha *= 1 - a * random((l.seed ?? 0) + (p.seed ?? 0), Math.trunc(t * 24));
+          break;
+      }
+    }
+  return { x, y, scaleX: sx, scaleY: sy, rotate: rot, opacity: alpha };
+}
+export type LayerGeometry = {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotate: number;
+  scaleX: number;
+  scaleY: number;
+  anchor: { x: number; y: number };
+  matrix: number[];
+  text?: ReturnType<typeof measureText>;
+};
+/** Geometry in 1920×1080 document coordinates, with inherited group transforms. */
+export function layerGeometry(doc: Scene, bindings: SceneBindings, t: number): LayerGeometry[] {
+  const out: LayerGeometry[] = [];
+  const c = surface(1, 1).getContext("2d") as Context;
+  const visit = (ls: Layer[], parent: DOMMatrix) => {
+    for (const l of ls) {
+      if (l.hidden || (l.start && t < l.start) || (l.end && t >= l.end)) continue;
+      const r = resolvedTransform(l, bindings, t);
+      const m = parent
+        .translate(r.x, r.y)
+        .rotate((r.rotate * 180) / Math.PI)
+        .scale(r.scaleX, r.scaleY);
+      const text = l.type === "text" ? measureText(c, l, bindings, t) : undefined;
+      const n = (v: Value | undefined, fallback: number) =>
+        number(evaluate(v, bindings, t), fallback);
+      const anchor = { x: m.e, y: m.f };
+      const origin = m.transformPoint({ x: text?.x ?? 0, y: text?.y ?? 0 });
+      out.push({
+        id: l.id,
+        x: origin.x,
+        y: origin.y,
+        w: text?.w ?? n(l.w, 1920),
+        h: text?.h ?? n(l.h, 1080),
+        rotate: Math.atan2(m.b, m.a),
+        scaleX: Math.hypot(m.a, m.b),
+        scaleY: (m.a * m.d - m.b * m.c) / Math.max(1e-12, Math.hypot(m.a, m.b)),
+        anchor,
+        matrix: [m.a, m.b, m.c, m.d, m.e, m.f],
+        text,
+      });
+      if (l.layers) visit(l.layers, m);
+    }
+  };
+  visit(doc.layers, new DOMMatrix());
+  return out;
+}
+
 export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t: number) {
   const width = ctx.canvas.width,
     height = ctx.canvas.height;
@@ -245,53 +408,9 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
     return color(String(p ?? "#000000@0"));
   };
   function text(c: Context, l: Layer) {
-    let value = s(l.text),
-      size = n(l.size, 60);
-    let track = n(l.track);
-    for (const b of l.behave ?? [])
-      if (b.typewriter)
-        value = [...value]
-          .slice(
-            0,
-            Math.max(
-              0,
-              Math.floor(
-                (t - (b.typewriter.start ?? 0)) / Math.max(0.001, b.typewriter.step ?? 0),
-              ) + 1,
-            ),
-          )
-          .join("");
-    const setFont = () => {
-      c.font = `${size}px "onair-${normalizeFont(s(l.font))}", "onair-notosans"`;
-    };
-    setFont();
-    const measure = (line: string) =>
-      c.measureText(line).width + Math.max(0, [...line].length - 1) * track;
-    if (l.fit === "shrink" && l.maxWidth && measure(value) > l.maxWidth) {
-      const ratio = l.maxWidth / measure(value);
-      size *= ratio;
-      track *= ratio;
-      setFont();
-    }
-    let lines = [value];
-    if (l.fit === "wrap" && l.maxWidth) {
-      lines = [];
-      let line = "";
-      for (const word of value.trim().split(/\s+/)) {
-        const test = line ? line + " " + word : word;
-        if (line && measure(test) > l.maxWidth) {
-          lines.push(line);
-          line = word;
-        } else line = test;
-      }
-      lines.push(line);
-    }
-    if (l.maxLines && lines.length > l.maxLines) {
-      lines = lines.slice(0, l.maxLines);
-      let last = [...lines.at(-1)!];
-      while (last.length && measure(last.join("") + "…") > (l.maxWidth ?? Infinity)) last.pop();
-      lines[lines.length - 1] = last.join("") + "…";
-    }
+    const { lines, widths, size, track, font } = measureText(c, l, bindings, t);
+    c.font = font;
+    const measure = (line: string) => widths[lines.indexOf(line)] ?? 0;
     c.textBaseline = "alphabetic";
     c.textAlign = "left";
     if (l.maxWidth && l.align !== "center" && l.align !== "right") {
@@ -320,43 +439,15 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
   function layers(c: Context, ls: Layer[]) {
     for (const l of ls)
       for (let rep = 0; rep < Math.max(1, l.repeat ?? 1); rep++) {
-        let x = n(l.x),
-          y = n(l.y),
-          sx = n(l.scale, 1) * n(l.scaleX, 1),
-          sy = n(l.scale, 1) * n(l.scaleY, 1),
-          rot = n(l.rotate),
-          alpha = n(l.opacity, 1);
-        for (const b of l.behave ?? [])
-          for (const [kind, p] of Object.entries(b)) {
-            const u = Math.max(0, t - (p.start ?? 0)),
-              speed = p.speed || 1,
-              a = (p.amplitude ?? 0) * energy;
-            switch (kind) {
-              case "wiggle":
-                rot += Math.sin(u * speed * 6.28) * a;
-                break;
-              case "bounce":
-                y -= Math.abs(Math.sin(u * speed * Math.PI)) * a;
-                break;
-              case "drift":
-                x += u * a;
-                y += Math.sin(u * speed) * a * 0.2;
-                break;
-              case "pop":
-                sx *= ease("back", u * speed, energy);
-                sy *= ease("back", u * speed, energy);
-                break;
-              case "squash": {
-                const k = Math.sin(u * speed * 6.28) * a * 0.01;
-                sx *= 1 + k;
-                sy /= Math.max(0.1, 1 + k);
-                break;
-              }
-              case "flicker":
-                alpha *= 1 - a * random((l.seed ?? 0) + (p.seed ?? 0), Math.trunc(t * 24));
-                break;
-            }
-          }
+        if (l.hidden || (l.start && t < l.start) || (l.end && t >= l.end)) continue;
+        const {
+          x,
+          y,
+          scaleX: sx,
+          scaleY: sy,
+          rotate: rot,
+          opacity: alpha,
+        } = resolvedTransform(l, bindings, t);
         if (alpha <= 0 || sx === 0 || sy === 0) continue;
         c.save();
         c.translate(x, y);
@@ -383,7 +474,8 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
           seed = ((l.seed ?? 0) + rep + number(lookup(bindings.tokens, "seed"), 7)) >>> 0;
         if (l.reveal) {
           const r = l.reveal,
-            u = ease(r.ease ?? "linear", (t - r.from) / (r.to - r.from), energy),
+            progress = ease(r.ease ?? "linear", (t - r.from) / (r.to - r.from), energy),
+            u = r.out ? 1 - progress : progress,
             extent = Math.max(l.maxWidth ?? 0, w);
           draw.beginPath();
           draw.rect(
@@ -417,73 +509,37 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
               im.height * scale,
             );
             if (l.tint) {
-              draw.globalCompositeOperation = "multiply";
+              draw.globalCompositeOperation =
+                l.tintBlend === "silhouette" ? "source-in" : "multiply";
               draw.fillStyle = paint(draw, l.tint);
               draw.fillRect(0, 0, w, h);
             }
+          } else if (l.id === "station-logo" || l.id === "bug-shadow") {
+            draw.save();
+            draw.translate(0, 64);
+            text(draw, {
+              ...l,
+              type: "text",
+              text: "{channel.name}",
+              font: "{type.display}",
+              size: 48,
+              weight: 600,
+              track: 2,
+              fill: l.tint ?? "{accent}",
+              fit: "shrink",
+              maxWidth: 288,
+            });
+            draw.restore();
           }
         } else if (l.type === "noise") {
-          const inv = draw.getTransform().inverse(),
-            pixels = draw.getImageData(0, 0, width, height),
-            data = pixels.data;
-          const grain = l.grainSize || 1,
-            fx = l.grainSize ? width / 1920 : 1,
-            fy = l.grainSize ? height / 1080 : 1;
-          const frame = Math.trunc(t * (l.noiseFps || 24)) * 100003;
-          if (inv.b === 0 && inv.c === 0) {
-            const xs = new Int32Array(width),
-              valid = new Uint8Array(width);
-            for (let xx = 0; xx < width; xx++) {
-              const px = inv.a * xx + inv.e;
-              valid[xx] = px >= 0 && px < w ? 1 : 0;
-              xs[xx] = Math.trunc(Math.trunc(px * fx) / grain);
-            }
-            let previous = -2147483648,
-              previousRow = -1;
-            for (let yy = 0; yy < height; yy++) {
-              const py = inv.d * yy + inv.f;
-              if (py < 0 || py >= h) continue;
-              const iy = Math.trunc(Math.trunc(py * fy) / grain),
-                row = yy * width * 4;
-              if (iy === previous && previousRow >= 0) {
-                data.copyWithin(row, previousRow, previousRow + width * 4);
-                continue;
-              }
-              previous = iy;
-              previousRow = row;
-              const base = iy * 1920 + frame;
-              for (let xx = 0; xx < width; xx++) {
-                if (!valid[xx]) continue;
-                const v = Math.floor(random(seed, xs[xx]! + base) * 255),
-                  i = row + xx * 4;
-                data[i] = v;
-                data[i + 1] = v;
-                data[i + 2] = v;
-                data[i + 3] = 255;
-              }
-            }
-          } else {
-            for (let yy = 0; yy < height; yy++)
-              for (let xx = 0; xx < width; xx++) {
-                const px = inv.a * xx + inv.c * yy + inv.e,
-                  py = inv.b * xx + inv.d * yy + inv.f;
-                if (px < 0 || py < 0 || px >= w || py >= h) continue;
-                const v = Math.floor(
-                    random(
-                      seed,
-                      Math.trunc(Math.trunc(px * fx) / grain) +
-                        Math.trunc(Math.trunc(py * fy) / grain) * 1920 +
-                        frame,
-                    ) * 255,
-                  ),
-                  i = (yy * width + xx) * 4;
-                data[i] = v;
-                data[i + 1] = v;
-                data[i + 2] = v;
-                data[i + 3] = 255;
-              }
-          }
-          draw.putImageData(pixels, 0, 0);
+          draw.imageSmoothingEnabled = false;
+          draw.drawImage(
+            crispStatic(seed, Math.max(0, Math.floor(t * 30)), width, height),
+            0,
+            0,
+            w,
+            h,
+          );
         } else {
           const path = new Path2D(l.type === "path" ? l.path : undefined);
           if (["rect", "gradient"].includes(l.type)) path.rect(0, 0, w, h);
@@ -607,7 +663,9 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
         if (a === 1 && (common || vhs)) {
           const grain = effects[0]!,
             offset =
-              (random(grain.seed, x + y * width + frame * 100003) - 0.5) * grain.amount * 255;
+              (random(grain.seed, x + y * width + frame * 100003) - 0.5) *
+              Math.min(grain.amount, 1) *
+              24;
           r = quantize(r + offset);
           g = quantize(g + offset);
           b = quantize(b + offset);
@@ -634,7 +692,8 @@ export function renderScene(ctx: Context, doc: Scene, bindings: SceneBindings, t
             offset = 0;
           switch (e.type) {
             case "grain":
-              offset = (random(e.seed, x + y * width + frame * 100003) - 0.5) * e.amount * 255;
+              offset =
+                (random(e.seed, x + y * width + frame * 100003) - 0.5) * Math.min(e.amount, 1) * 24;
               break;
             case "scanlines":
               if (y % 3 === 0) v = 1 - e.amount;
@@ -700,14 +759,6 @@ function pixelBehaviours(ctx: Context, l: Layer, t: number, w: number, h: number
   ctx.putImageData(pixels, 0, 0);
 }
 
-// Vite reads the authoritative files only in mock mode. Production uses owner routes.
-const documents =
-  import.meta.env.MODE === "mock" || import.meta.env.MODE === "test"
-    ? import.meta.glob<Scene>("../../../../../internal/onair/families/documents/*.json", {
-        eager: true,
-        import: "default",
-      })
-    : {};
 const fontURLs =
   import.meta.env.MODE === "mock"
     ? import.meta.glob<string>("../../../../../internal/onair/fonts/data/*.ttf", {
@@ -716,36 +767,9 @@ const fontURLs =
         import: "default",
       })
     : {};
-let catalog: Record<string, Scene> = Object.fromEntries(
-  Object.entries(documents).map(([path, doc]) => [
-    path
-      .split("/")
-      .at(-1)!
-      .replace(/\.json$/, ""),
-    doc,
-  ]),
-);
-let defaults: Record<string, SceneBindings> = {};
 let ready: Promise<void> | undefined;
 export function loadOnAirFonts() {
   return (ready ??= (async () => {
-    if (import.meta.env.MODE !== "mock" && import.meta.env.MODE !== "test") {
-      const response = await fetch("/ether/api/onair/families?documents=1", {
-        headers: resourceHeaders("/ether/api/onair/families?documents=1"),
-      });
-      if (!response.ok) throw new Error(`On Air families: ${response.status}`);
-      const entries = (await response.json()) as {
-        id: string;
-        documents: Record<string, Scene>;
-        bindings: SceneBindings;
-      }[];
-      catalog = {};
-      defaults = {};
-      for (const f of entries) {
-        defaults[f.id] = f.bindings;
-        for (const [m, d] of Object.entries(f.documents)) catalog[`${f.id}-${m}`] = d;
-      }
-    }
     if (typeof FontFace === "undefined") return;
     const ids = [
       "inter",
@@ -755,11 +779,10 @@ export function loadOnAirFonts() {
       "bungee",
       "fredoka",
       "specialelite",
-      "monoton",
       "orbitron",
       "vt323",
-      "archivoblack",
       "ibmplexmono",
+      "archivoblack",
       "notosans",
     ];
     await Promise.all(
@@ -780,45 +803,54 @@ export function loadOnAirFonts() {
     );
   })());
 }
-export function documentFor(family: string, moment: string) {
-  return catalog[
-    `${family === "lateNight" ? "late-night" : family}-${moment === "offair" && family === "personal" ? "welcome" : moment}`
-  ];
+const customFonts = new Map<string, Promise<void>>();
+export async function loadStyleFonts(look: Look) {
+  await loadOnAirFonts();
+  await Promise.all(
+    Object.values(look.brand.type)
+      .filter((id) => /^[a-f0-9]{64}$/.test(id))
+      .map((id) => {
+        if (!customFonts.has(id))
+          customFonts.set(
+            id,
+            (async () => {
+              const url = `/ether/api/onair/assets/${id}`;
+              const response = await fetch(url, { headers: resourceHeaders(url) });
+              if (!response.ok) throw new Error("Font unavailable");
+              const face = new FontFace(`onair-${id}`, await response.arrayBuffer());
+              await face.load();
+              document.fonts.add(face);
+            })(),
+          );
+        return customFonts.get(id);
+      }),
+  );
 }
-export function lookBindings(look: Look, bindings: Bindings): SceneBindings {
-  const family = look.family === "lateNight" ? "late-night" : look.family;
+/** Resolve the owned style's shared kit and live slots without template lookups. */
+export function styleBindings(look: Look, bindings: Bindings = {}): SceneBindings {
   const tokens: Record<string, unknown> = {
-    ...defaults[family]?.tokens,
     bg: look.brand.palette.background,
     accent: look.brand.palette.accent,
     text: look.brand.palette.text,
     glow: look.brand.palette.glow,
-    moon: "#ded9c5",
-    fog: look.brand.palette.glow,
     "type.display": normalizeFont(look.brand.type.display),
+    "type.body": normalizeFont(look.brand.type.body),
     "type.mono": normalizeFont(look.brand.type.body),
-    energy: look.brand.energy * 2,
-    seed: look.brand.seed,
-    "textures.grain": look.brand.textures.includes("Grain") ? 0.07 : 0,
+    energy: look.brand.energy,
     "words.tagline": look.brand.tagline,
-    "words.tonight": "TONIGHT",
-    "words.upNext": "UP NEXT",
-    "words.now": "NOW PLAYING",
-    "words.break": family === "cinema" ? "INTERMISSION" : "Back in a moment",
-    "words.back": "NOW RESUMING",
-    "words.offair": "OFF AIR",
+    "brand.logo": look.brand.logo ?? "",
   };
-  for (const [k, v] of Object.entries(look.brand.words))
-    tokens[`words.${k === "upnext" ? "upNext" : k}`] = v;
+  for (const name of ["grain", "flicker", "scanlines", "vignette", "chroma"])
+    tokens[`textures.${name}`] = look.brand.textures.some((t) => t.toLowerCase() === name)
+      ? 0.07
+      : 0;
+  for (const control of look.controls) tokens[`control.${control.id}`] = control.value;
   const slots: Record<string, string> = {
-    ...defaults[family]?.slots,
     "channel.name": bindings.channel?.name ?? look.name,
-    "viewer.name": bindings.viewer?.name ?? "Alex",
-    "viewer.greeting": bindings.viewer?.greeting ?? bindings.greeting ?? "Good evening",
-    "offair.message": bindings.offair?.message ?? "Programming resumes soon",
+    "brand.logo": look.brand.logo ?? "",
   };
-  function flatten(value: unknown, prefix: string) {
-    if (value === undefined || value === null) return;
+  const flatten = (value: unknown, prefix: string) => {
+    if (value == null) return;
     if (typeof value !== "object") {
       slots[prefix] = String(value);
       return;
@@ -828,7 +860,7 @@ export function lookBindings(look: Look, bindings: Bindings): SceneBindings {
         child,
         Array.isArray(value) ? `${prefix}[${key}]` : prefix ? `${prefix}.${key}` : key,
       );
-  }
+  };
   flatten(bindings, "");
   return { tokens, slots };
 }
@@ -945,98 +977,6 @@ function workerFrame(
   }
   return true;
 }
-export function renderLook(
-  ctx: Context,
-  look: Look,
-  moment: Moment,
-  bindings: Bindings = {},
-  t = 3,
-  synchronous = false,
-) {
-  const doc = documentFor(look.family, moment);
-  if (!doc) return;
-  const edit = (layers: Layer[]): Layer[] =>
-    layers.map((l) => {
-      const patch =
-        look.layers?.[l.id] ??
-        look.layers?.[
-          l.id === "brand" || l.id === "title" ? "Title" : l.id === "tag" ? "Tagline" : l.id
-        ];
-      return {
-        ...l,
-        ...(patch
-          ? {
-              ...patch,
-              opacity: patch.hidden
-                ? 0
-                : patch.opacity === undefined
-                  ? l.opacity
-                  : patch.opacity / 100,
-              font: l.font,
-            }
-          : {}),
-        layers: l.layers ? edit(l.layers) : undefined,
-      } as Layer;
-    });
-  let previewLayers = doc.layers;
-  if (moment === "bug" || moment === "lowerthird") {
-    const illustration = documentFor(look.family, "upnext")?.layers.find((l) =>
-      l.id.endsWith("-illustration"),
-    );
-    if (illustration?.layers) {
-      const sky = illustration.layers[0]!;
-      const programme: Layer = {
-        ...illustration,
-        x: 0,
-        y: 0,
-        scaleX: 1920 / number(sky.w, 1920),
-        scaleY: 1080 / number(sky.h, 1080),
-      };
-      previewLayers = [
-        programme,
-        ...(moment === "lowerthird" ? (documentFor(look.family, "bug")?.layers ?? []) : []),
-        ...doc.layers,
-      ];
-    }
-  }
-  const document = { ...doc, layers: look.layers ? edit(previewLayers) : previewLayers };
-  const bound = lookBindings(look, bindings);
-  if (look.brand.logo) {
-    const logo = look.brand.logo;
-    if ([...logo].length <= 3)
-      document.layers = [
-        ...document.layers,
-        {
-          id: "owner-logo",
-          type: "text",
-          text: logo,
-          x: 95,
-          y: 130,
-          font: normalizeFont(look.brand.type.display),
-          size: 72,
-          fill: look.brand.palette.accent,
-        },
-      ];
-    else {
-      bound.slots["brand.logo"] = logo;
-      document.layers = [
-        ...document.layers,
-        {
-          id: "owner-logo",
-          type: "image",
-          src: "{brand.logo}",
-          x: 95,
-          y: 70,
-          w: 120,
-          h: 120,
-          fit: "contain",
-        },
-      ];
-    }
-  }
-
-  if (synchronous || !workerFrame(ctx, document, bound, t)) renderScene(ctx, document, bound, t);
-}
 
 if (import.meta.hot)
   import.meta.hot.dispose(() => {
@@ -1045,15 +985,18 @@ if (import.meta.hot)
     consumers.clear();
   });
 
+const silhouettes = new Map<string, Promise<ImageBitmap>>();
 const artwork = new Map<string, Promise<ImageBitmap | undefined>>();
 // Resource preparation is outside the pure frame evaluator, just as in Go.
 export async function loadSceneAssets(doc: Scene, bindings: SceneBindings): Promise<SceneBindings> {
   const assets = { ...bindings.assets };
   const sources = new Set<string>();
+  const masks = new Set<string>();
   const visit = (ls: Layer[]) => {
     for (const l of ls) {
       if (l.src) {
         const src = String(evaluate(l.src, bindings, 0) ?? "");
+        if (l.tintBlend === "silhouette") masks.add(src);
         if (
           src &&
           !assets[src] &&
@@ -1082,7 +1025,38 @@ export async function loadSceneAssets(doc: Scene, bindings: SceneBindings): Prom
         artwork.set(src, pending);
       }
       const image = await pending;
-      if (image) assets[src] = image;
+      if (image) {
+        if (masks.has(src)) {
+          let mask = silhouettes.get(src);
+          if (!mask) {
+            mask = (async () => {
+              const c = new OffscreenCanvas(image.width, image.height),
+                x = c.getContext("2d")!;
+              x.drawImage(image, 0, 0);
+              const pixels = x.getImageData(0, 0, c.width, c.height),
+                p = pixels.data;
+              let transparent = false;
+              for (let i = 3; i < p.length; i += 4)
+                if (p[i]! < 250) {
+                  transparent = true;
+                  break;
+                }
+              const invert = (p[0]! + p[1]! + p[2]!) / 3 > 128;
+              for (let i = 0; i < p.length; i += 4) {
+                if (!transparent) {
+                  const l = 0.2126 * p[i]! + 0.7152 * p[i + 1]! + 0.0722 * p[i + 2]!;
+                  p[i + 3] = invert ? 255 - l : l;
+                }
+                p[i] = p[i + 1] = p[i + 2] = 255;
+              }
+              x.putImageData(pixels, 0, 0);
+              return createImageBitmap(c);
+            })();
+            silhouettes.set(src, mask);
+          }
+          assets[src] = await mask;
+        } else assets[src] = image;
+      }
     }),
   );
   return { ...bindings, assets };

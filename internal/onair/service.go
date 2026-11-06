@@ -3,11 +3,14 @@ package onair
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/artwork"
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/onair/encode"
 	"github.com/braedonsaunders/ether/internal/onair/families"
@@ -23,10 +26,13 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 )
 
 type Options struct {
+	// Changed runs after an owner style save has committed and locks are released.
+	Changed        func(context.Context) error
+	StyleChannels  func(context.Context) (map[string][]string, error)
+	ReelChannels   func(context.Context) (map[string][]string, error)
 	PluginSegment  func(string) (PluginSegment, bool)
 	StaticRequests func(context.Context, string) []core.ClipRequest
 	DB             *sql.DB
@@ -52,33 +58,44 @@ type entry struct {
 	Pin  time.Time
 }
 type renderJob struct {
-	Hash    string
-	Look    string
-	Doc     scene.Document
-	Bind    raster.Bindings
-	Request core.ClipRequest
-	prepare func(context.Context) error
-	convert func(context.Context) error
+	Boundary    time.Time
+	Scene       StyleScene
+	download    bool
+	AssetDigest string
+	Hash        string
+	Look        string
+	Doc         scene.Document
+	Bind        raster.Bindings
+	Request     core.ClipRequest
+	prepare     func(context.Context) error
+	convert     func(context.Context) error
 }
 type Service struct {
-	resources string
-	reelReady map[string]bool
-	o         Options
-	db        *sql.DB
-	mu        sync.Mutex
-	assetMu   sync.Mutex
-	looks     map[string]Look
-	cache     map[string]entry
-	pins      map[string]time.Time
-	pending   map[string]bool
-	progress  map[string]*Progress
-	lookJobs  map[string][]string
-	jobs      chan renderJob
-	clipJobs  chan renderJob
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	startOnce sync.Once
+	liveJobs       []renderJob
+	liveReady      chan struct{}
+	activeCancel   context.CancelFunc
+	activeBoundary time.Time
+	activeHash     string
+	resources      string
+	reelReady      map[string]bool
+	o              Options
+	db             *sql.DB
+	mu             sync.Mutex
+	assetMu        sync.Mutex
+	looks          map[string]Look
+	cache          map[string]entry
+	pins           map[string]time.Time
+	pending        map[string]bool
+	renderTimes    map[string]time.Duration
+	progress       map[string]*Progress
+	lookJobs       map[string][]string
+	jobs           chan renderJob
+	clipJobs       chan renderJob
+	importJobs     chan renderJob
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	startOnce      sync.Once
 }
 
 var _ core.ChannelGraphics = (*Service)(nil)
@@ -97,7 +114,8 @@ func New(o Options) (*Service, error) {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 16), ctx: ctx, cancel: cancel}
+	s := &Service{reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, liveReady: make(chan struct{}, 1), jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
+
 	if e := s.seed(ctx); e != nil {
 		cancel()
 		return nil, e
@@ -114,6 +132,7 @@ func New(o Options) (*Service, error) {
 	s.loadReels()
 
 	s.resumeConversions()
+	s.resumeImports()
 	for _, l := range ls {
 		s.enqueueLook(l)
 	}
@@ -124,8 +143,14 @@ func New(o Options) (*Service, error) {
 func (s *Service) Start() {
 	s.startOnce.Do(func() {
 		if s.ctx.Err() == nil {
-			s.wg.Add(1)
+			s.wg.Add(3)
 			go s.run()
+			go s.watchUpcoming()
+			go s.backfillFacts()
+			for range 2 {
+				s.wg.Add(1)
+				go s.runImports()
+			}
 		}
 	})
 }
@@ -148,8 +173,15 @@ func (s *Service) Duration(id, m string) (time.Duration, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	l, ok := s.looks[id]
-	v, found := l.Moments[m]
-	return time.Duration(v.Duration * float64(time.Second)), ok && found
+	v, found := l.Roles[m]
+	enabled := false
+	for _, sc := range l.Scenes {
+		if sc.Role == m && sc.Enabled {
+			enabled = true
+			break
+		}
+	}
+	return time.Duration(v.Duration * float64(time.Second)), ok && found && enabled
 }
 func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	var plugin PluginSegment
@@ -176,89 +208,89 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	s.mu.Lock()
 	l, ok := s.looks[r.LookID]
 	s.mu.Unlock()
-	if isPlugin && r.LookID == "" {
+	if (isPlugin || r.AssetDigest != "") && r.LookID == "" {
 		l = familyLook("clean", "Clean")
 		ok = true
 	}
-	f := l.Family
-	if f == "lateNight" {
-		f = "late-night"
-	}
+
+	var selected StyleScene
+	var d scene.Document
+	f := ""
 	if strings.HasPrefix(r.Moment, "screen.") {
 		f = "signal"
+		var err error
+		d, err = families.Get("signal", r.Moment)
+		if err != nil {
+			return renderJob{}, false
+		}
 		ok = true
+	} else if isPlugin {
+		d = plugin.Document
+	} else if r.AssetDigest != "" {
+		// A channel bumper is independent of whether this style has the role.
+		d = scene.Document{V: 1, Moment: r.Moment, Duration: 8, Poster: 0}
+		if role, found := l.Roles[r.Moment]; found {
+			d.Duration = role.Duration
+		}
+	} else {
+		selected, ok = pickScene(l, r)
+		if !ok && r.AssetDigest == "" {
+			return renderJob{}, false
+		}
+		d = selected.Document
 	}
 	if !ok {
 		return renderJob{}, false
 	}
-	d, custom := l.Documents[r.Moment]
-	var e error
-	if isPlugin && !custom {
-		d = plugin.Document
-		custom = true
-	}
-	if !custom {
-		moment := r.Moment
-		if f == "personal" && moment == "offair" {
-			moment = "welcome"
-		}
-		d, e = families.Get(f, moment)
-		if e == nil {
-			d.Moment = r.Moment
-		}
-	}
-	if e != nil {
-		return renderJob{}, false
-	}
+	// Plans mutate their own document (durations, bug layout, bindings). Copy it
+	// into a FRESH value: decoding into d would reuse the stored style's slice
+	// backing arrays and write into shared scenes while other plans hash them.
+	var own scene.Document
 	raw, _ := json.Marshal(d)
-	_ = json.Unmarshal(raw, &d)
-	if v, ok := l.Moments[r.Moment]; ok && f != "signal" {
-		d.Duration = v.Duration
-		d.Poster = v.Poster
+	_ = json.Unmarshal(raw, &own)
+	d = own
+	assetDigest := ""
+	if selected.Video != nil && selected.Video.Mode == "replace" {
+		assetDigest = selected.Video.AssetDigest
 	}
-	if isPlugin {
-		d.Duration = plugin.Document.Duration
+	if r.AssetDigest != "" {
+		assetDigest = r.AssetDigest
+		if r.AssetDuration > 0 {
+			d.Duration = r.AssetDuration.Seconds()
+		}
 	}
-	b := families.Defaults(f)
-	for k := range b.Slots {
-		b.Slots[k] = ""
+	b := scene.Bindings{Tokens: map[string]any{}, Slots: map[string]string{}}
+	if f == "signal" {
+		b = families.Defaults("signal")
+		for k := range b.Slots {
+			b.Slots[k] = ""
+		}
 	}
 	for k, v := range r.Bind {
-		b.Slots[k] = v
+		if k != "studio.scene" && k != "slate.start" {
+			b.Slots[k] = v
+		}
 	}
 	if f != "signal" {
 		b.Tokens["bg"] = l.Brand.Palette.Background
 		b.Tokens["accent"] = l.Brand.Palette.Accent
 		b.Tokens["text"] = l.Brand.Palette.Text
 		b.Tokens["glow"] = l.Brand.Palette.Glow
-		b.Tokens["fog"] = l.Brand.Palette.Glow
-		b.Tokens["words.break"] = "Back in a moment"
-		if f == "cinema" {
-			b.Tokens["words.break"] = "INTERMISSION"
-		}
-		b.Tokens["logo"] = l.Brand.Logo
-		b.Slots["brand.logo"] = l.Brand.Logo
-		for _, v := range []string{"grain", "flicker", "scanlines", "vignette"} {
-			b.Tokens["textures."+v] = 0.0
-			for _, t := range l.Brand.Textures {
-				if strings.EqualFold(t, v) {
-					b.Tokens["textures."+v] = .07
-				}
-			}
-		}
 		b.Tokens["type.display"] = normalizeFont(l.Brand.Type.Display)
-		b.Tokens["type.mono"] = normalizeFont(l.Brand.Type.Body)
 		b.Tokens["type.body"] = normalizeFont(l.Brand.Type.Body)
-		b.Tokens["energy"] = l.Brand.Energy * 2
-		b.Tokens["seed"] = l.Brand.Seed
-		b.Tokens["volume"] = l.Brand.Volume
-		b.Tokens["sting"] = l.Brand.Sting
+		b.Tokens["type.mono"] = normalizeFont(l.Brand.Type.Body)
+		b.Tokens["energy"] = l.Brand.Energy
 		b.Tokens["words.tagline"] = l.Brand.Tagline
-		for k, v := range l.Brand.Words {
-			if k == "upnext" {
-				k = "upNext"
-			}
-			b.Tokens["words."+k] = v
+		b.Tokens["brand.logo"] = l.Brand.Logo
+		b.Slots["brand.logo"] = l.Brand.Logo
+		for _, v := range []string{"grain", "flicker", "scanlines", "vignette", "chroma"} {
+			b.Tokens["textures."+v] = 0.0
+		}
+		for _, v := range l.Brand.Textures {
+			b.Tokens["textures."+strings.ToLower(v)] = .07
+		}
+		for _, c := range l.Controls {
+			b.Tokens["control."+c.ID] = c.Value
 		}
 	}
 	if f == "signal" {
@@ -283,23 +315,25 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	if v := r.Bind["channel.tagline"]; v != "" {
 		b.Tokens["words.tagline"] = v
 	}
-	applyLayers(d.Layers, l.Layers)
-	if f != "signal" && l.Brand.Logo != "" {
-		if utf8.RuneCountInString(l.Brand.Logo) <= 3 {
-			d.Layers = append(d.Layers, scene.Layer{ID: "owner-logo", Type: "text", Text: l.Brand.Logo, X: 95.0, Y: 130.0, Font: normalizeFont(l.Brand.Type.Display), Size: 72.0, Fill: l.Brand.Palette.Accent})
-		} else {
-			d.Layers = append(d.Layers, scene.Layer{ID: "owner-logo", Type: "image", Src: "{brand.logo}", X: 95.0, Y: 70.0, W: 120.0, H: 120.0, Fit: "contain"})
+
+	// Scene selection is represented by its document and media; the internal prewarm selector is not a cache input.
+	cacheRequest := r
+	cacheRequest.Bind = map[string]string{}
+	for k, v := range r.Bind {
+		if k != "studio.scene" && k != "slate.start" {
+			cacheRequest.Bind[k] = v
 		}
 	}
-
 	h := encode.Hash(raster.Version+":"+s.resources, d, struct {
-		Brand  Brand
-		Layers map[string]map[string]any
-	}{l.Brand, l.Layers}, struct {
+		Brand Brand
+		Scene StyleScene
+		Asset string
+	}{l.Brand, selected, assetDigest}, struct {
 		Bindings scene.Bindings
 		Request  core.ClipRequest
-	}{b, r}, r.Art, encode.Profile)
-	return renderJob{Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b, Assets: plugin.Images}, Request: r}, h != ""
+	}{b, cacheRequest}, r.Art, encode.Profile)
+	return renderJob{Boundary: r.Boundary, Scene: selected, AssetDigest: assetDigest, Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b, Assets: plugin.Images}, Request: r}, h != ""
+
 }
 func (s *Service) Clip(_ context.Context, r core.ClipRequest) (core.ClipRef, bool) {
 	j, ok := s.plan(r)
@@ -316,19 +350,62 @@ func (s *Service) Clip(_ context.Context, r core.ClipRequest) (core.ClipRef, boo
 	}
 	return v.Ref, ok
 }
+
+// RenderLead reflects measured 1080p master work, including slot contention.
+// Every channel decodes these same masters; lower-resolution outputs inherit
+// the conservative native-resolution estimate. Cached repeats need no work.
+func (s *Service) RenderLead(look, moment string) time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	estimate := time.Duration(0)
+	if moment != "" {
+		estimate = s.renderTimes[look+"/"+moment]
+	} else {
+		for key, duration := range s.renderTimes {
+			if look == "" || strings.HasPrefix(key, look+"/") {
+				estimate = max(estimate, duration)
+			}
+		}
+	}
+	return max(3*time.Minute, 4*estimate)
+}
+
 func (s *Service) Ensure(_ context.Context, r core.ClipRequest) {
-	j, ok := s.plan(r)
-	if ok {
-		s.mu.Lock()
-		s.pins[j.Hash] = time.Now().Add(3 * time.Hour)
-		s.mu.Unlock()
-		s.enqueue(j)
+	s.mu.Lock()
+	l := s.looks[r.LookID]
+	s.mu.Unlock()
+	variants := []core.ClipRequest{r}
+	if r.AssetDigest == "" && !strings.HasPrefix(r.Moment, "screen.") && !strings.HasPrefix(r.Moment, "plugin:") {
+		variants = nil
+		for _, sc := range l.Scenes {
+			if sc.Enabled && sc.Role == r.Moment {
+				v := r
+				v.Bind = map[string]string{}
+				for k, x := range r.Bind {
+					v.Bind[k] = x
+				}
+				v.Bind["studio.scene"] = sc.ID
+				variants = append(variants, v)
+			}
+		}
+	}
+	for _, v := range variants {
+		if j, ok := s.plan(v); ok {
+			s.mu.Lock()
+			s.pins[j.Hash] = time.Now().Add(3 * time.Hour)
+			s.mu.Unlock()
+			s.enqueue(j)
+		}
 	}
 }
 func (s *Service) enqueue(j renderJob) bool {
+	imminent := s.imminent(j)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.pending[j.Hash] {
+		if imminent {
+			return s.queueLiveLocked(j)
+		}
 		return true
 	}
 	if v, ok := s.cache[j.Hash]; ok {
@@ -341,8 +418,17 @@ func (s *Service) enqueue(j renderJob) bool {
 		return false
 	default:
 	}
+	if imminent {
+		if !s.queueLiveLocked(j) {
+			return false
+		}
+		s.pending[j.Hash] = true
+		return true
+	}
 	queue := s.jobs
-	if j.convert != nil {
+	if j.download {
+		queue = s.importJobs
+	} else if j.convert != nil {
 		queue = s.clipJobs
 	}
 	select {
@@ -366,9 +452,9 @@ func (s *Service) queueLook(l Look, requests []core.ClipRequest) {
 		if len(ids) == 0 {
 			ids = []string{""}
 		}
-		moments := []string{"ident", "offair", "break"}
-		if l.Family == "personal" {
-			moments = append(moments, "welcome")
+		moments := []string{}
+		for role := range l.Roles {
+			moments = append(moments, role)
 		}
 		for _, id := range ids {
 			for _, m := range moments {
@@ -376,12 +462,45 @@ func (s *Service) queueLook(l Look, requests []core.ClipRequest) {
 			}
 		}
 	}
+
+	// Render progress covers every enabled scene, including roles whose live slots
+	// will be populated only when a schedule request arrives.
+	channels := map[string]core.ClipRequest{}
+	seen := map[string]bool{}
+	for _, r := range requests {
+		channels[r.ChannelID] = r
+		seen[r.ChannelID+"\x00"+r.Moment] = true
+	}
+	for channel, base := range channels {
+		for _, sc := range l.Scenes {
+			key := channel + "\x00" + sc.Role
+			if sc.Enabled && !seen[key] {
+				r := base
+				r.Moment = sc.Role
+				r.AssetDigest = ""
+				r.Art = nil
+				requests = append(requests, r)
+				seen[key] = true
+			}
+		}
+	}
 	jobs := []renderJob{}
 	hashes := []string{}
 	for _, r := range requests {
-		if j, ok := s.plan(r); ok {
-			jobs = append(jobs, j)
-			hashes = append(hashes, j.Hash)
+		for _, sc := range l.Scenes {
+			if !sc.Enabled || sc.Role != r.Moment {
+				continue
+			}
+			bind := map[string]string{}
+			for k, v := range r.Bind {
+				bind[k] = v
+			}
+			bind["studio.scene"] = sc.ID
+			r.Bind = bind
+			if j, ok := s.plan(r); ok {
+				jobs = append(jobs, j)
+				hashes = append(hashes, j.Hash)
+			}
 		}
 	}
 	s.mu.Lock()
@@ -404,57 +523,184 @@ func (s *Service) refreshProgress(id string) {
 	s.progress[id] = p
 }
 
-func (s *Service) run() {
+func (s *Service) imminent(j renderJob) bool {
+	now := time.Now()
+	lead := s.RenderLead(j.Look, j.Doc.Moment)
+	if strings.HasPrefix(j.Doc.Moment, "plugin:") {
+		lead = max(lead, 15*time.Minute)
+	}
+	return j.Boundary.After(now) && !j.Boundary.After(now.Add(lead))
+}
+
+// Preparation order accounts for measured render cost. A long plugin master
+// must start before short cards with later preparation deadlines, even when
+// their airing boundaries are earlier. Within equal cost, boundaries order it.
+func (s *Service) preparationAtLocked(j renderJob) time.Time {
+	cost := s.renderTimes[j.Look+"/"+j.Doc.Moment]
+	if strings.HasPrefix(j.Doc.Moment, "plugin:") {
+		cost = max(cost, 30*time.Second)
+	}
+	return j.Boundary.Add(-2 * cost)
+}
+
+// Called under mu. Only ordinary work waiting for a background slot is preemptible.
+func (s *Service) queueLiveLocked(j renderJob) bool {
+	if s.activeHash == j.Hash && !s.activeBoundary.IsZero() {
+		return true
+	}
+
+	for i, old := range s.liveJobs {
+		if old.Hash == j.Hash {
+			if !old.Boundary.After(time.Now()) || j.Boundary.Before(old.Boundary) {
+				s.liveJobs[i] = j
+				sort.SliceStable(s.liveJobs, func(i, j int) bool {
+					return s.preparationAtLocked(s.liveJobs[i]).Before(s.preparationAtLocked(s.liveJobs[j]))
+				})
+			}
+			return true
+		}
+	}
+	if len(s.liveJobs) >= 128 {
+		if !s.preparationAtLocked(j).Before(s.preparationAtLocked(s.liveJobs[len(s.liveJobs)-1])) {
+			return false
+		}
+		delete(s.pending, s.liveJobs[len(s.liveJobs)-1].Hash)
+		s.liveJobs = s.liveJobs[:len(s.liveJobs)-1]
+	}
+	s.liveJobs = append(s.liveJobs, j)
+	sort.SliceStable(s.liveJobs, func(i, j int) bool {
+		return s.preparationAtLocked(s.liveJobs[i]).Before(s.preparationAtLocked(s.liveJobs[j]))
+	})
+	if s.activeCancel != nil && s.activeBoundary.IsZero() {
+		s.activeCancel()
+	}
+	select {
+	case s.liveReady <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+func (s *Service) watchUpcoming() {
 	defer s.wg.Done()
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
 	for {
-		select {
-		case j := <-s.clipJobs:
-			s.process(j)
-			continue
-		default:
+		if ls, e := s.Looks(s.ctx); e == nil {
+			snapshot := map[string]Look{}
+			for _, l := range ls {
+				snapshot[l.ID] = l
+			}
+			s.mu.Lock()
+			s.looks = snapshot
+			s.evict()
+			s.mu.Unlock()
+		}
+		if s.o.Upcoming != nil {
+			for _, r := range s.o.Upcoming(s.ctx) {
+				j, ok := s.plan(r)
+				if !ok {
+					continue
+				}
+				s.mu.Lock()
+				v := s.cache[j.Hash]
+				s.pins[j.Hash] = time.Now().Add(3 * time.Hour)
+				v.Pin = s.pins[j.Hash]
+				if v.Ref.Hash != "" {
+					s.cache[j.Hash] = v
+				}
+				s.mu.Unlock()
+				s.enqueue(j)
+			}
 		}
 		select {
 		case <-s.ctx.Done():
 			return
 		case <-tick.C:
-			if ls, e := s.Looks(s.ctx); e == nil {
-				snapshot := map[string]Look{}
-				for _, l := range ls {
-					snapshot[l.ID] = l
-				}
-				s.mu.Lock()
-				s.looks = snapshot
-				s.evict()
-				s.mu.Unlock()
+		}
+	}
+}
+
+func (s *Service) run() {
+	defer s.wg.Done()
+	clipsSinceRender := 0
+	for {
+		if s.ctx.Err() != nil {
+			return
+		}
+		s.mu.Lock()
+		var urgent *renderJob
+		if len(s.liveJobs) > 0 {
+			j := s.liveJobs[0]
+			s.liveJobs[0] = renderJob{}
+			s.liveJobs = s.liveJobs[1:]
+			urgent = &j
+		}
+		s.mu.Unlock()
+		if urgent != nil {
+			s.process(*urgent)
+			continue
+		}
+		if clipsSinceRender >= 3 {
+			select {
+			case j := <-s.jobs:
+				s.process(j)
+				clipsSinceRender = 0
+				continue
+			default:
 			}
-			if s.o.Upcoming != nil {
-				for _, r := range s.o.Upcoming(s.ctx) {
-					j, ok := s.plan(r)
-					if ok {
-						s.mu.Lock()
-						v := s.cache[j.Hash]
-						s.pins[j.Hash] = time.Now().Add(3 * time.Hour)
-						v.Pin = s.pins[j.Hash]
-						if v.Ref.Hash != "" {
-							s.cache[j.Hash] = v
-						}
-						s.mu.Unlock()
-						s.enqueue(j)
-					}
-				}
-			}
+		}
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-s.liveReady:
 		case j := <-s.clipJobs:
+			clipsSinceRender++
 			s.process(j)
 		case j := <-s.jobs:
+			clipsSinceRender = 0
 			s.process(j)
 		}
 	}
 }
+
 func (s *Service) process(j renderJob) {
-	e := s.execute(j)
+	// Obsolete airings cannot consume a lane ahead of future work. A repeated
+	// content hash will be admitted again with its next scheduled boundary.
+	if !j.Boundary.IsZero() && !j.Boundary.After(time.Now()) {
+		s.mu.Lock()
+		delete(s.pending, j.Hash)
+		s.mu.Unlock()
+		return
+	}
+	imminent := s.imminent(j)
+	ctx, cancel := context.WithCancel(s.ctx)
+	defer cancel()
 	s.mu.Lock()
+	if _, cached := s.cache[j.Hash]; cached {
+		delete(s.pending, j.Hash)
+		s.mu.Unlock()
+		return
+	}
+	if !j.download {
+		s.activeCancel = cancel
+		s.activeHash = j.Hash
+		s.activeBoundary = time.Time{}
+		if imminent {
+			s.activeBoundary = j.Boundary
+			ctx = WithBoundaryDeadline(ctx, j.Boundary)
+		} else if len(s.liveJobs) > 0 {
+			cancel()
+		}
+	}
+	s.mu.Unlock()
+	e := s.execute(ctx, j)
+	s.mu.Lock()
+	if !j.download {
+		s.activeCancel = nil
+		s.activeHash = ""
+		s.activeBoundary = time.Time{}
+	}
 	delete(s.pending, j.Hash)
 	s.refreshProgress(j.Look)
 	s.mu.Unlock()
@@ -466,12 +712,13 @@ func (s *Service) process(j renderJob) {
 	}
 }
 
-func (s *Service) execute(j renderJob) (err error) {
+func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 	if j.prepare != nil {
-		return j.prepare(s.ctx)
+		return j.prepare(parent)
 	}
-	ctx, cancel := context.WithTimeout(s.ctx, 15*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 15*time.Minute)
 	defer cancel()
+	started := time.Now()
 	if s.o.Acquire != nil {
 		jobCtx, release, e := s.o.Acquire(ctx)
 		if e != nil {
@@ -488,41 +735,82 @@ func (s *Service) execute(j renderJob) (err error) {
 	if j.convert != nil {
 		return j.convert(ctx)
 	}
+	defer func() {
+		elapsed := time.Since(started)
+		s.mu.Lock()
+		key := j.Look + "/" + j.Doc.Moment
+		if s.renderTimes == nil {
+			s.renderTimes = map[string]time.Duration{}
+		}
+		previous := s.renderTimes[key]
+		s.renderTimes[key] = max(elapsed, (previous*3+elapsed)/4)
+		s.mu.Unlock()
+		s.o.Logger.Debug("onair master rendered", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed, "success", err == nil)
+	}()
 	if e := s.loadAssets(ctx, &j); e != nil {
 		return e
 	}
 	out := filepath.Join(s.o.Dir, j.Hash+".mp4")
 	var e error
 	audio := ""
-	var volume *float64
-	if !strings.HasPrefix(j.Doc.Moment, "screen.") {
-		v, _ := j.Bind.Tokens["volume"].(float64)
-		volume = &v
-	}
-	if digest, ok := j.Bind.Tokens["sting"].(string); ok && len(digest) == 64 {
+
+	var sounds []encode.SoundInput
+	prepare := func(digest, kind string) (string, error) {
 		var b []byte
-		if e = s.db.QueryRowContext(ctx, "SELECT content FROM onair_assets WHERE digest=? AND kind='audio'", digest).Scan(&b); e != nil {
-			return e
+		if err := s.db.QueryRowContext(ctx, "SELECT content FROM onair_assets WHERE digest=? AND kind=?", digest, kind).Scan(&b); err != nil {
+			return "", err
 		}
-		f, e := os.CreateTemp(s.o.Dir, ".sting-*")
-		if e != nil {
-			return e
+		f, err := os.CreateTemp(s.o.Dir, ".scene-media-*")
+		if err != nil {
+			return "", err
 		}
-		defer os.Remove(f.Name())
-		_, e = f.Write(b)
-		f.Close()
-		if e != nil {
-			return e
+		_, err = f.Write(b)
+		closeErr := f.Close()
+		if err == nil {
+			err = closeErr
 		}
-		audio = f.Name()
+		if err != nil {
+			os.Remove(f.Name())
+			return "", err
+		}
+		return f.Name(), nil
 	}
-	if s.o.Render != nil {
+	for _, sound := range j.Scene.Sounds {
+		path, err := prepare(sound.AssetDigest, "audio")
+		if err != nil {
+			return err
+		}
+		defer os.Remove(path)
+		sounds = append(sounds, encode.SoundInput{Path: path, At: sound.At, Start: sound.Start, End: sound.End, Volume: sound.Volume, FadeIn: sound.FadeIn, FadeOut: sound.FadeOut})
+	}
+	var background *encode.VideoInput
+	if v := j.Scene.Video; v != nil && v.Mode == "background" && j.Request.AssetDigest == "" {
+		path, err := prepare(v.AssetDigest, "video")
+		if err != nil {
+			return err
+		}
+		defer os.Remove(path)
+		background = &encode.VideoInput{Path: path, Fit: v.Fit, Start: v.Start}
+	}
+	if j.AssetDigest != "" {
+		e = s.renderMomentVideo(ctx, j, out, sounds)
+	} else if s.o.Render != nil {
 		e = s.o.Render(ctx, j.Doc, j.Bind, out)
 	} else {
 		if s.o.FFmpeg == nil {
 			return fmt.Errorf("ffmpeg unavailable")
 		}
-		e = encode.WithOptions(ctx, s.o.FFmpeg(), func(i int) *image.RGBA { return raster.Render(j.Doc, j.Bind, float64(i)/30, 1920, 1080) }, int(j.Doc.Duration*30), 30, audio, out, encode.Options{Workers: 2, Audio: j.Doc.Audio, AudioVolume: volume})
+		opts := encode.Options{Workers: 2, Audio: j.Doc.Audio, Sounds: sounds, Background: background}
+		frames := func(i int) *image.RGBA { return raster.Render(j.Doc, j.Bind, float64(i)/30, 1920, 1080) }
+		if strings.HasPrefix(j.Doc.Moment, "plugin:") {
+			opts.MaxSeconds = 600
+			// Long static data cards need one rasterization, not thousands.
+			if staticPluginScene(j.Doc) {
+				still := frames(0)
+				frames = func(int) *image.RGBA { return still }
+			}
+		}
+		e = encode.WithOptions(ctx, s.o.FFmpeg(), frames, int(j.Doc.Duration*30), 30, audio, out, opts)
 	}
 	if e != nil {
 		return e
@@ -588,50 +876,6 @@ func (s *Service) evict() {
 	}
 }
 
-func applyLayers(ls []scene.Layer, patches map[string]map[string]any) {
-	for i := range ls {
-		l := &ls[i]
-		p := patches[l.ID]
-		if p == nil {
-			switch l.ID {
-			case "brand", "title":
-				p = patches["Title"]
-			case "tag":
-				p = patches["Tagline"]
-			}
-		}
-		if p == nil {
-			for key, v := range patches {
-				if strings.EqualFold(key, l.ID) {
-					p = v
-					break
-				}
-			}
-		}
-		if v, ok := p["hidden"].(bool); ok && v {
-			l.Opacity = 0
-		}
-		if v, ok := p["text"].(string); ok {
-			l.Text = v
-		}
-		if v, ok := p["size"]; ok {
-			l.Size = v
-		}
-		if v, ok := p["opacity"].(float64); ok {
-			l.Opacity = v / 100
-		}
-		if v, ok := p["x"]; ok {
-			l.X = v
-		}
-		if v, ok := p["y"]; ok {
-			l.Y = v
-		}
-		if v, ok := p["fit"].(string); ok {
-			l.Fit = v
-		}
-		applyLayers(l.Layers, patches)
-	}
-}
 func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 	assets := map[string]image.Image{}
 	for k, v := range j.Bind.Assets {
@@ -643,11 +887,7 @@ func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 	for k, d := range j.Request.Art {
 		refs[k] = d
 	}
-	for slot, d := range j.Bind.Slots {
-		if len(d) == 64 {
-			refs[slot] = d
-		}
-	}
+	collectSceneAssets(j.Doc.Layers, j.Bind.Bindings, refs)
 	for _, key := range []string{"type.display", "type.mono", "type.body", "logo"} {
 		d, _ := j.Bind.Tokens[key].(string)
 		if len(d) == 64 {
@@ -662,6 +902,9 @@ func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 			if d != "" && s.o.Artwork != nil {
 				im, e := s.o.Artwork(ctx, d)
 				if e != nil {
+					if j.Request.Moment == "bug" && slot == "channel.logo" {
+						continue
+					}
 					return e
 				}
 				j.Bind.Assets[d] = im
@@ -708,4 +951,59 @@ func (s *Service) SegmentInfo(moment string) (name, rating string, ok bool) {
 	}
 	v, ok := s.o.PluginSegment(moment)
 	return v.Name, v.Rating, ok
+}
+
+// Imports are network-bound. Two bounded workers isolate them from raster work;
+// downloaded clips rejoin clipJobs for the existing conversion priority.
+func (s *Service) runImports() {
+	defer s.wg.Done()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case j := <-s.importJobs:
+			s.process(j)
+		}
+
+	}
+}
+
+// StyleScreens reads the cached owner style; it performs no rendering or database work.
+func (s *Service) StyleScreens(id string) *config.LiveTVScreens {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v := s.looks[id].Screens; v != nil {
+		cp := *v
+		return &cp
+	}
+	return nil
+}
+
+func pickScene(l Look, r core.ClipRequest) (StyleScene, bool) {
+	var choices []StyleScene
+	total := 0
+	for _, sc := range l.Scenes {
+		if sc.Enabled && sc.Role == r.Moment && sc.Weight > 0 {
+			if r.Bind["studio.scene"] == sc.ID {
+				return sc, true
+			}
+			choices = append(choices, sc)
+			total += sc.Weight
+		}
+	}
+	if total == 0 {
+		return StyleScene{}, false
+	}
+	sum := sha256.Sum256([]byte(l.ID + "\x00" + r.ChannelID + "\x00" + r.Bind["slate.start"]))
+	n := int(binary.BigEndian.Uint64(sum[:8]) % uint64(total))
+	for _, sc := range choices {
+		n -= sc.Weight
+		if n < 0 {
+			return sc, true
+		}
+	}
+	return StyleScene{}, false
 }

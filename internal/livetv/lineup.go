@@ -40,6 +40,8 @@ type ChannelSummary struct {
 
 	numberKey numberKey
 	sweepKey  string
+	styleID   string
+	reelID    string
 }
 
 type ChannelCounts struct {
@@ -109,11 +111,16 @@ func (s *Service) channelSummaries(ctx context.Context) ([]ChannelSummary, error
 			return nil, err
 		}
 		var stream struct {
+			Look          *ChannelLook   `json:"look"`
 			StreamURL     string         `json:"streamUrl"`
 			StreamSources []StreamSource `json:"streamSources"`
 		}
 		if err = json.Unmarshal(b, &stream); err != nil {
 			return nil, err
+		}
+		if stream.Look != nil {
+			c.styleID = stream.Look.LookID
+			c.reelID = stream.Look.ReelID
 		}
 		c.sweepKey = sweepSignature(Channel{StreamURL: stream.StreamURL, StreamSources: stream.StreamSources})
 		c.numberKey = parseNumberKey(c.Number)
@@ -346,6 +353,17 @@ func (s *Service) ChannelPage(ctx context.Context, q ChannelPageQuery) (ChannelP
 // bind-variable limit allows.
 func (s *Service) channelsByIDs(ctx context.Context, ids []string) (map[string]Channel, error) {
 	out := make(map[string]Channel, len(ids))
+	pending := make([]string, 0, len(ids))
+	s.virtualGuide.mu.RLock()
+	for _, id := range ids {
+		if entry := s.virtualGuide.entries[id]; entry != nil {
+			out[id] = entry.channel
+		} else {
+			pending = append(pending, id)
+		}
+	}
+	s.virtualGuide.mu.RUnlock()
+	ids = pending
 	for start := 0; start < len(ids); start += channelPageChunk {
 		end := min(start+channelPageChunk, len(ids))
 		marks := make([]string, 0, end-start)
@@ -407,6 +425,36 @@ func (s *Service) virtualChannels(ctx context.Context) ([]Channel, error) {
 			if v, ok := full[c.ID]; ok {
 				out = append(out, v)
 			}
+		}
+	}
+	return out, nil
+}
+
+// StyleChannelIDs reads the invalidated lineup index, never programme payloads.
+func (s *Service) StyleChannelIDs(ctx context.Context) (map[string][]string, error) {
+	channels, err := s.channelSummaries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]string{}
+	for _, c := range channels {
+		id := c.styleID
+		if id != "" {
+			out[id] = append(out[id], c.ID)
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) ReelChannelIDs(ctx context.Context) (map[string][]string, error) {
+	channels, err := s.channelSummaries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]string{}
+	for _, c := range channels {
+		if c.reelID != "" {
+			out[c.reelID] = append(out[c.reelID], c.ID)
 		}
 	}
 	return out, nil

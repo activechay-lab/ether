@@ -29,8 +29,11 @@ type Audio struct {
 }
 
 type Layer struct {
-	GrainSize   int        `json:"grainSize,omitempty"`
-	NoiseFPS    int        `json:"noiseFps,omitempty"`
+	Name        string     `json:"name,omitempty"`
+	Hidden      bool       `json:"hidden,omitempty"`
+	Locked      bool       `json:"locked,omitempty"`
+	Start       float64    `json:"start,omitempty"`
+	End         float64    `json:"end,omitempty"`
 	ID          string     `json:"id"`
 	Type        string     `json:"type"`
 	X           Value      `json:"x,omitempty"`
@@ -73,6 +76,7 @@ type Layer struct {
 	Layers      []Layer    `json:"layers,omitempty"`
 }
 type Reveal struct {
+	Out  bool    `json:"out,omitempty"`
 	Wipe string  `json:"wipe"`
 	From float64 `json:"from"`
 	To   float64 `json:"to"`
@@ -166,31 +170,31 @@ func (d Document) Validate() error {
 				return fmt.Errorf("missing/duplicate layer id %q", l.ID)
 			}
 			ids[l.ID] = true
-			if !one(l.Type, "rect ellipse path text image art logo blob particles gradient noise grid group") {
-				return fmt.Errorf("unknown layer %q", l.Type)
+			if math.IsNaN(l.Start) || math.IsNaN(l.End) || l.Start < 0 || l.End < 0 || l.Start > d.Duration || l.End > d.Duration || (l.End > 0 && l.End <= l.Start) {
+				return fmt.Errorf("layer %q: start and end must be within the scene, with end after start", l.ID)
 			}
-			if l.GrainSize < 0 || l.GrainSize > 64 || l.NoiseFPS < 0 || l.NoiseFPS > 60 {
-				return fmt.Errorf("invalid noise sampling")
+			if !one(l.Type, "rect ellipse path text image art logo blob particles gradient noise grid group") {
+				return fmt.Errorf("layer %q: unknown type %q", l.ID, l.Type)
 			}
 			if l.Repeat < 0 || l.Repeat > 200 || l.Count < 0 || l.Count > 2000 {
-				return fmt.Errorf("invalid repeat/particles")
+				return fmt.Errorf("layer %q: repeat must be within 0..200 and particles within 0..2000", l.ID)
 			}
 			n := max(1, l.Repeat) * m
 			total += n
 			particles += l.Count * n
 			if total > 200 || particles > 2000 || l.Blur < 0 || l.Blur > 64 || l.Glow < 0 || l.Glow > 64 {
-				return fmt.Errorf("scene exceeds render cost limit")
+				return fmt.Errorf("layer %q: scene exceeds render cost limit", l.ID)
 			}
-			if !one(l.Blend, " normal multiply screen overlay") || !one(l.TintBlend, " normal multiply screen overlay") || !one(l.Fit, " shrink wrap clip cover contain") || !one(l.FillRule, " nonzero evenodd") || !one(l.Join, " miter round bevel") || !one(l.Cap, " butt round square") || l.MaxLines < 0 || l.MaxLines > 100 {
-				return fmt.Errorf("invalid layer option")
+			if !one(l.Blend, " normal multiply screen overlay") || !one(l.TintBlend, " normal multiply screen overlay silhouette") || !one(l.Fit, " shrink wrap clip cover contain") || !one(l.FillRule, " nonzero evenodd") || !one(l.Join, " miter round bevel") || !one(l.Cap, " butt round square") || l.MaxLines < 0 || l.MaxLines > 100 {
+				return fmt.Errorf("layer %q: invalid blend, fit, fill, stroke or line limit", l.ID)
 			}
 			for _, v := range []Value{l.X, l.Y, l.W, l.H, l.Scale, l.ScaleX, l.ScaleY, l.Rotate, l.Opacity, l.Fill, l.Stroke, l.StrokeWidth, l.Text, l.Font, l.Size, l.Track, l.Src, l.Tint} {
 				if err := validateValue(v); err != nil {
-					return err
+					return fmt.Errorf("layer %q: %w", l.ID, err)
 				}
 			}
 			if l.Reveal != nil && (!one(l.Reveal.Wipe, "ltr rtl") || l.Reveal.To <= l.Reveal.From || !one(l.Reveal.Ease, " linear in out inOut back elastic spring")) {
-				return fmt.Errorf("invalid reveal")
+				return fmt.Errorf("layer %q: invalid reveal direction or timing", l.ID)
 			}
 			for _, b := range l.Behave {
 				raw, _ := json.Marshal(b)
@@ -201,7 +205,7 @@ func (d Document) Validate() error {
 				}
 				for _, p := range []*Params{b.Typewriter, b.Flicker, b.Wiggle, b.Bounce, b.Glint, b.Chroma, b.Drift, b.Pop, b.Squash} {
 					if p != nil && (p.Step < 0 || p.Speed < 0) {
-						return fmt.Errorf("negative behaviour timing")
+						return fmt.Errorf("layer %q: behaviour timing must be nonnegative", l.ID)
 					}
 				}
 			}
@@ -477,4 +481,51 @@ func interpolateColor(a, b string, u float64) (string, bool) {
 		}
 	}
 	return fmt.Sprintf("#%02x%02x%02x%02x", int(z[0]+.5), int(z[1]+.5), int(z[2]+.5), int(z[3]+.5)), true
+}
+
+// StaticForeground separates a full-frame analogue background from its prepared
+// foreground. Such scenes air over a live Signal engine instead of a clip loop.
+func (d Document) StaticForeground() (Document, bool) {
+	if len(d.Layers) == 0 || len(d.Post) != 0 {
+		return d, false
+	}
+	l := d.Layers[0]
+	if l.Type != "noise" || l.Blend != "" && l.Blend != "normal" || l.Clip != "" || l.Repeat > 1 || len(l.Behave) > 0 || l.Blur != 0 || l.Glow != 0 {
+		return d, false
+	}
+	for _, v := range []struct {
+		value Value
+		want  float64
+	}{{l.W, 1920}, {l.H, 1080}, {l.X, 0}, {l.Y, 0}, {l.Scale, 1}, {l.ScaleX, 1}, {l.ScaleY, 1}, {l.Rotate, 0}, {l.Opacity, 1}} {
+		if v.value != nil && Number(v.value, math.NaN()) != v.want {
+			return d, false
+		}
+	}
+	// Only fixed foreground geometry can be prepared once. Procedural layers,
+	// reveals and keyframes must keep their ordinary scene animation.
+	var fixed func([]Layer) bool
+	fixed = func(layers []Layer) bool {
+		for _, l := range layers {
+			if one(l.Type, "noise blob particles grid") || len(l.Behave) > 0 || l.Reveal != nil {
+				return false
+			}
+			for _, v := range []Value{l.X, l.Y, l.W, l.H, l.Scale, l.ScaleX, l.ScaleY, l.Rotate, l.Opacity, l.Fill, l.Stroke, l.StrokeWidth, l.Text, l.Font, l.Size, l.Track, l.Src, l.Tint} {
+				if m, ok := v.(map[string]any); ok {
+					if _, animated := m["keys"]; animated {
+						return false
+					}
+				}
+			}
+			if !fixed(l.Layers) {
+				return false
+			}
+		}
+		return true
+	}
+	if !fixed(d.Layers[1:]) {
+		return d, false
+	}
+	out := d
+	out.Layers = append([]Layer(nil), d.Layers[1:]...)
+	return out, true
 }

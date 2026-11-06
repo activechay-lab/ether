@@ -16,8 +16,21 @@ export type Item = {
   season?: number;
   episode?: number;
   releasedMs?: number;
+  breakPointsMs?: number[];
+  breakPoints?: { atMs: number; source: string; confidence?: number }[];
 };
 export type ProgramSource = {
+  id?: string;
+  kind?: "items" | "show" | "movies" | "collection" | "filter" | "personal" | "plugin" | "mix";
+  showKey?: number;
+  startSeason?: number;
+  startEpisode?: number;
+  startDate?: string;
+  order?: "order" | "shuffle";
+  strip?: boolean;
+  segmentId?: string;
+  personal?: PersonalRecipe;
+  sources?: ProgramSource[];
   name?: string;
   weight?: number;
   items?: Item[];
@@ -26,6 +39,9 @@ export type ProgramSource = {
   watched?: "" | "watched" | "unwatched";
 };
 export type Block = {
+  id?: string;
+  preset?: string;
+  breaks?: ChannelLook;
   start: number;
   end: number;
   /** Weekdays in the channel timezone, 0 Sunday … 6 Saturday. Empty means every day. */
@@ -36,7 +52,7 @@ export type Block = {
   shuffle: boolean;
   mode?: string;
   align?: "" | "hour" | "half";
-  fit?: "" | "cut" | "pad";
+  fit?: "" | "cut" | "pad" | "shift";
   repeatDays?: number;
   filler?: Item[];
   marathonKey?: number;
@@ -45,7 +61,21 @@ export type Block = {
   sources?: ProgramSource[];
   watched?: "" | "watched" | "unwatched";
 };
+export type Pin = {
+  id: string;
+  name: string;
+  start: number;
+  end: number;
+  days?: number[];
+  date?: string;
+  sources?: ProgramSource[];
+  items?: Item[];
+  mode?: string;
+  repeatDays?: number;
+  breaks?: ChannelLook;
+};
 export type Channel = {
+  pins?: Pin[];
   personal?: PersonalRecipe;
   look?: ChannelLook;
   screens?: { offAir?: ScreenStyle; noSignal?: ScreenStyle };
@@ -86,7 +116,7 @@ export type Channel = {
   watched?: "" | "watched" | "unwatched";
   mode?: string;
   align?: "" | "hour" | "half";
-  fit?: "" | "cut" | "pad";
+  fit?: "" | "cut" | "pad" | "shift";
   repeatDays?: number;
   filler?: Item[];
   fallback?: Item[];
@@ -436,8 +466,11 @@ export const tv = {
     );
     return Array.isArray(r) ? r : (r?.sources ?? []);
   },
-  play: (id: string) =>
-    apiFetch<PreviewSession>(`/livetv/channels/${enc(id)}/play`, { method: "POST", body: "{}" }),
+  play: (id: string, viewer?: string) =>
+    apiFetch<PreviewSession>(
+      `/livetv/channels/${enc(id)}/play${viewer ? `?viewer=${enc(viewer)}` : ""}`,
+      { method: "POST", body: "{}" },
+    ),
   stopPreview: (session: string) =>
     apiFetch(`/livetv/sessions/${enc(session)}`, { method: "DELETE" }),
   policies: (signal?: AbortSignal) => apiFetch<LiveTVPolicy[]>("/livetv/policies", { signal }),
@@ -664,10 +697,25 @@ export const minutesOfDay = (value: string) => {
   const [h = NaN, m = NaN] = value.split(":").map(Number);
   return h * 60 + m;
 };
-export const clock = (d: Date | string) =>
-  new Date(d).toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
-export const dayClock = (d: Date | string) =>
-  new Date(d).toLocaleString(getLocale(), { weekday: "short", hour: "numeric", minute: "2-digit" });
+// Reuse ICU formatters: the guide formats each programme's endpoints several
+// times per render. Date.toLocale* constructs a formatter for every call.
+const clockFormats = new Map<string, Intl.DateTimeFormat>();
+function clockFormat(day: boolean) {
+  const locale = getLocale();
+  const key = `${locale}:${day}`;
+  let format = clockFormats.get(key);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, {
+      ...(day ? { weekday: "short" as const } : {}),
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    clockFormats.set(key, format);
+  }
+  return format;
+}
+export const clock = (d: Date | string) => clockFormat(false).format(new Date(d));
+export const dayClock = (d: Date | string) => clockFormat(true).format(new Date(d));
 export function duration(ms: number): string {
   const m = Math.max(0, Math.round(ms / MINUTE));
   const h = Math.floor(m / 60);
@@ -819,3 +867,10 @@ export const isChannelSource = (s: Source) =>
   s.kind !== "plex" &&
   s.hasPlaylist !== false &&
   !(!s.playlistUrl && !s.channelCount && (s.guideChannelCount ?? 0) > 0);
+
+/** Catalogue snapshots retain TMDB paths; console images use the image proxy. */
+export function programmeArtwork(src?: string): string | undefined {
+  return src && /^\/[A-Za-z0-9_-]+\.(jpg|png|webp)$/i.test(src)
+    ? `/ether/api/image?path=${encodeURIComponent(src)}&w=342`
+    : src;
+}

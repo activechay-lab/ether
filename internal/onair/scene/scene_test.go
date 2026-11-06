@@ -1,6 +1,7 @@
 package scene_test
 
 import (
+	"github.com/braedonsaunders/ether/internal/onair/families"
 	"github.com/braedonsaunders/ether/internal/onair/scene"
 	"strings"
 	"testing"
@@ -21,5 +22,33 @@ func TestBinding(t *testing.T) {
 	b := scene.Bindings{Tokens: map[string]any{"accent": "#ff0000", "type": map[string]any{"mono": "inter"}}, Slots: map[string]string{"next.title": "Hello"}}
 	if got := b.Resolve("{accent}@0.5 {type.mono} {next.title}"); got != "#ff0000@0.5 inter Hello" {
 		t.Fatal(got)
+	}
+}
+
+// A live background may prepare only fixed foregrounds; partial or animated
+// scenes must keep their scene rendering semantics.
+func TestLiveStaticForeground(t *testing.T) {
+	for _, c := range []struct{ family, moment string }{{"late-night", "offair"}, {"signal", "screen.static"}} {
+		d, err := families.Get(c.family, c.moment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		foreground, live := d.StaticForeground()
+		if !live || len(foreground.Layers) != len(d.Layers)-1 {
+			t.Fatal("canonical static is not live", c)
+		}
+		d.Layers = append([]scene.Layer(nil), d.Layers...)
+		d.Layers[0].W = 960
+		if _, live := d.StaticForeground(); live {
+			t.Fatal("partial noise must retain its transform")
+		}
+	}
+	d := scene.Document{Layers: []scene.Layer{{Type: "noise"}, {Type: "blob"}}}
+	if _, live := d.StaticForeground(); live {
+		t.Fatal("procedural foreground must animate")
+	}
+	d.Layers[1] = scene.Layer{Type: "text", X: map[string]any{"keys": []any{}}}
+	if _, live := d.StaticForeground(); live {
+		t.Fatal("keyframed foreground must animate")
 	}
 }

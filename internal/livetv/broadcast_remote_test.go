@@ -16,6 +16,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/mediaproc"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -60,11 +61,16 @@ func TestBroadcastSlowStartLargeOffsetRemote(t *testing.T) {
 	if err != nil {
 		t.Skip(err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	budget := 90 * time.Second
+	if raceEnabled {
+		// The instrumented 1080p fallback renderer shares this fixture's budget.
+		budget *= 4
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), budget)
 	defer cancel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "long.mkv")
-	if out, e := exec.CommandContext(ctx, ff, "-v", "error", "-y", "-f", "lavfi", "-i", "color=red:size=64x36:rate=1", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "6104", "-c:v", "libx264", "-threads", "1", "-preset", "ultrafast", "-tune", "zerolatency", "-g", "10", "-c:a", "aac", "-b:a", "16k", path).CombinedOutput(); e != nil {
+	if out, e := mediaproc.CommandContext(ctx, 2*time.Minute, ff, "-v", "error", "-y", "-f", "lavfi", "-i", "color=red:size=64x36:rate=1", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "6104", "-c:v", "libx264", "-threads", "1", "-preset", "ultrafast", "-tune", "zerolatency", "-g", "10", "-c:a", "aac", "-b:a", "16k", path).CombinedOutput(); e != nil {
 		t.Fatalf("fixture:%v %s", e, out)
 	}
 	var ranges atomic.Int64
@@ -86,10 +92,11 @@ func TestBroadcastSlowStartLargeOffsetRemote(t *testing.T) {
 	}
 	defer manager.Close()
 	runner := &slowRemoteBroadcastRunner{Manager: manager, encoder: &remoteSampleEncoder{}, origin: time.Now()}
-	s := testService(t, Options{Playback: &lookDemoPlayback{path: server.URL + "/long.mkv"}, Screens: func() config.LiveTVScreens { return config.LiveTVScreens{NoSignal: "static", ApplyTo: "all"} }})
+	s := testService(t, Options{Playback: &lookDemoPlayback{path: server.URL + "/long.mkv"}, StyleScreens: func(string) *config.LiveTVScreens { return &config.LiveTVScreens{NoSignal: "static", ApplyTo: "all"} }})
 	format := transcode.RawFormat{Width: 1920, Height: 1080, FPSNum: 30, FPSDen: 1, SampleRate: 48000, Channels: 2, PixelFormat: "yuv420p"}
 	origin := time.Now()
 	c := testChannel()
+	c.Look = &ChannelLook{LookID: "signal-test"}
 	c.Mode = "order"
 	c.Items = []Item{{Key: 1, Title: "Slow remote programme", DurationMS: 24 * 60 * 60 * 1000}}
 	c.Epoch = origin.Add(-6000 * time.Second)

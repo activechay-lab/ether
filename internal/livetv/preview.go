@@ -43,9 +43,42 @@ type PreviewSession struct {
 // client), then fetch the HLS playlist and segments through the owner API.
 func (s *Service) previewRoutes(r chi.Router, owner *core.User) {
 	r.Post("/channels/{id}/play", func(w http.ResponseWriter, r *http.Request) {
+		viewer := owner
+		if s.o.InputUser != nil {
+			var err error
+			viewer, err = s.o.InputUser(r.Context())
+			if err != nil {
+				ownerResult(w, nil, err)
+				return
+			}
+		}
+		if raw := r.URL.Query().Get("viewer"); raw != "" {
+			id, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || id <= 0 || s.o.Users == nil {
+				ownerResult(w, nil, core.ErrNotFound)
+				return
+			}
+			users, err := s.o.Users.Users(r.Context())
+			if err != nil {
+				ownerResult(w, nil, err)
+				return
+			}
+			viewer = nil
+			for _, u := range users {
+				if u.ID == id {
+					copy := u
+					viewer = &copy
+					break
+				}
+			}
+			if viewer == nil {
+				ownerResult(w, nil, core.ErrNotFound)
+				return
+			}
+		}
 		caps := previewCaps
 		caps.ClientID = "ether-preview-" + randomID()[:12]
-		info, err := s.TuneWithSession(r.Context(), owner, chi.URLParam(r, "id"), caps, caps.ClientID)
+		info, err := s.TuneWithSession(r.Context(), viewer, chi.URLParam(r, "id"), caps, caps.ClientID)
 		if err != nil {
 			ownerResult(w, nil, err)
 			return
@@ -68,10 +101,10 @@ func (s *Service) previewRoutes(r chi.Router, owner *core.User) {
 		ownerResult(w, out, nil)
 	})
 	r.Delete("/sessions/{session}", func(w http.ResponseWriter, r *http.Request) {
-		ownerResult(w, map[string]bool{"ok": true}, s.Stop(r.Context(), chi.URLParam(r, "session"), owner))
+		ownerResult(w, map[string]bool{"ok": true}, s.Stop(r.Context(), chi.URLParam(r, "session"), s.previewSessionUser(r)))
 	})
 	r.Get("/sessions/{session}", func(w http.ResponseWriter, r *http.Request) {
-		info, err := s.Session(r.Context(), chi.URLParam(r, "session"), owner)
+		info, err := s.Session(r.Context(), chi.URLParam(r, "session"), s.previewSessionUser(r))
 		if err != nil {
 			ownerResult(w, nil, err)
 			return
@@ -83,7 +116,7 @@ func (s *Service) previewRoutes(r chi.Router, owner *core.User) {
 		mediasafety.SetHeaders(w)
 		id := chi.URLParam(r, "session")
 		pw := relativePlaylists(w, r, id)
-		s.ServePlaylist(pw, r, id, owner)
+		s.ServePlaylist(pw, r, id, s.previewSessionUser(r))
 		pw.finish()
 	})
 	r.Get("/sessions/{session}/relay/{segment}", func(w http.ResponseWriter, r *http.Request) {
@@ -93,16 +126,34 @@ func (s *Service) previewRoutes(r chi.Router, owner *core.User) {
 			http.NotFound(w, r)
 			return
 		}
-		s.ServeRelaySegment(w, r, chi.URLParam(r, "session"), n, owner)
+		s.ServeRelaySegment(w, r, chi.URLParam(r, "session"), n, s.previewSessionUser(r))
 	})
 	r.Get("/sessions/{session}/resource/{resource}", func(w http.ResponseWriter, r *http.Request) {
 		mediasafety.SetHeaders(w)
 		id := chi.URLParam(r, "session")
 		pw := relativePlaylists(w, r, id)
-		s.ServeResource(pw, r, id, chi.URLParam(r, "resource"), owner)
+		s.ServeResource(pw, r, id, chi.URLParam(r, "resource"), s.previewSessionUser(r))
 		pw.finish()
 	})
 
+}
+
+// Only owner-console sessions may be fetched through the preview routes. Keep
+// the selected viewer on every media request so personal policy is rechecked.
+func (s *Service) previewSessionUser(r *http.Request) *core.User {
+	s.mu.Lock()
+	ss := s.sessions[chi.URLParam(r, "session")]
+	s.mu.Unlock()
+	if ss == nil {
+		return nil
+	}
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	if ss.caps.Product != previewCaps.Product || !strings.HasPrefix(ss.caps.ClientID, "ether-preview-") {
+		return nil
+	}
+	user := ss.user
+	return &user
 }
 
 // relativePlaylists rewrites the Plex-adapter session paths that playlists

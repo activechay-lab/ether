@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/onair/scene"
 	"github.com/braedonsaunders/ether/internal/store"
 	"math"
 	"regexp"
@@ -18,6 +17,14 @@ import (
 )
 
 func init() {
+	// Media facts live with the asset so every node sees them. duration_ms is
+	// NULL until probed; 0 means the asset has no duration (or could not be read).
+	store.Register("onair", 4, `ALTER TABLE onair_assets ADD COLUMN duration_ms INTEGER;
+ ALTER TABLE onair_assets ADD COLUMN width INTEGER NOT NULL DEFAULT 0;
+ ALTER TABLE onair_assets ADD COLUMN height INTEGER NOT NULL DEFAULT 0;`)
+	store.Register("onair", 3, `CREATE TABLE onair_imports(id TEXT PRIMARY KEY,reel_id TEXT NOT NULL,data TEXT NOT NULL);
+ ALTER TABLE onair_assets ADD COLUMN source TEXT NOT NULL DEFAULT '';
+ ALTER TABLE onair_assets ADD COLUMN attribution TEXT NOT NULL DEFAULT '';`)
 	store.Register("onair", 1, `
 CREATE TABLE onair_looks(id TEXT PRIMARY KEY,data TEXT NOT NULL,pack_id TEXT NOT NULL DEFAULT '',updated_at INTEGER NOT NULL);
 CREATE TABLE onair_families(id TEXT PRIMARY KEY,data TEXT NOT NULL,pack_id TEXT NOT NULL);
@@ -45,16 +52,21 @@ func normalizeFont(s string) string {
 	return strings.ToLower(strings.NewReplacer(" ", "", "-", "", "_", "").Replace(s))
 }
 func (s *Service) validateLook(ctx context.Context, l Look) error {
+	if l.Screens != nil {
+		for _, v := range []string{l.Screens.OffAir, l.Screens.NoSignal} {
+			if !strings.Contains(" card static bars brb testcard error ", " "+v+" ") {
+				return fmt.Errorf("unknown screen style %q", v)
+			}
+		}
+	}
+
+	if e := l.Bug.Validate(); e != nil {
+		return e
+	}
 	if strings.TrimSpace(l.Name) == "" || utf8.RuneCountInString(l.Name) > 120 || utf8.RuneCountInString(l.Brand.Tagline) > 40 {
 		return fmt.Errorf("name required (120 characters maximum); tagline maximum 40 characters")
 	}
-	if !strings.Contains(" clean kids lateNight late-night cinema retro personal ", " "+l.Family+" ") {
-		var n int
-		if e := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM onair_families WHERE id=?", l.Family).Scan(&n); e != nil || n == 0 {
-			return fmt.Errorf("unknown family %q", l.Family)
-		}
-	}
-	known := " inter playfairdisplay specialelite fraunces bungee fredoka orbitron vt323 spacegrotesk ibmplexmono archivoblack monoton notosans "
+	known := " inter playfairdisplay specialelite fraunces bungee fredoka orbitron vt323 spacegrotesk ibmplexmono archivoblack notosans "
 	for _, f := range []string{l.Brand.Type.Display, l.Brand.Type.Body} {
 		if !strings.Contains(known, " "+normalizeFont(f)+" ") {
 			var n int
@@ -98,24 +110,10 @@ func (s *Service) validateLook(ctx context.Context, l Look) error {
 	if (math.Max(bg, fg)+.05)/(math.Min(bg, fg)+.05) < 4.5 {
 		return fmt.Errorf("text contrast must be at least 4.5:1")
 	}
-	if l.Brand.Energy < 0 || l.Brand.Energy > 1 || l.Brand.Volume < 0 || l.Brand.Volume > 1 {
-		return fmt.Errorf("energy and volume must be between 0 and 1")
+	if l.Brand.Energy < 0 || l.Brand.Energy > 1 {
+		return fmt.Errorf("energy must be between 0 and 1")
 	}
-	for m, v := range l.Moments {
-		d := scene.Document{V: 1, Moment: m, Duration: v.Duration, Poster: v.Poster}
-		if e := d.Validate(); e != nil {
-			return e
-		}
-	}
-	for m, d := range l.Documents {
-		if d.Moment != m {
-			return fmt.Errorf("document moment mismatch")
-		}
-		if e := d.Validate(); e != nil {
-			return e
-		}
-	}
-	return nil
+	return s.validateScenes(ctx, l)
 }
 func (s *Service) Looks(ctx context.Context) ([]Look, error) {
 	rows, e := s.db.QueryContext(ctx, "SELECT data FROM onair_looks ORDER BY id")
@@ -133,6 +131,7 @@ func (s *Service) Looks(ctx context.Context) ([]Look, error) {
 		if e = json.Unmarshal([]byte(b), &l); e != nil {
 			return nil, e
 		}
+		l.emptyCollections()
 		s.mu.Lock()
 		p := s.progress[l.ID]
 		if p != nil {
@@ -142,7 +141,21 @@ func (s *Service) Looks(ctx context.Context) ([]Look, error) {
 		s.mu.Unlock()
 		out = append(out, l)
 	}
-	return out, rows.Err()
+	if e = rows.Err(); e != nil {
+		return nil, e
+	}
+	rows.Close()
+	if s.o.StyleChannels != nil {
+		usage, err := s.o.StyleChannels(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for i := range out {
+			out[i].ChannelIDs = append([]string{}, usage[out[i].ID]...)
+			out[i].ChannelCount = len(out[i].ChannelIDs)
+		}
+	}
+	return out, nil
 }
 func (s *Service) Look(ctx context.Context, id string) (Look, error) {
 	var b string
@@ -153,10 +166,26 @@ func (s *Service) Look(ctx context.Context, id string) (Look, error) {
 	}
 	if e == nil {
 		e = json.Unmarshal([]byte(b), &l)
+		l.emptyCollections()
+	}
+	if e == nil && s.o.StyleChannels != nil {
+		usage, err := s.o.StyleChannels(ctx)
+		if err != nil {
+			return l, err
+		}
+		l.ChannelIDs = append([]string{}, usage[l.ID]...)
+		l.ChannelCount = len(l.ChannelIDs)
 	}
 	return l, e
 }
 func (s *Service) SaveLook(ctx context.Context, l Look) (Look, error) {
+	saved, err := s.saveLook(ctx, l)
+	if err == nil && s.o.Changed != nil {
+		err = s.o.Changed(ctx)
+	}
+	return saved, err
+}
+func (s *Service) saveLook(ctx context.Context, l Look) (Look, error) {
 	if e := s.validateLook(ctx, l); e != nil {
 		return l, e
 	}
@@ -211,6 +240,9 @@ func (s *Service) DeleteLook(ctx context.Context, id string) error {
 		delete(s.lookJobs, id)
 		s.mu.Unlock()
 	}
+	if e == nil && s.o.Changed != nil {
+		e = s.o.Changed(ctx)
+	}
 	return e
 }
 func (s *Service) seed(ctx context.Context) error {
@@ -230,8 +262,9 @@ func (s *Service) seed(ctx context.Context) error {
 	if n == 0 {
 		return tx.Commit()
 	}
-	for _, v := range [][10]string{{"nocturne", "Nocturne", "lateNight", "#060508", "#C8102E", "#EDE6D6", "#8FA3B8", "Playfair Display", "Special Elite", "Late night · lights off"}, {"meridian", "Meridian", "cinema", "#070d1d", "#D8B26E", "#F4EEDF", "#17254a", "Fraunces", "Inter", "A world of cinema"}, {"blorp", "BLORP!", "kids", "#6B2BD9", "#FF7A00", "#ffffff", "#7CE03A", "Bungee", "Fredoka", "Totally gooey TV"}, {"neon", "NEON 84", "retro", "#12002b", "#ff4fd8", "#ffffff", "#22e6ff", "Orbitron", "VT323", "Stay tuned"}, {"personal", "Your TV", "personal", "#100b23", "#9b85ff", "#ffffff", "#ff5ca8", "Space Grotesk", "Inter", "Made for you"}} {
-		l := Look{ID: v[0], Name: v[1], Family: v[2], ChannelIDs: []string{}, Moments: map[string]Moment{}}
+	for _, v := range [][10]string{{"nocturne", "Nocturne", "late-night", "#060508", "#C8102E", "#EDE6D6", "#8FA3B8", "Playfair Display", "Special Elite", "Late night · lights off"}, {"meridian", "Meridian", "cinema", "#070d1d", "#D8B26E", "#F4EEDF", "#17254a", "Fraunces", "Inter", "A world of cinema"}, {"blorp", "BLORP!", "kids", "#6B2BD9", "#FF7A00", "#ffffff", "#7CE03A", "Bungee", "Fredoka", "Totally gooey TV"}, {"neon", "NEON 84", "retro", "#12002b", "#ff4fd8", "#ffffff", "#22e6ff", "Orbitron", "VT323", "Stay tuned"}, {"personal", "Your TV", "personal", "#100b23", "#9b85ff", "#ffffff", "#ff5ca8", "Space Grotesk", "Inter", "Made for you"}, {"riot", "RIOT 90", "grunge", "#141021", "#edff38", "#ffffff", "#ed4c99", "Archivo Black", "Special Elite", "Television with a pulse"}, {"aquawave", "AQUAWAVE 00", "aqua", "#031d37", "#009edb", "#ffffff", "#8cf5ff", "Space Grotesk", "Inter", "Dive into your favourites"}, {"offset", "OFFSET 10", "flat", "#102a35", "#f15440", "#ffffff", "#ffd66e", "Inter", "Inter", "Good stories. Every day."}} {
+		l := familyLook(v[2], v[1])
+		l.ID = v[0]
 		l.Brand.Palette.Background = v[3]
 		l.Brand.Palette.Accent = v[4]
 		l.Brand.Palette.Text = v[5]
@@ -240,13 +273,8 @@ func (s *Service) seed(ctx context.Context) error {
 		l.Brand.Type.Body = v[8]
 		l.Brand.Tagline = v[9]
 		l.Brand.Energy = .5
-		l.Brand.Volume = .6
 		l.Brand.Language = "en"
-		l.Brand.Textures = []string{"Grain"}
-		l.Brand.Words = map[string]string{}
-		for _, m := range strings.Fields("ident tonight upnext break back offair welcome bug lowerthird") {
-			l.Moments[m] = Moment{8, 4}
-		}
+		l.Brand.Textures = []string{"grain"}
 		b, _ := json.Marshal(l)
 		if _, e = tx.ExecContext(ctx, "INSERT INTO onair_looks(id,data,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING", l.ID, string(b), time.Now().Unix()); e != nil {
 			return e

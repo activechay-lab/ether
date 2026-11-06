@@ -76,10 +76,19 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	}
 	args := []string{"-hide_banner", "-loglevel", "warning", "-nostdin", "-threads", "2", "-filter_threads", "1"}
 	args = append(args, inputSafetyArgs(r.InputURL, r.Live)...)
+	// Keep decode off the shared CPU on Apple hosts. Frames return to system
+	// memory for the compositor; unsupported source codecs retain software decode.
+	if m.hw.Name == AccelVideoToolbox {
+		args = append(args, "-hwaccel", "videotoolbox")
+	}
 	if r.Live {
 		args = append(args, "-copyts")
 		if strings.HasSuffix(strings.ToLower(u.Path), ".m3u8") {
-			args = append(args, "-live_start_index", "-1")
+			back := "-1"
+			if r.PrimeLive {
+				back = "-4"
+			}
+			args = append(args, "-live_start_index", back)
 		}
 	}
 	if !r.Live && !r.Seeked && r.Offset > 0 {
@@ -132,8 +141,8 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	d := &continuousDecoder{continuousProcess: p, frames: make(chan RawFrame, capacity), readDone: make(chan struct{}), ptsStop: ptsStop}
 	// Read both sockets independently: muxer scheduling may deliver many audio
 	// blocks before the next picture. Bounded queues propagate prewarm pressure.
-	vq := make(chan []byte)
-	aq := make(chan []byte)
+	vq := make(chan []byte, 8)
+	aq := make(chan []byte, 32)
 	for i, ch := range []chan []byte{vq, aq} {
 		d.workers.Add(1)
 		go func(s *rawSocket, ch chan []byte, video bool) {

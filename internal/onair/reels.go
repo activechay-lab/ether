@@ -7,15 +7,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/core"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/mediaproc"
 )
 
 func (s *Service) Reel(ctx context.Context, id string) (Reel, error) {
@@ -71,7 +72,15 @@ func (s *Service) Reel(ctx context.Context, id string) (Reel, error) {
 		}
 	}
 	r.Clips = sorted
-	return r, nil
+	rows.Close()
+	if s.o.ReelChannels != nil {
+		usage, err := s.o.ReelChannels(ctx)
+		if err != nil {
+			return r, err
+		}
+		r.ChannelIDs = append([]string{}, usage[r.ID]...)
+	}
+	return s.importClips(ctx, r)
 }
 func (s *Service) Reels(ctx context.Context) ([]Reel, error) {
 	rows, e := s.db.QueryContext(ctx, "SELECT id FROM onair_reels ORDER BY id")
@@ -135,6 +144,9 @@ func (s *Service) DeleteReel(ctx context.Context, id string) error {
 		return e
 	}
 	defer tx.Rollback()
+	if _, e = tx.ExecContext(ctx, "DELETE FROM onair_imports WHERE reel_id=?", id); e != nil {
+		return e
+	}
 	if _, e = tx.ExecContext(ctx, "DELETE FROM onair_reel_clips WHERE reel_id=?", id); e != nil {
 		return e
 	}
@@ -167,7 +179,24 @@ func (s *Service) setClip(ctx context.Context, reel string, c ReelClip) error {
 	}
 	return e
 }
-func (s *Service) UploadClip(ctx context.Context, reel, name string, r io.Reader) (ReelClip, error) {
+
+// ClipUploadMetadata preserves provenance when a local file is imported into a reel.
+type ClipUploadMetadata struct {
+	Source      string
+	Attribution string
+}
+
+func (s *Service) UploadClip(ctx context.Context, reel, name string, r io.Reader, metadata ...ClipUploadMetadata) (ReelClip, error) {
+	if len(metadata) > 1 {
+		return ReelClip{}, fmt.Errorf("one clip metadata record is allowed")
+	}
+	var m ClipUploadMetadata
+	if len(metadata) == 1 {
+		m = metadata[0]
+	}
+	return s.uploadClip(ctx, reel, name, m.Source, m.Attribution, r)
+}
+func (s *Service) uploadClip(ctx context.Context, reel, name, source, attribution string, r io.Reader, importID ...string) (ReelClip, error) {
 	if _, e := s.Reel(ctx, reel); e != nil {
 		return ReelClip{}, e
 	}
@@ -192,10 +221,13 @@ func (s *Service) UploadClip(ctx context.Context, reel, name string, r io.Reader
 	if e != nil {
 		return ReelClip{}, e
 	}
-	c := ReelClip{ID: newID(), Name: name, SourceDigest: a.Digest, Status: "converting", Size: n}
+	c := ReelClip{Source: source, Attribution: attribution, ID: newID(), Name: name, SourceDigest: a.Digest, Status: "converting", Size: n}
+	if len(importID) > 0 {
+		c.ID = importID[0]
+	}
 	c.Preview = "/ether/api/onair/reels/" + reel + "/clips/" + c.ID + "/preview"
 	data, _ := json.Marshal(c)
-	_, e = s.db.ExecContext(ctx, "INSERT INTO onair_reel_clips(id,reel_id,name,duration_ms,source_digest,status,created_at,data) VALUES(?,?,?,0,?,'converting',?,?)", c.ID, reel, c.Name, a.Digest, time.Now().UnixNano(), string(data))
+	_, e = s.db.ExecContext(ctx, "INSERT INTO onair_reel_clips(id,reel_id,name,duration_ms,source_digest,status,created_at,data) VALUES(?,?,?,0,?,'converting',?,?) ON CONFLICT(id) DO NOTHING", c.ID, reel, c.Name, a.Digest, time.Now().UnixNano(), string(data))
 	if e != nil {
 		return c, e
 	}
@@ -300,7 +332,7 @@ func (s *Service) convertClip(ctx context.Context, reel string, c ReelClip) (err
 	}
 	args = append(args, "-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1", "-movflags", "+faststart", tmp)
 	args = append(args[:len(args)-1], "-progress", "pipe:1", tmp)
-	cmd := exec.CommandContext(ctx, s.o.FFmpeg(), args...)
+	cmd := mediaproc.CommandContext(ctx, mediaproc.EncodeTimeout, s.o.FFmpeg(), args...)
 	pipe, e := cmd.StdoutPipe()
 	if e != nil {
 		return e
@@ -322,6 +354,14 @@ func (s *Service) convertClip(ctx context.Context, reel string, c ReelClip) (err
 			s.clipProgress(ctx, reel, c)
 			last = time.Now()
 		}
+	}
+	if scan.Err() != nil {
+		_ = pipe.Close()
+		if cmd.Cancel != nil {
+			_ = cmd.Cancel()
+		}
+		_ = cmd.Wait()
+		return scan.Err()
 	}
 	if err = cmd.Wait(); err != nil {
 		return err
@@ -364,7 +404,7 @@ func (s *Service) clipProgress(ctx context.Context, reel string, c ReelClip) err
 // silenceEdges trims only edge silence, preserving video/audio alignment and
 // leaving pauses inside a clip intact.
 func (s *Service) silenceEdges(ctx context.Context, path string, duration time.Duration) (time.Duration, time.Duration, error) {
-	cmd := exec.CommandContext(ctx, s.o.FFmpeg(), "-nostdin", "-hide_banner", "-i", path, "-vn", "-af", "silencedetect=noise=-45dB:d=0.15", "-f", "null", "-")
+	cmd := mediaproc.CommandContext(ctx, mediaproc.EncodeTimeout, s.o.FFmpeg(), "-nostdin", "-hide_banner", "-i", path, "-vn", "-af", "silencedetect=noise=-45dB:d=0.15", "-f", "null", "-")
 	var log bytes.Buffer
 	cmd.Stderr = &log
 	if e := cmd.Run(); e != nil {
@@ -398,6 +438,11 @@ func (s *Service) silenceEdges(ctx context.Context, path string, duration time.D
 }
 
 func (s *Service) DeleteClip(ctx context.Context, reel, id string) error {
+	res, e := s.db.ExecContext(ctx, "DELETE FROM onair_imports WHERE id=? AND reel_id=?", id, reel)
+	if e != nil {
+		return e
+	}
+	removed, _ := res.RowsAffected()
 	r, e := s.Reel(ctx, reel)
 	if e != nil {
 		return e
@@ -413,6 +458,9 @@ func (s *Service) DeleteClip(ctx context.Context, reel, id string) error {
 			}
 			return e
 		}
+	}
+	if removed > 0 {
+		return nil
 	}
 	return ErrNotFound
 }

@@ -9,53 +9,39 @@ import (
 
 // Engine owns one rendition's live Signal state. Construct off the tick path.
 // Render is allocation-free and its output belongs to the caller. Static uses
-// a temporally integrated low-resolution phosphor field; plate styles keep a
-// precomposited I420 plate and animate only cheap luma effects.
+// the owner-approved hard-edged grain directly in the negotiated output frame.
 type Engine struct {
-	width, height int
-	style         string
-	warm          *WarmGenerator
-	source, plate []byte
-	vignette      []uint16
-	rowA, rowB    []uint16
-	xIndex        []int
-	xWeight       []uint16
-	lastRow       int
-	seed          int64
+	width, height    int
+	style            string
+	plate            []byte
+	vignette         []uint16
+	seed             int64
+	staticParameters StaticParameters
 }
 
-// NewStatic supports shimmer, classic and ghost. Source resolution is 320x180,
-// with Gaussian bloom at half that resolution, independent of output size.
-func NewStatic(width, height int, variant string, seed int64) *Engine {
-	if variant != "shimmer" && variant != "classic" && variant != "ghost" {
-		panic("signal: unknown static variant")
-	}
-	e := newEngine(width, height, variant, seed)
-	e.warm = NewWarmGenerator(320, 180, seed, variant)
-	e.source = make([]byte, 320*180*3/2)
-	e.rowA = make([]uint16, width)
-	e.rowB = make([]uint16, width)
-	e.xIndex = make([]int, width)
-	e.xWeight = make([]uint16, width)
-	for x := 0; x < width; x++ {
-		position := float64(x) * 319 / float64(width-1)
-		i := int(position)
-		e.xIndex[x] = min(318, i)
-		e.xWeight[x] = uint16(math.Round((position - float64(e.xIndex[x])) * 256))
-	}
+// NewStatic restores the continuity demo's live, neutral, crisp static.
+func NewStatic(width, height int, seed int64) *Engine {
+	return NewStaticWithParameters(width, height, seed, DefaultStaticParameters())
+}
+
+// NewStaticWithParameters snapshots controls for one engine. Replace the engine
+// off the frame clock when controls change; Render stays allocation-free.
+func NewStaticWithParameters(width, height int, seed int64, p StaticParameters) *Engine {
+	e := newEngine(width, height, "static", seed)
+	e.staticParameters = p
 	return e
 }
 func newEngine(w, h int, style string, seed int64) *Engine {
 	if w < 2 || h < 2 || w%2 != 0 || h%2 != 0 {
 		panic("signal: invalid size")
 	}
-	return &Engine{width: w, height: h, style: style, seed: seed, lastRow: -1}
+	return &Engine{width: w, height: h, style: style, seed: seed}
 }
 
 // NewPlate accepts straight/premultiplied image.Image plates (PNG decoding
 // handles either) and a transparent text overlay. Text is composited only here,
 // so replace the Engine when copy changes rather than rerasterizing per tick.
-// style is bars, testcard, brb, or card; bars/testcard use a -30 dBFS tone.
+// style is bars, testcard, brb, or card. Every style is silent.
 func NewPlate(width, height int, style string, plate, overlay image.Image, seed int64) *Engine {
 	e := newEngine(width, height, style, seed)
 	if plate == nil {
@@ -104,10 +90,9 @@ func (e *Engine) Render(video []byte, pcm []int16, tick int64) {
 	if len(video) < w*h*3/2 || len(pcm) < 3200 {
 		panic("signal: undersized tick buffers")
 	}
-	if e.warm != nil {
-		e.warm.Frame(e.source, tick)
-		e.upscale(video)
-		WarmAudio(pcm, tick, e.seed)
+	if e.style == "static" {
+		StaticVideoWithParameters(video, w, h, e.seed, tick, e.staticParameters)
+		StaticAudioWithParameters(pcm, tick, 1600, e.seed, e.staticParameters)
 		return
 	}
 	copy(video, e.plate)
@@ -127,49 +112,6 @@ func (e *Engine) Render(video []byte, pcm []int16, tick int64) {
 			row[x] = byte(16 + (int(lut[v])-16)*int(e.vignette[y*w+x])/256)
 		}
 	}
-	if e.style == "bars" || e.style == "testcard" {
-		amplitude := 32767 * math.Sqrt2 * math.Pow(10, -30.0/20)
-		for i := 0; i < 1600; i++ {
-			q := int16(math.Sin(2*math.Pi*1000*float64(tick*1600+int64(i))/48000) * amplitude)
-			pcm[i*2] = q
-			pcm[i*2+1] = q
-		}
-	} else {
-		for i := range pcm {
-			pcm[i] = 0
-		}
-	}
-}
-func (e *Engine) upscale(dst []byte) {
-	w, h := e.width, e.height
-	e.lastRow = -1
-	for y := 0; y < h; y++ {
-		position := float64(y) * 179 / float64(h-1)
-		sy := min(178, int(position))
-		weight := int(math.Round((position - float64(sy)) * 256))
-		if sy != e.lastRow {
-			for x := 0; x < w; x++ {
-				sx, wx := e.xIndex[x], int(e.xWeight[x])
-				a := int(e.source[sy*320+sx])*(256-wx) + int(e.source[sy*320+sx+1])*wx
-				b := int(e.source[(sy+1)*320+sx])*(256-wx) + int(e.source[(sy+1)*320+sx+1])*wx
-				e.rowA[x] = uint16(a)
-				e.rowB[x] = uint16(b)
-			}
-			e.lastRow = sy
-		}
-		row := dst[y*w : (y+1)*w]
-		for x := 0; x < w; x++ {
-			row[x] = byte((int(e.rowA[x])*(256-weight) + int(e.rowB[x])*weight + 32768) >> 16)
-		}
-	}
-	// Warm phosphor chroma varies only at the low source resolution.
-	for y := 0; y < h/2; y++ {
-		sy := min(89, y*180/h)
-		for x := 0; x < w/2; x++ {
-			sx := min(159, x*320/w)
-			i := y*(w/2) + x
-			dst[w*h+i] = e.source[320*180+sy*160+sx]
-			dst[w*h+w*h/4+i] = e.source[320*180+320*180/4+sy*160+sx]
-		}
-	}
+	// Every signal screen is silent (owner decision: no bars or test-card tone).
+	clear(pcm)
 }

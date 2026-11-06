@@ -23,17 +23,26 @@ import (
 // ResourceRoutes mounts W6's font and family resource handlers on this router.
 func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 	r := chi.NewRouter()
+	s.StudioRoutes(r)
+	r.Post("/assets/import", s.importHandler(false))
+	r.Post("/reels/{id}/clips/import", s.importHandler(true))
 	r.Get("/fonts/{id}", func(w http.ResponseWriter, r *http.Request) {
 		r.SetPathValue("id", chi.URLParam(r, "id"))
 		ServeFont(w, r)
 	})
-	r.Get("/families", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("documents") == "1" {
-			ServeFamilies(w, r)
+
+	r.Get("/system-screens", ServeSystemScreens)
+	r.Get("/templates", func(w http.ResponseWriter, r *http.Request) { v, e := s.Templates(r.Context()); result(w, v, e) })
+	r.Post("/scenes/validate", func(w http.ResponseWriter, r *http.Request) {
+		var sc StyleScene
+		if !body(w, r, &sc) {
 			return
 		}
-		v, e := s.FamilyRecords(r.Context())
-		result(w, v, e)
+		e := sc.Document.Validate()
+		if e == nil && len(sc.Sounds) > 4 {
+			e = fmt.Errorf("scene %q: use at most four sounds", sc.Name)
+		}
+		result(w, sc, e)
 	})
 	for _, mount := range resources {
 		mount(r)
@@ -114,7 +123,8 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 		v, e := s.o.Bindings(r.Context(), r.URL.Query().Get("channel"), r.URL.Query().Get("viewer"), at)
 		result(w, v, e)
 	})
-	r.Get("/assets", func(w http.ResponseWriter, r *http.Request) { v, e := s.Assets(r.Context()); result(w, v, e) })
+	s.LibraryRoutes(r)
+	r.Get("/assets", func(w http.ResponseWriter, r *http.Request) { v, e := s.Library(r.Context()); result(w, v, e) })
 	r.Post("/assets", func(w http.ResponseWriter, r *http.Request) {
 		if !multipart(w, r, assetLimit) {
 			return
@@ -137,6 +147,7 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 			result(w, nil, ErrNotFound)
 			return
 		}
+		w.Header().Set("ETag", `"`+chi.URLParam(r, "id")+`"`)
 		w.Header().Set("Content-Type", mime)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")

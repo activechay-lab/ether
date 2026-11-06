@@ -1,3 +1,6 @@
+import Library, { LibraryAside } from "./library/Library";
+import { styleCopy } from "./onair/naming";
+import { stylesName } from "./onair/naming";
 import { useLooks, LooksAside, LooksGallery, LookSurfaces } from "./onair/LooksGallery";
 import { SubtabNav } from "../../components/layout";
 import {
@@ -20,9 +23,11 @@ import {
   Tv,
   UserRound,
   Palette,
+  Upload,
   Undo2,
 } from "lucide-react";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLocale } from "../../i18n/react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AddAddonDrawer } from "../../components/addons/AddAddonDrawer";
 import type { AddonSummary } from "../../components/addons/addons";
@@ -44,6 +49,7 @@ import {
 } from "./ChannelStudio";
 import { GuideMatchPanel, GuideSourceList, GuideWorkbench } from "./GuideData";
 import { ChannelBulkBar, type ChannelPatch } from "./ChannelBulkBar";
+import { ChannelDrawerBody } from "./ChannelDrawerBody";
 import { GuideGrid } from "./GuideGrid";
 import { SourcesDashboard } from "./SourcesDashboard";
 import { SourceList, type Selection } from "./Lineup";
@@ -69,6 +75,16 @@ import {
   type Programme,
   type Source,
 } from "./model";
+
+// Stable event props let the guide skip editor-only updates without retaining
+// stale draft/selection closures in bulk actions or navigation.
+function useCurrentCallback<A extends unknown[], R>(callback: (...args: A) => R) {
+  const latest = useRef(callback);
+  useLayoutEffect(() => {
+    latest.current = callback;
+  });
+  return useCallback((...args: A) => latest.current(...args), []);
+}
 
 type Filter = "live" | "favorites" | "virtual" | "iptv" | "missing" | "off" | "all";
 const FILTERS = localized<{ value: Filter; label: string }[]>(() => [
@@ -113,28 +129,32 @@ export default function LiveTV() {
   // The Guide tab's selected guide source; none means All guides.
   const guideSourceId = params.get("gsrc");
   const [leftTab, setLeftTab] = useState(
-    tab === "looks"
-      ? "looks"
-      : tab === "guide-data"
-        ? "guide"
-        : tab === "sources" || selection.kind === "source"
-          ? "sources"
-          : "channels",
+    tab === "library"
+      ? "library"
+      : tab === "looks"
+        ? "looks"
+        : tab === "guide-data"
+          ? "guide"
+          : tab === "sources" || selection.kind === "source"
+            ? "sources"
+            : "channels",
   );
 
   useEffect(() => {
     // The Guide tab has no route of its own: leaving Looks for Guide lands on
     // /livetv, which must keep the Guide tab rather than fall back to Channels.
     setLeftTab((prev) =>
-      tab === "looks"
-        ? "looks"
-        : tab === "guide-data"
-          ? "guide"
-          : tab === "sources"
-            ? "sources"
-            : prev === "guide"
-              ? "guide"
-              : "channels",
+      tab === "library"
+        ? "library"
+        : tab === "looks"
+          ? "looks"
+          : tab === "guide-data"
+            ? "guide"
+            : tab === "sources"
+              ? "sources"
+              : prev === "guide"
+                ? "guide"
+                : "channels",
     );
   }, [tab]);
   useEffect(() => {
@@ -734,66 +754,127 @@ export default function LiveTV() {
     </div>
   ) : null;
 
-  const panelHead = (
-    <PanelHead className="@container flex h-[104px]! flex-col items-stretch! justify-between space-y-0! pt-3! pb-0! border-b! [&>div:last-child]:mb-0">
-      <div className="flex items-center gap-1.5">
-        <div className="relative min-w-0 flex-1">
-          <Search
-            size={13}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
-            aria-hidden
-          />
-          <Input
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.currentTarget.value)}
-            placeholder={
-              leftTab === "looks"
-                ? t("Search looks…")
-                : leftTab === "sources"
-                  ? t("Find a channel, group or source…")
-                  : leftTab === "guide"
-                    ? t("Find a channel or guide…")
-                    : t("Find a channel or group…")
-            }
-            aria-label={leftTab === "looks" ? t("Search looks") : t("Search channels")}
-            className="h-8 pl-7 text-sm"
-          />
-        </div>
-        <ToolbarPicker
-          ariaLabel={t("Show")}
-          value={filter}
-          onChange={setFilter}
-          options={FILTERS.map((f) => ({
-            ...f,
-            hint:
-              f.value === "missing" && missingCount !== null
-                ? tn(missingCount, "{count} channel", "{count} channels")
-                : undefined,
-          }))}
-          menuClassName="w-48"
+  const { locale } = useLocale();
+  const updateParams = useCurrentCallback(setParams);
+  const libraryQuery = params.get("q");
+  const librarySort = params.get("sort");
+  const panelHead = useMemo(
+    () => (
+      <PanelHead className="@container flex h-[104px]! flex-col items-stretch! justify-between space-y-0! pt-3! pb-0! border-b! [&>div:last-child]:mb-0">
+        {
+          <div className="flex items-center gap-1.5">
+            <div className="relative min-w-0 flex-1">
+              <Search
+                size={13}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
+                aria-hidden
+              />
+              <Input
+                type="search"
+                value={leftTab === "library" ? (libraryQuery ?? "") : q}
+                onChange={(e) => {
+                  const value = e.currentTarget.value;
+                  if (leftTab !== "library") setQ(value);
+                  else
+                    updateParams((p) => {
+                      if (value) p.set("q", value);
+                      else p.delete("q");
+                      return p;
+                    });
+                }}
+                placeholder={
+                  leftTab === "library"
+                    ? t("Search Library")
+                    : leftTab === "looks"
+                      ? styleCopy("Search styles…")
+                      : leftTab === "sources"
+                        ? t("Find a channel, group or source…")
+                        : leftTab === "guide"
+                          ? t("Find a channel or guide…")
+                          : t("Find a channel or group…")
+                }
+                aria-label={
+                  leftTab === "library"
+                    ? t("Search Library")
+                    : leftTab === "looks"
+                      ? styleCopy("Search styles")
+                      : t("Search channels")
+                }
+                className="h-8 pl-7 text-sm"
+              />
+            </div>
+            {leftTab === "library" ? (
+              <ToolbarPicker
+                ariaLabel={t("Sort assets")}
+                value={librarySort ?? "newest"}
+                onChange={(value) =>
+                  updateParams((p) => {
+                    if (value === "newest") p.delete("sort");
+                    else p.set("sort", value);
+                    return p;
+                  })
+                }
+                options={[
+                  { value: "newest", label: t("Newest") },
+                  { value: "name", label: t("Name") },
+                  { value: "size", label: t("Size") },
+                  { value: "used", label: t("Most used") },
+                ]}
+                menuClassName="w-48"
+              />
+            ) : leftTab === "looks" ? null : (
+              <ToolbarPicker
+                ariaLabel={t("Show")}
+                value={filter}
+                onChange={setFilter}
+                options={FILTERS.map((f) => ({
+                  ...f,
+                  hint:
+                    f.value === "missing" && missingCount !== null
+                      ? tn(missingCount, "{count} channel", "{count} channels")
+                      : undefined,
+                }))}
+                menuClassName="w-48"
+              />
+            )}
+          </div>
+        }
+        <SubtabNav
+          ariaLabel={t("Lineup")}
+          className="justify-start"
+          active={leftTab}
+          onSelect={(next) => {
+            setLeftTab(next);
+            if (next === "library") navigate("/livetv/library");
+            else if (next === "looks") navigate("/livetv/looks");
+            else if (tab === "looks" || tab === "library")
+              navigate(next === "sources" ? "/livetv/sources" : "/livetv");
+          }}
+          tabs={[
+            { key: "channels", label: t("Channels") },
+            {
+              key: "sources",
+              label: t("Sources"),
+            },
+            { key: "guide", label: t("Guide") },
+            { key: "looks", label: stylesName() },
+            { key: "library", label: t("Library") },
+          ]}
         />
-      </div>
-      <SubtabNav
-        ariaLabel={t("Lineup")}
-        className="grid grid-cols-4 gap-0 overflow-visible [&>button]:min-w-0 [&>button]:justify-center [&>button]:px-0.5 [&>button]:text-xs @min-[280px]:[&>button]:text-sm [&>button>span]:block [&>button>span]:min-w-0 [&>button>span]:break-words"
-        active={leftTab}
-        onSelect={(next) => {
-          setLeftTab(next);
-          if (next === "looks") navigate("/livetv/looks");
-          else if (tab === "looks") navigate(next === "sources" ? "/livetv/sources" : "/livetv");
-        }}
-        tabs={[
-          { key: "channels", label: t("Channels") },
-          {
-            key: "sources",
-            label: t("Sources"),
-          },
-          { key: "guide", label: t("Guide") },
-          { key: "looks", label: t("Looks") },
-        ]}
-      />
-    </PanelHead>
+      </PanelHead>
+    ),
+    [
+      locale,
+      leftTab,
+      q,
+      filter,
+      missingCount,
+      libraryQuery,
+      librarySort,
+      tab,
+      navigate,
+      updateParams,
+    ],
   );
   const lineupEmpty = channels?.length ? (
     <p className="text-xs text-fg-muted">{t("No channels match.")}</p>
@@ -811,7 +892,9 @@ export default function LiveTV() {
     <>
       {panelHead}
       <div className="app-scroll min-h-0 flex-1 lg:overflow-y-auto">
-        {leftTab === "looks" ? (
+        {leftTab === "library" ? (
+          <LibraryAside />
+        ) : leftTab === "looks" ? (
           <LooksAside
             looks={looks}
             reels={reels}
@@ -946,9 +1029,14 @@ export default function LiveTV() {
   const guideSource = guideSourceId ? sources.find((x) => x.id === guideSourceId) : undefined;
   const mainClassName = "";
   const main =
-    leftTab === "looks" ? (
+    leftTab === "library" ? (
+      <div className="p-4 sm:p-6">
+        <Library />
+      </div>
+    ) : leftTab === "looks" ? (
       <LooksGallery
         looks={looks}
+        query={q}
         onNew={() => setParams(new URLSearchParams({ look: "new" }))}
         onSelect={(id) => setParams(new URLSearchParams({ look: id }))}
       />
@@ -981,55 +1069,92 @@ export default function LiveTV() {
   // channel is listed once and its programmes stay level with it.
   // Keep the full guide mounted at the same width behind the channel drawer.
   // Resizing it on selection would move the virtual rows and horizontal scroll.
-  const lineupGuide = (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <GuideGrid
-        selection={{
-          ids: checked,
-          busy: bulkBusy,
-          all: filtered.length > 0 && checked.size === filtered.length,
-          toggle: toggleChecked,
-          toggleAll: checked.size === filtered.length ? clearChannels : selectAllChannels,
-        }}
-        bulkActions={
-          checked.size ? (
-            <ChannelBulkBar
-              count={checked.size}
-              total={filtered.length}
-              busy={bulkBusy}
-              groups={channelGroups}
-              onAll={selectAllChannels}
-              onClear={clearChannels}
-              onApply={applyChannels}
-            />
-          ) : undefined
-        }
-        channels={indexedChannels}
-        onRange={handleRange}
-        guide={guide}
-        from={from}
-        until={until}
-        now={now}
-        selected={selection.kind === "channel" ? selection.id : null}
-        onSelect={selectChannel}
-        onShift={(h) => setShift((s) => s + h)}
-        onNow={() => {
-          setShift(0);
-          setNow(Date.now());
-        }}
-        loading={guideLoading}
-        head={panelHead}
-        covered={covered}
-        onToggleFavorite={toggleFavorite}
-        emptyHint={
-          channels === null ? (
-            <p className="text-xs text-fg-muted">{t("Loading channels…")}</p>
-          ) : (
-            lineupEmpty
-          )
-        }
-      />
-    </div>
+  const toggleSelection = useCurrentCallback(toggleChecked);
+  const selectMatches = useCurrentCallback(selectAllChannels);
+  const clearSelection = useCurrentCallback(clearChannels);
+  const applySelection = useCurrentCallback(applyChannels);
+  const shiftGuide = useCallback((h: number) => setShift((s) => s + h), []);
+  const jumpGuide = useCallback(() => {
+    setShift(0);
+    setNow(Date.now());
+  }, []);
+  const selectedID = selection.kind === "channel" ? selection.id : null;
+  const channelsLoading = channels === null;
+  const lineupGuide = useMemo(
+    () => (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <GuideGrid
+          selection={{
+            ids: checked,
+            busy: bulkBusy,
+            all: filtered.length > 0 && checked.size === filtered.length,
+            toggle: toggleSelection,
+            toggleAll: checked.size === filtered.length ? clearSelection : selectMatches,
+          }}
+          bulkActions={
+            checked.size ? (
+              <ChannelBulkBar
+                count={checked.size}
+                total={filtered.length}
+                busy={bulkBusy}
+                groups={channelGroups}
+                onAll={selectMatches}
+                onClear={clearSelection}
+                onApply={applySelection}
+              />
+            ) : undefined
+          }
+          channels={indexedChannels}
+          onRange={handleRange}
+          guide={guide}
+          from={from}
+          until={until}
+          now={now}
+          selected={selectedID}
+          onSelect={selectChannel}
+          onShift={shiftGuide}
+          onNow={jumpGuide}
+          loading={guideLoading}
+          head={panelHead}
+          covered={covered}
+          onToggleFavorite={toggleFavorite}
+          emptyHint={
+            channelsLoading ? (
+              <p className="text-xs text-fg-muted">{t("Loading channels…")}</p>
+            ) : (
+              lineupEmpty
+            )
+          }
+        />
+      </div>
+    ),
+    [
+      locale,
+      checked,
+      bulkBusy,
+      filtered,
+      channelGroups,
+      indexedChannels,
+      handleRange,
+      guide,
+      from,
+      until,
+      now,
+      selectedID,
+      selectChannel,
+      guideLoading,
+      panelHead,
+      covered,
+      toggleFavorite,
+      channelsLoading,
+      channels?.length,
+      toggleSelection,
+      selectMatches,
+      clearSelection,
+      applySelection,
+      shiftGuide,
+      jumpGuide,
+    ],
   );
 
   const channelTitle =
@@ -1080,9 +1205,7 @@ export default function LiveTV() {
         aside={aside}
         main={main}
       >
-        {leftTab === "looks"
-          ? undefined
-          : (state ?? (leftTab === "channels" ? lineupGuide : undefined))}
+        {state ?? (leftTab === "channels" ? lineupGuide : undefined)}
       </Workspace>
       <Drawer
         open={guideOpen}
@@ -1143,7 +1266,8 @@ export default function LiveTV() {
             ? t("Stream, guide and who can watch.")
             : t("What plays, when it plays, and what happens when it runs out.")
         }
-        size="lg"
+        size="xl"
+        panelClassName="contain-layout contain-paint will-change-transform"
         footer={
           editing ? (
             <div className="flex w-full flex-wrap items-center gap-2">
@@ -1177,42 +1301,44 @@ export default function LiveTV() {
           ) : null
         }
       >
-        {selection.kind === "new" && !draft ? (
-          <TemplateGallery onPick={(k) => void startNew(k)} />
-        ) : draft ? (
-          <ChannelStudio
-            draft={draft}
-            onChange={setDraft}
-            isNew={selection.kind === "new"}
-            dirty={dirty}
-            guide={(draft.channel.id && guide.get(draft.channel.id)) || []}
-            coverage={
-              draft.channel.id
-                ? { channelId: draft.channel.id, programmes: covered(draft.channel) ? 1 : 0 }
-                : undefined
-            }
-            sources={sources}
-            users={users}
-            policies={policies}
-            collections={collections}
-            now={now}
-            onDelete={() => void deleteChannel()}
-            onMapGuide={async (c) => {
-              await quickSave(
-                c,
-                t("{name} now takes listings from {guide}", {
-                  name: c.name,
-                  guide: c.guideId ?? "",
-                }),
-              );
-              setCoverageNonce((n) => n + 1);
-            }}
-          />
-        ) : (
-          <p className="text-sm text-fg-muted">
-            {missingChannel ? t("That channel no longer exists.") : t("Loading…")}
-          </p>
-        )}
+        <ChannelDrawerBody>
+          {selection.kind === "new" && !draft ? (
+            <TemplateGallery onPick={(k) => void startNew(k)} />
+          ) : draft ? (
+            <ChannelStudio
+              draft={draft}
+              onChange={setDraft}
+              isNew={selection.kind === "new"}
+              dirty={dirty}
+              guide={(draft.channel.id && guide.get(draft.channel.id)) || []}
+              coverage={
+                draft.channel.id
+                  ? { channelId: draft.channel.id, programmes: covered(draft.channel) ? 1 : 0 }
+                  : undefined
+              }
+              sources={sources}
+              users={users}
+              policies={policies}
+              collections={collections}
+              now={now}
+              onDelete={() => void deleteChannel()}
+              onMapGuide={async (c) => {
+                await quickSave(
+                  c,
+                  t("{name} now takes listings from {guide}", {
+                    name: c.name,
+                    guide: c.guideId ?? "",
+                  }),
+                );
+                setCoverageNonce((n) => n + 1);
+              }}
+            />
+          ) : (
+            <p className="text-sm text-fg-muted">
+              {missingChannel ? t("That channel no longer exists.") : t("Loading…")}
+            </p>
+          )}
+        </ChannelDrawerBody>
       </Drawer>
       <Drawer
         open={sourceOpen}
@@ -1388,8 +1514,11 @@ function AddMenu({
               t("A channel made for each viewer"),
               onPersonal,
             )}
-            {item(Palette, t("Look"), t("Design your channel’s on-air graphics"), () =>
+            {item(Palette, styleCopy("Style"), t("Design your channel’s on-air graphics"), () =>
               navigate("/livetv/looks?look=new"),
+            )}
+            {item(Upload, t("Upload to library"), t("Bumpers, stings, logos and fonts"), () =>
+              navigate("/livetv/library?upload=1"),
             )}
             {item(ListVideo, t("Break reel"), t("Clips to play between programmes"), () =>
               navigate("/livetv/looks?reel=new"),

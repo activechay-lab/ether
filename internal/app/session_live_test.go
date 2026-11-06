@@ -840,6 +840,6 @@ func TestSiloLiveTVSequenceIPTVVirtualAndReplan(t *testing.T) {
 func (t *liveTestTranscoder) StartEncoder(_ context.Context, r transcode.EncoderRequest) (transcode.ContinuousEncoder, error) {
 	return &livetvtest.Encoder{Index: livetvtest.Index{Payload: "virtual-ts-segment-", Height: r.Decision.MaxHeight}}, nil
 }
-func (t *liveTestTranscoder) StartDecoder(context.Context, transcode.DecoderRequest) (transcode.Decoder, error) {
-	return &livetvtest.Decoder{}, nil
+func (t *liveTestTranscoder) StartDecoder(_ context.Context, r transcode.DecoderRequest) (transcode.Decoder, error) {
+	return &livetvtest.Decoder{Format: r.Format}, nil
 }

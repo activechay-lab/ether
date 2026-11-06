@@ -6,16 +6,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 var _ ContinuousRunner = (*Manager)(nil)
 
 type continuousEncoder struct {
+	speed atomic.Uint64
 	*continuousProcess
 	req     EncoderRequest
 	dir     string
@@ -88,55 +91,94 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 	}
 	enc := &continuousEncoder{req: r, dir: dir, frames: make(chan RawFrame, 8), writeMu: make(chan struct{}, 1), stream: newContinuousFanout()}
 	args := m.continuousEncodeArgs(r, sockets, dir)
-	p, e := m.startContinuous(ctx, args, dir, false, sockets, enc.stream, func() { release(); enc.stream.close(); _ = removeAllRetry(dir) })
+	p, e := m.startContinuous(ctx, args, dir, false, sockets, enc.stream, func() { release(); enc.stream.close(); _ = removeAllRetry(dir) }, func(line string) {
+		if value, ok := strings.CutPrefix(line, "speed="); ok {
+			if speed, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(value), "x"), 64); err == nil && speed > 0 {
+				enc.speed.Store(math.Float64bits(speed))
+			}
+		}
+	})
 	if e != nil {
 		return nil, e
 	}
 	enc.continuousProcess = p
 	enc.index = newContinuousSegmentIndex(enc)
 	go enc.index.watch()
-	// Separate writers are essential: ffmpeg probes inputs serially, and later
-	// demuxes audio/video independently. A single socket pump can deadlock.
-	video := make(chan []byte, 8)
+	// Each stream drains independently; probing or mux scheduling cannot deadlock
+	// the other input. Sparse pictures carry output-clock timestamps, PCM is complete.
+	type picture struct {
+		video []byte
+		tick  int64
+	}
+	video := make(chan picture, 8)
 	audio := make(chan []byte, 8)
-	for i, ch := range []chan []byte{video, audio} {
-		enc.workers.Add(1)
-		go func(s *rawSocket, ch chan []byte) {
-			defer enc.workers.Done()
-			c, e := s.accept()
-			if e != nil {
+	enc.workers.Add(2)
+	go func() {
+		defer enc.workers.Done()
+		c, err := sockets[0].accept()
+		if err != nil {
+			return
+		}
+		if _, err = c.Write(rawVideoHeader(r.Source)); err != nil {
+			p.cancel()
+			return
+		}
+		for {
+			select {
+			case <-p.ctx.Done():
 				return
-			}
-			for {
-				select {
-				case <-p.ctx.Done():
+			case frame, ok := <-video:
+				if !ok {
 					return
-				case b, ok := <-ch:
-					if !ok {
-						return
-					}
-					if _, e := io.Copy(c, bytes.NewReader(b)); e != nil {
-						p.cancel()
-						return
-					}
+				}
+				if err = writeRawVideo(c, frame.video, frame.tick, r.Source); err != nil {
+					p.cancel()
+					return
 				}
 			}
-		}(sockets[i], ch)
-	}
+		}
+	}()
+	go func() {
+		defer enc.workers.Done()
+		c, err := sockets[1].accept()
+		if err != nil {
+			return
+		}
+		for {
+			select {
+			case <-p.ctx.Done():
+				return
+			case pcm, ok := <-audio:
+				if !ok {
+					return
+				}
+				if _, err = io.Copy(c, bytes.NewReader(pcm)); err != nil {
+					p.cancel()
+					return
+				}
+			}
+		}
+	}()
 	enc.workers.Add(1)
 	go func() {
 		defer enc.workers.Done()
 		defer close(video)
 		defer close(audio)
+		var tick int64
 		for {
 			select {
 			case <-p.ctx.Done():
 				return
 			case f := <-enc.frames:
 				vch, ach := video, audio
+				// Ten input pictures/s under pressure; fps repeats after scale/format.
+				// Still send a timestamp at least every three ticks so mux progress continues.
+				if f.RepeatVideo && tick%3 != 0 {
+					vch = nil
+				}
 				for vch != nil || ach != nil {
 					select {
-					case vch <- f.Video:
+					case vch <- picture{f.Video, tick}:
 						vch = nil
 					case ach <- f.PCM:
 						ach = nil
@@ -144,6 +186,7 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 						return
 					}
 				}
+				tick++
 			}
 		}
 	}()
@@ -154,11 +197,11 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir string) []string {
 	f := r.Source
 	rate := fmt.Sprintf("%d/%d", f.FPSNum, f.FPSDen)
-	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-filter_threads", "1"}
+	args := []string{"-hide_banner", "-loglevel", "warning", "-stats_period", "1", "-progress", "pipe:2", "-nostdin", "-y", "-filter_threads", "1"}
 	for i := range 2 {
 		args = append(args, "-thread_queue_size", "8", "-probesize", "32", "-analyzeduration", "0")
 		if i == 0 {
-			args = append(args, "-f", "rawvideo", "-pixel_format", "yuv420p", "-video_size", fmt.Sprintf("%dx%d", f.Width, f.Height), "-framerate", rate)
+			args = append(args, "-f", "matroska")
 		} else {
 			args = append(args, "-f", "s16le", "-ar", "48000", "-ac", "2")
 		}
@@ -170,7 +213,11 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 	}
 	enc, _ := videoEncoder(codec, m.hw, m.feat)
 	w, h := outputSize(f.Width, f.Height, r.Decision.MaxHeight)
-	vf := fmt.Sprintf("scale=%d:%d,setsar=1", w, h)
+	vf := fmt.Sprintf("scale=%d:%d,setsar=1,format=yuv420p", w, h)
+	if strings.HasSuffix(enc, "_videotoolbox") || strings.HasSuffix(enc, "_qsv") {
+		vf = fmt.Sprintf("scale=%d:%d,setsar=1,format=nv12", w, h)
+	}
+	vf += ",fps=" + rate
 	if strings.HasSuffix(enc, "_vaapi") {
 		args = append(args, "-vaapi_device", m.hw.Device)
 		vf += ",format=nv12,hwupload"
@@ -188,15 +235,18 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 	spec.Rate = rateControl{TargetKbps: budget * 9 / 10, MaxrateKbps: budget * 9 / 10, BufsizeKbps: budget / 10}
 
 	args = append(args, planEncodeArgs(spec, picturePlan{w: w, h: h, outRange: rangeSDR}, enc, codec, false)...)
+	if strings.HasSuffix(enc, "_videotoolbox") {
+		args = append(args, "-realtime", "1")
+	}
 	if enc == "libx264" {
-		args = append(args, "-x264-params", "vbv-init=0.1:rc-lookahead=20:sync-lookahead=0:aq-mode=3:psy-rd=1.0,0.15")
+		args = append(args, "-x264-params", "vbv-init=0.1:rc-lookahead=20:sync-lookahead=0:aq-mode=2:aq-strength=0.8:psy-rd=1.0,0.15")
 	}
 	g := int((int64(r.SegmentDuration)*int64(f.FPSNum) + int64(time.Second*time.Duration(f.FPSDen))/2) / int64(time.Second*time.Duration(f.FPSDen)))
 	pix := "yuv420p"
 	if strings.HasSuffix(enc, "_vaapi") {
 		pix = "vaapi"
 	}
-	if strings.HasSuffix(enc, "_qsv") {
+	if strings.HasSuffix(enc, "_qsv") || strings.HasSuffix(enc, "_videotoolbox") {
 		pix = "nv12"
 	}
 	args = append(args, "-pix_fmt", pix, "-bf", "0", "-g", strconv.Itoa(g), "-keyint_min", strconv.Itoa(g/4), "-sc_threshold", "0", "-force_key_frames", fmt.Sprintf("expr:if(lt(n,%d),eq(n,0)+eq(n,%d)+eq(n,%d),gte(n,(n_forced-2)*%d))", g, g/4, g/2, g), "-flags", "+global_header+cgop", "-c:a", "aac", "-b:a", fmt.Sprintf("%dk", max(r.Decision.AudioBitrateKbps, 128)), "-ar", "48000", "-ac", "2")
@@ -210,38 +260,56 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 	return append(args, "-f", "tee", strings.Join(outputs, "|"))
 }
 func (e *continuousEncoder) Write(ctx context.Context, f RawFrame) error {
-	timer := time.NewTimer(frameDuration(e.req.Source))
-	defer timer.Stop()
+	f.Video = append([]byte(nil), f.Video...)
+	f.PCM = append([]byte(nil), f.PCM...)
+	return e.WriteShared(ctx, f)
+}
+
+// WriteShared transfers immutable buffers to the encoder. The continuous
+// switcher owns each completed picture/PCM tick and never mutates it again.
+// A scheduling dip blocks this consumer, never the independent output clock.
+func (e *continuousEncoder) WriteShared(ctx context.Context, f RawFrame) error {
 	select {
 	case e.writeMu <- struct{}{}:
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-e.ctx.Done():
 		return e.writeError()
-	case <-timer.C:
-		return ErrEncoderBehind
 	}
 	defer func() { <-e.writeMu }()
 	if len(f.Video) != e.req.Source.Width*e.req.Source.Height*3/2 || len(f.PCM) != tickPCM(e.req.Source, e.tick) {
 		return errors.New("transcode: raw tick size mismatch")
 	}
-	copyFrame := RawFrame{Video: append([]byte(nil), f.Video...), PCM: append([]byte(nil), f.PCM...)}
+	e.index.recordPolicy(e.tick, f.PolicyTags)
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-e.ctx.Done():
 		return e.writeError()
-	case <-timer.C:
-		return ErrEncoderBehind
-	case e.frames <- copyFrame:
+	case e.frames <- f:
 		if e.tick == 0 {
-			e.index.setStart(time.Now())
+			at := f.OutputTime
+			if at.IsZero() {
+				at = time.Now()
+			}
+			e.index.setStart(at)
 		}
 		e.tick++
 		return nil
 	}
 }
 func (e *continuousEncoder) Segments() SegmentIndex { return e.index }
+func (e *continuousEncoder) RealtimeSpeed() float64 { return math.Float64frombits(e.speed.Load()) }
+func (e *continuousEncoder) Diagnostics() string {
+	progress := map[string]string{}
+	for line := range strings.SplitSeq(e.stderr.String(), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if ok {
+			progress[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		}
+	}
+	return fmt.Sprintf("queued=%d frame=%s fps=%s speed=%s outTimeUS=%s", len(e.frames), progress["frame"], progress["fps"], progress["speed"], progress["out_time_us"])
+}
 func (e *continuousEncoder) Close() error {
 	e.continuousProcess.close()
 	e.workers.Wait()

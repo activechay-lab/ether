@@ -17,7 +17,24 @@ import (
 )
 
 func (a *App) buildOnAir() error {
-	o := onair.Options{DB: a.db, Dir: filepath.Join(a.opts.DataDir, "cache", "onair"), Logger: a.log.With("component", "onair"), Bindings: a.onairBindings}
+	o := onair.Options{Changed: func(ctx context.Context) error {
+		if a.livetv != nil {
+			return a.livetv.RefreshGuide(ctx)
+		}
+		return nil
+	}, DB: a.db, Dir: filepath.Join(a.opts.DataDir, "cache", "onair"), Logger: a.log.With("component", "onair"), Bindings: a.onairBindings}
+	o.StyleChannels = func(ctx context.Context) (map[string][]string, error) {
+		if a.livetv == nil {
+			return map[string][]string{}, nil
+		}
+		return a.livetv.StyleChannelIDs(ctx)
+	}
+	o.ReelChannels = func(ctx context.Context) (map[string][]string, error) {
+		if a.livetv == nil {
+			return map[string][]string{}, nil
+		}
+		return a.livetv.ReelChannelIDs(ctx)
+	}
 	a.pluginContent = onair.NewPluginContentCache()
 	o.PluginSegment = a.pluginContent.Lookup
 	chat := llm.NewClient(llm.ClientOptions{Config: a.cfg.Read().LLM, Logger: a.log.With("component", "onair-llm")})
@@ -37,7 +54,11 @@ func (a *App) buildOnAir() error {
 	}
 	if a.transcoder != nil {
 		o.Acquire = func(ctx context.Context) (context.Context, func(), error) {
-			return a.transcoder.AcquireTranscodeSlot(ctx, transcode.SlotBackground)
+			priority := transcode.SlotBackground
+			if deadline, imminent := onair.BoundaryDeadline(ctx); imminent && deadline.After(time.Now()) {
+				priority = transcode.SlotLivePrep
+			}
+			return a.transcoder.AcquireTranscodeSlot(ctx, priority)
 		}
 		o.FFmpeg = a.transcoder.FFmpegPath
 		o.Probe = a.transcoder.Probe
@@ -104,7 +125,7 @@ func (a *App) onairBindings(ctx context.Context, channel, viewer string, at time
 		greeting = "Good afternoon"
 	}
 	out["viewer"] = map[string]string{"name": name, "greeting": greeting}
-	out["channel"] = map[string]string{"name": c.Name}
+	out["channel"] = map[string]string{"name": c.Name, "logo": c.Logo}
 	ps, e := a.livetv.GuideForChannels(ctx, u, at, at.Add(24*time.Hour), []string{channel})
 	if e != nil {
 		return nil, e

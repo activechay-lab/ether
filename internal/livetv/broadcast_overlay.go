@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 	"image/color"
+	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -16,14 +17,19 @@ type overlaySource interface {
 	Overlay(context.Context, core.ClipRequest) (scene.Document, raster.Bindings, bool)
 }
 type videoOverlay struct {
-	rect            image.Rectangle
-	y, a, u, v, uvA []byte
+	fadeBreaks, fadeCredits bool
+	rect                    image.Rectangle
+	y, a, u, v, uvA         []byte
 }
-type programmeOverlays struct{ bug, lower *videoOverlay }
+type programmeOverlays struct {
+	bug, lower              *videoOverlay
+	fadeBreaks, fadeCredits bool
+	credits                 []core.Chapter
+}
 
 // prepareProgrammeOverlays resolves assets and rasterizes once in the decoder's
 // background prepare. The clock only blends the compact non-transparent bounds.
-func (p *scheduleBroadcastPlanner) prepareProgrammeOverlays(ctx context.Context, programme Programme) *programmeOverlays {
+func (p *scheduleBroadcastPlanner) prepareProgrammeOverlays(ctx context.Context, programme Programme, chapters []core.Chapter) *programmeOverlays {
 	c := p.channel
 	if c.Look == nil || programme.Item.Key == 0 {
 		return nil
@@ -38,9 +44,16 @@ func (p *scheduleBroadcastPlanner) prepareProgrammeOverlays(ctx context.Context,
 		return existing
 	}
 	out := &programmeOverlays{}
+	for _, c := range chapters {
+		if strings.Contains(strings.ToLower(c.Title), "credit") {
+			out.credits = append(out.credits, c)
+		}
+	}
 	for _, moment := range []string{"bug", "lowerthird"} {
 		if moment == "bug" && p.overlayBug != nil {
 			out.bug = p.overlayBug
+			out.fadeBreaks = p.overlayBug.fadeBreaks
+			out.fadeCredits = p.overlayBug.fadeCredits
 			continue
 		}
 		request := p.s.clipRequest(c, Programme{ChannelID: c.ID, Start: programme.Start, End: programme.End, Item: Item{Slate: moment}})
@@ -51,10 +64,18 @@ func (p *scheduleBroadcastPlanner) prepareProgrammeOverlays(ctx context.Context,
 		if !ok {
 			continue
 		}
+		if moment == "bug" {
+			out.fadeBreaks, _ = bindings.Tokens["bug.fadeBreaks"].(bool)
+			out.fadeCredits, _ = bindings.Tokens["bug.fadeCredits"].(bool)
+		}
 		img := raster.Render(doc, bindings, doc.Poster, p.format.Width, p.format.Height)
 		overlay := compactOverlay(img, p.format)
 		if moment == "bug" {
 			out.bug = overlay
+			if overlay != nil {
+				overlay.fadeBreaks = out.fadeBreaks
+				overlay.fadeCredits = out.fadeCredits
+			}
 			p.overlayBug = overlay
 		} else {
 			out.lower = overlay
@@ -169,6 +190,7 @@ func overlayFade(age, span time.Duration) byte {
 	if tail := span - age; tail < 500*time.Millisecond {
 		fade = min(fade, float64(tail)/float64(500*time.Millisecond))
 	}
+	fade = fade * fade * (3 - 2*fade)
 	return byte(255 * fade)
 }
 func (o *programmeOverlays) blend(video []byte, f transcode.RawFormat, now, start, end time.Time) {
@@ -176,7 +198,26 @@ func (o *programmeOverlays) blend(video []byte, f transcode.RawFormat, now, star
 		return
 	}
 	age := now.Sub(start)
-	o.bug.blend(video, f, overlayFade(age, end.Sub(start)))
+	bugFade := byte(255)
+	if o.fadeBreaks {
+		bugFade = overlayFade(age, end.Sub(start))
+	}
+	if o.fadeCredits {
+		for _, cue := range o.credits {
+			tail := cue.End
+			if tail <= cue.Start {
+				tail = end.Sub(start)
+			}
+			if age >= cue.Start && age < tail {
+				bugFade = 0
+			} else if age < cue.Start && cue.Start-age < time.Second {
+				bugFade = min(bugFade, overlayFade(cue.Start-age, 2*time.Second))
+			} else if age >= tail && age-tail < time.Second {
+				bugFade = min(bugFade, overlayFade(age-tail, 2*time.Second))
+			}
+		}
+	}
+	o.bug.blend(video, f, bugFade)
 	lowerAge := age
 	half := end.Sub(start) / 2
 	if age >= half {
@@ -186,6 +227,7 @@ func (o *programmeOverlays) blend(video []byte, f transcode.RawFormat, now, star
 }
 
 type overlayDecoder struct {
+	policy    *broadcastPolicyTag
 	wallStart time.Time
 	format    transcode.RawFormat
 	transcode.Decoder

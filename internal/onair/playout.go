@@ -18,7 +18,37 @@ func (s *Service) Overlay(ctx context.Context, r core.ClipRequest) (scene.Docume
 	if e := s.loadAssets(ctx, &j); e != nil {
 		return scene.Document{}, raster.Bindings{}, false
 	}
+	if r.Moment == "bug" {
+		s.mu.Lock()
+		look := s.looks[r.LookID]
+		s.mu.Unlock()
+		logo := r.Art["channel.logo"]
+		if logo == "" {
+			logo = look.Brand.Logo
+		}
+		if j.Bind.Assets[logo] == nil {
+			logo = ""
+		}
+		b := core.ResolveBug(look.Bug, r.Bug)
+		if logo != "" && b.Style == "monochrome" {
+			j.Bind.Assets[logo] = raster.Silhouette(j.Bind.Assets[logo])
+		}
+		configureBug(&j.Doc, b, logo)
+		j.Bind.Tokens["bug.fadeBreaks"] = *b.FadeBreaks
+		j.Bind.Tokens["bug.fadeCredits"] = *b.FadeCredits
+	}
 	return j.Doc, j.Bind, true
+}
+
+// LiveStatic reports readiness without requiring a rendered clip for a scene
+// whose analogue background is supplied continuously by the Signal engine.
+func (s *Service) LiveStatic(ctx context.Context, r core.ClipRequest) bool {
+	j, ok := s.plan(r)
+	if !ok {
+		return false
+	}
+	_, live := j.Doc.StaticForeground()
+	return live
 }
 
 // ReelSnapshot reads the durable owner clip ordering and conversion states.
