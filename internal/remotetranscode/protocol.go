@@ -28,6 +28,7 @@ var ErrUncertain = errors.New("remotetranscode: execution responsibility require
 type Capabilities struct {
 	HLS, SegmentSeek, DASH, HTTP, Probe, SourceSwap, Subtitles, ABR, SoftSubtitles, Controls, Observations, Keyframes bool
 	// RecoveryStart negotiates instruction transport only, never successful recovery.
+	CopyTimeline  bool `json:",omitempty"`
 	AuthoredRamp  bool `json:",omitempty"`
 	RecoveryStart bool `json:",omitempty"`
 }
@@ -197,12 +198,15 @@ func SupportsRequest(r core.HLSRequest, c Capabilities) bool {
 	if !transcode.ValidDistributedRamp(r) {
 		return false
 	}
-	if r.Resume != nil && (r.Resume.FirstSegment < 0 || r.Resume.FirstSegment > 10000000 || r.Resume.Generation == 0 || r.StartOffset != 0 || r.RecoveryStart != nil || r.Decision.VideoCopy || r.LiveInput || r.Protocol != core.ProtocolHLS && r.Protocol != "") {
+	if r.Resume != nil && (r.Resume.FirstSegment < 0 || r.Resume.FirstSegment > 10000000 || r.Resume.Generation == 0 || r.StartOffset != 0 || r.RecoveryStart != nil || (r.Decision.VideoCopy && !transcode.ValidCopyTimeline(r)) || r.LiveInput || r.Protocol != core.ProtocolHLS && r.Protocol != "") {
 		return false
 	}
 	var err error
 	c, err = NormalizeCapabilities(c)
 	if err != nil {
+		return false
+	}
+	if r.Info.CopyTimeline != nil && r.Decision.VideoCopy && (!c.CopyTimeline || !transcode.ValidCopyTimeline(r)) {
 		return false
 	}
 	if r.Ramp.Version != 0 && !c.AuthoredRamp {

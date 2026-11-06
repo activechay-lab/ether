@@ -10,6 +10,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
+	"github.com/braedonsaunders/ether/internal/transcode"
 	"log/slog"
 	"net/http"
 	"time"
@@ -77,8 +78,12 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		return nil, ErrDenied
 	}
 	q = cloneAdmissionRequest(q)
+	q = transcode.AuthorCopyTimeline(q)
 	if r.o.AuthorRamp != nil {
 		q = r.o.AuthorRamp(q)
+	}
+	if q.Decision.VideoCopy && q.Info.CopyTimeline != nil && (prepared.Info.CopyTimeline == nil || *prepared.Info.CopyTimeline != *q.Info.CopyTimeline) {
+		return nil, ErrDenied
 	}
 	playID, revision := prepared.PlayID, prepared.Revision
 	if r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil || r.o.Eligible(ctx, prepared.Owner, config.RoleSource) != nil {
@@ -645,7 +650,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			result = ErrPending
 			continue
 		}
-		if x.output != nil && x.initial != nil && x.initial.request.Decision.Kind == core.DecisionTranscode && !x.initial.request.Decision.VideoCopy {
+		if x.output != nil && x.initial != nil && encoderRecoverySupported(x.initial.request, x.route.Encoder) {
 			probeStarted := time.Now()
 			detector, probeErr := r.probeEncoder(ctx, x)
 			probeElapsed := time.Since(probeStarted)

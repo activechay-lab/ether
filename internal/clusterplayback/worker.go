@@ -106,7 +106,7 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 		return remotetranscode.Source{}, e
 	}
 	// Raw source expiry minus skew must cover the worker deadline.
-	response, e := r.sourceCall(ctx, rt, sourceRequest{Op: "resolve", Stable: s.Grant, Expires: s.Expires.Add(r.o.ClockSkew)})
+	response, e := r.sourceCall(ctx, rt, sourceRequest{Op: "resolve", CopyTimeline: s.Info.CopyTimeline, CopyKeyframes: copySourceKeyframes(s), Stable: s.Grant, Expires: s.Expires.Add(r.o.ClockSkew)})
 	if e != nil {
 		return remotetranscode.Source{}, e
 	}
@@ -218,4 +218,11 @@ func (r *Runtime) sourceClient(ctx context.Context, source nodewire.Identity) (*
 		return nil, e
 	}
 	return nodesource.NewClient(nodesource.ClientOptions{Endpoint: ep, TLS: tc, BindServer: r.o.Guard.BindServer(source, mustHostname(ep)), RecheckServer: check, Peer: nodesource.Peer{NodeID: r.o.Self.NodeID, Boot: r.o.Self.Boot}, MaxLifetime: 10 * time.Minute, Timeout: 10 * time.Second, Now: time.Now})
+}
+
+func copySourceKeyframes(s remotetranscode.Start) []core.KeyframePoint {
+	if s.Info.CopyTimeline == nil {
+		return nil
+	}
+	return append([]core.KeyframePoint(nil), s.Keyframes...)
 }

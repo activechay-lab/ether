@@ -9,6 +9,10 @@ func CloneMediaInfo(info MediaInfo) MediaInfo {
 	info.Streams = slices.Clone(info.Streams)
 	info.Chapters = slices.Clone(info.Chapters)
 	info.Keyframes = slices.Clone(info.Keyframes)
+	if info.CopyTimeline != nil {
+		p := *info.CopyTimeline
+		info.CopyTimeline = &p
+	}
 	for i := range info.Streams {
 		s := &info.Streams[i]
 		for _, field := range []**bool{&s.DefaultDisposition, &s.ForcedDisposition, &s.HearingImpaired, &s.Original, &s.VisualImpaired, &s.Commentary, &s.Dub, &s.HDR10Plus, &s.DolbyVisionBLPresent, &s.DolbyVisionELPresent, &s.DolbyVisionRPUPresent, &s.ProbedInterlaced, &s.DolbyVisionConfigurationPresent, &s.DolbyVisionBLCompatibilityIDPresent} {

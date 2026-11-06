@@ -16,6 +16,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -35,7 +36,9 @@ type ownedSource struct {
 	binding, issuing, issued bool
 }
 type sourceRequest struct {
-	ActivityVersion       uint64 `json:",omitempty"`
+	CopyKeyframes         []core.KeyframePoint `json:",omitempty"`
+	CopyTimeline          *core.CopyTimeline   `json:",omitempty"`
+	ActivityVersion       uint64               `json:",omitempty"`
 	Reopen                *ReopenRequest
 	OldSource, NextSource *playbackcontinuity.SourceBinding
 	Proof                 string
@@ -304,6 +307,12 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 		}
 		m.Stable = s.handle.Value()
 		peer = nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: f.Target.NodeID, Boot: f.Target.Boot}
+	}
+	if m.Op == "resolve" && m.CopyTimeline != nil {
+		ps, ok := r.o.Playback.Session(rt.PlayID)
+		if !ok || ps == nil || ps.UserID != rt.Viewer || core.SourceRevision(ps) != rt.Revision || ps.Info.CopyTimeline == nil || *ps.Info.CopyTimeline != *m.CopyTimeline || !slices.Equal(ps.Info.Keyframes, m.CopyKeyframes) {
+			return deny()
+		}
 	}
 	if m.Op == "renew" && rt.SourceGeneration > 0 {
 		m.Stable = s.handle.Value()

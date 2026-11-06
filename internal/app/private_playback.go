@@ -52,6 +52,7 @@ func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
 	capabilities := remotetranscode.Supported()
 	capabilities.Keyframes = true
 	capabilities.AuthoredRamp = true
+	capabilities.CopyTimeline = true
 	o.RemoteCapabilities, o.WorkerCapabilities = capabilities, capabilities
 	if p.settings.Roles.FullServer() {
 		o.Roles = config.NodeRoles{config.RoleServer, config.RoleSource, config.RoleDelivery, config.RoleBackground}

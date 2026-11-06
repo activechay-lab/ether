@@ -743,7 +743,8 @@ type MediaInfo struct {
 	// Keyframes is the container's keyframe/cue index, sorted, when it was
 	// read on open or probe; empty when unknown. Not serialized: it can hold
 	// thousands of points (additive).
-	Keyframes []KeyframePoint `json:"-"`
+	Keyframes    []KeyframePoint `json:"-"`
+	CopyTimeline *CopyTimeline   `json:",omitempty"`
 }
 
 func (m MediaInfo) Video() *StreamInfo {

@@ -80,9 +80,10 @@ func TestReencodedAACLossRecoveryInvariant(t *testing.T) {
 	testEncoderLossRecoveryInvariant(t, true)
 }
 
-func testEncoderLossRecoveryInvariant(t *testing.T, reencoded bool) {
+func testEncoderLossRecoveryInvariant(t *testing.T, reencoded bool, copyMode ...bool) {
+	copied := len(copyMode) > 0 && copyMode[0]
 	modes := []string{"exit", "partition", "newboot", "boot-before-recovery", "removed", "clock", "tls-replaced", "tls-denied", "gone", "pause", "stop-before-restore", "refused"}
-	if !reencoded {
+	if !reencoded && !copied {
 		modes = append(modes, "ramp")
 	}
 	for _, mode := range modes {
@@ -100,7 +101,11 @@ func testEncoderLossRecoveryInvariant(t *testing.T, reencoded bool) {
 			}
 			a := &recoveryTestEncoder{data: data}
 			b := &recoveryTestEncoder{data: data, ready: make(chan struct{}), proceed: make(chan struct{})}
-			manager, err := playback.New(playback.Deps{Catalog: fixtureCatalog{}, Resolver: fixtureResolver{}, Engine: fixtureEngine{}, Transcoder: &a.fixtureEncoder, SelectProfile: func(core.ClientCaps, *core.User, string) core.QualityProfile { return core.QualityProfile{} }}, config.Defaults(t.TempDir()), playback.Options{})
+			var prober core.Transcoder = &a.fixtureEncoder
+			if copied {
+				prober = copyRecoveryProber{fixtureEncoder: &a.fixtureEncoder}
+			}
+			manager, err := playback.New(playback.Deps{Catalog: fixtureCatalog{}, Resolver: fixtureResolver{}, Engine: fixtureEngine{}, Transcoder: prober, SelectProfile: func(core.ClientCaps, *core.User, string) core.QualityProfile { return core.QualityProfile{} }}, config.Defaults(t.TempDir()), playback.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -136,6 +141,13 @@ func testEncoderLossRecoveryInvariant(t *testing.T, reencoded bool) {
 				base.AuthorRamp = func(q core.HLSRequest) core.HLSRequest {
 					return transcode.AuthorDistributedRamp(q, config.Transcode{FastStart: true})
 				}
+			}
+			if copied {
+				caps := remotetranscode.Supported()
+				caps.CopyTimeline = true
+				caps.AuthoredRamp = true
+				caps.Keyframes = true
+				base.RemoteCapabilities, base.WorkerCapabilities = caps, caps
 			}
 			var down atomic.Bool
 			pauseSegmentStarted := make(chan struct{})
@@ -237,6 +249,15 @@ func testEncoderLossRecoveryInvariant(t *testing.T, reencoded bool) {
 				q.Decision.AudioChannels = 2
 				q.Info.Streams[0].FrameRate = 24
 				q.Info.Streams = append(q.Info.Streams, core.StreamInfo{Index: 1, Type: "audio", Codec: "ac3", SampleRate: 48000, DecodedPadding: 256, Channels: 6})
+			}
+			if copied {
+				q = copyRecoveryRequest()
+				q.SessionID = "recover"
+				forged := cloneAdmissionRequest(q)
+				forged.Info.CopyTimeline.PacketSHA256[0]++
+				if _, err := front.StartPreparedHLS(ctx, 9, prepared, forged); err != ErrDenied {
+					t.Fatalf("forged source timeline admitted: %v", err)
+				}
 			}
 			session, err := front.StartPreparedHLS(ctx, 9, prepared, q)
 			if err != nil {

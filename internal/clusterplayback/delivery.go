@@ -286,11 +286,13 @@ func (r *Runtime) fencedPublicDelivery(w http.ResponseWriter, q *http.Request, e
 			var decision struct {
 				Previous, Next Route
 				Request        core.HLSRequest
+				Keyframes      []core.KeyframePoint
 			}
 			if rows.Scan(&raw) != nil || len(raw) > maxAdmissionBytes || json.Unmarshal([]byte(raw), &decision) != nil {
 				return Route{}, ErrDenied
 			}
-			if decision.Previous.Fence != fence || decision.Next.Fence.Generation != fence.Generation+1 || decision.Next.Fence.Session != fence.Session || decision.Next.Fence.Controller != fence.Controller || decision.Next.Viewer != expected.Viewer || decision.Next.Revision != expected.Revision || decision.Request.Decision.Kind != core.DecisionTranscode || decision.Request.Decision.VideoCopy || decision.Request.Resume == nil || decision.Request.Resume.Generation != uint64(decision.Next.Fence.Generation) {
+			decision.Request.Info.Keyframes = decision.Keyframes
+			if decision.Previous.Fence != fence || decision.Next.Fence.Generation != fence.Generation+1 || decision.Next.Fence.Session != fence.Session || decision.Next.Fence.Controller != fence.Controller || decision.Next.Viewer != expected.Viewer || decision.Next.Revision != expected.Revision || !encoderRecoverySupported(decision.Request, decision.Next.Encoder) || decision.Request.Resume == nil || decision.Request.Resume.Generation != uint64(decision.Next.Fence.Generation) {
 				return Route{}, ErrDenied
 			}
 			fence = decision.Next.Fence

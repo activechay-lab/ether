@@ -553,6 +553,7 @@ func (m *Manager) encodingLocked(except string) int {
 // StartHLS implements core.Transcoder. A replacement cannot begin until the
 // prior exact session has completed its process and directory cleanup.
 func (m *Manager) StartHLS(ctx context.Context, req core.HLSRequest) (core.HLSSession, error) {
+	req.Info = core.CloneMediaInfo(req.Info)
 	req.RecoveryStart = core.CloneRecoveryStart(req.RecoveryStart)
 	if req.Resume != nil {
 		resume := *req.Resume
@@ -685,6 +686,9 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		adapt.FastStart, adapt.Governor, adapt.Ladder = false, false, false
 		m.log.Debug("transcode cap reached: copy session without encoded ramp, governor or ladder", "session", req.SessionID)
 	}
+	if ValidCopyTimeline(req) {
+		adapt.FastStart, adapt.Governor, adapt.Ladder = false, false, false
+	}
 	rungs := buildRungs(req.Info, d, adapt)
 	if proto == core.ProtocolHLS && d.Container == ContainerMatroska && len(rungs) > 1 {
 		// Plex's native player probes every rendition's initialization and
@@ -715,7 +719,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	}
 	if req.Resume != nil {
 		n := req.Resume.FirstSegment
-		if n < 0 || n > 10000000 || req.Resume.Generation == 0 || req.LiveInput || req.StartOffset != 0 || proto != core.ProtocolHLS || d.VideoCopy || (d.Container != ContainerMPEGTS && d.Container != ContainerFMP4) || time.Duration(n) > time.Duration(1<<63-1)/segDur {
+		if n < 0 || n > 10000000 || req.Resume.Generation == 0 || req.LiveInput || req.StartOffset != 0 || proto != core.ProtocolHLS || (d.VideoCopy && !ValidCopyTimeline(req)) || (d.Container != ContainerMPEGTS && d.Container != ContainerFMP4) || time.Duration(n) > time.Duration(1<<63-1)/segDur {
 			return nil, errors.New("transcode: unsupported authored-timeline resume request")
 		}
 	}

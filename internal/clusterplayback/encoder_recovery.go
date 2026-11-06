@@ -15,6 +15,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 // probeEncoder distinguishes a successful status reporting an active process
@@ -59,7 +60,10 @@ func (r *Runtime) probeEncoder(ctx context.Context, x *execution) (string, error
 // encoderRecoverySupported is shared with dead-boot retirement: lack of spare
 // capacity or a temporary RPC failure must not turn a recoverable plan terminal.
 func encoderRecoverySupported(q core.HLSRequest, encoder string) bool {
-	if q.Decision.VideoCopy || q.Decision.Kind != core.DecisionTranscode || q.Decision.Container != "mpegts" || q.StartOffset != 0 || q.RecoveryStart != nil || q.LiveInput || q.SoftSubtitleStream != nil || (q.Protocol != "" && q.Protocol != core.ProtocolHLS) {
+	if q.Decision.VideoCopy {
+		return transcode.ValidCopyTimeline(q)
+	}
+	if q.Decision.Kind != core.DecisionTranscode || q.Decision.Container != "mpegts" || q.StartOffset != 0 || q.RecoveryStart != nil || q.LiveInput || q.SoftSubtitleStream != nil || (q.Protocol != "" && q.Protocol != core.ProtocolHLS) {
 		return false
 	}
 	// Preserve the existing copied-audio scope. Reencoded audio has separate
@@ -220,7 +224,8 @@ func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
 				Operation      placement.Request
 				Request        core.HLSRequest
 				OriginalDigest [32]byte
-			}{old, route, request, replacement.initial.request, binding.AdmissionDigest})
+				Keyframes      []core.KeyframePoint
+			}{old, route, request, replacement.initial.request, binding.AdmissionDigest, replacement.initial.request.Info.Keyframes})
 			if err != nil || len(decision) > maxAdmissionBytes {
 				return ErrDenied
 			}
