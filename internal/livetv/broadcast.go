@@ -184,6 +184,7 @@ type broadcast struct {
 	fallback             *broadcastInput
 	momentCard           *broadcastInput
 	momentCardPlan       broadcastPlan
+	momentCardFrame      []byte
 	screenPlan           broadcastPlan
 	retryRequests        chan struct{}
 	mode                 string
@@ -877,18 +878,28 @@ func (b *broadcast) step(now time.Time) bool {
 		default:
 		}
 	}
-	if momentFallback && !introActive && b.momentCard != nil {
-		select {
-		case f, ok := <-b.momentCard.frames:
-			if ok && validRawFrame(b.format, f) {
-				frame = f
-				b.burstReady = true
+	if momentFallback && !introActive && b.momentCardPlan.id != "" {
+		// A cold tune may land inside a missing moment. Wait for its own
+		// prewarmed plate before the first picture instead of briefly airing
+		// a faster generic source-error screen.
+		frame = transcode.RawFrame{Video: b.momentCardFrame}
+		if b.momentCard != nil {
+			select {
+			case f, ok := <-b.momentCard.frames:
+				if ok && validRawFrame(b.format, f) {
+					frame = f
+					b.momentCardFrame = f.Video
+				}
+			default:
 			}
-		default:
 		}
-		if frame.Video == nil && b.mode == "fallback/"+current.id {
-			frame = transcode.RawFrame{Video: b.lastFrame.Video}
+		if frame.Video == nil {
+			if b.tick == 0 && time.Since(b.origin) < time.Second {
+				return false
+			}
+			frame.Video = b.black
 		}
+		b.burstReady = true
 	}
 	if frame.Video == nil {
 		// Give an already cached welcome a bounded chance to decode its first
