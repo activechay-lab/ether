@@ -207,7 +207,7 @@ export function ScreenPicker({
           )}
         />
       </h4>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {options.map((o) => (
           <ScreenCard
             key={o.value}
