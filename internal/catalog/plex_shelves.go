@@ -50,7 +50,7 @@ func (c *Catalog) PlexRecentPage(ctx context.Context, q core.BrowseQuery, kinds 
 		limit = 0
 	}
 	args = append(args, limit, max(q.Offset, 0))
-	keys := `SELECT key,stamp FROM (` + strings.Join(branches, ` UNION ALL `) + `) ORDER BY stamp DESC,key ASC LIMIT ? OFFSET ?`
+	keys := `SELECT key,stamp FROM (` + strings.Join(branches, ` UNION ALL `) + `) recent ORDER BY stamp DESC,key ASC LIMIT ? OFFSET ?`
 	rows, err := c.queryTitles(ctx, `SELECT `+prefixedCols("t")+` FROM (`+keys+`) page JOIN catalog_titles t ON t.key=page.key ORDER BY page.stamp DESC,t.key ASC`, args...)
 	return core.Page{Items: rows, Total: total}, err
 }
