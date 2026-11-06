@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { invalidateRegistry } from "../lib/extend";
 import LiveTV from "../pages/livetv/LiveTV";
+import { IPTVProviders } from "../pages/sources/IPTV";
 import { ScheduleTimeline } from "../pages/livetv/ScheduleTimeline";
 import { calls as fakeCalls } from "./harness";
 import { renderAppWith } from "./routes";
@@ -32,6 +33,7 @@ function renderLiveTV(path = "/livetv") {
       <ConfirmRoot />
       <Routes>
         <Route path="/livetv/:tab?" element={<LiveTV />} />
+        <Route path="/sources/iptv" element={<IPTVProviders />} />
       </Routes>
     </MemoryRouter>,
   );

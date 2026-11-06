@@ -91,6 +91,7 @@ function uploadError(file: File, key: "playlist" | "guide"): string {
 /** Create or edit an M3U playlist source or a guide-only XMLTV source, in place. */
 export function SourceEditor({
   source,
+  initialXtream = false,
   kind: initialKind,
   guideOnly = false,
   onGuideKindChange,
@@ -99,6 +100,7 @@ export function SourceEditor({
   onDeleted,
 }: {
   source: Source | null;
+  initialXtream?: boolean;
   kind: SourceKind;
   guideOnly?: boolean;
   onGuideKindChange?: (kind: "xmltv" | "plex") => void;
@@ -197,7 +199,10 @@ export function SourceEditor({
             tuneGapSeconds: source.tuneGapSeconds,
             tunesPerHour: source.tunesPerHour,
           }
-        : emptySource(),
+        : {
+            ...emptySource(),
+            ...(initialXtream ? { auth: { type: "xtream" as const, output: "ts" } } : {}),
+          },
     );
     setTab("connection");
     setKind(
@@ -217,7 +222,7 @@ export function SourceEditor({
     setSavedImport(null);
     setProgressRate(0);
     rateBase.current = null;
-  }, [source, initialKind]);
+  }, [source, initialKind, initialXtream]);
 
   const upload = (file: File | undefined, key: "playlist" | "guide") => {
     if (!file) return;

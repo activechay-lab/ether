@@ -4610,7 +4610,6 @@
   "m_12774409dc65c0": "Catalogo {score}/100",
   "m_1278cb318940fa": "Nulla misurato in questo periodo",
   "m_1279292be6779b": "Controllo del supporto",
-  "m_12797e703c7af9": "Modifica fonte guida",
   "m_127a932a7cd7b3": " · S{season} E{episode}",
   "m_127c986acafef8": "Finisci ora, aggiungi le fonti più tardi",
   "m_12802de03b3f01": "Configura OpenSubtitles",
@@ -7276,6 +7275,7 @@
   "m_1d3c95b2eae354": "Campi di valutazione di Plex",
   "m_1d3debcb2f778a": "Gusti corretti",
   "m_1d3e46e6c5812d": "Scelte in primo piano",
+  "m_1d3f3a67f362f2": "IPTV",
   "m_1d3fbd0b729caf": "{start}–{end} ora locale",
   "m_1d4034170c5e2b": "Un nuovo link viene creato quando lo chiedi. Viene mostrato qui una sola volta.",
   "m_1d437533645548": {
@@ -7606,7 +7606,6 @@
   "m_1e888bf7c3bfe5": "Stagione {number}",
   "m_1e8cf56213abf9": "Caricamento dei profili…",
   "m_1e8d9e179861c8": "Nessuno spettatore selezionato",
-  "m_1e8fdc18f2a98d": "L’accesso Xtream Codes di un fornitore IPTV.",
   "m_1e909eb53a6343": "Invia questi eventi",
   "m_1e90a28ae5972d": "Al cinema più di 120 giorni fa",
   "m_1e90a91a49d681": "Trasferiti",

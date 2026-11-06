@@ -4489,7 +4489,6 @@
   "m_12774409dc65c0": "Katalog {score}/100",
   "m_1278cb318940fa": "Bu dönemde ölçüm yok",
   "m_1279292be6779b": "Destek denetleniyor",
-  "m_12797e703c7af9": "Rehber kaynağını düzenle",
   "m_127a932a7cd7b3": " · S{season} E{episode}",
   "m_127c986acafef8": "Şimdi bitir, kaynakları sonra ekle",
   "m_12802de03b3f01": "OpenSubtitles'ı kur",
@@ -7088,6 +7087,7 @@
   "m_1d3c95b2eae354": "Plex puan alanları",
   "m_1d3debcb2f778a": "Zevk düzeltildi",
   "m_1d3e46e6c5812d": "Öne çıkan en iyi seçimler",
+  "m_1d3f3a67f362f2": "IPTV",
   "m_1d3fbd0b729caf": "{start}–{end} yerel saat",
   "m_1d4034170c5e2b": "İstediğinizde yeni bir bağlantı oluşturulur. Burada bir kez gösterilir.",
   "m_1d437533645548": {
@@ -7410,7 +7410,6 @@
   "m_1e888bf7c3bfe5": "Sezon {number}",
   "m_1e8cf56213abf9": "Profiller yükleniyor…",
   "m_1e8d9e179861c8": "İzleyici seçilmedi",
-  "m_1e8fdc18f2a98d": "Bir IPTV sağlayıcısının Xtream Codes girişi.",
   "m_1e909eb53a6343": "Şu olayları gönder",
   "m_1e90a28ae5972d": "120 günden uzun süre önce sinemalarda",
   "m_1e90a91a49d681": "Aktarılan",

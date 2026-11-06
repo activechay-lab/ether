@@ -4489,7 +4489,6 @@
   "m_12774409dc65c0": "Katalogi {score}/100",
   "m_1278cb318940fa": "Tällä jaksolla ei mitattu mitään",
   "m_1279292be6779b": "Tarkistetaan tukea",
-  "m_12797e703c7af9": "Muokkaa opaslähdettä",
   "m_127a932a7cd7b3": " · S{season} E{episode}",
   "m_127c986acafef8": "Viimeistele nyt, lisää lähteet myöhemmin",
   "m_12802de03b3f01": "Määritä OpenSubtitles",
@@ -7088,6 +7087,7 @@
   "m_1d3c95b2eae354": "Plexin arvosanakentät",
   "m_1d3debcb2f778a": "Maku korjattu",
   "m_1d3e46e6c5812d": "Kärkivalinnat",
+  "m_1d3f3a67f362f2": "IPTV",
   "m_1d3fbd0b729caf": "{start}–{end} paikallista aikaa",
   "m_1d4034170c5e2b": "Uusi linkki luodaan, kun pyydät sitä. Se näytetään tässä kerran.",
   "m_1d437533645548": {
@@ -7410,7 +7410,6 @@
   "m_1e888bf7c3bfe5": "Tuotantokausi {number}",
   "m_1e8cf56213abf9": "Ladataan profiileja…",
   "m_1e8d9e179861c8": "Katsojaa ei ole valittu",
-  "m_1e8fdc18f2a98d": "IPTV-palveluntarjoajan Xtream Codes -kirjautuminen.",
   "m_1e909eb53a6343": "Lähetä nämä tapahtumat",
   "m_1e90a28ae5972d": "Elokuvateattereissa yli 120 päivää sitten",
   "m_1e90a91a49d681": "Siirretty",

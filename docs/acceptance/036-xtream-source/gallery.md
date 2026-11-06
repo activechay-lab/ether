@@ -1,28 +1,50 @@
-# Xtream provider source — console draft for owner approval
+# Unified Sources — proposal for owner approval
 
-Captured from the running console mock on plain HTTP at `http://192.168.68.65:5179/ether/livetv/sources`. Counts are fixture data; screenshots show the real source editor. The temporary preview is stopped after capture.
+This draft implements the owner's directive in coordinator message 43239: source setup has one home, **Sources**. It supersedes the earlier Live TV drawer proposal. Approval is still pending.
 
-The existing provider connection now carries both usage switches. Existing connections keep Live TV enabled and movies/shows disabled until the owner chooses otherwise. No second credential form is introduced.
+## Proposed navigation and ownership
 
-## Live TV and movies/shows enabled — desktop
+- **Sources → IPTV** lists every existing provider, playlist, guide and channel-plugin source. These are the existing stored records and IDs, with the existing credential protection and provider connection budget. No connection is copied or migrated.
+- **Sources → Add a source** includes Xtream, M3U playlists, guide sources and channel plugins alongside the other source types.
+- The one Xtream editor has **Use for Live TV** and **Use for movies & shows**, plus index status/counts. Both uses share this connection.
+- **Live TV** keeps channel programming, its lineup and guide mapping. Its separate Sources tab and source editor are removed. Contextual add/edit actions navigate to Sources; old `/livetv/sources` and `?source=…` links redirect to the same records there.
+- Source status polling pauses while an editor is open, preserving the owner's unsaved draft.
 
-![Both uses enabled, with index status and counts](01-provider-desktop.png)
+The proposed tab label is **IPTV**. The decision requested is approval of this single-location layout and navigation.
 
-## Movies/shows enabled, Live TV disabled — desktop
+## One Sources page
 
-![Movies and shows only](02-movies-only.png)
+![Sources IPTV tab with existing provider, playlist and guide records](04-unified-sources.png)
 
-## Movies/shows enabled — mobile (390 × 844)
+## The shared provider connection
 
-![Mobile connection settings and index counts](03-mobile.png)
+![Provider editor inside Sources with both usage switches and index counts](05-unified-provider.png)
 
-Owner approval is pending; these console changes remain a draft.
+## One add-source gallery
 
-## Verification
+![IPTV choices in the common source gallery](06-unified-add-gallery.png)
 
-- Fake upstream provider: TMDB IDs, normalized title/year fallback, conflicting IDs, episode selection, cross-source ranking, Range reads and backward/forward seeks, one-connection budget shared with live taps, explicit busy resolution, incremental details, rollback on failed refresh, safe protocol errors.
-- Focused existing live import/direct HTTP regression tests and app package compilation pass.
-- Console typecheck and 30 i18n tests pass. New labels exist in all 20 locale catalogues; existing plural translations are preserved.
-- One-off in-memory SQLite scale check: 100,000 movies indexed in 2.43 seconds, unchanged refresh in 2.01 seconds. The temporary scale test was removed after measurement to keep the lasting suite small. These are local fixture timings, not a remote database or provider benchmark.
+## Add an Xtream connection here
 
-The index stores provider titles and identities, then reads/caches VOD or episode details only for a matching catalogue request. It does not create catalogue entries for every provider item. Missing IDs require a normalized title and matching known year; uncertain matches are omitted.
+![New provider form under Sources](07-new-provider.png)
+
+## Mobile
+
+![Shared provider editor on a 390-pixel screen](08-unified-mobile.png)
+
+## Live TV keeps channel work
+
+![Live TV lineup and guide without a second Sources tab](09-livetv-workspace.png)
+
+## Evidence and limits
+
+Captured from the running console mock at the plain HTTP LAN origin `http://192.168.68.65:5179/ether`. Counts are fixture data; these are the actual React screens. The preview and browser are stopped after capture.
+
+- Typecheck and 58 focused Live TV/i18n tests pass, covering the canonical source editor reached through old links, saved credential placeholders, channel-group saves, plugin channel import and all 20 locales. The test DOM emits its existing unsupported video-method diagnostics; no assertions fail.
+- Browser checks verify that the old source URL reaches `/sources/iptv?source=demo-xtream`, the Live TV Sources tab is absent, and a new Xtream form starts with an empty server field.
+- The earlier backend fake-provider checks cover matching, ranking, HTTP Range/seek, shared connection limits, explicit provider busy, refresh rollback and credential-safe errors.
+- Earlier one-off local SQLite measurements: 100,000 movies indexed in 2.43 seconds; unchanged refresh in 2.01 seconds. These are fixture timings, not remote-database/provider benchmarks.
+
+The index learns provider identities and looks up details for matching catalogue requests. It does not create catalogue entries for every provider item. Missing identifiers require a normalized title and a verified matching year; uncertain matches are omitted.
+
+Earlier screenshots 01–03 are retained as superseded draft history and are not the current proposal.

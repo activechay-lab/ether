@@ -4610,7 +4610,6 @@
   "m_12774409dc65c0": "Catalogue {score}/100",
   "m_1278cb318940fa": "Rien de mesuré sur cette période",
   "m_1279292be6779b": "Vérification de la prise en charge",
-  "m_12797e703c7af9": "Modifier la source de guide",
   "m_127a932a7cd7b3": " · S{season} E{episode}",
   "m_127c986acafef8": "Terminer maintenant, ajouter les sources plus tard",
   "m_12802de03b3f01": "Configurer OpenSubtitles",
@@ -7276,6 +7275,7 @@
   "m_1d3c95b2eae354": "Champs de notes Plex",
   "m_1d3debcb2f778a": "Goûts corrigés",
   "m_1d3e46e6c5812d": "Meilleures sélections à la une",
+  "m_1d3f3a67f362f2": "IPTV",
   "m_1d3fbd0b729caf": "{start}–{end} heure locale",
   "m_1d4034170c5e2b": "Un nouveau lien est créé lorsque vous le demandez. Il s'affiche ici une seule fois.",
   "m_1d437533645548": {
@@ -7606,7 +7606,6 @@
   "m_1e888bf7c3bfe5": "Saison {number}",
   "m_1e8cf56213abf9": "Chargement des profils…",
   "m_1e8d9e179861c8": "Aucun spectateur sélectionné",
-  "m_1e8fdc18f2a98d": "Les identifiants Xtream Codes d’un fournisseur IPTV.",
   "m_1e909eb53a6343": "Envoyer ces événements",
   "m_1e90a28ae5972d": "En salles il y a plus de 120 jours",
   "m_1e90a91a49d681": "Transféré",

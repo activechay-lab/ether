@@ -4489,7 +4489,6 @@
   "m_12774409dc65c0": "Katalog {score}/100",
   "m_1278cb318940fa": "Inget uppmätt under perioden",
   "m_1279292be6779b": "Kontrollerar stöd",
-  "m_12797e703c7af9": "Redigera guidekälla",
   "m_127a932a7cd7b3": " · S{season} E{episode}",
   "m_127c986acafef8": "Slutför nu, lägg till källor senare",
   "m_12802de03b3f01": "Konfigurera OpenSubtitles",
@@ -7088,6 +7087,7 @@
   "m_1d3c95b2eae354": "Plex-betygsfält",
   "m_1d3debcb2f778a": "Smaken korrigerades",
   "m_1d3e46e6c5812d": "Främsta rampljusval",
+  "m_1d3f3a67f362f2": "IPTV",
   "m_1d3fbd0b729caf": "{start}–{end} lokal tid",
   "m_1d4034170c5e2b": "En ny länk skapas när du ber om den. Den visas här en gång.",
   "m_1d437533645548": {
@@ -7410,7 +7410,6 @@
   "m_1e888bf7c3bfe5": "Säsong {number}",
   "m_1e8cf56213abf9": "Läser in profiler…",
   "m_1e8d9e179861c8": "Ingen tittare vald",
-  "m_1e8fdc18f2a98d": "En IPTV-leverantörs Xtream Codes-inloggning.",
   "m_1e909eb53a6343": "Skicka de här händelserna",
   "m_1e90a28ae5972d": "På bio för över 120 dagar sedan",
   "m_1e90a91a49d681": "Överfört",

@@ -4489,7 +4489,6 @@
   "m_12774409dc65c0": "Katalog {score}/100",
   "m_1278cb318940fa": "Ingenting målt i denne perioden",
   "m_1279292be6779b": "Sjekker støtte",
-  "m_12797e703c7af9": "Rediger guidekilde",
   "m_127a932a7cd7b3": " · S{season} E{episode}",
   "m_127c986acafef8": "Fullfør nå, legg til kilder senere",
   "m_12802de03b3f01": "Sett opp OpenSubtitles",
@@ -7088,6 +7087,7 @@
   "m_1d3c95b2eae354": "Plex-vurderingsfelt",
   "m_1d3debcb2f778a": "Smak korrigert",
   "m_1d3e46e6c5812d": "Topp utvalgte valg",
+  "m_1d3f3a67f362f2": "IPTV",
   "m_1d3fbd0b729caf": "{start}–{end} lokal tid",
   "m_1d4034170c5e2b": "En ny lenke opprettes når du ber om den. Den vises her én gang.",
   "m_1d437533645548": {
@@ -7410,7 +7410,6 @@
   "m_1e888bf7c3bfe5": "Sesong {number}",
   "m_1e8cf56213abf9": "Laster profiler …",
   "m_1e8d9e179861c8": "Ingen seer valgt",
-  "m_1e8fdc18f2a98d": "Xtream Codes-påloggingen til en IPTV-leverandør.",
   "m_1e909eb53a6343": "Send disse hendelsene",
   "m_1e90a28ae5972d": "På kino for over 120 dager siden",
   "m_1e90a91a49d681": "Overført",
