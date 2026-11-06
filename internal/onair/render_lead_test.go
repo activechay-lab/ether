@@ -110,3 +110,63 @@ func TestImminentMasterEscapesStarvedBackground(t *testing.T) {
 		t.Fatal("boundary changed clip cache identity")
 	}
 }
+
+// Once live preparation starts, crossing its boundary cannot hand the lane back
+// to background work or let denser short moments repeatedly cancel the master.
+func TestImminentMasterRetainsLaneAcrossBoundary(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	segment := PluginSegment{Document: scene.Document{V: 1, Moment: "plugin:weather/forecast", Duration: 120}, Expires: time.Now().Add(time.Hour), Version: "stable"}
+	s := testService(t, Options{StaticRequests: func(context.Context, string) []core.ClipRequest { return []core.ClipRequest{{Moment: "disabled"}} }, PluginSegment: func(string) (PluginSegment, bool) { return segment, true }, Acquire: func(ctx context.Context) (context.Context, func(), error) { return ctx, func() {}, nil }, Render: func(ctx context.Context, d scene.Document, _ raster.Bindings, out string) error {
+		if d.Moment == segment.Document.Moment {
+			close(started)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		return os.WriteFile(out, []byte("master"), 0600)
+	}})
+	request := core.ClipRequest{Moment: segment.Document.Moment, Boundary: time.Now().Add(50 * time.Millisecond)}
+	s.Ensure(t.Context(), request)
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("plugin did not start")
+	}
+	time.Sleep(75 * time.Millisecond)
+	s.Ensure(t.Context(), core.ClipRequest{LookID: "nocturne", Moment: "ident", Boundary: time.Now().Add(time.Second)})
+	close(release)
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, ok := s.Clip(t.Context(), request); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("active plugin canceled after boundary")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestLivePreparationOrdersByRequiredStart(t *testing.T) {
+	now := time.Now()
+	s := &Service{pending: map[string]bool{}, liveReady: make(chan struct{}, 1), renderTimes: map[string]time.Duration{"style/upnext": time.Second}}
+	look := renderJob{Hash: "look", Look: "style", Doc: scene.Document{Moment: "upnext"}, Boundary: now.Add(20 * time.Second)}
+	plugin := renderJob{Hash: "plugin", Doc: scene.Document{Moment: "plugin:weather/forecast"}, Boundary: now.Add(50 * time.Second)}
+	s.queueLiveLocked(look)
+	s.queueLiveLocked(plugin)
+	if s.liveJobs[0].Hash != "plugin" {
+		t.Fatal("long master starved by shorter moments")
+	}
+	stale := plugin
+	stale.Boundary = now.Add(-time.Second)
+	s.liveJobs[0] = stale
+	plugin.Boundary = now.Add(time.Minute)
+	s.queueLiveLocked(plugin)
+	for _, j := range s.liveJobs {
+		if j.Hash == plugin.Hash && j.Boundary != plugin.Boundary {
+			t.Fatal("next airing retained obsolete deadline")
+		}
+	}
+}

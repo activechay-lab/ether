@@ -75,6 +75,7 @@ type Service struct {
 	liveReady      chan struct{}
 	activeCancel   context.CancelFunc
 	activeBoundary time.Time
+	activeHash     string
 	resources      string
 	reelReady      map[string]bool
 	o              Options
@@ -531,28 +532,46 @@ func (s *Service) imminent(j renderJob) bool {
 	return j.Boundary.After(now) && !j.Boundary.After(now.Add(lead))
 }
 
-// Called under mu. Imminent jobs are bounded and selected nearest-boundary
-// first. They also interrupt an ordinary job waiting for a viewer-held slot.
+// Preparation order accounts for measured render cost. A long plugin master
+// must start before short cards with later preparation deadlines, even when
+// their airing boundaries are earlier. Within equal cost, boundaries order it.
+func (s *Service) preparationAtLocked(j renderJob) time.Time {
+	cost := s.renderTimes[j.Look+"/"+j.Doc.Moment]
+	if strings.HasPrefix(j.Doc.Moment, "plugin:") {
+		cost = max(cost, 30*time.Second)
+	}
+	return j.Boundary.Add(-2 * cost)
+}
+
+// Called under mu. Only ordinary work waiting for a background slot is preemptible.
 func (s *Service) queueLiveLocked(j renderJob) bool {
+	if s.activeHash == j.Hash && !s.activeBoundary.IsZero() {
+		return true
+	}
+
 	for i, old := range s.liveJobs {
 		if old.Hash == j.Hash {
-			if j.Boundary.Before(old.Boundary) {
+			if !old.Boundary.After(time.Now()) || j.Boundary.Before(old.Boundary) {
 				s.liveJobs[i] = j
-				sort.SliceStable(s.liveJobs, func(i, j int) bool { return s.liveJobs[i].Boundary.Before(s.liveJobs[j].Boundary) })
+				sort.SliceStable(s.liveJobs, func(i, j int) bool {
+					return s.preparationAtLocked(s.liveJobs[i]).Before(s.preparationAtLocked(s.liveJobs[j]))
+				})
 			}
 			return true
 		}
 	}
 	if len(s.liveJobs) >= 128 {
-		if !j.Boundary.Before(s.liveJobs[len(s.liveJobs)-1].Boundary) {
+		if !s.preparationAtLocked(j).Before(s.preparationAtLocked(s.liveJobs[len(s.liveJobs)-1])) {
 			return false
 		}
 		delete(s.pending, s.liveJobs[len(s.liveJobs)-1].Hash)
 		s.liveJobs = s.liveJobs[:len(s.liveJobs)-1]
 	}
 	s.liveJobs = append(s.liveJobs, j)
-	sort.SliceStable(s.liveJobs, func(i, j int) bool { return s.liveJobs[i].Boundary.Before(s.liveJobs[j].Boundary) })
-	if s.activeCancel != nil && (s.activeBoundary.IsZero() || !s.activeBoundary.After(time.Now())) {
+	sort.SliceStable(s.liveJobs, func(i, j int) bool {
+		return s.preparationAtLocked(s.liveJobs[i]).Before(s.preparationAtLocked(s.liveJobs[j]))
+	})
+	if s.activeCancel != nil && s.activeBoundary.IsZero() {
 		s.activeCancel()
 	}
 	select {
@@ -646,6 +665,14 @@ func (s *Service) run() {
 }
 
 func (s *Service) process(j renderJob) {
+	// Obsolete airings cannot consume a lane ahead of future work. A repeated
+	// content hash will be admitted again with its next scheduled boundary.
+	if !j.Boundary.IsZero() && !j.Boundary.After(time.Now()) {
+		s.mu.Lock()
+		delete(s.pending, j.Hash)
+		s.mu.Unlock()
+		return
+	}
 	imminent := s.imminent(j)
 	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
@@ -657,6 +684,7 @@ func (s *Service) process(j renderJob) {
 	}
 	if !j.download {
 		s.activeCancel = cancel
+		s.activeHash = j.Hash
 		s.activeBoundary = time.Time{}
 		if imminent {
 			s.activeBoundary = j.Boundary
@@ -670,6 +698,7 @@ func (s *Service) process(j renderJob) {
 	s.mu.Lock()
 	if !j.download {
 		s.activeCancel = nil
+		s.activeHash = ""
 		s.activeBoundary = time.Time{}
 	}
 	delete(s.pending, j.Hash)
