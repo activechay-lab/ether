@@ -94,6 +94,7 @@ export function CreateTab({
       let pending = Promise.resolve();
       void readAgentStream(new Response(preview), (chunk) => {
         if (chunk.type === "start") turn.current = chunk.messageId;
+        if (chunk.type === "text-start") setNarrative("");
         if (chunk.type === "text-delta" && chunk.delta) setNarrative((n) => n + chunk.delta);
         if (chunk.type === "error")
           setError(chunk.errorText ?? t("Ether could not finish that. Try again."));
@@ -168,7 +169,7 @@ export function CreateTab({
             ))}
           </div>
           <div
-            className="space-y-4 rounded-xl border border-border bg-surface p-4"
+            className="max-h-[50vh] space-y-4 overflow-y-auto rounded-xl border border-border bg-surface p-4"
             aria-label={t("Live build")}
           >
             <div
