@@ -64,6 +64,9 @@ func (r *Runtime) StartDistributedHLS(ctx context.Context, viewer int64, playID,
 // StartPreparedHLS composes a concrete remote source-owner preparation with the
 // same durable encoder placement. The broker's remote planning seam can use it.
 func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared PreparedSource, q core.HLSRequest) (core.HLSSession, error) {
+	if !r.clockReady() {
+		return nil, ErrDenied
+	}
 	q = cloneAdmissionRequest(q)
 	playID, revision := prepared.PlayID, prepared.Revision
 	if r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil || r.o.Eligible(ctx, prepared.Owner, config.RoleSource) != nil {
@@ -391,6 +394,10 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			continue
 		}
 		if x.reservePending {
+			if !r.clockReady() {
+				result = ErrDenied
+				continue
+			}
 			rec, e := r.o.Placement.Reserve(ctx, x.request)
 			if e != nil {
 				var unknown *placement.UnknownOutcome
@@ -466,8 +473,16 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		if lease.Deadline.After(time.Now().Add(time.Minute)) {
 			continue
 		}
+		if !r.clockReady() {
+			result = ErrDenied
+			continue
+		}
 		deadline := time.Now().Add(2 * time.Minute).UTC().Truncate(time.Millisecond)
 		if e := r.o.Placement.Renew(ctx, x.route.Fence, deadline.Add(2*r.o.ClockSkew)); e != nil {
+			if !r.clockReady() {
+				result = e
+				continue
+			}
 			r.Stop(x.route.Fence.Session)
 			result = e
 			continue
@@ -477,7 +492,8 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			_ = x.session.Reconcile(ctx)
 			accepted := x.session.Lease().Accepted
 			if accepted == nil || !equalRenewal(*accepted, n) {
-				r.Stop(x.route.Fence.Session)
+				// A peer may be clock-quarantined. Refusing extension does not
+				// revoke the previously accepted monotonic lease; retry until its cap.
 				result = ErrPending
 			}
 		}

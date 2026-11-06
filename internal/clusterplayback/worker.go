@@ -37,6 +37,9 @@ func (r *Runtime) authorizeWorker(ctx context.Context, peer, op string, id remot
 	if op == "stop" || op == "status" {
 		return nil
 	}
+	if (op == "start" || op == "renew") && !r.clockReady() {
+		return ErrDenied
+	}
 	if op == "start" && start != nil {
 		info := core.CloneMediaInfo(start.Info)
 		info.Keyframes = append([]core.KeyframePoint(nil), start.Keyframes...)
@@ -159,6 +162,9 @@ func (r *Runtime) renewInput(ctx context.Context, peer string, s remotetranscode
 	})
 	if e != nil {
 		return remotetranscode.RenewalReceipt{}, e
+	}
+	if !r.clockReady() {
+		return remotetranscode.RenewalReceipt{}, ErrDenied
 	}
 	return remotetranscode.RenewalReceipt{Renewal: n, PlacementUntil: rec.Deadline.Add(-r.o.ClockSkew), SourceUntil: evidence.SourceUntil.Add(-r.o.ClockSkew)}, nil
 }

@@ -25,6 +25,8 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
+	// ClockReady continuously gates new and extended time-bounded authority.
+	ClockReady func() bool
 	// OutputBuffer is an opt-in surviving-controller segment store. Scratch has
 	// one slot of MaxSegmentBytes; nil leaves existing delivery unchanged.
 	OutputBuffer                           *playbackbuffer.Store
@@ -115,7 +117,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 		if o.SourceAccess == nil || o.ActiveViewer == nil || o.SourcePolicy == nil {
 			return nil, ErrDenied
 		}
-		a, e := nodeauthority.New(nodeauthority.Options{Lookup: o.Placement, Policy: r.sourcePolicy, Owner: placement.Target{NodeID: o.Self.NodeID, Boot: o.Self.Boot}, Now: time.Now, ClockBoundKnown: true, ClockSkew: o.ClockSkew, MaxLifetime: 10 * time.Minute, MaxBindings: o.HistoryCapacity, MaxGrants: 4096, MaxGrantsPerBinding: 4})
+		a, e := nodeauthority.New(nodeauthority.Options{ClockReady: o.ClockReady, Lookup: o.Placement, Policy: r.sourcePolicy, Owner: placement.Target{NodeID: o.Self.NodeID, Boot: o.Self.Boot}, Now: time.Now, ClockBoundKnown: true, ClockSkew: o.ClockSkew, MaxLifetime: 10 * time.Minute, MaxBindings: o.HistoryCapacity, MaxGrants: 4096, MaxGrantsPerBinding: 4})
 		if e != nil {
 			return nil, e
 		}
@@ -415,3 +417,5 @@ func (e recordingEncoder) SupportsDistributedRequest(q core.HLSRequest) bool {
 	backend, ok := e.r.o.Encoder.(requestSupport)
 	return ok && backend.SupportsDistributedRequest(q)
 }
+
+func (r *Runtime) clockReady() bool { return r.o.ClockReady == nil || r.o.ClockReady() }

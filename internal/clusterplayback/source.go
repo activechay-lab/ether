@@ -92,6 +92,12 @@ func (r *Runtime) sourceHTTP(w http.ResponseWriter, q *http.Request) {
 }
 func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m sourceRequest) (sourceResponse, error) {
 	deny := func() (sourceResponse, error) { return sourceResponse{}, ErrDenied }
+	switch m.Op {
+	case "prepare", "reopen", "source-failover", "bind", "resolve", "resolve-failover", "renew":
+		if !r.clockReady() {
+			return deny()
+		}
+	}
 	if m.Op == "file-check" {
 		return r.checkSourceFile(ctx, peer, m.Prepare)
 	}
