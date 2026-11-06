@@ -60,18 +60,6 @@ func DecodeLines(lr LineReader, opt *DecodeOptions) (*Part, error) {
 	// A slice cannot exceed the platform's addressable size, even when a
 	// caller supplies a larger int64 limit on a 32-bit target.
 	o.MaxSize = min(o.MaxSize, int64(int(^uint(0)>>1)))
-
-	p, err := readBegin(lr)
-	if err != nil {
-		return nil, err
-	}
-	if rapidEnabled() {
-		return decodeRapidBody(lr, o, p)
-	}
-	return decodeBodySWAR(lr, o, p, nil, true, false, bodyWireBudget(o.MaxSize))
-}
-
-func readBegin(lr LineReader) (*Part, error) {
 	p := &Part{}
 	preamble := 0
 	// 1. Find =ybegin.
@@ -100,23 +88,21 @@ func readBegin(lr LineReader) (*Part, error) {
 		}
 	}
 
-	return p, nil
-}
-
-func bodyWireBudget(maxSize int64) int64 {
-	if maxSize > (int64(^uint64(0)>>1)-MaxPreambleSize)/6 {
-		return int64(^uint64(0) >> 1)
-	}
-	return maxSize*6 + MaxPreambleSize
-}
-
-func decodeBodySWAR(lr LineReader, o DecodeOptions, p *Part, dst []byte, first, escaped bool, wireBudget int64) (*Part, error) {
 	// 2. Optional =ypart, then data lines up to =yend.
+	first := true
+	escaped := false
+	var dst []byte
 	var smallScratch [512]byte
 	scratch := smallScratch[:]
 	// Count wire bytes as well as decoded bytes: empty lines and redundant
 	// escape line breaks must not permit unlimited work for a tiny part.
 	// Six wire bytes permit every escaped byte to be split across CRLF lines.
+	wireBudget := o.MaxSize
+	if wireBudget > (int64(^uint64(0)>>1)-MaxPreambleSize)/6 {
+		wireBudget = int64(^uint64(0) >> 1)
+	} else {
+		wireBudget = wireBudget*6 + MaxPreambleSize
+	}
 	alloc := func(hint int64) error {
 		if hint > o.MaxSize {
 			return fmt.Errorf("%w: %d bytes", ErrTooLarge, hint)
@@ -217,10 +203,12 @@ func verify(p *Part, skipCRC bool) error {
 	if !skipCRC && (p.Trailer.HasPartCRC || p.Trailer.HasCRC) {
 		got = crc32.ChecksumIEEE(p.Data)
 	}
-	return verifyChecksum(p, skipCRC, got)
+	return VerifyChecksum(p, skipCRC, got)
 }
 
-func verifyChecksum(p *Part, skipCRC bool, got uint32) error {
+// VerifyChecksum checks a decoded part using a checksum supplied by the decoder.
+// It applies the same metadata and CRC rules as DecodeLines.
+func VerifyChecksum(p *Part, skipCRC bool, got uint32) error {
 	n := int64(len(p.Data))
 	if p.Trailer.Size != n {
 		return fmt.Errorf("%w: decoded %d bytes, =yend size=%d", ErrSizeMismatch, n, p.Trailer.Size)

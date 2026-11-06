@@ -84,28 +84,3 @@ func BenchmarkArticleCRC(b *testing.B) {
 		}
 	}
 }
-
-// RapidYenc requires end-marker slack. This measures direct output reuse
-// separately from the existing exact-capacity contract (which retains SWAR).
-func BenchmarkArticleSpareCapacity(b *testing.B) {
-	for _, line := range []int{128, 256} {
-		for _, size := range []int{384 << 10, 768 << 10} {
-			data := randBytes(43, size)
-			enc, err := EncodeBytes(data, EncodeOptions{Name: "bench.bin", LineLength: line})
-			if err != nil {
-				b.Fatal(err)
-			}
-			b.Run(fmt.Sprintf("line%d/%dKiB", line, size>>10), func(b *testing.B) {
-				opt := DecodeOptions{Buffer: make([]byte, 0, size+64)}
-				b.SetBytes(int64(size))
-				b.ReportAllocs()
-				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
-					if _, err := DecodeLines(&bytesLines{b: enc}, &opt); err != nil {
-						b.Fatal(err)
-					}
-				}
-			})
-		}
-	}
-}
