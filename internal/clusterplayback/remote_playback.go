@@ -23,6 +23,7 @@ type RemotePlaybackOptions struct {
 	Now func() time.Time
 }
 type RemotePlayback struct {
+	observed map[string]*core.PlaySession
 	draining bool
 	r        *Runtime
 	o        RemotePlaybackOptions
@@ -81,7 +82,7 @@ func NewRemotePlayback(r *Runtime, o RemotePlaybackOptions) (*RemotePlayback, er
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	p := &RemotePlayback{r: r, o: o, entries: map[string]*remotePreparation{}}
+	p := &RemotePlayback{observed: map[string]*core.PlaySession{}, r: r, o: o, entries: map[string]*remotePreparation{}}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.remotePlayback != nil || r.closed {
@@ -189,7 +190,8 @@ func (p *RemotePlayback) Session(id string) (*core.PlaySession, bool) {
 	defer p.mu.Unlock()
 	e := p.entries[id]
 	if e == nil || e.retired || e.retiring || e.snapshot == nil {
-		return nil, false
+		snapshot := p.observed[id]
+		return copyPlaySession(snapshot), snapshot != nil
 	}
 	return copyPlaySession(e.snapshot), true
 }
@@ -208,6 +210,12 @@ func (p *RemotePlayback) SessionForSurface(surface string, viewer int64, client 
 			return copyPlaySession(s), true
 		}
 	}
+	for _, snapshot := range p.observed {
+		if snapshot.UserID == viewer && snapshot.ClientID == client && snapshot.Key == k && (surface == "" || string(snapshot.Client.Protocol) == surface) && (!exact || snapshot.SourceReleaseID() == release) {
+			return copyPlaySession(snapshot), true
+		}
+	}
+
 	return nil, false
 }
 func (p *RemotePlayback) Sessions() []*core.PlaySession {

@@ -1337,6 +1337,10 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, sessionID string, hs core.HLSSession, info core.MediaInfo, dec core.Decision) {
+	if err := s.saveDistributedBinding(r.Context(), sessionID); err != nil {
+		http.Error(w, "playback unavailable", 503)
+		return
+	}
 	entry, _ := s.transcodes.get(sessionID)
 	// A ladder-capable session advertises every rung; the client's native
 	// ABR (AVPlayer, hls.js) steps between them and the session starts a

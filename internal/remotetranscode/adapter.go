@@ -23,6 +23,8 @@ type Assignment struct {
 	Expires  time.Time
 }
 type AdapterOptions struct {
+	// RequestHeaders binds each operation to an external coordination epoch.
+	RequestHeaders func(context.Context) (http.Header, error)
 	// CommitStart durably binds the installed immutable Start before any Start
 	// bytes leave this adapter. It runs synchronously outside locks, with a
 	// context bounded to five seconds; implementations must honor cancellation.
@@ -222,6 +224,15 @@ func (a *Adapter) callPayload(ctx context.Context, b []byte, headers http.Header
 	for _, h := range []string{"Range", "If-Range", "If-None-Match", "If-Modified-Since"} {
 		if v := headers.Values(h); len(v) > 0 {
 			req.Header[h] = v
+		}
+	}
+	if a.opts.RequestHeaders != nil {
+		extra, err := a.opts.RequestHeaders(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for key, values := range extra {
+			req.Header[key] = append([]string(nil), values...)
 		}
 	}
 	resp, err := a.client.Do(req)

@@ -59,7 +59,7 @@ func (r *Runtime) putRoute(ctx context.Context, route Route) error {
 	if e != nil || got != route {
 		return ErrDenied
 	}
-	return nil
+	return r.initializeCoordinator(ctx, route)
 }
 
 // Verifier is constructed before placement.New and bound once after NewRuntime.
