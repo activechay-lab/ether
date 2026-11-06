@@ -207,6 +207,31 @@ func TestNeutralControllerLossKeepsHealthyEncoder(t *testing.T) {
 			if err != nil || coordinator.Identity != ids[3] || coordinator.Epoch != 2 {
 				t.Fatal("coordinator", coordinator, err)
 			}
+			// Persisted credentials must reject wrong keys and expired rows.
+			wrongSealer, keyErr := config.Open(t.TempDir())
+			if keyErr != nil {
+				t.Fatal(keyErr)
+			}
+			runtimes[3].o.ProtocolSealer = wrongSealer
+			if _, loadErr := runtimes[3].LoadNeutralBinding(ctx, opened.ID); loadErr == nil {
+				t.Fatal("wrong cluster key decrypted binding")
+			}
+			runtimes[3].o.ProtocolSealer = sealer
+			wrongSealer.Close()
+			if _, err = db.Exec(`UPDATE clusterplayback_neutral_bindings SET expires=? WHERE session=?`, time.Now().Add(-time.Second).UnixMilli(), opened.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, loadErr := runtimes[3].LoadNeutralBinding(ctx, opened.ID); loadErr == nil {
+				t.Fatal("expired snapshot restored")
+			}
+			if _, err = db.Exec(`UPDATE clusterplayback_neutral_bindings SET expires=? WHERE session=?`, time.Now().Add(time.Minute).UnixMilli(), opened.ID); err != nil {
+				t.Fatal(err)
+			}
+			denied := httptest.NewRecorder()
+			brokers[1].ServeMedia(denied, httptest.NewRequest("GET", "https://public/sessions/media/"+opened.ID+"/wrong-grant/3.ts", nil).WithContext(ctx))
+			if denied.Code == 200 || brokers[1].HasBinding(opened.ID) {
+				t.Fatal("wrong media grant installed session")
+			}
 			wrong := access
 			wrong.Device.ID = "wrong-device"
 			if _, err = brokers[1].StartStream(ctx, wrong, opened.ID, request); err != core.ErrUnauthorized {
@@ -255,8 +280,15 @@ func TestNeutralControllerLossKeepsHealthyEncoder(t *testing.T) {
 			if err = db.QueryRow(`SELECT node_id FROM plex_sessions WHERE id=?`, opened.ID).Scan(&registryOwner); err != nil || registryOwner != ids[3].NodeID {
 				t.Fatal("registry not adopted", registryOwner, err)
 			}
+			priorSnapshot, loadErr := runtimes[3].LoadNeutralBinding(ctx, opened.ID)
+			if loadErr != nil {
+				t.Fatal(loadErr)
+			}
 			if err = brokers[1].Stop(ctx, access, opened.ID); err != nil {
 				t.Fatal(err)
+			}
+			if err = runtimes[3].SaveNeutralBinding(ctx, opened.ID, string(protocol), 9, access.Device.ID, priorSnapshot); err == nil {
+				t.Fatal("stopped credentials resurrected")
 			}
 			var rows int
 			if err = db.QueryRow(`SELECT COUNT(*) FROM clusterplayback_neutral_bindings WHERE session=?`, opened.ID).Scan(&rows); err != nil || rows != 0 {
