@@ -274,3 +274,34 @@ func TestConcurrentSettingsSwapsKeepProviderKeys(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// Explicit writes can succeed even if a subsequent read cannot open the key.
+// The API must report that read failure instead of returning partial settings.
+type failKeyOpen struct{ config.FieldSealer }
+
+func (s failKeyOpen) OpenField(string, ...string) (string, bool, error) {
+	return "", false, errors.New("synthetic open failure")
+}
+
+func TestSettingsPutReadbackFailure(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.OpenMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	sealer, err := config.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sealer.UpgradeCredentials(ctx); err != nil {
+		t.Fatal(err)
+	}
+	s := New(db, Options{Sealer: failKeyOpen{sealer}})
+	body := `{"enabled":true,"provider":"omdb","apiKey":"synthetic-key","cacheHours":24}`
+	rec := httptest.NewRecorder()
+	s.Router(nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/settings", strings.NewReader(body)))
+	if rec.Code != http.StatusInternalServerError || rec.Body.String() != "Ratings settings unavailable\n" {
+		t.Fatalf("expected a generic readback failure, got HTTP %d", rec.Code)
+	}
+}

@@ -119,3 +119,34 @@ it("leaves a new provider's key empty when only the other provider is saved", as
   fireEvent.change(screen.getByLabelText("Backup ratings provider"), { target: { value: "omdb" } });
   expect(screen.getByLabelText("Backup API key")).toHaveValue("[configured]");
 });
+
+it.each(["replacement-mdblist", ""])(
+  "preserves a backup draft %s across removal and reselection",
+  async (key) => {
+    render(
+      <MemoryRouter>
+        <RatingSources keysOnly saved={settings} />
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByLabelText("Backup API key"), { target: { value: key } });
+    const backup = screen.getByLabelText("Backup ratings provider");
+    fireEvent.change(backup, { target: { value: "" } });
+    fireEvent.change(backup, { target: { value: "mdblist" } });
+    expect(screen.getByLabelText("Backup API key")).toHaveValue(key);
+  },
+);
+
+it("forgets removed provider drafts on discard", () => {
+  render(
+    <MemoryRouter>
+      <RatingSources keysOnly saved={settings} />
+    </MemoryRouter>,
+  );
+  fireEvent.change(screen.getByLabelText("Backup API key"), { target: { value: "replacement" } });
+  fireEvent.change(screen.getByLabelText("Backup ratings provider"), { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+  const backup = screen.getByLabelText("Backup ratings provider");
+  fireEvent.change(backup, { target: { value: "" } });
+  fireEvent.change(backup, { target: { value: "mdblist" } });
+  expect(screen.getByLabelText("Backup API key")).toHaveValue("[configured]");
+});

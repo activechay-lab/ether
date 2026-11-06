@@ -34,7 +34,11 @@ func (s *Service) Router(cat core.Catalog) http.Handler {
 			http.Error(w, e.Error(), 400)
 			return
 		}
-		v, _ = s.Settings(r.Context())
+		v, err := s.Settings(r.Context())
+		if err != nil {
+			http.Error(w, "Ratings settings unavailable", http.StatusInternalServerError)
+			return
+		}
 		reply(w, v)
 	})
 	r.Post("/refresh/{key}", func(w http.ResponseWriter, r *http.Request) {

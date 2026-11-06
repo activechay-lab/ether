@@ -116,6 +116,7 @@ export function RatingSources({
   const reset = controlled ? external.reset : internal.reset;
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const providerDraftKeys = useRef<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -141,6 +142,7 @@ export function RatingSources({
           method: "PUT",
           body: JSON.stringify(body),
         });
+        providerDraftKeys.current = {};
         if (controlled) {
           external.adopt(next);
           onPersisted?.(next);
@@ -167,11 +169,20 @@ export function RatingSources({
       onSave={save}
       onDiscard={() => {
         reset();
+        providerDraftKeys.current = {};
         setError(null);
       }}
     />
   );
-  const savedKeyFor = (provider: string) => {
+  // Keep explicit replacements and clears when a provider temporarily leaves
+  // the draft. Discard and a successful save end this draft's lifetime.
+  const rememberKeys = () => {
+    providerDraftKeys.current[draft.provider] = draft.apiKey;
+    if (draft.backupProvider) providerDraftKeys.current[draft.backupProvider] = draft.backupApiKey;
+  };
+  const draftKeyFor = (provider: string) => {
+    if (Object.hasOwn(providerDraftKeys.current, provider))
+      return providerDraftKeys.current[provider];
     const current = controlled ? saved : doc.data;
     if (provider === current?.provider) return current.apiKey;
     if (provider && provider === current?.backupProvider) return current.backupApiKey;
@@ -192,6 +203,7 @@ export function RatingSources({
           onChange={(e) => {
             const provider = e.currentTarget.value;
             if (provider === draft.provider) return;
+            rememberKeys();
             if (provider === draft.backupProvider) {
               set({
                 provider,
@@ -200,7 +212,7 @@ export function RatingSources({
                 backupApiKey: draft.apiKey,
               });
             } else {
-              set({ provider, apiKey: savedKeyFor(provider) });
+              set({ provider, apiKey: draftKeyFor(provider) });
             }
           }}
         >
@@ -257,8 +269,10 @@ export function RatingSources({
                 value={draft.backupProvider || ""}
                 onChange={(e) => {
                   const backupProvider = e.currentTarget.value;
-                  if (backupProvider !== draft.backupProvider)
-                    set({ backupProvider, backupApiKey: savedKeyFor(backupProvider) });
+                  if (backupProvider !== draft.backupProvider) {
+                    rememberKeys();
+                    set({ backupProvider, backupApiKey: draftKeyFor(backupProvider) });
+                  }
                 }}
               >
                 <option value="">{t("None")}</option>
