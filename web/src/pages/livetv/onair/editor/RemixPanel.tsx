@@ -35,7 +35,6 @@ import {
   type SceneBindings,
 } from "../scene-renderer";
 import { onair, type Bindings } from "../model";
-import { DescribeLook } from "../DescribeLook";
 import { LibraryPicker } from "../../library/LibraryPicker";
 
 export function styleBindings(style: Style, slots: Record<string, string> = {}): SceneBindings {
@@ -400,7 +399,6 @@ export function RemixPanel(p: {
             ))}
         </fieldset>
       ))}
-      <DescribeLook look={s} onChange={p.onChange} />
       <div className="grid grid-cols-2 gap-3">
         {s.scenes.map((scene) => (
           <button
