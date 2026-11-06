@@ -27,6 +27,38 @@ def parsed(s):
     return dt.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
 
 
+def control_summary(controls):
+    terminal_stop = bool(controls) and controls[-1].get('Kind') == 'stop'
+    stops = [attempt for attempt in controls if attempt.get('Kind') == 'stop']
+    status = stops[-1].get('Status') if stops else None
+    failed = sum(not 200 <= attempt.get('Status', 0) < 300 for attempt in controls)
+    clean = bool(controls) and failed == 0
+    return {'stopStatus': status, 'failedRequests': failed, 'requests': len(controls),
+            'stopPassed': terminal_stop and status is not None and 200 <= status < 300,
+            'allRequestsPassed': clean,
+            'passed': clean and terminal_stop and status is not None and 200 <= status < 300}
+
+
+def media_control_passed(media_passed, action_succeeded, control):
+    return bool(media_passed and action_succeeded and control['allRequestsPassed'] and control['stopPassed'])
+
+
+def sample_host_load(out):
+    begin = time.monotonic()
+    row = dict(observedAt=stamp(), logicalCPUs=os.cpu_count())
+    for name, path in [('loadavg', '/proc/loadavg'),
+                       ('cpuPressure', '/proc/pressure/cpu'),
+                       ('ioPressure', '/proc/pressure/io'),
+                       ('memoryPressure', '/proc/pressure/memory')]:
+        try:
+            row[name] = Path(path).read_text().strip()
+        except OSError:
+            row[name] = None
+    row['captureSeconds'] = time.monotonic()-begin
+    with (out/'host-load.jsonl').open('a') as log:
+        log.write(json.dumps(row)+'\n')
+
+
 def command(argv, **kw):
     child = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              start_new_session=True, **kw)
@@ -66,11 +98,14 @@ def run(c, out):
             '-rating-key', str(c['ratingKey']), '-output', str(out/'player'),
             '-session', session, '-window', f'{window}s',
             '-buffer', f"{c.get('bufferSeconds', 30)}s"]
+    argv += ['-tries', str(c.get('tries', 8)),
+             '-timeout', f"{c.get('requestTimeoutSeconds', 5)}s",
+             '-backoff', f"{c.get('backoffSeconds', 0.2)}s"]
     for key, flag in [('decisionOrigin', '-decision-origin'), ('startOrigin', '-start-origin'), ('stopOrigin', '-stop-origin'), ('tokenFile', '-token-file'), ('credentialsFile', '-credentials-file'), ('protocol', '-protocol'), ('prefix', '-prefix'), ('deviceID', '-device-id'), ('host', '-host'), ('ffmpeg', '-ffmpeg'), ('ffprobe', '-ffprobe'),
                       ('reference', '-reference'), ('producerEvidence', '-producer-evidence'), ('maxVideoBitrate', '-max-video-bitrate'), ('videoResolution', '-video-resolution')]:
         if c.get(key):
             argv += [flag, str(c[key])]
-    for key, flag in [('skipDecision', '-skip-decision'), ('directStream', '-direct-stream'), ('directPlay', '-direct-play')]:
+    for key, flag in [('reencodedAudio', '-reencoded-audio'), ('skipDecision', '-skip-decision'), ('directStream', '-direct-stream'), ('directPlay', '-direct-play')]:
         if c.get(key):
             argv += [flag]
     k = ['kubectl', '--kubeconfig', c.get('kubeconfig', ''), '--request-timeout=10s',
@@ -85,6 +120,10 @@ def run(c, out):
                   'node': pod['spec']['nodeName'], 'containers': pod['status'].get('containerStatuses', [])}
     report = dict(session=session, role=role, action=action, phase=phase,
                   startedAt=stamp(), target=target, killAt=None,
+                  hostLoadEvidence=dict(file='host-load.jsonl', nominalIntervalSeconds=1),
+                  retryPolicy=dict(maxAttempts=c.get('tries', 8),
+                                   requestTimeoutSeconds=c.get('requestTimeoutSeconds', 5),
+                                   backoffSeconds=c.get('backoffSeconds', 0.2)),
                   serverInterruptionSeconds=None, serverInterruptionVerified=False,
                   clientFirstPostLossReceiptSeconds=None, actionSucceeded=action == 'none')
     process = None
@@ -92,12 +131,16 @@ def run(c, out):
     fault_handles = []
     restoration_needed = False
     next_trigger_poll = 0.0
+    next_load_sample = 0.0
     try:
         with (out/'player.log').open('w') as log:
             process = subprocess.Popen(argv, stdout=log, stderr=log)
             deadline = time.monotonic()+window+150
             injected = action == 'none'
             while process.poll() is None and time.monotonic() < deadline:
+                if time.monotonic() >= next_load_sample:
+                    sample_host_load(out)
+                    next_load_sample = time.monotonic()+1
                 if fault_process is not None and fault_process.poll() is not None:
                     raise RuntimeError('fault wrapper exited before observation completed')
                 events = out/'player'/'events.jsonl'
@@ -159,6 +202,13 @@ def run(c, out):
                             report['target'] = target
                     report['killAt'] = stamp()
                     report['lastPreLossIndex'] = segments[-1]['Index'] if segments else None
+                    # Local monotonic ordering: this timestamp precedes dispatch,
+                    # so a same-host production timestamp yields an upper bound.
+                    (out/'fault-dispatch.json').write_text(json.dumps({
+                        'session': session, 'dispatchedAt': report['killAt'],
+                        'role': role, 'action': action,
+                        'target': target, 'targetSelection': report.get('targetSelection'),
+                        'lastClientIndex': report['lastPreLossIndex']})+'\n')
                     if action == 'force-delete':
                         options = {'apiVersion':'v1', 'kind':'DeleteOptions', 'gracePeriodSeconds':0,
                                    'preconditions':{'uid':target['uid']}}
@@ -167,11 +217,11 @@ def run(c, out):
                         result = command(k+['delete', '--raw', f"/api/v1/namespaces/{c['namespace']}/pods/{target['name']}", '-f', str(deletion)])
                     elif c.get('lossWrapperArgv'):
                         ready_file = out/'fault-ready'
-                        fault_argv = [x.replace('{readyFile}', str(ready_file)) for x in c['lossWrapperArgv']]
+                        fault_argv = [x.replace('{readyFile}', str(ready_file)).replace('{session}', session).replace('{runDir}', str(out)) for x in c['lossWrapperArgv']]
                         fault_handles = [(out/'action.stdout').open('wb'), (out/'action.stderr').open('wb')]
                         fault_process = subprocess.Popen(fault_argv, stdin=subprocess.PIPE,
                             stdout=fault_handles[0], stderr=fault_handles[1], start_new_session=True)
-                        ready_deadline = time.monotonic()+20
+                        ready_deadline = time.monotonic()+min(150, max(1, c.get('faultReadyTimeoutSeconds', 20)))
                         while not ready_file.exists() and fault_process.poll() is None and time.monotonic()<ready_deadline:
                             time.sleep(0.05)
                         if not ready_file.exists() or fault_process.poll() is not None:
@@ -199,7 +249,7 @@ def run(c, out):
             if process.poll() is None:
                 raise RuntimeError('player exceeded bounded window')
             report['playerExitCode'] = process.returncode
-    except Exception as error:
+    except (Exception, KeyboardInterrupt) as error:
         report['error'] = type(error).__name__ + ': ' + str(error)
     finally:
         if process and process.poll() is None:
@@ -234,6 +284,13 @@ def run(c, out):
                 p = {}
                 report['error'] = 'player report is unreadable'
             report['playback'] = p
+            controls = [a for a in p.get('Attempts', []) if a.get('Kind') in ('timeline', 'stop')]
+            # The client sends Stop last, after its bounded playback window.
+            report['control'] = control_summary(controls)
+            report['outcomes'] = {'mediaPassed': p.get('Outcome') == 'passed',
+                                  'controlPassed': report['control']['allRequestsPassed'],
+                                  'stopPassed': report['control']['stopPassed'],
+                                  'actionSucceeded': report['actionSucceeded']}
             kill = parsed(report['killAt']) if report['killAt'] else None
             if kill:
                 report['postLossObservationSeconds'] = max(0, parsed(p['StartedAt'])+p.get('ElapsedSeconds', 0)-kill)
@@ -262,7 +319,7 @@ def run(c, out):
                         report['serverInterruptionSeconds'] = min(parsed(r['producedAt']) for r in recovered)-kill
                         report['serverInterruptionVerified'] = True
                     report['producerEvidenceSHA256'] = hashlib.sha256(evidence.read_bytes()).hexdigest()
-            report['passed'] = (p.get('Outcome') == 'passed' and report['actionSucceeded']
+            report['passed'] = (media_control_passed(p.get('Outcome') == 'passed', report['actionSucceeded'], report['control'])
                                 and (action == 'none' or report['killAt'] is not None)
                                 and report.get('restored', True) and 'error' not in report
                                 and report.get('playerExitCode') == 0
@@ -297,6 +354,7 @@ def run(c, out):
         p = report.get('playback', {})
         text = (f"# {role} / {action} / {phase}\n\nPassed: **{report['passed']}**\n\n"
                 f"Client outcome: {p.get('Outcome', 'missing')}; stalls: {len(p.get('Stalls') or [])}; retries: {p.get('Retries', 0)}.\n\n"
+                f"Lifecycle control: {report.get('control', {})}.\n\n"
                 f"Server interruption: {report['serverInterruptionSeconds']} seconds (verified: {report['serverInterruptionVerified']}).\n\n"
                 f"First post-loss receipt: {report['clientFirstPostLossReceiptSeconds']} seconds.\n")
         (out/'report.md').write_text(text)
@@ -305,6 +363,11 @@ def run(c, out):
 
 def main():
     os.umask(0o077)
+    def interrupted(_signal, _frame):
+        # Route service-manager termination through run()'s bounded cleanup.
+        raise KeyboardInterrupt()
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--config', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)

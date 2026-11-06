@@ -27,12 +27,21 @@ received segment. `report.json` and `report.md` contain hashes, byte counts,
 latency, retries, buffer samples, stalls and shared `internal/splicecheck`
 results. Status zero means a transport failure before an HTTP response.
 First-byte latency is measured with `httptrace`, not response completion.
+The CLI also writes mode0600 `http-*.private.json` and `.body` snapshots for
+playlists and failed requests, capped at64KiB per body. Credential headers are
+redacted; private URLs and playlist bodies can contain read capabilities.
+`-private-http=false` disables these snapshots. Public reports omit URLs.
 Playback begins when the startup buffer reaches the target (default 30s).
 Thereafter buffer consumption uses monotonic elapsed time, including blocked
 requests and exponential retry sleeps. The bounded window includes startup;
 choose a window longer than startup plus the desired steady-state observation.
 Terminal request failure continues consuming the buffer until the window ends,
 so an outage longer than the remaining buffer is measured as a stall.
+An unrecoverable failure before startup returns immediately because playback
+has no forward buffer to consume.
+No further media requests are sent after retry exhaustion. That stall is the
+configured client's outcome; it does not establish how long the server remained
+unavailable after the last attempt.
 
 The current player supports clear MPEG-TS HLS. Encrypted, discontinuous,
 byte-range and fMP4 playlists fail explicitly. The shared checker also supports
@@ -69,6 +78,24 @@ Example private configuration (paths and target pod are lab-specific):
   "bufferSeconds": 30
 }
 ```
+
+Optional `tries` (default 8), `requestTimeoutSeconds` (5) and `backoffSeconds`
+(0.2, exponential with a 16× cap) configure the client retry policy. The runner
+records that policy. `control` reports the final Stop status and all failed
+lifecycle requests separately. Overall acceptance requires a successful final
+Stop; transient periodic progress failures remain visible in `failedRequests`
+and `allRequestsPassed`. Media continuity alone cannot certify session cleanup.
+
+`fault-dispatch.json` records the session, local time before action dispatch and
+immutable target inventory. A trusted post-check can use this time with a
+replacement production event on the same host clock to establish a conservative
+interruption upper bound; client receipt time is still reported separately.
+
+The runner samples its own Linux host's load average and CPU, I/O and memory
+pressure into `host-load.jsonl` at a nominal one-second interval. Each row has
+its capture time and read duration. Missing `/proc` counters are null. Sampling
+pauses during bounded fault-adapter calls; these readings describe the runner
+host and do not reconstruct earlier load or remote worker load.
 
 Force-delete pins the inspected pod UID in a Kubernetes DeleteOptions precondition;
 it cannot delete a replacement by reusing its name. Other actions (`pause`,
@@ -197,13 +224,10 @@ contain credentials, queries, fragments or path prefixes. Reports mark
 `ControlOriginsPinned` so this diagnostic placement is distinguishable from
 ordinary ingress load balancing.
 
-A coordinated supervised encoder run may supply a unique `session` and
-`steadySeconds` (default10). The latter schedules loss after that much actual
-playback time following startup buffering. For a 180s fixture, a 170s window
-with `steadySeconds: 60` leaves approximately90s after the fault; report the
-actual timestamps and generation boundary rather than assuming that entire
-tail was produced by the replacement. Verify hardware placement and the live
-encoder before invoking a native supervisor's exact-process kill hook.
+A coordinated run may supply a unique `session`. Clock-based CPU cases can
+use `steadySeconds` (default10) after startup buffering. Native hardware loss
+uses the observed-state gate below; elapsed time cannot establish that its
+encoder is alive or that output remains to be regenerated.
 
 ## Encoder-state loss and independent recovery proof
 
@@ -235,3 +259,16 @@ production interruption and client receipt latency, and must be below the
 configured buffer. For example, kill-dispatch to the first verified CPU segment
 ready on the same measured host clock is a conservative upper bound; do not
 substitute a startup/RPC acknowledgement or a fabricated production timestamp.
+
+The same client also accepts `-protocol emby -prefix /emby`, declares an Emby
+client identity and authenticates against that independent MediaBrowser surface.
+Jellyfin and Emby use separate credentials/grants, references and output
+artifacts; neither result is inferred from the other surface's success.
+
+Native conditional fault dispatch uses `native_fault.arm`: bind the fresh trigger
+observation and startup identity, retain the accepted or rejected observation,
+and enqueue a single request without a second encoder-state network read. The
+native supervisor must still perform its fresh retained-handle, restart-boundary
+and authored-timeline checks immediately before killing the owned process. An
+armed request is not proof that a fault occurred; acceptance requires the final
+native fault/cleanup proof and new-generation client tail.
