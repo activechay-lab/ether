@@ -32,7 +32,7 @@ func (a trackedAuthority) Verify(ctx context.Context, peer nodesource.Peer, cred
 }
 func (r *Runtime) acquireSource(ctx context.Context, scope nodesource.Scope) (nodesource.Hold, error) {
 	r.mu.Lock()
-	source := r.sources[sourceKey(scope.Fence)]
+	source := r.sources[sourceKey(scope.Fence, scope.SourceGeneration)]
 	if source == nil || source.binding || source.retiring || scope != scopeForRoute(source.route) {
 		r.mu.Unlock()
 		return nodesource.Hold{}, ErrDenied

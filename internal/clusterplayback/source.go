@@ -167,7 +167,7 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 		return deny()
 	}
 	r.mu.Lock()
-	s := r.sources[sourceKey(f)]
+	s := r.sources[sourceKey(f, rt.SourceGeneration)]
 	closed := r.closed
 	r.mu.Unlock()
 	if m.Op == "bind" {
@@ -185,7 +185,7 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 				return deny()
 			}
 		}
-		if s = r.sources[sourceKey(f)]; s != nil {
+		if s = r.sources[sourceKey(f, rt.SourceGeneration)]; s != nil {
 			if s.route != rt || s.retiring || s.binding || s.handle.Value() == "" {
 				r.mu.Unlock()
 				return deny()
@@ -199,7 +199,7 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 			return deny()
 		}
 		s = &ownedSource{route: rt, playID: rt.PlayID, binding: true}
-		r.sources[sourceKey(f)] = s
+		r.sources[sourceKey(f, rt.SourceGeneration)] = s
 		r.mu.Unlock()
 		defer func() { r.mu.Lock(); s.binding = false; r.mu.Unlock() }()
 		if rt.SourceGeneration == 0 {
@@ -249,8 +249,8 @@ func (r *Runtime) sourceOperation(ctx context.Context, peer nodewire.Identity, m
 		}
 		candidate := &ownedSource{route: rt, life: life, playID: rt.PlayID, size: size}
 		r.mu.Lock()
-		if s = r.sources[sourceKey(f)]; s == nil && len(r.sources) < r.o.HistoryCapacity {
-			r.sources[sourceKey(f)] = candidate
+		if s = r.sources[sourceKey(f, rt.SourceGeneration)]; s == nil && len(r.sources) < r.o.HistoryCapacity {
+			r.sources[sourceKey(f, rt.SourceGeneration)] = candidate
 			s = candidate
 		}
 		r.mu.Unlock()
@@ -426,6 +426,8 @@ func randomToken() (string, error) {
 
 var _ = placement.ErrFenced
 
-func sourceKey(f placement.Fence) string {
-	return f.Session + "/" + strconv.FormatInt(f.Generation, 10)
+// Each source move retains an independent binding even when it revisits the
+// same source boot. Execution identity alone would alias the old grant/lifetime.
+func sourceKey(f placement.Fence, sourceGeneration uint64) string {
+	return f.Session + "/" + strconv.FormatInt(f.Generation, 10) + "/" + strconv.FormatUint(sourceGeneration, 10)
 }

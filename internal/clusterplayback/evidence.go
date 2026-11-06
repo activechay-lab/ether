@@ -122,7 +122,7 @@ func (r *Runtime) evidenceOperation(ctx context.Context, peer nodewire.Identity,
 			return evidenceReply{}, ErrDenied
 		}
 		r.mu.Lock()
-		source := r.sources[sourceKey(q.Fence)]
+		source := r.sources[sourceKey(q.Fence, route.SourceGeneration)]
 		if source == nil || source.route != route || !source.sealed || !source.retiring || source.binding || source.issuing || source.operations != 0 || source.life == nil || source.size <= 0 {
 			r.mu.Unlock()
 			return evidenceReply{}, ErrPending

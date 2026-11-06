@@ -741,6 +741,16 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	return result
 }
 func (r *Runtime) retire(ctx context.Context, x *execution) error {
+	// Source handovers preserve the execution fence but change the source
+	// PlayID/binding used by terminal evidence. Keep the initial admission
+	// immutable and collect receipts against the current durable source route.
+	current, err := r.route(ctx, x.route.Fence.Session)
+	if err != nil || current.Fence != x.route.Fence {
+		return ErrPending
+	}
+	view := *x
+	view.route = current
+	x = &view
 	if retired, e := r.retainedReceipt(ctx, x.route); e != nil {
 		return e
 	} else if retired {

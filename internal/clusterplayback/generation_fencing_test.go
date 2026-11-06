@@ -180,7 +180,7 @@ func TestPartitionedGenerationCannotPublishRenewOrReleaseReplacement(t *testing.
 		t.Fatal("playlist did not enter")
 	}
 	input := worker.inputs[id].input
-	grant := source.sources[sourceKey(rec.Fence)].grant
+	grant := source.sources[sourceKey(rec.Fence, route.SourceGeneration)].grant
 	// Commit a replacement generation without claiming the old process has died.
 	if _, err = db.ExecContext(ctx, `UPDATE placement_sessions SET generation=generation+1,operation='replacement' WHERE session=?`, rec.Session); err != nil {
 		t.Fatal(err)
@@ -233,7 +233,7 @@ func TestPartitionedGenerationCannotPublishRenewOrReleaseReplacement(t *testing.
 	if sourceResponse.StatusCode != 403 {
 		t.Fatal("source server accepted stale grant", sourceResponse.StatusCode)
 	}
-	if _, err = source.authority.Renew(ctx, source.sources[sourceKey(rec.Fence)].handle, grant, grant.Expires.Add(time.Second)); err == nil {
+	if _, err = source.authority.Renew(ctx, source.sources[sourceKey(rec.Fence, route.SourceGeneration)].handle, grant, grant.Expires.Add(time.Second)); err == nil {
 		t.Fatal("stale source renewal")
 	}
 	raw, _, err := input.GatewayInput(id, bound.Stable)
