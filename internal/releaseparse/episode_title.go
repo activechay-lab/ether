@@ -73,6 +73,9 @@ func EpisodeTitleMatches(name, want string) bool {
 		loc = reBareEpisode.FindStringIndex(spaced)
 	}
 	if loc == nil {
+		loc = reSpanishEpisode.FindStringIndex(spaced)
+	}
+	if loc == nil {
 		if loc = reMiniseriesPart.FindStringIndex(spaced); loc != nil {
 			usedMiniseriesPart = true
 		}
@@ -83,7 +86,8 @@ func EpisodeTitleMatches(name, want string) bool {
 	tail := strings.Trim(spaced[loc[1]:], " -")
 	var words []string
 	boundary := false
-	for _, w := range strings.Fields(tail) {
+	tailWords := strings.Fields(tail)
+	for i, w := range tailWords {
 		u := strings.ToUpper(strings.Trim(w, "-"))
 		base := strings.SplitN(u, "-", 2)[0]
 		technical := false
@@ -99,13 +103,16 @@ func EpisodeTitleMatches(name, want string) bool {
 				break
 			}
 		}
+		if shortLanguageName(u) != "" && reAudioAfterLanguage.MatchString(" "+strings.Join(tailWords[i+1:], " ")) {
+			technical = true
+		}
 		switch u {
 		case "AAC", "AC3", "EAC3", "DDP", "DDP5", "DTS", "TRUEHD", "MP3", "FLAC", "OPUS",
 			"READNFO", "UNCENSORED", "EXTENDED", "WS", "FS", "NTSC", "PAL",
 			// Release tags that can precede the resolution; they are not
 			// episode title words ("Show.S01E01.DV.2160p.WEB").
 			"DV", "DOVI", "HDR10PLUS", "SDR", "HYBRID", "RERIP", "REAL", "10BIT", "DUAL", "DL",
-			"AMZN", "NF", "DSNP", "HMAX", "ATVP", "PCOK", "HULU", "UNCUT", "REMASTERED", "IMAX":
+			"AMZN", "NF", "DSNP", "HMAX", "ATVP", "APTV", "APTV+", "PCOK", "HULU", "UNCUT", "REMASTERED", "IMAX":
 			technical = true
 		}
 		if technical {
@@ -174,6 +181,9 @@ func EpisodeSeriesYear(name string, parsedYear int) int {
 	}
 	if loc == nil {
 		loc = reXEpisode.FindStringIndex(spaced)
+	}
+	if loc == nil {
+		loc = reSpanishEpisode.FindStringIndex(spaced)
 	}
 	if loc == nil {
 		loc = reSeasonOnly.FindStringIndex(spaced)
