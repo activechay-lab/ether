@@ -1,0 +1,42 @@
+# Isolated lab; two replicas per specialist, spread across schedulable nodes.
+image:
+  repository: ether035-multihost
+  tag: MUST-SET-REVIEWED-SHA
+  pullPolicy: Never
+runtime:
+  clockBoundKnown: true
+  clockSkewMillis: 1000
+  ledgerCapacity: 1000000
+secrets:
+  database: {existingSecret: ether-db}
+  cluster: {existingSecret: ether-cluster}
+  authority: {existingSecret: ether-authority}
+pools:
+  full: {replicas: 0}
+  server: {replicas: 2, bootstrap: true}
+  source: {replicas: 2, bootstrap: false}
+  transcode:
+    replicas: 2
+    bootstrap: false
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: '1', memory: 512Mi}
+  delivery: {replicas: 2, bootstrap: false}
+nodeSelector: {ether.lab/workload: 'true'}
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels: {app.kubernetes.io/instance: ether035-mh}
+data: {size: 256Mi}
+cache: {size: 256Mi}
+scratch: {sizeLimit: 512Mi}
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {cpu: '1', memory: 384Mi}
+ingress:
+  enabled: true
+  canonicalHLSLabOnly: true
+  annotations: {kubernetes.io/ingress.class: ether035-ha}
+  hosts: [ether035-roles.test]
