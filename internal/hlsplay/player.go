@@ -26,6 +26,7 @@ type Config struct {
 	Protocol, Prefix, CredentialsFile, DeviceID                     string
 	DirectPlay, DirectStream                                        bool
 	SkipDecision                                                    bool
+	PrivateHTTP                                                     bool
 	MaxVideoBitrate                                                 int
 	VideoResolution                                                 string
 	ProducerEvidence                                                string
@@ -184,8 +185,14 @@ func (p *player) request(ctx context.Context, raw, kind string, index int, retry
 		a.SHA256 = hex.EncodeToString(sum[:])
 		p.mu.Lock()
 		p.attempts = append(p.attempts, a)
+		ordinal := len(p.attempts)
 		p.mu.Unlock()
 		p.event(a)
+		if p.c.PrivateHTTP && (kind == "master" || kind == "variant" || a.Status >= 400 || a.Error != "") {
+			if e := p.savePrivateHTTP(ordinal, a, req, resp, data); e != nil {
+				return nil, fmt.Errorf("save private HTTP evidence: %w", e)
+			}
+		}
 		if err == nil && (a.Status == 200 || method == "POST" && a.Status == 204) {
 			return data, nil
 		}
@@ -199,6 +206,38 @@ func (p *player) request(ctx context.Context, raw, kind string, index int, retry
 		}
 	}
 	return nil, fmt.Errorf("request exhausted")
+}
+
+func (p *player) savePrivateHTTP(ordinal int, a Attempt, req *http.Request, resp *http.Response, body []byte) error {
+	redacted := func(h http.Header) http.Header {
+		copy := h.Clone()
+		for _, name := range []string{"Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "X-Plex-Token", "X-Emby-Token", "X-Emby-Authorization"} {
+			if _, ok := copy[http.CanonicalHeaderKey(name)]; ok {
+				copy.Set(name, "[redacted]")
+			}
+		}
+		return copy
+	}
+	meta := struct {
+		Attempt         Attempt
+		URL, Method     string
+		Host            string
+		RequestHeaders  http.Header
+		ResponseHeaders http.Header
+		BodyTruncated   bool
+	}{Attempt: a, URL: req.URL.String(), Method: req.Method, Host: req.Host, RequestHeaders: redacted(req.Header), BodyTruncated: len(body) > 64<<10}
+	if resp != nil {
+		meta.ResponseHeaders = redacted(resp.Header)
+	}
+	encoded, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	base := filepath.Join(p.c.Output, fmt.Sprintf("http-%06d-%s.private", ordinal, a.Kind))
+	if err = os.WriteFile(base+".json", append(encoded, '\n'), 0600); err != nil {
+		return err
+	}
+	return os.WriteFile(base+".body", body[:min(len(body), 64<<10)], 0600)
 }
 func sleep(ctx context.Context, d time.Duration) bool {
 	t := time.NewTimer(d)
@@ -494,7 +533,7 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	}
 	// Continue consuming the forward buffer after terminal fetch exhaustion so the
 	// report measures whether an outage actually reaches the client's playhead.
-	for err != nil && runCtx.Err() == nil {
+	for err != nil && b.Started && runCtx.Err() == nil {
 		b.Advance(min(p.elapsed(), c.Window.Seconds()))
 		r.Buffer = append(r.Buffer, Sample{p.elapsed(), b.Level, b.Played})
 		sleep(runCtx, 100*time.Millisecond)

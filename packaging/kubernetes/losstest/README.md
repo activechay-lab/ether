@@ -27,12 +27,18 @@ received segment. `report.json` and `report.md` contain hashes, byte counts,
 latency, retries, buffer samples, stalls and shared `internal/splicecheck`
 results. Status zero means a transport failure before an HTTP response.
 First-byte latency is measured with `httptrace`, not response completion.
+The CLI also writes mode0600 `http-*.private.json` and `.body` snapshots for
+playlists and failed requests, capped at64KiB per body. Credential headers are
+redacted; private URLs and playlist bodies can contain read capabilities.
+`-private-http=false` disables these snapshots. Public reports omit URLs.
 Playback begins when the startup buffer reaches the target (default 30s).
 Thereafter buffer consumption uses monotonic elapsed time, including blocked
 requests and exponential retry sleeps. The bounded window includes startup;
 choose a window longer than startup plus the desired steady-state observation.
 Terminal request failure continues consuming the buffer until the window ends,
 so an outage longer than the remaining buffer is measured as a stall.
+An unrecoverable failure before startup returns immediately because playback
+has no forward buffer to consume.
 No further media requests are sent after retry exhaustion. That stall is the
 configured client's outcome; it does not establish how long the server remained
 unavailable after the last attempt.

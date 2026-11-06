@@ -34,6 +34,7 @@ func main() {
 	flag.StringVar(&reference, "reference", "", "prior no-loss report.json for exact audio AU comparison")
 	flag.StringVar(&c.ProducerEvidence, "producer-evidence", "", "trusted observer JSON array of session/segmentIndex/generation rows")
 	flag.BoolVar(&c.SkipDecision, "skip-decision", false, "diagnostic only: omit decision preflight (cannot pass acceptance)")
+	flag.BoolVar(&c.PrivateHTTP, "private-http", true, "retain playlists and failed HTTP bodies privately, capped at 64 KiB each")
 	flag.IntVar(&c.MaxVideoBitrate, "max-video-bitrate", 0, "optional client maxVideoBitrate (kbps)")
 	flag.StringVar(&c.VideoResolution, "video-resolution", "", "optional client videoResolution")
 	flag.BoolVar(&c.DirectStream, "direct-stream", false, "allow direct stream in client decision")
