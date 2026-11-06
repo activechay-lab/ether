@@ -27,6 +27,22 @@ def parsed(s):
     return dt.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
 
 
+def sample_host_load(out):
+    begin = time.monotonic()
+    row = dict(observedAt=stamp(), logicalCPUs=os.cpu_count())
+    for name, path in [('loadavg', '/proc/loadavg'),
+                       ('cpuPressure', '/proc/pressure/cpu'),
+                       ('ioPressure', '/proc/pressure/io'),
+                       ('memoryPressure', '/proc/pressure/memory')]:
+        try:
+            row[name] = Path(path).read_text().strip()
+        except OSError:
+            row[name] = None
+    row['captureSeconds'] = time.monotonic()-begin
+    with (out/'host-load.jsonl').open('a') as log:
+        log.write(json.dumps(row)+'\n')
+
+
 def command(argv, **kw):
     child = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              start_new_session=True, **kw)
@@ -88,6 +104,7 @@ def run(c, out):
                   'node': pod['spec']['nodeName'], 'containers': pod['status'].get('containerStatuses', [])}
     report = dict(session=session, role=role, action=action, phase=phase,
                   startedAt=stamp(), target=target, killAt=None,
+                  hostLoadEvidence=dict(file='host-load.jsonl', nominalIntervalSeconds=1),
                   retryPolicy=dict(maxAttempts=c.get('tries', 8),
                                    requestTimeoutSeconds=c.get('requestTimeoutSeconds', 5),
                                    backoffSeconds=c.get('backoffSeconds', 0.2)),
@@ -98,12 +115,16 @@ def run(c, out):
     fault_handles = []
     restoration_needed = False
     next_trigger_poll = 0.0
+    next_load_sample = 0.0
     try:
         with (out/'player.log').open('w') as log:
             process = subprocess.Popen(argv, stdout=log, stderr=log)
             deadline = time.monotonic()+window+150
             injected = action == 'none'
             while process.poll() is None and time.monotonic() < deadline:
+                if time.monotonic() >= next_load_sample:
+                    sample_host_load(out)
+                    next_load_sample = time.monotonic()+1
                 if fault_process is not None and fault_process.poll() is not None:
                     raise RuntimeError('fault wrapper exited before observation completed')
                 events = out/'player'/'events.jsonl'

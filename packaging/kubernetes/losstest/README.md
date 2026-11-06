@@ -85,6 +85,12 @@ immutable target inventory. A trusted post-check can use this time with a
 replacement production event on the same host clock to establish a conservative
 interruption upper bound; client receipt time is still reported separately.
 
+The runner samples its own Linux host's load average and CPU, I/O and memory
+pressure into `host-load.jsonl` at a nominal one-second interval. Each row has
+its capture time and read duration. Missing `/proc` counters are null. Sampling
+pauses during bounded fault-adapter calls; these readings describe the runner
+host and do not reconstruct earlier load or remote worker load.
+
 Force-delete pins the inspected pod UID in a Kubernetes DeleteOptions precondition;
 it cannot delete a replacement by reusing its name. Other actions (`pause`,
 `partition`, `container-kill`, `host-stop`) require `lossArgv` and `restoreArgv`
