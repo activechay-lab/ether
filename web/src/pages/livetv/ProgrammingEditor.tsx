@@ -854,12 +854,21 @@ function Breaks({
     };
   }, []);
   const set = (p: Partial<ChannelLook>) => onChange({ ...lookDefault(), ...value, ...p });
+  // Match naturalBreakPolicy: legacy inside pods use natural points even without
+  // an explicit placement or the separate breaks flag. Derive only; do not migrate.
+  const naturalBreaks =
+    !!value?.breakPattern?.inside && (!value.breakPlacement || value.breakPlacement === "natural");
+  const placement = naturalBreaks
+    ? "natural"
+    : value?.breaks
+      ? value.breakPlacement || "between"
+      : "off";
   return (
     <div className="space-y-3" id="channel-breaks">
       <Field label={t("Break placement")}>
         <Select
           aria-label={t("Break placement")}
-          value={value?.breaks ? value.breakPlacement || "between" : "off"}
+          value={placement}
           onChange={(e) => {
             const p = e.currentTarget.value;
             set({
@@ -881,7 +890,7 @@ function Breaks({
           <option value="even">{t("Evenly spaced")}</option>
         </Select>
       </Field>
-      {value?.breakPlacement === "natural" && (
+      {naturalBreaks && (
         <p className="text-xs text-fg-muted">
           {t(
             "Experimental: Ether looks for each episode's original act breaks in the background. Until it finds them, breaks fall between programmes.",
