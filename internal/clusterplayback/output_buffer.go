@@ -131,7 +131,15 @@ func (s *bufferedSession) ServeRungSegment(w http.ResponseWriter, q *http.Reques
 }
 
 func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n int, serve func(http.ResponseWriter, *http.Request) remotetranscode.RepresentationCompletion) {
-	w = s.r.fencedDelivery(w, q, s.route)
+	retained := false
+	guarded := s.r.fencedDeliveryResolved(w, q, s.route, func() (Route, error) {
+		if !retained {
+			return s.route, nil
+		}
+		return s.retainedDeliveryRoute(q.Context(), n)
+	})
+	defer guarded.Close()
+	w = guarded
 	// Conditional and partial requests keep the exact upstream semantics. A 206,
 	// HEAD, or even a Range request answered 200 is not capture admission.
 	if n < 0 || n > 10000000 || q.Method != http.MethodGet || q.Header.Get("Range") != "" ||
@@ -164,6 +172,7 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 				http.Error(w, "execution stopped", http.StatusGone)
 				return
 			}
+			retained = true
 			s.access.Store(time.Now().UnixNano())
 			for name, values := range headers {
 				w.Header()[name] = values
@@ -381,4 +390,14 @@ func (s *bufferedSession) allowedFence(f placement.Fence, n int) bool {
 		current = x.replacement.route.Fence
 	}
 	return current == f && s.allowedExecution(x, n)
+}
+
+// Historical immutable bytes are authorized by their published prefix, while
+// the writer is fenced by the currently authoritative execution generation.
+func (s *bufferedSession) retainedDeliveryRoute(ctx context.Context, n int) (Route, error) {
+	current, err := s.r.route(ctx, s.route.Fence.Session)
+	if err != nil || current.Viewer != s.route.Viewer || current.Revision != s.route.Revision || !s.allowedFence(current.Fence, n) {
+		return Route{}, ErrDenied
+	}
+	return current, nil
 }

@@ -91,8 +91,9 @@ func (a *App) prepareDeployment(ctx context.Context) error {
 		}
 		_ = json.NewEncoder(w).Encode(struct {
 			Accepting bool                   `json:"accepting"`
+			Reason    string                 `json:"reason,omitempty"`
 			Ledger    *placement.QuotaStatus `json:"ledger,omitempty"`
-		}{a.privateAdmissionReady(), p.quotaStatus()})
+		}{a.privateAdmissionReady(), a.privateAdmissionReason(), p.quotaStatus()})
 	})
 	p.probes = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	p.probeListener, err = net.Listen("tcp", d.ProbeListen)

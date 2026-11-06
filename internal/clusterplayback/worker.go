@@ -55,6 +55,9 @@ func (r *Runtime) authorizeWorker(ctx context.Context, peer, op string, id remot
 	if op == "stop" || op == "status" {
 		return nil
 	}
+	if (op == "start" || op == "renew") && !r.clockReady() {
+		return ErrDenied
+	}
 	if op == "start" && start != nil {
 		if start.Resume != nil && start.Resume.Generation != id.Generation {
 			return ErrDenied
@@ -112,7 +115,7 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 	if e != nil {
 		return remotetranscode.Source{}, e
 	}
-	gateway, e := nodeinput.New(nodeinput.Options{ValidateScope: func(ctx context.Context, scope nodesource.Scope) error {
+	gateway, e := nodeinput.New(nodeinput.Options{WatchAuthority: r.watchAuthority, ValidateScope: func(ctx context.Context, scope nodesource.Scope) error {
 		current, err := r.route(ctx, s.Identity.Session)
 		if err != nil || scope.Fence != rt.Fence || scope != scopeForRoute(current) {
 			return ErrDenied
@@ -193,6 +196,9 @@ func (r *Runtime) renewInput(ctx context.Context, peer string, s remotetranscode
 	})
 	if e != nil {
 		return remotetranscode.RenewalReceipt{}, e
+	}
+	if !r.clockReady() {
+		return remotetranscode.RenewalReceipt{}, ErrDenied
 	}
 	return remotetranscode.RenewalReceipt{Renewal: n, PlacementUntil: rec.Deadline.Add(-r.o.ClockSkew), SourceUntil: evidence.SourceUntil.Add(-r.o.ClockSkew)}, nil
 }

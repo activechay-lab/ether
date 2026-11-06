@@ -35,6 +35,9 @@ func (r *Runtime) probeEncoder(ctx context.Context, x *execution) error {
 }
 
 func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
+	if !r.clockReady() {
+		return ErrDenied
+	}
 	coordinator, err := r.CurrentCoordinator(ctx, old.route.Fence.Session)
 	if err != nil || coordinator.Identity != r.o.Self || coordinator.Epoch > 0 && !coordinator.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
 		return ErrDenied
@@ -96,6 +99,9 @@ func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
 }
 
 func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
+	if !r.clockReady() {
+		return ErrDenied
+	}
 	coordinator, err := r.CurrentCoordinator(ctx, x.route.Fence.Session)
 	if err != nil || coordinator.Identity != r.o.Self || coordinator.Epoch > 0 && !coordinator.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
 		return ErrDenied
@@ -213,6 +219,7 @@ func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
 		}
 		return err
 	}
+	r.routeChanged(ctx, route.Fence.Session)
 	if snapshot.State.Generation != uint64(route.Fence.Generation) {
 		err = r.o.OutputBuffer.AdvanceGeneration(old.Fence.Session, snapshot.State, uint64(route.Fence.Generation))
 	}
@@ -251,6 +258,9 @@ func (r *Runtime) startReplacement(ctx context.Context, x *execution) error {
 	r.mu.Unlock()
 	if stopping {
 		return ErrPending
+	}
+	if !r.clockReady() {
+		return ErrDenied
 	}
 	if next.adapter == nil {
 		bound, err := r.sourceCall(ctx, route, sourceRequest{Op: "bind"})

@@ -20,7 +20,7 @@ func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
 		return nil
 	}
 	verifier := clusterplayback.NewVerifier()
-	ledger, err := placement.New(a.db, placement.Options{MaxSessions: p.settings.LedgerCapacity, MaxLease: 10 * time.Minute, LockTimeout: 3 * time.Second}, verifier)
+	ledger, err := placement.New(a.db, placement.Options{AuthorityReady: a.privateClockReady, MaxSessions: p.settings.LedgerCapacity, MaxLease: 10 * time.Minute, LockTimeout: 3 * time.Second}, verifier)
 	if err != nil {
 		return err
 	}
@@ -28,7 +28,7 @@ func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
 		return err
 	}
 	self := a.cluster.Self()
-	o := clusterplayback.Options{DB: a.db, Guard: p.guard, Self: nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: self.ID, Boot: self.Incarnation}, Roles: p.settings.Roles, Placement: ledger, Endpoint: a.privateEndpoint, MemberRole: a.privateMemberRole, Eligible: a.privateEligible, Capacity: p.settings.Capacity, ClockSkew: time.Duration(p.settings.ClockSkewMillis) * time.Millisecond, ClockBoundKnown: p.settings.ClockBoundKnown}
+	o := clusterplayback.Options{ClockReady: a.privateClockReady, Bus: a.clusterNode(), DB: a.db, Guard: p.guard, Self: nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: self.ID, Boot: self.Incarnation}, Roles: p.settings.Roles, Placement: ledger, Endpoint: a.privateEndpoint, MemberRole: a.privateMemberRole, Eligible: a.privateEligible, Capacity: p.settings.Capacity, ClockSkew: time.Duration(p.settings.ClockSkewMillis) * time.Millisecond, ClockBoundKnown: p.settings.ClockBoundKnown}
 	o.EncoderRPCDeadline = time.Duration(p.settings.EncoderRPCDeadlineMillis) * time.Millisecond
 	o.EncoderFailureGrace = time.Duration(p.settings.EncoderFailureGraceMillis) * time.Millisecond
 	o.EncoderSegmentWait = time.Duration(p.settings.EncoderSegmentWaitMillis) * time.Millisecond
@@ -103,6 +103,12 @@ func (a *App) privateEligible(ctx context.Context, id nodewire.Identity, role co
 	if err != nil {
 		return err
 	}
+	if n.Caps.Diagnostics != nil && n.Caps.Diagnostics.Clock != nil && !n.Caps.Diagnostics.Clock.Ready {
+		return nodewire.ErrDenied
+	}
+	if id.NodeID == a.cluster.Self().ID && !a.privateClockReady() {
+		return nodewire.ErrDenied
+	}
 	if n.Draining || id.NodeID == a.cluster.Self().ID && a.nodeDraining() || !n.Caps.Roles.Has(role) || role == config.RoleTranscode && (!n.Caps.Transcode || n.Caps.Roles.FullServer()) || !n.RemoteCompatible(1) {
 		return nodewire.ErrDenied
 	}
@@ -126,7 +132,7 @@ func (a *App) reconcilePrivatePlacement(ctx context.Context, observation *privat
 	}
 	var roles config.NodeRoles
 	scopes := map[config.NodeRole][]string{}
-	if p.settings.Roles.Has(config.RoleTranscode) && !p.settings.Roles.FullServer() && !a.nodeDraining() && p.playback.Ready() && p.quotaOpen.Load() {
+	if p.settings.Roles.Has(config.RoleTranscode) && !p.settings.Roles.FullServer() && !a.nodeDraining() && p.playback.Ready() && p.quotaOpen.Load() && a.privateClockReady() {
 		scope := p.settings.ResourceScope
 		if scope == "" {
 			scope = "node:" + self.ID
