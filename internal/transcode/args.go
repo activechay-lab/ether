@@ -477,7 +477,10 @@ func buildCodecArgs(s runSpec) []string {
 				if len(inputTimestampArgs(s)) > 0 {
 					dropAt = secs(s.Start)
 					if lead := hlsRestartLead(s); lead > 0 {
-						dropAt = strconv.FormatFloat((s.Start - lead).Seconds(), 'f', 9, 64)
+						dropAt = strconv.FormatFloat(hlsGridVideoStart(s, hlsOutputFPS(s))-lead.Seconds(), 'f', 9, 64)
+					}
+					if cutoff, ok := hlsFMP4AudioCut(s); ok {
+						dropAt = strconv.FormatFloat(cutoff, 'f', 9, 64)
 					}
 				}
 				audioFilters = append(audioFilters, "noise=amount=0:drop='lt(pts*tb,"+dropAt+")'")
@@ -564,21 +567,66 @@ func hlsRestartLead(s runSpec) time.Duration {
 	if enc != "libx264" {
 		return 0
 	}
-	fps := v.FrameRate
-	// FFmpeg's HLS output defaults to CFR at the demuxer reference rate.
-	// avg_frame_rate describes a VFR source, not the encoder clock.
-	if v.ReferenceFrameRate != nil && *v.ReferenceFrameRate >= 1 {
-		fps = *v.ReferenceFrameRate
+	fps := hlsOutputFPS(s)
+	if fps <= 0 {
+		return 0
 	}
+	_, _, _, delay := x264FramePlan(s)
+	return time.Duration(math.Round(float64(delay) / fps * float64(time.Second)))
+}
+
+// The HLS cut compares audio DTS with video DTS, biased by audio_preload.
+// Retain exactly the AUs the initial run put after that cut. In particular,
+// ceil-to-microsecond preload can put an AU exactly on the nominal boundary
+// in the preceding fragment; dropping only pts < Start would duplicate it.
+func hlsFMP4AudioCut(s runSpec) (float64, bool) {
+	if s.Start <= 0 || s.LiveInput || s.Decision.Container != ContainerFMP4 || s.Decision.VideoCopy || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP {
+		return 0, false
+	}
+	v := s.Info.Video()
+	if v == nil || v.FrameRate < 1 {
+		return 0, false
+	}
+	enc, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features)
+	if enc != "libx264" {
+		return 0, false
+	}
+	fps := hlsOutputFPS(s)
+	if fps <= 0 {
+		return 0, false
+	}
+	_, _, _, delay := x264FramePlan(s)
+	preload := 0.0
+	if !v.VariableFrameRate {
+		preload = math.Ceil(2_000_000/v.FrameRate) / 1_000_000
+	}
+	return hlsGridVideoStart(s, fps) + preload - float64(delay)/fps, true
+}
+
+// FFmpeg's HLS CFR output clock uses the reference (nominal) demuxer rate,
+// not a VFR source's average rate. Negotiated -r takes precedence.
+func hlsOutputFPS(s runSpec) float64 {
+	v := s.Info.Video()
+	if v == nil {
+		return 0
+	}
+	fps := v.FrameRate
 	if v.VariableFrameRate && v.ReferenceFrameRate == nil {
 		return 0
 	}
-
-	_, _, _, delay := x264FramePlan(s)
+	if v.ReferenceFrameRate != nil && *v.ReferenceFrameRate >= 1 {
+		fps = *v.ReferenceFrameRate
+	}
 	if s.Decision.H264Level > 0 && s.Decision.H264FrameRate > 0 {
 		fps = s.Decision.H264FrameRate
 	}
-	return time.Duration(math.Round(float64(delay) / fps * float64(time.Second)))
+	return fps
+}
+
+// Fractional rates put the first frame at or after the authored boundary.
+// Audio must follow that actual video cut, not an integer-second approximation.
+func hlsGridVideoStart(s runSpec, fps float64) float64 {
+	return math.Ceil(s.Start.Seconds()*fps-1e-7) / fps
 }
 
 // x264FramePlan is the single decision for preset, B-frame limit, pyramid and
