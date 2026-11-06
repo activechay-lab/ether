@@ -178,4 +178,72 @@ func TestSequentialCrossReplicaCapacityRetirement(t *testing.T) {
 		}
 		t.Logf("session %d retired; full capacity restored; backend and input joined", n)
 	}
+	// Crash before Stop: lose all coordinator memory and both exact worker/source
+	// incarnations. Age, absence and worker replacement alone retain the charge.
+	prepared, err := owner.PrepareSource(ctx, sourceID, PrepareRequest{Operation: "crash-prepare", Viewer: 9, Key: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "crash-client"}, Protocol: "hls"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := "crash-before-stop"
+	if _, err = owner.StartPreparedHLS(ctx, 9, prepared, core.HLSRequest{SessionID: id, Info: prepared.Info, Decision: core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, SubtitleStream: -1}}); err != nil {
+		t.Fatal(err)
+	}
+	route, err := owner.route(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Explicitly join fake backend work before simulating dead process memory.
+	_ = worker.Close()
+	_ = manager.Close()
+	owner.mu.Lock()
+	delete(owner.executions, id)
+	owner.mu.Unlock()
+	delete(endpoints, workerID)
+	delete(endpoints, sourceID)
+	if _, err = db.ExecContext(ctx, `UPDATE placement_sessions SET deadline=1 WHERE session=?`, id); err != nil {
+		t.Fatal(err)
+	}
+	assertHeld := func() {
+		t.Helper()
+		_ = owner.reconcileBootRetirements(ctx)
+		rec, err := ledger.Lookup(ctx, id)
+		if err != nil || rec.Retired {
+			t.Fatalf("absence/expiry freed claim: %+v %v", rec, err)
+		}
+	}
+	assertHeld()
+	nextWorker := placement.Target{NodeID: workerID.NodeID, Boot: "replacement-worker-boot"}
+	if err = ledger.SetTarget(ctx, nextWorker, config.NodeRoles{config.RoleTranscode}, map[config.NodeRole][]string{config.RoleTranscode: {"plex-worker"}}); err != nil {
+		t.Fatal(err)
+	}
+	assertHeld() // source outcome remains independently required
+	nextSource := nodewire.Identity{Cluster: sourceID.Cluster, NodeID: sourceID.NodeID, Boot: "replacement-source-boot"}
+	if _, err = db.ExecContext(ctx, `INSERT INTO cluster_nodes(id,incarnation,started_at,last_seen) VALUES(?,?,?,?)`, nextSource.NodeID, nextSource.Boot, time.Now().UnixMilli(), time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	owner.o.MemberRole = func(ctx context.Context, id nodewire.Identity, role config.NodeRole) error {
+		if id == nextSource {
+			return ErrDenied
+		}
+		return nil
+	}
+	assertHeld() // a replacement row without authenticated membership is insufficient
+	owner.o.MemberRole = eligible
+	if err = owner.reconcileBootRetirements(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := ledger.Lookup(ctx, id)
+	if err != nil || !rec.Retired {
+		t.Fatalf("authenticated new boots retained claim: %+v %v", rec, err)
+	}
+	h, err := owner.readOperationGate(ctx, operationKey{sourceID.Cluster, id, route.Fence.Generation})
+	if err != nil || h.Gate.Seal == nil || h.Gate.Seal.Reason != sealAuthorityLoss {
+		t.Fatalf("dead boot gate unsealed: %+v %v", h, err)
+	}
+	var claims int
+	if err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM placement_claims`).Scan(&claims); err != nil || claims != 0 {
+		t.Fatalf("dead boot claim leaked: %d %v", claims, err)
+	}
+	t.Log("crash before Stop: timeout/absence/unauthenticated boots retained claim; authenticated worker+source replacements sealed gate and restored full capacity")
+
 }

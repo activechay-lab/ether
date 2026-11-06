@@ -449,5 +449,5 @@ func (r *Runtime) reconcileBootRetirements(ctx context.Context) error {
 			}
 		}
 	}
-	return nil
+	return r.reconcileOrdinaryBootRetirements(ctx)
 }

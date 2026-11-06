@@ -668,6 +668,11 @@ func (r *Runtime) retire(ctx context.Context, x *execution) error {
 	return r.retireWithEvidence(ctx, x.route, "clusterplayback/exact-retirement")
 }
 func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
+	if route, err := r.route(ctx, f.Session); err == nil && route.Fence == f && r.retiredWorkerBoot(ctx, f) == nil {
+		if err := r.sourcesAfterWorkerBoot(ctx, route, "status"); err == nil {
+			return nil
+		}
+	}
 	var displacedRaw string
 	if err := r.o.DB.QueryRowContext(ctx, `SELECT record FROM placement_displaced WHERE session=? AND generation=?`, f.Session, f.Generation).Scan(&displacedRaw); err == nil {
 		var old placement.Record

@@ -357,3 +357,12 @@ only through the existing exact encoder/input/source retirement verifier or
 receipt. A cancellation seal alone never frees a claim. Worker status also seals
 its gateway when the backend retires itself (for example on idle timeout); remux
 coordinators reconcile that status even without an encoder recovery probe.
+
+Ordinary reservations also reconcile after authenticated worker boot replacement
+or explicit exact-boot operator removal. The operation gate is sealed first;
+every current/prior source must separately prove boot replacement/removal or
+exact joined retirement. The placement verifier repeats the proof before the
+full-fence transaction releases capacity. Expiry, missing membership and an
+unauthenticated replacement row retain the claim. Boot-based retirement logs
+the session, generation and exact old worker/source identities and does not
+fabricate a terminal receipt for history compaction.
