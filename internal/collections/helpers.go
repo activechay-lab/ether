@@ -64,7 +64,7 @@ func (s *Service) Facets(ctx context.Context, t core.MediaType, facet string) ([
 	switch facet {
 	case "language":
 		return s.languageFacet(ctx, t)
-	case "genre", "decade", "contentRating", "studio", "country", "year":
+	case "genre", "decade", "contentRating", "studio", "country", "year", "tag":
 	default:
 		return nil, &ValidationError{Fields: map[string]string{"facet": "facet is genre, decade, contentRating, studio, country or language"}}
 	}
@@ -223,4 +223,37 @@ func (s *Service) TitlesByIMDB(ctx context.Context, ids []string) []core.Title {
 		}
 	}
 	return out
+}
+
+// ConsoleFacets serves cached counts and schedules cold/generation refreshes.
+func (s *Service) ConsoleFacets(ctx context.Context, typ core.MediaType, facet string) ([]core.FacetValue, bool, error) {
+	if c, ok := s.cat.(interface {
+		ConsoleFacets(context.Context, core.MediaType, string) ([]core.FacetValue, bool, error)
+	}); ok {
+		vals, pending, err := c.ConsoleFacets(ctx, typ, facet)
+		for i := range vals {
+			if facet == "language" {
+				vals[i].Title = languageName(vals[i].Key)
+			}
+			if facet == "decade" {
+				vals[i].Title = vals[i].Key + "s"
+			}
+			if facet == "country" {
+				if name, ok := countryNames[strings.ToUpper(vals[i].Key)]; ok {
+					vals[i].Title = name
+				}
+			}
+		}
+		return vals, pending, err
+	}
+	return []core.FacetValue{}, false, nil
+}
+
+func (s *Service) ConsoleCount(ctx context.Context, f core.Filter) (int, bool, error) {
+	if c, ok := s.cat.(interface {
+		ConsoleCount(context.Context, core.Filter) (int, bool, error)
+	}); ok {
+		return c.ConsoleCount(ctx, f)
+	}
+	return 0, false, nil
 }

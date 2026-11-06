@@ -1,3 +1,5 @@
+import { interpretDemo } from "./catalogInterpret";
+import { matchesCatalogFilter } from "./catalogFilter";
 import { createOnAirMock } from "./onair";
 /**
  * In-memory fake of the Ether admin API. Used by `vite --mode mock` and by the
@@ -582,6 +584,10 @@ function durationMs(w: string): number {
 export function createFakeServer(opts: FakeOptions = {}) {
   const catalog = buildCatalog();
   const byKey = new Map(catalog.map((t) => [t.key, t]));
+  const ownerTags = new Map<string, string[]>();
+  const watchlistChanges = new Map<string, boolean>();
+  const savedForViewer = (viewerId: number, key: string) =>
+    watchlistChanges.get(`${viewerId}:${key}`) ?? Number(key.slice(-2)) % 4 === 0;
   const releaseConsole = createReleaseConsoleMock(catalog);
   const trash = createTrashMock();
   const maintenance = createMaintenance();
@@ -2391,7 +2397,18 @@ export function createFakeServer(opts: FakeOptions = {}) {
       return json(servers);
     }
     if (p === "/discovery/settings") return json({ enabled: true });
-    if (seg[0] === "discovery" && seg[1] === "users") return json([]);
+    if (seg[0] === "discovery" && seg[1] === "users") {
+      const viewer = Number(seg[2]);
+      if (seg[3] === "membership" && method === "POST") {
+        const keys = (body as { keys?: string[] }).keys || [];
+        return json(Object.fromEntries(keys.map((key) => [key, savedForViewer(viewer, key)])));
+      }
+      if (seg[3] === "catalog" && seg[4] && (method === "PUT" || method === "DELETE")) {
+        watchlistChanges.set(`${viewer}:${decodeURIComponent(seg[4])}`, method === "PUT");
+        return json({ traktFailed: false });
+      }
+      return json([]);
+    }
     if (seg[0] === "viewers" && seg[2] === "favorite-episode-alert") return json({ enabled: true });
 
     if (p === "/users/local" && method === "POST") {
@@ -3429,8 +3446,15 @@ export function createFakeServer(opts: FakeOptions = {}) {
           shown: shown.slice(0, 48).map(card),
         });
       }
+      case "GET /catalog/interpret":
+        return json({ enabled: Boolean(state.config.llm.enabled && state.config.llm.model) });
+      case "POST /catalog/interpret":
+        return state.config.llm.enabled
+          ? json({ chips: interpretDemo((body as { text: string }).text || "") })
+          : err(501, "not_configured", "AI filters are unavailable");
       case "GET /catalog/browse": {
         const needle = (q.get("q") ?? "").toLowerCase();
+        const advanced = JSON.parse(q.get("filter") || "{}");
         const type = q.get("type");
         const genre = q.get("genre");
         const decade = q.get("decade");
@@ -3443,27 +3467,50 @@ export function createFakeServer(opts: FakeOptions = {}) {
             (!ruleVisibility ||
               hiddenByRules(t, ruleGroups, q.get("ruleFallback") ?? "show") ===
                 (ruleVisibility === "hidden")) &&
+            matchesCatalogFilter(t, advanced, ownerTags, savedForViewer) &&
             t.title.toLowerCase().includes(needle) &&
             (!type || t.type === type) &&
             (!waiting || t.type === "movie") &&
             (!genre || t.genres?.includes(genre)) &&
             (!decade || decadeOf(t.year) === decade),
         );
-        items.sort((a, b) =>
-          sort === "title"
+        const compare = (a: FakeTitle, b: FakeTitle, field: string) =>
+          field === "title"
             ? a.title.localeCompare(b.title)
-            : sort === "rating"
-              ? (b.rating ?? 0) - (a.rating ?? 0)
-              : sort === "released"
-                ? b.released.localeCompare(a.released)
-                : sort === "added"
-                  ? b.addedAt.localeCompare(a.addedAt)
-                  : b.popularity - a.popularity,
+            : field === "year"
+              ? (a.year || 0) - (b.year || 0)
+              : field === "duration"
+                ? (a.runtimeMinutes || 0) - (b.runtimeMinutes || 0)
+                : field === "rating"
+                  ? (a.rating || 0) - (b.rating || 0)
+                  : field === "released"
+                    ? a.released.localeCompare(b.released)
+                    : field === "added"
+                      ? a.addedAt.localeCompare(b.addedAt)
+                      : a.popularity - b.popularity;
+        const desc = q.has("desc") ? q.get("desc") === "1" : sort !== "title";
+        const secondary = q.get("secondarySort");
+        items.sort(
+          (a, b) =>
+            compare(a, b, sort || "popularity") * (desc ? -1 : 1) ||
+            (secondary
+              ? compare(a, b, secondary) * (q.get("secondaryDesc") === "1" ? -1 : 1)
+              : 0) ||
+            a.key.localeCompare(b.key),
         );
-        const offset = Number(q.get("offset") ?? 0);
+        const after = q.get("after");
+        const offset = after
+          ? Math.max(0, items.findIndex((item) => item.key === after) + 1)
+          : Number(q.get("offset") ?? 0);
+        const limit = Number(q.get("limit") ?? 48);
+        const page = items.slice(offset, offset + limit);
+        const hasMore = offset + limit < items.length;
         return json({
-          items: items.slice(offset, offset + Number(q.get("limit") ?? 48)).map(card),
+          items: page.map(card),
           total: items.length,
+          totalExact: true,
+          hasMore,
+          nextCursor: hasMore ? page.at(-1)?.key : "",
         });
       }
       case "GET /catalog/search": {
@@ -3506,19 +3553,21 @@ export function createFakeServer(opts: FakeOptions = {}) {
         const counts = new Map<string, number>();
         for (const t of pool) {
           const vals =
-            facet === "genre"
-              ? (t.genres ?? [])
-              : facet === "decade"
-                ? [decadeOf(t.year)]
-                : facet === "contentRating"
-                  ? [t.contentRating ?? ""]
-                  : facet === "country"
-                    ? [t.country]
-                    : facet === "language"
-                      ? [t.language]
-                      : facet === "studio"
-                        ? [String(t.studio)]
-                        : [];
+            facet === "tag"
+              ? ownerTags.get(t.key) || []
+              : facet === "genre"
+                ? (t.genres ?? [])
+                : facet === "decade"
+                  ? [decadeOf(t.year)]
+                  : facet === "contentRating"
+                    ? [t.contentRating ?? ""]
+                    : facet === "country"
+                      ? [t.country]
+                      : facet === "language"
+                        ? [t.language]
+                        : facet === "studio"
+                          ? [String(t.studio)]
+                          : [];
           for (const v of vals) if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
         }
         const title = (k: string) =>
@@ -3761,6 +3810,17 @@ export function createFakeServer(opts: FakeOptions = {}) {
       const followed = t ? null : calendar.title(decodeURIComponent(seg[2]));
       if (followed) return json(followed);
       if (!t) return err(404, "not_found", "no such title");
+      if (seg[3] === "tags") {
+        if (method === "PUT")
+          ownerTags.set(t.key, [
+            ...new Set(
+              ((body as { tags: string[] }).tags || [])
+                .map((tag) => tag.trim().toLowerCase())
+                .filter(Boolean),
+            ),
+          ]);
+        return json({ tags: ownerTags.get(t.key) || [] });
+      }
       return json({
         ...card(t),
         cast: t.people.map((id) => PEOPLE.find((p) => p.id === id)).filter(Boolean),

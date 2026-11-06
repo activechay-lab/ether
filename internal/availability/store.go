@@ -135,9 +135,19 @@ func (s *Service) remember(ctx context.Context, f core.ReleaseFeed, t core.Title
  next_check=CASE WHEN availability_releases.generation<>excluded.generation THEN 0 ELSE availability_releases.next_check END,
  state=CASE WHEN availability_releases.generation<>excluded.generation THEN 'observed' ELSE availability_releases.state END,
  generation=excluded.generation`, r.ID, t.Key, f.ID, f.Generation, raw, t.Title, r.Name, r.Protocol, now, now, t.Popularity, policy, releasePolicyDigest(r))
+	if err == nil {
+		s.publishConsoleEvidence(ctx, t.Key, r, f.ID, policy, -1)
+	}
 	return err
 }
 func (s *Service) prune(ctx context.Context) error {
+	if c, ok := s.d.Catalog.(interface {
+		PruneConsoleReleaseEvidence(context.Context, int64) error
+	}); ok {
+		if err := c.PruneConsoleReleaseEvidence(ctx, s.now().Unix()); err != nil {
+			s.log.Debug("prune catalogue release evidence", "error", err)
+		}
+	}
 	cutoff := s.retentionCutoff().Unix()
 	var hasExpiredFeedItems bool
 	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM availability_feed_items WHERE seen_at<?)`, cutoff).Scan(&hasExpiredFeedItems); err != nil {
