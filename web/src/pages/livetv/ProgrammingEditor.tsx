@@ -858,11 +858,14 @@ function Breaks({
   // an explicit placement or the separate breaks flag. Derive only; do not migrate.
   const naturalBreaks =
     !!value?.breakPattern?.inside && (!value.breakPlacement || value.breakPlacement === "natural");
+  const evenBreaks = !!value?.breakPattern?.inside && value.breakPlacement === "even";
   const placement = naturalBreaks
     ? "natural"
-    : value?.breaks
-      ? value.breakPlacement || "between"
-      : "off";
+    : evenBreaks
+      ? "even"
+      : value?.breaks
+        ? value.breakPlacement || "between"
+        : "off";
   return (
     <div className="space-y-3" id="channel-breaks">
       <Field label={t("Break placement")}>
@@ -897,7 +900,7 @@ function Breaks({
           )}
         </p>
       )}
-      {value?.breaks && (
+      {value && placement !== "off" && (
         <>
           <Badge>
             {tn(detected, "{count} detected break point", "{count} detected break points")}
@@ -907,7 +910,7 @@ function Breaks({
             onChange={(breakPattern) =>
               set({
                 breakPattern: breakPattern
-                  ? { ...breakPattern, inside: value.breaks === "inside" }
+                  ? { ...breakPattern, inside: placement === "natural" || placement === "even" }
                   : undefined,
               })
             }
