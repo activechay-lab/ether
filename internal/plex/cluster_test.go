@@ -68,8 +68,12 @@ func TestClusterHeartbeatPreservesBrokerSessions(t *testing.T) {
 	for _, row := range []struct {
 		id, node string
 		updated  int64
-	}{{"broker-local", "a", now}, {"broker-stale", "other", now - int64((11*time.Minute)/time.Millisecond)}} {
-		if _, err := a.srv.cl.db.ExecContext(ctx, `INSERT INTO plex_sessions(id,node_id,user_id,session_key,data,updated_at,protocol) VALUES(?,?,?,?,?,?,?)`, row.id, row.node, 1, 123, `{}`, row.updated, "jellyfin"); err != nil {
+	}{{"broker-local", "a", now}, {"broker-stale", "other", now - int64((11*time.Minute)/time.Millisecond)}, {"plex-broker-local", "a", now}, {"plex-broker-stale", "other", now - int64((11*time.Minute)/time.Millisecond)}} {
+		protocol := "jellyfin"
+		if strings.HasPrefix(row.id, "plex-") {
+			protocol = "plex"
+		}
+		if _, err := a.srv.cl.db.ExecContext(ctx, `INSERT INTO plex_sessions(id,node_id,user_id,session_key,data,updated_at,protocol,surface) VALUES(?,?,?,?,?,?,?,?)`, row.id, row.node, 1, 123, `{}`, row.updated, protocol, protocol); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -77,7 +81,7 @@ func TestClusterHeartbeatPreservesBrokerSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := a.srv.cl.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM plex_sessions WHERE protocol='jellyfin'`).Scan(&count); err != nil || count != 2 {
+	if err := a.srv.cl.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM plex_sessions WHERE surface IS NOT NULL`).Scan(&count); err != nil || count != 4 {
 		t.Fatalf("heartbeat removed broker sessions: count=%d err=%v", count, err)
 	}
 }

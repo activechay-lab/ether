@@ -2,47 +2,46 @@ package clusterplayback
 
 import (
 	"context"
+	"fmt"
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodewire"
-	"time"
 )
 
+var errPreparationCoordinator = fmt.Errorf("%w: preparation coordinator", ErrDenied)
+
 // A source manager deliberately deduplicates a viewer/device/title lifetime.
-// A new coordinator reuses that exact protected lifetime rather than opening a
-// second preparation or reclaiming it when the old controller disappears.
-func (r *Runtime) transferPreparation(ctx context.Context, peer nodewire.Identity, q PrepareRequest, key string, hash [32]byte, previous *preparation) (sourceResponse, error) {
-	r.mu.Lock()
-	var bound *ownedSource
-	for _, source := range r.sources {
-		if source.life == previous.life && source.route.PlayID == previous.result.PlayID && !source.retiring {
-			bound = source
-			break
-		}
-	}
-	finished := previous.finished && !previous.retiring && !previous.running
-	r.mu.Unlock()
-	if !finished || bound == nil || previous.peer == peer {
-		return sourceResponse{}, ErrPending
-	}
-	route, err := r.route(ctx, bound.route.Fence.Session)
-	if err != nil || route != bound.route {
-		return sourceResponse{}, ErrPending
-	}
-	c, err := r.CurrentCoordinator(ctx, route.Fence.Session)
-	if err != nil || c.Identity != peer || c.Epoch <= 1 || !c.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
+// Frontends share that exact protected lifetime while retaining separate,
+// immutable operation identities and retirement obligations.
+func (r *Runtime) sharePreparation(ctx context.Context, peer nodewire.Identity, q PrepareRequest, key string, hash [32]byte, previous *preparation) (sourceResponse, error) {
+	// A preparation is a source responsibility, not execution authority. Each
+	// authenticated frontend gets an immutable operation alias for the same
+	// lifetime; placement and coordinator fencing still guard execution.
+	viewer, err := r.o.ActiveViewer(ctx, q.Viewer)
+	if err != nil || viewer == nil || viewer.ID != q.Viewer {
 		return sourceResponse{}, ErrDenied
 	}
-	record, err := r.o.Placement.Lookup(ctx, route.Fence.Session)
-	if err != nil || record.Fence != route.Fence || record.Retired || !record.Authority {
+	r.mu.Lock()
+	if r.closed || previous.retiring || !previous.finished || previous.running || r.preparations[key] != nil || len(r.preparations) >= r.o.HistoryCapacity {
+		r.mu.Unlock()
+		return sourceResponse{}, ErrPending
+	}
+	previous.operations++
+	result := previous.result
+	r.mu.Unlock()
+	defer func() { r.mu.Lock(); previous.operations--; r.mu.Unlock() }()
+	ps, ok := r.o.Playback.Session(result.PlayID)
+	if !ok || ps == nil || ps.UserID != q.Viewer || ps.ClientID != q.Caps.ClientID || ps.Key != q.Key || core.SourceRevision(ps) != result.Revision || r.o.SourcePolicy(ctx, viewer, ps) != nil {
 		return sourceResponse{}, ErrDenied
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.closed || previous.retiring || !previous.finished || bound.retiring || r.preparations[key] != nil || len(r.preparations) >= r.o.HistoryCapacity {
+	if r.closed || previous.retiring || r.preparations[key] != nil || len(r.preparations) >= r.o.HistoryCapacity {
 		return sourceResponse{}, ErrPending
 	}
 	copy := *previous
 	copy.peer, copy.request, copy.hash = peer, q, hash
 	copy.operations = 0
+	copy.activityVersion = new(uint64)
 	r.preparations[key] = &copy
 	return sourceResponse{Prepared: copy.result}, nil
 }
@@ -76,7 +75,7 @@ func (r *Runtime) preparationController(ctx context.Context, peer nodewire.Ident
 			return err
 		}
 		if c.Identity != peer {
-			return ErrDenied
+			return errPreparationCoordinator
 		}
 		if retiring && !bound.retiring {
 			return ErrPending
