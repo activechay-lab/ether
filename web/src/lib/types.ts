@@ -1040,9 +1040,12 @@ export interface ClusterConsole {
   truncated: boolean;
   assignments: {
     playback?: {
+      protocol?: string;
+      decision?: string;
+      videoCopy?: boolean;
+      audioCopy?: boolean;
       title?: string;
       titleKey?: string;
-      poster?: string;
       viewer?: string;
       device?: string;
       app?: string;
@@ -1050,12 +1053,13 @@ export interface ClusterConsole {
       bitrateKbps?: number;
     };
     sessionId: string;
+    playId?: string;
+    encoder?: string;
     sourceNodeId?: string;
     encoderNodeId: string;
     controllerNodeId: string;
     deliveryNodeId?: string;
     generation: number;
-    movedAt?: string;
   }[];
   events: {
     sessionId: string;

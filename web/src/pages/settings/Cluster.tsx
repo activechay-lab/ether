@@ -19,10 +19,11 @@ import {
 } from "@braedonsaunders/appkit-ui";
 import { Copy, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
 import { Field, Segmented } from "../../components/fields";
-import { ClusterPlayback } from "./ClusterPlayback";
+import { ClusterRecovery } from "./ClusterRecovery";
 import { ClusterSetup } from "./ClusterSetup";
 import { Section } from "../../components/layout";
 import { SettingsRow } from "../../components/SettingsRow";
@@ -247,7 +248,11 @@ function copyToken(text: string) {
 export function ClusterOverview() {
   const status = useAsync((signal) => api.clusterStatus(signal), []);
   const clustered = isClustered(status.data);
-  const [tab, setTab] = useState("overview");
+  const [params, setParams] = useSearchParams();
+  const tab = ["nodes", "recovery", "tokens"].includes(params.get("tab") ?? "")
+    ? params.get("tab")!
+    : "overview";
+  const setTab = (next: string) => setParams({ tab: next });
   const [, tick] = useState(0);
   useInterval(() => tick((n) => n + 1), 1000);
   const [addingNode, setAddingNode] = useState(false);
@@ -296,15 +301,14 @@ export function ClusterOverview() {
         tabs={[
           { key: "overview", label: t("Overview") },
           { key: "nodes", label: t("Nodes") },
-          { key: "playback", label: t("Playback") },
           { key: "recovery", label: t("Recovery history") },
           { key: "tokens", label: t("Join tokens") },
         ]}
       />
       {tab === "overview" ? (
         <FleetOverview status={s} cached={cached} />
-      ) : tab === "playback" || tab === "recovery" ? (
-        <ClusterPlayback status={s} recovery={tab === "recovery"} />
+      ) : tab === "recovery" ? (
+        <ClusterRecovery status={s} />
       ) : (
         <div className="min-h-0 flex-1 space-y-4 overflow-auto">
           {tab === "nodes" ? (

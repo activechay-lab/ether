@@ -75,8 +75,7 @@ func (f *consoleGallery) Assignments(context.Context) ([]clusterplayback.Assignm
 	if f.scenario == "empty" {
 		return []clusterplayback.Assignment{}, nil
 	}
-	at := time.Now().Add(-37 * time.Second)
-	return []clusterplayback.Assignment{{Playback: &clusterplayback.PlaybackDisplay{Title: "Arrival (2016)", Poster: "/fixture/posters/arrival.jpg", Viewer: "Alex", Device: "Living room Apple TV", App: "Plex for Apple TV", Video: "H.264 1080p", BitrateKbps: 8000}, SessionID: "living-room-movie", SourceNodeID: "source", EncoderNodeID: "transcode", ControllerNodeID: "server", Generation: 3, MovedAt: &at}, {Playback: &clusterplayback.PlaybackDisplay{Title: "Dune: Part Two (2024)", Poster: "/fixture/posters/dune.jpg", Viewer: "Jamie", Device: "iPad", App: "Plex for iOS", Video: "H.264 720p", BitrateKbps: 4000}, SessionID: "bedroom-episode", SourceNodeID: "source", EncoderNodeID: "transcode", ControllerNodeID: "server", Generation: 1}}, nil
+	return []clusterplayback.Assignment{{Playback: &clusterplayback.PlaybackDisplay{Title: "Arrival (2016)", Viewer: "Alex", Device: "Living room Apple TV", App: "Plex for Apple TV", Video: "H.264 1080p", BitrateKbps: 8000}, SessionID: "living-room-movie", SourceNodeID: "source", EncoderNodeID: "transcode", ControllerNodeID: "server", Generation: 3}, {Playback: &clusterplayback.PlaybackDisplay{Title: "Dune: Part Two (2024)", Viewer: "Jamie", Device: "iPad", App: "Plex for iOS", Video: "H.264 720p", BitrateKbps: 4000}, SessionID: "bedroom-episode", SourceNodeID: "source", EncoderNodeID: "transcode", ControllerNodeID: "server", Generation: 1}}, nil
 }
 func (f *consoleGallery) RecoveryEvents(context.Context, int) ([]clusterplayback.RecoveryEvent, error) {
 	f.mu.Lock()

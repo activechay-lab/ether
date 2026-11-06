@@ -106,7 +106,7 @@ func clusterPlaybackDisplayJSON(raw string) *clusterplayback.PlaybackDisplay {
 		return nil
 	}
 	source, decision := snapshot.Source, snapshot.Binding.Decision
-	d := &clusterplayback.PlaybackDisplay{Title: source.TitleName, Viewer: source.Username, Device: source.Client.DeviceName, App: source.Client.Product, BitrateKbps: decision.BitrateKbps}
+	d := &clusterplayback.PlaybackDisplay{Protocol: string(source.Client.Protocol), Decision: decision.Kind, VideoCopy: decision.VideoCopy, AudioCopy: decision.AudioCopy, Title: source.TitleName, Viewer: source.Username, Device: source.Client.DeviceName, App: source.Client.Product, BitrateKbps: decision.BitrateKbps}
 	key := source.Key
 	if key == 0 {
 		key = snapshot.Binding.Key

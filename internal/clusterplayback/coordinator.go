@@ -128,7 +128,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	if e == nil {
 		expected = old.Generation
 	}
-	target, claims, capabilities, e := r.selectTarget(ctx, q, prepared.Owner)
+	target, claims, capabilities, encoder, e := r.selectTarget(ctx, q, prepared.Owner)
 	if e != nil {
 		return nil, e
 	}
@@ -139,7 +139,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	request := placement.Request{Session: q.SessionID, Operation: operation, ExpectedGeneration: expected, Controller: placement.Controller{ID: r.o.Self.NodeID, Boot: r.o.Self.Boot}, Target: target, Role: config.RoleTranscode, Claims: claims, Lease: 2 * time.Minute}
 	r.mu.Lock()
 	x.request = request
-	x.route = Route{Fence: placement.Fence{Session: q.SessionID, Generation: expected + 1, Controller: request.Controller, Target: target}, Source: prepared.Owner, Viewer: viewer, PlayID: playID, Revision: revision}
+	x.route = Route{Fence: placement.Fence{Session: q.SessionID, Generation: expected + 1, Controller: request.Controller, Target: target}, Source: prepared.Owner, Viewer: viewer, PlayID: playID, Revision: revision, Encoder: encoder}
 	x.reservePending = true
 	r.mu.Unlock()
 	rec, e := r.o.Placement.Reserve(ctx, request)
@@ -152,7 +152,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		}
 		return nil, e
 	}
-	rt := Route{Fence: rec.Fence, Source: prepared.Owner, Viewer: viewer, PlayID: playID, Revision: revision}
+	rt := Route{Fence: rec.Fence, Source: prepared.Owner, Viewer: viewer, PlayID: playID, Revision: revision, Encoder: encoder}
 	r.mu.Lock()
 	x.route = rt
 	x.reserved = true
@@ -221,13 +221,13 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 	}
 	return hs, nil
 }
-func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
+func (r *Runtime) selectTarget(ctx context.Context, q core.HLSRequest, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, string, error) {
 	return r.selectTargetExcept(ctx, q, "", source)
 }
-func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exclude string, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, error) {
+func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exclude string, source nodewire.Identity) (placement.Target, []placement.Claim, remotetranscode.Capabilities, string, error) {
 	rows, e := r.o.DB.QueryContext(ctx, `SELECT node,boot,roles,scopes FROM placement_targets ORDER BY node LIMIT 4096`)
 	if e != nil {
-		return placement.Target{}, nil, remotetranscode.Capabilities{}, e
+		return placement.Target{}, nil, remotetranscode.Capabilities{}, "", e
 	}
 	type candidate struct {
 		target                placement.Target
@@ -238,19 +238,20 @@ func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exc
 		var c candidate
 		if e = rows.Scan(&c.target.NodeID, &c.target.Boot, &c.rolesJSON, &c.scopesJSON); e != nil {
 			rows.Close()
-			return placement.Target{}, nil, remotetranscode.Capabilities{}, e
+			return placement.Target{}, nil, remotetranscode.Capabilities{}, "", e
 		}
 		candidates = append(candidates, c)
 	}
 	err := rows.Err()
 	rows.Close()
 	if err != nil {
-		return placement.Target{}, nil, remotetranscode.Capabilities{}, err
+		return placement.Target{}, nil, remotetranscode.Capabilities{}, "", err
 	}
 	failure := &SelectionError{}
 	var bestTarget placement.Target
 	var bestClaims []placement.Claim
 	var bestCaps remotetranscode.Capabilities
+	var bestEncoder string
 	var bestScore transcodeTargetScore
 	chosen := false
 	for _, candidate := range candidates {
@@ -312,12 +313,16 @@ func (r *Runtime) selectTargetExcept(ctx context.Context, q core.HLSRequest, exc
 		score := transcodeTargetScore{hardware: hardwareEncoder != "" && !q.Decision.VideoCopy && q.Info.Video() != nil, spare: spare, local: target.NodeID == source.NodeID && target.Boot == source.Boot, target: target}
 		if !chosen || score.betterThan(bestScore) {
 			bestTarget, bestClaims, bestCaps, bestScore, chosen = target, claims, caps, score, true
+			bestEncoder = "cpu"
+			if score.hardware {
+				bestEncoder = hardwareEncoder
+			}
 		}
 	}
 	if chosen {
-		return bestTarget, bestClaims, bestCaps, nil
+		return bestTarget, bestClaims, bestCaps, bestEncoder, nil
 	}
-	return placement.Target{}, nil, remotetranscode.Capabilities{}, failure
+	return placement.Target{}, nil, remotetranscode.Capabilities{}, "", failure
 }
 
 // Eligibility and exact-plan support are hard gates. Scores rank only admitted
