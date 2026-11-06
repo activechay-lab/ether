@@ -2,6 +2,7 @@ import { nameTemplateScenes } from "./editor/scene-names";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Popover } from "@braedonsaunders/appkit-ui";
 import { useLocation, useSearchParams } from "react-router-dom";
+import { SubtabNav } from "../../../components/layout";
 import { Drawer } from "../../../components/Drawer";
 import { t, tn } from "../../../i18n";
 import { tv, type ChannelSummary } from "../model";
@@ -10,7 +11,6 @@ import { studio, type Style, type Template } from "./studio-model";
 import { StyleThumbnail } from "./editor/RemixPanel";
 import { LookDrawer } from "./LookDrawer";
 import { ReelDrawer } from "./ReelDrawer";
-import { ScreensDefaults } from "./ScreensDefaults";
 import { MoreHorizontal, Copy, Download, Trash2, Upload, Play, ArrowUpRight } from "lucide-react";
 import { apiBlob, errorMessage } from "../../../lib/api";
 export function useLooks() {
@@ -125,13 +125,10 @@ export function LooksAside({
 export function LooksGallery({
   looks,
   onSelect,
-  showOwned = true,
 }: {
   looks: Style[];
   onNew(): void;
   onSelect(id: string): void;
-  /** False when the Live TV lineup panel already lists the owner's styles. */
-  showOwned?: boolean;
 }) {
   const templates = useTemplates(),
     slots = useSlots(),
@@ -145,6 +142,10 @@ export function LooksGallery({
   useEffect(() => {
     void tv.channelSummaries().then(setChannels);
   }, []);
+  const [params, setParams] = useSearchParams();
+  const owned = looks.filter((l) => !deleted.includes(l.id));
+  // Owners with styles land on their styles; a fresh install lands on templates.
+  const view = params.get("view") ?? (owned.length ? "yours" : "make");
   const create = async (style: Style) => {
     setWorking(true);
     setError("");
@@ -180,14 +181,55 @@ export function LooksGallery({
           {error}
         </p>
       ) : null}
-      {showOwned ? (
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <SubtabNav
+          ariaLabel={t("Styles")}
+          active={view}
+          onSelect={(next) =>
+            setParams((p) => {
+              p.set("view", next);
+              return p;
+            })
+          }
+          tabs={[
+            { key: "yours", label: t("Your styles") },
+            { key: "make", label: t("Make it yours") },
+          ]}
+        />
+        <div className="flex gap-2">
+          <Button variant="outline" disabled={working} onClick={() => file.current?.click()}>
+            <Upload size={16} />
+            {t("Import pack")}
+          </Button>
+          <Button disabled={working} onClick={() => void create(blankStyle())}>
+            {t("Start from blank")}
+          </Button>
+        </div>
+      </div>
+      {view === "yours" ? (
         <section className="space-y-6">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">{t("Your styles")}</h2>
-            <p className="mt-2 text-sm text-fg-muted">
-              {t("Your channel identities, ready for their next moment on air.")}
-            </p>
-          </div>
+          <p className="text-sm text-fg-muted">
+            {t("Your channel identities, ready for their next moment on air.")}
+          </p>
+          {owned.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border p-10 text-center">
+              <p className="font-medium">{t("No styles yet")}</p>
+              <p className="mt-1 text-sm text-fg-muted">
+                {t("Start from a template and make it yours in a minute.")}
+              </p>
+              <Button
+                className="mt-4"
+                onClick={() =>
+                  setParams((p) => {
+                    p.set("view", "make");
+                    return p;
+                  })
+                }
+              >
+                {t("Browse templates")}
+              </Button>
+            </div>
+          ) : null}
           <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {looks
               .filter((l) => !deleted.includes(l.id))
@@ -280,93 +322,81 @@ export function LooksGallery({
               ))}
           </div>
         </section>
-      ) : null}
-      <section className="space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">{t("Make it yours")}</h2>
-            <p className="mt-2 text-sm text-fg-muted">
+      ) : (
+        <section className="space-y-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <p className="text-sm text-fg-muted">
               {t("Choose an era. Set the mood. Make every frame your own.")}
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" disabled={working} onClick={() => file.current?.click()}>
-              <Upload size={16} />
-              {t("Import pack")}
-            </Button>
-            <Button disabled={working} onClick={() => void create(blankStyle())}>
-              {t("Start from blank")}
-            </Button>
+          <input
+            ref={file}
+            hidden
+            type="file"
+            accept=".etherpkg"
+            onChange={async (e) => {
+              const selected = e.target.files?.[0];
+              e.target.value = "";
+              if (!selected) return;
+              setWorking(true);
+              try {
+                const saved = await studio.importPack(selected);
+                onSelect(saved.id);
+              } catch (err) {
+                setError(errorMessage(err));
+              } finally {
+                setWorking(false);
+              }
+            }}
+          />
+          <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+            {templates.map((template) => (
+              <article
+                key={template.id}
+                className="group overflow-hidden rounded-2xl border border-border bg-surface"
+              >
+                <div className="relative">
+                  <StyleThumbnail style={template.style} slots={slots} />
+                  <span className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
+                    <Play size={12} />
+                    {t("Hover to play")}
+                  </span>
+                </div>
+                <div className="space-y-4 p-5">
+                  <div className="flex flex-wrap gap-2">
+                    {templateTags(template.id, template.tags).map((tag) => (
+                      <Badge key={tag}>{t(tag)}</Badge>
+                    ))}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold">{template.name}</h3>
+                    <p className="mt-2 min-h-12 text-sm leading-relaxed text-fg-muted">
+                      {templateBlurb(template.id, template.blurb)}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-between"
+                    disabled={working}
+                    onClick={() =>
+                      void create({
+                        ...template.style,
+                        brand: {
+                          ...template.style.brand,
+                          tagline: template.style.brand.tagline || templateTagline(template.id),
+                        },
+                      })
+                    }
+                  >
+                    {t("Use template")}
+                    <ArrowUpRight size={16} />
+                  </Button>
+                </div>
+              </article>
+            ))}
           </div>
-        </div>
-        <input
-          ref={file}
-          hidden
-          type="file"
-          accept=".etherpkg"
-          onChange={async (e) => {
-            const selected = e.target.files?.[0];
-            e.target.value = "";
-            if (!selected) return;
-            setWorking(true);
-            try {
-              const saved = await studio.importPack(selected);
-              onSelect(saved.id);
-            } catch (err) {
-              setError(errorMessage(err));
-            } finally {
-              setWorking(false);
-            }
-          }}
-        />
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-          {templates.map((template) => (
-            <article
-              key={template.id}
-              className="group overflow-hidden rounded-2xl border border-border bg-surface"
-            >
-              <div className="relative">
-                <StyleThumbnail style={template.style} slots={slots} />
-                <span className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
-                  <Play size={12} />
-                  {t("Hover to play")}
-                </span>
-              </div>
-              <div className="space-y-4 p-5">
-                <div className="flex flex-wrap gap-2">
-                  {templateTags(template.id, template.tags).map((tag) => (
-                    <Badge key={tag}>{t(tag)}</Badge>
-                  ))}
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold">{template.name}</h3>
-                  <p className="mt-2 min-h-12 text-sm leading-relaxed text-fg-muted">
-                    {templateBlurb(template.id, template.blurb)}
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  className="w-full justify-between"
-                  disabled={working}
-                  onClick={() =>
-                    void create({
-                      ...template.style,
-                      brand: {
-                        ...template.style.brand,
-                        tagline: template.style.brand.tagline || templateTagline(template.id),
-                      },
-                    })
-                  }
-                >
-                  {t("Use template")}
-                  <ArrowUpRight size={16} />
-                </Button>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-      <ScreensDefaults />
+        </section>
+      )}
       <Drawer
         open={!!deleting}
         size="sm"

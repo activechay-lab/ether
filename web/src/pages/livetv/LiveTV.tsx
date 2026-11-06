@@ -1002,7 +1002,6 @@ export default function LiveTV() {
       <Library />
     ) : leftTab === "looks" ? (
       <LooksGallery
-        showOwned={false}
         looks={looks}
         onNew={() => setParams(new URLSearchParams({ look: "new" }))}
         onSelect={(id) => setParams(new URLSearchParams({ look: id }))}
@@ -1443,6 +1442,9 @@ function AddMenu({
             )}
             {item(Palette, styleCopy("Style"), t("Design your channel’s on-air graphics"), () =>
               navigate("/livetv/looks?look=new"),
+            )}
+            {item(Palette, t("Upload to library"), t("Upload files"), () =>
+              navigate("/livetv/library?upload=1"),
             )}
             {item(ListVideo, t("Break reel"), t("Clips to play between programmes"), () =>
               navigate("/livetv/looks?reel=new"),

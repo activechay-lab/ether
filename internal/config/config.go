@@ -509,7 +509,7 @@ type Subtitles struct {
 }
 
 // LiveTV holds owner Live TV options.
-// LiveTVScreens selects the server's cached Signal screens.
+// LiveTVScreens selects a style's cached Signal screens.
 // Empty ApplyTo follows the converted-stream default; "all" opts into encoding.
 type LiveTVScreens struct {
 	OffAir    string `json:"offAir,omitempty"`
@@ -519,8 +519,6 @@ type LiveTVScreens struct {
 }
 
 type LiveTV struct {
-	DefaultStyleID string        `json:"defaultStyleId,omitempty"`
-	Screens        LiveTVScreens `json:"screens"`
 	// LogoIndexURL is an owner-enabled channel logo index (an
 	// iptv-org-style JSON list). Ether ships no list; empty disables
 	// logo matching.
@@ -794,6 +792,7 @@ func decodeOverDefaults(defaults Config, b []byte) (Config, bool, error) {
 	if plex, ok := file["plex"].(map[string]any); ok {
 		delete(plex, "disableVersionTracking")
 	}
+	stripRetiredLiveTV(file)
 	doc := toDoc(defaults)
 	mergeDoc(doc, file)
 	cfg, err := fromDoc(doc)
@@ -822,6 +821,9 @@ func decodeStartupConfig(defaults Config, b []byte) (Config, bool, error) {
 		return Config{}, false, fmt.Errorf("invalid data after the top-level value")
 	}
 	dropped := stripFrontendServerNames(file)
+	if stripRetiredLiveTV(file) {
+		dropped = true
+	}
 	if server, ok := file["plex"].(map[string]any); ok {
 		if _, exists := server["disableVersionTracking"]; exists {
 			delete(server, "disableVersionTracking")
@@ -1059,4 +1061,20 @@ func (c *Config) SetCachePolicy(p Cache) {
 		p.Dir, p.Storage = "", ""
 		c.SharedCache = &p
 	}
+}
+
+// stripRetiredLiveTV removes global presentation settings; channels own their style.
+func stripRetiredLiveTV(file map[string]any) bool {
+	live, ok := file["liveTV"].(map[string]any)
+	if !ok {
+		return false
+	}
+	dropped := false
+	for _, key := range []string{"defaultStyleId", "screens"} {
+		if _, exists := live[key]; exists {
+			delete(live, key)
+			dropped = true
+		}
+	}
+	return dropped
 }

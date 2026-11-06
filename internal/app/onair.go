@@ -27,7 +27,7 @@ func (a *App) buildOnAir() error {
 		if a.livetv == nil {
 			return map[string][]string{}, nil
 		}
-		return a.livetv.StyleChannelIDs(ctx, a.cfg.Read().LiveTV.DefaultStyleID)
+		return a.livetv.StyleChannelIDs(ctx)
 	}
 	o.ReelChannels = func(ctx context.Context) (map[string][]string, error) {
 		if a.livetv == nil {

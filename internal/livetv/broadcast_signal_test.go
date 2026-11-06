@@ -26,8 +26,9 @@ func (p *unavailableBroadcastPlayback) Prepare(context.Context, *core.User, core
 func TestBroadcastAllCandidatesFailUsesLiveSignal(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		playback := &unavailableBroadcastPlayback{}
-		s := testService(t, Options{Playback: playback, Screens: func() config.LiveTVScreens { return config.LiveTVScreens{NoSignal: "static", ApplyTo: "all"} }})
+		s := testService(t, Options{Playback: playback, StyleScreens: func(string) *config.LiveTVScreens { return &config.LiveTVScreens{NoSignal: "static", ApplyTo: "all"} }})
 		c := testChannel()
+		c.Look = &ChannelLook{LookID: "signal-test"}
 		c.Items[0].DurationMS = 3600000
 		c.Items[1].DurationMS = 3600000
 		runner := &broadcastFakeRunner{}
