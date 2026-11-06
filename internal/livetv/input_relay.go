@@ -72,11 +72,14 @@ type inputGrant struct {
 	slots   chan struct{}
 	source  string // the capped provider account behind this input; "" none
 
-	mu        sync.Mutex
-	resources map[string]*relayResource
-	byKey     map[string]string
-	order     []string
-	next      int
+	mu               sync.Mutex
+	resources        map[string]*relayResource
+	byKey            map[string]string
+	order            []string
+	next             int
+	upstreamFailures int
+	upstreamPending  int
+	upstreamRetryAt  time.Time
 }
 
 // relayResource is an exact upstream URL, or a DASH SegmentTemplate whose
@@ -520,9 +523,18 @@ func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *
 				req.Header.Set(name, v)
 			}
 		}
+		if !g.reserveUpstreamAttempt(ctx) {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, errors.New("live provider retry limit reached")
+		}
+		// Backoff consumes the caller's startup deadline, not the per-I/O
+		// response-header timeout for the request that follows it.
 		var timedOut atomic.Bool
 		t := time.AfterFunc(budget(), func() { timedOut.Store(true); cancel() })
 		res, err := client.Do(req)
+		g.finishUpstreamAttempt(err != nil || res.StatusCode >= 400)
 		t.Stop()
 		if timedOut.Load() || errors.Is(err, context.DeadlineExceeded) {
 			if res != nil {
@@ -590,4 +602,50 @@ func (r *idleReader) Read(p []byte) (int, error) {
 	n, err := r.r.Read(p)
 	r.t.Stop()
 	return n, err
+}
+
+// Bound a refusal episode across relay and media-tool retries. Successful
+// responses replenish it; concurrent requests reserve before touching the panel.
+func (g *inputGrant) reserveUpstreamAttempt(ctx context.Context) bool {
+	g.mu.Lock()
+	if g.upstreamFailures+g.upstreamPending >= 28 {
+		g.mu.Unlock()
+		return false
+	}
+	g.upstreamPending++
+	at := g.upstreamRetryAt
+	if g.upstreamFailures > 0 {
+		if at.Before(time.Now()) {
+			at = time.Now()
+		}
+		g.upstreamRetryAt = at.Add(time.Second)
+	}
+	g.mu.Unlock()
+	if wait := time.Until(at); wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			g.mu.Lock()
+			g.upstreamPending--
+			g.mu.Unlock()
+			return false
+		}
+	}
+	return true
+}
+func (g *inputGrant) finishUpstreamAttempt(failed bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.upstreamPending--
+	if failed {
+		g.upstreamFailures++
+		if at := time.Now().Add(time.Second); g.upstreamRetryAt.Before(at) {
+			g.upstreamRetryAt = at
+		}
+	} else {
+		g.upstreamFailures = 0
+		g.upstreamRetryAt = time.Time{}
+	}
 }

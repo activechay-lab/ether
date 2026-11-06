@@ -88,6 +88,8 @@ type sessionInput struct {
 	inputFailed         bool // exhausted this input; HTTP retries cannot restart it
 	stallRestarts       []time.Time
 	liveRestarts        restartBudget
+	liveFailures        int
+	liveRecovering      bool
 	liveDiscontinuities map[int]bool
 	// contract is the delivered video a static-header session keeps
 	// across failovers; nil for every other session (contract.go).

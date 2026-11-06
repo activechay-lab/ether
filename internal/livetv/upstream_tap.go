@@ -313,6 +313,8 @@ func (t *upstreamTap) joinOffsetLocked() int64 {
 // read copies bytes at offset into p, waiting for data. It returns the new
 // offset. A reader a full ring behind skips forward.
 func (t *upstreamTap) read(ctx context.Context, off int64, p []byte) (int, int64, error) {
+	stop := context.AfterFunc(ctx, func() { t.mu.Lock(); t.cond.Broadcast(); t.mu.Unlock() })
+	defer stop()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for off >= t.written && !t.closed && ctx.Err() == nil {
@@ -482,6 +484,7 @@ func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.He
 		reqCtx = openContext{Context: ctx, deadline: dl}
 	}
 	stop := context.AfterFunc(opener, cancel)
+	defer stop() // initial body inspection is part of opening the stream
 	var res *http.Response
 	var err error
 	if g.source != "" {
@@ -501,7 +504,7 @@ func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.He
 	if err == nil {
 		res, err = s.relayFetch(reqCtx, cancel, g, raw, &http.Request{Header: hdr})
 	}
-	if !stop() && err == nil {
+	if opener.Err() != nil && err == nil {
 		// The opener left while headers arrived; nobody asked for this stream.
 		res.Body.Close()
 		err = opener.Err()
@@ -526,7 +529,8 @@ func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.He
 		t.close(nil)
 		return
 	}
-	body := bufio.NewReaderSize(res.Body, 32<<10)
+	idle := time.AfterFunc(relayIOTimeout, cancel)
+	body := bufio.NewReaderSize(&idleReader{r: res.Body, t: idle}, 32<<10)
 	head := sniffHead(body)
 	ctype := strings.ToLower(res.Header.Get("Content-Type"))
 	t.hls = bytes.HasPrefix(head, []byte("#EXTM3U"))
@@ -535,6 +539,7 @@ func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.He
 	if t.hls || mpd {
 		t.isManifest = true
 		b, err := io.ReadAll(io.LimitReader(body, relayManifestLimit+1))
+		idle.Stop()
 		res.Body.Close()
 		if err != nil || len(b) > relayManifestLimit {
 			t.openErr = errRelayUnsupported
@@ -551,7 +556,7 @@ func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.He
 	t.ring = make([]byte, tapRing)
 	t.mu.Unlock()
 	close(t.ready)
-	go t.fill(&idleReader{r: body, t: time.AfterFunc(relayIOTimeout, cancel)})
+	go func() { defer idle.Stop(); t.fill(body) }()
 }
 
 // sniffInput reads the first bytes of the session's input through its tap,
