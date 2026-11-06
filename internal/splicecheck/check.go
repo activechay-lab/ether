@@ -15,6 +15,9 @@ type Segment struct {
 	InitPath string `json:",omitempty"`
 }
 type Options struct {
+	// Timeline contains title-time boundaries, indexed by Segment.Index, including
+	// the terminal end boundary. When present it replaces SegmentDuration.
+	Timeline        []time.Duration
 	SegmentDuration time.Duration
 	Reference       []Segment
 	FFprobe, FFmpeg string
