@@ -236,6 +236,23 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		})
 	}
 
+	// Recovery must get its own operation budget. Quota/placement readiness
+	// writes can consume their full deadline during worker replacement; passing
+	// that expired context to Tick prevents even the first encoder loss probe.
+	launch(func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-ticker.C:
+				op, cancel := context.WithTimeout(runCtx, 3*time.Second)
+				_ = p.playback.Tick(op)
+				cancel()
+			}
+		}
+	})
 	launch(func() {
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
@@ -252,7 +269,6 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 				_ = a.refreshPrivateQuota(op)
 				var observation privateReadinessSnapshot
 				err := a.reconcilePrivatePlacement(op, &observation)
-				_ = p.playback.Tick(op) // pending retirement is healthy retained ownership, not readiness loss
 				c()
 				// A successful startup/public listener can precede this first tick.
 				if p.ready.Load() && readiness.failedAt.IsZero() {
