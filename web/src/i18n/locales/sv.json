@@ -4057,7 +4057,6 @@
   "m_10ce2ff577b3d5": "Gör tillgänglig som reglage…",
   "m_10ce3e7cb6dc0c": "Ether kunde inte slå på {name}.",
   "m_10ce64191d8b55": "Alla statusar",
-  "m_10cf527b572888": "Naturliga pauspunkter",
   "m_10cf99d2baac75": "Webbläsarpush kräver HTTPS (eller localhost), en webbläsare som stöds och behörighet för notiser. På iPhone eller iPad installerar du Ether på hemskärmen och öppnar det därifrån.",
   "m_10d1c3a6096e59": "Det gick inte att glömma serien",
   "m_10d1c4dca0d133": "Inte kontrollerat ännu: fjärråtkomst är av.",
@@ -4200,6 +4199,7 @@
     "other": "Används av {count} poster. Ta bort det därifrån först."
   },
   "m_1157b14c6c970c": "Förhandsvisar osparade ändringar",
+  "m_11582e38d17fa6": "Experimentell: Ether letar i bakgrunden efter varje avsnitts ursprungliga aktpauser. Tills de hittas hamnar pauserna mellan programmen.",
   "m_115949bfe7140c": "Ether använder panelens egen XMLTV-export om du inte anger en här.",
   "m_11596622ed09f0": "Information om en titel",
   "m_115adfc0d232fe": "Hur många rader",
@@ -5840,6 +5840,7 @@
   "m_1829c0e72bc48a": "Ett konto att streama från, eller en plats som söker efter utgivningar.",
   "m_1829d857b7212d": "Massiv",
   "m_182a2e5df45998": "Uppdaterar databasstatistik…",
+  "m_182c3349b94c06": "Naturliga pauser (experimentell)",
   "m_182d1f6052973c": "{reason} · {time}. Kontrollerat från denna server; andra enheter kan få ett annat resultat.",
   "m_182d720cbf54b2": "Servern nekade den här personens token. Klistra in en ny.",
   "m_182f154b3f6205": "Hur ofta",

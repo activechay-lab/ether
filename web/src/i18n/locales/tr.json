@@ -4057,7 +4057,6 @@
   "m_10ce2ff577b3d5": "Kontrol olarak sun…",
   "m_10ce3e7cb6dc0c": "Ether, {name} öğesini açamadı.",
   "m_10ce64191d8b55": "Tüm durumlar",
-  "m_10cf527b572888": "Doğal ara noktaları",
   "m_10cf99d2baac75": "Tarayıcı anlık bildirimi için HTTPS (veya localhost), desteklenen bir tarayıcı ve bildirim izni gerekir. iPhone veya iPad'de Ether'i Ana Ekran'a ekleyin ve oradan açın.",
   "m_10d1c3a6096e59": "Dizi unutulamadı",
   "m_10d1c4dca0d133": "Henüz denetlenmedi: uzaktan erişim kapalı.",
@@ -4200,6 +4199,7 @@
     "other": "{count} kayıtta kullanılıyor. Önce bu kayıtlardan kaldırın."
   },
   "m_1157b14c6c970c": "Kaydedilmemiş değişiklikler önizleniyor",
+  "m_11582e38d17fa6": "Deneysel: Ether her bölümün özgün perde aralarını arka planda arar. Bulunana kadar aralar programların arasına girer.",
   "m_115949bfe7140c": "Burada bir tane belirlemediğiniz sürece Ether panelin kendi XMLTV dışa aktarımını kullanır.",
   "m_11596622ed09f0": "Bir içeriğin ayrıntıları",
   "m_115adfc0d232fe": "Kaç satır",
@@ -5840,6 +5840,7 @@
   "m_1829c0e72bc48a": "Akış alınacak bir hesap ya da sürüm arayan bir yer.",
   "m_1829d857b7212d": "Dolu",
   "m_182a2e5df45998": "Veritabanı istatistikleri güncelleniyor…",
+  "m_182c3349b94c06": "Doğal ara noktaları (deneysel)",
   "m_182d1f6052973c": "{reason} · {time}. Bu sunucudan kontrol edildi; diğer cihazlarda sonuç farklı olabilir.",
   "m_182d720cbf54b2": "Sunucu bu kişinin belirtecini reddetti. Yeni bir tane yapıştırın.",
   "m_182f154b3f6205": "Ne sıklıkla",

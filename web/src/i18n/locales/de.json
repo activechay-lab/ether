@@ -4057,7 +4057,6 @@
   "m_10ce2ff577b3d5": "Als Regler bereitstellen…",
   "m_10ce3e7cb6dc0c": "Ether konnte {name} nicht einschalten.",
   "m_10ce64191d8b55": "Alle Status",
-  "m_10cf527b572888": "Natürliche Pausenpunkte",
   "m_10cf99d2baac75": "Browser-Push benötigt HTTPS (oder localhost), einen unterstützten Browser und die Berechtigung für Benachrichtigungen. Installiere Ether auf iPhone oder iPad auf dem Home-Bildschirm und öffne es dort.",
   "m_10d1c3a6096e59": "Die Serie konnte nicht vergessen werden",
   "m_10d1c4dca0d133": "Noch nicht geprüft: Fernzugriff ist aus.",
@@ -4200,6 +4199,7 @@
     "other": "Wird von {count} Einträgen verwendet. Entferne es zuerst dort."
   },
   "m_1157b14c6c970c": "Vorschau nicht gespeicherter Änderungen",
+  "m_11582e38d17fa6": "Experimentell: Ether sucht im Hintergrund nach den ursprünglichen Aktpausen jeder Folge. Bis sie gefunden sind, liegen die Unterbrechungen zwischen den Sendungen.",
   "m_115949bfe7140c": "Ether verwendet den XMLTV-Export des Panels, sofern du hier keinen festlegst.",
   "m_11596622ed09f0": "Details zu einem Titel",
   "m_115adfc0d232fe": "Wie viele Reihen",
@@ -5840,6 +5840,7 @@
   "m_1829c0e72bc48a": "Ein Konto zum Streamen oder ein Ort, der nach Veröffentlichungen sucht.",
   "m_1829d857b7212d": "Deckend",
   "m_182a2e5df45998": "Datenbankstatistiken werden aktualisiert…",
+  "m_182c3349b94c06": "Natürliche Unterbrechungen (experimentell)",
   "m_182d1f6052973c": "{reason} · {time}. Von diesem Server geprüft; andere Geräte können abweichen.",
   "m_182d720cbf54b2": "Der Server hat das Token dieser Person abgelehnt. Füge ein neues ein.",
   "m_182f154b3f6205": "Wie oft",

@@ -4168,7 +4168,6 @@
   "m_10ce2ff577b3d5": "Rendre réglable…",
   "m_10ce3e7cb6dc0c": "Ether n’a pas pu activer {name}.",
   "m_10ce64191d8b55": "Tous les états",
-  "m_10cf527b572888": "Points de coupure naturels",
   "m_10cf99d2baac75": "Les notifications push du navigateur nécessitent HTTPS (ou localhost), un navigateur pris en charge et l’autorisation de notification. Sur iPhone ou iPad, installez Ether sur votre écran d’accueil et ouvrez-le depuis là.",
   "m_10d1c3a6096e59": "Impossible d’oublier la série",
   "m_10d1c4dca0d133": "Pas encore vérifié : l'accès à distance est désactivé.",
@@ -4315,6 +4314,7 @@
     "other": "Utilisé par {count} entrées. Retirez-le d’abord de ces entrées."
   },
   "m_1157b14c6c970c": "Aperçu des modifications non enregistrées",
+  "m_11582e38d17fa6": "Expérimental : Ether recherche en arrière-plan les coupures d'origine entre les actes de chaque épisode. Tant qu'elles ne sont pas trouvées, les pauses ont lieu entre les programmes.",
   "m_115949bfe7140c": "Ether utilise l’export XMLTV du panneau, sauf si vous en indiquez un ici.",
   "m_11596622ed09f0": "Détails d'un titre",
   "m_115adfc0d232fe": "Nombre de rangées",
@@ -5998,6 +5998,7 @@
   "m_1829c0e72bc48a": "Un compte pour diffuser, ou un endroit qui cherche des sorties.",
   "m_1829d857b7212d": "Plein",
   "m_182a2e5df45998": "Mise à jour des statistiques de la base…",
+  "m_182c3349b94c06": "Coupures naturelles (expérimental)",
   "m_182d1f6052973c": "{reason} · {time}. Vérifié depuis ce serveur ; le résultat peut différer sur les autres appareils.",
   "m_182d720cbf54b2": "Le serveur a refusé le jeton de cette personne. Collez-en un nouveau.",
   "m_182f154b3f6205": "Fréquence",

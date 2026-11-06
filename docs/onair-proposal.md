@@ -1186,6 +1186,9 @@ or pin can supply its own complete `breaks` override. `Item.breakPoints` adds
 `{atMs,source,confidence?}` alongside `breakPointsMs`. Natural placement consumes
 saved chapter/detection offsets; evenly spaced placement calculates media offsets.
 
+> **Natural break points are EXPERIMENTAL in v0.3.5.** `breakPlacement: natural` is opt-in and off for every channel by default; the console labels it "Natural break points (experimental)". Detection runs in the background under the per-account provider guard (one job and one range per debrid account, idle-only, yields to viewers, honours 429/Retry-After) and a byte budget. Until an episode has a verified analysis, its breaks fall between programmes. Real-source precision/recall validation is still to be completed.
+
+
 The `livetv/11` store migration preserves existing resolved `items`, seed,
 epoch, playout rules and times, assigns stable block IDs, and freezes old source
 queries into their already-saved item snapshot. New source declarations use

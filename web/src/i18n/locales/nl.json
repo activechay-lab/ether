@@ -4057,7 +4057,6 @@
   "m_10ce2ff577b3d5": "Als regelaar beschikbaar maken…",
   "m_10ce3e7cb6dc0c": "Ether kon {name} niet aanzetten.",
   "m_10ce64191d8b55": "Alle statussen",
-  "m_10cf527b572888": "Natuurlijke pauzepunten",
   "m_10cf99d2baac75": "Browserpush vereist HTTPS (of localhost), een ondersteunde browser en toestemming voor meldingen. Installeer Ether op iPhone of iPad op je beginscherm en open het daar.",
   "m_10d1c3a6096e59": "De serie kon niet worden vergeten",
   "m_10d1c4dca0d133": "Nog niet gecontroleerd: externe toegang staat uit.",
@@ -4200,6 +4199,7 @@
     "other": "Gebruikt door {count} items. Verwijder het daar eerst."
   },
   "m_1157b14c6c970c": "Voorbeeld van niet-opgeslagen wijzigingen",
+  "m_11582e38d17fa6": "Experimenteel: Ether zoekt op de achtergrond naar de oorspronkelijke aktepauzes van elke aflevering. Tot die gevonden zijn, vallen de onderbrekingen tussen programma's.",
   "m_115949bfe7140c": "Ether gebruikt de eigen XMLTV-export van het paneel, tenzij je hier een andere instelt.",
   "m_11596622ed09f0": "Details van een titel",
   "m_115adfc0d232fe": "Hoeveel rijen",
@@ -5840,6 +5840,7 @@
   "m_1829c0e72bc48a": "Een account om van te streamen, of een plek die naar releases zoekt.",
   "m_1829d857b7212d": "Effen",
   "m_182a2e5df45998": "Databasestatistieken bijwerken…",
+  "m_182c3349b94c06": "Natuurlijke onderbrekingen (experimenteel)",
   "m_182d1f6052973c": "{reason} · {time}. Gecontroleerd vanaf deze server; andere apparaten kunnen een ander resultaat geven.",
   "m_182d720cbf54b2": "De server weigerde het token van deze persoon. Plak een nieuw token.",
   "m_182f154b3f6205": "Hoe vaak",

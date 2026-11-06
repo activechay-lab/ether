@@ -4057,7 +4057,6 @@
   "m_10ce2ff577b3d5": "Vis som kontroll…",
   "m_10ce3e7cb6dc0c": "Ether kunne ikke slå på {name}.",
   "m_10ce64191d8b55": "Alle statuser",
-  "m_10cf527b572888": "Naturlige pausepunkter",
   "m_10cf99d2baac75": "Nettleserpush krever HTTPS (eller localhost), en støttet nettleser og varslingstillatelse. På iPhone eller iPad installerer du Ether på Hjem-skjermen og åpner den derfra.",
   "m_10d1c3a6096e59": "Kunne ikke glemme serien",
   "m_10d1c4dca0d133": "Ikke sjekket ennå: fjerntilgang er av.",
@@ -4200,6 +4199,7 @@
     "other": "Brukes av {count} oppføringer. Fjern den fra dem først."
   },
   "m_1157b14c6c970c": "Forhåndsviser ulagrede endringer",
+  "m_11582e38d17fa6": "Eksperimentell: Ether leter i bakgrunnen etter hver episodes opprinnelige aktpauser. Til de er funnet, kommer pausene mellom programmene.",
   "m_115949bfe7140c": "Ether bruker panelets egen XMLTV-eksport med mindre du angir en her.",
   "m_11596622ed09f0": "Detaljer om en tittel",
   "m_115adfc0d232fe": "Hvor mange rader",
@@ -5840,6 +5840,7 @@
   "m_1829c0e72bc48a": "En konto å strømme fra, eller et sted som søker etter utgivelser.",
   "m_1829d857b7212d": "Heldekkende",
   "m_182a2e5df45998": "Oppdaterer databasestatistikk…",
+  "m_182c3349b94c06": "Naturlige pauser (eksperimentell)",
   "m_182d1f6052973c": "{reason} · {time}. Kontrollert fra denne serveren; andre enheter kan ha et annet resultat.",
   "m_182d720cbf54b2": "Serveren avviste tokenet til denne personen. Lim inn et nytt.",
   "m_182f154b3f6205": "Hvor ofte",

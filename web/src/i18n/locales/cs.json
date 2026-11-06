@@ -4279,7 +4279,6 @@
   "m_10ce2ff577b3d5": "Zpřístupnit jako ovladač…",
   "m_10ce3e7cb6dc0c": "Ether nedokázal zapnout {name}.",
   "m_10ce64191d8b55": "Všechny stavy",
-  "m_10cf527b572888": "Přirozené body přestávek",
   "m_10cf99d2baac75": "Push v prohlížeči vyžaduje HTTPS (nebo localhost), podporovaný prohlížeč a oprávnění k oznámením. Na iPhonu nebo iPadu nainstalujte Ether na plochu a otevřete ho odtud.",
   "m_10d1c3a6096e59": "Seriál se nepodařilo zapomenout",
   "m_10d1c4dca0d133": "Zatím nezkontrolováno: vzdálený přístup je vypnutý.",
@@ -4430,6 +4429,7 @@
     "other": "Používá se v {count} záznamech. Nejprve položku odstraňte z nich."
   },
   "m_1157b14c6c970c": "Náhled neuložených změn",
+  "m_11582e38d17fa6": "Experimentální: Ether na pozadí hledá původní přestávky mezi dějstvími každé epizody. Dokud je nenajde, přestávky se zařazují mezi pořady.",
   "m_115949bfe7140c": "Ether používá vlastní export XMLTV z panelu, pokud tu nenastavíte jiný.",
   "m_11596622ed09f0": "Podrobnosti o titulu",
   "m_115adfc0d232fe": "Kolik řad",
@@ -6156,6 +6156,7 @@
   "m_1829c0e72bc48a": "Účet, ze kterého se streamuje, nebo místo, které hledá vydání.",
   "m_1829d857b7212d": "Plný",
   "m_182a2e5df45998": "Aktualizace statistik databáze…",
+  "m_182c3349b94c06": "Přirozené přestávky (experimentální)",
   "m_182d1f6052973c": "{reason} · {time}. Ověřeno z tohoto serveru; jiná zařízení mohou mít jiný výsledek.",
   "m_182d720cbf54b2": "Server odmítl token této osoby. Vložte nový.",
   "m_182f154b3f6205": "Jak často",

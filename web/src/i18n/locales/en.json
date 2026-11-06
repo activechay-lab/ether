@@ -4066,7 +4066,6 @@
   "m_10ce2ff577b3d5": "Expose as control…",
   "m_10ce3e7cb6dc0c": "Ether couldn't turn on {name}.",
   "m_10ce64191d8b55": "All statuses",
-  "m_10cf527b572888": "Natural break points",
   "m_10cf99d2baac75": "Browser push needs HTTPS (or localhost), a supported browser and notification permission. On iPhone or iPad, install Ether on your Home Screen and open it there.",
   "m_10d1c3a6096e59": "Couldn't forget the show",
   "m_10d1c4dca0d133": "Not checked yet: remote access is off.",
@@ -4209,6 +4208,7 @@
     "other": "Used by {count} records. Remove it from them first."
   },
   "m_1157b14c6c970c": "Previewing unsaved changes",
+  "m_11582e38d17fa6": "Experimental: Ether looks for each episode's original act breaks in the background. Until it finds them, breaks fall between programmes.",
   "m_115949bfe7140c": "Ether uses the panel's own XMLTV export unless you set one here.",
   "m_11596622ed09f0": "Details for a title",
   "m_115adfc0d232fe": "How many rows",
@@ -5852,6 +5852,7 @@
   "m_1829c0e72bc48a": "An account to stream from, or a place that searches for releases.",
   "m_1829d857b7212d": "Solid",
   "m_182a2e5df45998": "Updating database statistics…",
+  "m_182c3349b94c06": "Natural break points (experimental)",
   "m_182d1f6052973c": "{reason} · {time}. Checked from this server; other devices may differ.",
   "m_182d720cbf54b2": "The server refused this person's token. Paste a new one.",
   "m_182f154b3f6205": "How often",

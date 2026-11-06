@@ -4168,7 +4168,6 @@
   "m_10ce2ff577b3d5": "Mostrar como control…",
   "m_10ce3e7cb6dc0c": "Ether no pudo activar {name}.",
   "m_10ce64191d8b55": "Todos los estados",
-  "m_10cf527b572888": "Puntos de pausa naturales",
   "m_10cf99d2baac75": "El push del navegador necesita HTTPS (o localhost), un navegador compatible y permiso de notificaciones. En iPhone o iPad, instala Ether en tu pantalla de inicio y ábrelo desde allí.",
   "m_10d1c3a6096e59": "No se pudo olvidar la serie",
   "m_10d1c4dca0d133": "Aún no comprobado: el acceso remoto está desactivado.",
@@ -4315,6 +4314,7 @@
     "other": "Se usa en {count} registros. Quítalo de ellos primero."
   },
   "m_1157b14c6c970c": "Vista previa de cambios sin guardar",
+  "m_11582e38d17fa6": "Experimental: Ether busca en segundo plano las pausas originales entre actos de cada episodio. Hasta encontrarlas, las pausas van entre programas.",
   "m_115949bfe7140c": "Ether usa la exportación XMLTV del propio panel, salvo que indiques una aquí.",
   "m_11596622ed09f0": "Detalles de un título",
   "m_115adfc0d232fe": "Cuántas filas",
@@ -5998,6 +5998,7 @@
   "m_1829c0e72bc48a": "Una cuenta para reproducir, o un lugar que busca lanzamientos.",
   "m_1829d857b7212d": "Sólido",
   "m_182a2e5df45998": "Actualizando estadísticas de la base de datos…",
+  "m_182c3349b94c06": "Pausas naturales (experimental)",
   "m_182d1f6052973c": "{reason} · {time}. Comprobado desde este servidor; otros dispositivos pueden tener resultados distintos.",
   "m_182d720cbf54b2": "El servidor rechazó el token de esta persona. Pega uno nuevo.",
   "m_182f154b3f6205": "Frecuencia",

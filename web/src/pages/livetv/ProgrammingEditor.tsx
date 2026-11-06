@@ -874,10 +874,17 @@ function Breaks({
         >
           <option value="off">{t("Off")}</option>
           <option value="between">{t("Between programmes only")}</option>
-          <option value="natural">{t("Natural break points")}</option>
+          <option value="natural">{t("Natural break points (experimental)")}</option>
           <option value="even">{t("Evenly spaced")}</option>
         </Select>
       </Field>
+      {value?.breakPlacement === "natural" && (
+        <p className="text-xs text-fg-muted">
+          {t(
+            "Experimental: Ether looks for each episode's original act breaks in the background. Until it finds them, breaks fall between programmes.",
+          )}
+        </p>
+      )}
       {value?.breaks && (
         <>
           <Badge>

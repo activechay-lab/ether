@@ -4279,7 +4279,6 @@
   "m_10ce2ff577b3d5": "Udostępnij jako kontrolkę…",
   "m_10ce3e7cb6dc0c": "Ether nie mógł włączyć {name}.",
   "m_10ce64191d8b55": "Wszystkie statusy",
-  "m_10cf527b572888": "Naturalne punkty przerw",
   "m_10cf99d2baac75": "Powiadomienia push w przeglądarce wymagają HTTPS (lub localhost), obsługiwanej przeglądarki i zgody na powiadomienia. Na iPhonie lub iPadzie dodaj Ether do ekranu początkowego i otwórz go stamtąd.",
   "m_10d1c3a6096e59": "Nie udało się zapomnieć serialu",
   "m_10d1c4dca0d133": "Jeszcze nie sprawdzono: dostęp zdalny jest wyłączony.",
@@ -4430,6 +4429,7 @@
     "other": "Używany w {count} wpisu. Najpierw go stamtąd usuń."
   },
   "m_1157b14c6c970c": "Podgląd niezapisanych zmian",
+  "m_11582e38d17fa6": "Eksperymentalne: Ether w tle wyszukuje oryginalne przerwy między aktami każdego odcinka. Dopóki ich nie znajdzie, przerwy wypadają między programami.",
   "m_115949bfe7140c": "Ether używa własnego eksportu XMLTV panelu, chyba że ustawisz tutaj inny.",
   "m_11596622ed09f0": "Szczegóły tytułu",
   "m_115adfc0d232fe": "Ile rzędów",
@@ -6156,6 +6156,7 @@
   "m_1829c0e72bc48a": "Konto do strumieniowania albo miejsce, które szuka wydań.",
   "m_1829d857b7212d": "Pełne",
   "m_182a2e5df45998": "Aktualizowanie statystyk bazy danych…",
+  "m_182c3349b94c06": "Naturalne przerwy (eksperymentalne)",
   "m_182d1f6052973c": "{reason} · {time}. Sprawdzono z tego serwera; wynik na innych urządzeniach może być inny.",
   "m_182d720cbf54b2": "Serwer odrzucił token tej osoby. Wklej nowy.",
   "m_182f154b3f6205": "Jak często",
