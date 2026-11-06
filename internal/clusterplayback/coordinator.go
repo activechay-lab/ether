@@ -487,20 +487,12 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			return err
 		}
 	}
-	result := r.tickReopenLives(ctx)
+	var result error
 	if err := r.reconcileBootRetirements(ctx); err != nil {
 		result = err
 	}
 	if err := r.persistPreparationReceipts(ctx); err != nil {
 		result = err
-	}
-	r.mu.Lock()
-	remote := r.remotePlayback
-	r.mu.Unlock()
-	if remote != nil {
-		if e := remote.tick(ctx); e != nil {
-			result = e
-		}
 	}
 	for _, x := range list {
 		if e := ctx.Err(); e != nil {
@@ -682,6 +674,21 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		}
 		r.mu.Unlock()
 	}
+	// Source activity/retirement can wait on a paused old source after movement.
+	// Reconcile healthy encoders and extend their leases before spending the
+	// remaining tick budget on that I/O.
+	if err := r.tickReopenLives(ctx); err != nil {
+		result = err
+	}
+	r.mu.Lock()
+	remote := r.remotePlayback
+	r.mu.Unlock()
+	if remote != nil {
+		if e := remote.tick(ctx); e != nil {
+			result = e
+		}
+	}
+
 	return result
 }
 func (r *Runtime) retire(ctx context.Context, x *execution) error {

@@ -78,9 +78,11 @@ func (r *Runtime) ownsCoordination(ctx context.Context, id string) bool {
 	return err == nil && c.Identity == r.o.Self && c.Deadline.After(time.Now().Add(r.o.ClockSkew))
 }
 
-// maintainCoordinators uses a SQL compare-and-swap. A paused old owner cannot
+// MaintainCoordination uses a SQL compare-and-swap. A paused old owner cannot
 // renew after takeover. Expiry transfers only coordination, never execution.
-func (r *Runtime) maintainCoordinators(ctx context.Context) error {
+// It performs only membership and SQL work. Call it independently of Tick:
+// source RPCs, encoder probes and adoption must never delay lease renewal.
+func (r *Runtime) MaintainCoordination(ctx context.Context) error {
 	if !r.clockReady() || !r.o.Roles.Has(config.RoleServer) || r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil {
 		return nil
 	}
@@ -120,7 +122,37 @@ func (r *Runtime) maintainCoordinators(ctx context.Context) error {
 		if e != nil {
 			return e
 		}
-		c, e = r.CurrentCoordinator(ctx, id)
+	}
+	return nil
+}
+
+func (r *Runtime) maintainCoordinators(ctx context.Context) error {
+	if !r.clockReady() || !r.o.Roles.Has(config.RoleServer) || r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil {
+		return nil
+	}
+	if err := r.MaintainCoordination(ctx); err != nil {
+		return err
+	}
+	rows, err := r.o.DB.QueryContext(ctx, `SELECT session FROM clusterplayback_coordinators WHERE node=? AND boot=? ORDER BY session LIMIT 4096`, r.o.Self.NodeID, r.o.Self.Boot)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		c, e := r.CurrentCoordinator(ctx, id)
 		if e != nil || c.Identity != r.o.Self || !r.ownsCoordination(ctx, id) {
 			continue
 		}

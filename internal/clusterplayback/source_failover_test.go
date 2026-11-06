@@ -13,18 +13,19 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-func TestSourceMovementKeepsEncoderAndFencesOldGrant(t *testing.T) {
+func TestSourceHangKeepsSequenceEncoderAndCoordinator(t *testing.T) {
 	fixtureStarted := time.Now()
 	sourceID := nodewire.Identity{Cluster: "indexed", NodeID: "source", Boot: "source-boot"}
 	replacementID := nodewire.Identity{Cluster: "indexed", NodeID: "replacement", Boot: "replacement-boot"}
 	workerID := nodewire.Identity{Cluster: "indexed", NodeID: "worker", Boot: "worker-boot"}
 	guards := fixtureGuards(t, sourceID, workerID, replacementID)
 	db := openFixtureDB(t)
-	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 10*time.Second))
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureExecutionBudget(fixtureStarted, 20*time.Second))
 	defer cancel()
 	verifier := NewVerifier()
 	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 10 * time.Minute, LockTimeout: fixtureSQLBudget()}, verifier)
@@ -59,6 +60,7 @@ func TestSourceMovementKeepsEncoderAndFencesOldGrant(t *testing.T) {
 	caps.Keyframes = true
 	base := Options{DB: db, Placement: ledger, Endpoint: endpoint, Eligible: eligible, MemberRole: eligible, Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond, WorkerCapabilities: caps, RemoteCapabilities: caps, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return core.Decision{} }}
 	o := base
+	o.Roles = config.NodeRoles{config.RoleServer, config.RoleSource}
 	o.Self = sourceID
 	o.Guard = guards[0]
 	o.Playback = manager
@@ -105,8 +107,21 @@ func TestSourceMovementKeepsEncoderAndFencesOldGrant(t *testing.T) {
 	if _, err = db.ExecContext(ctx, `INSERT INTO cluster_nodes(id,incarnation,started_at,last_seen) VALUES(?,?,?,?)`, replacementID.NodeID, replacementID.Boot, time.Now().UnixMilli(), time.Now().UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
+	var paused atomic.Bool
 	for i, r := range []*Runtime{source, worker, replacement} {
-		server := httptest.NewUnstartedServer(r.Handler())
+		handler := r.Handler()
+		if r == source {
+			handler = http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+				if paused.Load() && q.Method == "GET" && q.URL.Path == nodesource.Path {
+					// Deliver a partial private response, then hang until the gateway's
+					// stall deadline cancels it. Never close the transport to signal failure.
+					source.Handler().ServeHTTP(&hungSourceWriter{ResponseWriter: w, ctx: q.Context()}, q)
+					return
+				}
+				source.Handler().ServeHTTP(w, q)
+			})
+		}
+		server := httptest.NewUnstartedServer(handler)
 		server.TLS = guards[i].ServerTLS()
 		server.StartTLS()
 		defer server.Close()
@@ -134,16 +149,42 @@ func TestSourceMovementKeepsEncoderAndFencesOldGrant(t *testing.T) {
 	}
 	old := source.sources[sourceKey(initial.Fence)].grant
 	running := encoder.session
-	reply, err := source.sourceFailover(ctx, workerID, sourceRequest{Old: old})
+	before, err := source.CurrentCoordinator(ctx, request.SessionID)
 	if err != nil {
-		t.Fatal("controller move", err)
+		t.Fatal(err)
 	}
-	if reply.Grant.Scope.SourceGeneration != 1 || reply.Grant.Scope.Fence != old.Scope.Fence {
-		t.Fatal("execution changed")
-	}
-	if _, err = source.authority.Verify(ctx, nodesource.Peer{NodeID: workerID.NodeID, Boot: workerID.Boot}, old.Credential); err == nil {
-		t.Fatal("stale grant accepted")
-	}
+	// Match deployment's independent SQL-only lease loop while control work
+	// waits beyond a complete coordination lease on the hung source.
+	keepCtx, stopKeep := context.WithCancel(ctx)
+	keepDone := make(chan struct{})
+	go func() {
+		defer close(keepDone)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-keepCtx.Done():
+				return
+			case <-ticker.C:
+				_ = source.MaintainCoordination(keepCtx)
+			}
+		}
+	}()
+	defer func() { stopKeep(); <-keepDone }()
+	source.control.Lock()
+	unlockDone := make(chan struct{})
+	go func() {
+		defer close(unlockDone)
+		defer source.control.Unlock()
+		timer := time.NewTimer(3 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+		}
+	}()
+	defer func() { <-unlockDone }()
+	paused.Store(true)
 	input := worker.inputs[remoteIdentity(initial)].input
 	raw, _, err := input.GatewayInput(remoteIdentity(initial), source.sources[sourceKey(initial.Fence)].handle.Value())
 	if err != nil {
@@ -166,6 +207,29 @@ func TestSourceMovementKeepsEncoderAndFencesOldGrant(t *testing.T) {
 	if err != nil || response.StatusCode != 200 || string(received) != body {
 		t.Fatal("gateway rejected current source generation", response.StatusCode, err)
 	}
+	after, err := source.CurrentCoordinator(ctx, request.SessionID)
+	if err != nil || after.Epoch != before.Epoch || after.Identity != before.Identity {
+		t.Fatalf("source hang changed coordinator: before=%+v after=%+v err=%v", before, after, err)
+	}
+	moved, err := source.route(ctx, request.SessionID)
+	if err != nil || moved.SourceGeneration != 1 || moved.Fence != initial.Fence {
+		t.Fatalf("source failed to move without encoder change: %+v %v", moved, err)
+	}
+	if _, err = source.authority.Verify(ctx, nodesource.Peer{NodeID: workerID.NodeID, Boot: workerID.Boot}, old.Credential); err == nil {
+		t.Fatal("stale grant accepted")
+	}
+	// Exercise the actual worker authentication path after the blocked interval.
+	if err = source.executions[request.SessionID].session.Reconcile(ctx); err != nil && err != core.ErrEncoderPending {
+		t.Fatal("worker authentication after source hang", err)
+	}
+	for n := 0; n < 4; n++ {
+		out := httptest.NewRecorder()
+		source.executions[request.SessionID].session.ServeSegment(out, httptest.NewRequest("GET", "/", nil).WithContext(ctx), n)
+		if out.Code != 200 || out.Body.String() != "segment" {
+			t.Fatalf("client segment %d: HTTP %d %q", n, out.Code, out.Body.String())
+		}
+	}
+	t.Logf("hung partial source: HTTP 200 exact sequence (%d bytes), source generation 0 -> 1, encoder generation %d, coordinator epoch %d unchanged", len(received), moved.Fence.Generation, after.Epoch)
 	b := make([]byte, 37)
 	if n, err := input.ReadRecoveryAt(ctx, initial.Revision, b, 1500); err != nil || n != len(b) || string(b) != body[1500:1537] {
 		t.Fatalf("worker exact-offset recovery n=%d err=%v", n, err)
@@ -179,4 +243,18 @@ func TestSourceMovementKeepsEncoderAndFencesOldGrant(t *testing.T) {
 		t.Fatal("encoder restarted")
 	}
 	t.Log("controller committed source generation 1; stale source fenced; worker recovered exact offset 1500; encoder identity unchanged")
+}
+
+type hungSourceWriter struct {
+	http.ResponseWriter
+	ctx context.Context
+}
+
+func (w *hungSourceWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(p[:len(p)/2])
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+	<-w.ctx.Done()
+	return n, err
 }

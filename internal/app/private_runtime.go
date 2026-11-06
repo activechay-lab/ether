@@ -216,6 +216,26 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		}
 	})
 	launch(func() { _ = p.telemetry.Run(runCtx) })
+	// Keep the short coordinator lease independent of source/encoder RPCs in
+	// Tick and of placement/readiness reconciliation. A paused source may consume
+	// their entire operation deadline while the server remains healthy.
+	if coordinator, ok := p.playback.(interface{ MaintainCoordination(context.Context) error }); ok {
+		launch(func() {
+			ticker := time.NewTicker(250 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-runCtx.Done():
+					return
+				case <-ticker.C:
+					op, cancel := context.WithTimeout(runCtx, time.Second)
+					_ = coordinator.MaintainCoordination(op)
+					cancel()
+				}
+			}
+		})
+	}
+
 	launch(func() {
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
