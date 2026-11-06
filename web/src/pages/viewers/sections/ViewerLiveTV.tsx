@@ -13,6 +13,7 @@ import { useAsync } from "../../../lib/hooks";
 type Policy = {
   userId: number;
   disabled: boolean;
+  transcode?: boolean;
   /** Only `channels` (none when empty); otherwise every channel, new ones too. */
   restricted: boolean;
   channels?: string[];
@@ -75,6 +76,18 @@ export function ViewerLiveTVAccess({ viewerId }: { viewerId: number }) {
               aria-label={t("Disable Live TV for this viewer")}
               checked={draft.disabled}
               onChange={(e) => setDraft({ ...draft, disabled: e.currentTarget.checked })}
+            />
+          }
+        />
+        <SettingsRow
+          title={t("Transcode for compatibility")}
+          description={t("Transcode IPTV codecs for client compatibility")}
+          control={
+            <Switch
+              aria-label={t("Transcode for compatibility")}
+              disabled={draft.disabled}
+              checked={draft.transcode ?? false}
+              onChange={(e) => setDraft({ ...draft, transcode: e.currentTarget.checked })}
             />
           }
         />

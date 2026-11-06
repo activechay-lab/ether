@@ -368,6 +368,9 @@ type Policy struct {
 	Personal *PersonalPolicy `json:"personal,omitempty"`
 	UserID   int64           `json:"userId"`
 	Disabled bool            `json:"disabled"`
+	// Transcode forces IPTV compatibility conversion for this viewer on new tunes.
+	// It does not change channel settings or another viewer's playback.
+	Transcode bool `json:"transcode"`
 	// Restricted limits the viewer to Channels (none when empty), private
 	// ones included. Unrestricted viewers see every public channel, including
 	// ones added later, plus the private channels in Granted; Channels is

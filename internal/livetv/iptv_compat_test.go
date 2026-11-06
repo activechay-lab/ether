@@ -163,3 +163,59 @@ func TestRelayFirstPlaylistWaitsForMediaAndPropagatesFailure(t *testing.T) {
 		}
 	}
 }
+
+// One viewer's override must never become a channel-wide setting or affect
+// another viewer tuning the same upstream at the same time.
+func TestViewerCompatibilityOverrideIsolation(t *testing.T) {
+	ctx := context.Background()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		fmt.Fprint(w, "#EXTM3U\n#EXTINF:4,\npart.ts\n")
+	}))
+	defer up.Close()
+	tc := &compatibilityTranscoder{info: core.MediaInfo{Container: "hls", Streams: []core.StreamInfo{
+		{Index: 0, Type: "video", Codec: "h264", Width: 1280, Height: 720, FrameRate: 24},
+		{Index: 1, Type: "audio", Codec: "aac", Channels: 2, Default: true, SampleRate: 48000},
+	}}}
+	s := testService(t, Options{HTTPClient: up.Client(), Transcoder: tc})
+	channel, err := s.SaveChannel(ctx, Channel{Name: "Fixture", Number: "1", Kind: "iptv", Enabled: true, StreamURL: up.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SavePolicy(ctx, Policy{UserID: 1, Transcode: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct {
+		user   int64
+		forced bool
+	}{{1, true}, {2, false}, {1, false}} {
+		if step.user == 1 && !step.forced {
+			if err = s.SavePolicy(ctx, Policy{UserID: 1}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		u := &core.User{ID: step.user}
+		info, err := s.Tune(ctx, u, channel.ID, core.ClientCaps{ClientID: fmt.Sprint(step.user), VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac"}, HLSContainers: []string{"mpegts"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Channel.Transcode != step.forced {
+			t.Fatalf("user %d transcode = %v", step.user, info.Channel.Transcode)
+		}
+		if len(tc.requests) != 1 || tc.requests[0].Decision.VideoCopy || tc.requests[0].Decision.Kind != core.DecisionTranscode {
+			t.Fatalf("conversion escaped viewer policy: %+v", tc.requests)
+		}
+	}
+	stored, err := s.Channel(ctx, channel.ID)
+	if err != nil || stored.Transcode {
+		t.Fatalf("viewer override changed saved channel: %+v %v", stored, err)
+	}
+	stored.Transcode = true
+	if _, err = s.SaveChannel(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	info, err := s.Tune(ctx, &core.User{ID: 2}, channel.ID, core.ClientCaps{ClientID: "2", VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac"}})
+	if err != nil || !info.Channel.Transcode || len(tc.requests) != 2 {
+		t.Fatalf("channel setting lost: %+v %v", info, err)
+	}
+}

@@ -255,6 +255,10 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	if u == nil || (s.o.CanPlay != nil && !s.o.CanPlay(u, caps.Remote, s.o.Now())) {
 		return SessionInfo{}, core.ErrUnauthorized
 	}
+	ctx, policy, err := s.withPolicy(ctx, u)
+	if err != nil {
+		return SessionInfo{}, err
+	}
 	c, err := s.Channel(ctx, channelID)
 	if err != nil {
 		return SessionInfo{}, err
@@ -270,6 +274,11 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	}
 	if !s.allowed(ctx, u, c, p) {
 		return SessionInfo{}, core.ErrUnauthorized
+	}
+	// Apply the viewer override only to this tune's channel copy. A channel
+	// already requiring conversion remains converted for every viewer.
+	if c.Kind == "iptv" && policy.Transcode {
+		c.Transcode = true
 	}
 	if c.Kind == "virtual" && p == nil {
 		return SessionInfo{}, core.ErrNotAvailable
