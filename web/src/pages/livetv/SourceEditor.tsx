@@ -1,5 +1,6 @@
 import {
   Badge,
+  Switch,
   Button,
   Input,
   SearchSelect,
@@ -90,6 +91,7 @@ function uploadError(file: File, key: "playlist" | "guide"): string {
 /** Create or edit an M3U playlist source or a guide-only XMLTV source, in place. */
 export function SourceEditor({
   source,
+  initialXtream = false,
   kind: initialKind,
   guideOnly = false,
   onGuideKindChange,
@@ -98,6 +100,7 @@ export function SourceEditor({
   onDeleted,
 }: {
   source: Source | null;
+  initialXtream?: boolean;
   kind: SourceKind;
   guideOnly?: boolean;
   onGuideKindChange?: (kind: "xmltv" | "plex") => void;
@@ -188,13 +191,18 @@ export function SourceEditor({
             playlistUrl: source.playlistUrl ?? "",
             guideUrl: source.guideUrl ?? "",
             refreshHours: source.refreshHours,
+            useLiveTV: source.useLiveTV,
+            useVOD: source.useVOD,
             auth: source.auth ? structuredClone(source.auth) : undefined,
             ...groupRules(source),
             maxConnections: source.maxConnections,
             tuneGapSeconds: source.tuneGapSeconds,
             tunesPerHour: source.tunesPerHour,
           }
-        : emptySource(),
+        : {
+            ...emptySource(),
+            ...(initialXtream ? { auth: { type: "xtream" as const, output: "ts" } } : {}),
+          },
     );
     setTab("connection");
     setKind(
@@ -214,7 +222,7 @@ export function SourceEditor({
     setSavedImport(null);
     setProgressRate(0);
     rateBase.current = null;
-  }, [source, initialKind]);
+  }, [source, initialKind, initialXtream]);
 
   const upload = (file: File | undefined, key: "playlist" | "guide") => {
     if (!file) return;
@@ -751,6 +759,50 @@ export function SourceEditor({
         ) : null}
         {xtream ? (
           <div className="space-y-4 rounded-xl border border-border bg-bg-subtle/60 p-4">
+            <label className="flex items-center justify-between gap-3 text-sm text-fg">
+              {t("Use for Live TV")}
+              <Switch
+                aria-label={t("Use for Live TV")}
+                checked={draft.useLiveTV !== false}
+                onChange={(e) => {
+                  const checked = e.currentTarget.checked;
+                  setDraft((d) => ({ ...d, useLiveTV: checked }));
+                }}
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3 text-sm text-fg">
+              {t("Use for movies & shows")}
+              <Switch
+                aria-label={t("Use for movies & shows")}
+                checked={draft.useVOD ?? false}
+                onChange={(e) => {
+                  const checked = e.currentTarget.checked;
+                  setDraft((d) => ({ ...d, useVOD: checked }));
+                }}
+              />
+            </label>
+            {draft.useVOD ? (
+              <div
+                className="rounded-lg border border-border p-3 text-sm text-fg-muted"
+                role="status"
+              >
+                <p className="font-medium text-fg">{t("Movies & shows index")}</p>
+                {source?.vodStatus?.updated ? (
+                  <>
+                    <p>
+                      {tn(source.vodStatus.movies, "{count} movie", "{count} movies")} ·{" "}
+                      {tn(source.vodStatus.series, "{count} show", "{count} shows")}
+                    </p>
+                    <p>{relativeTime(new Date(source.vodStatus.updated * 1000).toISOString())}</p>
+                  </>
+                ) : (
+                  <p>{t("Waiting to index")}</p>
+                )}
+                {source?.vodStatus?.error ? (
+                  <p>{t("Provider unavailable; retry scheduled")}</p>
+                ) : null}
+              </div>
+            ) : null}
             <Field
               label={t("Server")}
               htmlFor="xt-server"

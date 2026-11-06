@@ -29,8 +29,6 @@ import {
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocale } from "../../i18n/react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { AddAddonDrawer } from "../../components/addons/AddAddonDrawer";
-import type { AddonSummary } from "../../components/addons/addons";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel } from "../../components/feedback";
 import { ToolbarPicker } from "../../components/ToolbarPicker";
@@ -53,15 +51,13 @@ import { ChannelDrawerBody } from "./ChannelDrawerBody";
 import { GuideGrid } from "./GuideGrid";
 import { SourcesDashboard } from "./SourcesDashboard";
 import { SourceList, type Selection } from "./Lineup";
-import { SourceEditor, type SourceKind } from "./SourceEditor";
+import type { SourceKind } from "./SourceEditor";
 import {
   CHANNELS_PER_PAGE,
   MINUTE,
   TEMPLATES,
-  addonChannelsKind,
   browserTimeZone,
   emptyChannel,
-  emptySource,
   groupBy,
   isChannelSource,
   plexLineupName,
@@ -128,6 +124,14 @@ export default function LiveTV() {
   const selection = selectionFrom(params);
   // The Guide tab's selected guide source; none means All guides.
   const guideSourceId = params.get("gsrc");
+  useEffect(() => {
+    if (selection.kind === "source")
+      navigate(
+        `/sources/iptv?${new URLSearchParams(selection.id === "new" ? { new: "playlist" } : { source: selection.id })}`,
+        { replace: true },
+      );
+    else if (tab === "sources") navigate("/sources/iptv", { replace: true });
+  }, [selection.kind, selection.kind === "source" ? selection.id : null, tab, navigate]);
   const [leftTab, setLeftTab] = useState(
     tab === "library"
       ? "library"
@@ -223,11 +227,6 @@ export default function LiveTV() {
   const [draft, setDraft] = useState<StudioDraft | null>(null);
   const [baseline, setBaseline] = useState("");
   const [saving, setSaving] = useState(false);
-  const [newKind, setNewKind] = useState<SourceKind>("playlist");
-  const [editorKind, setEditorKind] = useState<SourceKind>("playlist");
-  const [guideOnlyFlow, setGuideOnlyFlow] = useState(false);
-  const [guideMode, setGuideMode] = useState<"xmltv" | "plex">("xmltv");
-  const [addingAddon, setAddingAddon] = useState(false);
   const [guideFooter, setGuideFooter] = useState<React.ReactNode>(null);
 
   useInterval(() => setNow(Date.now()), 30_000);
@@ -528,10 +527,15 @@ export default function LiveTV() {
         });
         if (!ok) return;
       }
+      if (next.kind === "source") {
+        navigate(
+          `/sources/iptv?${new URLSearchParams(next.id === "new" ? { new: "playlist" } : { source: next.id })}`,
+        );
+        return true;
+      }
       const p = new URLSearchParams();
       if (next.kind === "channel") p.set("channel", next.id);
       if (next.kind === "new") p.set("channel", "new");
-      if (next.kind === "source") p.set("source", next.id);
       if (next.kind === "map") p.set("guide", next.id);
       // Guide drawers open over the selected guide source's workbench.
       const gsrc = params.get("gsrc");
@@ -672,52 +676,11 @@ export default function LiveTV() {
 
   // ---- header actions ---------------------------------------------------------------
 
-  // An add-on's channels are one Live TV source of its channel kind; adding
-  // the same add-on again opens that source instead of importing it twice.
-  const addAddonSource = async (addon: AddonSummary) => {
-    const kind = addonChannelsKind(addon.id);
-    setLeftTab("sources");
-    const existing = sources.find((s) => s.kind === kind || s.playlistUrl === kind);
-    if (existing) {
-      toast.info(t("{name} is already in Live TV", { name: existing.name }));
-      await go({ kind: "source", id: existing.id });
-      return;
-    }
-    if (!addon.roles?.some((r) => r.role === "livetv_channels" && r.on)) {
-      toast.error(t("Live TV channels are off for {name}", { name: addon.name }), {
-        description: t("Switch them on in Plugins to add its channels."),
-      });
-      return;
-    }
-    const importing = toast.loading(t("Importing channels from {name}…", { name: addon.name }));
-    try {
-      const saved = await tv.saveSource({
-        ...emptySource(),
-        name: addon.name,
-        kind,
-        playlistUrl: kind,
-      });
-      toast.success(t("Source imported"), {
-        id: importing,
-        description: t("Channel numbers, mappings and access rules are kept."),
-      });
-      await reloadAll();
-      await go({ kind: "source", id: saved.id }, { force: true });
-    } catch (e) {
-      toast.error(t("Couldn't import channels from {name}", { name: addon.name }), {
-        id: importing,
-        description: errorMessage(e),
-      });
-    }
-  };
-
   const editing = (selection.kind === "channel" || selection.kind === "new") && !!draft;
   const addGuideSource = () => {
-    setNewKind("guide");
-    setEditorKind("guide");
-    setGuideOnlyFlow(true);
-    setGuideMode("xmltv");
-    void go({ kind: "source", id: "new" });
+    void (async () => {
+      if (await go({ kind: "guide" })) navigate("/sources/iptv?new=guide");
+    })();
   };
 
   const actions = (
@@ -729,20 +692,19 @@ export default function LiveTV() {
         })()
       }
       onSource={(k) => {
-        // The menu is the one place to add a guide: it opens on the Guide tab.
         if (k === "guide") {
-          setLeftTab("guide");
           addGuideSource();
           return;
         }
-        setNewKind(k);
-        setEditorKind(k);
-        setGuideOnlyFlow(false);
-        setGuideMode("xmltv");
-        setLeftTab("sources");
-        void go({ kind: "source", id: "new" });
+        void (async () => {
+          if (await go({ kind: "guide" })) navigate("/sources/iptv?new=playlist");
+        })();
       }}
-      onAddon={() => setAddingAddon(true)}
+      onAddon={() => {
+        void (async () => {
+          if (await go({ kind: "guide" })) navigate("/sources/iptv?new=addon");
+        })();
+      }}
     />
   );
 
@@ -852,10 +814,6 @@ export default function LiveTV() {
           }}
           tabs={[
             { key: "channels", label: t("Channels") },
-            {
-              key: "sources",
-              label: t("Sources"),
-            },
             { key: "guide", label: t("Guide") },
             { key: "looks", label: stylesName() },
             { key: "library", label: t("Library") },
@@ -1010,18 +968,12 @@ export default function LiveTV() {
   );
 
   const channelOpen = selection.kind === "new" || selection.kind === "channel";
-  const sourceOpen = selection.kind === "source";
   const guideOpen = selection.kind === "map";
   const guideChannel =
     selection.kind === "map"
       ? (rowByID.get(selection.id) ??
         (selectedChannel?.id === selection.id ? selectedChannel : undefined))
       : undefined;
-  const sourceRecord =
-    selection.kind === "source" && selection.id !== "new"
-      ? (sources.find((s) => s.id === selection.id) ?? null)
-      : null;
-  const missingSource = selection.kind === "source" && selection.id !== "new" && !sourceRecord;
   const missingChannel =
     selection.kind === "channel" && page !== null && !savedChannel && !draft && !selectionLoading;
 
@@ -1163,16 +1115,6 @@ export default function LiveTV() {
       : draft?.channel.kind === "iptv"
         ? t("Edit channel")
         : t("Virtual channel");
-  const sourceTitle =
-    (!sourceRecord && editorKind === "guide") ||
-    (sourceRecord && sourceRecord.hasPlaylist === false)
-      ? sourceRecord
-        ? t("Edit guide source")
-        : t("Guide source")
-      : sourceRecord
-        ? t("Edit IPTV source")
-        : t("IPTV source");
-
   const live = page?.counts.live ?? 0;
   return (
     <>
@@ -1340,55 +1282,7 @@ export default function LiveTV() {
           )}
         </ChannelDrawerBody>
       </Drawer>
-      <Drawer
-        open={sourceOpen}
-        onClose={() => void go({ kind: "guide" })}
-        title={sourceTitle}
-        description={
-          sourceRecord?.kind?.startsWith("plugin:")
-            ? undefined
-            : sourceRecord?.kind === "plex" ||
-                (!sourceRecord && editorKind === "guide" && guideMode === "plex")
-              ? t("Plex's TV listings for your provider, by postal code.")
-              : (!sourceRecord && editorKind === "guide") || sourceRecord?.hasPlaylist === false
-                ? t("XMLTV listings for any channel.")
-                : sourceRecord?.auth?.type === "xtream"
-                  ? t("An IPTV provider's Xtream Codes login.")
-                  : t("An M3U playlist, optionally with a guide.")
-        }
-        size="lg"
-      >
-        {missingSource ? (
-          <p className="text-sm text-fg-muted">{t("That source no longer exists.")}</p>
-        ) : (
-          <SourceEditor
-            source={selection.kind === "source" && selection.id !== "new" ? sourceRecord : null}
-            kind={newKind}
-            guideOnly={guideOnlyFlow}
-            onGuideKindChange={setGuideMode}
-            onKindChange={setEditorKind}
-            onSaved={async (s) => {
-              await reloadAll();
-              const created = selection.kind === "source" && selection.id === "new" && s?.id;
-              // A guide added from the Guide tab opens in its workbench.
-              if (created && leftTab === "guide") setParams(new URLSearchParams({ gsrc: s.id }));
-              else if (created) await go({ kind: "source", id: s.id }, { force: true });
-            }}
-            onDeleted={async () => {
-              if (leftTab === "guide") setParams(new URLSearchParams());
-              else await go({ kind: "guide" }, { force: true });
-              await reloadAll();
-            }}
-          />
-        )}
-      </Drawer>
       <LookSurfaces looks={looks} reload={reloadLooks} />
-      <AddAddonDrawer
-        open={addingAddon}
-        role="livetv_channels"
-        onClose={() => setAddingAddon(false)}
-        onAdded={(addon) => void addAddonSource(addon)}
-      />
     </>
   );
 }

@@ -70,6 +70,7 @@ var ErrProviderBusy = fmt.Errorf("every connection this IPTV provider allows is 
 var ErrProviderPaced = fmt.Errorf("this IPTV source has started as many streams this hour as its owner allows: %w", core.ErrStreamLimit)
 
 type tapRegistry struct {
+	external map[string]int
 	mu       sync.Mutex
 	byKey    map[string]*upstreamTap
 	bySource map[string]map[*upstreamTap]struct{}
@@ -179,7 +180,7 @@ func (r *tapRegistry) acquire(key, source string, limit int, g *inputGrant) (t *
 			return t, false, nil
 		}
 	}
-	if source != "" && limit > 0 && len(r.bySource[source]) >= limit {
+	if source != "" && limit > 0 && len(r.bySource[source])+r.external[source] >= limit {
 		return nil, false, ErrProviderBusy
 	}
 	t = &upstreamTap{key: key, source: source, reg: r, ready: make(chan struct{}), refs: map[*inputGrant]struct{}{g: {}}}
@@ -619,4 +620,29 @@ func (s *Service) sniffInput(ctx context.Context, ss *session, n int) ([]byte, s
 		}
 	}
 	return out, t.ctype, nil
+}
+
+// reserve accounts for VOD and metadata reads in the same mutex as live taps.
+func (r *tapRegistry) reserve(source string, limit int, background bool) (func(), error) {
+	return r.reserveWithLive(source, limit, background, 0)
+}
+func (r *tapRegistry) reserveWithLive(source string, limit int, background bool, live int) (func(), error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := max(live, len(r.bySource[source])) + r.external[source]
+	if (background && n > 0) || (limit > 0 && n >= limit) {
+		return nil, ErrProviderBusy
+	}
+	if r.external == nil {
+		r.external = map[string]int{}
+	}
+	r.external[source]++
+	var once sync.Once
+	return func() { once.Do(func() { r.mu.Lock(); r.external[source]--; r.mu.Unlock() }) }, nil
+}
+
+func (r *tapRegistry) externalCount(id string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.external[id]
 }

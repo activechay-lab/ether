@@ -353,7 +353,7 @@ func (s *Service) reserveBroadcastProvider(account, channel, id string, limit in
 	if _, exists := active[id]; exists {
 		return nil, ErrProviderBusy
 	}
-	if limit > 0 && len(channels) >= limit {
+	if limit > 0 && len(channels)+s.inputRelay.taps.externalCount(account) >= limit {
 		return nil, ErrProviderBusy
 	}
 	active[id] = channel

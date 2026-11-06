@@ -329,7 +329,7 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 					playing[other.info.Channel.ID] = true
 				}
 			}
-			if !playing[c.ID] && len(playing) >= max {
+			if !playing[c.ID] && len(playing)+s.inputRelay.taps.externalCount(c.SourceID) >= max {
 				s.mu.Unlock()
 				return SessionInfo{}, ErrProviderBusy
 			}

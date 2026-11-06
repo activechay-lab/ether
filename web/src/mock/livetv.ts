@@ -194,6 +194,9 @@ export function createLiveTVMock(titles: FakeTitle[], empty = false) {
     },
     {
       id: "demo-xtream",
+      useLiveTV: true,
+      useVOD: true,
+      vodStatus: { movies: 102431, series: 18204, updated: Math.floor(Date.now() / 1000) - 120 },
       name: "Demo Xtream panel",
       auth: {
         type: "xtream",

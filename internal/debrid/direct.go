@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/httpclient"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -115,7 +116,7 @@ func (s *Service) DirectPayload(ctx context.Context, rel core.Release) ([]byte, 
 		return nil, fmt.Errorf("debrid: %q has no HTTP stream link: %w", rel.Name, core.ErrReleaseRejected)
 	}
 	base := Payload{Key: payloadKey(rel), ReleaseID: rel.ID, Kind: KindHTTP, Link: rel.StreamURL, URL: rel.StreamURL,
-		Headers: rel.StreamHeaders, Origin: rel.StreamOrigin, Release: rel.Name}
+		StreamProvider: rel.StreamProvider, Headers: rel.StreamHeaders, Origin: rel.StreamOrigin, Release: rel.Name}
 	pctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(pctx, http.MethodGet, rel.StreamURL, nil)
@@ -125,8 +126,11 @@ func (s *Service) DirectPayload(ctx context.Context, rel core.Release) ([]byte, 
 	req.Header.Set("Range", "bytes=0-0")
 	req.Header.Set("User-Agent", httpclient.UserAgent)
 	s.direct.init()
-	resp, err := s.direct.primary.Do(prepareDirect(req, base))
+	resp, err := s.directRequest(s.direct.primary, prepareDirect(req, base), base)
 	if err != nil {
+		if errors.Is(err, core.ErrStreamLimit) {
+			return nil, err
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -210,3 +214,33 @@ func directMediaError(p Payload, err error) error {
 	}
 	return err
 }
+
+// directRequest holds the shared provider slot through the response body.
+func (s *Service) directRequest(hc *http.Client, req *http.Request, p Payload) (*http.Response, error) {
+	release := func() {}
+	if p.StreamProvider != "" {
+		if s.opts.AcquireStreamProvider == nil {
+			return nil, core.ErrSourceUnavailable
+		}
+		var err error
+		release, err = s.opts.AcquireStreamProvider(req.Context(), p.StreamProvider)
+		if err != nil {
+			return nil, err
+		}
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	resp.Body = &providerBody{ReadCloser: resp.Body, release: release}
+	return resp, nil
+}
+
+type providerBody struct {
+	io.ReadCloser
+	release func()
+	once    sync.Once
+}
+
+func (b *providerBody) Close() error { err := b.ReadCloser.Close(); b.once.Do(b.release); return err }

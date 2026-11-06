@@ -52,8 +52,9 @@ type Payload struct {
 	// stream link, Headers the request headers it requires and Origin the
 	// owner-configured addon origin. Link and Headers can carry the
 	// addon's credentials.
-	Headers map[string]string `json:"headers,omitempty"`
-	Origin  string            `json:"origin,omitempty"`
+	StreamProvider string            `json:"streamProvider,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	Origin         string            `json:"origin,omitempty"`
 }
 
 // IsPayload reports whether b is an encoded debrid Payload.

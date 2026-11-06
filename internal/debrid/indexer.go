@@ -66,7 +66,11 @@ func (x *Indexer) MissingSources() error {
 	if err := inv.MissingSources(); err != nil {
 		return err
 	}
-	if x.usenetReady != nil && !x.usenetReady() && x.svc != nil && x.svc.Enabled() && !inv.HasTorrentIndexer() {
+	direct := false
+	if sources, ok := x.inner.(interface{ HasDirectSources() bool }); ok {
+		direct = sources.HasDirectSources()
+	}
+	if !direct && x.usenetReady != nil && !x.usenetReady() && x.svc != nil && x.svc.Enabled() && !inv.HasTorrentIndexer() {
 		return core.ErrNoTorrentSources
 	}
 	return nil
