@@ -11,6 +11,7 @@ it("keeps a selected CSV viewer when an obsolete users response arrives", async 
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
       calls.push(String(input));
+      if (String(input).endsWith("/plex-servers")) return Promise.resolve(new Response("[]"));
       if (String(input).endsWith("/users")) {
         n++;
         return new Promise<Response>((resolve) => {
@@ -68,6 +69,7 @@ it("keeps an early CSV selection when viewer initialization races the click", as
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         trace.push("fetch " + url);
+        if (url.endsWith("/plex-servers")) return new Response("[]");
         if (url.includes("/migration/csv/preview"))
           return new Response(JSON.stringify({ id: "plan", items: [], lists: [], warnings: [] }));
         return new Response(
