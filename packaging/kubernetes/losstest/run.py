@@ -52,8 +52,10 @@ def run(c, out):
         raise ValueError('invalid role')
     if action not in ('none', 'force-delete', 'container-kill', 'pause', 'partition', 'host-stop'):
         raise ValueError('invalid action')
-    if phase not in ('early', 'steady'):
+    if phase not in ('early', 'steady', 'state'):
         raise ValueError('invalid phase')
+    if phase == 'state' and not c.get('faultTriggerArgv'):
+        raise ValueError('state phase requires an observed-state trigger')
     if action not in ('none', 'force-delete') and not (c.get('targetArgv') or c.get('lossWrapperArgv') or (c.get('lossArgv') and c.get('restoreArgv'))):
         raise ValueError('loss and restoration argv required')
     window = c.get('windowSeconds', 90)
@@ -89,6 +91,7 @@ def run(c, out):
     fault_process = None
     fault_handles = []
     restoration_needed = False
+    next_trigger_poll = 0.0
     try:
         with (out/'player.log').open('w') as log:
             process = subprocess.Popen(argv, stdout=log, stderr=log)
@@ -115,6 +118,24 @@ def run(c, out):
                 # Steady = buffered playback established plus 10s of play time.
                 ready = (phase == 'early' and segments and time.time()-parsed(segments[0]['ReceivedAt']) >= 2)
                 ready = ready or (phase == 'steady' and playing and time.time()-parsed(playing[0]['wallTime']) >= c.get('steadySeconds', 10))
+                if phase == 'state':
+                    ready = bool(playing)
+                if ready and not injected and c.get('faultTriggerArgv'):
+                    if time.monotonic() < next_trigger_poll:
+                        ready = False
+                    else:
+                        next_trigger_poll = time.monotonic()+max(0.2, c.get('triggerPollSeconds', 1))
+                        trigger = command([x.replace('{session}', session) for x in c['faultTriggerArgv']])
+                        if trigger.returncode:
+                            raise RuntimeError('observed-state trigger failed')
+                        observed = json.loads(trigger.stdout)
+                        if not isinstance(observed.get('ready'), bool):
+                            raise RuntimeError('trigger must return a boolean ready field')
+                        with (out/'trigger-events.jsonl').open('a') as trigger_log:
+                            trigger_log.write(json.dumps(dict(at=stamp(), observation=observed))+'\n')
+                        ready = observed['ready']
+                        if ready:
+                            report['faultTriggerEvidence'] = observed
                 if ready and not injected:
                     injected = True
                     if c.get('targetArgv'):
@@ -156,6 +177,13 @@ def run(c, out):
                         if not ready_file.exists() or fault_process.poll() is not None:
                             raise RuntimeError('fault wrapper did not become ready')
                         report['faultReadyAt'] = stamp()
+                        try:
+                            report['faultReadyEvidence'] = json.loads(ready_file.read_text())
+                        except ValueError:
+                            if c.get('requireFaultReadyJSON'):
+                                raise RuntimeError('native fault requires JSON kill evidence')
+                        if c.get('requireFaultReadyJSON') and (report['faultReadyEvidence'].get('verified') is not True or report['faultReadyEvidence'].get('session') != session):
+                            raise RuntimeError('fault proof is unverified or belongs to another session')
                         result = subprocess.CompletedProcess(fault_argv, 0, b'fault wrapper ready', b'')
                     else:
                         restoration_needed = True
@@ -241,7 +269,28 @@ def run(c, out):
                                 and report.get('postLossObservationSeconds', 0) >= c.get('minimumPostLossSeconds', 0))
         else:
             report['passed'] = False
-        if role == 'transcode' and action != 'none' and not report['serverInterruptionVerified']:
+        if c.get('postCheckArgv') and player.exists() and report['killAt']:
+            replacements = {'{session}':session, '{playerReport}':str(player), '{faultReadyFile}':str(out/'fault-ready'), '{runDir}':str(out)}
+            argv = []
+            for value in c['postCheckArgv']:
+                for key, replacement in replacements.items():
+                    value = value.replace(key, replacement)
+                argv.append(value)
+            checked = command(argv)
+            (out/'post-check.stderr').write_bytes(checked.stderr)
+            try:
+                proof = json.loads(checked.stdout)
+                if not isinstance(proof, dict):
+                    raise ValueError('post-check proof must be an object')
+            except ValueError:
+                proof = {'passed':False, 'error':'post-check returned invalid JSON'}
+            report['postCheck'] = proof
+            report['passed'] = (report['passed'] and checked.returncode == 0 and proof.get('passed') is True and proof.get('session') == session)
+            upper = proof.get('serverInterruptionUpperBoundSeconds')
+            verified = proof.get('serverInterruptionUpperBoundVerified') is True and proof.get('session') == session and isinstance(upper, (int,float)) and not isinstance(upper, bool) and 0 <= upper < c.get('bufferSeconds', 30)
+            report['serverInterruptionUpperBoundSeconds'] = upper
+            report['serverInterruptionUpperBoundVerified'] = verified
+        if role == 'transcode' and action != 'none' and not (report['serverInterruptionVerified'] or report.get('serverInterruptionUpperBoundVerified', False)):
             report['passed'] = False
         report['finishedAt'] = stamp()
         (out/'report.json').write_text(json.dumps(report, indent=2)+'\n')

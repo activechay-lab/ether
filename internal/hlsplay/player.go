@@ -562,5 +562,13 @@ func (p *player) captureInitial(r *Report, pl playlist, data []byte) error {
 	sum := sha256.Sum256(data)
 	r.InitialPlaylistSHA256 = hex.EncodeToString(sum[:])
 	r.InitialTimeline = timeline
+	metadata, _ := json.Marshal(struct {
+		Session        string          `json:"session"`
+		PlaylistSHA256 string          `json:"playlistSHA256"`
+		Timeline       []time.Duration `json:"timelineNS"`
+	}{p.playSession, r.InitialPlaylistSHA256, timeline})
+	if e := os.WriteFile(filepath.Join(p.c.Output, "initial-timeline.json"), append(metadata, '\n'), 0600); e != nil {
+		return e
+	}
 	return nil
 }
