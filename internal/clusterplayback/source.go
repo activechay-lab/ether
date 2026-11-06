@@ -385,6 +385,9 @@ func (r *Runtime) sourceCall(ctx context.Context, rt Route, m sourceRequest) (so
 		return sourceResponse{}, ErrPending
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusServiceUnavailable {
+		return sourceResponse{}, ErrPending
+	}
 	if resp.StatusCode != 200 {
 		return sourceResponse{}, ErrDenied
 	}

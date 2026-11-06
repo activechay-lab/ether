@@ -2,6 +2,7 @@ package clusterplayback
 
 import (
 	"context"
+	"errors"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"time"
@@ -23,6 +24,13 @@ func (r *Runtime) sourceActivity(ctx context.Context, peer nodewire.Identity, m 
 		return sourceResponse{}, ErrDenied
 	}
 	if err := r.preparationController(ctx, peer, entry, false); err != nil {
+		if errors.Is(err, errPreparationCoordinator) {
+			// Another frontend may plan a seek/quality change using this exact
+			// preparation. It cannot change the live coordinator's source mode
+			// or progress; validate the source and return without those writes.
+			prepared, checkErr := r.preparationCurrent(ctx, peer, m.Prepare.Operation)
+			return sourceResponse{Prepared: prepared}, checkErr
+		}
 		return sourceResponse{}, err
 	}
 	use.ActivityMu.Lock()
