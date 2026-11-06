@@ -3065,6 +3065,7 @@
   "m_0cf5ce3e16f9e3": "Yhdistetty plex.tv:hen",
   "m_0cf995da27d06e": "{provider}a ei enää käytetä toistoon.",
   "m_0cf9cebae0fe0e": "Tarkistetaan varmuuskopiota…",
+  "m_0cfc140f167f50": "Valmistellaan televisiota varten",
   "m_0cfd1448363549": "Poistetaanko kanava?",
   "m_0cfdc19f902b63": "Nousussa tällä viikolla",
   "m_0cff0b537cd734": "Kalenterinäkymä",
@@ -4650,6 +4651,7 @@
   "m_13555a930fce5c": "Palvelimesi käyttää nyt varmuuskopiota ajalta {date}.",
   "m_1355f04cafa4b7": "Esikatsele viikkoraporttia",
   "m_1355f4a6a3cd7b": "Kiinnitä: {title}",
+  "m_13578c45a16baf": "Kirjaston fontti",
   "m_1357be1d8582ea": "Pysäytetään Etheriä",
   "m_1359acf8dadd16": {
     "one": "Kirjauduttu ja haettu: {count} tulos, esimerkiksi:",

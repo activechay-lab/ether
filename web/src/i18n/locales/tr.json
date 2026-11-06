@@ -3065,6 +3065,7 @@
   "m_0cf5ce3e16f9e3": "plex.tv'ye bağlı",
   "m_0cf995da27d06e": "{provider} artık akış için kullanılmayacak.",
   "m_0cf9cebae0fe0e": "Yedek denetleniyor…",
+  "m_0cfc140f167f50": "TV için hazırlanıyor",
   "m_0cfd1448363549": "Kanal silinsin mi?",
   "m_0cfdc19f902b63": "Bu hafta gündemde",
   "m_0cff0b537cd734": "Takvim görünümü",
@@ -4650,6 +4651,7 @@
   "m_13555a930fce5c": "Sunucunuz artık {date} tarihinde alınan yedekle çalışıyor.",
   "m_1355f04cafa4b7": "Haftalık raporu önizle",
   "m_1355f4a6a3cd7b": "{title} öğesini sabitle",
+  "m_13578c45a16baf": "Kitaplık yazı tipi",
   "m_1357be1d8582ea": "Ether durduruluyor",
   "m_1359acf8dadd16": {
     "one": "Oturum açıldı ve arama yapıldı: {count} sonuç, örneğin:",

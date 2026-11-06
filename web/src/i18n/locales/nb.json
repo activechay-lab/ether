@@ -3065,6 +3065,7 @@
   "m_0cf5ce3e16f9e3": "Koblet til plex.tv",
   "m_0cf995da27d06e": "{provider} brukes ikke lenger til strømming.",
   "m_0cf9cebae0fe0e": "Sjekker sikkerhetskopien …",
+  "m_0cfc140f167f50": "Klargjør for TV",
   "m_0cfd1448363549": "Slette kanalen?",
   "m_0cfdc19f902b63": "På trend denne uken",
   "m_0cff0b537cd734": "Kalendervisning",
@@ -4650,6 +4651,7 @@
   "m_13555a930fce5c": "Serveren din kjører nå på sikkerhetskopien fra {date}.",
   "m_1355f04cafa4b7": "Forhåndsvis ukentlig rapport",
   "m_1355f4a6a3cd7b": "Fest {title}",
+  "m_13578c45a16baf": "Skrifttype fra biblioteket",
   "m_1357be1d8582ea": "Stopper Ether",
   "m_1359acf8dadd16": {
     "one": "Logget inn og søkte: {count} resultat, for eksempel:",

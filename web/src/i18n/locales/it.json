@@ -3145,6 +3145,7 @@
   "m_0cf5ce3e16f9e3": "Connesso a plex.tv",
   "m_0cf995da27d06e": "{provider} non verrà più usato per lo streaming.",
   "m_0cf9cebae0fe0e": "Controllo del backup…",
+  "m_0cfc140f167f50": "Preparazione per la TV",
   "m_0cfd1448363549": "Eliminare il canale?",
   "m_0cfdc19f902b63": "Di tendenza questa settimana",
   "m_0cff0b537cd734": "Vista calendario",
@@ -4775,6 +4776,7 @@
   "m_13555a930fce5c": "Il tuo server ora funziona con il backup creato il {date}.",
   "m_1355f04cafa4b7": "Anteprima del resoconto settimanale",
   "m_1355f4a6a3cd7b": "Fissa {title}",
+  "m_13578c45a16baf": "Carattere della libreria",
   "m_1357be1d8582ea": "Arresto di Ether",
   "m_1359acf8dadd16": {
     "many": "Accesso effettuato e ricerca eseguita: {count} risultati, ad esempio:",

@@ -3065,6 +3065,7 @@
   "m_0cf5ce3e16f9e3": "Mit plex.tv verbunden",
   "m_0cf995da27d06e": "{provider} wird nicht mehr zum Streamen verwendet.",
   "m_0cf9cebae0fe0e": "Backup wird geprüft…",
+  "m_0cfc140f167f50": "Wird fürs Fernsehen vorbereitet",
   "m_0cfd1448363549": "Kanal löschen?",
   "m_0cfdc19f902b63": "Diese Woche angesagt",
   "m_0cff0b537cd734": "Kalenderansicht",
@@ -4650,6 +4651,7 @@
   "m_13555a930fce5c": "Dein Server läuft jetzt mit dem Backup vom {date}.",
   "m_1355f04cafa4b7": "Wochenbericht ansehen",
   "m_1355f4a6a3cd7b": "{title} anheften",
+  "m_13578c45a16baf": "Schrift aus der Mediathek",
   "m_1357be1d8582ea": "Ether wird beendet",
   "m_1359acf8dadd16": {
     "one": "Angemeldet und gesucht: {count} Ergebnis, zum Beispiel:",

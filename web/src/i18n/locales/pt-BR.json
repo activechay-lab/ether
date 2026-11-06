@@ -3145,6 +3145,7 @@
   "m_0cf5ce3e16f9e3": "Conectado ao plex.tv",
   "m_0cf995da27d06e": "{provider} deixará de ser usado para streaming.",
   "m_0cf9cebae0fe0e": "Verificando o backup…",
+  "m_0cfc140f167f50": "Preparando para a TV",
   "m_0cfd1448363549": "Excluir canal?",
   "m_0cfdc19f902b63": "Em alta esta semana",
   "m_0cff0b537cd734": "Visualização do calendário",
@@ -4775,6 +4776,7 @@
   "m_13555a930fce5c": "Seu servidor agora usa o backup criado em {date}.",
   "m_1355f04cafa4b7": "Pré-visualizar relatório semanal",
   "m_1355f4a6a3cd7b": "Fixar {title}",
+  "m_13578c45a16baf": "Fonte da biblioteca",
   "m_1357be1d8582ea": "Parando o Ether",
   "m_1359acf8dadd16": {
     "many": "Login feito e pesquisa realizada: {count} resultados, por exemplo:",

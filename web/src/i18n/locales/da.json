@@ -3065,6 +3065,7 @@
   "m_0cf5ce3e16f9e3": "Forbundet til plex.tv",
   "m_0cf995da27d06e": "{provider} bruges ikke længere til streaming.",
   "m_0cf9cebae0fe0e": "Kontrollerer backuppen…",
+  "m_0cfc140f167f50": "Gør klar til TV",
   "m_0cfd1448363549": "Slet kanal?",
   "m_0cfdc19f902b63": "Populære denne uge",
   "m_0cff0b537cd734": "Kalendervisning",
@@ -4650,6 +4651,7 @@
   "m_13555a930fce5c": "Din server kører nu på backuppen fra {date}.",
   "m_1355f04cafa4b7": "Forhåndsvis ugentlig rapport",
   "m_1355f4a6a3cd7b": "Fastgør {title}",
+  "m_13578c45a16baf": "Skrifttype fra biblioteket",
   "m_1357be1d8582ea": "Stopper Ether",
   "m_1359acf8dadd16": {
     "one": "Logget ind og søgt: {count} resultat, for eksempel:",
