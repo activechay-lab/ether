@@ -10,6 +10,8 @@ import (
 // Facts describe container observations, not a decoder verdict or sample-end
 // durations. Verified is deliberately false for unsupported formats, transport
 // discontinuities, clock wrap, missing tracks, and structural parse failures.
+// An initial per-PID discontinuity marker is a legal muxer reset, not an
+// intra-segment discontinuity.
 // MPEGTS timestamps are unsigned 33-bit ticks at exactly 90000 Hz. Wrap is
 // rejected, never silently normalized against an unrelated generation.
 type Facts struct {
@@ -105,6 +107,7 @@ func parseTS(b []byte) ([]TrackFacts, bool) {
 	pmt := -1
 	tracks := map[uint16]*tsTrack{}
 	cc := map[uint16]byte{}
+	seen := map[uint16]bool{}
 	var patBytes, pmtBytes []byte
 	for off := 0; off < len(b); off += 188 {
 		p := b[off : off+188]
@@ -112,6 +115,8 @@ func parseTS(b []byte) ([]TrackFacts, bool) {
 			return nil, false
 		}
 		pid := uint16(p[1]&31)<<8 | uint16(p[2])
+		first := !seen[pid]
+		seen[pid] = true
 		afc := (p[3] >> 4) & 3
 		if afc == 0 {
 			return nil, false
@@ -122,7 +127,9 @@ func parseTS(b []byte) ([]TrackFacts, bool) {
 			if n > 183 || 5+n > 188 {
 				return nil, false
 			}
-			if n > 0 && p[5]&0x80 != 0 {
+			// A restarted child muxer marks its first packet on each PID.
+			// Later resets still invalidate this complete segment.
+			if n > 0 && p[5]&0x80 != 0 && !first {
 				return nil, false
 			}
 			o += 1 + n

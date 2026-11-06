@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -489,11 +491,53 @@ func TestOutputRuntimeAvailabilityRequiresCommittedBytes(t *testing.T) {
 
 func TestOutputBufferRemoteMTLSCompletion(t *testing.T) {
 	s, data := outputFixture(t)
+	// Default offline coverage derives legal reset packets from the existing TS
+	// fixture. The scoped lab gate also supplies sealed restarted-muxer bytes;
+	// those artifacts stay outside git and no encoder is invoked by this test.
+	if path := os.Getenv("ETHER_TEST_INITIAL_TS"); path != "" {
+		var err error
+		data, err = os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fmt.Sprintf("%x", sha256.Sum256(data)) != "7a7f2bf9a2077f35d55c44edaf995316a586a9e770371d758e45de4f039d0b1e" {
+			t.Fatal("initial-marker fixture changed")
+		}
+	} else {
+		original := data
+		data = nil
+		seen := map[uint16]bool{}
+		for off := 0; off < len(original); off += 188 {
+			packet := original[off : off+188]
+			pid := uint16(packet[1]&31)<<8 | uint16(packet[2])
+			if !seen[pid] {
+				data = append(data, initialResetPacket(pid, packet[3]&15)...)
+				seen[pid] = true
+			}
+			data = append(data, packet...)
+		}
+	}
+	buffer, err := playbackbuffer.New(playbackbuffer.Limits{Global: playbackbuffer.Budget{Bytes: 16 << 20, Segments: 16, Inits: 1}, PerSession: playbackbuffer.Budget{Bytes: 16 << 20, Segments: 16, Inits: 1}, Sessions: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = buffer.OpenSession("retained", playbackbuffer.State{Generation: 1, PublishedFloor: -1}); err != nil {
+		t.Fatal(err)
+	}
+	s.r.o.OutputBuffer, s.r.o.MaxSegmentBytes = buffer, int64(len(data)*2)
+	s.r.o.EncoderSegmentWait = time.Second
+	s.r.deliveryScratch = make(chan struct{}, 4)
+	s.r.o.MemberRole = func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
+	var healthy atomic.Bool
+	bad := append([]byte(nil), data...)
+	middle := (len(bad) / 188 / 2) * 188
+	bad = append(append(append([]byte(nil), bad[:middle]...), initialResetPacket(17, 0)...), bad[middle:]...)
+
 	controller := nodewire.Identity{Cluster: "output", NodeID: "controller", Boot: "cboot"}
 	worker := nodewire.Identity{Cluster: "output", NodeID: "worker", Boot: "wboot"}
 	guards := fixtureGuards(t, controller, worker)
 	id := remotetranscode.Identity{Controller: "controller", Worker: "worker", Session: "retained", Generation: 1}
-	calls := 0
+	var calls atomic.Int64
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
 		if _, err := guards[1].Request(q); err != nil {
 			http.Error(w, "unauthorized", 401)
@@ -511,8 +555,18 @@ func TestOutputBufferRemoteMTLSCompletion(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"Identity": id, "State": "running"})
 			return
 		}
-		calls++
+		calls.Add(1)
 		w.Header().Set("Content-Type", "video/mp2t")
+		if healthy.Load() {
+			payload := data
+			if message.Segment == 2 {
+				payload = bad
+			}
+			w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+			_, _ = w.Write(payload)
+			return
+		}
+
 		switch message.Segment {
 		case 0:
 			w.Header().Set("Content-Length", strconv.Itoa(len(data)))
@@ -549,9 +603,15 @@ func TestOutputBufferRemoteMTLSCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Session = hs.(*remotetranscode.Session)
+	recovery := &recoverySession{s}
+
 	for n := 0; n < 3; n++ {
 		w := httptest.NewRecorder()
-		s.ServeSegment(w, httptest.NewRequest("GET", "/segment", nil), n)
+		if n == 0 {
+			recovery.ServeSegment(w, httptest.NewRequest("GET", "/segment", nil), n)
+		} else {
+			s.ServeSegment(w, httptest.NewRequest("GET", "/segment", nil), n)
+		}
 		if n == 2 {
 			if w.Code != 503 {
 				t.Fatal("unknown framing acknowledged", w.Code)
@@ -561,8 +621,23 @@ func TestOutputBufferRemoteMTLSCompletion(t *testing.T) {
 		}
 	}
 	snap, err := s.r.o.OutputBuffer.Snapshot("retained")
-	if err != nil || len(snap.Entries) != 1 || snap.State.PublishedFloor != 0 || calls != 3 {
-		t.Fatal("only complete full TS may publish, exactly one backend read each", snap, calls, err)
+	if err != nil || len(snap.Entries) != 1 || snap.State.PublishedFloor != 0 || calls.Load() != 3 {
+		t.Fatal("only complete full TS may publish, exactly one backend read each", snap, calls.Load(), err)
+	}
+	healthy.Store(true)
+	published := &publicationWriter{ResponseRecorder: httptest.NewRecorder(), length: len(data), t: t, check: func() bool { v, e := buffer.Snapshot("retained"); return e == nil && v.State.PublishedFloor >= 1 }}
+	recovery.ServeSegment(published, httptest.NewRequest("GET", "/segment", nil), 1)
+	if published.Code != 200 || published.Body.String() != string(data) {
+		t.Fatal("legal initial reset did not complete after publication", published.Code, published.Body.Len())
+	}
+	malformed := httptest.NewRecorder()
+	recovery.ServeSegment(malformed, httptest.NewRequest("GET", "/segment", nil), 2)
+	snap, err = buffer.Snapshot("retained")
+	if malformed.Code != 503 || err != nil || snap.State.PublishedFloor != 1 {
+		t.Fatal("midsegment reset published", malformed.Code, snap, err)
+	}
+	if len(s.r.outputScratch) != 0 || len(s.r.deliveryScratch) != 0 {
+		t.Fatal("capture/delivery scratch leaked")
 	}
 }
 
@@ -609,4 +684,12 @@ func TestRetiredOutputCapacityReclaimed(t *testing.T) {
 			t.Fatal("retired output not disposed")
 		}
 	}
+}
+
+// An adaptation-only packet changes no payload or timestamp. Its reset marker
+// is legal only when it is the first observed transport packet on this PID.
+func initialResetPacket(pid uint16, cc byte) []byte {
+	p := bytes.Repeat([]byte{0xff}, 188)
+	p[0], p[1], p[2], p[3], p[4], p[5] = 0x47, byte(pid>>8)&31, byte(pid), 0x20|cc, 183, 0x80
+	return p
 }
