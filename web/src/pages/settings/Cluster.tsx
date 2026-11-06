@@ -27,7 +27,7 @@ import { Section } from "../../components/layout";
 import { SettingsRow } from "../../components/SettingsRow";
 import { pagedTableLabels } from "../../i18n/appkit-labels";
 import { localized, t, tn } from "../../i18n";
-import { api, errorMessage } from "../../lib/api";
+import { api, errorMessage, uuid } from "../../lib/api";
 import { formatDateTime, parseTime, relativeTime } from "../../lib/format";
 import { useAsync, useInterval, type AsyncState } from "../../lib/hooks";
 import type {
@@ -903,7 +903,7 @@ function NodeControls({
     setError("");
     try {
       const result = await api.updateClusterControl(node.id, {
-        requestId: crypto.randomUUID(),
+        requestId: uuid(),
         boot: node.incarnation!,
         expectedVersion: c.requestedVersion,
         patch,

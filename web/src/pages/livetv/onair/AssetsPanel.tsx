@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button, Select, confirmDialog, toast } from "@braedonsaunders/appkit-ui";
 import { Upload, FileType, Image, AudioLines, Film, Trash2 } from "lucide-react";
 import { t } from "../../../i18n";
+import { uuid } from "../../../lib/api";
 import { onair, type OnAirAsset } from "./model";
 export function AssetsPanel() {
   const [assets, setAssets] = useState<OnAirAsset[]>([]);
@@ -16,7 +17,7 @@ export function AssetsPanel() {
     try {
       for (const file of Array.from(files)) {
         if (kind === "font") {
-          setPending((s) => [...s, { id: crypto.randomUUID(), file, license: "", busy: false }]);
+          setPending((s) => [...s, { id: uuid(), file, license: "", busy: false }]);
           continue;
         }
         const a = await onair.uploadAsset(file, kind);
