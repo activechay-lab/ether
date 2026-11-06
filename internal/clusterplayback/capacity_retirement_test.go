@@ -165,6 +165,16 @@ func TestSequentialCrossReplicaCapacityRetirement(t *testing.T) {
 				t.Fatal(err)
 			}
 			delete(endpoints, sourceID)
+			preparedLife := &remotePreparation{owner: sourceID, operation: "source-only-preparation", retiring: true, done: make(chan struct{})}
+			remote := &RemotePlayback{r: starter, o: RemotePlaybackOptions{Now: time.Now}, entries: map[string]*remotePreparation{"source-only": preparedLife}}
+			if err := remote.tick(ctx); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-preparedLife.done:
+			default:
+				t.Fatal("replaced source preparation retained retirement wait")
+			}
 		}
 		for i := 0; i < 100; i++ {
 			_ = starter.Tick(ctx)
