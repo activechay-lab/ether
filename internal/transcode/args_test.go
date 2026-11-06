@@ -294,7 +294,7 @@ func TestBuildArgsNVENCAndQSV(t *testing.T) {
 	s.Accel = core.HWAccel{Name: AccelNVENC, Encoders: []string{"h264_nvenc"}}
 	mustContain(t, buildArgs(s), "-hwaccel cuda", "-c:v h264_nvenc", "-forced-idr 1", "-rc vbr")
 	s.Accel = core.HWAccel{Name: AccelQSV, Encoders: []string{"h264_qsv"}}
-	mustContain(t, buildArgs(s), "-c:v h264_qsv", "format=nv12", "-look_ahead 0")
+	mustContain(t, buildArgs(s), "-c:v h264_qsv", "format=nv12", "-b:v")
 	// HEVC requested but only an h264 hw encoder: hevc goes to libx265.
 	d.VideoCodec = "hevc"
 	s.Decision = d

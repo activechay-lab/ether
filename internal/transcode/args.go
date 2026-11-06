@@ -15,6 +15,7 @@ import (
 
 // runSpec is everything needed to build one ffmpeg HLS run.
 type runSpec struct {
+	QSVMode      string // session-local retry override; never mutates shared capabilities
 	SilenceAudio bool
 	// Only a retry of an initial run whose muxer wrote a wrapped tfdt.
 	NormalizeNegativeDTS bool
@@ -314,6 +315,9 @@ func buildCodecArgs(s runSpec) []string {
 		args = append(args, "-fflags", "+genpts")
 	}
 	vp := planVideo(s, v)
+	if _, hw := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features); hw && s.Accel.Name == AccelQSV && s.Accel.Device != "" && transcodeVideo {
+		args = append(args, "-qsv_device", s.Accel.Device)
+	}
 	args = append(args, vp.inputArgs...)
 	args = append(args, inputTimestampArgs(s)...)
 	if s.LoopInput {
@@ -1043,15 +1047,11 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 		} else if pic.tenBit {
 			e = append(e, "-profile:v", "main10")
 		}
-	case "h264_qsv", "hevc_qsv":
-		if s.Rate.Quality {
-			e = append(e, "-preset", "veryfast", "-global_quality", "23", "-maxrate", maxr, "-bufsize", buf, "-look_ahead", "1")
-		} else {
-			e = append(e, "-preset", "veryfast", "-b:v", b, "-maxrate", maxr, "-bufsize", buf, "-look_ahead", "0")
-		}
+	case "h264_qsv", "hevc_qsv", "av1_qsv":
+		e = append(e, qsvRateArgs(qsvMode(s, enc), b, maxr, buf)...)
 		if enc == "h264_qsv" {
 			e = append(e, "-profile:v", "high")
-		} else if pic.tenBit {
+		} else if enc == "hevc_qsv" && pic.tenBit {
 			e = append(e, "-profile:v", "main10")
 		}
 	case "h264_vaapi", "hevc_vaapi":

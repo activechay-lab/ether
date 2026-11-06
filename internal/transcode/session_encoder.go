@@ -257,6 +257,9 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		FastStart:            rp.fastStart,
 		Rate:                 rp.rate,
 	}
+	if spec.Decision.VideoCodec == s.qsvCodec && spec.Rate.Quality == s.qsvQuality {
+		spec.QSVMode = s.qsvMode
+	}
 	s.normalizeNegativeDTS = false
 	s.silenceAudio = false
 	if s.softSubtitleStream != nil && s.softSubtitleInputIndex >= 0 {
