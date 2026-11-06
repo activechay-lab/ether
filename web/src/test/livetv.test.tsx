@@ -1015,9 +1015,11 @@ it("estimates AI cost before running and applies only reviewed proposals", async
   expect(await screen.findByText(/Estimated calls: 1/)).toBeVisible();
   expect(calls.filter((c) => c.url.endsWith("/guide/match"))).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Find suggestions" }));
-  expect(await screen.findByRole("button", { name: "Accept match for News 24" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Accept match for News 24" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    ),
   );
   expect(screen.getByRole("button", { name: "Accept match for Cartoons" })).toHaveAttribute(
     "aria-pressed",
