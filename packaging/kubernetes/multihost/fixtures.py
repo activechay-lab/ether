@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Render existing generated-media/Ingress fixtures into the isolated lab (PyYAML)."""
 import sys
+import os
+import json
 from pathlib import Path
 import yaml
 root, tag = Path(sys.argv[1]), sys.argv[2]
+prefix = os.environ.get("ETHER_LAB_PREFIX", "ether035-mh")
+namespace = os.environ.get("ETHER_LAB_NAMESPACE", "ether035-ha")
 objects = []
 for filename in ('source-fixture.yaml', 'ingress-lab.yaml'):
     for obj in yaml.safe_load_all((root/'packaging/kubernetes'/filename).read_text()):
         if obj.get('kind') == 'Deployment':
             spec = obj['spec']['template']['spec']
-            spec['nodeSelector'] = {'kubernetes.io/hostname': 'ether035-mh-server'}
+            spec['nodeSelector'] = {'kubernetes.io/hostname': prefix+'-server'}
             if filename == 'source-fixture.yaml':
                 spec['initContainers'][0]['image'] = 'ether035-multihost:'+tag
         objects.append(obj)
@@ -62,4 +66,6 @@ spec:
         accessModes: [ReadWriteOnce]
         resources: {requests: {storage: 1Gi}}
 '''))
+# Resource names and embedded controller arguments belong to this namespace.
+objects = json.loads(json.dumps(objects).replace('ether035-mh', prefix).replace('ether035-ha', namespace))
 yaml.safe_dump_all(objects, sys.stdout)

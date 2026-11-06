@@ -162,3 +162,57 @@ It checks lab labels, removes only those containers, then the captured owned
 bridge. Bound data and private credentials are retained for review; dispose of
 those exact private state directories only when no longer needed. Never prune
 Docker, restart WSL/Docker or remove another lab's resources.
+
+## A second isolated lab
+
+All provisioning/install/import/teardown scripts accept a private `lab.env` in
+STATE (or its parent for a per-node state). Defaults retain the original lab.
+For example, store the following in a separate private state directory:
+
+```sh
+ETHER_LAB_NAME=ether035-lab2
+ETHER_LAB_PREFIX=ether035-lab2
+ETHER_LAB_NAMESPACE=ether035-lab2
+ETHER_LAB_CONTEXT=ether035-lab2
+ETHER_LAB_PORT_OFFSET=100
+ETHER_LAB_SERVER_MEMORY=4864m
+ETHER_LAB_SINGLE_NODE=true
+ETHER_LAB_POD_CIDR=10.75.0.0/16
+ETHER_LAB_SERVICE_CIDR=10.76.0.0/16
+ETHER_LAB_BACKEND=vxlan
+```
+
+This profile publishes API16543 and ingress18135, Host `ether035-lab2.test`.
+Create only the server with `node.sh`; omit `local-agents.sh`. Capture its
+kubeconfig as above using the new API port and context. The single-node install
+labels that server for workloads. Two replicas of each role still run, but only
+pod/task faults are meaningful; node failure also removes PostgreSQL/ingress.
+The enclosing Docker limit bounds all workloads to4.75GiB. A multi-node profile
+instead uses `ETHER_LAB_SERVER_MEMORY=1792m` and
+`ETHER_LAB_AGENT_MEMORY=1536m` (also4.75GiB total), omitting SINGLE_NODE.
+VXLAN is appropriate for a local bridge; the original WireGuard topology remains
+required for a second physical host. The optional native-worker relay and
+redeploy builder remain specific to the original lab; use import/install with
+an existing reviewed image for the second lab.
+
+Use independent DB/issuer/cluster-key generation, fixture resources and bound
+state; never copy another lab's secrets, PVCs or identities. Import the runtime
+with `import.sh STATE IMAGE`, then `install.sh STATE IMMUTABLE_TAG`. To seed a
+fresh lab2 with generated local credentials and the supported frontend APIs:
+
+```sh
+KUBECONFIG="$state/kubeconfig" python3 packaging/kubernetes/seed-lab.py \
+ --context ether035-lab2 --namespace ether035-lab2 \
+ --base http://127.0.0.1:18140 --kubectl "$state/bin/kubectl" \
+ --credentials-dir "$state/playback-private" \
+ --fixture-quality --enable-mediabrowser
+```
+
+The loopback port-forward must target a server pod's32400. `--fixture-quality`
+allows the actual generated360p title by lowering profile height/size minima;
+it does not change stream metadata. Jellyfin/Emby responses with device-bound
+tokens are saved as `jellyfin-auth.json`/`emby-auth.json` beside `local-owner.json`.
+Keep those files private. For loss helpers, export `ETHER_LAB_STATE="$state"`
+with this lab's KUBECONFIG/PATH; they check the configured context, prefix,
+namespace and Docker label before applying a fault. `loss.sh` takes per-node
+state directly. Original lab defaults are unchanged.
