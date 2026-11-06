@@ -21,6 +21,7 @@ import (
 )
 
 type Config struct {
+	DecisionOrigin, StartOrigin, StopOrigin                         string
 	ReferenceTimeline                                               []time.Duration
 	Protocol, Prefix, CredentialsFile, DeviceID                     string
 	DirectPlay, DirectStream                                        bool
@@ -62,6 +63,7 @@ type Continuity struct {
 	Report   splicecheck.Report
 }
 type Report struct {
+	ControlOriginsPinned                         bool
 	InitialTimeline                              []time.Duration
 	InitialPlaylistSHA256                        string
 	Protocol                                     string
@@ -101,6 +103,25 @@ func (p *player) request(ctx context.Context, raw, kind string, index int, retry
 	u, e := resolve(p.c.BaseURL, raw)
 	if e != nil {
 		return nil, e
+	}
+	if p.c.Protocol == "plex" {
+		pin := ""
+		switch kind {
+		case "decision":
+			pin = p.c.DecisionOrigin
+		case "master":
+			pin = p.c.StartOrigin
+		case "stop":
+			pin = p.c.StopOrigin
+		}
+		if pin != "" {
+			original, _ := url.Parse(u)
+			target, _ := url.Parse(pin)
+			target.Path = original.Path
+			target.RawPath = original.RawPath
+			target.RawQuery = original.RawQuery
+			u = target.String()
+		}
 	}
 	tries := 1
 	if retry {
@@ -199,6 +220,15 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	if (c.Token == "" && c.CredentialsFile == "") || c.RatingKey == "" {
 		return r, fmt.Errorf("viewer token and rating key required")
 	}
+	for _, pin := range []string{c.DecisionOrigin, c.StartOrigin, c.StopOrigin} {
+		if pin == "" {
+			continue
+		}
+		u, e := url.Parse(pin)
+		if e != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" {
+			return r, fmt.Errorf("invalid pinned control origin")
+		}
+	}
 	if c.Protocol == "" {
 		c.Protocol = "plex"
 	}
@@ -227,7 +257,7 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	}
 	defer events.Close()
 	p := &player{c: c, start: time.Now(), events: events, client: &http.Client{Timeout: c.RequestTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
-	r = Report{Protocol: c.Protocol, Session: c.Session, StartedAt: p.start.UTC(), DecisionSkipped: c.SkipDecision, IndicesExact: true, Outcome: "failed"}
+	r = Report{ControlOriginsPinned: c.DecisionOrigin != "" || c.StartOrigin != "" || c.StopOrigin != "", Protocol: c.Protocol, Session: c.Session, StartedAt: p.start.UTC(), DecisionSkipped: c.SkipDecision, IndicesExact: true, Outcome: "failed"}
 	b := Buffer{}
 	defer func() {
 		if p.playSession != "" {

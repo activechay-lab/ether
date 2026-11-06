@@ -64,7 +64,7 @@ def run(c, out):
             '-rating-key', str(c['ratingKey']), '-output', str(out/'player'),
             '-session', session, '-window', f'{window}s',
             '-buffer', f"{c.get('bufferSeconds', 30)}s"]
-    for key, flag in [('tokenFile', '-token-file'), ('credentialsFile', '-credentials-file'), ('protocol', '-protocol'), ('prefix', '-prefix'), ('deviceID', '-device-id'), ('host', '-host'), ('ffmpeg', '-ffmpeg'), ('ffprobe', '-ffprobe'),
+    for key, flag in [('decisionOrigin', '-decision-origin'), ('startOrigin', '-start-origin'), ('stopOrigin', '-stop-origin'), ('tokenFile', '-token-file'), ('credentialsFile', '-credentials-file'), ('protocol', '-protocol'), ('prefix', '-prefix'), ('deviceID', '-device-id'), ('host', '-host'), ('ffmpeg', '-ffmpeg'), ('ffprobe', '-ffprobe'),
                       ('reference', '-reference'), ('producerEvidence', '-producer-evidence'), ('maxVideoBitrate', '-max-video-bitrate'), ('videoResolution', '-video-resolution')]:
         if c.get(key):
             argv += [flag, str(c[key])]

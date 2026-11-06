@@ -42,6 +42,9 @@ func main() {
 	flag.StringVar(&c.Prefix, "prefix", "/jellyfin", "MediaBrowser surface prefix")
 	flag.StringVar(&c.DeviceID, "device-id", "", "bound viewer grant device ID (default random client ID)")
 	flag.StringVar(&c.CredentialsFile, "credentials-file", "", "Jellyfin lab login JSON with username/password; credentials never printed")
+	flag.StringVar(&c.DecisionOrigin, "decision-origin", "", "optional explicit lab frontend for Plex decision")
+	flag.StringVar(&c.StartOrigin, "start-origin", "", "optional explicit lab frontend for Plex start")
+	flag.StringVar(&c.StopOrigin, "stop-origin", "", "optional explicit lab frontend for Plex stop; media keeps ingress origin")
 	flag.Parse()
 	var token []byte
 	var e error

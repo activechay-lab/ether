@@ -188,3 +188,11 @@ SHA256 and global title-time boundaries in `InitialTimeline`. The checker uses
 an independent reference's frozen timeline when supplied, otherwise this initial
 plan. A replacement playlist never supplies expected boundaries. This preserves
 short FastStart opening slots while detecting a replacement that changes them.
+
+For an explicit cross-replica control probe, `-decision-origin`, `-start-origin`
+and `-stop-origin` pin only those Plex control requests to supplied lab origins
+(for example pod port-forwards B/A/B). Media and authored playlist resolution
+keep the shared ingress origin. Redirects remain refused; origin pins cannot
+contain credentials, queries, fragments or path prefixes. Reports mark
+`ControlOriginsPinned` so this diagnostic placement is distinguishable from
+ordinary ingress load balancing.
