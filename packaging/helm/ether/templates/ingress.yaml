@@ -24,7 +24,7 @@ spec:
       http:
         paths:
           {{- if or (gt (int $.Values.pools.server.replicas) 0) (gt (int $.Values.pools.delivery.replicas) 0) }}
-          # Canonical HLS LAB ONLY. Requires real writer-derived URL/auth,
+          # Media representation LAB ONLY. Requires real writer-derived URL/auth,
           # same-origin controller and protocol capability acceptance.
           # General mixed-client routing remains blocked by validation.
           - path: /video/:/transcode/universal/session
@@ -34,6 +34,18 @@ spec:
                 name: {{ include "ether.name" $ }}-media
                 port: {name: public}
           - path: /sessions/media
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ether.name" $ }}-media
+                port: {name: public}
+          - path: /jellyfin/sessions/media
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ether.name" $ }}-media
+                port: {name: public}
+          - path: /emby/sessions/media
             pathType: Prefix
             backend:
               service:

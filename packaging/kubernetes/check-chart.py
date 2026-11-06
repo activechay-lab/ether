@@ -55,13 +55,15 @@ def check(docs, persistent=False):
         assert matches==roles,(service['metadata']['name'],matches)
     ingress=next(d for d in docs if d['kind']=='Ingress')
     paths=ingress['spec']['rules'][0]['http']['paths']
-    assert {p['path'] for p in paths}=={'/','/sessions/media','/video/:/transcode/universal/session'}
+    assert {p['path'] for p in paths}=={'/','/sessions/media','/video/:/transcode/universal/session','/jellyfin/sessions/media','/emby/sessions/media'}
     def backend(path):
         # Kubernetes Prefix matches whole path elements; longer prefix wins.
         matches=[p for p in paths if p['path']=='/' or path==p['path'] or path.startswith(p['path']+'/')]
         return max(matches,key=lambda p:len(p['path']))['backend']['service']['name']
     for path in ['/sessions/media/id/grant/file','/sessions/media/id/grant/master.m3u8',
-                 '/video/:/transcode/universal/session/id/base/00001.ts']:
+                 '/video/:/transcode/universal/session/id/base/00001.ts',
+                 '/jellyfin/sessions/media/id/grant/file','/emby/sessions/media/id/grant/file',
+                 '/jellyfin/sessions/media/id/grant/master.m3u8','/emby/sessions/media/id/grant/base/0.ts']:
         assert backend(path)=='contract-ether-media'
     # Non-authored boundary probes still hit the Prefix and may correctly404.
     # Do not treat these as writer-derived compatibility defects or API paths.
@@ -74,7 +76,8 @@ def check(docs, persistent=False):
                  '/video/:/transcode/universal/stop','/transcode/sessions',
                  '/video/:/transcode/universal/subtitles','/subtitles/:/transcode/universal/start',
                  '/library/parts/1/file.mp4','/library/parts/1','/library/streams/1','/downloadQueue/1',
-                 '/jellyfin/sessions/media/id/grant/file','/emby/sessions/media/id/grant/file',
+                 '/jellyfin/Videos/id/master.m3u8','/emby/Videos/id/master.m3u8',
+                 '/jellyfin/sessions/mediaevil/id','/emby/sessions/mediaevil/id',
                  '/silo/sessions/media/id/grant/file','/sessions/mediaevil/id',
                  '/video/:/transcode/universal/sessionevil/id/base/00001.ts']:
         assert backend(path)=='contract-ether',path

@@ -835,6 +835,14 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 		if err := binding.BindClientSession(ctx, id, ps.ID); err != nil {
 			return frontend.Session{}, err
 		}
+	} else if req.Protocol == "jellyfin" || req.Protocol == "emby" {
+		if binding, ok := b.deps.DistributedHLS.(interface {
+			BindLocalClientSession(context.Context, string, *core.PlaySession) error
+		}); ok {
+			if err := binding.BindLocalClientSession(ctx, id, ps); err != nil {
+				return frontend.Session{}, err
+			}
+		}
 	}
 	if req.Protocol == "plex" && p.external {
 		if !validPlexTranscodeID(p.request.Intent.ClientSessionID) {
