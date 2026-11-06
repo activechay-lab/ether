@@ -36,7 +36,7 @@ func (r *Runtime) probeEncoder(ctx context.Context, x *execution) error {
 
 func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
 	coordinator, err := r.CurrentCoordinator(ctx, old.route.Fence.Session)
-	if err != nil || coordinator.Identity != r.o.Self {
+	if err != nil || coordinator.Identity != r.o.Self || coordinator.Epoch > 0 && !coordinator.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
 		return ErrDenied
 	}
 	r.mu.Lock()
@@ -96,6 +96,11 @@ func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
 }
 
 func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
+	coordinator, err := r.CurrentCoordinator(ctx, x.route.Fence.Session)
+	if err != nil || coordinator.Identity != r.o.Self || coordinator.Epoch > 0 && !coordinator.Deadline.After(time.Now().Add(r.o.ClockSkew)) {
+		return ErrDenied
+	}
+
 	r.mu.Lock()
 	replacement := x.replacement
 	old := x.route

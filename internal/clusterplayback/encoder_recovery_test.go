@@ -289,7 +289,7 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 					t.Fatalf("sequence %d count %d", n, fetched[n])
 				}
 			}
-			front.Stop(q.SessionID)
+			_ = session.Close()
 			for i := 0; i < 30; i++ {
 				_ = front.Tick(ctx)
 				runtimes[0].Cleanup()

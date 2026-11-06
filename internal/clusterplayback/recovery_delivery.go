@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/remotetranscode"
 )
 
 // recoverySession is a stable public session: its optional methods remain the
@@ -152,4 +153,104 @@ func (w *pendingSegment) complete(method string) bool {
 	}
 	length, err := strconv.ParseInt(w.headers.Get("Content-Length"), 10, 64)
 	return err == nil && length >= 0 && length == int64(w.body.Len())
+}
+
+func (s *recoverySession) current() *bufferedSession {
+	s.r.mu.Lock()
+	defer s.r.mu.Unlock()
+	if x := s.r.executions[s.route.Fence.Session]; x != nil {
+		return x.output
+	}
+	return nil
+}
+func (s *recoverySession) LastAccess() time.Time {
+	if out := s.current(); out != nil {
+		return out.LastAccess()
+	}
+	return s.bufferedSession.LastAccess()
+}
+func (s *recoverySession) ServeRungPlaylist(w http.ResponseWriter, q *http.Request, rung string) {
+	out, err := s.resolve(q.Context(), -1)
+	if err != nil {
+		http.Error(w, "encoder recovery pending", 503)
+		return
+	}
+	out.Session.ServeRungPlaylist(w, q, rung)
+}
+func (s *recoverySession) Rungs() []core.HLSRung {
+	if out := s.current(); out != nil {
+		return out.Rungs()
+	}
+	return nil
+}
+func (s *recoverySession) IndependentSegments() bool {
+	if out := s.current(); out != nil {
+		return out.IndependentSegments()
+	}
+	return false
+}
+func (s *recoverySession) Touch() {
+	if out := s.current(); out != nil {
+		out.Touch()
+	}
+}
+func (s *recoverySession) PlaybackState(state string) {
+	if out := s.current(); out != nil {
+		out.PlaybackState(state)
+	}
+}
+func (s *recoverySession) PlaybackDelivered() bool {
+	if s.Session.PlaybackDelivered() {
+		return true
+	}
+	if out := s.current(); out != nil {
+		return out.PlaybackDelivered()
+	}
+	return false
+}
+func (s *recoverySession) EncoderRetirement() core.EncoderRetirement {
+	if token, ok := s.r.EncoderRetirement(s.route.Fence.Session); ok {
+		return token
+	}
+	return s
+}
+func (s *recoverySession) EncoderDone() <-chan struct{} {
+	s.r.mu.Lock()
+	defer s.r.mu.Unlock()
+	if x := s.r.executions[s.route.Fence.Session]; x != nil {
+		return x.done
+	}
+	return s.Session.EncoderDone()
+}
+func (s *recoverySession) EncoderErr() error {
+	s.r.mu.Lock()
+	defer s.r.mu.Unlock()
+	if x := s.r.executions[s.route.Fence.Session]; x != nil && x.retired {
+		return nil
+	}
+	return core.ErrEncoderPending
+}
+func (s *recoverySession) Close() error { return s.RetireEncoder() }
+func (s *recoverySession) RetireEncoder() error {
+	s.r.Stop(s.route.Fence.Session)
+	return s.EncoderErr()
+}
+func (s *recoverySession) RetireEncoderContext(ctx context.Context) error {
+	s.r.mu.Lock()
+	x := s.r.executions[s.route.Fence.Session]
+	if x != nil {
+		x.stopping = true
+	}
+	var remote *remotetranscode.Session
+	if x != nil {
+		remote = x.session
+	}
+	s.r.mu.Unlock()
+	if remote != nil {
+		_ = remote.RetireEncoderContext(ctx)
+	}
+	return s.EncoderErr()
+}
+func (s *recoverySession) Observe(ctx context.Context) (*remotetranscode.ObservedSession, error) {
+	return s.r.ObserveExecution(ctx, s.route.Fence.Session, time.Minute)
 }
