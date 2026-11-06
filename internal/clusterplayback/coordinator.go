@@ -655,7 +655,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			// Authenticated replacement is positive loss evidence; unlike a
 			// transient transport failure it needs no grace period. Ordinary
 			// boot retirement preserved this gate for our supersession CAS.
-			if !recoverNow && (detector == "worker-boot-replaced" || detector == "encoder-retired" || detector == "status-denied") {
+			if !recoverNow && (detector == "worker-boot-replaced" || detector == "encoder-retired" || detector == "status-denied" || detector == "status-unreachable") {
 				recoverNow = true
 			}
 			if recoverNow {

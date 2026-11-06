@@ -237,6 +237,9 @@ func (a *Adapter) callPayload(ctx context.Context, b []byte, headers http.Header
 	}
 	resp, err := a.client.Do(req)
 	if err != nil {
+		if op == "status" && errors.Is(err, outbound.ErrEndpointUnavailable) {
+			return nil, ErrStatusUnavailable
+		}
 		if op == "status" && errors.Is(err, outbound.ErrPeerDenied) {
 			return nil, ErrStatusDenied
 		}
@@ -244,6 +247,9 @@ func (a *Adapter) callPayload(ctx context.Context, b []byte, headers http.Header
 	}
 	if !mediaOperation(op) && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
 		resp.Body.Close()
+		if op == "status" && resp.StatusCode == http.StatusNotFound {
+			return nil, ErrStatusUnavailable
+		}
 		if op == "status" && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusGone) {
 			return nil, ErrStatusDenied
 		}

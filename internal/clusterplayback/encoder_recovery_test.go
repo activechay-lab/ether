@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -68,7 +71,7 @@ func (s *recoveryTestSession) ServeSegment(w http.ResponseWriter, q *http.Reques
 // The encoded bytes are a recorded offline TS fixture: it tests ownership and
 // complete/unique delivery, not real decoder or audio splice continuity.
 func TestEncoderLossRecoveryInvariant(t *testing.T) {
-	for _, mode := range []string{"exit", "partition", "newboot", "boot-before-recovery", "removed", "clock", "tls-replaced", "tls-denied", "gone"} {
+	for _, mode := range []string{"exit", "partition", "newboot", "boot-before-recovery", "removed", "clock", "tls-replaced", "tls-denied", "gone", "pause", "refused"} {
 		t.Run(mode, func(t *testing.T) {
 			fixtureStarted := time.Now()
 			data, err := os.ReadFile("../playbackbuffer/testdata/cpu.ts")
@@ -113,6 +116,9 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			}
 			base := Options{DB: db, Placement: p, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: member, Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond, EncoderRPCDeadline: 50 * time.Millisecond, EncoderFailureGrace: time.Millisecond, EncoderSegmentWait: time.Second, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return core.Decision{} }}
 			var down atomic.Bool
+			pauseSegmentStarted := make(chan struct{})
+			var pauseOnce sync.Once
+			var workerServer *httptest.Server
 			runtimes := make([]*Runtime, 4)
 			for i := range ids {
 				o := base
@@ -140,6 +146,15 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				if i == 1 {
 					handler = http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
 						if down.Load() {
+							if mode == "pause" {
+								var request struct{ Op string }
+								_ = json.NewDecoder(q.Body).Decode(&request)
+								if request.Op == "segment" {
+									pauseOnce.Do(func() { close(pauseSegmentStarted) })
+								}
+								<-q.Context().Done()
+								return
+							}
 							conn, _, err := w.(http.Hijacker).Hijack()
 							if err == nil {
 								_ = conn.Close()
@@ -161,6 +176,9 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 					}
 				}
 				server.StartTLS()
+				if i == 1 {
+					workerServer = server
+				}
 				defer server.Close()
 				endpoints[ids[i]] = server.URL
 			}
@@ -193,11 +211,34 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if mode == "pause" {
+				// The first discovered server is a different replica, just like
+				// ingress landing away from the session's coordinator in the lab.
+				runtimes[2].o.MediaServers = func(context.Context) ([]nodewire.Identity, error) { return []nodewire.Identity{ids[2], ids[3]}, nil }
+				if err := front.BindPlexDelivery(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+					parts := strings.Split(q.URL.Path, "/")
+					n, err := strconv.Atoi(strings.TrimSuffix(parts[len(parts)-1], ".ts"))
+					if err != nil {
+						http.NotFound(w, q)
+						return
+					}
+					session.ServeSegment(w, q, n)
+				})); err != nil {
+					t.Fatal(err)
+				}
+			}
 			fetched := map[int]int{}
 			fetch := func(n int) {
 				t.Helper()
 				w := httptest.NewRecorder()
-				session.ServeSegment(w, httptest.NewRequest("GET", "https://public/segment", nil).WithContext(ctx), n)
+				if mode == "pause" {
+					request := httptest.NewRequest("GET", "https://public/video/:/transcode/universal/session/recover/base/"+strconv.Itoa(n)+".ts", nil).WithContext(ctx)
+					if !runtimes[2].ForwardPlexMedia(w, request, "recover") {
+						t.Fatal("media missed coordinator capture")
+					}
+				} else {
+					session.ServeSegment(w, httptest.NewRequest("GET", "https://public/segment", nil).WithContext(ctx), n)
+				}
 				if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), data) || w.Header().Get("Cache-Control") != "no-cache" {
 					t.Fatalf("segment %d: %d %s", n, w.Code, w.Body.String())
 				}
@@ -213,6 +254,10 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			old := *front.executions[q.SessionID]
 			front.mu.Unlock()
 			lossStarted := time.Now()
+			if mode == "refused" {
+				front.o.EncoderFailureGrace = time.Hour
+				workerServer.Close()
+			}
 			if mode == "tls-denied" {
 				replaced.Store(true)
 			}
@@ -257,6 +302,27 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			} else {
 				down.Store(true)
 			}
+			var cancelPaused context.CancelFunc
+			var pausedDone chan struct{}
+			if mode == "pause" {
+				readCtx, cancelRead := context.WithCancel(ctx)
+				cancelPaused = cancelRead
+				defer cancelRead()
+				pausedDone = make(chan struct{})
+				go func() {
+					defer close(pausedDone)
+					old.output.ServeSegment(httptest.NewRecorder(), httptest.NewRequest("GET", "/segment", nil).WithContext(readCtx), 2)
+				}()
+				select {
+				case <-pauseSegmentStarted:
+				case <-ctx.Done():
+					t.Fatal("worker never received paused segment")
+				}
+				snap, err := front.SnapshotOutput(q.SessionID)
+				if err != nil || snap.Buffer.State.PublishedFloor != 1 {
+					t.Fatal("in-flight paused segment changed delivered prefix", snap, err)
+				}
+			}
 			if mode == "boot-before-recovery" {
 				// A confirmed boot change bypasses even a long transport grace.
 				front.o.EncoderFailureGrace = time.Hour
@@ -278,7 +344,7 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 				if err = p.SetPool(ctx, "b/streams", config.RoleTranscode, 1); err != nil {
 					t.Fatal(err)
 				}
-			} else if mode != "tls-replaced" && mode != "tls-denied" && mode != "gone" {
+			} else if mode != "tls-replaced" && mode != "tls-denied" && mode != "gone" && mode != "refused" {
 				_ = front.Tick(ctx)
 				time.Sleep(2 * time.Millisecond)
 			}
@@ -302,6 +368,9 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			case <-b.ready:
 			case <-ctx.Done():
 				t.Fatal("replacement not started")
+			}
+			if cancelPaused != nil {
+				cancelPaused()
 			}
 			if mode == "boot-before-recovery" {
 				if err := front.Tick(ctx); err != ErrPending {
@@ -330,6 +399,9 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 			close(b.proceed)
 			if err = <-replacementDone; err != nil {
 				t.Fatal("replacement", err)
+			}
+			if pausedDone != nil {
+				<-pausedDone
 			}
 			response := <-waiting
 			if response.Code != 200 || !bytes.Equal(response.Body.Bytes(), data) {
@@ -388,7 +460,11 @@ func TestEncoderLossRecoveryInvariant(t *testing.T) {
 					t.Fatal("new boot leaked capacity", charged, err)
 				}
 			}
-			if mode == "removed" {
+			if mode == "removed" || mode == "refused" {
+				if mode == "refused" {
+					_ = a.session.RetireEncoder()
+					runtimes[1].Cleanup()
+				}
 				if err = p.RemoveTarget(ctx, old.route.Fence.Target, "offline-test/operator-fenced-exact-boot"); err != nil {
 					t.Fatal(err)
 				}

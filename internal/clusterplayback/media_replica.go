@@ -50,6 +50,17 @@ func (r *Runtime) mediaServer(ctx context.Context, id string) (nodewire.Identity
 		if err != nil {
 			return nodewire.Identity{}, err
 		}
+		// Capture belongs to the live coordinator's bounded output store. A
+		// read-only replica can serve healthy media but cannot advance that
+		// store's prefix. Prefer its discovered coordinator without waiting
+		// for election; the transport still falls back if that peer is gone.
+		if c, err := r.CurrentCoordinator(ctx, id); err == nil {
+			for _, peer := range ids {
+				if peer == c.Identity && r.o.MemberRole(ctx, peer, config.RoleServer) == nil {
+					return peer, nil
+				}
+			}
+		}
 		for _, peer := range ids {
 			if r.o.MemberRole(ctx, peer, config.RoleServer) == nil {
 				return peer, nil

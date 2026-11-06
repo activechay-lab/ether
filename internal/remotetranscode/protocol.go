@@ -282,3 +282,6 @@ func cloneResume(r *core.HLSResume) *core.HLSResume {
 // ErrStatusDenied means the exact worker no longer accepts status observation.
 // It permits replacement, never retirement or capacity release.
 var ErrStatusDenied = errors.Join(ErrUncertain, errors.New("remotetranscode: status denied"))
+
+// ErrStatusUnavailable identifies explicit endpoint loss, not process retirement.
+var ErrStatusUnavailable = errors.Join(ErrUncertain, errors.New("remotetranscode: status endpoint unavailable"))

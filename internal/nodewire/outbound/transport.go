@@ -9,8 +9,13 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"syscall"
 	"time"
 )
+
+// ErrEndpointUnavailable means an explicit refusal, absent DNS name, or no
+// network/host route. It allows replacement, never resource retirement.
+var ErrEndpointUnavailable = errors.New("outbound: endpoint unavailable")
 
 // ErrPeerDenied identifies explicit TLS identity/policy refusal, not a timeout
 // or connection failure. Callers may replace work but cannot infer retirement.
@@ -96,6 +101,10 @@ func New(endpoint string, config *tls.Config, timeout time.Duration, check func(
 		defer cancel()
 		raw, e := (&net.Dialer{}).DialContext(ctx, network, addr)
 		if e != nil {
+			var dns *net.DNSError
+			if ctx.Err() == nil && (errors.Is(e, syscall.ECONNREFUSED) || errors.Is(e, syscall.ENETUNREACH) || errors.Is(e, syscall.EHOSTUNREACH) || errors.As(e, &dns) && dns.IsNotFound) {
+				return nil, ErrEndpointUnavailable
+			}
 			return nil, errors.New("outbound: connection denied")
 		}
 		conn := tls.Client(raw, tc)
