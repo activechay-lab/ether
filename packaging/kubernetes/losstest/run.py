@@ -280,12 +280,14 @@ def run(c, out):
             (out/'post-check.stderr').write_bytes(checked.stderr)
             try:
                 proof = json.loads(checked.stdout)
+                if not isinstance(proof, dict):
+                    raise ValueError('post-check proof must be an object')
             except ValueError:
                 proof = {'passed':False, 'error':'post-check returned invalid JSON'}
             report['postCheck'] = proof
             report['passed'] = (report['passed'] and checked.returncode == 0 and proof.get('passed') is True and proof.get('session') == session)
             upper = proof.get('serverInterruptionUpperBoundSeconds')
-            verified = proof.get('serverInterruptionUpperBoundVerified') is True and proof.get('session') == session and isinstance(upper, (int,float)) and 0 <= upper < c.get('bufferSeconds', 30)
+            verified = proof.get('serverInterruptionUpperBoundVerified') is True and proof.get('session') == session and isinstance(upper, (int,float)) and not isinstance(upper, bool) and 0 <= upper < c.get('bufferSeconds', 30)
             report['serverInterruptionUpperBoundSeconds'] = upper
             report['serverInterruptionUpperBoundVerified'] = verified
         if role == 'transcode' and action != 'none' and not (report['serverInterruptionVerified'] or report.get('serverInterruptionUpperBoundVerified', False)):
