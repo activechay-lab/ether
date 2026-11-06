@@ -744,6 +744,9 @@ func (s *Server) handleSimilar(w http.ResponseWriter, r *http.Request) {
 	}
 	mc := libraryContainer()
 	mc.Metadata = s.renderTitles(ctx, pr, s.filterAllowed(pr.User, items), renderOpts{media: true})
+	lo, hi := pr.window(len(mc.Metadata))
+	mc.SetPage(lo, len(mc.Metadata))
+	mc.Metadata = mc.Metadata[lo:hi]
 	mc.Size = len(mc.Metadata)
 	s.write(w, r, mc)
 }
