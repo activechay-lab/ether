@@ -328,7 +328,7 @@ func (s *Server) handlePhotoTranscode(w http.ResponseWriter, r *http.Request) {
 	// connection. Resolve only known server artwork routes under the OUTER
 	// viewer; never dial that hostname or use credentials from the nested URL.
 	androidLocal := plexAndroidClient(FromContext(r.Context())) && (u.Scheme == "http" || u.Scheme == "https") &&
-		(metadataImageRe.MatchString(u.Path) || discoveryImageRe.MatchString(u.Path) || personImageRe.MatchString(u.Path) || playlistImageRe.MatchString(u.Path))
+		(metadataImageRe.MatchString(u.Path) || discoveryImageRe.MatchString(u.Path) || personImageRe.MatchString(u.Path) || playlistImageRe.MatchString(u.Path) || liveChannelLogoRe.MatchString(u.Path))
 	if !u.IsAbs() || s.isSelfHost(r, u.Host) || androidLocal {
 		path := u.Path
 		if m := liveChannelLogoRe.FindStringSubmatch(path); m != nil {

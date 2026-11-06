@@ -780,31 +780,41 @@ func (s *Server) serveLiveLogo(w http.ResponseWriter, r *http.Request, id string
 		s.writeErr(w, r, err)
 		return
 	}
+	format := androidPhotoOutputFormat(r)
+	rasterFormat := format
+	if rasterFormat == "" {
+		rasterFormat = "png"
+	}
+	write := func(data []byte, ct string) {
+		setArtworkHeaders(w.Header(), ct)
+		w.Header().Set("Cache-Control", "private, max-age=300")
+		w.Header().Add("Vary", "X-Plex-Token")
+		w.Header().Add("Vary", "X-Plex-Product")
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		if r.Method != http.MethodHead {
+			_, _ = w.Write(data)
+		}
+	}
 	if c.Logo != "" && s.channelLogos != nil {
 		data, ct, err := s.channelLogos.GetUntrustedURL(r.Context(), c.Logo)
 		if err == nil && raster && strings.HasPrefix(ct, "image/svg+xml") {
-			data, ct, err = s.channelRaster.Rasterize(r.Context(), c.Logo, data, artwork.RasterOptions{Format: "png"})
+			data, ct, err = s.channelRaster.Rasterize(r.Context(), c.Logo, data, artwork.RasterOptions{Format: rasterFormat})
+		}
+		if err == nil && raster && format != "" {
+			data, ct, err = s.images.RasterFormat(r.Context(), data, ct, format, s.now())
 		}
 		if err == nil && len(data) > 0 {
-			setArtworkHeaders(w.Header(), ct)
-			w.Header().Set("Cache-Control", "private, max-age=300")
-			if r.Method != "HEAD" {
-				_, _ = w.Write(data)
-			}
+			write(data, ct)
 			return
 		}
 	}
 	if raster {
-		data, ct, err := s.channelRaster.ChannelLogo(r.Context(), c.ID, c.Number, c.Name, artwork.RasterOptions{Format: "png"})
+		data, ct, err := s.channelRaster.ChannelLogo(r.Context(), c.ID, c.Number, c.Name, artwork.RasterOptions{Format: rasterFormat})
 		if err != nil {
 			writeHTTPError(w, 404)
 			return
 		}
-		setArtworkHeaders(w.Header(), ct)
-		w.Header().Set("Cache-Control", "private, max-age=300")
-		if r.Method != "HEAD" {
-			_, _ = w.Write(data)
-		}
+		write(data, ct)
 		return
 	}
 	setArtworkHeaders(w.Header(), "image/svg+xml")
