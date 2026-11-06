@@ -181,3 +181,10 @@ maximum180) so an exact-container adapter can verify an absent old task and a
 ready replacement after kubelet recovery. This does not authorize targeting the
 replacement or infer ownership retirement. Simple command adapters retain the
 20-second command bound.
+
+The player freezes the first authored variant before any fault, saves it as
+`initial-variant.private.m3u8` (may contain grants; mode0600), and records its
+SHA256 and global title-time boundaries in `InitialTimeline`. The checker uses
+an independent reference's frozen timeline when supplied, otherwise this initial
+plan. A replacement playlist never supplies expected boundaries. This preserves
+short FastStart opening slots while detecting a replacement that changes them.

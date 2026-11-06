@@ -21,6 +21,7 @@ import (
 )
 
 type Config struct {
+	ReferenceTimeline                                               []time.Duration
 	Protocol, Prefix, CredentialsFile, DeviceID                     string
 	DirectPlay, DirectStream                                        bool
 	SkipDecision                                                    bool
@@ -61,6 +62,8 @@ type Continuity struct {
 	Report   splicecheck.Report
 }
 type Report struct {
+	InitialTimeline                              []time.Duration
+	InitialPlaylistSHA256                        string
 	Protocol                                     string
 	DecisionSkipped                              bool
 	Session                                      string
@@ -274,7 +277,11 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 		if len(segs) > 0 {
 			checkCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			defer cancel()
-			cr, ce := splicecheck.Check(checkCtx, segs, splicecheck.Options{SegmentDuration: c.SegmentDuration, Reference: matchingReference(c.Reference, segs), FFprobe: c.FFprobe, FFmpeg: c.FFmpeg})
+			expectedTimeline := c.ReferenceTimeline
+			if len(expectedTimeline) == 0 {
+				expectedTimeline = r.InitialTimeline
+			}
+			cr, ce := splicecheck.Check(checkCtx, segs, splicecheck.Options{Timeline: expectedTimeline, SegmentDuration: c.SegmentDuration, Reference: matchingReference(c.Reference, segs), FFprobe: c.FFprobe, FFmpeg: c.FFmpeg})
 			r.Continuity.Report = cr
 			if ce != nil {
 				r.Continuity.Error = ce.Error()
@@ -318,6 +325,11 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	if e != nil {
 		err = e
 		return
+	}
+	if pl.variant == "" {
+		if err = p.captureInitial(&r, pl, data); err != nil {
+			return
+		}
 	}
 	variant := absolute
 	if pl.variant != "" {
@@ -367,6 +379,9 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			if pl.variant != "" {
 				err = fmt.Errorf("nested master unsupported")
 				break
+			}
+			if err = p.captureInitial(&r, pl, data); err != nil {
+				return
 			}
 		}
 		progressed := false
@@ -459,23 +474,23 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 }
 
 // LoadReference reads a prior hlsplay report and resolves its artifact paths.
-func LoadReference(path string) ([]splicecheck.Segment, error) {
+func LoadReference(path string) ([]splicecheck.Segment, []time.Duration, error) {
 	data, e := os.ReadFile(path)
 	if e != nil {
-		return nil, e
+		return nil, nil, e
 	}
 	var r Report
 	if e = json.Unmarshal(data, &r); e != nil {
-		return nil, e
+		return nil, nil, e
 	}
 	if !r.PlaybackPassed {
-		return nil, fmt.Errorf("reference capture did not pass playback")
+		return nil, nil, fmt.Errorf("reference capture did not pass playback")
 	}
 	var out []splicecheck.Segment
 	for _, s := range r.Segments {
 		out = append(out, splicecheck.Segment{Index: s.Index, Path: filepath.Join(filepath.Dir(path), s.Path), Generation: s.Generation})
 	}
-	return out, nil
+	return out, r.InitialTimeline, nil
 }
 
 // Match the reference to the fetched bounded window; never compare a shorter
@@ -491,4 +506,31 @@ func matchingReference(ref, segs []splicecheck.Segment) []splicecheck.Segment {
 		}
 	}
 	return out
+}
+
+// Freeze expected boundaries before any loss. A later replacement playlist
+// cannot redefine the initial plan and conceal a changed FastStart ramp.
+func (p *player) captureInitial(r *Report, pl playlist, data []byte) error {
+	if r.InitialPlaylistSHA256 != "" || len(pl.entries) == 0 {
+		return nil
+	}
+	if pl.entries[0].index != 0 {
+		return fmt.Errorf("initial title timeline must start at index zero")
+	}
+	timeline := []time.Duration{0}
+	var at time.Duration
+	for i, en := range pl.entries {
+		if en.index != i {
+			return fmt.Errorf("initial playlist index gap")
+		}
+		at += time.Duration(en.duration * float64(time.Second))
+		timeline = append(timeline, at)
+	}
+	if e := os.WriteFile(filepath.Join(p.c.Output, "initial-variant.private.m3u8"), data, 0600); e != nil {
+		return e
+	}
+	sum := sha256.Sum256(data)
+	r.InitialPlaylistSHA256 = hex.EncodeToString(sum[:])
+	r.InitialTimeline = timeline
+	return nil
 }

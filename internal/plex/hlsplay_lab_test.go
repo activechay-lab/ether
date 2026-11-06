@@ -145,7 +145,7 @@ func TestHLSPlayerLab(t *testing.T) {
 			}
 			c := hlsplay.Config{BaseURL: server.URL, Token: ownerToken, RatingKey: fightClub.Key.String(), Output: output, Window: 30 * time.Second, ForwardBuffer: 8 * time.Second, RequestTimeout: 10 * time.Second, Backoff: 100 * time.Millisecond, Tries: 2, SegmentDuration: 4 * time.Second, FFmpeg: ff, FFprobe: fp}
 			if name == "baseline" {
-				c.Reference, e = hlsplay.LoadReference(filepath.Join(root, "reference", "report.json"))
+				c.Reference, c.ReferenceTimeline, e = hlsplay.LoadReference(filepath.Join(root, "reference", "report.json"))
 				if e != nil {
 					t.Fatal(e)
 				}
@@ -292,7 +292,7 @@ func TestHLSJellyfinLab(t *testing.T) {
 			defer server.Close()
 			c := hlsplay.Config{Protocol: "jellyfin", BaseURL: server.URL, CredentialsFile: credentials, RatingKey: fightClub.Key.String(), Output: filepath.Join(root, name), Window: 22 * time.Second, ForwardBuffer: 8 * time.Second, RequestTimeout: 10 * time.Second, Backoff: 100 * time.Millisecond, Tries: 2, SegmentDuration: 4 * time.Second, FFmpeg: ff, FFprobe: fp}
 			if name == "baseline" {
-				c.Reference, e = hlsplay.LoadReference(filepath.Join(root, "reference/report.json"))
+				c.Reference, c.ReferenceTimeline, e = hlsplay.LoadReference(filepath.Join(root, "reference/report.json"))
 				if e != nil {
 					t.Fatal(e)
 				}

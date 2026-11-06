@@ -54,7 +54,7 @@ func main() {
 	}
 	c.Token = strings.TrimSpace(string(token))
 	if reference != "" {
-		c.Reference, e = hlsplay.LoadReference(reference)
+		c.Reference, c.ReferenceTimeline, e = hlsplay.LoadReference(reference)
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "cannot read reference")
 			os.Exit(2)
