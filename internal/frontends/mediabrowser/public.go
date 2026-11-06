@@ -55,6 +55,14 @@ func publicRoutes(r *route.Router, getInfo func() PublicInfo, picker http.Handle
 			}{info.ID, info.ServerName, address, info.Version, info.ProductName, "", true})
 		}},
 		{"GET", "/Branding/Configuration", func(w http.ResponseWriter, _ *http.Request) { jsonReply(w, map[string]any{}) }},
+		{"GET", "/Branding/Css", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+		}},
+		{"GET", "/Branding/Css.css", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+		}},
 		{"POST", "/System/Ping", func(w http.ResponseWriter, _ *http.Request) { jsonReply(w, getInfo().ProductName) }},
 		{"GET", "/web", webPage},
 		{"GET", "/web/{path...}", func(w http.ResponseWriter, r *http.Request) {

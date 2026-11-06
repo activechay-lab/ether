@@ -171,9 +171,9 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// Native clients commonly omit IsPlayback when starting a stream. Only an
-	// explicit false is an estimate; opening details does not resolve releases.
-	playback := boolValue(body.IsPlayback, true)
+	// Native clients commonly omit IsPlayback on POST when starting a stream.
+	// GET is informational by default and must not open a release.
+	playback := boolValue(body.IsPlayback, r.Method != http.MethodGet)
 	if values := route.Query(r.URL.Query(), "IsPlayback"); len(values) > 1 {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return

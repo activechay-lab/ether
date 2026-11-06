@@ -61,6 +61,31 @@ func TestMediaBrowserRealExperience(t *testing.T) {
 			if err = json.Unmarshal(login.Body.Bytes(), &signed); err != nil {
 				t.Fatal(err)
 			}
+			// Findroid startup/home replay through the mounted, authenticated
+			// front end (including the shared listener prefix). Keep suggestions
+			// here: an isolated handler test missed the original startup failure.
+			var loginBody struct {
+				User struct {
+					ID string `json:"Id"`
+				}
+			}
+			if err := json.Unmarshal(login.Body.Bytes(), &loginBody); err != nil {
+				t.Fatal(err)
+			}
+			uid := loginBody.User.ID
+			for _, path := range []string{
+				"/System/Info/Public", "/Branding/Configuration", "/Users/Public",
+				"/Users/Me", "/UserViews?userId=" + uid,
+				"/Items/Suggestions?userId=" + uid + "&type=Movie,Series&limit=6",
+				"/UserItems/Resume?userId=" + uid + "&limit=12&mediaTypes=Video",
+				"/Shows/NextUp?userId=" + uid + "&limit=24",
+				"/Users/" + uid + "/Items/Latest?limit=16",
+			} {
+				response := call("GET", "/"+surface+path, "", signed.AccessToken)
+				if response.Code != 200 || !json.Valid(response.Body.Bytes()) {
+					t.Fatalf("Findroid replay %s: %d %s", path, response.Code, response.Body)
+				}
+			}
 			views := call("GET", "/UserViews", "", signed.AccessToken)
 			if views.Code != 200 || !strings.Contains(views.Body.String(), "Movies") {
 				t.Fatalf("views %d %s", views.Code, views.Body)
@@ -69,6 +94,20 @@ func TestMediaBrowserRealExperience(t *testing.T) {
 			list := call("GET", "/Items?ParentId="+view, "", signed.AccessToken)
 			if list.Code != 200 || !strings.Contains(list.Body.String(), "Fixture Film") {
 				t.Fatalf("list %d %s", list.Code, list.Body)
+			}
+			// Android TV and Jellyfin Web optional browse/detail requests.
+			for _, path := range []string{
+				"/Items/Filters?parentId=" + view, "/Items/Filters2?parentId=" + view,
+				"/Shows/Upcoming?userId=" + uid,
+				"/Videos/" + ids.RatingKeyGUID(key) + "/AdditionalParts",
+				"/Items/" + ids.RatingKeyGUID(key) + "/ThemeMedia",
+				"/Items/" + ids.RatingKeyGUID(key) + "/ThemeSongs",
+				"/Items/" + ids.RatingKeyGUID(key) + "/ThemeVideos",
+			} {
+				response := call("GET", "/"+surface+path, "", signed.AccessToken)
+				if response.Code != 200 || !json.Valid(response.Body.Bytes()) {
+					t.Fatalf("client replay %s: %d %s", path, response.Code, response.Body)
+				}
 			}
 			watched := call("POST", "/UserPlayedItems/"+ids.RatingKeyGUID(key), "", signed.AccessToken)
 			if watched.Code != 200 || !strings.Contains(watched.Body.String(), `"Played":true`) {
