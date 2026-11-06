@@ -447,6 +447,9 @@ func buildCodecArgs(s runSpec) []string {
 				dropAt := "0"
 				if len(inputTimestampArgs(s)) > 0 {
 					dropAt = secs(s.Start)
+					if lead := hlsRestartLead(s); lead > 0 {
+						dropAt = strconv.FormatFloat((s.Start - lead).Seconds(), 'f', 9, 64)
+					}
 				}
 				audioFilters = append(audioFilters, "noise=amount=0:drop='lt(pts*tb,"+dropAt+")'")
 			}
@@ -507,7 +510,48 @@ func buildCodecArgs(s runSpec) []string {
 	if s.LoopInput {
 		args = append(args, "-output_ts_offset", secs(loopStart))
 	}
+	// The TS child muxer adds twice its default muxdelay (1.4s), then
+	// shifts a zero-origin encoder's negative DTS to zero. A positive-origin
+	// restart does not receive that second shift. Restore it explicitly,
+	// retaining the initial run's clock and its copied-audio segment cutoff.
+	if lead := hlsRestartLead(s); lead > 0 {
+		args = append(args, "-output_ts_offset", strconv.FormatFloat(lead.Seconds(), 'f', 9, 64))
+	}
 	return args
+}
+
+// hlsRestartLead covers only the measured software H264 CFR configuration.
+// Copies, hardware, live, alternate muxers and unknown output clocks retain
+// their existing arguments. Never infer a hardware encoder's reorder delay.
+func hlsRestartLead(s runSpec) time.Duration {
+	if s.Start <= 0 || s.LiveInput || s.LoopInput || s.RTXTimeline || s.Protocol == core.ProtocolDASH || s.Protocol == core.ProtocolHTTP || s.Decision.Container != ContainerMPEGTS || s.Decision.VideoCopy || s.FastStart {
+		return 0
+	}
+	v := s.Info.Video()
+	if v == nil || v.FrameRate < 1 {
+		return 0
+	}
+	enc, _ := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features)
+	if enc != "libx264" {
+		return 0
+	}
+	fps := v.FrameRate
+	// FFmpeg's HLS output defaults to CFR at the demuxer reference rate.
+	// avg_frame_rate describes a VFR source, not the encoder clock.
+	if v.ReferenceFrameRate != nil && *v.ReferenceFrameRate >= 1 {
+		fps = *v.ReferenceFrameRate
+	}
+	if v.VariableFrameRate && v.ReferenceFrameRate == nil {
+		return 0
+	}
+	delay := 2.0
+	if s.Decision.H264Level > 0 {
+		delay = 1
+		if s.Decision.H264FrameRate > 0 {
+			fps = s.Decision.H264FrameRate
+		}
+	}
+	return time.Duration(math.Round(delay / fps * float64(time.Second)))
 }
 
 // hlsMuxArgs is the HLS muxer part of a run's command line.
