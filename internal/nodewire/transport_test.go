@@ -38,7 +38,7 @@ func credential(t *testing.T, c issuer, id Identity, now time.Time) ([]byte, []b
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
 	csr, _ := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
 	_ = pub
-	der, e := Issue(c.der, c.key, csr, id, []string{"127.0.0.1"}, now, time.Hour)
+	der, e := Issue(c.der, c.key, csr, id, []string{"127.0.0.1"}, now, time.Hour, 0)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -176,5 +176,85 @@ func TestBindingAndIsolation(t *testing.T) {
 	}
 	if _, e := NewGuard(s, nil, time.Now); e == nil {
 		t.Fatal("nil policy")
+	}
+}
+
+func TestTLSClockStepsRespectCertificateValidity(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	c := ca(t, now)
+	var clock atomic.Int64
+	clock.Store(now.UnixNano())
+	clockFn := func() time.Time { return time.Unix(0, clock.Load()) }
+	makeSnapshot := func(id Identity) *Snapshot {
+		_, key, _ := ed25519.GenerateKey(rand.Reader)
+		csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		der, err := Issue(c.der, c.key, csr, id, []string{"127.0.0.1"}, now, MaxLifetime, 10*time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		leaf, err := x509.ParseCertificate(der)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !leaf.NotBefore.Equal(now.Add(-10*time.Minute)) || leaf.NotAfter.Sub(leaf.NotBefore) > MaxLifetime {
+			t.Fatal("invalid backdated validity window")
+		}
+		private, _ := x509.MarshalPKCS8PrivateKey(key)
+		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: private})
+		var s *Snapshot
+		for _, step := range []time.Duration{-3 * time.Second, 3 * time.Second} {
+			s, err = NewSnapshot(id, certPEM, keyPEM, c.pem, now.Add(step))
+			if err != nil {
+				t.Fatalf("snapshot at %s: %v", step, err)
+			}
+		}
+		return s
+	}
+	server, client := Identity{"cluster", "server", "boot"}, Identity{"cluster", "client", "boot"}
+	allow := func(context.Context, Identity, *x509.Certificate) error { return nil }
+	sg, err := NewGuard(makeSnapshot(server), allow, clockFn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cg, err := NewGuard(makeSnapshot(client), allow, clockFn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := sg.Request(r); err != nil {
+			w.WriteHeader(403)
+			return
+		}
+		w.WriteHeader(204)
+	}))
+	ts.TLS = sg.ServerTLS()
+	ts.StartTLS()
+	defer ts.Close()
+	leaf := sg.current.Load().credential().Leaf
+	for _, at := range []time.Time{now.Add(-3 * time.Second), now.Add(3 * time.Second), leaf.NotBefore.Add(-time.Second), leaf.NotAfter.Add(time.Second)} {
+		clock.Store(at.UnixNano())
+		config, err := cg.ClientTLS(server, "127.0.0.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr := &http.Transport{TLSClientConfig: config, DisableKeepAlives: true}
+		h := &http.Client{Transport: tr, Timeout: 2 * time.Second}
+		r, err := h.Get(ts.URL)
+		tr.CloseIdleConnections()
+		outside := at.Before(leaf.NotBefore) || at.After(leaf.NotAfter)
+		if r != nil {
+			r.Body.Close()
+		}
+		if outside {
+			if err == nil {
+				t.Fatal("TLS accepted a certificate outside its real validity")
+			}
+		} else if err != nil || r.StatusCode != 204 {
+			t.Fatalf("TLS after clock step %v: %v", at.Sub(now), err)
+		}
 	}
 }

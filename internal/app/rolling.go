@@ -181,8 +181,8 @@ WHERE table_schema = current_schema() AND table_name = 'cluster_nodes' AND colum
 		if hasReport {
 			cols = `name, version, migrations`
 		}
-		rows, err := q.QueryContext(ctx, `SELECT `+cols+` FROM cluster_nodes WHERE id <> ? AND last_seen >= ?`,
-			selfID, now().Add(-liveAfter).UnixMilli())
+		rows, err := q.QueryContext(ctx, `SELECT `+cols+` FROM cluster_nodes WHERE id <> ? AND last_seen >= (CAST(FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT) - ?)`,
+			selfID, liveAfter.Milliseconds())
 		if err != nil {
 			return err
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -22,8 +23,13 @@ func testPreparationReceiptReplay(t *testing.T, ctx context.Context, front, sour
 	}
 	duplicate := request
 	duplicate.Operation = "separate-operation-same-native-source"
-	if _, err := source.prepare(ctx, nodewire.Identity{Cluster: controller.Cluster, NodeID: "other-controller", Boot: "other-controller-boot"}, &duplicate); err == nil {
-		t.Fatal("different controller operation shared native source ownership")
+	otherController := nodewire.Identity{Cluster: controller.Cluster, NodeID: "other-controller", Boot: "other-controller-boot"}
+	shared, err := source.prepare(ctx, otherController, &duplicate)
+	if err != nil || shared.Prepared.PlayID != prepared.PlayID || shared.Prepared.Revision != prepared.Revision {
+		t.Fatal("different controller did not share the exact protected source", err)
+	}
+	if result, err := source.retirePreparation(ctx, otherController, &duplicate); !errors.Is(err, ErrPending) || result.Retired {
+		t.Fatal("alias retirement did not retain the original controller's source", err)
 	}
 	_, end, err := source.beginPreparationUse(controller, request.Operation)
 	if err != nil {

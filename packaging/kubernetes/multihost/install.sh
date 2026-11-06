@@ -45,5 +45,9 @@ if [[ -s $state/external-private-ip ]]; then
  export MULTIHOST_IP=$(cat "$state/external-private-ip")
  postrender=(--post-renderer "$root/packaging/kubernetes/multihost/external-private.py")
 fi
+extra_values=()
+if [[ -s $state/physical-host.values.yaml ]]; then
+ extra_values=(-f "$state/physical-host.values.yaml")
+fi
 helm upgrade --install ether035-mh "$root/packaging/helm/ether" -n ether035-ha \
- -f "$root/packaging/kubernetes/multihost/values.yaml" --set-string "image.tag=$tag" "${postrender[@]}" --wait --timeout 10m
+ -f "$root/packaging/kubernetes/multihost/values.yaml" "${extra_values[@]}" --set-string "image.tag=$tag" "${postrender[@]}" --wait --timeout 10m

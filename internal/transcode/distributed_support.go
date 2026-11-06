@@ -166,6 +166,22 @@ func (m *Manager) SupportsDistributedRequest(req core.HLSRequest) bool {
 	return true
 }
 
+// DistributedHardwareEncoder reports the encoder selected by this Manager's
+// startup-verified hardware inventory for the exact supported request. The same
+// planner validates its codec, picture size/depth/profile, filters and muxers;
+// a software fallback never advertises hardware just because a GPU is present.
+// This performs no process, source or reservation work.
+func (m *Manager) DistributedHardwareEncoder(req core.HLSRequest) string {
+	if m == nil || req.Decision.VideoCopy || req.Info.Video() == nil || !m.SupportsDistributedRequest(req) {
+		return ""
+	}
+	encoder, hardware := videoEncoder(req.Decision.VideoCodec, m.hw, m.feat)
+	if !hardware || !m.feat.hasEncoder(encoder) {
+		return ""
+	}
+	return encoder
+}
+
 func distributedDecoder(f features, codec string) bool {
 	if f.decoders[codec] {
 		return true

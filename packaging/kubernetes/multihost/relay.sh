@@ -6,7 +6,7 @@ host=${2:?Tailscale IP required}
 root=$(cd "$(dirname "$0")/../../.." && pwd)
 [[ ! -e $state/relay.id ]] || exit 64
 args=()
-for port in 15432 18410 18411 18420 18421 18430 18431 18440 18441; do
+for port in 15432 18410 18411 18420 18421 18430 18431 18440 18441 18442; do
  args+=(-p "$host:$port:$port")
 done
 docker run -d --name ether035-mh-relay --label ether.lab=ether035-multihost \

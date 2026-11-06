@@ -26,6 +26,7 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
+	ProtocolSealer ProtocolSealer
 	// ClockReady continuously gates new and extended time-bounded authority.
 	ClockReady          func() bool
 	Bus                 clusterbus.Bus
@@ -62,6 +63,8 @@ type Options struct {
 	ClockBoundKnown bool
 }
 type Runtime struct {
+	mediaBrowserDelivery http.Handler
+
 	deliveryScratch chan struct{}
 	automaticOutput bool
 	outputScratch   chan struct{}
