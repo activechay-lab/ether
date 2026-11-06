@@ -408,6 +408,20 @@ func (t executionRetirement) EncoderErr() error {
 }
 
 func (r *Runtime) Stop(id string) {
+	// Publish cancellation for the exact durable generation even when this
+	// replica never started it. The coordinator still collects independent
+	// encoder, input and source retirement proof before releasing capacity.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if route, err := r.route(ctx, id); err == nil {
+		if h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, id, route.Fence.Generation}); err == nil && h.Gate.Seal == nil && h.Gate.Binding.Route.Fence == route.Fence && r.o.MemberRole(ctx, r.o.Self, config.RoleServer) == nil {
+			_, _ = r.recordOperationSeal(ctx, h.Gate.Binding, operationSeal{Actor: r.o.Self, Reason: sealCancellation})
+		}
+	}
+	r.stopLocal(id)
+}
+
+func (r *Runtime) stopLocal(id string) {
 	r.mu.Lock()
 	x := r.executions[id]
 	var s *remotetranscode.Session
@@ -523,6 +537,23 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			}
 			continue
 		}
+		// Stop intent survives frontend changes and coordinator takeover. A seal
+		// requests cleanup; it never attests that any producer has exited.
+		if h, err := r.readOperationGate(ctx, operationKey{r.o.Self.Cluster, x.route.Fence.Session, x.route.Fence.Generation}); err == nil && h.Gate.Binding.Route.Fence == x.route.Fence && h.Gate.Seal != nil && h.Gate.Seal.Reason == sealCancellation {
+			r.stopLocal(x.route.Fence.Session)
+			x.stopping = true
+		}
+		// Remux has no recovery probe. Without status reconciliation an encoder
+		// closed by its idle reaper leaves a durable claim charged forever.
+		if !x.stopping && x.session != nil && x.output == nil {
+			c, cancel := context.WithTimeout(ctx, r.o.EncoderRPCDeadline)
+			err := x.session.Reconcile(c)
+			cancel()
+			if err == nil {
+				r.stopLocal(x.route.Fence.Session)
+				x.stopping = true
+			}
+		}
 		r.reconcileDisplaced(ctx, x)
 		if e := r.putRoute(ctx, x.route); e != nil {
 			result = e
@@ -555,6 +586,12 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		}
 		if x.output != nil && x.initial != nil && x.initial.request.Decision.Kind == core.DecisionTranscode && !x.initial.request.Decision.VideoCopy {
 			probeErr := r.probeEncoder(ctx, x)
+			// A worker idle close after viewer activity ceased is terminal, not
+			// an invitation to place an endless chain of replacement encoders.
+			if x.session.EncoderErr() == nil && time.Since(x.output.LastAccess()) > 2*time.Minute {
+				r.stopLocal(x.route.Fence.Session)
+				continue
+			}
 			r.mu.Lock()
 			current := r.executions[x.route.Fence.Session]
 			if probeErr == nil && current != nil && current.replacement == nil {
@@ -631,6 +668,11 @@ func (r *Runtime) retire(ctx context.Context, x *execution) error {
 	return r.retireWithEvidence(ctx, x.route, "clusterplayback/exact-retirement")
 }
 func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
+	if route, err := r.route(ctx, f.Session); err == nil && route.Fence == f && r.retiredWorkerBoot(ctx, f) == nil {
+		if err := r.sourcesAfterWorkerBoot(ctx, route, "status"); err == nil {
+			return nil
+		}
+	}
 	var displacedRaw string
 	if err := r.o.DB.QueryRowContext(ctx, `SELECT record FROM placement_displaced WHERE session=? AND generation=?`, f.Session, f.Generation).Scan(&displacedRaw); err == nil {
 		var old placement.Record
@@ -677,8 +719,18 @@ func (r *Runtime) Supports(q core.HLSRequest) bool {
 }
 func (r *Runtime) Allocated(id string) bool {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.executions[id] != nil
+	local := r.executions[id] != nil
+	r.mu.Unlock()
+	if local {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if r.o.MemberRole(ctx, r.o.Self, config.RoleServer) != nil {
+		return false
+	}
+	record, err := r.o.Placement.Lookup(ctx, id)
+	return err == nil && !record.Retired
 }
 
 func equalRenewal(a, b remotetranscode.Renewal) bool {

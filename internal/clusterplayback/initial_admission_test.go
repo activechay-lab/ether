@@ -206,7 +206,7 @@ func TestDurableAdmissionAcrossCoordinatorRestart(t *testing.T) {
 	originalRoute := original.route
 	front.mu.Unlock()
 	recovered, recoverErr := restarted.loadRecoveryAdmission(ctx, originalRoute, 9)
-	if recoverErr != nil || !reflect.DeepEqual(recovered.request, expected) || recovered.commitment != observed.hash || recovered.commitmentIdentity != observed.identity || restarted.Allocated(expected.SessionID) {
+	if recoverErr != nil || !reflect.DeepEqual(recovered.request, expected) || recovered.commitment != observed.hash || recovered.commitmentIdentity != observed.identity || len(restarted.executions) != 0 || !restarted.Allocated(expected.SessionID) {
 		t.Fatal("restart lost historical authority or created an execution", recoverErr)
 	}
 	recovered.request.Info.Streams[0].Codec = "mutated-recovery-copy"

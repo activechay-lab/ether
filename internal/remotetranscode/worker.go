@@ -502,6 +502,16 @@ func executionID(i Identity) string {
 // All lease transitions and deadline checks run under mu. Timer.Stop alone is
 // insufficient: an already queued old callback must compare the accepted lease.
 func (w *Worker) expire(e *execution) {
+	// A backend may retire itself on idle timeout. Its encoder outcome does
+	// not seal the independently owned gateway input; do that explicitly so
+	// status can eventually report exact joined retirement to the controller.
+	if !e.starting && !e.stopped && e.retirement != nil {
+		select {
+		case <-e.retirement.EncoderDone():
+			w.stop(e)
+		default:
+		}
+	}
 	if w.expired(e, time.Now()) {
 		w.stop(e)
 	}

@@ -371,11 +371,10 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	stopRequest := httptest.NewRequest("GET", "https://public/video/:/transcode/universal/stop?session=real-composed-plex", nil)
 	stopRequest.RemoteAddr, stopRequest.Header = start.RemoteAddr, start.Header.Clone()
 	stopResponse := httptest.NewRecorder()
-	publicOwner.ServeHTTP(stopResponse, stopRequest)
+	publicSender.ServeHTTP(stopResponse, stopRequest)
 	if stopResponse.Code != 200 {
 		t.Fatalf("cluster stop status %d", stopResponse.Code)
 	}
-	owner.Stop("real-composed-plex")
 	for i := 0; i < 50; i++ {
 		_ = owner.Tick(ctx)
 		_ = sender.Tick(ctx)
