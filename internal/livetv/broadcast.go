@@ -139,6 +139,8 @@ type broadcast struct {
 	startupTarget, lead  time.Duration
 	bursting, burstReady bool
 	introShownAt         time.Time
+	introInput           *broadcastInput
+	introFallback        bool
 	introFade            *broadcastInput
 	introFadeFrame       transcode.RawFrame
 	introFadeStart       time.Time
@@ -206,6 +208,9 @@ func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planne
 		introPlan(time.Time) (broadcastPlan, time.Duration)
 	}); ok {
 		intro, d := planner.introPlan(b.origin)
+		if intro.id != "" {
+			intro.id = "cold-" + intro.id
+		}
 		b.intro = intro
 		b.introUntil = b.origin.Add(d)
 	}
@@ -364,6 +369,9 @@ func (b *broadcast) idle(now time.Time) bool {
 	return b.viewers == 0 && now.Sub(b.lastViewer) >= broadcastIdle
 }
 func (b *broadcast) open(plan broadcastPlan, now time.Time) {
+	if plan.id == b.intro.id && (b.introFallback || b.introInput != nil) {
+		return
+	}
 	if b.momentInputs[plan.id].fallback {
 		return
 	}
@@ -432,7 +440,16 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 				b.closeInput(input)
 				continue
 			}
-			if result.plan.id == current.id {
+			if result.plan.id == b.intro.id {
+				if b.introFallback {
+					b.closeInput(input)
+					continue
+				}
+				b.closeInput(b.introInput)
+				b.introInput = input
+				input.started = now
+				input.activateNow()
+			} else if result.plan.id == current.id {
 				b.closeInput(b.current)
 				b.current = input
 				input.started = now
@@ -510,6 +527,7 @@ func (b *broadcast) run() {
 			b.closeInput(input)
 		}
 		b.closeInput(b.fallback)
+		b.closeInput(b.introInput)
 		b.closeInput(b.introFade)
 		b.mu.Lock()
 		for _, r := range b.renditions {
@@ -591,14 +609,14 @@ func (b *broadcast) step(now time.Time) bool {
 	if planner, ok := b.planner.(interface{ screen(time.Time) broadcastPlan }); ok {
 		b.screenPlan = planner.screen(now)
 	}
-	normalScreen := b.screenPlan
-	if b.intro.fill && !now.Before(b.introUntil) && b.fallback != nil && b.fallback.plan.id == b.intro.id {
+	if !now.Before(b.introUntil) && b.introInput != nil {
 		b.finishIntro(now)
 	}
 	introActive := b.intro.id != "" && now.Before(b.introUntil)
-	if introActive {
-		b.screenPlan = b.intro
+	if introActive && !b.introFallback && b.introInput == nil {
+		b.open(b.intro, now)
 	}
+
 	select {
 	case <-b.retryRequests:
 		if b.current != nil {
@@ -688,10 +706,9 @@ func (b *broadcast) step(now time.Time) bool {
 					frame.PolicyTags = []any{b.current.policy}
 				}
 				if introActive && b.intro.fill {
-					if !b.introShownAt.IsZero() && now.Sub(b.introShownAt) >= time.Second {
+					if b.introFallback || (!b.introShownAt.IsZero() && now.Sub(b.introShownAt) >= time.Second) {
 						b.finishIntro(now)
 						introActive = false
-						b.screenPlan = normalScreen
 					}
 				}
 				if introActive {
@@ -739,7 +756,25 @@ func (b *broadcast) step(now time.Time) bool {
 		frame = transcode.RawFrame{Video: b.lastFrame.Video, PolicyTags: b.lastFrame.PolicyTags}
 		mode = "hold"
 	}
+	if frame.Video == nil && introActive && !b.introFallback && b.introInput != nil {
+		select {
+		case f, ok := <-b.introInput.frames:
+			if ok && validRawFrame(b.format, f) {
+				frame = f
+				mode = "intro"
+				if b.introShownAt.IsZero() {
+					b.introShownAt = now
+				}
+			}
+		default:
+		}
+	}
 	if frame.Video == nil {
+		// Give an already cached welcome a bounded chance to decode its first
+		// picture. Its preparation never replaces the normal live signal input.
+		if b.tick == 0 && introActive && !b.introFallback && time.Since(b.origin) < 200*time.Millisecond {
+			return false
+		}
 		if b.fallback == nil {
 			b.open(b.screenPlan, now)
 		} else {
@@ -747,8 +782,10 @@ func (b *broadcast) step(now time.Time) bool {
 			case f, ok := <-b.fallback.frames:
 				if ok && validRawFrame(b.format, f) {
 					frame = f
-					if introActive && b.introShownAt.IsZero() {
-						b.introShownAt = now
+					if introActive {
+						b.introFallback = true
+						b.closeInput(b.introInput)
+						b.introInput = nil
 					}
 				}
 			default:
@@ -765,6 +802,9 @@ func (b *broadcast) step(now time.Time) bool {
 			return false
 		}
 		if frame.Video == nil {
+			if b.tick == 0 && time.Since(b.origin) < time.Second {
+				return false
+			}
 			frame = transcode.RawFrame{Video: b.lastFrame.Video, PolicyTags: b.lastFrame.PolicyTags}
 			if frame.Video == nil {
 				frame = transcode.RawFrame{Video: b.black}
@@ -782,7 +822,12 @@ func (b *broadcast) step(now time.Time) bool {
 	cut := mode != b.mode
 	if cut {
 		element := current.element
-		if mode == "screen" {
+		if mode == "intro" {
+			element = b.intro.element
+			if element == "" {
+				element = "ident"
+			}
+		} else if mode == "screen" {
 			element = b.screenPlan.element
 			if element == "" {
 				element = "screen"
