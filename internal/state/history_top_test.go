@@ -73,6 +73,11 @@ func TestHistoryTopAggregatesAndLifetime(t *testing.T) {
 
 func TestHistoryOrderedMigrationAdoptsExistingColumns(t *testing.T) {
 	s, _ := newTestState(t)
+	if store.DialectOf(s.db) == store.Postgres {
+		// Replaying state/8's shape probe needs a fresh connection: its first
+		// SELECT * was prepared before that migration added the columns.
+		s.db.SetMaxIdleConns(0)
+	}
 	if _, err := s.db.Exec(`DELETE FROM schema_migrations WHERE component='state' AND version=8`); err != nil {
 		t.Fatal(err)
 	}
