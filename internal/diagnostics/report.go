@@ -41,7 +41,7 @@ func analyzeJournal(body string) ([]reportRow, []Finding) {
 		line      int
 	}
 	seen := map[string][]occurrence{}
-	var errors, slow, empty, hero, playbackFailures []int
+	var errors, slow, empty, hero, playbackFailures, genericAdmissions, unattributedPlayback []int
 	failureLines := map[int]bool{}
 	addFailure := func(line int) {
 		if !failureLines[line] {
@@ -51,6 +51,12 @@ func analyzeJournal(body string) ([]reportRow, []Finding) {
 	}
 	for _, row := range rows {
 		e := row.event
+		if e.Kind == KindRequestStarted && e.Uncorrelated {
+			unattributedPlayback = append(unattributedPlayback, row.line)
+		}
+		if e.Kind == KindClientCapabilities && e.Client != nil && e.Client.Registry == "generic" && !e.Client.ExplicitMaxHeight && e.Client.MaxHeight == e.Client.RegistryMaxHeight {
+			genericAdmissions = append(genericAdmissions, row.line)
+		}
 		if e.Kind == KindRequest && e.Status >= 400 && (strings.Contains(strings.ToLower(e.Route), "/decision") || strings.Contains(strings.ToLower(e.Route), "playback")) {
 			addFailure(row.line)
 		}
@@ -116,6 +122,8 @@ func analyzeJournal(body string) ([]reportRow, []Finding) {
 	add("other_hero", "A hero row other than Continue Watching was returned.", hero)
 	add("slow_request", "A request exceeded a wall-time or database budget.", slow)
 	add("http_error", "A request returned an HTTP error.", errors)
+	add("unattributed_playback", "Authenticated playback requests omitted a device identity. They belong to the selected viewer, but cannot be attributed to a specific device.", unattributedPlayback)
+	add("generic_client_admission", "Playback admission used the generic client profile height ceiling. See the recorded identity and capability stages; this does not prove the device cannot play higher resolutions.", genericAdmissions)
 	if len(playbackFailures) >= 2 {
 		add("repeated_playback_failures", "Multiple playback decision requests failed.", playbackFailures)
 	}
@@ -178,6 +186,25 @@ func reportMarkdown(rows []reportRow, findings []Finding, extra []archived) []by
 		}
 		fmt.Fprintf(&b, "| #%d %s | %s | %s | %d | %s | %s |\n", row.line, e.At.UTC().Format("15:04:05.000"), reportCell(reportClient(e)), reportCell(request), e.Status, reportDuration(e.DurationMS), reportCell(reportResponse(e)))
 		count++
+	}
+	b.WriteString("\n## Playback request receipts and capabilities\n\nStarts are recorded before streaming. A start does not prove response completion. Admission rows show the capabilities actually passed to playback; request rows show declarations only.\n\n| Event | Stage | Attribution | Registry | Registry / owner override / declaration / effective height | Video codecs |\n| --- | --- | --- | --- | --- | --- |\n")
+	capCount := 0
+	for _, row := range rows {
+		e := row.event
+		if e.Client == nil || (e.Kind != KindRequestStarted && e.Kind != KindClientCapabilities) {
+			continue
+		}
+		if capCount >= 64 || b.Len() > 240<<10 {
+			b.WriteString("\nAdditional capability observations are in events.jsonl.\n")
+			break
+		}
+		c := e.Client
+		attribution := e.Device
+		if e.Uncorrelated {
+			attribution = "selected viewer; device unknown"
+		}
+		fmt.Fprintf(&b, "| #%d %s | %s | %s | %s | %d / %d / %d / %d | %s |\n", row.line, e.Kind, reportCell(c.Stage), reportCell(attribution), reportCell(c.Registry), c.RegistryMaxHeight, c.OwnerMaxHeight, c.DeclaredMaxHeight, c.MaxHeight, reportCell(strings.Join(c.VideoCodecs, ", ")))
+		capCount++
 	}
 	var viewer *ViewerFacts
 	for _, file := range extra {

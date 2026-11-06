@@ -42,21 +42,23 @@ const (
 type Kind string
 
 const (
-	KindDevice            Kind = "device.seen"
-	KindPlaybackRequested Kind = "playback.requested"
-	KindSourceChosen      Kind = "source.chosen"
-	KindSourceRejected    Kind = "source.rejected"
-	KindStreamRequested   Kind = "stream.requested"
-	KindEncoderStarted    Kind = "encoder.started"
-	KindEncoderFailed     Kind = "encoder.failed"
-	KindMediaRequest      Kind = "media.request"
-	KindMediaBytes        Kind = "media.bytes"
-	KindTimelineReceived  Kind = "timeline.received"
-	KindPlaybackReported  Kind = "playback.reported"
-	KindPoll              Kind = "client.poll"
-	KindTranscodeDecision Kind = "transcode.decision"
-	KindPlaybackDecision  Kind = "playback.decision"
-	KindRequest           Kind = "request"
+	KindDevice             Kind = "device.seen"
+	KindPlaybackRequested  Kind = "playback.requested"
+	KindSourceChosen       Kind = "source.chosen"
+	KindSourceRejected     Kind = "source.rejected"
+	KindStreamRequested    Kind = "stream.requested"
+	KindEncoderStarted     Kind = "encoder.started"
+	KindEncoderFailed      Kind = "encoder.failed"
+	KindMediaRequest       Kind = "media.request"
+	KindMediaBytes         Kind = "media.bytes"
+	KindTimelineReceived   Kind = "timeline.received"
+	KindPlaybackReported   Kind = "playback.reported"
+	KindPoll               Kind = "client.poll"
+	KindTranscodeDecision  Kind = "transcode.decision"
+	KindPlaybackDecision   Kind = "playback.decision"
+	KindRequest            Kind = "request"
+	KindRequestStarted     Kind = "request.started"
+	KindClientCapabilities Kind = "client.capabilities"
 )
 
 // Event is one neutral observation. String fields are clipped before the
@@ -111,6 +113,7 @@ type Event struct {
 	// Release names stay only when the titles flag is on. It must not carry
 	// a username or address.
 	Playback *PlaybackDecision
+	Client   *ClientFacts
 }
 
 type ResponseSummary struct {
@@ -156,6 +159,8 @@ type Candidate struct {
 // the Play Version part ids. Release names are included only when the
 // owner includes titles. Otherwise each name is a neutral token.
 type PlaybackDecision struct {
+	// TraceScope distinguishes title-wide historical traces from request-bound facts.
+	TraceScope         string              `json:"traceScope,omitempty"`
 	Profile            string              `json:"profile,omitempty"`
 	ProfileMaxHeight   int                 `json:"profileMaxHeight,omitempty"`
 	ClientMaxHeight    int                 `json:"clientMaxHeight,omitempty"`
@@ -372,4 +377,36 @@ type FinishIn struct {
 	IncludeUsernames bool `json:"includeUsernames"`
 	IncludeAddresses bool `json:"includeAddresses"`
 	SetFlags         bool `json:"-"`
+}
+
+// ClientFacts records the capability calculation, not raw HTTP credentials.
+// Inputs records header/query presence only; no client identifiers or arbitrary
+// profile directives are copied. MaxHeight describes the exact caps handed to
+// playback when Stage is admission, otherwise the request declarations.
+type ClientFacts struct {
+	Stage             string `json:"stage"`
+	Registry          string `json:"registry"`
+	RegistryMaxHeight int    `json:"registryMaxHeight"`
+	// OwnerMaxHeight is the registry ceiling after client overrides, not the owner quality profile.
+	OwnerMaxHeight       int           `json:"ownerMaxHeight"`
+	DeclaredMaxHeight    int           `json:"declaredMaxHeight"`
+	MaxHeight            int           `json:"maxHeight"`
+	ExplicitMaxHeight    bool          `json:"explicitMaxHeight"`
+	MaxBitrateKbps       int           `json:"maxBitrateKbps"`
+	DefaultRemoteBitrate bool          `json:"defaultRemoteBitrate"`
+	Remote               bool          `json:"remote"`
+	HDR10                bool          `json:"hdr10"`
+	DolbyVision          bool          `json:"dolbyVision"`
+	VideoCodecs          []string      `json:"videoCodecs"`
+	AudioCodecs          []string      `json:"audioCodecs"`
+	Containers           []string      `json:"containers"`
+	Inputs               []ClientInput `json:"inputs,omitempty"`
+}
+
+type ClientInput struct {
+	Name        string `json:"name"`
+	Header      bool   `json:"header"`
+	Query       bool   `json:"query"`
+	HeaderEmpty bool   `json:"headerEmpty,omitempty"`
+	QueryEmpty  bool   `json:"queryEmpty,omitempty"`
 }

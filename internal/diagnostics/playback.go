@@ -15,6 +15,7 @@ func boundPlayback(p *PlaybackDecision, uses []secretUse) *PlaybackDecision {
 		return nil
 	}
 	out := *p
+	out.TraceScope = clipNetwork(out.TraceScope, 80, uses)
 	out.Profile = clipNetwork(out.Profile, 80, uses)
 	out.Chooser = clipFree(out.Chooser, 16, uses)
 	out.ChosenRelease = clipNetwork(out.ChosenRelease, maxString, uses)
@@ -64,6 +65,7 @@ func exportPlayback(p *PlaybackDecision, titles bool, captureID string, uses []s
 		return nil
 	}
 	out := *p
+	out.TraceScope = redactString(out.TraceScope, uses)
 	out.Profile = redactString(out.Profile, uses)
 	out.Chooser = redactString(out.Chooser, uses)
 	sizes := map[string]int64{}

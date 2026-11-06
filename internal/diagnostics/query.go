@@ -23,6 +23,8 @@ var supportQueryKeys = map[string]bool{
 	"startindex": true, "limit": true, "skip": true, "recursive": true,
 	"includetotalrecordcount": true, "enableimages": true, "enableuserdata": true,
 	"isplayed": true, "sortorder": true,
+	"videobitrate": true, "maxvideobitrate": true, "videoquality": true, "videoresolution": true,
+	"directplay": true, "directstream": true, "hasmde": true, "mediaindex": true, "partindex": true, "protocol": true,
 }
 
 var supportFieldNames = map[string]bool{
@@ -57,6 +59,11 @@ func SafeQuery(q url.Values) string {
 			switch name {
 			case "recursive", "includetotalrecordcount", "enableimages", "enableuserdata", "isplayed":
 				valid = v == "0" || v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "false")
+			case "videoresolution":
+				dims := strings.Split(v, "x")
+				valid = len(dims) == 2 && supportNumericValue.MatchString(dims[0]) && supportNumericValue.MatchString(dims[1])
+			case "protocol":
+				valid = v == "hls" || v == "http" || v == "dash"
 			case "sortorder":
 				valid = strings.EqualFold(v, "ascending") || strings.EqualFold(v, "descending")
 			}

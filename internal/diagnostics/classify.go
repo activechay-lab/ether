@@ -77,3 +77,12 @@ func ArtworkRequestPath(route string) bool {
 	}
 	return false
 }
+
+// PlaybackRequestPath identifies Plex playback endpoints without looking at
+// token/query contents. Used only for authenticated viewer-scoped diagnostics.
+func PlaybackRequestPath(route string) bool {
+	p := strings.ToLower(stripQuery(route))
+	return strings.HasPrefix(p, "/library/parts/") ||
+		strings.HasPrefix(p, "/video/:/transcode/universal/") ||
+		strings.HasPrefix(p, "/music/:/transcode/universal/")
+}
