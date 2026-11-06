@@ -49,6 +49,10 @@ func TestHistoryTopAggregatesAndLifetime(t *testing.T) {
 	if err != nil || len(life) != 1 || life[0].Count != 2 {
 		t.Fatalf("lifetime lost %+v %v", life, err)
 	}
+	// The behaviour assertions above apply to both engines; the plan syntax below is SQLite-only.
+	if store.DialectOf(s.db) != store.SQLite {
+		return
+	}
 	// The maintained ranking index, rather than a temporary grouped catalog scan.
 	plan, err := s.db.QueryContext(ctx, `EXPLAIN QUERY PLAN SELECT rating_key,history_views,last_history FROM state_history_rank WHERE user_id=0 AND kind=2 AND history_views>0 ORDER BY history_views DESC,last_history DESC,rating_key LIMIT 10`)
 	if err != nil {
