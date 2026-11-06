@@ -43,7 +43,7 @@ func decodeBody(br *BodyReader, opt *yenc.DecodeOptions) (*yenc.Part, error) {
 	guardErr := g.err
 	complete := g.terminated && guardErr == nil && len(g.pending) == 0 && len(g.suffix) == 0 &&
 		(err == nil || errors.Is(err, rapidyenc.ErrCrcMismatch) || errors.Is(err, rapidyenc.ErrDataCorruption))
-	began, ended, decoded := g.began, g.ended, g.decoded
+	began, ended := g.began, g.ended
 	state.input = guardedBody{}
 	if complete {
 		wireDecoderPool.Put(state)
@@ -63,9 +63,6 @@ func decodeBody(br *BodyReader, opt *yenc.DecodeOptions) (*yenc.Part, error) {
 	if response == nil {
 		return &result, yenc.ErrTruncated
 	}
-	if int64(len(result.Data)) != decoded {
-		return &result, yenc.ErrSizeMismatch
-	}
 	return &result, yenc.VerifyChecksum(&result, opt != nil && opt.SkipCRC, response.Metadata.CRC)
 }
 
@@ -84,15 +81,15 @@ var wireDecoderPool = sync.Pool{New: func() any {
 }}
 
 type guardedBody struct {
-	body                         *BodyReader
-	part                         yenc.Part
-	maxSize, budget, decoded     int64
-	preamble                     int
-	began, first, ended, escaped bool
-	terminated                   bool
-	pending                      []byte
-	suffix                       string
-	err                          error
+	body                      *BodyReader
+	part                      yenc.Part
+	maxSize, budget, wireData int64
+	preamble                  int
+	began, first, ended       bool
+	terminated                bool
+	pending                   []byte
+	suffix                    string
+	err                       error
 }
 
 func (g *guardedBody) Read(dst []byte) (int, error) {
@@ -178,10 +175,6 @@ func (g *guardedBody) Read(dst []byte) (int, error) {
 				g.first = false
 			case bytes.HasPrefix(content, []byte("=yend")):
 				g.first = false
-				if g.escaped {
-					g.err = yenc.ErrMalformed
-					continue
-				}
 				g.part.Trailer, g.err = yenc.ParseEnd(content)
 				g.ended = true
 			default:
@@ -190,36 +183,21 @@ func (g *guardedBody) Read(dst []byte) (int, error) {
 					continue
 				}
 				g.first = false
-				// Count escape pairs without decoding or copying the payload. Refuse
-				// excess data before upstream can grow beyond the validated size hint.
-				data := content
-				if g.escaped && len(data) > 0 {
-					g.decoded++
-					data = data[1:]
-					g.escaped = false
-				}
-				for len(data) > 0 {
-					i := bytes.IndexByte(data, '=')
-					if i < 0 {
-						g.decoded += int64(len(data))
-						break
-					}
-					g.decoded += int64(i)
-					data = data[i+1:]
-					if len(data) == 0 {
-						g.escaped = true
-						break
-					}
-					g.decoded++
-					data = data[1:]
-				}
-
-				if g.escaped {
-					g.err = yenc.ErrMalformed
-				} else if g.decoded > g.maxSize {
-					g.err = yenc.ErrTooLarge
-				} else if g.decoded > g.part.Header.PartSize() {
+				// Avoid a second scan of the payload. Decoded bytes never exceed wire
+				// bytes, and valid escaping at most doubles them, so bounding wire
+				// bytes bounds upstream's output. Exact size is checked after decode.
+				g.wireData += int64(len(content))
+				if g.wireData > 2*g.part.Header.PartSize()+64 {
 					g.err = yenc.ErrSizeMismatch
+					continue
+				}
+				// An odd trailing run of '=' leaves a dangling escape.
+				trail := len(content)
+				for trail > 0 && content[trail-1] == '=' {
+					trail--
+				}
+				if (len(content)-trail)&1 == 1 {
+					g.err = yenc.ErrMalformed
 				}
 			}
 		}
