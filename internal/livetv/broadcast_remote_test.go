@@ -61,7 +61,12 @@ func TestBroadcastSlowStartLargeOffsetRemote(t *testing.T) {
 	if err != nil {
 		t.Skip(err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	budget := 90 * time.Second
+	if raceEnabled {
+		// The instrumented 1080p fallback renderer shares this fixture's budget.
+		budget *= 4
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), budget)
 	defer cancel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "long.mkv")
