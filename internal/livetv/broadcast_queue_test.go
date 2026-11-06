@@ -62,3 +62,28 @@ func TestBroadcastFrameQueuePreservesPCMDuringDip(t *testing.T) {
 		}
 	})
 }
+
+// Deep backlog does not retain each incoming raw picture. Audio and the exact
+// picture on an element cut survive after regular picture retention stops.
+func TestBroadcastDeepDipBoundsPictures(t *testing.T) {
+	q := newBroadcastFrameQueue(30)
+	for tick := 0; tick < 1800; tick++ {
+		pcm := make([]byte, 4)
+		binary.LittleEndian.PutUint32(pcm, uint32(tick))
+		q.push(transcode.RawFrame{Video: append([]byte(nil), pcm...), PCM: pcm}, tick == 400)
+	}
+	pictures := map[*byte]bool{}
+	for tick := 0; tick < 1800; tick++ {
+		frame, ok := q.pop(context.Background())
+		if !ok || int(binary.LittleEndian.Uint32(frame.PCM)) != tick {
+			t.Fatal("audio lost in deep backlog", tick)
+		}
+		pictures[&frame.Video[0]] = true
+		if tick == 400 && binary.LittleEndian.Uint32(frame.Video) != 400 {
+			t.Fatal("element cut lost in deep backlog")
+		}
+	}
+	if len(pictures) > 90 {
+		t.Fatalf("deep backlog retained %d distinct pictures", len(pictures))
+	}
+}

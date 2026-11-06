@@ -11,6 +11,7 @@ import (
 // six seconds of ticks. Beyond a second of backlog, retain ten pictures per
 // second while preserving every audio tick. Pictures keep advancing during a
 // dip, and an element cut always carries its new picture on the exact tick.
+// Beyond six seconds, extra backlog retains PCM and cut pictures only.
 type broadcastFrameQueue struct {
 	mu         sync.Mutex
 	frames     []transcode.RawFrame
@@ -36,7 +37,7 @@ func (q *broadcastFrameQueue) push(frame transcode.RawFrame, forcePicture bool) 
 	} else if pending <= q.fps/4 {
 		q.repeating = false
 	}
-	if q.repeating && q.tick%3 != 0 && !forcePicture && q.held != nil {
+	if q.repeating && (q.tick%3 != 0 || pending >= q.fps*6) && !forcePicture && q.held != nil {
 		frame.Video = q.held
 		frame.RepeatVideo = true
 		frame.PolicyTags = mergeBroadcastTags(frame.PolicyTags, q.heldPolicy)
