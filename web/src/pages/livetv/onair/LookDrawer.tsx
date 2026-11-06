@@ -290,7 +290,7 @@ export function LookDrawer({
         </div>
       }
       subtabs={
-        <div className="flex shrink-0 items-end justify-between gap-4 border-b border-border px-4 pt-1">
+        <div className="flex shrink-0 items-end justify-between gap-4 border-b border-border px-4 pt-1 [&>div:first-child]:mb-0">
           <SubtabNav
             active={tab}
             onSelect={setTab}
