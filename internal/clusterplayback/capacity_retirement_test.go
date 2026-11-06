@@ -118,6 +118,7 @@ func TestSequentialCrossReplicaCapacityRetirement(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	sourceEndpoint := endpoints[sourceID]
 	// A one-slot pool must sustain repeated lifetimes with a different control
 	// frontend receiving Stop. Backend fakes own actual input/gateway lifetimes.
 	for n := 0; n < 8; n++ {
@@ -149,6 +150,22 @@ func TestSequentialCrossReplicaCapacityRetirement(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+		if n == 7 {
+			// The worker is still on its original boot, but its source process
+			// was replaced after backend exit. Normal exact encoder retirement
+			// must combine with independent authenticated source-boot proof.
+			life, ok := manager.SourceRetirement(prepared.PlayID)
+			if !ok {
+				t.Fatal("missing source outcome")
+			}
+			if err := manager.RetireSource(prepared.PlayID, life); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ExecContext(ctx, `INSERT INTO cluster_nodes(id,incarnation,started_at,last_seen) VALUES(?,?,?,?)`, sourceID.NodeID, "source-only-replacement", time.Now().UnixMilli(), time.Now().UnixMilli()); err != nil {
+				t.Fatal(err)
+			}
+			delete(endpoints, sourceID)
+		}
 		for i := 0; i < 100; i++ {
 			_ = starter.Tick(ctx)
 			worker.Cleanup()
@@ -177,6 +194,13 @@ func TestSequentialCrossReplicaCapacityRetirement(t *testing.T) {
 			}
 		}
 		t.Logf("session %d retired; full capacity restored; backend and input joined", n)
+		if n == 7 {
+			// Restore the independent fake source for the next crash scenario.
+			if _, err := db.ExecContext(ctx, `DELETE FROM cluster_nodes WHERE id=?`, sourceID.NodeID); err != nil {
+				t.Fatal(err)
+			}
+			endpoints[sourceID] = sourceEndpoint
+		}
 	}
 	// Crash before Stop: lose all coordinator memory and both exact worker/source
 	// incarnations. Age, absence and worker replacement alone retain the charge.
