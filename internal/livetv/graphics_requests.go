@@ -53,7 +53,9 @@ func (s *Service) GraphicsRequests(ctx context.Context, lookID string) []core.Cl
 			if c.Look == nil {
 				continue
 			}
-			pending = append(pending, scheduled{now, s.clipRequest(c, Programme{Item: Item{Slate: m}, Start: now, End: now})})
+			// Reusable style warm-up has no airing deadline; it remains
+			// ordinary cancellable background work.
+			pending = append(pending, scheduled{time.Time{}, s.clipRequest(c, Programme{Item: Item{Slate: m}, Start: now, End: now})})
 		}
 		if lookID == "" {
 			snapshot := Schedule(c, now, now.Add(horizon+24*time.Hour))
