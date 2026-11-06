@@ -74,6 +74,43 @@ export function installMockBackend(): void {
     fake.state.config.posters = undefined;
     fake.state.config.trakt.enabled = false;
   }
+  // Private mock-only fixture for reviewing live station artwork.
+  if (params.has("liveArtwork")) {
+    const original = fake.fetch;
+    fake.fetch = async (input, init) => {
+      const path = new URL(String(input), window.location.origin).pathname;
+      const logo = path.match(/\/livetv\/channels\/(ink-dark|ink-light)\/logo$/);
+      if (logo) {
+        const darkInk = logo[1] === "ink-dark";
+        return new Response(
+          `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160"><g fill="${darkInk ? "#111" : "#fff"}"><path d="M40 30h25v100H40zm40 0h25v100H80zm40 0h25v100h-25zm40 0h40v25h-40zm0 38h40v25h-40zm0 37h40v25h-40z"/></g></svg>`,
+          {
+            headers: {
+              "Content-Type": "image/svg+xml",
+              "X-Ether-Logo-Background": darkInk ? "light" : "dark",
+            },
+          },
+        );
+      }
+      const response = await original(input, init);
+      if (!path.endsWith("/dashboard") && !path.endsWith("/status/sessions")) return response;
+      const body = await response.json();
+      const sessions = ["ink-dark", "ink-light"].map((id, i) => ({
+        ID: id,
+        TitleName: i ? "Evening News" : "Morning Edition",
+        Username: i ? "Alex" : "Sam",
+        Client: { product: "Plex for Apple TV", deviceName: i ? "Bedroom" : "Living Room" },
+        Decision: "copy",
+        liveChannel: { id, name: i ? "World News" : "Local News", number: i ? "24" : "12.1" },
+        StartedAt: new Date().toISOString(),
+      }));
+      if (path.endsWith("/dashboard")) body.sections.sessions = sessions;
+      else body.value = sessions;
+      return new Response(JSON.stringify(body), {
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+  }
   const real = window.fetch.bind(window);
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(

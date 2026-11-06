@@ -19,7 +19,7 @@ func (f *testLogoFetcher) GetUntrustedURL(_ context.Context, url string) ([]byte
 	if f.fail {
 		return nil, "", errors.New("failed")
 	}
-	return []byte("logo"), "image/svg+xml", nil
+	return []byte("logo"), "image/png", nil
 }
 
 func TestOwnerChannelLogo(t *testing.T) {

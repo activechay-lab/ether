@@ -25,7 +25,7 @@ class ImmediatelyVisible implements IntersectionObserver {
 
 describe("live channel identity", () => {
   it("draws the tile the logo response asks for and keeps dark without a usable header", async () => {
-    routeApiImagesThroughFetch(true);
+    routeApiImagesThroughFetch(false);
     vi.stubGlobal("IntersectionObserver", ImmediatelyVisible);
     const [live] = normalizeSessions([{ liveChannel: { id: "news", name: "News" } }]);
     const { createObjectURL, revokeObjectURL } = URL;
@@ -97,14 +97,21 @@ describe("live channel identity", () => {
       vi.unstubAllGlobals();
     }
   });
-  it("falls back to channel initials on a missing or broken logo and keeps VOD artwork", () => {
+  it("falls back to channel initials on a missing or broken logo and keeps VOD artwork", async () => {
+    vi.stubGlobal("IntersectionObserver", ImmediatelyVisible);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("logo")),
+    );
+    URL.createObjectURL = () => "blob:logo";
+    URL.revokeObjectURL = () => {};
     const [live, vod] = normalizeSessions([
       { liveChannel: { id: "a/b", name: "Local News" }, TitleName: "Programme" },
       { TitleName: "Movie" },
     ]);
     const { rerender } = render(<SessionArtwork s={live!} poster="/programme.jpg" className="" />);
-    const logo = screen.getByAltText("Local News");
-    expect(logo).toHaveAttribute("src", "/ether/api/livetv/channels/a%2Fb/logo");
+    const logo = await screen.findByAltText("Local News");
+    expect(fetch).toHaveBeenCalledWith("/ether/api/livetv/channels/a%2Fb/logo", expect.anything());
     fireEvent.error(logo);
     expect(screen.getByText("LN")).toBeInTheDocument();
     rerender(<SessionArtwork s={{ ...live!, channelId: "" }} className="" />);
@@ -148,18 +155,12 @@ describe("live channel identity", () => {
     });
     expect((await screen.findAllByText("Evening News", {}, WAIT)).length).toBeGreaterThan(0);
     expect(screen.getByText("12.1 · Local News")).toBeInTheDocument();
-    expect(screen.getByAltText("Local News")).toHaveAttribute(
-      "src",
-      "/ether/api/livetv/channels/channel-test/logo",
-    );
+    expect(screen.getByText("LN")).toBeInTheDocument();
     if (path === "/activity") {
       fireEvent.click(screen.getByRole("radio", { name: "List" }));
       expect(screen.getAllByText("Evening News").length).toBeGreaterThan(0);
       expect(screen.getByText("12.1 · Local News")).toBeInTheDocument();
-      expect(screen.getByAltText("Local News")).toHaveAttribute(
-        "src",
-        "/ether/api/livetv/channels/channel-test/logo",
-      );
+      expect(screen.getByText("LN")).toBeInTheDocument();
     }
   });
 });

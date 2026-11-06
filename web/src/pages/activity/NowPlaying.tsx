@@ -258,8 +258,10 @@ function StreamRow({ s, stopping, onStop }: { s: Stream; stopping: boolean; onSt
           className="aspect-[2/3] w-14 rounded-md shadow-md ring-1 ring-white/10"
         />
         <div className="min-w-0 space-y-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <p className="truncate text-base font-semibold text-fg">{title?.title || s.title}</p>
+          <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
+            <p className="max-w-full truncate text-base font-semibold text-fg">
+              {title?.title || s.title}
+            </p>
             <Badge variant={converting ? "warning" : "success"} className="shrink-0">
               {decisionLabel(s)}
             </Badge>

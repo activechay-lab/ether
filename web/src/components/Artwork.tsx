@@ -35,7 +35,8 @@ export function Artwork({
    */
   onImageResponse?: (response: Response) => void;
 }) {
-  const needsFetch = imageNeedsFetch(src);
+  const needsFetch =
+    imageNeedsFetch(src) || Boolean(src?.startsWith("/ether/api/") && onImageResponse);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   // Load/fail state is keyed by URL so a new src never inherits the old state,
   // and an image that finished loading before React attached its handler

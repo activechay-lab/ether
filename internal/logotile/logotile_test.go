@@ -3,6 +3,7 @@ package logotile
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"image"
 	"image/color"
@@ -170,5 +171,39 @@ func TestDecideBytes(t *testing.T) {
 	// must fall back to dark rather than guess.
 	if _, err := DecideBytes([]byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`)); err == nil {
 		t.Fatal("decoding SVG succeeded")
+	}
+}
+
+// Every source pixel contributes to the area average, including a fractional
+// edge when the source width is not divisible by the sampling grid.
+func TestFractionalAreaWeights(t *testing.T) {
+	weights := axisWeights(65, 0)
+	if len(weights) != 2 || math.Abs(weights[0].w-64.0/65) > 1e-12 || math.Abs(weights[1].w-1.0/65) > 1e-12 {
+		t.Fatalf("weights: %+v", weights)
+	}
+	for n := 65; n < 200; n++ {
+		for i := range sampleSize {
+			sum := 0.0
+			for _, w := range axisWeights(n, i) {
+				sum += w.w
+			}
+			if math.Abs(sum-1) > 1e-12 {
+				t.Fatalf("n=%d i=%d sum=%g", n, i, sum)
+			}
+		}
+	}
+}
+
+func BenchmarkDecideLogo(b *testing.B) {
+	for _, n := range []int{256, 2048} {
+		b.Run(fmt.Sprint(n), func(b *testing.B) {
+			img := image.NewNRGBA(image.Rect(0, 0, n, n))
+			fill(img, 0, 0, n, n, color.NRGBA{R: 20, A: 255})
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				Decide(img)
+			}
+		})
 	}
 }

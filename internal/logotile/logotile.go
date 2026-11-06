@@ -141,6 +141,9 @@ func cost(px []samplePixel, tr, tg, tb float64) float64 {
 // is smaller, and transparent samples contribute no colour.
 func sample(img image.Image) []samplePixel {
 	b := img.Bounds()
+	// Standard decoders expose value-returning RGBA64At. Avoid boxing a
+	// colour interface (and allocating) for every source pixel.
+	rgbaImage, _ := img.(image.RGBA64Image)
 	w, h := b.Dx(), b.Dy()
 	out := make([]samplePixel, sampleSize*sampleSize)
 	if w <= 0 || h <= 0 {
@@ -157,7 +160,13 @@ func sample(img image.Image) []samplePixel {
 			var pr, pg, pb, pa float64
 			for _, yw := range ys[dy] {
 				for _, xw := range xs[dx] {
-					r, g, bl, a := img.At(b.Min.X+xw.i, b.Min.Y+yw.i).RGBA()
+					var r, g, bl, a uint32
+					if rgbaImage != nil {
+						pixel := rgbaImage.RGBA64At(b.Min.X+xw.i, b.Min.Y+yw.i)
+						r, g, bl, a = pixel.RGBA()
+					} else {
+						r, g, bl, a = img.At(b.Min.X+xw.i, b.Min.Y+yw.i).RGBA()
+					}
 					wgt := xw.w * yw.w
 					pr += wgt * float64(r)
 					pg += wgt * float64(g)
@@ -193,14 +202,11 @@ func axisWeights(n, i int) []weight {
 	start := float64(i) * float64(n) / sampleSize
 	end := float64(i+1) * float64(n) / sampleSize
 	if end-start >= 1 {
-		first, last := int(start), int(end)-1
-		if last < first {
-			last = first
-		}
+		first, last := int(math.Floor(start)), int(math.Ceil(end))-1
 		out := make([]weight, 0, last-first+1)
-		w := 1 / float64(last-first+1)
 		for j := first; j <= last; j++ {
-			out = append(out, weight{j, w})
+			coverage := math.Min(end, float64(j+1)) - math.Max(start, float64(j))
+			out = append(out, weight{j, coverage / (end - start)})
 		}
 		return out
 	}

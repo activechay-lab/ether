@@ -48,7 +48,7 @@ func TestOwnerChannelLogoBackgroundHeader(t *testing.T) {
 	}{
 		{"white ink needs the dark tile", logoPNG(t, color.NRGBA{255, 255, 255, 255}), "image/png", logotile.Dark},
 		{"black ink needs the light tile", logoPNG(t, color.NRGBA{0, 0, 0, 255}), "image/png", logotile.Light},
-		{"SVG keeps the dark default", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`), "image/svg+xml", logotile.Dark},
+
 		{"broken bytes keep the dark default", []byte("logo"), "image/png", logotile.Dark},
 	}
 	for _, tc := range cases {
@@ -75,5 +75,33 @@ func TestOwnerChannelLogoBackgroundHeader(t *testing.T) {
 				t.Fatal("body changed")
 			}
 		})
+	}
+}
+
+func TestOwnerSVGIsRasterizedAndScored(t *testing.T) {
+	s := testService(t, Options{})
+	c := testChannel()
+	c.Logo = "https://images.example/logo.svg"
+	if _, err := s.SaveChannel(context.Background(), c); err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="black"/></svg>`,
+		`<svg><image href="http://127.0.0.1/secret"/></svg>`,
+		`<svg viewBox="0 0 10 10"><path d="M1e100 0"/></svg>`,
+	} {
+		h := s.ownerHandler(&pngLogoFetcher{data: []byte(body), ct: "image/svg+xml"})
+		r := httptest.NewRecorder()
+		h.ServeHTTP(r, httptest.NewRequest(http.MethodGet, "/channels/test/logo", nil))
+		if bytes.Contains([]byte(body), []byte("fill=")) {
+			if r.Code != 200 || r.Header().Get("Content-Type") != "image/png" || r.Header().Get(logotile.Header) != "light" {
+				t.Fatalf("raster response: %d %v", r.Code, r.Header())
+			}
+			if _, err := png.Decode(r.Body); err != nil {
+				t.Fatal(err)
+			}
+		} else if r.Code != 404 {
+			t.Fatalf("hostile SVG status: %d", r.Code)
+		}
 	}
 }

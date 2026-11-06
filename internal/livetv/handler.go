@@ -31,6 +31,7 @@ type channelLogoFetcher interface {
 
 func (s *Service) ownerHandler(logos channelLogoFetcher) http.Handler {
 	r := chi.NewRouter()
+	raster := artwork.NewSVGRasterizer()
 	r.Get("/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		ownerResult(w, map[string]any{"maintenance": s.MaintenanceDiagnostics()}, nil)
 	})
@@ -46,8 +47,15 @@ func (s *Service) ownerHandler(logos channelLogoFetcher) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		if strings.HasPrefix(ct, "image/svg+xml") {
+			data, ct, err = raster.Rasterize(r.Context(), c.Logo, data, artwork.RasterOptions{Format: "png"})
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+		}
 		// The console draws the logo on a tile; tell it which tile keeps the
-		// ink legible. Unreadable formats (SVG) and decode failures keep dark.
+		// ink legible. Decode failures keep dark.
 		background := logotile.Dark
 		if ev, decodeErr := logotile.DecideBytes(data); decodeErr == nil {
 			background = ev.Background
