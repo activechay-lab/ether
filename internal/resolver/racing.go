@@ -25,6 +25,9 @@ type candidate struct {
 	quality     qualityRank     // the profile's quality order, ahead of the score
 	bandwidth   int             // fits client cap (+1), unknown (0), or exceeds it (-1)
 	yearGuessed bool            // accepted despite a series year that differs from the show's
+	cf          int             // pure custom format score (Servarr ordering)
+	age         float64         // usenet age bucket (Servarr ordering)
+	hasAge      bool            // age is known (Servarr ordering)
 	prepared    *candidateCheck // validation overlapped with descriptor discovery
 	graceStart  time.Time       // discovery start, set only when preparation overran the grace
 }
