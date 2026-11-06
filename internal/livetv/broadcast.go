@@ -812,8 +812,11 @@ func (b *broadcast) step(now time.Time) bool {
 	// Ahead-of-clock production may wait for its input. A due tick must keep
 	// the live fallback flowing even when resolution has not produced a frame;
 	// otherwise a missing source can prevent an opening segment from finishing.
+	// A cold decoder with no first picture must not halt the startup cushion
+	// after the ident ends: keep encoding the ready live fallback while it warms.
 	// An exhausted file's final picture still bridges its rounded slot duration.
-	if b.bursting && now.After(time.Now()) && frame.Video == nil && !introActive && b.current != nil && !momentFallback {
+	coldWaiting := b.current != nil && b.current.lastFrameAt.IsZero() && !b.current.openedAt.IsZero() && time.Since(b.current.openedAt) >= 250*time.Millisecond
+	if b.bursting && now.After(time.Now()) && frame.Video == nil && !introActive && b.current != nil && !coldWaiting && !momentFallback {
 		return false
 	}
 	if frame.Video == nil && !introActive && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
@@ -950,9 +953,10 @@ func (b *broadcast) step(now time.Time) bool {
 	frame.PolicyTags = mergeBroadcastTags(frame.PolicyTags, []any{current.policy})
 	b.blendIntro(now, &frame, fresh)
 	// Start rendering the first screen immediately while resolution is pending,
-	// but do not spend the startup lead on an unscheduled placeholder. A planned
-	// screen or welcome is actual scheduled media and can fill the whole lead.
-	b.burstReady = b.burstReady || (introActive && !b.intro.fill)
+	// while a quick decoder gets its first picture. If that cold preparation
+	// takes longer, the ready live screen must fill the playable cushion too;
+	// otherwise the ident can leave an already-playing client at a bare edge.
+	b.burstReady = b.burstReady || (introActive && !b.intro.fill) || (coldWaiting && mode == "screen")
 	frame.OutputTime = now
 	b.lastFrame = frame
 	b.mu.Lock()
