@@ -8,6 +8,8 @@ import (
 	"hash/crc32"
 	"io"
 	"math/bits"
+
+	"github.com/braedonsaunders/ether/internal/yenc/internal/rapidyenc"
 )
 
 // DefaultMaxSize bounds the buffer a header can make the decoder allocate.
@@ -227,14 +229,24 @@ func verify(p *Part, skipCRC bool) error {
 // bytes. escaped carries a dangling '=' from the end of the previous line,
 // and the returned flag reports a dangling '=' at the end of this one.
 //
-// This is the hot loop. Each native word both detects '=' and subtracts 42
-// from eight independent byte lanes. Fusing detection with decoding avoids
+// Supported SIMD builds decode 64-byte blocks first. The portable hot loop
+// handles remaining bytes and CPUs without SIMD. Each native word detects
+// '=' and subtracts 42 from eight independent byte lanes. Fusing detection with decoding avoids
 // scanning each escaped run twice and calling a search routine per escape.
 // The first set lane in the zero-byte mask is the first real escape even
 // when subtraction borrows into a following lane. The short tail is scalar.
-// No allocation, lookup table, unsafe access or architecture-specific ISA
-// requirement is involved. Exact in-place decoding is supported.
+// Both paths allocate nothing and support exact in-place decoding.
 func DecodeLine(dst, src []byte, escaped bool) (int, bool) {
+	if len(src) >= 64 && rapidyenc.Available() {
+		consumed, produced, nextEscaped := rapidyenc.Decode(dst, src, escaped)
+		n, escaped := decodeLineSWAR(dst[produced:], src[consumed:], nextEscaped)
+		return produced + n, escaped
+	}
+	return decodeLineSWAR(dst, src, escaped)
+}
+
+// decodeLineSWAR is the portable decoder and the tail of the SIMD path.
+func decodeLineSWAR(dst, src []byte, escaped bool) (int, bool) {
 	const (
 		high   = uint64(0x8080808080808080)
 		ones   = uint64(0x0101010101010101)

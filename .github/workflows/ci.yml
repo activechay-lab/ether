@@ -30,6 +30,8 @@ permissions:
 jobs:
   go:
     name: Go (${{ matrix.os }} / ${{ matrix.shard }})
+    env:
+      GOEXPERIMENT: simd
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -154,6 +156,18 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: go build ./...
+      - name: Test yEnc portable SWAR fallback
+        if: matrix.shard == 'rest' || matrix.shard == 'all'
+        env:
+          CGO_ENABLED: "0"
+          GOEXPERIMENT: ""
+        run: go test ./internal/yenc
+      - name: Test yEnc without AVX2
+        if: runner.os == 'Linux' && matrix.shard == 'rest'
+        env:
+          CGO_ENABLED: "0"
+          GODEBUG: cpu.avx2=off
+        run: go test -count=1 ./internal/yenc
       - name: Verify bundled TMDB linker symbol
         if: matrix.shard == 'rest' || matrix.shard == 'all'
         env:
