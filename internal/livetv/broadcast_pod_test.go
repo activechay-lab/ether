@@ -16,6 +16,59 @@ type podSequenceDecoder struct {
 	sequence int
 }
 
+type alternatePodPlayback struct{ fakePlayback }
+
+func (p *alternatePodPlayback) PrepareChannel(ctx context.Context, u *core.User, key core.RatingKey, caps core.ClientCaps, group string) (*core.PlaySession, error) {
+	if key == core.MovieKey(1) {
+		return nil, core.ErrNotAvailable
+	}
+	return p.fakePlayback.PrepareChannel(ctx, u, key, caps, group)
+}
+
+// The replacement source is parked at its own first frame throughout a long
+// pod. Its source clock begins at the airing, not at the earlier resolution.
+func TestBroadcastPodPrewarmsAlternateProgrammeClock(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		origin := time.Now()
+		format := smallBroadcastFormat()
+		playback := &alternatePodPlayback{}
+		s := testService(t, Options{Playback: playback})
+		channel := testChannel()
+		after := Programme{ID: "planned", ChannelID: channel.ID, Start: origin.Add(2 * time.Minute), End: origin.Add(3 * time.Minute), Item: channel.Items[0]}
+		runner := &broadcastFakeRunner{decoder: func(context.Context, transcode.DecoderRequest) (transcode.Decoder, error) {
+			return &podSequenceDecoder{broadcastFakeDecoder: &broadcastFakeDecoder{format: format, closed: make(chan struct{})}}, nil
+		}}
+		planner := &scheduleBroadcastPlanner{s: s, channel: channel, user: core.User{ID: 1, IsOwner: true}, format: format, runner: runner}
+		pod := broadcastPlan{id: "pod", interstitial: true, start: origin, end: after.Start, open: func(context.Context) (transcode.Decoder, func(), error) {
+			return &broadcastFakeDecoder{format: format, closed: make(chan struct{}), value: 240}, nil, nil
+		}}
+		b, err := newBroadcast(t.Context(), runner, elementBroadcastPlanner{pod, planner.programme(after)}, format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer b.close()
+		if _, err = b.addRendition(t.Context(), "main", core.Decision{}); err != nil {
+			t.Fatal(err)
+		}
+		b.start()
+		time.Sleep(121 * time.Second)
+		synctest.Wait()
+		b.close()
+		frames := runner.encoders[0].snapshot()
+		if len(frames) < 3630 {
+			t.Fatalf("output stopped: %d", len(frames))
+		}
+		for tick := 3600; tick < 3630; tick++ {
+			if got, want := frames[tick].Video[0], byte(40+tick-3600); got != want {
+				t.Fatalf("alternate programme lost parked position at tick%d: got%d want%d", tick, got, want)
+			}
+		}
+		if len(playback.prepared) != 1 || playback.prepared[0].Key != core.MovieKey(2) {
+			t.Fatalf("alternate source not used: %+v", playback.prepared)
+		}
+	})
+}
+
 func (d *podSequenceDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
 	f, e := d.broadcastFakeDecoder.Next(ctx)
 	for i := range f.Video {

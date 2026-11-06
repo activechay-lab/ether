@@ -276,7 +276,10 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 				offset = programme.Offset(at)
 			}
 			sourceWall := time.Now()
-			if candidate.ID == programme.ID && programme.Start.After(now) {
+			// Alternate content occupies this same future airing. Anchoring it to
+			// preparation time would discard the parked decoder's opening frames
+			// as stale when a long pod or plugin interval finally ends.
+			if programme.Start.After(now) {
 				sourceWall = sourceWall.Add(programme.Start.Sub(now))
 			}
 			p.s.o.Logger.Debug("broadcast programme decoder start", "channel", c.ID, "programme", programme.ID, "playback", ps.ID, "offset", offset)
