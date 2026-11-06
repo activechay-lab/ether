@@ -54,12 +54,16 @@ type bufferedSession struct {
 	published                atomic.Bool
 	mu                       sync.Mutex
 	headers                  map[int64]http.Header // At most one entry per retained segment.
+	supersededAt             int64                 // -1 until a fixed-grid replacement is committed (Runtime.mu).
 	reason                   string
 }
 
 func (r *Runtime) newBufferedSession(route Route, q core.HLSRequest, s *remotetranscode.Session) *bufferedSession {
 	// No implicit conversion, ABR, seek, subtitle or other representation cache.
 	// Those operations continue using the existing exact remote adapter.
+	if r.automaticOutput && (q.Decision.Kind != core.DecisionTranscode || q.Decision.VideoCopy || !q.Decision.AudioCopy) {
+		return nil
+	}
 	if r.o.OutputBuffer == nil || s == nil || q.StartOffset != 0 || q.LiveInput || q.Decision.Container != "mpegts" || (q.Protocol != "" && q.Protocol != core.ProtocolHLS) || len(s.Rungs()) > 1 {
 		return nil
 	}
@@ -67,7 +71,7 @@ func (r *Runtime) newBufferedSession(route Route, q core.HLSRequest, s *remotetr
 	if err := r.o.OutputBuffer.OpenSession(route.Fence.Session, state); err != nil {
 		return nil // Existing public sequences are never overwritten or evicted.
 	}
-	return &bufferedSession{Session: s, r: r, route: route, headers: make(map[int64]http.Header)}
+	return &bufferedSession{Session: s, r: r, route: route, headers: make(map[int64]http.Header), supersededAt: -1}
 }
 
 func (r *Runtime) SnapshotOutput(id string) (OutputBufferSnapshot, error) {
@@ -165,13 +169,13 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 			// The outer authenticated broker owns current viewer/media policy. Cache
 			// delivery additionally requires the exact current controller authority.
 			record, err := s.r.o.Placement.Lookup(q.Context(), s.route.Fence.Session)
-			if err != nil || record.Fence != s.route.Fence || !record.Authority || record.Retired || s.r.o.MemberRole(q.Context(), s.r.o.Self, config.RoleServer) != nil {
+			if err != nil || !s.allowedFence(record.Fence, n) || !record.Authority || record.Retired || s.r.o.MemberRole(q.Context(), s.r.o.Self, config.RoleServer) != nil {
 				http.Error(w, "output authority unavailable", http.StatusServiceUnavailable)
 				return
 			}
 			s.r.mu.Lock()
 			x := s.r.executions[s.route.Fence.Session]
-			active := !s.r.closed && x != nil && x.route == s.route && !x.stopping && !x.retired
+			active := !s.r.closed && x != nil && s.allowedExecution(x, n) && !x.stopping && !x.retired
 			s.r.mu.Unlock()
 			if !active {
 				http.Error(w, "execution stopped", http.StatusGone)
@@ -233,6 +237,14 @@ func (s *bufferedSession) serveSegment(w http.ResponseWriter, q *http.Request, n
 		return
 	}
 	s.mu.Lock()
+	s.r.mu.Lock()
+	current := s.r.executions[s.route.Fence.Session]
+	active := current != nil && current.route == s.route && current.replacement == nil && !current.stopping
+	s.r.mu.Unlock()
+	if !active {
+		s.mu.Unlock()
+		return
+	}
 	s.headers[int64(n)] = capture.headers
 	// Staged future segments may arrive out of order. Publish only the complete
 	// contiguous range; old public keys remain immutable at the store boundary.
@@ -363,4 +375,27 @@ func outputHeader(name string) bool {
 		}
 	}
 	return false
+}
+
+func (s *bufferedSession) allowedExecution(x *execution, n int) bool {
+	if x == nil {
+		return false
+	}
+	if x.route == s.route && x.replacement == nil {
+		return true
+	}
+	return s.supersededAt >= 0 && int64(n) < s.supersededAt
+}
+func (s *bufferedSession) allowedFence(f placement.Fence, n int) bool {
+	s.r.mu.Lock()
+	defer s.r.mu.Unlock()
+	x := s.r.executions[s.route.Fence.Session]
+	if x == nil {
+		return false
+	}
+	current := x.route.Fence
+	if x.replacement != nil {
+		current = x.replacement.route.Fence
+	}
+	return current == f && s.allowedExecution(x, n)
 }

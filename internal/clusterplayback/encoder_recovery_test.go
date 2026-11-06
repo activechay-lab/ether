@@ -1,0 +1,253 @@
+package clusterplayback
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"reflect"
+	"strconv"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/nodewire"
+	"github.com/braedonsaunders/ether/internal/placement"
+	"github.com/braedonsaunders/ether/internal/playback"
+	"github.com/braedonsaunders/ether/internal/store"
+)
+
+type recoveryTestEncoder struct {
+	fixtureEncoder
+	requests []core.HLSRequest
+	data     []byte
+}
+
+func (e *recoveryTestEncoder) SupportsDistributedRequest(core.HLSRequest) bool { return true }
+func (e *recoveryTestEncoder) StartHLSOwned(ctx context.Context, q core.HLSRequest) (core.HLSSession, core.EncoderRetirement, error) {
+	_, token, err := e.fixtureEncoder.StartHLSOwned(ctx, q)
+	if err != nil {
+		return nil, token, err
+	}
+	e.mu.Lock()
+	e.requests = append(e.requests, cloneAdmissionRequest(q))
+	session := e.session
+	e.mu.Unlock()
+	return &recoveryTestSession{fixtureSession: session, data: e.data}, token, nil
+}
+
+type recoveryTestSession struct {
+	*fixtureSession
+	data []byte
+}
+
+func (s *recoveryTestSession) ServeSegment(w http.ResponseWriter, q *http.Request, n int) {
+	w.Header().Set("Content-Type", "video/mp2t")
+	w.Header().Set("Content-Length", strconv.Itoa(len(s.data)))
+	w.Header().Set("X-Segment", strconv.Itoa(n))
+	_, _ = w.Write(s.data)
+}
+
+// This invariant uses real mTLS RPC, SQLite placement and source gateway input.
+// The encoded bytes are a recorded offline TS fixture: it tests ownership and
+// complete/unique delivery, not real decoder or audio splice continuity.
+func TestEncoderLossRecoveryInvariant(t *testing.T) {
+	for _, partition := range []bool{false, true} {
+		t.Run(fmt.Sprintf("partition=%v", partition), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			data, err := os.ReadFile("../playbackbuffer/testdata/cpu.ts")
+			if err != nil {
+				t.Fatal(err)
+			}
+			db := store.OpenTest(t)
+			v := NewVerifier()
+			p, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: 10 * time.Minute, LockTimeout: time.Second}, v)
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := &recoveryTestEncoder{data: data}
+			b := &recoveryTestEncoder{data: data}
+			manager, err := playback.New(playback.Deps{Catalog: fixtureCatalog{}, Resolver: fixtureResolver{}, Engine: fixtureEngine{}, Transcoder: &a.fixtureEncoder, SelectProfile: func(core.ClientCaps, *core.User) core.QualityProfile { return core.QualityProfile{} }}, config.Defaults(t.TempDir()), playback.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer manager.Close()
+			access, err := playback.NewSourceAccess(manager, 16, 16)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids := []nodewire.Identity{{Cluster: "loss", NodeID: "source", Boot: "source-boot"}, {Cluster: "loss", NodeID: "a", Boot: "a-boot"}, {Cluster: "loss", NodeID: "b", Boot: "b-boot"}, {Cluster: "loss", NodeID: "controller", Boot: "controller-boot"}}
+			guards := fixtureGuards(t, ids...)
+			endpoints := map[nodewire.Identity]string{}
+			eligible := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
+			base := Options{DB: db, Placement: p, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: eligible, Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond, EncoderRPCDeadline: 50 * time.Millisecond, EncoderFailureGrace: time.Millisecond, EncoderSegmentWait: time.Second, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return core.Decision{} }}
+			var down atomic.Bool
+			runtimes := make([]*Runtime, 4)
+			for i := range ids {
+				o := base
+				o.Self = ids[i]
+				o.Guard = guards[i]
+				switch i {
+				case 0:
+					o.Playback = manager
+					o.SourceAccess = access
+					o.SourcePolicy = func(context.Context, *core.Viewer, *core.PlaySession) error { return nil }
+					o.ActiveViewer = func(context.Context, int64) (*core.Viewer, error) { return &core.Viewer{ID: 9}, nil }
+				case 1:
+					o.Encoder = a
+				case 2:
+					o.Encoder = b
+				}
+				runtime, err := NewRuntime(o)
+				if err != nil {
+					t.Fatal(err)
+				}
+				runtimes[i] = runtime
+				defer runtime.Close()
+				handler := runtime.Handler()
+				if i == 1 {
+					handler = http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+						if down.Load() {
+							conn, _, err := w.(http.Hijacker).Hijack()
+							if err == nil {
+								_ = conn.Close()
+							}
+							return
+						}
+						runtime.Handler().ServeHTTP(w, q)
+					})
+				}
+				server := httptest.NewUnstartedServer(handler)
+				server.TLS = guards[i].ServerTLS()
+				server.StartTLS()
+				defer server.Close()
+				endpoints[ids[i]] = server.URL
+			}
+			front := runtimes[3]
+			if err = v.Bind(front); err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range ids[1:3] {
+				scope := id.NodeID + "/streams"
+				if err = p.SetPool(ctx, scope, config.RoleTranscode, 1); err != nil {
+					t.Fatal(err)
+				}
+				if err = p.SetTarget(ctx, placement.Target{NodeID: id.NodeID, Boot: id.Boot}, config.NodeRoles{config.RoleTranscode}, map[config.NodeRole][]string{config.RoleTranscode: {scope}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			prepared, err := front.PrepareSource(ctx, ids[0], PrepareRequest{Operation: "prepare", Viewer: 9, Key: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "loss"}, Protocol: "hls"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			q := core.HLSRequest{SessionID: "recover", Info: core.MediaInfo{Duration: time.Minute, Container: "mkv", Streams: []core.StreamInfo{{Type: "video", Codec: "h264", Height: 720}}}, SegmentDuration: 4 * time.Second, Decision: core.Decision{Kind: core.DecisionTranscode, VideoCopy: false, AudioCopy: true, Container: "mpegts", SubtitleStream: -1}}
+			session, err := front.StartPreparedHLS(ctx, 9, prepared, q)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fetched := map[int]int{}
+			fetch := func(n int) {
+				t.Helper()
+				w := httptest.NewRecorder()
+				session.ServeSegment(w, httptest.NewRequest("GET", "https://public/segment", nil).WithContext(ctx), n)
+				if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), data) {
+					t.Fatalf("segment %d: %d %s", n, w.Code, w.Body.String())
+				}
+				fetched[n]++
+			}
+			fetch(0)
+			fetch(1)
+			front.mu.Lock()
+			old := *front.executions[q.SessionID]
+			front.mu.Unlock()
+			if !partition {
+				if err = a.session.RetireEncoder(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			down.Store(true)
+			_ = front.Tick(ctx)
+			time.Sleep(2 * time.Millisecond)
+			if err = front.Tick(ctx); err != nil {
+				t.Fatal("replacement", err)
+			}
+			record, err := p.Lookup(ctx, q.SessionID)
+			if err != nil || record.Generation != 2 || record.Target.NodeID != "b" {
+				t.Fatalf("replacement: %+v %v", record, err)
+			}
+			if len(b.requests) != 1 || b.requests[0].Resume == nil || *b.requests[0].Resume != (core.HLSResume{FirstSegment: 2, Generation: 2}) || !reflect.DeepEqual(b.requests[0].Decision, q.Decision) {
+				t.Fatalf("immutable plan/resume: %+v", b.requests)
+			}
+			gate, err := front.readOperationGate(ctx, operationKey{ids[0].Cluster, q.SessionID, 1})
+			if err != nil || gate.State != gateSealedClaimed || gate.Gate.Arm == nil {
+				t.Fatalf("sealed armed gate: %+v %v", gate, err)
+			}
+			// Original capacity is still charged while its process cannot be checked.
+			var charged int
+			if err = db.QueryRow(`SELECT COUNT(*) FROM placement_displaced_claims`).Scan(&charged); err != nil || charged != 1 {
+				t.Fatalf("lost charge: %d %v", charged, err)
+			}
+			for n := 2; n < 6; n++ {
+				fetch(n)
+			}
+			down.Store(false)
+			late := httptest.NewRecorder()
+			old.session.ServeSegment(late, httptest.NewRequest("GET", "https://public/late", nil).WithContext(ctx), 2)
+			if late.Code == 200 {
+				t.Fatal("old generation output accepted")
+			}
+			// Exact old-worker stop/retirement releases only its displaced charge.
+			for i := 0; i < 30; i++ {
+				runtimes[1].Cleanup()
+				_ = front.Tick(ctx)
+				_ = db.QueryRow(`SELECT COUNT(*) FROM placement_displaced_claims`).Scan(&charged)
+				if charged == 0 {
+					break
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if err = db.QueryRow(`SELECT COUNT(*) FROM placement_displaced_claims`).Scan(&charged); err != nil || charged != 0 {
+				t.Fatalf("displaced capacity leak: %d %v", charged, err)
+			}
+			for n := 0; n < 6; n++ {
+				if fetched[n] != 1 {
+					t.Fatalf("sequence %d count %d", n, fetched[n])
+				}
+			}
+			front.Stop(q.SessionID)
+			for i := 0; i < 30; i++ {
+				_ = front.Tick(ctx)
+				runtimes[0].Cleanup()
+				runtimes[1].Cleanup()
+				runtimes[2].Cleanup()
+				record, _ = p.Lookup(ctx, q.SessionID)
+				if record.Retired {
+					break
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if !record.Retired || a.session.EncoderErr() != nil || b.session.EncoderErr() != nil {
+				t.Fatal("encoder retirement leak")
+			}
+			if err = db.QueryRow(`SELECT COUNT(*) FROM placement_claims`).Scan(&charged); err != nil || charged != 0 {
+				t.Fatalf("current capacity leak: %d %v", charged, err)
+			}
+			front.mu.Lock()
+			done := front.executions[q.SessionID].done
+			front.mu.Unlock()
+			select {
+			case <-done:
+			default:
+				t.Fatal("session slot leaked")
+			}
+			if err = front.ReleaseOutput(ctx, q.SessionID, record.Fence); err != nil {
+				t.Fatal("output leak", err)
+			}
+		})
+	}
+}

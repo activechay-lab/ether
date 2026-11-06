@@ -274,11 +274,15 @@ func (s *Session) SwapInput(context.Context, string, core.MediaInfo, time.Durati
 }
 func (s *Session) Close() error { return s.RetireEncoder() }
 func (s *Session) RetireEncoder() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return s.RetireEncoderContext(ctx)
+}
+
+func (s *Session) RetireEncoderContext(ctx context.Context) error {
 	s.mu.Lock()
 	s.stopped = true
 	s.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	r, e := s.adapter.call(ctx, message{Op: "stop", Identity: s.id}, nil)
 	if e != nil {
 		return ErrUncertain

@@ -19,7 +19,7 @@ type Coordinator struct {
 }
 
 func init() {
-	store.Register("clusterplayback", 5, `
+	store.Register("clusterplayback", 6, `
 CREATE TABLE clusterplayback_coordinators (
  session TEXT PRIMARY KEY, generation BIGINT NOT NULL,
  node TEXT NOT NULL, boot TEXT NOT NULL, epoch BIGINT NOT NULL,
