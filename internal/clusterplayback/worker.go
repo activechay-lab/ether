@@ -71,7 +71,7 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 	if e != nil {
 		return remotetranscode.Source{}, e
 	}
-	if response.Stable != s.Grant || response.Grant.Scope.Fence != rt.Fence || response.Grant.Scope.Revision != rt.Revision || response.Grant.Scope.Viewer != viewerString(rt.Viewer) || response.Grant.Expires.Add(-r.o.ClockSkew).Before(s.Expires) {
+	if response.Stable != s.Grant || response.Grant.Scope != scopeForRoute(rt) || response.Grant.Expires.Add(-r.o.ClockSkew).Before(s.Expires) {
 		return remotetranscode.Source{}, ErrDenied
 	}
 	ep, tc, check, e := r.peer(ctx, rt.Source, nodesource.Path)
@@ -82,7 +82,13 @@ func (r *Runtime) resolveInput(ctx context.Context, peer string, s remotetransco
 	if e != nil {
 		return remotetranscode.Source{}, e
 	}
-	gateway, e := nodeinput.New(nodeinput.Options{Client: c, Capacity: 1, MaxRequests: 8, RequestTimeout: 30 * time.Second, ReadTimeout: 2 * time.Second, MaxRecoveries: 3,
+	gateway, e := nodeinput.New(nodeinput.Options{ValidateScope: func(ctx context.Context, scope nodesource.Scope) error {
+		current, err := r.route(ctx, s.Identity.Session)
+		if err != nil || scope.Fence != rt.Fence || scope != scopeForRoute(current) {
+			return ErrDenied
+		}
+		return r.authorizeWorker(ctx, peer, "input", s.Identity, nil)
+	}, Client: c, Capacity: 1, MaxRequests: 8, RequestTimeout: 30 * time.Second, ReadTimeout: 2 * time.Second, MaxRecoveries: 3,
 		Recover: func(c context.Context, old nodesource.Grant) (*nodesource.Client, nodesource.Grant, error) {
 			coordinator, e := r.CurrentCoordinator(c, old.Scope.Fence.Session)
 			if e != nil {

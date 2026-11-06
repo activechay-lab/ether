@@ -87,6 +87,32 @@ func TestEncoderGuardianOutputAndCancellation(t *testing.T) {
 	}
 }
 
+// A session/cleanup lock must not be required to stop an owned process. Use the
+// existing helper executable, keeping ordinary tests independent of FFmpeg.
+func TestEncoderLifetimeFencesProcessOutsideCleanupQueue(t *testing.T) {
+	t.Setenv("ETHER_TEST_ENCODER_MODE", "wait")
+	life := &encoderLifetime{cancel: make(chan struct{})}
+	for _, late := range []bool{false, true} {
+		p, err := (ExecRunner{}).Start(Command{Path: os.Args[0], Args: []string{"-test.run=^TestEncoderLifecycleHelper$"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		life.mu.Lock() // cleanup and session-state progress deliberately unavailable
+		life.fenceProcess(p)
+		if !late {
+			close(life.cancel)
+		}
+		select {
+		case <-p.Done():
+		case <-time.After(5 * time.Second):
+			life.mu.Unlock()
+			p.Stop()
+			t.Fatal("lease cancellation did not terminate owned process")
+		}
+		life.mu.Unlock()
+	}
+}
+
 func TestEncoderDiesAfterParentExit(t *testing.T) {
 	dir := t.TempDir()
 	heartbeat, pidFile := filepath.Join(dir, "heartbeat"), filepath.Join(dir, "pid")

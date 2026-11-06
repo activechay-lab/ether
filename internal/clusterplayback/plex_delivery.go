@@ -101,6 +101,11 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.NotFound(w, q)
 		return
 	}
+	route, e := r.route(q.Context(), id)
+	if e != nil {
+		http.NotFound(w, q)
+		return
+	}
 	r.mu.Lock()
 	handler := r.plexDelivery
 	r.mu.Unlock()
@@ -113,7 +118,7 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "scope", 400)
 		return
 	}
-	handler.ServeHTTP(w, clone)
+	handler.ServeHTTP(r.fencedDelivery(w, q, route), clone)
 }
 
 // ForwardPlexMedia forwards only validated representation paths. The receiver
@@ -132,6 +137,11 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 	coordinator, e := r.CurrentCoordinator(q.Context(), id)
 	if e != nil || coordinator.Identity == r.o.Self {
 		return false
+	}
+	route, e := r.route(q.Context(), id)
+	if e != nil {
+		http.NotFound(w, q)
+		return true
 	}
 	owner := coordinator.Identity
 	ep, tc, check, e := r.peer(q.Context(), owner, PlexDeliveryPath)
@@ -178,6 +188,7 @@ func (r *Runtime) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, publi
 			w.Header()[h] = values
 		}
 	}
+	w = r.fencedDelivery(w, q, route)
 	w.WriteHeader(response.StatusCode)
 	if q.Method != "HEAD" {
 		_, _ = io.Copy(w, response.Body)

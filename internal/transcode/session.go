@@ -25,6 +25,10 @@ import (
 // track per representation (video, audio); ffmpeg's dash muxer writes short
 // chunks that the session regroups into numbered segments by timestamp.
 type Session struct {
+	qsvCodec                string
+	qsvQuality              bool
+	qsvMode                 string
+	qsvRetried              bool
 	normalizeNegativeDTS    bool
 	encoder                 *encoderLifetime
 	id                      string
@@ -60,6 +64,7 @@ func (s *Session) IndependentSegments() bool { return s.segmentsIndependent }
 
 // sessionInput owns one aspect of the session. Fields are guarded by Session.mu.
 type sessionInput struct {
+	silenceAudio           bool // one replacement run only; later live reconnects retry source audio
 	softSubtitleStream     *int
 	softSubtitleInputIndex int
 	rtxConfig              config.RTXVideo
@@ -159,19 +164,20 @@ type sessionDelivery struct {
 type sessionAdaptation struct {
 	// Adaptive HLS engine: the shared segment plan (HLS only), the config
 	// snapshot, the ABR ladder and measured delivery goodput.
-	plan           *Timeline
-	adapt          adaptiveSettings
-	rungs          []rung
-	initFiles      []string // per HLS track: init path relative to dir
-	wantTrack      int      // track the encoder should be producing (rung/rep)
-	videoRequested bool     // a client has requested video media, not just initialization
-	deliveredTrack int
-	deliveredSeg   int
-	deliveredCount int // sequential complete media deliveries on the active run
-	goodput        goodputEstimator
-	segSizes       map[int]int64 // primary-track segment sizes (spike governor)
-	governorOn     bool          // plan may change ahead of the player
-	seekRampSeg    int           // segment a seek restarted at (preset ramp); -1 none
+	plan              *Timeline
+	adapt             adaptiveSettings
+	rungs             []rung
+	initFiles         []string // per HLS track: init path relative to dir
+	wantTrack         int      // track the encoder should be producing (rung/rep)
+	videoRequested    bool     // a client has requested video media, not just initialization
+	deliveredTrack    int
+	deliveredSeg      int
+	playbackDelivered bool // at least one complete media segment reached the client
+	deliveredCount    int  // sequential complete media deliveries on the active run
+	goodput           goodputEstimator
+	segSizes          map[int]int64 // primary-track segment sizes (spike governor)
+	governorOn        bool          // plan may change ahead of the player
+	seekRampSeg       int           // segment a seek restarted at (preset ramp); -1 none
 }
 
 // mkvDelivery keeps a retried segment on the same representation: a seek
@@ -394,4 +400,11 @@ func (s *Session) Close() error {
 	case <-timer.C:
 		return core.ErrEncoderPending
 	}
+}
+
+// PlaybackDelivered distinguishes actual output from ffmpeg input/read-ahead.
+func (s *Session) PlaybackDelivered() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.playbackDelivered
 }

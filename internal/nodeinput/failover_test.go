@@ -39,6 +39,14 @@ func TestSourceFailoverByteContinuity(t *testing.T) {
 			a.g.o.ReadTimeout = 50 * time.Millisecond
 			a.g.o.MaxRecoveries = 2
 			calls := 0
+			cap := a.in.deadline
+			allowed := a.grant.Scope
+			a.g.o.ValidateScope = func(_ context.Context, scope nodesource.Scope) error {
+				if scope != allowed {
+					return ErrDenied
+				}
+				return nil
+			}
 			a.g.o.Recover = func(ctx context.Context, old nodesource.Grant) (*nodesource.Client, nodesource.Grant, error) {
 				calls++
 				if old != a.grant {
@@ -48,6 +56,7 @@ func TestSourceFailoverByteContinuity(t *testing.T) {
 				a.a.mu.Lock()
 				delete(a.a.grants, old.Credential)
 				a.a.mu.Unlock()
+				allowed = next.Scope
 				return b.g.o.Client, next, nil
 			}
 			if e := a.in.ClaimInput(func(error) {}); e != nil {
@@ -57,6 +66,9 @@ func TestSourceFailoverByteContinuity(t *testing.T) {
 			code, body, _ := fetch(t, a.in, "GET", "")
 			if code != 200 || body != "0123456789abcdef" || calls != 1 {
 				t.Fatalf("code=%d bytes=%q recoveries=%d", code, body, calls)
+			}
+			if a.in.deadline != cap {
+				t.Fatal("source replacement extended execution lease")
 			}
 			if stall {
 				select {

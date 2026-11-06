@@ -3,6 +3,7 @@ package nodeinput
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/nodesource"
+	"time"
 )
 
 // readAt serializes source changes with renewal. No bytes from a failed or
@@ -18,6 +19,9 @@ func (in *Input) readAt(ctx context.Context, p []byte, off int64) (int, error) {
 	for {
 		in.readMu.RLock()
 		g.mu.Lock()
+		if !time.Now().Before(in.deadline) {
+			in.sealLocked()
+		}
 		reader, old := in.reader, in.grant
 		sealed := in.sealed
 		g.mu.Unlock()
@@ -58,6 +62,9 @@ func (in *Input) replaceSource(ctx context.Context, reader *nodesource.Reader, o
 	defer in.readMu.Unlock()
 	g := in.g
 	g.mu.Lock()
+	if !time.Now().Before(in.deadline) {
+		in.sealLocked()
+	}
 	current, sealed, grant := in.reader, in.sealed, in.grant
 	g.mu.Unlock()
 	if sealed {
@@ -91,7 +98,10 @@ func (in *Input) replaceSource(ctx context.Context, reader *nodesource.Reader, o
 		return ErrDenied
 	}
 	g.mu.Lock()
-	if in.sealed {
+	if !time.Now().Before(in.deadline) {
+		in.sealLocked()
+	}
+	if in.sealed || ctx.Err() != nil {
 		g.mu.Unlock()
 		_ = replacement.Close()
 		c.Close()
@@ -102,4 +112,28 @@ func (in *Input) replaceSource(ctx context.Context, reader *nodesource.Reader, o
 	in.ownedClients = append(in.ownedClients, c)
 	g.mu.Unlock()
 	return nil
+}
+
+// A source move may already be committed before this request sends its headers.
+// Reconcile that input locally, preserving its execution deadline, instead of
+// returning a source error to an otherwise healthy encoder. A stale execution
+// still fails both the controller's recovery checks and the final validation.
+func (in *Input) validateScope(ctx context.Context) error {
+	g := in.g
+	g.mu.Lock()
+	scope, reader, grant := in.scope, in.reader, in.grant
+	g.mu.Unlock()
+	if err := g.o.ValidateScope(ctx, scope); err == nil {
+		return nil
+	}
+	if err := in.replaceSource(ctx, reader, grant); err != nil {
+		return err
+	}
+	g.mu.Lock()
+	scope, sealed := in.scope, in.sealed
+	g.mu.Unlock()
+	if sealed {
+		return ErrDenied
+	}
+	return g.o.ValidateScope(ctx, scope)
 }

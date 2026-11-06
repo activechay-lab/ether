@@ -2,6 +2,7 @@ package clusterplayback
 
 import (
 	"context"
+	"github.com/braedonsaunders/ether/internal/generationfence"
 	"github.com/braedonsaunders/ether/internal/nodewire/outbound"
 	"io"
 	"net/http"
@@ -62,6 +63,11 @@ func (r *Runtime) deliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.NotFound(w, q)
 		return
 	}
+	rt, e := r.route(q.Context(), parts[0])
+	if e != nil {
+		http.NotFound(w, q)
+		return
+	}
 	r.mu.Lock()
 	handler := r.delivery
 	r.mu.Unlock()
@@ -74,7 +80,7 @@ func (r *Runtime) deliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "scope", 400)
 		return
 	}
-	handler(w, clone, q.Header.Get(deliveryProtocol))
+	handler(r.fencedDelivery(w, q, rt), clone, q.Header.Get(deliveryProtocol))
 }
 
 // ForwardMedia performs at most one indexed ownership hop. No redirect or private
@@ -89,6 +95,11 @@ func (r *Runtime) ForwardMedia(w http.ResponseWriter, q *http.Request, id, proto
 	}
 	if q.Method != "GET" && q.Method != "HEAD" {
 		http.Error(w, "method", 405)
+		return true
+	}
+	rt, e := r.route(q.Context(), id)
+	if e != nil {
+		http.NotFound(w, q)
 		return true
 	}
 	owner := coordinator.Identity
@@ -137,6 +148,7 @@ func (r *Runtime) ForwardMedia(w http.ResponseWriter, q *http.Request, id, proto
 		http.Error(w, "delivery unavailable", 502)
 		return true
 	}
+	w = r.fencedDelivery(w, q, rt)
 	w.WriteHeader(response.StatusCode)
 	if q.Method != "HEAD" {
 		_, _ = io.Copy(w, response.Body)
@@ -145,3 +157,24 @@ func (r *Runtime) ForwardMedia(w http.ResponseWriter, q *http.Request, id, proto
 }
 
 var _ = context.Background
+
+// Generation zero is the preparation-only direct-play mapping; once an encoder
+// is assigned, placement and the durable route must agree on its complete fence.
+// Moving its exact source preserves encoder output authority: SourceGeneration,
+// source node and PlayID belong to input fencing rather than delivery fencing.
+func (r *Runtime) deliveryAuthority(ctx context.Context, expected Route) error {
+	current, err := r.route(ctx, expected.Fence.Session)
+	if err != nil || current.Fence != expected.Fence || current.Viewer != expected.Viewer || current.Revision != expected.Revision || (expected.Fence.Generation == 0 && current != expected) {
+		return ErrDenied
+	}
+	if expected.Fence.Generation > 0 {
+		record, err := r.o.Placement.Lookup(ctx, expected.Fence.Session)
+		if err != nil || record.Fence != expected.Fence || !record.Authority || record.Retired || !record.Deadline.Add(-r.o.ClockSkew).After(time.Now()) {
+			return ErrDenied
+		}
+	}
+	return nil
+}
+func (r *Runtime) fencedDelivery(w http.ResponseWriter, q *http.Request, route Route) http.ResponseWriter {
+	return &generationfence.Writer{ResponseWriter: w, Check: func() error { return r.deliveryAuthority(q.Context(), route) }}
+}

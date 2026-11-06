@@ -10,6 +10,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"github.com/braedonsaunders/ether/internal/store"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -143,9 +145,35 @@ func TestSourceMovementKeepsEncoderAndFencesOldGrant(t *testing.T) {
 		t.Fatal("stale grant accepted")
 	}
 	input := worker.inputs[remoteIdentity(initial)].input
+	raw, _, err := input.GatewayInput(remoteIdentity(initial), source.sources[sourceKey(initial.Fence)].handle.Value())
+	if err != nil {
+		t.Fatal(err)
+	}
+	headers, err := input.HeadersForInput(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, _ := http.NewRequestWithContext(ctx, "GET", raw, nil)
+	for k, v := range headers {
+		q.Header.Set(k, v)
+	}
+	response, err := http.DefaultClient.Do(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	received, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil || response.StatusCode != 200 || string(received) != body {
+		t.Fatal("gateway rejected current source generation", response.StatusCode, err)
+	}
 	b := make([]byte, 37)
 	if n, err := input.ReadRecoveryAt(ctx, initial.Revision, b, 1500); err != nil || n != len(b) || string(b) != body[1500:1537] {
 		t.Fatalf("worker exact-offset recovery n=%d err=%v", n, err)
+	}
+
+	out := httptest.NewRecorder()
+	if _, err := source.fencedDelivery(out, httptest.NewRequest("GET", "/", nil), initial).Write([]byte("encoder-output")); err != nil || out.Code != 200 {
+		t.Fatal("source movement revoked healthy encoder output", out.Code, err)
 	}
 	if encoder.session != running {
 		t.Fatal("encoder restarted")

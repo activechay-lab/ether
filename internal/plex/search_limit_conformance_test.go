@@ -7,7 +7,7 @@ import (
 
 // Both result projections share the grammar, but the flat form caps the
 // combined title/person rows rather than each result family independently.
-func TestRexSearchLimitGrammarAndCombinedCap(t *testing.T) {
+func TestSearchLimitGrammarAndCombinedCap(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	for _, endpoint := range []string{"/hubs/search", "/library/search"} {

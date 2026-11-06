@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/generationfence"
 	"github.com/braedonsaunders/ether/internal/nodesource"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 )
@@ -25,6 +26,8 @@ import (
 var ErrDenied = errors.New("nodeinput: unavailable input")
 
 type Options struct {
+	// ValidateScope checks current execution generation at the local byte consumer.
+	ValidateScope         func(context.Context, nodesource.Scope) error
 	Client                *nodesource.Client
 	Recover               func(context.Context, nodesource.Grant) (*nodesource.Client, nodesource.Grant, error)
 	ReadTimeout           time.Duration
@@ -72,6 +75,8 @@ type Input struct {
 	renewing                  bool
 	initialDeadline           time.Time
 	sourceUntil               time.Time
+	deadline                  time.Time
+	timer                     *time.Timer
 }
 
 func (*Gateway) String() string   { return "nodeinput.Gateway[redacted]" }
@@ -149,6 +154,7 @@ func (g *Gateway) Admit(ctx context.Context, s remotetranscode.Start, grant node
 		return nil, ErrDenied
 	}
 	g.entries[key] = in
+	in.armLocked(s.Expires)
 	end, _ := in.tracker.Begin() // Registered before Open, including its error path.
 	g.mu.Unlock()
 	combined, cancelOpen := context.WithCancel(ctx)
@@ -201,6 +207,9 @@ func (in *Input) HeadersForInput(raw string) (map[string]string, error) {
 func (in *Input) sealLocked() {
 	if !in.sealed {
 		in.sealed = true
+		if in.timer != nil {
+			in.timer.Stop()
+		}
 		in.cancel()
 		in.drained = in.tracker.Seal()
 	}
@@ -291,6 +300,9 @@ func (in *Input) Renew(ctx context.Context, n remotetranscode.Renewal, authority
 	in.readMu.RLock()
 	defer in.readMu.RUnlock()
 	g.mu.Lock()
+	if !time.Now().Before(in.deadline) {
+		in.sealLocked()
+	}
 	if in.sealed || in.reader == nil || in.renewing || ctx.Err() != nil || n.Identity != in.id || authority == nil || n.Operation == 0 || n.PreviousVersion == ^uint64(0) || n.Operation != n.PreviousVersion+1 || !n.Deadline.After(n.PreviousDeadline) {
 		g.mu.Unlock()
 		return RenewalEvidence{}, ErrDenied
@@ -335,6 +347,9 @@ func (in *Input) Renew(ctx context.Context, n remotetranscode.Renewal, authority
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	in.renewing = false
+	if !time.Now().Before(in.deadline) {
+		in.sealLocked()
+	}
 	if err != nil || in.sealed || in.reader != reader || in.renewal != previous {
 		return RenewalEvidence{}, ErrDenied
 	}
@@ -344,6 +359,7 @@ func (in *Input) Renew(ctx context.Context, n remotetranscode.Renewal, authority
 	in.renewal = &accepted
 	in.sourceUntil = until
 	in.grant = acceptedGrant
+	in.armLocked(n.Deadline)
 	if combined.Err() != nil {
 		return RenewalEvidence{}, ErrDenied
 	}
@@ -389,6 +405,24 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	defer stop()
 	ctx = core.WithReadRetirement(ctx, &in.tracker)
+	w = &generationfence.Writer{ResponseWriter: w, Check: func() error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		g.mu.Lock()
+		if !time.Now().Before(in.deadline) {
+			in.sealLocked()
+		}
+		sealed := in.sealed
+		g.mu.Unlock()
+		if sealed {
+			return ErrDenied
+		}
+		if g.o.ValidateScope != nil {
+			return in.validateScope(ctx)
+		}
+		return nil
+	}}
 	start, length, status, err := byteRange(r.Header.Get("Range"), in.size)
 	w.Header().Set("Accept-Ranges", "bytes")
 	if err != nil {
@@ -510,4 +544,21 @@ func (c *countedConn) Close() error {
 	err := c.Conn.Close()
 	c.once.Do(func() { c.owner.mu.Lock(); c.owner.active--; c.owner.mu.Unlock() })
 	return err
+}
+
+// The timer owns a monotonic deadline; stale callbacks cannot seal a renewal.
+func (in *Input) armLocked(expiry time.Time) {
+	if in.timer != nil {
+		in.timer.Stop()
+	}
+	now := time.Now()
+	in.deadline = now.Add(expiry.Sub(now))
+	cap := in.deadline
+	in.timer = time.AfterFunc(time.Until(cap), func() {
+		in.g.mu.Lock()
+		defer in.g.mu.Unlock()
+		if in.deadline == cap {
+			in.sealLocked()
+		}
+	})
 }
