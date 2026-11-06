@@ -1,8 +1,8 @@
-# Unified Sources — proposal for owner approval
+# Unified Sources — implementation and validation
 
-This draft implements the owner's directive in coordinator message 43239: source setup has one home, **Sources**. It supersedes the earlier Live TV drawer proposal. Approval is still pending.
+This implements the owner's directive in coordinator message 43239: source setup has one home, **Sources**. It supersedes the earlier Live TV drawer layout. The owner has authorized continued implementation, integration and testing; these captures document the implemented layout.
 
-## Proposed navigation and ownership
+## Navigation and ownership
 
 - **Sources → IPTV** lists every existing provider, playlist, guide and channel-plugin source. These are the existing stored records and IDs, with the existing credential protection and provider connection budget. No connection is copied or migrated.
 - **Sources → Add a source** includes Xtream, M3U playlists, guide sources and channel plugins alongside the other source types.
@@ -10,7 +10,7 @@ This draft implements the owner's directive in coordinator message 43239: source
 - **Live TV** keeps channel programming, its lineup and guide mapping. Its separate Sources tab and source editor are removed. Contextual add/edit actions navigate to Sources; old `/livetv/sources` and `?source=…` links redirect to the same records there.
 - Source status polling pauses while an editor is open, preserving the owner's unsaved draft.
 
-The proposed tab label is **IPTV**. The decision requested is approval of this single-location layout and navigation.
+The tab label is **IPTV**. Final integrated UI verification belongs to the release coordinator.
 
 ## One Sources page
 
@@ -48,3 +48,9 @@ Captured from the running console mock at the plain HTTP LAN origin `http://192.
 The index learns provider identities and looks up details for matching catalogue requests. It does not create catalogue entries for every provider item. Missing identifiers require a normalized title and a verified matching year; uncertain matches are omitted.
 
 Earlier screenshots 01–03 are retained as superseded draft history and are not the current proposal.
+
+## Continuation checks
+
+Focused checks additionally cover reopening a movies-only connection without stripping its Xtream login, trailing/truncated replies, cancellation rollback, credential rotation invalidation, and concurrent source edit/delete during refresh. The movie/Range/CRUD fixture and concurrent-edit/delete fixture pass on a temporary local PostgreSQL 16 instance as well as SQLite. Refresh stages streamed lists outside the database transaction, then takes the existing source-edit advisory lock and verifies the source snapshot before applying changes. Source failure status uses the same CRUD lock.
+
+Provider connection admission is **process-local**. No account-wide cross-node connection lease has been implemented or verified. Provider list endpoints use the standard unpaginated Xtream arrays, streamed to bounded disk staging; nonstandard paginated envelopes are rejected rather than silently treated as a complete catalogue. No real provider or lab service was contacted.

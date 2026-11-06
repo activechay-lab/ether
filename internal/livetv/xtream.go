@@ -70,10 +70,24 @@ func newXtreamAPI(s *Service, a *SourceAuth) xtreamAPI {
 }
 
 func (x xtreamAPI) get(ctx context.Context, action string, into any) error {
+	var fetchErr error
 	c := xtream.Client{Base: x.base, Username: x.auth.Username, Password: x.auth.Password, Open: func(ctx context.Context, raw string) (io.ReadCloser, error) {
-		return x.s.openURL(ctx, raw, x.auth.header())
+		rc, err := x.s.openURL(ctx, raw, x.auth.header())
+		fetchErr = err
+		return rc, err
 	}}
-	return c.Get(ctx, action, nil, into)
+	err := c.Get(ctx, action, nil, into)
+	if fetchErr != nil {
+		what := "account"
+		switch action {
+		case "get_live_categories":
+			what = "category list"
+		case "get_live_streams":
+			what = "channel list"
+		}
+		return fmt.Errorf("Xtream %s: %w", what, fetchErr)
+	}
+	return err
 }
 
 // account signs in and reports the login's state. A login the panel

@@ -42,3 +42,26 @@ func TestProtocolCredentialsNeverEscapeErrors(t *testing.T) {
 		t.Fatal("extension injection accepted")
 	}
 }
+
+func TestClientRejectsPartialAndTrailingDocuments(t *testing.T) {
+	for _, doc := range []string{`[] {"password":"private-pass"}`, `[{"stream_id":1}`, `{"items":[],"next_page":2}`} {
+		c := Client{Open: func(context.Context, string) (io.ReadCloser, error) { return io.NopCloser(strings.NewReader(doc)), nil }}
+		if err := c.Items(t.Context(), "get_vod_streams", func(Item) error { return nil }); err == nil || strings.Contains(err.Error(), "private-pass") {
+			t.Fatalf("accepted or leaked malformed list: %v", err)
+		}
+	}
+	c := Client{MaxBytes: 4, Open: func(context.Context, string) (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(`[]     `)), nil
+	}}
+	if err := c.Items(t.Context(), "get_vod_streams", func(Item) error { return nil }); err == nil {
+		t.Fatal("accepted oversized response")
+	}
+	c.MaxBytes = 0
+	c.Open = func(context.Context, string) (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(`{} {}`)), nil
+	}
+	var into map[string]any
+	if err := c.Get(t.Context(), "get_vod_info", nil, &into); err == nil {
+		t.Fatal("Get accepted trailing JSON")
+	}
+}

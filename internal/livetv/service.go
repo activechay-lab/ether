@@ -1915,6 +1915,9 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 	if err := s.lockSourceEdits(ctx, tx, []string{src.ID}); err != nil {
 		return src, err
 	}
+	if err := s.invalidateVODConnection(ctx, tx, src); err != nil {
+		return src, err
+	}
 	// Writing the source row first takes its row lock, so a concurrent save
 	// of the same source on another node waits here; the owner's channel
 	// edits are then read inside the transaction and cannot be lost.
@@ -2297,6 +2300,9 @@ func (s *Service) DeleteSource(ctx context.Context, id string) error {
 		return err
 	}
 	defer tx.Rollback()
+	if err = s.lockSourceEdits(ctx, tx, []string{id}); err != nil {
+		return err
+	}
 	d := store.DialectOf(s.o.DB)
 	for _, q := range []string{`DELETE FROM livetv_channels WHERE ` + store.JSONText(d, "data", "sourceId") + `=?`, `DELETE FROM livetv_programmes WHERE source_id=?`, `DELETE FROM livetv_sources WHERE id=?`, `DELETE FROM xtream_vod WHERE provider=?`, `DELETE FROM xtream_vod_refresh WHERE provider=?`, `DELETE FROM livetv_guide_channels WHERE source_id=?`,
 		`UPDATE livetv_channels SET data=` + store.JSONRemove(d, "data", "guideSourceId") + ` WHERE ` + store.JSONText(d, "data", "guideSourceId") + `=?`} {

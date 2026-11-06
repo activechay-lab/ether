@@ -2,12 +2,14 @@ package livetv
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -61,13 +63,21 @@ func TestXtreamVODIndexResolutionAndRange(t *testing.T) {
 	var revision atomic.Int64
 	var infos atomic.Int64
 	var fail atomic.Bool
+	var trailing, stall atomic.Bool
+	cancelDone := make(chan struct{})
 	var active, peak atomic.Int64
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.UserAgent() != sourceUserAgent {
 			t.Errorf("provider player identity: %q", r.UserAgent())
 		}
 		n := active.Add(1)
-		defer active.Add(-1)
+		isCancelledRead := false
+		defer func() {
+			active.Add(-1)
+			if isCancelledRead {
+				close(cancelDone)
+			}
+		}()
 		for old := peak.Load(); n > old && !peak.CompareAndSwap(old, n); old = peak.Load() {
 		}
 		if strings.HasPrefix(r.URL.Path, "/movie/") || strings.HasPrefix(r.URL.Path, "/series/") {
@@ -79,6 +89,17 @@ func TestXtreamVODIndexResolutionAndRange(t *testing.T) {
 		case "get_vod_categories":
 			fmt.Fprint(w, `[{"category_id":"1","category_name":"Films"}]`)
 		case "get_vod_streams":
+			if trailing.Load() {
+				fmt.Fprint(w, `[] {"password":"secret-pass"}`)
+				return
+			}
+			if stall.Load() {
+				isCancelledRead = true
+				fmt.Fprint(w, `[`)
+				w.(http.Flusher).Flush()
+				<-r.Context().Done()
+				return
+			}
 			if fail.Load() {
 				fmt.Fprint(w, `{"password":"secret-pass"}`)
 				return
@@ -108,6 +129,16 @@ func TestXtreamVODIndexResolutionAndRange(t *testing.T) {
 	}
 	if src.Auth.Password != "••••••••" && src.Auth.Password != redactedSecret {
 		t.Fatal("secret returned")
+	}
+	// Exercise the owner PUT path with the returned redacted credentials.
+	savedBody, _ := json.Marshal(src)
+	var saved Source
+	if code := ownerJSON(t, s, "PUT", "/sources/vod", string(savedBody), &saved); code != 200 {
+		t.Fatalf("resave: %d", code)
+	}
+	stored, e := s.storedSourceByID(t.Context(), "vod")
+	if e != nil || stored.Auth.Password != "secret-pass" || !stored.VOD || stored.LiveTV == nil || *stored.LiveTV {
+		t.Fatal("redacted save changed provider identity/policy")
 	}
 	if err = s.RefreshVOD(t.Context(), "vod"); err != nil {
 		t.Fatal(err)
@@ -152,6 +183,20 @@ func TestXtreamVODIndexResolutionAndRange(t *testing.T) {
 	_, _ = s.VODSearch(t.Context(), req)
 	if infos.Load() != before+1 {
 		t.Fatal("changed details not refreshed")
+	}
+	trailing.Store(true)
+	if err = s.RefreshVOD(t.Context(), "vod"); err == nil {
+		t.Fatal("trailing list committed")
+	}
+	trailing.Store(false)
+	stall.Store(true)
+	cancelCtx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	err = s.RefreshVOD(cancelCtx, "vod")
+	cancel()
+	<-cancelDone
+	stall.Store(false)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("refresh cancellation lost: %v", err)
 	}
 	fail.Store(true)
 	if err = s.RefreshVOD(t.Context(), "vod"); err == nil || strings.Contains(err.Error(), "secret-pass") {
@@ -207,6 +252,30 @@ func TestXtreamVODIndexResolutionAndRange(t *testing.T) {
 	if peak.Load() > 1 {
 		t.Fatalf("oversubscribed provider: %d", peak.Load())
 	}
+	_ = media.Close()
+	_ = eng.Close()
+	// Account edits invalidate the prior account's rows; deletion removes
+	// both index and refresh status rather than leaving an orphan source.
+	stored.Auth.Password = "replacement-pass"
+	if _, err = s.ImportSource(t.Context(), stored); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	_ = s.o.DB.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM xtream_vod WHERE provider='vod'`).Scan(&count)
+	if count != 0 {
+		t.Fatal("old account index survived credential edit")
+	}
+	if err = s.RefreshVOD(t.Context(), "vod"); err == nil && fail.Load() {
+		t.Fatal("failed provider refreshed")
+	}
+	if err = s.DeleteSource(t.Context(), "vod"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.AcquireProvider(t.Context(), "vod")
+	if !errors.Is(err, core.ErrSourceUnavailable) {
+		t.Fatal("deleted provider still admitted")
+	}
+
 }
 
 func TestXtreamVODSharesLiveBudget(t *testing.T) {
@@ -236,4 +305,119 @@ func TestXtreamVODSharesLiveBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	release()
+}
+
+func TestXtreamRefreshRejectsConcurrentSourceChange(t *testing.T) {
+	for _, operation := range []string{"edit", "delete"} {
+		t.Run(operation, func(t *testing.T) {
+			started, resume := make(chan struct{}), make(chan struct{})
+			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Query().Get("action") {
+				case "get_vod_categories":
+					fmt.Fprint(w, `[]`)
+				case "get_vod_streams":
+					fmt.Fprint(w, `[{"stream_id":1,"name":"Film (2020)","tmdb_id":123,"container_extension":"mkv"}]`)
+				case "get_series":
+					close(started)
+					select {
+					case <-resume:
+						fmt.Fprint(w, `[]`)
+					case <-r.Context().Done():
+					}
+				default:
+					fmt.Fprint(w, `{"user_info":{"auth":1,"status":"Active","max_connections":1}}`)
+				}
+			}))
+			defer up.Close()
+			s := testService(t, Options{HTTPClient: up.Client()})
+			off := false
+			src, err := s.ImportSource(t.Context(), Source{ID: "race", Name: "Provider", VOD: true, LiveTV: &off, Auth: &SourceAuth{Type: "xtream", Server: up.URL, Username: "u", Password: "p"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- s.RefreshVOD(t.Context(), src.ID) }()
+			<-started
+			if operation == "delete" {
+				err = s.DeleteSource(t.Context(), src.ID)
+			} else {
+				src.Auth.Password = "replacement"
+				_, err = s.ImportSource(t.Context(), src)
+			}
+			close(resume)
+			refreshErr := <-done
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !errors.Is(refreshErr, errVODSourceChanged) {
+				t.Fatalf("stale refresh published: %v", refreshErr)
+			}
+			for _, table := range []string{"xtream_vod", "xtream_vod_refresh"} {
+				var count int
+				if err = s.o.DB.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM `+table+` WHERE provider=?`, src.ID).Scan(&count); err != nil || count != 0 {
+					t.Fatalf("stale %s count=%d: %v", table, count, err)
+				}
+			}
+			if operation == "delete" {
+				s.recordVODFailure(t.Context(), src.ID)
+				var n int
+				_ = s.o.DB.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM xtream_vod_refresh WHERE provider=?`, src.ID).Scan(&n)
+				if n != 0 {
+					t.Fatal("deleted provider status recreated")
+				}
+			}
+		})
+	}
+}
+
+type concurrentVODInner struct{ vodInner }
+
+func (concurrentVODInner) SearchWith(ctx context.Context, r core.SearchRequest, arrived func([]core.Release)) ([]core.Release, error) {
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if arrived != nil {
+				arrived([]core.Release{{ID: "inner"}})
+			}
+		}()
+	}
+	wg.Wait()
+	return []core.Release{{ID: "inner"}}, nil
+}
+func (concurrentVODInner) ResolveTorrent(context.Context, core.Release) (core.Release, error) {
+	return core.Release{InfoHash: "preserved"}, nil
+}
+func (concurrentVODInner) SearchRescue(context.Context, core.SearchRequest) ([]core.Release, error) {
+	return []core.Release{{ID: "rescue"}}, nil
+}
+func TestVODWrapperSerializesArrivalsAndPreservesContracts(t *testing.T) {
+	v := &VODIndexer{Inner: concurrentVODInner{}, Service: func() *Service { return nil }}
+	var active, peak, calls atomic.Int32
+	_, err := v.SearchWith(t.Context(), core.SearchRequest{}, func([]core.Release) {
+		n := active.Add(1)
+		defer active.Add(-1)
+		calls.Add(1)
+		for old := peak.Load(); n > old && !peak.CompareAndSwap(old, n); old = peak.Load() {
+		}
+		time.Sleep(time.Millisecond)
+	})
+	if err != nil || peak.Load() != 1 || calls.Load() != 2 {
+		t.Fatalf("callback contract: peak=%d calls=%d err=%v", peak.Load(), calls.Load(), err)
+	}
+	rel, err := v.ResolveTorrent(t.Context(), core.Release{})
+	if err != nil || rel.InfoHash != "preserved" {
+		t.Fatal("lost torrent capability")
+	}
+	rescue, err := v.SearchRescue(t.Context(), core.SearchRequest{})
+	if err != nil || len(rescue) != 1 || rescue[0].ID != "rescue" {
+		t.Fatal("lost rescue capability")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = v.SearchWith(ctx, core.SearchRequest{}, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatal("cancelled search returned candidates")
+	}
 }

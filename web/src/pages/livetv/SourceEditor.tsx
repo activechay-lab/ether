@@ -207,10 +207,12 @@ export function SourceEditor({
     setTab("connection");
     setKind(
       source
-        ? source.hasPlaylist === false ||
-          (!source.playlistUrl && !source.channelCount && source.hasGuide)
-          ? "guide"
-          : "playlist"
+        ? source.auth?.type === "xtream"
+          ? "playlist"
+          : source.hasPlaylist === false ||
+              (!source.playlistUrl && !source.channelCount && source.hasGuide)
+            ? "guide"
+            : "playlist"
         : initialKind,
     );
     setGuideKind(source?.kind === "plex" ? "plex" : "xmltv");
