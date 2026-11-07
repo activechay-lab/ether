@@ -225,8 +225,12 @@ type tmdbRef struct{ client TMDB }
 type Catalog struct {
 	consoleEvidencePolicy atomic.Pointer[func() string]
 	consoleGatePolicies   atomic.Pointer[func() (string, string)]
-	listSummaryMu         sync.Mutex
-	listSummaries         map[core.RatingKey]listSummary
+	// consoleGateGen counts hidden-set publications. Only release-gate
+	// filters read the current sets directly, so it keys their caches
+	// instead of invalidating the whole catalogue.
+	consoleGateGen atomic.Uint64
+	listSummaryMu  sync.Mutex
+	listSummaries  map[core.RatingKey]listSummary
 
 	startupContext    context.Context
 	metadataMu        sync.RWMutex

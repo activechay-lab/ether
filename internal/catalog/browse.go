@@ -1025,7 +1025,7 @@ func (c *Catalog) FacetFilter(ctx context.Context, f core.Filter, facet string) 
 	}
 	gen := c.writeGen.Load()
 	minBucket := c.minuteBucket()
-	fkey := fmt.Sprintf("%+v|%s", f, facet)
+	fkey := fmt.Sprintf("%+v|%s", f, facet) + c.consoleGateKey(f)
 	c.cacheMu.RLock()
 	ent, cached := c.facetCache[fkey]
 	c.cacheMu.RUnlock()
