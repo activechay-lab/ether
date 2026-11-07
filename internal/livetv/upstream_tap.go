@@ -244,6 +244,7 @@ type upstreamTap struct {
 	resume     map[*inputGrant]tapResume // where each grant's last reader started and stopped
 	paces      map[*inputGrant]*tapPace
 	lastData   time.Time
+	dataAt     atomic.Int64 // lastData for lock-free health (unix nanoseconds)
 	epochStart time.Time
 	epochClock int64 // splicer clock when the current connection started
 	stalled    bool
@@ -368,6 +369,7 @@ func (t *upstreamTap) close(err error) {
 	body, cancel, idle := t.body, t.cancel, t.idle
 	t.body = nil
 	t.freeRingLocked()
+	t.publishLocked()
 	t.cond.Broadcast()
 	t.mu.Unlock()
 	if idle != nil {
@@ -405,6 +407,7 @@ func (t *upstreamTap) fill(body io.Reader) {
 				return
 			}
 			t.lastData = time.Now()
+			t.dataAt.Store(t.lastData.UnixNano())
 			t.writeLocked(buf[:n])
 			t.cond.Broadcast()
 			t.mu.Unlock()
@@ -719,6 +722,7 @@ func (t *upstreamTap) addReaderLocked(g *inputGrant, off int64) *tapReader {
 		}
 		rd.pace = t.paces[g]
 	}
+	defer t.publishLocked()
 	if t.active == nil {
 		t.active = map[*tapReader]struct{}{}
 	}
@@ -740,6 +744,7 @@ func (t *upstreamTap) dropReader(rd *tapReader) {
 		}
 		t.resume[rd.g] = r
 	}
+	t.publishLocked()
 }
 
 // tapSource names the provider account behind a grant and its connection
@@ -755,6 +760,9 @@ func (g *inputGrant) setTap(t *upstreamTap) {
 	g.mu.Lock()
 	g.tap = t
 	g.mu.Unlock()
+	t.mu.Lock()
+	t.publishLocked()
+	t.mu.Unlock()
 }
 
 // serveTapped serves a media input through its tap. It reports false when
@@ -1027,6 +1035,7 @@ func (t *upstreamTap) fillTS(body io.Reader) error {
 			}
 			now := time.Now()
 			t.lastData = now
+			t.dataAt.Store(now.UnixNano())
 			recovered := t.stalled && t.body != nil
 			if recovered {
 				t.stalled = false
@@ -1184,6 +1193,7 @@ func (t *upstreamTap) watch() {
 			t.mu.Unlock()
 			return
 		}
+		t.publishLocked()
 		var cut io.Closer
 		stall := !t.stalled && t.body != nil && time.Since(t.lastData) >= tapStallAfter
 		if stall {
@@ -1385,6 +1395,7 @@ func (f closeFunc) Close() error { return f() }
 // emit tells every grant on the tap about a health change.
 func (t *upstreamTap) emit(kind UpstreamEventKind, err error) {
 	t.mu.Lock()
+	t.publishLocked()
 	grants := make([]*inputGrant, 0, len(t.refs))
 	for g := range t.refs {
 		grants = append(grants, g)
@@ -1392,14 +1403,27 @@ func (t *upstreamTap) emit(kind UpstreamEventKind, err error) {
 	t.mu.Unlock()
 	now := time.Now()
 	for _, g := range grants {
-		g.notify(UpstreamEvent{Kind: kind, At: now, Health: t.healthFor(g), Err: err})
+		h, _ := g.snapHealth()
+		g.notify(UpstreamEvent{Kind: kind, At: now, Health: h, Err: err})
 	}
 }
 
-// healthFor reports the tap's health as seen by grant g's reader.
-func (t *upstreamTap) healthFor(g *inputGrant) UpstreamHealth {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+// publishLocked refreshes the health snapshot of every grant on the tap.
+func (t *upstreamTap) publishLocked() {
+	for g := range t.refs {
+		g.snap.Store(&healthSnap{h: t.healthForLocked(g), since: &t.dataAt})
+	}
+}
+
+func (g *inputGrant) snapHealth() (UpstreamHealth, bool) {
+	if snap := g.snap.Load(); snap != nil {
+		return snap.read(), true
+	}
+	return UpstreamHealth{}, false
+}
+
+// healthForLocked reports the tap's health as seen by grant g's reader.
+func (t *upstreamTap) healthForLocked(g *inputGrant) UpstreamHealth {
 	h := UpstreamHealth{Stalled: t.stalled, Failed: t.failed, Reconnects: t.reconnects, Bitrate: t.bitrate}
 	if t.ts != nil {
 		h.Kind = "ts"
