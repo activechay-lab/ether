@@ -540,9 +540,10 @@ func migrateSQLite(ctx context.Context, db *sql.DB, progress func(Progress)) err
 // index carries SQLite's default estimates beside analysed siblings and can
 // look far more selective than it is: catalog/26's type-prefixed index drew
 // a later per-show backfill into scanning every episode for each show (ten
-// minutes on a 270k-title library). Only those indexes are analysed, each
-// sampling a bounded number of rows, so the cost does not grow with the
-// library. A fresh database has no statistics; every index is then
+// minutes on a 270k-title library). Only those indexes are analysed. Use
+// complete statistics: a 1000-row sample estimated just 1001 rows per media
+// type on a 285k-title catalogue, making the planner scan all seasons instead
+// of using its per-show index. A fresh database has no statistics; every index is then
 // estimated alike and nothing is analysed. Empty tables have no statistics
 // either and are skipped the same way.
 func analyseNewIndexes(ctx context.Context, tx *sql.Tx) error {
@@ -573,7 +574,7 @@ func analyseNewIndexes(ctx context.Context, tx *sql.Tx) error {
 	if err := tx.QueryRowContext(ctx, `PRAGMA analysis_limit`).Scan(&limit); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `PRAGMA analysis_limit=1000`); err != nil {
+	if _, err := tx.ExecContext(ctx, `PRAGMA analysis_limit=0`); err != nil {
 		return err
 	}
 	for _, n := range names {
