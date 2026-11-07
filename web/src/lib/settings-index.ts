@@ -181,7 +181,6 @@ export function settingsIndex(): SettingHit[] {
     ),
     // Quality
     ...rows("/quality/profiles", `${quality} › ${away}`, [
-      ["away-profile", t("Away profile")],
       ["bitrate-limit", t("Bitrate limit")],
     ]),
     ...rows("/quality/profiles", quality, [["source-order", t("Source order")]]),
