@@ -78,6 +78,10 @@ var (
 	// tapYoung is how much media a tap may hold and still serve new readers
 	// from its first byte (the probe-then-ffmpeg sequence of a tune).
 	tapYoung = 20 * time.Second
+	// tapPaceLead is how far ahead of real time a paced reader may run:
+	// enough for Steady to encode its first segments at once, so a reserve
+	// never slows a tune.
+	tapPaceLead = 4 * time.Second
 	// tapReconnectTimeout bounds one reconnect's headers and first bytes.
 	tapReconnectTimeout = 4 * time.Second
 	// tapReconnectDelays space same-source reconnects after consecutive
@@ -120,7 +124,11 @@ var ErrProviderBusy = fmt.Errorf("every connection this IPTV provider allows is 
 // provider streams is spent.
 var ErrProviderPaced = fmt.Errorf("this IPTV source has started as many streams this hour as its owner allows: %w", core.ErrStreamLimit)
 
-var errTapReconnectLimit = errors.New("live provider reconnect limit reached")
+var (
+	errTapReconnectLimit = errors.New("live provider reconnect limit reached")
+	errTapSilent         = errors.New("live provider answered but sent no media")
+	errTapNotTS          = errors.New("live provider reconnect returned something other than the transport stream")
+)
 
 type tapRegistry struct {
 	external map[string]int
@@ -176,6 +184,14 @@ func (r *tapRegistry) reserveOpen(source string, gap time.Duration, perHour int,
 type tapReader struct {
 	g   *inputGrant
 	off int64
+	// A paced reader (Steady) is released media at real time from where it
+	// started, plus tapPaceLead for a fast first segment. Without it the
+	// reserve would drain into socket buffers the tap cannot see, and
+	// Steady's startup burst would spend it.
+	pace       bool
+	started    bool
+	startClock int64
+	startWall  time.Time
 }
 
 type upstreamTap struct {
@@ -543,19 +559,42 @@ func (t *upstreamTap) readAs(ctx context.Context, rd *tapReader, off int64, p []
 		}
 		if t.ts != nil && g != nil && g.reserve > 0 {
 			off = t.keyAtDepthLocked(g.reserve)
+			rd.started = false
 		} else if t.ts != nil {
 			off = t.keyBeforeLocked(t.written, 2*time.Second)
 		} else {
 			off = t.joinOffsetLocked()
 		}
 	}
+	end := t.written
+	if rd != nil && rd.pace && t.ts != nil && len(t.marks) > 0 {
+		end = t.paceLocked(rd, off)
+		if end <= off {
+			return 0, off, nil
+		}
+	}
 	at := int(off % int64(len(t.ring)))
-	n := min(int(t.written-off), len(p), len(t.ring)-at)
+	n := min(int(end-off), len(p), len(t.ring)-at)
 	copy(p, t.ring[at:at+n])
 	if rd != nil {
 		rd.off = off + int64(n)
 	}
 	return n, off + int64(n), nil
+}
+
+// paceLocked is the end of what a paced reader at off may have now: media
+// up to its start plus elapsed real time plus tapPaceLead.
+func (t *upstreamTap) paceLocked(rd *tapReader, off int64) int64 {
+	now := time.Now()
+	if !rd.started {
+		rd.started, rd.startClock, rd.startWall = true, t.clockAtLocked(off), now
+	}
+	limit := rd.startClock + int64((now.Sub(rd.startWall)+tapPaceLead)/time.Millisecond)*tsClockHz/1000
+	i := sort.Search(len(t.marks), func(i int) bool { return t.marks[i].clock > limit })
+	if i == len(t.marks) {
+		return t.written
+	}
+	return t.marks[i].off
 }
 
 func (t *upstreamTap) attach() {
@@ -680,6 +719,7 @@ func (s *Service) serveTapped(w http.ResponseWriter, r *http.Request, g *inputGr
 	t.mu.Lock()
 	off := t.joinLocked(g, r.URL.Query().Get(relayJoinQuery) == "live")
 	rd := t.addReaderLocked(g, off)
+	rd.pace = g.reserve > 0
 	t.mu.Unlock()
 	defer t.dropReader(rd)
 	ctx, cancel := context.WithCancel(r.Context())
@@ -703,6 +743,14 @@ func (s *Service) serveTapped(w http.ResponseWriter, r *http.Request, g *inputGr
 		}
 		if err != nil {
 			return true
+		}
+		if n == 0 {
+			// Paced: the next 100 ms of media is due shortly.
+			select {
+			case <-ctx.Done():
+				return true
+			case <-time.After(20 * time.Millisecond):
+			}
 		}
 	}
 }
@@ -808,8 +856,7 @@ func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.He
 	}
 	// Three packets decide whether this is a transport stream the reserve
 	// can index and splice; anything else is relayed as before.
-	peek, _ := body.Peek(3*tsPacket + tsPacket)
-	ts := looksTS(peek)
+	ts := tsPrefix(body)
 	t.mu.Lock()
 	t.body = res.Body
 	t.lastData, t.epochStart = time.Now(), time.Now()
@@ -829,6 +876,18 @@ func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.He
 	idle.Stop()
 	go s.pumpTap(t, raw, body)
 	go t.watch()
+}
+
+// tsPrefix decides from the bytes already buffered, never waiting for
+// more: a slow provider's first packet must not hold up the tune. It needs
+// two sync bytes a packet apart; a body that cannot show them is relayed
+// as plain bytes, without a reserve, exactly as before.
+func tsPrefix(br *bufio.Reader) bool {
+	b, _ := br.Peek(br.Buffered())
+	if len(b) >= 3*tsPacket {
+		return looksTS(b)
+	}
+	return len(b) > tsPacket && b[0] == 0x47 && b[tsPacket] == 0x47
 }
 
 // tapRingSize rounds a ring to whole packets so every offset in it stays
@@ -1135,14 +1194,26 @@ func (s *Service) reopenTap(ctx context.Context, t *upstreamTap, g *inputGrant, 
 		closer.Close()
 		return nil, providerResponseError(res.StatusCode)
 	}
-	// The first packets must arrive within the same budget.
-	timer := time.AfterFunc(time.Until(deadline), cancel)
+	// The first packets must arrive within the same budget. A provider-wide
+	// stall answers and then sends nothing; holding this connection open
+	// until the budget ends resumes the moment the provider does, with
+	// fewer opens than cutting it and dialling again.
+	var silent atomic.Bool
+	timer := time.AfterFunc(time.Until(deadline), func() { silent.Store(true); cancel() })
 	body := bufio.NewReaderSize(res.Body, 32<<10)
-	peek, _ := body.Peek(4 * tsPacket)
+	// The tap is already a transport stream; the splicer resyncs on its own.
+	first, perr := body.Peek(1)
 	timer.Stop()
-	if !looksTS(peek) {
+	if perr != nil {
 		closer.Close()
-		return nil, errRelayUnsupported
+		if silent.Load() {
+			return nil, errTapSilent
+		}
+		return nil, perr
+	}
+	if first[0] != 0x47 && !tsPrefix(body) {
+		closer.Close()
+		return nil, errTapNotTS
 	}
 	t.mu.Lock()
 	if t.closed {
@@ -1189,16 +1260,23 @@ func (t *upstreamTap) healthFor(g *inputGrant) UpstreamHealth {
 	if !t.lastData.IsZero() {
 		h.DataAge = time.Since(t.lastData)
 	}
-	off, found := int64(-1), false
+	var reader *tapReader
 	for rd := range t.active {
-		if rd.g == g && rd.off > off {
-			off, found = rd.off, true
+		if rd.g == g && (reader == nil || rd.off > reader.off) {
+			reader = rd
 		}
 	}
-	if !found {
-		off, found = t.resume[g]
-	}
-	if found {
+	if reader != nil {
+		h.ReserveDepth = t.depthLocked(reader.off)
+		// A paced reader has also been handed up to tapPaceLead beyond real
+		// time: media its consumer holds and plays through a stall too.
+		if reader.pace && reader.started && t.ts != nil && len(t.marks) > 0 {
+			due := reader.startClock + int64(time.Since(reader.startWall)/time.Millisecond)*tsClockHz/1000
+			if held := t.clockAtLocked(reader.off) - due; held > 0 {
+				h.ReserveDepth += min(time.Duration(held)*time.Second/tsClockHz, tapPaceLead)
+			}
+		}
+	} else if off, ok := t.resume[g]; ok {
 		h.ReserveDepth = t.depthLocked(off)
 	}
 	if g != nil && g.reserve > 0 && t.ts != nil {

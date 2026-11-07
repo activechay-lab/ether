@@ -235,3 +235,49 @@ func TestTSSpliceKeepsOneContinuousStream(t *testing.T) {
 		t.Fatalf("media clock %d does not match the frames played", got)
 	}
 }
+
+// A provider that re-sends its recent buffer on reconnect (an initial
+// burst) is the same stream: the splice continues right after the last
+// whole frame, with no repeated content, no gap and no timestamp rewrite.
+func TestTSSpliceContinuesAResentStream(t *testing.T) {
+	gen := func() []byte {
+		g := &tsGen{cc: map[int]byte{}, dts: 900000, gop: 12, audioLead: -1800}
+		var b []byte
+		for range 60 {
+			b = append(b, g.next()...)
+		}
+		return b
+	}
+	stream := gen()
+	perFrame := 4 * tsPacket
+	sp := newTSSplicer()
+	var out []byte
+	// The first connection dies inside frame 30 (after its PSI-free frames
+	// 24..29 and part of 30); the second re-sends from frame 20.
+	cut := 24*perFrame + 2*2*tsPacket + 6*perFrame + perFrame/2
+	out, _ = sp.feed(stream[:cut], out, 0)
+	sp.reconnect()
+	resend := 20*perFrame + 2*2*tsPacket
+	out, _ = sp.feed(stream[resend:], out, int64(len(out)))
+	var dts []int64
+	psi := 0
+	for _, s := range scanOut(t, out) {
+		if s.pid == 0x100 && s.hasTS {
+			dts = append(dts, s.dts)
+		}
+		if s.pid == 0 {
+			psi++
+		}
+	}
+	if len(dts) != 59 {
+		t.Fatalf("delivered %d frames, want 59 (every frame once, the generator's last still uncommitted)", len(dts))
+	}
+	for i := 1; i < len(dts); i++ {
+		if dts[i]-dts[i-1] != 3600 {
+			t.Fatalf("frame %d: DTS step %d", i, dts[i]-dts[i-1])
+		}
+	}
+	if psi != 5 {
+		t.Fatalf("PAT count %d: a follow-on splice must not inject PSI", psi)
+	}
+}
