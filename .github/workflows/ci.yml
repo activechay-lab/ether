@@ -40,6 +40,8 @@ jobs:
           - os: ubuntu-latest
             shard: app-2
           - os: ubuntu-latest
+            shard: app-migrations
+          - os: ubuntu-latest
             shard: app-3
           - os: ubuntu-latest
             shard: transcode-playback
@@ -184,7 +186,12 @@ jobs:
               go test -race -timeout 20m ./internal/app -run '^Test[A-F]'
               ;;
             app-2)
-              go test -race -timeout 20m ./internal/app -run '^Test[G-P]'
+              go test -race -timeout 20m ./internal/app -run '^Test[G-P]' -skip '^TestPrismUpgradeCandidateMigrationFailures$'
+              ;;
+            app-migrations)
+              # The failure-injection matrix takes about ten minutes alone.
+              # Give it its own budget without dropping cases or raising timeouts.
+              go test -race -timeout 20m ./internal/app -run '^TestPrismUpgradeCandidateMigrationFailures$'
               ;;
             app-3)
               go test -race -timeout 20m ./internal/app -run '^Test[^A-P]'
