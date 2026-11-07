@@ -60,3 +60,33 @@ func TestLiveDecoderReportsCodecChange(t *testing.T) {
 		t.Fatalf("change reported after %d frames", frames)
 	}
 }
+
+// Lost media is skipped only as whole ticks of both streams: filler (a
+// repeated picture with digital silence) arriving faster than real time.
+// A picture-only gap keeps its sound; a still, silent programme playing at
+// real time is kept.
+func TestLiveFillSkipsOnlyBothStreamFillerBursts(t *testing.T) {
+	picture := []byte{1, 2, 3}
+	sound := []byte{9, 9, 9, 9}
+	silence := make([]byte, 4)
+	run := func(pcm []byte, step time.Duration) (kept int) {
+		l := liveFill{fps: 30}
+		at := time.Unix(0, 0)
+		kept += len(l.next(RawFrame{Video: picture, PCM: sound}, at))
+		for range 60 {
+			at = at.Add(step)
+			kept += len(l.next(RawFrame{Video: picture, PCM: pcm}, at))
+		}
+		kept += len(l.next(RawFrame{Video: []byte{4, 5, 6}, PCM: sound}, at.Add(step)))
+		return kept
+	}
+	if kept := run(silence, time.Millisecond); kept != 2 {
+		t.Fatalf("filler burst: kept %d ticks, want only the real ones", kept)
+	}
+	if kept := run(silence, time.Second/30); kept != 62 {
+		t.Fatalf("real-time still and silent programme: kept %d of 62", kept)
+	}
+	if kept := run(sound, time.Millisecond); kept != 62 {
+		t.Fatalf("picture-only gap dropped sound: kept %d of 62", kept)
+	}
+}

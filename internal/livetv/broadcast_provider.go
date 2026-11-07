@@ -287,7 +287,7 @@ func (p *providerBroadcastPlanner) open(ctx context.Context) (transcode.Decoder,
 			}
 			p.link = sb.link
 			p.ladder.opened(id, now)
-			decoder := p.wrap(src, sb.adopt(), 0)
+			decoder := p.wrap(ctx, src, nil, sb.adopt(), 0)
 			p.attempt = &steadyAttempt{src: src, link: sb.link, decoder: decoder}
 			p.mu.Unlock()
 			p.logger().Info("live input switched to standby", "input", id)
@@ -340,7 +340,7 @@ func (p *providerBroadcastPlanner) open(ctx context.Context) (transcode.Decoder,
 			p.syncFailure(src, err, now)
 			continue
 		}
-		wrapped := p.wrap(src, decoder, p.firstFrameDeadline(src.ID, len(candidates) > 1))
+		wrapped := p.wrap(ctx, src, link, decoder, p.firstFrameDeadline(src.ID, len(candidates) > 1))
 		p.mu.Lock()
 		link.uses++
 		p.ladder.opened(id, now)
@@ -390,9 +390,14 @@ func (p *providerBroadcastPlanner) startDecoder(ctx context.Context, link *stead
 	return p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: link.ss.info.ID, InputURL: input, Format: p.format, Live: true, PrimeLive: !aired && !reserve, ReserveStart: reserve && !liveEdge, InputFormat: link.format})
 }
 
-func (p *providerBroadcastPlanner) wrap(src StreamSource, d transcode.Decoder, firstFrame time.Duration) *providerBroadcastDecoder {
+func (p *providerBroadcastPlanner) wrap(ctx context.Context, src StreamSource, link *steadyLink, d transcode.Decoder, firstFrame time.Duration) *providerBroadcastDecoder {
 	c := p.channel
-	return &providerBroadcastDecoder{Decoder: d, planner: p, sourceID: src.ID, firstFrame: firstFrame, started: time.Now(), frame: time.Second * time.Duration(p.format.FPSDen) / time.Duration(p.format.FPSNum), ready: func() {}, healthy: func() {
+	life, cancel := context.WithCancel(ctx)
+	var reopen func() (transcode.Decoder, error)
+	if link != nil {
+		reopen = func() (transcode.Decoder, error) { return p.startDecoder(life, link, true) }
+	}
+	return &providerBroadcastDecoder{reopen: reopen, life: life, cancel: cancel, Decoder: d, planner: p, sourceID: src.ID, firstFrame: firstFrame, started: time.Now(), frame: time.Second * time.Duration(p.format.FPSDen) / time.Duration(p.format.FPSNum), ready: func() {}, healthy: func() {
 		p.s.recordSourceHealth(c.ID, src, nil, true)
 		p.mu.Lock()
 		p.ladder.delivered(src.ID)
@@ -493,6 +498,13 @@ type providerBroadcastDecoder struct {
 	decodedAt  atomic.Int64
 	aired      atomic.Int64
 	healthOnce sync.Once
+	// Stream-change splicing (broadcast_splice.go): reopen starts a decoder
+	// on the same input at its live edge; life bounds the frame pumps.
+	reopen        func() (transcode.Decoder, error)
+	life          context.Context
+	cancel        context.CancelFunc
+	cur, cand     *decoderPump
+	lastCandidate time.Time
 }
 
 func (d *providerBroadcastDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
@@ -514,7 +526,7 @@ func (d *providerBroadcastDecoder) Next(ctx context.Context) (transcode.RawFrame
 
 func (d *providerBroadcastDecoder) next(ctx context.Context) (transcode.RawFrame, error) {
 	for {
-		frame, err := d.Decoder.Next(ctx)
+		frame, err := d.pull(ctx)
 		if err != nil {
 			return frame, err
 		}

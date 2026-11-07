@@ -1,10 +1,15 @@
 package livetv
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -119,5 +124,43 @@ func TestSteadyLadderParksARefusingSource(t *testing.T) {
 	l.failed("only", errors.New("HTTP 509"), false, false, sources, now)
 	if _, _, ok, _ := l.choose(sources, now.Add(time.Second)); ok {
 		t.Fatal("a parked source got a second burst after its probe")
+	}
+}
+
+type joiningLimiter struct {
+	fakeChannelLimiter
+	joined int
+}
+
+func (f *joiningLimiter) JoinChannel(*core.User, core.ClientCaps, string, string) error {
+	f.joined++
+	return nil
+}
+
+// A tune Steady refuses plays direct on its own viewer reservation, not on
+// a share of a channel output that never started.
+func TestRefusedSteadyTuneHoldsADirectViewerReservation(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "#EXTM3U\n#EXTINF:4,\npart.ts\n") }))
+	defer up.Close()
+	pb := &joiningLimiter{fakeChannelLimiter: fakeChannelLimiter{fakePlayback: &fakePlayback{}}}
+	// This transcoder runs no continuous outputs, so Steady refuses the tune.
+	s := testService(t, Options{Playback: pb, Transcoder: &fakeTranscoder{}, HTTPClient: up.Client()})
+	c, err := s.SaveChannel(context.Background(), Channel{Name: "Test", Number: "1", Kind: "iptv", Enabled: true, StreamURL: up.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := &core.User{ID: 1}
+	info, err := s.Tune(context.Background(), u, c.ID, core.ClientCaps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pb.joined != 1 || pb.begun != 1 || pb.ended != 1 {
+		t.Fatalf("joined=%d begun=%d ended=%d, want the shared join swapped for one viewer reservation", pb.joined, pb.begun, pb.ended)
+	}
+	if err := s.Stop(context.Background(), info.ID, u); err != nil {
+		t.Fatal(err)
+	}
+	if pb.ended != 2 {
+		t.Fatal("stop leaked the direct reservation")
 	}
 }
