@@ -35,6 +35,8 @@ type ownedTimeline struct {
 	// stalled, when set, reports that the producer's input has stopped
 	// (provider health): the next segment cannot arrive, so slate goes out
 	// when that segment is due instead of after the deadline's grace.
+	// stalled and producing are called with mu held: they must only read
+	// state (atomics), never block on the producer or its input.
 	stalled func() bool
 	// producing, when set, reports a producer whose input is flowing and
 	// that is cutting on schedule: a late segment from it is jitter, so it
@@ -135,9 +137,13 @@ func (t *ownedTimeline) run(ctx context.Context) {
 			t.log.Info("owned live timeline closed", "slate_segments", slate, "slate_seconds", slateTime.Seconds(), "codec_splices", codec, "spans", spans)
 			return
 		case <-tick.C:
+			started := time.Now()
 			t.mu.Lock()
 			t.tickLocked(t.now())
 			t.mu.Unlock()
+			if took := time.Since(started); took > 250*time.Millisecond {
+				t.log.Warn("owned live timeline tick was slow", "took", took)
+			}
 		}
 	}
 }
@@ -507,7 +513,8 @@ func (t *ownedTimeline) publishSlateLocked() bool {
 		seg.disc = true
 		t.spans++
 		t.needDisc = true
-		t.log.Warn("owned live timeline publishing slate", "since_last_segment", t.now().Sub(t.lastAt), "target", t.target, "reserve_depth", t.depthLocked())
+		t.log.Warn("owned live timeline publishing slate", "since_last_segment", t.now().Sub(t.lastAt), "target", t.target, "reserve_depth", t.depthLocked(),
+			"producing", t.producing != nil && t.producing(), "input_stalled", t.stalled != nil && t.stalled(), "fetch_in_flight", t.inflight)
 	}
 	t.slating++
 	t.slateSegments++

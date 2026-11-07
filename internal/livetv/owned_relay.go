@@ -85,6 +85,9 @@ type relayProducer struct {
 	// is starving. The timeline reads both without locks.
 	starving  atomic.Bool
 	producing atomic.Bool
+	// inputStalled mirrors the input's health: stalled, failed, or a TS
+	// tap with no byte for a second.
+	inputStalled atomic.Bool
 	// damaged is set when a copy segment failed its decode check: the
 	// source is delivering damage copy passes straight to the player.
 	damaged atomic.Bool
@@ -145,14 +148,10 @@ func (s *Service) newRelayProducer(ss *session, info core.MediaInfo, caps core.C
 	tl.startMedia = 2 * cut
 	p := &relayProducer{s: s, tl: tl, log: log, caps: caps, info: info, dec: dec, cut: cut}
 	p.bind(ss)
+	// The timeline reads only these flags under its lock; input health is
+	// sampled by the producer loop, so a busy tap never delays publication.
 	tl.producing = p.producing.Load
-	tl.stalled = func() bool {
-		if p.starving.Load() {
-			return true
-		}
-		h, ok := s.inputHealth(p.sess.Load())
-		return ok && (h.Stalled || h.Failed || h.Kind == "ts" && h.DataAge > time.Second)
-	}
+	tl.stalled = func() bool { return p.starving.Load() || p.inputStalled.Load() }
 	p.ingest = newHLSIngest(tl, nil, log, 0, 2)
 	p.ingest.live = true
 	p.ingest.accept = p.accept
@@ -366,6 +365,7 @@ func (p *relayProducer) run(ctx context.Context) {
 			failures++
 		}
 		h, healthy := p.s.inputHealth(p.sess.Load())
+		p.inputStalled.Store(healthy && (h.Stalled || h.Failed || h.Kind == "ts" && h.DataAge > time.Second))
 		if healthy && !h.Stalled && !h.Failed && h.DataAge < 2*time.Second {
 			if flowing.IsZero() {
 				flowing = now
@@ -452,6 +452,12 @@ func (p *relayProducer) run(ctx context.Context) {
 			case p.tl.depth() >= td:
 				// The reserve still covers the client; ffmpeg's own input
 				// retries (and the tap's reconnects) get that long.
+			case healthy && h.Kind == "ts" && !h.Failed:
+				// The tap is reconnecting the same source underneath this
+				// ffmpeg and splices it back in (no EOF, continuous
+				// timestamps). Re-granting would close the tap mid-reconnect
+				// and throw its reserve away; slate covers the gap, and only
+				// InputFailed (or a backup above) moves on.
 			case since > limit+2*td:
 				// The tap reconnects the same source while slate covers;
 				// fall through when that takes too long.
