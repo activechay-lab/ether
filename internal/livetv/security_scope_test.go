@@ -6,6 +6,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -62,16 +63,19 @@ func TestPlaylistForeignResourceDoesNotReceiveSourceHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.sessions["scope"] = &session{ready: true, info: SessionInfo{ID: "scope", UserID: 1, Channel: c}, inputURL: c.StreamURL, inputHeaders: http.Header{"Authorization": {"Bearer secret"}, "X-Provider-Secret": {"secret"}}, resources: map[string]string{"index.m3u8": c.StreamURL}}
+	ss := &session{ready: true, info: SessionInfo{ID: "scope", UserID: 1, Channel: c}, inputURL: c.StreamURL, inputSource: StreamSource{ID: "primary", URL: c.StreamURL, Enabled: true}, inputHeaders: http.Header{"Authorization": {"Bearer secret"}, "X-Provider-Secret": {"secret"}}, ctx: t.Context()}
+	ss.owned = s.acquirePassthrough(ss)
+	t.Cleanup(ss.owned.close)
+	s.sessions["scope"] = ss
 	req := httptest.NewRequest("GET", "/", nil)
 	user := &core.User{ID: 1}
 	playlist := httptest.NewRecorder()
 	s.ServePlaylist(playlist, req, "scope", user)
-	if playlist.Code != 200 {
+	if playlist.Code != 200 || !strings.Contains(playlist.Body.String(), "/relay/0.ts") || strings.Contains(playlist.Body.String(), foreign.URL) {
 		t.Fatalf("playlist: %d %s", playlist.Code, playlist.Body.String())
 	}
 	segment := httptest.NewRecorder()
-	s.ServeResource(segment, req, "scope", stableID(foreign.URL+"/segment"), user)
+	s.ServeRelaySegment(segment, req, "scope", 0, user)
 	if segment.Code != 200 || segment.Body.String() != "public segment" {
 		t.Fatalf("segment: %d %s", segment.Code, segment.Body.String())
 	}

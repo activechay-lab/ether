@@ -91,6 +91,7 @@ type sessionInput struct {
 	liveFailures        int
 	liveRecovering      bool
 	liveDiscontinuities map[int]bool
+	liveDurations       map[int]time.Duration // live: each published segment's real length (session_playlist.go)
 	// contract is the delivered video a static-header session keeps
 	// across failovers; nil for every other session (contract.go).
 	contract       *videoContract

@@ -59,24 +59,14 @@ func TestOwnerPreviewPlaysThroughTheOwnerAPI(t *testing.T) {
 	if master.Code != 200 || strings.Contains(body, "/0/") || strings.Contains(body, up.URL) {
 		t.Fatalf("master playlist: %d %s", master.Code, body)
 	}
-	variant := ""
-	for _, line := range strings.Split(body, "\n") {
-		if strings.HasPrefix(line, "/ether/api/livetv/sessions/"+p.ID+"/resource/") {
-			variant = strings.TrimPrefix(line, "/ether/api/livetv")
-		}
-	}
-	if variant == "" {
-		t.Fatalf("variant not rewritten onto the owner API: %s", body)
-	}
-	vrec := get(variant)
-	if vrec.Code != 200 || !strings.Contains(vrec.Body.String(), "/sessions/"+p.ID+"/resource/") {
-		t.Fatalf("variant playlist: %d %s", vrec.Code, vrec.Body.String())
-	}
 	segment := ""
-	for _, line := range strings.Split(vrec.Body.String(), "\n") {
-		if strings.Contains(line, "/resource/") {
-			segment = line
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "/ether/api/livetv/sessions/"+p.ID+"/relay/") {
+			segment = strings.TrimPrefix(line, "/ether/api/livetv")
 		}
+	}
+	if segment == "" || strings.Contains(body, "STREAM-INF") {
+		t.Fatalf("owned playlist not rewritten onto the owner API: %s", body)
 	}
 	if seg := get(segment); seg.Code != 200 || seg.Body.String() != "TSDATA" {
 		t.Fatalf("segment: %d %q", seg.Code, seg.Body.String())

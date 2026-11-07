@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 func TestIPTVHEVCProviderDecision(t *testing.T) {
@@ -77,21 +77,25 @@ func TestIPTVFragmentedRelayRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ss := &session{info: SessionInfo{ID: "fragmented", UserID: 1, Channel: c}, user: *u, ready: true, resources: map[string]string{}, relay: &fragmentedLiveFixture{}, relayInfo: &core.MediaInfo{Container: "fmp4"}}
+	ss := &session{info: SessionInfo{ID: "fragmented", UserID: 1, Channel: c}, user: *u, ready: true, relayInfo: &core.MediaInfo{Container: "fmp4"}}
+	ownedRelayFixture(t, s, ss, &fragmentedLiveFixture{}, core.Decision{Container: "fmp4", VideoCopy: true}, 2*time.Second)
 	s.sessions[ss.info.ID] = ss
 	w := httptest.NewRecorder()
-	s.serveRelayPlaylist(w, httptest.NewRequest("GET", "/", nil), ss)
-	for _, want := range []string{"/relay/init.mp4", "/relay/0.m4s"} {
-		if !strings.Contains(w.Body.String(), want) {
-			t.Fatalf("missing %s: %s", want, w.Body.String())
-		}
+	s.ServePlaylist(w, httptest.NewRequest("GET", "/", nil), ss.info.ID, u)
+	body := w.Body.String()
+	m := regexp.MustCompile(`#EXT-X-MAP:URI="[^"]*/resource/([^"?]+)`).FindStringSubmatch(body)
+	if w.Code != 200 || m == nil || !strings.Contains(body, "/relay/0.m4s") {
+		t.Fatalf("owned fMP4 playlist: %d %s", w.Code, body)
 	}
-	for _, n := range []int{transcode.InitSegment, 0} {
-		w = httptest.NewRecorder()
-		s.ServeRelaySegment(w, httptest.NewRequest("GET", "/", nil), ss.info.ID, n, u)
-		if w.Code != 200 {
-			t.Fatalf("segment %d: %d", n, w.Code)
-		}
+	w = httptest.NewRecorder()
+	s.ServeResource(w, httptest.NewRequest("GET", "/", nil), ss.info.ID, m[1], u)
+	if w.Code != 200 || w.Header().Get("Content-Type") != "video/mp4" {
+		t.Fatalf("init section: %d %v", w.Code, w.Header())
+	}
+	w = httptest.NewRecorder()
+	s.ServeRelaySegment(w, httptest.NewRequest("GET", "/", nil), ss.info.ID, 0, u)
+	if w.Code != 200 || w.Header().Get("Content-Type") != "video/mp4" {
+		t.Fatalf("media segment: %d %v", w.Code, w.Header())
 	}
 }
 

@@ -404,7 +404,6 @@ func (s *Service) startIPTV(ctx context.Context, ss *session) error {
 		ss.inputURL, ss.inputSource = resolvedURL, src
 		ss.inputHeaders = headers.Clone()
 		ss.info.MediaInfo, ss.relayInfo = nil, nil
-		ss.resources = map[string]string{}
 		// ffmpeg and ffprobe read this input through a loopback grant, never
 		// with the provider URL or headers on their command line.
 		err = s.grantInput(ss, grantSrc, headers)
@@ -418,14 +417,8 @@ func (s *Service) startIPTV(ctx context.Context, ss *session) error {
 			log.Info("live source ready", "elapsed", time.Since(started))
 			return nil
 		}
-		if ss.relay != nil {
-			ss.relay.Close()
-			ss.relay = nil
-		}
-		if ss.relayCancel != nil {
-			ss.relayCancel()
-			ss.relayCancel = nil
-		}
+		ss.owned.close()
+		ss.owned = nil
 		s.revokeInput(ss)
 		last = Diagnose("source_start", err)
 		if !errors.Is(ctx.Err(), context.Canceled) {
