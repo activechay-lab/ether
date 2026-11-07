@@ -815,6 +815,7 @@ describe("setup wizard", () => {
       "DLNA enabled",
       "Files (WebDAV) enabled",
       "M3U & XMLTV enabled",
+      "IPTV apps (Xtream) enabled",
     ]);
     expect(screen.getByRole("switch", { name: "Silo enabled" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Stremio enabled" })).toBeInTheDocument();
