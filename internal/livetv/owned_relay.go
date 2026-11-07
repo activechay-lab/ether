@@ -351,7 +351,12 @@ func (p *relayProducer) run(ctx context.Context) {
 		if !flowing.IsZero() {
 			starvedFor = now.Sub(later(from, flowing))
 		}
+		// Before the first publication no cadence is known: the target
+		// stands in for the last segment.
 		lastDur := p.tl.lastSegmentDuration()
+		if lastDur <= 0 {
+			lastDur = td
+		}
 		starveLimit := lastDur + time.Second
 		if cold {
 			// The hedge normally settles a slow cold start first.
@@ -608,7 +613,7 @@ func (p *relayProducer) switchSource(ctx context.Context, ss *session, c Channel
 	}
 	grantSrc := src
 	grantSrc.URL = raw
-	if err := p.s.grantInput(ss, grantSrc, headers); err != nil {
+	if err := p.s.grantDirectInput(ss, grantSrc, headers); err != nil {
 		return err
 	}
 	ss.mu.Lock()
@@ -630,27 +635,17 @@ func (p *relayProducer) switchSource(ctx context.Context, ss *session, c Channel
 		info.Duration = 0
 		dec, cut, _ = p.s.relayPlan(ss, info)
 	}
-	if err := p.s.reserveRelayGrant(ss, info); err != nil {
-		return err
-	}
 	return p.start(sctx, info, dec, cut, false)
 }
 
-// reserveRelayGrant moves an HLS relay input onto a reserve grant: the
-// input relay then trims the provider playlist to the channel's stability
-// reserve (plus the first playlist's window), and the relay, started at
-// that playlist's first segment, primes the owned timeline's reserve from
-// the provider backlog. A raw TS input keeps the grant its tune opened:
-// replacing it would cost a second provider connection.
-func (s *Service) reserveRelayGrant(ss *session, info core.MediaInfo) error {
-	ss.mu.Lock()
-	c, src, headers := ss.info.Channel, ss.inputSource, ss.inputHeaders.Clone()
-	src.URL = ss.inputURL
-	ss.mu.Unlock()
-	if info.Container != "hls" || s.stabilityReserve(c) <= 0 {
-		return nil
-	}
-	// The first owned playlist publishes its start window from the backlog;
-	// join that much deeper so the full reserve stays pending.
+// grantDirectInput grants a Direct session's input. The tune's sniff and
+// probe and any relay started later all read through this one grant, and it
+// is reserve-aware from the start: a relay joins its input as deep as the
+// channel's stability reserve allows (an HLS provider's trimmed backlog, or
+// what a TS tap holds, such as a connect burst) without a second provider
+// connection. The lead covers the first owned playlist's window, so the
+// reserve is still whole once that window is out. With no reserve (Fastest)
+// it is the plain live-edge grant.
+func (s *Service) grantDirectInput(ss *session, src StreamSource, headers http.Header) error {
 	return s.grantSteadyInputLead(ss, src, headers, 2*relaySegment)
 }
