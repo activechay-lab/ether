@@ -496,6 +496,9 @@ func summarise(p protocolReport, av *avResult, tune float64) viewerSummary {
 		last := len(p.SegmentLog) - 1
 		v.Recovered = last >= 0 && p.SegmentLog[last].ContentS > 0 && p.ModelFatal == "" && p.RunEndS-p.SegmentLog[last].SeenAt <= 2*math.Max(p.TargetDuration, 1)
 	}
+	if td, first := p.TargetDuration, p.FirstPlaylistResponseS; td > 0 && first >= td/2 && first < td {
+		v.Warnings = append(v.Warnings, fmt.Sprintf("first playlist took %.1fs, over half TD %.0fs (AVFoundation hangs at 1x TD)", first, td))
+	}
 	for k, n := range p.HTTPErrors {
 		v.ClientErrors = append(v.ClientErrors, fmt.Sprintf("http %s x%d", k, n))
 	}
@@ -532,6 +535,9 @@ func judgeRow(sc liveScenario, preset string, stuck float64, r liveResult) (stri
 	}
 	if td := p.TargetDuration; td > 0 && p.LongestNoNewSegmentAdjS > stuck*td {
 		why = append(why, fmt.Sprintf("no new segment for %.1fs (> %.1fx TD %.0fs)", p.LongestNoNewSegmentAdjS, stuck, td))
+	}
+	if td, first := p.TargetDuration, p.FirstPlaylistResponseS; td > 0 && first >= td {
+		why = append(why, fmt.Sprintf("first playlist took %.1fs >= TD %.0fs (AVFoundation never starts the item)", first, td))
 	}
 	if p.OverlongSegments > 0 {
 		why = append(why, fmt.Sprintf("%d segments exceed TD+0.5s (longest EXTINF %.1fs, media %.1fs)", p.OverlongSegments, p.MaxSegmentS, p.MaxMediaS))

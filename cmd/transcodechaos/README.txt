@@ -121,7 +121,10 @@ Judges:
   every segment, and records the longest time without a new segment, EXTINF
   and measured segment length against the target duration, codec changes
   between consecutive segments without EXT-X-DISCONTINUITY (ffprobe), media
-  and discontinuity sequence consistency across the sliding window, HTTP
+  and discontinuity sequence consistency across the sliding window, the
+  time Ether took to answer the first playlist (a whole target duration
+  fails: AVFoundation then leaves the item stuck with no error and never
+  requests a segment; half of one warns), HTTP
   errors, decode errors, and per-segment content: the fixture has a green
   band on top, so frames without it are an Ether screen or black; held frames
   (freezedetect) and silence (silencedetect).
@@ -129,12 +132,16 @@ Judges:
   frame delivery, frames with/without the green band, repeated frames, item
   failures and CoreMedia error-log codes. Run the harness outside any sandbox
   or every item fails with -9405. Audio is judged from the published
-  segments; in-player audio taps do not attach to HLS items.
+  segments; in-player audio taps do not attach to HLS items. With
+  -live-keep, player-http.log records every request the player made and
+  each playlist it received, through a loopback tap (AVPlayer has no access
+  log until an item is ready).
 
 Each row reports freeze, slate (screen), silence, client errors, recovered
 and TTFF (tune to the first provider picture), and passes only when the
 common rules (no client error, recovered, no gap over 1.5x target duration,
-no overlong segment, consistent sequences, TTFF <= 5 s) and the scenario's
+no overlong segment, consistent sequences, first playlist answered within
+one target duration, TTFF <= 5 s) and the scenario's
 per-preset budget in live_scenarios.go all hold.
 
 Not covered: the Jellyfin live path. Its stream URL comes from the app's
