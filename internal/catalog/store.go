@@ -108,6 +108,68 @@ func (c *Catalog) loadByKey(ctx context.Context, key core.RatingKey) (*storedTit
 	return st, nil
 }
 
+// PreloadStored reads in batches the mirrored titles loadByKey would read one
+// at a time, and caches each exactly as loadByKey does (detail time
+// included) for this generation and minute. A list of episodes checks
+// every episode's series; later Get and CachedGet calls then hit the cache.
+// Titles already cached, missing or unreadable are left to loadByKey.
+func (c *Catalog) PreloadStored(ctx context.Context, keys []core.RatingKey) {
+	gen, minute := c.writeGen.Load(), c.minuteBucket()
+	seen := make(map[core.RatingKey]bool, len(keys))
+	var missing []any
+	c.cacheMu.RLock()
+	for _, k := range keys {
+		if seen[k] || !cacheStoredTitle(k.Kind()) {
+			continue
+		}
+		seen[k] = true
+		if ent, ok := c.titleCache[k]; ok && ent.gen == gen && ent.minute == minute {
+			continue
+		}
+		missing = append(missing, int64(k))
+	}
+	c.cacheMu.RUnlock()
+	for start := 0; start < len(missing); start += 200 {
+		part := missing[start:min(start+200, len(missing))]
+		rows, err := c.db.QueryContext(ctx, `SELECT `+titleCols+`,detail_at FROM catalog_titles WHERE key IN (`+placeholders(len(part))+`)`, part...)
+		if err != nil {
+			return
+		}
+		var stored []*storedTitle
+		for rows.Next() {
+			var detailAt int64
+			st, err := scanTitle(extraScan{rows, []any{&detailAt}})
+			if err != nil {
+				rows.Close()
+				return
+			}
+			if detailAt != 0 {
+				st.detailAt = time.Unix(detailAt, 0).UTC()
+			}
+			stored = append(stored, st)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return
+		}
+		items := make([]core.Title, len(stored))
+		for i, st := range stored {
+			items[i] = st.t
+		}
+		if err := c.hydrateSlice(ctx, items); err != nil || c.writeGen.Load() != gen {
+			return
+		}
+		c.cacheMu.Lock()
+		for i, st := range stored {
+			cp := *st
+			cp.t = cloneTitle(items[i])
+			c.putSnapshotLocked(cp.t.Key, gen, minute, cp)
+		}
+		c.cacheMu.Unlock()
+	}
+}
+
 type scanner interface{ Scan(dest ...any) error }
 
 func scanTitle(s scanner) (*storedTitle, error) {

@@ -82,6 +82,7 @@ func (s *Server) visibility() experience.Visibility {
 // retains its availability cut, but never bypasses current authorization.
 func (s *Server) openableTitles(ctx context.Context, u *core.User, ts []core.Title, pinned bool) []core.Title {
 	ts = s.visibleTitles(u, ts)
+	s.preloadSeries(ctx, ts)
 	if !pinned {
 		ts = s.availableForViewer(ctx, u, ts)
 	}
@@ -127,4 +128,25 @@ func (s *Server) availableForViewer(ctx context.Context, u *core.User, ts []core
 
 func (s *Server) viewerRestricted(u *core.User) bool {
 	return experience.ViewerRestricted(s.d.AccessPolicy, u)
+}
+
+// preloadSeries reads the series of a list's episodes and seasons in one
+// batch: playableTitle checks each item's series, which otherwise loads them
+// one by one (On Deck: hundreds of shows).
+func (s *Server) preloadSeries(ctx context.Context, ts []core.Title) {
+	pre, ok := s.d.Catalog.(interface {
+		PreloadStored(context.Context, []core.RatingKey)
+	})
+	if !ok {
+		return
+	}
+	var shows []core.RatingKey
+	for i := range ts {
+		if ts[i].ShowKey != 0 {
+			shows = append(shows, ts[i].ShowKey)
+		}
+	}
+	if len(shows) > 1 {
+		pre.PreloadStored(ctx, shows)
+	}
 }
