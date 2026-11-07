@@ -207,6 +207,20 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 	defer tc.Close()
 	s := testService(t, Options{Transcoder: tc, HTTPClient: up.Client()})
 	info := tuneRelayChannel(t, s, up.URL+"/live/xuser/xpass-S3CRET/1001.ts?token=QTOKEN-S3CRET")
+	// A continuous output starts its input decoder after the tune returns.
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		runner.mu.Lock()
+		started := false
+		for _, args := range runner.calls {
+			for i := 0; i+1 < len(args); i++ {
+				started = started || args[0] == "ffmpeg" && args[i] == "-i" && strings.HasPrefix(args[i+1], "http")
+			}
+		}
+		runner.mu.Unlock()
+		if started {
+			break
+		}
+	}
 
 	runner.mu.Lock()
 	calls := append([][]string(nil), runner.calls...)
@@ -221,6 +235,10 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 		}
 		for i := 0; i+1 < len(args); i++ {
 			if args[i] == "-i" {
+				if strings.HasPrefix(args[i+1], "tcp://127.0.0.1:") {
+					// A continuous encoder's raw frames, never provider data.
+					continue
+				}
 				inputs = append(inputs, args[i+1])
 				if args[0] == "ffprobe" && contains(args, "-show_streams") {
 					analysis = true
@@ -257,6 +275,9 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 	if err := s.Stop(context.Background(), info.ID, &core.User{ID: 1}); err != nil {
 		t.Fatal(err)
 	}
+	// A continuous channel output keeps its input warm through the idle
+	// grace after its last viewer; ending the output must revoke the grant.
+	s.broadcasts.invalidate("", true)
 	if code, _, _ := relayGet(t, inputs[0], nil); code != http.StatusNotFound {
 		t.Fatalf("grant outlived its session: %d", code)
 	}

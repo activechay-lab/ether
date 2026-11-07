@@ -194,6 +194,13 @@ type broadcast struct {
 	// yieldIdle asks the registry to close outputs nobody is watching when
 	// this output hits the stream limit (see broadcastRegistry.yieldIdle).
 	yieldIdle func(except *broadcast) bool
+	// created is when the output was made; a cold provider tune may hold its
+	// first tick up to coldWait for the first real picture.
+	created  time.Time
+	coldWait time.Duration
+	// steadyBitrate is a provider output's full-quality bitrate ceiling,
+	// shared by every viewer that joins it.
+	steadyBitrate int
 }
 
 func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planner broadcastPlanner, format transcode.RawFormat) (*broadcast, error) {
@@ -205,7 +212,11 @@ func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planne
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), retryRequests: make(chan struct{}, 1), lastViewer: time.Now()}
+	b.created = b.origin
 	b.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	if source, ok := planner.(interface{ coldWait() time.Duration }); ok {
+		b.coldWait = source.coldWait()
+	}
 	b.later = map[string]*broadcastInput{}
 	b.future = map[string]broadcastPlan{}
 	if source, ok := planner.(interface{ startupLead() time.Duration }); ok {
@@ -816,6 +827,13 @@ func (b *broadcast) step(now time.Time) bool {
 			default:
 			}
 		}
+	}
+	// A cold provider tune holds the output start, never a published tick,
+	// for its first real picture: the viewer starts on the channel rather
+	// than on the reconnecting screen. The probe already read those bytes.
+	if frame.Video == nil && b.tick == 0 && b.coldWait > 0 && !introActive && time.Since(b.created) < b.coldWait {
+		b.origin = time.Now()
+		return false
 	}
 	startupExpired := b.current != nil && b.current.lastFrameAt.IsZero() && now.Sub(b.current.started) >= broadcastStartup
 	stalled := b.current != nil && !b.current.lastFrameAt.IsZero() && now.Sub(b.current.lastFrameAt) >= broadcastStall

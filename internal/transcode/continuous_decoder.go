@@ -82,14 +82,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		args = append(args, "-hwaccel", "videotoolbox")
 	}
 	if r.Live {
-		args = append(args, "-copyts")
-		if strings.HasSuffix(strings.ToLower(u.Path), ".m3u8") {
-			back := "-1"
-			if r.PrimeLive {
-				back = "-4"
-			}
-			args = append(args, "-live_start_index", back)
-		}
+		args = append(args, liveDecoderInputArgs(r, u)...)
 	}
 	if !r.Live && !r.Seeked && r.Offset > 0 {
 		args = append(args, "-ss", strconv.FormatFloat(r.Offset.Seconds(), 'f', 6, 64))
@@ -175,17 +168,12 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		defer d.workers.Done()
 		defer close(d.readDone)
 		defer close(d.frames)
+		watch := r.Live
+		paired := false
 		for {
-			var v, a []byte
-			var open bool
-			select {
-			case v, open = <-vq:
-				if !open {
-					d.readErr = p.result()
-					return
-				}
-			case <-p.ctx.Done():
-				d.readErr = p.result()
+			v, err := d.receive(p, vq, aq, watch && paired, liveVideoStarved)
+			if err != nil {
+				d.readErr = err
 				return
 			}
 			stamp := time.Duration(0)
@@ -197,16 +185,12 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 					return
 				}
 			}
-			select {
-			case a, open = <-aq:
-				if !open {
-					d.readErr = p.result()
-					return
-				}
-			case <-p.ctx.Done():
-				d.readErr = p.result()
+			a, err := d.receive(p, aq, vq, watch && paired, liveAudioStarved)
+			if err != nil {
+				d.readErr = err
 				return
 			}
+			paired = true
 			select {
 			case d.frames <- RawFrame{Video: v, PCM: a, SourcePTS: stamp, SourcePTSValid: r.Live && stamp >= 0}:
 			case <-p.ctx.Done():
@@ -218,6 +202,78 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	ok = true
 	return d, nil
 }
+// A codec change on a live PID (AAC to AC3, or a new video codec) leaves the
+// decoder chosen at open feeding undecodable packets: the other elementary
+// stream keeps arriving while this one stops. ffmpeg neither exits nor
+// recovers, so the output would go silent (or frozen) for many seconds.
+// Waiting this long with the other queue this full means the input changed.
+const (
+	liveStarvedAfter = 600 * time.Millisecond
+	liveVideoStarved = 16 // audio ticks queued while no picture arrives (~0.5 s)
+	liveAudioStarved = 6  // pictures queued while no audio arrives
+)
+
+// receive takes the next buffer from ch. With watch set it reports
+// ErrInputChanged when ch stays empty while other holds at least starved
+// buffers for liveStarvedAfter.
+func (d *continuousDecoder) receive(p *continuousProcess, ch, other chan []byte, watch bool, starved int) ([]byte, error) {
+	var poll <-chan time.Time
+	if watch {
+		t := time.NewTicker(liveStarvedAfter / 6)
+		defer t.Stop()
+		poll = t.C
+	}
+	var since time.Time
+	for {
+		select {
+		case b, open := <-ch:
+			if !open {
+				return nil, p.result()
+			}
+			return b, nil
+		case <-p.ctx.Done():
+			return nil, p.result()
+		case now := <-poll:
+			if len(other) < starved {
+				since = time.Time{}
+				continue
+			}
+			if since.IsZero() {
+				since = now
+			} else if now.Sub(since) >= liveStarvedAfter {
+				return nil, ErrInputChanged
+			}
+		}
+	}
+}
+
+// liveDecoderInputArgs are the input options of a live provider decoder.
+// The loopback relay owns provider connections; ffmpeg resumes a dropped
+// relay read in-process and bounds a read that never returns. Damaged
+// pictures keep libavcodec's error concealment: dropping corrupt packets
+// measured no better and lost whole GOPs on packet loss.
+func liveDecoderInputArgs(r DecoderRequest, u *url.URL) []string {
+	args := []string{"-copyts", "-fflags", "+genpts"}
+	if u.Scheme == "http" {
+		args = append(args, "-rw_timeout", "5000000", "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "2")
+	}
+	switch {
+	case r.InputFormat == "hls" || (r.InputFormat == "" && strings.HasSuffix(strings.ToLower(u.Path), ".m3u8")):
+		start := "-1"
+		if r.ReserveStart {
+			start = "0"
+		} else if r.PrimeLive {
+			start = "-4"
+		}
+		args = append(args, "-live_start_index", start)
+	case r.InputFormat == "mpegts":
+		// Keep stream identity across PMT version bumps that add or drop
+		// unrelated PIDs; a real codec change is caught by starvation.
+		args = append(args, "-merge_pmt_versions", "1")
+	}
+	return args
+}
+
 func (d *continuousDecoder) Next(ctx context.Context) (RawFrame, error) {
 	select {
 	case <-ctx.Done():

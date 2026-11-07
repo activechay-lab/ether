@@ -1,0 +1,212 @@
+package livetv
+
+import (
+	"context"
+	"strconv"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/braedonsaunders/ether/internal/transcode"
+)
+
+// steadyStandby is a backup input decoding at its live edge while the
+// primary shows stress (TSDuck's delayed switch). It keeps only the newest
+// half second of pictures, so adopting it on failure splices current media
+// without a cold open. It holds its own provider connection, so it only
+// exists while the account's connection budget has room.
+type steadyStandby struct {
+	src      StreamSource
+	link     *steadyLink
+	decoder  transcode.Decoder
+	frames   chan transcode.RawFrame
+	err      error
+	produced atomic.Bool
+	failed   atomic.Bool
+	adopted  atomic.Bool
+	done     chan struct{}
+	once     sync.Once
+}
+
+func (sb *steadyStandby) ready() bool {
+	return sb != nil && sb.produced.Load() && !sb.failed.Load()
+}
+
+func (sb *steadyStandby) run(ctx context.Context) {
+	defer close(sb.done)
+	defer close(sb.frames)
+	for {
+		frame, err := sb.decoder.Next(ctx)
+		if err != nil {
+			sb.err = err
+			sb.failed.Store(true)
+			return
+		}
+		sb.produced.Store(true)
+		if sb.adopted.Load() {
+			select {
+			case sb.frames <- frame:
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
+		for sent := false; !sent; {
+			select {
+			case sb.frames <- frame:
+				sent = true
+			default:
+				// Drop the oldest picture: a standby stays at its live edge.
+				select {
+				case <-sb.frames:
+				default:
+				}
+			}
+		}
+	}
+}
+
+// adopt hands the standby's decoder to the channel clock.
+func (sb *steadyStandby) adopt() transcode.Decoder {
+	sb.adopted.Store(true)
+	return &standbyDecoder{sb: sb}
+}
+
+func (sb *steadyStandby) close(s *Service) {
+	if sb == nil {
+		return
+	}
+	sb.once.Do(func() {
+		sb.decoder.Close()
+		<-sb.done
+		sb.link.close(s)
+	})
+}
+
+type standbyDecoder struct{ sb *steadyStandby }
+
+func (d *standbyDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
+	select {
+	case <-ctx.Done():
+		return transcode.RawFrame{}, ctx.Err()
+	case frame, ok := <-d.sb.frames:
+		if !ok {
+			return transcode.RawFrame{}, d.sb.err
+		}
+		return frame, nil
+	}
+}
+
+// Close stops the decoder; the adopted link now belongs to the planner.
+func (d *standbyDecoder) Close() error {
+	d.sb.once.Do(func() {
+		d.sb.decoder.Close()
+		<-d.sb.done
+	})
+	return nil
+}
+
+func (d *standbyDecoder) Diagnostics() string {
+	if source, ok := d.sb.decoder.(interface{ Diagnostics() string }); ok {
+		return "standby " + source.Diagnostics()
+	}
+	return "standby"
+}
+
+// watchStandby opens a backup when the primary input shows stress and
+// closes it once the primary has stayed healthy for steadyStandbyLinger.
+// Stress is upstream data older than a second (the tap's health) or, without
+// that signal, a decoder that produced no picture for a second.
+func (p *providerBroadcastPlanner) watchStandby(ctx context.Context) {
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	serial := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		now := time.Now()
+		p.mu.Lock()
+		a, sb := p.attempt, p.standby
+		p.mu.Unlock()
+		if sb != nil && sb.failed.Load() {
+			p.mu.Lock()
+			if p.standby == sb {
+				p.standby = nil
+			}
+			p.mu.Unlock()
+			sb.close(p.s)
+			continue
+		}
+		if a == nil {
+			continue
+		}
+		stressed := a.decoder.stressed(now)
+		if h, ok := p.s.inputHealth(a.link.ss); ok && (h.Stalled || h.Failed || h.DataAge > steadyStress) {
+			stressed = true
+		}
+		if stressed {
+			p.mu.Lock()
+			p.lastStress = now
+			p.mu.Unlock()
+			if sb == nil {
+				serial++
+				p.openStandby(ctx, a.src, serial)
+			}
+			continue
+		}
+		p.mu.Lock()
+		quiet := now.Sub(p.lastStress) >= steadyStandbyLinger
+		if quiet && p.standby == sb && sb != nil {
+			p.standby = nil
+		} else {
+			sb = nil
+		}
+		p.mu.Unlock()
+		if sb != nil {
+			p.logger().Debug("live standby closed", "input", sb.src.ID)
+			sb.close(p.s)
+		}
+	}
+}
+
+func (p *providerBroadcastPlanner) openStandby(ctx context.Context, primary StreamSource, serial int) {
+	c := p.channel
+	for _, src := range p.s.orderedSourceCandidates(c, primary.ID) {
+		p.mu.Lock()
+		parked := p.ladder.sources[src.ID] != nil && p.ladder.sources[src.ID].parked.After(p.s.o.Now())
+		p.mu.Unlock()
+		if parked {
+			continue
+		}
+		link, err := p.s.linkSteadySource(ctx, c, src, "broadcast-"+c.ID+steadyStandbyID+"-"+strconv.Itoa(serial))
+		if err != nil {
+			// A busy account has no room for a second connection; never
+			// overlap a capped account.
+			continue
+		}
+		input, err := p.s.relayInputLive(link.ss)
+		var decoder transcode.Decoder
+		if err == nil {
+			decoder, err = p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: link.ss.info.ID, InputURL: input, Format: p.format, Live: true, InputFormat: link.format})
+		}
+		if err != nil {
+			link.close(p.s)
+			continue
+		}
+		sb := &steadyStandby{src: src, link: link, decoder: decoder, frames: make(chan transcode.RawFrame, max(1, p.format.FPSNum/p.format.FPSDen/2)), done: make(chan struct{})}
+		go sb.run(ctx)
+		p.mu.Lock()
+		if p.standby != nil || ctx.Err() != nil {
+			p.mu.Unlock()
+			sb.close(p.s)
+			return
+		}
+		p.standby = sb
+		p.mu.Unlock()
+		p.logger().Info("live standby opened", "input", src.ID, "primary", primary.ID)
+		return
+	}
+}
