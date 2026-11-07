@@ -45,7 +45,7 @@ describe("live channel identity", () => {
       );
       const logo = await view.findByAltText("");
       expect(fetch).toHaveBeenCalledWith(
-        "/ether/api/livetv/channels/a%2Fb/logo",
+        expect.stringMatching(/^\/ether\/api\/livetv\/channels\/a%2Fb\/logo\?v=[0-9a-z]+$/),
         expect.anything(),
       );
       expect(logo.className).toContain("bg-white");

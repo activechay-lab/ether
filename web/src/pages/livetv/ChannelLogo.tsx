@@ -23,9 +23,11 @@ export function ChannelLogo({
 }) {
   const [failed, setFailed] = useState<string | null>(null);
   const [lightFor, setLightFor] = useState<string>();
+  // The server proxies the saved logo and caches it per channel URL; the
+  // version keeps an edited logo from showing the cached old one.
   const src =
     channelId && logo
-      ? `/ether/api/livetv/channels/${encodeURIComponent(channelId)}/logo`
+      ? `/ether/api/livetv/channels/${encodeURIComponent(channelId)}/logo?v=${logoVersion(logo)}`
       : undefined;
   const onImageResponse = useCallback(
     (response: Response) => {
@@ -84,4 +86,11 @@ export function ChannelLogo({
       )}
     </span>
   );
+}
+
+/** A short, stable fingerprint of a logo URL (which may be a long data: URI). */
+function logoVersion(logo: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < logo.length; i++) h = Math.imul(h ^ logo.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(36);
 }

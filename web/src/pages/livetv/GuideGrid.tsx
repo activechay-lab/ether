@@ -835,6 +835,7 @@ export function OnNowStrip({
                     name={c.name}
                     logo={c.logo}
                     seed={c.id}
+                    channelId={c.id}
                     size={22}
                     className="rounded-md"
                   />

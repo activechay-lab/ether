@@ -201,7 +201,13 @@ export function LivePreview({
         {phase !== "playing" ? (
           <div className="absolute inset-0 grid place-items-center bg-gradient-to-br from-zinc-900 via-black to-zinc-900">
             <div className="flex flex-col items-center gap-3 px-6 text-center">
-              <ChannelLogo name={channel.name} logo={channel.logo} seed={channel.id} size={44} />
+              <ChannelLogo
+                name={channel.name}
+                logo={channel.logo}
+                seed={channel.id}
+                channelId={channel.id}
+                size={44}
+              />
               {phase === "tuning" ? (
                 <p className="flex items-center gap-2 text-sm text-white/80">
                   <Loader2 size={14} className="animate-spin" />{" "}

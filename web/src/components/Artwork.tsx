@@ -85,6 +85,8 @@ export function Artwork({
 
   const shown = needsFetch ? blobUrl : (src ?? null);
   const failed = Boolean(src) && failedSrc === src;
+  // An empty label would still take a flex gap and push the icon off centre.
+  const label = title ?? (alt ? initials(alt) : "");
   const imgRef = useCallback(
     (img: HTMLImageElement | null) => {
       if (img && shown && img.complete && img.naturalWidth > 0) setLoadedSrc(shown);
@@ -115,9 +117,9 @@ export function Artwork({
         >
           <div className="flex flex-col items-center gap-1.5 text-fg-subtle">
             {icon ?? <Film size={18} />}
-            <span className="line-clamp-3 text-xs font-medium text-fg-muted">
-              {title ?? (alt ? initials(alt) : "")}
-            </span>
+            {label ? (
+              <span className="line-clamp-3 text-xs font-medium text-fg-muted">{label}</span>
+            ) : null}
           </div>
         </div>
       ) : null}
