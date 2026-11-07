@@ -82,6 +82,9 @@ var (
 	// enough for Steady to encode its first segments at once, so a reserve
 	// never slows a tune.
 	tapPaceLead = 4 * time.Second
+	// tapPaceStarved is how long a paced reader must wait at the live edge
+	// before its schedule re-anchors.
+	tapPaceStarved = time.Second
 	// tapReconnectTimeout bounds one reconnect's headers and first bytes.
 	tapReconnectTimeout = 4 * time.Second
 	// tapReconnectDelays space same-source reconnects after consecutive
@@ -182,17 +185,29 @@ func (r *tapRegistry) reserveOpen(source string, gap time.Duration, perHour int,
 // tapReader is one reader's position, for health and for resuming a
 // restarted decoder where its grant's previous reader stopped.
 type tapReader struct {
-	g   *inputGrant
-	off int64
-	// A paced reader (Steady) is released media at real time from where it
-	// started, plus tapPaceLead for a fast first segment. Without it the
-	// reserve would drain into socket buffers the tap cannot see, and
-	// Steady's startup burst would spend it.
-	pace       bool
-	started    bool
-	startClock int64
-	startWall  time.Time
+	g          *inputGrant
+	start, off int64
+	// A paced reader (a real-time consumer's grant) shares its grant's
+	// schedule; see tapPace.
+	pace *tapPace
 }
+
+// tapPace is a real-time grant's release schedule: media up to anchor clock
+// plus elapsed real time plus tapPaceLead. Without it the reserve would
+// drain into socket buffers the tap cannot see, into Steady's startup
+// burst, or into a copy relay's segments. It is per grant, so the readers
+// of one tune (probe, then ffmpeg) share one allowance rather than each
+// spending a fresh one. It re-anchors whenever a reader catches the live
+// edge, so time spent starved in a stall never becomes an allowance that
+// would swallow the reconnect's burst instead of keeping it as reserve.
+type tapPace struct {
+	anchored bool
+	clock    int64
+	wall     time.Time
+}
+
+// tapResume is where a grant's last reader started and stopped.
+type tapResume struct{ start, last int64 }
 
 type upstreamTap struct {
 	key, source string
@@ -226,7 +241,8 @@ type upstreamTap struct {
 	ts         *tsSplicer
 	marks      []tsMark
 	active     map[*tapReader]struct{}
-	resume     map[*inputGrant]int64 // where each grant's last reader stopped
+	resume     map[*inputGrant]tapResume // where each grant's last reader started and stopped
+	paces      map[*inputGrant]*tapPace
 	lastData   time.Time
 	epochStart time.Time
 	epochClock int64 // splicer clock when the current connection started
@@ -298,6 +314,7 @@ func (r *tapRegistry) release(g *inputGrant) {
 		if _, ok := t.refs[g]; ok {
 			delete(t.refs, g)
 			delete(t.resume, g)
+			delete(t.paces, g)
 			if len(t.refs) == 0 {
 				done = append(done, t)
 			}
@@ -459,15 +476,15 @@ func (t *upstreamTap) joinLocked(g *inputGrant, join string) int64 {
 	// stopped. A relay grant's readers (sniff, probe, ffmpeg) instead all
 	// start at the first byte while the tap is young, so ffmpeg sees what
 	// the probe saw.
-	if off, ok := t.resume[g]; ok && g != nil && g.steady {
-		return t.keyBeforeLocked(off, 0)
+	if r, ok := t.resume[g]; ok && g != nil && g.steady {
+		return t.resumeLocked(r)
 	}
 	if t.youngLocked() {
 		return 0
 	}
 	if g != nil {
-		if off, ok := t.resume[g]; ok {
-			return t.keyBeforeLocked(off, 0)
+		if r, ok := t.resume[g]; ok {
+			return t.resumeLocked(r)
 		}
 		if g.reserve > 0 {
 			return t.keyAtDepthLocked(g.joinDepth())
@@ -488,6 +505,18 @@ func (t *upstreamTap) headClockLocked() int64 {
 		return t.ts.clock
 	}
 	return 0
+}
+
+// resumeLocked is where a grant's next reader starts. After a short reader
+// (a probe, which read the start of the tune and left) it is where that
+// reader started, so ffmpeg sees what the probe saw and the reserve the
+// probe ran through is not lost. After a long one (a decoder that ran and
+// died) it is the keyframe before where it stopped.
+func (t *upstreamTap) resumeLocked(r tapResume) int64 {
+	if r.start >= t.ringStartLocked() && time.Duration(t.clockAtLocked(r.last)-t.clockAtLocked(r.start))*time.Second/tsClockHz <= tapYoung {
+		return r.start
+	}
+	return t.keyBeforeLocked(r.last, 0)
 }
 
 // formatEntryLocked is the entry of the oldest buffered keyframe in the
@@ -581,8 +610,19 @@ func (t *upstreamTap) readAs(ctx context.Context, rd *tapReader, off int64, p []
 	defer stop()
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	waited := time.Time{}
+	if off >= t.written {
+		waited = time.Now()
+	}
 	for off >= t.written && !t.closed && ctx.Err() == nil {
 		t.cond.Wait()
+	}
+	if !waited.IsZero() && rd != nil && rd.pace != nil && time.Since(waited) >= tapPaceStarved {
+		// Starved at the live edge (a stall): the schedule restarts here,
+		// so the stall's time is not an allowance that swallows the
+		// reconnect's burst. Short waits for the next live chunk do not
+		// count, or an arriving burst would pull the anchor along with it.
+		rd.pace.anchored = false
 	}
 	if ctx.Err() != nil {
 		return 0, off, ctx.Err()
@@ -597,7 +637,9 @@ func (t *upstreamTap) readAs(ctx context.Context, rd *tapReader, off int64, p []
 		}
 		if t.ts != nil && g != nil && g.reserve > 0 {
 			off = t.keyAtDepthLocked(g.joinDepth())
-			rd.started = false
+			if rd.pace != nil {
+				rd.pace.anchored = false
+			}
 		} else if t.ts != nil {
 			off = t.keyBeforeLocked(t.written, 2*time.Second)
 		} else {
@@ -605,8 +647,8 @@ func (t *upstreamTap) readAs(ctx context.Context, rd *tapReader, off int64, p []
 		}
 	}
 	end := t.written
-	if rd != nil && rd.pace && t.ts != nil && len(t.marks) > 0 {
-		end = t.paceLocked(rd, off)
+	if rd != nil && rd.pace != nil && t.ts != nil && len(t.marks) > 0 {
+		end = t.paceLocked(rd.pace, off)
 		if end <= off {
 			return 0, off, nil
 		}
@@ -622,12 +664,12 @@ func (t *upstreamTap) readAs(ctx context.Context, rd *tapReader, off int64, p []
 
 // paceLocked is the end of what a paced reader at off may have now: media
 // up to its start plus elapsed real time plus tapPaceLead.
-func (t *upstreamTap) paceLocked(rd *tapReader, off int64) int64 {
+func (t *upstreamTap) paceLocked(p *tapPace, off int64) int64 {
 	now := time.Now()
-	if !rd.started {
-		rd.started, rd.startClock, rd.startWall = true, t.clockAtLocked(off), now
+	if !p.anchored {
+		p.anchored, p.clock, p.wall = true, t.clockAtLocked(off), now
 	}
-	limit := rd.startClock + int64((now.Sub(rd.startWall)+tapPaceLead)/time.Millisecond)*tsClockHz/1000
+	limit := p.clock + int64((now.Sub(p.wall)+tapPaceLead)/time.Millisecond)*tsClockHz/1000
 	i := sort.Search(len(t.marks), func(i int) bool { return t.marks[i].clock > limit })
 	if i == len(t.marks) {
 		return t.written
@@ -667,7 +709,16 @@ func (t *upstreamTap) detach() {
 // addReader registers a positioned reader for g; dropReader records where
 // it stopped so a restarted decoder on the same grant resumes there.
 func (t *upstreamTap) addReaderLocked(g *inputGrant, off int64) *tapReader {
-	rd := &tapReader{g: g, off: off}
+	rd := &tapReader{g: g, start: off, off: off}
+	if g != nil && g.reserve > 0 {
+		if t.paces == nil {
+			t.paces = map[*inputGrant]*tapPace{}
+		}
+		if t.paces[g] == nil {
+			t.paces[g] = &tapPace{}
+		}
+		rd.pace = t.paces[g]
+	}
 	if t.active == nil {
 		t.active = map[*tapReader]struct{}{}
 	}
@@ -681,9 +732,13 @@ func (t *upstreamTap) dropReader(rd *tapReader) {
 	delete(t.active, rd)
 	if _, ok := t.refs[rd.g]; ok && rd.g != nil {
 		if t.resume == nil {
-			t.resume = map[*inputGrant]int64{}
+			t.resume = map[*inputGrant]tapResume{}
 		}
-		t.resume[rd.g] = rd.off
+		r := tapResume{start: rd.start, last: rd.off}
+		if prev, ok := t.resume[rd.g]; ok && prev.start < r.start {
+			r.start = prev.start
+		}
+		t.resume[rd.g] = r
 	}
 }
 
@@ -757,7 +812,6 @@ func (s *Service) serveTapped(w http.ResponseWriter, r *http.Request, g *inputGr
 	t.mu.Lock()
 	off := t.joinLocked(g, r.URL.Query().Get(relayJoinQuery))
 	rd := t.addReaderLocked(g, off)
-	rd.pace = g.reserve > 0
 	t.mu.Unlock()
 	defer t.dropReader(rd)
 	ctx, cancel := context.WithCancel(r.Context())
@@ -1075,6 +1129,20 @@ func (t *upstreamTap) resizeLocked(n int) {
 	t.ring = next
 }
 
+// readerDepthLocked is a reader's whole reserve: media in the tap ahead of
+// it, plus, for a paced reader, what it has been handed beyond real time
+// (up to tapPaceLead), which its consumer holds and plays through a stall.
+func (t *upstreamTap) readerDepthLocked(rd *tapReader) time.Duration {
+	d := t.depthLocked(rd.off)
+	if p := rd.pace; p != nil && p.anchored && t.ts != nil && len(t.marks) > 0 {
+		due := p.clock + int64(time.Since(p.wall)/time.Millisecond)*tsClockHz/1000
+		if held := t.clockAtLocked(rd.off) - due; held > 0 {
+			d += min(time.Duration(held)*time.Second/tsClockHz, tapPaceLead)
+		}
+	}
+	return d
+}
+
 // tapDedupeDepth is the reserve readers need for a reconnect to wait out
 // content the provider re-sends rather than show it twice.
 const tapDedupeDepth = 2 * time.Second
@@ -1084,7 +1152,7 @@ const tapDedupeDepth = 2 * time.Second
 func (t *upstreamTap) minDepthLocked() time.Duration {
 	first, low := true, time.Duration(0)
 	for rd := range t.active {
-		if d := t.depthLocked(rd.off); first || d < low {
+		if d := t.readerDepthLocked(rd); first || d < low {
 			first, low = false, d
 		}
 	}
@@ -1347,17 +1415,9 @@ func (t *upstreamTap) healthFor(g *inputGrant) UpstreamHealth {
 		}
 	}
 	if reader != nil {
-		h.ReserveDepth = t.depthLocked(reader.off)
-		// A paced reader has also been handed up to tapPaceLead beyond real
-		// time: media its consumer holds and plays through a stall too.
-		if reader.pace && reader.started && t.ts != nil && len(t.marks) > 0 {
-			due := reader.startClock + int64(time.Since(reader.startWall)/time.Millisecond)*tsClockHz/1000
-			if held := t.clockAtLocked(reader.off) - due; held > 0 {
-				h.ReserveDepth += min(time.Duration(held)*time.Second/tsClockHz, tapPaceLead)
-			}
-		}
-	} else if off, ok := t.resume[g]; ok {
-		h.ReserveDepth = t.depthLocked(off)
+		h.ReserveDepth = t.readerDepthLocked(reader)
+	} else if r, ok := t.resume[g]; ok {
+		h.ReserveDepth = t.depthLocked(r.last)
 	}
 	if g != nil && g.reserve > 0 && t.ts != nil {
 		h.Target = g.reserve
