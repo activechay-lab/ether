@@ -1877,11 +1877,12 @@ func withTarget(rel core.Release, sreq core.SearchRequest) core.Release {
 	if rel.Target != nil {
 		target := *rel.Target
 		target.ShowYear, target.EpisodeTitle = sreq.Year, sreq.EpisodeTitle
+		target.AbsoluteEpisode = releaseparse.AnimeSearchEpisode(sreq)
 		target.ExpectedIDs, target.ReportedIDs = sreq.IDs, rel.TitleIDs
 		rel.Target = &target
 		return rel // enrich cached identities without deriving their ID again
 	}
-	target := core.ReleaseTarget{Season: sreq.Season, Episode: sreq.Episode, ShowYear: sreq.Year, EpisodeTitle: sreq.EpisodeTitle, ExpectedIDs: sreq.IDs, ReportedIDs: rel.TitleIDs}
+	target := core.ReleaseTarget{AbsoluteEpisode: releaseparse.AnimeSearchEpisode(sreq), Season: sreq.Season, Episode: sreq.Episode, ShowYear: sreq.Year, EpisodeTitle: sreq.EpisodeTitle, ExpectedIDs: sreq.IDs, ReportedIDs: rel.TitleIDs}
 	rel.Target = &target
 	if rel.Info.FullSeason {
 		rel.ID = core.TargetReleaseID(rel.ID, target)

@@ -26,10 +26,12 @@ const (
 // ReleaseTarget is the episode wanted from a multi-file release such as a
 // season pack.
 type ReleaseTarget struct {
-	Season       int    `json:"season,omitempty"`
-	Episode      int    `json:"episode,omitempty"`
-	ShowYear     int    `json:"showYear,omitempty"`
-	EpisodeTitle string `json:"episodeTitle,omitempty"`
+	// AbsoluteEpisode is the verified anime episode number across seasons.
+	AbsoluteEpisode int    `json:"absoluteEpisode,omitempty"`
+	Season          int    `json:"season,omitempty"`
+	Episode         int    `json:"episode,omitempty"`
+	ShowYear        int    `json:"showYear,omitempty"`
+	EpisodeTitle    string `json:"episodeTitle,omitempty"`
 	// ExpectedIDs identify the requested series; ReportedIDs are the
 	// release's indexer-reported series IDs, retained for file validation.
 	ExpectedIDs IDs `json:"expectedIds,omitempty"`

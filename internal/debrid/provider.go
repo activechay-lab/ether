@@ -709,6 +709,19 @@ func ChooseFile(files []File, target *core.ReleaseTarget) (File, error) {
 		normPath := strings.ReplaceAll(f.Path, "\\", "/")
 		baseInfo := releaseparse.Parse(path.Base(normPath))
 		fullInfo := releaseparse.Parse(strings.ReplaceAll(normPath, "/", " "))
+		// Absolute anime numbers are authoritative file identities. Never let
+		// a parent pack's episode range or the single-file fallback override one.
+		if len(baseInfo.AbsoluteEpisodes) > 0 {
+			if (len(fullInfo.Seasons) == 0 || len(fullInfo.Seasons) == 1 && fullInfo.Seasons[0] == target.Season) && releaseparse.EpisodeMatchesAbsolute(baseInfo, target.AbsoluteEpisode) {
+				return f, nil
+			}
+			// In an explicitly numbered season folder, a bare file number is
+			// local to that season (the folder supplies the missing Sxx).
+			if len(fullInfo.Seasons) == 1 && fullInfo.Seasons[0] == target.Season && releaseparse.EpisodeMatchesAbsolute(baseInfo, target.Episode) {
+				return f, nil
+			}
+			continue
+		}
 		if len(baseInfo.Seasons) == 0 && len(fullInfo.Seasons) > 0 {
 			baseInfo.Seasons = fullInfo.Seasons
 		}
@@ -733,7 +746,7 @@ func ChooseFile(files []File, target *core.ReleaseTarget) (File, error) {
 		normPath := strings.ReplaceAll(videos[0].Path, "\\", "/")
 		baseInfo := releaseparse.Parse(path.Base(normPath))
 		info := releaseparse.Parse(strings.ReplaceAll(normPath, "/", " "))
-		if len(baseInfo.Episodes) == 0 && len(info.Episodes) == 0 && !namesOtherClassicEpisode(videos[0].Path, target.Season, target.Episode) {
+		if len(baseInfo.AbsoluteEpisodes) == 0 && len(baseInfo.Episodes) == 0 && len(info.Episodes) == 0 && !namesOtherClassicEpisode(videos[0].Path, target.Season, target.Episode) {
 			return videos[0], nil
 		}
 	}
