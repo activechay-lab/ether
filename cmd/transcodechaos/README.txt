@@ -117,7 +117,7 @@ Modes: passthrough (provider HLS), relay-copy (raw TS), relay-transcode
 "card" no-signal screen, i.e. broadcast mode).
 
 Judges:
-- Protocol (everywhere): polls the client playlist every 0.5 s, downloads
+- Protocol (everywhere): polls the client playlist every 0.2 s, downloads
   every segment, and records the longest time without a new segment, EXTINF
   and measured segment length against the target duration, codec changes
   between consecutive segments without EXT-X-DISCONTINUITY (ffprobe), media
