@@ -617,10 +617,38 @@ indexers by that number for anime, meaning TMDB's "anime" keyword or
 Japanese-language animation. When an earlier season's episode count is
 unknown, only the season-and-episode numbering is used.
 
+## Quality profiles for movies and shows
+
+Every quality profile ranks releases for one kind of title, **Movies** or
+**Shows**, as in Radarr and Sonarr. The **Movies | Shows** picker on
+**Quality › Profiles** shows that kind's profiles with their **At home** and
+**Away** defaults, and **Add profile** creates one of the kind shown. A movie
+profile and a show profile can share a name, such as *1080p*, and still have
+different settings. A profile's **Applies to** in its editor offers **Movies**
+or **Shows**; moving a profile to the other kind takes the rules that used it
+along, and a default it can no longer serve moves to another profile.
+
+A rule under **Quality › Rules** applies to movies, to shows, or to both. A
+rule for both names a profile that exists for movies and for shows; movies
+then use the movie profile of that name and shows the show one.
+
+A new install starts with 4K, 1080p and 720p profiles for movies and the same
+three for shows, with 4K as the At home default for each. Upgrading from
+v0.3.4 or earlier: each profile there served movies and shows alike. Ether
+splits it once, when the server starts, into a movie profile and a show
+profile with the same name and settings. Rules and defaults keep the names
+they had, so every viewer, app and title gets exactly the quality it got
+before, and remembered releases and resume points stay valid. Renaming or
+removing one of the pair changes only that kind: a rule for both kinds that
+named it becomes one rule for each kind, so the other kind keeps its
+profile.
+
 ## Import a quality profile
 
 Coming from Radarr, Sonarr, or another guide? Open **Quality › Profiles** and
-select **Movies** or **Shows**, choose **Add profile**, then **Import a preset quality profile**. Choose a profile for that media, such as
+select **Movies** or **Shows**, choose **Add profile**, then **Import a
+preset quality profile**. Movies import from Radarr's guide and shows from
+Sonarr's. Choose a profile for that media, such as
 *HD Bluray + WEB* or *[SQP] SQP-1 (2160p)*. Ether supports **TRaSH Guides**,
 **Profilarr (Dictionarry)**, and pasted profile JSON. It shows what it will
 add before saving:
@@ -636,11 +664,11 @@ add before saving:
   streaming equivalent, such as Raw-HD or SDTV, are skipped. Radarr's
   "Original" language rule isn't a hard filter in Ether.
 
-Rename the profile if you like, then choose **Add profile**. The profile is
-scoped to the app it came from: a Radarr profile applies to movies, a Sonarr
-profile to shows. **Quality › Profiles** has a **Movies / Shows** switch and
-separate At home and Away defaults, so a movie profile and a show profile can
-each be the default for their media. New profiles apply to the selected media. Your other profiles keep ranking releases exactly as before: they score
+Pasted JSON whose qualities name the other app is refused with a note to
+switch kinds first: a Sonarr profile pasted under **Movies** is imported under
+**Shows**. Rename the profile if you like, then choose **Add profile**; to
+make it a default, edit it and choose **At home** or **Away** under **Default
+for**. Your other profiles keep ranking releases exactly as before: they score
 the newly added formats 0, as Radarr and Sonarr do for formats a profile
 doesn't list.
 

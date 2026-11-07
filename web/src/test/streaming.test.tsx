@@ -338,7 +338,10 @@ describe("Releases", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
     await waitFor(() => expect(calls(fake, "PUT", "/config/quality")).toHaveLength(1));
     const body = calls(fake, "PUT", "/config/quality")[0]!.body as EtherConfig["quality"];
-    expect(body.profiles?.map((p) => p.name)).toEqual(["1080p"]);
+    expect(body.profiles?.map((p) => `${p.mediaType}:${p.name}`)).toEqual([
+      "movie:1080p",
+      "tv:1080p",
+    ]);
     expect(body.rules).toEqual([]);
     expect(body).toMatchObject({ default: "1080p", remote: "1080p" });
   });

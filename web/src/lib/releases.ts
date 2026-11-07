@@ -158,13 +158,23 @@ interface ConsoleProfiles {
 
 export type StarrApp = "radarr" | "sonarr";
 
-/** Profile media scopes (core.MediaAny/Movie/TV). */
+/**
+ * Media scopes (core.MediaAny/Movie/TV). Every profile serves exactly one
+ * media; a client rule may leave it empty to apply to every media.
+ */
 export const MEDIA_ANY = "";
 export const MEDIA_MOVIE = "movie";
 export const MEDIA_TV = "tv";
 export type ProfileMedia = typeof MEDIA_MOVIE | typeof MEDIA_TV;
 
-/** A profile's media scope; absent means both. */
+/**
+ * The media a profile can serve, in console order. Mirrors
+ * core.ProfileMediaTypes; every media option in the console comes from
+ * this list, so a new media (such as anime) is one more entry here.
+ */
+export const PROFILE_MEDIA: readonly ProfileMedia[] = [MEDIA_MOVIE, MEDIA_TV];
+
+/** A profile's media. */
 export function profileMediaType(profile: { mediaType?: string }): string {
   return profile.mediaType ?? MEDIA_ANY;
 }
@@ -175,11 +185,29 @@ export function mediaApplies(scope: string | undefined, media: string | undefine
   return !scope || scope === media;
 }
 
-/** "Movies", "Shows", or "Movies & shows" for a media scope. */
+/** "Movies", "Shows", or "Movies & shows" (a rule for every media). */
 export function mediaLabel(media: string | undefined): string {
   if (media === MEDIA_MOVIE) return t("Movies");
   if (media === MEDIA_TV) return t("Shows");
   return t("Movies & shows");
+}
+
+/**
+ * Profile names a client rule for media can pick. A movie and a TV profile
+ * may share a name; a rule for every media names one that each media has,
+ * and each media uses its own profile of that name.
+ */
+export function ruleProfileNames(
+  profiles: { name: string; mediaType?: string }[] | null | undefined,
+  media: string | undefined,
+): string[] {
+  const list = profiles ?? [];
+  const names = [...new Set(list.map((p) => p.name))];
+  return names.filter((name) =>
+    (media ? [media] : PROFILE_MEDIA).every((m) =>
+      list.some((p) => p.name === name && p.mediaType === m),
+    ),
+  );
 }
 
 /** The media an import app's profiles describe. */

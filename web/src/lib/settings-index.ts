@@ -180,9 +180,7 @@ export function settingsIndex(): SettingHit[] {
       "site-definitions",
     ),
     // Quality
-    ...rows("/quality/profiles", `${quality} › ${away}`, [
-      ["bitrate-limit", t("Bitrate limit")],
-    ]),
+    ...rows("/quality/profiles", `${quality} › ${away}`, [["bitrate-limit", t("Bitrate limit")]]),
     ...rows("/quality/profiles", quality, [["source-order", t("Source order")]]),
     ...rows("/quality/check", quality, [["check-quality", t("Check quality")]]),
     ...groupHits(S.PLAY_VERSIONS, "/quality/profiles", quality),

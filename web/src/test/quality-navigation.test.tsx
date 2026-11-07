@@ -10,6 +10,9 @@ it("gives the checker its own searchable destination and inline controls", async
   const result = await screen.findByTestId("quality-headline", {}, { timeout: 10000 });
   expect(result).toHaveTextContent("4K");
   expect(screen.getAllByTestId("quality-headline")).toHaveLength(1);
+  // The step bar shows here too, with Check quality as the current step.
+  const steps = screen.getByRole("navigation", { name: "How quality works" });
+  expect(steps.querySelector("[aria-current=step]")).toHaveTextContent("Check quality");
   const viewer = screen.getByRole("button", { name: "Viewer" });
   const row = viewer.closest(".grid")!;
   expect(row).toHaveClass("sm:grid-cols-3");
@@ -51,18 +54,52 @@ it("orders profile sections before away, source order, and versions", async () =
 it("switches profiles between movies and shows and badges each card", async () => {
   renderApp("/quality/profiles", {}, (fake) => {
     const profiles = fake.state.config.quality.profiles!;
-    profiles.push({ ...structuredClone(profiles[1]!), name: "Shows 1080p", mediaType: "tv" });
+    profiles.push({ ...structuredClone(profiles[2]!), name: "Sitcoms" });
   });
   const movies = await screen.findByRole("radio", { name: "Movies" }, { timeout: 10000 });
   const shows = screen.getByRole("radio", { name: "Shows" });
   expect(movies).toHaveAttribute("aria-checked", "true");
-  expect(await screen.findByText("4K", {}, { timeout: 10000 })).toBeInTheDocument();
-  expect(screen.getByText("Movies & shows")).toBeInTheDocument();
+  const row = (name: string) => screen.getByRole("button", { name: `Edit ${name}` }).closest("li")!;
+  await screen.findByRole("button", { name: "Edit 4K" }, { timeout: 10000 });
+  expect(within(row("4K")).getByText("Movies")).toBeInTheDocument();
+  expect(within(row("1080p")).getByText("Movies")).toBeInTheDocument();
+  // Every profile is for one media: there is no "Movies & shows" profile.
+  expect(screen.queryByText("Movies & shows")).not.toBeInTheDocument();
 
   fireEvent.click(shows);
-  expect(await screen.findByText("Shows 1080p", {}, { timeout: 10000 })).toBeInTheDocument();
-  expect(screen.queryByText("4K")).not.toBeInTheDocument();
-  expect(screen.getAllByText("Shows").length).toBeGreaterThan(1);
+  expect(
+    await screen.findByRole("button", { name: "Edit Sitcoms" }, { timeout: 10000 }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Edit 4K" })).not.toBeInTheDocument();
+  // The show profile named 1080p is its own profile.
+  expect(within(row("1080p")).getByText("Shows")).toBeInTheDocument();
+});
+
+it("offers only Movies and Shows, and a moved profile takes its rules along", async () => {
+  const { fake } = renderApp("/quality/profiles", {}, (f) => {
+    f.state.config.quality.profiles!.push({
+      ...structuredClone(f.state.config.quality.profiles![0]!),
+      name: "Kids",
+    });
+    f.state.config.quality.rules!.push({ userId: 7, mediaType: "movie", profile: "Kids" });
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Kids" }, { timeout: 10000 }));
+  const drawer = await screen.findByRole("dialog", { name: "Kids" });
+  const applies = within(drawer).getByRole("radiogroup", { name: "Applies to" });
+  expect(
+    within(applies)
+      .getAllByRole("radio")
+      .map((r) => r.textContent),
+  ).toEqual(["Movies", "Shows"]);
+  fireEvent.click(within(applies).getByRole("radio", { name: "Shows" }));
+  fireEvent.click(within(drawer).getByRole("button", { name: "Save profile" }));
+  await waitFor(() => expect(calls(fake, "PUT", "/config/quality")).toHaveLength(1));
+  const body = calls(fake, "PUT", "/config/quality")[0]!.body as {
+    profiles: { name: string; mediaType?: string }[];
+    rules: { userId?: number; mediaType?: string; profile: string }[];
+  };
+  expect(body.profiles.find((p) => p.name === "Kids")?.mediaType).toBe("tv");
+  expect(body.rules.at(-1)).toEqual({ userId: 7, mediaType: "tv", profile: "Kids" });
 });
 
 it("collapses guide sync to one line until a profile is imported", async () => {

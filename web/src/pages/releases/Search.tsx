@@ -28,7 +28,6 @@ import {
   PROFILE_DOWNLOAD,
   PROFILE_NONE,
   ageDays,
-  mediaApplies,
   mediaLabel,
   qualityLabel,
   rangeLabel,
@@ -196,12 +195,17 @@ export function ReleaseSearch({ onPinsChanged }: { onPinsChanged?: () => void })
   const [profile, setProfile] = useState("");
   const profiles = useAsync(() => releaseConsole.profiles(media || undefined), [media]);
   const config = useAsync(() => api.getConfig(), []);
-  const profileMedia = new Map(
-    (config.data?.quality.profiles ?? []).map((p) => [p.name, p.mediaType]),
-  );
-  const listed = (profiles.data?.profiles ?? []).filter((name) =>
-    mediaApplies(profileMedia.get(name), media || undefined),
-  );
+  // The server lists each name once, for the title's media when known. A
+  // movie and a TV profile may share a name.
+  const listed = profiles.data?.profiles ?? [];
+  const nameMedia = (name: string) => {
+    const scopes = new Set(
+      (config.data?.quality.profiles ?? [])
+        .filter((p) => p.name === name)
+        .map((p) => p.mediaType ?? ""),
+    );
+    return scopes.size === 1 ? [...scopes][0] : "";
+  };
   const result = useAsync<ConsoleSearch | null>(
     (signal) => (key ? releaseConsole.search(key, { profile }, signal) : Promise.resolve(null)),
     [key, profile],
@@ -338,7 +342,7 @@ export function ReleaseSearch({ onPinsChanged }: { onPinsChanged?: () => void })
               </option>
               {listed.map((p) => (
                 <option key={p} value={p}>
-                  {media ? p : `${p} · ${mediaLabel(profileMedia.get(p))}`}
+                  {media ? p : `${p} · ${mediaLabel(nameMedia(p))}`}
                 </option>
               ))}
               <option value={PROFILE_NONE}>{t("No profile limits")}</option>
