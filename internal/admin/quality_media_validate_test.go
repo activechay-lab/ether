@@ -15,7 +15,9 @@ func mediaConfig(t *testing.T) config.Config {
 		Profiles: []core.QualityProfile{
 			{Name: "Movies", MediaType: core.MediaMovie},
 			{Name: "Shows", MediaType: core.MediaTV},
-			{Name: "Any"},
+			// One name may serve both media as two profiles.
+			{Name: "Any", MediaType: core.MediaMovie},
+			{Name: "Any", MediaType: core.MediaTV},
 		},
 	}
 	return cfg
@@ -64,6 +66,16 @@ func TestValidateConfigMediaScopes(t *testing.T) {
 			name:   "profile media type",
 			mutate: func(c *config.Config) { c.Quality.Profiles[0].MediaType = "film" },
 			field:  "quality.profiles[0].mediaType",
+		},
+		{
+			name:   "profile without a media type",
+			mutate: func(c *config.Config) { c.Quality.Profiles[0].MediaType = "" },
+			field:  "quality.profiles[0].mediaType",
+		},
+		{
+			name:   "duplicate name within one media",
+			mutate: func(c *config.Config) { c.Quality.Profiles[3].Name = "Shows" },
+			field:  "quality.profiles[3].name",
 		},
 		{
 			name: "rule media type",

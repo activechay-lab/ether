@@ -279,6 +279,7 @@ func writeTools(d Deps) []tools.Tool {
 			Description: fmt.Sprintf("Propose a new order for a quality profile's ranking steps. Send the full list. Built-in steps: %s. Prefer-rule steps look like rule:<id>. The list must include connection and verified. Omit profile for the first (default) profile.", steps),
 			InputSchema: schema(map[string]any{
 				"profile": pString("Profile name; defaults to the first profile", 80),
+				"media":   pEnum("Which media's profile, when a movie and a TV profile share the name", "movie", "tv"),
 				"ranking": pStrings("The full ranking order, most important first", 32, 80),
 			}, "ranking"),
 			Execute: func(ctx context.Context, _ tools.Principal, in map[string]any) (tools.Result, error) {
@@ -309,7 +310,7 @@ func writeTools(d Deps) []tools.Tool {
 					},
 					map[string]any{"profile": profile.Name, "ranking": ranking},
 					func(ctx context.Context) (tools.Result, error) {
-						if err := d.Profiles.SetRanking(ctx, profile.Name, ranking); err != nil {
+						if err := d.Profiles.SetRanking(ctx, profile.Name, profile.Media, ranking); err != nil {
 							return tools.Result{}, err
 						}
 						return tools.Result{Data: map[string]any{"updated": true, "profile": profile.Name},
@@ -322,6 +323,7 @@ func writeTools(d Deps) []tools.Tool {
 			Description: "Propose adding one release rule to a quality profile. Action: require (only releases matching), avoid (never matching) or prefer (rank matching higher). Conditions test release fields such as resolution, codec, source, group, language or name. The rule is checked before it is proposed.",
 			InputSchema: schema(map[string]any{
 				"profile":  pString("Profile name; defaults to the first profile", 80),
+				"media":    pEnum("Which media's profile, when a movie and a TV profile share the name", "movie", "tv"),
 				"name":     pString("A short name for the rule", 80),
 				"action":   pEnum("What the rule does", "require", "prefer", "avoid"),
 				"match":    pEnum("all: every condition; any: at least one", "all", "any"),
@@ -397,7 +399,7 @@ func writeTools(d Deps) []tools.Tool {
 					},
 					map[string]any{"profile": profile.Name, "name": name, "action": action, "match": match, "disabled": disabled, "conditions": conds},
 					func(ctx context.Context) (tools.Result, error) {
-						if err := d.Profiles.AddRule(ctx, profile.Name, rule); err != nil {
+						if err := d.Profiles.AddRule(ctx, profile.Name, profile.Media, rule); err != nil {
 							return tools.Result{}, err
 						}
 						return tools.Result{Data: map[string]any{"added": true, "profile": profile.Name},
@@ -606,13 +608,24 @@ func (d Deps) profile(ctx context.Context, in map[string]any) (ProfileInfo, erro
 	if len(profiles) == 0 {
 		return ProfileInfo{}, tools.Userf("no quality profiles are configured")
 	}
-	if name == "" {
+	media, err := optStr(in, "media", 8)
+	if err != nil {
+		return ProfileInfo{}, err
+	}
+	if name == "" && media == "" {
 		return profiles[0], nil
 	}
+	var matches []ProfileInfo
 	for _, p := range profiles {
-		if strings.EqualFold(p.Name, name) {
-			return p, nil
+		if (name == "" || strings.EqualFold(p.Name, name)) && (media == "" || p.Media == media) {
+			matches = append(matches, p)
 		}
+	}
+	if len(matches) == 1 || (name == "" && len(matches) > 0) {
+		return matches[0], nil
+	}
+	if len(matches) > 1 {
+		return ProfileInfo{}, tools.Userf("%q exists for movies and for TV shows; set media to \"movie\" or \"tv\"", name)
 	}
 	names := make([]string, len(profiles))
 	for i, p := range profiles {

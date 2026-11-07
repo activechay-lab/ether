@@ -26,12 +26,15 @@ const TABS = localized(
     ] as const,
 );
 
+/** Tabs that show the Profiles → Rules → Check quality step bar. */
+const STEP_TABS = new Set(["profiles", "rules", "check"]);
+
 /** Which release Ether picks for each play, and why. */
 export default function Releases() {
   const tab = useRouteTab(TABS);
   return (
     <DomainPage title={t("Quality")} base="/quality" tabs={TABS} active={tab}>
-      {tab === "profiles" || tab === "rules" ? (
+      {STEP_TABS.has(tab) ? (
         <nav
           aria-label={t("How quality works")}
           className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center"

@@ -92,9 +92,10 @@ func (s *QualitySyncer) Sync(ctx context.Context) (QualitySyncReport, error) {
 	}
 	cfg := s.deps.Config()
 	type target struct {
-		name string
-		imp  core.ProfileImport
-		plan QualityImportPlan
+		name  string
+		media string
+		imp   core.ProfileImport
+		plan  QualityImportPlan
 	}
 	var targets []target
 	failed := false
@@ -123,7 +124,7 @@ func (s *QualitySyncer) Sync(ctx context.Context) (QualitySyncReport, error) {
 			report.Warnings = append(report.Warnings, fmt.Sprintf("%s: %s", prof.Name, plan.Unusable))
 			continue
 		}
-		targets = append(targets, target{name: prof.Name, imp: *imp, plan: plan})
+		targets = append(targets, target{name: prof.Name, media: prof.MediaType, imp: *imp, plan: plan})
 	}
 	if err := ctx.Err(); err != nil {
 		return report, err
@@ -137,7 +138,7 @@ func (s *QualitySyncer) Sync(ctx context.Context) (QualitySyncReport, error) {
 			for _, def := range t.plan.Definitions {
 				desired[formatID(def)] = true
 			}
-			s.apply(c, t.name, t.imp, t.plan, now, &report)
+			s.apply(c, t.name, t.media, t.imp, t.plan, now, &report)
 		}
 		if failed {
 			// A failed or unusable profile still references its old formats;
@@ -250,10 +251,10 @@ func (s *QualitySyncer) plan(ctx context.Context, imp core.ProfileImport, cfg co
 
 // apply updates one saved profile in place and upserts the definitions its
 // plan scores.
-func (s *QualitySyncer) apply(c *config.Config, name string, saved core.ProfileImport, plan QualityImportPlan, now time.Time, report *QualitySyncReport) {
+func (s *QualitySyncer) apply(c *config.Config, name, media string, saved core.ProfileImport, plan QualityImportPlan, now time.Time, report *QualitySyncReport) {
 	idx := -1
 	for i := range c.Quality.Profiles {
-		if c.Quality.Profiles[i].Name == name {
+		if c.Quality.Profiles[i].Name == name && c.Quality.Profiles[i].MediaType == media {
 			idx = i
 			break
 		}
@@ -262,7 +263,7 @@ func (s *QualitySyncer) apply(c *config.Config, name string, saved core.ProfileI
 		// Renamed since the snapshot: identity still finds it.
 		for i := range c.Quality.Profiles {
 			p := c.Quality.Profiles[i]
-			if p.Import != nil && p.Import.Source == saved.Source && p.Import.App == saved.App && p.Import.Profile == saved.Profile {
+			if p.MediaType == media && p.Import != nil && p.Import.Source == saved.Source && p.Import.App == saved.App && p.Import.Profile == saved.Profile {
 				idx = i
 				break
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -207,16 +208,17 @@ func (s *Service) ConsoleProfiles() (def string, names []string) {
 }
 
 // ConsoleProfilesFor is ConsoleProfiles with a title's media: its default
-// is the media's default rather than the other media's.
+// is the media's default rather than the other media's. A name shared by a
+// movie and a TV profile is listed once; the title's media picks the copy.
 func (s *Service) ConsoleProfilesFor(media string) (def string, names []string) {
 	q := s.qualityCfg()
 	media = normalizeMedia(media)
 	for _, p := range q.Profiles {
-		if core.MediaApplies(p.MediaType, media) {
+		if core.MediaApplies(p.MediaType, media) && !slices.Contains(names, p.Name) {
 			names = append(names, p.Name)
 		}
 	}
-	if p, ok := profileByName(q.Profiles, defaultProfileName(q, media)); ok && core.MediaApplies(p.MediaType, media) {
+	if p, ok := core.FindProfile(q.Profiles, defaultProfileName(q, media), media); ok {
 		return p.Name, names
 	}
 	if len(names) > 0 {
@@ -240,7 +242,7 @@ func (s *Service) consoleProfileForMedia(name, media string) (core.QualityProfil
 		return core.QualityProfile{Name: ProfileNone, AllowHDR: true, AllowDolbyVision: true, AllowCam: true}, core.ClientCaps{}, nil
 	case ProfileDownload:
 		base := SelectProfileForMedia(q, core.ClientCaps{}, nil, media)
-		if p, ok := profileByName(q.Profiles, defaultProfileName(q, media)); ok && core.MediaApplies(p.MediaType, media) {
+		if p, ok := core.FindProfile(q.Profiles, defaultProfileName(q, media), media); ok {
 			base = p
 		}
 		caps := core.ClientCaps{Download: true}
@@ -248,7 +250,7 @@ func (s *Service) consoleProfileForMedia(name, media string) (core.QualityProfil
 		// ceiling here too, before the download reshape lowers it.
 		return downloadProfile(snapshotConfiguredMaxHeight(copyProfile(base)), caps), caps, nil
 	case "":
-		if p, ok := profileByName(q.Profiles, defaultProfileName(q, media)); ok && core.MediaApplies(p.MediaType, media) {
+		if p, ok := core.FindProfile(q.Profiles, defaultProfileName(q, media), media); ok {
 			return copyProfile(p), core.ClientCaps{}, nil
 		}
 		for _, p := range q.Profiles {
@@ -258,25 +260,13 @@ func (s *Service) consoleProfileForMedia(name, media string) (core.QualityProfil
 		}
 		return defaultProfile(), core.ClientCaps{}, nil
 	}
-	if p, ok := profileByName(q.Profiles, name); ok {
-		if !core.MediaApplies(p.MediaType, media) {
-			return core.QualityProfile{}, core.ClientCaps{}, fmt.Errorf("%w: %q does not apply to this title", ErrUnknownProfile, name)
-		}
+	if p, ok := core.FindProfile(q.Profiles, name, media); ok {
 		return copyProfile(p), core.ClientCaps{}, nil
 	}
+	if _, ok := core.FindProfile(q.Profiles, name, core.MediaAny); ok {
+		return core.QualityProfile{}, core.ClientCaps{}, fmt.Errorf("%w: %q does not apply to this title", ErrUnknownProfile, name)
+	}
 	return core.QualityProfile{}, core.ClientCaps{}, fmt.Errorf("%w: %q", ErrUnknownProfile, name)
-}
-
-func profileByName(ps []core.QualityProfile, name string) (core.QualityProfile, bool) {
-	if name == "" {
-		return core.QualityProfile{}, false
-	}
-	for _, p := range ps {
-		if p.Name == name {
-			return p, true
-		}
-	}
-	return core.QualityProfile{}, false
 }
 
 func copyProfile(p core.QualityProfile) core.QualityProfile {

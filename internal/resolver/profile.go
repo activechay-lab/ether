@@ -164,29 +164,21 @@ func chooseProfile(q config.Quality, caps core.ClientCaps, user *core.User) prof
 // profile is never chosen for a show, or the reverse.
 func chooseProfileForMedia(q config.Quality, caps core.ClientCaps, user *core.User, media string) profileChoice {
 	media = normalizeMedia(media)
-	byName := map[string]core.QualityProfile{}
-	for _, p := range q.Profiles {
-		byName[p.Name] = p
-	}
 	for i, rule := range q.Rules {
 		if !core.MediaApplies(rule.MediaType, media) || !ruleMatches(rule, caps, user) {
 			continue
 		}
-		if p, ok := byName[rule.Profile]; ok && profileApplies(p, media) {
+		if p, ok := core.FindProfile(q.Profiles, rule.Profile, media); ok {
 			return profileChoice{profile: p, source: ProfileFromRule, rule: i}
 		}
 	}
 	if caps.Remote {
-		if name := remoteProfileName(q, media); name != "" {
-			if p, ok := byName[name]; ok && profileApplies(p, media) {
-				return profileChoice{profile: p, source: ProfileFromRemote, rule: -1}
-			}
+		if p, ok := core.FindProfile(q.Profiles, remoteProfileName(q, media), media); ok {
+			return profileChoice{profile: p, source: ProfileFromRemote, rule: -1}
 		}
 	}
-	if name := defaultProfileName(q, media); name != "" {
-		if p, ok := byName[name]; ok && profileApplies(p, media) {
-			return profileChoice{profile: p, source: ProfileFromDefault, rule: -1}
-		}
+	if p, ok := core.FindProfile(q.Profiles, defaultProfileName(q, media), media); ok {
+		return profileChoice{profile: p, source: ProfileFromDefault, rule: -1}
 	}
 	for _, p := range q.Profiles {
 		if profileApplies(p, media) {
@@ -268,9 +260,13 @@ func ApplyClientRules(q config.Quality, caps core.ClientCaps, user *core.User) c
 
 // ApplyClientRulesForMedia applies only shared policy until the title is known.
 // Scoped rules must never irreversibly narrow another media's capabilities.
+// A profile name is shared when every media has a profile of that name.
 func ApplyClientRulesForMedia(q config.Quality, caps core.ClientCaps, user *core.User, media string) core.ClientCaps {
 	if media == core.MediaAny {
-		q.Profiles = slices.DeleteFunc(slices.Clone(q.Profiles), func(p core.QualityProfile) bool { return p.MediaType != core.MediaAny })
+		all := q.Profiles
+		q.Profiles = slices.DeleteFunc(slices.Clone(q.Profiles), func(p core.QualityProfile) bool {
+			return p.MediaType != core.MediaAny && !core.ProfileServesEveryMedia(all, p.Name)
+		})
 		q.Rules = slices.DeleteFunc(slices.Clone(q.Rules), func(r config.QualityRule) bool { return r.MediaType != core.MediaAny })
 	}
 	caps, _ = applyClientRules(q, caps, user, media)

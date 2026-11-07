@@ -658,6 +658,7 @@ func (ps *appProfileService) Profiles(ctx context.Context) ([]builtin.ProfileInf
 	for _, p := range cfg.Quality.Profiles {
 		out = append(out, builtin.ProfileInfo{
 			Name:    p.Name,
+			Media:   p.MediaType,
 			Ranking: append([]string(nil), p.Ranking...),
 			Rules:   append([]core.ReleaseRule(nil), p.ReleaseRules...),
 		})
@@ -665,10 +666,10 @@ func (ps *appProfileService) Profiles(ctx context.Context) ([]builtin.ProfileInf
 	return out, nil
 }
 
-func (ps *appProfileService) SetRanking(ctx context.Context, profile string, ranking []string) error {
+func (ps *appProfileService) SetRanking(ctx context.Context, profile, media string, ranking []string) error {
 	return ps.a.saveValidated(func(c *config.Config) error {
 		for i := range c.Quality.Profiles {
-			if strings.EqualFold(c.Quality.Profiles[i].Name, profile) {
+			if strings.EqualFold(c.Quality.Profiles[i].Name, profile) && c.Quality.Profiles[i].MediaType == media {
 				c.Quality.Profiles[i].Ranking = append([]string(nil), ranking...)
 				return nil
 			}
@@ -677,10 +678,10 @@ func (ps *appProfileService) SetRanking(ctx context.Context, profile string, ran
 	})
 }
 
-func (ps *appProfileService) AddRule(ctx context.Context, profile string, rule core.ReleaseRule) error {
+func (ps *appProfileService) AddRule(ctx context.Context, profile, media string, rule core.ReleaseRule) error {
 	return ps.a.saveValidated(func(c *config.Config) error {
 		for i := range c.Quality.Profiles {
-			if strings.EqualFold(c.Quality.Profiles[i].Name, profile) {
+			if strings.EqualFold(c.Quality.Profiles[i].Name, profile) && c.Quality.Profiles[i].MediaType == media {
 				p := &c.Quality.Profiles[i]
 				baseID := rule.ID
 				if baseID == "" {

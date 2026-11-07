@@ -22,9 +22,9 @@ import type { Viewer } from "../../lib/contract";
 import {
   MEDIA_MOVIE,
   MEDIA_TV,
-  compatibleProfiles,
   mediaApplies,
   mediaLabel,
+  ruleProfileNames,
   profileMediaType,
 } from "../../lib/releases";
 import type { QualityRule } from "../../lib/types";
@@ -114,7 +114,7 @@ export function ClientRulesTab() {
     .filter(({ rule }) => mediaApplies(rule.mediaType, filter || undefined));
 
   const open = (index: number, draft: QualityRule) => {
-    const compatible = compatibleProfiles(profiles, draft.mediaType).map((p) => p.name);
+    const compatible = ruleProfileNames(profiles, draft.mediaType);
     const copy = { ...draft };
     if (!compatible.includes(copy.profile) && compatible.length) copy.profile = compatible[0]!;
     setErrors({});
@@ -127,7 +127,7 @@ export function ClientRulesTab() {
     setEditing((e) => {
       if (!e) return e;
       const draft = { ...e.draft, mediaType: media || undefined };
-      const compatible = compatibleProfiles(profiles, media).map((p) => p.name);
+      const compatible = ruleProfileNames(profiles, media);
       if (!compatible.includes(draft.profile)) draft.profile = compatible[0] ?? "";
       return { ...e, draft };
     });
@@ -400,7 +400,11 @@ export function ClientRulesTab() {
             <SettingsRow
               title={t("Quality profile")}
               description={
-                errors.profile ? <span className="text-danger">{errors.profile}</span> : undefined
+                errors.profile ? (
+                  <span className="text-danger">{errors.profile}</span>
+                ) : draft.mediaType ? undefined : (
+                  t("Movies use the movie profile with this name, and shows the show one.")
+                )
               }
               control={
                 <div className="w-56">
@@ -408,9 +412,9 @@ export function ClientRulesTab() {
                     {...searchSelectLabels()}
                     value={draft.profile}
                     onChange={(v) => set({ profile: v })}
-                    options={compatibleProfiles(profiles, draft.mediaType).map((p) => ({
-                      value: p.name,
-                      label: p.name,
+                    options={ruleProfileNames(profiles, draft.mediaType).map((name) => ({
+                      value: name,
+                      label: name,
                     }))}
                     ariaLabel={t("Profile")}
                     searchable={false}

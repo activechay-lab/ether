@@ -753,6 +753,9 @@ func Open(dataDir string) (*Store, error) {
 			return nil, fmt.Errorf("parse %s: %w", s.path, err)
 		}
 		upgraded := upgradeShippedQuality(&s.cfg)
+		if splitSharedProfiles(&s.cfg.Quality) {
+			upgraded = true
+		}
 		// Seal secrets written in plaintext (by hand, or by a release that
 		// predates sealing). Also rewrite a file that still names a server
 		// per app.
@@ -765,6 +768,7 @@ func Open(dataDir string) (*Store, error) {
 			}
 		}
 	case os.IsNotExist(err):
+		freshInstallQuality(&s.cfg.Quality)
 		if err := s.save(); err != nil {
 			return nil, err
 		}

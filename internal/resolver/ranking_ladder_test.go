@@ -485,7 +485,7 @@ func TestValidateRankingAndSelectionKey(t *testing.T) {
 		t.Fatal("custom ranking must change SelectionKey")
 	}
 	// Import provenance (and its sync timestamp) is not part of the ranking
-	// definition; the media scope is.
+	// definition, and neither is the media a profile serves.
 	imported := p1
 	imported.Import = &core.ProfileImport{Source: "trash", App: "radarr", Profile: "p", SyncedAt: time.Now()}
 	if p1.ComputeSelectionKey() != imported.ComputeSelectionKey() {
@@ -493,8 +493,8 @@ func TestValidateRankingAndSelectionKey(t *testing.T) {
 	}
 	scoped := p1
 	scoped.MediaType = core.MediaMovie
-	if p1.ComputeSelectionKey() == scoped.ComputeSelectionKey() {
-		t.Fatal("media scope must change SelectionKey")
+	if p1.ComputeSelectionKey() != scoped.ComputeSelectionKey() {
+		t.Fatal("media scope must not change SelectionKey")
 	}
 }
 
