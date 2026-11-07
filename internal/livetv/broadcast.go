@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,22 @@ import (
 
 const broadcastPrewarm = 20 * time.Second
 const broadcastStall = 1500 * time.Millisecond
+
+// broadcastStallReport is a pipeline delay worth naming in the log: a
+// quarter of the client's margin at 2 s segments.
+const broadcastStallReport = 250 * time.Millisecond
+
+// gcSummary is the Go runtime's recent collection cost, to tell a process
+// pause from an encoder stall.
+func gcSummary() string {
+	var stats debug.GCStats
+	debug.ReadGCStats(&stats)
+	last := time.Duration(0)
+	if len(stats.Pause) > 0 {
+		last = stats.Pause[0]
+	}
+	return fmt.Sprintf("num=%d lastPause=%s totalPause=%s", stats.NumGC, last, stats.PauseTotal)
+}
 
 // Resolving/seek/probe may take several round trips before the first picture.
 // Startup waits on the screen; the 1.5 s deadline applies after input is flowing.
@@ -203,7 +220,8 @@ type broadcast struct {
 	burstNoWait  bool
 	burstPicture time.Time // wall time of the last fresh picture
 	// segment is the published segment duration (the target duration).
-	segment time.Duration
+	segment     time.Duration
+	clockWarned time.Time
 	// steadyBitrate is a provider output's full-quality bitrate ceiling,
 	// shared by every viewer that joins it.
 	steadyBitrate int
@@ -348,10 +366,20 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 			if !ok {
 				return
 			}
+			began := time.Now()
 			if err := write(lifetime, frame); err != nil {
 				b.logger.Warn("broadcast rendition write stopped", "rendition", id, "reason", err)
 				b.dropRendition(id, r)
 				return
+			}
+			// A live client allows one segment of lateness: name the stage
+			// whenever the encoder itself stops taking pictures.
+			if blocked := time.Since(began); blocked >= broadcastStallReport {
+				details := ""
+				if source, ok := encoder.(interface{ Diagnostics() string }); ok {
+					details = source.Diagnostics()
+				}
+				b.logger.Warn("broadcast encoder stopped accepting pictures", "rendition", id, "blocked", blocked, "encoder", details, "gc", gcSummary())
 			}
 		}
 	}()
@@ -634,6 +662,10 @@ func (b *broadcast) run() {
 		if !b.step(scheduled) {
 			timer.Reset(2 * time.Millisecond)
 			continue
+		}
+		if late := time.Since(scheduled.Add(-b.lead)); !b.bursting && late >= broadcastStallReport && time.Since(b.clockWarned) > 10*time.Second {
+			b.clockWarned = time.Now()
+			b.logger.Warn("broadcast frame clock late", "late", late, "tick", b.tick, "gc", gcSummary())
 		}
 		b.tick++
 		next := b.origin.Add(time.Duration(b.tick) * time.Second * time.Duration(b.format.FPSDen) / time.Duration(b.format.FPSNum)).Add(-b.lead)

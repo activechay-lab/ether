@@ -1,6 +1,7 @@
 package transcode
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -24,6 +25,30 @@ type continuousDecoder struct {
 	reads    [2]atomic.Int64
 	ptsStop  chan struct{}
 	ptsOnce  sync.Once
+	// waitingSince is when the assembler began waiting for one stream (unix
+	// ns, 0 while not waiting); other is the queue of the stream it is not
+	// waiting for. Together they tell a starving stream from a quiet input.
+	audioStart   atomic.Int64 // first audio frame's source PTS (ns), -1 until seen
+	waitingSince atomic.Int64
+	otherStream  atomic.Int64 // reads index of the stream not waited for
+	otherAtWait  atomic.Int64 // its buffers read when the wait began
+}
+
+// Starving reports how long one elementary stream has delivered nothing
+// while the other keeps flowing: the first sign of a codec or stream-set
+// change, before ErrInputChanged.
+// A plain input stall stops both streams; only a stream that keeps arriving
+// (three buffers since the wait began) marks the waited one as starving.
+func (d *continuousDecoder) Starving() time.Duration {
+	since := d.waitingSince.Load()
+	if since == 0 {
+		return 0
+	}
+	other := d.otherStream.Load()
+	if d.reads[other].Load()-d.otherAtWait.Load() < 3 {
+		return 0
+	}
+	return time.Since(time.Unix(0, since))
 }
 
 func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, error) {
@@ -111,12 +136,22 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	if r.Live {
 		args = append(args, "-loglevel", "info")
 		videoFilter += "showinfo=checksum=0,"
-		audioFilter = liveAudioJumps(liveForwardJump(r, u)) + audioFilter
+		// Audio keeps its source clock (no first_pts) so the assembler can lock
+		// it to the pictures; ashowinfo reports where it starts.
+		audioFilter = liveAudioJumps(liveForwardJump(r, u)) + "ashowinfo," + "aresample=48000:async=1"
 	}
 	videoFilter += fmt.Sprintf("setpts=N*%d/(%d*TB)", f.FPSDen, f.FPSNum)
 	args = append(args, "-i", r.InputURL, "-map", "0:v:0", "-vf", videoFilter, "-pix_fmt", "yuv420p", "-c:v", "rawvideo", "-threads:v", "1", "-f", "rawvideo", sockets[0].url(), "-map", "0:a:0", "-af", audioFilter, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-f", "s16le", sockets[1].url())
+	d := &continuousDecoder{readDone: make(chan struct{}), ptsStop: ptsStop}
+	d.audioStart.Store(-1)
 	p, e := m.startContinuous(ctx, args, "", true, sockets, nil, nil, func(line string) {
 		if !r.Live {
+			return
+		}
+		if strings.Contains(line, "Parsed_ashowinfo") {
+			if at, ok := liveFramePTS(line); ok && at >= 0 {
+				d.audioStart.CompareAndSwap(-1, int64(at))
+			}
 			return
 		}
 		stamp, ok := liveFramePTS(line)
@@ -137,7 +172,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	if r.Live {
 		capacity = 0
 	}
-	d := &continuousDecoder{continuousProcess: p, frames: make(chan RawFrame, capacity), readDone: make(chan struct{}), ptsStop: ptsStop}
+	d.continuousProcess, d.frames = p, make(chan RawFrame, capacity)
 	// Read both sockets independently: muxer scheduling may deliver many audio
 	// blocks before the next picture. Bounded queues propagate prewarm pressure.
 	vq := make(chan []byte, 8)
@@ -176,6 +211,9 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		defer close(d.frames)
 		watch := r.Live
 		paired := false
+		fill := liveFill{fps: f.FPSNum / max(1, f.FPSDen)}
+		var pcm []byte
+		ticks := int64(0)
 		for {
 			v, err := d.receive(p, vq, aq, watch && paired, liveVideoStarved)
 			if err != nil {
@@ -191,17 +229,38 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 					return
 				}
 			}
-			a, err := d.receive(p, aq, vq, watch && paired, liveAudioStarved)
-			if err != nil {
-				d.readErr = err
-				return
+			if r.Live && !paired {
+				// Lock sound to picture at the source: sample 0 must be the
+				// first picture's source time, whatever each stream's start.
+				if err := d.alignAudio(p, aq, vq, &pcm, stamp); err != nil {
+					d.readErr = err
+					return
+				}
 			}
+			for len(pcm) < tickPCM(f, ticks) {
+				b, err := d.receive(p, aq, vq, watch && paired, liveAudioStarved)
+				if err != nil {
+					d.readErr = err
+					return
+				}
+				pcm = append(pcm, b...)
+			}
+			a := append([]byte(nil), pcm[:tickPCM(f, ticks)]...)
+			pcm = pcm[tickPCM(f, ticks):]
+			ticks++
 			paired = true
-			select {
-			case d.frames <- RawFrame{Video: v, PCM: a, SourcePTS: stamp, SourcePTSValid: r.Live && stamp >= 0}:
-			case <-p.ctx.Done():
-				d.readErr = p.result()
-				return
+			frame := RawFrame{Video: v, PCM: a, SourcePTS: stamp, SourcePTSValid: r.Live && stamp >= 0}
+			out := []RawFrame{frame}
+			if r.Live {
+				out = fill.next(frame, time.Now())
+			}
+			for _, frame := range out {
+				select {
+				case d.frames <- frame:
+				case <-p.ctx.Done():
+					d.readErr = p.result()
+					return
+				}
 			}
 		}
 	}()
@@ -229,6 +288,24 @@ func (d *continuousDecoder) receive(p *continuousProcess, ch, other chan []byte,
 		t := time.NewTicker(liveStarvedAfter / 6)
 		defer t.Stop()
 		poll = t.C
+	}
+	select {
+	case b, open := <-ch:
+		if !open {
+			return nil, p.result()
+		}
+		return b, nil
+	default:
+	}
+	if watch {
+		stream := int64(0)
+		if starved == liveVideoStarved {
+			stream = 1 // waiting for pictures; sound is the other stream
+		}
+		d.otherStream.Store(stream)
+		d.otherAtWait.Store(d.reads[stream].Load())
+		d.waitingSince.Store(time.Now().UnixNano())
+		defer d.waitingSince.Store(0)
 	}
 	var since time.Time
 	for {
@@ -262,13 +339,12 @@ func (d *continuousDecoder) receive(p *continuousProcess, ch, other chan []byte,
 // step over 10 s (ffmpeg's dts_delta_threshold); shorter forward gaps are
 // packet loss and stay, so fps and aresample keep pictures and sound in sync.
 //
-// A playlist input loses whole segments instead: a 404/503 or slow segment
-// that ffmpeg skips leaves the same gap in sound and picture. With a reserve
-// ahead, the viewer keeps moving pictures (the content jumps forward, the
-// reserve shrinks) instead of a held picture and silence, so a playlist's
-// forward step over 1.5 s is closed too.
+// A forward step that only one stream takes (pictures lost, sound intact)
+// must stay filled: closing it on that stream alone would shift sound
+// against picture for the rest of the session. A lost playlist segment
+// gaps both streams and is skipped whole by the assembler (liveFill).
 func liveAudioJumps(forward float64) string {
-	return fmt.Sprintf("asetpts='if(eq(N,0),0,if(gt((PTS-PREV_INPTS)*TB,%g)+lt((PTS-PREV_INPTS)*TB,-0.5),PREV_OUTPTS+NB_SAMPLES/(SR*TB),PREV_OUTPTS+PTS-PREV_INPTS))',", forward)
+	return fmt.Sprintf("asetpts='if(eq(N,0),PTS,if(gt((PTS-PREV_INPTS)*TB,%g)+lt((PTS-PREV_INPTS)*TB,-0.5),PREV_OUTPTS+NB_SAMPLES/(SR*TB),PREV_OUTPTS+PTS-PREV_INPTS))',", forward)
 }
 
 func liveVideoJumps(f RawFormat, forward float64) string {
@@ -276,14 +352,8 @@ func liveVideoJumps(f RawFormat, forward float64) string {
 }
 
 // liveForwardJump is the forward timestamp step a live input closes rather
-// than fills: ffmpeg's dts_delta_threshold for a transport stream, a
-// missing segment for a playlist.
-func liveForwardJump(r DecoderRequest, u *url.URL) float64 {
-	if liveHLS(r, u) {
-		return 1.5
-	}
-	return 10
-}
+// than fills: ffmpeg's dts_delta_threshold.
+func liveForwardJump(DecoderRequest, *url.URL) float64 { return 10 }
 
 func liveHLS(r DecoderRequest, u *url.URL) bool {
 	return r.InputFormat == "hls" || (r.InputFormat == "" && strings.HasSuffix(strings.ToLower(u.Path), ".m3u8"))
@@ -368,4 +438,110 @@ func liveFramePTS(line string) (time.Duration, bool) {
 		return -1, true
 	}
 	return time.Duration(value * float64(time.Second)), true
+}
+
+// liveFill skips media a live input never had. When both streams lose the
+// same span (a provider segment that failed), ffmpeg fills it on each stream
+// independently: repeated pictures from fps, digital silence from aresample.
+// Played, that is a held picture and silence; skipping it whole (picture and
+// sound of every filled tick together) keeps them in sync and the viewer's
+// picture moving, spending reserve instead. Filler arrives as a burst, faster
+// than real time; a genuinely still and silent programme arrives at real
+// time and is kept.
+type liveFill struct {
+	fps      int
+	prev     []byte
+	pending  []RawFrame
+	since    time.Time
+	skipping bool
+	skipped  int
+}
+
+func (l *liveFill) next(frame RawFrame, now time.Time) []RawFrame {
+	filler := l.prev != nil && silentPCM(frame.PCM) && bytes.Equal(frame.Video, l.prev)
+	l.prev = frame.Video
+	if !filler {
+		l.skipping = false
+		out := append(l.pending, frame)
+		l.pending = nil
+		return out
+	}
+	if l.skipping {
+		l.skipped++
+		return nil
+	}
+	if len(l.pending) == 0 {
+		l.since = now
+	}
+	l.pending = append(l.pending, frame)
+	run := max(1, l.fps/2)
+	if len(l.pending) < run {
+		return nil
+	}
+	// Half a second of filler: skip it if it came clearly faster than it
+	// would play (a quarter faster; real-time media arrives at 1x).
+	if now.Sub(l.since)*5 < time.Duration(len(l.pending))*time.Second*4/time.Duration(max(1, l.fps)) {
+		l.skipping = true
+		l.skipped += len(l.pending)
+		l.pending = nil
+		return nil
+	}
+	out := l.pending
+	l.pending = nil
+	return out
+}
+
+func silentPCM(pcm []byte) bool {
+	for _, b := range pcm {
+		if b != 0 {
+			return false
+		}
+	}
+	return len(pcm) > 0
+}
+
+// liveAlignLimit bounds the opening correction; a larger start offset is a
+// broken stream, not an A/V start difference.
+const liveAlignLimit = 2 * time.Second
+
+// alignAudio trims or pads the opening sound so its first sample plays with
+// the first picture: the source's own A/V offset, kept to the sample.
+func (d *continuousDecoder) alignAudio(p *continuousProcess, aq, vq chan []byte, pcm *[]byte, video time.Duration) error {
+	for len(*pcm) == 0 {
+		b, err := d.receive(p, aq, vq, false, 0)
+		if err != nil {
+			return err
+		}
+		*pcm = append(*pcm, b...)
+	}
+	for wait := time.Now().Add(250 * time.Millisecond); d.audioStart.Load() < 0 && time.Now().Before(wait); {
+		time.Sleep(5 * time.Millisecond)
+	}
+	audio := d.audioStart.Load()
+	if audio < 0 || video < 0 {
+		return nil
+	}
+	offset := time.Duration(audio) - video
+	if offset > liveAlignLimit || offset < -liveAlignLimit {
+		return nil
+	}
+	const frame = 4 // s16le stereo
+	samples := int(offset.Seconds()*48000) * frame
+	if samples > 0 {
+		// Sound starts after the first picture: lead with silence.
+		*pcm = append(make([]byte, samples), *pcm...)
+		return nil
+	}
+	for drop := -samples; drop > 0; {
+		if len(*pcm) == 0 {
+			b, err := d.receive(p, aq, vq, false, 0)
+			if err != nil {
+				return err
+			}
+			*pcm = append(*pcm, b...)
+		}
+		n := min(drop, len(*pcm))
+		*pcm, drop = (*pcm)[n:], drop-n
+	}
+	return nil
 }
