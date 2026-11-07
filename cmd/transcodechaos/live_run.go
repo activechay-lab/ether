@@ -31,6 +31,7 @@ type liveOptions struct {
 	Keep         string // keep work directories here
 	Label        string
 	Observe      time.Duration
+	Client       string
 	RepoRoot     string
 }
 
@@ -68,6 +69,9 @@ type liveResult struct {
 	Backup      *providerStats  `json:"backupProvider,omitempty"`
 	Error       string          `json:"error,omitempty"`
 	WallSeconds float64         `json:"wallSeconds"`
+	// HostLoad is the 1-minute load average at the row's start and end;
+	// timing rows measured on a saturated host are not comparable.
+	HostLoad [2]float64 `json:"hostLoad"`
 }
 
 type liveReport struct {
@@ -75,6 +79,7 @@ type liveReport struct {
 	Commit    string       `json:"commit"`
 	Subset    string       `json:"subset"`
 	Preset    string       `json:"preset"`
+	Client    string       `json:"client"`
 	Player    string       `json:"player"`
 	FFmpeg    string       `json:"ffmpeg"`
 	Host      string       `json:"host"`
@@ -89,6 +94,15 @@ func runLive(o liveOptions) error {
 	}
 	if o.Preset == "" {
 		o.Preset = "balanced"
+	}
+	if o.Client == "" {
+		o.Client = "plex-appletv"
+	}
+	if _, ok := liveClients[o.Client]; !ok {
+		return fmt.Errorf("unknown -live-client %q", o.Client)
+	}
+	if o.Client != "plex-appletv" && o.Player == "auto" {
+		o.Player = "off" // AVPlayer only stands in for Apple clients
 	}
 	rows := selectRows(o.Subset, o.Only)
 	if len(rows) == 0 {
@@ -120,7 +134,7 @@ func runLive(o liveOptions) error {
 		}
 	}
 	version, _ := mediaprocOutput(ctx, o.FF, "-version")
-	rep := liveReport{Label: o.Label, Commit: gitCommit(o.RepoRoot), Subset: o.Subset, Preset: o.Preset, Player: map[bool]string{true: "avfoundation", false: "protocol-only"}[player != ""], FFmpeg: firstLine(version), Host: runtime.GOOS + "/" + runtime.GOARCH, StartedAt: started.UTC()}
+	rep := liveReport{Label: o.Label, Commit: gitCommit(o.RepoRoot), Subset: o.Subset, Preset: o.Preset, Client: o.Client, Player: map[bool]string{true: "avfoundation", false: "protocol-only"}[player != ""], FFmpeg: firstLine(version), Host: runtime.GOOS + "/" + runtime.GOARCH, StartedAt: started.UTC()}
 	fmt.Printf("live: %d rows, preset %s, player %s, parallel %d\n", len(rows), o.Preset, rep.Player, o.Parallel)
 	results := make([]liveResult, len(rows))
 	sem := make(chan struct{}, max(1, o.Parallel))
@@ -216,6 +230,22 @@ func renderLive(report, markdown, baselinePath string) error {
 	return os.WriteFile(markdown, []byte(liveMarkdown(rep, base, liveOptions{})), 0o644)
 }
 
+func hostLoad() float64 {
+	var out []byte
+	if runtime.GOOS == "linux" {
+		out, _ = os.ReadFile("/proc/loadavg")
+	} else {
+		out, _ = exec.Command("sysctl", "-n", "vm.loadavg").Output()
+	}
+	for _, f := range strings.Fields(strings.Trim(string(out), "{} \n")) {
+		var v float64
+		if _, err := fmt.Sscan(f, &v); err == nil {
+			return v
+		}
+	}
+	return 0
+}
+
 func gitCommit(root string) string {
 	out, err := exec.Command("git", "-C", root, "rev-parse", "--short=9", "HEAD").Output()
 	if err != nil {
@@ -238,7 +268,8 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 	sc := row.Scenario
 	res = liveResult{ID: row.ID(), Scenario: sc.Name, Summary: sc.Summary, Mode: row.Mode, Preset: o.Preset, Verdict: "FAIL"}
 	wall := time.Now()
-	defer func() { res.WallSeconds = time.Since(wall).Seconds() }()
+	res.HostLoad[0] = hostLoad()
+	defer func() { res.WallSeconds = time.Since(wall).Seconds(); res.HostLoad[1] = hostLoad() }()
 	ctx, cancel := context.WithTimeout(parent, o.Observe+90*time.Second)
 	defer cancel()
 	start := time.Now()
@@ -266,7 +297,7 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 	defer ether.Close()
 	res.Applied = ether.Stability
 	tuneStart := time.Now()
-	playlist, _, err := ether.tunePlex(ctx, "plex-appletv", ch.ID)
+	playlist, _, err := ether.tunePlex(ctx, o.Client, ch.ID)
 	res.TuneS = time.Since(tuneStart).Seconds()
 	res.Path = ether.selectedPath()
 	if res.Path == "" && row.Mode == "steady" {
@@ -320,7 +351,7 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 		}
 	}
 	res.Viewer = summarise(res.Protocol, av, res.TuneS)
-	res.Verdict, res.Reasons = judgeRow(sc, o.Preset, res)
+	res.Verdict, res.Reasons = judgeRow(sc, o.Preset, liveStuckFactor[o.Client], res)
 	if res.Error != "" && res.Verdict == "PASS" {
 		res.Verdict = "FAIL"
 		res.Reasons = append(res.Reasons, res.Error)
@@ -475,7 +506,7 @@ func summarise(p protocolReport, av *avResult, tune float64) viewerSummary {
 }
 
 // judgeRow applies the common rules plus the scenario's preset budget.
-func judgeRow(sc liveScenario, preset string, r liveResult) (string, []string) {
+func judgeRow(sc liveScenario, preset string, stuck float64, r liveResult) (string, []string) {
 	var why []string
 	v, p := r.Viewer, r.Protocol
 	b, ok := sc.Budget[preset]
@@ -494,8 +525,8 @@ func judgeRow(sc liveScenario, preset string, r liveResult) (string, []string) {
 	if v.SilenceS > b.SilenceS+0.05 {
 		why = append(why, fmt.Sprintf("silence %.1fs > %.1fs", v.SilenceS, b.SilenceS))
 	}
-	if td := p.TargetDuration; td > 0 && p.LongestNoNewSegmentAdjS > 1.5*td {
-		why = append(why, fmt.Sprintf("no new segment for %.1fs (> 1.5x TD %.0fs)", p.LongestNoNewSegmentAdjS, td))
+	if td := p.TargetDuration; td > 0 && p.LongestNoNewSegmentAdjS > stuck*td {
+		why = append(why, fmt.Sprintf("no new segment for %.1fs (> %.1fx TD %.0fs)", p.LongestNoNewSegmentAdjS, stuck, td))
 	}
 	if p.OverlongSegments > 0 {
 		why = append(why, fmt.Sprintf("%d segments exceed TD+0.5s (longest EXTINF %.1fs, media %.1fs)", p.OverlongSegments, p.MaxSegmentS, p.MaxMediaS))
