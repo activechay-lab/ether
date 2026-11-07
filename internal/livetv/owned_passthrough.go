@@ -254,6 +254,10 @@ func (p *passthroughProducer) open(ctx context.Context, src StreamSource, raw st
 	} else if base != nil {
 		o.mediaURL = base.String()
 	}
+	seed, seedBase := body, base
+	if isMasterPlaylist(body) {
+		seed, seedBase = nil, nil
+	}
 	reserve := max(p.tl.reserve-p.tl.depth(), 0)
 	switch {
 	case p.ingest == nil:
@@ -265,6 +269,7 @@ func (p *passthroughProducer) open(ctx context.Context, src StreamSource, raw st
 		p.ingest.rebase(o)
 		p.tl.splice(false)
 	}
+	p.ingest.seed, p.ingest.seedBase = seed, seedBase
 	p.src, p.raw, p.headers = src, raw, headers
 	id := src.ID
 	p.playing.Store(&id)

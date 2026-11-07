@@ -205,7 +205,7 @@ func (p *providerBroadcastPlanner) openStandby(ctx context.Context, primary Stre
 		if parked {
 			continue
 		}
-		link, err := p.s.linkSteadySource(ctx, c, src, "broadcast-"+c.ID+steadyStandbyID+"-"+strconv.Itoa(serial))
+		link, err := p.s.linkSteadySource(ctx, c, src, "broadcast-"+c.ID+steadyStandbyID+"-"+strconv.Itoa(serial), 0)
 		if err != nil {
 			// A busy account has no room for a second connection; never
 			// overlap a capped account.

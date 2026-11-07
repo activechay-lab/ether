@@ -606,7 +606,7 @@ func TestStreamTokenAloneFetchesPlaylistAndDASH(t *testing.T) {
 	}
 	var mediaURL string
 	for _, line := range strings.Split(playlist.Body.String(), "\n") {
-		if strings.Contains(line, streamgrant.StreamGrantParam) && strings.Contains(line, "/resource/") {
+		if strings.Contains(line, streamgrant.StreamGrantParam) && strings.Contains(line, "/relay/") {
 			mediaURL = strings.TrimSpace(line)
 			break
 		}

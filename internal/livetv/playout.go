@@ -430,6 +430,9 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 		}
 	} else {
 		err = s.startIPTVSession(ctx, ss)
+		if err == nil {
+			err = s.awaitOwnedStart(ctx, ss)
+		}
 		if err != nil {
 			s.Stop(ctx, ss.info.ID, u)
 			return SessionInfo{}, err
@@ -807,6 +810,38 @@ func (s *Service) takeEarlyProbe(ctx context.Context, ss *session, ch <-chan pro
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+// awaitOwnedStart holds the tune until a Direct session's owned timeline has
+// its first playlist. An Apple player hangs a live item for good when the
+// first playlist response takes a target duration, so the wait for the
+// first segments belongs to the tune, never to that response. Silo's
+// playback start keeps its sub-second budget: it waits at most 700 ms
+// (passthrough is usually ready by then) and leaves the rest to the
+// playlist request.
+func (s *Service) awaitOwnedStart(ctx context.Context, ss *session) error {
+	ss.mu.Lock()
+	lease := ss.owned
+	ss.mu.Unlock()
+	if lease == nil {
+		return nil
+	}
+	wait := ctx
+	if ss.caps.Protocol == "silo" {
+		var cancel context.CancelFunc
+		wait, cancel = context.WithTimeout(ctx, 700*time.Millisecond)
+		defer cancel()
+	}
+	err := lease.tl.waitStarted(wait)
+	if errors.Is(err, errNeedsRelay) {
+		if lease, err = s.passthroughToRelay(ctx, ss); err == nil {
+			err = lease.tl.waitStarted(wait)
+		}
+	}
+	if err != nil && wait.Err() != nil && ctx.Err() == nil {
+		return nil // Silo: the playlist request waits for the rest
+	}
+	return err
 }
 
 // serveOwnedPlaylist writes a Direct session's owned live playlist. The
