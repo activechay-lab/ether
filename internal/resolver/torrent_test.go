@@ -67,9 +67,10 @@ func TestTorrentSeasonPackStreamsTheEpisode(t *testing.T) {
 	for _, c := range svc.Traces()[0].Candidates {
 		reasons[c.ReleaseID] = c.Reason
 	}
-	// The 10 GB pack is not judged against one episode's runtime; Usenet
-	// packs stay skipped.
-	if !strings.Contains(reasons["usenet-pack"], "season pack") || !strings.Contains(reasons[core.TargetReleaseID("wrong-season", core.ReleaseTarget{Season: 1, Episode: 3})], "mismatch") || reasons[want] != "" {
+	// The 10 GB pack is not judged against one episode's runtime; a Usenet
+	// pack is narrowed to the episode like a torrent one.
+	usenetPack := core.TargetReleaseID("usenet-pack", core.ReleaseTarget{Season: 1, Episode: 3})
+	if reasons[usenetPack] != "" || !strings.Contains(reasons[core.TargetReleaseID("wrong-season", core.ReleaseTarget{Season: 1, Episode: 3})], "mismatch") || reasons[want] != "" {
 		t.Fatalf("reasons %v", reasons)
 	}
 }

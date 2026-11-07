@@ -1670,9 +1670,10 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 			return "episode title mismatch"
 		}
 		if rel.Info.FullSeason {
-			// Usenet season packs are skipped in v1; a torrent pack streams
-			// the wanted episode's file through debrid (Release.Target).
-			if rel.Protocol != core.ProtocolTorrent {
+			// A pack streams the wanted episode's file (Release.Target):
+			// through debrid for a torrent, from the episode's own NZB
+			// files for Usenet. Other protocols cannot pick a file.
+			if rel.Protocol != core.ProtocolTorrent && rel.Protocol != core.ProtocolUsenet {
 				return "season pack (skipped in v1)"
 			}
 			if !packCoversSeason(rel.Info, sreq.Season) ||
@@ -1888,7 +1889,12 @@ func regionTagConflicts(releaseTitle, wantTitle string, countries []string) bool
 // season pack gets a per-episode release ID: health, bad marks, pins and
 // cached bytes then apply to the episode file, not the whole pack.
 func withTarget(rel core.Release, sreq core.SearchRequest) core.Release {
-	if sreq.Type != core.TypeEpisode || rel.Protocol != core.ProtocolTorrent || sreq.Episode <= 0 {
+	if sreq.Type != core.TypeEpisode || sreq.Episode <= 0 {
+		return rel
+	}
+	// A Usenet season pack is narrowed to the episode's files when its NZB
+	// is fetched; other Usenet releases need no target.
+	if rel.Protocol != core.ProtocolTorrent && !(rel.Protocol == core.ProtocolUsenet && rel.Info.FullSeason) {
 		return rel
 	}
 	if rel.Target != nil {
@@ -1910,7 +1916,7 @@ func withTarget(rel core.Release, sreq core.SearchRequest) core.Release {
 // sizedForEpisode hides a season pack's total size from per-runtime size
 // checks and bitrate estimates.
 func sizedForEpisode(rel core.Release) core.Release {
-	if rel.Info.FullSeason && rel.Protocol == core.ProtocolTorrent {
+	if rel.Info.FullSeason {
 		rel.Size = 0
 	}
 	return rel

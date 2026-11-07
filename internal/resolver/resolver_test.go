@@ -734,7 +734,11 @@ func TestMarkBadPersists(t *testing.T) {
 
 func TestEpisodeFiltering(t *testing.T) {
 	idx := &fakeIndexer{releases: []core.Release{
-		rel("pack", "Boundary.Bay.S01.COMPLETE.720p.BluRay.x264-GRP", 10000),
+		func() core.Release {
+			r := rel("pack", "Boundary.Bay.S01.COMPLETE.720p.BluRay.x264-GRP", 10000)
+			r.Protocol = core.ProtocolHTTP // no way to pick a file from the pack
+			return r
+		}(),
 		rel("wrongep", "Boundary.Bay.S01E02.720p.HDTV.x264-GRP", 1500),
 		rel("sample", "Boundary.Bay.S01E01.Sample.720p.HDTV.x264-GRP", 1500),
 		rel("pwd", "Boundary.Bay.S01E01.1080p.WEB-DL.x264-GRP", 1500),
