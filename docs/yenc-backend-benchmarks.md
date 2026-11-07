@@ -127,8 +127,4 @@ bash scripts/bench_yenc_backends.sh /tmp/ether-yenc-results
 
 The runner saves raw samples/metadata and calls the standard-library-only report script. Benchmarks do not change production decoder code.
 
-Committed raw samples are limited to the serial confirmation runs behind the representative table:
-
-- [Go SIMD](yenc-backend-benchmarks/go-simd-serial-confirmation.txt), [C, experiment off](yenc-backend-benchmarks/cgo-no-simd-serial-confirmation.txt), [SWAR](yenc-backend-benchmarks/swar-serial-confirmation.txt), [C, experiment on](yenc-backend-benchmarks/cgo-with-simd-serial-confirmation.txt), plus [run metadata](yenc-backend-benchmarks/metadata.json).
-
-The broad-matrix, concurrent, bare-package, selection and environment outputs are not committed; the runner above regenerates them.
+Raw samples are not committed; the runner above regenerates them.
