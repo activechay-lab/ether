@@ -157,9 +157,12 @@ it("shows a sync failure without a settings save bar and clears it on retry", as
     f.fetch = async (input, init) => {
       if (String(input).endsWith("/releases/quality/sync") && init?.method === "POST" && fail) {
         fail = false;
-        return new Response(JSON.stringify({ error: { code: "validation", message: "Sync failed" } }), {
-          status: 400,
-        });
+        return new Response(
+          JSON.stringify({ error: { code: "validation", message: "Sync failed" } }),
+          {
+            status: 400,
+          },
+        );
       }
       return original(input, init);
     };
