@@ -455,17 +455,50 @@ func (r *Runtime) reconcileDisplaced(ctx context.Context, x *execution) {
 			continue
 		}
 		c, cancel := context.WithTimeout(ctx, r.o.EncoderRPCDeadline)
-		_ = old.session.RetireEncoderContext(c)
+		started := time.Now()
+		fence := old.route.Fence
+		attrs := []any{"session", fence.Session, "generation", fence.Generation, "controller", fence.Controller.ID, "controller_boot", fence.Controller.Boot, "worker", fence.Target.NodeID, "worker_boot", fence.Target.Boot, "attempt", started.UnixNano(), "rpc_deadline", r.o.EncoderRPCDeadline}
+		if deadline, ok := c.Deadline(); ok {
+			attrs = append(attrs, "deadline_remaining", time.Until(deadline))
+		}
+		slog.Info("displaced worker stop begin", attrs...)
+		rpcErr := old.session.RetireEncoderContext(c)
+		contextCategory := displacedRetirementCategory(c.Err())
 		cancel()
-		if old.session.EncoderErr() != nil {
+		proofErr := old.session.EncoderErr()
+		slog.Info("displaced worker stop end", append(attrs, "elapsed", time.Since(started), "rpc_result", displacedRetirementCategory(rpcErr), "context_result", contextCategory, "terminal_proof", displacedRetirementCategory(proofErr))...)
+		if proofErr != nil {
+			slog.Info("displaced retirement proof outcome", append(attrs, "outcome", "terminal_pending")...)
 			continue
 		}
-		if r.o.Placement.RetireDisplaced(ctx, old.route.Fence, "clusterplayback/exact-displaced-retirement") == nil {
+		retireErr := r.o.Placement.RetireDisplaced(ctx, old.route.Fence, "clusterplayback/exact-displaced-retirement")
+		slog.Info("displaced retirement proof outcome", append(attrs, "outcome", displacedRetirementCategory(retireErr))...)
+		if retireErr == nil {
 			old.retired = true
 			if old.adapter != nil {
 				old.adapter.Close()
 			}
 		}
+	}
+}
+
+// Never format external errors: they can contain endpoints or response text.
+func displacedRetirementCategory(err error) string {
+	switch {
+	case err == nil:
+		return "none"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline"
+	case errors.Is(err, core.ErrEncoderPending), errors.Is(err, ErrPending):
+		return "pending"
+	case errors.Is(err, remotetranscode.ErrUncertain):
+		return "uncertain"
+	case errors.Is(err, ErrDenied):
+		return "denied"
+	default:
+		return "other"
 	}
 }
 

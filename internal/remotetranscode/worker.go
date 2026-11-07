@@ -46,6 +46,8 @@ type execution struct {
 	starting, stopped, failed bool
 	cancel                    context.CancelFunc
 	timer                     *time.Timer
+	stopDiagnosticJoins       stopJoinObservation
+	stopDiagnosticAt          time.Time // Local log limiter, not retirement authority.
 	monotonicDeadline         time.Time // Local elapsed-time cap; never serialized.
 }
 type Worker struct {
@@ -232,7 +234,15 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 	s := e.session
 	if m.Op == "status" || m.Op == "stop" {
 		snapshot := w.snapshot(e)
+		var joins stopJoinObservation
+		var logJoins bool
+		if m.Op == "stop" {
+			joins, logJoins = observeStopJoins(e)
+		}
 		w.mu.Unlock()
+		if logJoins {
+			slog.Info("worker stop join observation", "component", "remotetranscode", "session", joins.identity.Session, "generation", joins.identity.Generation, "controller_boot", joins.identity.Controller, "worker_boot", joins.identity.Worker, "admission_stopped", joins.stopped, "starting", joins.starting, "failed", joins.failed, "encoder_done", joins.encoder, "input_done", joins.input, "gateway_input_done", joins.gatewayInput, "terminal_state", snapshot.State)
+		}
 		replyStatus(out, snapshot)
 		return
 	}
