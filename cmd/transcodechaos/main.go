@@ -43,7 +43,46 @@ func main() {
 	serverURL := flag.String("server-url", "", "explicit Ether lab server URL")
 	mediaKey := flag.String("media-key", "", "comma-separated rating keys of staged test titles on the lab server")
 	report := flag.String("report", "transcodechaos-report.json", "output JSON report")
+	live := flag.String("live", "", "run the live TV acceptance matrix instead: quick or full")
+	liveOnly := flag.String("live-only", "", "comma-separated substrings of live row IDs (scenario/mode) to run")
+	livePreset := flag.String("live-preset", "balanced", "stability preset to apply and judge against: fastest, balanced or rocksolid")
+	livePlayer := flag.String("live-player", "auto", "AVFoundation judge: auto (macOS), on or off")
+	liveParallel := flag.Int("live-parallel", 3, "live rows run concurrently")
+	liveFixtureFF := flag.String("live-fixture-ffmpeg", "", "ffmpeg used to generate live fixtures (default: -ffmpeg)")
+	liveMarkdown := flag.String("live-markdown", "", "also write a Markdown summary here")
+	liveBaseline := flag.String("live-baseline", "", "baseline JSON report to compare against in the Markdown summary")
+	liveKeep := flag.String("live-keep", "", "keep each row's work directory (Ether log, captured segments) under this directory")
+	liveLabel := flag.String("live-label", "", "label for the live report")
+	liveObserve := flag.Duration("live-observe", liveObserve, "how long each live row is watched after the tune")
+	liveRender := flag.Bool("live-render", false, "rewrite -live-markdown from the existing -report JSON (with -live-baseline) and exit")
 	flag.Parse()
+	if *liveRender {
+		if err := renderLive(*report, *liveMarkdown, *liveBaseline); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *live != "" {
+		if *live != "quick" && *live != "full" {
+			fmt.Fprintln(os.Stderr, "-live must be quick or full")
+			os.Exit(2)
+		}
+		root, _ := os.Getwd()
+		fixtureFF := *liveFixtureFF
+		if fixtureFF == "" {
+			fixtureFF = *ff
+		}
+		label := *liveLabel
+		if label == "" {
+			label = *live
+		}
+		if err := runLive(liveOptions{FF: *ff, FP: *fp, FixtureFF: fixtureFF, Subset: *live, Only: *liveOnly, Preset: *livePreset, Player: *livePlayer, Parallel: *liveParallel, CacheDir: *cache, Report: *report, Markdown: *liveMarkdown, Baseline: *liveBaseline, Keep: *liveKeep, Label: label, Observe: *liveObserve, RepoRoot: root}); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(*ff, *fp, *report, *only, *fixtures, *cache, *mode, *corpus, *serverURL, *mediaKey); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
