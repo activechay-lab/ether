@@ -8,8 +8,42 @@ import (
 )
 
 func (s *Server) continueExperience(pr *Request) experience.Continue {
+	var memo showEpisodes
+	var states map[core.RatingKey]core.WatchStatus
 	c := experience.Continue{ShowOnDeck: func(ctx context.Context, show core.RatingKey) (*core.Title, map[core.RatingKey]core.WatchStatus) {
-		return s.showOnDeck(ctx, pr, show, nil)
+		if list, ok := memo[show]; ok && states != nil {
+			// appendNext uses the most recent timestamp in this map. Keep it
+			// scoped to this show even though its state was fetched in a batch.
+			st := make(map[core.RatingKey]core.WatchStatus, len(list.eps))
+			for _, ep := range list.eps {
+				if value, ok := states[ep.Key]; ok {
+					st[ep.Key] = value
+				}
+			}
+			return experience.ShowOnDeck(list.eps, st, func(t *core.Title) bool {
+				return s.sameDayUnavailable(ctx, pr, t)
+			}), st
+		}
+		return s.showOnDeck(ctx, pr, show, memo)
+	}, PrepareShowOnDeck: func(ctx context.Context, shows []core.RatingKey) {
+		titles := make([]core.Title, 0, len(shows))
+		for _, show := range shows {
+			titles = append(titles, core.Title{Key: show, Type: core.TypeShow})
+		}
+		memo, states = s.prefetchListEpisodes(ctx, pr, titles)
+		if s.d.EpisodeOrder != nil {
+			// Even an ungrouped show can hide or reorder Specials. The
+			// batched read warms the catalogue; retain the viewer's exact
+			// presentation order before choosing their next episode.
+			for show := range memo {
+				eps, err := s.metadataGrandchildren(ctx, pr, show)
+				if err != nil {
+					delete(memo, show)
+					continue
+				}
+				memo[show] = showEpisodeList{eps: eps}
+			}
+		}
 	}, State: s.d.State, Now: s.now, FavoriteShows: s.d.FavoriteShows,
 		Grandchildren: func(ctx context.Context, k core.RatingKey) ([]core.Title, error) {
 			return s.metadataGrandchildren(ctx, pr, k)

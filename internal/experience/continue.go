@@ -12,6 +12,9 @@ import (
 type Continue struct {
 	// ShowOnDeck provides the surface-specific selector for history-eligible shows.
 	ShowOnDeck func(context.Context, core.RatingKey) (*core.Title, map[core.RatingKey]core.WatchStatus)
+	// PrepareShowOnDeck batches the history candidates before selection. It
+	// must preserve ShowOnDeck's per-show state and episode ordering.
+	PrepareShowOnDeck func(context.Context, []core.RatingKey)
 
 	Filter       func(context.Context, *core.User, []core.Title) []core.Title
 	State        core.State
@@ -62,6 +65,9 @@ func (c Continue) appendNext(ctx context.Context, viewer *core.User, titles []co
 		}
 	}
 	if c.ShowOnDeck != nil {
+		if c.PrepareShowOnDeck != nil {
+			c.PrepareShowOnDeck(ctx, shows)
+		}
 		for _, h := range recent {
 			ep, states := c.ShowOnDeck(ctx, core.ShowKey(h.Key.TMDB()))
 			if ep == nil || !c.Visible(ctx, viewer, ep) || c.SameDayUnavailable(ctx, ep) {
