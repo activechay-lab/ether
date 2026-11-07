@@ -133,8 +133,20 @@ func New(o Options) (*Service, error) {
 
 	s.resumeConversions()
 	s.resumeImports()
+	// Warm only styles used by enabled channels. An empty planning result is
+	// not a request to render the entire bundled preview library.
 	for _, l := range ls {
-		s.enqueueLook(l)
+		l := l
+		if s.o.StaticRequests != nil {
+			s.enqueue(renderJob{Hash: "startup-" + l.ID, prepare: func(ctx context.Context) error {
+				if requests := s.o.StaticRequests(ctx, l.ID); len(requests) > 0 {
+					s.queueLook(l, requests)
+				}
+				return nil
+			}})
+		} else if len(l.ChannelIDs) > 0 {
+			s.queueLook(l, nil)
+		}
 	}
 	return s, nil
 }
