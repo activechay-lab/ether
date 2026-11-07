@@ -75,7 +75,13 @@ type relayProducer struct {
 	ingest    *hlsIngest
 	escalated bool
 	starved   bool
-	longAt    time.Time // the last overlong copy segment
+	// hedge is a re-encode started beside a copy producer that is slow to
+	// cut its first segment; whichever cuts first becomes the producer.
+	hedge *relayHedge
+	// starving is set while a running copy producer is past its next
+	// segment with input flowing; the timeline reads it without locks.
+	starving atomic.Bool
+	longAt   time.Time // the last overlong copy segment
 	// reformat holds the source's new format when copy output stopped
 	// matching its own PMT; the producer reopens on the new format.
 	reformat  *mediaFormat
@@ -132,6 +138,9 @@ func (s *Service) newRelayProducer(ss *session, info core.MediaInfo, caps core.C
 	p := &relayProducer{s: s, tl: tl, log: log, caps: caps, info: info, dec: dec, cut: cut}
 	p.bind(ss)
 	tl.stalled = func() bool {
+		if p.starving.Load() {
+			return true
+		}
 		h, ok := s.inputHealth(p.sess.Load())
 		return ok && (h.Stalled || h.Failed || h.Kind == "ts" && h.DataAge > time.Second)
 	}
@@ -162,13 +171,23 @@ func (s *Service) runRelay(ss *session, p *relayProducer) *ownedLease {
 // not be read again after a codec change, and the new one is in hand at
 // once).
 func (p *relayProducer) start(ctx context.Context, info core.MediaInfo, dec core.Decision, cut time.Duration, newFormat bool) error {
+	id, hls, cancel, err := p.launch(ctx, info, dec, cut, newFormat)
+	if err != nil {
+		return err
+	}
+	return p.adopt(id, hls, cancel, info, dec, cut)
+}
+
+// launch starts a relay session on the session's current input without
+// making it the producer.
+func (p *relayProducer) launch(ctx context.Context, info core.MediaInfo, dec core.Decision, cut time.Duration, newFormat bool) (string, core.HLSSession, context.CancelFunc, error) {
 	ss := p.sess.Load()
 	input, err := p.s.relayInput(ss)
 	if newFormat {
 		input, err = p.s.relayInputFormat(ss)
 	}
 	if err != nil {
-		return err
+		return "", nil, nil, err
 	}
 	p.mu.Lock()
 	p.gen++
@@ -177,11 +196,11 @@ func (p *relayProducer) start(ctx context.Context, info core.MediaInfo, dec core
 		id = fmt.Sprintf("livetv-%s-%d", ss.info.ID, p.gen)
 	}
 	p.mu.Unlock()
-	hls, cancel, err := p.s.startOwnedHLS(ctx, ss, core.HLSRequest{SessionID: id, InputURL: input, LiveInput: true, Info: info, Decision: dec, SegmentDuration: cut})
-	if err != nil {
-		return err
-	}
-	return p.adopt(id, hls, cancel, info, dec, cut)
+	// An HLS input on a reserve-trimmed grant starts at the reserve depth:
+	// the relay races through that backlog and the timeline holds it.
+	backlog := info.Container == "hls" && !newFormat && p.s.stabilityReserve(ss.info.Channel) > 0
+	hls, cancel, err := p.s.startOwnedHLS(ctx, ss, core.HLSRequest{SessionID: id, InputURL: input, LiveInput: true, LiveFromBacklog: backlog, Info: info, Decision: dec, SegmentDuration: cut})
+	return id, hls, cancel, err
 }
 
 // adopt makes a started relay session the producer. Its first segment is
@@ -219,7 +238,10 @@ func (p *relayProducer) close() {
 	p.closed = true
 	hls, cancel := p.hls, p.cancel
 	p.hls, p.cancel = nil, nil
+	hedge := p.hedge
+	p.hedge = nil
 	p.mu.Unlock()
+	hedge.close()
 	if cancel != nil {
 		cancel()
 	}
@@ -325,9 +347,23 @@ func (p *relayProducer) run(ctx context.Context) {
 		if !flowing.IsZero() {
 			starvedFor = now.Sub(later(from, flowing))
 		}
-		starveLimit := td + time.Second
+		lastDur := p.tl.lastSegmentDuration()
+		starveLimit := lastDur + time.Second
 		if cold {
-			starveLimit = 3500 * time.Millisecond
+			// The hedge normally settles a slow cold start first.
+			starveLimit = 6 * time.Second
+		}
+		p.starving.Store(copyMode && !cold && !escalated && starvedFor > lastDur+500*time.Millisecond)
+		if h := p.hedgeState(); h != nil {
+			switch {
+			case !cold || escalated:
+				p.dropHedge()
+			case hedgeCut(ctx, h):
+				p.adoptHedge(h)
+				continue
+			}
+		} else if copyMode && cold && !escalated && !flowing.IsZero() && now.Sub(later(startedAt, flowing)) > 2*time.Second {
+			p.startHedge(ctx)
 		}
 		ended := errors.Is(err, errOriginEnded) || failures >= 6
 		switch {
@@ -370,6 +406,106 @@ func later(a, b time.Time) time.Time {
 		return a
 	}
 	return b
+}
+
+// reencodeDecision is the current source converted: video re-encoded (cut
+// on its own keyframes), in the producer's container.
+func (p *relayProducer) reencodeDecision() (core.Decision, bool) {
+	p.mu.Lock()
+	info, dec := p.info, p.dec
+	p.mu.Unlock()
+	next := p.s.o.Transcoder.Decide(info, p.caps, core.DecideOptions{DirectStream: false, AudioStream: -1, SubtitleStream: -1})
+	if next.VideoCopy {
+		return next, false
+	}
+	if next.Container != transcode.ContainerFMP4 && next.Container != transcode.ContainerMPEGTS {
+		next.Container = dec.Container
+	}
+	return next, true
+}
+
+type relayHedge struct {
+	id     string
+	hls    core.HLSSession
+	cancel context.CancelFunc
+	dec    core.Decision
+}
+
+func (h *relayHedge) close() {
+	if h != nil {
+		h.cancel()
+		h.hls.Close()
+	}
+}
+
+// startHedge starts a re-encode beside a copy producer that has not cut
+// its first segment: a source GOP longer than the tune budget would
+// otherwise hold the first picture back until its second keyframe.
+func (p *relayProducer) startHedge(ctx context.Context) {
+	next, ok := p.reencodeDecision()
+	if !ok {
+		return
+	}
+	p.mu.Lock()
+	info := p.info
+	p.mu.Unlock()
+	sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	id, hls, hcancel, err := p.launch(sctx, info, next, relaySegment, false)
+	if err != nil {
+		p.log.Warn("owned relay could not hedge a slow copy start", Diagnose("relay_hedge", err).LogAttrs()...)
+		return
+	}
+	p.mu.Lock()
+	if p.closed || p.hedge != nil {
+		p.mu.Unlock()
+		hcancel()
+		hls.Close()
+		return
+	}
+	p.hedge = &relayHedge{id: id, hls: hls, cancel: hcancel, dec: next}
+	p.mu.Unlock()
+	p.log.Info("owned relay hedging a slow copy start with a re-encode", "producer", id)
+}
+
+func (p *relayProducer) hedgeState() *relayHedge {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.hedge
+}
+
+func (p *relayProducer) dropHedge() {
+	p.mu.Lock()
+	h := p.hedge
+	p.hedge = nil
+	p.mu.Unlock()
+	h.close()
+}
+
+// adoptHedge makes a hedge that cut first the producer.
+func (p *relayProducer) adoptHedge(h *relayHedge) {
+	p.mu.Lock()
+	if p.hedge != h {
+		p.mu.Unlock()
+		return
+	}
+	p.hedge = nil
+	p.escalated = true
+	info := p.info
+	p.mu.Unlock()
+	p.log.Warn("owned relay switching producer to re-encode", "reason", "the re-encode cut first")
+	if err := p.adopt(h.id, h.hls, h.cancel, info, h.dec, relaySegment); err != nil {
+		h.close()
+	}
+}
+
+func hedgeCut(ctx context.Context, h *relayHedge) bool {
+	body, _, err := (&localRelayOrigin{hls: h.hls}).media(ctx)
+	if err != nil {
+		return false
+	}
+	m, ok := parseMediaPlaylist(body, nil)
+	return ok && len(m.segments) > 0
 }
 
 // reopen restarts the producer on the same input, from its new format,
@@ -416,14 +552,12 @@ func (p *relayProducer) escalate(ctx context.Context, why string) {
 		return
 	}
 	p.escalated = true
-	info, dec := p.info, p.dec
+	info := p.info
 	p.mu.Unlock()
-	next := p.s.o.Transcoder.Decide(info, p.caps, core.DecideOptions{DirectStream: false, AudioStream: -1, SubtitleStream: -1})
-	if next.VideoCopy {
+	p.dropHedge()
+	next, ok := p.reencodeDecision()
+	if !ok {
 		return
-	}
-	if next.Container != transcode.ContainerFMP4 && next.Container != transcode.ContainerMPEGTS {
-		next.Container = dec.Container
 	}
 	p.log.Warn("owned relay switching producer to re-encode", "reason", why)
 	sctx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -497,5 +631,24 @@ func (p *relayProducer) switchSource(ctx context.Context, ss *session, c Channel
 		info.Duration = 0
 		dec, cut, _ = p.s.relayPlan(ss, info)
 	}
+	if err := p.s.reserveRelayGrant(ss, info); err != nil {
+		return err
+	}
 	return p.start(sctx, info, dec, cut, false)
+}
+
+// reserveRelayGrant moves an HLS relay input onto a reserve grant: the
+// input relay then trims the provider playlist to the channel's stability
+// reserve, and the relay (started at that playlist's first segment) primes
+// the owned timeline's reserve from the provider backlog. A raw TS input
+// has no backlog and keeps its plain grant.
+func (s *Service) reserveRelayGrant(ss *session, info core.MediaInfo) error {
+	ss.mu.Lock()
+	c, src, headers := ss.info.Channel, ss.inputSource, ss.inputHeaders.Clone()
+	src.URL = ss.inputURL
+	ss.mu.Unlock()
+	if info.Container != "hls" || s.stabilityReserve(c) <= 0 {
+		return nil
+	}
+	return s.grantSteadyInput(ss, src, headers)
 }

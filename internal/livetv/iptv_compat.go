@@ -82,6 +82,9 @@ func (s *Service) startIPTVRelay(ctx context.Context, ss *session, info core.Med
 		ss.info.Channel = c
 		return s.startBroadcast(ctx, ss)
 	}
+	if err := s.reserveRelayGrant(ss, info); err != nil {
+		return err
+	}
 	started := time.Now()
 	s.sessionLog(ss).Info("live playback path selected", "path", string(dec.Kind), "video_copy", dec.VideoCopy, "audio_copy", dec.AudioCopy, "container", dec.Container, "video_codec", dec.VideoCodec, "audio_codec", dec.AudioCodec)
 	lease, err := s.startOwnedRelay(ctx, ss, info, relayCaps(ss.caps), dec, cut)

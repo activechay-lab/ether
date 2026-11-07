@@ -154,6 +154,9 @@ func (in *hlsIngest) step(ctx context.Context) (progress bool, err error) {
 	case in.lastMSN < 0:
 		from = startIndex(segs, in.reserve, in.startSegs)
 		if in.live {
+			// Everything a fresh local producer lists is new media (its
+			// backlog primes the reserve).
+			from = 0
 			in.tl.expectStart(0, m.target)
 		} else {
 			in.tl.expectStart(min(in.startSegs, len(segs)-from), m.target)

@@ -72,6 +72,7 @@ type sessionInput struct {
 	rtxDiscontinuities     map[int]bool
 	loopInput              bool
 	liveInput              bool
+	liveFromBacklog        bool
 	inputLease             core.EncoderInputLease
 	inputHeaders           map[string]string
 	input                  string

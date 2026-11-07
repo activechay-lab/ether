@@ -27,6 +27,7 @@ type runSpec struct {
 	SoftSubtitleIndex    int
 	LoopInput            bool
 	LiveInput            bool
+	LiveFromBacklog      bool // live HLS input: start at its first listed segment
 	CopyTimestamps       bool
 	// RTXTimeline preserves the native session's clock and rendition-local
 	// initialization paths when ordinary FFmpeg takes over.
@@ -324,6 +325,9 @@ func buildCodecArgs(s runSpec) []string {
 			args = append(args, "-reconnect_streamed", "1", "-reconnect_max_retries", "3")
 		}
 		args = append(args, "-fflags", "+discardcorrupt+genpts", "-err_detect", "ignore_err")
+		if s.LiveFromBacklog {
+			args = append(args, "-live_start_index", "0")
+		}
 	}
 	if !pceBounded {
 		args = appendInputHeaders(args, s.commandHeaders())
