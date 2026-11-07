@@ -75,6 +75,7 @@ type relayProducer struct {
 	ingest    *hlsIngest
 	escalated bool
 	starved   bool
+	longAt    time.Time // the last overlong copy segment
 	// reformat holds the source's new format when copy output stopped
 	// matching its own PMT; the producer reopens on the new format.
 	reformat  *mediaFormat
@@ -227,9 +228,12 @@ func (p *relayProducer) close() {
 	}
 }
 
-// accept drops a copy segment that ran far past the target: keyframes
-// stopped arriving, and an Apple player cannot take a segment that long.
-// The producer is switched to re-encoding instead.
+// accept vets a relay segment before it airs. A copy segment past the
+// target means a keyframe went missing: one modestly long segment (up to
+// twice the target) airs, as a transient loss heals at the next keyframe; a
+// grossly long one, which an Apple player cannot take, is dropped, and so is
+// a second long one within a minute. Either switches the producer to a
+// re-encode, which cuts on its own keyframes.
 func (p *relayProducer) accept(seg *ownedSegment) bool {
 	if seg.format.mislabeled {
 		// A copy remux declares the codec it started with; after a source
@@ -242,17 +246,23 @@ func (p *relayProducer) accept(seg *ownedSegment) bool {
 		return false
 	}
 	td := p.tl.targetDuration()
-	if td <= 0 || seg.dur <= td+time.Second {
+	if td <= 0 || seg.dur <= td+td/4 {
 		return true
 	}
 	p.mu.Lock()
-	copyMode := p.dec.VideoCopy
-	if copyMode {
+	defer p.mu.Unlock()
+	if !p.dec.VideoCopy {
+		return true
+	}
+	now := time.Now()
+	repeat := now.Sub(p.longAt) < time.Minute
+	p.longAt = now
+	drop := seg.dur > 2*td || repeat
+	if drop {
 		p.starved = true
 	}
-	p.mu.Unlock()
-	p.log.Warn("owned relay segment exceeds the target duration", "duration", seg.dur, "target", td, "dropped", copyMode)
-	return !copyMode
+	p.log.Warn("owned relay segment exceeds the target duration", "duration", seg.dur, "target", td, "dropped", drop)
+	return !drop
 }
 
 func (p *relayProducer) run(ctx context.Context) {
@@ -307,13 +317,15 @@ func (p *relayProducer) run(ctx context.Context) {
 		since := now.Sub(from)
 		// Keyframe starvation: input has kept arriving for this long
 		// without a copy segment being cut. A cold start gets the tune
-		// budget; a running stream two target durations (a resumed
-		// source first has to reach its next keyframe).
+		// budget; a running stream a second past the target (sized from
+		// the longest segment seen, so a healthy GOP never reaches it,
+		// and measured from when input resumed, so a source returning
+		// from a stall first gets to its next keyframe).
 		starvedFor := time.Duration(0)
 		if !flowing.IsZero() {
 			starvedFor = now.Sub(later(from, flowing))
 		}
-		starveLimit := 2 * td
+		starveLimit := td + time.Second
 		if cold {
 			starveLimit = 3500 * time.Millisecond
 		}
