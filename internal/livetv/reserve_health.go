@@ -1,6 +1,7 @@
 package livetv
 
 import (
+	"sync/atomic"
 	"time"
 )
 
@@ -71,21 +72,61 @@ type UpstreamEvent struct {
 
 // inputHealth reports the health of the session's current input grant. ok is
 // false when the session has no grant or its input has not been read yet.
+//
+// It never blocks: it takes no tap, relay, grant or playlist lock, only an
+// atomic load of the snapshot the input's own goroutines publish on every
+// state change, reader change and 250 ms tick. It is safe to call from a
+// frame clock or under a caller's own lock. DataAge is computed at the call
+// from an atomic timestamp, so it is exact rather than a tick old.
 func (s *Service) inputHealth(ss *session) (UpstreamHealth, bool) {
-	g := s.sessionGrant(ss)
+	g := s.healthGrant(ss)
 	if g == nil {
 		return UpstreamHealth{}, false
 	}
-	g.mu.Lock()
-	t, hls := g.tap, g.hls
-	g.mu.Unlock()
-	switch {
-	case t != nil:
-		return t.healthFor(g), true
-	case hls != nil:
-		return hls.health(), true
+	snap := g.snap.Load()
+	if snap == nil {
+		return UpstreamHealth{}, false
 	}
-	return UpstreamHealth{}, false
+	return snap.read(), true
+}
+
+// healthSnap is one published, immutable view of a grant's input.
+type healthSnap struct {
+	h UpstreamHealth
+	// since is the tap's atomic time of the provider's last bytes (unix
+	// nanoseconds) for a transport stream; due is when an HLS playlist's
+	// next segment was due. DataAge is derived from them at read time.
+	since *atomic.Int64
+	due   time.Time
+}
+
+func (p *healthSnap) read() UpstreamHealth {
+	h := p.h
+	switch {
+	case p.since != nil:
+		if ns := p.since.Load(); ns != 0 {
+			h.DataAge = time.Since(time.Unix(0, ns))
+		}
+	case !p.due.IsZero():
+		h.DataAge = max(0, time.Since(p.due))
+	}
+	return h
+}
+
+// healthGrant finds the session's grant without taking the relay's lock.
+func (s *Service) healthGrant(ss *session) *inputGrant {
+	if ss == nil {
+		return nil
+	}
+	v, ok := s.inputRelay.health.Load(ss)
+	if !ok {
+		return nil
+	}
+	g := v.(*inputGrant)
+	if g.ctx.Err() != nil {
+		return nil
+	}
+	return g
 }
 
 // watchInput calls fn for every health event on the session's current input
@@ -93,7 +134,7 @@ func (s *Service) inputHealth(ss *session) (UpstreamHealth, bool) {
 // goroutine with no locks held and must return quickly. A later grantInput
 // for the same session needs a new watchInput.
 func (s *Service) watchInput(ss *session, fn func(UpstreamEvent)) (stop func()) {
-	g := s.sessionGrant(ss)
+	g := s.healthGrant(ss)
 	if g == nil || fn == nil {
 		return func() {}
 	}

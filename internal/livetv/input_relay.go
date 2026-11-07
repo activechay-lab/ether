@@ -60,6 +60,9 @@ type inputRelay struct {
 	host   string // 127.0.0.1:port; "" until first use
 	grants map[[sha256.Size]byte]*inputGrant
 	bySess map[*session]*inputGrant
+	// health mirrors bySess for inputHealth, which must never wait on mu:
+	// grant changes hold it across a synchronous provider close.
+	health sync.Map // *session -> *inputGrant
 }
 
 type inputGrant struct {
@@ -83,6 +86,7 @@ type inputGrant struct {
 	tap              *upstreamTap // the shared connection the root input reads through
 	hls              *hlsInput    // provider playlist state when the root input is HLS
 	watchers         map[*func(UpstreamEvent)]struct{}
+	snap             atomic.Pointer[healthSnap] // published health; see inputHealth
 	resources        map[string]*relayResource
 	byKey            map[string]string
 	order            []string
@@ -189,6 +193,7 @@ func (s *Service) grantInputFor(ss *session, src StreamSource, headers http.Head
 	}
 	r.grants[tokenKey(g.token)] = g
 	r.bySess[ss] = g
+	r.health.Store(ss, g)
 	return nil
 }
 
@@ -208,6 +213,8 @@ func (s *Service) transferInput(from, to *session) {
 		r.dropLocked(to, old)
 	}
 	r.bySess[to] = g
+	r.health.Delete(from)
+	r.health.Store(to, g)
 }
 
 // revokeInput ends the session's grant and any relay request using it.
@@ -221,6 +228,7 @@ func (s *Service) revokeInput(ss *session) {
 }
 
 func (r *inputRelay) dropLocked(ss *session, g *inputGrant) {
+	r.health.CompareAndDelete(ss, g)
 	g.cancel()
 	delete(r.grants, tokenKey(g.token))
 	delete(r.bySess, ss)
