@@ -115,13 +115,28 @@ func integrityReader(ctx context.Context, db *sql.DB) (*sql.DB, func(), error) {
 	if path == "" {
 		return db, func() {}, nil
 	}
-	uri := url.URL{Scheme: "file", Path: path}
-	q := url.Values{"mode": {"ro"}, "_pragma": {"query_only(1)", "busy_timeout(3000)"}}
-	uri.RawQuery = q.Encode()
-	reader, err := sql.Open("sqlite", uri.String())
+	reader, err := sql.Open("sqlite", integrityReaderDSN(path))
 	if err != nil {
 		return nil, func() {}, err
 	}
 	reader.SetMaxOpenConns(1)
 	return reader, func() { _ = reader.Close() }, nil
+}
+
+// integrityReaderDSN is the read-only SQLite URI of a database file.
+func integrityReaderDSN(path string) string {
+	q := url.Values{"mode": {"ro"}, "_pragma": {"query_only(1)", "busy_timeout(3000)"}}
+	return sqliteFileURI(path) + "?" + q.Encode()
+}
+
+// sqliteFileURI is a database path as an SQLite file: URI, escaped (a data
+// directory may contain '#', '?' or '%'). A Windows drive path (C:\...)
+// becomes file:///C:/..., the form SQLite's Windows VFS documents; given to
+// url.URL as is it renders as file://C:%5C..., which SQLite reads as a URI
+// authority and refuses.
+func sqliteFileURI(path string) string {
+	if len(path) >= 2 && path[1] == ':' && 'a' <= path[0]|0x20 && path[0]|0x20 <= 'z' {
+		path = "/" + strings.ReplaceAll(path, `\`, "/")
+	}
+	return (&url.URL{Scheme: "file", Path: path}).String()
 }

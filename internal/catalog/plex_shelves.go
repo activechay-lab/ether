@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 
@@ -123,20 +124,23 @@ func (c *Catalog) PlexOnDeckPage(ctx context.Context, uid int64, offset, limit i
 		prefix = strings.Replace(prefix, ` AND NOT EXISTS(SELECT 1 FROM personalize_discovery_hidden hidden WHERE hidden.user_id=? AND hidden.item_key=ranked.entity)`, "", 1)
 		args = append(args[:personalArgIndex], args[personalArgIndex+1:]...)
 	}
-	var total int
-	if err := c.db.QueryRowContext(ctx, prefix+`SELECT COUNT(*) FROM qualified`, args...).Scan(&total); err != nil {
-		return core.WatchPage{}, err
-	}
-	args = append(args, min(max(limit, 0), 10000), max(offset, 0))
-	clocks, err := c.db.QueryContext(ctx, prefix+`SELECT key,stamp,updated FROM qualified ORDER BY stamp DESC,key ASC LIMIT ? OFFSET ?`, args...)
+	// The CTE walks the viewer's watch rows and dominates the request, so
+	// it runs once: the page's clocks carry the total (COUNT(*) OVER() is
+	// taken before LIMIT), and the page is hydrated by key.
+	countArgs := args
+	args = append(append([]any{}, args...), min(max(limit, 0), 10000), max(offset, 0))
+	clocks, err := c.db.QueryContext(ctx, prefix+`SELECT key,stamp,updated,COUNT(*) OVER() FROM qualified ORDER BY stamp DESC,key ASC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return core.WatchPage{}, err
 	}
+	total := -1
+	var keys []any
+	at := map[core.RatingKey]int{}
 	anchors := map[core.RatingKey]core.WatchStatus{}
 	for clocks.Next() {
 		var key core.RatingKey
 		var stamp, updated int64
-		if err := clocks.Scan(&key, &stamp, &updated); err != nil {
+		if err := clocks.Scan(&key, &stamp, &updated, &total); err != nil {
 			clocks.Close()
 			return core.WatchPage{}, err
 		}
@@ -148,12 +152,25 @@ func (c *Catalog) PlexOnDeckPage(ctx context.Context, uid int64, offset, limit i
 			anchor.UpdatedAt = time.Unix(0, updated)
 		}
 		anchors[key] = anchor
+		at[key] = len(keys)
+		keys = append(keys, key)
 	}
 	if err := clocks.Err(); err != nil {
 		clocks.Close()
 		return core.WatchPage{}, err
 	}
 	clocks.Close()
-	rows, err := c.queryTitles(ctx, prefix+`SELECT `+prefixedCols("t")+` FROM (SELECT key,stamp FROM qualified ORDER BY stamp DESC,key ASC LIMIT ? OFFSET ?) page JOIN catalog_titles t ON t.key=page.key ORDER BY page.stamp DESC,t.key ASC`, args...)
+	if total < 0 {
+		// An empty page (offset past the end, or no limit) has no row to
+		// carry the total.
+		if err := c.db.QueryRowContext(ctx, prefix+`SELECT COUNT(*) FROM qualified`, countArgs...).Scan(&total); err != nil {
+			return core.WatchPage{}, err
+		}
+	}
+	var rows []core.Title
+	if len(keys) > 0 {
+		rows, err = c.queryTitles(ctx, `SELECT `+prefixedCols("t")+` FROM catalog_titles t WHERE t.key IN (`+placeholders(len(keys))+`)`, keys...)
+		slices.SortFunc(rows, func(a, b core.Title) int { return at[a.Key] - at[b.Key] })
+	}
 	return core.WatchPage{Page: core.Page{Items: rows, Total: total}, Anchors: anchors}, err
 }

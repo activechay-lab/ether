@@ -1626,6 +1626,17 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 		}
 		items = episodes
 	}
+	// Page before rendering: the row holds up to 200 titles and a full
+	// On Deck render costs statements per title. The filter is the one the
+	// render applies, so the total and the page are what rendering the
+	// whole row and slicing it produced.
+	items = s.takeVisible(pr.User, items, len(items))
+	items = s.openableTitles(withStoredPolicy(ctx), pr.User, items, shelfContainsAll(ctx, items))
+	total := len(items)
+	start := min(max(pr.Start, 0), total)
+	_, size := pr.pageOf(0)
+	end := start + min(max(size, 0), total-start)
+	items = items[start:end]
 	mc := libraryContainer()
 	mc.Mixed = model.Ptr(true)
 	mc.Metadata = s.onDeckItems(ctx, pr, items, state)
@@ -1643,11 +1654,6 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 			mc.Meta.Type = append(mc.Meta.Type, s.metaType(section, section.Type, ""))
 		}
 	}
-	total := len(mc.Metadata)
-	start := min(max(pr.Start, 0), total)
-	_, size := pr.pageOf(0)
-	end := start + min(max(size, 0), total-start)
-	mc.Metadata = mc.Metadata[start:end]
 	mc.Size = len(mc.Metadata)
 	mc.SetPage(start, total)
 	s.write(w, r, mc)
