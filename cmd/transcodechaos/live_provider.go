@@ -59,6 +59,11 @@ type providerConfig struct {
 	Faults    []liveFault `json:"faults,omitempty"`
 	// Absent means the URL points at a closed port.
 	Absent bool `json:"absent,omitempty"`
+	// Burst is how far behind the live edge a raw TS connection starts, on
+	// every connect: that backlog is sent at once, then real time follows,
+	// like panels that flush their recent buffer. Zero starts at the newest
+	// segment (0-4 s already published, sent at once).
+	Burst time.Duration `json:"burst,omitempty"`
 }
 
 type providerStats struct {
@@ -421,8 +426,8 @@ func (p *liveProvider) serveTS(w http.ResponseWriter, r *http.Request, elapsed t
 		flusher.Flush() // providers answer at once even when the body then stalls
 	}
 	connected := elapsed
-	// Start with the newest complete segment, like a provider's send buffer.
-	n := p.liveEdge(elapsed) - 1
+	// Start Burst behind the newest segment, like a provider's send buffer.
+	n := p.liveEdge(elapsed-p.cfg.Burst) - 1
 	const chunks = 20
 	for {
 		b := p.segment(n)
