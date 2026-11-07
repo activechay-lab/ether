@@ -76,7 +76,7 @@ type relayProducer struct {
 	escalated bool
 	starved   bool
 	// reformat holds the source's new format when copy output stopped
-	// matching its own PMT; the producer reopens at the live edge.
+	// matching its own PMT; the producer reopens on the new format.
 	reformat  *mediaFormat
 	reopened  time.Time
 	startedAt time.Time
@@ -156,14 +156,15 @@ func (s *Service) runRelay(ss *session, p *relayProducer) *ownedLease {
 }
 
 // start launches a relay session for the session's current input and makes
-// it the producer, retiring the previous one. liveEdge joins the input at
-// its live edge instead of its reserve (the old format must not be read
-// again after a codec change).
-func (p *relayProducer) start(ctx context.Context, info core.MediaInfo, dec core.Decision, cut time.Duration, liveEdge bool) error {
+// it the producer, retiring the previous one. newFormat joins the input at
+// the oldest buffered keyframe of its current format (the old format must
+// not be read again after a codec change, and the new one is in hand at
+// once).
+func (p *relayProducer) start(ctx context.Context, info core.MediaInfo, dec core.Decision, cut time.Duration, newFormat bool) error {
 	ss := p.sess.Load()
 	input, err := p.s.relayInput(ss)
-	if liveEdge {
-		input, err = p.s.relayInputLive(ss)
+	if newFormat {
+		input, err = p.s.relayInputFormat(ss)
 	}
 	if err != nil {
 		return err
@@ -326,6 +327,11 @@ func (p *relayProducer) run(ctx context.Context) {
 			// The tap gave up on this source: fail over now, not after
 			// the deadline (a healthy backup should show within ~3 s).
 			p.recover(ctx, "input failed")
+		case healthy && h.Stalled && !cold && since > p.tl.lastSegmentDuration() && p.tl.depth() < td && p.hasBackup():
+			// The tap's same-source reconnects already run; with a backup
+			// at hand the next rung starts now, while the client still
+			// plays its buffer, not after the deadline.
+			p.recover(ctx, "input stalled, backup available")
 		case copyMode && !escalated && (starved || starvedFor > starveLimit):
 			// Copy cannot cut where the source has no keyframe (lost,
 			// or a GOP far longer than the target). Re-encode, which
@@ -354,8 +360,8 @@ func later(a, b time.Time) time.Time {
 	return b
 }
 
-// reopen restarts the producer on the same input at its live edge after the
-// source changed codecs, deciding again for the new audio.
+// reopen restarts the producer on the same input, from its new format,
+// after the source changed codecs, deciding again for the new audio.
 func (p *relayProducer) reopen(ctx context.Context, f mediaFormat) {
 	p.mu.Lock()
 	p.reopened = time.Now()
@@ -380,6 +386,14 @@ func (p *relayProducer) reopen(ctx context.Context, f mediaFormat) {
 		p.log.Warn("owned relay reopen failed", Diagnose("relay_reopen", err).LogAttrs()...)
 		p.recover(ctx, "reopen failed")
 	}
+}
+
+func (p *relayProducer) hasBackup() bool {
+	ss := p.sess.Load()
+	ss.mu.Lock()
+	c, cur := ss.info.Channel, ss.inputSource.ID
+	ss.mu.Unlock()
+	return len(p.s.orderedSourceCandidates(c, cur)) > 0
 }
 
 // escalate replaces a copy producer with a re-encode of the same input.

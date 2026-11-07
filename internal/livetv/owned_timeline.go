@@ -61,7 +61,6 @@ type ownedTimeline struct {
 	slating    int  // consecutive slate segments in the current run
 	slateCC    map[uint16]byte
 	notify     chan struct{}
-	ingestAt   time.Time
 	inflight   bool // a producer is fetching a segment it has seen listed
 	closed     bool
 	err        error
@@ -194,7 +193,6 @@ func (t *ownedTimeline) ingest(seg *ownedSegment) {
 	if t.firstAt.IsZero() {
 		t.firstAt = now
 	}
-	t.ingestAt = now
 	t.pending = append(t.pending, seg)
 	t.tickLocked(now)
 }
@@ -219,13 +217,6 @@ func (t *ownedTimeline) setInflight(v bool) {
 	t.mu.Unlock()
 }
 
-// lastIngest is when a producer last delivered a segment.
-func (t *ownedTimeline) lastIngest() time.Time {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.ingestAt
-}
-
 // depth is the media time ingested but not yet published.
 func (t *ownedTimeline) depth() time.Duration {
 	t.mu.Lock()
@@ -239,6 +230,13 @@ func (t *ownedTimeline) depthLocked() time.Duration {
 		d += s.dur
 	}
 	return d
+}
+
+// lastSegmentDuration is the duration of the newest published segment.
+func (t *ownedTimeline) lastSegmentDuration() time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.lastDur
 }
 
 func (t *ownedTimeline) targetDuration() time.Duration {

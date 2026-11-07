@@ -390,10 +390,9 @@ func TestSwiftfinLiveTVSequenceIPTVAndVirtual(t *testing.T) {
 			wantAudio string
 			wantWidth float64
 			wantSeg   string
-			hasMaster bool
 		}{
-			{ch: iptvCh, wantCodec: "h264", wantAudio: "aac", wantWidth: 1920, wantSeg: "iptv-ts-segment-0", hasMaster: true},
-			{ch: virtualCh, wantCodec: "h264", wantAudio: "aac", wantWidth: 1280, wantSeg: "virtual-ts-segment-", hasMaster: false},
+			{ch: iptvCh, wantCodec: "h264", wantAudio: "aac", wantWidth: 1920, wantSeg: "iptv-ts-segment-0"},
+			{ch: virtualCh, wantCodec: "h264", wantAudio: "aac", wantWidth: 1280, wantSeg: "virtual-ts-segment-"},
 		} {
 			channelGUID, err := ids.StringGUID(ids.Channel, tcChan.ch.ID)
 			if err != nil {
@@ -473,16 +472,8 @@ func TestSwiftfinLiveTVSequenceIPTVAndVirtual(t *testing.T) {
 				t.Fatalf("%s %s playlist fetch (%s): %d %s", proto, tcChan.ch.Kind, swiftfinHLSURL, plW.Code, plW.Body.String())
 			}
 
-			// Step 4: Follow variant playlist (IPTV) and fetch a .ts segment
+			// Step 4: fetch the first .ts segment (IPTV is Ether's owned media playlist)
 			nextURI := resolveRelative(transcodingURL, firstMediaURI(plW.Body.String()))
-			if tcChan.hasMaster {
-				varW := request("GET", nextURI, "", false)
-				if varW.Code != 200 || !strings.Contains(varW.Body.String(), "#EXTINF") || strings.Contains(varW.Body.String(), "upstream-token") {
-					t.Fatalf("%s %s variant fetch (%s): %d %s", proto, tcChan.ch.Kind, nextURI, varW.Code, varW.Body.String())
-				}
-				varPath, _, _ := strings.Cut(nextURI, "?")
-				nextURI = resolveRelative(varPath, firstMediaURI(varW.Body.String()))
-			}
 			segW := request("GET", nextURI, "", false)
 			if segW.Code != 200 || !strings.HasPrefix(segW.Body.String(), tcChan.wantSeg) {
 				t.Fatalf("%s %s segment fetch (%s): %d %q", proto, tcChan.ch.Kind, nextURI, segW.Code, segW.Body.String())
@@ -696,12 +687,11 @@ func TestSiloLiveTVSequenceIPTVVirtualAndReplan(t *testing.T) {
 	}
 
 	for _, tcChan := range []struct {
-		ch        livetv.Channel
-		wantSeg   string
-		hasMaster bool
+		ch      livetv.Channel
+		wantSeg string
 	}{
-		{ch: iptvCh, wantSeg: "iptv-ts-segment-0", hasMaster: true},
-		{ch: virtualCh, wantSeg: "virtual-ts-segment-", hasMaster: false},
+		{ch: iptvCh, wantSeg: "iptv-ts-segment-0"},
+		{ch: virtualCh, wantSeg: "virtual-ts-segment-"},
 	} {
 		channelGUID, err := ids.StringGUID(ids.Channel, tcChan.ch.ID)
 		if err != nil {
@@ -770,16 +760,6 @@ func TestSiloLiveTVSequenceIPTVVirtualAndReplan(t *testing.T) {
 		nextURI := firstMediaURI(masterW.Body.String())
 		if err := siloScopeAllows(startDoc.SessionID, nextURI); err != nil {
 			t.Fatalf("%s playlist URI rejected by Silo scope: %v (playlist:\n%s)", tcChan.ch.Kind, err, masterW.Body.String())
-		}
-		if tcChan.hasMaster {
-			varW := request("GET", nextURI, "")
-			if varW.Code != 200 || !strings.Contains(varW.Body.String(), "#EXTINF") || strings.Contains(varW.Body.String(), "upstream-token") {
-				t.Fatalf("%s variant: %d %s", tcChan.ch.Kind, varW.Code, varW.Body.String())
-			}
-			nextURI = firstMediaURI(varW.Body.String())
-			if err := siloScopeAllows(startDoc.SessionID, nextURI); err != nil {
-				t.Fatalf("%s segment URI rejected by Silo scope: %v (variant:\n%s)", tcChan.ch.Kind, err, varW.Body.String())
-			}
 		}
 		segW := request("GET", nextURI, "")
 		if segW.Code != 200 || !strings.HasPrefix(segW.Body.String(), tcChan.wantSeg) {
