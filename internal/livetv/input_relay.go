@@ -373,6 +373,10 @@ func (s *Service) serveInputRelay(w http.ResponseWriter, r *http.Request) {
 	if root && s.serveTapped(w, r, g, raw) {
 		return
 	}
+	// A Steady grant's segments may already be in memory.
+	if !root && s.servePrefetched(w, r, g, raw) {
+		return
+	}
 	select {
 	case g.slots <- struct{}{}:
 		defer func() { <-g.slots }()

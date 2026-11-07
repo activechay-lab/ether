@@ -229,6 +229,11 @@ type hlsInput struct {
 	lists   map[string]*hlsList // by upstream playlist URL as requested
 	segs    map[string]int64    // upstream segment URL -> sequence
 	polling map[string]bool
+	// Steady prefetch (reserve_hls_prefetch.go).
+	fetches map[string]*hlsFetch
+	slots   chan struct{}
+	extra   int // fetches running on an extra account slot
+	held    int
 }
 
 // hlsList is the state of one provider media playlist.
@@ -305,6 +310,7 @@ func (h *hlsInput) media(raw string, body []byte, base *url.URL) ([]byte, []Upst
 	}
 	l.initialized = true
 	events := h.transitionsLocked(l, now)
+	h.prefetchLocked(l)
 	h.publishLocked()
 	floor := l.floor
 	startPoll := reserve > 0 && !h.polling[raw]
@@ -358,6 +364,8 @@ func (h *hlsInput) servedSegment(raw string) {
 		for _, sg := range l.last {
 			if sg.url == raw && seq > l.served {
 				l.served = seq
+				h.evictLocked(seq)
+				h.prefetchLocked(l)
 			}
 		}
 	}
