@@ -267,25 +267,6 @@
   },
   {
     "kind": "rowSource",
-    "id": "llm",
-    "owner": "builtin",
-    "label": {
-      "source": "Themed Rows (AI)"
-    },
-    "hint": {
-      "source": "Natural-language themed rows from the owner's LLM, seeded by recent favourites. Off by default; add it to a page to use it."
-    },
-    "group": "picks",
-    "order": 150,
-    "meta": {
-      "hubId": "llm",
-      "rowKind": "llm",
-      "sections": ["home", "movies", "shows"],
-      "source": "engine"
-    }
-  },
-  {
-    "kind": "rowSource",
     "id": "fans-also-loved",
     "owner": "builtin",
     "label": {
