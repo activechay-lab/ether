@@ -273,9 +273,11 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 		t.Fatalf("tool inputs = %q", inputs)
 	}
 	grantPattern := regexp.MustCompile(`^http://127\.0\.0\.1:\d+/livetv/input/[A-Za-z0-9_-]{43}/0/stream\.ts$`)
+	// Steady probes through its own grant and decodes through another: every
+	// tool reads a loopback grant, never the provider URL.
 	for _, input := range inputs {
-		if input != inputs[0] || !grantPattern.MatchString(input) {
-			t.Fatalf("tool input is not the session's loopback grant: %q (all: %q)", input, inputs)
+		if !grantPattern.MatchString(input) {
+			t.Fatalf("tool input is not a loopback grant: %q (all: %q)", input, inputs)
 		}
 	}
 	if len(bodies) != len(inputs) || hits.Load() == 0 {
@@ -296,8 +298,10 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 	// A continuous channel output keeps its input warm through the idle
 	// grace after its last viewer; ending the output must revoke the grant.
 	s.broadcasts.invalidate("", true)
-	if code, _, _ := relayGet(t, inputs[0], nil); code != http.StatusNotFound {
-		t.Fatalf("grant outlived its session: %d", code)
+	for _, input := range inputs {
+		if code, _, _ := relayGet(t, input, nil); code != http.StatusNotFound {
+			t.Fatalf("grant outlived its session: %d", code)
+		}
 	}
 	runner.mu.Lock()
 	for _, p := range runner.procs {
