@@ -33,6 +33,7 @@ import { useDebouncedValue } from "../../lib/hooks";
 import { ChannelLogo } from "./ChannelLogo";
 import { MapGuideButton } from "./GuideData";
 import { LivePreview } from "./LivePreview";
+import { STABILITY } from "./stability";
 import { ScheduleTimeline, type TimelineElement } from "./ScheduleTimeline";
 import { Drawer } from "../../components/Drawer";
 import {
@@ -566,6 +567,30 @@ export function ChannelStudio({
                 </span>
               </span>
             </label>
+            <Field
+              label={t("Stream stability")}
+              htmlFor="ch-stability"
+              hint={
+                c.stability
+                  ? STABILITY.find((s) => s.value === c.stability)?.body()
+                  : t("Follows the stream stability chosen for every channel under Sources.")
+              }
+            >
+              <Select
+                id="ch-stability"
+                value={c.stability || ""}
+                onChange={(e) =>
+                  set({ stability: (e.currentTarget.value || undefined) as Channel["stability"] })
+                }
+              >
+                <option value="">{t("Same as every channel")}</option>
+                {STABILITY.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.title()}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           </section>
         ) : null}
         {tab === "guide" && !virtual ? (

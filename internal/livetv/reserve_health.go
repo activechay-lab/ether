@@ -122,6 +122,19 @@ func (s *Service) relayInputLive(ss *session) (string, error) {
 	return u + "?" + relayJoinQuery + "=live", nil
 }
 
+// relayInputFormat is relayInput for a decoder reopened because the source's
+// program changed (a PMT change: codec, streams): it starts at the first
+// keyframe of the new format still buffered, so it reads the new format's
+// backlog at once instead of waiting at the live edge. Without one it joins
+// at the live edge.
+func (s *Service) relayInputFormat(ss *session) (string, error) {
+	u, err := s.relayInput(ss)
+	if err != nil {
+		return "", err
+	}
+	return u + "?" + relayJoinQuery + "=format", nil
+}
+
 // relayJoinQuery is the relay URL query naming a reader's join point.
 const relayJoinQuery = "join"
 

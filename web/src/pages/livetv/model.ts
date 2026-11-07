@@ -88,6 +88,8 @@ export type Channel = {
   /** Only viewers given this channel may watch it. */
   private?: boolean;
   transcode?: boolean;
+  /** Stability preset override; empty or absent follows the server setting. */
+  stability?: Stability | "";
   enabled: boolean;
   favorite: boolean;
   rating?: string;
@@ -879,3 +881,6 @@ export function programmeArtwork(src?: string): string | undefined {
     ? `/ether/api/image?path=${encodeURIComponent(src)}&w=342`
     : src;
 }
+
+/** Live TV stability presets (config liveTV.stability, channel stability). */
+export type Stability = "fastest" | "balanced" | "rocksolid";
