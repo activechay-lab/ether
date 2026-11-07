@@ -42,6 +42,9 @@ const READS = 2;
 /** What the server's problem codes mean to the owner. */
 const PROBLEMS = localized<Record<string, string>>(() => ({
   token: t("Plex no longer accepts this connection. Reconnect the account."),
+  consent: t(
+    "Watch sync is turned off in this viewer's Plex account, so Ether sends and reads nothing. To turn it on, sign in to Plex as this viewer, open Account settings and switch on “Sync My Watch State and Ratings”. Sync then starts on its own and waiting changes are kept.",
+  ),
   rate_limited: t("Plex asked Ether to slow down. Sync resumes on its own."),
   network: t("Plex could not be reached. Ether will try again."),
 }));
@@ -110,7 +113,7 @@ export function PlexWatchSync({ viewerId, plexId }: { viewerId: number; plexId: 
             {t("Plex account")}
             <Tooltip
               content={t(
-                "Keeps watched marks and ratings in step with this viewer's own Plex account. Resume positions are not synced.",
+                "Keeps watched marks, resume positions and ratings in step with this viewer's own Plex account.",
               )}
             >
               <button
@@ -242,7 +245,7 @@ export function PlexWatchSync({ viewerId, plexId }: { viewerId: number; plexId: 
           {st.direction & SENDS ? (
             <Tooltip
               content={t(
-                "Queues every title this viewer has watched or rated in Ether. New changes are sent on their own.",
+                "Queues every title this viewer has watched, started or rated in Ether. New changes are sent on their own.",
               )}
             >
               <span tabIndex={0}>
