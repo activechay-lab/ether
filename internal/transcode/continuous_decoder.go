@@ -30,16 +30,22 @@ type continuousDecoder struct {
 	// waiting for. Together they tell a starving stream from a quiet input.
 	audioStart   atomic.Int64 // first audio frame's source PTS (ns), -1 until seen
 	waitingSince atomic.Int64
-	other        atomic.Pointer[chan []byte]
+	otherStream  atomic.Int64 // reads index of the stream not waited for
+	otherAtWait  atomic.Int64 // its buffers read when the wait began
 }
 
 // Starving reports how long one elementary stream has delivered nothing
 // while the other keeps flowing: the first sign of a codec or stream-set
 // change, before ErrInputChanged.
+// A plain input stall stops both streams; only a stream that keeps arriving
+// (three buffers since the wait began) marks the waited one as starving.
 func (d *continuousDecoder) Starving() time.Duration {
 	since := d.waitingSince.Load()
-	other := d.other.Load()
-	if since == 0 || other == nil || len(*other) < 2 {
+	if since == 0 {
+		return 0
+	}
+	other := d.otherStream.Load()
+	if d.reads[other].Load()-d.otherAtWait.Load() < 3 {
 		return 0
 	}
 	return time.Since(time.Unix(0, since))
@@ -292,7 +298,12 @@ func (d *continuousDecoder) receive(p *continuousProcess, ch, other chan []byte,
 	default:
 	}
 	if watch {
-		d.other.Store(&other)
+		stream := int64(0)
+		if starved == liveVideoStarved {
+			stream = 1 // waiting for pictures; sound is the other stream
+		}
+		d.otherStream.Store(stream)
+		d.otherAtWait.Store(d.reads[stream].Load())
 		d.waitingSince.Store(time.Now().UnixNano())
 		defer d.waitingSince.Store(0)
 	}
@@ -467,9 +478,9 @@ func (l *liveFill) next(frame RawFrame, now time.Time) []RawFrame {
 	if len(l.pending) < run {
 		return nil
 	}
-	// Half a second of filler: skip it if it came at least twice as fast as
-	// it would play.
-	if now.Sub(l.since) < time.Duration(len(l.pending))*time.Second/time.Duration(2*max(1, l.fps)) {
+	// Half a second of filler: skip it if it came clearly faster than it
+	// would play (a quarter faster; real-time media arrives at 1x).
+	if now.Sub(l.since)*5 < time.Duration(len(l.pending))*time.Second*4/time.Duration(max(1, l.fps)) {
 		l.skipping = true
 		l.skipped += len(l.pending)
 		l.pending = nil
