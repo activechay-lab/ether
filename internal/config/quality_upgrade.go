@@ -68,6 +68,38 @@ func splitSharedProfiles(q *Quality) bool {
 	return split
 }
 
+// splitSharedProfileDocument preserves fields unknown to this version when
+// upgrading the authoritative shared document.
+func splitSharedProfileDocument(doc map[string]any) bool {
+	quality, ok := doc["quality"].(map[string]any)
+	if !ok {
+		return false
+	}
+	profiles, ok := quality["profiles"].([]any)
+	if !ok {
+		return false
+	}
+	var out []any
+	changed := false
+	for _, item := range profiles {
+		profile, ok := item.(map[string]any)
+		if !ok || (profile["mediaType"] != nil && profile["mediaType"] != "") {
+			out = append(out, item)
+			continue
+		}
+		changed = true
+		for _, media := range core.ProfileMediaTypes {
+			copy := maps.Clone(profile)
+			copy["mediaType"] = media
+			out = append(out, copy)
+		}
+	}
+	if changed {
+		quality["profiles"] = out
+	}
+	return changed
+}
+
 // cloneProfile deep-copies p field by field so the per-media copies share
 // no slices or maps. It does not go through JSON, whose decoding would fill
 // defaults (such as the ranking) the original left unset.
