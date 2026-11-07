@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -19,9 +20,11 @@ func TestAndroidPhotoConnectionAndFormat(t *testing.T) {
 	if err := png.Encode(&source, image.NewRGBA(image.Rect(0, 0, 40, 60))); err != nil {
 		t.Fatal(err)
 	}
-	hits := 0
+	// The handler runs for test requests and for background palette fetches
+	// concurrently, so the count must be atomic.
+	var hits atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
+		hits.Add(1)
 		w.Header().Set("Content-Type", "image/png")
 		w.Write(source.Bytes())
 	}))
@@ -79,7 +82,9 @@ func TestAndroidPhotoConnectionAndFormat(t *testing.T) {
 				}
 			}
 			f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, MaxContentRating: "PG"}
-			before := hits
+			// Let queued palette work finish so only the requests below can count.
+			f.srv.waitBackground()
+			before := hits.Load()
 			// Never fetch arbitrary URLs, or use a nested owner token to elevate a viewer.
 			target := "/photo/:/transcode?url=" + url.QueryEscape("https://previous-connection.invalid/library/metadata/"+fightClub.Key.String()+"/thumb/1?X-Plex-Token="+ownerToken)
 			if r := f.get(t, target, "X-Plex-Token", "invalid", "X-Plex-Product", product); r.Code != http.StatusUnauthorized {
@@ -93,7 +98,7 @@ func TestAndroidPhotoConnectionAndFormat(t *testing.T) {
 			if r := f.get(t, "/photo/:/transcode?url="+url.QueryEscape("http://169.254.169.254/latest/meta-data"), "X-Plex-Product", product); r.Code != http.StatusForbidden {
 				t.Fatal(r.Code)
 			}
-			if hits != before {
+			if hits.Load() != before {
 				t.Fatal("unauthorized image fetch")
 			}
 		})
