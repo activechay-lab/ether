@@ -69,6 +69,11 @@ func (p *pipelinedIndexer) SearchWith(ctx context.Context, _ core.SearchRequest,
 		return nil, ctx.Err()
 	}
 	if p.finalReady != nil {
+		// Deliver the final results through the streaming callback before
+		// releasing the health check, so the resolver already holds them
+		// when the early check passes. Closing finalReady before they were
+		// delivered let a loaded runner finish the check first.
+		arrived(p.final)
 		close(p.finalReady)
 	}
 	return p.final, nil
