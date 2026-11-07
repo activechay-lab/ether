@@ -54,6 +54,7 @@ func main() {
 	liveKeep := flag.String("live-keep", "", "keep each row's work directory (Ether log, captured segments) under this directory")
 	liveLabel := flag.String("live-label", "", "label for the live report")
 	liveObserve := flag.Duration("live-observe", liveObserve, "how long each live row is watched after the tune")
+	liveClient := flag.String("live-client", "plex-appletv", "client identity to tune as: plex-appletv (AVPlayer judge) or plex-firetv (ExoPlayer stuck rule, protocol judge)")
 	liveRender := flag.Bool("live-render", false, "rewrite -live-markdown from the existing -report JSON (with -live-baseline) and exit")
 	flag.Parse()
 	if *liveRender {
@@ -77,7 +78,7 @@ func main() {
 		if label == "" {
 			label = *live
 		}
-		if err := runLive(liveOptions{FF: *ff, FP: *fp, FixtureFF: fixtureFF, Subset: *live, Only: *liveOnly, Preset: *livePreset, Player: *livePlayer, Parallel: *liveParallel, CacheDir: *cache, Report: *report, Markdown: *liveMarkdown, Baseline: *liveBaseline, Keep: *liveKeep, Label: label, Observe: *liveObserve, RepoRoot: root}); err != nil {
+		if err := runLive(liveOptions{FF: *ff, FP: *fp, FixtureFF: fixtureFF, Subset: *live, Only: *liveOnly, Preset: *livePreset, Player: *livePlayer, Parallel: *liveParallel, CacheDir: *cache, Report: *report, Markdown: *liveMarkdown, Baseline: *liveBaseline, Keep: *liveKeep, Label: label, Observe: *liveObserve, Client: *liveClient, RepoRoot: root}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

@@ -215,7 +215,13 @@ func (e *liveEther) Close() {
 // the registry quirk plex-native-live-tune so the native tune path runs.
 var liveClients = map[string]map[string]string{
 	"plex-appletv": {"X-Plex-Product": "Plex for Apple TV", "X-Plex-Platform": "tvOS", "X-Plex-Platform-Version": "26.0", "X-Plex-Device": "Apple TV", "X-Plex-Model": "AppleTV14,1", "X-Plex-Version": "8.45", "X-Plex-Client-Identifier": "chaos-appletv"},
+	"plex-firetv":  {"X-Plex-Product": "Plex for Android (TV)", "X-Plex-Platform": "Android", "X-Plex-Platform-Version": "11", "X-Plex-Device": "Fire TV Stick 4K Max", "X-Plex-Model": "AFTKA", "X-Plex-Version": "10.30.0", "X-Plex-Client-Identifier": "chaos-firetv"},
 }
+
+// liveStuckFactor is how many target durations without a new segment each
+// client's player tolerates before it declares the live playlist stuck:
+// AVFoundation 1.5 (CoreMedia -12888), Media3/ExoPlayer 3.5.
+var liveStuckFactor = map[string]float64{"plex-appletv": 1.5, "plex-firetv": 3.5}
 
 // tunePlex performs the native live tune and returns the client playlist URL
 // the app plays, plus the session id.

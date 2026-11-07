@@ -82,7 +82,7 @@ database) and the players are all loopback and stop when the run ends.
       -ffmpeg $FF/ffmpeg -ffprobe $FF/ffprobe -live-fixture-ffmpeg ffmpeg \
       -live-parallel 6 -report live-quick.json -live-markdown live-quick.md
 
-  full matrix (about 10 minutes):
+  full matrix (66 rows; about 11 minutes with -live-parallel 6, 16 with 4):
     go run ./cmd/transcodechaos -live full -live-parallel 6 \
       -ffmpeg $FF/ffmpeg -ffprobe $FF/ffprobe -live-fixture-ffmpeg ffmpeg \
       -live-baseline docs/acceptance/036-live-reliability/baseline.json \
@@ -93,7 +93,10 @@ directory outside the repository). Fixtures may use any recent ffmpeg; they
 are cached under -cache-dir. -live-only scenario/mode substrings select rows,
 -live-preset fastest|balanced|rocksolid sets and judges the stability preset,
 -live-observe sets the watch time per row, -live-keep keeps each row's Ether
-log and captured segments.
+log and captured segments, -live-client plex-firetv tunes as Fire TV and
+judges with ExoPlayer's 3.5x target-duration rule (protocol judge only), and
+-live-render rewrites the Markdown from an existing JSON report. The v0.3.5
+baseline and how it was produced are in docs/acceptance/036-live-reliability.
 
 Provider (live_provider.go): live HLS (target duration 4 s, 6-segment backlog)
 or real-time raw MPEG-TS, generated from synthetic H.264/AAC fixtures cut at
@@ -132,6 +135,11 @@ Each row reports freeze, slate (screen), silence, client errors, recovered
 and TTFF (tune to the first provider picture), and passes only when the
 common rules (no client error, recovered, no gap over 1.5x target duration,
 no overlong segment, consistent sequences, TTFF <= 5 s) and the scenario's
-per-preset budget in live_scenarios.go all hold. Rows run in parallel on a
+per-preset budget in live_scenarios.go all hold.
+
+Not covered: the Jellyfin live path. Its stream URL comes from the app's
+session broker, capability builder and identity, which only internal/app
+assembles; driving it needs the full binary with a local viewer. Plex Web,
+the Plex tvOS app itself and Fire TV hardware remain manual device rounds. Rows run in parallel on a
 shared host; slow judge polls are reported and not charged to Ether. Use
 -live-parallel 1 for timing-critical measurements.
