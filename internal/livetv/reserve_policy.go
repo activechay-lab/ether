@@ -52,12 +52,3 @@ func (s *Service) stabilityPreset(c Channel) string {
 func (s *Service) stabilityReserve(c Channel) time.Duration {
 	return stabilityReserves[s.stabilityPreset(c)]
 }
-
-// steadyInput reports whether a session's input feeds a Steady (broadcast)
-// decoder. Steady's frame clock reads its input at real time, so a reader
-// started behind the live edge stays there: that distance is the reserve.
-// A relay's ffmpeg reads as fast as bytes arrive, so for it a reserve in
-// the tap would only become a burst of segments.
-func steadyInput(ss *session) bool {
-	return ss != nil && strings.HasPrefix(ss.info.ID, "broadcast-")
-}
