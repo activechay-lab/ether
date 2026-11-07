@@ -34,6 +34,16 @@ func TestPlexShelfDeepPageAndCount(t *testing.T) {
 	if err != nil || deck.Total != 250 || len(deck.Items) != 7 || deck.Items[0].Key != core.MovieKey(1220) {
 		t.Fatalf("onDeck deep page %+v %v", deck, err)
 	}
+	for i, item := range deck.Items {
+		if item.Key != core.MovieKey(int64(1220+i)) {
+			t.Fatalf("onDeck page order: item %d is %v", i, item.Key)
+		}
+	}
+	// Past the end no row carries the total.
+	deck, err = c.PlexOnDeckPage(ctx, 1, 300, 7, core.Filter{}, false)
+	if err != nil || deck.Total != 250 || len(deck.Items) != 0 {
+		t.Fatalf("onDeck past the end %+v %v", deck, err)
+	}
 	unwatched := true
 	recent, err = c.PlexRecentPage(ctx, core.BrowseQuery{Filter: core.Filter{KnownAddedDate: true, Group: &core.FilterGroup{Unwatched: &unwatched, UserID: 1}}, Offset: 0, Limit: 3}, []core.MediaType{core.TypeMovie})
 	if err != nil || recent.Total != 20 || len(recent.Items) != 3 || recent.Items[0].Key != core.MovieKey(1230) {
