@@ -15,7 +15,10 @@ import (
 
 func TestDeploymentAndDrainBoundary(t *testing.T) {
 	dir := t.TempDir()
-	d := Deployment{Roles: config.NodeRoles{config.RoleTranscode}, InternalAddress: "https://node.internal:32401", DatabaseURLFile: "/secret/db", ClusterKeyFile: "/secret/key", CAFile: "/secret/issuer.crt", CAKeyFile: "/secret/issuer.key", RootsFile: "/secret/roots", Capacity: 2, ClockBoundKnown: true, ClockSkewMillis: 1000}
+	// Secret paths are absolute for the host OS: "/secret/db" is only
+	// drive-relative on Windows, so derive them from the absolute temp dir.
+	secret := filepath.Join(dir, "secret")
+	d := Deployment{Roles: config.NodeRoles{config.RoleTranscode}, InternalAddress: "https://node.internal:32401", DatabaseURLFile: filepath.Join(secret, "db"), ClusterKeyFile: filepath.Join(secret, "key"), CAFile: filepath.Join(secret, "issuer.crt"), CAKeyFile: filepath.Join(secret, "issuer.key"), RootsFile: filepath.Join(secret, "roots"), Capacity: 2, ClockBoundKnown: true, ClockSkewMillis: 1000}
 	b, _ := json.Marshal(d)
 	path := filepath.Join(dir, "deployment.json")
 	if err := os.WriteFile(path, b, 0600); err != nil {
@@ -24,6 +27,16 @@ func TestDeploymentAndDrainBoundary(t *testing.T) {
 	got, err := ReadDeployment(path)
 	if err != nil {
 		t.Fatal(err)
+	}
+	relative := d
+	relative.CAFile = filepath.Join("secret", "issuer.crt")
+	rb, _ := json.Marshal(relative)
+	relativePath := filepath.Join(dir, "relative.json")
+	if err := os.WriteFile(relativePath, rb, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadDeployment(relativePath); err == nil {
+		t.Fatal("accepted relative secret path")
 	}
 	if got.PrivateListen != ":32401" || got.ProbeListen != ":32402" || got.DrainSeconds != 120 {
 		t.Fatal("missing deployment defaults")
