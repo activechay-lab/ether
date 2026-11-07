@@ -12,6 +12,12 @@ export type Item = {
   summary?: string;
   rating?: string;
   thumb?: string;
+  art?: string;
+  showTitle?: string;
+  episodeTitle?: string;
+  genres?: string[];
+  premiere?: boolean;
+  live?: boolean;
   showKey?: number;
   season?: number;
   episode?: number;

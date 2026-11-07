@@ -49,6 +49,8 @@ import { GuideMatchPanel, GuideSourceList, GuideWorkbench } from "./GuideData";
 import { ChannelBulkBar, type ChannelPatch } from "./ChannelBulkBar";
 import { ChannelDrawerBody } from "./ChannelDrawerBody";
 import { GuideGrid } from "./GuideGrid";
+import { ProgrammeInspector } from "./ProgrammeInspector";
+import { LivePreview } from "./LivePreview";
 import { SourcesDashboard } from "./SourcesDashboard";
 import { SourceList, type Selection } from "./Lineup";
 import type { SourceKind } from "./SourceEditor";
@@ -176,6 +178,12 @@ export default function LiveTV() {
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [selectionLoading, setSelectionLoading] = useState(false);
   const [visibleRange, setVisibleRange] = useState<[number, number]>([0, 40]);
+  const [selectedGroup, setSelectedGroup] = useState<string>("all");
+  const [previewChannel, setPreviewChannel] = useState<Channel | ChannelSummary | null>(null);
+  const [inspectedProgramme, setInspectedProgramme] = useState<{
+    channel: Channel | ChannelSummary;
+    programme: Programme;
+  } | null>(null);
   const [pageNonce, setPageNonce] = useState(0);
   const [guideNonce, setGuideNonce] = useState(0);
   const [coverageNonce, setCoverageNonce] = useState(0);
@@ -400,7 +408,7 @@ export default function LiveTV() {
 
   const guide = useMemo(() => groupBy(programmes, (p) => p.channelId), [programmes]);
   const covered = useCallback(
-    (c: Channel) => (c.kind === "virtual" ? true : coverageMap[c.id]),
+    (c: Channel | ChannelSummary) => (c.kind === "virtual" ? true : coverageMap[c.id]),
     [coverageMap],
   );
   const missingCount = page?.counts.missing ?? null;
@@ -411,13 +419,31 @@ export default function LiveTV() {
         : null,
     [coverageList],
   );
+  const maxGuideDays = useMemo(() => {
+    if (!coverageList || coverageList === "unsupported" || coverageList.length === 0) return 7;
+    let maxUntilMs = 0;
+    for (const cov of coverageList) {
+      if (cov.until) {
+        const ms = Date.parse(cov.until);
+        if (ms > maxUntilMs) maxUntilMs = ms;
+      }
+    }
+    if (!maxUntilMs) return 7;
+    const days = Math.ceil((maxUntilMs - now) / (24 * HOUR));
+    return Math.max(1, Math.min(7, days));
+  }, [coverageList, now]);
   const channels = allChannels;
   const sorted = allChannels ?? [];
+  const channelGroups = useMemo(
+    () => [...new Set(sorted.map((c) => c.group).filter((g): g is string => Boolean(g)))].sort(),
+    [sorted],
+  );
   const query = search;
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     if (filter === "missing" && coverage === null) return [];
     return (allChannels ?? []).filter((c) => {
+      if (selectedGroup !== "all" && c.group !== selectedGroup) return false;
       if (filter === "live" && !c.enabled) return false;
       if (filter === "favorites" && !c.favorite) return false;
       if (filter === "virtual" && c.kind !== "virtual") return false;
@@ -430,31 +456,36 @@ export default function LiveTV() {
         return false;
       return !needle || `${c.number} ${c.name} ${c.group ?? ""}`.toLowerCase().includes(needle);
     });
-  }, [allChannels, search, filter, coverage]);
+  }, [allChannels, search, filter, coverage, selectedGroup]);
   const indexedChannels = useMemo(() => {
-    const a = new Array<Channel | undefined>(page?.total ?? 0).fill(undefined);
+    if (selectedGroup !== "all" && allChannels) {
+      return filtered;
+    }
+    const a = new Array<Channel | ChannelSummary | undefined>(page?.total ?? 0).fill(undefined);
     rows.forEach((c, i) => {
       a[i] = c;
     });
     return a;
-  }, [rows, page?.total]);
+  }, [rows, page?.total, selectedGroup, allChannels, filtered]);
 
   const guideIDs = useMemo(() => {
     const ids: string[] = [];
     const seen = new Set<string>();
-    const add = (c: Channel | undefined) => {
+    const add = (c: Channel | ChannelSummary | undefined) => {
       if (c && !seen.has(c.id)) {
         seen.add(c.id);
         ids.push(c.id);
       }
     };
     // Keep the picture strip supplied while fetching guide rows near the viewport.
-    const first = Math.min(120, page?.total ?? 0);
-    for (let i = 0; i < first; i++) add(rows.get(i));
-    for (let i = visibleRange[0]; i < visibleRange[1]; i++) add(rows.get(i));
+    const total = indexedChannels.length;
+    const first = Math.min(120, total);
+    for (let i = 0; i < first; i++) add(indexedChannels[i]);
+    for (let i = visibleRange[0]; i < Math.min(visibleRange[1], total); i++)
+      add(indexedChannels[i]);
     if (selection.kind === "channel" && savedChannel) add(savedChannel);
     return ids;
-  }, [rows, visibleRange, page?.total, selection.kind, savedChannel]);
+  }, [indexedChannels, visibleRange, selection.kind, savedChannel]);
   const debouncedGuideIDs = useDebouncedValue(guideIDs.join(","), 150);
   useEffect(() => {
     if (!debouncedGuideIDs) {
@@ -625,6 +656,9 @@ export default function LiveTV() {
         for (const [i, row] of next) if (row.id === saved.id) next.set(i, saved);
         return next;
       });
+      setAllChannels((prev) =>
+        prev ? prev.map((ch) => (ch.id === saved.id ? { ...ch, ...saved } : ch)) : prev,
+      );
       if (selectedChannel?.id === saved.id) setSelectedChannel(saved);
       if (message) toast.success(message);
       setGuideNonce((n) => n + 1);
@@ -643,7 +677,7 @@ export default function LiveTV() {
     [],
   );
   const toggleFavorite = useCallback(
-    (c: Channel) =>
+    (c: Channel | ChannelSummary) =>
       void latest.current.quickSave(
         { ...c, favorite: !c.favorite },
         c.favorite
@@ -785,19 +819,33 @@ export default function LiveTV() {
                 menuClassName="w-48"
               />
             ) : leftTab === "looks" ? null : (
-              <ToolbarPicker
-                ariaLabel={t("Show")}
-                value={filter}
-                onChange={setFilter}
-                options={FILTERS.map((f) => ({
-                  ...f,
-                  hint:
-                    f.value === "missing" && missingCount !== null
-                      ? tn(missingCount, "{count} channel", "{count} channels")
-                      : undefined,
-                }))}
-                menuClassName="w-48"
-              />
+              <>
+                <ToolbarPicker
+                  ariaLabel={t("Show")}
+                  value={filter}
+                  onChange={setFilter}
+                  options={FILTERS.map((f) => ({
+                    ...f,
+                    hint:
+                      f.value === "missing" && missingCount !== null
+                        ? tn(missingCount, "{count} channel", "{count} channels")
+                        : undefined,
+                  }))}
+                  menuClassName="w-48"
+                />
+                {channelGroups.length > 0 ? (
+                  <ToolbarPicker
+                    ariaLabel={t("Group")}
+                    value={selectedGroup}
+                    onChange={setSelectedGroup}
+                    options={[
+                      { value: "all", label: t("All groups") },
+                      ...channelGroups.map((g) => ({ value: g, label: g })),
+                    ]}
+                    menuClassName="max-h-72 w-56 overflow-y-auto"
+                  />
+                ) : null}
+              </>
             )}
           </div>
         }
@@ -832,6 +880,8 @@ export default function LiveTV() {
       tab,
       navigate,
       updateParams,
+      channelGroups,
+      selectedGroup,
     ],
   );
   const lineupEmpty = channels?.length ? (
@@ -962,10 +1012,6 @@ export default function LiveTV() {
       setBulkBusy(false);
     }
   };
-  const channelGroups = useMemo(
-    () => [...new Set(sorted.map((c) => c.group).filter((g): g is string => Boolean(g)))].sort(),
-    [sorted],
-  );
 
   const channelOpen = selection.kind === "new" || selection.kind === "channel";
   const guideOpen = selection.kind === "map";
@@ -1026,6 +1072,7 @@ export default function LiveTV() {
   const clearSelection = useCurrentCallback(clearChannels);
   const applySelection = useCurrentCallback(applyChannels);
   const shiftGuide = useCallback((h: number) => setShift((s) => s + h), []);
+  const setGuideShift = useCallback((h: number) => setShift(h), []);
   const jumpGuide = useCallback(() => {
     setShift(0);
     setNow(Date.now());
@@ -1064,8 +1111,13 @@ export default function LiveTV() {
           now={now}
           selected={selectedID}
           onSelect={selectChannel}
+          onSelectProgramme={(c, p) => setInspectedProgramme({ channel: c, programme: p })}
+          onPlayChannel={(c) => setPreviewChannel(c)}
+          onMapGuide={(c) => void go({ kind: "map", id: c.id })}
           onShift={shiftGuide}
+          onSetShift={setGuideShift}
           onNow={jumpGuide}
+          daysCount={maxGuideDays}
           loading={guideLoading}
           head={panelHead}
           covered={covered}
@@ -1094,6 +1146,8 @@ export default function LiveTV() {
       now,
       selectedID,
       selectChannel,
+      setGuideShift,
+      go,
       guideLoading,
       panelHead,
       covered,
@@ -1283,6 +1337,26 @@ export default function LiveTV() {
         </ChannelDrawerBody>
       </Drawer>
       <LookSurfaces looks={looks} reload={reloadLooks} />
+      {inspectedProgramme ? (
+        <ProgrammeInspector
+          channel={inspectedProgramme.channel}
+          programme={inspectedProgramme.programme}
+          now={now}
+          onClose={() => setInspectedProgramme(null)}
+          onPlayChannel={(c) => {
+            setInspectedProgramme(null);
+            setPreviewChannel(c);
+          }}
+          onOpenChannelSettings={(c) => {
+            setInspectedProgramme(null);
+            void go({ kind: "channel", id: c.id });
+          }}
+          onToggleFavorite={toggleFavorite}
+        />
+      ) : null}
+      {previewChannel ? (
+        <LivePreview channel={previewChannel} onClose={() => setPreviewChannel(null)} />
+      ) : null}
     </>
   );
 }
