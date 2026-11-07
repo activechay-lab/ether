@@ -84,11 +84,7 @@ Linux, the six deterministic mutation seeds in the existing backend tests,
 and the pure-Go SIMD race suite on macOS. The local results above do not imply
 that a new hosted CI run has finished.
 
-[Machine-readable results](yenc-validation-results/summary.json),
-[Go SIMD fuzz output](yenc-validation-results/fuzz-count-go-simd.log),
-[C fuzz output](yenc-validation-results/fuzz-count-cgo.log), and
-[Go SIMD race output](yenc-validation-results/go-simd-race.log) are committed
-alongside the other affected-suite, race, vet, build and Rosetta logs.
+Raw logs are not committed; rerun the commands above to regenerate them.
 
 ## Full-module failures
 
@@ -116,9 +112,7 @@ failures were reproduced across the current full/isolated runs; the store
 failure is an additional timing-sensitive observation. Passing isolated reruns
 do not erase the recorded full-suite failure. **The full suite is not green.**
 
-See [SIMD failure excerpts](yenc-validation-results/full-go-simd-failures.txt),
-[portable failure excerpts](yenc-validation-results/full-swar-failures.txt), and
-the isolated recheck entries/logs in the results directory. Local transcoding
+Local transcoding
 checks used FFmpeg 9.0.1 from PATH.
 
 ## Reproduce
