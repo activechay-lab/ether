@@ -1030,7 +1030,12 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 	if g == nil && fo.stallRecovery && direct && !fo.encoder && !fo.down {
 		if fo.stillNeeded != nil && !fo.stillNeeded() {
 			// Progress during the candidate search already cleared the
-			// stall: leave recovery as it is without spending the grace.
+			// stall: leave recovery as it is without spending the grace,
+			// and close the opened fallback this call owns — like the
+			// cancellation paths, nothing downstream sees it.
+			if fallbackGen != nil {
+				m.dropGeneration(fallbackGen)
+			}
 			return cur, nil
 		}
 		if s.takeStallContinue(cur) {

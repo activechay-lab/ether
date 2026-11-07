@@ -154,9 +154,10 @@ func TestStallSecondWindowCancelledByProgress(t *testing.T) {
 	}
 }
 
-// The grace must not burn a prefetched, openable but unspliceable fallback:
-// the handoff is deferred one window, and must still happen. Dropping the
-// fallback generation closes it; the next failover re-dials it from the
+// The grace must not permanently lose a prefetched, openable but
+// unspliceable fallback: the handoff is deferred one window, and must
+// still happen. Dropping the fallback generation closes it; the next
+// failover re-dials it from the
 // alternates — this test pins that the deferred handoff is a real guarantee,
 // not an assumption, and records the deliberate policy: under a stalled
 // provider network the original release outranks an unspliceable fallback.
@@ -185,4 +186,51 @@ func TestStallGraceDefersThenHandsOffOpenableFallback(t *testing.T) {
 	if _, ok := h.m.Session(ps.ID); !ok {
 		t.Fatal("fallback takeover ended the session")
 	}
+}
+
+// Progress that arrives after the entry check but before the grace branch
+// must not burn the grace — and the early return must not strand the
+// fallback it owns: it drops the opened fallback generation on the way
+// out, mirroring the surrounding cancellation paths.
+func TestStallProgressDuringSearchRetiresGraceAndFallback(t *testing.T) {
+	a := mkv("A", 200000, 100*time.Second)
+	b := mkv("B", 150000, 100*time.Second) // openable, unspliceable: kept as fallback
+	h := newHarness(t, []*fakeRelease{a, b}, []string{"A", "B"})
+	ps := h.prepare(owner, movieKey, "stall-search-progress")
+	s := h.m.lookup(ps.ID)
+	g := s.current()
+	<-g.indexReady
+	g.src = stalledRetrySource{g.src}
+	// The client resumes (stillNeeded false) only after the candidate
+	// search opened and preflighted B. The first stillNeeded call is the
+	// entry check; the second is the grace branch's — reached with
+	// fallbackGen in hand, exactly the scenario the branch guards.
+	calls := 0
+	stillNeeded := func() bool {
+		calls++
+		return calls < 2
+	}
+	res, err := h.m.failoverWith(context.Background(), s, g, 3*time.Minute, failoverOpts{reason: "media source stalled", strictDirect: true, stallRecovery: true, stillNeeded: stillNeeded})
+	if err != nil || res != g {
+		t.Fatalf("failover with progress during search: res=%v err=%v, want the original release kept", res, err)
+	}
+	s.mu.Lock()
+	spent := s.stallContinues
+	s.mu.Unlock()
+	if spent != 0 {
+		t.Fatal("progress during the search spent the stall grace")
+	}
+	if h.m.RequiresRemux(ps.ID) {
+		t.Fatal("progress during the search switched the session to remux")
+	}
+	var opened *fakeSource
+	for _, src := range h.engine.sources {
+		if src.rel.ID == "B" {
+			opened = src
+		}
+	}
+	if opened == nil {
+		t.Fatal("candidate search never opened the fallback release")
+	}
+	eventually(t, "fallback source closed after progress retired recovery", func() bool { return opened.closed.Load() })
 }
