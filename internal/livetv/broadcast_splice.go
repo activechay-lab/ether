@@ -16,9 +16,15 @@ import (
 // switches to it as soon as it has a picture while the old one is still
 // starved (or reported the change). If the old decoder recovers first, the
 // candidate closes again. The provider connection is the same shared tap.
+//
+// With decoder errors during the wait (a codec change floods them) the
+// splice is quick; without, it waits out interleave jitter (a long-GOP
+// stream's big keyframes can hold pictures back half a second).
 const (
 	spliceOpenAfter   = 200 * time.Millisecond
 	spliceSwitchAfter = 250 * time.Millisecond
+	quietOpenAfter    = 500 * time.Millisecond
+	quietSwitchAfter  = 700 * time.Millisecond
 	spliceRecovered   = time.Second
 	spliceRetryAfter  = 2 * time.Second
 	splicePoll        = 40 * time.Millisecond
@@ -63,7 +69,9 @@ func (p *decoderPump) close() {
 	}
 }
 
-type starving interface{ Starving() time.Duration }
+type starving interface {
+	StarvingErrors() (time.Duration, bool)
+}
 
 // pull is the next picture of the current decoder, splicing a live-edge
 // candidate in when the current one starves.
@@ -112,16 +120,20 @@ func (d *providerBroadcastDecoder) pull(ctx context.Context) (transcode.RawFrame
 			}
 		case <-tick.C:
 		}
-		starved := d.Decoder.(starving).Starving()
+		starved, errored := d.Decoder.(starving).StarvingErrors()
+		open, switchAfter := quietOpenAfter, quietSwitchAfter
+		if errored {
+			open, switchAfter = spliceOpenAfter, spliceSwitchAfter
+		}
 		switch {
-		case d.cand != nil && d.cand.held != nil && (failed || starved >= spliceSwitchAfter):
+		case d.cand != nil && d.cand.held != nil && (failed || starved >= switchAfter):
 			frame := d.cand.held.frame
 			d.cand.held = nil
 			d.cur.close()
 			d.Decoder, d.cur, d.cand = d.cand.dec, d.cand, nil
 			d.planner.logger().Info("live input spliced to a new decoder", "input", d.sourceID, "reason", "stream change", "starved", starved)
 			return frame, nil
-		case d.cand == nil && !failed && starved >= spliceOpenAfter && time.Since(d.lastCandidate) >= spliceRetryAfter:
+		case d.cand == nil && !failed && starved >= open && time.Since(d.lastCandidate) >= spliceRetryAfter:
 			d.lastCandidate = time.Now()
 			if dec, err := d.reopen(); err == nil {
 				d.cand = startPump(d.life, dec)
