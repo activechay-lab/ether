@@ -12,7 +12,9 @@ const imports = (fake: Parameters<typeof calls>[0]) =>
 
 async function openImport() {
   fireEvent.click(await screen.findByRole("button", { name: "Add profile" }, WAIT));
-  fireEvent.click(await screen.findByRole("button", { name: "Import a quality profile" }, WAIT));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Import a preset quality profile" }, WAIT),
+  );
   return screen.findByRole("dialog", { name: "Import a quality profile" }, WAIT);
 }
 
@@ -146,15 +148,21 @@ describe("Quality profile import from guides", () => {
     });
     fireEvent.change(within(drawer).getByLabelText("Profile JSON"), { target: { value: json } });
     fireEvent.click(within(drawer).getByRole("button", { name: "Preview" }));
-    const table = await within(drawer).findByRole("table", { name: "Custom formats" }, WAIT);
+    expect(await within(drawer).findByText(/This profile is for Shows/)).toBeInTheDocument();
+    expect(within(drawer).getByRole("button", { name: "Add profile" })).toBeDisabled();
+    fireEvent.click(within(drawer).getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Shows" }));
+    const showsDrawer = await openImport();
+    expect(within(showsDrawer).getByText("Shows (Sonarr)")).toBeInTheDocument();
+    fireEvent.click(within(showsDrawer).getByRole("radio", { name: "Paste JSON" }));
+    fireEvent.change(within(showsDrawer).getByLabelText("Profile JSON"), {
+      target: { value: json },
+    });
+    fireEvent.click(within(showsDrawer).getByRole("button", { name: "Preview" }));
+    const table = await within(showsDrawer).findByRole("table", { name: "Custom formats" }, WAIT);
     expect(within(table).getByText("Not found")).toBeInTheDocument();
-    expect(within(drawer).getByText("Remux 1080p")).toBeInTheDocument();
-    // The Sonarr remux name switched the app.
-    expect(within(drawer).getByRole("radio", { name: "Shows (Sonarr)" })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
-    fireEvent.click(within(drawer).getByRole("button", { name: "Add profile" }));
+    expect(within(showsDrawer).getByText("Remux 1080p")).toBeInTheDocument();
+    fireEvent.click(within(showsDrawer).getByRole("button", { name: "Add profile" }));
     await waitFor(() => expect(imports(fake)).toHaveLength(1));
     expect(imports(fake)[0]!.body).toEqual({
       app: "sonarr",
@@ -162,7 +170,6 @@ describe("Quality profile import from guides", () => {
       name: "My remuxes",
     });
     // A show profile is listed under Shows, not Movies.
-    fireEvent.click(await screen.findByRole("radio", { name: "Shows" }, WAIT));
     expect(await screen.findByText("My remuxes", {}, WAIT)).toBeInTheDocument();
   });
 });

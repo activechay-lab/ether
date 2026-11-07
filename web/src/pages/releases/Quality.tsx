@@ -54,7 +54,6 @@ import type { CustomFormatDefinition, QualityProfile, ReleaseRule } from "../../
 import { parseDuration } from "../settings/duration";
 import { QUALITY_AUDIO, QUALITY_CODECS, QUALITY_SOURCES } from "../settings/schema";
 import { SourceOrderSection } from "../sources/EqualQuality";
-import { AwaySection } from "./AwaySection";
 import { RemoteBitrateSection } from "./RemoteBitrateSection";
 import { ConfigSection } from "../../components/ConfigSection";
 import { PLAY_VERSIONS } from "../settings/schema";
@@ -1046,15 +1045,16 @@ export function QualityTab() {
   if (!quality) return <LoadingRows rows={4} />;
   return (
     <>
-      <ProfileList
-        quality={quality}
-        resolver={config.data?.resolver ?? null}
-        commit={commit}
-        refresh={refresh}
-        media={media}
-        onMediaChange={setMedia}
-      />
-      <AwaySection quality={quality} media={media} onSaved={refresh} />
+      <div className="space-y-5 rounded-xl border border-primary/30 bg-primary/5 p-5">
+        <ProfileList
+          quality={quality}
+          resolver={config.data?.resolver ?? null}
+          commit={commit}
+          refresh={refresh}
+          media={media}
+          onMediaChange={setMedia}
+        />
+      </div>
       <div className="pt-1">
         <div className="flex items-center gap-3">
           <div className="h-px flex-1 bg-border" />
@@ -1125,12 +1125,12 @@ function ProfileList({
     cloned.ranking = normalizeRanking(cloned, steps);
     setEditing({ index, draft: cloned });
     const isExisting = index < profiles.length;
-    const scope = profileMediaType(cloned);
-    const home = defaultField(scope, false);
-    const away = defaultField(scope, true);
+    const scope = (profileMediaType(cloned) || media) as ProfileMedia;
     setDefaultFor({
-      home: isExisting ? quality[home] === cloned.name : profiles.length === 0,
-      away: isExisting && quality[away] === cloned.name,
+      home: isExisting
+        ? mediaDefault(quality, scope, false) === cloned.name
+        : profiles.length === 0,
+      away: isExisting && mediaDefault(quality, scope, true) === cloned.name,
     });
     const text = scoringText(resolver, draft);
     setScoring(text);
@@ -1185,19 +1185,26 @@ function ProfileList({
     };
     if (renamed) next = withRenamedDefaults(next, renamed, draft.name);
 
-    // The checkboxes belong to the profile's media (legacy fields for Both).
-    const homeField = defaultField(scope, false);
-    const awayField = defaultField(scope, true);
+    // Shared profiles set defaults for the selected media.
+    const defaultMedia = (scope || media) as ProfileMedia;
+    const homeField = defaultField(defaultMedia, false);
+    const awayField = defaultField(defaultMedia, true);
     if (defaultFor.home) {
       next[homeField] = draft.name;
-    } else if (old && quality[homeField] === old.name) {
-      next[homeField] = scope === "" ? otherProfile : mediaFallback(list, scope, draft.name);
+    } else if (old && mediaDefault(quality, defaultMedia, false) === old.name) {
+      next[homeField] = mediaFallback(list, defaultMedia, draft.name);
     }
     // Away is optional: with no Away profile, people away from home get
     // the At home one.
     if (defaultFor.away) {
       next[awayField] = draft.name;
-    } else if (old && quality[awayField] === old.name) {
+    } else if (old && mediaDefault(quality, defaultMedia, true) === old.name) {
+      if (next.remote) {
+        const otherMedia = defaultMedia === MEDIA_MOVIE ? MEDIA_TV : MEDIA_MOVIE;
+        const otherAway = defaultField(otherMedia, true);
+        next[otherAway] = mediaDefault(quality, otherMedia, true);
+        next.remote = "";
+      }
       next[awayField] = "";
     }
     // Moving a profile to another media must not leave its old default behind.
@@ -1312,22 +1319,21 @@ function ProfileList({
     setEditing((e) => (e ? { ...e, draft: { ...e.draft, ...p } } : e));
 
   /** Change "Applies to" and point the default checkboxes at the new media's fields. */
-  function changeApplies(media: "" | ProfileMedia) {
+  function changeApplies(nextMedia: "" | ProfileMedia) {
     const existing = editing ? profiles[editing.index] : undefined;
-    patch({ mediaType: media || undefined });
+    patch({ mediaType: nextMedia || undefined });
     if (existing) {
-      const home = defaultField(media, false);
-      const away = defaultField(media, true);
+      const selected = nextMedia || media;
       setDefaultFor({
-        home: quality[home] === existing.name,
-        away: quality[away] === existing.name,
+        home: mediaDefault(quality, selected, false) === existing.name,
+        away: mediaDefault(quality, selected, true) === existing.name,
       });
     }
   }
 
   return (
     <>
-      <div className="rounded-xl border border-primary/30 bg-primary/5 px-5 py-4">
+      <div>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
@@ -1336,10 +1342,9 @@ function ProfileList({
             <div className="mt-3 flex flex-wrap items-center gap-4">
               <MediaScopeToggle media={media} onChange={onMediaChange} />
               <p className="max-w-md text-sm text-fg-muted">
-                {t(
-                  "Profiles, At home and Away defaults, and Away settings below apply to {media}.",
-                  { media: mediaLabel(media) },
-                )}
+                {t("Profiles and their At home and Away defaults apply to {media}.", {
+                  media: mediaLabel(media),
+                })}
               </p>
             </div>
           </div>
@@ -1420,7 +1425,12 @@ function ProfileList({
         )}
       </Section>
 
-      <TrashImport open={importing} onClose={() => setImporting(false)} onImported={refresh} />
+      <TrashImport
+        open={importing}
+        media={media}
+        onClose={() => setImporting(false)}
+        onImported={refresh}
+      />
 
       <RecordDrawer
         open={editing !== null}
@@ -1446,7 +1456,7 @@ function ProfileList({
                 }}
               >
                 <Download size={16} />
-                {t("Import a quality profile")}
+                {t("Import a preset quality profile")}
               </Button>
             ) : null}
             <SettingsSection title={t("Profile")}>
@@ -1466,19 +1476,21 @@ function ProfileList({
                     : t("Which titles this profile can rank.")
                 }
                 control={
-                  draft.import ? (
+                  draft.import || isNew ? (
                     <span className="flex flex-wrap items-center gap-1.5">
                       <Badge variant="secondary">
                         {mediaLabel(
                           draft.mediaType ||
-                            mediaTypeForApp(draft.import.app === "sonarr" ? "sonarr" : "radarr"),
+                            mediaTypeForApp(draft.import?.app === "sonarr" ? "sonarr" : "radarr"),
                         )}
                       </Badge>
-                      <Badge variant="outline">
-                        {draft.import.source === "dictionarry"
-                          ? "Profilarr (Dictionarry)"
-                          : "TRaSH Guides"}
-                      </Badge>
+                      {draft.import ? (
+                        <Badge variant="outline">
+                          {draft.import.source === "dictionarry"
+                            ? "Profilarr (Dictionarry)"
+                            : "TRaSH Guides"}
+                        </Badge>
+                      ) : null}
                     </span>
                   ) : (
                     <Segmented
@@ -1493,16 +1505,10 @@ function ProfileList({
               />
               <SettingsRow
                 title={t("Default for")}
-                description={
-                  draftScope === ""
-                    ? t(
-                        "Used when no device rule matches, for both movies and shows. With no profile for Away, people away from home get the At home profile.",
-                      )
-                    : t(
-                        "Used when no device rule matches for {media}. With no profile for Away, people away from home get the At home profile.",
-                        { media: mediaLabel(draftScope) },
-                      )
-                }
+                description={t(
+                  "Used when no device rule matches for {media}. With no profile for Away, people away from home get the At home profile.",
+                  { media: mediaLabel(draftScope || media) },
+                )}
                 control={
                   <ChipGroup
                     ariaLabel={t("Default for")}
