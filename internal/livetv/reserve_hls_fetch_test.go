@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -177,5 +178,79 @@ func TestSteadySkipsStuckHLSSegment(t *testing.T) {
 		t.Fatalf("s7 after the skip: %v", err)
 	} else {
 		r.Body.Close()
+	}
+}
+
+// On an account sold by the connection, prefetch is strictly sequential:
+// never two provider requests at once for one channel.
+func TestSteadyPrefetchRespectsAccountLimit(t *testing.T) {
+	var inFlight, peak, segments atomic.Int32
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/live.m3u8" {
+			var b strings.Builder
+			b.WriteString("#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:1\n")
+			for i := 1; i <= 10; i++ {
+				fmt.Fprintf(&b, "#EXTINF:2,\ns%d.ts\n", i)
+			}
+			io.WriteString(w, b.String())
+			return
+		}
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for p := peak.Load(); n > p && !peak.CompareAndSwap(p, n); p = peak.Load() {
+		}
+		segments.Add(1)
+		time.Sleep(150 * time.Millisecond)
+		w.Header().Set("Content-Type", "video/mp2t")
+		w.Write(make([]byte, 188*100))
+	}))
+	defer up.Close()
+	s := testService(t, Options{HTTPClient: up.Client(), Stability: func() string { return stabilityBalanced }})
+	bg := context.Background()
+	if _, err := s.ImportSource(bg, Source{ID: "capped", Name: "One connection", Playlist: "#EXTM3U\n#EXTINF:-1,One\n" + up.URL + "/live.m3u8\n"}); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := s.sourceEntry(bg, "capped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry.limit = 1
+	s.authCache.mu.Lock()
+	s.authCache.m["capped"] = entry
+	s.authCache.mu.Unlock()
+	// The Steady channel holds the account's one connection, as a broadcast
+	// does in production.
+	release, err := s.reserveBroadcastProvider("capped", "capped", "broadcast-capped", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithCancel(bg)
+	defer cancel()
+	ss := &session{ctx: ctx, cancel: cancel, info: SessionInfo{ID: "steady-capped", Channel: Channel{ID: "capped", Kind: "iptv", SourceID: "capped"}}}
+	if err := s.grantSteadyInput(ss, StreamSource{ID: "a", URL: up.URL + "/live.m3u8", AuthSourceID: "capped"}, http.Header{}); err != nil {
+		t.Fatal(err)
+	}
+	defer s.revokeInput(ss)
+	input, _ := s.relayInput(ss)
+	res, err := http.Get(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	segs := regexp.MustCompile(`http://\S+`).FindAllString(string(b), -1)
+	r, err := http.Get(segs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.Copy(io.Discard, r.Body)
+	r.Body.Close()
+	time.Sleep(1500 * time.Millisecond)
+	if segments.Load() < 4 {
+		t.Fatalf("prefetch fetched %d segments", segments.Load())
+	}
+	if p := peak.Load(); p != 1 {
+		t.Fatalf("%d provider requests at once on a one-connection account", p)
 	}
 }

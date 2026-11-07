@@ -232,6 +232,7 @@ type hlsInput struct {
 	// Steady prefetch (reserve_hls_prefetch.go).
 	fetches map[string]*hlsFetch
 	slots   chan struct{}
+	extra   int // fetches running on an extra account slot
 	held    int
 }
 

@@ -15,14 +15,21 @@ import (
 // the provider lists ahead of the reader, once the reader is reading that
 // playlist: a slow segment starts as soon as it is listed, a reserve's
 // length before the decoder needs it, and the decoder is served from
-// memory. Fetches run two at a time in playlist order and stop at a memory
-// budget, past which the reader fetches for itself as before.
+// memory. Fetches run in playlist order and stop at a memory budget, past
+// which the reader fetches for itself as before.
+//
+// Concurrency follows the provider account. Each channel's own connection
+// is one fetch at a time, exactly what the decoder did itself. A second
+// fetch alongside it is an extra connection as far as a panel that counts
+// HLS requests is concerned, so it runs only when the account's limiter
+// (the one VOD and metadata reads use, which counts every live channel and
+// broadcast) grants a slot. A one-connection account, or a full one, is
+// strictly sequential.
 
 const (
-	hlsPrefetchParallel = 2
-	hlsPrefetchBudget   = 96 << 20 // bytes held per grant
-	hlsSegmentLimit     = 32 << 20 // largest segment kept in memory
-	hlsPrefetchTimeout  = 30 * time.Second
+	hlsPrefetchBudget  = 96 << 20 // bytes held per grant
+	hlsSegmentLimit    = 32 << 20 // largest segment kept in memory
+	hlsPrefetchTimeout = 30 * time.Second
 	// hlsSkipAfter is how long the decoder waits on a segment still in
 	// flight before it is told to skip it, when a later one is ready.
 	hlsSkipAfter = 1500 * time.Millisecond
@@ -48,7 +55,7 @@ func (h *hlsInput) prefetchLocked(l *hlsList) {
 	}
 	if h.fetches == nil {
 		h.fetches = map[string]*hlsFetch{}
-		h.slots = make(chan struct{}, hlsPrefetchParallel)
+		h.slots = make(chan struct{}, 1) // the channel's own connection
 	}
 	for _, sg := range l.last {
 		if sg.seq <= l.served || h.fetches[sg.url] != nil {
@@ -65,18 +72,17 @@ func (h *hlsInput) prefetchLocked(l *hlsList) {
 
 func (h *hlsInput) fetch(raw string, f *hlsFetch) {
 	defer close(f.done)
-	select {
-	case h.slots <- struct{}{}:
-		defer func() { <-h.slots }()
-	case <-h.g.ctx.Done():
-		f.err = h.g.ctx.Err()
-		return
-	}
 	s := h.g.service
 	if s == nil {
 		f.err = errRelayUnsupported
 		return
 	}
+	release, err := h.slot(s)
+	if err != nil {
+		f.err = err
+		return
+	}
+	defer release()
 	ctx, cancel := context.WithTimeout(h.g.ctx, hlsPrefetchTimeout)
 	defer cancel()
 	res, err := s.relayFetchAs(ctx, cancel, h.g, raw, &http.Request{Header: http.Header{}}, true)
@@ -98,6 +104,56 @@ func (h *hlsInput) fetch(raw string, f *hlsFetch) {
 	h.mu.Lock()
 	h.held += len(b)
 	h.mu.Unlock()
+}
+
+// slot waits for the grant's own fetch slot, or takes one extra slot when
+// the account's limiter allows another connection now.
+func (h *hlsInput) slot(s *Service) (func(), error) {
+	for {
+		select {
+		case h.slots <- struct{}{}:
+			return func() { <-h.slots }, nil
+		default:
+		}
+		if release := h.extraSlot(s); release != nil {
+			return release, nil
+		}
+		select {
+		case h.slots <- struct{}{}:
+			return func() { <-h.slots }, nil
+		case <-h.g.ctx.Done():
+			return nil, h.g.ctx.Err()
+		}
+	}
+}
+
+// extraSlot grants at most one fetch beyond the channel's own connection,
+// through the account limiter; nil when the account has no room.
+func (h *hlsInput) extraSlot(s *Service) func() {
+	h.mu.Lock()
+	if h.extra > 0 {
+		h.mu.Unlock()
+		return nil
+	}
+	h.extra++
+	h.mu.Unlock()
+	done := func() {
+		h.mu.Lock()
+		h.extra--
+		h.mu.Unlock()
+	}
+	if h.g.source != "" {
+		limit := s.sourceConnectionLimit(h.g.source)
+		if limit > 0 {
+			release, err := s.reserveVODProvider(h.g.source, limit, false)
+			if err != nil {
+				done()
+				return nil
+			}
+			return func() { release(); done() }
+		}
+	}
+	return done
 }
 
 // prefetched returns the fetch for a segment, started or finished.
