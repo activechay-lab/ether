@@ -56,6 +56,14 @@ type hlsIngest struct {
 	// overlong segments); a vetoed segment is not ingested.
 	accept func(*ownedSegment) bool
 
+	// seed is a playlist the opener already fetched; the next step uses it
+	// instead of fetching again.
+	seed     []byte
+	seedBase *url.URL
+	// prefetched holds segment bytes fetched concurrently for a fresh
+	// start's first playlist, keyed by URI and range.
+	prefetched map[string][]byte
+
 	lastMSN  int64
 	lastURI  string
 	gapNext  bool // the next ingested segment follows lost media
@@ -133,9 +141,12 @@ func startIndex(segs []playlistSegment, reserve time.Duration, startSegs int) in
 // step reloads the playlist once and ingests what is new. progress reports
 // that at least one segment was ingested.
 func (in *hlsIngest) step(ctx context.Context) (progress bool, err error) {
-	body, base, err := in.origin.media(ctx)
-	if err != nil {
-		return false, err
+	body, base := in.seed, in.seedBase
+	in.seed, in.seedBase = nil, nil
+	if body == nil {
+		if body, base, err = in.origin.media(ctx); err != nil {
+			return false, err
+		}
 	}
 	if isMasterPlaylist(body) {
 		return false, errMasterSource
@@ -196,6 +207,10 @@ func (in *hlsIngest) step(ctx context.Context) (progress bool, err error) {
 			}
 		}
 	}
+	if in.lastMSN < 0 && !in.live {
+		in.prefetch(ctx, segs[from:min(len(segs), from+in.startSegs)])
+	}
+	defer func() { in.prefetched = nil }()
 	for i := from; i < len(segs); i++ {
 		s := segs[i]
 		if s.gap {
@@ -293,9 +308,12 @@ func (in *hlsIngest) fetch(ctx context.Context, s playlistSegment, target time.D
 			key = k.data
 		}
 	}
-	data, err := in.origin.get(ctx, s.uri, s.rangeLen, s.rangeOff)
-	if err != nil {
-		return nil, err
+	data, ok := in.prefetched[segmentKey(s)]
+	if !ok {
+		var err error
+		if data, err = in.origin.get(ctx, s.uri, s.rangeLen, s.rangeOff); err != nil {
+			return nil, err
+		}
 	}
 	seg.data = data
 	plain := data
@@ -305,6 +323,11 @@ func (in *hlsIngest) fetch(ctx context.Context, s playlistSegment, target time.D
 	if isTS(plain) {
 		seg.ext = "ts"
 		seg.format = inspectTS(plain)
+		// EXTINF must be truthful: a reconnect splice or a late cut can
+		// leave the producer's figure off by a GOP.
+		if span, ok := tsVideoSpan(plain); ok && (span-seg.dur > 250*time.Millisecond || seg.dur-span > 250*time.Millisecond) {
+			seg.dur = span
+		}
 	} else {
 		seg.ext = "m4s"
 		if s.mapURI == "" && !strings.HasSuffix(strings.ToLower(s.uri), ".m4s") && !strings.HasSuffix(strings.ToLower(s.uri), ".mp4") {
@@ -312,6 +335,39 @@ func (in *hlsIngest) fetch(ctx context.Context, s playlistSegment, target time.D
 		}
 	}
 	return seg, nil
+}
+
+func segmentKey(s playlistSegment) string {
+	return fmt.Sprintf("%s|%d|%d", s.uri, s.rangeLen, s.rangeOff)
+}
+
+// prefetch fetches the first playlist's segments concurrently: a cold tune
+// waits for all of them, so their round trips must overlap. Failures are
+// left to the ordinary sequential fetch and its retries.
+func (in *hlsIngest) prefetch(ctx context.Context, segs []playlistSegment) {
+	if len(segs) < 2 {
+		return
+	}
+	type result struct {
+		key  string
+		data []byte
+	}
+	out := make(chan result, len(segs))
+	for _, s := range segs {
+		go func(s playlistSegment) {
+			data, err := in.origin.get(ctx, s.uri, s.rangeLen, s.rangeOff)
+			if err != nil {
+				data = nil
+			}
+			out <- result{segmentKey(s), data}
+		}(s)
+	}
+	in.prefetched = map[string][]byte{}
+	for range segs {
+		if r := <-out; r.data != nil {
+			in.prefetched[r.key] = r.data
+		}
+	}
 }
 
 // decryptPrefix decrypts an AES-128 (CBC) segment for header inspection only;

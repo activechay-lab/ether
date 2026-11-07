@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // The owned timeline republishes provider segments byte for byte. These
@@ -124,6 +125,56 @@ type tsStream struct {
 	pes   []byte // first PES payload (bounded)
 	open  bool
 	done  bool
+}
+
+// tsVideoSpan measures a segment's media length from its video PTS: last
+// minus first presentation time plus one frame (the smallest gap between
+// pictures). ok is false without enough video timestamps.
+func tsVideoSpan(b []byte) (time.Duration, bool) {
+	if !isTS(b) {
+		return 0, false
+	}
+	pmtPID, videoPID := -1, -1
+	var pts []uint64
+	for off := 0; off+tsPacket <= len(b); off += tsPacket {
+		p := b[off : off+tsPacket]
+		if p[0] != 0x47 || p[1]&0x40 == 0 {
+			continue
+		}
+		pid := int(p[1]&0x1f)<<8 | int(p[2])
+		payload := tsPayload(p)
+		if payload == nil {
+			continue
+		}
+		switch {
+		case pid == 0 && pmtPID < 0:
+			pmtPID = ownedParsePAT(payload)
+		case pid == pmtPID && videoPID < 0:
+			for spid, st := range ownedParsePMT(payload) {
+				if st.kind == "video" {
+					videoPID = int(spid)
+				}
+			}
+		case pid == videoPID && len(payload) >= 14 && payload[0] == 0 && payload[1] == 0 && payload[2] == 1 && payload[7]&0x80 != 0:
+			t := payload[9:14]
+			pts = append(pts, uint64(t[0]>>1&7)<<30|uint64(t[1])<<22|uint64(t[2]>>1)<<15|uint64(t[3])<<7|uint64(t[4]>>1))
+		}
+	}
+	if len(pts) < 2 {
+		return 0, false
+	}
+	sort.Slice(pts, func(i, j int) bool { return pts[i] < pts[j] })
+	frame := uint64(0)
+	for i := 1; i < len(pts); i++ {
+		if d := pts[i] - pts[i-1]; d > 0 && (frame == 0 || d < frame) {
+			frame = d
+		}
+	}
+	span := pts[len(pts)-1] - pts[0] + frame
+	if span > 90000*600 { // a 33-bit wrap or garbage, not a segment
+		return 0, false
+	}
+	return time.Duration(span) * time.Second / 90000, true
 }
 
 // inspectTS reads the stream set and per-stream parameters of one segment.

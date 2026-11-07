@@ -79,9 +79,11 @@ type relayProducer struct {
 	// cut its first segment; whichever cuts first becomes the producer.
 	hedge *relayHedge
 	// starving is set while a running copy producer is past its next
-	// segment with input flowing; the timeline reads it without locks.
-	starving atomic.Bool
-	longAt   time.Time // the last overlong copy segment
+	// segment with input flowing; producing while input flows and nothing
+	// is starving. The timeline reads both without locks.
+	starving  atomic.Bool
+	producing atomic.Bool
+	longAt    time.Time // the last overlong copy segment
 	// reformat holds the source's new format when copy output stopped
 	// matching its own PMT; the producer reopens on the new format.
 	reformat  *mediaFormat
@@ -101,12 +103,13 @@ func (p *relayProducer) current() core.HLSSession {
 	return p.hls
 }
 
-// relayTargetFloor leaves a second of headroom over the cut: copy cuts at the
-// first source keyframe after it (the first segments' real lengths raise the
-// target further for longer GOPs), and the slate deadline (1.25x target)
-// needs margin under Apple's 1.5x rule at short targets.
+// relayTargetFloor is the cut itself: an Apple player reloads a changed
+// live playlist only once per target duration, so a target longer than the
+// segments delivers each one late. Copy cuts at the first source keyframe
+// after the cut, and the first segments' real lengths raise the target for a
+// longer GOP.
 func relayTargetFloor(cut time.Duration) time.Duration {
-	return cut + time.Second
+	return cut
 }
 
 // startOwnedRelay starts the first relay producer and its timeline.
@@ -137,6 +140,7 @@ func (s *Service) newRelayProducer(ss *session, info core.MediaInfo, caps core.C
 	tl.startMedia = 2 * cut
 	p := &relayProducer{s: s, tl: tl, log: log, caps: caps, info: info, dec: dec, cut: cut}
 	p.bind(ss)
+	tl.producing = p.producing.Load
 	tl.stalled = func() bool {
 		if p.starving.Load() {
 			return true
@@ -291,7 +295,7 @@ func (p *relayProducer) run(ctx context.Context) {
 	warmed := false
 	failures := 0
 	var flowing time.Time // since when provider data has arrived without a pause
-	for sleepCtx(ctx, 250*time.Millisecond) {
+	for sleepCtx(ctx, 100*time.Millisecond) {
 		p.mu.Lock()
 		in := p.ingest
 		startedAt := p.startedAt
@@ -353,7 +357,9 @@ func (p *relayProducer) run(ctx context.Context) {
 			// The hedge normally settles a slow cold start first.
 			starveLimit = 6 * time.Second
 		}
-		p.starving.Store(copyMode && !cold && !escalated && starvedFor > lastDur+500*time.Millisecond)
+		starving := copyMode && !cold && !escalated && starvedFor > lastDur+500*time.Millisecond
+		p.starving.Store(starving)
+		p.producing.Store(!cold && !flowing.IsZero() && !starving)
 		if h := p.hedgeState(); h != nil {
 			switch {
 			case !cold || escalated:
@@ -365,7 +371,7 @@ func (p *relayProducer) run(ctx context.Context) {
 		} else if copyMode && cold && !escalated && !flowing.IsZero() && now.Sub(later(startedAt, flowing)) > 2*time.Second {
 			p.startHedge(ctx)
 		}
-		ended := errors.Is(err, errOriginEnded) || failures >= 6
+		ended := errors.Is(err, errOriginEnded) || failures >= 15
 		switch {
 		case reformat != nil && now.Sub(reopened) > 10*time.Second:
 			p.reopen(ctx, *reformat)
@@ -632,9 +638,10 @@ func (p *relayProducer) switchSource(ctx context.Context, ss *session, c Channel
 
 // reserveRelayGrant moves an HLS relay input onto a reserve grant: the
 // input relay then trims the provider playlist to the channel's stability
-// reserve, and the relay (started at that playlist's first segment) primes
-// the owned timeline's reserve from the provider backlog. A raw TS input
-// has no backlog and keeps its plain grant.
+// reserve (plus the first playlist's window), and the relay, started at
+// that playlist's first segment, primes the owned timeline's reserve from
+// the provider backlog. A raw TS input keeps the grant its tune opened:
+// replacing it would cost a second provider connection.
 func (s *Service) reserveRelayGrant(ss *session, info core.MediaInfo) error {
 	ss.mu.Lock()
 	c, src, headers := ss.info.Channel, ss.inputSource, ss.inputHeaders.Clone()
@@ -643,5 +650,7 @@ func (s *Service) reserveRelayGrant(ss *session, info core.MediaInfo) error {
 	if info.Container != "hls" || s.stabilityReserve(c) <= 0 {
 		return nil
 	}
-	return s.grantSteadyInput(ss, src, headers)
+	// The first owned playlist publishes its start window from the backlog;
+	// join that much deeper so the full reserve stays pending.
+	return s.grantSteadyInputLead(ss, src, headers, 2*relaySegment)
 }
