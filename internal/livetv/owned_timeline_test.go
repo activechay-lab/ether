@@ -119,13 +119,13 @@ func TestOwnedTimelineSplicesKeepNumberingConsistent(t *testing.T) {
 	if segs := check(); len(segs) != 3 {
 		t.Fatalf("first playlist has %d segments", len(segs))
 	}
-	// The source stalls: nothing until 1.25x target, then slate keeps the
-	// playlist moving at real time.
-	advance(4*time.Second + 900*time.Millisecond)
+	// The source stalls: nothing until the deadline (target plus half a
+	// second), then slate keeps the playlist moving at real time.
+	advance(4*time.Second + 400*time.Millisecond)
 	if tl.slateSegments != 0 {
 		t.Fatal("slate before the deadline")
 	}
-	advance(400 * time.Millisecond)
+	advance(200 * time.Millisecond)
 	if tl.slateSegments != 1 {
 		t.Fatalf("no slate at the deadline: %d", tl.slateSegments)
 	}

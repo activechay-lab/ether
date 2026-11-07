@@ -317,15 +317,16 @@ func (t *ownedTimeline) tickLocked(now time.Time) {
 	}
 	if len(t.pending) == 0 && t.slates != nil {
 		// The deadline. Segment durations vary up to the target, so the
-		// next one is late only 1.25x target after the last publication
-		// (a little longer while its fetch is already in flight). Then
-		// splice slate, so the playlist never sits unchanged long enough
-		// for Apple's 1.5x-target rule to end playback.
-		wait := t.target + t.target/4
+		// next one is late only about a quarter target (at most half a
+		// second) past a target after the last publication, a little longer
+		// while its fetch is already in flight. Then splice slate, so the
+		// playlist never sits unchanged long enough for Apple's 1.5x-target
+		// rule to end playback.
+		wait := t.target + min(t.target/4, 500*time.Millisecond)
 		if t.inflight {
-			wait = t.target * 14 / 10
+			wait = t.target + min(t.target*2/5, 800*time.Millisecond)
 		}
-		wait = max(wait, t.lastDur+750*time.Millisecond)
+		wait = max(wait, t.lastDur+500*time.Millisecond)
 		if t.slating > 0 || t.stalled != nil && !now.Before(t.lastAt.Add(t.lastDur)) && t.stalled() {
 			wait = t.lastDur
 		}

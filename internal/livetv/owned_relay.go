@@ -101,12 +101,13 @@ func (p *relayProducer) current() core.HLSSession {
 	return p.hls
 }
 
-// relayTargetFloor leaves a second of headroom over the cut: copy cuts at the
-// first source keyframe after it (the first segments' real lengths raise the
-// target further for longer GOPs), and the slate deadline (1.25x target)
-// needs margin under Apple's 1.5x rule at short targets.
+// relayTargetFloor is the cut itself: an Apple player reloads a changed
+// live playlist only once per target duration, so a target longer than the
+// segments delivers each one late. Copy cuts at the first source keyframe
+// after the cut, and the first segments' real lengths raise the target for a
+// longer GOP.
 func relayTargetFloor(cut time.Duration) time.Duration {
-	return cut + time.Second
+	return cut
 }
 
 // startOwnedRelay starts the first relay producer and its timeline.
@@ -639,9 +640,10 @@ func (p *relayProducer) switchSource(ctx context.Context, ss *session, c Channel
 
 // reserveRelayGrant moves an HLS relay input onto a reserve grant: the
 // input relay then trims the provider playlist to the channel's stability
-// reserve, and the relay (started at that playlist's first segment) primes
-// the owned timeline's reserve from the provider backlog. A raw TS input
-// has no backlog and keeps its plain grant.
+// reserve (plus the first playlist's window), and the relay, started at
+// that playlist's first segment, primes the owned timeline's reserve from
+// the provider backlog. A raw TS input keeps the grant its tune opened:
+// replacing it would cost a second provider connection.
 func (s *Service) reserveRelayGrant(ss *session, info core.MediaInfo) error {
 	ss.mu.Lock()
 	c, src, headers := ss.info.Channel, ss.inputSource, ss.inputHeaders.Clone()
@@ -650,5 +652,7 @@ func (s *Service) reserveRelayGrant(ss *session, info core.MediaInfo) error {
 	if info.Container != "hls" || s.stabilityReserve(c) <= 0 {
 		return nil
 	}
-	return s.grantSteadyInput(ss, src, headers)
+	// The first owned playlist publishes its start window from the backlog;
+	// join that much deeper so the full reserve stays pending.
+	return s.grantSteadyInputLead(ss, src, headers, 2*relaySegment)
 }

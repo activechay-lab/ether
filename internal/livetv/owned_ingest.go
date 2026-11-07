@@ -323,6 +323,11 @@ func (in *hlsIngest) fetch(ctx context.Context, s playlistSegment, target time.D
 	if isTS(plain) {
 		seg.ext = "ts"
 		seg.format = inspectTS(plain)
+		// EXTINF must be truthful: a reconnect splice or a late cut can
+		// leave the producer's figure off by a GOP.
+		if span, ok := tsVideoSpan(plain); ok && (span-seg.dur > 250*time.Millisecond || seg.dur-span > 250*time.Millisecond) {
+			seg.dur = span
+		}
 	} else {
 		seg.ext = "m4s"
 		if s.mapURI == "" && !strings.HasSuffix(strings.ToLower(s.uri), ".m4s") && !strings.HasSuffix(strings.ToLower(s.uri), ".mp4") {
