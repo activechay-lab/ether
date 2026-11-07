@@ -441,6 +441,24 @@ func (s *Service) Grandchildren(ctx context.Context, u *core.User, k core.Rating
 	if e != nil {
 		return nil, e
 	}
+	return s.orderUngroupedEpisodes(ctx, u, k, items)
+}
+
+// OrderStoredGrandchildren presents an already loaded canonical episode set.
+// It lets batched browse reads preserve Specials preferences without loading
+// every show's full catalogue metadata again.
+func (s *Service) OrderStoredGrandchildren(ctx context.Context, u *core.User, k core.RatingKey, items []core.Title) ([]core.Title, error) {
+	l, err := s.layout(ctx, u, k)
+	if err != nil {
+		return nil, err
+	}
+	if l != nil {
+		return l.episodes, nil
+	}
+	return s.orderUngroupedEpisodes(ctx, u, k, items)
+}
+
+func (s *Service) orderUngroupedEpisodes(ctx context.Context, u *core.User, k core.RatingKey, items []core.Title) ([]core.Title, error) {
 	p, e := s.Preference(ctx, userID(u), showKey(k))
 	if e != nil {
 		return nil, e

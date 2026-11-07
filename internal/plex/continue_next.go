@@ -32,11 +32,11 @@ func (s *Server) continueExperience(pr *Request) experience.Continue {
 		}
 		memo, states = s.prefetchListEpisodes(ctx, pr, titles)
 		if s.d.EpisodeOrder != nil {
-			// Even an ungrouped show can hide or reorder Specials. The
-			// batched read warms the catalogue; retain the viewer's exact
-			// presentation order before choosing their next episode.
-			for show := range memo {
-				eps, err := s.metadataGrandchildren(ctx, pr, show)
+			// Even an ungrouped show can hide or reorder Specials. Apply
+			// presentation to the batch itself: a concurrent catalogue write
+			// can invalidate its cache before a second Grandchildren read.
+			for show, list := range memo {
+				eps, err := s.d.EpisodeOrder.OrderStoredGrandchildren(ctx, pr.User, show, list.eps)
 				if err != nil {
 					delete(memo, show)
 					continue
