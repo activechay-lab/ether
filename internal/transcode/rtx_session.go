@@ -70,7 +70,7 @@ func (m *Manager) startRTXRun(spec runSpec, cfg config.RTXVideo, dir string, std
 	if owner, ok := m.runner.(RTXRunner); ok {
 		start = owner.StartRTX
 	}
-	p, err := start(Command{Path: path, Args: args, Dir: dir, Stdout: stdout, Stderr: stderr})
+	p, err := start(Command{Path: path, Args: args, Dir: dir, Stdout: stdout, Stderr: stderr, Background: true})
 	if p == nil {
 		release()
 		return nil, nil, fmt.Errorf("RTX Video executable failed to start")
