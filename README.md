@@ -305,7 +305,7 @@ Ether never emulates, unlocks, or bypasses Plex Pass, Emby Premiere, or any paid
 <details>
 <summary><b>Which apps work, and why are some web-wrapper apps unsupported?</b></summary>
 
-- **Plex:** Every official Plex client: **Apple TV, iPhone, iPad, Android, Android TV / Nvidia Shield, Fire TV, Roku, PlayStation, Xbox, Smart TVs (LG, Samsung, VIDAA), Plex Desktop, and Plex Web.** (Plex for VIDAA receives one automatic media choice so its playback settings remain stable.)
+- **Plex:** Every official Plex client: **Apple TV, iPhone, iPad, Android, Android TV / Nvidia Shield, Fire TV, Roku, PlayStation, Xbox, Smart TVs (LG, Samsung, VIDAA), Plex Desktop, and Plex Web.** (Plex for LG and Plex for VIDAA receive one automatic media choice so their playback settings remain stable; Play Version is not offered there.)
 - **Jellyfin:** Native clients including **Infuse, Swiftfin, Findroid, Streamyfin, Jellyfin for Android TV, JellyCon, and Jellyfin for Roku.**
 - **Emby:** Native Emby clients (**Android TV, iOS, Android, Roku, Smart TVs**) and **Infuse**.
 - **Silo:** Native **Silo** apps for **Apple TV, iOS, macOS, Android, and Android TV**.
