@@ -24,6 +24,23 @@ type continuousDecoder struct {
 	reads    [2]atomic.Int64
 	ptsStop  chan struct{}
 	ptsOnce  sync.Once
+	// waitingSince is when the assembler began waiting for one stream (unix
+	// ns, 0 while not waiting); other is the queue of the stream it is not
+	// waiting for. Together they tell a starving stream from a quiet input.
+	waitingSince atomic.Int64
+	other        atomic.Pointer[chan []byte]
+}
+
+// Starving reports how long one elementary stream has delivered nothing
+// while the other keeps flowing: the first sign of a codec or stream-set
+// change, before ErrInputChanged.
+func (d *continuousDecoder) Starving() time.Duration {
+	since := d.waitingSince.Load()
+	other := d.other.Load()
+	if since == 0 || other == nil || len(*other) < 2 {
+		return 0
+	}
+	return time.Since(time.Unix(0, since))
 }
 
 func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, error) {
@@ -229,6 +246,19 @@ func (d *continuousDecoder) receive(p *continuousProcess, ch, other chan []byte,
 		t := time.NewTicker(liveStarvedAfter / 6)
 		defer t.Stop()
 		poll = t.C
+	}
+	select {
+	case b, open := <-ch:
+		if !open {
+			return nil, p.result()
+		}
+		return b, nil
+	default:
+	}
+	if watch {
+		d.other.Store(&other)
+		d.waitingSince.Store(time.Now().UnixNano())
+		defer d.waitingSince.Store(0)
 	}
 	var since time.Time
 	for {
