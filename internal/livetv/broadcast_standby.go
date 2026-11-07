@@ -11,7 +11,7 @@ import (
 )
 
 // steadyStandby is a backup input decoding at its live edge while the
-// primary shows stress (TSDuck's delayed switch). It keeps only the newest
+// primary shows stress (a delayed hot-standby switch). It keeps only the newest
 // half second of pictures, so adopting it on failure splices current media
 // without a cold open. It holds its own provider connection, so it only
 // exists while the account's connection budget has room.
