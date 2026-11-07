@@ -97,6 +97,10 @@ const (
 	EventScrobble   EventKind = "scrobble"   // explicitly marked watched
 	EventUnscrobble EventKind = "unscrobble" // explicitly marked unwatched
 	EventRated      EventKind = "rated"
+	// EventContinueRemoved is journaled (not emitted) for each in-progress
+	// title a Continue Watching removal covers; Resume and Duration are its
+	// stored position.
+	EventContinueRemoved EventKind = "continue_removed"
 )
 
 // Event is a watch-state change. Fraction is offset/duration (0 when the

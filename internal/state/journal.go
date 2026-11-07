@@ -26,12 +26,17 @@ const (
 // are the Plex viewState values "complete" and "unplayed". "rating" carries
 // the raw local rating; the subscriber decides which values it can send.
 // "offset" carries a resume position (Offset, 0 clears it) and the
-// duration Ether knew for the title.
+// duration Ether knew for the title. "continue_removed", in the same
+// aspect, removes the title from Continue Watching and carries the position
+// Ether holds, so a position still queued is not lost when a removal
+// replaces it; a later position replaces the removal in turn, as playback
+// brings a title back.
 const (
-	SyncComplete   = "complete"
-	SyncUnplayed   = "unplayed"
-	SyncRatingKind = "rating"
-	SyncOffsetKind = "offset"
+	SyncComplete        = "complete"
+	SyncUnplayed        = "unplayed"
+	SyncRatingKind      = "rating"
+	SyncOffsetKind      = "offset"
+	SyncContinueRemoved = "continue_removed"
 )
 
 // OffsetHold is how long a resume position reported during playback waits
@@ -135,6 +140,11 @@ func (s *State) journalEvents(ctx context.Context, tx *sql.Tx, events []Event, f
 		var offsetMS, durationMS, next int64
 		if aspect == SyncOffset {
 			offsetMS, durationMS = max(ev.Resume.Milliseconds(), 0), max(ev.Duration.Milliseconds(), 0)
+			if kind == SyncOffsetKind && offsetMS > 0 && durationMS == 0 {
+				// Plex requires the duration, which Ether has not learned
+				// for this title yet; the next position with one is sent.
+				continue
+			}
 			if offsetHeld(ev.State) {
 				next = at.Add(OffsetHold).UnixNano()
 			}
@@ -143,10 +153,10 @@ func (s *State) journalEvents(ctx context.Context, tx *sql.Tx, events []Event, f
 			// final (pause or stop), so steady playback still sends once per
 			// hold. A row that may already have reached Plex is not reused:
 			// its read-back must compare against what it sent.
-			res, err := tx.ExecContext(ctx, `UPDATE state_sync_journal SET offset_ms=?, duration_ms=?, occurred_at=?, consent_generation=?,
+			res, err := tx.ExecContext(ctx, `UPDATE state_sync_journal SET kind=?, offset_ms=?, duration_ms=?, occurred_at=?, consent_generation=?,
 				next_attempt=CASE WHEN ?=1 THEN 0 ELSE next_attempt END
 				WHERE user_id=? AND rating_key=? AND aspect=? AND delivered_at=0 AND superseded=0 AND dead=0 AND claimed_by='' AND never_sent=1`,
-				offsetMS, durationMS, at.UnixNano(), gen, store.BoolInt(next == 0), ev.UserID, int64(ev.Key), string(SyncOffset))
+				kind, offsetMS, durationMS, at.UnixNano(), gen, store.BoolInt(next == 0), ev.UserID, int64(ev.Key), string(SyncOffset))
 			if err != nil {
 				return err
 			}
@@ -201,6 +211,11 @@ func journalKind(ev Event) (SyncAspect, string, bool) {
 		// travels as a watch change.
 		if ev.ResumeSet && !ev.Completed && (ev.Key.Kind() == core.KindMovie || ev.Key.Kind() == core.KindEpisode) {
 			return SyncOffset, SyncOffsetKind, true
+		}
+		return "", "", false
+	case EventContinueRemoved:
+		if ev.Key.Kind() == core.KindMovie || ev.Key.Kind() == core.KindEpisode {
+			return SyncOffset, SyncContinueRemoved, true
 		}
 		return "", "", false
 	default:
