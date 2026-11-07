@@ -81,6 +81,8 @@ func liveMatrix() []liveScenario {
 		{Name: "hls-segment-503", Summary: "Two provider segments return 503", Source: hlsSource(at(faultSegmentError, 8*time.Second, 503)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
 		{Name: "hls-segment-slow-8s", Summary: "Provider segment responses wait 8 s", Source: hlsSource(at(faultSegmentSlow, 8*time.Second, 0)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
 		{Name: "hls-rst", Summary: "Provider resets HLS requests for 3 s", Source: hlsSource(at(faultRST, 3*time.Second, 0)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
+		{Name: "ts-stall-8s-burst8", Summary: "8 s raw TS stall; the provider sends 8 s of backlog on every connect", Source: withBurst(tsSource(at(faultTSStall, 8*time.Second, 0)), 8*time.Second), Modes: []string{"relay-copy", "steady"}, Budget: blip, Recoverable: true},
+		{Name: "ts-rst-burst8", Summary: "Raw TS reset; the provider sends 8 s of backlog on every connect", Source: withBurst(tsSource(at(faultRST, 0, 0)), 8*time.Second), Modes: []string{"relay-copy", "steady"}, Budget: blip, Recoverable: true},
 		{Name: "ts-rst", Summary: "Raw TS connection reset mid-stream", Source: tsSource(at(faultRST, 0, 0)), Modes: allTS, Quick: []string{"relay-copy"}, Budget: blip, Recoverable: true},
 		{Name: "ts-eof", Summary: "Raw TS body ends cleanly mid-stream", Source: tsSource(at(faultEOF, 0, 0)), Modes: []string{"relay-copy", "steady"}, Budget: blip, Recoverable: true},
 		{Name: "ts-refuse-458", Summary: "Reset, then reconnects refused 458 for 10 s", Source: tsSource(at(faultRST, 0, 0), at(faultRefuse, 10*time.Second, 458)), Modes: []string{"relay-copy", "steady"}, Budget: budget(3, 0, 0, 0), Recoverable: true},
@@ -108,6 +110,10 @@ func liveMatrix() []liveScenario {
 }
 
 func withDisc(p providerConfig) providerConfig { p.Discontinuities = true; return p }
+func withBurst(p providerConfig, d time.Duration) providerConfig {
+	p.Burst = d
+	return p
+}
 
 type liveRow struct {
 	Scenario liveScenario

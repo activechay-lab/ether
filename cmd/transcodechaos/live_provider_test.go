@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"testing"
 	"time"
@@ -71,5 +72,33 @@ func TestLiveProviderLoopContinuity(t *testing.T) {
 	}
 	if len(step) == 0 {
 		t.Fatal("no audio timestamps checked")
+	}
+}
+
+// Timestamp and PSI rewrites are bit-packed; a wrong mask silently corrupts
+// every fixture, so pin them without needing ffmpeg.
+func TestTSRewrites(t *testing.T) {
+	b := []byte{0x21, 0, 1, 0, 1} // PTS '0010' prefix with marker bits
+	for _, v := range []int64{0, 1, 126000, pts33 - 1, pts33 + 5, -90000} {
+		writeTS33(b, v)
+		want := ((v % pts33) + pts33) % pts33
+		if got := readTS33(b); got != want || b[0]&0xf1 != 0x21 || b[2]&1 != 1 || b[4]&1 != 1 {
+			t.Fatalf("PTS %d: read %d, bytes %x", v, got, b)
+		}
+	}
+	sec := []byte{2, 0xb0, 13, 0, 1, 0xc1, 0, 0, 0xe1, 0, 0xf0, 0}
+	sec = binary.BigEndian.AppendUint32(sec, mpegCRC(sec))
+	p := make([]byte, tsPacket)
+	for i := range p {
+		p[i] = 0xff
+	}
+	copy(p, []byte{0x47, 0x50, 0x00, 0x10, 0x00})
+	copy(p[5:], sec)
+	if n := setPMTVersion(p, 0x1000, 31); n != 1 {
+		t.Fatalf("rewrote %d PMTs", n)
+	}
+	got, err := psiSection(p)
+	if err != nil || got[5] != 0xff || mpegCRC(got) != 0 {
+		t.Fatalf("PMT version/CRC: %x %v", got, err)
 	}
 }
