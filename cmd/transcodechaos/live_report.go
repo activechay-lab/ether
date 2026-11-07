@@ -39,7 +39,11 @@ func liveMarkdown(rep liveReport, base *liveReport, o liveOptions) string {
 		if r.Error != "" {
 			errs = strings.TrimPrefix(errs+"<br>"+r.Error, "<br>")
 		}
-		fmt.Fprintf(&b, "| `%s` | %s | %s | %.1f | %.1f (%.1f+%.1f) | %.1f | %.1f | %s | %v |", r.ID, r.Path, r.Verdict, v.TTFFS, v.ScreenS, v.FreezeS, v.SlateS, v.SilenceS, r.Protocol.LongestNoNewSegmentS, mdEscape(errs), v.Recovered)
+		ttff := "none"
+		if v.TTFFS > 0 {
+			ttff = fmt.Sprintf("%.1f", v.TTFFS)
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %.1f (%.1f+%.1f) | %.1f | %.1f | %s | %v |", r.ID, r.Path, r.Verdict, ttff, v.ScreenS, v.FreezeS, v.SlateS, v.SilenceS, r.Protocol.LongestNoNewSegmentAdjS, mdEscape(errs), v.Recovered)
 		if base != nil {
 			if old, ok := byID[r.ID]; ok {
 				fmt.Fprintf(&b, " %s, screen %.1f, %d errors |", old.Verdict, old.Viewer.ScreenS, len(old.Viewer.ClientErrors))
@@ -54,12 +58,17 @@ func liveMarkdown(rep liveReport, base *liveReport, o liveOptions) string {
 		if r.Verdict == "PASS" {
 			continue
 		}
-		fmt.Fprintf(&b, "- `%s` (%s): %s\n", r.ID, r.Summary, mdEscape(strings.Join(append(r.Reasons, r.Error), "; ")))
+		why := r.Reasons
+		if r.Error != "" {
+			why = append(why, r.Error)
+		}
+		fmt.Fprintf(&b, "- `%s` (%s): %s\n", r.ID, r.Summary, mdEscape(strings.Join(why, "; ")))
 	}
 	b.WriteString("\n## How each number is measured\n\n")
 	b.WriteString("- **Screen** = freeze + slate seconds after the first provider picture. Budgets per preset are in `cmd/transcodechaos/live_scenarios.go`.\n")
-	b.WriteString("- **Freeze**: with the AVFoundation judge, wall-clock gaps of at least 0.5 s between frames AVPlayer delivered, plus held (frozen) frames inside the published media (ffmpeg freezedetect). Without it, a player buffer model over observed segment arrivals.\n")
-	b.WriteString("- **Slate**: 10 Hz samples of the fixture's green top band in every published segment; samples without it are an Ether screen or black.\n")
+	b.WriteString("- **Freeze**: with the AVFoundation judge, gaps of at least 0.5 s between frames AVPlayer delivered plus seconds of repeated (held) provider frames. Without it, a player buffer model over observed segment arrivals plus held provider frames in the published media (ffmpeg freezedetect).\n")
+	b.WriteString("- **Slate**: the fixture carries a green band on top; frames without it are an Ether screen or black. Counted from AVPlayer's frames (or 10 Hz samples of the published segments without the player).\n")
+	b.WriteString("- Everything before the first provider picture is startup and is judged by **TTFF** (tune to first provider picture); an Ether card shown at tune counts against TTFF, not screen.\n")
 	b.WriteString("- **Silence**: ffmpeg silencedetect (-45 dB, 0.25 s) on the published segments. In-player audio is not measured: AVFoundation audio taps do not attach to HLS items.\n")
 	b.WriteString("- **Longest no-new-segment**: the protocol judge polls the client playlist every 0.5 s. Apple players stop with -12888 after 1.5x target duration without a new segment.\n")
 	b.WriteString("- **Client errors**: AVPlayer item failures and error-log codes, HTTP errors Ether returned to the client, and unmarked codec changes between consecutive segments (Apple -12971).\n")

@@ -53,7 +53,16 @@ func main() {
 	liveBaseline := flag.String("live-baseline", "", "baseline JSON report to compare against in the Markdown summary")
 	liveKeep := flag.String("live-keep", "", "keep each row's work directory (Ether log, captured segments) under this directory")
 	liveLabel := flag.String("live-label", "", "label for the live report")
+	liveObserve := flag.Duration("live-observe", liveObserve, "how long each live row is watched after the tune")
+	liveRender := flag.Bool("live-render", false, "rewrite -live-markdown from the existing -report JSON (with -live-baseline) and exit")
 	flag.Parse()
+	if *liveRender {
+		if err := renderLive(*report, *liveMarkdown, *liveBaseline); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *live != "" {
 		if *live != "quick" && *live != "full" {
 			fmt.Fprintln(os.Stderr, "-live must be quick or full")
@@ -68,7 +77,7 @@ func main() {
 		if label == "" {
 			label = *live
 		}
-		if err := runLive(liveOptions{FF: *ff, FP: *fp, FixtureFF: fixtureFF, Subset: *live, Only: *liveOnly, Preset: *livePreset, Player: *livePlayer, Parallel: *liveParallel, CacheDir: *cache, Report: *report, Markdown: *liveMarkdown, Baseline: *liveBaseline, Keep: *liveKeep, Label: label, RepoRoot: root}); err != nil {
+		if err := runLive(liveOptions{FF: *ff, FP: *fp, FixtureFF: fixtureFF, Subset: *live, Only: *liveOnly, Preset: *livePreset, Player: *livePlayer, Parallel: *liveParallel, CacheDir: *cache, Report: *report, Markdown: *liveMarkdown, Baseline: *liveBaseline, Keep: *liveKeep, Label: label, Observe: *liveObserve, RepoRoot: root}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

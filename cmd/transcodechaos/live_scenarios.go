@@ -39,7 +39,7 @@ var livePresets = []string{"fastest", "balanced", "rocksolid"}
 
 const (
 	liveFaultAt  = 15 * time.Second // after provider start; tune happens at ~0
-	liveObserve  = 45 * time.Second
+	liveObserve  = 60 * time.Second
 	liveTTFFMaxS = 5.0
 )
 

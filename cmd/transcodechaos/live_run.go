@@ -35,15 +35,19 @@ type liveOptions struct {
 }
 
 type viewerSummary struct {
-	FreezeS       float64  `json:"freezeSeconds"`
-	SlateS        float64  `json:"slateSeconds"`
-	ScreenS       float64  `json:"screenSeconds"`
-	SilenceS      float64  `json:"silenceSeconds"`
-	ClientErrors  []string `json:"clientErrors"`
-	Recovered     bool     `json:"recovered"`
-	TTFFS         float64  `json:"ttffSeconds"`
-	FreezeSource  string   `json:"freezeSource"`
-	SilenceSource string   `json:"silenceSource"`
+	FreezeS      float64  `json:"freezeSeconds"`
+	SlateS       float64  `json:"slateSeconds"`
+	ScreenS      float64  `json:"screenSeconds"`
+	SilenceS     float64  `json:"silenceSeconds"`
+	ClientErrors []string `json:"clientErrors"`
+	Warnings     []string `json:"playerWarnings,omitempty"`
+	Recovered    bool     `json:"recovered"`
+	// TTFF is tune to the first provider picture; FirstFrame may be a card.
+	TTFFS         float64 `json:"ttffSeconds"`
+	FirstFrameS   float64 `json:"firstFrameSeconds"`
+	SlateSource   string  `json:"slateSource"`
+	FreezeSource  string  `json:"freezeSource"`
+	SilenceSource string  `json:"silenceSource"`
 }
 
 type liveResult struct {
@@ -116,19 +120,32 @@ func runLive(o liveOptions) error {
 		}
 	}
 	version, _ := mediaprocOutput(ctx, o.FF, "-version")
-	host, _ := os.Hostname()
-	rep := liveReport{Label: o.Label, Commit: gitCommit(o.RepoRoot), Subset: o.Subset, Preset: o.Preset, Player: map[bool]string{true: "avfoundation", false: "protocol-only"}[player != ""], FFmpeg: firstLine(version), Host: runtime.GOOS + "/" + runtime.GOARCH + " " + host, StartedAt: started.UTC()}
+	rep := liveReport{Label: o.Label, Commit: gitCommit(o.RepoRoot), Subset: o.Subset, Preset: o.Preset, Player: map[bool]string{true: "avfoundation", false: "protocol-only"}[player != ""], FFmpeg: firstLine(version), Host: runtime.GOOS + "/" + runtime.GOARCH, StartedAt: started.UTC()}
 	fmt.Printf("live: %d rows, preset %s, player %s, parallel %d\n", len(rows), o.Preset, rep.Player, o.Parallel)
 	results := make([]liveResult, len(rows))
 	sem := make(chan struct{}, max(1, o.Parallel))
 	var wg sync.WaitGroup
 	var printMu sync.Mutex
+	if player != "" {
+		// The first AVPlayer on a host pays a one-time media stack start-up;
+		// keep it out of every row's TTFF.
+		warmAVFoundation(ctx, player, fixtures)
+	}
+	var startMu sync.Mutex
+	lastStart := time.Time{}
 	for i, row := range rows {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			// Stagger starts so parallel players do not initialise together.
+			startMu.Lock()
+			if wait := time.Until(lastStart.Add(1500 * time.Millisecond)); wait > 0 {
+				time.Sleep(wait)
+			}
+			lastStart = time.Now()
+			startMu.Unlock()
 			work := filepath.Join(root, strings.ReplaceAll(row.ID(), "/", "_"))
 			_ = os.MkdirAll(work, 0o700)
 			res := runLiveRow(ctx, o, row, fixtures, player, work)
@@ -179,6 +196,26 @@ func runLive(o liveOptions) error {
 	return nil
 }
 
+// renderLive rewrites the Markdown summary of an existing JSON report.
+func renderLive(report, markdown, baselinePath string) error {
+	var rep liveReport
+	b, err := os.ReadFile(report)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(b, &rep); err != nil {
+		return err
+	}
+	var base *liveReport
+	if baselinePath != "" {
+		base = &liveReport{}
+		if b, err := os.ReadFile(baselinePath); err != nil || json.Unmarshal(b, base) != nil {
+			return fmt.Errorf("baseline %s unreadable", baselinePath)
+		}
+	}
+	return os.WriteFile(markdown, []byte(liveMarkdown(rep, base, liveOptions{})), 0o644)
+}
+
 func gitCommit(root string) string {
 	out, err := exec.Command("git", "-C", root, "rev-parse", "--short=9", "HEAD").Output()
 	if err != nil {
@@ -193,8 +230,8 @@ func printLiveResult(r liveResult) {
 	if r.Error != "" {
 		detail = r.Error
 	}
-	fmt.Printf("%-40s %-15s %-4s ttff=%4.1fs screen=%5.1fs (freeze %4.1f slate %4.1f) silence=%5.1fs gap=%4.1fs errors=%d recovered=%v %s\n",
-		r.ID, r.Path, r.Verdict, v.TTFFS, v.ScreenS, v.FreezeS, v.SlateS, v.SilenceS, r.Protocol.LongestNoNewSegmentS, len(v.ClientErrors), v.Recovered, detail)
+	fmt.Printf("%-40s %-15s %-4s first=%4.1fs ttff=%4.1fs screen=%5.1fs (freeze %4.1f slate %4.1f) silence=%5.1fs gap=%4.1fs errors=%d recovered=%v %s\n",
+		r.ID, r.Path, r.Verdict, v.FirstFrameS, v.TTFFS, v.ScreenS, v.FreezeS, v.SlateS, v.SilenceS, r.Protocol.LongestNoNewSegmentAdjS, len(v.ClientErrors), v.Recovered, detail)
 }
 
 func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map[string]*liveFixture, player, work string) (res liveResult) {
@@ -243,7 +280,7 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 	}
 	segDir := filepath.Join(work, "segments")
 	_ = os.MkdirAll(segDir, 0o700)
-	judge := newProtocolJudge(o.FF, o.FP, playlist, segDir, tuneStart)
+	judge := newProtocolJudge(ctx, o.FF, o.FP, playlist, segDir, tuneStart, ether.handledSeconds)
 	observeCtx, stop := context.WithTimeout(ctx, o.Observe)
 	defer stop()
 	var playerOut []byte
@@ -301,7 +338,15 @@ func compactJSON(b []byte) []byte {
 }
 
 type avResult struct {
-	FirstFrameS  *float64 `json:"firstFrameSeconds"`
+	FirstFrameS   *float64 `json:"firstFrameSeconds"`
+	FirstContentS *float64 `json:"firstContentSeconds"`
+	ContentFrames []int    `json:"contentFramesPerSecond"`
+	OtherFrames   []int    `json:"otherFramesPerSecond"`
+	RepeatFrames  []int    `json:"repeatFramesPerSecond"`
+	Gaps          []struct {
+		From float64 `json:"from"`
+		To   float64 `json:"to"`
+	} `json:"gaps"`
 	LastFrameS   *float64 `json:"lastFrameSeconds"`
 	FrozenS      *float64 `json:"frozenSeconds"`
 	DurationS    float64  `json:"durationSeconds"`
@@ -327,34 +372,45 @@ type avResult struct {
 }
 
 func summarise(p protocolReport, av *avResult, tune float64) viewerSummary {
-	v := viewerSummary{SilenceSource: "ffmpeg silencedetect on the published segments (in-player audio taps do not attach to HLS)"}
-	// Content measures exclude anything before the first provider picture:
-	// a tune-time card is startup, not a fault.
+	v := viewerSummary{SilenceSource: "ffmpeg silencedetect on the published segments after the first provider picture (in-player audio taps do not attach to HLS items)"}
+	// Everything before the first provider picture is startup, judged by
+	// TTFF; screens, freezes and silence count from that picture on.
 	started := false
-	lastSeq := len(p.SegmentLog) - 1
-	for i, s := range p.SegmentLog {
+	for _, s := range p.SegmentLog {
 		if !started && s.ContentS == 0 {
 			continue
 		}
 		started = true
-		v.SlateS += s.NonContentS
 		v.SilenceS += s.SilenceS
-		_ = i
-	}
-	contentFreeze := 0.0
-	for _, s := range p.SegmentLog {
-		contentFreeze += s.FrozenS
 	}
 	if av != nil {
-		v.FreezeSource = "avfoundation frame delivery + held frames in the published media"
-		if av.FrozenS != nil {
-			v.FreezeS = *av.FrozenS
-		} else {
-			v.FreezeS = av.DurationS
-			v.ClientErrors = append(v.ClientErrors, "player never showed a frame")
-		}
+		v.FreezeSource = "AVPlayer frame delivery: gaps >= 0.5 s and held (identical) frames"
+		v.SlateSource = "AVPlayer frames without the fixture's green band"
 		if av.FirstFrameS != nil {
-			v.TTFFS = tune + *av.FirstFrameS
+			v.FirstFrameS = tune + *av.FirstFrameS
+		}
+		if av.FirstContentS == nil {
+			v.ClientErrors = append(v.ClientErrors, "player never showed the channel")
+		} else {
+			first := *av.FirstContentS
+			v.TTFFS = tune + first
+			for _, g := range av.Gaps {
+				if g.To > first {
+					v.FreezeS += g.To - math.Max(g.From, first)
+				}
+			}
+			for i := range av.FramesPerSec {
+				n := av.FramesPerSec[i]
+				if float64(i) < math.Ceil(first) || n == 0 {
+					continue
+				}
+				if i < len(av.OtherFrames) {
+					v.SlateS += float64(av.OtherFrames[i]) / float64(n)
+				}
+				if i < len(av.RepeatFrames) && i < len(av.ContentFrames) && float64(av.RepeatFrames[i]) > 0.8*float64(n) && av.ContentFrames[i] > n/2 {
+					v.FreezeS += float64(av.RepeatFrames[i]) / float64(n)
+				}
+			}
 		}
 		for _, f := range av.Failures {
 			v.ClientErrors = append(v.ClientErrors, fmt.Sprintf("failed %s %d", f.Domain, f.Code))
@@ -364,35 +420,56 @@ func summarise(p protocolReport, av *avResult, tune float64) viewerSummary {
 		}
 		seen := map[int]bool{}
 		for _, e := range av.ErrorLog {
+			warning := strings.HasPrefix(e.Comment, "Warning:")
 			if !seen[e.Code] {
-				seen[e.Code] = true
-				v.ClientErrors = append(v.ClientErrors, fmt.Sprintf("errorlog %d @%.0fs", e.Code, e.At))
+				if warning {
+					v.Warnings = append(v.Warnings, fmt.Sprintf("%d @%.0fs %s", e.Code, e.At, e.Comment))
+				} else {
+					v.ClientErrors = append(v.ClientErrors, fmt.Sprintf("errorlog %d @%.0fs", e.Code, e.At))
+				}
 			}
+			seen[e.Code] = true
 		}
-		n := len(av.FramesPerSec)
+		n := len(av.ContentFrames)
 		recent := 0
 		for i := max(0, n-5); i < n; i++ {
-			recent += av.FramesPerSec[i]
+			recent += av.ContentFrames[i]
 		}
 		v.Recovered = recent > 0 && av.FinalStatus != "failed"
 	} else {
-		v.FreezeSource = "player buffer model over observed segment arrivals + held frames in the published media"
+		v.FreezeSource = "player buffer model over observed segment arrivals + held content frames in the published media"
+		v.SlateSource = "published segments sampled at 10 Hz without the fixture's green band"
 		v.FreezeS = p.ModelStallS
-		v.TTFFS = p.FirstSegmentS
+		started = false
+		for _, s := range p.SegmentLog {
+			if !started && s.ContentS == 0 {
+				continue
+			}
+			if !started {
+				started = true
+				v.TTFFS = s.FetchedAt
+			}
+			v.SlateS += s.NonContentS
+			v.FreezeS += s.FrozenS
+		}
+		v.FirstFrameS = p.FirstSegmentS
 		if p.ModelFatal != "" {
 			v.ClientErrors = append(v.ClientErrors, "model "+p.ModelFatal)
 		}
 		// Content in the newest segment, published within two target durations of the end.
-		v.Recovered = lastSeq >= 0 && p.SegmentLog[lastSeq].ContentS > 0 && p.ModelFatal == "" && p.RunEndS-p.SegmentLog[lastSeq].SeenAt <= 2*math.Max(p.TargetDuration, 1)
+		last := len(p.SegmentLog) - 1
+		v.Recovered = last >= 0 && p.SegmentLog[last].ContentS > 0 && p.ModelFatal == "" && p.RunEndS-p.SegmentLog[last].SeenAt <= 2*math.Max(p.TargetDuration, 1)
 	}
-	v.FreezeS += contentFreeze
 	for k, n := range p.HTTPErrors {
 		v.ClientErrors = append(v.ClientErrors, fmt.Sprintf("http %s x%d", k, n))
 	}
 	if len(p.UnmarkedCodecChanges) > 0 {
-		v.ClientErrors = append(v.ClientErrors, "unmarked codec change (Apple -12971)")
+		v.ClientErrors = append(v.ClientErrors, "unmarked codec change between segments (Apple players fail or freeze)")
 	}
 	sort.Strings(v.ClientErrors)
+	v.FreezeS = math.Round(v.FreezeS*10) / 10
+	v.SlateS = math.Round(v.SlateS*10) / 10
+	v.SilenceS = math.Round(v.SilenceS*10) / 10
 	v.ScreenS = v.FreezeS + v.SlateS
 	return v
 }
@@ -417,16 +494,18 @@ func judgeRow(sc liveScenario, preset string, r liveResult) (string, []string) {
 	if v.SilenceS > b.SilenceS+0.05 {
 		why = append(why, fmt.Sprintf("silence %.1fs > %.1fs", v.SilenceS, b.SilenceS))
 	}
-	if td := p.TargetDuration; td > 0 && p.LongestNoNewSegmentS > 1.5*td {
-		why = append(why, fmt.Sprintf("no new segment for %.1fs (> 1.5x TD %.0fs)", p.LongestNoNewSegmentS, td))
+	if td := p.TargetDuration; td > 0 && p.LongestNoNewSegmentAdjS > 1.5*td {
+		why = append(why, fmt.Sprintf("no new segment for %.1fs (> 1.5x TD %.0fs)", p.LongestNoNewSegmentAdjS, td))
 	}
 	if p.OverlongSegments > 0 {
-		why = append(why, fmt.Sprintf("%d segments exceed TD+0.5s (max %.1fs)", p.OverlongSegments, p.MaxSegmentS))
+		why = append(why, fmt.Sprintf("%d segments exceed TD+0.5s (longest EXTINF %.1fs, media %.1fs)", p.OverlongSegments, p.MaxSegmentS, p.MaxMediaS))
 	}
 	if len(p.SequenceErrors) > 0 {
 		why = append(why, "sequence: "+p.SequenceErrors[0])
 	}
-	if v.TTFFS == 0 || v.TTFFS > liveTTFFMaxS {
+	if v.TTFFS == 0 {
+		why = append(why, "no provider picture")
+	} else if v.TTFFS > liveTTFFMaxS {
 		why = append(why, fmt.Sprintf("ttff %.1fs > %.0fs", v.TTFFS, liveTTFFMaxS))
 	}
 	if sc.MaxConcurrent > 0 && r.Provider.MaxConcurrent > sc.MaxConcurrent {
@@ -436,6 +515,17 @@ func judgeRow(sc liveScenario, preset string, r liveResult) (string, []string) {
 		return "PASS", nil
 	}
 	return "FAIL", why
+}
+
+func warmAVFoundation(ctx context.Context, player string, fixtures map[string]*liveFixture) {
+	p, err := newLiveProvider(providerConfig{Name: "warm", HLS: true, Backlog: 3}, fixtures, time.Now())
+	if err != nil {
+		return
+	}
+	defer p.Close()
+	wctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	_ = exec.CommandContext(wctx, player, p.url, "4").Run()
 }
 
 func buildAVProbe(ctx context.Context, root, cache string) (string, error) {

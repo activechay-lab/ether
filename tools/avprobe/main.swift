@@ -22,6 +22,14 @@ final class Probe {
     let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
     let started = Date()
     var frames: [Int]
+    // Per second: frames showing the fixture's green top band (provider
+    // content), frames without it (an Ether screen or black), and frames
+    // identical to the one before (a held picture).
+    var contentFrames: [Int]
+    var otherFrames: [Int]
+    var repeatFrames: [Int]
+    var firstContent: Double?
+    var lastHash: UInt64 = 0
     var playheads: [Double?]
     var sizes = Set<String>()
     var stalls: [Double] = []
@@ -40,6 +48,9 @@ final class Probe {
         item = AVPlayerItem(url: url)
         player = AVPlayer(playerItem: item)
         frames = Array(repeating: 0, count: seconds)
+        contentFrames = Array(repeating: 0, count: seconds)
+        otherFrames = Array(repeating: 0, count: seconds)
+        repeatFrames = Array(repeating: 0, count: seconds)
         playheads = Array(repeating: nil, count: seconds)
         item.add(output)
         player.isMuted = true
@@ -83,6 +94,15 @@ final class Probe {
         while output.hasNewPixelBuffer(forItemTime: time), let pb = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
             delivered += 1
             sizes.insert("\(CVPixelBufferGetWidth(pb))x\(CVPixelBufferGetHeight(pb))")
+            let (content, hash) = inspect(pb)
+            if content {
+                contentFrames[index] += 1
+                if firstContent == nil { firstContent = t }
+            } else {
+                otherFrames[index] += 1
+            }
+            if hash == lastHash { repeatFrames[index] += 1 }
+            lastHash = hash
             if delivered > 120 { break }
         }
         guard delivered > 0 else { return }
@@ -90,6 +110,36 @@ final class Probe {
         if firstFrame == nil { firstFrame = t }
         if let last = lastFrame, t - last >= 0.5 { gaps.append(["from": last, "to": t]) }
         lastFrame = t
+    }
+
+    // inspect samples a BGRA frame: whether the top band is the fixture's
+    // green, and a sparse hash of the whole picture.
+    func inspect(_ pb: CVPixelBuffer) -> (Bool, UInt64) {
+        CVPixelBufferLockBaseAddress(pb, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+        guard let raw = CVPixelBufferGetBaseAddress(pb) else { return (false, 0) }
+        let base = raw.assumingMemoryBound(to: UInt8.self)
+        let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb), bpr = CVPixelBufferGetBytesPerRow(pb)
+        var green = 0
+        let y = max(1, h / 50)
+        for i in 0..<8 {
+            let x = w / 4 + i * (w / 2) / 8
+            let p = base + y * bpr + x * 4
+            if p[0] < 110 && p[1] > 150 && p[2] < 110 { green += 1 }
+        }
+        var hash: UInt64 = 1469598103934665603
+        var row = 0
+        while row < h {
+            let line = base + row * bpr
+            var col = 0
+            while col < w {
+                let p = line + col * 4
+                hash = (hash ^ UInt64(p[0]) ^ UInt64(p[1]) << 8 ^ UInt64(p[2]) << 16) &* 1099511628211
+                col += 16
+            }
+            row += 4
+        }
+        return (green >= 6, hash)
     }
 
     func finish() {
@@ -111,6 +161,10 @@ final class Probe {
             "framesPerSecond": frames,
             "playheadSeconds": playheads.map { $0 as Any? ?? NSNull() },
             "firstFrameSeconds": firstFrame as Any? ?? NSNull(),
+            "firstContentSeconds": firstContent as Any? ?? NSNull(),
+            "contentFramesPerSecond": contentFrames,
+            "otherFramesPerSecond": otherFrames,
+            "repeatFramesPerSecond": repeatFrames,
             "lastFrameSeconds": lastFrame as Any? ?? NSNull(),
             "frozenSeconds": firstFrame == nil ? NSNull() : frozen as Any,
             "gaps": gaps,

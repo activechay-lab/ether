@@ -415,7 +415,11 @@ func (p *liveProvider) serveTS(w http.ResponseWriter, r *http.Request, elapsed t
 	defer func() { p.mu.Lock(); p.open--; p.mu.Unlock() }()
 
 	w.Header().Set("Content-Type", "video/mp2t")
+	w.WriteHeader(http.StatusOK)
 	flusher, _ := w.(http.Flusher)
+	if flusher != nil {
+		flusher.Flush() // providers answer at once even when the body then stalls
+	}
 	connected := elapsed
 	// Start with the newest complete segment, like a provider's send buffer.
 	n := p.liveEdge(elapsed) - 1

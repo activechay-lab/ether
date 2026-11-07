@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/config"
@@ -59,6 +60,7 @@ type liveEther struct {
 	logFile *os.File
 	// Stability is whether the preset reached Ether, and how.
 	Stability string
+	handled   sync.Map
 }
 
 // channelSetup is how a scenario configures its one channel.
@@ -120,8 +122,8 @@ func startLiveEther(ctx context.Context, ff, fp, work string, setup channelSetup
 		}
 		ch.StreamSources = sources
 	}
-	if s := applyStability(nil, &ch, setup.Stability); s != "" && e.Stability == "" {
-		e.Stability = s
+	if e.Stability == "" {
+		e.Stability = applyStability(nil, &ch, setup.Stability)
 	}
 	if ch, err = e.service.SaveChannel(ctx, ch); err != nil {
 		return fail(fmt.Errorf("save channel: %w", err))
@@ -137,8 +139,25 @@ func startLiveEther(ctx context.Context, ff, fp, work string, setup channelSetup
 		Config: func() config.Config { return cfg }, Logger: log.With("component", "plex"),
 		Identity: plex.Identity{MachineIdentifier: cfg.Server.MachineIdentifier, FriendlyName: cfg.Server.FriendlyName, Version: "1.43.4.10903-e5521bd8c", Platform: "MacOSX", PlatformVersion: "26", MyPlexSubscription: true},
 	})
-	e.server = httptest.NewServer(e.plex)
+	e.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get("X-Chaos-Judge")
+		began := time.Now()
+		e.plex.ServeHTTP(w, r)
+		if id != "" {
+			e.handled.Store(id, time.Since(began).Seconds())
+		}
+	}))
 	return e, ch, nil
+}
+
+// handledSeconds is how long Ether spent serving a judge request, so the
+// judge can tell its own blocked time from a slow response.
+func (e *liveEther) handledSeconds(id string) (float64, bool) {
+	v, ok := e.handled.LoadAndDelete(id)
+	if !ok {
+		return 0, false
+	}
+	return v.(float64), true
 }
 
 // applyStability sets the stability preset through whichever hook the
@@ -263,5 +282,3 @@ func (e *liveEther) selectedPath() string {
 	}
 	return path
 }
-
-var _ = time.Second
