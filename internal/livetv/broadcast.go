@@ -200,7 +200,8 @@ type broadcast struct {
 	coldWait time.Duration
 	// burstNoWait marks a live input: its startup burst only runs over
 	// pictures already decoded and ends at the first tick without one.
-	burstNoWait bool
+	burstNoWait  bool
+	burstPicture time.Time // wall time of the last fresh picture
 	// segment is the published segment duration (the target duration).
 	segment time.Duration
 	// steadyBitrate is a provider output's full-quality bitrate ceiling,
@@ -309,7 +310,7 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 	b.mu.Unlock()
 	lifetime, cancel := context.WithCancel(b.ctx)
 	stop := context.AfterFunc(ctx, cancel)
-	encoder, err := b.runner.StartEncoder(lifetime, transcode.EncoderRequest{SessionID: id, Source: b.format, Decision: decision, SegmentDuration: b.segment, DVRWindow: b.dvr})
+	encoder, err := b.runner.StartEncoder(lifetime, transcode.EncoderRequest{SessionID: id, Source: b.format, Decision: decision, SegmentDuration: b.segment, DVRWindow: b.dvr, LiveSource: b.burstNoWait})
 	stop()
 	if err != nil {
 		cancel()
@@ -609,9 +610,16 @@ func (b *broadcast) run() {
 			return
 		}
 		scheduled := b.origin.Add(time.Duration(b.tick) * time.Second * time.Duration(b.format.FPSDen) / time.Duration(b.format.FPSNum))
-		b.bursting = !b.startupUntil.IsZero() && now.Before(b.startupUntil) && !b.startupOutputReady(now)
+		// A live input's burst spends its provider backlog, the server
+		// reserve: it stops at its target lead, not at a published edge
+		// that trails the encoder.
+		headroom := b.startupTarget + 4*time.Second
+		if b.burstNoWait {
+			headroom = b.startupTarget
+		}
+		b.bursting = !b.startupUntil.IsZero() && now.Before(b.startupUntil) && !b.startupOutputReady(now) && (!b.burstNoWait || scheduled.Sub(now) < headroom)
 		if !b.startupUntil.IsZero() && !b.bursting {
-			b.lead = max(0, min(b.startupTarget+4*time.Second, scheduled.Sub(now)))
+			b.lead = max(0, min(headroom, scheduled.Sub(now)))
 			b.startupUntil = time.Time{}
 			b.logger.Info("broadcast startup burst finished", "lead", b.lead, "elapsed", now.Sub(b.origin))
 		}
@@ -619,7 +627,7 @@ func (b *broadcast) run() {
 		// healthy fast encoder into a video-degradation event through queue growth.
 		// Due ticks still enter the continuous PCM queue: pacing those behind a
 		// slow encoder would prevent the queue's picture degradation from helping.
-		if b.bursting && scheduled.After(now) && (scheduled.After(now.Add(b.startupTarget+4*time.Second)) || b.startupQueueFull()) {
+		if b.bursting && scheduled.After(now) && (scheduled.After(now.Add(headroom)) || b.startupQueueFull()) {
 			timer.Reset(2 * time.Millisecond)
 			continue
 		}
@@ -852,8 +860,16 @@ func (b *broadcast) step(now time.Time) bool {
 	// ends at the first tick without a decoded picture instead of waiting for
 	// one (publication must not pause) or running a screen ahead of the clock.
 	if b.burstNoWait && b.bursting && !fresh && now.After(time.Now()) {
+		// A backlog decodes faster than real time but not instantly: keep
+		// bursting while pictures keep arriving, end it once they pause.
+		if time.Since(b.burstPicture) < 150*time.Millisecond {
+			return false
+		}
 		b.startupUntil = time.Now()
 		return false
+	}
+	if fresh {
+		b.burstPicture = time.Now()
 	}
 	startupExpired := b.current != nil && b.current.lastFrameAt.IsZero() && now.Sub(b.current.started) >= broadcastStartup
 	stalled := b.current != nil && !b.current.lastFrameAt.IsZero() && now.Sub(b.current.lastFrameAt) >= broadcastStall

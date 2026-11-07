@@ -233,6 +233,12 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 	// maxrate + buffer <= remaining budget. Keep CRF/mbtree/lookahead intact.
 	budget := max(200, ceiling-max(r.Decision.AudioBitrateKbps, 128)-64)
 	spec.Rate = rateControl{TargetKbps: budget * 9 / 10, MaxrateKbps: budget * 9 / 10, BufsizeKbps: budget / 10}
+	if r.LiveSource {
+		// A segment's average stays under the ceiling; within it, an I-frame
+		// may borrow from the pictures after it.
+		segment := int(r.SegmentDuration / time.Second)
+		spec.Rate = rateControl{TargetKbps: budget, MaxrateKbps: budget, BufsizeKbps: budget * max(1, segment)}
+	}
 
 	args = append(args, planEncodeArgs(spec, picturePlan{w: w, h: h, outRange: rangeSDR}, enc, codec, false)...)
 	if strings.HasSuffix(enc, "_videotoolbox") {

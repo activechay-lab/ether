@@ -84,6 +84,16 @@ func TestSteadyChainMeasurement(t *testing.T) {
 			}
 			wall := time.Since(start)
 			speed := enc.(*continuousEncoder).RealtimeSpeed()
+			// End both processes through their inputs so /usr/bin/time reports.
+			for _, p := range []*continuousProcess{dec.(*continuousDecoder).continuousProcess, enc.(*continuousEncoder).continuousProcess} {
+				for _, s := range p.sockets {
+					s.close()
+				}
+				select {
+				case <-p.done:
+				case <-time.After(5 * time.Second):
+				}
+			}
 			dec.Close()
 			enc.Close()
 			total := 0.0

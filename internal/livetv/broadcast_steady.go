@@ -27,7 +27,7 @@ type steadyShape struct {
 // deinterlace/scale, raw transfer and x264 encode), measured on motion
 // content. A hardware encoder leaves decode and scaling on the CPU.
 const (
-	steadySoftwareCores1080p30 = 1.6
+	steadySoftwareCores1080p30 = 2.0
 	steadyHardwareCores1080p30 = 0.45
 	// Keep this share of the host for VOD, guide work and the server itself.
 	steadyHostShare = 0.6
@@ -118,6 +118,14 @@ func steadyRefusal(info *core.MediaInfo) string {
 	v := info.Video()
 	if v == nil {
 		return ""
+	}
+	audio := false
+	for _, st := range info.Streams {
+		audio = audio || st.Type == "audio"
+	}
+	if !audio {
+		// The continuous decoder pairs every picture with its sound.
+		return "source without audio plays direct"
 	}
 	if v.Height > 1080 || v.Width > 1920 {
 		return "source above 1080p stays direct"
@@ -221,6 +229,11 @@ func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission,
 		attempt, cancel := context.WithTimeout(ctx, 6*time.Second)
 		info, err := s.probeSessionInput(attempt, link.ss)
 		cancel()
+		if err == nil && info != nil && info.Video() == nil && len(info.Streams) > 0 {
+			// Radio: Steady renders pictures; an audio-only source plays direct.
+			link.close(s)
+			return nil, "audio-only source plays direct"
+		}
 		if err != nil || info == nil || info.Video() == nil {
 			if err == nil {
 				err = core.ErrNotAvailable

@@ -141,10 +141,28 @@ func (p *providerBroadcastPlanner) watchStandby(ctx context.Context) {
 			continue
 		}
 		if a == nil {
+			// Between attempts: when the input's own transport has recovered
+			// (the tap reconnected after the ladder backed off), open now
+			// rather than at the backed-off retry time.
+			p.mu.Lock()
+			link, waiting, retry := p.link, p.waiting, p.retry
+			p.mu.Unlock()
+			if waiting && link != nil && retry != nil {
+				if h, ok := p.s.inputHealth(link.ss); ok && h.Connected && !h.Failed {
+					p.mu.Lock()
+					p.waiting = false
+					p.mu.Unlock()
+					p.logger().Debug("live input recovered while waiting", "input", link.src.ID)
+					retry()
+				}
+			}
 			continue
 		}
 		stressed := a.decoder.stressed(now)
 		h, healthy := p.s.inputHealth(a.link.ss)
+		p.mu.Lock()
+		p.health, p.healthOK, p.healthFrom = h, healthy, a
+		p.mu.Unlock()
 		if healthy && (h.Stalled || h.Failed || h.DataAge > steadyStress) {
 			stressed = true
 		}

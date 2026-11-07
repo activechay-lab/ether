@@ -207,25 +207,29 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 	defer tc.Close()
 	s := testService(t, Options{Transcoder: tc, HTTPClient: up.Client()})
 	info := tuneRelayChannel(t, s, up.URL+"/live/xuser/xpass-S3CRET/1001.ts?token=QTOKEN-S3CRET")
-	// A continuous output starts its input decoder after the tune returns.
+	// A continuous output starts its input decoder after the tune returns,
+	// and reopens it while this fake ffmpeg keeps failing. Judge one snapshot
+	// in which every recorded relay read has its body.
+	var calls [][]string
+	var bodies []string
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		runner.mu.Lock()
-		started := false
-		for _, args := range runner.calls {
+		calls = append([][]string(nil), runner.calls...)
+		bodies = append([]string(nil), runner.bodies...)
+		runner.mu.Unlock()
+		started, reads := false, 0
+		for _, args := range calls {
 			for i := 0; i+1 < len(args); i++ {
-				started = started || args[0] == "ffmpeg" && args[i] == "-i" && strings.HasPrefix(args[i+1], "http")
+				if args[i] == "-i" && strings.HasPrefix(args[i+1], "http") {
+					reads++
+					started = started || args[0] == "ffmpeg"
+				}
 			}
 		}
-		runner.mu.Unlock()
-		if started {
+		if started && reads == len(bodies) {
 			break
 		}
 	}
-
-	runner.mu.Lock()
-	calls := append([][]string(nil), runner.calls...)
-	bodies := append([]string(nil), runner.bodies...)
-	runner.mu.Unlock()
 	var inputs []string
 	var analysis, packetProbe, encoder bool
 	for _, args := range calls {
