@@ -272,7 +272,7 @@ func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission,
 			probeBudget = 3 * time.Second
 		}
 		attempt, cancel := context.WithTimeout(ctx, probeBudget)
-		info, err := s.probeSessionInput(attempt, link.ss)
+		info, err := s.probeSteadyLink(attempt, c, link)
 		cancel()
 		if err == nil && info != nil && info.Video() == nil && len(info.Streams) > 0 {
 			// Radio: Steady renders pictures; an audio-only source plays direct.
@@ -312,6 +312,22 @@ func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission,
 func formatCores(v float64) string {
 	b, _ := json.Marshal(math.Round(v*10) / 10)
 	return string(b)
+}
+
+// probeSteadyLink probes a link's input through its own plain grant. The
+// relay resumes a Steady grant's next reader where its previous one stopped:
+// probing through the link would start the decoder at the probe's position,
+// near the live edge, instead of at the stability reserve. A transport
+// stream's probe still shares the link's one provider connection (the tap).
+func (s *Service) probeSteadyLink(ctx context.Context, c Channel, link *steadyLink) (*core.MediaInfo, error) {
+	probe := &session{ctx: link.ss.ctx, cancel: func() {}, info: SessionInfo{ID: "probe-" + c.ID, Channel: c}, inputSource: link.ss.inputSource, inputURL: link.ss.inputURL, inputHeaders: link.ss.inputHeaders}
+	grant := link.src
+	grant.URL = link.ss.inputURL
+	if err := s.grantInput(probe, grant, link.ss.inputHeaders); err != nil {
+		return nil, err
+	}
+	defer s.revokeInput(probe)
+	return s.probeSessionInput(ctx, probe)
 }
 
 // steadyInputFormat names the demuxer of a probed live input.

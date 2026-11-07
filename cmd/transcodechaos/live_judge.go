@@ -226,13 +226,14 @@ func shortNetError(err error) string {
 	return s
 }
 
-// Run polls until ctx ends. Polling is every 0.5 s, finer than a player's
-// target-duration cadence, so the no-new-segment interval is measured to
-// ±0.5 s; the real player (avprobe) polls at its own cadence alongside.
+// Run polls until ctx ends. Polling every 0.2 s measures the no-new-segment
+// interval to +0.2 s: at a 2 s target duration the Apple limit is 3 s, so a
+// coarser grid (0.5 s before) could report a 2.6 s gap as 3.0 s and fail it.
+// The real player (avprobe) polls at its own cadence alongside.
 func (j *protocolJudge) Run(ctx context.Context) {
 	j.wg.Add(1)
 	go j.fetcher(j.work)
-	tick := time.NewTicker(500 * time.Millisecond)
+	tick := time.NewTicker(200 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		j.poll(ctx)

@@ -60,9 +60,10 @@ type providerConfig struct {
 	// Absent means the URL points at a closed port.
 	Absent bool `json:"absent,omitempty"`
 	// Burst is how far behind the live edge a raw TS connection starts, on
-	// every connect: that backlog is sent at once, then real time follows,
-	// like panels that flush their recent buffer. Zero starts at the newest
-	// segment (0-4 s already published, sent at once).
+	// every connect, including the first one right after start (the history
+	// before start is Backlog segments): that backlog is sent at once, then
+	// real time follows, like panels that flush their recent buffer. Zero
+	// starts at the newest segment (0-4 s already published, sent at once).
 	Burst time.Duration `json:"burst,omitempty"`
 }
 
@@ -141,12 +142,17 @@ func (p *liveProvider) published(n int64) time.Duration {
 	return time.Duration(n-int64(p.cfg.Backlog)+1) * p.segDur()
 }
 
-// liveEdge is the number of segments published at elapsed.
+// liveEdge is the number of segments published at elapsed. The channel has
+// been live since before start: Backlog segments already exist then, and a
+// negative elapsed reaches back into that history (a raw TS Burst on the first
+// connect, which happens at about tune time), down to segment 0.
 func (p *liveProvider) liveEdge(elapsed time.Duration) int64 {
-	if elapsed < 0 {
-		elapsed = 0
+	d := p.segDur()
+	n := int64(elapsed / d)
+	if elapsed < 0 && elapsed%d != 0 {
+		n-- // floor, not truncation, for times before start
 	}
-	return int64(elapsed/p.segDur()) + int64(p.cfg.Backlog)
+	return max(n+int64(p.cfg.Backlog), 1)
 }
 
 func (p *liveProvider) active(kind string, at time.Duration) (liveFault, bool) {
