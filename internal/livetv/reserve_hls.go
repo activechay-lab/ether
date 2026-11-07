@@ -229,6 +229,10 @@ type hlsInput struct {
 	lists   map[string]*hlsList // by upstream playlist URL as requested
 	segs    map[string]int64    // upstream segment URL -> sequence
 	polling map[string]bool
+	// Steady prefetch (reserve_hls_prefetch.go).
+	fetches map[string]*hlsFetch
+	slots   chan struct{}
+	held    int
 }
 
 // hlsList is the state of one provider media playlist.
@@ -305,6 +309,8 @@ func (h *hlsInput) media(raw string, body []byte, base *url.URL) ([]byte, []Upst
 	}
 	l.initialized = true
 	events := h.transitionsLocked(l, now)
+	h.prefetchLocked(l)
+	h.publishLocked()
 	floor := l.floor
 	startPoll := reserve > 0 && !h.polling[raw]
 	if startPoll {
@@ -331,7 +337,9 @@ func (h *hlsInput) failedFetch(raw string) []UpstreamEvent {
 		return nil
 	}
 	l.failures++
-	return h.transitionsLocked(l, time.Now())
+	events := h.transitionsLocked(l, time.Now())
+	h.publishLocked()
+	return events
 }
 
 // isSegment reports a media segment named by one of the grant's live
@@ -355,9 +363,12 @@ func (h *hlsInput) servedSegment(raw string) {
 		for _, sg := range l.last {
 			if sg.url == raw && seq > l.served {
 				l.served = seq
+				h.evictLocked(seq)
+				h.prefetchLocked(l)
 			}
 		}
 	}
+	h.publishLocked()
 }
 
 // lateness is how far past schedule the playlist is: zero while a new
@@ -392,11 +403,21 @@ func (h *hlsInput) transitionsLocked(l *hlsList, now time.Time) []UpstreamEvent 
 func (h *hlsInput) health() UpstreamHealth {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.healthLocked(time.Now())
+	out, _ := h.healthLocked(time.Now())
+	return out
 }
 
-func (h *hlsInput) healthLocked(now time.Time) UpstreamHealth {
+// publishLocked refreshes the grant's lock-free health snapshot.
+func (h *hlsInput) publishLocked() {
+	out, due := h.healthLocked(time.Now())
+	h.g.snap.Store(&healthSnap{h: out, due: due})
+}
+
+// healthLocked also returns when the most overdue playlist's next segment
+// was due, from which DataAge (lateness) is derived at read time.
+func (h *hlsInput) healthLocked(now time.Time) (UpstreamHealth, time.Time) {
 	out := UpstreamHealth{Kind: "hls", Connected: true}
+	var due time.Time
 	first := true
 	for _, l := range h.lists {
 		if now.Sub(l.fetchedAt) > 4*l.target && !first {
@@ -411,6 +432,11 @@ func (h *hlsInput) healthLocked(now time.Time) UpstreamHealth {
 		}
 		if first || late > out.DataAge {
 			out.DataAge = late
+		}
+		if !l.advancedAt.IsZero() {
+			if at := l.advancedAt.Add(l.target); due.IsZero() || at.Before(due) {
+				due = at
+			}
 		}
 		if first || depth < out.ReserveDepth {
 			out.ReserveDepth = depth
@@ -427,7 +453,7 @@ func (h *hlsInput) healthLocked(now time.Time) UpstreamHealth {
 		}
 		first = false
 	}
-	return out
+	return out, due
 }
 
 // poll fetches the playlist on schedule while the reader is busy in the
@@ -489,7 +515,7 @@ func (h *hlsInput) deliver(events []UpstreamEvent) {
 	if len(events) == 0 {
 		return
 	}
-	health := h.health()
+	health, _ := h.g.snapHealth()
 	for _, ev := range events {
 		ev.Health = health
 		h.g.notify(ev)
