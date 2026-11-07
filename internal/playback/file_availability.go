@@ -9,6 +9,9 @@ import (
 
 // File checks are explicit source probes, not playback admissions. Bound their
 // background work independently so metadata cannot consume viewer stream slots.
+// A check that gets no slot (or a closing manager) reports
+// ErrSourceUnavailable: no verdict, so callers keep the offered state rather
+// than reporting a live file as missing.
 var fileCheckSlots = make(chan struct{}, 8)
 
 func (m *Manager) CheckFileAvailability(ctx context.Context, user *core.User, key core.RatingKey, caps core.ClientCaps, release string) (bool, error) {
@@ -23,13 +26,13 @@ func (m *Manager) CheckFileAvailability(ctx context.Context, user *core.User, ke
 	select {
 	case fileCheckSlots <- struct{}{}:
 	default:
-		return false, core.ErrNotAvailable
+		return false, core.ErrSourceUnavailable
 	}
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
 		<-fileCheckSlots
-		return false, core.ErrNotAvailable
+		return false, core.ErrSourceUnavailable
 	}
 	m.wg.Add(1)
 	m.mu.Unlock()
