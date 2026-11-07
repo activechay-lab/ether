@@ -1,6 +1,7 @@
 package livetv
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -83,7 +85,10 @@ type relayProducer struct {
 	// is starving. The timeline reads both without locks.
 	starving  atomic.Bool
 	producing atomic.Bool
-	longAt    time.Time // the last overlong copy segment
+	// damaged is set when a copy segment failed its decode check: the
+	// source is delivering damage copy passes straight to the player.
+	damaged atomic.Bool
+	longAt  time.Time // the last overlong copy segment
 	// reformat holds the source's new format when copy output stopped
 	// matching its own PMT; the producer reopens on the new format.
 	reformat  *mediaFormat
@@ -151,6 +156,7 @@ func (s *Service) newRelayProducer(ss *session, info core.MediaInfo, caps core.C
 	p.ingest = newHLSIngest(tl, nil, log, 0, 2)
 	p.ingest.live = true
 	p.ingest.accept = p.accept
+	p.ingest.split = p.split
 	return p
 }
 
@@ -254,6 +260,36 @@ func (p *relayProducer) close() {
 	}
 }
 
+// split cuts a segment that would round above the playlist's fixed target
+// at its inner keyframes. A reconnect splice leaves irregular keyframe
+// spacing, so a copy cut can land up to a GOP late.
+func (p *relayProducer) split(seg *ownedSegment) []*ownedSegment {
+	limit := p.tl.targetDuration()
+	if limit <= 0 {
+		limit = relayTargetFloor(p.cut)
+	}
+	if seg.ext != "ts" || seg.dur < limit+500*time.Millisecond {
+		return []*ownedSegment{seg}
+	}
+	parts := splitTS(seg.data, limit)
+	if len(parts) < 2 {
+		return []*ownedSegment{seg}
+	}
+	out := make([]*ownedSegment, 0, len(parts))
+	for i, data := range parts {
+		part := *seg
+		part.data = data
+		part.disc = seg.disc && i == 0
+		part.dur = seg.dur / time.Duration(len(parts))
+		if span, ok := tsVideoSpan(data); ok {
+			part.dur = span
+		}
+		out = append(out, &part)
+	}
+	p.log.Info("owned relay split an overlong segment at its keyframes", "duration", seg.dur, "parts", len(out), "target", limit)
+	return out
+}
+
 // accept vets a relay segment before it airs. A copy segment past the
 // target means a keyframe went missing: one modestly long segment (up to
 // twice the target) airs, as a transient loss heals at the next keyframe; a
@@ -269,6 +305,17 @@ func (p *relayProducer) accept(seg *ownedSegment) bool {
 		p.reformat = &f
 		p.mu.Unlock()
 		p.log.Warn("owned relay output no longer matches its declared codecs", "payload", seg.format.String())
+		return false
+	}
+	p.mu.Lock()
+	copyMode := p.dec.VideoCopy && !p.escalated
+	p.mu.Unlock()
+	if copyMode && seg.ext == "ts" && !p.damaged.Load() && damageCheckable(seg.format) && p.s.segmentDamaged(seg.data) {
+		// Copy hands damaged pictures straight to the player, which drops
+		// them (seconds of frozen picture). Keep this one off the
+		// playlist; the producer switches to a re-encode that conceals.
+		p.damaged.Store(true)
+		p.log.Warn("owned relay copy segment carries input damage", "duration", seg.dur)
 		return false
 	}
 	td := p.tl.targetDuration()
@@ -391,6 +438,8 @@ func (p *relayProducer) run(ctx context.Context) {
 			// at hand the next rung starts now, while the client still
 			// plays its buffer, not after the deadline.
 			p.recover(ctx, "input stalled, backup available")
+		case copyMode && !escalated && p.damaged.Load():
+			p.escalate(ctx, "input damage: re-encoding conceals it")
 		case copyMode && !escalated && (starved || starvedFor > starveLimit):
 			// Copy cannot cut where the source has no keyframe (lost,
 			// or a GOP far longer than the target). Re-encode, which
@@ -538,6 +587,46 @@ func (p *relayProducer) reopen(ctx context.Context, f mediaFormat) {
 		p.log.Warn("owned relay reopen failed", Diagnose("relay_reopen", err).LogAttrs()...)
 		p.recover(ctx, "reopen failed")
 	}
+}
+
+// damageCheckable limits the per-segment decode check to pictures it can
+// decode well inside a segment's time on one thread.
+func damageCheckable(f mediaFormat) bool {
+	switch f.video {
+	case "h264", "mpeg2video":
+		return f.width <= 1920 && f.height <= 1088
+	case "hevc":
+		return f.width > 0 && f.width <= 1920 && f.height <= 1088
+	}
+	return false
+}
+
+// segmentDamaged decodes one segment (one thread, errors only, bounded) and
+// reports decoder errors: corrupt or missing transport packets that a copy
+// relay would otherwise pass to the player. A check that cannot finish in
+// time reports no damage.
+func (s *Service) segmentDamaged(data []byte) bool {
+	ffmpeg := s.ffmpegPath()
+	if ffmpeg == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, 700*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ffmpeg, "-hide_banner", "-v", "error", "-threads", "1", "-f", "mpegts", "-i", "pipe:0", "-f", "null", "-")
+	cmd.Stdin = bytes.NewReader(data)
+	var errs lineCounter
+	cmd.Stderr = &errs
+	if err := cmd.Run(); err != nil && ctx.Err() != nil {
+		return false
+	}
+	return errs.n >= 2
+}
+
+type lineCounter struct{ n int }
+
+func (c *lineCounter) Write(p []byte) (int, error) {
+	c.n += bytes.Count(p, []byte{'\n'})
+	return len(p), nil
 }
 
 func (p *relayProducer) hasBackup() bool {

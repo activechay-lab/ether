@@ -52,6 +52,8 @@ type hlsIngest struct {
 	// live marks an origin that cuts segments in real time (a local
 	// relay): its short first playlist is not a short backlog.
 	live bool
+	// split may cut a segment into several (a relay's overlong copy cut).
+	split func(*ownedSegment) []*ownedSegment
 	// accept may veto a segment (the relay drops keyframe-starved
 	// overlong segments); a vetoed segment is not ingested.
 	accept func(*ownedSegment) bool
@@ -244,16 +246,22 @@ func (in *hlsIngest) step(ctx context.Context) (progress bool, err error) {
 			in.gapNext = true
 			continue
 		}
-		if in.accept != nil && !in.accept(seg) {
-			in.lastMSN, in.lastURI = s.msn, s.uri
-			in.gapNext = true
-			continue
+		parts := []*ownedSegment{seg}
+		if in.split != nil {
+			parts = in.split(seg)
 		}
-		seg.disc = seg.disc || in.gapNext || (s.disc && in.lastMSN >= 0)
-		in.gapNext = false
+		disc := s.disc && in.lastMSN >= 0
 		in.lastMSN, in.lastURI = s.msn, s.uri
-		in.tl.ingest(seg)
-		progress = true
+		for _, part := range parts {
+			if in.accept != nil && !in.accept(part) {
+				in.gapNext = true
+				continue
+			}
+			part.disc = part.disc || in.gapNext || disc
+			in.gapNext, disc = false, false
+			in.tl.ingest(part)
+			progress = true
+		}
 	}
 	if m.ended {
 		return progress, errOriginEnded

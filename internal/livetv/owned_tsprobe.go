@@ -862,3 +862,91 @@ func shiftFMP4(src []byte, scales map[uint32]uint32, seconds float64, sequence u
 	})
 	return b
 }
+
+// splitTS cuts a transport stream segment at video keyframes so no part runs
+// past maxDur by more than the rounding RFC 8216 allows (EXTINF rounded to
+// the nearest second must not exceed the target). A relay's copy cut can land
+// a GOP late at a reconnect splice, and the target is fixed for the
+// playlist's life. Every part after the first starts with the segment's PAT
+// and PMT, so each is independently decodable. A segment without a usable
+// keyframe stays whole.
+func splitTS(b []byte, maxDur time.Duration) [][]byte {
+	if !isTS(b) || maxDur <= 0 {
+		return [][]byte{b}
+	}
+	limit := uint64(maxDur.Seconds()*90000) + 90000*45/100
+	var pat, pmt []byte
+	pmtPID, videoPID := -1, -1
+	type key struct {
+		off int
+		pts uint64
+	}
+	var keys []key
+	first, last, haveFirst := uint64(0), uint64(0), false
+	for off := 0; off+tsPacket <= len(b); off += tsPacket {
+		p := b[off : off+tsPacket]
+		if p[0] != 0x47 {
+			return [][]byte{b}
+		}
+		pid := int(p[1]&0x1f)<<8 | int(p[2])
+		pusi := p[1]&0x40 != 0
+		payload := tsPayload(p)
+		switch {
+		case pid == 0 && pusi && pat == nil && payload != nil:
+			pat = p
+			pmtPID = ownedParsePAT(payload)
+		case pid == pmtPID && pusi && pmt == nil && payload != nil:
+			pmt = p
+			for spid, st := range ownedParsePMT(payload) {
+				if st.kind == "video" {
+					videoPID = int(spid)
+				}
+			}
+		case pid == videoPID && pusi && len(payload) >= 14 && payload[0] == 0 && payload[1] == 0 && payload[2] == 1 && payload[7]&0x80 != 0:
+			t := payload[9:14]
+			pts := uint64(t[0]>>1&7)<<30 | uint64(t[1])<<22 | uint64(t[2]>>1)<<15 | uint64(t[3])<<7 | uint64(t[4]>>1)
+			if !haveFirst {
+				first, last, haveFirst = pts, pts, true
+				continue
+			}
+			last = max(last, pts)
+			if (p[3]>>4)&2 != 0 && p[4] > 0 && p[5]&0x40 != 0 { // random access indicator
+				keys = append(keys, key{off, pts})
+			}
+		}
+	}
+	if pat == nil || pmt == nil || !haveFirst || last < first {
+		return [][]byte{b}
+	}
+	// While what remains from the current start runs past the limit, cut at
+	// the furthest keyframe within it (leaving at least half a second).
+	var cuts []int
+	start, next := first, 0
+	for last-start > limit {
+		best := -1
+		for i := next; i < len(keys) && keys[i].pts-start <= limit; i++ {
+			if keys[i].pts-start >= 45000 {
+				best = i
+			}
+		}
+		if best < 0 {
+			break
+		}
+		cuts = append(cuts, keys[best].off)
+		start, next = keys[best].pts, best+1
+	}
+	if len(cuts) == 0 {
+		return [][]byte{b}
+	}
+	parts := make([][]byte, 0, len(cuts)+1)
+	prev := 0
+	for _, c := range cuts {
+		part := b[prev:c]
+		if prev > 0 {
+			part = append(append(append([]byte(nil), pat...), pmt...), part...)
+		}
+		parts = append(parts, part)
+		prev = c
+	}
+	return append(parts, append(append(append([]byte(nil), pat...), pmt...), b[prev:]...))
+}
