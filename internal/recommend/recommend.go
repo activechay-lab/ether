@@ -288,12 +288,21 @@ func (r *Recommender) Related(ctx context.Context, user *core.User, key core.Rat
 		r.log.Debug("recommend: similar failed", "key", simKey, "err", err)
 	}
 	if r.llm != nil {
-		lctx, cancel := r.bounded(ctx)
-		if extra, err := r.llm.MoreLikeThis(lctx, title, limit); err == nil {
+		var extra []core.Title
+		var err error
+		if cached, ok := r.llm.(interface {
+			CachedMoreLikeThis(context.Context, *core.Title, int) ([]core.Title, error)
+		}); ok {
+			extra, err = cached.CachedMoreLikeThis(ctx, title, limit)
+		} else {
+			lctx, cancel := r.bounded(ctx)
+			extra, err = r.llm.MoreLikeThis(lctx, title, limit)
+			cancel()
+		}
+		if err == nil {
 			// Interleave so model picks surface without displacing TMDB's.
 			similar = interleave(similar, extra)
 		}
-		cancel()
 	}
 	add(prefix+".similar", "More Like This", "hub."+prefix+".similar", r.personalOrder(ctx, user, r.unwatchedOnly(ctx, user, similar)), true)
 
