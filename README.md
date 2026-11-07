@@ -63,6 +63,7 @@ Ether is a Plex server to one app and a Jellyfin server to another, at the same 
 | **Stremio** | Main HTTPS port | Any Stremio app. Each viewer creates a private addon install link in the viewer portal (`/ether/me`). **Requires an `https://` server address** (except `http://127.0.0.1` on the same machine): use your `https://*.plex.direct:32400` address when Plex is claimed, Tailscale HTTPS, or a reverse proxy with TLS. |
 | **Files (WebDAV)** | Main port | Infuse, VLC, Kodi, and rclone. Each viewer creates a read-only WebDAV app password in `/ether/me`. |
 | **M3U & XMLTV** | Main port | Channels DVR, TiviMate, and IPTV players. Each viewer creates private `playlist.m3u` and `guide.xml` links in `/ether/me`. |
+| **IPTV apps (Xtream)** | Main port (`/xtream`) | TiviMate, Televizo, IPTV Smarters and other Xtream-compatible players get Live TV, movies and series. Off by default; turn it on under **Apps**, then create a revocable login per device (one connection each). No timeshift or catch-up. |
 | **DLNA** | Local network | LAN TVs and media players with a ContentDirectory browser, governed by the owner-selected guest viewer's library and rating rules. |
 
 - **Viewers are protocol-neutral:** Ether keeps its own viewer accounts, and Plex is optional. If you connect Plex, people you share your Plex server with appear automatically as Ether viewers and can approve Jellyfin Quick Connect or Silo device pairing in `/ether/me` using their Plex sign-in.
@@ -149,11 +150,13 @@ The sidebar groups everything by what you are doing:
 - **Server:** **General** (every app's port and address under **How apps connect**, plus an optional outbound HTTP/SOCKS5 proxy for source traffic), **Apps**, **Integrations**, **Notifications**, **Cluster**, and **Maintenance** (Backups & import, Updates, Health, Logs). Press ⌘K (Ctrl+K elsewhere) to search pages and individual settings; choosing a setting opens its page, expands **More options** if needed, and highlights the row.
 
 ### Release profiles, sources, and new-release modes
-In **Quality › Profiles**, each profile opens in a drawer organized in the order Ether evaluates candidates:
+Quality profiles are scoped to a media type, the way Radarr and Sonarr work: every profile is for **Movies** or for **Shows**, and each media has its own **At home** and **Away** default. **Quality › Profiles** has a **Movies | Shows** picker; the profile table, its default badges, new profiles and imported presets follow the selected media. Import presets from **TRaSH Guides**, **Profilarr** or pasted Radarr/Sonarr JSON (a Radarr profile becomes a movie profile, a Sonarr one a show profile), and turn on **Keep imported profiles in sync** to pick up guide changes on a schedule or with **Sync now**. Upgrading from 0.3.4 splits each existing profile into a movie and a show copy with the same name, so every rule and default keeps choosing exactly what it did before.
+
+Each profile opens in a drawer organized in the order Ether evaluates candidates:
 1. **Never play:** resolution and runtime-based size bounds for movies and episodes, *Allow CAM*, *Allow HDR*, *Allow Dolby Vision*, and *Only play* / *Never play* rules.
 2. **What matters most:** a single numbered, drag-to-reorder ranking ladder (*Prefer* rules, *Audio language*, *Connection fit*, *Resolution*, *Release type*, *HDR*, *Played fine recently*, *Video codec*, *Audio format*, *Larger file*).
 
-**Check quality**, a tab of its own, shows the quality a viewer gets in a given app, at home or away, and which rule decided. A profile’s editor sets the Away default, and **Remote bitrate limit** sets a shared limit in Mbps. **Which source goes first** applies to every profile: *Start fastest*, *Usenet first*, *Debrid first*, *Always Usenet*, or *Always cached debrid*. The **Version menu** sets how many same-quality versions to offer.
+**Quality › Rules** pick a profile per device, app, platform or viewer (first match wins) and can apply to movies, shows or both; a rule for both uses the same-named profile of each media. **Check quality**, a tab of its own, shows the quality a viewer gets in a given app, at home or away, for a movie or a show, and which rule decided. A profile’s editor sets the Away default, and **Remote bitrate limit** sets a shared limit in Mbps. **Which source goes first** applies to every profile: *Start fastest*, *Usenet first*, *Debrid first*, *Always Usenet*, or *Always cached debrid*. The **Version menu** sets how many same-quality versions to offer.
 
 In **Catalog › Settings**, **New releases** offers three modes: **When they can play** (recommended: new movies appear once Ether finds a playable release matching your quality profile), **On digital release** (a digital or physical release date has passed), or **Right away**. **Upcoming content** lists unreleased movies and episodes, and is off by default. Content ratings across **Catalog › Settings › Rules** and viewer content rating limits use a unified age-level model so equivalent ratings (`PG`, `TV-PG`, regional `6+`/`7+`) match together.
 
@@ -189,8 +192,8 @@ Compose your server's Home screen with global rules and per-viewer overrides, pr
   </tr>
 </table>
 
-### Live poster studio and 24/7 Live TV guide
-Design versioned poster overlays (`Cinema`, `Spotlight`, `Essential`) with IMDb, Rotten Tomatoes, Letterboxd, and TMDB scores, or connect self-hosted PostersPlus or XRDB, hosted BetterPosters or Rating Poster Database (RPDB), or a custom URL template, each set up under **Integrations** and picked as the **Poster source** under **Metadata › Artwork**. For claimed Plex servers, **Apps › Plex › Account** also offers an optional **Use Plex's metadata for Plex apps** toggle (off by default). In **Live TV**, combine M3U/XMLTV and Xtream feeds with 24/7 virtual channels built in a single drawer with a paintable weekly schedule grid in your timezone, playout modes (in order, shuffle, random, marathon, newest first), and repeat-avoidance windows.
+### Live poster studio, On Air channels and 24/7 Live TV guide
+Design versioned poster overlays (`Cinema`, `Spotlight`, `Essential`) with IMDb, Rotten Tomatoes, Letterboxd, and TMDB scores, or connect self-hosted PostersPlus or XRDB, hosted BetterPosters or Rating Poster Database (RPDB), or a custom URL template, each set up under **Integrations** and picked as the **Poster source** under **Metadata › Artwork**. For claimed Plex servers, **Apps › Plex › Account** also offers an optional **Use Plex's metadata for Plex apps** toggle (off by default). **On Air** turns virtual channels into continuous TV channels with generated channel looks, break reels, personal channels for each viewer, off-air and can't-play screens that splice into the same stream, and a **Style Studio** for on-air graphics. In **Live TV**, combine M3U/XMLTV and Xtream feeds (IPTV providers live under **Sources › IPTV**, and an Xtream provider can also supply movies and shows) with 24/7 virtual channels built in a single drawer with a paintable weekly schedule grid in your timezone, playout modes (in order, shuffle, random, marathon, newest first), and repeat-avoidance windows.
 
 <table>
   <tr>
@@ -206,7 +209,7 @@ Design versioned poster overlays (`Cinema`, `Spotlight`, `Essential`) with IMDb,
 </table>
 
 ### Adaptive media cache, guided recovery, and PostgreSQL clustering
-Dial your storage footprint from **Pass-through (0 GiB)** to **Everyday (32 GiB)** up to **Edge library (20 TiB)** with household-aware movie preloading and rolling TV episode windows on local disk or a **Shared NAS**. **Maintenance › Backups & import** provides 1-click guided restore with automatic rollback, in-app service restart, and a startup status and recovery page. Start on standalone SQLite, and when you need multi-node scale, migrate to an active-active multi-node cluster on a **PostgreSQL 14+ database you provide** through the guided **Cluster** wizard (Ether does not make PostgreSQL itself highly available).
+Dial your storage footprint from **Pass-through (0 GiB)** to **Everyday (32 GiB)** up to **Edge library (20 TiB)** with household-aware movie preloading and rolling TV episode windows on local disk or a **Shared NAS**. **Maintenance › Backups & import** provides 1-click guided restore with automatic rollback, in-app service restart, and a startup status and recovery page. Start on standalone SQLite, and when you need multi-node scale, migrate to an active-active multi-node cluster on a **PostgreSQL 14+ database you provide** through the guided **Cluster** wizard (Ether does not make PostgreSQL itself highly available). On **Kubernetes**, the Helm chart (`packaging/helm/ether`, see [docs/kubernetes.md](docs/kubernetes.md)) can also run **server roles**: besides full nodes, a pod can be a dedicated **source** or **transcode** (CPU or GPU) node, and playback moves to another node with no stall if one is lost mid-stream. Specialist roles are Kubernetes-only and need PostgreSQL; the normal installers and Docker Compose always run one full server.
 
 <table>
   <tr>
@@ -393,6 +396,10 @@ Ether is backed by 5,700+ offline unit, fault-injection, and fuzz tests, a 540k-
 
 | Capability | Status |
 | :--- | :--- |
+| **On Air Channels, Style Studio & Personal Channels** | **New in 0.3.5** |
+| **IPTV Apps (Xtream) Server & Xtream Movies/Series Sources** | **New in 0.3.5** |
+| **Kubernetes Server Roles (Source, Transcode) with Seamless Node-Loss Recovery** | **New in 0.3.5** |
+| **Movie and Show Quality Profiles with TRaSH/Profilarr Import & Sync** | **New in 0.3.5** |
 | **Jellyfin, Emby (Infuse, Swiftfin, Findroid) & Silo Apps** | **New in 0.3** |
 | **Stremio Addon, Read-Only WebDAV, M3U/XMLTV & DLNA** | **New in 0.3** |
 | **Cross-App Progress, Subtitle Preferences, Personalized Views & Watch Party** | **New in 0.3** |
