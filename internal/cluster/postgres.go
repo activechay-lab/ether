@@ -148,6 +148,7 @@ type Postgres struct {
 	addrs           []string
 	beatAddrs       []string // addrs in the last successful heartbeat
 	beatDraining    bool     // draining flag in the last successful heartbeat
+	beatProtocol    uint32   // protocol in the last successful owned heartbeat
 	resigned        bool     // StepDown: never lead again in this process
 	joined          bool
 	clampLogged     time.Time
@@ -304,6 +305,14 @@ func (p *Postgres) HeartbeatAge() (time.Duration, bool) {
 		return 0, false
 	}
 	return time.Since(p.beatReceipt), true
+}
+
+// PublishedProtocol reports a successful write for this exact incarnation, not
+// the local desired capability. It gates endpoint startup, never peer authority.
+func (p *Postgres) PublishedProtocol(version uint32) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.joined && p.fatal == nil && !p.beatReceipt.IsZero() && p.beatProtocol == version
 }
 
 // Publish delivers to local subscribers, then notifies the other nodes.
@@ -627,6 +636,7 @@ WHERE cluster_nodes.incarnation=? AND cluster_nodes.last_seen=?`
 	announce := !p.joined || !slices.Equal(addrs, p.beatAddrs) || draining != p.beatDraining
 	p.joined, p.beatAddrs, p.lastBeatOK, p.beatDraining = true, addrs, now, draining
 	p.beatReceipt = time.Now()
+	p.beatProtocol = protocol
 	p.self.seenAge, p.self.seenSample = 0, p.beatReceipt
 	prune := now.Sub(p.lastPrune) > time.Hour
 	if prune {

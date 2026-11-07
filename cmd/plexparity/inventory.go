@@ -35,7 +35,7 @@ func missingRoutes() []string {
 			paths = append(paths, u.Path)
 		}
 	}
-	paths = append(paths, "/:/eventsource/notifications", "/:/websocket/notifications", "/:/websockets/notifications", "/:/resources/fixture", "/playQueues/1", "/tv.plex.providers.epg.xmltv:1/metadata/1", "/status/sessions/terminate", "/status/sessions/terminate/player", "/library/parts/1/1/file.mp4", "/library/parts/1/file.mp4", "/video/:/transcode/universal/start.m3u8", "/video/:/transcode/universal/start.mpd", "/video/:/transcode/universal/session/fixture/0/header", "/video/:/transcode/universal/session/fixture/0/0.m4s", "/video/:/transcode/universal/session/fixture/base/index.m3u8", "/video/:/transcode/universal/ping", "/video/:/transcode/universal/stop", "/:/timeline", "/:/scrobble", "/:/progress", "/:/rate", "/:/unscrobble", "/actions/removeFromContinueWatching", "/library/onDeck", "/hubs/continueWatching", "/hubs")
+	paths = append(paths, "/library/parts/1", "/:/eventsource/notifications", "/:/websocket/notifications", "/:/websockets/notifications", "/:/resources/fixture", "/playQueues/1", "/tv.plex.providers.epg.xmltv:1/metadata/1", "/status/sessions/terminate", "/status/sessions/terminate/player", "/library/parts/1/1/file.mp4", "/library/parts/1/file.mp4", "/video/:/transcode/universal/start.m3u8", "/video/:/transcode/universal/start.mpd", "/video/:/transcode/universal/session/fixture/0/header", "/video/:/transcode/universal/session/fixture/0/0.m4s", "/video/:/transcode/universal/session/fixture/base/index.m3u8", "/video/:/transcode/universal/ping", "/video/:/transcode/universal/stop", "/:/timeline", "/:/scrobble", "/:/progress", "/:/rate", "/:/unscrobble", "/actions/removeFromContinueWatching", "/library/onDeck", "/hubs/continueWatching", "/hubs")
 	paths = append(paths, "/livetv/sessions/1", "/livetv/sessions/1/0/index.m3u8", "/livetv/sessions/1/0/program/1/0.ts", "/media/subscriptions/1", "/media/grabbers/operations/1")
 	paths = append(paths, "/downloadQueue/1", "/downloadQueue/1/items", "/downloadQueue/1/items/1", "/downloadQueue/1/item/1/decision", "/downloadQueue/1/item/1/media")
 	paths = append(paths, "/library/parts/1/indexes/sd", "/library/parts/1/indexes/sd/0", "/library/metadata/1/subtitles", "/library/streams/1", "/video/:/transcode/universal/subtitles")
@@ -65,11 +65,11 @@ func missingRoutes() []string {
 // unprobedRoutes are GET routes the offline parity world cannot compare
 // byte for byte, each with the reason. They are not counted as covered.
 var unprobedRoutes = map[string]string{
-	"/library/parts/{part}/{changestamp}/":   "PM4K bare changestamp route has no offline parity request",
-	"/statistics/resources":                  "live host CPU and memory samples differ between any two processes",
-	"/video/:/transcode/universal/start":     "Plex for Mac's protocol=http conversion streams from a live FFmpeg the offline world does not run",
-	"/video/:/transcode/universal/start.mkv": "PM4K's Matroska stream comes from a live FFmpeg the offline world does not run",
-	"/subtitles/:/transcode/universal/start": "Plex Web's direct-play subtitle stream is extracted by a live FFmpeg the offline world does not run",
+	"/library/parts/{part}/{changestamp}/":                                 "PM4K bare changestamp route has no offline parity request",
+	"/statistics/resources":                                                "live host CPU and memory samples differ between any two processes",
+	"/{ttype:video|music|audio|subtitles}/:/transcode/universal/start":     "Plex for Mac's protocol=http conversion streams from a live FFmpeg the offline world does not run",
+	"/{ttype:video|music|audio|subtitles}/:/transcode/universal/start.mkv": "PM4K's Matroska stream comes from a live FFmpeg the offline world does not run",
+	"/subtitles/:/transcode/universal/start":                               "Plex Web's direct-play subtitle stream is extracted by a live FFmpeg the offline world does not run",
 	// New in v0.3 (32e51bfaf): pre-32e51bfaf baselines such as v0.2.58 and main
 	// answer 404, and the harness requires every browse fixture to answer 2xx on
 	// both sides.

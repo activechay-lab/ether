@@ -100,7 +100,7 @@ func (r *Runtime) reopenSource(ctx context.Context, peer nodewire.Identity, q *R
 		return sourceResponse{}, ErrPending
 	}
 	r.mu.Lock()
-	source := r.sources[sourceKey(q.Old.Fence)]
+	source := r.sources[sourceKey(q.Old.Fence, route.SourceGeneration)]
 	var original *preparation
 	// This scan is bounded by the explicit session/preparation history quota,
 	// independent of catalogue or library size. No provider/library query occurs.

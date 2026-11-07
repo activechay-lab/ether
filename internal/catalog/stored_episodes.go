@@ -283,7 +283,7 @@ func (c *Catalog) CountStoredEpisodes(ctx context.Context, show core.Filter) (in
 	if err != nil {
 		return 0, err
 	}
-	ckey := "stored-episodes:" + browseFilterKey(show)
+	ckey := "stored-episodes:" + browseFilterKey(show) + c.consoleGateKey(show)
 	gen, minute := c.writeGen.Load(), c.minuteBucket()
 	c.cacheMu.RLock()
 	ent, ok := c.countCache[ckey]
@@ -347,7 +347,7 @@ func (c *Catalog) BrowseStoredEpisodes(ctx context.Context, q core.BrowseQuery) 
 	}
 	offset := max(q.Offset, 0)
 	gen, minBucket := c.writeGen.Load(), c.minuteBucket()
-	ckey := "ep:" + browseFilterKey(q.Filter)
+	ckey := "ep:" + browseFilterKey(q.Filter) + c.consoleGateKey(q.Filter)
 	bkey := fmt.Sprintf("%s|%s|%v|%v|%d|%d|%v", ckey, q.Sort, q.Desc, q.SecondarySorts, offset, limit, q.NoTotal)
 	cursorPrefix := fmt.Sprintf("cursor:%s|%s|%v|%v|", ckey, q.Sort, q.Desc, q.SecondarySorts)
 
@@ -574,7 +574,7 @@ func (c *Catalog) CountStoredSeasons(ctx context.Context, show core.Filter) (int
 	if err != nil {
 		return 0, err
 	}
-	ckey := "stored-seasons:" + browseFilterKey(show)
+	ckey := "stored-seasons:" + browseFilterKey(show) + c.consoleGateKey(show)
 	gen, minute := c.writeGen.Load(), c.minuteBucket()
 	c.cacheMu.RLock()
 	ent, ok := c.countCache[ckey]
@@ -632,7 +632,7 @@ func (c *Catalog) BrowseStoredSeasons(ctx context.Context, q core.BrowseQuery) (
 	}
 	offset := max(q.Offset, 0)
 	gen, minBucket := c.writeGen.Load(), c.minuteBucket()
-	ckey := "sn:" + browseFilterKey(q.Filter)
+	ckey := "sn:" + browseFilterKey(q.Filter) + c.consoleGateKey(q.Filter)
 	bkey := fmt.Sprintf("%s|%s|%v|%v|%d|%d|%v", ckey, q.Sort, q.Desc, q.SecondarySorts, offset, limit, q.NoTotal)
 	cursorPrefix := fmt.Sprintf("cursor:%s|%s|%v|%v|", ckey, q.Sort, q.Desc, q.SecondarySorts)
 

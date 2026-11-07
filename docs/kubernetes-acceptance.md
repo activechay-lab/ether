@@ -239,9 +239,11 @@ The chart routes `/jellyfin/sessions/media` and `/emby/sessions/media` to the
 media Service. Admission, `/Videos/...` and lazy/control routes remain on API.
 Returned grant-bearing representation URLs keep the same origin and prefix;
 no Ingress path rewrite is required. GET/HEAD and MediaBrowser OPTIONS preflight
-requests resolve the current coordinator and replay its original mounted
-frontend. Original query and bounded account/device headers are preserved, and
-the broker rechecks the path grant, protocol, active viewer and current policy.
+requests resolve the admitted execution and replay its original mounted
+frontend through an available server. Prefer the current coordinator while it
+is published so complete reads populate its recovery store; another server can
+serve healthy media without waiting for election. Original query and bounded
+account/device headers are preserved, and the broker rechecks the path grant, protocol, active viewer and current policy.
 
 `TestMediaBrowserDeliveryReplaysOriginalFrontendAndFencesLoss` compares actual
 HTTP responses from standalone mounted frontends with responses through two
@@ -273,12 +275,21 @@ action and timing, and measuring all of the following:
 - Every expected segment index fetched exactly once with HTTP 200.
 - Strict decode across the splice without errors; PTS discontinuity no greater
   than one frame duration.
-- Audio access-unit sequence exact, proven with ordered AU hashes: no duplicate
-  or gap. Packet DTS monotonicity alone does not prove this.
+- Copied audio has an exact ordered AU sequence with no duplicate or gap.
+  Independently encoded AAC instead uses the distinct sample-clock and PCM
+  continuity oracle in [splice verification](splicecheck.md#re-encoded-aac).
+  Neither packet DTS monotonicity nor an inapplicable AU-equality flag suffices.
 - Server interruption below the measured client buffer, with the interruption
   definition and observation interval recorded.
 - Independent placement, fencing and retirement observations for the exact
   execution; surviving healthy encoders must not restart on controller loss.
+- Every required control attempt succeeds, including progress and Stop. Preserve
+  `allRequestsPassed`, failed-attempt count and raw attempts independently from
+  any narrower `passed` field. Raw status 0 is a transport/body failure, not an
+  HTTP response or proof of denial.
+- Cleanup meets the measured deadline with exact retirement, zero current and
+  displaced claims, and owned-process observations. Stop acknowledgement alone
+  is not retirement; later normal release remains a separate follow-up.
 
 Missing exact-reference checks are UNVERIFIED, even when structural timing and
 decode pass. A failed metric is FAIL. An uninjected case stays PENDING with its
@@ -297,19 +308,120 @@ is not a report digest. Record source revisions and capture times so mutable
 reports cannot silently replace the evidence behind a decision. The live index
 and private media, credentials, logs and dumps must not be committed.
 
+## Evidence scope and current release limits
+
+Freeze each report's runtime, profile, tool versions and hashes. Record elapsed
+fault time from client start and first-segment receipt for startup cases; retain
+raw `early` labels when mapping them to the startup matrix. Constant-grid
+startup is separate from FastStart/ramp. Record conservative interruption bounds
+as bounds, leave unknown timing null, and never substitute client stall duration
+for server outage duration. A controller or delivery handover that preserves a
+healthy encoder has no replacement segment watermark; mark it inapplicable.
+
+A cancelled checker or passing checks on a fetched prefix do not qualify the
+full playback window. Preserve the raw reported verdict alongside stricter
+component results when they differ. An attempt aborted before fault dispatch
+leaves the required loss row PENDING, with the attempt and cleanup evidence
+separately indexed. Later attempts never erase the original report. A later
+normal zero-claim snapshot does not turn a cleanup-deadline FAIL into PASS.
+
+### v0.3.5 matrix (2026-11-07)
+
+All 25 software rows and all 5 mode gates pass. Every row ran on the two
+generated-media labs (lab1: three-host k3s, Plex; lab2: single-host k3s,
+Jellyfin/Emby) with all eight media checks, successful controls and Stop.
+Cleanup is the time from the later of the Stop response and fault restoration
+to the first sample showing the session retired with zero current claims, zero
+displaced claims and zero owned FFmpeg processes; the bound is 15 s. A
+negative value means that state was already reached before the paused
+controller was restored.
+
+Runtimes: `7e4f8c2853`, `ec7100a30c`, `f5c8c9407e` (terminal coordination kept
+until displaced workers retire) and `9432615f08` (bounded copy admitted through
+the distributed start check). Neither later fix changes the path of a row that
+passed on an earlier runtime.
+
+| Row | Runtime | Segments | Stalls | Cleanup |
+| --- | --- | --- | --- | --- |
+| Plex source force-delete startup | 7e4f8c2853 | 29 | 0 | 4.2 s |
+| Plex source force-delete steady | 7e4f8c2853 | 29 | 0 | 4.4 s |
+| Plex source pause startup | 7e4f8c2853 | 29 | 0 | 4.4 s |
+| Plex source pause steady | 7e4f8c2853 | 29 | 0 | 3.6 s |
+| Plex transcode force-delete startup | 7e4f8c2853 | 28 | 0 | 4.5 s |
+| Plex transcode force-delete steady | 7e4f8c2853 | 29 | 0 | 4.5 s |
+| Plex transcode pause startup | f5c8c9407e | 25 | 0 | 2.6 s |
+| Plex transcode pause steady | f5c8c9407e | 29 | 0 | 2.2 s |
+| Plex delivery force-delete startup | f5c8c9407e | 29 | 0 | 3.1 s |
+| Plex delivery force-delete steady | 7e4f8c2853 | 29 | 0 | 5.0 s |
+| Plex delivery pause startup | 7e4f8c2853 | 28 | 0 | 1.9 s |
+| Plex delivery pause steady | ec7100a30c | 29 | 0 | 1.5 s |
+| Plex controller force-delete startup | ec7100a30c | 29 | 0 | 4.1 s |
+| Plex controller force-delete steady | ec7100a30c | 29 | 0 | 4.5 s |
+| Plex controller pause startup | ec7100a30c | 28 | 0 | 1.4 s |
+| Plex controller pause steady | 7e4f8c2853 | 29 | 0 | 0.5 s |
+| Jellyfin transcode force-delete startup | 7e4f8c2853 | 29 | 0 | 3.7 s |
+| Jellyfin transcode force-delete steady | 7e4f8c2853 | 30 | 0 | 3.8 s |
+| Jellyfin transcode pause startup | f5c8c9407e | 27 | 0 | 2.9 s |
+| Jellyfin transcode pause steady | f5c8c9407e | 30 | 0 | 2.4 s |
+| Jellyfin controller force-delete startup | ec7100a30c | 30 | 0 | 3.9 s |
+| Jellyfin controller force-delete steady | f5c8c9407e | 30 | 0 | 2.4 s |
+| Jellyfin controller pause startup | f5c8c9407e | 29 | 0 | -0.1 s |
+| Jellyfin controller pause steady | f5c8c9407e | 30 | 0 | -1.2 s |
+| Emby baseline (no fault) | f5c8c9407e | 30 | 0 | 2.8 s |
+
+| Mode gate | Runtime | Segments | Stalls | Cleanup | Recovery |
+| --- | --- | --- | --- | --- | --- |
+| Copied-AAC ramp, encoder deleted before segment 1 | f5c8c9407e | 25 | 0 | 2.9 s | resumed at 1 |
+| Copied-AAC ramp, encoder deleted before segment 2 | f5c8c9407e | 25 | 0 | 2.8 s | resumed at 2 |
+| Copied-AAC ramp, encoder deleted before segment 3 | f5c8c9407e | 25 | 0 | 2.8 s | resumed at 3 |
+| AC3 5.1 to AAC stereo, steady encoder deletion | f5c8c9407e | 24 | 0 | 3.2 s | cut at 14: no missing or overlapping PCM samples, SNR 38.5 dB, no click |
+| Bounded copy (video and audio copy), steady encoder deletion | 9432615f08 | 50 | 0 | 4.5 s | resumed at 27 on the 1.92 s source grid |
+
+For the ramp gates the client is held after segment N-1, the original encoder
+container is shown gone before N is released, and the replacement resumes at
+N. The bounded-copy fixture is a 96 s, 25 fps, 640x360 MPEG-TS source with an
+IDR every 1.92 s. It must be at least 5 MiB, the resolver's floor for any
+release, and small enough for the source owner's copy-timeline scan (32 MiB of
+packet output, about 8 MB of media for 96 s); the scan skips larger sources and
+ordinary copy is used instead.
+
+Two defects were found and fixed while measuring: the controller dropped the
+coordination lease once the current generation retired, so a displaced encoder
+paused through Stop could not be told to stop (fixed in `f5c8c9407e`), and every
+bounded-copy title answered `start.m3u8` with 404 because the distributed start
+was judged before its copy grid was authored (fixed in `9432615f08`).
+
+Not measured: native GPU encoder loss with CPU recovery, and physical host
+power loss. A paused or deleted pod is not a host power cut.
+
+The private index keeps Markdown and JSON loss matrices, per-component results,
+original and later report paths, SHA256s, raw-control exceptions, unknown timing
+and abort classifications. Preserve source-runtime provenance even when a
+reviewed-compatible historical media reference is reused; that reference is not
+a newly captured baseline for the tested runtime.
+
 ## Multihost lab scripts
 
 `packaging/kubernetes/multihost/` provides an isolated K3s lab across hosts over
 Tailscale. These scripts mutate only the explicitly named lab resources; review
 private state, exact identities, resource budgets and the real verifier before
-running them. They are not production cluster installers.
+running them. They are not production cluster installers. Load private `lab.env`
+through `lab-config.sh`; install/roll helpers accept only the approved original
+`ether035-multihost` / `ether035-mh` / `ether035-ha` tuple or matching
+`ether035-lab2` context/prefix/namespace. Standalone renderers use
+`ETHER_LAB_PREFIX` and `ETHER_LAB_NAMESPACE`; keep secrets and identities local
+to each lab.
 
 | Script | Purpose |
 | --- | --- |
 | `node.sh MODE STATE_DIR EXTERNAL_IP [SERVER_IP]` | Create a bounded, labeled lab K3s container on each host; capture exact container/network IDs and keep token files private |
 | `join.sh`, `local-agents.sh` | Join the remote agent or add bounded local agents; local agents remain one physical failure domain |
-| `install.sh PRIVATE_STATE IMAGE_TAG` | Install isolated fixtures, trusted inputs and four specialist pools in context `ether035-multihost`, namespace `ether035-ha` |
+| `install.sh PRIVATE_STATE IMAGE_TAG` | Install in the selected approved lab tuple; preserve existing PostgreSQL and original fixture templates |
 | `redeploy.sh PRIVATE_STATE INTEGRATION_SHA` | Build/import a reviewed candidate and update OnDelete templates; drain/replace separately |
+| `heavy-io.sh COMMAND ARGS...` | Serialize heavy lab work against the shared lock/gate marker and record queue/run/total time |
+| `roll-gated.sh PRIVATE_STATE GATED_IMAGE_TAG` | Operator-supplied gated image/chart; drain and UID-safe replacement, preserving identities and lab configuration |
+| `long-fixture.py ROOT IMAGE` | Render the isolated 600-second 900002 source; seed with `seed-lab.py --long-fixture` and use a separate reference |
+| `migrate-pg-tmpfs.sh PRIVATE_STATE` | Explicit quiesced lab-only migration with a complete private backup and retained old PVC |
 | `role-loss.sh POD` | Force-delete one captured role pod with zero grace and a UID precondition |
 | `role-pause.sh POD VERIFIER [ARGS...]` | Freeze the exact captured Ether task and descendants, run the verifier and restore that task on exit |
 | `loss.sh FAULT STATE_DIR PEER_TAILSCALE_IP VERIFIER [ARGS...]` | Fault the captured local lab-node container; partition only its network namespace; restore on exit |
@@ -326,3 +438,15 @@ A force-delete is an abrupt-fault experiment, not the normal rollout procedure:
 normal updates use [explicit drain and UID-safe replacement](kubernetes.md#drain-upgrade-and-rollback).
 Memory pressure checks and restoration outcomes are part of the report; an
 infrastructure guard blocking a run leaves its acceptance row PENDING.
+
+The lab PostgreSQL renderer uses a 512 MiB memory-backed volume with fsync,
+synchronous_commit and full_page_writes disabled. Losing that pod loses its
+database; these settings do not qualify production crash durability. The gated
+roll helper first drains all role writers and makes a complete backup before
+migrating an existing disk-backed lab DB. It preserves the old PVC and refuses
+live-writer/repeat migration. It never authorizes manual ownership-row edits.
+Use an archived chart matching the immutable runtime via `ETHER_LAB_CHART`;
+`ETHER_LAB_IMAGES_IMPORTED=1` skips import only after independent verification.
+A gated tag supplied to the helper is not itself gate or playback evidence.
+The new isolated-tuple tooling port has syntax/render/mock coverage; it still
+needs separately recorded live-runtime validation.

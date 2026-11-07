@@ -15,6 +15,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 // probeEncoder distinguishes a successful status reporting an active process
@@ -58,8 +59,35 @@ func (r *Runtime) probeEncoder(ctx context.Context, x *execution) (string, error
 
 // encoderRecoverySupported is shared with dead-boot retirement: lack of spare
 // capacity or a temporary RPC failure must not turn a recoverable plan terminal.
-func encoderRecoverySupported(q core.HLSRequest) bool {
-	return !q.Decision.VideoCopy && q.Decision.AudioCopy && q.Decision.Kind == core.DecisionTranscode && q.Decision.Container == "mpegts" && q.StartOffset == 0 && q.RecoveryStart == nil && !q.LiveInput && q.SoftSubtitleStream == nil
+func encoderRecoverySupported(q core.HLSRequest, encoder string) bool {
+	if q.Decision.VideoCopy {
+		return transcode.ValidCopyTimeline(q)
+	}
+	if q.Decision.Kind != core.DecisionTranscode || q.Decision.Container != "mpegts" || q.StartOffset != 0 || q.RecoveryStart != nil || q.LiveInput || q.SoftSubtitleStream != nil || (q.Protocol != "" && q.Protocol != core.ProtocolHLS) {
+		return false
+	}
+	// Preserve the existing copied-audio scope. Reencoded audio has separate
+	// PCM/sample-grid proof; copied access-unit equality is not its oracle.
+	if q.Decision.AudioCopy {
+		return true
+	}
+	// Initially admit only the measured software H264 / AC3 -> AAC profile.
+	// Zero output rate is the encoder's fixed 48kHz default. Source padding
+	// is the durable probe fact (zero is valid), never inferred on recovery.
+	d := q.Decision
+	if q.Ramp.Segments != 0 || encoder != "cpu" || d.VideoCodec != "h264" || d.AudioCodec != "aac" || q.Info.Duration <= 0 || len(q.SlateText) != 0 || d.BurnSubtitles || d.ToneMap || d.Enhancement != (core.VideoEnhancement{}) || len(d.AudioFilters) != 0 || (d.AudioSampleRate != 0 && d.AudioSampleRate != 48000) || (d.AudioChannels != 0 && d.AudioChannels != 2) {
+		return false
+	}
+	v := q.Info.Video()
+	if v == nil || v.FrameRate <= 0 || v.VariableFrameRate {
+		return false
+	}
+	for _, a := range q.Info.Streams {
+		if a.Type == "audio" && a.Index == d.AudioStream {
+			return a.Codec == "ac3" && (a.SampleRate == 48000 || a.SampleRate == 44100) && a.DecodedPadding >= 0
+		}
+	}
+	return false
 }
 
 func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
@@ -87,7 +115,7 @@ func (r *Runtime) recoverEncoder(ctx context.Context, old *execution) error {
 		return err
 	}
 	q := cloneAdmissionRequest(x.initial.request)
-	if !encoderRecoverySupported(q) {
+	if !encoderRecoverySupported(q, old.route.Encoder) {
 		return remotetranscode.ErrUnsupported
 	}
 	next := int(snapshot.State.PublishedFloor + 1)
@@ -196,7 +224,8 @@ func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
 				Operation      placement.Request
 				Request        core.HLSRequest
 				OriginalDigest [32]byte
-			}{old, route, request, replacement.initial.request, binding.AdmissionDigest})
+				Keyframes      []core.KeyframePoint
+			}{old, route, request, replacement.initial.request, binding.AdmissionDigest, replacement.initial.request.Info.Keyframes})
 			if err != nil || len(decision) > maxAdmissionBytes {
 				return ErrDenied
 			}
@@ -272,7 +301,7 @@ func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
 	x.replacement = replacement
 	x.output.supersededAt = int64(next)
 	replacement.reserved = true
-	x.failed = append(x.failed, &execution{route: old, session: x.session, adapter: x.adapter, stopping: true, reserved: true})
+	x.failed = append(x.failed, &execution{epoch: x.epoch, route: old, session: x.session, adapter: x.adapter, stopping: true, reserved: true})
 	r.mu.Unlock()
 	return r.startReplacement(ctx, x)
 }
@@ -410,6 +439,10 @@ func (r *Runtime) armAcceptedExecution(ctx context.Context, q core.HLSRequest) e
 }
 
 func (r *Runtime) reconcileDisplaced(ctx context.Context, x *execution) {
+	if !r.ownsExecution(ctx, x) {
+		return
+	}
+
 	for _, old := range x.failed {
 		if old.retired {
 			continue
@@ -426,17 +459,50 @@ func (r *Runtime) reconcileDisplaced(ctx context.Context, x *execution) {
 			continue
 		}
 		c, cancel := context.WithTimeout(ctx, r.o.EncoderRPCDeadline)
-		_ = old.session.RetireEncoderContext(c)
+		started := time.Now()
+		fence := old.route.Fence
+		attrs := []any{"session", fence.Session, "generation", fence.Generation, "controller", fence.Controller.ID, "controller_boot", fence.Controller.Boot, "worker", fence.Target.NodeID, "worker_boot", fence.Target.Boot, "attempt", started.UnixNano(), "rpc_deadline", r.o.EncoderRPCDeadline}
+		if deadline, ok := c.Deadline(); ok {
+			attrs = append(attrs, "deadline_remaining", time.Until(deadline))
+		}
+		slog.Info("displaced worker stop begin", attrs...)
+		rpcErr := old.session.RetireEncoderContext(c)
+		contextCategory := displacedRetirementCategory(c.Err())
 		cancel()
-		if old.session.EncoderErr() != nil {
+		proofErr := old.session.EncoderErr()
+		slog.Info("displaced worker stop end", append(attrs, "elapsed", time.Since(started), "rpc_result", displacedRetirementCategory(rpcErr), "context_result", contextCategory, "terminal_proof", displacedRetirementCategory(proofErr))...)
+		if proofErr != nil {
+			slog.Info("displaced retirement proof outcome", append(attrs, "outcome", "terminal_pending")...)
 			continue
 		}
-		if r.o.Placement.RetireDisplaced(ctx, old.route.Fence, "clusterplayback/exact-displaced-retirement") == nil {
+		retireErr := r.o.Placement.RetireDisplaced(ctx, old.route.Fence, "clusterplayback/exact-displaced-retirement")
+		slog.Info("displaced retirement proof outcome", append(attrs, "outcome", displacedRetirementCategory(retireErr))...)
+		if retireErr == nil {
 			old.retired = true
 			if old.adapter != nil {
 				old.adapter.Close()
 			}
 		}
+	}
+}
+
+// Never format external errors: they can contain endpoints or response text.
+func displacedRetirementCategory(err error) string {
+	switch {
+	case err == nil:
+		return "none"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline"
+	case errors.Is(err, core.ErrEncoderPending), errors.Is(err, ErrPending):
+		return "pending"
+	case errors.Is(err, remotetranscode.ErrUncertain):
+		return "uncertain"
+	case errors.Is(err, ErrDenied):
+		return "denied"
+	default:
+		return "other"
 	}
 }
 
@@ -497,6 +563,10 @@ func (r *Runtime) reconcileBootRetirements(ctx context.Context) error {
 			if err = r.o.Placement.RetireDisplaced(ctx, record.Fence, "clusterplayback/authenticated-new-boot"); err != nil {
 				return err
 			}
+		} else {
+			// Durable displaced fences survive loss of a coordinator's local
+			// session pointers and retirement of the current generation.
+			_ = r.attachDisplacedRetirement(ctx, record)
 		}
 	}
 	return r.reconcileOrdinaryBootRetirements(ctx)

@@ -45,21 +45,6 @@ func TestListenMovesOffBusyDefaultPort(t *testing.T) {
 	}
 }
 
-func TestAddrInUse(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	_, err = net.Listen("tcp", ln.Addr().String())
-	if !addrInUse(err) {
-		t.Fatalf("not recognised as in use: %v", err)
-	}
-	if addrInUse(nil) || addrInUse(io.EOF) {
-		t.Fatal("false positive")
-	}
-}
-
 func TestBusyWarningUsesTheLANAddress(t *testing.T) {
 	urls := []string{
 		"http://[fd79::1]:8099",

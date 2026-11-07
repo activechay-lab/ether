@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -128,7 +130,7 @@ func TestOutputBufferContiguousAndImmutable(t *testing.T) {
 	}
 }
 func TestOutputBufferPassThroughAndIncomplete(t *testing.T) {
-	for _, test := range []string{"head", "range", "conditional", "206", "error", "short", "unknown", "oversize", "cancel", "type", "content-range", "headers", "scratch", "no-store"} {
+	for _, test := range []string{"head", "range", "conditional", "206", "error", "short", "unknown", "oversize", "cancel", "type", "content-range", "headers", "no-store"} {
 		t.Run(test, func(t *testing.T) {
 			s, data := outputFixture(t)
 			q := httptest.NewRequest("GET", "/segment", nil)
@@ -160,9 +162,6 @@ func TestOutputBufferPassThroughAndIncomplete(t *testing.T) {
 				q = q.WithContext(ctx)
 			case "type":
 				ct = "text/plain"
-			case "scratch":
-				s.r.outputScratch <- struct{}{}
-				defer func() { <-s.r.outputScratch }()
 			}
 			calls := 0
 			serve := func(w http.ResponseWriter, _ *http.Request) remotetranscode.RepresentationCompletion {
@@ -193,6 +192,10 @@ func TestOutputBufferPassThroughAndIncomplete(t *testing.T) {
 				if got.Code != 409 {
 					t.Fatal("cancelled generation published", got.Code)
 				}
+			} else if test == "unknown" || test == "oversize" || test == "type" || test == "content-range" || test == "headers" || test == "no-store" {
+				if got.Code != 503 {
+					t.Fatal("unsupported successful representation acknowledged", test, got.Code)
+				}
 			} else if calls != 1 || got.Code != want.Code || got.Body.String() != want.Body.String() || !reflect.DeepEqual(got.Header(), want.Header()) {
 				t.Fatal("upstream response changed or retried")
 			}
@@ -214,34 +217,120 @@ func TestOutputCaptureDownstreamFailure(t *testing.T) {
 		t.Fatal("failed delivery retained")
 	}
 }
-func TestOutputBufferScratchReservedDuringUnknownStream(t *testing.T) {
-	s, _ := outputFixture(t)
-	q := httptest.NewRequest("GET", "/segment", nil)
-	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+
+// Every completed successful response must already have immutable published
+// bytes, even when the next request overlaps the former upstream EOF/close.
+func TestOutputBufferPublicationBeforeSuccessInvariant(t *testing.T) {
+	s, data := outputFixture(t)
+	s.r.o.MemberRole = func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
+	writer := func(n int) *publicationWriter {
+		return &publicationWriter{ResponseRecorder: httptest.NewRecorder(), check: func() bool {
+			snap, err := s.r.o.OutputBuffer.Snapshot("retained")
+			return err == nil && snap.State.PublishedFloor >= int64(n)
+		}, length: len(data), t: t}
+	}
+	q := func() *http.Request { return httptest.NewRequest("GET", "/segment", nil) }
+	first, second := writer(0), writer(1)
+	bodyWritten, release, done0, done1 := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
-		defer close(done)
-		s.serveSegment(httptest.NewRecorder(), q, 0, func(w http.ResponseWriter, _ *http.Request) remotetranscode.RepresentationCompletion {
-			w.Header().Set("Content-Type", "video/mp2t")
-			_, _ = w.Write([]byte("chunk"))
-			close(entered)
+		defer close(done0)
+		s.serveSegment(first, q(), 0, func(w http.ResponseWriter, r *http.Request) remotetranscode.RepresentationCompletion {
+			facts := outputResponse(data)(w, r)
+			close(bodyWritten)
 			<-release
-			return remotetranscode.RepresentationCompletion{}
+			return facts
 		})
 	}()
-	<-entered
-	if len(s.r.outputScratch) != 1 {
-		t.Error("unknown length stream uncharged")
+	<-bodyWritten
+	// Upstream EOF/publication has not completed: not even this already-written
+	// full source body may be acknowledged by a complete downstream body.
+	if first.Body.Len() == len(data) {
+		t.Error("client completed before upstream completion/publication")
 	}
-	s.serveSegment(httptest.NewRecorder(), q, 1, outputResponse([]byte("second")))
+	go func() { defer close(done1); s.serveSegment(second, q(), 1, outputResponse(data)) }()
+	// Cancellation while waiting must not enter another upstream operation.
+	c, cancel := context.WithCancel(context.Background())
+	cancel()
+	cancelled := httptest.NewRecorder()
+	s.serveSegment(cancelled, q().WithContext(c), 2, func(http.ResponseWriter, *http.Request) remotetranscode.RepresentationCompletion {
+		t.Error("cancelled waiter reached worker")
+		return remotetranscode.RepresentationCompletion{}
+	})
+	if cancelled.Code != 409 {
+		t.Error("cancelled waiter not fenced", cancelled.Code)
+	}
 	close(release)
-	<-done
+	<-done0
+	<-done1
+	for i, w := range []*publicationWriter{first, second} {
+		if w.Body.String() != string(data) || w.Code != 200 {
+			t.Fatal("overlap lost representation", i, w.Code, w.Body.Len())
+		}
+	}
+	for _, failure := range []string{"read-error", "cancel-after-body"} {
+		ctx, stop := context.WithCancel(context.Background())
+		failed := writer(2)
+		s.serveSegment(failed, q().WithContext(ctx), 2, func(w http.ResponseWriter, r *http.Request) remotetranscode.RepresentationCompletion {
+			f := outputResponse(data)(w, r)
+			if failure == "read-error" {
+				f.ReadError = true
+			} else {
+				stop()
+			}
+			return f
+		})
+		stop()
+		snap, err := s.r.o.OutputBuffer.Snapshot("retained")
+		if failed.Body.Len() >= len(data) || err != nil || snap.State.PublishedFloor != 1 {
+			t.Fatal("failed/cancelled body acknowledged or published", failure, snap, err)
+		}
+	}
+	for n := 2; n <= 3; n++ {
+		w := writer(n)
+		s.serveSegment(w, q(), n, outputResponse(data))
+		if w.Body.String() != string(data) {
+			t.Fatal("retry lost bytes", n)
+		}
+	}
+	// A staged future representation cannot fall through to an unobserved worker
+	// read. Publishing its missing predecessor makes the exact staged key usable.
+	future := writer(5)
+	s.serveSegment(future, q(), 5, outputResponse(data))
+	if future.Body.Len() >= len(data) {
+		t.Fatal("future uncommitted body acknowledged")
+	}
+	pending := httptest.NewRecorder()
+	s.serveSegment(pending, q(), 5, func(http.ResponseWriter, *http.Request) remotetranscode.RepresentationCompletion {
+		t.Error("staged key reread worker")
+		return remotetranscode.RepresentationCompletion{}
+	})
+	if pending.Code != 503 {
+		t.Fatal("staged future not retryable", pending.Code)
+	}
+	fourth := writer(4)
+	s.serveSegment(fourth, q(), 4, outputResponse(data))
+	fifth := writer(5)
+	s.serveSegment(fifth, q(), 5, outputResponse(data))
+	if fourth.Body.String() != string(data) || fifth.Body.String() != string(data) {
+		t.Fatal("contiguous staged prefix lost")
+	}
 	if len(s.r.outputScratch) != 0 {
 		t.Fatal("scratch leaked")
 	}
-	snap, _ := s.r.o.OutputBuffer.Snapshot("retained")
-	if len(snap.Entries) != 0 {
-		t.Fatal("scratch miss retained")
+}
+
+type publicationWriter struct {
+	*httptest.ResponseRecorder
+	t      *testing.T
+	length int
+	check  func() bool
+}
+
+func (w *publicationWriter) Write(p []byte) (int, error) {
+	if w.Body.Len()+len(p) >= w.length && !w.check() {
+		w.t.Error("successful full representation preceded contiguous publication")
 	}
+	return w.ResponseRecorder.Write(p)
 }
 func TestOutputBufferExactOptionalMethodsAndNil(t *testing.T) {
 	original := reflect.TypeOf(&remotetranscode.Session{})
@@ -369,8 +458,8 @@ func TestOutputBufferLifetimeCapacity(t *testing.T) {
 	s.serveSegment(httptest.NewRecorder(), q, 0, outputResponse(data))
 	got := httptest.NewRecorder()
 	s.serveSegment(got, q, 1, outputResponse(data))
-	if got.Code != 200 || got.Body.String() != string(data) {
-		t.Fatal("capacity changed ordinary serving")
+	if got.Body.Len() >= len(data) {
+		t.Fatal("capacity exhaustion acknowledged unretained success")
 	}
 	snap, err := s.r.SnapshotOutput("retained")
 	if err != nil || snap.Retaining || len(snap.Buffer.Entries) != 1 || snap.Buffer.State.PublishedFloor != 0 {
@@ -402,11 +491,53 @@ func TestOutputRuntimeAvailabilityRequiresCommittedBytes(t *testing.T) {
 
 func TestOutputBufferRemoteMTLSCompletion(t *testing.T) {
 	s, data := outputFixture(t)
+	// Default offline coverage derives legal reset packets from the existing TS
+	// fixture. The scoped lab gate also supplies sealed restarted-muxer bytes;
+	// those artifacts stay outside git and no encoder is invoked by this test.
+	if path := os.Getenv("ETHER_TEST_INITIAL_TS"); path != "" {
+		var err error
+		data, err = os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fmt.Sprintf("%x", sha256.Sum256(data)) != "7a7f2bf9a2077f35d55c44edaf995316a586a9e770371d758e45de4f039d0b1e" {
+			t.Fatal("initial-marker fixture changed")
+		}
+	} else {
+		original := data
+		data = nil
+		seen := map[uint16]bool{}
+		for off := 0; off < len(original); off += 188 {
+			packet := original[off : off+188]
+			pid := uint16(packet[1]&31)<<8 | uint16(packet[2])
+			if !seen[pid] {
+				data = append(data, initialResetPacket(pid, packet[3]&15)...)
+				seen[pid] = true
+			}
+			data = append(data, packet...)
+		}
+	}
+	buffer, err := playbackbuffer.New(playbackbuffer.Limits{Global: playbackbuffer.Budget{Bytes: 16 << 20, Segments: 16, Inits: 1}, PerSession: playbackbuffer.Budget{Bytes: 16 << 20, Segments: 16, Inits: 1}, Sessions: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = buffer.OpenSession("retained", playbackbuffer.State{Generation: 1, PublishedFloor: -1}); err != nil {
+		t.Fatal(err)
+	}
+	s.r.o.OutputBuffer, s.r.o.MaxSegmentBytes = buffer, int64(len(data)*2)
+	s.r.o.EncoderSegmentWait = time.Second
+	s.r.deliveryScratch = make(chan struct{}, 4)
+	s.r.o.MemberRole = func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
+	var healthy atomic.Bool
+	bad := append([]byte(nil), data...)
+	middle := (len(bad) / 188 / 2) * 188
+	bad = append(append(append([]byte(nil), bad[:middle]...), initialResetPacket(17, 0)...), bad[middle:]...)
+
 	controller := nodewire.Identity{Cluster: "output", NodeID: "controller", Boot: "cboot"}
 	worker := nodewire.Identity{Cluster: "output", NodeID: "worker", Boot: "wboot"}
 	guards := fixtureGuards(t, controller, worker)
 	id := remotetranscode.Identity{Controller: "controller", Worker: "worker", Session: "retained", Generation: 1}
-	calls := 0
+	var calls atomic.Int64
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
 		if _, err := guards[1].Request(q); err != nil {
 			http.Error(w, "unauthorized", 401)
@@ -424,8 +555,18 @@ func TestOutputBufferRemoteMTLSCompletion(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"Identity": id, "State": "running"})
 			return
 		}
-		calls++
+		calls.Add(1)
 		w.Header().Set("Content-Type", "video/mp2t")
+		if healthy.Load() {
+			payload := data
+			if message.Segment == 2 {
+				payload = bad
+			}
+			w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+			_, _ = w.Write(payload)
+			return
+		}
+
 		switch message.Segment {
 		case 0:
 			w.Header().Set("Content-Length", strconv.Itoa(len(data)))
@@ -462,16 +603,41 @@ func TestOutputBufferRemoteMTLSCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Session = hs.(*remotetranscode.Session)
+	recovery := &recoverySession{s}
+
 	for n := 0; n < 3; n++ {
 		w := httptest.NewRecorder()
-		s.ServeSegment(w, httptest.NewRequest("GET", "/segment", nil), n)
-		if w.Code != 200 || w.Body.String() != string(data) {
+		if n == 0 {
+			recovery.ServeSegment(w, httptest.NewRequest("GET", "/segment", nil), n)
+		} else {
+			s.ServeSegment(w, httptest.NewRequest("GET", "/segment", nil), n)
+		}
+		if n == 2 {
+			if w.Code != 503 {
+				t.Fatal("unknown framing acknowledged", w.Code)
+			}
+		} else if w.Code != 200 || w.Body.String() != string(data) {
 			t.Fatal("ordinary response changed", n, w.Code)
 		}
 	}
 	snap, err := s.r.o.OutputBuffer.Snapshot("retained")
-	if err != nil || len(snap.Entries) != 1 || snap.State.PublishedFloor != 0 || calls != 3 {
-		t.Fatal("only complete full TS may publish, exactly one backend read each", snap, calls, err)
+	if err != nil || len(snap.Entries) != 1 || snap.State.PublishedFloor != 0 || calls.Load() != 3 {
+		t.Fatal("only complete full TS may publish, exactly one backend read each", snap, calls.Load(), err)
+	}
+	healthy.Store(true)
+	published := &publicationWriter{ResponseRecorder: httptest.NewRecorder(), length: len(data), t: t, check: func() bool { v, e := buffer.Snapshot("retained"); return e == nil && v.State.PublishedFloor >= 1 }}
+	recovery.ServeSegment(published, httptest.NewRequest("GET", "/segment", nil), 1)
+	if published.Code != 200 || published.Body.String() != string(data) {
+		t.Fatal("legal initial reset did not complete after publication", published.Code, published.Body.Len())
+	}
+	malformed := httptest.NewRecorder()
+	recovery.ServeSegment(malformed, httptest.NewRequest("GET", "/segment", nil), 2)
+	snap, err = buffer.Snapshot("retained")
+	if malformed.Code != 503 || err != nil || snap.State.PublishedFloor != 1 {
+		t.Fatal("midsegment reset published", malformed.Code, snap, err)
+	}
+	if len(s.r.outputScratch) != 0 || len(s.r.deliveryScratch) != 0 {
+		t.Fatal("capture/delivery scratch leaked")
 	}
 }
 
@@ -518,4 +684,12 @@ func TestRetiredOutputCapacityReclaimed(t *testing.T) {
 			t.Fatal("retired output not disposed")
 		}
 	}
+}
+
+// An adaptation-only packet changes no payload or timestamp. Its reset marker
+// is legal only when it is the first observed transport packet on this PID.
+func initialResetPacket(pid uint16, cc byte) []byte {
+	p := bytes.Repeat([]byte{0xff}, 188)
+	p[0], p[1], p[2], p[3], p[4], p[5] = 0x47, byte(pid>>8)&31, byte(pid), 0x20|cc, 183, 0x80
+	return p
 }

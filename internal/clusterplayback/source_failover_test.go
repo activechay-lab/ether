@@ -107,18 +107,26 @@ func TestSourceHangKeepsSequenceEncoderAndCoordinator(t *testing.T) {
 	if _, err = db.ExecContext(ctx, `INSERT INTO cluster_nodes(id,incarnation,started_at,last_seen) VALUES(?,?,?,?)`, replacementID.NodeID, replacementID.Boot, time.Now().UnixMilli(), time.Now().UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
-	var paused atomic.Bool
+	if _, err = db.ExecContext(ctx, `INSERT INTO cluster_nodes(id,incarnation,started_at,last_seen) VALUES(?,?,?,?)`, sourceID.NodeID, sourceID.Boot, time.Now().UnixMilli(), time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	var paused, replacementPaused atomic.Bool
 	for i, r := range []*Runtime{source, worker, replacement} {
 		handler := r.Handler()
-		if r == source {
+		if r == source || r == replacement {
+			active := r
+			pausedFlag := &paused
+			if r == replacement {
+				pausedFlag = &replacementPaused
+			}
 			handler = http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
-				if paused.Load() && q.Method == "GET" && q.URL.Path == nodesource.Path {
+				if pausedFlag.Load() && q.Method == "GET" && q.URL.Path == nodesource.Path {
 					// Deliver a partial private response, then hang until the gateway's
 					// stall deadline cancels it. Never close the transport to signal failure.
-					source.Handler().ServeHTTP(&hungSourceWriter{ResponseWriter: w, ctx: q.Context()}, q)
+					active.Handler().ServeHTTP(&hungSourceWriter{ResponseWriter: w, ctx: q.Context()}, q)
 					return
 				}
-				source.Handler().ServeHTTP(w, q)
+				active.Handler().ServeHTTP(w, q)
 			})
 		}
 		server := httptest.NewUnstartedServer(handler)
@@ -147,7 +155,7 @@ func TestSourceHangKeepsSequenceEncoderAndCoordinator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := source.sources[sourceKey(initial.Fence)].grant
+	old := source.sources[sourceKey(initial.Fence, initial.SourceGeneration)].grant
 	running := encoder.session
 	before, err := source.CurrentCoordinator(ctx, request.SessionID)
 	if err != nil {
@@ -186,7 +194,7 @@ func TestSourceHangKeepsSequenceEncoderAndCoordinator(t *testing.T) {
 	defer func() { <-unlockDone }()
 	paused.Store(true)
 	input := worker.inputs[remoteIdentity(initial)].input
-	raw, _, err := input.GatewayInput(remoteIdentity(initial), source.sources[sourceKey(initial.Fence)].handle.Value())
+	raw, _, err := input.GatewayInput(remoteIdentity(initial), source.sources[sourceKey(initial.Fence, initial.SourceGeneration)].handle.Value())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,6 +251,109 @@ func TestSourceHangKeepsSequenceEncoderAndCoordinator(t *testing.T) {
 		t.Fatal("encoder restarted")
 	}
 	t.Log("controller committed source generation 1; stale source fenced; worker recovered exact offset 1500; encoder identity unchanged")
+
+	// The original source is healthy again before the replacement hangs. With
+	// only two eligible sources the next exact-offset read must revisit its boot
+	// under generation 2, without reviving either old credential or binding.
+	middleGrant := replacement.sources[sourceKey(moved.Fence, moved.SourceGeneration)].grant
+	paused.Store(false)
+	replacementPaused.Store(true)
+	q, _ = http.NewRequestWithContext(ctx, "GET", raw, nil)
+	for k, v := range headers {
+		q.Header.Set(k, v)
+	}
+	q.Header.Set("Range", "bytes=1500-1536")
+	response, err = http.DefaultClient.Do(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	received, err = io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil || response.StatusCode != 206 || string(received) != body[1500:1537] {
+		t.Fatalf("A->B->A exact-offset input: HTTP %d bytes=%q err=%v", response.StatusCode, received, err)
+	}
+	returned, err := source.route(ctx, request.SessionID)
+	if err != nil || returned.Source != initial.Source || returned.SourceGeneration != 2 || returned.Fence != initial.Fence {
+		t.Fatalf("source revisit: %+v err=%v", returned, err)
+	}
+	after, err = source.CurrentCoordinator(ctx, request.SessionID)
+	if err != nil || after.Epoch != before.Epoch || after.Identity != before.Identity || encoder.session != running {
+		t.Fatal("source revisit moved healthy encoder/coordinator", after, err)
+	}
+	if _, err = source.authority.Verify(ctx, nodesource.Peer{NodeID: workerID.NodeID, Boot: workerID.Boot}, old.Credential); err == nil {
+		t.Fatal("original grant revived on revisited source boot")
+	}
+	if _, err = replacement.authority.Verify(ctx, nodesource.Peer{NodeID: workerID.NodeID, Boot: workerID.Boot}, middleGrant.Credential); err == nil {
+		t.Fatal("middle source grant accepted after second move")
+	}
+	prior := source.sourceRoutes(ctx, returned)
+	if len(prior) != 2 || prior[0] != initial || prior[1] != moved {
+		t.Fatal("source revisit lost exact prior retirement routes", prior)
+	}
+	originalBinding := source.sources[sourceKey(initial.Fence, initial.SourceGeneration)]
+	currentBinding := source.sources[sourceKey(returned.Fence, returned.SourceGeneration)]
+	if originalBinding == nil || currentBinding == nil || originalBinding == currentBinding || originalBinding.route != initial || currentBinding.route != returned || len(source.sources) != 2 {
+		t.Fatal("source generations aliased their retained bindings")
+	}
+	replacementPaused.Store(false)
+	// A source-generation-0 callback still belongs to Stop even when the same
+	// boot now serves generation 2. Do not release capacity until it has joined.
+	source.mu.Lock()
+	originalBinding.operations++
+	source.mu.Unlock()
+	source.Stop(request.SessionID)
+	worker.Cleanup()
+	source.Cleanup()
+	replacement.Cleanup()
+	_ = source.Tick(ctx)
+	record, err := ledger.Lookup(ctx, request.SessionID)
+	if err != nil || record.Retired {
+		t.Fatal("old source-generation callback lost its capacity responsibility", record, err)
+	}
+	source.mu.Lock()
+	originalBinding.operations--
+	source.mu.Unlock()
+	var retirementErr error
+	for i := 0; i < 100; i++ {
+		worker.Cleanup()
+		source.Cleanup()
+		replacement.Cleanup()
+		retirementErr = source.Tick(ctx)
+		record, err = ledger.Lookup(ctx, request.SessionID)
+		if err == nil && record.Retired {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if err != nil || !record.Retired {
+		t.Error("source revisit Stop did not retire every source generation", record, err, "tick", retirementErr)
+		for _, owner := range []*Runtime{source, replacement} {
+			for _, binding := range owner.sources {
+				t.Logf("retained source gen=%d play=%s retiring=%v sealed=%v binding=%v issuing=%v operations=%d reads=%d", binding.route.SourceGeneration, binding.playID, binding.retiring, binding.sealed, binding.binding, binding.issuing, binding.operations, owner.bytes.Pending(scopeForRoute(binding.route)))
+			}
+		}
+		t.FailNow()
+	}
+	for _, owner := range []*Runtime{source, replacement} {
+		for _, binding := range owner.sources {
+			if !owner.sourceJoined(binding) || owner.bytes.Pending(scopeForRoute(binding.route)) != 0 {
+				t.Fatal("source generation still owns callbacks/reads after placement retirement", binding.route)
+			}
+			select {
+			case <-binding.life.Done():
+				if binding.life.Err() != nil {
+					t.Fatal(binding.life.Err())
+				}
+			default:
+				t.Fatal("source generation lifetime not retired", binding.route)
+			}
+		}
+	}
+	t.Log("A->B->A: exact bytes, both old grants fenced, healthy encoder/coordinator unchanged, all three source-generation bindings retired before capacity release")
 }
 
 type hungSourceWriter struct {

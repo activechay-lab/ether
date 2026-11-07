@@ -552,7 +552,7 @@ schedule (wall clock) ─▶ input plan: programme · clip · screen · reel cli
 - **IPTV channels** are linear too. With a screen enabled and switching on, the provider decoder feeds a shared per-channel output, and the existing rule holds: one provider connection per channel, shared by all its viewers.
 - **Cluster.** Outputs are node-local. Viewers on different nodes each attach to a node-local output for the channel. Every node computes the same schedule, so outputs on different nodes air the same programme at the same moment.
 
-**Cost** (estimates; the slice gate measures them on the Mac lab and HYPERV03):
+**Cost** (estimates; the slice gate measures them on the Mac lab and the production server):
 
 | | CPU | Memory | Disk |
 | --- | --- | --- | --- |
@@ -802,7 +802,7 @@ drift.
 
 ### 6.4 Performance gates
 
-- **Server:** a 6 s 1080p30 clip renders in 6 s or less with 4 workers on the HYPERV03 production box. On the Mac lab: 1.5× real time or better.
+- **Server:** a 6 s 1080p30 clip renders in 6 s or less with 4 workers on the production server. On the Mac lab: 1.5× real time or better.
 - **No request path renders or reads a template.** `Duration()` is served from memory.
 - **Tune with a cached ident:** first frame within 1 s, measured in the perf harness. Channels without a style don't regress against today.
 
@@ -971,14 +971,14 @@ Each phase ships on its own and leaves Ether better than it was.
 | P1 | W4 | `Schedule` interstitials (gap and insert), guide coalescing, `core.ChannelGraphics` contract. Kept from W4's first slice; its clip-track, track-budget and ident-prefix code is dropped before merge. |
 | P2 | new worker | `internal/transcode`: the **continuous encoder runner** (raw video + PCM over loopback TCP; fixed contract; HLS TS + fMP4 DASH + continuous byte-stream outputs; renditions; hardware encode; slot accounting) and the **decoder runner** (playback or provider input → raw frames at a size, rate and offset, plus PCM; restartable; prewarm). Interface-first, so P3 builds against fakes. |
 | P3 | W4 | `internal/livetv`: the **switcher** (wall-clock frame sync, schedule-driven input plan, prewarm at boundaries, stall fill, PCM crossfade, clip and screen rings, provider-slot retries) and the **broadcast** (per channel × rendition × node; fan-out to viewer playlists; live edge; DVR window; first-viewer start, idle stop; personal channels per viewer). |
-| P4 | W4 (after P2 and P3) | Wiring into Plex tune / decision / HLS / DASH / HTTP and the sessions broker for Jellyfin, Emby, M3U and Silo. Deletes the per-programme track code. Continuity and real-decoder tests. Measured CPU, memory and disk per channel and per viewer on the Mac lab (and HYPERV03 through the coordinator). |
+| P4 | W4 (after P2 and P3) | Wiring into Plex tune / decision / HLS / DASH / HTTP and the sessions broker for Jellyfin, Emby, M3U and Silo. Deletes the per-programme track code. Continuity and real-decoder tests. Measured CPU, memory and disk per channel and per viewer on the Mac lab (and the production server through the coordinator). |
 
 | Phase | Scope | Exit criteria |
 | --- | --- | --- |
-| **0 · Spike** (1 week) | `raster` with paths, gradients, text, blur and blend; one family as a document; Go render benchmark; WASM build in a throwaway stage. | §6.3/§6.4 gates measured on HYPERV03 and the Mac lab. Go/no-go on WASM ([§13](#13-owner-decisions-needed), decision 4). |
+| **0 · Spike** (1 week) | `raster` with paths, gradients, text, blur and blend; one family as a document; Go render benchmark; WASM build in a throwaway stage. | §6.3/§6.4 gates measured on the production server and the Mac lab. Go/no-go on WASM ([§13](#13-owner-decisions-needed), decision 4). |
 | **1 · Styles foundation** | `onair` package, built-in Clean family plus the five reel families, style CRUD, render cache, **continuous channel output** (§4.5: switcher, shared encoders, fan-out, renditions, DVR window), ident and off-air as switcher inputs, Styles sub-tab plus gallery, style drawer Design tab, channel Style tab (Ident, Off-air). | Looked off-air plays on HLS and DASH. Tune-to-first-frame ≤ 1 s with an ident. Owner screenshot approval. |
 | **2 · Moments** | Interstitials in `Schedule` (gap and inserted), guide coalescing, `upnext`/`back`/`break`/`tonight`, **break reels** (upload, conversion, reel drawer, break contents in the Style tab), Layers tab, Assets tab, Describe a style, DASH clip encode. | Guide IDs stable in gap mode. 24 h soak on the lab with no stalls. Owner approval of the designer. |
-| **2b · Signal screens** | Signal family (card, static, bars, brb, testcard) with synthesized audio; owner default and per-channel pickers; off-air styles; can't-play screens with a continuous-output switcher (decoder → Go frame sync → one long-lived encoder) so a stalled, failed or recovering source never interrupts the stream on HLS, DASH or HTTP; background retry inside the connection limit. | Provider outage simulated on the lab: Apple TV, Plex Web and Android show the screen with sound and then the real feed, with no discontinuity, spinner or reconnect; continuity and real-decoder tests green; the account limit never exceeded; per-session cost measured on the lab and HYPERV03. Owner approval of the pickers. |
+| **2b · Signal screens** | Signal family (card, static, bars, brb, testcard) with synthesized audio; owner default and per-channel pickers; off-air styles; can't-play screens with a continuous-output switcher (decoder → Go frame sync → one long-lived encoder) so a stalled, failed or recovering source never interrupts the stream on HLS, DASH or HTTP; background retry inside the connection limit. | Provider outage simulated on the lab: Apple TV, Plex Web and Android show the screen with sound and then the real feed, with no discontinuity, spinner or reconnect; continuity and real-decoder tests green; the account limit never exceeded; per-session cost measured on the lab and the production server. Owner approval of the pickers. |
 | **3 · Personal channels** | `PersonalPicker`, recipe tab, rundowns, on-demand cursor, `welcome`, watchlist trailers in breaks, viewer profile row, per-viewer lineup naming. | Tested on two viewers on Apple TV and Plex Web, with policy-filter checks. |
 | **4 · Packs and describe-a-channel** | `data` runtime, contributions, links, export drawer, install preview, Make it mine, `channel_draft` describer. | Export → import round-trip on a second server reproduces the channel and style. |
 | **4b · Plugin content** | `onair_content` capability, feeds and segments contributions, `onair_feed_values`, segment placement (blocks, On the clock, breaks), binding picker, Studio templates and stage preview, one sample weather plugin built in Studio. | A Studio-built weather plugin airs hourly in two different styles on the lab, survives a feed outage without stalling, and uninstalls cleanly. |

@@ -242,6 +242,18 @@ func scalar(v reflect.Value, omitEmpty bool, f Format) (s string, quoted bool, o
 	if omitEmpty && v.IsZero() {
 		return "", false, false
 	}
+	if v.CanInterface() {
+		if values, yes := v.Interface().(StringList); yes {
+			if f == JSON {
+				if values == nil {
+					values = StringList{}
+				}
+				b, _ := json.Marshal(values)
+				return string(b), false, true
+			}
+			return strings.Join(values, ","), true, true
+		}
+	}
 	switch v.Kind() {
 	case reflect.String:
 		return v.String(), true, true

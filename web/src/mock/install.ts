@@ -32,7 +32,7 @@ export function installMockBackend(): void {
   });
   if (params.get("backups") === "empty") fake.state.backups = [];
   fake.state.config.frontends = Object.fromEntries(
-    ["plex", "jellyfin", "emby", "silo", "stremio", "webdav", "m3u", "dlna"].map((id) => [
+    ["plex", "jellyfin", "emby", "silo", "stremio", "webdav", "m3u", "xtream", "dlna"].map((id) => [
       id,
       { enabled: true },
     ]),

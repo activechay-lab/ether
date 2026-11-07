@@ -553,6 +553,7 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 			p.opts.MaxBitrateKbps = limit
 		}
 	}
+	s.observeClientAdmission(pr, p.caps)
 	if !s.transcodes.claim(p.sessionID, pr.User.ID, pr.ClientID, s.now()) {
 		return t, nil, core.Decision{}, core.ErrUnauthorized
 	}
@@ -1837,6 +1838,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		caps := s.clientCapsForKey(pr, key)
+		s.observeClientAdmission(pr, caps)
 		ps, err = s.prepareForRelease(ctx, pr.User, key, caps, releaseID)
 		if err != nil {
 			s.log.Info("direct play failed", "key", key, "reason", playbackMessage(err), "err", err)

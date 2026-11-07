@@ -45,3 +45,24 @@ func TestConsoleReleaseGateUsesCurrentPolicyGeneration(t *testing.T) {
 	run("admitted", 0)
 	run("unknown", 3)
 }
+
+// A hidden-set publication re-keys release-gate results only. Ordinary
+// filters carry the generations they read, so their cached pages (and every
+// other catalogue cache) survive it: on a large library a publication
+// during browsing otherwise turned every listing into a full recount.
+func TestConsoleGateChangeKeepsOrdinaryCaches(t *testing.T) {
+	c := largeCatalogue(t, 3)
+	plain := core.Filter{Type: core.TypeMovie}
+	gated := core.Filter{Type: core.TypeMovie, ReleaseGate: "held"}
+	gen, plainKey, gatedKey := c.writeGen.Load(), c.consoleAvailabilityCacheKey(plain), c.consoleAvailabilityCacheKey(gated)
+	c.ConsoleGateChanged()
+	if c.writeGen.Load() != gen {
+		t.Fatal("a hidden-set publication invalidated the whole catalogue")
+	}
+	if c.consoleAvailabilityCacheKey(plain) != plainKey {
+		t.Fatal("an ordinary filter was re-keyed")
+	}
+	if c.consoleAvailabilityCacheKey(gated) == gatedKey {
+		t.Fatal("a release-gate filter kept its key across a publication")
+	}
+}

@@ -116,6 +116,23 @@ func assertCombinedFromState2(t *testing.T, ctx context.Context, db *sql.DB) {
   smart INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL DEFAULT 0
 )`,
+		`CREATE TABLE state_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  rating_key INTEGER NOT NULL,
+  viewed_at INTEGER NOT NULL,
+  completed INTEGER NOT NULL DEFAULT 0,
+  imported INTEGER NOT NULL DEFAULT 0
+)`,
+		`CREATE INDEX state_history_user ON state_history(user_id, viewed_at DESC)`,
+		`CREATE UNIQUE INDEX state_history_imported ON state_history(user_id, rating_key, viewed_at) WHERE imported=1`,
+		`CREATE INDEX state_watch_inprogress ON state_watch(user_id, last_viewed_at DESC) WHERE view_offset_ns > 0`,
+		`CREATE TABLE state_playlist_items (
+  playlist_id INTEGER NOT NULL REFERENCES state_playlists(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  rating_key INTEGER NOT NULL,
+  PRIMARY KEY (playlist_id, position)
+)`,
 		`CREATE TABLE schema_migrations (
   component TEXT NOT NULL,
   version INTEGER NOT NULL,

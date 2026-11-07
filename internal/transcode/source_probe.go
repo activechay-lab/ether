@@ -115,6 +115,15 @@ func (p *SourceProber) Probe(ctx context.Context, input string) (*core.MediaInfo
 	if err != nil || info == nil || op.Err() != nil || ctx.Err() != nil {
 		return nil, p.probeError(ctx, op)
 	}
+	// Optional bounded proof has its own budget/deadline: failure leaves ordinary
+	// playback usable, with copy recovery unsupported.
+	scanCtx, scanCancel := context.WithTimeout(op, 10*time.Second)
+	scanBudget := &sourceProbeBudget{remaining: 32 << 20, cancel: scanCancel}
+	scanCopyTimeline(scanCtx, sourceProbeRunner{Runner: p.runner, budget: scanBudget}, p.path, input, info)
+	scanCancel()
+	if op.Err() != nil || ctx.Err() != nil {
+		return nil, p.probeError(ctx, op)
+	}
 	return info, nil
 }
 

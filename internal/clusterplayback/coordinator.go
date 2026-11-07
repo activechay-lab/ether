@@ -10,6 +10,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
+	"github.com/braedonsaunders/ether/internal/transcode"
 	"log/slog"
 	"net/http"
 	"time"
@@ -77,6 +78,13 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		return nil, ErrDenied
 	}
 	q = cloneAdmissionRequest(q)
+	q = transcode.AuthorCopyTimeline(q)
+	if r.o.AuthorRamp != nil {
+		q = r.o.AuthorRamp(q)
+	}
+	if q.Decision.VideoCopy && q.Info.CopyTimeline != nil && (prepared.Info.CopyTimeline == nil || *prepared.Info.CopyTimeline != *q.Info.CopyTimeline) {
+		return nil, ErrDenied
+	}
 	playID, revision := prepared.PlayID, prepared.Revision
 	if r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil || r.o.Eligible(ctx, prepared.Owner, config.RoleSource) != nil {
 		return nil, ErrDenied
@@ -229,7 +237,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		slog.Info("encoder recovery armed", "session", rt.Fence.Session, "generation", rt.Fence.Generation, "worker", rt.Fence.Target.NodeID, "worker_boot", rt.Fence.Target.Boot)
 		return r.recoveryDelivery(output), nil
 	}
-	if encoderRecoverySupported(q) {
+	if encoderRecoverySupported(q, rt.Encoder) {
 		slog.Warn("encoder recovery unavailable", "session", rt.Fence.Session, "generation", rt.Fence.Generation, "detector", "output-buffer-unavailable", "rungs", len(x.session.Rungs()), "protocol", q.Protocol)
 	}
 	return &controlledSession{Session: x.session, r: r}, nil
@@ -331,6 +339,12 @@ func (r *Runtime) selectTargetCandidates(ctx context.Context, q core.HLSRequest,
 			} else {
 				failure.Unavailable++
 			}
+			continue
+		}
+		// Reencoded AAC recovery is proven only on the software encoder. This
+		// also applies to capacity retries, which pass through this selector.
+		if q.Resume != nil && !q.Decision.AudioCopy && (!encoderRecoverySupported(q, "cpu") || hardwareEncoder != "") {
+			failure.Unsupported++
 			continue
 		}
 		if !supportedRequest(q, caps) {
@@ -515,7 +529,17 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			// confirmed. Retry disposal when a last retained reader drains.
 			_ = r.ReleaseOutput(ctx, x.route.Fence.Session, x.route.Fence)
 		}
-		if x.busy || x.retired || (x.reserved && !x.stopping && !r.ownsExecution(ctx, x)) {
+		if x.busy {
+			continue
+		}
+		if x.retired {
+			// Retiring the current generation does not prove that a displaced
+			// producer exited. Keep exact old-worker retirement alive after Stop,
+			// including when that same boot becomes reachable again later.
+			r.reconcileDisplaced(ctx, x)
+			continue
+		}
+		if x.reserved && !x.stopping && !r.ownsExecution(ctx, x) {
 			continue
 		}
 		if x.reservePending {
@@ -626,7 +650,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			result = ErrPending
 			continue
 		}
-		if x.output != nil && x.initial != nil && x.initial.request.Decision.Kind == core.DecisionTranscode && !x.initial.request.Decision.VideoCopy {
+		if x.output != nil && x.initial != nil && encoderRecoverySupported(x.initial.request, x.route.Encoder) {
 			probeStarted := time.Now()
 			detector, probeErr := r.probeEncoder(ctx, x)
 			probeElapsed := time.Since(probeStarted)
@@ -717,6 +741,16 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	return result
 }
 func (r *Runtime) retire(ctx context.Context, x *execution) error {
+	// Source handovers preserve the execution fence but change the source
+	// PlayID/binding used by terminal evidence. Keep the initial admission
+	// immutable and collect receipts against the current durable source route.
+	current, err := r.route(ctx, x.route.Fence.Session)
+	if err != nil || current.Fence != x.route.Fence {
+		return ErrPending
+	}
+	view := *x
+	view.route = current
+	x = &view
 	if retired, e := r.retainedReceipt(ctx, x.route); e != nil {
 		return e
 	} else if retired {
@@ -801,8 +835,11 @@ func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
 	return nil
 }
 
+// Supports answers for the request StartPreparedHLS will actually admit. A
+// frontend submits the bounded-copy request before the copy grid is authored,
+// so judging the raw request rejects every valid bounded copy.
 func (r *Runtime) Supports(q core.HLSRequest) bool {
-	return supportedRequest(q, r.o.RemoteCapabilities)
+	return supportedRequest(transcode.AuthorCopyTimeline(q), r.o.RemoteCapabilities)
 }
 func (r *Runtime) Allocated(id string) bool {
 	r.mu.Lock()

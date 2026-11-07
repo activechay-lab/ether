@@ -20,7 +20,7 @@ type recoverySession struct{ *bufferedSession }
 func (r *Runtime) recoveryDelivery(s *bufferedSession) core.HLSSession {
 	r.mu.Lock()
 	x := r.executions[s.route.Fence.Session]
-	enabled := x != nil && x.initial != nil && x.initial.request.Decision.Kind == core.DecisionTranscode && !x.initial.request.Decision.VideoCopy
+	enabled := x != nil && x.initial != nil && encoderRecoverySupported(x.initial.request, x.route.Encoder)
 	r.mu.Unlock()
 	if enabled {
 		return &recoverySession{s}

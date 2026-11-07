@@ -70,7 +70,7 @@ window is open, roll the containers from bb-worker-server or gpu-workstation:
 DRIFT_WATCH_APPLY=1 DRIFT_WATCH_OPEN_PR=1 scripts/drift-watch.sh run
 ```
 
-`DRIFT_WATCH_APPLY=1` is refused on macOS and on 10.0.0.43. Recordings stay in
+`DRIFT_WATCH_APPLY=1` is refused on macOS and on any host listed in `ETHER_PROTECTED_ADDRS`. Recordings stay in
 gitignored `drift-watch-out/` unless `DRIFT_WATCH_COMMIT_FIXTURES=1`. Set
 `DRIFT_WATCH_SKIP_RECORD=1` to publish the OpenAPI and image plan only. The
 report is `docs/acceptance/drift-watch-report.json` on the drift branch. It is

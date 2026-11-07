@@ -62,6 +62,7 @@ type Request struct {
 	versionItemKey core.RatingKey // single detail or selected queue item
 	versionFlowKey core.RatingKey // selected pre-play/queue item only
 	versionErr     error
+	supportAttempt string // diagnostics-only request correlation; never sent to clients
 }
 
 type ctxKey struct{}

@@ -3,6 +3,7 @@ package diagnostics
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strconv"
 	"strings"
 )
 
@@ -42,7 +43,7 @@ func boundEvent(e Event, uses []secretUse) Event {
 		e.Uncorrelated = true
 	}
 	e.Route = clipFree(stripQuery(e.Route), maxString, uses)
-	if e.Kind == KindRequest {
+	if e.Kind == KindRequest || e.Kind == KindRequestStarted {
 		e.Route = redactNetworkText(requestRoute(e.Route))
 	}
 	e.Query = clipFree(e.Query, 4096, uses)
@@ -85,7 +86,7 @@ func boundEvent(e Event, uses []secretUse) Event {
 	e.DeviceName = clipFree(e.DeviceName, 80, uses)
 	e.Device = clipFree(e.Device, 80, uses)
 	e.AppVersion = clipFree(e.AppVersion, 40, uses)
-	if e.Kind == KindRequest {
+	if e.Kind == KindRequest || e.Kind == KindRequestStarted || e.Client != nil {
 		e.Product = redactNetworkText(e.Product)
 		e.Platform = redactNetworkText(e.Platform)
 		e.Model = redactNetworkText(e.Model)
@@ -126,6 +127,7 @@ func boundEvent(e Event, uses []secretUse) Event {
 		c.Name = clipNetwork(c.Name, maxString, uses)
 	}
 	e.Playback = boundPlayback(e.Playback, uses)
+	e.Client = boundClient(e.Client, uses)
 	if e.Bytes < 0 {
 		e.Bytes = 0
 	}
@@ -174,7 +176,7 @@ func coarseRoute(route string) string {
 func coalesceKey(e Event) string {
 	switch e.Kind {
 	case KindPoll, KindMediaRequest, KindMediaBytes:
-		return string(e.Kind) + "|" + e.DeviceKey + "|" + coarseRoute(e.Route) + "|" + itoa(e.Status)
+		return string(e.Kind) + "|" + strconv.Quote(e.DeviceKey) + "|" + strconv.FormatInt(e.ViewerID, 10) + "|" + strconv.Quote(e.SessionKey) + "|" + strconv.Quote(e.AttemptKey) + "|" + strconv.Quote(coarseRoute(e.Route)) + "|" + itoa(e.Status)
 	default:
 		return ""
 	}

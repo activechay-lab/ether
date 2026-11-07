@@ -15,7 +15,17 @@ type HLSResume struct {
 	Generation   uint64
 }
 
+// HLSRamp freezes private HLS planning across config changes and replacement.
+// Version 0 is legacy; version 1 with Segments 0 explicitly selects steady HLS.
+// All fields are values so admission/request copies retain an immutable snapshot.
+type HLSRamp struct {
+	Version  int
+	Segments int
+	Duration time.Duration
+}
+
 type HLSRequest struct {
+	Ramp   HLSRamp    `json:",omitzero"`
 	Resume *HLSResume `json:",omitempty"`
 	// RecoveryStart is trusted composition only; nil preserves legacy behavior.
 	RecoveryStart *RecoveryStart `json:",omitempty"`

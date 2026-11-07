@@ -38,6 +38,18 @@ type extendedLimits struct {
 }
 
 func run() error {
+	mode := ""
+	if len(os.Args) > 1 {
+		if len(os.Args) != 2 {
+			return fmt.Errorf("expected no arguments or one reviewed launcher mode")
+		}
+		mode = os.Args[1]
+		switch mode {
+		case "--self-test", "--self-test-ffmpeg", "--version-probe":
+		default:
+			return fmt.Errorf("unsupported launcher mode %q", mode)
+		}
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return err
@@ -48,10 +60,10 @@ func run() error {
 	}
 	ether := filepath.Join(root, "ether.exe")
 	childCommand := `"` + ether + `"`
-	if len(os.Args) == 2 && os.Args[1] == "--self-test" {
+	if mode == "--self-test" {
 		ether = executable
 		childCommand = `"` + ether + `" --probe-child`
-	} else if len(os.Args) == 2 && os.Args[1] == "--self-test-ffmpeg" {
+	} else if mode == "--self-test-ffmpeg" {
 		if _, err := os.Stat(filepath.Join(root, "ffmpeg-8.1.3-1", "ffmpeg.exe")); err != nil {
 			return fmt.Errorf("stage pinned lab FFmpeg 8.1.3-1 first")
 		}
@@ -59,6 +71,9 @@ func run() error {
 		childCommand = `"` + ether + `" --probe-ffmpeg`
 	} else if _, err := os.Stat(ether); err != nil {
 		return fmt.Errorf("stage reviewed ether.exe first")
+	}
+	if mode == "--version-probe" {
+		childCommand += " version"
 	}
 	j, _, err := createJob.Call(0, 0)
 	if j == 0 {
@@ -74,15 +89,22 @@ func run() error {
 	if ok == 0 {
 		return fmt.Errorf("set kill-on-close job: %w", err)
 	}
-	// Only this process's redirected log handles are made inheritable. The job
-	// handle is deliberately noninheritable so no child can keep the job alive.
-	for _, h := range []syscall.Handle{syscall.Handle(os.Stdout.Fd()), syscall.Handle(os.Stderr.Fd())} {
+	// libc initializes its standard files before main. Supply a valid EOF-only
+	// stdin even without a console; INVALID_HANDLE_VALUE makes that init panic.
+	stdin, err := os.Open(os.DevNull)
+	if err != nil {
+		return fmt.Errorf("open owned null stdin: %w", err)
+	}
+	defer stdin.Close()
+	// Only the null stdin and redirected logs are made inheritable. The job
+	// handle remains noninheritable so no child can keep the job alive.
+	for _, h := range []syscall.Handle{syscall.Handle(stdin.Fd()), syscall.Handle(os.Stdout.Fd()), syscall.Handle(os.Stderr.Fd())} {
 		if err := syscall.SetHandleInformation(h, 1, 1); err != nil {
-			return fmt.Errorf("prepare owned log handle: %w", err)
+			return fmt.Errorf("prepare owned standard handle: %w", err)
 		}
 	}
 	startup := syscall.StartupInfo{Cb: uint32(unsafe.Sizeof(syscall.StartupInfo{})), Flags: syscall.STARTF_USESTDHANDLES,
-		StdInput: syscall.InvalidHandle, StdOutput: syscall.Handle(os.Stdout.Fd()), StdErr: syscall.Handle(os.Stderr.Fd())}
+		StdInput: syscall.Handle(stdin.Fd()), StdOutput: syscall.Handle(os.Stdout.Fd()), StdErr: syscall.Handle(os.Stderr.Fd())}
 	var process syscall.ProcessInformation
 	application, _ := syscall.UTF16PtrFromString(ether)
 	command, _ := syscall.UTF16PtrFromString(childCommand)

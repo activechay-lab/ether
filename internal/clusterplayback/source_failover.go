@@ -100,16 +100,9 @@ func (r *Runtime) sourceFailover(ctx context.Context, peer nodewire.Identity, m 
 			if id == rt.Source || r.o.Eligible(ctx, id, config.RoleSource) != nil {
 				continue
 			}
-			used := false
-			for _, prior := range r.sourceRoutes(ctx, rt) {
-				if prior.Source == id {
-					used = true
-					break
-				}
-			}
-			if used {
-				continue
-			}
+			// A healthy earlier source may be revisited under a fresh source
+			// generation. Its old binding remains fenced and independently owned
+			// until exact retirement, including when both bindings share a lifetime.
 
 			q.Operation = fmt.Sprintf("source-%s-%d-%d", f.Session, f.Generation, rt.SourceGeneration+1)
 			if len(q.Operation) > 128 {

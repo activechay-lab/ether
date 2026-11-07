@@ -21,11 +21,15 @@ import (
 )
 
 type Config struct {
+	SegmentBarrierDir                                               string
+	PauseBeforeIndex                                                int
+	ReencodedAudio                                                  bool
 	DecisionOrigin, StartOrigin, StopOrigin                         string
 	ReferenceTimeline                                               []time.Duration
 	Protocol, Prefix, CredentialsFile, DeviceID                     string
 	DirectPlay, DirectStream                                        bool
 	SkipDecision                                                    bool
+	PrivateHTTP                                                     bool
 	MaxVideoBitrate                                                 int
 	VideoResolution                                                 string
 	ProducerEvidence                                                string
@@ -36,6 +40,7 @@ type Config struct {
 	Reference                                                       []splicecheck.Segment
 }
 type Attempt struct {
+	Origin                         string // scheme and host only; excludes credentials, path and query
 	Kind                           string
 	Index                          int
 	RequestedAt                    time.Time
@@ -63,6 +68,9 @@ type Continuity struct {
 	Report   splicecheck.Report
 }
 type Report struct {
+	Barrier                                      *SegmentBarrier `json:",omitempty"`
+	PlaybackStarted                              bool
+	ReencodedAudio                               bool
 	ControlOriginsPinned                         bool
 	InitialTimeline                              []time.Duration
 	InitialPlaylistSHA256                        string
@@ -134,10 +142,15 @@ func (p *player) request(ctx context.Context, raw, kind string, index int, retry
 		if e != nil {
 			return nil, fmt.Errorf("request construction failed")
 		}
-		if p.c.Protocol == "jellyfin" {
+		a.Origin = req.URL.Scheme + "://" + req.URL.Host
+		if p.isMediaBrowser() {
 			req.Header.Set("X-Emby-Token", p.c.Token)
 			req.Header.Set("X-Emby-Device-Id", p.c.DeviceID)
-			req.Header.Set("Authorization", `MediaBrowser Client="Jellyfin Web", Device="Ether lab", DeviceId="`+p.c.DeviceID+`", Version="10.10.0"`)
+			scheme := "MediaBrowser"
+			if p.c.Protocol == "emby" {
+				scheme = "Emby"
+			}
+			req.Header.Set("Authorization", scheme+` Client="`+p.mediaBrowserProduct()+`", Device="Ether lab", DeviceId="`+p.c.DeviceID+`", Version="10.10.0"`)
 		} else {
 			req.Header.Set("X-Plex-Token", p.c.Token)
 			req.Header.Set("X-Plex-Client-Identifier", p.c.Session)
@@ -180,8 +193,14 @@ func (p *player) request(ctx context.Context, raw, kind string, index int, retry
 		a.SHA256 = hex.EncodeToString(sum[:])
 		p.mu.Lock()
 		p.attempts = append(p.attempts, a)
+		ordinal := len(p.attempts)
 		p.mu.Unlock()
 		p.event(a)
+		if p.c.PrivateHTTP && (kind == "master" || kind == "variant" || a.Status >= 400 || a.Error != "") {
+			if e := p.savePrivateHTTP(ordinal, a, req, resp, data); e != nil {
+				return nil, fmt.Errorf("save private HTTP evidence: %w", e)
+			}
+		}
 		if err == nil && (a.Status == 200 || method == "POST" && a.Status == 204) {
 			return data, nil
 		}
@@ -195,6 +214,38 @@ func (p *player) request(ctx context.Context, raw, kind string, index int, retry
 		}
 	}
 	return nil, fmt.Errorf("request exhausted")
+}
+
+func (p *player) savePrivateHTTP(ordinal int, a Attempt, req *http.Request, resp *http.Response, body []byte) error {
+	redacted := func(h http.Header) http.Header {
+		copy := h.Clone()
+		for _, name := range []string{"Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "X-Plex-Token", "X-Emby-Token", "X-Emby-Authorization"} {
+			if _, ok := copy[http.CanonicalHeaderKey(name)]; ok {
+				copy.Set(name, "[redacted]")
+			}
+		}
+		return copy
+	}
+	meta := struct {
+		Attempt         Attempt
+		URL, Method     string
+		Host            string
+		RequestHeaders  http.Header
+		ResponseHeaders http.Header
+		BodyTruncated   bool
+	}{Attempt: a, URL: req.URL.String(), Method: req.Method, Host: req.Host, RequestHeaders: redacted(req.Header), BodyTruncated: len(body) > 64<<10}
+	if resp != nil {
+		meta.ResponseHeaders = redacted(resp.Header)
+	}
+	encoded, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	base := filepath.Join(p.c.Output, fmt.Sprintf("http-%06d-%s.private", ordinal, a.Kind))
+	if err = os.WriteFile(base+".json", append(encoded, '\n'), 0600); err != nil {
+		return err
+	}
+	return os.WriteFile(base+".body", body[:min(len(body), 64<<10)], 0600)
 }
 func sleep(ctx context.Context, d time.Duration) bool {
 	t := time.NewTimer(d)
@@ -212,6 +263,9 @@ func sleep(ctx context.Context, d time.Duration) bool {
 func Run(ctx context.Context, c Config) (r Report, err error) {
 	if c.Window <= 0 || c.ForwardBuffer <= 0 || c.RequestTimeout <= 0 || c.Tries < 1 || c.Backoff <= 0 || c.SegmentDuration <= 0 {
 		return r, fmt.Errorf("positive timing and retry settings required")
+	}
+	if c.SegmentBarrierDir != "" && c.PauseBeforeIndex < 1 {
+		return r, fmt.Errorf("positive barrier segment index required")
 	}
 	base, e := url.Parse(c.BaseURL)
 	if e != nil || base.Host == "" || (base.Scheme != "http" && base.Scheme != "https") || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
@@ -232,11 +286,11 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	if c.Protocol == "" {
 		c.Protocol = "plex"
 	}
-	if c.Protocol != "plex" && c.Protocol != "jellyfin" {
-		return r, fmt.Errorf("protocol must be plex or jellyfin")
+	if c.Protocol != "plex" && c.Protocol != "jellyfin" && c.Protocol != "emby" {
+		return r, fmt.Errorf("protocol must be plex, jellyfin or emby")
 	}
 	if c.Prefix == "" {
-		c.Prefix = "/jellyfin"
+		c.Prefix = "/" + c.Protocol
 	}
 	if c.Session == "" {
 		var nonce [12]byte
@@ -257,7 +311,7 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	}
 	defer events.Close()
 	p := &player{c: c, start: time.Now(), events: events, client: &http.Client{Timeout: c.RequestTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
-	r = Report{ControlOriginsPinned: c.DecisionOrigin != "" || c.StartOrigin != "" || c.StopOrigin != "", Protocol: c.Protocol, Session: c.Session, StartedAt: p.start.UTC(), DecisionSkipped: c.SkipDecision, IndicesExact: true, Outcome: "failed"}
+	r = Report{ReencodedAudio: c.ReencodedAudio, ControlOriginsPinned: c.DecisionOrigin != "" || c.StartOrigin != "" || c.StopOrigin != "", Protocol: c.Protocol, Session: c.Session, StartedAt: p.start.UTC(), DecisionSkipped: c.SkipDecision, IndicesExact: true, Outcome: "failed"}
 	b := Buffer{}
 	defer func() {
 		if p.playSession != "" {
@@ -311,15 +365,20 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			if len(expectedTimeline) == 0 {
 				expectedTimeline = r.InitialTimeline
 			}
-			cr, ce := splicecheck.Check(checkCtx, segs, splicecheck.Options{Timeline: expectedTimeline, SegmentDuration: c.SegmentDuration, Reference: matchingReference(c.Reference, segs), FFprobe: c.FFprobe, FFmpeg: c.FFmpeg})
+			cr, ce := splicecheck.Check(checkCtx, segs, splicecheck.Options{ReencodedAudio: c.ReencodedAudio, Timeline: expectedTimeline, SegmentDuration: c.SegmentDuration, Reference: matchingReference(c.Reference, segs), FFprobe: c.FFprobe, FFmpeg: c.FFmpeg})
 			r.Continuity.Report = cr
 			if ce != nil {
 				r.Continuity.Error = ce.Error()
 			} else {
-				r.Continuity.Verified = cr.FrameCountVsReference.Pass && cr.IDRStart.Pass && cr.ClosedGOP.Pass && cr.PTSContinuity.Pass && cr.CleanDecode.Pass && cr.AudioAUExact.Pass && cr.AudioContinuity.Pass && cr.GridDurations.Pass
+				audioVerified := cr.AudioAUExact.Pass
+				if c.ReencodedAudio {
+					audioVerified = cr.PCMContinuous.Pass
+				}
+				r.Continuity.Verified = cr.FrameCountVsReference.Pass && cr.IDRStart.Pass && cr.ClosedGOP.Pass && cr.PTSContinuity.Pass && cr.CleanDecode.Pass && audioVerified && cr.AudioContinuity.Pass && cr.GridDurations.Pass
 			}
 		}
-		r.PlaybackPassed = r.WindowComplete && r.IndicesExact && len(r.Stalls) == 0 && len(r.Segments) > 0
+		r.PlaybackStarted = b.Started
+		r.PlaybackPassed = b.Started && r.WindowComplete && r.IndicesExact && len(r.Stalls) == 0 && len(r.Segments) > 0
 		if c.SkipDecision && r.PlaybackPassed {
 			r.Outcome = "diagnostic-only"
 		} else if r.PlaybackPassed && r.Continuity.Verified {
@@ -376,7 +435,9 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 		sample := Sample{now, b.Level, b.Played}
 		r.Buffer = append(r.Buffer, sample)
 		p.event(sample)
-		if b.Started && now >= nextTimeline {
+		// Do not begin a progress call that the bounded window will cancel.
+		deadline, _ := runCtx.Deadline()
+		if b.Started && now >= nextTimeline && time.Until(deadline) >= c.RequestTimeout {
 			nextTimeline = now + 5
 			state := "playing"
 			if b.Level == 0 {
@@ -427,6 +488,9 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 				err = fmt.Errorf("missing segment index %d", *next)
 				return
 			}
+			if err = p.waitForSegment(runCtx, &b, &r, en.index); err != nil {
+				return
+			}
 			data, err = p.fetch(runCtx, en.url, "segment", en.index, true)
 			if err != nil {
 				break
@@ -454,7 +518,7 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			progressed = true
 			if !b.Started && b.Level >= c.ForwardBuffer.Seconds() {
 				b.Started = true
-				if c.Protocol == "jellyfin" {
+				if c.Protocol != "plex" {
 					_ = p.progress(runCtx, "playing", b.Played, true)
 				}
 				r.StartupSeconds = p.elapsed()
@@ -475,7 +539,7 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			ended = true
 			if !b.Started {
 				b.Started = true
-				if c.Protocol == "jellyfin" {
+				if c.Protocol != "plex" {
 					_ = p.progress(runCtx, "playing", b.Played, true)
 				}
 				r.StartupSeconds = p.elapsed()
@@ -490,7 +554,7 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	}
 	// Continue consuming the forward buffer after terminal fetch exhaustion so the
 	// report measures whether an outage actually reaches the client's playhead.
-	for err != nil && runCtx.Err() == nil {
+	for err != nil && b.Started && runCtx.Err() == nil {
 		b.Advance(min(p.elapsed(), c.Window.Seconds()))
 		r.Buffer = append(r.Buffer, Sample{p.elapsed(), b.Level, b.Played})
 		sleep(runCtx, 100*time.Millisecond)

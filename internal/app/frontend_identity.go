@@ -215,3 +215,25 @@ func (surfaceIdentity) SetupComplete() bool { return identity.ProtocolSetupCompl
 var _ frontend.SurfaceIdentity = surfaceIdentity{}
 
 var _ frontend.DeviceIdentity = surfaceIdentity{}
+
+// AuthenticateAppPassword never accepts a household password or issues a new grant.
+func (s surfaceIdentity) AuthenticateAppPassword(ctx context.Context, username, password string) (*core.Viewer, error) {
+	if s.surface != "xtream" || s.login == nil {
+		return nil, core.ErrUnauthorized
+	}
+	if ip, ok := frontend.ClientIP(ctx); !ok || ip.IsUnspecified() || ip.IsMulticast() {
+		return nil, core.ErrUnauthorized
+	}
+	// Valid app passwords authenticate each API/Range request. Charging those
+	// against the interactive sign-in budget would lock out a normal startup.
+	if core.IsGrantCredential(password) && username == frontend.XtreamUsername(password) {
+		viewer, err := s.Resolve(ctx, password)
+		if err == nil && viewer != nil {
+			return viewer, nil
+		}
+	}
+	if err := s.allow(ctx, s.login, "xtream"); err != nil {
+		return nil, err
+	}
+	return nil, core.ErrUnauthorized
+}

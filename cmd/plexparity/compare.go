@@ -287,7 +287,7 @@ func captureCorpusMode(ctx context.Context, base string, subtitleMode bool) (tra
 					if strings.HasPrefix(path, "/hubs/items") && (resp.Status != http.StatusOK || !bytes.Contains(resp.Body, []byte("Fixture Movie 020"))) {
 						return result, fmt.Errorf("%s %s missing continue shelf: status=%d body=%s", viewer, path, resp.Status, resp.Body)
 					}
-					if viewer == "owner" && (resp.Status < 200 || resp.Status >= 300) {
+					if viewer == "owner" && ((browsingRefusal(path) && resp.Status != http.StatusBadRequest) || (!browsingRefusal(path) && (resp.Status < 200 || resp.Status >= 300))) {
 						return result, fmt.Errorf("browse fixture %s returned %d", path, resp.Status)
 					}
 					if len(resp.Body) >= 16<<20 {

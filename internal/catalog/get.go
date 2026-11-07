@@ -531,17 +531,24 @@ const airedSeasonEpisodeWhere = `type='episode' AND show_key=? AND season=? AND 
 // SeasonEpisodePage returns one window of a single catalogue season. The
 // count and the page both use catalog_titles_show (show_key, season, episode),
 // so a season of thousands of episodes does not load the rest of the show.
-// limit is 1..1000. An empty first page fetches that season once; later pages
-// do not.
+// limit is 1..1000. The first page checks season freshness, serving stored
+// episodes while stale metadata refreshes. Later pages do not fetch.
 func (c *Catalog) SeasonEpisodePage(ctx context.Context, show core.RatingKey, season, offset, limit int) (core.Page, error) {
 	if show.Kind() != core.KindShow || season < 0 || season >= 1000 || offset < 0 || limit < 1 || limit > 1000 {
 		return core.Page{}, fmt.Errorf("catalog: season page out of range")
 	}
 	page, err := c.seasonEpisodeQuery(ctx, show.TMDB(), season, offset, limit)
-	if err != nil || page.Total > 0 || offset > 0 {
+	if err != nil || offset > 0 {
 		return page, err
 	}
-	if _, ferr := c.fetchSeason(ctx, show.TMDB(), season); ferr != nil {
+	_, ferr := c.fetchSeason(ctx, show.TMDB(), season)
+	if page.Total > 0 {
+		// Existing rows must not suppress refresh: TMDB may have added an
+		// episode or supplied its missing air date since the last visit.
+		// Keep serving this page even if the background refresh fails.
+		return page, nil
+	}
+	if ferr != nil {
 		if errors.Is(ferr, core.ErrNotFound) {
 			return core.Page{Items: []core.Title{}}, nil
 		}

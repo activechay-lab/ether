@@ -28,11 +28,20 @@ func TestRecoveryRebuildsAuthoredTimeline(t *testing.T) {
 				m := newTestManager(t, newFakeRunner(), cfg, WithoutHWDetection())
 				req := transcodeRequest(t, "initial")
 				req.Decision.Container = container
+				req.Decision.AudioCopy = true
 				req.Info.Duration = 29 * time.Second
+				req = AuthorDistributedRamp(req, cfg)
+				if req.Ramp.Segments != ramp.count {
+					t.Fatal("ramp not authored")
+				}
 				initial := startSession(t, m, req)
 				for n := 0; n < initial.plan.Total(); n++ {
 					fr := newFakeRunner()
-					rm := newTestManager(t, fr, cfg, WithoutHWDetection())
+					drift := cfg
+					drift.FastStart = false
+					drift.FastStartSegments = 8
+					drift.FastStartSegment = config.Duration(3 * time.Second)
+					rm := newTestManager(t, fr, drift, WithoutHWDetection())
 					req.SessionID = fmt.Sprintf("resume-%d", n)
 					req.Resume = &core.HLSResume{FirstSegment: n, Generation: 2}
 					resumed := startSession(t, rm, req)

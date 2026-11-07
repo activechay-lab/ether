@@ -190,6 +190,9 @@ type Release struct {
 	Category   int         `json:"category,omitempty"`
 	Info       ReleaseInfo `json:"info"`
 	Score      float64     `json:"score"`
+
+	// IndexerID binds a result to its configured origin; Indexer is a display label.
+	IndexerID string `json:"indexerId,omitempty"`
 	// TitleIDs are movie/series identifiers reported by the indexer. They
 	// must never be inferred from the search request's identifiers.
 	TitleIDs IDs `json:"titleIds,omitempty"`
@@ -216,9 +219,10 @@ type Release struct {
 	// addon requires) can carry the addon's credentials, so they never
 	// leave the server. StreamOrigin is the owner-configured addon origin
 	// (scheme://host:port), the only private address the URL may reach.
-	StreamURL     string            `json:"streamUrl,omitempty"`
-	StreamHeaders map[string]string `json:"streamHeaders,omitempty"`
-	StreamOrigin  string            `json:"streamOrigin,omitempty"`
+	StreamProvider string            `json:"streamProvider,omitempty"` // stored provider connection budget
+	StreamURL      string            `json:"streamUrl,omitempty"`
+	StreamHeaders  map[string]string `json:"streamHeaders,omitempty"`
+	StreamOrigin   string            `json:"streamOrigin,omitempty"`
 }
 
 // Resolution is the resolver's answer for a title and client: the winning
@@ -232,13 +236,66 @@ type Resolution struct {
 	ResolvedAt      time.Time `json:"resolvedAt"`
 }
 
-// Media scopes a quality profile or rule. The empty string applies to both
-// movies and shows, preserving profiles saved before the split.
+// Media scopes a quality profile or rule. Every profile serves exactly one
+// media; a client rule may leave it empty to apply to every media.
 const (
 	MediaAny   = ""
 	MediaMovie = "movie"
 	MediaTV    = "tv"
 )
+
+// ProfileMediaTypes lists the media a quality profile can serve, in the
+// order the console shows them. It is the one list: validation, the
+// upgrade split, shared-name resolution and the console's media options
+// (PROFILE_MEDIA in web/src/lib/releases.ts) all follow it. Adding a media
+// such as anime means adding its constant here and to PROFILE_MEDIA, plus
+// classifying titles into it (titleMedia in the resolver); nothing else
+// is restructured.
+var ProfileMediaTypes = []string{MediaMovie, MediaTV}
+
+// IsProfileMedia reports whether media is one a profile can serve.
+func IsProfileMedia(media string) bool {
+	for _, m := range ProfileMediaTypes {
+		if m == media {
+			return true
+		}
+	}
+	return false
+}
+
+// FindProfile returns the profile named name that serves media. Names are
+// unique per media, so the same name can serve movies and shows as two
+// profiles; with no media it is the first profile of that name.
+func FindProfile(profiles []QualityProfile, name, media string) (QualityProfile, bool) {
+	if name == "" {
+		return QualityProfile{}, false
+	}
+	for _, p := range profiles {
+		if p.Name == name && MediaApplies(p.MediaType, media) {
+			return p, true
+		}
+	}
+	return QualityProfile{}, false
+}
+
+// ProfileServesEveryMedia reports whether a profile named name exists for
+// every profile media, which makes the name shared policy before a title's
+// media is known.
+func ProfileServesEveryMedia(profiles []QualityProfile, name string) bool {
+	for _, m := range ProfileMediaTypes {
+		found := false
+		for _, p := range profiles {
+			if p.Name == name && p.MediaType == m {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
 
 // MediaApplies reports whether a scope (a profile or rule's MediaType)
 // applies when choosing for media. An empty media means the caller has no
@@ -284,7 +341,7 @@ type QualityProfile struct {
 	CustomFormatScores   map[string]int             `json:"customFormatScores,omitempty"`
 	MinCustomFormatScore *int                       `json:"minCustomFormatScore,omitempty"`
 	Name                 string                     `json:"name"`
-	MediaType            string                     `json:"mediaType,omitempty"` // "", "movie" or "tv"; "" applies to both
+	MediaType            string                     `json:"mediaType,omitempty"` // "movie" or "tv" (ProfileMediaTypes); empty only in configs saved before profiles were per media
 	Import               *ProfileImport             `json:"import,omitempty"`    // set on imported, syncable profiles
 	MaxHeight            int                        `json:"maxHeight"`           // cap, e.g. 1080
 	// ConfiguredMaxHeight is MaxHeight as the owner configured it,
@@ -422,6 +479,9 @@ func (p QualityProfile) ComputeSelectionKey() string {
 	// Provenance is not part of the ranking definition: a sync updating
 	// SyncedAt must not change the key that keys resumes and warm entries.
 	p.Import = nil
+	// Neither is the media a profile serves: splitting a shared profile
+	// into its movie and TV copies keeps every remembered release valid.
+	p.MediaType = ""
 	eff := p.EffectiveRanking()
 	if slices.Equal(eff, DefaultRanking(p.ReleaseRules)) {
 		p.Ranking = nil

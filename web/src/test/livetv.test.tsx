@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { invalidateRegistry } from "../lib/extend";
 import LiveTV from "../pages/livetv/LiveTV";
+import { IPTVProviders } from "../pages/sources/IPTV";
 import { ScheduleTimeline } from "../pages/livetv/ScheduleTimeline";
 import { calls as fakeCalls } from "./harness";
 import { renderAppWith } from "./routes";
@@ -32,6 +33,7 @@ function renderLiveTV(path = "/livetv") {
       <ConfirmRoot />
       <Routes>
         <Route path="/livetv/:tab?" element={<LiveTV />} />
+        <Route path="/sources/iptv" element={<IPTVProviders />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -627,60 +629,73 @@ describe("Live TV source sign-in", () => {
     });
   });
 
-  it("edits an Xtream lineup's channel groups and sends them once on save", async () => {
-    const calls = backend([], (url, init) => {
-      if (url.endsWith("/livetv/sources") && (init?.method ?? "GET") === "GET")
-        return [
-          {
-            id: "x1",
-            name: "Big panel",
-            updatedAt: "2026-10-19T00:00:00Z",
-            hasPlaylist: true,
-            channelCount: 130,
-            auth: {
-              type: "xtream",
-              server: "http://panel.example",
-              username: "me",
-              password: "••••",
+  it.each([true, false])(
+    "edits an Xtream connection with live TV %s and preserves its login",
+    async (useLiveTV) => {
+      const calls = backend([], (url, init) => {
+        if (url.endsWith("/livetv/sources") && (init?.method ?? "GET") === "GET")
+          return [
+            {
+              id: "x1",
+              name: "Big panel",
+              useLiveTV,
+              useVOD: true,
+              updatedAt: "2026-10-19T00:00:00Z",
+              hasPlaylist: useLiveTV,
+              channelCount: 130,
+              auth: {
+                type: "xtream",
+                server: "http://panel.example",
+                username: "me",
+                password: "••••",
+              },
+              account: {
+                status: "Active",
+                trial: true,
+                expiresAt: new Date(Date.now() + 5 * 3600e3).toISOString(),
+                maxConnections: 1,
+                activeConnections: 0,
+                checkedAt: "2026-10-19T00:00:00Z",
+              },
+              groups: [
+                { name: "EVENTS", channels: 20 },
+                { name: "UK | News", channels: 100 },
+                { name: "Adult", channels: 10, adult: true, excluded: true },
+              ],
+              excludeGroups: ["Adult"],
             },
-            account: {
-              status: "Active",
-              trial: true,
-              expiresAt: new Date(Date.now() + 5 * 3600e3).toISOString(),
-              maxConnections: 1,
-              activeConnections: 0,
-              checkedAt: "2026-10-19T00:00:00Z",
-            },
-            groups: [
-              { name: "EVENTS", channels: 20 },
-              { name: "UK | News", channels: 100 },
-              { name: "Adult", channels: 10, adult: true, excluded: true },
-            ],
-            excludeGroups: ["Adult"],
-          },
-        ];
-      return undefined;
-    });
-    renderLiveTV("/livetv?source=x1");
-    expect(await screen.findByText("Allows 1 connection", {}, WAIT)).toBeInTheDocument();
-    expect(screen.getAllByText("Trial").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("tab", { name: /Channel groups/ }));
-    expect(screen.getByText("120 channels will be imported")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("checkbox", { name: /EVENTS/ }));
-    expect(screen.getByText("100 channels will be imported")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("switch", { name: "Include new groups automatically" }));
-    fireEvent.click(screen.getByRole("radio", { name: "My order" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save and re-import" }));
-    await waitFor(() =>
-      expect(sent(calls, "PUT", /\/livetv\/sources\/x1(?:\?|$)/)).toHaveLength(1),
-    );
-    expect(body(sent(calls, "PUT", /\/livetv\/sources\/x1(?:\?|$)/)[0])).toMatchObject({
-      excludeGroups: ["Adult", "EVENTS"],
-      newGroups: "exclude",
-      hideAdult: false,
-      groupOrder: ["UK | News"],
-    });
-  });
+          ];
+        return undefined;
+      });
+      renderLiveTV("/livetv?source=x1");
+      expect(await screen.findByText("Allows 1 connection", {}, WAIT)).toBeInTheDocument();
+      expect(screen.getAllByText("Trial").length).toBeGreaterThan(0);
+      expect(screen.getByRole("switch", { name: "Use for movies & shows" })).toBeChecked();
+      expect(screen.getByRole("switch", { name: "Use for Live TV" })).toHaveProperty(
+        "checked",
+        useLiveTV,
+      );
+      fireEvent.click(screen.getByRole("tab", { name: /Channel groups/ }));
+      expect(screen.getByText("120 channels will be imported")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("checkbox", { name: /EVENTS/ }));
+      expect(screen.getByText("100 channels will be imported")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("switch", { name: "Include new groups automatically" }));
+      fireEvent.click(screen.getByRole("radio", { name: "My order" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save and re-import" }));
+      await waitFor(() =>
+        expect(sent(calls, "PUT", /\/livetv\/sources\/x1(?:\?|$)/)).toHaveLength(1),
+      );
+      expect(body(sent(calls, "PUT", /\/livetv\/sources\/x1(?:\?|$)/)[0])).toMatchObject({
+        auth: { type: "xtream", server: "http://panel.example", username: "me", password: "••••" },
+        useLiveTV,
+        useVOD: true,
+        excludeGroups: ["Adult", "EVENTS"],
+        newGroups: "exclude",
+        hideAdult: false,
+        groupOrder: ["UK | News"],
+      });
+    },
+  );
 
   it("lets a backup input use another source's login", async () => {
     const calls = backend(

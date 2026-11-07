@@ -243,3 +243,24 @@ func StringGUID(kind Kind, value string) (string, error) {
 	return hex.EncodeToString(out[:]), nil
 }
 func (Codecs) StringGUID(kind Kind, value string) (string, error) { return StringGUID(kind, value) }
+
+// CompactBatch uses bounded page allocation when supported by the host.
+func (c Codecs) CompactBatch(ctx context.Context, surface, kind string, refs []string) (map[string]int32, error) {
+	if len(refs) > 250 {
+		return nil, ErrInvalid
+	}
+	if a, ok := c.Allocator.(interface {
+		CompactBatch(context.Context, string, string, []string) (map[string]int32, error)
+	}); ok {
+		return a.CompactBatch(ctx, surface, kind, refs)
+	}
+	out := map[string]int32{}
+	for _, ref := range refs {
+		id, err := c.Compact(ctx, surface, kind, ref)
+		if err != nil {
+			return nil, err
+		}
+		out[ref] = id
+	}
+	return out, nil
+}

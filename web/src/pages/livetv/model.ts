@@ -234,6 +234,9 @@ export type SourceLimitRules = {
 /** Group names match case-insensitively, ignoring surrounding spaces (as the server does). */
 export const normGroup = (name: string) => name.trim().toLowerCase();
 export type Source = {
+  useLiveTV?: boolean;
+  useVOD?: boolean;
+  vodStatus?: { movies: number; series: number; updated: number; error?: string };
   lineupId?: string;
   country?: string;
   postalCode?: string;
@@ -262,6 +265,8 @@ export type Source = {
 } & GroupRules &
   SourceLimitRules;
 export type SourceDraft = {
+  useLiveTV?: boolean;
+  useVOD?: boolean;
   lineupId?: string;
   country?: string;
   postalCode?: string;

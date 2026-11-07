@@ -13,6 +13,7 @@ type SortOrder string
 
 const (
 	SortPopularity SortOrder = "popularity"
+	SortKey        SortOrder = "key"
 	SortTitle      SortOrder = "title"
 	SortReleased   SortOrder = "released"
 	SortYear       SortOrder = "year"
@@ -173,9 +174,11 @@ type Filter struct {
 }
 
 type BrowseQuery struct {
-	// CursorPage is the console-only keyset path; AfterKey is the last returned title.
+	// CursorPage selects the console keyset path. AfterKey is also the exclusive
+	// keyset cursor for SortKey exports.
 	CursorPage bool
 	AfterKey   RatingKey
+
 	// PlaylistSource evaluates a saved smart membership before applying this
 	// query's filters and optional episode-to-parent projection.
 	PlaylistSource      *BrowseQuery
@@ -740,7 +743,8 @@ type MediaInfo struct {
 	// Keyframes is the container's keyframe/cue index, sorted, when it was
 	// read on open or probe; empty when unknown. Not serialized: it can hold
 	// thousands of points (additive).
-	Keyframes []KeyframePoint `json:"-"`
+	Keyframes    []KeyframePoint `json:"-"`
+	CopyTimeline *CopyTimeline   `json:",omitempty"`
 }
 
 func (m MediaInfo) Video() *StreamInfo {

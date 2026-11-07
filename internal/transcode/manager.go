@@ -553,6 +553,7 @@ func (m *Manager) encodingLocked(except string) int {
 // StartHLS implements core.Transcoder. A replacement cannot begin until the
 // prior exact session has completed its process and directory cleanup.
 func (m *Manager) StartHLS(ctx context.Context, req core.HLSRequest) (core.HLSSession, error) {
+	req.Info = core.CloneMediaInfo(req.Info)
 	req.RecoveryStart = core.CloneRecoveryStart(req.RecoveryStart)
 	if req.Resume != nil {
 		resume := *req.Resume
@@ -574,6 +575,9 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	}()
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if !ValidDistributedRamp(req) {
+		return nil, errors.New("transcode: invalid authored ramp")
 	}
 	// No trusted immutable AAC index/provider is wired yet. Reject before any
 	// source preflight or encoder invocation; never infer an AU cursor.
@@ -664,6 +668,10 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	m.mu.Lock()
 	rtxConfig, _ := normalizedRTX(m.cfg.RTXVideo)
 	adapt := adaptiveFromConfig(m.cfg)
+	if req.Ramp.Version != 0 {
+		adapt.FastStart = req.Ramp.Segments > 0
+		adapt.RampSegs, adapt.RampDur = req.Ramp.Segments, req.Ramp.Duration
+	}
 	if enhancementSelected(d) {
 		// Native VSR keeps a steady clock. Lower rungs use ordinary FFmpeg
 		// on that same clock; never change the timeline on a VSR fallback.
@@ -677,6 +685,9 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		// lower rungs, each of which would run an encoder past the cap.
 		adapt.FastStart, adapt.Governor, adapt.Ladder = false, false, false
 		m.log.Debug("transcode cap reached: copy session without encoded ramp, governor or ladder", "session", req.SessionID)
+	}
+	if ValidCopyTimeline(req) {
+		adapt.FastStart, adapt.Governor, adapt.Ladder = false, false, false
 	}
 	rungs := buildRungs(req.Info, d, adapt)
 	if proto == core.ProtocolHLS && d.Container == ContainerMatroska && len(rungs) > 1 {
@@ -708,7 +719,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	}
 	if req.Resume != nil {
 		n := req.Resume.FirstSegment
-		if n < 0 || n > 10000000 || req.Resume.Generation == 0 || req.LiveInput || req.StartOffset != 0 || proto != core.ProtocolHLS || d.VideoCopy || (d.Container != ContainerMPEGTS && d.Container != ContainerFMP4) || time.Duration(n) > time.Duration(1<<63-1)/segDur {
+		if n < 0 || n > 10000000 || req.Resume.Generation == 0 || req.LiveInput || req.StartOffset != 0 || proto != core.ProtocolHLS || (d.VideoCopy && !ValidCopyTimeline(req)) || (d.Container != ContainerMPEGTS && d.Container != ContainerFMP4) || time.Duration(n) > time.Duration(1<<63-1)/segDur {
 			return nil, errors.New("transcode: unsupported authored-timeline resume request")
 		}
 	}

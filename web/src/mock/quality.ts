@@ -86,13 +86,11 @@ export function createQualityMock() {
     if (!client) return fail(400, "unknown_client", "no such app");
     const quality = config.quality;
     const profiles = quality.profiles ?? [];
-    const byName = new Map(profiles.map((p) => [p.name, p]));
     const media = q.mediaType === "movie" || q.mediaType === "tv" ? (q.mediaType as string) : "";
     const applies = (scope: string | undefined) => !media || !scope || scope === media;
-    const pick = (name: string | undefined) => {
-      const found = name ? byName.get(name) : undefined;
-      return found && applies(found.mediaType) ? found : undefined;
-    };
+    // Names are unique per media: the title's media picks the profile.
+    const pick = (name: string | undefined) =>
+      name ? profiles.find((p) => p.name === name && applies(p.mediaType)) : undefined;
     const rules = quality.rules ?? [];
     const ruleIndex = rules.findIndex(
       (r) =>
@@ -102,8 +100,7 @@ export function createQualityMock() {
         contains(client.platform, r.platform) &&
         (!r.userId || r.userId === q.userId) &&
         applies(r.mediaType) &&
-        applies(byName.get(r.profile)?.mediaType) &&
-        byName.has(r.profile),
+        pick(r.profile) !== undefined,
     );
     const rule = ruleIndex >= 0 ? rules[ruleIndex] : undefined;
     let source: NonNullable<QualityLayer["source"]> = "first";

@@ -146,6 +146,7 @@ func (a *App) supportHardware() (diagnostics.HardwareFact, error) {
 func (a *App) supportStorage() (diagnostics.StorageFact, error) {
 	cfg := a.cfg.Get()
 	fact := diagnostics.StorageFact{CacheBudgetBytes: cfg.Cache.BudgetBytes}
+	collectDatabaseStorage(a.db, &fact)
 	fact.Filesystem = supportFilesystem(a.opts.DataDir)
 	if a.cache != nil {
 		dir := a.cache.Directory()

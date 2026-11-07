@@ -2,13 +2,15 @@ package plex
 
 import (
 	"context"
-
+	"crypto/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/diagnostics"
 	"github.com/braedonsaunders/ether/internal/store"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 func (s *Server) observeRequest(r *http.Request, sr *statusRecorder, elapsed time.Duration) {
@@ -31,11 +33,14 @@ func (s *Server) observeRequest(r *http.Request, sr *statusRecorder, elapsed tim
 	ev.Route = r.URL.Path
 	ev.Status = status
 	ev.Bytes = sr.written
+	ev.Range = supportRange(r.Header.Get("Range"))
 	if recording {
 		if kind != diagnostics.KindDevice {
 			s.d.Support.Observe(ev)
 		}
 		ev.Kind = diagnostics.KindRequest
+		ev.Client = s.supportClientFacts(pr, s.declaredCaps(pr), "request")
+		ev.Client.Inputs = supportClientInputs(r)
 		ev.Duration = elapsed
 		ev.Cancelled = r.Context().Err() != nil
 		ev.Query = diagnostics.SafeQuery(r.URL.Query())
@@ -58,8 +63,8 @@ func (s *Server) observePlaybackReported(pr *Request) {
 }
 
 // observePlaybackDecision records a structured resolution for the support
-// capture. It does not copy the username or peer onto the event: the
-// playback object is exported even when those identity flags are off.
+// capture. Viewer identity follows the same explicit export flags as requests;
+// the structured playback object itself never carries usernames or addresses.
 func (s *Server) observePlaybackDecision(ctx context.Context, pr *Request, p *playRequest, ps *core.PlaySession) {
 	if s == nil || s.d.Support == nil || s.d.DecisionTraces == nil || pr == nil || p == nil {
 		return
@@ -73,6 +78,7 @@ func (s *Server) observePlaybackDecision(ctx context.Context, pr *Request, p *pl
 		requested = s.resolveVariantSelection(ctx, pr, p)
 	}
 	pb := diagnostics.PlaybackDecision{
+		TraceScope:         "latest-title-trace-not-request-bound",
 		Profile:            tr.Profile,
 		ProfileMaxHeight:   tr.ProfileMaxHeight,
 		ClientMaxHeight:    tr.ClientMaxHeight,
@@ -90,12 +96,9 @@ func (s *Server) observePlaybackDecision(ctx context.Context, pr *Request, p *pl
 			Rejected: c.Rejected, Reason: c.Reason, Healthy: c.Healthy, HealthChecked: c.HealthChecked,
 		})
 	}
-	ev := diagnostics.Event{
-		Time: s.now(), Kind: diagnostics.KindPlaybackDecision,
-		DeviceKey: pr.ClientID, SessionKey: pr.SessionID,
-		Product: pr.Product, Platform: pr.Platform, Model: pr.Model,
-		Playback: &pb,
-	}
+	ev := s.supportEvent(pr, diagnostics.KindPlaybackDecision)
+	ev.Playback = &pb
+	ev.Client = s.supportClientFacts(pr, p.caps, "admission")
 	if ev.SessionKey == "" && ps != nil {
 		ev.SessionKey = ps.ID
 	}
@@ -139,6 +142,7 @@ func (s *Server) supportEvent(pr *Request, kind diagnostics.Kind) diagnostics.Ev
 	}
 	ev.DeviceKey = pr.ClientID
 	ev.SessionKey = pr.SessionID
+	ev.AttemptKey = pr.supportAttempt
 	ev.DeviceName = pr.DeviceName
 	ev.Device = pr.Device
 	if ev.DeviceName == "" {
@@ -156,4 +160,94 @@ func (s *Server) supportEvent(pr *Request, kind diagnostics.Kind) diagnostics.Ev
 		ev.ViewerID = pr.User.ID
 	}
 	return ev
+}
+
+// Capture the authenticated receipt before a long media handler can block.
+// A start has no response status and does not imply successful delivery.
+func (s *Server) observePlaybackRequestStart(r *http.Request, pr *Request) {
+	if s.d.Support == nil || !s.d.Support.Recording() || pr == nil || pr.User == nil || !diagnostics.PlaybackRequestPath(r.URL.Path) {
+		return
+	}
+	pr.supportAttempt = rand.Text()
+	ev := s.supportEvent(pr, diagnostics.KindRequestStarted)
+	ev.Method, ev.Route = r.Method, r.URL.Path
+	ev.Query = diagnostics.SafeQuery(r.URL.Query())
+	ev.Range = supportRange(r.Header.Get("Range"))
+	ev.Client = s.supportClientFacts(pr, s.declaredCaps(pr), "request")
+	ev.Client.Inputs = supportClientInputs(r)
+	s.d.Support.Observe(ev)
+}
+
+func (s *Server) observeClientAdmission(pr *Request, caps core.ClientCaps) {
+	if s.d.Support == nil || !s.d.Support.Recording() || pr == nil || pr.User == nil {
+		return
+	}
+	ev := s.supportEvent(pr, diagnostics.KindClientCapabilities)
+	ev.Client = s.supportClientFacts(pr, caps, "admission")
+	s.d.Support.Observe(ev)
+}
+
+func (s *Server) supportClientFacts(pr *Request, effective core.ClientCaps, stage string) *diagnostics.ClientFacts {
+	if pr == nil {
+		return nil
+	}
+	base := transcode.PlaybackDefaultsFor(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, nil)
+	owner := transcode.PlaybackDefaultsFor(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, s.cfg().Clients.Overrides)
+	declared := s.declaredCaps(pr)
+	return &diagnostics.ClientFacts{
+		Stage: stage, Registry: base.ID, RegistryMaxHeight: base.MaxHeight, OwnerMaxHeight: owner.MaxHeight,
+		DeclaredMaxHeight: declared.MaxHeight, MaxHeight: effective.MaxHeight, ExplicitMaxHeight: effective.ExplicitMaxHeight,
+		MaxBitrateKbps: effective.MaxBitrateKbps, DefaultRemoteBitrate: effective.DefaultRemoteBitrate, Remote: effective.Remote,
+		HDR10: effective.HDR10, DolbyVision: effective.DolbyVision,
+		VideoCodecs: effective.VideoCodecs, AudioCodecs: effective.AudioCodecs, Containers: effective.Containers,
+	}
+}
+
+func supportClientInputs(r *http.Request) []diagnostics.ClientInput {
+	q := r.URL.Query()
+	var out []diagnostics.ClientInput
+	for _, name := range []string{"X-Plex-Client-Identifier", "X-Plex-Product", "X-Plex-Platform", "X-Plex-Device", "X-Plex-Model", "X-Plex-Version", "X-Plex-Client-Profile-Name", "X-Plex-Client-Profile-Extra", "X-Plex-Client-Capabilities"} {
+		in := diagnostics.ClientInput{Name: name}
+		for k, vs := range r.Header {
+			if strings.EqualFold(k, name) {
+				in.Header = true
+				in.HeaderEmpty = len(vs) == 0 || strings.TrimSpace(vs[0]) == ""
+				break
+			}
+		}
+		for k, vs := range q {
+			if strings.EqualFold(k, name) {
+				in.Query = true
+				in.QueryEmpty = len(vs) == 0 || strings.TrimSpace(vs[0]) == ""
+				break
+			}
+		}
+		out = append(out, in)
+	}
+	return out
+}
+
+// Range is a protocol value, never free-form header text.
+func supportRange(v string) string {
+	if v == "" {
+		return ""
+	}
+	if len(v) > 80 || !strings.HasPrefix(v, "bytes=") {
+		return "omitted"
+	}
+	parts := strings.Split(strings.TrimPrefix(v, "bytes="), "-")
+	if len(parts) != 2 || (parts[0] == "" && parts[1] == "") {
+		return "omitted"
+	}
+	for _, part := range parts {
+		if len(part) > 19 {
+			return "omitted"
+		}
+		for _, c := range part {
+			if c < '0' || c > '9' {
+				return "omitted"
+			}
+		}
+	}
+	return v
 }

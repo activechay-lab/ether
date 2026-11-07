@@ -1518,3 +1518,12 @@ button.catalog-next:hover {
     padding: 10px 16px 24px;
   }
 }
+
+.catalog-results-head p.catalog-search-working {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  font-size: 15px;
+  color: var(--color-fg);
+}

@@ -521,7 +521,7 @@ func TestSourceWorkerDeliveryAndExactRetirement(t *testing.T) {
 		t.Fatal("tampered source digest accepted")
 	}
 	source.mu.Lock()
-	joinedSource := source.sources[sourceKey(record.Fence)]
+	joinedSource := source.sources[sourceKey(record.Fence, 0)]
 	joinedSource.operations++
 	source.mu.Unlock()
 	if details, err := source.PendingDetails(ctx); err != nil || details.SourceCallbacks != 1 || details.Total() == 0 {

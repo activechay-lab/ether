@@ -37,4 +37,4 @@ Decision 4 uses the TypeScript Canvas2D fallback with Go golden parity in the
 console (`web/src/pages/livetv/onair/scene-renderer.ts`). Reproduce its browser
 gates with `tools/onair/README.md`. Cropped scratch buffers, per-job prepared
 fonts/masks and a measured TinyGo spike are possible improvements; none has
-been demonstrated to close the gap. HYPERV03 and Windows were not tested.
+been demonstrated to close the gap. The production server and Windows were not tested.

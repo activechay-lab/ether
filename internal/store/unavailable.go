@@ -10,6 +10,8 @@ import (
 	"syscall"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/braedonsaunders/ether/internal/sockerr"
 )
 
 // IsUnavailable reports whether err means the database server could not be
@@ -27,9 +29,9 @@ func IsUnavailable(err error) bool {
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, driver.ErrBadConn) ||
 		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) ||
-		errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET) ||
-		errors.Is(err, syscall.ECONNABORTED) || errors.Is(err, syscall.EPIPE) ||
-		errors.Is(err, syscall.EHOSTUNREACH) || errors.Is(err, syscall.ENETUNREACH) {
+		sockerr.IsConnRefused(err) || sockerr.IsConnReset(err) ||
+		sockerr.IsConnAborted(err) || errors.Is(err, syscall.EPIPE) ||
+		sockerr.IsUnreachable(err) {
 		return true
 	}
 	var ce *pgconn.ConnectError

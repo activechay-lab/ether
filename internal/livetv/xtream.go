@@ -1,10 +1,10 @@
 package livetv
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/xtream"
+	"io"
 	"net/url"
 	"regexp"
 	"slices"
@@ -22,42 +22,10 @@ import (
 // Panels disagree on JSON types (numbers arrive as strings, ints, bools or
 // null), so every scalar is read through xtValue.
 
-// maxXtreamBytes caps one API document; get_live_streams for a very large
-// lineup is a few megabytes.
-const maxXtreamBytes = 64 << 20
+type xtValue xtream.Value
 
-type xtValue string
-
-func (v *xtValue) UnmarshalJSON(b []byte) error {
-	b = bytes.TrimSpace(b)
-	switch {
-	case len(b) == 0 || string(b) == "null":
-		*v = ""
-	case b[0] == '"':
-		var s string
-		if err := json.Unmarshal(b, &s); err != nil {
-			return err
-		}
-		*v = xtValue(strings.TrimSpace(s))
-	case string(b) == "true":
-		*v = "1"
-	case string(b) == "false":
-		*v = "0"
-	case b[0] == '[' || b[0] == '{':
-		*v = ""
-	default:
-		*v = xtValue(b)
-	}
-	return nil
-}
-
-func (v xtValue) int() int {
-	n, err := strconv.ParseFloat(string(v), 64)
-	if err != nil {
-		return 0
-	}
-	return int(n)
-}
+func (v *xtValue) UnmarshalJSON(b []byte) error { return (*xtream.Value)(v).UnmarshalJSON(b) }
+func (v xtValue) int() int                      { return int(xtream.Value(v).Int()) }
 
 func (v xtValue) truthy() bool { return v != "" && v != "0" && !strings.EqualFold(string(v), "false") }
 
@@ -101,41 +69,25 @@ func newXtreamAPI(s *Service, a *SourceAuth) xtreamAPI {
 	return xtreamAPI{s: s, auth: a, base: strings.TrimRight(strings.TrimSpace(a.Server), "/")}
 }
 
-func (x xtreamAPI) url(action string) string {
-	q := url.Values{"username": {x.auth.Username}, "password": {x.auth.Password}}
-	if action != "" {
-		q.Set("action", action)
-	}
-	return x.base + "/player_api.php?" + q.Encode()
-}
-
 func (x xtreamAPI) get(ctx context.Context, action string, into any) error {
-	if progress := importProgress(ctx); progress != nil {
-		progress.setPhase("playlist")
+	var fetchErr error
+	c := xtream.Client{Base: x.base, Username: x.auth.Username, Password: x.auth.Password, Open: func(ctx context.Context, raw string) (io.ReadCloser, error) {
+		rc, err := x.s.openURL(ctx, raw, x.auth.header())
+		fetchErr = err
+		return rc, err
+	}}
+	err := c.Get(ctx, action, nil, into)
+	if fetchErr != nil {
+		what := "account"
+		switch action {
+		case "get_live_categories":
+			what = "category list"
+		case "get_live_streams":
+			what = "channel list"
+		}
+		return fmt.Errorf("Xtream %s: %w", what, fetchErr)
 	}
-	rc, err := x.s.openURL(ctx, x.url(action), x.auth.header())
-	if err != nil {
-		return fmt.Errorf("Xtream %s: %w", xtreamWhat(action), err)
-	}
-	defer rc.Close()
-	b, err := readLimited(rc, maxXtreamBytes, "playlist")
-	if err != nil {
-		return sourceReadFailure(err, "channel list")
-	}
-	if err := json.Unmarshal(b, into); err != nil {
-		return fmt.Errorf("the Xtream panel sent an unreadable %s reply", xtreamWhat(action))
-	}
-	return nil
-}
-
-func xtreamWhat(action string) string {
-	switch action {
-	case "get_live_categories":
-		return "category list"
-	case "get_live_streams":
-		return "channel list"
-	}
-	return "account"
+	return err
 }
 
 // account signs in and reports the login's state. A login the panel
@@ -165,11 +117,12 @@ func (x xtreamAPI) account(ctx context.Context, now time.Time) (*ProviderAccount
 		acct.ExpiresAt = &t
 	}
 	if acct.Status != "" && !strings.EqualFold(acct.Status, "active") {
-		msg := strings.TrimSpace(u.Message)
-		if msg != "" {
-			return acct, fmt.Errorf("the Xtream account is %s: %s", strings.ToLower(acct.Status), msg)
+		// Panel messages may echo the credential-bearing request URL.
+		switch strings.ToLower(acct.Status) {
+		case "expired", "disabled", "banned":
+			return acct, fmt.Errorf("the Xtream account is %s", strings.ToLower(acct.Status))
 		}
-		return acct, fmt.Errorf("the Xtream account is %s", strings.ToLower(acct.Status))
+		return acct, fmt.Errorf("the Xtream account is not active")
 	}
 	return acct, nil
 }
@@ -216,6 +169,11 @@ func fetchXtream(ctx context.Context, s *Service, src *Source) (Fetched, error) 
 	acct, err := x.account(ctx, s.o.Now())
 	if err != nil {
 		return Fetched{}, err
+	}
+	src.Account = acct
+	if src.LiveTV != nil && !*src.LiveTV {
+		src.PlaylistURL, src.GuideURL = "", ""
+		return Fetched{}, nil
 	}
 	var cats []xtreamCategory
 	if err := x.get(ctx, "get_live_categories", &cats); err != nil {

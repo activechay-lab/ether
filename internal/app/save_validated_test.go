@@ -33,7 +33,7 @@ func TestSaveValidatedRunsConfigValidation(t *testing.T) {
 		t.Fatalf("duplicate profile saved: %v", err)
 	}
 	if err := a.saveValidated(func(c *config.Config) error {
-		c.Quality.Profiles = append(c.Quality.Profiles, core.QualityProfile{Name: "Imported", MaxHeight: 1080, MinHeight: 720})
+		c.Quality.Profiles = append(c.Quality.Profiles, core.QualityProfile{Name: "Imported", MediaType: core.MediaMovie, MaxHeight: 1080, MinHeight: 720})
 		return nil
 	}); err != nil {
 		t.Fatal(err)

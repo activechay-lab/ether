@@ -11,10 +11,11 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	qrcode "github.com/skip2/go-qrcode"
 )
 
-var connectableSurfaces = []string{"jellyfin", "emby", "silo", "stremio", "webdav", "m3u"}
+var connectableSurfaces = []string{"jellyfin", "emby", "silo", "stremio", "webdav", "m3u", "xtream"}
 
 func connectAppUsername(viewer *core.Viewer) string {
 	if viewer == nil {
@@ -146,6 +147,11 @@ func (h *Handler) connectApps(w http.ResponseWriter, r *http.Request, viewer *co
 	case "stremio":
 		u.Path = prefix + "/stremio/" + secret + "/manifest.json"
 		result["url"] = u.String()
+	case "xtream":
+		u.Path = prefix + "/xtream"
+		result["url"] = u.String()
+		result["username"] = frontend.XtreamUsername(secret)
+		result["password"] = secret
 	case "m3u":
 		u.Path = prefix + "/m3u/" + secret + "/playlist.m3u"
 		result["url"] = u.String()

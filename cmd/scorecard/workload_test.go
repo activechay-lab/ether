@@ -102,11 +102,11 @@ func TestWorkloadRejectsNonStagingAndUnmatchedMedia(t *testing.T) {
 		t.Fatal("mismatched delivered hashes accepted")
 	}
 	cfg.Ether.Variables["hash"] = hash
-	cfg.Ether.BaseURL = "http://10.0.0.43:32400"
+	cfg.Ether.BaseURL = "http://192.168.1.50:32400"
 	if validateWorkload(cfg) == nil {
 		t.Fatal("non-loopback target accepted")
 	}
-	if _, e := workloadURL("http://127.0.0.1:18096", workloadStep{URLVariable: "url"}, map[string]string{"url": "http://10.0.0.43:32400/path"}); e == nil {
+	if _, e := workloadURL("http://127.0.0.1:18096", workloadStep{URLVariable: "url"}, map[string]string{"url": "http://192.168.1.50:32400/path"}); e == nil {
 		t.Fatal("cross-origin stream accepted")
 	}
 }

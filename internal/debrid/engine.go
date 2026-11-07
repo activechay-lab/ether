@@ -1631,7 +1631,12 @@ func (e *Engine) send(ctx context.Context, hc *http.Client, u string, start, end
 		return nil, timing{}, err
 	}
 	began = time.Now()
-	resp, err := hc.Do(req)
+	var resp *http.Response
+	if p, ok := ctx.Value(directKey{}).(Payload); ok {
+		resp, err = e.svc.directRequest(hc, req, p)
+	} else {
+		resp, err = hc.Do(req)
+	}
 	switch {
 	case err == nil:
 		e.backoff.success(host)
@@ -1651,6 +1656,9 @@ func (e *Engine) send(ctx context.Context, hc *http.Client, u string, start, end
 			"connect", tm.connect, "ttfb", tm.ttfb, "reused", reused, "bytes", end-start+1, "err", err != nil)
 	}
 	if err != nil {
+		if errors.Is(err, core.ErrStreamLimit) {
+			return nil, tm, err
+		}
 		return nil, tm, fmt.Errorf("debrid: media request: %w: %v", core.ErrSourceUnavailable, sanitize(err))
 	}
 	return resp, tm, nil

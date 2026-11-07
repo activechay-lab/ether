@@ -2,14 +2,14 @@ package debrid
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net"
 	"net/url"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/sockerr"
 )
 
 // Per-host backoff after connection failures. A busy debrid edge node that
@@ -101,22 +101,23 @@ func (b *hostBackoff) success(host string) {
 	}
 }
 
-// isConnReset reports a connection the peer reset.
+// isConnReset reports a connection the peer reset. The text fallback covers
+// errors that carry no errno (stringified transport errors).
 func isConnReset(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, syscall.ECONNRESET) {
+	if sockerr.IsConnReset(err) {
 		return true
 	}
-	// Windows reports WSAECONNRESET, which syscall.ECONNRESET does not match.
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "connection reset") || strings.Contains(msg, "forcibly closed")
 }
 
-// isConnRefused includes wrapped platform errors without relying on their text.
+// isConnRefused reports a refusal by errno (POSIX or Winsock) or, for errors
+// without one, by text.
 func isConnRefused(err error) bool {
-	return errors.Is(err, syscall.ECONNREFUSED) || (err != nil && strings.Contains(strings.ToLower(err.Error()), "connection refused"))
+	return sockerr.IsConnRefused(err) || (err != nil && strings.Contains(strings.ToLower(err.Error()), "connection refused"))
 }
 
 // dialAddr is the host:port the transport dials for a URL (no proxy), the

@@ -26,15 +26,20 @@ func TestStartupClosesOnlyThisNodesPlays(t *testing.T) {
 	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
 	a := New(dbA, Options{Now: clock, NodeID: "node-a"})
+	// Close each service before its database: on Windows a background
+	// registry write still holding ether.db makes t.TempDir cleanup fail.
+	defer a.Close(ctx)
 	if err := a.Record(ctx, &core.PlaySession{ID: "live-on-a", UserID: 1, Key: 5, StartedAt: now, BytesServed: 8 << 20}, false, ""); err != nil {
 		t.Fatal(err)
 	}
 	b := New(dbB, Options{Now: clock, NodeID: "node-b"})
+	defer b.Close(ctx)
 	if err := b.Record(ctx, &core.PlaySession{ID: "live-on-b", UserID: 2, Key: 6, StartedAt: now, BytesServed: 8 << 20}, false, ""); err != nil {
 		t.Fatal(err)
 	}
 	// Node B restarts: its own interrupted play closes, node A's stays live.
-	New(dbB, Options{Now: clock, NodeID: "node-b"})
+	restarted := New(dbB, Options{Now: clock, NodeID: "node-b"})
+	defer restarted.Close(ctx)
 	ended := func(id string) int64 {
 		var e int64
 		if err := dbA.QueryRow(`SELECT ended FROM stats_plays WHERE id=?`, id).Scan(&e); err != nil {

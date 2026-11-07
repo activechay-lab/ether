@@ -239,11 +239,11 @@ func (c *Client) cacheGet(ctx context.Context, key string) ([]core.Release, bool
 		if !ok || now.After(e.expires) {
 			return nil, false
 		}
-		return append([]core.Release(nil), e.results...), true
+		return c.bindReleases(e.results), true
 	}
 	var raw string
 	var exp int64
-	err := c.db.QueryRowContext(ctx, `SELECT results, expires_at FROM newznab_cache WHERE cache_key=?`, key).Scan(&raw, &exp)
+	err := c.db.QueryRowContext(ctx, `SELECT results, expires_at FROM newznab_cache WHERE cache_key=? AND indexer_id=?`, key, c.indexerID()).Scan(&raw, &exp)
 	if err != nil || now.Unix() > exp {
 		return nil, false
 	}
@@ -255,6 +255,7 @@ func (c *Client) cacheGet(ctx context.Context, key string) ([]core.Release, bool
 const emptySearchCacheTTL = 3 * time.Minute
 
 func (c *Client) cachePut(ctx context.Context, key string, results []core.Release) {
+	results = c.bindReleases(results)
 	// The owner's "Remember searches for" is a hard cap: age may only shorten it.
 	ttl := min(searchCacheTTL(c.ttl(), cacheAge(ctx), c.now(), len(results) == 0), c.ttl())
 	if ttl <= 0 {

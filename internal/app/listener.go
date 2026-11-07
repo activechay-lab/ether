@@ -6,8 +6,9 @@ import (
 	"errors"
 	"net"
 	"sync"
-	"syscall"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/sockerr"
 )
 
 // dualListener serves plain HTTP and TLS on one port, as PMS does on 32400:
@@ -89,12 +90,7 @@ func isTemporaryAcceptErr(err error) bool {
 	if errors.As(err, &ne) && ne.Timeout() {
 		return true
 	}
-	for _, errno := range []error{syscall.EMFILE, syscall.ENFILE, syscall.ECONNABORTED, syscall.ECONNRESET} {
-		if errors.Is(err, errno) {
-			return true
-		}
-	}
-	return false
+	return sockerr.IsDescriptorExhausted(err) || sockerr.IsConnAborted(err) || sockerr.IsConnReset(err)
 }
 
 func (d *dualListener) sniff(c net.Conn) {

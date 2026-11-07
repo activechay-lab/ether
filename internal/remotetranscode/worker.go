@@ -46,6 +46,8 @@ type execution struct {
 	starting, stopped, failed bool
 	cancel                    context.CancelFunc
 	timer                     *time.Timer
+	stopDiagnosticJoins       stopJoinObservation
+	stopDiagnosticAt          time.Time // Local log limiter, not retirement authority.
 	monotonicDeadline         time.Time // Local elapsed-time cap; never serialized.
 }
 type Worker struct {
@@ -168,7 +170,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if m.Op == "start" {
-		if m.Start == nil || len(m.Start.ReleaseID) > 512 || m.Start.Identity != m.Identity || len(m.Start.Grant) == 0 || len(m.Start.Grant) > 4096 || !SupportsRequest(core.HLSRequest{Resume: cloneResume(m.Start.Resume), RecoveryStart: core.CloneRecoveryStart(m.Start.RecoveryStart), SoftSubtitleStream: m.Start.SoftSubtitleStream, Protocol: m.Start.Protocol, ReleaseID: m.Start.ReleaseID, Info: startInfo(*m.Start), Decision: m.Start.Decision, StartOffset: m.Start.Offset, SegmentDuration: m.Start.SegmentDuration}, w.opts.Capabilities) {
+		if m.Start == nil || len(m.Start.ReleaseID) > 512 || m.Start.Identity != m.Identity || len(m.Start.Grant) == 0 || len(m.Start.Grant) > 4096 || !SupportsRequest(core.HLSRequest{Ramp: m.Start.Ramp, Resume: cloneResume(m.Start.Resume), RecoveryStart: core.CloneRecoveryStart(m.Start.RecoveryStart), SoftSubtitleStream: m.Start.SoftSubtitleStream, Protocol: m.Start.Protocol, ReleaseID: m.Start.ReleaseID, Info: startInfo(*m.Start), Decision: m.Start.Decision, StartOffset: m.Start.Offset, SegmentDuration: m.Start.SegmentDuration}, w.opts.Capabilities) {
 			http.Error(out, "unsupported start", 422)
 			return
 		}
@@ -232,7 +234,15 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 	s := e.session
 	if m.Op == "status" || m.Op == "stop" {
 		snapshot := w.snapshot(e)
+		var joins stopJoinObservation
+		var logJoins bool
+		if m.Op == "stop" {
+			joins, logJoins = observeStopJoins(e)
+		}
 		w.mu.Unlock()
+		if logJoins {
+			slog.Info("worker stop join observation", "component", "remotetranscode", "session", joins.identity.Session, "generation", joins.identity.Generation, "controller_boot", joins.identity.Controller, "worker_boot", joins.identity.Worker, "admission_stopped", joins.stopped, "starting", joins.starting, "failed", joins.failed, "encoder_done", joins.encoder, "input_done", joins.input, "gateway_input_done", joins.gatewayInput, "terminal_state", snapshot.State)
+		}
 		replyStatus(out, snapshot)
 		return
 	}
@@ -332,7 +342,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	if backend, ok := w.opts.Encoder.(interface{ SupportsDistributedRequest(core.HLSRequest) bool }); ok {
 		var planStart Start
 		_ = json.Unmarshal(encoded, &planStart)
-		plan := core.HLSRequest{Resume: cloneResume(planStart.Resume), RecoveryStart: core.CloneRecoveryStart(planStart.RecoveryStart), ReleaseID: planStart.ReleaseID, Info: startInfo(planStart), Decision: planStart.Decision, StartOffset: planStart.Offset, SegmentDuration: planStart.SegmentDuration, Protocol: planStart.Protocol, SoftSubtitleStream: planStart.SoftSubtitleStream, RequireIndependentProof: planStart.IndependentProof}
+		plan := core.HLSRequest{Ramp: planStart.Ramp, Resume: cloneResume(planStart.Resume), RecoveryStart: core.CloneRecoveryStart(planStart.RecoveryStart), ReleaseID: planStart.ReleaseID, Info: startInfo(planStart), Decision: planStart.Decision, StartOffset: planStart.Offset, SegmentDuration: planStart.SegmentDuration, Protocol: planStart.Protocol, SoftSubtitleStream: planStart.SoftSubtitleStream, RequireIndependentProof: planStart.IndependentProof}
 		if !backend.SupportsDistributedRequest(plan) {
 			http.Error(out, "backend plan unsupported", 422)
 			return
@@ -413,7 +423,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 		// Backend receives separate nested slices/pointers; source renewal and duplicate
 		// starts continue comparing the original immutable payload.
 		backendInfo, backendDecision, backendSoft := startInfo(backendStart), backendStart.Decision, backendStart.SoftSubtitleStream
-		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{Resume: cloneResume(backendStart.Resume), RecoveryStart: core.CloneRecoveryStart(backendStart.RecoveryStart), ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), ManifestSessionID: s.Identity.Session, InputURL: source.URL, InputLease: input, Info: backendInfo, Decision: backendDecision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, SoftSubtitleStream: backendSoft, Protocol: s.Protocol})
+		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{Ramp: backendRamp(backendStart.Ramp), Resume: cloneResume(backendStart.Resume), RecoveryStart: core.CloneRecoveryStart(backendStart.RecoveryStart), ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), ManifestSessionID: s.Identity.Session, InputURL: source.URL, InputLease: input, Info: backendInfo, Decision: backendDecision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, SoftSubtitleStream: backendSoft, Protocol: s.Protocol})
 	}
 	if err == nil && session != nil {
 		if w.opts.Capabilities.Controls {
@@ -661,4 +671,13 @@ func (w *Worker) logAuthDenial(reason string, err error) {
 	w.denialAt, w.denialSkipped = now, 0
 	w.denialMu.Unlock()
 	slog.Warn("worker peer authentication denied", "component", "remotetranscode", "reason", reason, "error", err, "suppressed", skipped)
+}
+
+// Legacy private starts retain their original steady timeline even when the
+// dedicated manager now shares FastStart configuration.
+func backendRamp(r core.HLSRamp) core.HLSRamp {
+	if r.Version == 0 {
+		return core.HLSRamp{Version: 1}
+	}
+	return r
 }

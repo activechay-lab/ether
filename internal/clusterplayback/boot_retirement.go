@@ -174,5 +174,5 @@ func (r *Runtime) preserveDeadBootRecovery(ctx context.Context, route Route) (bo
 		// Unknown admission is not evidence that the session is unrecoverable.
 		return true, nil
 	}
-	return encoderRecoverySupported(a.Request), nil
+	return encoderRecoverySupported(a.Request, a.Route.Encoder), nil
 }

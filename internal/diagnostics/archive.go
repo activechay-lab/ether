@@ -597,6 +597,8 @@ type exportEvent struct {
 	Candidates    []exportCandidate `json:"candidates,omitempty"`
 	Media         *MediaFacts       `json:"media,omitempty"`
 	Playback      *PlaybackDecision `json:"playback,omitempty"`
+	Client        *ClientFacts      `json:"client,omitempty"`
+	Range         string            `json:"range,omitempty"`
 }
 
 func eventsJSONL(events []Event, flags [3]bool, captureID string, uses []secretUse) (string, int, int) {
@@ -641,6 +643,8 @@ func eventsJSONL(events []Event, flags [3]bool, captureID string, uses []secretU
 			row.Media = &m
 		}
 		row.Playback = exportPlayback(e.Playback, flags[0], captureID, uses)
+		row.Client = boundClient(e.Client, uses)
+		row.Range = redactString(e.Range, uses)
 		if len(e.Candidates) > 0 {
 			row.Candidates = make([]exportCandidate, len(e.Candidates))
 			for i, c := range e.Candidates {

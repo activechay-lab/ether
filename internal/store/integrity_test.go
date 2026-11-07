@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -142,14 +142,21 @@ func TestOpenReportsMigrationProgress(t *testing.T) {
 // without corrupting any bytes, and also checks genuine FTS damage afterward.
 func TestQuickCheckFreshFTSReader(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "fts #? alarm.db")
-	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: path}).String()+"?_pragma=journal_mode(WAL)")
+	// The name exercises URI escaping. '?' is reserved in Windows file
+	// names (CreateFile fails, SQLite reports CANTOPEN), so only '#' and '%'
+	// are exercised there.
+	name := "fts #%? alarm.db"
+	if runtime.GOOS == "windows" {
+		name = "fts #% alarm.db"
+	}
+	path := filepath.Join(t.TempDir(), name)
+	db, err := sql.Open("sqlite", sqliteFileURI(path)+"?_pragma=journal_mode(WAL)")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
-	writer, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: path}).String())
+	writer, err := sql.Open("sqlite", sqliteFileURI(path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,5 +191,20 @@ func TestQuickCheckFreshFTSReader(t *testing.T) {
 	res, err = QuickCheck(ctx, db)
 	if err != nil || res.OK || len(res.Findings) == 0 {
 		t.Fatalf("real FTS damage: %+v %v", res, err)
+	}
+}
+
+// A Windows data directory path must reach SQLite as a local path, not as
+// a URI authority ("file://C:%5C..."), or the fresh integrity reader cannot
+// open; other paths keep their escaping.
+func TestIntegrityReaderDSNKeepsWindowsPathsLocal(t *testing.T) {
+	for path, want := range map[string]string{
+		`C:\Users\runner\AppData\Local\Temp\x\ether.db`: "file:///C:/Users/runner/AppData/Local/Temp/x/ether.db?",
+		"/var/lib/ether/fts #? alarm.db":                "file:///var/lib/ether/fts%20%23%3F%20alarm.db?",
+	} {
+		dsn := integrityReaderDSN(path)
+		if !strings.HasPrefix(dsn, want) || !strings.Contains(dsn, "mode=ro") {
+			t.Fatalf("integrityReaderDSN(%q) = %q, want prefix %q", path, dsn, want)
+		}
 	}
 }

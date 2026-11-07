@@ -314,6 +314,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				if s.d.Dashboard != nil {
 					s.d.Dashboard.SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform)
 				}
+				s.observePlaybackRequestStart(r, pr)
 				next.ServeHTTP(w, r)
 				return
 			case err == nil, errors.Is(err, core.ErrUnauthorized), errors.Is(err, core.ErrNotFound):
@@ -336,6 +337,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				writeHTTPError(w, http.StatusForbidden)
 				return
 			}
+			s.observePlaybackRequestStart(r, pr)
 			next.ServeHTTP(w, r)
 			return
 		}

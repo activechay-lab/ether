@@ -64,7 +64,12 @@ func (c *Catalog) countStoredEpisodesBySeries(ctx context.Context, f core.Filter
 	if conds, _ := c.childVisibilityConds(f.ChildVisibility); len(conds) > 0 {
 		return 0, false, nil
 	}
-	if conds, _ := c.childFilterConds("e", f, nil); len(conds) > 0 {
+	// The availability hidden set is the one episode condition counted here:
+	// it is few episodes (the evidence window), subtracted below, where a
+	// direct count would join every stored episode.
+	rest := f
+	rest.HiddenEpisodeGeneration, rest.AvailabilityKeepKeys = "", nil
+	if conds, _ := c.childFilterConds("e", rest, nil); len(conds) > 0 {
 		return 0, false, nil
 	}
 	if f.Group != nil && !f.Group.ParentOnly {
@@ -105,6 +110,28 @@ func (c *Catalog) countStoredEpisodesBySeries(ctx context.Context, f core.Filter
 		if err := c.db.QueryRowContext(ctx, q, vals...).Scan(&hidden); err != nil {
 			return 0, false, err
 		}
+	}
+	if f.HiddenEpisodeGeneration != "" {
+		// Aired episodes of admitted series in the published hidden set,
+		// less those kept and those already excluded above.
+		vals := []any{f.HiddenEpisodeGeneration, c.now().Unix()}
+		q := `SELECT COUNT(*) FROM availability_hidden ah JOIN catalog_titles e ON e.key=ah.rating_key JOIN catalog_titles t ON t.key=e.show_key
+		WHERE ah.kind='episode' AND ah.generation=? AND e.type='episode' AND e.adult=0 AND e.release_known=1 AND e.released_ts<=? AND ` + where
+		vals = append(vals, args...)
+		for _, keys := range [][]core.RatingKey{f.AvailabilityKeepKeys, childExclude} {
+			if len(keys) == 0 {
+				continue
+			}
+			q += ` AND e.key NOT IN (` + placeholders(len(keys)) + `)`
+			for _, k := range keys {
+				vals = append(vals, k)
+			}
+		}
+		var unavailable int
+		if err := c.db.QueryRowContext(ctx, q, vals...).Scan(&unavailable); err != nil {
+			return 0, false, err
+		}
+		hidden += unavailable
 	}
 	return max(known-unaired-hidden, 0), true, nil
 }

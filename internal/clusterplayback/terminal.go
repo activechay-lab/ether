@@ -97,7 +97,7 @@ func (r *Runtime) terminalOperation(ctx context.Context, peer nodewire.Identity,
 		if r.authority == nil || route.Source != r.o.Self {
 			return terminalReply{}, ErrDenied
 		}
-		key := sourceKey(q.Fence)
+		key := sourceKey(q.Fence, route.SourceGeneration)
 		r.mu.Lock()
 		source := r.sources[key]
 		r.mu.Unlock()

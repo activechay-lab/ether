@@ -60,8 +60,9 @@ func newSyncFixture(t *testing.T, tree map[string]string, cfg config.Config) *sy
 
 func trashImported(name, profileID string) core.QualityProfile {
 	return core.QualityProfile{
-		Name:   name,
-		Import: &core.ProfileImport{Source: ImportSourceTrash, App: AppRadarr, Profile: profileID},
+		Name:      name,
+		MediaType: core.MediaMovie,
+		Import:    &core.ProfileImport{Source: ImportSourceTrash, App: AppRadarr, Profile: profileID},
 	}
 }
 
@@ -343,12 +344,12 @@ func TestQualitySyncRespectsOwnership(t *testing.T) {
 	plan := QualityImportPlan{App: AppRadarr, Source: ImportSourceTrash, ProfileID: "hd", Definitions: []core.CustomFormat{format("shared", "Guide definition", nil, titleSpec)}}
 	s := NewQualitySyncer(QualitySyncDeps{})
 	report := QualitySyncReport{}
-	s.apply(&c, "Imported", saved, plan, time.Now(), &report)
+	s.apply(&c, "Imported", core.MediaMovie, saved, plan, time.Now(), &report)
 	if c.Resolver.CustomFormats[0].Name != manual.Name || c.Resolver.CustomFormats[0].ManagedBy != "" {
 		t.Fatal("manual format overwritten")
 	}
-	c.Quality.Profiles[0] = core.QualityProfile{Name: "Imported", MaxHeight: 720}
-	s.apply(&c, "Imported", saved, plan, time.Now(), &report)
+	c.Quality.Profiles[0] = core.QualityProfile{Name: "Imported", MediaType: core.MediaMovie, MaxHeight: 720}
+	s.apply(&c, "Imported", core.MediaMovie, saved, plan, time.Now(), &report)
 	if c.Quality.Profiles[0].Import != nil || c.Quality.Profiles[0].MaxHeight != 720 {
 		t.Fatal("manual replacement overwritten")
 	}

@@ -281,15 +281,7 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 				} else if err == nil {
 					observation = privateReadinessSnapshot{}
 				}
-				p.ready.Store(readiness.ready(time.Now(), err == nil, services, observation.reason))
-				if p.ready.Load() {
-					p.started.Store(true)
-				}
-				if p.ready.Load() {
-					p.protocol.Store(1)
-				} else {
-					p.protocol.Store(0)
-				}
+				a.setPrivateReady(readiness.ready(time.Now(), err == nil, services, observation.reason), &observation)
 				a.recordPrivateReadiness(observation)
 			case <-rotation.C:
 				// Configuration/identity are immutable for this process. Only revalidated
@@ -360,11 +352,7 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 		workers.Wait()
 		return nil, err
 	}
-	p.ready.Store(a.privateServicesReadyObserved(&observation))
-	if p.ready.Load() {
-		p.started.Store(true)
-		p.protocol.Store(1)
-	}
+	a.setPrivateReady(a.privateServicesReadyObserved(&observation), &observation)
 	a.recordPrivateReadiness(observation)
 	return func() {
 		a.drainPrivate()
@@ -457,10 +445,39 @@ func (a *App) markPublicReady() {
 	if p := a.deployment; p != nil {
 		p.publicReady.Store(true)
 		if a.privateServicesReady() {
-			p.started.Store(true)
-			p.ready.Store(true)
-			p.protocol.Store(1)
-			a.recordPrivateReadiness(privateReadinessSnapshot{})
+			var observation privateReadinessSnapshot
+			a.setPrivateReady(true, &observation)
+			a.recordPrivateReadiness(observation)
 		}
 	}
+}
+
+// Advertise the usable service before admitting public traffic. A fresh boot
+// starts with protocol zero in membership; local listener readiness alone does
+// not make that boot an authorized media peer on another server.
+func (a *App) setPrivateReady(usable bool, observation *privateReadinessSnapshot) {
+	p := a.deployment
+	if !usable {
+		p.ready.Store(false)
+		p.protocol.Store(0)
+		return
+	}
+	p.protocol.Store(1)
+	published := a.cluster.Mode() == cluster.ModeSolo
+	if receipt, ok := a.cluster.(interface {
+		PublishedProtocol(uint32) bool
+		Beat()
+	}); ok {
+		published = receipt.PublishedProtocol(1)
+		if !published {
+			receipt.Beat()
+		}
+	}
+	if !published {
+		p.ready.Store(false)
+		*observation = privateReadinessSnapshot{reason: readinessPublication, at: time.Now()}
+		return
+	}
+	p.started.Store(true)
+	p.ready.Store(true)
 }

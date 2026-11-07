@@ -159,6 +159,13 @@ func TestTeardownGraceRetriesRefusal(t *testing.T) {
 			t.Fatalf("slow fetch: %v", err)
 		}
 		cancel()
+		if grace < time.Millisecond {
+			// Windows' monotonic clock advances in steps of up to ~16ms, so a
+			// redial right after the close can measure zero elapsed time and
+			// land inside even a 1ns grace. Wait out one clock step; the
+			// server's 100ms teardown still refuses the redial.
+			time.Sleep(30 * time.Millisecond)
+		}
 		_, err := f.Body(context.Background(), "a@x", nil, core.PriorityLive)
 		return statsFor(f, "p"), err
 	}

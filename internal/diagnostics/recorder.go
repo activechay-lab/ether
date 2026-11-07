@@ -603,6 +603,7 @@ func (r *Recorder) coverageLocked(c *capture) []Gap {
 		{Collector: "cluster", Status: "unavailable", Detail: "Other cluster nodes' events are not included."},
 		{Collector: "protocols", Status: "partial", Detail: "Non-Plex requests require an authenticated, device-bound identity; unrecognized response shapes are not summarized."},
 		{Collector: "artwork", Status: "partial", Detail: "Image requests without device headers are included as unattributed traffic only for the selected viewer. Unauthenticated requests without a device identity cannot be associated. Absence of image requests does not prove the client made none."},
+		{Collector: "playback", Status: "partial", Detail: "Authenticated playback requests without device headers are retained as unattributed traffic for the selected viewer, not proof of a specific device. Request-start observations do not prove a response completed. Raw credentials and arbitrary profile directives are omitted; derived capabilities and header/query presence are recorded. Legacy resolver traces are title-wide, not proof of this request; request-bound admission capabilities are recorded separately."},
 		{Collector: "query", Status: "omitted", Detail: "Unknown query parameter names and values are masked because they may contain credentials or addresses."},
 	}
 	if !c.confirmed {
@@ -642,7 +643,7 @@ func (r *Recorder) acceptLocked(c *capture, e Event) {
 			}
 			return
 		}
-		if e.DeviceKey == "" && e.Kind == KindRequest && ArtworkRequestPath(e.Route) {
+		if e.DeviceKey == "" && ((e.Kind == KindRequest && ArtworkRequestPath(e.Route)) || viewerPlayback(e)) {
 			e.Uncorrelated = true
 		}
 		if c.coalesceEv(e) {
@@ -663,11 +664,11 @@ func (r *Recorder) subjectLocked(c *capture, e Event) bool {
 	if e.DeviceKey == c.deviceKey {
 		return true
 	}
-	// Image loaders may send only the viewer token, without the app's device
+	// Image and media loaders may send only the viewer token, without the app's device
 	// headers. Keep those requests as explicitly unattributed viewer traffic.
 	// Never attach another identified device, viewer, or unauthenticated request.
-	if e.Kind == KindRequest && e.DeviceKey == "" && !e.Uncorrelated &&
-		c.viewerID != 0 && e.ViewerID == c.viewerID && ArtworkRequestPath(e.Route) {
+	if e.DeviceKey == "" && !e.Uncorrelated && c.viewerID != 0 && e.ViewerID == c.viewerID &&
+		((e.Kind == KindRequest && ArtworkRequestPath(e.Route)) || viewerPlayback(e)) {
 		return true
 	}
 	if e.Kind != KindEncoderStarted && e.Kind != KindEncoderFailed {
@@ -702,6 +703,9 @@ func (r *Recorder) seedLocked(c *capture, end time.Time) {
 			return
 		}
 		if r.subjectLocked(c, e) {
+			if e.DeviceKey == "" && ((e.Kind == KindRequest && ArtworkRequestPath(e.Route)) || viewerPlayback(e)) {
+				e.Uncorrelated = true
+			}
 			c.appendEv(e)
 			return
 		}
@@ -825,6 +829,7 @@ func cloneEvent(e Event) Event {
 		e.Media = &m
 	}
 	e.Playback = clonePlayback(e.Playback)
+	e.Client = cloneClient(e.Client)
 	return e
 }
 

@@ -115,10 +115,14 @@ exceed the peer-to-peer budget. A zero bound therefore cannot admit work.
 
 Unknown, failed or stale samples (older than three heartbeat intervals) refuse
 new authority. Local wall elapsed is also compared with monotonic elapsed on
-heartbeats and authority checks: a step above the smaller of 10 ms and one tenth
-of the configured bound (minimum 1 ms) closes admission immediately and logs its
-signed size. A step during a query invalidates that query. Two consecutive good
-samples at or below 80% of the half-bound restore admission automatically.
+heartbeats and authority checks. Paired observations are captured under the
+same guard lock; delayed samples cannot rewind newer proof. Steps above the
+smaller of 10 ms and one tenth of the bound (minimum 1 ms) are logged and carried
+into the estimated offset. A correction within the existing half-bound budget
+remains diagnostic; unknown or out-of-budget uncertainty closes authority.
+Steps during a DB query are reported, with the after-wall estimate and measured
+RTT determining admission. Two consecutive good samples at or below 80% of the
+half-bound restore admission automatically.
 Keep host NTP/time synchronization running; this monitor neither sets clocks nor
 proves an external synchronization service's future drift guarantee. PostgreSQL
 must remain a common stable clock reference for the cluster.
@@ -135,12 +139,12 @@ Existing media remains subject to normal authority/expiry checks, and an outage
 longer than the previously granted lifetime can therefore interrupt playback.
 No retirement or resource reclamation follows from clock failure.
 
-A healthy controller probes encoder eligibility before attempting renewal. Once
-heartbeat diagnostics report a worker's clock quarantine, the failure grace
-triggers replacement on another eligible node without waiting for expiry. If
-that report is delayed, a refused renewal leaves the worker's last accepted
-monotonic deadline intact; its expiry timer self-fences the execution and a
-subsequent status probe triggers the same replacement. Supersession preserves
+A healthy controller probes exact membership and encoder status before renewal.
+Draining or clock quarantine governs new placement; it does not by itself
+replace a healthy execution under an accepted lease. Refused renewal retains
+the worker's last accepted monotonic deadline. Expiry self-fences execution;
+a failed status or membership observation can then trigger recovery.
+Supersession preserves
 old displaced capacity claims until exact retirement proof, advances execution
 generation, and resumes at the delivery watermark. A clock-quarantined controller
 also stops coordinator lease issuance/renewal/adoption; a healthy replica can
@@ -223,7 +227,19 @@ must reject startup/unready/draining nodes for new work.
 
 Health probes use separate private HTTP port 32402: `/livez` for process health,
 `/startupz` for completed provisioning, `/readyz` for service of existing work,
-and `/admissionz` for admission of new work. Self-readiness measures elapsed time
+and `/admissionz` for admission of new work. A fresh clustered boot first
+advertises its usable private protocol, requests a heartbeat, and keeps
+`/readyz` unready, with diagnostic reason `capability_not_published`, until a
+successful owned heartbeat records that exact boot's protocol capability. A local listener or
+local protocol value alone cannot establish readiness. Failed or cancelled
+publication, or conflict with another boot's membership, cannot supply that
+receipt. Peer requests still check current database membership and authority;
+the receipt is startup readiness evidence, not a cached authorization grant.
+Scoped SQLite/PostgreSQL checks on published `6b6a2ab951` cover this receipt and
+an actual replacement-boot conflict. They do not supply live Ingress or playback
+acceptance for that runtime.
+
+Self-readiness measures elapsed time
 since this process completed its last owned heartbeat with Go's monotonic clock;
 it never compares a database timestamp with local wall time. Established service
 gets a 20-second grace after the heartbeat's 20-second freshness window expires.
@@ -566,8 +582,9 @@ redirects and additional delivery hops are refused. Output lives at the encoder;
 optional controller retention is a second copy, never delivery's unique data.
 
 Playback coordination uses a separate SQL lease and monotonically increasing
-epoch (`clusterplayback/6`). Its two-second lease includes twice the configured
-clock-skew bound. A surviving eligible server claims an expired lease by CAS,
+epoch (`clusterplayback/6`). Its two-second base lease is extended by twice the
+configured clock-skew bound. A surviving eligible server claims an expired
+lease by CAS,
 observes the exact healthy worker through status (no Start), and renews its
 placement, source and worker leases. The execution fence/generation and encoder
 process remain unchanged. Worker requests bind the current certificate and
@@ -665,11 +682,47 @@ old generation's claims. Cancellation or an unsupported recovery plan can retire
 the current session after independent source retirement proof. Missing local
 coordinator memory alone never proves that the viewer abandoned playback.
 
-The current coordinator auto-recovery gate accepts MPEG-TS video transcode with
-copied audio, zero initial offset, no live input, no soft-subtitle stream and no
-pre-existing `RecoveryStart`; video-copy and re-encoded audio are refused here.
-Local splice proofs for other formats do not broaden this distributed gate.
-Any change to that gate must be reflected here after integration and validation.
+### Automatic recovery admission
+
+Admission capabilities below describe the published implementation, not measured
+acceptance of a deployed build. Every recovery uses the durable contiguous
+published floor, generation fencing and independent retirement proof.
+
+| Mode | Current admitted scope |
+| --- | --- |
+| Encoded video with copied audio | HLS MPEG-TS video transcode, zero initial offset, no live input, soft subtitles or pre-existing `RecoveryStart`; the admitted authored ramp is preserved |
+| Re-encoded audio | CPU H264 output plus re-encoded AAC from AC3 at 48 or 44.1 kHz; known positive-duration, constant-frame-rate video; durable nonnegative decoded-padding fact; steady plan; output stereo 48 kHz (or those defaults) |
+| Video/audio copy | Only the authenticated, completely verified version-1 H264/AAC MPEG-TS copy timeline described below |
+
+Re-encoded-audio recovery rejects ramps, audio filters, slate, subtitle burn-in,
+tone mapping and enhancement. Automatic ramp authoring skips re-encoded audio;
+the recovery gate requires a steady plan. Copied AAC requires exact ordered AU
+identity; independently encoded AAC instead requires the sample-clock and PCM
+continuity checks in [splice verification](splicecheck.md#re-encoded-aac).
+An offline audio proof does not establish real-cluster recovery acceptance.
+
+With shared FastStart enabled, the server can author a versioned HLS ramp for
+eligible copied-audio H264 transcodes before durable admission. It freezes the
+ramp segment count/duration and steady timeline, so replacements do not reread
+mutable worker settings. Ramp authoring allows TS/fMP4, but the automatic
+encoded-recovery gate above remains MPEG-TS. The private specialist configuration
+no longer unconditionally disables FastStart. Adaptive ladders, their copy-path
+variant, the spike governor and RTX Video enhancement remain disabled there.
+Combined ramp/re-encoded-audio recovery is outside the admitted profile.
+
+Copy recovery requires a complete source-probed timeline, not metadata supplied
+by a client. The bounded version-1 profile has exactly two MPEG-TS streams:
+25 fps H264 without reordered frames and stereo AAC-LC at 48 kHz. Closed-GOP IDRs
+with SPS/PPS every 48 frames align with 90 AAC access units on a 1.92-second grid.
+The entire title must be an exact multiple of that grid, longer than one segment
+and no longer than 120 seconds. Full packet and decoded-frame inspection must
+succeed; source-owner authentication binds the fact and keyframe array to the
+pinned revision before input is issued. Initial and replacement commands both
+copy video and audio. Unknown, long, irregular, open-GOP, reordered or unaligned
+sources remain outside this recovery scope. Ordinary playback and copy seeks do
+not gain a recovery guarantee from an absent proof. See the
+[copy recovery contract](contracts/private-copy-recovery.md).
+
 Controller takeover and stateless delivery behavior are described above; neither
 moves a healthy encoder merely because a public replica disappears.
 
@@ -721,35 +774,27 @@ and restart at floor+1.
 
 ## Known limits and release gates
 
-These limits remain open until their explicit acceptance evidence is recorded.
-Use the bundled FFmpeg (pinned 8.1.3); stock 8.0.x has known fMP4 copy-path test
-failures that also reproduce on the release baseline.
+Use the bundled FFmpeg (pinned 8.1.3). Stock 8.0.x has fMP4 copy-path failures
+that reproduce on its release baseline. Capability changes and package/PG gates
+are separate from deployed playback acceptance; every new runtime needs its own
+placement, client, control and retirement evidence.
 
-- Re-encoded-audio restart timing and multi-rendition quality switches require
-  the AC3 5.1 to AAC kill matrix (TS and fMP4, boundaries 1–8) and adaptive rapid
-  handoff proof on both pinned and stock builds.
-- FastStart has a pre-existing ramp-to-steady clock jump of about 45 ms and one
-  duplicated AAC frame. Uninterrupted and boundary 0–8 kill proofs, with no TTFF
-  regression, are required before claiming seamless FastStart recovery.
-- Cluster Resume refuses video-copy. Ordinary copy seeks retain their behavior.
-- H264 NVENC has local native TS/fMP4 restart-clock proof for its default and
-  negotiated-level frame plans (see [splice verification](splicecheck.md)).
-  Other hardware encoder clocks remain unmeasured; their arguments need separate
-  splice proof before changes.
-- Native NVENC distributed playback, five minutes of clean media and native-node
-  kill to CPU recovery require measured harness evidence. Hardware probing alone
-  does not close this gate.
-- Physical multi-host loss requires a separate host-pause report. A lab memory
-  guard abort or an unperformed fault is pending infrastructure evidence.
-- Normal Stop across replicas requires repeated-session capacity accounting and
-  dead-boot claim retirement confirmation; a Stop HTTP 200 alone is insufficient.
-- The complete role-loss matrix remains required for release. Local Plex and
-  Jellyfin baselines, offline failover tests and negative controls are supporting
-  evidence, not role-loss passes. The mixed-role chart lab gate remains enabled.
+The v0.3.5 loss matrix passes: all 25 software rows (Plex source, transcode,
+delivery and controller loss by force-delete and pause at startup and steady
+state; Jellyfin transcode and controller loss; an Emby baseline) and the five
+mode gates (copied-AAC ramp loss at segments 1, 2 and 3, AC3-to-AAC steady
+recovery, bounded-copy steady recovery), each with zero client stalls, all eight
+media checks, successful controls and cleanup inside 15 s. The table, runtimes
+and fixture limits are in
+[the acceptance guide](kubernetes-acceptance.md#v035-matrix-2026-11-07).
+Native GPU encoder loss with CPU recovery and physical host power loss are not
+measured. Local NVENC restart-clock and software splice proofs remain scoped to
+their recorded tools and media.
 
-See [the acceptance guide](kubernetes-acceptance.md) for exact verdict rules,
-multihost scripts and the evidence index contract. Live reports belong in private
-thread storage, not in this repository.
+See [the acceptance guide](kubernetes-acceptance.md) for component verdict rules
+and the private evidence-index contract. The chart's mixed-role lab
+acknowledgement remains required. Live reports and their hashes belong in
+thread storage, not this repository.
 
 
 Public distributed Stop removes local session admission and seals the exact

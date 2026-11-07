@@ -7,10 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
 )
+
+func init() {
+	store.Register("livetv", 12, `CREATE INDEX livetv_channels_enabled ON livetv_channels(id) WHERE json_extract(data,'$.enabled')=1;`)
+	store.RegisterDialect("livetv", 12, store.Postgres, `CREATE INDEX livetv_channels_enabled ON livetv_channels(id) WHERE (data::jsonb->>'enabled')='true';`)
+}
 
 // Channel access has one source: each viewer's Policy. The owner edits it on
 // the viewer's page (their allowed channels) and on each channel (which
@@ -265,19 +271,48 @@ func sortedKeys(m map[string]bool) []string {
 	return keys
 }
 
-// VisibleTo reports whether Live TV should appear in u's apps at all: the
-// server has at least one channel and the owner has not turned Live TV off
-// for this viewer. The owner's own switch applies to the owner's apps too.
-// It is two indexed lookups, cheap enough for the provider list apps fetch
-// on every launch.
+// VisibleTo reports whether Live TV has an enabled channel this viewer can
+// access. It checks existence in SQL so provider discovery never loads the
+// entire lineup.
 func (s *Service) VisibleTo(ctx context.Context, u *core.User) bool {
 	if u == nil {
 		return false
 	}
-	var one int
-	if err := s.o.DB.QueryRowContext(ctx, `SELECT 1 FROM livetv_channels LIMIT 1`).Scan(&one); err != nil {
+	_, pol, err := s.withPolicy(ctx, u)
+	if err != nil || pol.Disabled {
 		return false
 	}
-	_, pol, err := s.withPolicy(ctx, u)
-	return err == nil && !pol.Disabled
+	d := store.DialectOf(s.o.DB)
+	trueValue := "1"
+	if d == store.Postgres {
+		trueValue = "'true'"
+	}
+	enabled := store.JSONText(d, "data", "enabled") + "=" + trueValue
+	exists := func(where string, args ...any) bool {
+		var one int
+		return s.o.DB.QueryRowContext(ctx, `SELECT 1 FROM livetv_channels WHERE `+where+` LIMIT 1`, args...).Scan(&one) == nil
+	}
+	if u.IsOwner {
+		return exists(enabled)
+	}
+	if !pol.Restricted {
+		private := store.JSONText(d, "data", "private")
+		if exists(enabled + " AND (" + private + " IS NULL OR " + private + "<>" + trueValue + ")") {
+			return true
+		}
+	}
+	ids := pol.Granted
+	if pol.Restricted {
+		ids = pol.Channels
+	}
+	for chunk := range slices.Chunk(ids, 400) {
+		args := make([]any, len(chunk))
+		for i, id := range chunk {
+			args[i] = id
+		}
+		if exists(enabled+" AND id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(chunk)), ",")+")", args...) {
+			return true
+		}
+	}
+	return false
 }

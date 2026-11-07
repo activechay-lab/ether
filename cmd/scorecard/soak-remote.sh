@@ -4,7 +4,7 @@
 # prism-jellyfin, prism-emby, prism-silo or prism-jf-lab-zbv.
 set -euo pipefail
 root=$(git rev-parse --show-toplevel)
-host=${PRISM_TEST_HOST:-braedon@100.123.220.120}
+host=${PRISM_TEST_HOST:?set PRISM_TEST_HOST to user@lab-host}
 profile=${1:-${SOAK_PROFILE:-shakedown}}
 manifest_src=${SOAK_MANIFEST:-/Users/braedonsaunders/.bb/thread-storage/prism-briefs/scorecard-qsb/verified-files.json}
 media_src=${SOAK_MEDIA:-/home/braedon/prism-reference-lab/media}

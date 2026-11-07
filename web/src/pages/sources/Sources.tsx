@@ -6,6 +6,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
 import { DomainPage } from "../../components/layout";
 import { ProwlarrImport } from "../../components/ProwlarrImport";
+import { IPTVProviders } from "./IPTV";
 import { DebridSources } from "./Debrid";
 import { HealthStrip } from "./form";
 import { IndexerList } from "./Indexers";
@@ -20,6 +21,7 @@ const TABS = localized(
     [
       { key: "debrid", label: t("Debrid") },
       { key: "usenet", label: t("Usenet") },
+      { key: "iptv", label: t("IPTV") },
       { key: "indexers", label: t("Indexers") },
       { key: "stats", label: t("Stats") },
     ] as const,
@@ -47,7 +49,9 @@ export default function Sources() {
   function pick(choice: GalleryChoice) {
     const nonce = Date.now();
     setGallery(false);
-    if (choice.type === "debrid") {
+    if (choice.type === "iptv") {
+      navigate(`/sources/iptv?new=${choice.kind}`);
+    } else if (choice.type === "debrid") {
       navigate("/sources/debrid");
       setDebridAdd({ nonce, kind: choice.kind });
     } else if (choice.type === "usenet") {
@@ -68,13 +72,15 @@ export default function Sources() {
       base="/sources"
       tabs={TABS}
       active={top}
-      status={<HealthStrip ids={["usenet", "indexers"]} />}
+      status={top === "iptv" ? undefined : <HealthStrip ids={["usenet", "indexers"]} />}
       actions={
         top !== "stats" ? (
           <>
-            <Button variant="outline" size="sm" onClick={() => setImporting(true)}>
-              {t("Import from Prowlarr")}
-            </Button>
+            {top !== "iptv" ? (
+              <Button variant="outline" size="sm" onClick={() => setImporting(true)}>
+                {t("Import from Prowlarr")}
+              </Button>
+            ) : null}
             <Button size="sm" onClick={() => setGallery(true)}>
               <Plus size={14} /> {t("Add a source")}
             </Button>
@@ -82,12 +88,13 @@ export default function Sources() {
         ) : null
       }
     >
-      {top !== "stats" ? (
+      {top !== "stats" && top !== "iptv" ? (
         <p className="text-sm text-fg-muted">
           {t("Drag a card to choose which account Ether tries first.")}
         </p>
       ) : null}
       {top === "debrid" ? <DebridSources addKind={debridAdd} /> : null}
+      {top === "iptv" ? <IPTVProviders /> : null}
       {top === "usenet" ? <UsenetProviders addNonce={usenetAdd} /> : null}
       {top === "indexers" ? (
         <>

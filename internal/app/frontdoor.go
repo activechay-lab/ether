@@ -14,6 +14,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/admin"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/sockerr"
 	"github.com/braedonsaunders/ether/internal/startup"
 )
 
@@ -159,7 +160,7 @@ func bindPort(server config.Server, envPort bool) (net.Listener, bool, error) {
 	if err == nil {
 		return ln, false, nil
 	}
-	if server.Port != config.DefaultPort || !addrInUse(err) || envPort {
+	if server.Port != config.DefaultPort || !sockerr.IsAddrInUse(err) || envPort {
 		return nil, false, fmt.Errorf("listen %s: %w", addr, err)
 	}
 	for _, port := range fallbackPorts {

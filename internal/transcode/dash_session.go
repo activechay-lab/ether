@@ -177,26 +177,34 @@ func (s *Session) ServeManifest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// commonDoneLocked is the highest segment finished on the primary video
-// and audio tracks (ladder rungs do not gate the manifest).
+// commonDoneLocked is the highest segment finished on a video rendition and
+// every audio track. Only one video rung is produced at a time: pinning the
+// live edge to the primary would freeze it after a client selects a lower rung.
+// Other video renditions remain lazy and are produced when requested.
 func (s *Session) commonDoneLocked() int {
+	hasVideo := false
+	for _, rep := range s.dash.reps {
+		hasVideo = hasVideo || rep.Kind == "video"
+	}
 	common := -1
-	seen := false
 	for i, rep := range s.dash.reps {
-		if !(rep.Kind == "audio" || i == 0) || i >= len(s.done) {
+		if i >= len(s.done) || (hasVideo && rep.Kind != "video") {
 			continue
 		}
-		if !seen {
-			seen = true
-			for n := range s.done[i] {
-				if n > common {
-					common = n
+		for n, done := range s.done[i] {
+			if !done || n <= common {
+				continue
+			}
+			complete := true
+			for a, track := range s.dash.reps {
+				if track.Kind == "audio" && (a >= len(s.done) || !s.done[a][n]) {
+					complete = false
+					break
 				}
 			}
-			continue
-		}
-		for common >= 0 && !s.done[i][common] {
-			common--
+			if complete {
+				common = n
+			}
 		}
 	}
 	return common

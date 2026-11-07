@@ -81,8 +81,8 @@ func TestDistributedRequestUsesExactProbedPlan(t *testing.T) {
 	}
 	m, req = distributedFixture()
 	m.cfg.FastStart = true
-	if m.SupportsDistributedRequest(req) {
-		t.Fatal("mutable dedicated-manager policy admitted")
+	if !m.SupportsDistributedRequest(req) {
+		t.Fatal("legacy private steady request rejected")
 	}
 	m, req = distributedFixture()
 	req.Decision.VideoCopy = false

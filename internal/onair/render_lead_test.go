@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -114,39 +115,45 @@ func TestImminentMasterEscapesStarvedBackground(t *testing.T) {
 // Once live preparation starts, crossing its boundary cannot hand the lane back
 // to background work or let denser short moments repeatedly cancel the master.
 func TestImminentMasterRetainsLaneAcrossBoundary(t *testing.T) {
-	started, release := make(chan struct{}), make(chan struct{})
-	segment := PluginSegment{Document: scene.Document{V: 1, Moment: "plugin:weather/forecast", Duration: 120}, Expires: time.Now().Add(time.Hour), Version: "stable"}
-	s := testService(t, Options{StaticRequests: func(context.Context, string) []core.ClipRequest { return []core.ClipRequest{{Moment: "disabled"}} }, PluginSegment: func(string) (PluginSegment, bool) { return segment, true }, Acquire: func(ctx context.Context) (context.Context, func(), error) { return ctx, func() {}, nil }, Render: func(ctx context.Context, d scene.Document, _ raster.Bindings, out string) error {
-		if d.Moment == segment.Document.Moment {
-			close(started)
-			select {
-			case <-release:
-			case <-ctx.Done():
-				return ctx.Err()
+	// The bubble clock moves only when every goroutine is blocked, so the worker
+	// always admits the job before its 50ms boundary and the boundary passes
+	// only while the render is held. On real time a loaded -race runner could
+	// reach the job after the boundary, when process rightly drops it as obsolete.
+	synctest.Test(t, func(t *testing.T) {
+		started, release := make(chan struct{}), make(chan struct{})
+		segment := PluginSegment{Document: scene.Document{V: 1, Moment: "plugin:weather/forecast", Duration: 120}, Expires: time.Now().Add(time.Hour), Version: "stable"}
+		s := testService(t, Options{StaticRequests: func(context.Context, string) []core.ClipRequest { return []core.ClipRequest{{Moment: "disabled"}} }, PluginSegment: func(string) (PluginSegment, bool) { return segment, true }, Acquire: func(ctx context.Context) (context.Context, func(), error) { return ctx, func() {}, nil }, Render: func(ctx context.Context, d scene.Document, _ raster.Bindings, out string) error {
+			if d.Moment == segment.Document.Moment {
+				close(started)
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
+			return os.WriteFile(out, []byte("master"), 0600)
+		}})
+		request := core.ClipRequest{Moment: segment.Document.Moment, Boundary: time.Now().Add(50 * time.Millisecond)}
+		s.Ensure(t.Context(), request)
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("plugin did not start")
 		}
-		return os.WriteFile(out, []byte("master"), 0600)
-	}})
-	request := core.ClipRequest{Moment: segment.Document.Moment, Boundary: time.Now().Add(50 * time.Millisecond)}
-	s.Ensure(t.Context(), request)
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("plugin did not start")
-	}
-	time.Sleep(75 * time.Millisecond)
-	s.Ensure(t.Context(), core.ClipRequest{LookID: "nocturne", Moment: "ident", Boundary: time.Now().Add(time.Second)})
-	close(release)
-	deadline := time.Now().Add(time.Second)
-	for {
-		if _, ok := s.Clip(t.Context(), request); ok {
-			break
+		time.Sleep(75 * time.Millisecond)
+		s.Ensure(t.Context(), core.ClipRequest{LookID: "nocturne", Moment: "ident", Boundary: time.Now().Add(time.Second)})
+		close(release)
+		deadline := time.Now().Add(time.Second)
+		for {
+			if _, ok := s.Clip(t.Context(), request); ok {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("active plugin canceled after boundary")
+			}
+			time.Sleep(time.Millisecond)
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("active plugin canceled after boundary")
-		}
-		time.Sleep(time.Millisecond)
-	}
+	})
 }
 
 func TestLivePreparationOrdersByRequiredStart(t *testing.T) {

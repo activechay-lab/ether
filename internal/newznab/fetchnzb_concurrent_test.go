@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -145,7 +144,7 @@ func TestFetchNZBConcurrentSameID(t *testing.T) {
 	if got := logs.failedSaves(); got != 0 {
 		t.Fatalf("%d save NZB rename failures logged", got)
 	}
-	disk, err := os.ReadFile(filepath.Join(dir, "concurrent1.nzb"))
+	disk, err := os.ReadFile(c.nzbDiskPath(rel.ID))
 	if err != nil {
 		t.Fatalf("saved NZB missing: %v", err)
 	}
@@ -226,7 +225,7 @@ func TestFetchNZBLeaderCancelOthersSucceed(t *testing.T) {
 	if got := hits.Load(); got != 1 {
 		t.Fatalf("server hits = %d, want 1", got)
 	}
-	if disk, err := os.ReadFile(filepath.Join(dir, "cancel1.nzb")); err != nil || !bytes.Equal(disk, served) {
+	if disk, err := os.ReadFile(c.nzbDiskPath(rel.ID)); err != nil || !bytes.Equal(disk, served) {
 		t.Fatalf("disk cache after leader cancel = %d bytes, %v", len(disk), err)
 	}
 }

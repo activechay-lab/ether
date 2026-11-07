@@ -9,8 +9,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"syscall"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/sockerr"
 )
 
 // ErrEndpointUnavailable means an explicit refusal, absent DNS name, or no
@@ -102,7 +103,7 @@ func New(endpoint string, config *tls.Config, timeout time.Duration, check func(
 		raw, e := (&net.Dialer{}).DialContext(ctx, network, addr)
 		if e != nil {
 			var dns *net.DNSError
-			if ctx.Err() == nil && (errors.Is(e, syscall.ECONNREFUSED) || errors.Is(e, syscall.ENETUNREACH) || errors.Is(e, syscall.EHOSTUNREACH) || errors.As(e, &dns) && dns.IsNotFound) {
+			if ctx.Err() == nil && (sockerr.IsConnRefused(e) || sockerr.IsUnreachable(e) || errors.As(e, &dns) && dns.IsNotFound) {
 				return nil, ErrEndpointUnavailable
 			}
 			return nil, errors.New("outbound: connection denied")

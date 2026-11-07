@@ -123,6 +123,20 @@ the full preset; the chart maps each specialist pool to its fixed responsibility
 There is no runtime role mutation or automatic safe scale-down. Use explicit
 drain and sequential UID-safe replacement for rollouts; keep identity PVCs.
 
+Shared playback settings are not Helm values. Eligible copied-audio FastStart
+is authored once by the server and transported as an immutable ramp/timeline;
+the specialist no longer forces FastStart off. Automatic ramp authoring skips
+re-encoded audio, whose admitted recovery profile is steady. Private specialists
+still disable adaptive ladders (including under-copy), the spike governor and
+RTX Video enhancement. Remux recovery requires the bounded authenticated source
+timeline, not a Helm setting. See
+[automatic recovery admission](kubernetes.md#automatic-recovery-admission).
+
+Fresh-boot `/readyz` waits for an owned heartbeat publication of that boot's
+usable protocol capability. Probe timing values cannot replace this receipt or
+relax peer membership/fencing checks. Successful publication is readiness
+proof; real playback/control/retirement acceptance remains separate.
+
 For Linux NVIDIA pods, overlay `packaging/kubernetes/nvidia.values.yaml`, install
 the external driver/toolkit/device plugin, label nodes `ether.plex/gpu=nvidia`
 and request `nvidia.com/gpu: 1`. Pool `resources` completely replaces global

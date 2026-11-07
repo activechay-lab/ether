@@ -17,8 +17,9 @@ this is not a universal wall-clock recovery guarantee.
 Replacement selection excludes the failed node and keeps the current source
 owner, revision, release and prepared PlayID. A source-generation counter resets
 for the new encoder generation. The original admitted profile, quality decision
-and audio-copy plan are retained. The supported recovery path is fixed-grid,
-single-rung MPEG-TS HLS with reencoded video and copied audio. Remux, subtitle,
+and audio plan are retained. The supported recovery path is fixed-grid,
+single-rung MPEG-TS HLS with reencoded video and copied audio, or the bounded
+reencoded-audio profile below. Remux, subtitle,
 DASH, HTTP, live and prior byte-cursor recovery requests retain their existing
 contracts and do not acquire this recovery path.
 
@@ -88,3 +89,39 @@ old-session history loss, and explicit permanent-node removal/tombstone fencing.
 fixture. It proves the ownership/control invariant, not real video decoding,
 PTS/audio continuity, PostgreSQL runtime behavior or zero client stalls. Those
 require the release coordinator's real playback failure matrix.
+
+## Reencoded AAC profile and acceptance prerequisites
+
+Automatic buffering, recovery and dead-boot preservation share one eligibility
+predicate using the immutable request and selected encoder. Reencoded audio is
+initially limited to steady software H264 (`cpu` route / libx264), AC3 input at
+48kHz or 44.1kHz with retained nonnegative decoded-padding facts, and stereo AAC
+output at 48kHz (explicit or encoder default). Video must have a known fixed
+frame rate and VOD duration. Ramps, audio filters, enhancement/tone mapping,
+burned/soft subtitles, live input, seeking, copy video and alternate protocols
+are excluded. Automatic retention still requires a single rung. Replacement
+selection, including capacity retries, rejects hardware candidates for this
+profile; copied-audio eligibility is not expanded to new GPU profiles.
+
+`TestReencodedAACLossRecoveryInvariant` reuses the ownership/fencing invariant
+and asserts unchanged source probe facts as well as the decision. Focused exit,
+partition and boot-before-recovery cases pass against SQLite and disposable
+PostgreSQL 14. They do not constitute live-cluster acceptance. The pinned
+8.1.3-Jellyfin `TestIntegrationReencodedAudioGridRestart/48000/mpegts` boundary
+passes with zero missing/overlapping samples and 38.93 dB SNR. This uses decoded
+PCM, sample-grid and reference-boundary checks, never literal AAC AU equality.
+Historical encoded-audio restart evidence at `0f7d58e9a77` and its subsequent
+combined matrix remains applicable; copied audio retains its separate AU oracle.
+
+Coordinated runtime acceptance requires the immutable HLSRamp authoring/transport
+implementation (not merely the core value type), matching server/CPU worker
+builds, and two software workers with available placement capacity. Author a
+steady request (`Ramp.Segments == 0`), use a seekable AC3 5.1 source with known
+rate/padding, negotiate H264/AAC stereo MPEG-TS HLS, and verify the durable route
+says `cpu`. Existing MPEG4/copied-AAC lab media does not exercise this case.
+Retain a contiguous prefix, fault the owning encoder under the harness's lock
+and marker protocol, and verify generation G+1 resumes at floor+1 with unchanged
+probe/decision/ramp facts. Compare the joined output against an uninterrupted
+reference using `splicecheck.Options{ReencodedAudio: true, Reference: ...}`;
+measure player stalls separately. The release coordinator owns activation and
+runtime acceptance; these offline checks make no claim about live player stalls.

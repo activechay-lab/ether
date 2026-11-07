@@ -132,6 +132,7 @@ export function SourceCard({
 }
 
 export type GalleryChoice =
+  | { type: "iptv"; kind: "xtream" | "playlist" | "guide" | "addon" }
   | { type: "debrid"; kind: DebridKind }
   | { type: "usenet" }
   | { type: "site" }
@@ -190,14 +191,14 @@ function GalleryGroup({
   children,
 }: {
   title: string;
-  hint: string;
+  hint?: string;
   children: ReactNode;
 }) {
   return (
     <section aria-label={title} className="space-y-3">
       <div>
         <h3 className="text-sm font-semibold text-fg">{title}</h3>
-        <p className="text-sm text-fg-muted">{hint}</p>
+        {hint ? <p className="text-sm text-fg-muted">{hint}</p> : null}
       </div>
       <div className="grid gap-3 sm:grid-cols-2">{children}</div>
     </section>
@@ -251,6 +252,28 @@ export function AddSourceGallery({
               "Host, username and password from your Usenet plan. Ether tries providers in order.",
             )}
             onClick={() => onPick({ type: "usenet" })}
+          />
+        </GalleryGroup>
+        <GalleryGroup title={t("IPTV")}>
+          <GalleryButton
+            name={t("Xtream Codes login")}
+            description={`${t("Live TV")} · ${t("Movies & shows index")}`}
+            onClick={() => onPick({ type: "iptv", kind: "xtream" })}
+          />
+          <GalleryButton
+            name={t("M3U playlist")}
+            description={t("An M3U playlist, optionally with a guide.")}
+            onClick={() => onPick({ type: "iptv", kind: "playlist" })}
+          />
+          <GalleryButton
+            name={t("Plugin source")}
+            description={t("Live TV")}
+            onClick={() => onPick({ type: "iptv", kind: "addon" })}
+          />
+          <GalleryButton
+            name={t("Guide source")}
+            description={t("XMLTV listings for any channel.")}
+            onClick={() => onPick({ type: "iptv", kind: "guide" })}
           />
         </GalleryGroup>
         <GalleryGroup

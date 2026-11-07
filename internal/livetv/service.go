@@ -32,6 +32,7 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 }
 
 type Service struct {
+	vodRefreshMu       sync.Mutex
 	maintenance        maintenanceHealth
 	virtualGuide       virtualGuideCache
 	breakObserved      chan breakObservation
@@ -122,7 +123,8 @@ func New(o Options) (*Service, error) {
 		s.wg.Add(1)
 		go s.breakLoop()
 	}
-	s.wg.Add(3)
+	s.wg.Add(4)
+	go s.vodLoop()
 	go s.maintain()
 	go s.refreshLoop()
 	go s.healthSweepLoop()
@@ -1829,6 +1831,10 @@ func (s *Service) Sources(ctx context.Context) ([]Source, error) {
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
+	rows.Close()
+	for i := range out {
+		s.fillVODStatus(ctx, &out[i])
+	}
 	return out, s.fillSourceStats(ctx, out)
 }
 func (s *Service) readURL(ctx context.Context, raw string, max int64) (string, error) {
@@ -1905,6 +1911,9 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 	// Bulk edits share this source lock, so refresh cannot restore a stale
 	// enabled/favourite/group snapshot over an edit that already succeeded.
 	if err := s.lockSourceEdits(ctx, tx, []string{src.ID}); err != nil {
+		return src, err
+	}
+	if err := s.invalidateVODConnection(ctx, tx, src); err != nil {
 		return src, err
 	}
 	// Writing the source row first takes its row lock, so a concurrent save
@@ -2058,6 +2067,12 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 		}
 	}
 	s.forgetSourceAuth(src.ID)
+	if err == nil && src.Auth != nil && src.Auth.Type == "xtream" {
+		_, _ = s.o.DB.ExecContext(ctx, `UPDATE xtream_vod_refresh SET next=0 WHERE provider=?`, src.ID)
+		if s.o.VODChanged != nil {
+			s.o.VODChanged()
+		}
+	}
 	src = storedSource(src)
 	src.HasPlaylist = src.Playlist != "" || src.PlaylistURL != ""
 	src.HasGuide = src.Kind == "plex" || src.Guide != "" || src.GuideURL != ""
@@ -2283,8 +2298,11 @@ func (s *Service) DeleteSource(ctx context.Context, id string) error {
 		return err
 	}
 	defer tx.Rollback()
+	if err = s.lockSourceEdits(ctx, tx, []string{id}); err != nil {
+		return err
+	}
 	d := store.DialectOf(s.o.DB)
-	for _, q := range []string{`DELETE FROM livetv_channels WHERE ` + store.JSONText(d, "data", "sourceId") + `=?`, `DELETE FROM livetv_programmes WHERE source_id=?`, `DELETE FROM livetv_sources WHERE id=?`, `DELETE FROM livetv_guide_channels WHERE source_id=?`,
+	for _, q := range []string{`DELETE FROM livetv_channels WHERE ` + store.JSONText(d, "data", "sourceId") + `=?`, `DELETE FROM livetv_programmes WHERE source_id=?`, `DELETE FROM livetv_sources WHERE id=?`, `DELETE FROM xtream_vod WHERE provider=?`, `DELETE FROM xtream_vod_refresh WHERE provider=?`, `DELETE FROM livetv_guide_channels WHERE source_id=?`,
 		`UPDATE livetv_channels SET data=` + store.JSONRemove(d, "data", "guideSourceId") + ` WHERE ` + store.JSONText(d, "data", "guideSourceId") + `=?`} {
 		if _, err = tx.ExecContext(ctx, q, id); err != nil {
 			return err
@@ -2296,6 +2314,9 @@ func (s *Service) DeleteSource(ctx context.Context, id string) error {
 	err = tx.Commit()
 	if err == nil {
 		s.invalidate("", id)
+		if s.o.VODChanged != nil {
+			s.o.VODChanged()
+		}
 		if err = s.refreshVirtualGuide(ctx); err != nil {
 			return err
 		}

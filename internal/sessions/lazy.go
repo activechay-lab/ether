@@ -392,6 +392,7 @@ func (s *lazyStreams) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+
 	req.Caps.Remote = req.Caps.Remote || s.remote(r)
 	fresh, err := s.broker.confirm(ctx, viewer, req.Caps)
 	if err != nil || (req.Item == 0) == (req.Channel == "") {
@@ -453,6 +454,16 @@ func (s *lazyStreams) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.broker.releaseLazyHeartbeat()
 		}
 	}()
+	if s.protocol == "xtream" {
+		streamCtx, release, err := s.acquireXtreamConnection(r, reference, viewerID, strconv.FormatInt(int64(req.Item), 10)+"/"+req.Channel)
+		if err != nil {
+			http.Error(w, "Connection limit reached", http.StatusTooManyRequests)
+			return
+		}
+		defer release()
+		ctx = streamCtx
+		r = r.WithContext(ctx)
+	}
 	unlock, err := s.broker.gates.Acquire(ctx, "lazy/"+hash)
 	if err != nil {
 		http.NotFound(w, r)

@@ -18,21 +18,22 @@ import (
 type privateReadinessReason string
 
 const (
-	readinessCluster  privateReadinessReason = "cluster_mismatch"
-	readinessMissing  privateReadinessReason = "self_missing"
-	readinessBoot     privateReadinessReason = "boot_mismatch"
-	readinessStale    privateReadinessReason = "age_at_or_above_maximum"
-	readinessNotLive  privateReadinessReason = "not_live"
-	readinessRoles    privateReadinessReason = "invalid_roles"
-	readinessPool     privateReadinessReason = "set_pool"
-	readinessTarget   privateReadinessReason = "set_target"
-	readinessRuntime  privateReadinessReason = "runtime_not_ready"
-	readinessPublic   privateReadinessReason = "public_not_ready"
-	readinessListener privateReadinessReason = "private_listener_failed"
-	readinessIdentity privateReadinessReason = "mounted_identity_changed"
-	readinessRotation privateReadinessReason = "credential_rotation_failed"
-	readinessClosed   privateReadinessReason = "private_closed"
-	readinessQuota    privateReadinessReason = "initial_quota_read"
+	readinessCluster     privateReadinessReason = "cluster_mismatch"
+	readinessMissing     privateReadinessReason = "self_missing"
+	readinessBoot        privateReadinessReason = "boot_mismatch"
+	readinessStale       privateReadinessReason = "age_at_or_above_maximum"
+	readinessNotLive     privateReadinessReason = "not_live"
+	readinessRoles       privateReadinessReason = "invalid_roles"
+	readinessPool        privateReadinessReason = "set_pool"
+	readinessTarget      privateReadinessReason = "set_target"
+	readinessRuntime     privateReadinessReason = "runtime_not_ready"
+	readinessPublic      privateReadinessReason = "public_not_ready"
+	readinessPublication privateReadinessReason = "capability_not_published"
+	readinessListener    privateReadinessReason = "private_listener_failed"
+	readinessIdentity    privateReadinessReason = "mounted_identity_changed"
+	readinessRotation    privateReadinessReason = "credential_rotation_failed"
+	readinessClosed      privateReadinessReason = "private_closed"
+	readinessQuota       privateReadinessReason = "initial_quota_read"
 )
 
 type privateReadinessSnapshot struct {

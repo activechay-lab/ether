@@ -172,16 +172,18 @@ type PluginService interface {
 }
 
 // ProfileInfo is one quality profile with its ranking and rules.
+// A profile serves one media; a movie and a TV profile may share a name.
 type ProfileInfo struct {
 	Name    string
+	Media   string // core.MediaMovie or core.MediaTV
 	Ranking []string
 	Rules   []core.ReleaseRule
 }
 
 type ProfileService interface {
 	Profiles(ctx context.Context) ([]ProfileInfo, error)
-	SetRanking(ctx context.Context, profile string, ranking []string) error
-	AddRule(ctx context.Context, profile string, rule core.ReleaseRule) error
+	SetRanking(ctx context.Context, profile, media string, ranking []string) error
+	AddRule(ctx context.Context, profile, media string, rule core.ReleaseRule) error
 }
 
 // FrontendInfo is one client protocol frontend.

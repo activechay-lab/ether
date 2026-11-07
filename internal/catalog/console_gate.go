@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"strconv"
+
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
@@ -9,7 +11,20 @@ import (
 func (c *Catalog) SetConsoleGatePolicies(provider func() (string, string)) {
 	c.consoleGatePolicies.Store(&provider)
 }
-func (c *Catalog) ConsoleGateChanged() { c.writeGen.Add(1) }
+
+// ConsoleGateChanged records a new published hidden set. Ordinary browse
+// filters carry the generations they read, so only release-gate results
+// are keyed by it (consoleGateKey); the catalogue's other caches stay.
+func (c *Catalog) ConsoleGateChanged() { c.consoleGateGen.Add(1) }
+
+// consoleGateKey separates cached release-gate results by hidden-set
+// publication; it is empty for filters without a release gate.
+func (c *Catalog) consoleGateKey(f core.Filter) string {
+	if !hasConsoleGate(f) {
+		return ""
+	}
+	return "|gate-gen:" + strconv.FormatUint(c.consoleGateGen.Load(), 10)
+}
 func (c *Catalog) consoleGateConditions(f core.Filter) ([]string, []any) {
 	if f.ReleaseGate == "" {
 		return nil, nil
@@ -63,5 +78,5 @@ func (c *Catalog) consoleAvailabilityCacheKey(f core.Filter) string {
 			key += "|gate:" + movie + ":" + show
 		}
 	}
-	return key
+	return key + c.consoleGateKey(f)
 }

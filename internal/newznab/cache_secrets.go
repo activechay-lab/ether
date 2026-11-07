@@ -169,6 +169,7 @@ func mapHeaders(r *core.Release, fn func(string) (string, bool)) bool {
 // encodeCached is the stored form of results; ok is false when they
 // cannot be stored without a secret.
 func (c *Client) encodeCached(results []core.Release) (string, bool) {
+	results = c.bindReleases(results)
 	secrets := c.cacheSecrets()
 	out := make([]core.Release, len(results))
 	for i, r := range results {
@@ -191,14 +192,17 @@ func (c *Client) encodeCached(results []core.Release) (string, bool) {
 	return string(raw), true
 }
 
-// decodeCached reads a stored row (current or legacy format).
+// decodeCached verifies the client/configuration binding of a stored row.
 func (c *Client) decodeCached(raw string) ([]core.Release, bool) {
 	var doc cachedResults
-	if json.Unmarshal([]byte(raw), &doc) != nil || doc.Format != cacheFormat {
+	if json.Unmarshal([]byte(raw), &doc) != nil || doc.Format != cacheFormat || doc.Identity != searchIdentity(c.Config()) {
 		return nil, false
 	}
 	secrets := c.cacheSecrets()
 	for i := range doc.Releases {
+		if id := doc.Releases[i].IndexerID; id != "" && id != c.indexerID() {
+			return nil, false
+		}
 		for _, p := range releaseLinks(&doc.Releases[i]) {
 			v, ok := hydrateLink(*p, secrets)
 			if !ok {
@@ -210,7 +214,14 @@ func (c *Client) decodeCached(raw string) ([]core.Release, bool) {
 			return nil, false
 		}
 	}
-	return doc.Releases, true
+	// An older row may lack the binding, but only this exact client-owned,
+	// configuration-matching cache row can supply it; never use its URL/name.
+	for i := range doc.Releases {
+		if doc.Releases[i].IndexerID == "" && !c.Config().UsesBackend() {
+			doc.Releases[i].ID = releaseID(c.indexerID(), doc.Releases[i].GUID, doc.Releases[i].NZBURL+doc.Releases[i].Name)
+		}
+	}
+	return c.bindReleases(doc.Releases), true
 }
 
 // PurgeLegacyCache deletes search-cache rows written before cached links

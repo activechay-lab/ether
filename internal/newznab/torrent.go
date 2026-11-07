@@ -460,15 +460,14 @@ func (m *Manager) ResolveTorrent(ctx context.Context, r core.Release) (core.Rele
 	if known, ok := knownTorrent(r); ok {
 		return known, nil
 	}
-	for _, cl := range m.Clients() {
-		if cl.Name() == r.Indexer {
-			started := time.Now()
-			out, cached, err := cl.resolveTorrentCached(ctx, r)
-			if !cached {
-				m.emitEvent(Event{Indexer: cl.Name(), Kind: "grab", Success: err == nil, BudgetExhausted: errors.Is(err, core.ErrBudgetExhausted), Duration: time.Since(started), At: time.Now()})
-			}
-			return out, err
-		}
+	cl, err := m.releaseClient(r)
+	if err != nil {
+		return r, err
 	}
-	return r, fmt.Errorf("newznab: indexer %q for torrent %q is no longer configured", r.Indexer, r.Name)
+	started := time.Now()
+	out, cached, err := cl.resolveTorrentCached(ctx, r)
+	if !cached {
+		m.emitEvent(Event{Indexer: cl.Name(), Kind: "grab", Success: err == nil, BudgetExhausted: errors.Is(err, core.ErrBudgetExhausted), Duration: time.Since(started), At: time.Now()})
+	}
+	return out, err
 }

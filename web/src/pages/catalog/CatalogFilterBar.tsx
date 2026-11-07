@@ -1,19 +1,11 @@
 import { Button, Input } from "@braedonsaunders/appkit-ui";
 import { Plus, Search, Sparkles, Undo2, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../../i18n";
 import { catalogValueLabel } from "./catalogValueLabel";
 import { api, apiFetch } from "../../lib/api";
 import { useAsync, useDebouncedValue } from "../../lib/hooks";
-import {
-  compileQuery,
-  emptyQuery,
-  readAIQuery,
-  mergeAIQuery,
-  readQuery,
-  type Chip,
-  type QueryState,
-} from "./catalogQuery";
+import { compileQuery, emptyQuery, readQuery, type Chip, type QueryState } from "./catalogQuery";
 
 type Field = {
   key: string;
@@ -133,6 +125,9 @@ export function CatalogFilterBar({
   collection = false,
   leading,
   actions,
+  aiEnabled = false,
+  aiBusy = false,
+  onAISearch,
 }: {
   params: URLSearchParams;
   onChange: (params: URLSearchParams) => void;
@@ -140,6 +135,9 @@ export function CatalogFilterBar({
   collection?: boolean;
   leading?: ReactNode;
   actions?: ReactNode;
+  aiEnabled?: boolean;
+  aiBusy?: boolean;
+  onAISearch?: (query: string) => void;
 }) {
   const latestParams = useRef(params);
   useLayoutEffect(() => {
@@ -156,55 +154,6 @@ export function CatalogFilterBar({
   const [pickerSearch, setPickerSearch] = useState("");
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState<Chip>({ field: "genre", op: "is", value: "" });
-  const [interpreting, setInterpreting] = useState(false);
-  const [aiError, setAiError] = useState(false);
-  const ai = useAsync(
-    (signal) => apiFetch<{ enabled: boolean }>("/catalog/interpret", { signal }),
-    [],
-  );
-  const pendingInterpret = useRef<AbortController | null>(null);
-  const lastInterpreted = useRef("");
-  const phrase = useDebouncedValue(params.get("q") || "", 750);
-  async function interpret(text: string) {
-    if (!ai.data?.enabled || !text.trim()) return;
-    pendingInterpret.current?.abort();
-    const controller = new AbortController();
-    pendingInterpret.current = controller;
-    lastInterpreted.current = text;
-    setInterpreting(true);
-    setAiError(false);
-    try {
-      const result = await apiFetch<unknown>("/catalog/interpret", {
-        method: "POST",
-        body: JSON.stringify({ text }),
-        signal: controller.signal,
-      });
-      if (controller.signal.aborted || latestParams.current.get("q") !== text) return;
-      const draft = readAIQuery(result);
-      const next = new URLSearchParams(latestParams.current);
-      const current = readQuery(next.get("filters"));
-      const merged = mergeAIQuery(current, draft);
-      setUndo(next.toString());
-      next.set("filters", JSON.stringify(merged));
-      next.delete("q");
-      next.delete("page");
-      publish(next);
-    } catch {
-      if (!controller.signal.aborted) setAiError(true);
-    } finally {
-      if (pendingInterpret.current === controller) setInterpreting(false);
-    }
-  }
-  useEffect(() => {
-    if (
-      ai.data?.enabled &&
-      looksLikeCatalogRequest(phrase) &&
-      lastInterpreted.current !== phrase &&
-      latestParams.current.get("q") === phrase
-    )
-      void interpret(phrase);
-  }, [phrase, ai.data?.enabled]);
-  useEffect(() => () => pendingInterpret.current?.abort(), []);
   const definitions = fields();
   const field = definitions.find((f) => f.key === draft.field)!;
   const search = useDebouncedValue(draft.label || draft.value, 250);
@@ -317,7 +266,7 @@ export function CatalogFilterBar({
           onSubmit={(e) => {
             e.preventDefault();
             const text = latestParams.current.get("q") || "";
-            if (ai.data?.enabled && looksLikeCatalogRequest(text)) void interpret(text);
+            if (aiEnabled && text.trim()) onAISearch?.(text);
           }}
         >
           <Search size={16} aria-hidden />
@@ -325,15 +274,10 @@ export function CatalogFilterBar({
             aria-label={t("Find a title")}
             maxLength={1000}
             placeholder={
-              ai.data?.enabled
-                ? t("Search titles or describe what you want…")
-                : t("Search catalog…")
+              aiEnabled ? t("Search titles or describe what you want…") : t("Search catalog…")
             }
             value={params.get("q") || ""}
             onChange={(e) => {
-              pendingInterpret.current?.abort();
-              setInterpreting(false);
-              setAiError(false);
               const p = new URLSearchParams(latestParams.current);
               p.delete("page");
               e.target.value ? p.set("q", e.target.value) : p.delete("q");
@@ -347,9 +291,6 @@ export function CatalogFilterBar({
               variant="ghost"
               aria-label={t("Clear search")}
               onClick={() => {
-                pendingInterpret.current?.abort();
-                setInterpreting(false);
-                setAiError(false);
                 setUndo(latestParams.current.toString());
                 const next = new URLSearchParams(latestParams.current);
                 next.delete("q");
@@ -360,16 +301,16 @@ export function CatalogFilterBar({
               <X size={14} />
             </Button>
           ) : null}
-          {ai.data?.enabled ? (
+          {aiEnabled ? (
             <Button
               size="icon"
               type="button"
               variant="ghost"
-              aria-label={t("Turn search into filters")}
-              disabled={interpreting || !(params.get("q") || "").trim()}
-              onClick={() => void interpret(latestParams.current.get("q") || "")}
+              aria-label={t("Search with AI")}
+              disabled={aiBusy || !(params.get("q") || "").trim()}
+              onClick={() => onAISearch?.(latestParams.current.get("q") || "")}
             >
-              <Sparkles size={15} className={interpreting ? "animate-pulse" : ""} />
+              <Sparkles size={15} className={aiBusy ? "animate-pulse" : ""} />
             </Button>
           ) : null}
         </form>
@@ -389,13 +330,6 @@ export function CatalogFilterBar({
         ) : null}
         {actions ? <div className="catalog-header-actions">{actions}</div> : null}
       </div>
-      {aiError || ai.error ? (
-        <p className="catalog-ai-error" role="alert">
-          {t(
-            "AI search is unavailable or could not interpret this request. Try again or use filters.",
-          )}
-        </p>
-      ) : null}
       {state.chips.length || legacy.length || undo !== null ? (
         <div className="catalog-query-chips">
           {state.chips.length > 1 ? (
@@ -684,17 +618,3 @@ export function CatalogFilterBar({
   );
 }
 export { compileQuery, readQuery, emptyQuery };
-
-// This only routes clearly descriptive input to the configured model; it never
-// invents predicates locally. Literal title searches stay literal.
-export function looksLikeCatalogRequest(text: string) {
-  return (
-    text.trim().split(/\s+/).length >= 4 &&
-    (/^(?:find|show me|movies|films|series|shows)\s/i.test(text.trim()) ||
-      (
-        text.match(
-          /\b(?:under|over|above|below|rated|unwatched|watched|starring|with|before|after|\d{2}s|playable|comedies|thrillers|hours?)\b/gi,
-        ) || []
-      ).length >= 2)
-  );
-}

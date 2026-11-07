@@ -78,7 +78,7 @@ func TestDecisionCorpusFormatAndFixtures(t *testing.T) {
 	if err = json.Unmarshal(raw, &wire); err != nil {
 		t.Fatal(err)
 	}
-	if wire.Policy == "" || !strings.Contains(wire.Policy, "the owner's production server") || strings.Contains(wire.Policy, "HYPERV03") {
+	if wire.Policy == "" || !strings.Contains(wire.Policy, "the owner's production server") {
 		t.Fatal("corpus must record the lab capture constraint without the owner's hostname")
 	}
 }

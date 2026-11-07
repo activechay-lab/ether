@@ -27,12 +27,21 @@ received segment. `report.json` and `report.md` contain hashes, byte counts,
 latency, retries, buffer samples, stalls and shared `internal/splicecheck`
 results. Status zero means a transport failure before an HTTP response.
 First-byte latency is measured with `httptrace`, not response completion.
+The CLI also writes mode0600 `http-*.private.json` and `.body` snapshots for
+playlists and failed requests, capped at64KiB per body. Credential headers are
+redacted; private URLs and playlist bodies can contain read capabilities.
+`-private-http=false` disables these snapshots. Public reports omit URLs.
 Playback begins when the startup buffer reaches the target (default 30s).
 Thereafter buffer consumption uses monotonic elapsed time, including blocked
 requests and exponential retry sleeps. The bounded window includes startup;
 choose a window longer than startup plus the desired steady-state observation.
 Terminal request failure continues consuming the buffer until the window ends,
 so an outage longer than the remaining buffer is measured as a stall.
+An unrecoverable failure before startup returns immediately because playback
+has no forward buffer to consume.
+No further media requests are sent after retry exhaustion. That stall is the
+configured client's outcome; it does not establish how long the server remained
+unavailable after the last attempt.
 
 The current player supports clear MPEG-TS HLS. Encrypted, discontinuous,
 byte-range and fMP4 playlists fail explicitly. The shared checker also supports
@@ -69,6 +78,25 @@ Example private configuration (paths and target pod are lab-specific):
   "bufferSeconds": 30
 }
 ```
+
+Optional `tries` (default 8), `requestTimeoutSeconds` (5) and `backoffSeconds`
+(0.2, exponential with a 16× cap) configure the client retry policy. The runner
+records that policy. `control` reports the final Stop status and all failed
+lifecycle requests separately. Overall acceptance requires every lifecycle request to succeed and an actual
+terminal Stop with a 2xx response. Periodic progress failures set
+`allRequestsPassed=false` even when final Stop succeeds. `stopPassed` reports
+Stop independently. Media continuity alone cannot certify session cleanup.
+
+`fault-dispatch.json` records the session, local time before action dispatch and
+immutable target inventory. A trusted post-check can use this time with a
+replacement production event on the same host clock to establish a conservative
+interruption upper bound; client receipt time is still reported separately.
+
+The runner samples its own Linux host's load average and CPU, I/O and memory
+pressure into `host-load.jsonl` at a nominal one-second interval. Each row has
+its capture time and read duration. Missing `/proc` counters are null. Sampling
+pauses during bounded fault-adapter calls; these readings describe the runner
+host and do not reconstruct earlier load or remote worker load.
 
 Force-delete pins the inspected pod UID in a Kubernetes DeleteOptions precondition;
 it cannot delete a replacement by reusing its name. Other actions (`pause`,
@@ -197,13 +225,10 @@ contain credentials, queries, fragments or path prefixes. Reports mark
 `ControlOriginsPinned` so this diagnostic placement is distinguishable from
 ordinary ingress load balancing.
 
-A coordinated supervised encoder run may supply a unique `session` and
-`steadySeconds` (default10). The latter schedules loss after that much actual
-playback time following startup buffering. For a 180s fixture, a 170s window
-with `steadySeconds: 60` leaves approximately90s after the fault; report the
-actual timestamps and generation boundary rather than assuming that entire
-tail was produced by the replacement. Verify hardware placement and the live
-encoder before invoking a native supervisor's exact-process kill hook.
+A coordinated run may supply a unique `session`. Clock-based CPU cases can
+use `steadySeconds` (default10) after startup buffering. Native hardware loss
+uses the observed-state gate below; elapsed time cannot establish that its
+encoder is alive or that output remains to be regenerated.
 
 ## Encoder-state loss and independent recovery proof
 
@@ -235,3 +260,106 @@ production interruption and client receipt latency, and must be below the
 configured buffer. For example, kill-dispatch to the first verified CPU segment
 ready on the same measured host clock is a conservative upper bound; do not
 substitute a startup/RPC acknowledgement or a fabricated production timestamp.
+
+The same client also accepts `-protocol emby -prefix /emby`, declares an Emby
+client identity and authenticates against that independent MediaBrowser surface.
+Jellyfin and Emby use separate credentials/grants, references and output
+artifacts; neither result is inferred from the other surface's success.
+
+Native conditional fault dispatch uses `native_fault.arm`: bind the fresh trigger
+observation and startup identity, retain the accepted or rejected observation,
+and enqueue a single request without a second encoder-state network read. The
+native supervisor must still perform its fresh retained-handle, restart-boundary
+and authored-timeline checks immediately before killing the owned process. An
+armed request is not proof that a fault occurred; acceptance requires the final
+native fault/cleanup proof and new-generation client tail.
+
+## Loss at an early authored segment boundary
+
+A ramp case at index 1, 2 or 3 needs a request barrier because normal 30-second
+prefetch passes those indices before playback starts. Set `phase: "boundary"`,
+`pauseBeforeIndex: N`, `role: "transcode"`, `action: "force-delete"`, an independent
+same-profile `reference`, and `barrierFaultProofArgv`. The runner starts hlsplay
+with a fresh `segment-barrier` directory. After receiving exactly indices
+`0..N-1`, the player atomically publishes `ready.json` with the actual admitted
+session, N and the initial playlist digest. It sends no request for N until
+release. The monotonic playback clock and buffer model continue normally; a
+barrier before startup contributes to startup latency, and a barrier during
+playback can produce a stall. Neither buffer size nor segment grid changes.
+
+The trusted `targetArgv` selector must also return `barrierNodeInventory` with
+`kubernetesNode`, `kubernetesNodeUID` and the immutable `ownedNodeContainerID`.
+The selector verifies the owned lab-container label and matches its name to the
+Kubernetes node. Before deletion the runner rechecks that node UID and binds
+this inventory to the inspected original pod in `fault-dispatch.json`.
+
+The ordinary UID-preconditioned deletion then runs. Kubernetes
+object deletion alone does not release the barrier. `barrierFaultProofArgv` is a
+bounded, read-only lab adapter, with `{session}`, `{index}` and `{runDir}` replaced
+as argv values. It must verify that the original execution's exact container task
+is absent on the original owned node and emit JSON:
+
+```json
+{
+  "session": "actual-admitted-session",
+  "index": 2,
+  "oldPodUID": "original-pod-uid",
+  "oldContainerIDs": ["containerd://original-ether-container-id"],
+  "ownedNodeContainerID": "verified-original-lab-node-container-id",
+  "kubernetesNode": "original-kubernetes-node-name",
+  "kubernetesNodeUID": "original-kubernetes-node-uid",
+  "originalTasksAbsent": true
+}
+```
+
+The runner compares the proof to both original node identities, pod UID and
+Ether container IDs in `fault-dispatch.json`, plus the request barrier session
+and index. A shorter contiguous event snapshot remains pending and is re-read
+after the marker; gaps, excess indices and changed bindings fail closed. It preserves this proof and atomically writes a session/index/playlist-
+bound `release.json` containing its SHA256. The player verifies the proof digest
+before requesting N. Missing, stale or mismatched evidence fails closed; timeout
+or failed task retirement leaves N unrequested. The normal post-check must still
+prove generation advance, floor equal to the delivered prefix, resume at N,
+replacement production and full client continuity. A barrier release is not a
+recovery acceptance result.
+
+Capture the actual new-runtime decision/admission and initial authored timeline
+before choosing any reference. Shared FastStart can ramp H264 output from MPEG4
+input; old constant-duration references cannot qualify a new default profile.
+Retain a fresh no-fault reference per client/title/profile, including ordinary
+cleanup and delivery reruns. Use the initial timeline retained before the fault,
+never a replacement playlist, for the shared splice checker.
+
+
+Before launching any player or fault selector, the loss runner qualifies the
+independent reference: successful playback, all six intrinsic continuity checks,
+clean lifecycle requests and a successful terminal Stop are mandatory. Missing
+frame/AU comparisons are expected for the first no-fault reference and do not
+replace those intrinsic checks. A failed reference produces a failed run report
+without starting the player or injecting a fault; shell command sequencing cannot
+bypass this guard.
+
+Cleanup policy `root-20261107-v1` is prospective. Its 15-second deadline is
+anchored at the later of the successful terminal Stop response and successful
+fault restoration; delete and no-fault runs use the Stop response. `run.py`
+retains restoration in `fault-restoration.json` and the same event values in
+`post-check-context.json`. The postcheck command budget remains 20 seconds.
+
+An existing observer may call `cleanup_observer.InlineCleanup.step()` while the
+player is running, including its deferred media analysis. The injected backend
+provides the policy, bounded read-only lab callbacks, clock, and process inventory
+(`cleanup_probe.py` supplies these adapters for the existing lab metadata shape).
+Retain the exact target UID, Kubernetes node, Ether container ID and owned node
+container before dispatch, including source node/boot for source faults. The
+collector compares these identities with the dispatch record and keeps them when
+retired placement metadata no longer names a target.
+
+Acceptance requires one completed observation within the deadline showing the
+exact session retired with zero current/displaced claims and zero owned FFmpeg
+processes. A missing target, incomplete process inventory, late collector, or
+only a late zero is invalid measurement, never a cleanup pass. A database query
+started before the deadline cannot prove a nonzero state at the deadline merely
+because it completes later. Historical reports retain their original policy and
+verdicts. `cleanup_probe.py --backend PATH --role-proof PATH` combines this proof
+with an existing role postcheck without discarding its session/interruption
+fields; it does not perform faults or mutate cluster state.

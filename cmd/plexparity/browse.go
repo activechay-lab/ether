@@ -3,6 +3,13 @@ package main
 // These requests use discovered fixture IDs and exercise populated read paths.
 func browsingPaths() []string {
 	return []string{
+		"/clients/profiles", "/clients/profiles/", "/sync", "/history", "/playQueues", "/playlists/sorts",
+		"/hubs/sections/{{section}}/popular", "/library/all/top", "/library/metadata/{{movieKey}}/users/top",
+		"/library/metadata/{{movieKey}}/tree", "/library/metadata/{{movieKey}}/extras/all",
+		"/library/metadata/{{playlistKey}}/posters", "/library/metadata/{{playlistKey}}/arts",
+		"/library/metadata/{{playlistKey}}/clearLogos", "/library/metadata/{{playlistKey}}/themes",
+		"/library/metadata/{{playlistKey}}/match", "/player/playback/play",
+		"/livetv/channels/fixture-channel/logo.png", "/tv.plex.providers.epg.xmltv:1/library/search?query=fixture",
 		"/library", "/library/", "/library/all", "/library/sections/all", "/library/sections/{{section}}", "/library/recentlyAdded",
 		// #185 added /library/sections/{section}/{sub}/{key} so a jump-letter
 		// directory can be opened by its relative key.
@@ -27,4 +34,10 @@ func browsingPaths() []string {
 		"/tv.plex.providers.epg.xmltv:1", "/tv.plex.providers.epg.xmltv:1/hubs", "/tv.plex.providers.epg.xmltv:1/watchnow", "/tv.plex.providers.epg.xmltv:1/watchnow/all", "/tv.plex.providers.epg.xmltv:1/sections/1/all", "/tv.plex.providers.epg.xmltv:1/lineups/dvr/channels", "/livetv/dvrs", "/livetv/dvrs/1", "/livetv/epg/channelmap", "/livetv/epg/lineupchannels", "/livetv/channels/fixture-channel/logo.svg", "/livetv/sessions", "/media/grabbers", "/media/grabbers/devices", "/media/grabbers/devices/1", "/media/grabbers/devices/1/channels", "/media/grabbers/devices/1/channelmap", "/media/subscriptions", "/accounts", "/updater/status", "/tv.plex.providers.epg.xmltv:1/grid?beginsAt=1792324800&endsAt=1792328400", "/tv.plex.providers.epg.xmltv:1/channels/fixture-channel", "/livetv/epg/channels", "/livetv/guide.xml",
 		"/playlists", "/playlists/all", "/playlists/{{playlistKey}}/items", "/status/sessions/history/all", "/servers", "/clients", "/devices", "/activities", "/security/resources", "/system/agents", "/transcode/sessions",
 	}
+}
+
+// These endpoints deliberately refuse unsupported metadata/player operations.
+// Keep their exact refusal in the capture instead of treating it as missing data.
+func browsingRefusal(path string) bool {
+	return path == "/library/metadata/{{playlistKey}}/match" || path == "/player/playback/play"
 }

@@ -653,7 +653,13 @@ export function GuideWorkbench({
                     onClick={() => onMapChannel(c.id)}
                     className="flex min-w-0 basis-full items-center gap-2.5 text-left sm:basis-auto sm:flex-1"
                   >
-                    <ChannelLogo name={c.name} logo={c.logo} seed={c.id} size={30} />
+                    <ChannelLogo
+                      name={c.name}
+                      logo={c.logo}
+                      seed={c.id}
+                      channelId={c.id}
+                      size={30}
+                    />
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium text-fg">
                         <span className="mr-1.5 font-mono text-xs text-fg-subtle">{c.number}</span>
@@ -909,7 +915,13 @@ export function GuideMatchPanel({
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3">
-        <ChannelLogo name={channel.name} logo={channel.logo} seed={channel.id} size={40} />
+        <ChannelLogo
+          name={channel.name}
+          logo={channel.logo}
+          seed={channel.id}
+          channelId={channel.id}
+          size={40}
+        />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-fg">
             <span className="mr-1.5 font-mono text-xs text-fg-subtle">{channel.number}</span>

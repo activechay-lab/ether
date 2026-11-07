@@ -12,13 +12,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/braedonsaunders/ether/internal/faillog"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/sockerr"
 )
 
 // frontendListeners owns listeners and announcers for independently mounted
@@ -331,7 +331,7 @@ func listenFrontend(id frontend.Protocol, address string) (net.Listener, error) 
 
 func listenFrontendWith(id frontend.Protocol, address string, listen func(string, string) (net.Listener, error)) (net.Listener, error) {
 	ln, err := listen("tcp", address)
-	if err == nil || !errors.Is(err, syscall.EADDRINUSE) {
+	if err == nil || !sockerr.IsAddrInUse(err) {
 		return ln, err
 	}
 	host, portText, splitErr := net.SplitHostPort(address)
@@ -362,7 +362,7 @@ func listenFrontendWith(id frontend.Protocol, address string, listen func(string
 		if nextErr == nil {
 			return ln, nil
 		}
-		if !errors.Is(nextErr, syscall.EADDRINUSE) {
+		if !sockerr.IsAddrInUse(nextErr) {
 			return nil, nextErr
 		}
 	}

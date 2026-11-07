@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Search,
   Settings2,
+  LoaderCircle,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -27,6 +28,7 @@ import type { CollectionSpec } from "../../lib/contract";
 import { TitleInspector } from "./TitleInspector";
 import { CatalogueResults } from "./CatalogueResults";
 import "./catalog.css";
+import { useCatalogAISearch } from "./useCatalogAISearch";
 import { CatalogFilterBar, compileQuery, readQuery } from "./CatalogFilterBar";
 
 const PAGE_SIZE = 48;
@@ -174,32 +176,51 @@ export function CatalogBrowser({
         : Promise.resolve(null),
     [specKey],
   );
+  const browseRequestKey = JSON.stringify([
+    debouncedQuery,
+    type,
+    genre,
+    decade,
+    waiting,
+    sort,
+    page,
+    activeCursor.after,
+    ruleFilter,
+    specKey,
+    advanced,
+    viewer,
+    secondarySort,
+    desc,
+    secondaryDesc,
+  ]);
   const browsed = useAsync(
     (signal) =>
       collection
         ? Promise.resolve(null)
-        : api.browseCatalog(
-            {
-              ...ruleFilter,
-              q: debouncedQuery,
-              type,
-              genre,
-              decade,
-              waiting: waiting ? "1" : "",
-              sort,
-              noTotal: "1",
-              filter: advanced
-                ? JSON.stringify(compileQuery(readQuery(advanced), viewer))
-                : undefined,
-              secondarySort: secondarySort || undefined,
-              secondaryDesc: secondarySort ? (secondaryDesc ? "1" : "0") : undefined,
-              desc: desc ? "1" : "0",
-              cursor: "1",
-              after: activeCursor.after || undefined,
-              limit: PAGE_SIZE,
-            },
-            signal,
-          ),
+        : api
+            .browseCatalog(
+              {
+                ...ruleFilter,
+                q: debouncedQuery,
+                type,
+                genre,
+                decade,
+                waiting: waiting ? "1" : "",
+                sort,
+                noTotal: "1",
+                filter: advanced
+                  ? JSON.stringify(compileQuery(readQuery(advanced), viewer))
+                  : undefined,
+                secondarySort: secondarySort || undefined,
+                secondaryDesc: secondarySort ? (secondaryDesc ? "1" : "0") : undefined,
+                desc: desc ? "1" : "0",
+                cursor: "1",
+                after: activeCursor.after || undefined,
+                limit: PAGE_SIZE,
+              },
+              signal,
+            )
+            .then((result) => ({ ...result, requestKey: browseRequestKey })),
     [
       debouncedQuery,
       type,
@@ -278,15 +299,61 @@ export function CatalogBrowser({
     );
     return { total: all.length, items: all.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) };
   }, [members.data, debouncedQuery, type, genre, decade, page]);
-  const results = collection
+  const regularResults = collection
     ? { ...members, data: collectionPage }
     : { ...browsed, data: browsed.data ?? undefined };
-
-  const busy = results.loading || query !== debouncedQuery || advancedRaw !== advanced;
+  const regularBusy =
+    regularResults.loading || query !== debouncedQuery || advancedRaw !== advanced;
+  const ai = useCatalogAISearch(cursorIdentity, query, type);
+  const aiResult = !collection ? ai.result : null;
+  const aiActive = !!aiResult;
+  useEffect(() => {
+    if (
+      !collection &&
+      ai.enabled &&
+      !aiResult &&
+      query.trim() &&
+      !regularBusy &&
+      !regularResults.error &&
+      page === 1 &&
+      browsed.data?.requestKey === browseRequestKey &&
+      browsed.data.items.length === 0
+    )
+      void ai.start();
+  }, [
+    collection,
+    ai.enabled,
+    aiResult,
+    query,
+    regularBusy,
+    regularResults.error,
+    page,
+    browsed.data,
+    browseRequestKey,
+    ai.start,
+  ]);
+  const results = aiResult
+    ? {
+        data: aiResult.preview,
+        loading: aiResult.busy,
+        error: aiResult.error
+          ? new Error(
+              t(
+                "AI search is unavailable or could not interpret this request. Try again or use filters.",
+              ),
+            )
+          : null,
+        reload: ai.start,
+      }
+    : regularResults;
+  const busy = aiResult ? aiResult.busy : regularBusy;
   const currentCount = count.data?.key === countKey ? count.data : null;
-  const total =
-    currentCount?.total ?? (results.data?.total ?? 0) + (collection ? 0 : (page - 1) * PAGE_SIZE);
-  const totalExact = collection || currentCount?.totalExact || browsed.data?.totalExact !== false;
+  const total = aiResult
+    ? (aiResult.preview?.total ?? 0)
+    : (currentCount?.total ??
+      (results.data?.total ?? 0) + (collection ? 0 : (page - 1) * PAGE_SIZE));
+  const totalExact =
+    aiActive || collection || currentCount?.totalExact || browsed.data?.totalExact !== false;
   const items = results.data?.items ?? [];
   const viewers = useAsync(() => api.viewers(), []);
   const [chosen, setChosen] = useState<number[] | null>(null);
@@ -440,6 +507,9 @@ export function CatalogBrowser({
         params={params}
         viewers={viewers.data || []}
         collection={!!collection}
+        aiEnabled={!collection && ai.enabled}
+        aiBusy={aiResult?.busy}
+        onAISearch={() => void ai.start()}
         onChange={(next) => {
           latestParams.current = next;
           setParams(next);
@@ -516,9 +586,14 @@ export function CatalogBrowser({
                           ? t("TV shows")
                           : t("Movies & TV shows")}
               </h3>
-              <p role="status">
+              <p role="status" className={aiResult?.busy ? "catalog-search-working" : undefined}>
+                {aiResult?.busy ? (
+                  <LoaderCircle size={20} className="animate-spin" aria-hidden />
+                ) : null}
                 {busy
-                  ? t("Loading titles…")
+                  ? aiActive
+                    ? t("Searching with AI…")
+                    : t("Loading titles…")
                   : results.error
                     ? t("Catalog could not be loaded")
                     : !totalExact
@@ -529,7 +604,12 @@ export function CatalogBrowser({
               </p>
             </div>
             <div className="catalog-tools">
-              {collection ? null : (
+              {aiResult?.busy ? (
+                <Button variant="ghost" onClick={ai.stop}>
+                  {t("Stop")}
+                </Button>
+              ) : null}
+              {collection || aiActive ? null : (
                 <ToolbarPicker
                   ariaLabel={t("Sort titles")}
                   value={sort}
@@ -537,7 +617,7 @@ export function CatalogBrowser({
                   onChange={(v) => update("sort", v)}
                 />
               )}
-              {!collection ? (
+              {!collection && !aiActive ? (
                 <>
                   <ToolbarPicker
                     ariaLabel={t("Secondary sort")}
@@ -590,7 +670,7 @@ export function CatalogBrowser({
                 else void results.reload();
               }}
             />
-          ) : busy && page === 1 ? (
+          ) : busy && (aiActive ? !items.length : page === 1) ? (
             <PosterSkeletons count={12} className="catalog-grid" />
           ) : !items.length && !busy ? (
             <EmptyState
@@ -634,14 +714,18 @@ export function CatalogBrowser({
             <CatalogueResults
               items={items}
               list={list}
-              queryKey={resultQueryKey}
-              page={page}
-              hasMore={
-                collection
-                  ? page * PAGE_SIZE < total
-                  : (browsed.data?.hasMore ?? page * PAGE_SIZE < total)
+              queryKey={
+                aiActive ? `${resultQueryKey}|ai|${JSON.stringify(aiResult.spec)}` : resultQueryKey
               }
-              loading={busy}
+              page={aiActive ? 1 : page}
+              hasMore={
+                aiActive
+                  ? false
+                  : collection
+                    ? page * PAGE_SIZE < total
+                    : (browsed.data?.hasMore ?? page * PAGE_SIZE < total)
+              }
+              loading={aiActive ? false : busy}
               onLoadMore={() => {
                 if (collection) update("page", String(page + 1));
                 else if (browsed.data?.nextCursor)

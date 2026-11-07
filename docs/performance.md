@@ -403,3 +403,20 @@ grow with the library.
    this for you) on SQLite, and with `EXPLAIN` on PostgreSQL.
 7. Add the endpoint to the replayed sequences (`internal/perfharness`), so
    the gate covers it.
+
+
+## Xtream export (v0.3.5)
+
+The focused synthetic checks use 100,001 movie titles and 250-row export pages.
+On the development Mac, the HTTP handler wrote 401 pages (about 31 MB JSON) to
+a discard writer in approximately 0.55 seconds. This isolates formatting and
+batched compact-ID allocation; it does not include real artwork signing,
+network transfer or client parsing. A separate first-pass walk of 100,001 rows
+through the real in-memory SQLite catalogue completed in approximately 13.1
+seconds, excluding fixture insertion. The keyset cursor avoids growing offsets
+and count queries. Listing retains a page at a time; series detail has a
+20,000-episode bound.
+
+Reproduce with `CGO_ENABLED=0 go test ./internal/frontends/xtream -run TestLargeCatalogueExport -v`
+and `CGO_ENABLED=0 go test ./internal/catalog -run TestXtreamLargeCatalogueKeyset -v`.
+These are local synthetic checks, not real IPTV player app playback evidence.

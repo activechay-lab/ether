@@ -97,7 +97,7 @@ func TestValidateCustomURLsRejectsJunkAndKeepsCGNAT(t *testing.T) {
 	}
 
 	for _, junk := range []string{
-		"[http://10.0.0.43:32450](http://10.0.0.43:32450/)",
+		"[http://192.168.1.50:32450](http://192.168.1.50:32450/)",
 		"plex.example.com:32400",
 		"http://plex.example.com:32400/web",
 	} {

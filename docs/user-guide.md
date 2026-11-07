@@ -130,9 +130,9 @@ and a Newznab URL for Usenet. Finally choose a cache folder and budget.
 Out of the box there is no server quality cap, at home or away: each device
 plays the best release it can show (phones up to 1080p, TVs and streaming boxes
 up to 4K), and the app's own quality setting still applies. To limit quality,
-open **Quality › Profiles**. Under **Away from home**, choose an **Away profile**
-to cap people watching away from home (for example the 1080p profile), or set a
-**Bitrate limit** in Mbps (0 means no limit). To limit one device, app or viewer,
+open **Quality › Profiles**. Edit a profile and select **Away** under **Default for** to cap people watching away
+from home (for example with the 1080p profile), or set the shared **Remote bitrate
+limit** in Mbps (0 means no limit). To limit one device, app or viewer,
 add a rule under **Quality › Rules**. A rule wins over the Away profile.
 **Check quality**, its own tab under **Quality**, shows the quality a viewer gets
 in an app, at home or away, and which rule decided.
@@ -617,11 +617,38 @@ indexers by that number for anime, meaning TMDB's "anime" keyword or
 Japanese-language animation. When an earlier season's episode count is
 unknown, only the season-and-episode numbering is used.
 
+## Quality profiles for movies and shows
+
+Every quality profile ranks releases for one kind of title, **Movies** or
+**Shows**, as in Radarr and Sonarr. The **Movies | Shows** picker on
+**Quality › Profiles** shows that kind's profiles with their **At home** and
+**Away** defaults, and **Add profile** creates one of the kind shown. A movie
+profile and a show profile can share a name, such as *1080p*, and still have
+different settings. A profile's **Applies to** in its editor offers **Movies**
+or **Shows**; moving a profile to the other kind takes the rules that used it
+along, and a default it can no longer serve moves to another profile.
+
+A rule under **Quality › Rules** applies to movies, to shows, or to both. A
+rule for both names a profile that exists for movies and for shows; movies
+then use the movie profile of that name and shows the show one.
+
+A new install starts with 4K, 1080p and 720p profiles for movies and the same
+three for shows, with 4K as the At home default for each. Upgrading from
+v0.3.4 or earlier: each profile there served movies and shows alike. Ether
+splits it once, when the server starts, into a movie profile and a show
+profile with the same name and settings. Rules and defaults keep the names
+they had, so every viewer, app and title gets exactly the quality it got
+before, and remembered releases and resume points stay valid. Renaming or
+removing one of the pair changes only that kind: a rule for both kinds that
+named it becomes one rule for each kind, so the other kind keeps its
+profile.
+
 ## Import a quality profile
 
 Coming from Radarr, Sonarr, or another guide? Open **Quality › Profiles** and
-choose **Import a quality profile**. Pick **Movies (Radarr)** or
-**Shows (Sonarr)** for the guide's app, then choose a profile, such as
+select **Movies** or **Shows**, choose **Add profile**, then **Import a
+preset quality profile**. Movies import from Radarr's guide and shows from
+Sonarr's. Choose a profile for that media, such as
 *HD Bluray + WEB* or *[SQP] SQP-1 (2160p)*. Ether supports **TRaSH Guides**,
 **Profilarr (Dictionarry)**, and pasted profile JSON. It shows what it will
 add before saving:
@@ -637,12 +664,11 @@ add before saving:
   streaming equivalent, such as Raw-HD or SDTV, are skipped. Radarr's
   "Original" language rule isn't a hard filter in Ether.
 
-Rename the profile if you like, then choose **Add profile**. The profile is
-scoped to the app it came from: a Radarr profile applies to movies, a Sonarr
-profile to shows. **Quality › Profiles** has a **Movies / Shows** switch and
-separate At home and Away defaults, so a movie profile and a show profile can
-each be the default for their media. A profile you create by hand can apply to
-both. Your other profiles keep ranking releases exactly as before: they score
+Pasted JSON whose qualities name the other app is refused with a note to
+switch kinds first: a Sonarr profile pasted under **Movies** is imported under
+**Shows**. Rename the profile if you like, then choose **Add profile**; to
+make it a default, edit it and choose **At home** or **Away** under **Default
+for**. Your other profiles keep ranking releases exactly as before: they score
 the newly added formats 0, as Radarr and Sonarr do for formats a profile
 doesn't list.
 
@@ -656,15 +682,20 @@ it.
 
 ### Keep imported profiles in sync
 
-**Quality › Profiles › Keep imported profiles in sync** updates imported
-profiles on a cadence you choose (6 hours to 7 days). A sync re-fetches the
+**Quality › Profiles › Keep imported profiles in sync** updates profiles
+imported from TRaSH Guides or Profilarr. Turn it on with the switch in the
+card's header, then choose how often to **Check for changes** (6 hours to 7
+days). The card shows when the last sync ran. Until you import a profile, it
+only says that it applies once you do. A sync re-fetches the
 source profile and its default format groups and overwrites that profile's
 quality definition and custom format scores exactly, so formats the guide adds
 are added and formats it removes are removed. The shared custom format
 definitions for that profile are updated too; definitions the sync owns and no
 profile uses are removed, while formats you created by hand are left alone.
 Profiles that are not imported, or that could not be fetched completely, are
-not changed. **Sync now** runs the same update immediately.
+not changed. **Sync now** runs the same update immediately, even while the
+automatic sync is off, for owners who prefer to take guide changes when they
+choose.
 
 ## Rank releases by custom score
 
@@ -1346,3 +1377,30 @@ connection under **Devices** when it is no longer needed.
 Revoking a connection blocks its new playback requests immediately. An existing
 download or playback response is checked again while it is transferring, so it
 may continue briefly before stopping; that interruption is not instantaneous.
+
+
+## IPTV apps (Xtream)
+
+In v0.3.5, enable **IPTV apps (Xtream)** on **Apps**, open its settings,
+choose a viewer, and create a connection. Enter the displayed server address,
+generated username and app password into an IPTV player app. The password is
+shown once. Create a separate login for each device; each login permits one
+active playback connection. Revoke a login from the same page.
+
+Live TV includes that viewer's On Air and IPTV channels and guide. Movies and
+series are another view of Ether's regular TMDB catalogue, with the same viewer
+restrictions and release-availability rules. Playback uses Ether's normal source
+resolver and cache, prefers the original media, and supports byte ranges for VOD.
+Live playback uses the continuous shared HLS output. Timeshift is not advertised.
+
+The API lives under the displayed server address: `player_api.php`, `xmltv.php`,
+`get.php`, and `live/`, `movie/`, and `series/` stream paths. Connection details are
+secrets because the protocol carries them in URLs. Ether redacts them in logs
+and support captures. Use a private network or HTTPS when connecting remotely.
+Generated-media testing covered Televizo movie/episode playback, movie seeking,
+and live channel switching on an Android emulator. TiviMate guide/live playback
+and switching were also exercised; its Premium VOD/series paths were not tested.
+Smarters Pro for Mac was checked for login and decoder activity, but sustained
+playback remains unverified. These are scoped checks, not certification of every
+IPTV app, physical TV, or provider. Upstream provider connection limits are
+enforced per Ether process; they are not a cluster-wide account quota.

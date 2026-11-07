@@ -96,59 +96,118 @@ func aiWords(s string) map[string]bool {
 	return out
 }
 func aiSimilarity(a, b string) float64 {
-	a, b = normalizeGuideName(a), normalizeGuideName(b)
-	if a == "" || b == "" {
+	return aiNameOf(a).similarity(aiNameOf(b))
+}
+
+// aiName is a guide or channel name folded once for repeated comparison.
+type aiName struct {
+	normalized string
+	grams      map[string]bool
+}
+
+func aiNameOf(s string) aiName {
+	n := aiName{normalized: normalizeGuideName(s)}
+	if n.normalized == "" {
+		return n
+	}
+	r := []rune(" " + n.normalized + " ")
+	n.grams = make(map[string]bool, len(r))
+	for i := 1; i < len(r); i++ {
+		n.grams[string(r[i-1:i+1])] = true
+	}
+	return n
+}
+
+// similarity is the bigram Dice coefficient of the folded names.
+func (a aiName) similarity(b aiName) float64 {
+	if a.normalized == "" || b.normalized == "" {
 		return 0
 	}
-	if a == b {
+	if a.normalized == b.normalized {
 		return 1
 	}
-	grams := func(s string) map[string]bool {
-		r := []rune(" " + s + " ")
-		m := map[string]bool{}
-		for i := 1; i < len(r); i++ {
-			m[string(r[i-1:i+1])] = true
-		}
-		return m
-	}
-	x, y := grams(a), grams(b)
 	n := 0
-	for k := range x {
-		if y[k] {
+	for k := range a.grams {
+		if b.grams[k] {
 			n++
 		}
 	}
-	return float64(2*n) / float64(len(x)+len(y))
+	return float64(2*n) / float64(len(a.grams)+len(b.grams))
 }
 
 var aiShift = regexp.MustCompile(`\+\s*(\d+)`)
 var aiNumber = regexp.MustCompile(`\d+`)
 
+// aiNameFacts are the per-name inputs to shortlisting: names, timeshift,
+// channel numbers and the HD marker, each derived once.
+type aiNameFacts struct {
+	names   []aiName
+	shift   string
+	numbers string
+	hd      bool
+}
+
+func aiFactsOf(name string, names ...string) aiNameFacts {
+	f := aiNameFacts{
+		shift:   strings.ReplaceAll(aiShift.FindString(name), " ", ""),
+		numbers: strings.Join(aiNumber.FindAllString(normalizeGuideName(name), -1), ","),
+		hd:      aiWords(name)["hd"],
+	}
+	for _, n := range names {
+		f.names = append(f.names, aiNameOf(n))
+	}
+	return f
+}
+
+// aiShortlister ranks one candidate set for many channels. Candidate facts
+// are computed once per match run rather than once per channel pair, which
+// kept large playlists in regular-expression folding for minutes.
+type aiShortlister struct {
+	all    []*guideCandidate
+	facts  []aiNameFacts
+	titles map[guideKey][]string
+}
+
+func newAIShortlister(all []*guideCandidate, titles map[guideKey][]string) *aiShortlister {
+	l := &aiShortlister{all: all, facts: make([]aiNameFacts, len(all)), titles: titles}
+	for i, g := range all {
+		l.facts[i] = aiFactsOf(g.name, append([]string{g.name}, g.aliases...)...)
+	}
+	return l
+}
+
 func aiShortlist(c Channel, all []*guideCandidate, titles map[guideKey][]string) []*guideCandidate {
+	return newAIShortlister(all, titles).shortlist(c)
+}
+
+func (l *aiShortlister) shortlist(c Channel) []*guideCandidate {
 	type ranked struct {
 		g     *guideCandidate
 		score float64
 	}
 	var ranks []ranked
-	for _, g := range all {
-		if r := channelRegion(c); r != "" && g.region != "" && r != g.region {
+	region := channelRegion(c)
+	cf := aiFactsOf(c.Name, c.Name, c.TvgName)
+	channelTitles := l.titles[guideKey{guideSource(c), c.GuideID}]
+	for i, g := range l.all {
+		gf := &l.facts[i]
+		if region != "" && g.region != "" && region != g.region {
 			continue
 		}
 		// Timeshifts are distinct services, never an interchangeable feed.
-		if strings.ReplaceAll(aiShift.FindString(c.Name), " ", "") != strings.ReplaceAll(aiShift.FindString(g.name), " ", "") {
+		if cf.shift != gf.shift {
 			continue
 		}
 		best := 0.0
-		for _, a := range []string{c.Name, c.TvgName} {
-			for _, b := range append([]string{g.name}, g.aliases...) {
-				v := aiSimilarity(a, b)
-				if v > best {
+		for _, a := range cf.names {
+			for _, b := range gf.names {
+				if v := a.similarity(b); v > best {
 					best = v
 				}
 			}
 		}
-		for _, a := range titles[guideKey{guideSource(c), c.GuideID}] {
-			for _, b := range titles[guideKey{g.source, g.guide}] {
+		for _, a := range channelTitles {
+			for _, b := range l.titles[guideKey{g.source, g.guide}] {
 				if a != "" && strings.EqualFold(a, b) {
 					best += 0.12
 				}
@@ -157,15 +216,13 @@ func aiShortlist(c Channel, all []*guideCandidate, titles map[guideKey][]string)
 		if best < 0.18 {
 			continue
 		}
-		cn, gn := strings.Join(aiNumber.FindAllString(normalizeGuideName(c.Name), -1), ","), strings.Join(aiNumber.FindAllString(normalizeGuideName(g.name), -1), ",")
-		if cn != "" && gn != "" && cn != gn {
+		if cf.numbers != "" && gf.numbers != "" && cf.numbers != gf.numbers {
 			continue
 		}
-		if cn != gn {
+		if cf.numbers != gf.numbers {
 			best -= 0.15
 		}
-		x, y := aiWords(c.Name), aiWords(g.name)
-		if x["hd"] == y["hd"] {
+		if cf.hd == gf.hd {
 			best += 0.03
 		}
 		ranks = append(ranks, ranked{g, best})
@@ -259,8 +316,9 @@ func (s *Service) aiGuideMatches(ctx context.Context, req GuideMatchRequest, cha
 		changed = append(changed, c)
 		return nil
 	}
+	shortlister := newAIShortlister(all, titles)
 	for _, c := range channels {
-		list := aiShortlist(c, all, titles)
+		list := shortlister.shortlist(c)
 		if len(list) == 0 {
 			continue
 		}

@@ -79,4 +79,32 @@ func TestStoredEpisodeTotalBySeriesMatchesDirectCount(t *testing.T) {
 	if got, ok, err := c.countStoredEpisodesBySeries(ctx, f); err != nil || !ok || got != direct(f) {
 		t.Fatalf("episode exclusion: by series %d, direct %d, usable %v, error %v", got, direct(f), ok, err)
 	}
+	// A published episode hidden set is subtracted too, not a reason to join
+	// every episode: aired and unaired members, a kept one, and one the
+	// filter already excludes are each counted once.
+	if _, err := c.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS availability_hidden(kind TEXT NOT NULL,generation TEXT NOT NULL,rating_key BIGINT NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(kind,generation,rating_key))`); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []core.RatingKey{core.EpisodeKey(5, 1, 1), core.EpisodeKey(5, 1, 2), core.EpisodeKey(6, 1, 3), core.EpisodeKey(4, 1, 1), core.EpisodeKey(2, 1, 2)} {
+		if _, err := c.db.ExecContext(ctx, `INSERT INTO availability_hidden VALUES('episode','gen',?,0)`, int64(k)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A retained older generation is inert.
+	if _, err := c.db.ExecContext(ctx, `INSERT INTO availability_hidden VALUES('episode','old',?,0)`, int64(core.EpisodeKey(1, 1, 3))); err != nil {
+		t.Fatal(err)
+	}
+	c.clock.Store(func() time.Time { return now })
+	for _, f := range []core.Filter{
+		{Type: core.TypeShow, HiddenEpisodeGeneration: "gen"},
+		{Type: core.TypeShow, HiddenEpisodeGeneration: "gen", MaxContentRating: "TV-14", AvailabilityKeepKeys: []core.RatingKey{core.EpisodeKey(5, 1, 2)}, ExcludeKeys: []core.RatingKey{core.EpisodeKey(4, 1, 1)}},
+	} {
+		got, ok, err := c.countStoredEpisodesBySeries(ctx, f)
+		if err != nil || !ok {
+			t.Fatalf("hidden set: by series usable %v, error %v", ok, err)
+		}
+		if want := direct(f); got != want || want == 0 {
+			t.Fatalf("hidden set %+v: by series %d, direct %d", f, got, want)
+		}
+	}
 }

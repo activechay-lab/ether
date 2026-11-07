@@ -230,7 +230,7 @@ func (r *Runtime) recoveryAdmissionPolicy(ctx context.Context, peer nodewire.Ide
 		return sourceResponse{}, ErrDenied
 	}
 	r.mu.Lock()
-	source := r.sources[sourceKey(route.Fence)]
+	source := r.sources[sourceKey(route.Fence, route.SourceGeneration)]
 	valid := !r.closed && source != nil && source.route == route && !source.binding && source.handle.Value() != ""
 	r.mu.Unlock()
 	if !valid {
@@ -256,7 +256,7 @@ func (r *Runtime) recoveryAdmissionPolicy(ctx context.Context, peer nodewire.Ide
 		return sourceResponse{}, ErrDenied
 	}
 	r.mu.Lock()
-	valid = !r.closed && r.sources[sourceKey(route.Fence)] == source && source.route == route && !source.binding && source.handle.Value() != ""
+	valid = !r.closed && r.sources[sourceKey(route.Fence, route.SourceGeneration)] == source && source.route == route && !source.binding && source.handle.Value() != ""
 	r.mu.Unlock()
 	if !valid {
 		return sourceResponse{}, ErrDenied

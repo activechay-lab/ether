@@ -146,11 +146,14 @@ func (s *Service) publishBreaks(key core.RatingKey, points []markers.BreakPoint,
 	if err != nil {
 		return
 	}
-	for _, c := range cs {
+	for _, listed := range cs {
 		var raw string
-		if s.o.DB.QueryRowContext(s.ctx, `SELECT data FROM livetv_channels WHERE id=?`, c.ID).Scan(&raw) != nil {
+		if s.o.DB.QueryRowContext(s.ctx, `SELECT data FROM livetv_channels WHERE id=?`, listed.ID).Scan(&raw) != nil {
 			continue
 		}
+		// Decode into a fresh value: listed can be a published guide snapshot's
+		// channel, whose Items and Look are shared with concurrent readers.
+		var c Channel
 		if json.Unmarshal([]byte(raw), &c) != nil {
 			continue
 		}
@@ -207,10 +210,10 @@ func (s *Service) publishBreaks(key core.RatingKey, points []markers.BreakPoint,
 		if e != nil || string(b) == raw {
 			continue
 		}
-		result, e := s.o.DB.ExecContext(s.ctx, `UPDATE livetv_channels SET data=? WHERE id=? AND CAST(data AS TEXT)=?`, string(b), c.ID, raw)
+		result, e := s.o.DB.ExecContext(s.ctx, `UPDATE livetv_channels SET data=? WHERE id=? AND CAST(data AS TEXT)=?`, string(b), listed.ID, raw)
 		if e == nil {
 			if n, _ := result.RowsAffected(); n > 0 {
-				s.invalidate(c.ID, "")
+				s.invalidate(listed.ID, "")
 				s.bumpLineup()
 			}
 		}

@@ -10,6 +10,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/markers"
 	"github.com/braedonsaunders/ether/internal/plex/model"
+	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/trackprefs"
 )
@@ -46,9 +47,7 @@ func (s *Server) preferredSelection(ctx context.Context, u *core.User, key core.
 		return sel
 	}
 	if original == "" && key.Kind() == core.KindEpisode && s.d.Catalog != nil {
-		if show, err := s.d.Catalog.Get(ctx, core.ShowKey(key.TMDB())); err == nil && show != nil {
-			original = show.Language
-		}
+		original = s.showLanguage(ctx, core.ShowKey(key.TMDB()))
 	}
 	var p trackprefs.Selection
 	var err error
@@ -215,4 +214,59 @@ func (s *Server) addProbedStreamFeatures(ctx context.Context, key core.RatingKey
 // SubtitleSource resolves cached OpenSubtitles and synchronized sidecars.
 type SubtitleSource interface {
 	OpenFormat(string, string) (io.ReadCloser, string, error)
+}
+
+func showLanguageMemoKey(show core.RatingKey) string {
+	return "plex:show-language:" + strconv.FormatInt(int64(show), 10)
+}
+
+// showLanguage is a series' original language, the default an episode's
+// track selection falls back to. A read request asks once per show.
+func (s *Server) showLanguage(ctx context.Context, show core.RatingKey) string {
+	lang, _ := reqmemo.Do(ctx, showLanguageMemoKey(show), func() (string, error) {
+		if t, err := s.d.Catalog.Get(ctx, show); err == nil && t != nil {
+			return t.Language, nil
+		}
+		return "", nil
+	})
+	return lang
+}
+
+// preloadShowLanguages resolves, in one batch, the series of every episode
+// whose streams this render selects without a language of its own. A list
+// of episodes from distinct shows otherwise loaded each show on its own
+// (On Deck: hundreds). Shows the batch cannot vouch for are left to Get.
+func (s *Server) preloadShowLanguages(ctx context.Context, pr *Request, ts []core.Title, o renderOpts) {
+	if !reqmemo.Active(ctx) || s.d.TrackPreferences == nil || s.d.Catalog == nil || pr == nil || pr.User == nil || !o.media || (!o.detail && !o.detailEpisodes) {
+		return
+	}
+	resolver, ok := s.d.Catalog.(interface {
+		ResolveShowParents(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	})
+	if !ok {
+		return
+	}
+	seen := map[core.RatingKey]bool{}
+	var shows []core.RatingKey
+	for i := range ts {
+		if ts[i].Type != core.TypeEpisode || ts[i].Language != "" || ts[i].Key.TMDB() <= 0 {
+			continue
+		}
+		show := core.ShowKey(ts[i].Key.TMDB())
+		if !seen[show] {
+			seen[show] = true
+			shows = append(shows, show)
+		}
+	}
+	if len(shows) < 2 {
+		return
+	}
+	got, err := resolver.ResolveShowParents(ctx, shows)
+	if err != nil {
+		return
+	}
+	for key, t := range got {
+		lang := t.Language
+		_, _ = reqmemo.Do(ctx, showLanguageMemoKey(key), func() (string, error) { return lang, nil })
+	}
 }

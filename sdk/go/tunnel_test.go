@@ -25,8 +25,13 @@ type tunnelWriteBarrier struct {
 }
 
 func (c *tunnelWriteBarrier) Write(b []byte) (int, error) {
+	// Count a write when it starts. The upgrade request's write can still be
+	// returning after the peer has answered, Dial has returned and the test
+	// has armed the barrier; counted on return it would hold response_start
+	// instead of the chunk, and the peer would wait for a chunk forever.
+	hold := c.writesUntilBarrier.Load() > 0 && c.writesUntilBarrier.Add(-1) == 0
 	n, err := c.Conn.Write(b)
-	if c.writesUntilBarrier.Load() > 0 && c.writesUntilBarrier.Add(-1) == 0 {
+	if hold {
 		close(c.delivered)
 		<-c.release
 	}

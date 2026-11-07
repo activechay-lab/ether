@@ -38,9 +38,13 @@ func newLabClient(ctx context.Context, raw, token string) (*labClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("lab host could not be resolved")
 	}
+	// ETHER_PROTECTED_ADDRS lists hosts (e.g. production) that are never
+	// chaos targets.
 	for _, addr := range ips {
-		if addr.IP.Equal(net.ParseIP("10.0.0.43")) {
-			return nil, fmt.Errorf("production server is not a chaos target")
+		for _, p := range strings.Fields(os.Getenv("ETHER_PROTECTED_ADDRS")) {
+			if addr.IP.Equal(net.ParseIP(p)) {
+				return nil, fmt.Errorf("protected server is not a chaos target")
+			}
 		}
 	}
 	u.Path = ""

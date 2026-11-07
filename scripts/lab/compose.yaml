@@ -1,6 +1,6 @@
 # Run on bb-worker-server. Service ports bind to the LAN for direct client access.
-# tunnel.sh is a fallback for clients that cannot reach 192.168.68.66 directly.
-# Never run this stack on the Mac or HYPERV03.
+# tunnel.sh is a fallback for clients that cannot reach the lab host directly.
+# Never run this stack on a workstation or a production server.
 services:
   # Silo's build-1810 image expects the Jellyfin FFmpeg layout configured in
   # playback.ffmpeg_path. Seed that exact package tree into a private volume.

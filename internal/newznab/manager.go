@@ -383,42 +383,23 @@ func (m *Manager) grabEvent(ctx context.Context, indexer string, r core.Release,
 
 // FetchNZB implements core.Indexer by routing to the originating client.
 func (m *Manager) FetchNZB(ctx context.Context, r core.Release) ([]byte, error) {
-	for _, cl := range m.Clients() {
-		if cl.Name() == r.Indexer {
-			started := time.Now()
-			b, asked, err := cl.fetchNZBReporting(ctx, r)
-			if asked {
-				m.grabEvent(ctx, cl.Name(), r, started, err)
-			}
-			return b, err
+	cl, err := m.releaseClient(r)
+	if err != nil {
+		return nil, err
+	}
+	if r.IndexerID == "" {
+		if cl.Config().UsesBackend() {
+			r = cl.bindReleases([]core.Release{r})[0]
+		} else {
+			r = cl.feedReleases([]core.Release{r})[0]
 		}
 	}
-	// Unknown origin (e.g. cached release after a rename): try each
-	// enabled client in priority order.
-	var firstErr error
-	for _, cl := range m.Clients() {
-		if !cl.Config().Enabled {
-			continue
-		}
-		started := time.Now()
-		b, asked, err := cl.fetchNZBReporting(ctx, r)
-		if asked {
-			m.grabEvent(ctx, cl.Name(), r, started, err)
-		}
-		if err == nil {
-			return b, nil
-		}
-		if firstErr == nil {
-			firstErr = err
-		}
-		if errors.Is(err, core.ErrBudgetExhausted) {
-			continue
-		}
+	started := time.Now()
+	b, asked, err := cl.fetchNZBReporting(ctx, r)
+	if asked {
+		m.grabEvent(ctx, cl.Name(), r, started, err)
 	}
-	if firstErr != nil {
-		return nil, firstErr
-	}
-	return nil, fmt.Errorf("newznab: no indexer available to fetch %q", r.Name)
+	return b, err
 }
 
 // missingAnswer reports an indexer whose answer a fleet search lacks because
