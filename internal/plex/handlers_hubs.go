@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"maps"
 	"math"
 	"net/http"
 	"net/url"
@@ -20,6 +22,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/homefilter"
 	"github.com/braedonsaunders/ether/internal/plex/model"
+	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -231,11 +234,28 @@ func (s *Server) continueHub(ctx context.Context, pr *Request, v cwVariant, sec 
 	if sec.ID != 0 {
 		t = sec.Type
 	}
-	selector := s.continueExperience(pr)
-	if v == cwSection && sec.Type == core.TypeShow {
-		selector.Filter = nil
+	// Home renders resume and On Deck from the same selection. Share that
+	// request-local work before either row filters its own membership.
+	type selection struct {
+		items []core.Title
+		state map[core.RatingKey]core.WatchStatus
+		more  bool
 	}
-	items, state, more := selector.Shelf(ctx, pr.User, t, s.saferFetchCount(pr.User, count))
+	uid := int64(0)
+	if pr.User != nil {
+		uid = pr.User.ID
+	}
+	unfiltered := v == cwSection && sec.Type == core.TypeShow
+	fetch := s.saferFetchCount(pr.User, count)
+	picked, _ := reqmemo.Do(ctx, fmt.Sprintf("plex:continue:%p:%d:%s:%d:%t", s, uid, t, fetch, unfiltered), func() (selection, error) {
+		selector := s.continueExperience(pr)
+		if unfiltered {
+			selector.Filter = nil
+		}
+		items, state, more := selector.Shelf(ctx, pr.User, t, fetch)
+		return selection{items, state, more}, nil
+	})
+	items, state, more := append([]core.Title(nil), picked.items...), maps.Clone(picked.state), picked.more
 	if v == cwSection && sec.Type == core.TypeShow && pr.User != nil {
 		if gate, ok := s.d.State.(interface {
 			PlaybackCompletedShows(context.Context, int64, []core.RatingKey) (map[core.RatingKey]bool, error)
