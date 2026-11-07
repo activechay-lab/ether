@@ -359,7 +359,7 @@ func (s *continuousSegmentIndex) noteLagLocked(seg Segment, received time.Time) 
 	}
 	if margin := segment / 2; lag > margin/2 && time.Since(s.lagWarned) > time.Minute && s.enc.m != nil {
 		s.lagWarned = time.Now()
-		s.enc.m.log.Warn("continuous output published late", "session", s.enc.req.SessionID, "segment", seg.Seq, "late", lag, "clientMargin", margin, "droppedHistoryWrites", s.enc.store.droppedWrites())
+		s.enc.m.log.Warn("continuous output published late", "session", s.enc.req.SessionID, "segment", seg.Seq, "late", lag, "schedLate", SchedulerLate(lag+time.Second), "clientMargin", margin, "droppedHistoryWrites", s.enc.store.droppedWrites())
 	}
 }
 

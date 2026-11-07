@@ -50,6 +50,7 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 	if r.Decision.AudioCodec != "" && r.Decision.AudioCodec != "aac" {
 		return nil, errors.New("transcode: continuous output requires AAC")
 	}
+	startSchedulerWatch(m.log)
 	ctx, release, e := m.AcquireTranscodeSlot(ctx, SlotViewer)
 	if e != nil {
 		return nil, e
