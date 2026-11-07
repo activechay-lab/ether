@@ -13,7 +13,7 @@ if [ -z "$both_models" ]; then
   if [ "${!mode:-0}" != 0 ]; then both_models=0; break; fi
  done
 fi
-host=${PRISM_TEST_HOST:-braedon@100.123.220.120}
+host=${PRISM_TEST_HOST:?set PRISM_TEST_HOST to user@lab-host}
 root=$(git rev-parse --show-toplevel)
 baseline=$(git -C "$root" rev-parse --verify "${baseline}^{commit}")
 if [ "${ETHER_PARITY_POLICY_COUNTERFACTUAL:-0}" = 1 ] && [ "$baseline" != 24be28768e1dc6be99fbf73193444f6325314d38 ]; then

@@ -62,7 +62,7 @@ class Tests(unittest.TestCase):
 
     def test_target_is_loopback_only(self):
         self.assertTrue(m.target_loopback('http://127.0.0.1:18096'))
-        self.assertFalse(m.target_loopback('http://10.0.0.43:32450'))
+        self.assertFalse(m.target_loopback('http://192.168.1.50:32450'))
         self.assertFalse(m.target_loopback('http://127.0.0.1:18096/?secret=x'))
 
 if __name__ == '__main__': unittest.main()

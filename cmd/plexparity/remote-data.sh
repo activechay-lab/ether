@@ -13,7 +13,7 @@ if [ -z "$both_models" ]; then
   if [ "${!mode:-0}" != 0 ]; then both_models=0; break; fi
  done
 fi
-host=${PRISM_TEST_HOST:-braedon@100.123.220.120}
+host=${PRISM_TEST_HOST:?set PRISM_TEST_HOST to user@lab-host}
 # 120s dies with SIGTERM (exit 143) just after seed verification, before any
 # diff. PRISM_TEST_TIMEOUT_SECONDS is the brief's name for the same budget.
 seconds=${PRISM_PARITY_TIMEOUT_SECONDS:-${PRISM_TEST_TIMEOUT_SECONDS:-7200}}

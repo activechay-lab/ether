@@ -61,12 +61,16 @@ refuse_production_host() {
   fi
   local addrs=""
   addrs="$(hostname -I 2>/dev/null || true)"
-  case "$addrs" in
-    *10.0.0.43*)
-      echo "refusing to run on HYPERV03" >&2
-      exit 2
-      ;;
-  esac
+  # ETHER_PROTECTED_ADDRS: space-separated addresses of hosts (e.g. production)
+  # this script must never modify.
+  for protected in ${ETHER_PROTECTED_ADDRS:-}; do
+    case " $addrs " in
+      *" $protected "*)
+        echo "refusing to run on protected host $protected" >&2
+        exit 2
+        ;;
+    esac
+  done
 }
 
 apply_pins() {

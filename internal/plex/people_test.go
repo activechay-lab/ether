@@ -9,7 +9,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-// Recorded from a real PMS (HYPERV03, GET only, 2026-11): for a movie's
+// Recorded from a real PMS (GET only, 2026-11): for a movie's
 // Role tag {id:117489, filter:"actor=117489", tag:"Tom Hanks",
 // tagKey:"5d77682654f42c001f8c2650"},
 //
