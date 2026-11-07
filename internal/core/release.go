@@ -190,6 +190,9 @@ type Release struct {
 	Category   int         `json:"category,omitempty"`
 	Info       ReleaseInfo `json:"info"`
 	Score      float64     `json:"score"`
+
+	// IndexerID binds a result to its configured origin; Indexer is a display label.
+	IndexerID string `json:"indexerId,omitempty"`
 	// TitleIDs are movie/series identifiers reported by the indexer. They
 	// must never be inferred from the search request's identifiers.
 	TitleIDs IDs `json:"titleIds,omitempty"`

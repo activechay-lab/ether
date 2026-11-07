@@ -26,6 +26,11 @@ func (c *Client) SearchWith(ctx context.Context, req core.SearchRequest, arrived
 	var mu sync.Mutex
 	seen := map[string]bool{}
 	emit := func(rs []core.Release) {
+		if c.Config().UsesBackend() {
+			rs = c.bindReleases(rs)
+		} else {
+			rs = c.feedReleases(rs)
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		var batch []core.Release

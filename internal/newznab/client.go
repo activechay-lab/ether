@@ -887,7 +887,7 @@ func (c *Client) doSearch(ctx context.Context, params url.Values, id config.Iden
 			results[i].Protocol = core.ProtocolTorrent
 		}
 	}
-	return results, err
+	return c.feedReleases(results), err
 }
 
 // Search implements core.Indexer.
@@ -1305,13 +1305,11 @@ func (c *Client) nzbDiskPath(releaseID string) string {
 	if c.nzbDir == "" || releaseID == "" {
 		return ""
 	}
-	safe := strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			return r
-		}
-		return '_'
-	}, releaseID)
-	return filepath.Join(c.nzbDir, safe+".nzb")
+	// Opaque/backend IDs and persisted releases can collide between clients.
+	// A different configured origin must never inherit another client's bytes.
+	key := c.indexerID() + "\x00" + searchIdentity(c.Config()) + "\x00" + releaseID
+	sum := sha256.Sum256([]byte(key))
+	return filepath.Join(c.nzbDir, hex.EncodeToString(sum[:])+".nzb")
 }
 
 // FetchNZB implements core.Indexer. Every call returns a slice of its own,
@@ -1325,6 +1323,9 @@ func (c *Client) FetchNZB(ctx context.Context, r core.Release) ([]byte, error) {
 // the indexer: false for an NZB read from the disk cache or one taken from
 // another caller's download. Only the indexer's own downloads are grabs.
 func (c *Client) fetchNZBReporting(ctx context.Context, r core.Release) ([]byte, bool, error) {
+	if r.IndexerID != "" && r.IndexerID != c.indexerID() {
+		return nil, false, fmt.Errorf("newznab: release belongs to another originating indexer")
+	}
 	if r.Protocol == core.ProtocolTorrent {
 		return nil, false, fmt.Errorf("newznab: %q is a torrent release; it streams through a debrid provider", r.Name)
 	}
@@ -1573,12 +1574,13 @@ func (c *Client) stampBackend(ctx context.Context, run func(context.Context) ([]
 		}
 		return nil, err
 	}
-	name := c.Name()
+	name, id := c.Name(), c.indexerID()
 	for i := range results {
 		r := &results[i]
 		r.Indexer = name
+		r.IndexerID = id
 		if r.ID == "" {
-			r.ID = releaseID(name, r.GUID, r.NZBURL+r.MagnetURL+r.Name)
+			r.ID = releaseID(id, r.GUID, r.NZBURL+r.MagnetURL+r.Name)
 		}
 		if r.Info.Title == "" && r.Name != "" {
 			r.Info = releaseparse.Parse(r.Name)
