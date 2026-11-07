@@ -181,7 +181,8 @@ type Channel struct {
 	sweepKey      string
 	numberMissing bool
 	Health        string `json:"health,omitempty"`
-	Transcode     bool   `json:"transcode"` // IPTV: normalize codecs through the transcoder
+	Transcode     bool   `json:"transcode"`           // IPTV: normalize codecs through the transcoder
+	Stability     string `json:"stability,omitempty"` // fastest, balanced, rocksolid; "" inherits the server preset
 	ID            string `json:"id"`
 	// Private channels are hidden from every viewer whose policy does not
 	// grant them: a restricted viewer needs it in Channels, an unrestricted
@@ -415,7 +416,8 @@ type Options struct {
 	HTTPClient         *http.Client
 	LogoHTTP           *http.Client // optional test transport for the logo index; nil uses the guarded client
 	LogoIndexURL       func() string
-	HealthSweepMinutes func() int // 0 defaults to 15; negative disables
+	HealthSweepMinutes func() int    // 0 defaults to 15; negative disables
+	Stability          func() string // server-wide stability preset; nil or "" is balanced (reserve_policy.go)
 	Now                func() time.Time
 	// Logger receives credential-safe import, playback and delivery diagnostics.
 	Logger *slog.Logger

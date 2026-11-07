@@ -551,6 +551,28 @@ type LiveTV struct {
 	// HealthSweepMinutes is the channel health sweep interval: 0 uses
 	// the default (15), negative disables the sweep.
 	HealthSweepMinutes int `json:"healthSweepMinutes,omitempty"`
+	// Stability is the server-wide Live TV stability preset: how much
+	// provider stream Ether holds in reserve so blips never reach the
+	// viewer. "fastest", "balanced" or "rocksolid"; empty means balanced.
+	// A channel may override it.
+	Stability string `json:"stability,omitempty"`
+}
+
+// Live TV stability presets (LiveTV.Stability and the per-channel override).
+const (
+	LiveTVStabilityFastest   = "fastest"
+	LiveTVStabilityBalanced  = "balanced"
+	LiveTVStabilityRockSolid = "rocksolid"
+)
+
+// ValidLiveTVStability reports whether v names a stability preset. Empty is
+// valid and means "inherit" (the server default, itself balanced).
+func ValidLiveTVStability(v string) bool {
+	switch v {
+	case "", LiveTVStabilityFastest, LiveTVStabilityBalanced, LiveTVStabilityRockSolid:
+		return true
+	}
+	return false
 }
 
 type LLM struct {

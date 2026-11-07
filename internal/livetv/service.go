@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/egress"
@@ -651,6 +652,9 @@ func validateChannel(c *Channel) error {
 	}
 	if err := validatePersonal(*c); err != nil {
 		return err
+	}
+	if !config.ValidLiveTVStability(c.Stability) {
+		return fmt.Errorf("invalid stability preset")
 	}
 	for _, slot := range c.Clock {
 		if !strings.HasPrefix(slot.SegmentID, "plugin:") || slot.Minute < 0 || slot.Minute > 59 || slot.EveryMinutes < 0 || slot.EveryMinutes > 1440 || slot.From < 0 || slot.Until > 1440 || slot.Until <= slot.From {
@@ -1975,6 +1979,7 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 				c.GuideID = previous.GuideID
 				c.GuideSourceID = previous.GuideSourceID
 				c.Transcode = previous.Transcode
+				c.Stability = previous.Stability
 				if previous.CustomGroup {
 					c.Group, c.CustomGroup = previous.Group, true
 				}
