@@ -596,11 +596,15 @@ func (p *relayProducer) reopen(ctx context.Context, f mediaFormat) {
 		}
 	}
 	dec, _, _ := p.s.relayPlan(p.sess.Load(), info)
-	if !prev.VideoCopy && prevAudio == "aac" && dec.AudioCopy && len(f.audio) > 0 && f.audio[0].codec != "aac" {
+	stereo := len(f.audio) > 0 && f.audio[0].channels > 0 && f.audio[0].channels <= 2
+	surround := p.caps.SupportsAudio("ac3") || p.caps.SupportsAudio("eac3")
+	if !prev.VideoCopy && prevAudio == "aac" && dec.AudioCopy && len(f.audio) > 0 && f.audio[0].codec != "aac" && (stereo || !surround) {
 		// A converting relay already re-encodes its picture: keep its
 		// sound AAC too, so the client meets a discontinuity but no
 		// codec change (an Apple player's AAC->AC-3 renderer switch alone
-		// freezes about a second).
+		// freezes about a second). Only when AAC keeps every channel:
+		// transcode's AAC is stereo, so a surround source the client can
+		// play stays surround through the ordinary decision.
 		caps := p.caps
 		caps.AudioCodecs = []string{"aac"}
 		next := p.s.o.Transcoder.Decide(info, caps, core.DecideOptions{DirectStream: false, AudioStream: -1, SubtitleStream: -1})
