@@ -221,6 +221,11 @@ func (p *providerBroadcastPlanner) failed(err error) time.Time {
 		p.s.recordSourceHealth(p.channel.ID, a.src, err, false)
 	}
 	at := p.ladder.failed(a.src.ID, err, aired, failover, sourceIDs(candidates), now)
+	if failover && p.ladder.next == a.src.ID {
+		// The tap gave up on this source and its readers ended: what it
+		// buffered has aired. Rejoin at the live edge rather than re-decode it.
+		p.ladder.liveEdge = true
+	}
 	if sb := p.standby; sb != nil && !changed && sb.src.ID != a.src.ID && sb.ready() {
 		// Hot standby: the backup is already decoding at its live edge.
 		p.ladder.next, p.ladder.liveEdge = sb.src.ID, false
