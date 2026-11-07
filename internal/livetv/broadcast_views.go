@@ -40,10 +40,13 @@ func awaitBroadcastCushion(ctx context.Context, lease *broadcastLease, provider 
 			return
 		}
 	}
-	// A live output's client starts 1.5 segments behind its first picture:
-	// its opening cuts are never longer than that lead (continuousLadder).
+	// A live output's client starts two segments behind its first picture.
+	// AVPlayer reloads a changed playlist once per target duration, so its
+	// buffer then never drops below about one segment, and a segment
+	// published up to a second late costs nothing; no opening cut of the
+	// ladder is longer than that lead (continuousLadder).
 	first := index.Since(-1, 1)
-	for provider && len(first) > 0 && latest.Start.Add(latest.Duration).Sub(first[0].Start) < segment*3/2 {
+	for provider && len(first) > 0 && latest.Start.Add(latest.Duration).Sub(first[0].Start) < segment*2 {
 		if latest, err = index.Wait(wait, latest.Seq); err != nil {
 			return
 		}
