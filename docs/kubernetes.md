@@ -779,45 +779,17 @@ that reproduce on its release baseline. Capability changes and package/PG gates
 are separate from deployed playback acceptance; every new runtime needs its own
 placement, client, control and retirement evidence.
 
-The historical required matrix currently records **20 PASS / 5 FAIL / 2 PENDING**
-across explicitly attributed runtimes and profiles. It does not qualify the
-current source tree. The five strict failures on `8cf89714c5` remain open:
-
-- Startup encoder pause in Plex and Jellyfin: media, controls and watermark pass,
-  but displaced claims remain at the cleanup deadline. Later normal zero-claim
-  follow-ups are preserved separately; they do not erase the bounded failures.
-- Steady Plex controller pause: media, takeover, Stop and retirement pass, but
-  one timeline attempt times out during the active pause. Raw status 0 means
-  transport/body failure; the original reported PASS is retained alongside the
-  failed strict control metric. This is not the earlier client-window exception.
-- Startup Plex delivery force-delete: segment 8 returns HTTP 401, followed by a
-  48.04-second client stall. Eight fetched segments pass prefix-only continuity.
-  That stall is not a measured server outage duration; root cause is unproven.
-- Startup Plex source pause: media, controls and source handover pass, while the
-  deadline snapshot remains unretired with one current claim. Stop 200 does not
-  prove retirement or establish a permanent leak.
-
-The remaining matrix PENDING rows are native GPU loss with CPU recovery and
-physical-host loss. The native `04824dbace` reference delivered 126 segments with
-zero stalls and six intrinsic checks. Retained local-restart producer windows
-at boundaries 40/57 pass all eight checks for High/BF3/24 fps/125 ms lead against
-independent reference windows. The R4 client did not cross the second boundary.
-Both intended-loss attempts aborted before their planned kill. Normal cleanup,
-empty process inventory and window release are separate observations; native
-kill/CPU recovery remains unmeasured. A process/pod fault cannot satisfy the
-physical-host failure gate. Neither historical build qualifies a newer runtime.
-
-The three repeated decision-B/start-A/Stop-B sessions on 8cf verify media,
-origins, capacity release and process cleanup, but session 0 retains its final
-client-window control exception. Two sessions have clean controls; a later clean
-targeted control-fix confirmation remains separate. Do not replace the original
-partial result or call all three sessions control-clean.
-
-The new ramp, re-encoded-audio and bounded-copy scopes above still require
-separate real-cluster qualification. Old constant-four-second-grid cases use
-re-encoded video and copied AAC; they do not cover those modes. Local NVENC
-restart-clock and software splice proofs remain scoped to their recorded tools
-and media, with other hardware/codec paths requiring independent proof.
+The v0.3.5 loss matrix passes: all 25 software rows (Plex source, transcode,
+delivery and controller loss by force-delete and pause at startup and steady
+state; Jellyfin transcode and controller loss; an Emby baseline) and the five
+mode gates (copied-AAC ramp loss at segments 1, 2 and 3, AC3-to-AAC steady
+recovery, bounded-copy steady recovery), each with zero client stalls, all eight
+media checks, successful controls and cleanup inside 15 s. The table, runtimes
+and fixture limits are in
+[the acceptance guide](kubernetes-acceptance.md#v035-matrix-2026-11-07).
+Native GPU encoder loss with CPU recovery and physical host power loss are not
+measured. Local NVENC restart-clock and software splice proofs remain scoped to
+their recorded tools and media.
 
 See [the acceptance guide](kubernetes-acceptance.md) for component verdict rules
 and the private evidence-index contract. The chart's mixed-role lab
