@@ -195,7 +195,9 @@ func (e *Engine) modelFor(ctx context.Context, user *core.User, wait bool) *user
 	}
 	m := e.models[user.ID]
 	if m != nil && e.opts.CatalogRulesRevision != nil && m.catalogRulesRevision != e.opts.CatalogRulesRevision(user) {
-		wait = true
+		// Invalidate immediately, but keep client reads non-blocking. The
+		// generic model still passes the current viewer policy below; only
+		// explicit owner previews may wait for a replacement model.
 		m = nil
 	}
 	if !revisionOK || (m != nil && e.opts.NotInterestedSnapshot != nil && m.preferenceSignature != signature) {

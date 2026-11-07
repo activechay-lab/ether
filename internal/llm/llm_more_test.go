@@ -172,6 +172,13 @@ func TestMoreLikeThisNeverOutwaitsCaller(t *testing.T) {
 	svc := New(ServiceOptions{Client: NewClient(ClientOptions{Config: config.LLM{Enabled: true, BaseURL: srv.URL, Model: "m"}}), Catalog: cat})
 	seed := &core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, Title: "Starlight", Year: 2014}
 
+	// Client reads return immediately even with no caller deadline while the
+	// same background flight supplies the blocking backend API below.
+	start := time.Now()
+	if out, _ := svc.CachedMoreLikeThis(context.Background(), seed, 5); len(out) != 0 || time.Since(start) > time.Second {
+		t.Fatal("cached client read waited for inference")
+	}
+
 	// Concurrent callers with short deadlines: one model call, nobody waits long.
 	var wg sync.WaitGroup
 	for i := 0; i < 5; i++ {

@@ -38,6 +38,7 @@ var generators = []generator{
 	{KindDifferent, (*builder).genDifferent},
 	{KindShortOnTime, (*builder).genShortOnTime},
 	{KindFranchise, (*builder).genFranchise},
+	{KindLLM, (*builder).genLLM},
 	{KindTraktRecs, (*builder).genTrakt},
 	{KindTrending, (*builder).genTrending},
 	{KindPopularServer, (*builder).genPopularServer},
@@ -1019,6 +1020,72 @@ func (b *builder) genFranchise() []*candRow {
 }
 
 // ---- external sources -------------------------------------------------------------
+
+// llmSync is optionally implemented by the LLM source (internal/llm.Service)
+// for background callers that can wait for a fresh answer.
+type llmSync interface {
+	ThemedRowsSync(ctx context.Context, user *core.User, seeds []core.Title, limit int) ([]core.Hub, error)
+}
+
+// llmContrastiveSync is optionally implemented by internal/llm.Service to
+// incorporate negative evidence (abandoned/ignored titles and disliked genres).
+type llmContrastiveSync interface {
+	ThemedRowsContrastiveSync(ctx context.Context, user *core.User, seeds, dislikes []core.Title, vetoGenres []string, limit int) ([]core.Hub, error)
+}
+
+func (b *builder) genLLM() []*candRow {
+	if b.e.llm == nil || !b.personal() {
+		return nil
+	}
+	var seeds []core.Title
+	for _, s := range b.seeds(8) {
+		seeds = append(seeds, s.Title)
+	}
+	if len(seeds) == 0 {
+		return nil
+	}
+	var dislikes []core.Title
+	for _, e := range b.taste.Evidence {
+		if e.Weight <= -0.15 && len(dislikes) < 5 {
+			dislikes = append(dislikes, e.Title)
+		}
+	}
+	var vetoGenres []string
+	for g, w := range b.taste.Genre {
+		if w <= -0.35 {
+			vetoGenres = append(vetoGenres, g)
+		}
+	}
+	sort.Strings(vetoGenres)
+	ctx, cancel := context.WithTimeout(b.ctx, b.e.opts.LLMTimeout)
+	defer cancel()
+	var hubs []core.Hub
+	var err error
+	switch s := b.e.llm.(type) {
+	case llmContrastiveSync:
+		hubs, err = s.ThemedRowsContrastiveSync(ctx, &b.user, seeds, dislikes, vetoGenres, 30)
+	case llmSync:
+		hubs, err = s.ThemedRowsSync(ctx, &b.user, seeds, 30)
+	default:
+		hubs, err = b.e.llm.ThemedRows(ctx, &b.user, seeds, 30)
+	}
+	if err != nil {
+		b.e.log.Debug("personalize: llm rows failed", "err", err)
+		return nil
+	}
+	var rows []*candRow
+	for _, h := range hubs {
+		items := b.rankWith(h.Items, func(t *core.Title, idx, n int, fit float64, _ string) (float64, string) {
+			return 0.7*rankScore(idx, n) + 0.3*fit, "Picked by your AI model for this theme"
+		}, false)
+		id := h.ID
+		if !strings.HasPrefix(id, "llm.") {
+			id = "llm." + id
+		}
+		rows = append(rows, newRow(KindLLM, id, h.Title, "A themed row your LLM suggested from your recent favourites.", items))
+	}
+	return rows
+}
 
 func (b *builder) genTrakt() []*candRow {
 	if b.e.trakt == nil || b.generic {

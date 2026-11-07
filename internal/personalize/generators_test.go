@@ -99,7 +99,7 @@ func TestGeneratorsForAFan(t *testing.T) {
 	}
 	watched[showKey(0, 1)] = true
 
-	discovery := []string{KindTop10, KindBecause, KindPerson, KindTrendingTaste, KindHiddenGems, KindNewThisWeek, KindDifferent, KindShortOnTime, KindTrending, KindPopularServer, KindTraktRecs}
+	discovery := []string{KindTop10, KindBecause, KindPerson, KindTrendingTaste, KindHiddenGems, KindNewThisWeek, KindDifferent, KindShortOnTime, KindTrending, KindPopularServer, KindLLM, KindTraktRecs}
 	for _, kind := range discovery {
 		for _, r := range rowsOfKind(m, kind) {
 			for _, it := range r.items {
@@ -214,10 +214,13 @@ func TestGeneratorsForAFan(t *testing.T) {
 		t.Fatalf("popular on server = %+v", pop)
 	}
 
-	if llm.sync || len(llm.seeds) != 0 || len(rowsOfKind(m, KindLLM)) != 0 {
-		t.Fatal("client Home generated AI recommendations")
+	llmRows := rowsOfKind(m, KindLLM)
+	if !llm.sync || len(llmRows) != 1 || llmRows[0].id != "llm.cosmic-dread" || len(llmRows[0].items) != 2 {
+		t.Fatalf("llm rows = %+v (sync %v)", llmRows, llm.sync)
 	}
-
+	if len(llm.seeds) == 0 || llm.seeds[0].Key != movieKey(0, 1) {
+		t.Fatalf("llm seeds = %v", llm.seeds)
+	}
 	recs := rowsOfKind(m, KindTraktRecs)
 	if len(recs) != 1 || len(recs[0].items) != 1 {
 		t.Fatalf("trakt recommendations = %+v", recs)

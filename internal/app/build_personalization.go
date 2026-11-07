@@ -130,7 +130,7 @@ func (a *App) buildPersonalization(ctx context.Context, cfg config.Config) error
 		},
 		CatalogRulesRevision: a.catalog.ViewerRulesRevision,
 		UserPolicy:           a.safety.UserPolicy, Allowed: a.safety.Allowed,
-		Trakt: a.trakt, Playlists: a.playlists, Favorites: a.favoriteSignals, NotInterested: a.notInterestedSignals, NotInterestedSnapshot: a.notInterestedSnapshot,
+		LLM: a.llm, Trakt: a.trakt, Playlists: a.playlists, Favorites: a.favoriteSignals, NotInterested: a.notInterestedSignals, NotInterestedSnapshot: a.notInterestedSnapshot,
 		ExtraHomeRows: a.extraHomeRows,
 		Dependencies: func(scorer core.PersonalScorer) (core.Recommender, core.CollectionRows, error) {
 			opts := append(a.collectionOptions(cfg), collections.WithState(a.state), collections.WithAuth(a.users), collections.WithScorer(scorer), collections.WithVibeRefiner(a.llm))
@@ -139,7 +139,7 @@ func (a *App) buildPersonalization(ctx context.Context, cfg config.Config) error
 			if err != nil {
 				return nil, nil, fmt.Errorf("collections: %w", err)
 			}
-			a.recommend = recommend.New(recommend.Options{Catalog: a.catalog, State: a.state, Scorer: scorer, Logger: log.With("component", "recommend")})
+			a.recommend = recommend.New(recommend.Options{Catalog: a.catalog, State: a.state, LLM: a.llm, Scorer: scorer, Logger: log.With("component", "recommend")})
 			return a.recommend, a.collections, nil
 		},
 		ServerName: func() string { return a.cfg.Read().Server.FriendlyName },

@@ -12,7 +12,6 @@ type fakeLLM struct {
 	rows  []core.Hub
 	more  []core.Title
 	seeds []core.Title
-	calls int
 	mu    sync.Mutex
 }
 
@@ -23,11 +22,13 @@ func (f *fakeLLM) ThemedRows(_ context.Context, _ *core.User, seeds []core.Title
 	return f.rows, nil
 }
 func (f *fakeLLM) MoreLikeThis(context.Context, *core.Title, int) ([]core.Title, error) {
-	f.calls++
+	panic("client recommendation called blocking LLM method")
+}
+func (f *fakeLLM) CachedMoreLikeThis(context.Context, *core.Title, int) ([]core.Title, error) {
 	return f.more, nil
 }
 
-func TestRelatedEpisodeExcludesLLM(t *testing.T) {
+func TestRelatedEpisodeAndLLMInterleave(t *testing.T) {
 	ctx := context.Background()
 	ll := &fakeLLM{more: []core.Title{sicario}}
 	r, _, user, cat := fixtureWith(t, func(o *Options) { o.LLM = ll })
@@ -47,11 +48,8 @@ func TestRelatedEpisodeExcludesLLM(t *testing.T) {
 	for _, it := range h.Items {
 		keys[it.Key] = true
 	}
-	if !keys[dune2.Key] || keys[sicario.Key] || keys[arrival.Key] {
-		t.Fatalf("catalogue similar via show, excluding AI and watched: %+v", h.Items)
-	}
-	if ll.calls != 0 {
-		t.Fatal("client recommendations invoked an LLM")
+	if !keys[dune2.Key] || !keys[sicario.Key] || keys[arrival.Key] {
+		t.Fatalf("similar via show + llm, minus watched: %+v", h.Items)
 	}
 	if _, err := r.Related(ctx, user, core.MovieKey(424242), 10); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("unknown title: %v", err)
