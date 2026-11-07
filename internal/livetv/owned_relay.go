@@ -572,7 +572,17 @@ func hedgeCut(ctx context.Context, h *relayHedge) bool {
 func (p *relayProducer) reopen(ctx context.Context, f mediaFormat) {
 	p.mu.Lock()
 	p.reopened = time.Now()
-	info, cut := p.info, p.cut
+	info, cut, prev := p.info, p.cut, p.dec
+	prevAudio := prev.AudioCodec
+	if prev.AudioCopy {
+		prevAudio = ""
+		for _, a := range info.Streams {
+			if a.Type == "audio" {
+				prevAudio = a.Codec
+				break
+			}
+		}
+	}
 	p.mu.Unlock()
 	info.Streams = append([]core.StreamInfo(nil), info.Streams...)
 	if len(f.audio) > 0 {
@@ -586,7 +596,20 @@ func (p *relayProducer) reopen(ctx context.Context, f mediaFormat) {
 		}
 	}
 	dec, _, _ := p.s.relayPlan(p.sess.Load(), info)
-	p.log.Warn("owned relay reopening for the source's new format", "format", f.String(), "audio_copy", dec.AudioCopy)
+	if !prev.VideoCopy && prevAudio == "aac" && dec.AudioCopy && len(f.audio) > 0 && f.audio[0].codec != "aac" {
+		// A converting relay already re-encodes its picture: keep its
+		// sound AAC too, so the client meets a discontinuity but no
+		// codec change (an Apple player's AAC->AC-3 renderer switch alone
+		// freezes about a second).
+		caps := p.caps
+		caps.AudioCodecs = []string{"aac"}
+		next := p.s.o.Transcoder.Decide(info, caps, core.DecideOptions{DirectStream: false, AudioStream: -1, SubtitleStream: -1})
+		if !next.AudioCopy && !next.VideoCopy {
+			next.Container = prev.Container
+			dec = next
+		}
+	}
+	p.log.Warn("owned relay reopening for the source's new format", "format", f.String(), "audio_copy", dec.AudioCopy, "audio_codec", dec.AudioCodec)
 	sctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if err := p.start(sctx, info, dec, cut, true); err != nil {
