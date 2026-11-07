@@ -315,6 +315,92 @@ func TestLiveTVHonestPassAndViewerRestrictions(t *testing.T) {
 	}
 }
 
+func TestLiveTVProviderRequiresAccessibleEnabledChannel(t *testing.T) {
+	ctx := context.Background()
+	f, service, channel := liveFixture(t)
+	visible := func(token string) bool {
+		t.Helper()
+		response := f.request(t, "GET", "/media/providers", map[string]string{"Accept": "application/json", "X-Plex-Token": token})
+		if response.Code != http.StatusOK {
+			t.Fatalf("providers: %d %s", response.Code, response.Body.String())
+		}
+		return strings.Contains(response.Body.String(), livetv.Provider)
+	}
+	if !visible(ownerToken) {
+		t.Fatal("enabled channel did not advertise Live TV")
+	}
+	channel.Enabled = false
+	if _, err := service.SaveChannel(ctx, channel); err != nil {
+		t.Fatal(err)
+	}
+	if visible(ownerToken) || visible(friendToken) {
+		t.Fatal("disabled channel advertised Live TV")
+	}
+	channel.Enabled, channel.Private = true, true
+	if _, err := service.SaveChannel(ctx, channel); err != nil {
+		t.Fatal(err)
+	}
+	if !visible(ownerToken) || visible(friendToken) {
+		t.Fatal("private channel advertised to an ungranted viewer")
+	}
+	if err := service.SetChannelViewers(ctx, channel.ID, livetv.ChannelViewers{Allow: []int64{friendUser.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if !visible(friendToken) {
+		t.Fatal("granted private channel was not advertised")
+	}
+	if err := service.SavePolicy(ctx, livetv.Policy{UserID: friendUser.ID, Restricted: true}); err != nil {
+		t.Fatal(err)
+	}
+	if visible(friendToken) {
+		t.Fatal("empty viewer allow-list advertised Live TV")
+	}
+}
+
+func TestLiveTVProviderAfterXtreamLiveImportDisabled(t *testing.T) {
+	ctx := context.Background()
+	f, service, channel := liveFixture(t)
+	if err := service.DeleteSource(ctx, channel.SourceID); err != nil {
+		t.Fatal(err)
+	}
+	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/player_api.php" {
+			fmt.Fprint(w, `<tv></tv>`)
+			return
+		}
+		switch r.URL.Query().Get("action") {
+		case "get_live_categories":
+			fmt.Fprint(w, `[{"category_id":"1","category_name":"News"}]`)
+		case "get_live_streams":
+			fmt.Fprint(w, `[{"num":1,"stream_id":1,"name":"News","category_id":"1"}]`)
+		default:
+			fmt.Fprint(w, `{"user_info":{"auth":1,"status":"Active"}}`)
+		}
+	}))
+	t.Cleanup(panel.Close)
+	source := livetv.Source{ID: "xtream", Name: "Test panel", VOD: true, Auth: &livetv.SourceAuth{Type: "xtream", Server: panel.URL, Username: "test", Password: "test"}}
+	if _, err := service.ImportSource(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	visible := func() bool {
+		t.Helper()
+		response := f.request(t, "GET", "/media/providers", map[string]string{"Accept": "application/json"})
+		return response.Code == http.StatusOK && strings.Contains(response.Body.String(), livetv.Provider)
+	}
+	if !visible() {
+		t.Fatal("Xtreme live import did not advertise Live TV")
+	}
+	off := false
+	source.LiveTV = &off
+	result, err := service.ImportSource(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ChannelCount != 0 || !result.VOD || visible() {
+		t.Fatalf("Xtreme live import disabled: channels=%d, VOD=%v, provider=%v", result.ChannelCount, result.VOD, visible())
+	}
+}
+
 // Native clients require usable source analysis at tune, before requesting media.
 type liveProbeTranscoder struct {
 	*fakeTranscoder

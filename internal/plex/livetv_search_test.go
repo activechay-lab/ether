@@ -84,8 +84,8 @@ func TestLiveChannelSearchContractAndPolicy(t *testing.T) {
 	if err := service.SavePolicy(ctx, livetv.Policy{UserID: friendUser.ID, Restricted: true}); err != nil {
 		t.Fatal(err)
 	}
-	if mc := request("Lantern", friendToken); mc["size"] != float64(0) {
-		t.Fatalf("restricted name leak: %#v", mc)
+	if r := f.request(t, "GET", path+"Lantern", map[string]string{"X-Plex-Token": friendToken}); r.Code != 404 {
+		t.Fatalf("restricted search: %d", r.Code)
 	}
 	if err := service.SavePolicy(ctx, livetv.Policy{UserID: friendUser.ID, MaxRating: "G"}); err != nil {
 		t.Fatal(err)
@@ -99,14 +99,14 @@ func TestLiveChannelSearchContractAndPolicy(t *testing.T) {
 	if r := f.request(t, "GET", path+"Lantern", map[string]string{"X-Plex-Token": friendToken}); r.Code != 404 {
 		t.Fatalf("disabled search: %d", r.Code)
 	}
+	if r := f.request(t, "GET", path+strings.Repeat("a", 257), nil); r.Code != 400 {
+		t.Fatalf("oversize query: %d", r.Code)
+	}
 	ch.Enabled = false
 	if _, err := service.SaveChannel(ctx, ch); err != nil {
 		t.Fatal(err)
 	}
-	if mc := request("Lantern", ownerToken); mc["size"] != float64(0) {
-		t.Fatalf("disabled channel leak: %#v", mc)
-	}
-	if r := f.request(t, "GET", path+strings.Repeat("a", 257), nil); r.Code != 400 {
-		t.Fatalf("oversize query: %d", r.Code)
+	if r := f.request(t, "GET", path+"Lantern", map[string]string{"X-Plex-Token": ownerToken}); r.Code != 404 {
+		t.Fatalf("disabled channel search: %d", r.Code)
 	}
 }
