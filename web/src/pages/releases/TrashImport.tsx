@@ -19,6 +19,7 @@ import { ApiError, errorMessage, isAbort } from "../../lib/api";
 import { formatNumber } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
 import {
+  appForMedia,
   mediaLabel,
   mediaTypeForApp,
   qualityGateLabel,
@@ -27,7 +28,7 @@ import {
   type ImportFormat,
   type QualityImportPlan,
   type QualityImportSource,
-  type StarrApp,
+  type ProfileMedia,
   type TrashProfileList,
 } from "../../lib/releases";
 import type { QualityProfile } from "../../lib/types";
@@ -36,11 +37,6 @@ import { searchSelectLabels } from "../../i18n/appkit-labels";
 import { useLocale } from "../../i18n/react";
 
 type ImportMode = "guides" | "dictionarry" | "paste";
-
-const APPS = localized(() => [
-  { value: "radarr" as const, label: t("Movies (Radarr)") },
-  { value: "sonarr" as const, label: t("Shows (Sonarr)") },
-]);
 
 const MODES = localized(() => [
   { value: "guides" as const, label: "TRaSH Guides" },
@@ -100,12 +96,14 @@ export function TrashImport({
   open,
   onClose,
   onImported,
+  media,
 }: {
   open: boolean;
+  media: ProfileMedia;
   onClose: () => void;
   onImported: () => Promise<void> | void;
 }) {
-  const [app, setApp] = useState<StarrApp>("radarr");
+  const app = appForMedia(media)!;
   const [mode, setMode] = useState<ImportMode>("guides");
   const [profileId, setProfileId] = useState("");
   const [pasted, setPasted] = useState("");
@@ -185,11 +183,16 @@ export function TrashImport({
     try {
       const p = await releaseConsole.previewImport(next, ctl.signal);
       if (ctl.signal.aborted) return;
+      if (p.app !== app) {
+        throw new Error(
+          t("This profile is for {actual}. Switch to {actual} before importing it.", {
+            actual: mediaLabel(mediaTypeForApp(p.app)),
+          }),
+        );
+      }
       setPlan(p);
       setSource({ ...next, app: p.app } as QualityImportSource);
       setName(p.profile.name);
-      // Pasted JSON can name the other app; follow the server's reading.
-      if (p.app !== next.app) setApp(p.app);
     } catch (e) {
       if (!isAbort(e) && !ctl.signal.aborted) setPreviewError(e);
     } finally {
@@ -264,19 +267,11 @@ export function TrashImport({
       <SettingsSection title={t("Profile to import")}>
         <SettingsRow
           title={t("App")}
-          description={t("Movies use Radarr's guide; shows use Sonarr's.")}
+          description={t("Determined by the selected profile scope.")}
           control={
-            <Segmented
-              ariaLabel={t("App")}
-              size="sm"
-              value={app}
-              options={APPS}
-              onChange={(v) => {
-                setApp(v);
-                setProfileId("");
-                clearPreview();
-              }}
-            />
+            <Badge variant="secondary">
+              {app === "radarr" ? t("Movies (Radarr)") : t("Shows (Sonarr)")}
+            </Badge>
           }
         />
         <SettingsRow

@@ -130,9 +130,9 @@ and a Newznab URL for Usenet. Finally choose a cache folder and budget.
 Out of the box there is no server quality cap, at home or away: each device
 plays the best release it can show (phones up to 1080p, TVs and streaming boxes
 up to 4K), and the app's own quality setting still applies. To limit quality,
-open **Quality › Profiles**. Under **Away from home**, choose an **Away profile**
-to cap people watching away from home (for example the 1080p profile), or set a
-**Bitrate limit** in Mbps (0 means no limit). To limit one device, app or viewer,
+open **Quality › Profiles**. Edit a profile and select **Away** under **Default for** to cap people watching away
+from home (for example with the 1080p profile), or set the shared **Remote bitrate
+limit** in Mbps (0 means no limit). To limit one device, app or viewer,
 add a rule under **Quality › Rules**. A rule wins over the Away profile.
 **Check quality**, its own tab under **Quality**, shows the quality a viewer gets
 in an app, at home or away, and which rule decided.
@@ -620,8 +620,7 @@ unknown, only the season-and-episode numbering is used.
 ## Import a quality profile
 
 Coming from Radarr, Sonarr, or another guide? Open **Quality › Profiles** and
-choose **Import a quality profile**. Pick **Movies (Radarr)** or
-**Shows (Sonarr)** for the guide's app, then choose a profile, such as
+select **Movies** or **Shows**, choose **Add profile**, then **Import a preset quality profile**. Choose a profile for that media, such as
 *HD Bluray + WEB* or *[SQP] SQP-1 (2160p)*. Ether supports **TRaSH Guides**,
 **Profilarr (Dictionarry)**, and pasted profile JSON. It shows what it will
 add before saving:
@@ -641,8 +640,7 @@ Rename the profile if you like, then choose **Add profile**. The profile is
 scoped to the app it came from: a Radarr profile applies to movies, a Sonarr
 profile to shows. **Quality › Profiles** has a **Movies / Shows** switch and
 separate At home and Away defaults, so a movie profile and a show profile can
-each be the default for their media. A profile you create by hand can apply to
-both. Your other profiles keep ranking releases exactly as before: they score
+each be the default for their media. New profiles apply to the selected media. Your other profiles keep ranking releases exactly as before: they score
 the newly added formats 0, as Radarr and Sonarr do for formats a profile
 doesn't list.
 
@@ -656,15 +654,20 @@ it.
 
 ### Keep imported profiles in sync
 
-**Quality › Profiles › Keep imported profiles in sync** updates imported
-profiles on a cadence you choose (6 hours to 7 days). A sync re-fetches the
+**Quality › Profiles › Keep imported profiles in sync** updates profiles
+imported from TRaSH Guides or Profilarr. Turn it on with the switch in the
+card's header, then choose how often to **Check for changes** (6 hours to 7
+days). The card shows when the last sync ran. Until you import a profile, it
+only says that it applies once you do. A sync re-fetches the
 source profile and its default format groups and overwrites that profile's
 quality definition and custom format scores exactly, so formats the guide adds
 are added and formats it removes are removed. The shared custom format
 definitions for that profile are updated too; definitions the sync owns and no
 profile uses are removed, while formats you created by hand are left alone.
 Profiles that are not imported, or that could not be fetched completely, are
-not changed. **Sync now** runs the same update immediately.
+not changed. **Sync now** runs the same update immediately, even while the
+automatic sync is off, for owners who prefer to take guide changes when they
+choose.
 
 ## Rank releases by custom score
 

@@ -37,14 +37,14 @@ it("orders profile sections before away, source order, and versions", async () =
   expect(flow.querySelector("[aria-current=step]")).toHaveTextContent("Profiles");
   expect(within(flow).queryByRole("link", { name: /Profiles/ })).not.toBeInTheDocument();
   const headings = screen.getAllByRole("heading").map((h) => h.textContent);
-  const order = ["Profiles", "Away from home", "Which source goes first", "Version menu"].map((s) =>
+  const order = ["Profiles", "Which source goes first", "Version menu"].map((s) =>
     headings.indexOf(s),
   );
   expect(order.every((i) => i >= 0)).toBe(true);
   expect(order).toEqual([...order].sort((a, b) => a - b));
   expect(screen.queryByTestId("quality-headline")).not.toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: "Import a quality profile" }),
+    screen.queryByRole("button", { name: "Import a preset quality profile" }),
   ).not.toBeInTheDocument();
 });
 
@@ -65,9 +65,34 @@ it("switches profiles between movies and shows and badges each card", async () =
   expect(screen.getAllByText("Shows").length).toBeGreaterThan(1);
 });
 
+it("collapses guide sync to one line until a profile is imported", async () => {
+  renderApp("/quality/profiles");
+  expect(
+    await screen.findByText(
+      "Applies once you import a profile from TRaSH Guides or Profilarr.",
+      {},
+      { timeout: 10000 },
+    ),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("switch", { name: "Keep imported profiles in sync" }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument();
+});
+
 it("saves the automatic sync cadence as a patch and runs it", async () => {
-  const { fake } = renderApp("/quality/profiles");
+  const { fake } = renderApp("/quality/profiles", {}, (f) => {
+    f.state.config.quality.profiles![0]!.import = {
+      source: "trash",
+      app: "radarr",
+      profile: "UHD Bluray + WEB",
+    };
+  });
   await screen.findByRole("switch", { name: "Keep imported profiles in sync" }, { timeout: 10000 });
+  // The title appears once, in the card header with its switch.
+  expect(screen.getAllByText("Keep imported profiles in sync")).toHaveLength(1);
+  expect(screen.getByText("Never synced")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Check for changes" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("switch", { name: "Keep imported profiles in sync" }));
   fireEvent.click(screen.getByRole("button", { name: "Check for changes" }));
   fireEvent.click(await screen.findByRole("option", { name: "Every 3 days" }, { timeout: 4000 }));
@@ -97,8 +122,37 @@ it("keeps an empty media tab selected so its first profile can be added", async 
   );
   fireEvent.click(screen.getByRole("button", { name: "Add profile" }));
   const drawer = await screen.findByRole("dialog");
-  expect(within(drawer).getByRole("radio", { name: "Shows" })).toHaveAttribute(
-    "aria-checked",
-    "true",
-  );
+  expect(within(drawer).getByText("Shows")).toBeInTheDocument();
+  expect(within(drawer).queryByRole("radio", { name: "Movies" })).not.toBeInTheDocument();
+  expect(within(drawer).queryByRole("radio", { name: "Both" })).not.toBeInTheDocument();
+});
+
+it("sets a shared profile as the away default only for the selected media", async () => {
+  const { fake } = renderApp("/quality/profiles", {}, (server) => {
+    server.state.config.quality.remote = "";
+    server.state.config.quality.remoteMovie = "";
+    server.state.config.quality.remoteTv = "";
+  });
+  fireEvent.click(await screen.findByRole("radio", { name: "Shows" }, { timeout: 10000 }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit 1080p" }));
+  const drawer = await screen.findByRole("dialog", { name: "1080p" });
+  fireEvent.click(within(drawer).getByRole("button", { name: "Away" }));
+  fireEvent.click(within(drawer).getByRole("button", { name: "Save profile" }));
+  await waitFor(() => expect(fake.state.config.quality.remoteTv).toBe("1080p"));
+  expect(fake.state.config.quality.remoteMovie).toBe("");
+});
+
+it("clears a legacy away default for one media while preserving the other", async () => {
+  const { fake } = renderApp("/quality/profiles", {}, (server) => {
+    server.state.config.quality.remote = "1080p";
+    server.state.config.quality.remoteMovie = "";
+    server.state.config.quality.remoteTv = "";
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "Edit 1080p" }, { timeout: 10000 }));
+  const drawer = await screen.findByRole("dialog", { name: "1080p" });
+  fireEvent.click(within(drawer).getByRole("button", { name: "Away" }));
+  fireEvent.click(within(drawer).getByRole("button", { name: "Save profile" }));
+  await waitFor(() => expect(fake.state.config.quality.remote).toBe(""));
+  expect(fake.state.config.quality.remoteMovie).toBe("");
+  expect(fake.state.config.quality.remoteTv).toBe("1080p");
 });
