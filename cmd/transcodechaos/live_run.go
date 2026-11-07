@@ -69,6 +69,9 @@ type liveResult struct {
 	Backup      *providerStats  `json:"backupProvider,omitempty"`
 	Error       string          `json:"error,omitempty"`
 	WallSeconds float64         `json:"wallSeconds"`
+	// HostLoad is the 1-minute load average at the row's start and end;
+	// timing rows measured on a saturated host are not comparable.
+	HostLoad [2]float64 `json:"hostLoad"`
 }
 
 type liveReport struct {
@@ -227,6 +230,22 @@ func renderLive(report, markdown, baselinePath string) error {
 	return os.WriteFile(markdown, []byte(liveMarkdown(rep, base, liveOptions{})), 0o644)
 }
 
+func hostLoad() float64 {
+	var out []byte
+	if runtime.GOOS == "linux" {
+		out, _ = os.ReadFile("/proc/loadavg")
+	} else {
+		out, _ = exec.Command("sysctl", "-n", "vm.loadavg").Output()
+	}
+	for _, f := range strings.Fields(strings.Trim(string(out), "{} \n")) {
+		var v float64
+		if _, err := fmt.Sscan(f, &v); err == nil {
+			return v
+		}
+	}
+	return 0
+}
+
 func gitCommit(root string) string {
 	out, err := exec.Command("git", "-C", root, "rev-parse", "--short=9", "HEAD").Output()
 	if err != nil {
@@ -249,7 +268,8 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 	sc := row.Scenario
 	res = liveResult{ID: row.ID(), Scenario: sc.Name, Summary: sc.Summary, Mode: row.Mode, Preset: o.Preset, Verdict: "FAIL"}
 	wall := time.Now()
-	defer func() { res.WallSeconds = time.Since(wall).Seconds() }()
+	res.HostLoad[0] = hostLoad()
+	defer func() { res.WallSeconds = time.Since(wall).Seconds(); res.HostLoad[1] = hostLoad() }()
 	ctx, cancel := context.WithTimeout(parent, o.Observe+90*time.Second)
 	defer cancel()
 	start := time.Now()

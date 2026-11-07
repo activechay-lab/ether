@@ -16,7 +16,11 @@ func liveMarkdown(rep liveReport, base *liveReport, o liveOptions) string {
 			pass++
 		}
 	}
-	fmt.Fprintf(&b, "**%d of %d rows pass.**\n\n", pass, len(rep.Results))
+	maxLoad := 0.0
+	for _, r := range rep.Results {
+		maxLoad = max(maxLoad, r.HostLoad[0], r.HostLoad[1])
+	}
+	fmt.Fprintf(&b, "**%d of %d rows pass.** Peak host load average during the run: %.0f.\n\n", pass, len(rep.Results), maxLoad)
 	byID := map[string]liveResult{}
 	if base != nil {
 		for _, r := range base.Results {
