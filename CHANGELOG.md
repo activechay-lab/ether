@@ -2,10 +2,23 @@
 
 ## 0.3.5-rc.1 (release candidate)
 
-Xtream source/player support, per-viewer Live TV compatibility transcoding,
-channel search, catalogue and poster corrections, richer support diagnostics,
-and scoped distributed playback recovery fixes. See the
-[RC1 notes](release-notes/v0.3.5-rc.1.md) for upgrade guidance and validation limits.
+- **On Air:** virtual channels rebuilt as continuous channels, with styles and
+  Style Studio, break reels, personal channels and plugin segments.
+- **Xtream and IPTV:** Xtream sources for Live TV, movies and shows; the
+  **IPTV apps (Xtream)** app for IPTV players; per-viewer compatibility
+  transcoding; AI guide matching; contrast-aware channel artwork.
+- **Server roles on Kubernetes:** Helm chart with external PostgreSQL; full
+  nodes plus source, transcode (CPU or NVIDIA), server and delivery roles, with
+  playback recovery when a node is lost.
+- **Quality:** separate movie and TV show profiles, Radarr/Sonarr imports with
+  optional sync, burned-in subtitle handling, more release names recognised.
+- **Apps:** closer Plex Media Server behaviour for playlists, play queues,
+  downloads, tracks and live updates; fixes for #285, #315, #326, #331, #339,
+  #341, #342, #347, #351, #354 and more.
+- **Catalogue and console:** AI catalogue search, per-viewer catalogue rules,
+  bulk Home row editing, poster badge fixes, database check, Cluster page.
+
+See the [RC1 notes](release-notes/v0.3.5-rc.1.md) for upgrade guidance and limits.
 
 ## 0.3.1 (2026-11-01)
 
