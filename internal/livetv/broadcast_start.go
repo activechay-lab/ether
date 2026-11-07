@@ -15,6 +15,11 @@ import (
 
 func (s *Service) screenDefaults(c Channel) config.LiveTVScreens {
 	defaults := config.LiveTVScreens{NoSignal: "error", OffAir: "card", ApplyTo: "converted"}
+	if c.Kind == "iptv" {
+		// IPTV plays through a continuous output; its visible failure mode is
+		// the warm reconnecting screen.
+		defaults.NoSignal, defaults.ApplyTo = "card", "all"
+	}
 	if c.Look != nil && c.Look.LookID != "" {
 		// Match StyleScreensEditor when the style has no explicit override.
 		defaults.NoSignal, defaults.StationID = "card", true
@@ -50,11 +55,16 @@ func (s *Service) screenStyle(c Channel, offair bool) string {
 	return style
 }
 
-// useBroadcast reports the channel kinds that play through a continuous
-// output. IPTV defaults to it (Steady); the tune itself may still refuse a 4K
-// or HDR source, or a host without encode capacity, and take a direct path.
+// useBroadcast reports the channels that play through a continuous output.
+// IPTV defaults to it (Steady); the tune itself may still refuse a 4K or HDR
+// source, or a host without encode capacity, and take a direct path. A channel
+// whose owner chose no screen at all ("error") never shows one, so it plays
+// direct.
 func (s *Service) useBroadcast(c Channel) bool {
-	return c.Kind == "virtual" || c.Kind == "iptv"
+	if c.Kind == "virtual" {
+		return true
+	}
+	return c.Kind == "iptv" && (c.Screens == nil || c.Screens.NoSignal != "error")
 }
 func (s *Service) screenRequest(c Channel, reason string) core.ClipRequest {
 	offair := reason == offAirSlate

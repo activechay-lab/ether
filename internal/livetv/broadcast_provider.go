@@ -121,8 +121,8 @@ func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 // this decoder starts from.
 //
 // Its startup burst only encodes pictures already decoded (the probe's
-// bytes, a tap or playlist backlog) up to one target duration ahead, so the
-// client starts with a cushion; publishing never waits on the input, and the
+// bytes, a tap or playlist backlog) up to two segments ahead, so the client
+// starts with a cushion; publishing never waits on the input, and the
 // rest of a reserve the decoder starts behind the live edge stays on the
 // server, where it hides upstream stalls.
 //
@@ -132,7 +132,7 @@ func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 // keeps a cold raw-TS tune under five seconds without a stall. The clock
 // never stops publishing, so the 3 s (1.5x target) client limit holds.
 func (p *providerBroadcastPlanner) coldWait() time.Duration        { return 4 * time.Second }
-func (p *providerBroadcastPlanner) startupLead() time.Duration     { return steadySegment }
+func (p *providerBroadcastPlanner) startupLead() time.Duration     { return 2 * steadySegment }
 func (p *providerBroadcastPlanner) segmentDuration() time.Duration { return steadySegment }
 
 const steadySegment = 2 * time.Second
