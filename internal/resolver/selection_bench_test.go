@@ -108,7 +108,11 @@ func TestObscureTitlesResolveAgainstAllOddsInMilliseconds(t *testing.T) {
 	}}
 	tvCfg := testCfg()
 	// Allow SD explicitly; legacy size estimates must still permit small episodes.
-	tvCfg.Quality.Profiles[0].MinHeight = 480
+	for i := range tvCfg.Quality.Profiles {
+		if tvCfg.Quality.Profiles[i].Name == "4K" {
+			tvCfg.Quality.Profiles[i].MinHeight = 480
+		}
+	}
 	svcTV := New(tvIdx, fakeHealth{}, nil, tvCfg, Options{})
 	t.Cleanup(func() { _ = svcTV.Close() })
 	officeEp := &core.Title{
