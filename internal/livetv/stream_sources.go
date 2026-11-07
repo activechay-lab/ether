@@ -406,7 +406,7 @@ func (s *Service) startIPTV(ctx context.Context, ss *session) error {
 		ss.info.MediaInfo, ss.relayInfo = nil, nil
 		// ffmpeg and ffprobe read this input through a loopback grant, never
 		// with the provider URL or headers on their command line.
-		err = s.grantInput(ss, grantSrc, headers)
+		err = s.grantDirectInput(ss, grantSrc, headers)
 		if err == nil {
 			err = s.startIPTVSource(attemptCtx, ss)
 		}

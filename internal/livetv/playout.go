@@ -920,9 +920,6 @@ func (s *Service) passthroughToRelay(ctx context.Context, ss *session) (*ownedLe
 		info = &copy
 	}
 	dec, cut, _ := s.relayPlan(ss, *info)
-	if err := s.reserveRelayGrant(ss, *info); err != nil {
-		return nil, err
-	}
 	next, err := s.startOwnedRelay(ctx, ss, *info, relayCaps(ss.caps), dec, cut)
 	if err != nil {
 		return nil, Diagnose("relay_start", err)

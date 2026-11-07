@@ -196,3 +196,33 @@ func TestOwnedTimelineReserveAbsorbsAStall(t *testing.T) {
 		t.Fatalf("reserve did not pace the stall: slate %d window %d depth %v", tl.slateSegments, len(tl.window), tl.depth())
 	}
 }
+
+// A long segment (a copy cut late across a timestamp jump) must not hold
+// the playlist still for its whole length: the next publication, media or
+// slate, comes within a target.
+func TestOwnedTimelineAdvancesWithinTargetAfterLongSegment(t *testing.T) {
+	for _, next := range []bool{true, false} {
+		clock := time.Unix(1_000_000, 0)
+		tl := newOwnedTimeline("t", slog.New(slog.NewTextHandler(io.Discard, nil)), func() time.Time { return clock }, 12*time.Second,
+			func(slateProfile) *slateClip { return &slateClip{ext: "ts", dur: 2 * time.Second, data: slateTS(0)} })
+		tl.expectStart(2, 2*time.Second)
+		tl.ingest(&ownedSegment{dur: 2 * time.Second, ext: "ts"})
+		tl.ingest(&ownedSegment{dur: 2 * time.Second, ext: "ts"})
+		clock = clock.Add(2 * time.Second)
+		tl.ingest(&ownedSegment{dur: 4100 * time.Millisecond, ext: "ts"})
+		if next {
+			tl.ingest(&ownedSegment{dur: 2 * time.Second, ext: "ts"})
+		}
+		published := tl.nextSeq
+		start := clock
+		for clock.Sub(start) < 4*time.Second && tl.nextSeq == published {
+			clock = clock.Add(100 * time.Millisecond)
+			tl.mu.Lock()
+			tl.tickLocked(clock)
+			tl.mu.Unlock()
+		}
+		if gap := clock.Sub(start); gap > 2900*time.Millisecond {
+			t.Fatalf("next segment waiting=%v: playlist unchanged for %v after a 4.1 s segment", next, gap)
+		}
+	}
+}
