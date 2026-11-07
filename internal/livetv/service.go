@@ -88,6 +88,7 @@ type Service struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
+	direct           ownedServiceState // Direct-path owned timelines and slates (owned_*.go)
 }
 
 func New(o Options) (*Service, error) {

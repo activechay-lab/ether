@@ -86,7 +86,7 @@ func (s *Session) poll(r *run, playlist string, exited bool) {
 	if t < 0 || t >= len(s.done) {
 		t = 0
 	}
-	for _, n := range p.segments {
+	for i, n := range p.segments {
 		if n < r.startSeg || (n <= r.maxDone && r.produced > 0) {
 			continue
 		}
@@ -128,6 +128,9 @@ func (s *Session) poll(r *run, playlist string, exited bool) {
 		r.produced++
 		r.maxDone = n
 		s.done[t][n] = true
+		if s.liveInput && t == 0 && i < len(p.entries) {
+			s.noteLiveDurationLocked(n, p.entries[i].dur)
+		}
 		if t == 0 {
 			s.noteSegSizeLocked(n, s.trackSegPath(t, n))
 		}
