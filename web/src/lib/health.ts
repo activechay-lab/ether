@@ -465,43 +465,20 @@ export function remoteHealth(v: unknown): HealthItem {
       : v.plexReachable === false
         ? t("plex.tv's last connectivity check reported the server unreachable.")
         : "";
-  if (v.remoteAccess === true) {
-    const upnp = isPlainObject(v.upnp) ? v.upnp : {};
-    if (upnp.active === true) details.push(t("Port mapped with UPnP"));
-    if (v.remoteClientReachable === true) {
-      if (lastCheck) details.push(lastCheck);
-      return {
-        ...base,
-        level: "ok",
-        summary: t("Reachable away from home."),
-        details,
-        statusLabel: t("Reachable"),
-      };
-    }
-    const clientSeen = parseTime(v.remoteClientLastSeen);
-    const plexChecked = parseTime(v.plexReachableCheckedAt);
-    const superseded = clientSeen && (!plexChecked || clientSeen > plexChecked);
-    if (v.plexReachable === false && !superseded) {
-      return {
-        ...base,
-        level: "warn",
-        summary: lastCheck,
-        details: [t("Direct remote access enabled"), ...details],
-        note: customPublished.length > 0 ? publicationNote : undefined,
-      };
-    }
+  if (v.remoteClientReachable === true) {
     if (lastCheck) details.push(lastCheck);
     return {
       ...base,
       level: "ok",
-      summary: t("Direct remote access enabled"),
+      summary: t("Reachable away from home."),
       details,
-      statusLabel: t("Configured"),
-      note: customPublished.length > 0 ? publicationNote : undefined,
+      statusLabel: t("Reachable"),
     };
   }
-  if (lastCheck) details.push(lastCheck);
+  // plex.tv's verdict is not tied to the published proxy URL. Keep it as
+  // diagnostic detail rather than declaring every custom route broken.
   if (customPublished.length > 0) {
+    if (lastCheck) details.push(lastCheck);
     return {
       ...base,
       level: "off",
@@ -511,6 +488,30 @@ export function remoteHealth(v: unknown): HealthItem {
       note: publicationNote,
     };
   }
+  if (v.remoteAccess === true) {
+    const upnp = isPlainObject(v.upnp) ? v.upnp : {};
+    if (upnp.active === true) details.push(t("Port mapped with UPnP"));
+    const clientSeen = parseTime(v.remoteClientLastSeen);
+    const plexChecked = parseTime(v.plexReachableCheckedAt);
+    const superseded = clientSeen && (!plexChecked || clientSeen > plexChecked);
+    if (v.plexReachable === false && !superseded) {
+      return {
+        ...base,
+        level: "warn",
+        summary: lastCheck,
+        details: [t("Direct remote access enabled"), ...details],
+      };
+    }
+    if (lastCheck) details.push(lastCheck);
+    return {
+      ...base,
+      level: "ok",
+      summary: t("Direct remote access enabled"),
+      details,
+      statusLabel: t("Configured"),
+    };
+  }
+  if (lastCheck) details.push(lastCheck);
   return { ...base, level: "off", summary: t("Local network only"), details };
 }
 

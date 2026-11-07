@@ -467,6 +467,13 @@ func (st Status) WANState() string {
 	if st.RemoteClientReachable || (st.PlexReachable != nil && *st.PlexReachable) {
 		return "reachable"
 	}
+	// A plex.tv verdict does not identify which published route it tested.
+	// A reverse proxy can work while the direct public port is closed.
+	for _, c := range st.Connections {
+		if c.Custom && c.URI != "" && slices.Contains(st.PublishedURIs, c.URI) {
+			return "unknown"
+		}
+	}
 	if st.PlexReachable != nil && (st.RemoteClientLastSeen.IsZero() || !st.PlexReachableCheckedAt.Before(st.RemoteClientLastSeen)) {
 		return "unreachable"
 	}

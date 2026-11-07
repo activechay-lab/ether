@@ -59,10 +59,11 @@ describe("remoteHealth", () => {
       publishedUris: [uri],
       connections: [{ uri, custom: true, protocol: "https" }],
     });
-    expect(both.level).toBe("warn");
-    expect(both.summary).toBe("plex.tv's last connectivity check reported the server unreachable.");
+    expect(both.level).toBe("off");
+    expect(both.summary).toBe("Custom connection published");
+    expect(both.details.join(" ")).toMatch(/reported the server unreachable/);
     expect(both.details.join(" ")).toContain(uri);
-    expect(both.summary).not.toBe("Custom connection published");
+    expect(both.statusLabel).toBe("Published");
   });
 
   it("keeps intentional LAN-only off the incomplete rank", () => {
