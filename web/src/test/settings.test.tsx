@@ -48,7 +48,10 @@ describe("Settings", () => {
       };
     });
     const port = await screen.findByLabelText("Jellyfin port", {}, WAIT);
-    await waitFor(() => expect(port).toHaveValue(8096), WAIT);
+    await waitFor(() => {
+      expect(port).toBeEnabled();
+      expect(port).toHaveValue(8096);
+    }, WAIT);
     expect(screen.queryByLabelText("Emby port")).toBeNull();
     expect(screen.getByText("http://192.168.1.20:8096")).toBeVisible();
     expect(screen.getByText("https://jellyfin.example.com")).toBeVisible();
