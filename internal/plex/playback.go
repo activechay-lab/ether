@@ -1695,6 +1695,20 @@ func (s *Server) handleTranscodeSessions(w http.ResponseWriter, r *http.Request)
 	s.write(w, r, mc)
 }
 
+// handleTranscodeSessionStatus is /transcode/sessions/{session}, the key every
+// TranscodeSession carries. PMS clients poll it for one session's state;
+// a desktop app's embedded server does so while it pulls a download
+// stream from this server. Viewers see only their own sessions.
+func (s *Server) handleTranscodeSessionStatus(w http.ResponseWriter, r *http.Request) {
+	u := FromContext(r.Context()).User
+	te, ok := s.transcodes.get(chi.URLParam(r, "session"))
+	if !ok || u == nil || (!u.IsOwner && te.userID != u.ID) {
+		writeHTTPError(w, http.StatusNotFound)
+		return
+	}
+	s.write(w, r, &model.MediaContainer{Size: 1, TranscodeSess: []model.TranscodeSess{transcodeSessionModel(te)}})
+}
+
 func transcodeSessionModel(te *transcodeEntry) model.TranscodeSess {
 	ts := model.TranscodeSess{
 		Key:        "/transcode/sessions/" + te.id,
