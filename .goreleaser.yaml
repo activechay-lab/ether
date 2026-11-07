@@ -141,8 +141,7 @@ dockers:
     goos: linux
     goarch: amd64
     image_templates:
-      - ghcr.io/braedonsaunders/ether:{{ .Version }}-amd64
-      - ghcr.io/braedonsaunders/ether:latest-amd64
+      - ghcr.io/braedonsaunders/ether:candidate-{{ .FullCommit }}-amd64
     extra_files:
       - LICENSE
       - THIRD_PARTY_NOTICES.md
@@ -161,8 +160,7 @@ dockers:
     goos: linux
     goarch: arm64
     image_templates:
-      - ghcr.io/braedonsaunders/ether:{{ .Version }}-arm64
-      - ghcr.io/braedonsaunders/ether:latest-arm64
+      - ghcr.io/braedonsaunders/ether:candidate-{{ .FullCommit }}-arm64
     extra_files:
       - LICENSE
       - THIRD_PARTY_NOTICES.md
@@ -176,14 +174,10 @@ dockers:
       - --label=org.opencontainers.image.licenses=GPL-3.0
 
 docker_manifests:
-  - name_template: ghcr.io/braedonsaunders/ether:{{ .Version }}
+  - name_template: ghcr.io/braedonsaunders/ether:candidate-{{ .FullCommit }}
     image_templates:
-      - ghcr.io/braedonsaunders/ether:{{ .Version }}-amd64
-      - ghcr.io/braedonsaunders/ether:{{ .Version }}-arm64
-  - name_template: ghcr.io/braedonsaunders/ether:latest
-    image_templates:
-      - ghcr.io/braedonsaunders/ether:latest-amd64
-      - ghcr.io/braedonsaunders/ether:latest-arm64
+      - ghcr.io/braedonsaunders/ether:candidate-{{ .FullCommit }}-amd64
+      - ghcr.io/braedonsaunders/ether:candidate-{{ .FullCommit }}-arm64
 
 release:
   github:

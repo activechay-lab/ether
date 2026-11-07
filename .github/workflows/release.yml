@@ -308,6 +308,32 @@ jobs:
           go run ./cmd/ether-release-sign sign -in "$CHANNEL.json" -detached
           go run ./cmd/ether-release-sign verify -in "$CHANNEL.json" -sig "$CHANNEL.json.sig"
           cat "$CHANNEL.json"
+      # GoReleaser publishes only commit-specific candidate images. Public
+      # version/latest tags move here, after CI and the publication approval.
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote approved container images
+        env:
+          VERSION: ${{ needs.goreleaser.outputs.version }}
+          CHANNEL: ${{ needs.goreleaser.outputs.channel }}
+        run: |
+          set -eu
+          image=ghcr.io/braedonsaunders/ether
+          commit=$(git rev-parse HEAD)
+          for arch in amd64 arm64; do
+            docker buildx imagetools create --tag "$image:$VERSION-$arch" "$image:candidate-$commit-$arch"
+            if [ "$CHANNEL" = stable ]; then
+              docker buildx imagetools create --tag "$image:latest-$arch" "$image:candidate-$commit-$arch"
+            fi
+          done
+          docker buildx imagetools create --tag "$image:$VERSION" "$image:candidate-$commit"
+          if [ "$CHANNEL" = stable ]; then
+            docker buildx imagetools create --tag "$image:latest" "$image:candidate-$commit"
+          fi
       - name: Attach manifest + publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
