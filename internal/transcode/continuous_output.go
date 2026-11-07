@@ -365,7 +365,7 @@ func continuousWindow(window, duration time.Duration) int {
 func (s *continuousSegmentIndex) recordPolicy(tick int64, tags []any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	start, frames := continuousSegmentFrames(s.enc.req.Source, s.policySeq)
+	start, frames := continuousSegmentFrames(s.enc.req.Source, s.enc.req.SegmentDuration, s.policySeq)
 	if tick >= start+frames {
 		s.policySeq++
 	}

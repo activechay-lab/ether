@@ -15,6 +15,14 @@ import (
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
+// broadcastSegment is the target duration of the output a lease reads.
+func broadcastSegment(l *broadcastLease) time.Duration {
+	if l == nil || l.broadcast == nil || l.broadcast.segment <= 0 {
+		return segmentDuration
+	}
+	return l.broadcast.segment
+}
+
 func (s *Service) broadcastSegments(ctx context.Context, ss *session) (transcode.SegmentIndex, error) {
 	ss.mu.Lock()
 	lease := ss.broadcast
@@ -29,15 +37,34 @@ func (s *Service) broadcastWindow(ctx context.Context, ss *session, r *http.Requ
 	if err != nil {
 		return nil, nil, err
 	}
+	wait, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
 	latest, ok := index.Latest()
 	if !ok {
-		wait, cancel := context.WithTimeout(ctx, 8*time.Second)
-		defer cancel()
 		latest, err = index.Wait(wait, -1)
 		if err != nil {
 			// No playlist exists yet, including when a cold encoder exits before
 			// publishing. Tell clients to retry rather than report a bad gateway.
 			return nil, nil, core.ErrNotAvailable
+		}
+	}
+	// A live provider output publishes at real time from its first picture.
+	// Its first playlist waits until one target duration is published, so a
+	// client starts with a whole segment of cushion instead of stalling on
+	// one-second startup segments. A burst from a reserve is already there.
+	ss.mu.Lock()
+	provider := ss.info.Channel.Kind == "iptv"
+	segment := broadcastSegment(ss.broadcast)
+	ss.mu.Unlock()
+	if provider {
+		if first := index.Since(-1, 1); len(first) > 0 {
+			for latest.Start.Add(latest.Duration).Sub(first[0].Start) < segment {
+				next, err := index.Wait(wait, latest.Seq)
+				if err != nil {
+					break
+				}
+				latest = next
+			}
 		}
 	}
 	end := latest.Start.Add(latest.Duration)
@@ -80,7 +107,9 @@ func (s *Service) serveBroadcastPlaylist(w http.ResponseWriter, r *http.Request,
 	}
 	// TARGETDURATION is a property of the rendition, including its short
 	// startup segments, and must not change as the window advances.
-	target := 4
+	ss.mu.Lock()
+	target := int(math.Ceil(broadcastSegment(ss.broadcast).Seconds()))
+	ss.mu.Unlock()
 	for _, seg := range segments {
 		target = max(target, int(math.Ceil(seg.Duration.Seconds())))
 	}

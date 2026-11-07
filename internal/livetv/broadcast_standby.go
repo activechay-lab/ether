@@ -144,8 +144,29 @@ func (p *providerBroadcastPlanner) watchStandby(ctx context.Context) {
 			continue
 		}
 		stressed := a.decoder.stressed(now)
-		if h, ok := p.s.inputHealth(a.link.ss); ok && (h.Stalled || h.Failed || h.DataAge > steadyStress) {
+		h, healthy := p.s.inputHealth(a.link.ss)
+		if healthy && (h.Stalled || h.Failed || h.DataAge > steadyStress) {
 			stressed = true
+		}
+		// Switch on failure: once the primary stops delivering pictures (or
+		// its tap gave up) a ready standby takes over at once, before the
+		// clock's 1.5 s stall hold would expire.
+		if sb.ready() && (a.decoder.starved(now) || healthy && h.Failed) {
+			p.mu.Lock()
+			retry := p.retry
+			if p.attempt == a && p.standby == sb {
+				p.attempt = nil
+				p.ladder.next, p.ladder.liveEdge = sb.src.ID, false
+			} else {
+				retry = nil
+			}
+			p.mu.Unlock()
+			if retry != nil {
+				p.s.recordSourceHealth(p.channel.ID, a.src, errSteadyStarved, false)
+				p.logger().Info("live input lost", "input", a.src.ID, "reason", errSteadyStarved, "next", sb.src.ID, "standby", true)
+				retry()
+			}
+			continue
 		}
 		if stressed {
 			p.mu.Lock()

@@ -37,7 +37,6 @@ type scheduleBroadcastPlanner struct {
 }
 
 func (p *scheduleBroadcastPlanner) startupLead() time.Duration { return 12 * time.Second }
-func (p *providerBroadcastPlanner) startupLead() time.Duration { return 12 * time.Second }
 
 func (p *scheduleBroadcastPlanner) startPlanner(parent context.Context) {
 	p.workerCtx, p.workerCancel = context.WithCancel(parent)

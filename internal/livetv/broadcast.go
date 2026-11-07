@@ -198,6 +198,11 @@ type broadcast struct {
 	// first tick up to coldWait for the first real picture.
 	created  time.Time
 	coldWait time.Duration
+	// burstNoWait marks a live input: its startup burst only runs over
+	// pictures already decoded and ends at the first tick without one.
+	burstNoWait bool
+	// segment is the published segment duration (the target duration).
+	segment time.Duration
 	// steadyBitrate is a provider output's full-quality bitrate ceiling,
 	// shared by every viewer that joins it.
 	steadyBitrate int
@@ -213,9 +218,17 @@ func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planne
 	ctx, cancel := context.WithCancel(ctx)
 	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), retryRequests: make(chan struct{}, 1), lastViewer: time.Now()}
 	b.created = b.origin
+	b.segment = segmentDuration
+	if source, ok := planner.(interface{ segmentDuration() time.Duration }); ok {
+		b.segment = source.segmentDuration()
+	}
 	b.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	if source, ok := planner.(interface{ coldWait() time.Duration }); ok {
 		b.coldWait = source.coldWait()
+		b.burstNoWait = true
+	}
+	if source, ok := planner.(interface{ bindRetry(func()) }); ok {
+		source.bindRetry(b.requestRetry)
 	}
 	b.later = map[string]*broadcastInput{}
 	b.future = map[string]broadcastPlan{}
@@ -296,7 +309,7 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 	b.mu.Unlock()
 	lifetime, cancel := context.WithCancel(b.ctx)
 	stop := context.AfterFunc(ctx, cancel)
-	encoder, err := b.runner.StartEncoder(lifetime, transcode.EncoderRequest{SessionID: id, Source: b.format, Decision: decision, SegmentDuration: 4 * time.Second, DVRWindow: b.dvr})
+	encoder, err := b.runner.StartEncoder(lifetime, transcode.EncoderRequest{SessionID: id, Source: b.format, Decision: decision, SegmentDuration: b.segment, DVRWindow: b.dvr})
 	stop()
 	if err != nil {
 		cancel()
@@ -835,8 +848,20 @@ func (b *broadcast) step(now time.Time) bool {
 		b.origin = time.Now()
 		return false
 	}
+	// A live input cannot be read ahead of its provider. Its startup burst
+	// ends at the first tick without a decoded picture instead of waiting for
+	// one (publication must not pause) or running a screen ahead of the clock.
+	if b.burstNoWait && b.bursting && !fresh && now.After(time.Now()) {
+		b.startupUntil = time.Now()
+		return false
+	}
 	startupExpired := b.current != nil && b.current.lastFrameAt.IsZero() && now.Sub(b.current.started) >= broadcastStartup
 	stalled := b.current != nil && !b.current.lastFrameAt.IsZero() && now.Sub(b.current.lastFrameAt) >= broadcastStall
+	// An input whose own transport is reconnecting stays open behind the
+	// screen: its media resumes on the same timeline without a reopen.
+	if stalled && !startupExpired && b.keepStalled(now.Sub(b.current.lastFrameAt)) {
+		stalled = false
+	}
 	if frame.Video == nil && !introActive && b.current != nil && (startupExpired || stalled) {
 		b.noteFailure(current, fmt.Errorf("decoder stalled"), now)
 		b.closeInput(b.current)
@@ -1053,6 +1078,11 @@ func newBroadcastInput(parent context.Context, plan broadcastPlan, d transcode.D
 		input.fpsDen = decoder.format.FPSDen
 	}
 	return input
+}
+
+func (b *broadcast) keepStalled(stalledFor time.Duration) bool {
+	source, ok := b.planner.(interface{ keepStalled(time.Duration) bool })
+	return ok && source.keepStalled(stalledFor)
 }
 
 func (b *broadcast) requestRetry() {

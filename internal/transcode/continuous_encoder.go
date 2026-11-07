@@ -39,7 +39,7 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 	if r.SegmentDuration == 0 {
 		r.SegmentDuration = 4 * time.Second
 	}
-	if r.SegmentDuration != 4*time.Second || r.DVRWindow < 0 {
+	if (r.SegmentDuration != 4*time.Second && r.SegmentDuration != 2*time.Second) || r.DVRWindow < 0 {
 		return nil, errors.New("transcode: invalid segment or DVR duration")
 	}
 	if r.Decision.VideoCodec != "" && r.Decision.VideoCodec != "h264" && r.Decision.VideoCodec != "hevc" {

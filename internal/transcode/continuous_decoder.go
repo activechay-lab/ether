@@ -98,7 +98,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		// Broadcast feeds are often interlaced and sometimes 4:3 or anamorphic.
 		// Deinterlace field by field (1080i50 airs as 50p), then fit the display
 		// aspect inside the working frame instead of stretching it.
-		videoFilter = fmt.Sprintf("bwdif=mode=send_field:deint=interlaced,scale=w='if(gte(dar,%[1]d/%[2]d),%[1]d,2*trunc(%[2]d*dar/2))':h='if(gte(dar,%[1]d/%[2]d),2*trunc(%[1]d/dar/2),%[2]d)',setsar=1,pad=%[1]d:%[2]d:(ow-iw)/2:(oh-ih)/2,fps=%[3]d/%[4]d,", f.Width, f.Height, f.FPSNum, f.FPSDen)
+		videoFilter = liveVideoJumps(f) + fmt.Sprintf("bwdif=mode=send_field:deint=interlaced,scale=w='if(gte(dar,%[1]d/%[2]d),%[1]d,2*trunc(%[2]d*dar/2))':h='if(gte(dar,%[1]d/%[2]d),2*trunc(%[1]d/dar/2),%[2]d)',setsar=1,pad=%[1]d:%[2]d:(ow-iw)/2:(oh-ih)/2,fps=%[3]d/%[4]d,", f.Width, f.Height, f.FPSNum, f.FPSDen)
 	}
 	audioFilter := "aresample=48000:async=1:first_pts=0"
 	if r.Seeked && r.Offset > 0 {
@@ -111,7 +111,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	if r.Live {
 		args = append(args, "-loglevel", "info")
 		videoFilter += "showinfo=checksum=0,"
-		audioFilter = "asetpts=PTS-STARTPTS," + audioFilter
+		audioFilter = liveAudioJumps + audioFilter
 	}
 	videoFilter += fmt.Sprintf("setpts=N*%d/(%d*TB)", f.FPSDen, f.FPSNum)
 	args = append(args, "-i", r.InputURL, "-map", "0:v:0", "-vf", videoFilter, "-pix_fmt", "yuv420p", "-c:v", "rawvideo", "-threads:v", "1", "-f", "rawvideo", sockets[0].url(), "-map", "0:a:0", "-af", audioFilter, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-f", "s16le", sockets[1].url())
@@ -208,6 +208,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	ok = true
 	return d, nil
 }
+
 // A codec change on a live PID (AAC to AC3, or a new video codec) leaves the
 // decoder chosen at open feeding undecodable packets: the other elementary
 // stream keeps arriving while this one stops. ffmpeg neither exits nor
@@ -253,13 +254,29 @@ func (d *continuousDecoder) receive(p *continuousProcess, ch, other chan []byte,
 	}
 }
 
+// Live inputs keep their source clock (-copyts) so a reopened input can
+// recognise media it already aired. A provider clock jump or reset must not
+// reach fps or aresample on that clock: they would fill a +5000 s jump with
+// hours of repeated pictures and silence, and drop everything after a reset.
+// Each stream continues its own timeline across a backwards step or a forward
+// step over 10 s (ffmpeg's dts_delta_threshold); shorter forward gaps are
+// packet loss and stay, so fps and aresample keep pictures and sound in sync.
+const liveAudioJumps = "asetpts='if(eq(N,0),0,if(gt((PTS-PREV_INPTS)*TB,10)+lt((PTS-PREV_INPTS)*TB,-0.5),PREV_OUTPTS+NB_SAMPLES/(SR*TB),PREV_OUTPTS+PTS-PREV_INPTS))',"
+
+func liveVideoJumps(f RawFormat) string {
+	return fmt.Sprintf("setpts='if(eq(N,0),PTS,if(gt((PTS-PREV_INPTS)*TB,10)+lt((PTS-PREV_INPTS)*TB,-0.5),PREV_OUTPTS+%d/(%d*TB),PREV_OUTPTS+PTS-PREV_INPTS))',", f.FPSDen, f.FPSNum)
+}
+
 // liveDecoderInputArgs are the input options of a live provider decoder.
 // The loopback relay owns provider connections; ffmpeg resumes a dropped
 // relay read in-process and bounds a read that never returns. Damaged
 // pictures keep libavcodec's error concealment: dropping corrupt packets
 // measured no better and lost whole GOPs on packet loss.
 func liveDecoderInputArgs(r DecoderRequest, u *url.URL) []string {
-	args := []string{"-copyts", "-fflags", "+genpts"}
+	// The tune's probe already analysed these bytes, and they are still in the
+	// relay's buffer: a live decoder must not wait out ffmpeg's default five
+	// seconds (or any long bound) of real-time media again before decoding.
+	args := []string{"-copyts", "-fflags", "+genpts", "-probesize", "5000000", "-analyzeduration", "1000000"}
 	if u.Scheme == "http" {
 		args = append(args, "-rw_timeout", "5000000", "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "2")
 	}

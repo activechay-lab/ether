@@ -36,6 +36,7 @@ type providerBroadcastPlanner struct {
 	standby    *steadyStandby
 	retryAt    time.Time
 	lastStress time.Time
+	retry      func() // asks the clock to replace the current input now
 }
 
 // steadyLink is one granted provider input: the relay grant (and with it the
@@ -71,19 +72,27 @@ type steadyAttempt struct {
 // A recovery that rejoins the source it just lost gets a short first-picture
 // deadline when a backup can take over; a cold or sole input waits longer.
 const (
-	steadyFirstFrameCold     = 8 * time.Second
-	steadyFirstFrameAlone    = 20 * time.Second
-	steadyFirstFrameRejoin   = 4 * time.Second
-	steadyFirstFrameBackup   = 8 * time.Second
-	steadyStress             = time.Second
-	steadyStandbyLinger      = 30 * time.Second
-	steadyClockReset         = 2 * time.Minute
+	steadyFirstFrameCold   = 8 * time.Second
+	steadyFirstFrameAlone  = 20 * time.Second
+	steadyFirstFrameRejoin = 4 * time.Second
+	steadyFirstFrameBackup = 8 * time.Second
+	steadyStress           = time.Second
+	steadyStarvedAfter     = 400 * time.Millisecond
+	steadyHoldStalled      = 12 * time.Second
+	steadyStandbyLinger    = 30 * time.Second
+	steadyClockReset       = 2 * time.Minute
+	// Skip at most this much already-aired media on a reopen: a longest
+	// reserve plus one provider segment. Longer means the clock moved.
+	steadyReplayLimit        = 40 * time.Second
 	steadyStandbyID          = "-standby"
 	steadyMaxLinkUses        = 4
 	steadyOpenResolveTimeout = 5 * time.Second
 )
 
-var errSteadyFirstFrame = errors.New("live input produced no picture in time")
+var (
+	errSteadyFirstFrame = errors.New("live input produced no picture in time")
+	errSteadyStarved    = errors.New("live input stopped delivering pictures")
+)
 
 func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadcastPlan) {
 	p.mu.Lock()
@@ -110,7 +119,29 @@ func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 // A cold IPTV tune waits briefly for its first real picture before the
 // output starts on the reconnecting screen: the probe already read the bytes
 // this decoder starts from.
-func (p *providerBroadcastPlanner) coldWait() time.Duration { return 3 * time.Second }
+//
+// Its startup burst only encodes pictures already decoded (the probe's
+// bytes, a tap or playlist backlog) up to one target duration ahead, so the
+// client starts with a cushion; publishing never waits on the input, and the
+// rest of a reserve the decoder starts behind the live edge stays on the
+// server, where it hides upstream stalls.
+//
+// A live output publishes two-second segments. Without a provider backlog a
+// client can only start one segment behind the first picture, and every
+// later segment must be no longer than that lag or it stalls; two seconds
+// keeps a cold raw-TS tune under five seconds without a stall. The clock
+// never stops publishing, so the 3 s (1.5x target) client limit holds.
+func (p *providerBroadcastPlanner) coldWait() time.Duration        { return 4 * time.Second }
+func (p *providerBroadcastPlanner) startupLead() time.Duration     { return steadySegment }
+func (p *providerBroadcastPlanner) segmentDuration() time.Duration { return steadySegment }
+
+const steadySegment = 2 * time.Second
+
+func (p *providerBroadcastPlanner) bindRetry(retry func()) {
+	p.mu.Lock()
+	p.retry = retry
+	p.mu.Unlock()
+}
 
 func (p *providerBroadcastPlanner) logger() *slog.Logger {
 	return p.s.o.Logger.With("channel", p.channel.ID)
@@ -122,6 +153,26 @@ func sourceIDs(sources []StreamSource) []string {
 		ids[i] = src.ID
 	}
 	return ids
+}
+
+// keepStalled reports that the current input's transport is recovering by
+// itself: the shared tap reconnects its URL and splices the new connection
+// onto the same timeline, and the HLS reader keeps reloading its playlist.
+// Reopening the decoder then only adds a cold start. A tap that gave up, an
+// input without a health signal, or a stall past steadyHoldStalled goes to
+// the ladder; a ready standby takes over earlier (watchStandby).
+func (p *providerBroadcastPlanner) keepStalled(stalledFor time.Duration) bool {
+	if stalledFor >= steadyHoldStalled {
+		return false
+	}
+	p.mu.Lock()
+	a := p.attempt
+	p.mu.Unlock()
+	if a == nil {
+		return false
+	}
+	h, ok := p.s.inputHealth(a.link.ss)
+	return ok && !h.Failed
 }
 
 // failed records why the current input ended and returns when the channel
@@ -348,7 +399,7 @@ func (s *Service) linkSteadySource(ctx context.Context, c Channel, src StreamSou
 	ss := &session{ctx: inputCtx, cancel: cancel, info: SessionInfo{ID: reservation, Channel: c}, inputSource: src, inputURL: resolved, inputHeaders: headers}
 	grant := src
 	grant.URL = resolved
-	if err := s.grantInput(ss, grant, headers); err != nil {
+	if err := s.grantSteadyInput(ss, grant, headers); err != nil {
 		cancel()
 		release()
 		return nil, err
@@ -409,6 +460,7 @@ type providerBroadcastDecoder struct {
 	started    time.Time
 	frame      time.Duration
 	passed     bool
+	skipped    int
 	decodedAt  atomic.Int64
 	aired      atomic.Int64
 	healthOnce sync.Once
@@ -450,10 +502,16 @@ func (d *providerBroadcastDecoder) next(ctx context.Context) (transcode.RawFrame
 			d.planner.mu.Lock()
 			floor, seen := d.planner.lastAired[d.sourceID]
 			d.planner.mu.Unlock()
-			if seen && frame.SourcePTS <= floor && floor-frame.SourcePTS < steadyClockReset {
+			if seen && frame.SourcePTS <= floor && floor-frame.SourcePTS < steadyClockReset && time.Duration(d.skipped)*d.frame < steadyReplayLimit {
+				d.skipped++
 				continue
 			}
 			d.passed = true
+			details := ""
+			if source, ok := d.Decoder.(interface{ Diagnostics() string }); ok {
+				details = source.Diagnostics()
+			}
+			d.planner.logger().Debug("live input first picture", "input", d.sourceID, "waited", time.Since(d.started), "skippedAired", d.skipped, "pts", frame.SourcePTS, "floor", floor, "decoder", details)
 		}
 		d.once.Do(d.ready)
 		return frame, nil
@@ -484,6 +542,13 @@ func (d *providerBroadcastDecoder) delivered() bool {
 func (d *providerBroadcastDecoder) stressed(now time.Time) bool {
 	at := d.decodedAt.Load()
 	return at != 0 && now.Sub(time.Unix(0, at)) > steadyStress
+}
+
+// starved reports an input that delivered pictures and then none for
+// steadyStarved: a ready standby replaces it rather than holding a picture.
+func (d *providerBroadcastDecoder) starved(now time.Time) bool {
+	at := d.decodedAt.Load()
+	return at != 0 && now.Sub(time.Unix(0, at)) > steadyStarvedAfter
 }
 
 func (d *providerBroadcastDecoder) Diagnostics() string {
