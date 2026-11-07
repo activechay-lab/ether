@@ -134,10 +134,16 @@ func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 // never stops publishing, so the 3 s (1.5x target) client limit holds.
 func (p *providerBroadcastPlanner) coldWait() time.Duration { return 4 * time.Second }
 func (p *providerBroadcastPlanner) startupLead() time.Duration {
-	// The tune's input joined steadyStartLead deeper than its reserve, so the
-	// burst spends that backlog, not the reserve. Without a backlog (a raw
-	// stream that sent none) the burst ends at once and the cushion builds
-	// in real time while the tune waits for it.
+	// A playlist input joined steadyStartLead deeper than its reserve, so the
+	// burst spends that backlog, not the reserve. A transport stream's reserve
+	// is only what its provider sent on connect, which no deeper join can
+	// extend: it spends one segment of it, and without a backlog the cushion
+	// builds in real time while the tune waits for it.
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.primed != nil && p.primed.format == "mpegts" {
+		return steadySegment
+	}
 	return 2 * steadySegment
 }
 func (p *providerBroadcastPlanner) segmentDuration() time.Duration { return steadySegment }
