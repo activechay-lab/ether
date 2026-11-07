@@ -1371,6 +1371,7 @@ func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []core.Title,
 	}
 	s.preloadUltraBlur(ctx, ts)
 	s.preloadShowLanguages(ctx, pr, ts, o)
+	s.preloadTrackChoices(ctx, pr, ts, o)
 	var guids map[core.RatingKey]string
 	var missingGUIDs []core.RatingKey
 	lookup := make([]core.RatingKey, 0, len(ts)*2)

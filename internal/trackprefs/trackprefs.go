@@ -310,13 +310,70 @@ func (s *Service) Forget(ctx context.Context, user, show int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM trackprefs_memory WHERE user_id=? AND show_id=?`, user, show)
 	return err
 }
+
+// PreloadChoices batches remembered tracks for a rendered page. Missing choices
+// are memoized too; otherwise a page of episodes still issues two reads per show.
+// The memo belongs only to this read request and retains its normal short TTL.
+func (s *Service) PreloadChoices(ctx context.Context, user int64, keys []core.RatingKey) error {
+	if !reqmemo.Active(ctx) {
+		return nil
+	}
+	seen := map[int64]bool{}
+	var targets []int64
+	for _, key := range keys {
+		if target, ok := memoryTarget(key); ok && !seen[target] {
+			seen[target] = true
+			targets = append(targets, target)
+		}
+	}
+	for len(targets) > 0 {
+		n := min(len(targets), 500)
+		batch := targets[:n]
+		targets = targets[n:]
+		args := []any{user}
+		for _, target := range batch {
+			args = append(args, target)
+		}
+		rows, err := s.db.QueryContext(ctx, `SELECT show_id,kind,choice FROM trackprefs_memory WHERE user_id=? AND show_id IN (?`+strings.Repeat(",?", n-1)+`)`, args...)
+		if err != nil {
+			return err
+		}
+		values := map[string]storedValue{}
+		for rows.Next() {
+			var target int64
+			var kind, raw string
+			if err = rows.Scan(&target, &kind, &raw); err != nil {
+				rows.Close()
+				return err
+			}
+			values[memoryMemoKey(user, target, kind)] = storedValue{raw: raw, found: true}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		for _, target := range batch {
+			for _, kind := range []string{"audio", "subtitle"} {
+				key := memoryMemoKey(user, target, kind)
+				_, _ = reqmemo.Do(ctx, key, func() (storedValue, error) { return values[key], nil })
+			}
+		}
+	}
+	return nil
+}
+
+func memoryMemoKey(user, target int64, kind string) string {
+	return fmt.Sprintf("trackprefs:memory:%d:%v:%s", user, target, kind)
+}
+
 func (s *Service) choice(ctx context.Context, user int64, key core.RatingKey, kind string) (Choice, bool, error) {
 	var c Choice
 	target, ok := memoryTarget(key)
 	if !ok {
 		return c, false, nil
 	}
-	row, err := reqmemo.Do(ctx, fmt.Sprintf("trackprefs:memory:%d:%v:%s", user, target, kind), func() (storedValue, error) {
+	row, err := reqmemo.Do(ctx, memoryMemoKey(user, target, kind), func() (storedValue, error) {
 		var v storedValue
 		err := s.db.QueryRowContext(ctx, `SELECT choice FROM trackprefs_memory WHERE user_id=? AND show_id=? AND kind=?`, user, target, kind).Scan(&v.raw)
 		if errors.Is(err, sql.ErrNoRows) {

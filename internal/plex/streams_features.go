@@ -270,3 +270,24 @@ func (s *Server) preloadShowLanguages(ctx context.Context, pr *Request, ts []cor
 		_, _ = reqmemo.Do(ctx, showLanguageMemoKey(key), func() (string, error) { return lang, nil })
 	}
 }
+
+// preloadTrackChoices keeps detailed list rendering from reading each title's
+// remembered audio and subtitle choices separately.
+func (s *Server) preloadTrackChoices(ctx context.Context, pr *Request, ts []core.Title, o renderOpts) {
+	if pr == nil || pr.User == nil || !o.media || (!o.detail && !o.detailEpisodes) {
+		return
+	}
+	batch, ok := s.d.TrackPreferences.(interface {
+		PreloadChoices(context.Context, int64, []core.RatingKey) error
+	})
+	if !ok {
+		return
+	}
+	keys := make([]core.RatingKey, 0, len(ts))
+	for _, t := range ts {
+		keys = append(keys, t.Key)
+	}
+	if err := batch.PreloadChoices(ctx, pr.User.ID, keys); err != nil {
+		s.log.Warn("preload stream preferences", "err", err)
+	}
+}

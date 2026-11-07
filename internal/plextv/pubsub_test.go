@@ -71,7 +71,7 @@ func TestPresenceStreamAndEvents(t *testing.T) {
 }
 
 func TestRegistrarTrustsOnlyOutstandingConnectivityAnswer(t *testing.T) {
-	r := &Registrar{next: map[string]time.Time{}, wake: make(chan struct{}, 1), log: discardLogger()}
+	r := &Registrar{o: RegistrarOptions{Now: time.Now}, next: map[string]time.Time{}, wake: make(chan struct{}, 1), log: discardLogger()}
 	r.asyncID = "want"
 	r.onPubsub(PubsubMessage{Command: "notifyConnectivity", AsyncIdentifier: "other", Connectivity: "1"})
 	if r.st.PlexReachable != nil {

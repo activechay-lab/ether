@@ -76,11 +76,12 @@ func (s *Server) presentedSeasons(ctx context.Context, pr *Request, show core.Ra
 }
 
 // episodeOrderView is a list's episode-order presentation, resolved before
-// its items render. grouped is nil on detail pages (and if preferences cannot
-// be read), where every title consults the service itself.
+// its items render. If preferences cannot be read, grouped is nil and each
+// title consults the service itself. Detail pages still resolve show counts.
 type episodeOrderView struct {
-	grouped  map[core.RatingKey]bool // shows with an alternate episode group
-	children map[core.RatingKey]int  // visible children of those shows
+	detailedShows bool                    // detail pages still resolve canonical visible season counts
+	grouped       map[core.RatingKey]bool // shows with an alternate episode group
+	children      map[core.RatingKey]int  // visible children of those shows
 }
 
 // episodeOrderList resolves a list's episode orders in one preference query.
@@ -90,7 +91,7 @@ type episodeOrderView struct {
 // children also caches the layout its episodes' positions come from.
 func (s *Server) episodeOrderList(ctx context.Context, pr *Request, ts []core.Title, detail bool) episodeOrderView {
 	var v episodeOrderView
-	if s.d.EpisodeOrder == nil || detail {
+	if s.d.EpisodeOrder == nil {
 		return v
 	}
 	var shows []core.RatingKey
@@ -110,6 +111,10 @@ func (s *Server) episodeOrderList(ctx context.Context, pr *Request, ts []core.Ti
 		return v
 	}
 	v.grouped, v.children = grouped, map[core.RatingKey]int{}
+	if detail {
+		v.detailedShows = true
+		return v
+	}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 4)
@@ -144,7 +149,7 @@ func (s *Server) applyEpisodeOrder(ctx context.Context, pr *Request, t *core.Tit
 		return
 	}
 	if t.Type == core.TypeShow {
-		if v.grouped != nil {
+		if v.grouped != nil && !v.detailedShows {
 			if n, ok := v.children[t.Key]; ok {
 				m.ChildCount = model.Ptr(n)
 			}
