@@ -469,7 +469,7 @@ func (t *upstreamTap) joinLocked(g *inputGrant, join string) int64 {
 			return t.keyBeforeLocked(off, 0)
 		}
 		if g.reserve > 0 {
-			return t.keyAtDepthLocked(g.reserve)
+			return t.keyAtDepthLocked(g.joinDepth())
 		}
 	}
 	return t.keyBeforeLocked(t.written, 2*time.Second)
@@ -595,7 +595,7 @@ func (t *upstreamTap) readAs(ctx context.Context, rd *tapReader, off int64, p []
 			g = rd.g
 		}
 		if t.ts != nil && g != nil && g.reserve > 0 {
-			off = t.keyAtDepthLocked(g.reserve)
+			off = t.keyAtDepthLocked(g.joinDepth())
 			rd.started = false
 		} else if t.ts != nil {
 			off = t.keyBeforeLocked(t.written, 2*time.Second)
@@ -1025,7 +1025,7 @@ func (t *upstreamTap) indexLocked(marks []tsMark) {
 func (t *upstreamTap) targetLocked() time.Duration {
 	var d time.Duration
 	for g := range t.refs {
-		d = max(d, g.reserve)
+		d = max(d, g.joinDepth())
 	}
 	return d
 }
