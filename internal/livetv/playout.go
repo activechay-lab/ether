@@ -422,7 +422,15 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	if s.useBroadcast(c) {
 		err = s.startBroadcast(ctx, ss)
 		if errors.Is(err, errSteadyRefused) {
-			err = s.startIPTVSession(ctx, ss)
+			// A refused tune is an ordinary direct session: it holds its own
+			// viewer reservation instead of a share of the channel output.
+			err = s.reserveDirectViewer(u, caps, ss)
+			if err == nil {
+				err = s.startIPTVSession(ctx, ss)
+			}
+			if err == nil {
+				err = s.awaitOwnedStart(ctx, ss)
+			}
 		}
 		if err != nil {
 			s.Stop(ctx, ss.info.ID, u)
