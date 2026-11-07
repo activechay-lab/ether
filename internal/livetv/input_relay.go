@@ -361,7 +361,11 @@ func (s *Service) serveInputRelay(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	defer context.AfterFunc(g.ctx, cancel)()
-	res, err := s.relayFetch(ctx, cancel, g, raw, r)
+	segment := false
+	if h := g.hlsIfAny(); h != nil {
+		segment = h.isSegment(raw)
+	}
+	res, err := s.relayFetchAs(ctx, cancel, g, raw, r, segment)
 	if err == nil && res.StatusCode >= 400 || err != nil && r.Context().Err() == nil {
 		if h := g.hlsIfAny(); h != nil {
 			h.deliver(h.failedFetch(raw))
@@ -528,6 +532,16 @@ func scopeInputRedirects(client *http.Client, origin string, headers http.Header
 // relayIOTimeout; the body is then bounded by the caller's idle reader.
 // Errors never carry the upstream URL to the caller's response.
 func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *inputGrant, raw string, in *http.Request) (*http.Response, error) {
+	return s.relayFetchAs(ctx, cancel, g, raw, in, false)
+}
+
+// relayFetchAs fetches one upstream object. segment marks a media segment
+// named by a live HLS playlist: it is a short request that holds no provider
+// connection, so it is outside the grant's refusal accounting (whose 1 s
+// spacing exists for refused stream opens). One quick retry, then the error
+// goes straight back to ffmpeg, whose HLS demuxer skips the segment while
+// the reserve plays on; a slow answer would stall the decoder instead.
+func (s *Service) relayFetchAs(ctx context.Context, cancel context.CancelFunc, g *inputGrant, raw string, in *http.Request, segment bool) (*http.Response, error) {
 	client := *s.o.HTTPClient
 	client.Timeout = 0 // a live input is endless; idle time is bounded instead
 	ua := defaultUserAgent()
@@ -539,7 +553,9 @@ func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *
 	// A provider that sells connections counts every attempt; it gets one,
 	// not a burst of retries.
 	attempts := 3
-	if g.source != "" && s.sourceConnectionLimit(g.source) > 0 {
+	if segment {
+		attempts = 2
+	} else if g.source != "" && s.sourceConnectionLimit(g.source) > 0 {
 		attempts = 1
 	}
 	// Headers wait at most relayIOTimeout, and never past the opener's
@@ -568,7 +584,7 @@ func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *
 				req.Header.Set(name, v)
 			}
 		}
-		if !g.reserveUpstreamAttempt(ctx) {
+		if !segment && !g.reserveUpstreamAttempt(ctx) {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
@@ -579,7 +595,9 @@ func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *
 		var timedOut atomic.Bool
 		t := time.AfterFunc(budget(), func() { timedOut.Store(true); cancel() })
 		res, err := client.Do(req)
-		g.finishUpstreamAttempt(err != nil || res.StatusCode >= 400)
+		if !segment {
+			g.finishUpstreamAttempt(err != nil || res.StatusCode >= 400)
+		}
 		t.Stop()
 		if timedOut.Load() || errors.Is(err, context.DeadlineExceeded) {
 			if res != nil {
