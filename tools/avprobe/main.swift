@@ -31,6 +31,10 @@ final class Probe {
     var firstContent: Double?
     var lastHash: UInt64 = 0
     var playheads: [Double?]
+    // Per second: the player's control state (playing, waiting and why,
+    // paused) and how many seconds of media were buffered ahead.
+    var control: [String?]
+    var buffered: [Double?]
     var sizes = Set<String>()
     var stalls: [Double] = []
     var failures: [[String: Any]] = []
@@ -52,6 +56,8 @@ final class Probe {
         otherFrames = Array(repeating: 0, count: seconds)
         repeatFrames = Array(repeating: 0, count: seconds)
         playheads = Array(repeating: nil, count: seconds)
+        control = Array(repeating: nil, count: seconds)
+        buffered = Array(repeating: nil, count: seconds)
         item.add(output)
         player.isMuted = true
         player.automaticallyWaitsToMinimizeStalling = true
@@ -90,6 +96,15 @@ final class Probe {
         guard index >= 0 && index < frames.count else { return }
         let time = item.currentTime()
         if time.seconds.isFinite { playheads[index] = time.seconds }
+        if control[index] == nil {
+            switch player.timeControlStatus {
+            case .playing: control[index] = "playing"
+            case .paused: control[index] = "paused"
+            default: control[index] = "waiting:" + (player.reasonForWaitingToPlay?.rawValue ?? "")
+            }
+            let ahead = item.loadedTimeRanges.map { $0.timeRangeValue }.filter { $0.containsTime(time) || $0.start > time }
+            buffered[index] = ahead.map { CMTimeGetSeconds(CMTimeRangeGetEnd($0)) - max(CMTimeGetSeconds(time), CMTimeGetSeconds($0.start)) }.max() ?? 0
+        }
         var delivered = 0
         while output.hasNewPixelBuffer(forItemTime: time), let pb = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
             delivered += 1
@@ -160,6 +175,8 @@ final class Probe {
             "durationSeconds": end,
             "framesPerSecond": frames,
             "playheadSeconds": playheads.map { $0 as Any? ?? NSNull() },
+            "controlPerSecond": control.map { $0 as Any? ?? NSNull() },
+            "bufferedAheadSeconds": buffered.map { $0 as Any? ?? NSNull() },
             "firstFrameSeconds": firstFrame as Any? ?? NSNull(),
             "firstContentSeconds": firstContent as Any? ?? NSNull(),
             "contentFramesPerSecond": contentFrames,
