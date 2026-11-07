@@ -284,7 +284,15 @@ func TestReserveMeasure(t *testing.T) {
 			}
 			if ff := os.Getenv("ETHER_IPTV_FFMPEG"); ff != "" {
 				out := t.TempDir() + "/got.ts"
-				os.WriteFile(out, got[max(keyAt, 0):], 0o600)
+				// Stop before the last frame, which the test's end cut short.
+				end := len(got) - len(got)%tsPacket
+				for i := len(seen) - 1; i >= 0; i-- {
+					if seen[i].pid == 0x100 && seen[i].pusi {
+						end = i * tsPacket
+						break
+					}
+				}
+				os.WriteFile(out, got[max(keyAt, 0):end], 0o600)
 				cmd := exec.Command(ff, "-v", "error", "-i", out, "-f", "null", "-")
 				msg, _ := cmd.CombinedOutput()
 				lines := strings.Count(strings.TrimSpace(string(msg)), "\n")

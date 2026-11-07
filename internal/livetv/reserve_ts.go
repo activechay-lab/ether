@@ -49,11 +49,13 @@ type tsMark struct {
 	off, entry int64
 	clock      int64
 	key        bool
+	format     int // program format generation (bumped on every PMT change)
 }
 
 type tsHeld struct {
-	pkt []byte
-	key bool
+	pkt    []byte
+	key    bool
+	format int
 }
 
 type tsSplicer struct {
@@ -67,11 +69,17 @@ type tsSplicer struct {
 	pesPIDs                  map[int]bool
 	pat, pmt                 [][]byte // latest PAT/PMT section packets
 	pmtOpen                  bool     // collecting a multi-packet PMT
+	pmtSig                   string   // version and streams of the current PMT
+	format                   int      // bumped whenever pmtSig changes
 
 	// Splice state.
-	epoch     int
-	seeking   bool // after a reconnect: waiting for the splice point
-	follow    bool // the new connection carries the committed frame: continue after it
+	epoch   int
+	seeking bool // after a reconnect: waiting for the splice point
+	follow  bool // the new connection carries the committed frame: continue after it
+	// dedupe waits for the new connection to pass content the readers
+	// already have. Worth it only while they still have a reserve to play;
+	// a starving reader gets the first keyframe at once instead.
+	dedupe    bool
 	seekBytes int
 	tsOff     int64         // added to PCR/PTS/DTS in this epoch (mod 2^33)
 	ccOff     map[int]byte  // per-PID continuity adjustment in this epoch
@@ -119,8 +127,10 @@ func looksTS(b []byte) bool {
 
 // reconnect starts a new epoch: the next bytes come from a fresh provider
 // connection. The uncommitted tail of the old one (a frame it may have cut
-// short) is dropped.
-func (s *tsSplicer) reconnect() {
+// short) is dropped. dedupe says whether readers can afford to wait for
+// re-sent content to pass rather than see it again.
+func (s *tsSplicer) reconnect(dedupe bool) {
+	s.dedupe = dedupe
 	s.pend = s.pend[:0]
 	s.held = s.held[:0]
 	s.synced = false
@@ -155,7 +165,7 @@ func (s *tsSplicer) feed(p []byte, out []byte, at int64) ([]byte, []tsMark) {
 			}
 			out = append(out, pkt...)
 			if s.haveClock && (h.key || !s.marked || s.clock-s.lastMark >= tsMarkEvery) {
-				m := tsMark{off: off, entry: off, clock: s.clock, key: h.key}
+				m := tsMark{off: off, entry: off, clock: s.clock, key: h.key, format: h.format}
 				if h.key && s.lastPAT >= 0 && s.lastPAT <= off {
 					m.entry = s.lastPAT
 				}
@@ -173,7 +183,7 @@ func (s *tsSplicer) feed(p []byte, out []byte, at int64) ([]byte, []tsMark) {
 			// A new frame starts: everything before it is whole.
 			commit()
 		}
-		s.held = append(s.held, tsHeld{pkt: pkt, key: key})
+		s.held = append(s.held, tsHeld{pkt: pkt, key: key, format: s.format})
 		if s.videoPID == tsNoPID {
 			commit()
 		}
@@ -332,7 +342,7 @@ func (s *tsSplicer) seek(pkt []byte, pl, id int, pusi, key bool, queue func([]by
 			s.follow = true
 			return false
 		}
-		if same && (ahead == 0 || ahead > tsWrap/2) {
+		if s.dedupe && same && (ahead == 0 || ahead > tsWrap/2) {
 			return false // content the reader already has
 		}
 	}
@@ -434,6 +444,13 @@ func (s *tsSplicer) parsePMT(b []byte) {
 	}
 	s.pesPIDs = pes
 	s.videoPID, s.videoType = video, vtype
+	// A changed program (codec, PIDs, version) starts a new format.
+	if sig := string(b[5:6]) + string(b[12+info:end]); sig != s.pmtSig {
+		if s.pmtSig != "" {
+			s.format++
+		}
+		s.pmtSig = sig
+	}
 }
 
 func tsVideoType(t byte) bool {

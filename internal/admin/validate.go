@@ -96,6 +96,9 @@ func ValidateConfig(cfg config.Config) []FieldError {
 		v.add("liveTV.healthSweepMinutes", "must be between -1 and 1440")
 	}
 	v.httpURL("liveTV.logoIndexUrl", cfg.LiveTV.LogoIndexURL, false)
+	if !config.ValidLiveTVStability(cfg.LiveTV.Stability) {
+		v.add("liveTV.stability", "must be fastest, balanced or rocksolid")
+	}
 	if err := cfg.Posters.Validate(); err != nil {
 		v.add("posters", "%s", err.Error())
 	}
