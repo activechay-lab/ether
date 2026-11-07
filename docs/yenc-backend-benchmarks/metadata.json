@@ -1,6 +1,6 @@
 {
-  "started_utc": "2026-11-06T21:26:48.014193+00:00",
-  "implementation_commit": "1dd6edb0fe61186460c1a0ca9e67890bef5fd954",
+  "started_utc": "2026-11-07T09:52:45.825602+00:00",
+  "implementation_commit": "eb272ee65ba3c2d0c5c4b5bf21467650061abca6",
   "go_version": "go version go1.27.3 darwin/arm64",
   "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
   "cpu_model": "Apple M4",
@@ -26,6 +26,10 @@
   "fixture_seed": 95,
   "crc": true,
   "units": "decoded decimal MB/s",
+  "confirmation": {
+    "duration": "1s",
+    "samples": 5
+  },
   "scenarios": {
     "go-simd": {
       "CGO_ENABLED": "0",
@@ -44,11 +48,5 @@
       "GOEXPERIMENT": "simd"
     }
   },
-  "finished_utc": "2026-11-06T21:36:38.069913+00:00",
-  "timing_note": "Start is the completion of the first backend-selection check; finish is the final benchmark output timestamp.",
-  "memory_bytes": 17179869184,
-  "confirmation": {
-    "duration": "1s",
-    "samples": 5
-  }
+  "finished_utc": "2026-11-07T09:58:28.285789+00:00"
 }

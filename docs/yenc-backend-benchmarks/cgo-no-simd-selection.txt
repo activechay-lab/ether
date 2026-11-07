@@ -2,4 +2,4 @@
     rapid_test.go:17: RapidYenc kernel: NEON
 --- PASS: TestRapidWireBoundary (0.00s)
 PASS
-ok  	github.com/braedonsaunders/ether/internal/usenet	0.337s
+ok  	github.com/braedonsaunders/ether/internal/usenet	0.292s

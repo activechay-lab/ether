@@ -1,7 +1,7 @@
 # Ether yEnc backend scenarios
 
-Measured 2026-11-06, Apple M4, 10 logical CPUs, go version go1.27.3 darwin/arm64.
-Decoder implementation: `1dd6edb0fe61186460c1a0ca9e67890bef5fd954`. Platform: `macOS-27.2-arm64-arm-64bit-Mach-O`.
+Measured 2026-11-07, Apple M4, 10 logical CPUs, go version go1.27.3 darwin/arm64.
+Decoder implementation: `eb272ee65ba3c2d0c5c4b5bf21467650061abca6`. Platform: `macOS-27.2-arm64-arm-64bit-Mach-O`.
 Broad matrix: three 300ms samples per case; medians reported. Serial GOMAXPROCS=1; concurrency GOMAXPROCS=8.
 Representative serial, buffer and bare-package results use five 1-second confirmation samples when present; the broad matrix uses three 300 ms samples.
 Random 384/768 KiB payloads, 128/256-byte lines, CRC enabled. All backend runs were sequential.
@@ -11,7 +11,7 @@ The Ether cases include BodyReader, framing, limits and CRC; the source is an in
 **100% busy CPU = one occupied core.** Divide by the machine's logical CPU count for whole-machine percentage.
 CPU ms/GiB measures work per decoded byte; lower is better. Busy CPU alone does not measure efficiency.
 
-**Variability:** 49 cases had a greater than 20% max/min throughput spread. This is a shared machine; interpret small differences cautiously.
+**Variability:** 11 cases had a greater than 20% max/min throughput spread. This is a shared machine; interpret small differences cautiously.
 Ranges below show the actual minimum–maximum samples, not confidence intervals. CPU cost is reported separately from wall throughput.
 
 ## Build combinations
@@ -32,10 +32,10 @@ Both cgo configurations selected the same C NEON decoder here. Their timing diff
 
 | Scenario | Median MB/s | MB/s range | CPU µs/article | CPU ms/GiB | Allocations/article |
 |---|---:|---:|---:|---:|---:|
-| Go SIMD | 1,963 | 1,957–1,969 | 396.7 | 541.6 | 35 |
-| C, experiment off | 1,885 | 1,865–1,900 | 413.4 | 564.5 | 35 |
-| SWAR | 2,258 | 2,145–2,341 | 343.4 | 468.8 | 22 |
-| C, experiment on | 1,799 | 1,584–1,870 | 431.7 | 589.4 | 35 |
+| Go SIMD | 3,975 | 3,845–4,017 | 193.9 | 264.7 | 35 |
+| C, experiment off | 3,510 | 3,391–3,533 | 220.5 | 301.1 | 35 |
+| SWAR | 2,308 | 2,256–2,356 | 336.5 | 459.4 | 22 |
+| C, experiment on | 3,517 | 3,268–3,540 | 220.4 | 300.9 | 35 |
 
 ## Fresh-output sizes and line lengths
 
@@ -43,10 +43,10 @@ Broad matrix (three 300 ms samples). Each cell is median MB/s and throughput rat
 
 | Article / line length | Go SIMD | C, experiment off | SWAR | C, experiment on |
 |---|---:|---:|---:|---:|
-| 384 KiB / 128 | 1,899 (0.87×) | 1,657 (0.75×) | 2,300 (0.98×) | 1,884 (0.84×) |
-| 768 KiB / 128 | 1,644 (0.86×) | 1,211 (0.62×) | 2,224 (0.98×) | 1,718 (0.89×) |
-| 384 KiB / 256 | 2,457 (1.01×) | 1,716 (0.76×) | 2,591 (1.01×) | 2,393 (0.95×) |
-| 768 KiB / 256 | 2,324 (0.91×) | 1,981 (0.93×) | 2,641 (1.03×) | 2,274 (0.97×) |
+| 384 KiB / 128 | 3,807 (1.68×) | 3,256 (1.41×) | 2,367 (1.03×) | 3,242 (1.43×) |
+| 768 KiB / 128 | 4,041 (1.90×) | 3,522 (1.68×) | 2,277 (0.99×) | 3,479 (1.65×) |
+| 384 KiB / 256 | 3,984 (1.51×) | 3,421 (1.33×) | 2,566 (0.99×) | 3,380 (1.31×) |
+| 768 KiB / 256 | 4,244 (1.72×) | 3,626 (1.50×) | 2,603 (0.98×) | 3,609 (1.56×) |
 
 ## Output-buffer scenarios
 
@@ -54,9 +54,9 @@ Broad matrix (three 300 ms samples). Each cell is median MB/s and throughput rat
 
 | Buffer | Actual decoder | MB/s | CPU ms/GiB | B/article | Allocations/article |
 |---|---|---:|---:|---:|---:|
-| fresh | RapidYenc Go (NEON) | 1,963 | 541.6 | 796,159 | 35 |
-| exact | Ether SWAR | 2,456 | 437.0 | 1,088 | 21 |
-| headroom | Ether SWAR | 2,396 | 445.9 | 1,088 | 21 |
+| fresh | RapidYenc Go (NEON) | 3,975 | 264.7 | 796,159 | 35 |
+| exact | Ether SWAR | 2,353 | 456.4 | 1,088 | 21 |
+| headroom | Ether SWAR | 2,269 | 473.2 | 1,088 | 21 |
 
 `exact` has capacity equal to payload size; `headroom` adds 64 bytes. Both reuse the same caller-owned buffer on each read.
 
@@ -67,10 +67,10 @@ Goroutine launch/join and runtime/GC are included; fixture/reader setup is exclu
 
 | Readers | Go SIMD | C, experiment off | SWAR | C, experiment on |
 |---:|---:|---:|---:|---:|
-| 1 | 2,020 / 111% | 1,452 / 112% | 2,349 / 112% | 1,890 / 109% |
-| 4 | 5,670 / 390% | 4,655 / 372% | 6,737 / 363% | 5,725 / 386% |
-| 8 | 7,055 / 608% | 5,301 / 541% | 8,241 / 590% | 6,240 / 573% |
-| 16 | 8,444 / 675% | 6,857 / 627% | 9,264 / 660% | 5,962 / 566% |
+| 1 | 4,279 / 120% | 3,753 / 117% | 2,427 / 111% | 3,665 / 116% |
+| 4 | 11,433 / 387% | 10,225 / 388% | 6,966 / 363% | 8,941 / 387% |
+| 8 | 12,539 / 540% | 12,742 / 568% | 8,732 / 594% | 13,194 / 581% |
+| 16 | 15,955 / 613% | 14,600 / 626% | 9,780 / 676% | 14,479 / 624% |
 
 ## Measured saturated concurrency: exact output
 
@@ -79,10 +79,10 @@ Goroutine launch/join and runtime/GC are included; fixture/reader setup is exclu
 
 | Readers | Go SIMD | C, experiment off | SWAR | C, experiment on |
 |---:|---:|---:|---:|---:|
-| 1 | 2,469 / 100% | 2,037 / 99% | 2,493 / 100% | 2,120 / 100% |
-| 4 | 8,244 / 377% | 5,940 / 348% | 8,591 / 368% | 6,288 / 350% |
-| 8 | 10,121 / 651% | 7,976 / 571% | 11,453 / 702% | 10,203 / 670% |
-| 16 | 5,985 / 439% | 9,051 / 654% | 12,359 / 754% | 11,046 / 717% |
+| 1 | 2,350 / 100% | 2,381 / 100% | 2,593 / 100% | 2,391 / 100% |
+| 4 | 6,950 / 371% | 8,350 / 373% | 8,850 / 372% | 8,228 / 372% |
+| 8 | 10,651 / 702% | 11,159 / 730% | 11,251 / 702% | 10,809 / 688% |
+| 16 | 12,112 / 749% | 11,546 / 744% | 12,861 / 771% | 11,288 / 719% |
 
 ## Bare-package diagnostic
 
@@ -91,9 +91,9 @@ This removes Ether's BodyReader and extra guard/metadata checks. It is a diagnos
 
 | Backend | Fresh MB/s | Fresh CPU ms/GiB | Reused MB/s | Reused CPU ms/GiB |
 |---|---:|---:|---:|---:|
-| Go SIMD | 5,605 | 186.1 | 6,686 | 160.6 |
-| C, experiment off | 4,482 | 234.8 | 5,233 | 204.4 |
-| C, experiment on | 4,629 | 228.3 | 5,005 | 211.9 |
+| Go SIMD | 5,511 | 189.4 | 6,626 | 162.1 |
+| C, experiment off | 4,638 | 227.2 | 5,428 | 198.1 |
+| C, experiment on | 4,654 | 225.7 | 5,420 | 198.5 |
 
 ## Projected decoder CPU for multiple reads
 
@@ -104,14 +104,14 @@ Each independent, uncached reader decodes its payload once. Rates are decoded pa
 
 | Readers | Mb/s per reader | Go SIMD | C, experiment off | SWAR | C, experiment on |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 25 | 0.16% | 0.16% | 0.14% | 0.17% |
-| 4 | 25 | 0.63% | 0.66% | 0.55% | 0.69% |
-| 8 | 25 | 1.26% | 1.31% | 1.09% | 1.37% |
-| 16 | 25 | 2.52% | 2.63% | 2.18% | 2.74% |
-| 1 | 100 | 0.63% | 0.66% | 0.55% | 0.69% |
-| 4 | 100 | 2.52% | 2.63% | 2.18% | 2.74% |
-| 8 | 100 | 5.04% | 5.26% | 4.37% | 5.49% |
-| 16 | 100 | 10.09% | 10.51% | 8.73% | 10.98% |
+| 1 | 25 | 0.08% | 0.09% | 0.13% | 0.09% |
+| 4 | 25 | 0.31% | 0.35% | 0.53% | 0.35% |
+| 8 | 25 | 0.62% | 0.70% | 1.07% | 0.70% |
+| 16 | 25 | 1.23% | 1.40% | 2.14% | 1.40% |
+| 1 | 100 | 0.31% | 0.35% | 0.53% | 0.35% |
+| 4 | 100 | 1.23% | 1.40% | 2.14% | 1.40% |
+| 8 | 100 | 2.47% | 2.80% | 4.28% | 2.80% |
+| 16 | 100 | 4.93% | 5.61% | 8.56% | 5.60% |
 
 At a fixed aggregate bitrate, additional readers do not automatically multiply CPU: use the total decoded rate.
 These estimates exclude TLS, sockets, disk, application work and transcoding. Cache hits can avoid decoding; retries, prefetch and read amplification can add it.
@@ -127,9 +127,9 @@ bash scripts/bench_yenc_backends.sh /tmp/ether-yenc-results
 
 The runner saves raw samples/metadata and calls the standard-library-only report script. Benchmarks do not change production decoder code.
 
-- Go SIMD: [serial](yenc-backend-benchmarks/go-simd-serial.txt), [concurrent](yenc-backend-benchmarks/go-simd-concurrent.txt), [selection](yenc-backend-benchmarks/go-simd-selection.txt), [bare package](yenc-backend-benchmarks/go-simd-direct.txt), [serial confirmation](yenc-backend-benchmarks/go-simd-serial-confirmation.txt), [bare-package confirmation](yenc-backend-benchmarks/go-simd-direct-confirmation.txt).
-- C, experiment off: [serial](yenc-backend-benchmarks/cgo-no-simd-serial.txt), [concurrent](yenc-backend-benchmarks/cgo-no-simd-concurrent.txt), [selection](yenc-backend-benchmarks/cgo-no-simd-selection.txt), [bare package](yenc-backend-benchmarks/cgo-no-simd-direct.txt), [serial confirmation](yenc-backend-benchmarks/cgo-no-simd-serial-confirmation.txt), [bare-package confirmation](yenc-backend-benchmarks/cgo-no-simd-direct-confirmation.txt).
-- SWAR: [serial](yenc-backend-benchmarks/swar-serial.txt), [concurrent](yenc-backend-benchmarks/swar-concurrent.txt), [selection](yenc-backend-benchmarks/swar-selection.txt), [serial confirmation](yenc-backend-benchmarks/swar-serial-confirmation.txt).
-- C, experiment on: [serial](yenc-backend-benchmarks/cgo-with-simd-serial.txt), [concurrent](yenc-backend-benchmarks/cgo-with-simd-concurrent.txt), [selection](yenc-backend-benchmarks/cgo-with-simd-selection.txt), [bare package](yenc-backend-benchmarks/cgo-with-simd-direct.txt), [serial confirmation](yenc-backend-benchmarks/cgo-with-simd-serial-confirmation.txt), [bare-package confirmation](yenc-backend-benchmarks/cgo-with-simd-direct-confirmation.txt).
+- Go SIMD: [serial](yenc-backend-benchmarks/go-simd-serial.txt), [concurrent](yenc-backend-benchmarks/go-simd-concurrent.txt), [selection](yenc-backend-benchmarks/go-simd-selection.txt), [build environment](yenc-backend-benchmarks/go-simd-environment.json), [selected source files](yenc-backend-benchmarks/go-simd-files.txt), [bare package](yenc-backend-benchmarks/go-simd-direct.txt), [serial confirmation](yenc-backend-benchmarks/go-simd-serial-confirmation.txt), [bare-package confirmation](yenc-backend-benchmarks/go-simd-direct-confirmation.txt).
+- C, experiment off: [serial](yenc-backend-benchmarks/cgo-no-simd-serial.txt), [concurrent](yenc-backend-benchmarks/cgo-no-simd-concurrent.txt), [selection](yenc-backend-benchmarks/cgo-no-simd-selection.txt), [build environment](yenc-backend-benchmarks/cgo-no-simd-environment.json), [selected source files](yenc-backend-benchmarks/cgo-no-simd-files.txt), [bare package](yenc-backend-benchmarks/cgo-no-simd-direct.txt), [serial confirmation](yenc-backend-benchmarks/cgo-no-simd-serial-confirmation.txt), [bare-package confirmation](yenc-backend-benchmarks/cgo-no-simd-direct-confirmation.txt).
+- SWAR: [serial](yenc-backend-benchmarks/swar-serial.txt), [concurrent](yenc-backend-benchmarks/swar-concurrent.txt), [selection](yenc-backend-benchmarks/swar-selection.txt), [build environment](yenc-backend-benchmarks/swar-environment.json), [selected source files](yenc-backend-benchmarks/swar-files.txt), [serial confirmation](yenc-backend-benchmarks/swar-serial-confirmation.txt).
+- C, experiment on: [serial](yenc-backend-benchmarks/cgo-with-simd-serial.txt), [concurrent](yenc-backend-benchmarks/cgo-with-simd-concurrent.txt), [selection](yenc-backend-benchmarks/cgo-with-simd-selection.txt), [build environment](yenc-backend-benchmarks/cgo-with-simd-environment.json), [selected source files](yenc-backend-benchmarks/cgo-with-simd-files.txt), [bare package](yenc-backend-benchmarks/cgo-with-simd-direct.txt), [serial confirmation](yenc-backend-benchmarks/cgo-with-simd-serial-confirmation.txt), [bare-package confirmation](yenc-backend-benchmarks/cgo-with-simd-direct-confirmation.txt).
 
 [Buffer-reuse confirmation](yenc-backend-benchmarks/go-simd-buffer-confirmation.txt).

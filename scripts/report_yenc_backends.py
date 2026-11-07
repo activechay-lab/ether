@@ -190,6 +190,8 @@ def main():
     relative = root.name if args.output.parent.resolve() == root.parent.resolve() else str(root.resolve())
     for scenario,label in SCENARIOS.items():
         links = [f"[{kind}]({relative}/{scenario}-{kind}.txt)" for kind in ("serial","concurrent","selection")]
+        links += [f"[build environment]({relative}/{scenario}-environment.json)",
+                  f"[selected source files]({relative}/{scenario}-files.txt)"]
         if scenario != "swar":
             links.append(f"[bare package]({relative}/{scenario}-direct.txt)")
         if metadata.get("confirmation"):

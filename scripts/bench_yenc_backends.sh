@@ -37,6 +37,19 @@ pathlib.Path(sys.argv[1],"metadata.json").write_text(json.dumps(metadata,indent=
 PY
 run_scenario() {
  local name="$1" cgo="$2" simd="$3"
+ CGO_ENABLED="$cgo" GOEXPERIMENT="$simd" go env -json CGO_ENABLED GOEXPERIMENT GOOS GOARCH > "$result_dir/$name-environment.json"
+ CGO_ENABLED="$cgo" GOEXPERIMENT="$simd" go list -f '{{join .GoFiles "\n"}}' ./internal/usenet > "$result_dir/$name-files.txt"
+ python3 - "$result_dir" "$name" "$cgo" "$simd" <<'PY'
+import json,pathlib,sys
+root,name,cgo,simd=pathlib.Path(sys.argv[1]),*sys.argv[2:]
+env=json.loads((root/f"{name}-environment.json").read_text())
+if (env["CGO_ENABLED"],env["GOEXPERIMENT"]) != (cgo,simd):
+    raise SystemExit(f"Unexpected build environment for {name}: {env}")
+files=(root/f"{name}-files.txt").read_text().splitlines()
+expected="rapid_fallback.go" if name=="swar" else "rapid.go"
+if expected not in files:
+    raise SystemExit(f"Expected {expected} in {name}: {files}")
+PY
  CGO_ENABLED="$cgo" GOEXPERIMENT="$simd" go test ./internal/usenet -run '^TestRapidWireBoundary$' -count=1 -v > "$result_dir/$name-selection.txt" 2>&1
  CGO_ENABLED="$cgo" GOEXPERIMENT="$simd" go test ./internal/usenet -run '^$' -bench '^BenchmarkBodyDecode$' -benchmem -benchtime=300ms -count=3 -cpu=1 > "$result_dir/$name-serial.txt" 2>&1
  printf '%s serial complete\n' "$name"
