@@ -334,7 +334,16 @@ func (h *hlsInput) failedFetch(raw string) []UpstreamEvent {
 	return h.transitionsLocked(l, time.Now())
 }
 
-// served records a segment fetch by the reader.
+// isSegment reports a media segment named by one of the grant's live
+// playlists.
+func (h *hlsInput) isSegment(raw string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, ok := h.segs[raw]
+	return ok
+}
+
+// servedSegment records a segment fetch by the reader.
 func (h *hlsInput) servedSegment(raw string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
