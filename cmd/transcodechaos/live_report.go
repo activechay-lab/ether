@@ -28,11 +28,11 @@ func liveMarkdown(rep liveReport, base *liveReport, o liveOptions) string {
 		}
 		fmt.Fprintf(&b, "Compared with baseline `%s` (%s).\n\n", base.Label, base.Commit)
 	}
-	b.WriteString("| Row | Ether path | Verdict | TTFF s | Screen s (freeze+slate) | Silence s | Longest no-new-segment s | Client errors | Recovered |")
+	b.WriteString("| Row | Ether path | Verdict | Ideal | TTFF s | Screen s (freeze+slate) | Silence s | Longest no-new-segment s | Client errors | Recovered |")
 	if base != nil {
 		b.WriteString(" Baseline |")
 	}
-	b.WriteString("\n|---|---|---|---:|---:|---:|---:|---|---|")
+	b.WriteString("\n|---|---|---|---|---:|---:|---:|---:|---|---|")
 	if base != nil {
 		b.WriteString("---|")
 	}
@@ -47,7 +47,11 @@ func liveMarkdown(rep liveReport, base *liveReport, o liveOptions) string {
 		if v.TTFFS > 0 {
 			ttff = fmt.Sprintf("%.1f", v.TTFFS)
 		}
-		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %.1f (%.1f+%.1f) | %.1f | %.1f | %s | %v |", r.ID, r.Path, r.Verdict, ttff, v.ScreenS, v.FreezeS, v.SlateS, v.SilenceS, r.Protocol.LongestNoNewSegmentAdjS, mdEscape(errs), v.Recovered)
+		ideal, verdict := "", r.Verdict
+		if r.Criteria != "" {
+			ideal, verdict = r.Ideal, r.Verdict+"*"
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %.1f (%.1f+%.1f) | %.1f | %.1f | %s | %v |", r.ID, r.Path, verdict, ideal, ttff, v.ScreenS, v.FreezeS, v.SlateS, v.SilenceS, r.Protocol.LongestNoNewSegmentAdjS, mdEscape(errs), v.Recovered)
 		if base != nil {
 			if old, ok := byID[r.ID]; ok {
 				fmt.Fprintf(&b, " %s, screen %.1f, %d errors |", old.Verdict, old.Viewer.ScreenS, len(old.Viewer.ClientErrors))
@@ -56,6 +60,22 @@ func liveMarkdown(rep liveReport, base *liveReport, o liveOptions) string {
 			}
 		}
 		b.WriteString("\n")
+	}
+	owner := false
+	for _, r := range rep.Results {
+		if r.Criteria == "" {
+			continue
+		}
+		if !owner {
+			b.WriteString("\n## Accepted by owner decision (no playout slowdown)\n\n")
+			b.WriteString("\\* Raw TS outage rows are judged by the owner's 2026-11-07 decision: no playout slowdown and no startup wait, so a raw TS reserve exists only as far as the provider bursts backlog on connect. **Ideal** is the same row against the original budget, to show the remaining gap.\n\n")
+			owner = true
+		}
+		idealWhy := ""
+		if len(r.IdealReasons) > 0 {
+			idealWhy = " (" + strings.Join(r.IdealReasons, "; ") + ")"
+		}
+		fmt.Fprintf(&b, "- `%s`: %s, %s. Ideal: %s%s\n", r.ID, r.Verdict, mdEscape(strings.TrimPrefix(r.Criteria, "accepted by owner decision (no playout slowdown): ")), r.Ideal, mdEscape(idealWhy))
 	}
 	b.WriteString("\n## Failure reasons\n\n")
 	for _, r := range rep.Results {

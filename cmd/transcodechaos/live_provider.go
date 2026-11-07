@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -70,6 +71,9 @@ type providerConfig struct {
 
 type providerStats struct {
 	Opens, Refusals, MaxConcurrent, Requests int
+	// FirstBurstS is the media a raw TS body sent at once on the first
+	// successful connect: the backlog a reserve can be built from.
+	FirstBurstS float64 `json:"firstBurstSeconds,omitempty"`
 }
 
 type liveProvider struct {
@@ -448,6 +452,11 @@ func (p *liveProvider) serveTS(w http.ResponseWriter, r *http.Request, elapsed t
 	connected := elapsed
 	// Start Burst behind the newest segment, like a provider's send buffer.
 	n := p.liveEdge(elapsed-p.cfg.Burst) - 1
+	p.mu.Lock()
+	if p.stats.Opens == 1 {
+		p.stats.FirstBurstS = math.Round((elapsed-(p.published(n+1)-p.segDur())).Seconds()*10) / 10
+	}
+	p.mu.Unlock()
 	const chunks = 20
 	for {
 		b := p.segment(n)

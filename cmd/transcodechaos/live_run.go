@@ -52,23 +52,28 @@ type viewerSummary struct {
 }
 
 type liveResult struct {
-	ID          string          `json:"id"`
-	Scenario    string          `json:"scenario"`
-	Summary     string          `json:"summary"`
-	Mode        string          `json:"mode"`
-	Path        string          `json:"etherPath"`
-	Preset      string          `json:"preset"`
-	Applied     string          `json:"presetApplied"`
-	Verdict     string          `json:"verdict"`
-	Reasons     []string        `json:"reasons,omitempty"`
-	Viewer      viewerSummary   `json:"viewer"`
-	TuneS       float64         `json:"tuneSeconds"`
-	Protocol    protocolReport  `json:"protocol"`
-	Player      json.RawMessage `json:"player,omitempty"`
-	Provider    providerStats   `json:"provider"`
-	Backup      *providerStats  `json:"backupProvider,omitempty"`
-	Error       string          `json:"error,omitempty"`
-	WallSeconds float64         `json:"wallSeconds"`
+	ID       string   `json:"id"`
+	Scenario string   `json:"scenario"`
+	Summary  string   `json:"summary"`
+	Mode     string   `json:"mode"`
+	Path     string   `json:"etherPath"`
+	Preset   string   `json:"preset"`
+	Applied  string   `json:"presetApplied"`
+	Verdict  string   `json:"verdict"`
+	Reasons  []string `json:"reasons,omitempty"`
+	// Criteria names the owner decision a row was judged by, when not the
+	// ideal budget; Ideal is then the verdict against the ideal budget.
+	Criteria     string          `json:"criteria,omitempty"`
+	Ideal        string          `json:"idealVerdict,omitempty"`
+	IdealReasons []string        `json:"idealReasons,omitempty"`
+	Viewer       viewerSummary   `json:"viewer"`
+	TuneS        float64         `json:"tuneSeconds"`
+	Protocol     protocolReport  `json:"protocol"`
+	Player       json.RawMessage `json:"player,omitempty"`
+	Provider     providerStats   `json:"provider"`
+	Backup       *providerStats  `json:"backupProvider,omitempty"`
+	Error        string          `json:"error,omitempty"`
+	WallSeconds  float64         `json:"wallSeconds"`
 	// HostLoad is the 1-minute load average at the row's start and end;
 	// timing rows measured on a saturated host are not comparable.
 	HostLoad [2]float64 `json:"hostLoad"`
@@ -209,6 +214,54 @@ func runLive(o liveOptions) error {
 	}
 	if failed+invalid > 0 {
 		return fmt.Errorf("%d live rows failed, %d invalid; report: %s", failed, invalid, o.Report)
+	}
+	return nil
+}
+
+// rescoreLive re-judges an existing JSON report with the current scenario
+// budgets and pass criteria (no re-run) and rewrites it in place. Measurements
+// are kept as recorded; only verdicts, reasons and criteria change.
+func rescoreLive(report, markdown, baselinePath string) error {
+	var rep liveReport
+	b, err := os.ReadFile(report)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(b, &rep); err != nil {
+		return err
+	}
+	byID := map[string]liveScenario{}
+	for _, row := range selectRows("full", "") {
+		byID[row.ID()] = row.Scenario
+	}
+	stuck := liveStuckFactor[rep.Client]
+	if stuck == 0 {
+		stuck = liveStuckFactor["plex-appletv"]
+	}
+	for i := range rep.Results {
+		r := &rep.Results[i]
+		sc, ok := byID[r.ID]
+		if !ok {
+			continue
+		}
+		var av *avResult
+		if len(r.Player) > 0 {
+			av = &avResult{}
+			if json.Unmarshal(r.Player, av) != nil {
+				av = nil
+			}
+		}
+		scoreRow(sc, rep.Preset, stuck, r, av)
+	}
+	out, err := json.MarshalIndent(rep, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(report, append(out, '\n'), 0o644); err != nil {
+		return err
+	}
+	if markdown != "" {
+		return renderLive(report, markdown, baselinePath)
 	}
 	return nil
 }
@@ -360,7 +413,18 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 		}
 	}
 	res.Viewer = summarise(res.Protocol, av, res.TuneS)
-	res.Verdict, res.Reasons = judgeRow(sc, o.Preset, liveStuckFactor[o.Client], res)
+	scoreRow(sc, o.Preset, liveStuckFactor[o.Client], &res, av)
+	return
+}
+
+// scoreRow sets the verdict (and, on owner-decision rows, the ideal one).
+func scoreRow(sc liveScenario, preset string, stuck float64, res *liveResult, av *avResult) {
+	res.Verdict, res.Reasons = judgeRow(sc, preset, stuck, *res, true)
+	res.Criteria, res.Ideal, res.IdealReasons = "", "", nil
+	if _, note, ok := ownerAllowance(sc, *res); ok {
+		res.Criteria = "accepted by owner decision (no playout slowdown): " + note
+		res.Ideal, res.IdealReasons = judgeRow(sc, preset, stuck, *res, false)
+	}
 	if res.Error != "" && res.Verdict == "PASS" {
 		res.Verdict = "FAIL"
 		res.Reasons = append(res.Reasons, res.Error)
@@ -371,7 +435,49 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 			res.Reasons = append([]string{fmt.Sprintf("avprobe itself was not scheduled for %d s (host stall); the player verdict is void, rerun this row", n)}, res.Reasons...)
 		}
 	}
-	return
+}
+
+// ownerAllowance is the screen a raw TS outage row may show under the
+// owner's decision of 2026-11-07: no playout slowdown and no startup wait,
+// so the only reserve for a raw TS source is the backlog the provider bursts
+// on connect, less the start window the tune already spent from it (the
+// media in the first published playlist). Without a burst the outage shows
+// as the slate, plus 2 s to detect it and splice back; a held picture is
+// allowed only 0.5 s. With a burst the outage may show for whatever the
+// remaining reserve does not cover, plus the same 2 s. Silence may run
+// 0.5 s past the allowance (silencedetect edges around the silent slate).
+// Every other rule still applies: no client error, a slate published within
+// the stuck deadline, recovery and clean sequences after it.
+func ownerAllowance(sc liveScenario, r liveResult) (float64, string, bool) {
+	if !sc.OwnerNoSlowdown {
+		return 0, "", false
+	}
+	outage := sc.Outage.Seconds()
+	if sc.Source.Burst == 0 {
+		return outage + 2, fmt.Sprintf("slate <= outage %.0fs + 2.0s = %.1fs, freeze <= 0.5s", outage, outage+2), true
+	}
+	burst, src := r.Provider.FirstBurstS, "measured"
+	if burst == 0 {
+		burst, src = sc.Source.Burst.Seconds(), "nominal, not measured in this report"
+	}
+	start := startWindow(r.Protocol)
+	allowed := math.Max(0, outage-math.Max(0, burst-start)) + 2
+	return allowed, fmt.Sprintf("screen <= max(0, outage %.0fs - (burst %.1fs %s - start window %.1fs)) + 2.0s = %.1fs", outage, burst, src, start, allowed), true
+}
+
+// startWindow is the media in the first playlist the judge saw: what the
+// tune had already published (and spent from any burst) before playback.
+func startWindow(p protocolReport) float64 {
+	if len(p.SegmentLog) == 0 {
+		return 0
+	}
+	first, sum := p.SegmentLog[0].SeenAt, 0.0
+	for _, s := range p.SegmentLog {
+		if s.SeenAt <= first+0.01 {
+			sum += s.Duration
+		}
+	}
+	return sum
 }
 
 func compactJSON(b []byte) []byte {
@@ -548,7 +654,10 @@ func summarise(p protocolReport, av *avResult, tune float64) viewerSummary {
 }
 
 // judgeRow applies the common rules plus the scenario's preset budget.
-func judgeRow(sc liveScenario, preset string, stuck float64, r liveResult) (string, []string) {
+// judgeRow applies the common rules plus the screen budget: the owner
+// decision's allowance on rows that have one when owner is set, otherwise
+// the scenario's (ideal) per-preset budget.
+func judgeRow(sc liveScenario, preset string, stuck float64, r liveResult, owner bool) (string, []string) {
 	var why []string
 	v, p := r.Viewer, r.Protocol
 	b, ok := sc.Budget[preset]
@@ -561,11 +670,28 @@ func judgeRow(sc liveScenario, preset string, stuck float64, r liveResult) (stri
 	if sc.Recoverable && !v.Recovered {
 		why = append(why, "did not recover")
 	}
-	if v.ScreenS > b.ScreenS+0.05 {
-		why = append(why, fmt.Sprintf("screen %.1fs > %.1fs", v.ScreenS, b.ScreenS))
-	}
-	if v.SilenceS > b.SilenceS+0.05 {
-		why = append(why, fmt.Sprintf("silence %.1fs > %.1fs", v.SilenceS, b.SilenceS))
+	if allowed, _, ok := ownerAllowance(sc, r); owner && ok {
+		if sc.Source.Burst == 0 {
+			if v.SlateS > allowed+0.05 {
+				why = append(why, fmt.Sprintf("slate %.1fs > outage+2 %.1fs", v.SlateS, allowed))
+			}
+			if v.FreezeS > 0.55 {
+				why = append(why, fmt.Sprintf("freeze %.1fs > 0.5s", v.FreezeS))
+			}
+		} else if v.ScreenS > allowed+0.05 {
+			why = append(why, fmt.Sprintf("screen %.1fs > allowed %.1fs", v.ScreenS, allowed))
+		}
+		// The slate is silent; silencedetect's edges add a few tenths.
+		if v.SilenceS > allowed+0.5 {
+			why = append(why, fmt.Sprintf("silence %.1fs > allowed %.1fs + 0.5s", v.SilenceS, allowed))
+		}
+	} else {
+		if v.ScreenS > b.ScreenS+0.05 {
+			why = append(why, fmt.Sprintf("screen %.1fs > %.1fs", v.ScreenS, b.ScreenS))
+		}
+		if v.SilenceS > b.SilenceS+0.05 {
+			why = append(why, fmt.Sprintf("silence %.1fs > %.1fs", v.SilenceS, b.SilenceS))
+		}
 	}
 	if td := p.TargetDuration; td > 0 && p.LongestNoNewSegmentAdjS > stuck*td {
 		why = append(why, fmt.Sprintf("no new segment for %.1fs (> %.1fx TD %.0fs)", p.LongestNoNewSegmentAdjS, stuck, td))
