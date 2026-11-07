@@ -37,6 +37,11 @@ type release struct {
 	plan     *plan
 	planErr  error // permanent rejection, cached
 
+	// namedMu serialises NameFiles; named is its result, kept so a later
+	// fetch of the same pack never probes its articles again.
+	namedMu sync.Mutex
+	named   []byte
+
 	p2           par2State
 	repairMu     sync.Mutex
 	repair       *repairSession
