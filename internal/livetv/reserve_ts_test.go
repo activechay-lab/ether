@@ -13,6 +13,7 @@ type tsGen struct {
 	frame     int
 	gop       int
 	audioLead int64 // audio PTS relative to video DTS
+	ac3       bool  // the PMT announces AC-3 audio (version 1)
 }
 
 func (g *tsGen) pkt(id int, pusi bool, adapt []byte, payload []byte) []byte {
@@ -54,9 +55,13 @@ func psiSection(table byte, body []byte) []byte {
 
 func (g *tsGen) psi() []byte {
 	pat := psiSection(0, []byte{0, 1, 0xc1, 0, 0, 0, 1, 0xf0, 0x00}) // program 1 -> PMT 0x1000
-	pmt := psiSection(2, []byte{0, 1, 0xc1, 0, 0, 0xe1, 0x00, 0xf0, 0x00,
+	version, audio := byte(0xc1), byte(0x0f)
+	if g.ac3 {
+		version, audio = 0xc3, 0x81
+	}
+	pmt := psiSection(2, []byte{0, 1, version, 0, 0, 0xe1, 0x00, 0xf0, 0x00,
 		0x1b, 0xe1, 0x00, 0xf0, 0x00,
-		0x0f, 0xe1, 0x01, 0xf0, 0x00})
+		audio, 0xe1, 0x01, 0xf0, 0x00})
 	return append(g.pkt(0, true, nil, pat), g.pkt(0x1000, true, nil, pmt)...)
 }
 
@@ -171,7 +176,7 @@ func TestTSSpliceKeepsOneContinuousStream(t *testing.T) {
 		}
 	}
 
-	sp.reconnect()
+	sp.reconnect(true)
 	// The new connection is at a different clock, starts mid-GOP and its
 	// counters restart.
 	b := &tsGen{cc: map[int]byte{0x100: 7, 0x101: 3}, dts: 5_000_000, gop: 12, frame: 5, audioLead: -5400}
@@ -256,7 +261,7 @@ func TestTSSpliceContinuesAResentStream(t *testing.T) {
 	// 24..29 and part of 30); the second re-sends from frame 20.
 	cut := 24*perFrame + 2*2*tsPacket + 6*perFrame + perFrame/2
 	out, _ = sp.feed(stream[:cut], out, 0)
-	sp.reconnect()
+	sp.reconnect(true)
 	resend := 20*perFrame + 2*2*tsPacket
 	out, _ = sp.feed(stream[resend:], out, int64(len(out)))
 	var dts []int64
@@ -279,5 +284,34 @@ func TestTSSpliceContinuesAResentStream(t *testing.T) {
 	}
 	if psi != 5 {
 		t.Fatalf("PAT count %d: a follow-on splice must not inject PSI", psi)
+	}
+}
+
+// A program change (PMT) starts a new format generation, so a decoder
+// reopened for a codec change can join at the new format's first keyframe.
+func TestTSFormatGenerationFollowsPMT(t *testing.T) {
+	g := &tsGen{cc: map[int]byte{}, dts: 900000, gop: 12}
+	var b []byte
+	for range 30 {
+		b = append(b, g.next()...)
+	}
+	// The audio becomes AC-3 with a PMT version bump; the next PMT goes out
+	// with the keyframe at frame 36.
+	g.ac3 = true
+	for range 30 {
+		b = append(b, g.next()...)
+	}
+	sp := newTSSplicer()
+	_, marks := sp.feed(b, nil, 0)
+	var gens []int
+	for _, m := range marks {
+		if m.key {
+			gens = append(gens, m.format)
+		}
+	}
+	// Keyframes at 0, 12, 24 (old program), 36, 48 (new); the frame-60 one
+	// is still uncommitted.
+	if want := []int{0, 0, 0, 1, 1}; len(gens) != len(want) || gens[2] != 0 || gens[3] != 1 || gens[4] != 1 {
+		t.Fatalf("format generation per keyframe %v, want %v", gens, want)
 	}
 }

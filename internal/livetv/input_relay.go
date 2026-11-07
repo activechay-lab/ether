@@ -75,6 +75,7 @@ type inputGrant struct {
 	// reserve is how far behind the live edge this input's reader plays
 	// (stabilityReserve for a Steady input, else zero); immutable.
 	reserve time.Duration
+	steady  bool // feeds a Steady decoder (grantSteadyInput); immutable
 	service *Service
 
 	mu               sync.Mutex
@@ -151,7 +152,7 @@ func (s *Service) grantInputFor(ss *session, src StreamSource, headers http.Head
 		reserve = s.stabilityReserve(c)
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
-	g := &inputGrant{reserve: reserve, service: s,
+	g := &inputGrant{reserve: reserve, steady: steady, service: s,
 		log:   s.sessionLog(ss).With("input", src.ID),
 		token: base64.RawURLEncoding.EncodeToString(b[:]), origin: relayOrigin(u), headers: headers.Clone(), mediaHeaders: redirectMediaHeaders(src.Headers),
 		ctx: ctx, cancel: cancel, slots: make(chan struct{}, relayConcurrency), source: source,

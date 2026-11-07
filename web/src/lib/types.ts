@@ -403,6 +403,7 @@ export interface EtherConfig {
   liveTV?: {
     logoIndexUrl?: string;
     healthSweepMinutes?: number;
+    stability?: "fastest" | "balanced" | "rocksolid" | "";
   };
   subtitles?: {
     providers?: { id: string; kind: string; name?: string; enabled: boolean }[];

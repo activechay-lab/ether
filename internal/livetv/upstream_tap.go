@@ -432,8 +432,18 @@ func (t *upstreamTap) joinOffsetLocked() int64 {
 	return at - at%tsPacket
 }
 
-// joinLocked picks a new reader's start. live asks for the live edge.
-func (t *upstreamTap) joinLocked(g *inputGrant, live bool) int64 {
+// joinLocked picks a new reader's start for the relay URL's join query:
+// "live" is the live edge; "format" is the first keyframe of the current
+// program format (after the latest PMT change), so a decoder reopened for a
+// codec change reads the new format's backlog at once.
+func (t *upstreamTap) joinLocked(g *inputGrant, join string) int64 {
+	if join == "format" && t.ts != nil {
+		if off, ok := t.formatEntryLocked(); ok {
+			return off
+		}
+		join = "live"
+	}
+	live := join == "live"
 	if t.ts == nil || len(t.marks) == 0 {
 		if live && t.written > 0 {
 			at := max(0, t.written-int64(tapJoinBacklog))
@@ -443,6 +453,13 @@ func (t *upstreamTap) joinLocked(g *inputGrant, live bool) int64 {
 	}
 	if live {
 		return t.keyBeforeLocked(t.written, 0)
+	}
+	// A Steady decoder restarted on its grant resumes where the previous one
+	// stopped. A relay grant's readers (sniff, probe, ffmpeg) instead all
+	// start at the first byte while the tap is young, so ffmpeg sees what
+	// the probe saw.
+	if off, ok := t.resume[g]; ok && g != nil && g.steady {
+		return t.keyBeforeLocked(off, 0)
 	}
 	if t.youngLocked() {
 		return 0
@@ -470,6 +487,26 @@ func (t *upstreamTap) headClockLocked() int64 {
 		return t.ts.clock
 	}
 	return 0
+}
+
+// formatEntryLocked is the entry of the oldest buffered keyframe in the
+// current program format.
+func (t *upstreamTap) formatEntryLocked() (int64, bool) {
+	if len(t.marks) == 0 {
+		return 0, false
+	}
+	start, cur := t.ringStartLocked(), t.marks[len(t.marks)-1].format
+	off, ok := int64(0), false
+	for i := len(t.marks) - 1; i >= 0; i-- {
+		m := t.marks[i]
+		if m.entry < start || m.format != cur {
+			break
+		}
+		if m.key {
+			off, ok = m.entry, true
+		}
+	}
+	return off, ok
 }
 
 // keyBeforeLocked is the entry of the last keyframe at or before off whose
@@ -717,7 +754,7 @@ func (s *Service) serveTapped(w http.ResponseWriter, r *http.Request, g *inputGr
 	t.attach()
 	defer t.detach()
 	t.mu.Lock()
-	off := t.joinLocked(g, r.URL.Query().Get(relayJoinQuery) == "live")
+	off := t.joinLocked(g, r.URL.Query().Get(relayJoinQuery))
 	rd := t.addReaderLocked(g, off)
 	rd.pace = g.reserve > 0
 	t.mu.Unlock()
@@ -1037,6 +1074,22 @@ func (t *upstreamTap) resizeLocked(n int) {
 	t.ring = next
 }
 
+// tapDedupeDepth is the reserve readers need for a reconnect to wait out
+// content the provider re-sends rather than show it twice.
+const tapDedupeDepth = 2 * time.Second
+
+// minDepthLocked is the smallest reserve among active readers (zero with
+// none).
+func (t *upstreamTap) minDepthLocked() time.Duration {
+	first, low := true, time.Duration(0)
+	for rd := range t.active {
+		if d := t.depthLocked(rd.off); first || d < low {
+			first, low = false, d
+		}
+	}
+	return low
+}
+
 // capacityLocked is how much media the ring can hold at the current bitrate.
 func (t *upstreamTap) capacityLocked() time.Duration {
 	if t.bitrate <= 0 {
@@ -1225,7 +1278,7 @@ func (s *Service) reopenTap(ctx context.Context, t *upstreamTap, g *inputGrant, 
 	t.lastData, t.epochStart = time.Now(), time.Now()
 	t.epochClock = t.ts.clock
 	t.reconnects++
-	t.ts.reconnect()
+	t.ts.reconnect(t.minDepthLocked() >= tapDedupeDepth)
 	t.mu.Unlock()
 	return body, nil
 }
