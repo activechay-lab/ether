@@ -12,6 +12,7 @@ type fakeLLM struct {
 	rows  []core.Hub
 	more  []core.Title
 	seeds []core.Title
+	calls int
 	mu    sync.Mutex
 }
 
@@ -22,10 +23,11 @@ func (f *fakeLLM) ThemedRows(_ context.Context, _ *core.User, seeds []core.Title
 	return f.rows, nil
 }
 func (f *fakeLLM) MoreLikeThis(context.Context, *core.Title, int) ([]core.Title, error) {
+	f.calls++
 	return f.more, nil
 }
 
-func TestRelatedEpisodeAndLLMInterleave(t *testing.T) {
+func TestRelatedEpisodeExcludesLLM(t *testing.T) {
 	ctx := context.Background()
 	ll := &fakeLLM{more: []core.Title{sicario}}
 	r, _, user, cat := fixtureWith(t, func(o *Options) { o.LLM = ll })
@@ -45,8 +47,11 @@ func TestRelatedEpisodeAndLLMInterleave(t *testing.T) {
 	for _, it := range h.Items {
 		keys[it.Key] = true
 	}
-	if !keys[dune2.Key] || !keys[sicario.Key] || keys[arrival.Key] {
-		t.Fatalf("similar via show + llm, minus watched: %+v", h.Items)
+	if !keys[dune2.Key] || keys[sicario.Key] || keys[arrival.Key] {
+		t.Fatalf("catalogue similar via show, excluding AI and watched: %+v", h.Items)
+	}
+	if ll.calls != 0 {
+		t.Fatal("client recommendations invoked an LLM")
 	}
 	if _, err := r.Related(ctx, user, core.MovieKey(424242), 10); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("unknown title: %v", err)

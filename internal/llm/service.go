@@ -353,15 +353,6 @@ func (s *Service) MoreLikeThis(ctx context.Context, title *core.Title, limit int
 	return s.wait(ctx, key, "", compute, func(e *cacheEntry) []core.Title { return e.titles })
 }
 
-// CachedMoreLikeThis serves the last model result while scheduling a refresh.
-// Browsing a detail page must not wait for an inference request. MoreLikeThis
-// retains its waiting contract for callers that explicitly need the result.
-func (s *Service) CachedMoreLikeThis(ctx context.Context, title *core.Title, limit int) ([]core.Title, error) {
-	ready, cancel := context.WithCancel(ctx)
-	cancel()
-	return s.MoreLikeThis(ready, title, limit)
-}
-
 // wait serves a fresh entry, or joins/starts a compute and waits for it
 // until ctx is done, falling back to stale values.
 func (s *Service) wait(ctx context.Context, key, sig string, compute func(context.Context) ([]core.Hub, []core.Title, error), pick func(*cacheEntry) []core.Title) ([]core.Title, error) {
