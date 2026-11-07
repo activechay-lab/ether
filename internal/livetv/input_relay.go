@@ -72,8 +72,15 @@ type inputGrant struct {
 	cancel       context.CancelFunc
 	slots        chan struct{}
 	source       string // the capped provider account behind this input; "" none
+	// reserve is how far behind the live edge this input's reader plays
+	// (stabilityReserve for a Steady input, else zero); immutable.
+	reserve time.Duration
+	service *Service
 
 	mu               sync.Mutex
+	tap              *upstreamTap // the shared connection the root input reads through
+	hls              *hlsInput    // provider playlist state when the root input is HLS
+	watchers         map[*func(UpstreamEvent)]struct{}
 	resources        map[string]*relayResource
 	byKey            map[string]string
 	order            []string
@@ -126,8 +133,12 @@ func (s *Service) grantInput(ss *session, src StreamSource, headers http.Header)
 	if _, err := rand.Read(b[:]); err != nil {
 		return err
 	}
+	var reserve time.Duration
+	if steadyInput(ss) {
+		reserve = s.stabilityReserve(c)
+	}
 	ctx, cancel := context.WithCancel(s.ctx)
-	g := &inputGrant{
+	g := &inputGrant{reserve: reserve, service: s,
 		log:   s.sessionLog(ss).With("input", src.ID),
 		token: base64.RawURLEncoding.EncodeToString(b[:]), origin: relayOrigin(u), headers: headers.Clone(), mediaHeaders: redirectMediaHeaders(src.Headers),
 		ctx: ctx, cancel: cancel, slots: make(chan struct{}, relayConcurrency), source: source,
@@ -337,6 +348,11 @@ func (s *Service) serveInputRelay(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	defer context.AfterFunc(g.ctx, cancel)()
 	res, err := s.relayFetch(ctx, cancel, g, raw, r)
+	if err == nil && res.StatusCode >= 400 || err != nil && r.Context().Err() == nil {
+		if h := g.hlsIfAny(); h != nil {
+			h.deliver(h.failedFetch(raw))
+		}
+	}
 	if err != nil {
 		code := http.StatusBadGateway
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -363,8 +379,11 @@ func (s *Service) serveInputRelay(w http.ResponseWriter, r *http.Request) {
 	mpd := bytes.HasPrefix(head, []byte("<?xml")) || bytes.HasPrefix(head, []byte("<MPD")) ||
 		(bytes.HasPrefix(head, []byte("<")) && strings.Contains(ctype, "xml"))
 	if hls || mpd {
-		s.serveRelayManifest(w, g, res.Request.URL, body, hls)
+		s.serveRelayManifest(w, g, raw, res.Request.URL, body, hls)
 		return
+	}
+	if h := g.hlsIfAny(); h != nil {
+		h.servedSegment(raw)
 	}
 	for _, name := range []string{"Content-Length", "Content-Range", "Accept-Ranges"} {
 		if v := res.Header.Get(name); v != "" {
@@ -392,11 +411,18 @@ func (s *Service) serveInputRelay(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Service) serveRelayManifest(w http.ResponseWriter, g *inputGrant, base *url.URL, body io.Reader, hls bool) {
+func (s *Service) serveRelayManifest(w http.ResponseWriter, g *inputGrant, raw string, base *url.URL, body io.Reader, hls bool) {
 	b, err := io.ReadAll(io.LimitReader(body, relayManifestLimit+1))
 	if err != nil || len(b) > relayManifestLimit {
 		http.Error(w, "upstream manifest unavailable", http.StatusBadGateway)
 		return
+	}
+	if hls {
+		// Health, and for Steady the reserve window (reserve_hls.go).
+		var events []UpstreamEvent
+		h := g.hlsState()
+		b, events = h.media(raw, b, base)
+		h.deliver(events)
 	}
 	s.inputRelay.mu.Lock()
 	host := s.inputRelay.host
