@@ -145,14 +145,15 @@ for target_os in linux darwin windows; do
   done
 done
 goreleaser check
-bash scripts/bench_yenc_backends.sh
+for cgo in 0 1; do for exp in "" simd; do
+  CGO_ENABLED=$cgo GOEXPERIMENT=$exp go test ./internal/usenet -run '^$' \
+    -bench 'BodyDecode$/line128/768KiB/bufferfresh' -benchtime=1s -count=5 -cpu=1
+done; done
 ```
 
-The benchmark runner now records and verifies `go env` and selected Go source
-files for every build. This prevents the previous ad hoc zsh loop's unsplit
-settings (for example `CGO_ENABLED='0 simd'`) from silently defaulting to CGO
-and producing incorrectly labeled rows. The previous published four-build table
-was incorrectly labeled; the new report supersedes it.
+Set `CGO_ENABLED` and `GOEXPERIMENT` as separate environment variables, as
+above; a combined value such as `CGO_ENABLED='0 simd'` silently defaults to CGO
+and mislabels the build.
 
 Docker image assembly remains unverified because the local Docker daemon is
 stopped. Native Windows installer execution and installer signing/notarization

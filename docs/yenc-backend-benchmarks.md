@@ -122,9 +122,12 @@ Linear serial-cost projections do not capture the higher per-byte cost sometimes
 CPU metrics are implemented for macOS/Linux. A compatible C/C++ toolchain is required for cgo configurations.
 
 ```sh
-bash scripts/bench_yenc_backends.sh /tmp/ether-yenc-results
+for cgo in 0 1; do for exp in "" simd; do
+  CGO_ENABLED=$cgo GOEXPERIMENT=$exp go test ./internal/usenet -run '^$' \
+    -bench 'BodyDecode$/line128/768KiB/bufferfresh' -benchtime=1s -count=5 -cpu=1
+done; done
 ```
 
-The runner saves raw samples/metadata and calls the standard-library-only report script. Benchmarks do not change production decoder code.
+The other scenarios are the `BodyDecode`, `BodyDecodeConcurrent` and `RapidDirect` benchmarks in `internal/usenet`. Benchmarks do not change production decoder code.
 
-Raw samples are not committed; the runner above regenerates them.
+Raw samples are not committed; rerun the benchmarks to regenerate them.
