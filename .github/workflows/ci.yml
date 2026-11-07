@@ -156,6 +156,14 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: go build ./...
+      - name: Build Windows ARM64 with portable yEnc fallback
+        if: runner.os == 'Linux' && matrix.shard == 'rest'
+        env:
+          CGO_ENABLED: "0"
+          GOEXPERIMENT: simd
+          GOOS: windows
+          GOARCH: arm64
+        run: go build ./...
       - name: Test yEnc portable SWAR fallback
         if: matrix.shard == 'rest' || matrix.shard == 'all'
         env:
@@ -173,23 +181,11 @@ jobs:
           CGO_ENABLED: "0"
           GOEXPERIMENT: simd
         run: go test -race -count=1 -timeout=8m ./internal/usenet ./internal/yenc ./internal/stream
-      - name: Test RapidYenc C backend without the Go SIMD experiment
-        if: runner.os == 'Linux' && matrix.shard == 'rest'
-        env:
-          CGO_ENABLED: "1"
-          GOEXPERIMENT: ""
-        run: go test -count=1 ./internal/usenet -run '^TestRapid'
       - name: Fuzz RapidYenc pure-Go SIMD response path
         if: runner.os == 'Linux' && matrix.shard == 'rest'
         env:
           CGO_ENABLED: "0"
           GOEXPERIMENT: simd
-        run: go test ./internal/usenet -run '^$' -fuzz '^FuzzRapidDifferential$' -fuzztime=100000x -parallel=2 -timeout=3m
-      - name: Fuzz RapidYenc C response path
-        if: runner.os == 'Linux' && matrix.shard == 'rest'
-        env:
-          CGO_ENABLED: "1"
-          GOEXPERIMENT: ""
         run: go test ./internal/usenet -run '^$' -fuzz '^FuzzRapidDifferential$' -fuzztime=100000x -parallel=2 -timeout=3m
       - name: Test yEnc without AVX2
         if: runner.os == 'Linux' && matrix.shard == 'rest'
@@ -216,8 +212,8 @@ jobs:
           CGO_ENABLED: "1"
         run: go vet ./cmd/ether-tray/
       - name: Test (Linux race shard)
-        # -race needs CGO and exercises RapidYenc's C backend on Linux.
-        # The pure-Go SIMD response path is checked separately above.
+        # Linux -race needs CGO, so these runs use the SWAR decoder.
+        # Pure-Go SIMD race coverage runs separately on macOS above.
         # macOS uses CGO_ENABLED=0 below to exclude the tray GUI.
         if: runner.os == 'Linux'
         shell: bash

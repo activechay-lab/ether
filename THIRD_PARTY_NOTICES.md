@@ -28,12 +28,12 @@ Installers and the Docker image bundle `ffmpeg` and `ffprobe` from the
 
 `internal/usenet` imports [mnightingale/rapidyenc](https://github.com/mnightingale/rapidyenc),
 pinned in `go.mod`/`go.sum` to commit `6657b7ca854e05728fa4a67f29ebc90ecd304428`
-(2026-10-08). Pure-Go SIMD builds use its public `NewDecoder` API behind
-Ether's bounded NNTP input adapter. Supported cgo builds instead use upstream's
-bundled C backend (macOS/Linux AMD64 and ARM64; Windows AMD64). Unsupported
-backend/CPU combinations and explicit caller buffers use Ether's SWAR decoder.
-The decoder dependency graph in shipped `CGO_ENABLED=0` builds contains no
-cgo files. The dependency is MIT-licensed:
+(2026-10-08). Supported pure-Go SIMD builds use its public `NewDecoder` API
+behind Ether's bounded NNTP input adapter. Ether does not select upstream's C
+backend. CGO-enabled builds, Windows ARM64, unsupported targets/CPUs and
+explicit caller buffers use Ether's SWAR decoder. The RapidYenc response path
+requires `CGO_ENABLED=0 GOEXPERIMENT=simd` and has no C/C++ toolchain dependency.
+The dependency is MIT-licensed:
 
 MIT License
 
