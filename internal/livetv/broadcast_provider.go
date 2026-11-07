@@ -148,9 +148,10 @@ func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 // never stops publishing, so the 3 s (1.5x target) client limit holds.
 func (p *providerBroadcastPlanner) coldWait() time.Duration { return 4 * time.Second }
 func (p *providerBroadcastPlanner) startupLead() time.Duration {
-	// A transport-stream tap paces its Steady reader with a few seconds of
-	// allowance; that is the server reserve, so spend at most one segment of
-	// it on the client's cushion. A playlist reserve is deeper.
+	// A transport stream's only reserve is what its provider sends on
+	// connect: spend at most one segment of it on the client's cushion, so
+	// a cold tune stays under five seconds. A playlist input joins its
+	// reserve plus the cushion deeper (grantSteadyInputLead), so it bursts.
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.primed != nil && p.primed.format == "mpegts" {
