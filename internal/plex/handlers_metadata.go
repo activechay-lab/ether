@@ -96,9 +96,7 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey
 func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	if plexAndroidClient(pr) {
-		pr.detailWaitUntil = time.Now().Add(detailWarmWaitBudget)
-	}
+	startDetailPageWait(pr)
 	q := r.URL.Query()
 	// Validate before any catalogue lookup or playback warm-up: these flags
 	// have a boolean integer grammar even when their work is asynchronous.
@@ -348,6 +346,18 @@ func (s *Server) showOnDeck(ctx context.Context, pr *Request, show core.RatingKe
 
 const detailWarmWaitBudget = 4 * time.Second
 
+// Apple TV can refresh detail metadata and obtains the admitted source's
+// tracks again on Play. Keep speculative preparation behind its browse
+// pages; share a short allowance across the probe and version discovery.
+// Android still needs the existing initial-track discovery allowance.
+func startDetailPageWait(pr *Request) {
+	if plexAndroidClient(pr) {
+		pr.detailWaitUntil = time.Now().Add(detailWarmWaitBudget)
+	} else if pr != nil && (strings.EqualFold(pr.Platform, "tvOS") || strings.EqualFold(pr.Product, "Plex for Apple TV")) {
+		pr.detailWaitUntil = time.Now().Add(250 * time.Millisecond)
+	}
+}
+
 // warmDetail schedules a detail-page warm-up for t and waits up to a bounded
 // budget for its probe when no session, resumed probe or warm probe is ready
 // yet, so the first detail/season/show open renders the file's real audio and
@@ -384,7 +394,11 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *core.Title) {
 		}
 	}
 	if waiter, ok := s.d.Playback.(core.WarmProbeWaiter); ok {
-		waiter.WaitWarmProbe(ctx, pr.User, caps, t.Key, detailWarmWaitBudget)
+		budget := detailWarmWaitBudget
+		if !pr.detailWaitUntil.IsZero() {
+			budget = min(budget, time.Until(pr.detailWaitUntil))
+		}
+		waiter.WaitWarmProbe(ctx, pr.User, caps, t.Key, budget)
 	}
 }
 
@@ -429,6 +443,7 @@ func (s *Server) seasonNextEpisode(ctx context.Context, pr *Request, eps []core.
 func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
+	startDetailPageWait(pr)
 	k, err := keyParam(r)
 	if err != nil {
 		writeHTTPError(w, http.StatusNotFound)
@@ -611,6 +626,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAllLeaves(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
+	startDetailPageWait(pr)
 	k, err := keyParam(r)
 	if err != nil {
 		writeHTTPError(w, http.StatusNotFound)
