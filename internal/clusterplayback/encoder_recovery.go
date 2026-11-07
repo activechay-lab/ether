@@ -301,7 +301,7 @@ func (r *Runtime) finishSupersession(ctx context.Context, x *execution) error {
 	x.replacement = replacement
 	x.output.supersededAt = int64(next)
 	replacement.reserved = true
-	x.failed = append(x.failed, &execution{route: old, session: x.session, adapter: x.adapter, stopping: true, reserved: true})
+	x.failed = append(x.failed, &execution{epoch: x.epoch, route: old, session: x.session, adapter: x.adapter, stopping: true, reserved: true})
 	r.mu.Unlock()
 	return r.startReplacement(ctx, x)
 }
@@ -439,6 +439,10 @@ func (r *Runtime) armAcceptedExecution(ctx context.Context, q core.HLSRequest) e
 }
 
 func (r *Runtime) reconcileDisplaced(ctx context.Context, x *execution) {
+	if !r.ownsExecution(ctx, x) {
+		return
+	}
+
 	for _, old := range x.failed {
 		if old.retired {
 			continue
@@ -559,6 +563,10 @@ func (r *Runtime) reconcileBootRetirements(ctx context.Context) error {
 			if err = r.o.Placement.RetireDisplaced(ctx, record.Fence, "clusterplayback/authenticated-new-boot"); err != nil {
 				return err
 			}
+		} else {
+			// Durable displaced fences survive loss of a coordinator's local
+			// session pointers and retirement of the current generation.
+			_ = r.attachDisplacedRetirement(ctx, record)
 		}
 	}
 	return r.reconcileOrdinaryBootRetirements(ctx)

@@ -86,7 +86,7 @@ func (r *Runtime) MaintainCoordination(ctx context.Context) error {
 	if !r.clockReady() || !r.o.Roles.Has(config.RoleServer) || r.o.Eligible(ctx, r.o.Self, config.RoleServer) != nil {
 		return nil
 	}
-	rows, err := r.o.DB.QueryContext(ctx, `SELECT c.session FROM clusterplayback_coordinators c JOIN placement_sessions p ON p.session=c.session AND p.generation=c.generation WHERE p.retired=0 ORDER BY c.session LIMIT 4096`)
+	rows, err := r.o.DB.QueryContext(ctx, `SELECT c.session FROM clusterplayback_coordinators c JOIN placement_sessions p ON p.session=c.session AND p.generation=c.generation WHERE p.retired=0 OR EXISTS (SELECT 1 FROM placement_displaced d WHERE d.session=c.session) ORDER BY c.session LIMIT 4096`)
 	if err != nil {
 		return err
 	}

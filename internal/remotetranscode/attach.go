@@ -8,6 +8,17 @@ import (
 // Attach observes an already admitted execution. It sends only status, never
 // Start, and requires an exact identity under the caller's current authorization.
 func (a *Adapter) Attach(ctx context.Context, id Identity) (*Session, error) {
+	return a.attach(ctx, id, false)
+}
+
+// AttachRetirement observes an exact existing execution, including pending or
+// retired terminal state. It never sends Start or grants fresh authority. The
+// composing controller must still fence every stop/status with its current epoch.
+func (a *Adapter) AttachRetirement(ctx context.Context, id Identity) (*Session, error) {
+	return a.attach(ctx, id, true)
+}
+
+func (a *Adapter) attach(ctx context.Context, id Identity, retirementOnly bool) (*Session, error) {
 	if !validIdentity(id) {
 		return nil, ErrUnsupported
 	}
@@ -33,7 +44,7 @@ func (a *Adapter) Attach(ctx context.Context, id Identity) (*Session, error) {
 	s.mu.Lock()
 	live := s.state == "running" && !s.stopped && s.lease.Deadline.After(time.Now())
 	s.mu.Unlock()
-	if !live {
+	if !live && !retirementOnly {
 		return nil, ErrUncertain
 	}
 	s.touch()
