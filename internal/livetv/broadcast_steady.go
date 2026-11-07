@@ -219,7 +219,7 @@ func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission,
 		if ctx.Err() != nil {
 			break
 		}
-		link, err := s.linkSteadySource(ctx, c, src, "broadcast-"+c.ID)
+		link, err := s.linkSteadySource(ctx, c, src, "broadcast-"+c.ID, 2*steadySegment)
 		if errors.Is(err, ErrProviderBusy) || errors.Is(err, ErrProviderPaced) {
 			continue
 		}
