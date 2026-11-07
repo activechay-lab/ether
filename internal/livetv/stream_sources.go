@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -180,6 +181,49 @@ func (s *Service) sourceStatus(channelID string, src StreamSource) StreamSourceS
 		h.State = "available"
 	}
 	return h.StreamSourceStatus
+}
+
+// orderedSourceCandidates lists a channel's enabled inputs, best first. Health
+// only orders them: a cooling-down source still appears, after every source
+// that is not, so recovery never waits out a cooldown while any input remains.
+// Within each health class owner priority decides; cooling sources come back
+// soonest-retry first. exclude skips source IDs (typically the one that just
+// failed). Invalid channel sources yield nil.
+func (s *Service) orderedSourceCandidates(c Channel, exclude ...string) []StreamSource {
+	if err := normalizeStreamSources(&c); err != nil {
+		return nil
+	}
+	type ranked struct {
+		src   StreamSource
+		class int
+		retry time.Time
+	}
+	var out []ranked
+	for _, src := range c.StreamSources {
+		if !src.Enabled || slices.Contains(exclude, src.ID) {
+			continue
+		}
+		st := s.sourceStatus(c.ID, src)
+		class := 0
+		switch st.State {
+		case "retry_ready":
+			class = 1
+		case "cooling_down":
+			class = 2
+		}
+		out = append(out, ranked{src: src, class: class, retry: st.RetryAfter})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].class != out[j].class {
+			return out[i].class < out[j].class
+		}
+		return out[i].class == 2 && out[i].retry.Before(out[j].retry)
+	})
+	list := make([]StreamSource, len(out))
+	for i, r := range out {
+		list[i] = r.src
+	}
+	return list
 }
 
 func (s *Service) recordStreamFailure(ss *session, rctx context.Context, err error) {
