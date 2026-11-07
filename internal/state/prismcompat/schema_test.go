@@ -244,8 +244,8 @@ func assertCombinedObjects(t *testing.T, db *sql.DB) {
 	for _, k := range []string{
 		"state/1", "state/2", "state/3", "state/4",
 		"state_plexwatch/1", "state_plexwatch/2", "state_plexwatch/3", "state_plexwatch/4", "state_plexwatch/5",
-		"plexwatch/1", "plexwatch/2", "plexwatch/3", "plexwatch/4",
-		"watchsend/1",
+		"plexwatch/1", "plexwatch/2", "plexwatch/3", "plexwatch/4", "plexwatch/5", "plexwatch/6",
+		"watchsend/1", "watchsend/2",
 	} {
 		if !got[k] {
 			t.Fatalf("missing %s in %v", k, got)
@@ -262,9 +262,10 @@ func assertCombinedObjects(t *testing.T, db *sql.DB) {
 		`SELECT revision FROM state_last_source WHERE 0=1`,
 		`SELECT id FROM state_source_sequence WHERE 0=1`,
 		`SELECT token FROM plexwatch_account WHERE 0=1`,
-		`SELECT permit_id, generation FROM plexwatch_permit WHERE 0=1`,
 		`SELECT inflight_until FROM plexwatch_fence WHERE 0=1`,
-		`SELECT attempt_id, payload, receipt_at FROM plexwatch_attempt WHERE 0=1`,
+		`SELECT watched, viewed_at, rating, leaves, observed_at, ours FROM plexwatch_remote WHERE 0=1`,
+		`SELECT after_key FROM plexwatch_expand WHERE 0=1`,
+		`SELECT last_sweep FROM plexwatch_account WHERE 0=1`,
 	}
 	for _, q := range probes {
 		rows, err := db.Query(q)
@@ -272,6 +273,14 @@ func assertCombinedObjects(t *testing.T, db *sql.DB) {
 			t.Fatalf("%s: %v", q, err)
 		}
 		rows.Close()
+	}
+	// The scrobbles.plex.tv transport's hold, permit, echo and unmatched
+	// tables are gone (plexwatch/6, watchsend/2).
+	for _, table := range []string{"plexwatch_attempt", "plexwatch_permit", "plexwatch_sent", "plexwatch_unmapped"} {
+		if rows, err := db.Query(`SELECT 1 FROM ` + table + ` WHERE 0=1`); err == nil {
+			rows.Close()
+			t.Fatalf("%s still exists", table)
+		}
 	}
 }
 

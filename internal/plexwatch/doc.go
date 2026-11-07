@@ -1,106 +1,56 @@
-// Package plexwatch delivers one viewer's watched state, and whole-star
-// ratings, to that viewer's own Plex account.
+// Package plexwatch syncs one viewer's watched marks and ratings with that
+// viewer's own Plex account, and (pms*.go) with Plex Media Servers the owner
+// runs.
 //
-// In this release the integration is dormant: AccountSyncSupported is false
-// because scrobbles.plex.tv accepts no credential a non-Plex server can hold.
-// Nothing below runs against Plex until that constant is turned on.
+// # Account sync
 //
-// Local watch rows stay authoritative. A watch mark and a rating each have
-// their own timestamp, so one cannot make the other look newer. Intents are
-// rows in state_sync_journal, written in the same transaction as the watch
-// change. This package does not subscribe to in-memory state events.
+// Transport: discover.provider.plex.tv, the calls Plex Web makes for "Mark as
+// watched" on Discover, verified against a real account on 2026-11-07:
 //
-// Provenance of the upstream contract, none of it a live call from this
-// repository except the November 2026 interoperability probe:
+//   - GET /library/metadata/{k1,k2,...}/userState answers MediaContainer.
+//     UserState (an object for one key, an array for several) with ratingKey,
+//     type, viewCount, viewOffset, lastViewedAt (unix seconds), userRating
+//     (1–10) and, for shows, viewedLeafCount. Mixed movie/show/episode batches
+//     work; reads are capped at maxStateBatch keys.
+//   - PUT /actions/scrobble, /actions/unscrobble and /actions/rate (rating=1–10,
+//     -1 clears), each with identifier=tv.plex.provider.discover&key={key}.
+//     They are idempotent. Unscrobble resets viewCount but keeps lastViewedAt,
+//     so "watched" is viewCount>0, never lastViewedAt alone.
 //
-//   - POST https://scrobbles.plex.tv/state returned 201 for items with
-//     guid, viewedAt (unix milliseconds), viewState "complete" or "unplayed",
-//     optional isBulk, and optional ratedAt plus an integer rating.
-//     The user field is the numeric Plex account id. The GET echo is
-//     GET https://scrobbles.plex.tv/state/{accountId}?after={cursor}&count=100
-//     with items and pageInfo.endCursor / hasNextPage. isBulk and a show-level
-//     guid in the POST were omitted from that echo.
-//     Source: PMS verbose log posted by doug316, 2024-06-07,
-//     https://forums.plex.tv/t/mark-as-unwatched-does-not-work/879522
+// {key} is the hex id inside a title's verified plex://movie|show|episode GUID
+// (internal/plexguid). Titles without a verified GUID are never synced and no
+// other identity matching is attempted.
 //
-//   - viewState "complete" for a watched movie, a rating-only item
-//     {"guid","ratedAt","rating"}, and HTTP 422 when viewedAt is in the
-//     future (the whole POST fails). Plex employee gbooker02 identified the
-//     future timestamp. Source: Havohej, 2024-01-24,
-//     https://forums.plex.tv/t/status-sync-for-old-movies-and-series/867157
+// Credential: the viewer's own Plex account token from the PIN sign-in
+// (POST/GET plex.tv/api/v2/pins), stored sealed per viewer and sent only in
+// X-Plex-Token. The PIN must be approved by the Plex account already recorded
+// for that viewer; the owner's token is never used for a viewer. Approving the
+// PIN is the viewer's consent; the account's "Sync My Watch State and Ratings"
+// setting governs Plex Media Servers and is not consulted. A 401 or 403 erases
+// the token and marks the connection for reconnecting.
 //
-//   - A custom-agent GUID received HTTP 400 and PMS stopped that sync.
-//     Plex employee BigWheel attributed it to the custom agent.
-//     Source: ItsThatJA, 2026-03-19,
-//     https://forums.plex.tv/t/can-these-reviews-for-my-pfofile-be-deleted-by-a-plex-dev/937027
+// Ether → Plex: watch changes write durable intents to state_sync_journal in
+// the watch transaction, stamped with the viewer's fence generation. The
+// sender claims a row, resolves the GUID, and admits it under the fence lock
+// (generation unchanged, sending still on) before the request leaves.
+// Turning sending off, disconnecting and reconnecting move the fence under
+// the same lock, so nothing is admitted afterwards; a request admitted just
+// before cannot be recalled. Admission sets never_sent=0. When an attempt
+// ends without a definitive answer (5xx, timeout, crash), the next attempt
+// reads userState first: if Plex already holds the change it is done, if
+// Plex shows a newer change it yields, otherwise it is sent again. 429 pauses
+// the viewer for Retry-After; other failures back off exponentially.
 //
-//   - PMS decides whether to sync with
-//     GET https://plex.tv/api/v2/server/users/{accountId}/view_state_sync
-//     (200 continue, 403 stop). It obtains per-user tokens from
-//     GET https://plex.tv/api/v2/server/users/services?auth_token=<server token>.
-//     The services route is authenticated with Ether's claimed server token.
-//     Service credentials are selected by the connected viewer's account ID.
-//     Sources: https://forums.plex.tv/t/unable-to-install-new-plex-server-on-new-w-11-computer/934457
-//     and https://forums.plex.tv/t/403-response-from-get-https-plex-tv-api-v2-server-users-xxx-view-state-sync-reused/883818
+// Plex → Ether: a leader-only, bounded background pass per viewer reads
+// userState in batches over Ether's verified movie and show identities,
+// resuming from a key cursor. Shows whose watched-episode count or last view
+// moved queue their episodes for reading. plexwatch_remote keeps what was
+// last read per title, so only changes since then apply: a Plex view by its
+// lastViewedAt against the local watch clock; an unwatch or rating change,
+// which Plex does not timestamp, only when Ether has not changed that title
+// since the previous read. Imported changes are account events, which are
+// never journaled, and values Ether wrote itself are adopted rather than
+// applied, so nothing echoes in either direction.
 //
-//   - Official scope: movies and episodes only, no in-progress offsets, no
-//     music, no movie editions. Activity and profile history depend on the
-//     account setting "Sync My Watch State and Ratings" and on privacy
-//     settings. A POST does not by itself guarantee a Discover Activity card.
-//     https://support.plex.tv/articles/sync-watch-state-and-ratings/ (modified 2025-03-24)
-//
-//   - A Plex engineer said metadata.provider.plex.tv scrobble handlers are
-//     deprecated. This package does not call them.
-//     https://github.com/Taxel/PlexTraktSync/discussions/1842
-//
-// The token stored here is the authToken from POST/GET /api/v2/pins, the same
-// credential Ether already uses for GET /api/v2/user and the account consent
-// endpoint. It is not sent to scrobbles.plex.tv. The claimed Ether server token
-// obtains the matching account's scrobbling service envelope; the decrypted JWT
-// is sent as Authorization: Bearer. A read-only probe using Ether's own claim
-// returned HTTP 200 with items/pageInfo on 2026-11-04. PMS 1.43.4/1.43.5 loader
-// inspection established the base64/AES-CBC envelope and length-byte padding.
-// Service tokens remain in memory for at most five minutes, bounded by expiry,
-// and are discarded when the claim changes or the service refuses a token.
-// Consent checks never modify Plex settings. Their result is stored only for
-// the generation checked, so late responses cannot restore a revoked account.
-//
-// Permit admission and consent changes (enable, disable, reconnect, revoke)
-// take the same fence-row lock. Admission inserts a permit only when that
-// locked generation matches the intent's stored consent generation and this
-// attempt still owns the live journal row. A database error reading that
-// generation leaves the intent retryable. A confirmed missing or stale
-// generation does not send.
-//
-// Admission also commits an immutable plexwatch_attempt containing the exact
-// account id, consent generation, resolved GUID, aspect, original timestamp
-// and wire payload. It contains no plaintext credential. Failure or uncertainty
-// committing admission means no network send. Once admission is durable, even
-// a crash before transmission leaves an unknown-effect hold. Expiring worker
-// claims or permits never expires that hold. The remote account/GUID/aspect
-// conflict index and a local user/key/aspect check prevent aliases and remaps
-// from bypassing it. Unrelated known targets and other aspects remain usable.
-//
-// A successful response commits the attempt's receipt, import echo and original
-// journal acknowledgement together. A failed or uncertain local commit cannot
-// reopen the network path. Transport/read errors, server failures, ambiguous
-// statuses and Retry-After do not prove no effect; delivery stops until the
-// hold is reconciled against GET /state/{accountId}. Definitive refusals (HTTP
-// 400, 401, 403, 422) clear the attempt fence so later changes to that title
-// are not blocked.
-//
-// Reconciliation reads GET /state/{accountId} on a backoff schedule, on
-// reconnect/consent/remap, and on explicit viewer Resolve. If Plex already
-// reflects the admitted payload, the attempt is receipted without re-POSTing.
-// If Plex does not reflect it and no permit for that attempt is still in
-// flight, the hold is released and one fresh admission of the current intent
-// is allowed.
-//
-// A permit already inserted is in flight. Turning sync off does not delete
-// it, and a request already handed to Plex cannot be recalled. An intent
-// that has not been admitted is not sent after the fence moves, including
-// when lookup began under the previous generation. Releasing one permit
-// does not change another. A journal row records the fence generation
-// observed when it was written; a row that commits after a disable keeps
-// that older generation and is not sent when sync is turned on again.
+// Resume positions (viewOffset) are not synced.
 package plexwatch
