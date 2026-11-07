@@ -129,20 +129,47 @@ func TestResumePositionsSyncBothWays(t *testing.T) {
 		t.Fatalf("own position imported: %+v -> %+v", before, after)
 	}
 
-	// A newer position from a Plex app applies, without echo, and a title
-	// the viewer removed from Continue Watching stays removed.
+	hidden := func(key core.RatingKey) bool {
+		t.Helper()
+		got, err := h.st.ContinueHidden(ctx, 2, []core.RatingKey{key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got[continueKey(key)]
+	}
+
+	// Removing it from Continue Watching in Ether removes it on Plex, and
+	// reading that back changes nothing.
 	if err := h.st.HideContinue(ctx, 2, m); err != nil {
 		t.Fatal(err)
 	}
+	h.deliverAll(t)
+	wantWrites(t, h, "removeFromContinueWatching "+hexA+" ")
+	h.clock.Add(time.Minute)
+	h.importNow(t, 2, 42)
+	if !hidden(m) || h.local(t, 2, m).ViewOffset != 15*time.Minute {
+		t.Fatalf("own removal read back: %+v", h.local(t, 2, m))
+	}
+
+	// Playing it in a Plex app afterwards brings it back with the newer
+	// position, without echo.
 	h.clock.Add(time.Minute)
 	h.plex.play(hexA, "movie", 40*60000, h.clock.Now())
 	h.clock.Add(time.Minute)
 	h.importNow(t, 2, 42)
-	if ws := h.local(t, 2, m); ws.ViewOffset != 40*time.Minute || ws.ViewCount != 0 {
-		t.Fatalf("plex position not imported: %+v", ws)
+	if ws := h.local(t, 2, m); ws.ViewOffset != 40*time.Minute || ws.ViewCount != 0 || hidden(m) {
+		t.Fatalf("plex position not imported: %+v hidden %v", ws, hidden(m))
 	}
-	if hidden, err := h.st.ContinueHidden(ctx, 2, []core.RatingKey{m}); err != nil || !hidden[m] {
-		t.Fatalf("removed title came back: %v %v", hidden, err)
+	h.deliverAll(t)
+	wantWrites(t, h)
+
+	// Removed in a Plex app: removed in Ether, the resume point kept, and
+	// nothing is sent back.
+	h.plex.dismiss(hexA)
+	h.clock.Add(time.Minute)
+	h.importNow(t, 2, 42)
+	if ws := h.local(t, 2, m); !hidden(m) || ws.ViewOffset != 40*time.Minute {
+		t.Fatalf("plex removal not imported: %+v hidden %v", ws, hidden(m))
 	}
 	h.deliverAll(t)
 	wantWrites(t, h)
@@ -158,15 +185,15 @@ func TestResumePositionsSyncBothWays(t *testing.T) {
 	h.deliverAll(t)
 	wantWrites(t, h)
 
-	// Plex still holds the old position, and then an older one: neither
-	// resurrects the finished title.
+	// An older position on Plex neither resurrects the finished title nor
+	// brings back the removed one.
 	h.clock.Add(time.Minute)
 	h.importNow(t, 2, 42)
 	h.plex.play(hexA, "movie", 30*60000, h.clock.Now().Add(-time.Hour))
 	h.clock.Add(time.Minute)
 	h.importNow(t, 2, 42)
-	if ws := h.local(t, 2, m); ws.ViewOffset != 0 || ws.ViewCount != 1 {
-		t.Fatalf("stale position resurrected the title: %+v", ws)
+	if ws := h.local(t, 2, m); ws.ViewOffset != 0 || ws.ViewCount != 1 || !hidden(m) {
+		t.Fatalf("stale position resurrected the title: %+v hidden %v", ws, hidden(m))
 	}
 
 	// Episodes too; a rewind to the start clears Plex's position only while
@@ -180,4 +207,37 @@ func TestResumePositionsSyncBothWays(t *testing.T) {
 	wantWrites(t, h, "unscrobble "+hexB+" ")
 	h.deliverAll(t)
 	wantWrites(t, h)
+
+	// A position a Plex app leaves on another episode does not move the
+	// show's userState; the active-show pass still finds it, because the
+	// viewer has activity on the show.
+	e2 := core.EpisodeKey(1396, 1, 2)
+	h.guid.add(e2, hexC)
+	h.clock.Add(time.Minute)
+	h.plex.play(hexC, "episode", 25*60000, h.clock.Now())
+	h.clock.Add(time.Minute)
+	h.importNow(t, 2, 42)
+	if ws := h.local(t, 2, e2); ws.ViewOffset != 25*time.Minute {
+		t.Fatalf("episode position not imported: %+v", ws)
+	}
+
+	// Removing the show in Ether removes each episode in progress on Plex,
+	// sending the position first where Plex lacks it.
+	progress(e, 30*time.Minute, "playing")
+	if err := h.st.HideContinue(ctx, 2, e); err != nil {
+		t.Fatal(err)
+	}
+	h.deliverAll(t)
+	wantWrites(t, h, "timeline "+hexB+" 1800000", "removeFromContinueWatching "+hexB+" ", "removeFromContinueWatching "+hexC+" ")
+	if st := h.plex.state(hexB); st.viewState != "ignore" || st.viewOffset != 1800000 {
+		t.Fatalf("plex episode after removal %+v", st)
+	}
+}
+
+// continueKey is the identity Continue Watching removals are stored under.
+func continueKey(key core.RatingKey) core.RatingKey {
+	if key.Kind() == core.KindEpisode {
+		return core.ShowKey(key.TMDB())
+	}
+	return key
 }

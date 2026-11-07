@@ -178,13 +178,25 @@ func (c *Client) account(ctx context.Context, token string) (remoteAccount, erro
 // viewCount>0: unscrobble resets viewCount but keeps lastViewedAt, so
 // lastViewedAt alone never means watched.
 type userState struct {
-	Key        string
-	Type       string
-	Watched    bool
-	ViewedAt   int64 // lastViewedAt, unix seconds
-	Offset     int64 // viewOffset, milliseconds; 0 when not in progress
-	Rating     int   // 1–10, 0 when unrated
-	ViewedLeaf int   // shows only
+	Key      string
+	Type     string
+	Watched  bool
+	ViewedAt int64 // lastViewedAt, unix seconds
+	Offset   int64 // viewOffset, milliseconds; 0 when not in progress
+	// ViewState is "progress" while in progress and "ignore" once removed
+	// from Continue Watching (the next timeline write clears it).
+	ViewState  string
+	Rating     int // 1–10, 0 when unrated
+	ViewedLeaf int // shows only
+}
+
+// viewIgnore is the viewState of a title removed from Continue Watching.
+const viewIgnore = "ignore"
+
+// removeFromContinueWatching hides key from the account's Continue
+// Watching (viewState "ignore"). It keeps viewOffset.
+func (c *Client) removeFromContinueWatching(ctx context.Context, token, key string) error {
+	return c.action(ctx, token, "/actions/removeFromContinueWatching", key, nil)
 }
 
 // consent reads the account's "Sync My Watch State and Ratings" setting.
@@ -275,6 +287,7 @@ func (c *Client) userStates(ctx context.Context, token string, keys []string) (m
 		Type            string  `json:"type"`
 		ViewCount       int     `json:"viewCount"`
 		ViewOffset      float64 `json:"viewOffset"`
+		ViewState       string  `json:"viewState"`
 		LastViewedAt    int64   `json:"lastViewedAt"`
 		UserRating      float64 `json:"userRating"`
 		ViewedLeafCount int     `json:"viewedLeafCount"`
@@ -310,7 +323,7 @@ func (c *Client) userStates(ctx context.Context, token string, keys []string) (m
 		}
 		found[it.RatingKey] = userState{
 			Key: it.RatingKey, Type: it.Type, Watched: it.ViewCount > 0,
-			ViewedAt: it.LastViewedAt, Offset: offset, Rating: rating, ViewedLeaf: it.ViewedLeafCount,
+			ViewedAt: it.LastViewedAt, Offset: offset, ViewState: it.ViewState, Rating: rating, ViewedLeaf: it.ViewedLeafCount,
 		}
 	}
 	return found, nil

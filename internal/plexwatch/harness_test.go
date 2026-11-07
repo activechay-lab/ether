@@ -121,6 +121,7 @@ type remoteTitle struct {
 	viewCount    int
 	lastViewedAt int64
 	viewOffset   int64
+	viewState    string
 	rating       int
 	leaves       int
 }
@@ -157,7 +158,21 @@ func (f *fakePlex) play(key, typ string, offsetMS int64, at time.Time) {
 	defer f.mu.Unlock()
 	t := f.title(key, typ)
 	t.viewOffset = offsetMS
+	t.viewState = "progress"
 	t.lastViewedAt = at.Unix()
+}
+
+// dismiss removes key from Continue Watching as a Plex app would.
+func (f *fakePlex) dismiss(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.titles[key].viewState = "ignore"
+}
+
+func (f *fakePlex) state(key string) remoteTitle {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return *f.titles[key]
 }
 
 func (f *fakePlex) setConsent(on bool) {
@@ -261,6 +276,7 @@ func (f *fakePlex) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.writes = append(f.writes, "timeline "+key+" "+q.Get("time"))
 		t := f.title(key, "movie")
 		t.viewOffset = ms
+		t.viewState = "progress"
 		t.lastViewedAt = f.clock().Unix()
 		_ = json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{
 			"playbackState": "progress", "viewCount": t.viewCount, "viewOffset": t.viewOffset}})
@@ -284,6 +300,9 @@ func (f *fakePlex) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if t.viewOffset > 0 {
 				item["viewOffset"] = t.viewOffset
+			}
+			if t.viewState != "" {
+				item["viewState"] = t.viewState
 			}
 			if t.typ == "show" {
 				item["viewedLeafCount"] = t.leaves
@@ -322,9 +341,12 @@ func (f *fakePlex) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "scrobble":
 			t.viewCount++
 			t.lastViewedAt = f.clock().Unix()
+			t.viewOffset, t.viewState = 0, ""
 		case "unscrobble":
 			t.viewCount = 0
-			t.viewOffset = 0
+			t.viewOffset, t.viewState = 0, ""
+		case "removeFromContinueWatching":
+			t.viewState = "ignore"
 		case "rate":
 			n, _ := strconv.Atoi(q.Get("rating"))
 			if n < 0 {

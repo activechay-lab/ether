@@ -88,7 +88,8 @@ type wish struct {
 	watch      bool // the watch aspect
 	watched    bool
 	rating     int  // the rating aspect: Plex 1–10, 0 clears
-	offset     bool // the resume aspect
+	offset     bool // the resume aspect: a position (offsetMS, 0 clears)
+	remove     bool // the resume aspect: a Continue Watching removal
 	offsetMS   int64
 	durationMS int64
 }
@@ -142,6 +143,11 @@ func (s *Service) deliverClaim(ctx context.Context, row state.SyncRow, attempt s
 			// not learned yet; the next position with one is sent instead.
 			return s.state.DeadSync(ctx, row.Seq, attempt, "no_duration")
 		}
+	case state.SyncContinueRemoved:
+		// The removal carries the position Ether holds, so a position it
+		// replaced in the queue still reaches Plex first.
+		w.remove = true
+		w.offsetMS, w.durationMS = row.Offset.Milliseconds(), row.Duration.Milliseconds()
 	default:
 		return s.state.DeadSync(ctx, row.Seq, attempt, "rejected")
 	}
@@ -164,21 +170,28 @@ func (s *Service) deliverClaim(ctx context.Context, row state.SyncRow, attempt s
 	// first. Writes are idempotent, so the only reason not to send it again
 	// is a newer change made on Plex since. Clearing a resume position is
 	// always read first: Plex clears it only with an unscrobble, which must
-	// never unwatch a title Plex has as watched.
+	// never unwatch a title Plex has as watched. A removal is always read
+	// first too: it needs to know whether Plex already has the position.
 	var neverSent int
 	if err := s.db.QueryRowContext(ctx, `SELECT never_sent FROM state_sync_journal WHERE seq=?`, row.Seq).Scan(&neverSent); err != nil {
 		return err
 	}
 	clearing := w.offset && w.offsetMS == 0
-	if neverSent == 0 || clearing {
+	// position is whether a removal must first send Ether's position.
+	position := w.remove && w.offsetMS > 0 && w.durationMS > 0
+	if neverSent == 0 || clearing || w.remove {
 		states, err := s.client.userStates(ctx, acct.token, []string{w.hexKey})
 		if err != nil {
 			return s.sendFailed(ctx, row, attempt, acct, err, false)
 		}
 		remote, ok := states[w.hexKey]
+		if ok && position {
+			d := remote.Offset - w.offsetMS
+			position = d <= -1000 || d >= 1000
+		}
 		switch {
-		case !ok && clearing:
-			// Plex holds no state for the title: nothing to clear.
+		case !ok && (clearing || (w.remove && !position)):
+			// Plex holds no state for the title: nothing to clear or remove.
 			return s.sendDone(ctx, row, attempt, w, nil)
 		case !ok:
 		default:
@@ -220,6 +233,24 @@ func (s *Service) deliverClaim(ctx context.Context, row state.SyncRow, attempt s
 	switch {
 	case w.watch:
 		err = s.client.scrobble(ctx, acct.token, w.hexKey, w.watched)
+	case w.remove:
+		if position {
+			var tl timelineResult
+			if tl, err = s.client.timeline(ctx, acct.token, w.hexKey, w.offsetMS, w.durationMS); err != nil {
+				break
+			}
+			// Recorded now as Ether's own write: if the removal fails,
+			// the retry reads Plex back and finds the position there.
+			var pw *bool
+			if tl.ViewCountKnown {
+				v := tl.ViewCount > 0
+				pw = &v
+			}
+			if err = s.notePosition(ctx, row, w.offsetMS, pw); err != nil {
+				return err
+			}
+		}
+		err = s.client.removeFromContinueWatching(ctx, acct.token, w.hexKey)
 	case w.offset && clearing:
 		// Read back above: Plex has the title unwatched, so the unscrobble
 		// only resets its resume position.
@@ -341,6 +372,20 @@ func reconcile(row state.SyncRow, w wish, remote userState, own bool) verdict {
 		return !own && (remote.ViewedAt > at || (orAt && remote.ViewedAt == at))
 	}
 	switch {
+	case w.remove:
+		// Plex playing the title after the removal brings it back there,
+		// as playback does in Ether.
+		if after(false) {
+			return remoteNewer
+		}
+		d := remote.Offset - w.offsetMS
+		posHeld := w.offsetMS == 0 || w.durationMS == 0 || (d > -1000 && d < 1000)
+		if remote.ViewState == viewIgnore && posHeld {
+			return remoteHas
+		}
+		if remote.Offset == 0 && (w.offsetMS == 0 || w.durationMS == 0) {
+			return remoteHas // nothing in progress on Plex to remove
+		}
 	case w.offset && w.offsetMS > 0:
 		if d := remote.Offset - w.offsetMS; d > -1000 && d < 1000 {
 			return remoteHas
@@ -379,6 +424,39 @@ func reconcile(row state.SyncRow, w wish, remote userState, own bool) verdict {
 	return remoteMissing
 }
 
+type execQuerier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// recordPosition records a position Ether wrote to Plex as its own.
+// Without Plex's answer a new row takes Ether's own watched flag, which
+// sync keeps in step, so the next import does not mistake the unknown flag
+// for a Plex change.
+func recordPosition(ctx context.Context, q execQuerier, userID int64, key core.RatingKey, offsetMS int64, viewState string, plexWatched *bool, now time.Time) error {
+	known := plexWatched != nil
+	watched := 0
+	if known && *plexWatched {
+		watched = 1
+	}
+	if !known {
+		if err := q.QueryRowContext(ctx, `SELECT COALESCE((SELECT CASE WHEN view_count>0 THEN 1 ELSE 0 END FROM state_watch WHERE user_id=? AND rating_key=?), 0)`,
+			userID, int64(key)).Scan(&watched); err != nil {
+			return err
+		}
+	}
+	_, err := q.ExecContext(ctx, `INSERT INTO plexwatch_remote(user_id, rating_key, watched, view_offset, view_state, observed_at, ours) VALUES(?,?,?,?,?,?,1)
+		ON CONFLICT(user_id, rating_key) DO UPDATE SET view_offset=excluded.view_offset, view_state=excluded.view_state, observed_at=excluded.observed_at, ours=1,
+		  watched=CASE WHEN ?=1 THEN excluded.watched ELSE plexwatch_remote.watched END`,
+		userID, int64(key), watched, offsetMS, viewState, now.UnixNano(), store.BoolInt(known))
+	return err
+}
+
+// notePosition records the position a removal sent ahead of it.
+func (s *Service) notePosition(ctx context.Context, row state.SyncRow, offsetMS int64, plexWatched *bool) error {
+	return recordPosition(ctx, s.db, row.UserID, row.Key, offsetMS, "progress", plexWatched, s.now())
+}
+
 // sendDone acknowledges the intent and records what Plex now holds, marked
 // as Ether's own write so the next import does not read it back as a Plex
 // change. Plex's state is recorded even when a newer intent superseded this
@@ -397,28 +475,22 @@ func (s *Service) sendDone(ctx context.Context, row state.SyncRow, attempt strin
 		if w.watched {
 			watched = 1
 		}
+		// Scrobble and unscrobble both reset Plex's position.
 		_, err = tx.ExecContext(ctx, `INSERT INTO plexwatch_remote(user_id, rating_key, watched, observed_at, ours) VALUES(?,?,?,?,1)
-			ON CONFLICT(user_id, rating_key) DO UPDATE SET watched=excluded.watched, observed_at=excluded.observed_at, ours=1`,
+			ON CONFLICT(user_id, rating_key) DO UPDATE SET watched=excluded.watched, view_offset=0, view_state='', observed_at=excluded.observed_at, ours=1`,
 			row.UserID, int64(row.Key), watched, now.UnixNano())
+	case w.remove:
+		_, err = tx.ExecContext(ctx, `INSERT INTO plexwatch_remote(user_id, rating_key, view_offset, view_state, observed_at, ours) VALUES(?,?,?,?,?,1)
+			ON CONFLICT(user_id, rating_key) DO UPDATE SET view_state=excluded.view_state, observed_at=excluded.observed_at, ours=1`,
+			row.UserID, int64(row.Key), w.offsetMS, viewIgnore, now.UnixNano())
 	case w.offset:
-		// Without Plex's answer a new row takes Ether's own watched flag,
-		// which sync keeps in step, so the next import does not mistake
-		// the unknown flag for a Plex change.
-		known := plexWatched != nil
-		watched := 0
-		if known && *plexWatched {
-			watched = 1
+		// A timeline write puts the title back in progress on Plex; the
+		// unscrobble that clears a position leaves no view state.
+		viewState := "progress"
+		if w.offsetMS == 0 {
+			viewState = ""
 		}
-		if !known {
-			if err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT CASE WHEN view_count>0 THEN 1 ELSE 0 END FROM state_watch WHERE user_id=? AND rating_key=?), 0)`,
-				row.UserID, int64(row.Key)).Scan(&watched); err != nil {
-				return err
-			}
-		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO plexwatch_remote(user_id, rating_key, watched, view_offset, observed_at, ours) VALUES(?,?,?,?,?,1)
-			ON CONFLICT(user_id, rating_key) DO UPDATE SET view_offset=excluded.view_offset, observed_at=excluded.observed_at, ours=1,
-			  watched=CASE WHEN ?=1 THEN excluded.watched ELSE plexwatch_remote.watched END`,
-			row.UserID, int64(row.Key), watched, w.offsetMS, now.UnixNano(), store.BoolInt(known))
+		err = recordPosition(ctx, tx, row.UserID, row.Key, w.offsetMS, viewState, plexWatched, now)
 	default:
 		_, err = tx.ExecContext(ctx, `INSERT INTO plexwatch_remote(user_id, rating_key, rating, observed_at, ours) VALUES(?,?,?,?,1)
 			ON CONFLICT(user_id, rating_key) DO UPDATE SET rating=excluded.rating, observed_at=excluded.observed_at, ours=1`,

@@ -10,6 +10,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plexguid"
 	"github.com/braedonsaunders/ether/internal/plexwatch"
+	"github.com/braedonsaunders/ether/internal/watchlist"
 )
 
 // buildPlexWatch attaches the optional per-viewer account sync. Each viewer
@@ -27,6 +28,28 @@ func (a *App) buildPlexWatch() error {
 		NodeID:   a.clusterNodeID(),
 		ClientID: plexguid.ClientIdentifier(a.cfg.Get().Plex.ClientIdentifier, a.cfg.Get().Server.MachineIdentifier),
 		Logger:   a.log.With("component", "plexwatch"),
+		Watchlist: func(ctx context.Context, userID int64) ([]core.RatingKey, error) {
+			return watchlist.ExportKeys(ctx, a.db, userID)
+		},
+		// Continue Watching removals read from a viewer's Plex account also
+		// apply to the Discover rows' own removal list, as the Plex front
+		// end's removeFromContinueWatching does.
+		Continue: func(ctx context.Context, userID int64, key core.RatingKey, removed bool) error {
+			personal := a.discoveryPersonal
+			if personal == nil {
+				return nil
+			}
+			var err error
+			if removed {
+				err = personal.RemoveContinue(ctx, userID, key)
+			} else {
+				err = personal.RestoreContinue(ctx, userID, key)
+			}
+			if errors.Is(err, core.ErrNotFound) {
+				return nil
+			}
+			return err
+		},
 	})
 	if err != nil {
 		return err

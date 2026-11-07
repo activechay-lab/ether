@@ -332,19 +332,22 @@ func TestImportSweepBatchesAndExpandsChangedShows(t *testing.T) {
 		}
 		total += len(r)
 	}
-	// 120 movies + 2 shows, then the changed show's 3 episodes.
-	if len(reads) != 4 || total != 125 || reads[3][0] != fmt.Sprintf("%024x", 0xa001) {
+	// 120 movies + 2 shows, then the changed show's 3 episodes; after the
+	// sweep, the active-show pass reads them again (the viewer now has
+	// activity on that show). The quiet show's episodes are never read.
+	if len(reads) != 5 || total != 128 || reads[3][0] != fmt.Sprintf("%024x", 0xa001) || reads[4][0] != fmt.Sprintf("%024x", 0xa001) {
 		t.Fatalf("reads %d keys %d last %v", len(reads), total, reads[len(reads)-1])
 	}
 	if h.local(t, 2, core.MovieKey(7)).ViewCount != 1 || h.local(t, 2, core.EpisodeKey(1396, 1, 2)).ViewCount != 1 {
 		t.Fatal("plex views not imported")
 	}
 
-	// Unchanged shows are not expanded again.
+	// Unchanged shows are not expanded by the sweep again; the active show
+	// is, once per sweep.
 	h.clock.Add(15 * time.Minute)
 	h.importNow(t, 2, 42)
-	if reads = h.plex.takeReads(); len(reads) != 3 {
-		t.Fatalf("second sweep reads %d", len(reads))
+	if reads = h.plex.takeReads(); len(reads) != 4 || reads[3][0] != fmt.Sprintf("%024x", 0xa001) {
+		t.Fatalf("second sweep reads %v", reads)
 	}
 	// A newly watched episode moves the show's count and is picked up.
 	h.plex.watch(fmt.Sprintf("%024x", 0xa003), "episode", h.clock.Now())

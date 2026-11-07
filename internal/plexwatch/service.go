@@ -121,11 +121,16 @@ DROP TABLE plexwatch_sent;
 DROP TABLE plexwatch_unmapped;`)
 	// consent is the account's "Sync My Watch State and Ratings" setting as
 	// last read (-1 not read yet, 0 off, 1 on) and consent_checked when.
-	// view_offset is the resume position (ms) last read or written per title.
+	// active_after is the show cursor of the pass over the viewer's active
+	// shows that follows each sweep (-1: not running). view_offset (ms) and
+	// view_state are the resume position and Discover viewState last read or
+	// written per title.
 	store.Register("plexwatch", 7, `
 ALTER TABLE plexwatch_account ADD COLUMN consent INTEGER NOT NULL DEFAULT -1;
 ALTER TABLE plexwatch_account ADD COLUMN consent_checked INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE plexwatch_remote ADD COLUMN view_offset INTEGER NOT NULL DEFAULT 0;`)
+ALTER TABLE plexwatch_account ADD COLUMN active_after INTEGER NOT NULL DEFAULT -1;
+ALTER TABLE plexwatch_remote ADD COLUMN view_offset INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE plexwatch_remote ADD COLUMN view_state TEXT NOT NULL DEFAULT '';`)
 	// Applies after state_plexwatch; standalone state need not import account sync.
 	store.Register("watchsend", 1, `CREATE TABLE plexwatch_attempt (
   attempt_id TEXT PRIMARY KEY,
@@ -202,20 +207,28 @@ type Options struct {
 	HTTP     *http.Client
 	Logger   *slog.Logger
 	Now      func() time.Time
+	// Watchlist lists a viewer's watchlist titles (optional). Its shows
+	// join the shows with recent activity whose episodes each sweep reads.
+	Watchlist func(ctx context.Context, userID int64) ([]core.RatingKey, error)
+	// Continue mirrors a Continue Watching removal (removed) or restore
+	// read from the account into stores beyond state (optional).
+	Continue func(ctx context.Context, userID int64, key core.RatingKey, removed bool) error
 }
 
 // Service is one server's Plex account watch-state integration.
 type Service struct {
-	db       *sql.DB
-	state    *state.State
-	sealer   config.FieldSealer
-	guid     AccountGUIDs
-	client   *Client
-	node     string
-	log      *slog.Logger
-	now      func() time.Time
-	claimFor time.Duration
-	pace     time.Duration
+	db        *sql.DB
+	state     *state.State
+	sealer    config.FieldSealer
+	guid      AccountGUIDs
+	client    *Client
+	watchlist func(ctx context.Context, userID int64) ([]core.RatingKey, error)
+	continued func(ctx context.Context, userID int64, key core.RatingKey, removed bool) error
+	node      string
+	log       *slog.Logger
+	now       func() time.Time
+	claimFor  time.Duration
+	pace      time.Duration
 	// importBudget caps the Plex reads of one import pass.
 	importBudget int
 	mu           sync.Mutex
@@ -246,7 +259,8 @@ func New(opts Options) (*Service, error) {
 	}
 	return &Service{
 		db: opts.DB, state: opts.State, sealer: opts.Sealer, guid: opts.GUID,
-		client: c, node: node, log: log, now: now, claimFor: 2 * time.Minute,
+		client: c, watchlist: opts.Watchlist, continued: opts.Continue,
+		node: node, log: log, now: now, claimFor: 2 * time.Minute,
 		pace: 250 * time.Millisecond, importBudget: importRequests, closed: make(chan struct{}),
 	}, nil
 }
@@ -304,6 +318,7 @@ type accountRow struct {
 	nextAllowed     int64
 	consent         int   // -1 not read yet, 0 off, 1 on
 	consentChecked  int64 // unix nanoseconds
+	activeAfter     int64 // show cursor of the active-show pass, -1 idle
 }
 
 func (s *Service) Status(ctx context.Context, userID, plexID int64) (Status, error) {
@@ -432,7 +447,7 @@ func (s *Service) FinishPIN(ctx context.Context, userID, plexID int64) (Status, 
 			if err := s.forgetRemoteTx(ctx, tx, userID); err != nil {
 				return err
 			}
-			if _, err := tx.ExecContext(ctx, `UPDATE plexwatch_account SET direction=0, import_cursor='', last_sweep=0 WHERE user_id=?`, userID); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE plexwatch_account SET direction=0, import_cursor='', last_sweep=0, active_after=-1 WHERE user_id=?`, userID); err != nil {
 				return err
 			}
 		}
@@ -633,9 +648,9 @@ func (s *Service) loadAccount(ctx context.Context, userID int64) (accountRow, bo
 	var row accountRow
 	var revoked int
 	var sealed string
-	err := s.db.QueryRowContext(ctx, `SELECT plex_id, username, token, direction, revoked, import_cursor, token_generation, next_allowed, consent, consent_checked
+	err := s.db.QueryRowContext(ctx, `SELECT plex_id, username, token, direction, revoked, import_cursor, token_generation, next_allowed, consent, consent_checked, active_after
 		FROM plexwatch_account WHERE user_id=?`, userID).
-		Scan(&row.plexID, &row.username, &sealed, &row.direction, &revoked, &row.cursor, &row.tokenGeneration, &row.nextAllowed, &row.consent, &row.consentChecked)
+		Scan(&row.plexID, &row.username, &sealed, &row.direction, &revoked, &row.cursor, &row.tokenGeneration, &row.nextAllowed, &row.consent, &row.consentChecked, &row.activeAfter)
 	if errors.Is(err, sql.ErrNoRows) {
 		return accountRow{}, false, nil
 	}

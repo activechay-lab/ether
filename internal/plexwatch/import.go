@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,12 +24,18 @@ var (
 	sweepBelow = core.SeasonKey(0, 0)
 )
 
+// activeWindow bounds the viewer activity that marks a show as active.
+const activeWindow = 180 * 24 * time.Hour
+
 // importPass reads one bounded slice of the viewer's Plex account state.
 // Episodes of shows queued by a sweep page are read before the next page.
+// When the sweep wraps, the active-show pass follows: Plex keeps an
+// episode's position on the episode only (the show's userState does not
+// move), so the episodes of the viewer's active shows are read each sweep.
 // An empty cursor means the last sweep finished: a pass that starts there
 // with expansions still queued only finishes those, and the next sweep
-// starts with the next scheduled pass. finished is true when the sweep
-// wrapped (or was idle) and no expansion is left.
+// starts with the next scheduled pass. finished is true when the sweep and
+// the active-show pass are done (or idle) and no expansion is left.
 func (s *Service) importPass(ctx context.Context, acct accountRow) (bool, error) {
 	if s.guid == nil {
 		return true, nil
@@ -60,6 +67,9 @@ func (s *Service) importPass(ctx context.Context, acct accountRow) (bool, error)
 	if remain, err := drain(); err != nil || remain {
 		return false, err
 	}
+	if acct.activeAfter >= 0 {
+		return s.activePass(ctx, acct, acct.activeAfter, &budget, drain)
+	}
 	if acct.cursor == "" && queued > 0 {
 		return true, nil
 	}
@@ -73,7 +83,10 @@ func (s *Service) importPass(ctx context.Context, acct accountRow) (bool, error)
 			return false, err
 		}
 		if len(page) == 0 {
-			return true, s.saveCursor(ctx, acct, "", true)
+			if err := s.saveCursor(ctx, acct, "", true); err != nil {
+				return false, err
+			}
+			return s.activePass(ctx, acct, 0, &budget, drain)
 		}
 		requested, err := s.importBatch(ctx, acct, page)
 		if err != nil {
@@ -94,6 +107,102 @@ func (s *Service) importPass(ctx context.Context, acct accountRow) (bool, error)
 		}
 	}
 	return false, nil
+}
+
+// activePass queues the episodes of the viewer's active shows after the
+// show cursor and reads them while budget lasts. The cursor is saved per
+// show, so the next pass resumes there. Active shows are those with any
+// watch, progress or rating activity in Ether within activeWindow, plus
+// shows on the viewer's watchlist; both come from this viewer's own rows,
+// so the pass follows the viewer's activity, not the library's size.
+func (s *Service) activePass(ctx context.Context, acct accountRow, after int64, budget *int, drain func() (bool, error)) (bool, error) {
+	if err := s.saveActive(ctx, acct, after); err != nil {
+		return false, err
+	}
+	shows, err := s.activeShows(ctx, acct.userID, core.RatingKey(after))
+	if err != nil {
+		return false, err
+	}
+	for _, show := range shows {
+		if *budget <= 0 {
+			return false, nil
+		}
+		// A show already being read keeps its place.
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO plexwatch_expand(user_id, show_key, after_key) VALUES(?,?,0)
+			ON CONFLICT(user_id, show_key) DO NOTHING`, acct.userID, int64(show)); err != nil {
+			return false, err
+		}
+		if err := s.saveActive(ctx, acct, int64(show)); err != nil {
+			return false, err
+		}
+		if remain, err := drain(); err != nil || remain {
+			return false, err
+		}
+	}
+	return true, s.saveActive(ctx, acct, -1)
+}
+
+// activeShows lists, in key order after after, the show keys of the
+// viewer's recent activity and watchlist.
+func (s *Service) activeShows(ctx context.Context, userID int64, after core.RatingKey) ([]core.RatingKey, error) {
+	set := map[core.RatingKey]bool{}
+	add := func(k core.RatingKey) {
+		switch k.Kind() {
+		case core.KindShow, core.KindSeason, core.KindEpisode:
+			if show := core.ShowKey(k.TMDB()); show > after {
+				set[show] = true
+			}
+		}
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT rating_key FROM state_watch WHERE user_id=? AND updated_at>=?`,
+		userID, s.now().Add(-activeWindow).UnixNano())
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var k int64
+		if err := rows.Scan(&k); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		add(core.RatingKey(k))
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if s.watchlist != nil {
+		keys, err := s.watchlist(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range keys {
+			add(k)
+		}
+	}
+	out := make([]core.RatingKey, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+// saveActive stores the active-show cursor (-1: not running) for the
+// generation that read it.
+func (s *Service) saveActive(ctx context.Context, acct accountRow, after int64) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE plexwatch_account SET active_after=? WHERE user_id=? AND token_generation=? AND revoked=0`,
+		after, acct.userID, acct.tokenGeneration)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return errStaleGeneration
+	}
+	return nil
 }
 
 func (s *Service) wait(ctx context.Context) error {
@@ -167,6 +276,7 @@ type remoteRow struct {
 	watched    bool
 	viewedAt   int64
 	offset     int64 // ms
+	viewState  string
 	rating     int
 	leaves     int
 	observedAt time.Time
@@ -257,7 +367,7 @@ func (s *Service) loadRemote(ctx context.Context, userID int64, byHex map[string
 		args = append(args, int64(k))
 		marks = append(marks, "?")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT rating_key, watched, viewed_at, view_offset, rating, leaves, observed_at, ours FROM plexwatch_remote
+	rows, err := s.db.QueryContext(ctx, `SELECT rating_key, watched, viewed_at, view_offset, view_state, rating, leaves, observed_at, ours FROM plexwatch_remote
 		WHERE user_id=? AND rating_key IN (`+strings.Join(marks, ",")+`)`, args...)
 	if err != nil {
 		return nil, err
@@ -267,7 +377,7 @@ func (s *Service) loadRemote(ctx context.Context, userID int64, byHex map[string
 		var key, observed int64
 		var watched, ours int
 		var r remoteRow
-		if err := rows.Scan(&key, &watched, &r.viewedAt, &r.offset, &r.rating, &r.leaves, &observed, &ours); err != nil {
+		if err := rows.Scan(&key, &watched, &r.viewedAt, &r.offset, &r.viewState, &r.rating, &r.leaves, &observed, &ours); err != nil {
 			return nil, err
 		}
 		r.watched, r.ours = watched != 0, ours != 0
@@ -378,24 +488,79 @@ func (s *Service) applyRemote(ctx context.Context, userID int64, key core.Rating
 			return err
 		}
 	}
+	applied := false
 	if resume >= 0 {
 		err := s.state.ApplyRemoteResume(ctx, userID, key, time.Duration(resume)*time.Millisecond, resumeAt)
 		if err != nil && !errors.Is(err, state.ErrLocalNewer) {
 			return err
 		}
+		applied = err == nil && resume > 0
 	}
-	if !seen && !cur.Watched && cur.ViewedAt == 0 && cur.Rating == 0 && cur.Offset == 0 {
+	if err := s.applyContinue(ctx, userID, key, prev, seen, cur, local, ownEcho, applied); err != nil {
+		return err
+	}
+	if !seen && !cur.Watched && cur.ViewedAt == 0 && cur.Rating == 0 && cur.Offset == 0 && cur.ViewState == "" {
 		return nil
 	}
 	w := 0
 	if cur.Watched {
 		w = 1
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO plexwatch_remote(user_id, rating_key, watched, viewed_at, view_offset, rating, observed_at, ours) VALUES(?,?,?,?,?,?,?,0)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO plexwatch_remote(user_id, rating_key, watched, viewed_at, view_offset, view_state, rating, observed_at, ours) VALUES(?,?,?,?,?,?,?,?,0)
 		ON CONFLICT(user_id, rating_key) DO UPDATE SET watched=excluded.watched, viewed_at=excluded.viewed_at, view_offset=excluded.view_offset,
-		  rating=excluded.rating, observed_at=excluded.observed_at, ours=0`,
-		userID, int64(key), w, cur.ViewedAt, cur.Offset, cur.Rating, now.UnixNano())
+		  view_state=excluded.view_state, rating=excluded.rating, observed_at=excluded.observed_at, ours=0`,
+		userID, int64(key), w, cur.ViewedAt, cur.Offset, cur.ViewState, cur.Rating, now.UnixNano())
 	return err
+}
+
+// applyContinue brings Plex's Continue Watching removal into Ether, or a
+// newer Plex playback of a title removed in Ether back into it.
+//
+//   - Removed on Plex (viewState turned "ignore") while Ether has the title
+//     in progress: Ether removes it too, keeping the resume point. Plex does
+//     not time a removal, so it applies only when Ether has not played the
+//     title since the previous read (on a first read, since Plex's last
+//     view of it). Ether's own removal is recorded as ignore, so it is not
+//     read back as Plex's.
+//   - Played on Plex after the viewer removed it in Ether: it comes back,
+//     as local playback would bring it back. Ether's own position writes
+//     (ownEcho) never do.
+func (s *Service) applyContinue(ctx context.Context, userID int64, key core.RatingKey, prev remoteRow, seen bool, cur userState, local localState, ownEcho, applied bool) error {
+	switch {
+	case cur.ViewState == viewIgnore && prev.viewState != viewIgnore:
+		if local.offset <= 0 && !applied {
+			return nil
+		}
+		since := unixOrZero(cur.ViewedAt)
+		if seen {
+			since = prev.observedAt
+		}
+		if !applied && local.watchAt.After(since) {
+			return nil
+		}
+		if _, hidden, err := s.state.ContinueHiddenAt(ctx, userID, key); err != nil || hidden {
+			return err
+		}
+		if err := s.state.HideContinueAccount(ctx, userID, key); err != nil {
+			return err
+		}
+		if s.continued != nil {
+			return s.continued(ctx, userID, key, true)
+		}
+	case cur.ViewState != viewIgnore && cur.Offset > 0 && cur.ViewedAt > 0 && !ownEcho &&
+		(!seen || cur.Offset != prev.offset || prev.viewState == viewIgnore || cur.ViewedAt > prev.viewedAt):
+		hiddenAt, hidden, err := s.state.ContinueHiddenAt(ctx, userID, key)
+		if err != nil || !hidden || hiddenAt.IsZero() || !unixOrZero(cur.ViewedAt).After(hiddenAt) {
+			return err
+		}
+		if err := s.state.RestoreContinue(ctx, userID, key); err != nil {
+			return err
+		}
+		if s.continued != nil {
+			return s.continued(ctx, userID, key, false)
+		}
+	}
+	return nil
 }
 
 type localState struct {

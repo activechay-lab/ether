@@ -263,9 +263,9 @@ func assertCombinedObjects(t *testing.T, db *sql.DB) {
 		`SELECT id FROM state_source_sequence WHERE 0=1`,
 		`SELECT token FROM plexwatch_account WHERE 0=1`,
 		`SELECT inflight_until FROM plexwatch_fence WHERE 0=1`,
-		`SELECT watched, viewed_at, view_offset, rating, leaves, observed_at, ours FROM plexwatch_remote WHERE 0=1`,
+		`SELECT watched, viewed_at, view_offset, view_state, rating, leaves, observed_at, ours FROM plexwatch_remote WHERE 0=1`,
 		`SELECT after_key FROM plexwatch_expand WHERE 0=1`,
-		`SELECT last_sweep, consent, consent_checked FROM plexwatch_account WHERE 0=1`,
+		`SELECT last_sweep, consent, consent_checked, active_after FROM plexwatch_account WHERE 0=1`,
 	}
 	for _, q := range probes {
 		rows, err := db.Query(q)
