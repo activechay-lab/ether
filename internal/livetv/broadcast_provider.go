@@ -169,6 +169,9 @@ func (p *providerBroadcastPlanner) bindRetry(retry func()) {
 }
 
 func (p *providerBroadcastPlanner) logger() *slog.Logger {
+	if p.s == nil || p.s.o.Logger == nil {
+		return slog.New(slog.DiscardHandler)
+	}
 	return p.s.o.Logger.With("channel", p.channel.ID)
 }
 
@@ -309,7 +312,7 @@ func (p *providerBroadcastPlanner) open(ctx context.Context) (transcode.Decoder,
 		p.mu.Unlock()
 		if link == nil {
 			var err error
-			link, err = p.s.linkSteadySource(ctx, c, src, "broadcast-"+c.ID)
+			link, err = p.s.linkSteadySource(ctx, c, src, "broadcast-"+c.ID, 0)
 			if errors.Is(err, ErrProviderBusy) || errors.Is(err, ErrProviderPaced) {
 				busy[id] = true
 				last = err
@@ -398,7 +401,7 @@ func (p *providerBroadcastPlanner) wrap(src StreamSource, d transcode.Decoder, f
 
 // linkSteadySource reserves the provider account's connection, resolves the
 // input and grants it to the loopback relay.
-func (s *Service) linkSteadySource(ctx context.Context, c Channel, src StreamSource, reservation string) (*steadyLink, error) {
+func (s *Service) linkSteadySource(ctx context.Context, c Channel, src StreamSource, reservation string, lead time.Duration) (*steadyLink, error) {
 	account := src.AuthSourceID
 	if account == "" {
 		account = c.SourceID
@@ -422,7 +425,9 @@ func (s *Service) linkSteadySource(ctx context.Context, c Channel, src StreamSou
 	ss := &session{ctx: inputCtx, cancel: cancel, info: SessionInfo{ID: reservation, Channel: c}, inputSource: src, inputURL: resolved, inputHeaders: headers}
 	grant := src
 	grant.URL = resolved
-	if err := s.grantSteadyInput(ss, grant, headers); err != nil {
+	// The tune's first input also feeds the startup burst: it joins that much
+	// deeper so the stability reserve is whole once the burst is out.
+	if err := s.grantSteadyInputLead(ss, grant, headers, lead); err != nil {
 		cancel()
 		release()
 		return nil, err

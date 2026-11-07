@@ -98,7 +98,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		// Broadcast feeds are often interlaced and sometimes 4:3 or anamorphic.
 		// Deinterlace field by field (1080i50 airs as 50p), then fit the display
 		// aspect inside the working frame instead of stretching it.
-		videoFilter = liveVideoJumps(f, liveForwardJump(r, u)) + fmt.Sprintf("bwdif=mode=send_field:deint=interlaced,scale=w='if(gte(dar,%[1]d/%[2]d),%[1]d,2*trunc(%[2]d*dar/2))':h='if(gte(dar,%[1]d/%[2]d),2*trunc(%[1]d/dar/2),%[2]d)',setsar=1,pad=%[1]d:%[2]d:(ow-iw)/2:(oh-ih)/2,fps=%[3]d/%[4]d,", f.Width, f.Height, f.FPSNum, f.FPSDen)
+		videoFilter = liveVideoJumps(f, liveForwardJump(r, u)) + fmt.Sprintf("bwdif=mode=send_field:deint=interlaced,scale=w='if(gte(dar,%[1]d/%[2]d),%[1]d,max(2,2*trunc(%[2]d*dar/2)))':h='if(gte(dar,%[1]d/%[2]d),max(2,2*trunc(%[1]d/dar/2)),%[2]d)',setsar=1,pad=%[1]d:%[2]d:(ow-iw)/2:(oh-ih)/2,fps=%[3]d/%[4]d,", f.Width, f.Height, f.FPSNum, f.FPSDen)
 	}
 	audioFilter := "aresample=48000:async=1:first_pts=0"
 	if r.Seeked && r.Offset > 0 {
