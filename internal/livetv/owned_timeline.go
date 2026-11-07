@@ -32,32 +32,39 @@ type ownedTimeline struct {
 	now     func() time.Time
 	reserve time.Duration // media held back behind the source's edge
 	slates  func(slateProfile) *slateClip
+	// stalled, when set, reports that the producer's input has stopped
+	// (provider health): the next segment cannot arrive, so slate goes out
+	// when that segment is due instead of after the deadline's grace.
+	stalled func() bool
 
 	mu          sync.Mutex
 	target      time.Duration // fixed at the first publication
 	targetFloor time.Duration
-	startSegs   int       // segments the first playlist waits for
-	firstAt     time.Time // first ingest, bounds the startup wait
-	window      []*ownedSegment
-	history     []*ownedSegment // slid out of the playlist, still served briefly
-	pending     []*ownedSegment // ingested, not yet published: the reserve
-	resources   map[string]ownedResource
-	nextSeq     int64
-	discSeq     int64
-	lastAt      time.Time     // scheduled publication time of the newest segment
-	lastDur     time.Duration // its duration
-	lastPDT     time.Time
-	format      mediaFormat // newest published media format
-	mapRes      string      // newest published media init section
-	hint        slateProfile
-	needDisc    bool // the next media segment starts a new span
-	slating     int  // consecutive slate segments in the current run
-	slateCC     map[uint16]byte
-	notify      chan struct{}
-	ingestAt    time.Time
-	inflight    bool // a producer is fetching a segment it has seen listed
-	closed      bool
-	err         error
+	startSegs   int // segments the first playlist waits for
+	// startMedia, when set, also starts the first playlist once that much
+	// media is in hand (a real-time producer's long first segment).
+	startMedia time.Duration
+	firstAt    time.Time // first ingest, bounds the startup wait
+	window     []*ownedSegment
+	history    []*ownedSegment // slid out of the playlist, still served briefly
+	pending    []*ownedSegment // ingested, not yet published: the reserve
+	resources  map[string]ownedResource
+	nextSeq    int64
+	discSeq    int64
+	lastAt     time.Time     // scheduled publication time of the newest segment
+	lastDur    time.Duration // its duration
+	lastPDT    time.Time
+	format     mediaFormat // newest published media format
+	mapRes     string      // newest published media init section
+	hint       slateProfile
+	needDisc   bool // the next media segment starts a new span
+	slating    int  // consecutive slate segments in the current run
+	slateCC    map[uint16]byte
+	notify     chan struct{}
+	ingestAt   time.Time
+	inflight   bool // a producer is fetching a segment it has seen listed
+	closed     bool
+	err        error
 
 	// Evidence, reported in logs and diagnostics.
 	slateSegments int
@@ -265,7 +272,10 @@ func (t *ownedTimeline) tickLocked(now time.Time) {
 		if len(t.pending) == 0 {
 			return
 		}
-		if len(t.pending) < t.startSegs && now.Sub(t.firstAt) < max(2*time.Second, t.targetFloor*3/2) {
+		// Wait for the start segments, or the media they stand for (a
+		// long first segment), bounded so a short backlog still starts.
+		enough := len(t.pending) >= t.startSegs || t.startMedia > 0 && t.depthLocked() >= t.startMedia
+		if !enough && now.Sub(t.firstAt) < max(2*time.Second, t.targetFloor*3/2) {
 			return
 		}
 		// The target covers the source's own target and every segment
@@ -318,7 +328,7 @@ func (t *ownedTimeline) tickLocked(now time.Time) {
 			wait = t.target * 14 / 10
 		}
 		wait = max(wait, t.lastDur+750*time.Millisecond)
-		if t.slating > 0 {
+		if t.slating > 0 || t.stalled != nil && !now.Before(t.lastAt.Add(t.lastDur)) && t.stalled() {
 			wait = t.lastDur
 		}
 		for !now.Before(t.lastAt.Add(wait)) {

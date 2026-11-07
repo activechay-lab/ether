@@ -93,32 +93,24 @@ func TestLiveAdapterRewritesNestedResourcesToLazyCapability(t *testing.T) {
 		t.Fatalf("missing %q URI in %q", prefix, body)
 		return ""
 	}
-	master := read("index.m3u8", "./")
-	if master.Code != 200 || strings.Contains(master.Body.String(), "source-token") || strings.Contains(master.Body.String(), "account-token") || strings.Contains(master.Body.String(), "/sessions/media/") || !strings.Contains(master.Body.String(), "X-Ether-Stream-Token=") {
-		t.Fatalf("master %d %q", master.Code, master.Body.String())
+	// The client reads Ether's owned live playlist: no provider URL or
+	// credential, no variant indirection, and every segment behind the
+	// capability base.
+	playlist := read("index.m3u8", "./")
+	body := playlist.Body.String()
+	if playlist.Code != 200 || strings.Contains(body, "source-token") || strings.Contains(body, "account-token") || strings.Contains(body, "/sessions/media/") || strings.Contains(body, "STREAM-INF") || !strings.Contains(body, "X-Ether-Stream-Token=") {
+		t.Fatalf("playlist %d %q", playlist.Code, body)
 	}
-	variantKey, _, _ := strings.Cut(firstURI(master.Body.String(), "./resource/"), "?")
-	variant := read("resource/"+variantKey, "../")
-	if variant.Code != 200 || strings.Contains(variant.Body.String(), "source-token") || strings.Contains(variant.Body.String(), "account-token") || !strings.Contains(variant.Body.String(), "X-Ether-Stream-Token=") {
-		t.Fatalf("variant %d %q", variant.Code, variant.Body.String())
-	}
-	segmentKey, _, _ := strings.Cut(firstURI(variant.Body.String(), "../resource/"), "?")
-	segment := read("resource/"+segmentKey, "../")
+	segmentName, _, _ := strings.Cut(firstURI(body, "./relay/"), "?")
+	segment := read("relay/"+segmentName, "../")
 	if segment.Code != 200 || segment.Body.String() != "media-bytes" {
 		t.Fatalf("segment %d %q", segment.Code, segment.Body.String())
 	}
-	var activeURI string
-	for _, line := range strings.Split(variant.Body.String(), "\n") {
-		if strings.HasPrefix(line, "../resource/") && !strings.HasPrefix(line, "../resource/"+segmentKey+"?") {
-			activeURI = strings.TrimPrefix(line, "../resource/")
-		}
-	}
-	activeKey, _, _ := strings.Cut(activeURI, "?")
-	active := read("resource/"+activeKey, "../")
-	if active.Code != 200 || active.Body.String() != "<script>bad()</script>" || !strings.Contains(active.Header().Get("Content-Security-Policy"), "sandbox") || active.Header().Get("X-Content-Type-Options") != "nosniff" {
+	// Provider bytes that are not media are still served inert.
+	active := read("relay/1.ts", "../")
+	if active.Code != 200 || active.Body.String() != "<script>bad()</script>" || !strings.Contains(active.Header().Get("Content-Security-Policy"), "sandbox") || active.Header().Get("X-Content-Type-Options") != "nosniff" || strings.Contains(active.Header().Get("Content-Type"), "html") {
 		t.Fatalf("active %d %v %q", active.Code, active.Header(), active.Body.String())
 	}
-
 }
 
 type liveTestHLS struct {

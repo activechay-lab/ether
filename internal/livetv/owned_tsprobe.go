@@ -21,6 +21,9 @@ type mediaFormat struct {
 	height int
 	audio  []audioFormat // ordered by PID
 	known  bool          // a PMT was found
+	// mislabeled: an audio payload is not the codec the PMT declares (a
+	// copy remux keeps its first PMT across a source codec change).
+	mislabeled bool
 }
 
 type audioFormat struct {
@@ -151,9 +154,9 @@ func inspectTS(b []byte) mediaFormat {
 		}
 		switch {
 		case pid == 0 && pusi && pmtPID < 0:
-			pmtPID = parsePAT(payload)
+			pmtPID = ownedParsePAT(payload)
 		case pmtPID >= 0 && int(pid) == pmtPID && pusi && streams == nil:
-			streams = parsePMT(payload)
+			streams = ownedParsePMT(payload)
 			if streams != nil {
 				f.known = true
 			}
@@ -204,7 +207,11 @@ func inspectTS(b []byte) mediaFormat {
 			}
 		case "audio":
 			a := audioFormat{pid: st.pid, codec: st.codec}
-			switch st.codec {
+			if sniffed := sniffAudioCodec(st.pes); sniffed != "" && sniffed != a.codec {
+				a.codec = sniffed
+				f.mislabeled = true
+			}
+			switch a.codec {
 			case "aac":
 				a.rate, a.channels = adtsParams(st.pes)
 			case "ac3", "eac3":
@@ -228,8 +235,8 @@ func tsPayload(p []byte) []byte {
 	return p[off:]
 }
 
-func parsePAT(payload []byte) int {
-	sec := psiSection(payload, 0)
+func ownedParsePAT(payload []byte) int {
+	sec := ownedPSISection(payload, 0)
 	if sec == nil {
 		return -1
 	}
@@ -242,9 +249,9 @@ func parsePAT(payload []byte) int {
 	return -1
 }
 
-// psiSection returns a complete PSI section of the given table that starts in
+// ownedPSISection returns a complete PSI section of the given table that starts in
 // this packet, without its CRC, or nil.
-func psiSection(payload []byte, table byte) []byte {
+func ownedPSISection(payload []byte, table byte) []byte {
 	if len(payload) < 1 {
 		return nil
 	}
@@ -263,8 +270,8 @@ func psiSection(payload []byte, table byte) []byte {
 	return sec[:3+n]
 }
 
-func parsePMT(payload []byte) map[uint16]*tsStream {
-	sec := psiSection(payload, 2)
+func ownedParsePMT(payload []byte) map[uint16]*tsStream {
+	sec := ownedPSISection(payload, 2)
 	if sec == nil || len(sec) < 12 {
 		return nil
 	}
@@ -587,6 +594,28 @@ func parseHEVCSPS(b []byte) (int, int) {
 	return w, h
 }
 
+// sniffAudioCodec identifies an audio payload from the frame header at its
+// start, independent of what the PMT declares; "" when unrecognised.
+func sniffAudioCodec(es []byte) string {
+	if len(es) < 6 {
+		return ""
+	}
+	switch {
+	case es[0] == 0x0b && es[1] == 0x77:
+		if es[5]>>3 > 10 {
+			return "eac3"
+		}
+		return "ac3"
+	case es[0] == 0xff && es[1]&0xf6 == 0xf0:
+		return "aac"
+	case es[0] == 0x56 && es[1]&0xe0 == 0xe0:
+		return "aac_latm"
+	case es[0] == 0xff && es[1]&0xe0 == 0xe0 && (es[1]>>1)&3 != 0:
+		return "mp2"
+	}
+	return ""
+}
+
 var adtsRates = []int{96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350}
 
 func adtsParams(es []byte) (int, int) {
@@ -604,18 +633,22 @@ func adtsParams(es []byte) (int, int) {
 	return 0, 0
 }
 
-// ac3Params returns the AC-3/E-AC-3 sample-rate code and channel mode; they
-// are only compared for equality.
+var ac3Rates = []int{48000, 44100, 32000, 0}
+
+// ac3Channels is the full-bandwidth channel count of each AC-3 acmod.
+var ac3Channels = []int{2, 1, 2, 3, 3, 4, 4, 5}
+
+// ac3Params returns the AC-3/E-AC-3 sample rate and full-bandwidth channel
+// count (LFE is not counted).
 func ac3Params(es []byte) (int, int) {
 	for i := 0; i+8 <= len(es); i++ {
 		if es[i] != 0x0b || es[i+1] != 0x77 {
 			continue
 		}
-		bsid := es[i+5] >> 3
-		if bsid > 10 { // E-AC-3: fscod in byte 4, acmod after it
-			return int(es[i+4]>>6) + 1, int(es[i+4]>>1)&7 + 1
+		if es[i+5]>>3 > 10 { // E-AC-3: fscod and acmod in byte 4
+			return ac3Rates[es[i+4]>>6], ac3Channels[es[i+4]>>1&7]
 		}
-		return int(es[i+4]>>6) + 1, int(es[i+6]>>5) + 1
+		return ac3Rates[es[i+4]>>6], ac3Channels[es[i+6]>>5]
 	}
 	return 0, 0
 }

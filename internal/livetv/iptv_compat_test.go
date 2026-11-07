@@ -159,7 +159,7 @@ func TestRelayFirstPlaylistWaitsForMediaAndPropagatesFailure(t *testing.T) {
 		s := testService(t, Options{})
 		h := &startingLiveRelay{fail: fail}
 		ss := &session{info: SessionInfo{ID: "live-fixture", Channel: Channel{ID: "c"}}}
-		ownedRelayFixture(t, s, ss, h, core.Decision{Container: "mpegts"}, segmentDuration)
+		ownedRelayFixture(t, s, ss, h, core.Decision{Container: "mpegts"}, relaySegment)
 		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 		rec := httptest.NewRecorder()
 		s.serveOwnedPlaylist(rec, httptest.NewRequest("GET", "/", nil).WithContext(ctx), ss)

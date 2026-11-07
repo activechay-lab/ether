@@ -538,6 +538,11 @@ func (s *Service) Session(ctx context.Context, id string, u *core.User) (Session
 	if ss.relayInfo != nil {
 		info.MediaInfo = ss.relayInfo
 	}
+	if lease := ss.owned; lease != nil && lease.source != nil {
+		if id := lease.source(); id != "" {
+			info.ActiveSourceID = id
+		}
+	}
 	channel := ss.info.Channel
 	ss.mu.Unlock()
 	info.Channel.StreamURL = ""

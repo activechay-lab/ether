@@ -75,6 +75,10 @@ type relayProducer struct {
 	ingest    *hlsIngest
 	escalated bool
 	starved   bool
+	// reformat holds the source's new format when copy output stopped
+	// matching its own PMT; the producer reopens at the live edge.
+	reformat  *mediaFormat
+	reopened  time.Time
 	startedAt time.Time
 	progress  time.Time
 	closed    bool
@@ -90,26 +94,18 @@ func (p *relayProducer) current() core.HLSSession {
 	return p.hls
 }
 
-func (p *relayProducer) decision() core.Decision {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.dec
-}
-
-func relayTargetFloor(dec core.Decision, cut time.Duration) time.Duration {
-	if dec.VideoCopy {
-		// Copy cuts at the first source keyframe after cut; the first
-		// segments' real lengths raise the target further when the
-		// source's GOP is longer.
-		return cut + time.Second
-	}
-	return cut
+// relayTargetFloor leaves a second of headroom over the cut: copy cuts at the
+// first source keyframe after it (the first segments' real lengths raise the
+// target further for longer GOPs), and the slate deadline (1.25x target)
+// needs margin under Apple's 1.5x rule at short targets.
+func relayTargetFloor(cut time.Duration) time.Duration {
+	return cut + time.Second
 }
 
 // startOwnedRelay starts the first relay producer and its timeline.
 func (s *Service) startOwnedRelay(ctx context.Context, ss *session, info core.MediaInfo, caps core.ClientCaps, dec core.Decision, cut time.Duration) (*ownedLease, error) {
 	p := s.newRelayProducer(ss, info, caps, dec, cut)
-	if err := p.start(ctx, info, dec, cut); err != nil {
+	if err := p.start(ctx, info, dec, cut, false); err != nil {
 		return nil, err
 	}
 	return s.runRelay(ss, p), nil
@@ -118,16 +114,26 @@ func (s *Service) startOwnedRelay(ctx context.Context, ss *session, info core.Me
 func (s *Service) newRelayProducer(ss *session, info core.MediaInfo, caps core.ClientCaps, dec core.Decision, cut time.Duration) *relayProducer {
 	c := ss.info.Channel
 	log := s.sessionLog(ss).With("owned", "relay")
-	tl := newOwnedTimeline(ss.info.ID, log, s.o.Now, 0, s.slateFor(c))
+	// A relay delivers in bursts (an HLS input arrives a provider segment
+	// at a time; ffmpeg encodes it at many times real time) and starts
+	// from the input's backlog. Publishing at real time from a reserve of
+	// at least two segments turns bursts into a steady playlist, and the
+	// backlog primes the channel's stability reserve.
+	tl := newOwnedTimeline(ss.info.ID, log, nil, max(s.stabilityReserve(c), 2*cut), s.slateFor(c))
 	output := liveRelayInfo(info, dec)
 	container := "ts"
 	if dec.Container == transcode.ContainerFMP4 {
 		container = "fmp4"
 	}
 	tl.setHint(slateProfileFromInfo(c.ID, &output, container))
-	tl.expectStart(2, relayTargetFloor(dec, cut))
+	tl.expectStart(2, relayTargetFloor(cut))
+	tl.startMedia = 2 * cut
 	p := &relayProducer{s: s, tl: tl, log: log, caps: caps, info: info, dec: dec, cut: cut}
 	p.bind(ss)
+	tl.stalled = func() bool {
+		h, ok := s.inputHealth(p.sess.Load())
+		return ok && (h.Stalled || h.Failed || h.Kind == "ts" && h.DataAge > time.Second)
+	}
 	p.ingest = newHLSIngest(tl, nil, log, 0, 2)
 	p.ingest.live = true
 	p.ingest.accept = p.accept
@@ -150,10 +156,15 @@ func (s *Service) runRelay(ss *session, p *relayProducer) *ownedLease {
 }
 
 // start launches a relay session for the session's current input and makes
-// it the producer, retiring the previous one.
-func (p *relayProducer) start(ctx context.Context, info core.MediaInfo, dec core.Decision, cut time.Duration) error {
+// it the producer, retiring the previous one. liveEdge joins the input at
+// its live edge instead of its reserve (the old format must not be read
+// again after a codec change).
+func (p *relayProducer) start(ctx context.Context, info core.MediaInfo, dec core.Decision, cut time.Duration, liveEdge bool) error {
 	ss := p.sess.Load()
 	input, err := p.s.relayInput(ss)
+	if liveEdge {
+		input, err = p.s.relayInputLive(ss)
+	}
 	if err != nil {
 		return err
 	}
@@ -183,7 +194,7 @@ func (p *relayProducer) adopt(id string, hls core.HLSSession, cancel context.Can
 	}
 	old, oldCancel := p.hls, p.cancel
 	p.hls, p.cancel, p.info, p.dec, p.cut = hls, cancel, info, dec, cut
-	p.starved = false
+	p.starved, p.reformat = false, nil
 	p.startedAt = time.Now()
 	origin := &localRelayOrigin{hls: hls, name: id}
 	if old == nil {
@@ -219,6 +230,16 @@ func (p *relayProducer) close() {
 // stopped arriving, and an Apple player cannot take a segment that long.
 // The producer is switched to re-encoding instead.
 func (p *relayProducer) accept(seg *ownedSegment) bool {
+	if seg.format.mislabeled {
+		// A copy remux declares the codec it started with; after a source
+		// codec change its PMT lies about the payload. Drop it and reopen.
+		p.mu.Lock()
+		f := seg.format
+		p.reformat = &f
+		p.mu.Unlock()
+		p.log.Warn("owned relay output no longer matches its declared codecs", "payload", seg.format.String())
+		return false
+	}
 	td := p.tl.targetDuration()
 	if td <= 0 || seg.dur <= td+time.Second {
 		return true
@@ -236,6 +257,7 @@ func (p *relayProducer) accept(seg *ownedSegment) bool {
 func (p *relayProducer) run(ctx context.Context) {
 	warmed := false
 	failures := 0
+	var flowing time.Time // since when provider data has arrived without a pause
 	for sleepCtx(ctx, 250*time.Millisecond) {
 		p.mu.Lock()
 		in := p.ingest
@@ -259,62 +281,105 @@ func (p *relayProducer) run(ctx context.Context) {
 		if err != nil {
 			failures++
 		}
+		h, healthy := p.s.inputHealth(p.sess.Load())
+		if healthy && !h.Stalled && !h.Failed && h.DataAge < 2*time.Second {
+			if flowing.IsZero() {
+				flowing = now
+			}
+		} else {
+			flowing = time.Time{}
+		}
 		p.mu.Lock()
 		last, starved, escalated, copyMode := p.progress, p.starved, p.escalated, p.dec.VideoCopy
+		reformat, reopened := p.reformat, p.reopened
 		p.mu.Unlock()
 		td := p.tl.targetDuration()
 		if td <= 0 {
-			td = relayTargetFloor(p.decision(), p.cut)
+			td = relayTargetFloor(p.cut)
 		}
 		// A new producer gets ffmpeg's start-up time before the deadline
 		// applies to it; afterwards the deadline is one target duration.
-		limit := td
-		from := last
-		if last.Before(startedAt) {
+		limit, from, cold := td, last, last.Before(startedAt)
+		if cold {
 			from, limit = startedAt, 12*time.Second
 		}
 		since := now.Sub(from)
+		// Keyframe starvation: input has kept arriving for this long
+		// without a copy segment being cut. A cold start gets the tune
+		// budget; a running stream two target durations (a resumed
+		// source first has to reach its next keyframe).
+		starvedFor := time.Duration(0)
+		if !flowing.IsZero() {
+			starvedFor = now.Sub(later(from, flowing))
+		}
+		starveLimit := 2 * td
+		if cold {
+			starveLimit = 3500 * time.Millisecond
+		}
 		ended := errors.Is(err, errOriginEnded) || failures >= 6
 		switch {
+		case reformat != nil && now.Sub(reopened) > 10*time.Second:
+			p.reopen(ctx, *reformat)
 		case ended:
 			p.recover(ctx, "relay ended")
-		case starved && copyMode && !escalated:
-			p.escalate(ctx, "keyframes stopped arriving")
-		case copyMode && !escalated && last.Before(startedAt) && since > 6*time.Second && p.inputFlowing(since):
-			// A copy producer that cannot cut its first segment within
-			// the cold-tune budget has a source GOP far longer than the
-			// target: re-encode, which cuts on its own keyframes.
-			p.escalate(ctx, "first segment exceeds the tune budget")
+		case healthy && h.Failed && !cold:
+			// The tap gave up on this source: fail over now, not after
+			// the deadline (a healthy backup should show within ~3 s).
+			p.recover(ctx, "input failed")
+		case copyMode && !escalated && (starved || starvedFor > starveLimit):
+			// Copy cannot cut where the source has no keyframe (lost,
+			// or a GOP far longer than the target). Re-encode, which
+			// cuts on its own keyframes.
+			p.escalate(ctx, "copy cannot cut segments from this source")
 		case since > limit:
-			h, ok := p.s.inputHealth(p.sess.Load())
 			switch {
-			case ok && h.Failed:
+			case healthy && h.Failed:
 				p.recover(ctx, "input failed")
-			case ok && (h.Stalled || h.DataAge > td):
-				// The tap is reconnecting the same source; the reserve and
-				// slate cover it. Fall through when that takes too long.
-				if since > limit+2*td {
-					p.recover(ctx, "input stalled")
-				}
-			case copyMode && !escalated && (ok || since > limit+td):
-				// Data arrives but no segment can be cut: keyframes are
-				// missing. Re-encode, which cuts on its own keyframes.
-				p.escalate(ctx, "no segment while input is flowing")
+			case p.tl.depth() >= td:
+				// The reserve still covers the client; ffmpeg's own input
+				// retries (and the tap's reconnects) get that long.
 			case since > limit+2*td:
+				// The tap reconnects the same source while slate covers;
+				// fall through when that takes too long.
 				p.recover(ctx, "no segment")
 			}
 		}
 	}
 }
 
-// inputFlowing reports provider data arriving (or, without health
-// information, enough time passing that the producer is the likelier fault).
-func (p *relayProducer) inputFlowing(since time.Duration) bool {
-	h, ok := p.s.inputHealth(p.sess.Load())
-	if !ok {
-		return since > 8*time.Second
+func later(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
 	}
-	return !h.Stalled && !h.Failed && h.DataAge < 2*time.Second
+	return b
+}
+
+// reopen restarts the producer on the same input at its live edge after the
+// source changed codecs, deciding again for the new audio.
+func (p *relayProducer) reopen(ctx context.Context, f mediaFormat) {
+	p.mu.Lock()
+	p.reopened = time.Now()
+	info, cut := p.info, p.cut
+	p.mu.Unlock()
+	info.Streams = append([]core.StreamInfo(nil), info.Streams...)
+	if len(f.audio) > 0 {
+		for i := range info.Streams {
+			if info.Streams[i].Type == "audio" {
+				a := f.audio[0]
+				info.Streams[i].Codec, info.Streams[i].CodecString, info.Streams[i].Profile = a.codec, "", ""
+				info.Streams[i].Channels, info.Streams[i].SampleRate, info.Streams[i].ChannelLayout = a.channels, a.rate, ""
+				break
+			}
+		}
+	}
+	dec, _, _ := p.s.relayPlan(p.sess.Load(), info)
+	p.log.Warn("owned relay reopening for the source's new format", "format", f.String(), "audio_copy", dec.AudioCopy)
+	sctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := p.start(sctx, info, dec, cut, true); err != nil {
+		p.log.Warn("owned relay reopen failed", Diagnose("relay_reopen", err).LogAttrs()...)
+		p.recover(ctx, "reopen failed")
+	}
 }
 
 // escalate replaces a copy producer with a re-encode of the same input.
@@ -337,7 +402,7 @@ func (p *relayProducer) escalate(ctx context.Context, why string) {
 	p.log.Warn("owned relay switching producer to re-encode", "reason", why)
 	sctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if err := p.start(sctx, info, next, relaySegment); err != nil {
+	if err := p.start(sctx, info, next, relaySegment, false); err != nil {
 		p.log.Warn("owned relay re-encode producer failed", Diagnose("relay_escalate", err).LogAttrs()...)
 		p.recover(ctx, "re-encode start failed")
 	}
@@ -406,5 +471,5 @@ func (p *relayProducer) switchSource(ctx context.Context, ss *session, c Channel
 		info.Duration = 0
 		dec, cut, _ = p.s.relayPlan(ss, info)
 	}
-	return p.start(sctx, info, dec, cut)
+	return p.start(sctx, info, dec, cut, false)
 }

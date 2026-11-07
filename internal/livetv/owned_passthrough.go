@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -53,6 +54,7 @@ type ownedShared struct {
 type ownedLease struct {
 	tl      *ownedTimeline
 	relay   *relayProducer // set for relay sessions
+	source  func() string  // the source a shared timeline plays now
 	once    sync.Once
 	release func()
 }
@@ -92,7 +94,7 @@ func (s *Service) acquirePassthrough(ss *session) *ownedLease {
 	if sh == nil {
 		ctx, cancel := context.WithCancel(s.ctx)
 		log := s.logger().With("channel", c.ID, "owned", "passthrough")
-		tl := newOwnedTimeline(c.ID, log, s.o.Now, reserve, slates)
+		tl := newOwnedTimeline(c.ID, log, nil, reserve, slates)
 		tl.setHint(slateProfileFromInfo(c.ID, ss.info.MediaInfo, "ts"))
 		p := &passthroughProducer{s: s, tl: tl, c: c, caps: ss.caps, log: log,
 			src: ss.inputSource, raw: ss.inputURL, headers: ss.inputHeaders.Clone(), suggest: make(chan sourceChoice, 1)}
@@ -115,7 +117,7 @@ func (s *Service) acquirePassthrough(ss *session) *ownedLease {
 		sh.linger = nil
 	}
 	st.mu.Unlock()
-	return &ownedLease{tl: sh.tl, release: func() { s.releaseShared(sh, capped) }}
+	return &ownedLease{tl: sh.tl, source: sh.p.sourceID, release: func() { s.releaseShared(sh, capped) }}
 }
 
 func (s *Service) releaseShared(sh *ownedShared, capped bool) {
@@ -213,6 +215,7 @@ type passthroughProducer struct {
 	headers http.Header
 
 	suggest chan sourceChoice
+	playing atomic.Pointer[string] // source ID, read by sessions
 
 	rounds int // failover rounds since the last progress
 
@@ -263,7 +266,16 @@ func (p *passthroughProducer) open(ctx context.Context, src StreamSource, raw st
 		p.tl.splice(false)
 	}
 	p.src, p.raw, p.headers = src, raw, headers
+	id := src.ID
+	p.playing.Store(&id)
 	return nil
+}
+
+func (p *passthroughProducer) sourceID() string {
+	if id := p.playing.Load(); id != nil {
+		return *id
+	}
+	return ""
 }
 
 func (p *passthroughProducer) run(ctx context.Context) {
@@ -310,7 +322,8 @@ func (p *passthroughProducer) run(ctx context.Context) {
 			td = max(p.ingest.target, 2*time.Second)
 		}
 		stale := p.ingest.stale(now)
-		hard := isHardProviderError(err) || errors.Is(err, errOriginEnded) || errors.Is(err, errMasterSource)
+		var segErr *segmentError
+		hard := !errors.As(err, &segErr) && isHardProviderError(err) || errors.Is(err, errOriginEnded) || errors.Is(err, errMasterSource)
 		if err != nil || stale >= td/2 {
 			select {
 			case choice := <-p.suggest:
@@ -329,9 +342,8 @@ func (p *passthroughProducer) run(ctx context.Context) {
 			// Nothing published yet: a viewer is waiting on a cold tune
 			// that just resolved this source. Go straight to the next one.
 			p.s.recordSourceHealth(p.c.ID, p.src, firstErr(err, errOriginStalled), false)
-			if !p.failover(ctx) {
-				sleepCtx(ctx, p.roundDelay())
-			}
+			p.failover(ctx)
+			sleepCtx(ctx, p.roundDelay())
 			p.reresolved, p.errs = false, 0
 			continue
 		case !p.reresolved && (hard || p.errs >= 3 || stale >= td):
@@ -349,9 +361,8 @@ func (p *passthroughProducer) run(ctx context.Context) {
 			// rounds without progress back off up to ten seconds while
 			// slate holds the playlist.
 			p.s.recordSourceHealth(p.c.ID, p.src, firstErr(err, errOriginStalled), false)
-			if !p.failover(ctx) {
-				sleepCtx(ctx, p.roundDelay())
-			}
+			p.failover(ctx)
+			sleepCtx(ctx, p.roundDelay())
 			p.reresolved, p.errs = false, 0
 			continue
 		}
@@ -370,9 +381,13 @@ func (p *passthroughProducer) run(ctx context.Context) {
 
 var errOriginStalled = errors.New("livetv: live source stalled")
 
+// roundDelay paces failover rounds that brought no media: the first after
+// progress is immediate, then 1 s, 2 s ... up to 10 s, while the reserve and
+// slate hold the playlist.
 func (p *passthroughProducer) roundDelay() time.Duration {
+	d := min(time.Duration(p.rounds)*time.Second, 10*time.Second)
 	p.rounds++
-	return min(time.Duration(p.rounds)*time.Second, 10*time.Second)
+	return d
 }
 
 type sourceChoice struct {
@@ -403,7 +418,7 @@ func (p *passthroughProducer) failover(ctx context.Context) bool {
 		rctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		raw, headers, err := p.s.ResolveStreamSource(rctx, p.c, src)
 		if err == nil {
-			err = p.open(rctx, src, raw, headers, false)
+			err = p.open(rctx, src, raw, headers, src.ID == failed.ID)
 		}
 		cancel()
 		if err != nil {

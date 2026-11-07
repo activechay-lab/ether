@@ -22,6 +22,14 @@ type hlsOrigin interface {
 	label() string
 }
 
+// segmentError is a failure to fetch one listed segment (or its key or init
+// section). The playlist itself is fine; the ingest retries and then skips
+// the segment rather than abandoning the source.
+type segmentError struct{ err error }
+
+func (e *segmentError) Error() string { return "livetv: segment fetch: " + e.err.Error() }
+func (e *segmentError) Unwrap() error { return e.err }
+
 var (
 	errOriginEnded  = errors.New("livetv: live source ended")
 	errMasterSource = errors.New("livetv: master playlist where a media playlist was expected")
@@ -210,7 +218,7 @@ func (in *hlsIngest) step(ctx context.Context) (progress bool, err error) {
 				in.failMSN, in.failures = s.msn, 1
 			}
 			if in.failures < 3 {
-				return progress, err
+				return progress, &segmentError{err}
 			}
 			// A segment that keeps failing is skipped; the gap is marked.
 			in.log.Warn("owned live segment skipped after repeated failures", "origin", in.origin.label(), "err", err)
