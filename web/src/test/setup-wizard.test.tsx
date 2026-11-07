@@ -987,10 +987,14 @@ describe("setup wizard", () => {
       await screen.findByRole("button", { name: "Finish now, add the TMDB key later" }),
     );
     const readyRegion = await screen.findByRole("region", { name: "Ether is ready" });
-    if (readyRegion.getAttribute("data-ready-state") === "animating") {
-      fireEvent.keyDown(window, { key: "Escape" });
-    }
-    expect(readyRegion).toHaveAttribute("data-ready-state", "settled");
+    // The Escape listener is attached in an effect after the region renders;
+    // keep pressing until the skip lands rather than racing that effect.
+    await waitFor(() => {
+      if (readyRegion.getAttribute("data-ready-state") === "animating") {
+        fireEvent.keyDown(window, { key: "Escape" });
+      }
+      expect(readyRegion).toHaveAttribute("data-ready-state", "settled");
+    });
     fireEvent.click(
       screen.getByRole("button", { name: "Playback quality: 1080p at home · change" }),
     );
