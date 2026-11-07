@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -141,7 +142,14 @@ func TestOpenReportsMigrationProgress(t *testing.T) {
 // without corrupting any bytes, and also checks genuine FTS damage afterward.
 func TestQuickCheckFreshFTSReader(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "fts #? alarm.db")
+	// The name exercises URI escaping. '?' is reserved in Windows file
+	// names (CreateFile fails, SQLite reports CANTOPEN), so only '#' and '%'
+	// are exercised there.
+	name := "fts #%? alarm.db"
+	if runtime.GOOS == "windows" {
+		name = "fts #% alarm.db"
+	}
+	path := filepath.Join(t.TempDir(), name)
 	db, err := sql.Open("sqlite", sqliteFileURI(path)+"?_pragma=journal_mode(WAL)")
 	if err != nil {
 		t.Fatal(err)

@@ -49,7 +49,10 @@ func TestPreviewHTTPFollowsSourceMemberAndRevision(t *testing.T) {
 		if err := os.WriteFile(p, []byte("first bytes"), 0600); err != nil {
 			t.Fatal(err)
 		}
-		file, err := os.Open(p)
+		// Open through os.Root like the production local-source path: on
+		// Windows that shares delete access, so the removal below models a
+		// real library deletion instead of failing on the test's own handle.
+		file, err := os.OpenInRoot(dir, name)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -10,9 +10,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/sockerr"
 )
 
 // Problem kinds reported by TestProvider.
@@ -122,7 +122,7 @@ func describeError(p config.UsenetProvider, err error) error {
 			msg += ": " + protoErr.Msg
 		}
 		return pe(ProblemUnavailable, msg+". The account may be over its connection limit; try again or lower the connection count.")
-	case errors.Is(err, syscall.ECONNREFUSED):
+	case sockerr.IsConnRefused(err):
 		return pe(ProblemUnreachable, fmt.Sprintf("%s refused the connection. Check the host and port.", addr))
 	case errors.Is(err, os.ErrDeadlineExceeded), errors.Is(err, context.DeadlineExceeded), isTimeout(err):
 		hint := ""

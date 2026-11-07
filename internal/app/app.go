@@ -85,7 +85,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
@@ -1067,14 +1066,4 @@ func hasPlaybackSource(cfg config.Config) bool {
 		}
 	}
 	return false
-}
-
-// addrInUse reports a bind failure because the port is taken: EADDRINUSE,
-// or WSAEADDRINUSE (10048), which Windows reports instead.
-func addrInUse(err error) bool {
-	var errno syscall.Errno
-	if !errors.As(err, &errno) {
-		return false
-	}
-	return errno == syscall.EADDRINUSE || errno == 10048
 }

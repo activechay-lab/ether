@@ -7,9 +7,9 @@ import (
 	"os"
 	"slices"
 	"sync"
-	"syscall"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/sockerr"
 )
 
 // unverifiedReason marks a winner committed to after every health check
@@ -76,7 +76,7 @@ func inconclusiveCheck(v validation) bool {
 // breaker backoff or locked out (core.ErrSourceUnavailable), and failed
 // dials, refused connections or DNS errors.
 func checkTimedOut(err error) bool {
-	if err == nil || permanentFailure(err) || errors.Is(err, core.ErrSourceUnavailable) || errors.Is(err, syscall.ECONNREFUSED) {
+	if err == nil || permanentFailure(err) || errors.Is(err, core.ErrSourceUnavailable) || sockerr.IsConnRefused(err) {
 		return false
 	}
 	var dns *net.DNSError
