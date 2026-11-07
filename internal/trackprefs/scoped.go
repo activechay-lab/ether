@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"strconv"
 	"strings"
 
+	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -184,16 +186,12 @@ func (s *Service) ScopedRulesWithSources(ctx context.Context, user int64, scope 
 		if entry.id == "" {
 			continue
 		}
-		rows, e := s.db.QueryContext(ctx, `SELECT field,value FROM trackprefs_scoped WHERE user_id=? AND scope=? AND scope_id=?`, user, entry.kind, entry.id)
+		stored, e := s.scopedRows(ctx, user, entry.kind, entry.id)
 		if e != nil {
 			return r, nil, e
 		}
-		for rows.Next() {
-			var field, raw string
-			if e = rows.Scan(&field, &raw); e != nil {
-				rows.Close()
-				return r, nil, e
-			}
+		for _, row := range stored {
+			field, raw := row.field, row.raw
 			switch field {
 			case "audio":
 				e = json.Unmarshal([]byte(raw), &r.AudioLanguages)
@@ -217,16 +215,10 @@ func (s *Service) ScopedRulesWithSources(ctx context.Context, user int64, scope 
 				e = errors.New("unknown scoped track preference")
 			}
 			if e != nil {
-				rows.Close()
 				return r, nil, e
 			}
 			sources[field] = entry.kind
 		}
-		if e = rows.Err(); e != nil {
-			rows.Close()
-			return r, nil, e
-		}
-		rows.Close()
 	}
 	s.mu.Lock()
 	if s.rulesCache == nil {
@@ -255,4 +247,28 @@ func LimitBitrate(existing, preference int) int {
 		return preference
 	}
 	return existing
+}
+
+type scopedRow struct{ field, raw string }
+
+// scopedRows reads one scope's overrides. A read request asks once per
+// scope: a list resolves track rules for every item, and the library and
+// device scopes are the same for all of them.
+func (s *Service) scopedRows(ctx context.Context, user int64, kind, id string) ([]scopedRow, error) {
+	return reqmemo.Do(ctx, "trackprefs:scoped:"+strconv.FormatInt(user, 10)+":"+kind+":"+id, func() ([]scopedRow, error) {
+		rows, err := s.db.QueryContext(ctx, `SELECT field,value FROM trackprefs_scoped WHERE user_id=? AND scope=? AND scope_id=?`, user, kind, id)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []scopedRow
+		for rows.Next() {
+			var row scopedRow
+			if err := rows.Scan(&row.field, &row.raw); err != nil {
+				return nil, err
+			}
+			out = append(out, row)
+		}
+		return out, rows.Err()
+	})
 }
