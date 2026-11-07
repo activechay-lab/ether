@@ -928,7 +928,8 @@ function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Pr
   });
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [error, setError] = useState<unknown>(null);
+  const [saveError, setSaveError] = useState<unknown>(null);
+  const [syncError, setSyncError] = useState<unknown>(null);
   const [report, setReport] = useState<QualitySyncReport | null>(null);
   if (!draft) return null;
   const imported = (quality.profiles ?? []).some((p) => p.import);
@@ -940,7 +941,7 @@ function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Pr
   async function save() {
     if (!draft) return;
     setSaving(true);
-    setError(null);
+    setSaveError(null);
     try {
       // The admin endpoint patches the quality section, so omitted run
       // state stays whatever the server recorded while this form was open.
@@ -950,7 +951,7 @@ function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Pr
       toast.success(t("Sync settings saved"));
       await onSaved();
     } catch (e) {
-      setError(e);
+      setSaveError(e);
     } finally {
       setSaving(false);
     }
@@ -958,13 +959,14 @@ function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Pr
 
   async function syncNow() {
     setSyncing(true);
-    setError(null);
+    setSyncError(null);
+    setReport(null);
     try {
       setReport(await releaseConsole.syncQuality());
       toast.success(t("Guide sync finished"));
       await onSaved();
     } catch (e) {
-      setError(e);
+      setSyncError(e);
     } finally {
       setSyncing(false);
     }
@@ -1023,7 +1025,7 @@ function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Pr
           {syncing ? t("Syncing…") : t("Sync now")}
         </Button>
       </div>
-      {error ? <ErrorPanel error={error} /> : null}
+      {syncError ? <ErrorPanel error={syncError} /> : null}
       {report ? (
         <Alert variant="success" role="status">
           <AlertTitle>{t("Guide sync finished")}</AlertTitle>
@@ -1049,11 +1051,11 @@ function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Pr
       <SaveBar
         dirty={dirty}
         saving={saving}
-        error={error}
+        error={saveError}
         onSave={() => void save()}
         onDiscard={() => {
           reset();
-          setError(null);
+          setSaveError(null);
         }}
       />
     </Section>

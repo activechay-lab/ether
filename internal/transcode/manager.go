@@ -862,6 +862,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 			rtxTimeline:        enhancementSelected(d),
 			rtxConfig:          rtxConfig,
 			liveInput:          req.LiveInput,
+			liveFromBacklog:    req.LiveInput && req.LiveFromBacklog,
 			loopInput:          len(slateData) > 0,
 			input:              req.InputURL,
 			inputHeaders:       inputHeaders,

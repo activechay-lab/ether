@@ -3,11 +3,7 @@ package livetv
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,7 +12,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/clientreg"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/streamgrant"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 const segmentDuration = 4 * time.Second
@@ -40,12 +35,13 @@ type session struct {
 	view                core.PlaySession   // immutable monitoring snapshot, including pending tunes
 	reserved            bool
 	ready               bool
-	relay               core.HLSSession
-	relayCancel         context.CancelFunc
 	relayInfo           *core.MediaInfo
 	steadyRefused       string // why Steady refused this tune; Direct must not escalate back into it
-	dash                core.DASHSession
-	http                core.HTTPSession
+	// owned is the Ether-owned client timeline of a Direct (passthrough or
+	// relay) session; ServePlaylist and ServeRelaySegment read it.
+	owned *ownedLease
+	dash  core.DASHSession
+	http  core.HTTPSession
 	// httpStart is closed when an in-flight ensureHTTP StartHLS finishes.
 	// Waiters re-check liveHTTP instead of starting a second encoder.
 	httpStart chan struct{}
@@ -82,7 +78,6 @@ type session struct {
 	user        core.User
 	caps        core.ClientCaps
 	last        time.Time
-	resources   map[string]string
 	closed      bool
 }
 
@@ -191,8 +186,8 @@ func (ss *session) close(s *Service) {
 	ss.generation++
 	broadcast := ss.broadcast
 	ss.broadcast = nil
-	relay := ss.relay
-	relayCancel := ss.relayCancel
+	owned := ss.owned
+	ss.owned = nil
 	dash := ss.dash
 	httpStream := ss.http
 	ss.dash = nil
@@ -204,12 +199,7 @@ func (ss *session) close(s *Service) {
 		broadcast.close()
 	}
 	s.revokeInput(ss)
-	if relayCancel != nil {
-		relayCancel()
-	}
-	if relay != nil {
-		relay.Close()
-	}
+	owned.close()
 	if dash != nil {
 		dash.Close()
 	}
@@ -352,7 +342,7 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 			ActivityID: liveSessionID(), ClientSessionID: clientSessionID,
 			UserID: u.ID, Channel: c, Programme: p, StartedAt: s.o.Now(),
 		},
-		streamGrant: randomID(), user: *u, caps: caps, last: s.o.Now(), resources: map[string]string{},
+		streamGrant: randomID(), user: *u, caps: caps, last: s.o.Now(),
 	}
 	base := s.ctx
 	if base == nil {
@@ -521,11 +511,17 @@ func (s *Service) touchMedia(ss *session) {
 	ss.consumed = true
 	ss.mediaStarted = true
 	ss.last = s.o.Now()
+	// A shared passthrough timeline may have left the source this tune
+	// selected; its producer records the health of what actually plays.
+	shared := ss.owned != nil && ss.owned.relay == nil
+	src := ss.inputSource
 	ss.mu.Unlock()
 	if first {
 		s.sessionLog(ss).Info("live media first requested", "since_tune", s.o.Now().Sub(ss.info.StartedAt))
 	}
-	s.recordSourceHealth(ss.info.Channel.ID, ss.inputSource, nil, true)
+	if !shared {
+		s.recordSourceHealth(ss.info.Channel.ID, src, nil, true)
+	}
 }
 func (s *Service) Session(ctx context.Context, id string, u *core.User) (SessionInfo, error) {
 	ss, err := s.getSession(ctx, id, u)
@@ -544,6 +540,11 @@ func (s *Service) Session(ctx context.Context, id string, u *core.User) (Session
 	info := ss.info
 	if ss.relayInfo != nil {
 		info.MediaInfo = ss.relayInfo
+	}
+	if lease := ss.owned; lease != nil && lease.source != nil {
+		if id := lease.source(); id != "" {
+			info.ActiveSourceID = id
+		}
 	}
 	channel := ss.info.Channel
 	ss.mu.Unlock()
@@ -626,23 +627,19 @@ func (s *Service) startIPTVSession(ctx context.Context, ss *session) error {
 		if stage.broadcast != nil {
 			stage.broadcast.close()
 		}
-		relay := stage.relay
 		ss.mu.Unlock()
-		if relay != nil {
-			relay.Close()
-		}
-		if stage.relayCancel != nil {
-			stage.relayCancel()
-		}
+		stage.owned.close()
 		s.revokeInput(stage)
 		return core.ErrNotFound
 	}
 	ss.inputURL, ss.inputSource, ss.inputHeaders = stage.inputURL, stage.inputSource, stage.inputHeaders
 	ss.info.MediaInfo, ss.info.ActiveSourceID = stage.info.MediaInfo, stage.info.ActiveSourceID
-	ss.relay, ss.relayInfo, ss.resources = stage.relay, stage.relayInfo, stage.resources
+	ss.relayInfo, ss.owned = stage.relayInfo, stage.owned
 	ss.broadcast = stage.broadcast
-	ss.relayCancel = stage.relayCancel
 	s.transferInput(stage, ss)
+	if ss.owned != nil && ss.owned.relay != nil {
+		ss.owned.relay.bind(ss)
+	}
 	ss.mu.Unlock()
 	return nil
 }
@@ -674,17 +671,12 @@ func (s *Service) ServePlaylist(w http.ResponseWriter, r *http.Request, id strin
 	ss.mu.Lock()
 	ss.consumed = true
 	shared := ss.broadcast != nil
-	relay := ss.relay
 	ss.mu.Unlock()
 	if shared {
 		s.serveBroadcastPlaylist(w, r, ss)
 		return
 	}
-	if relay != nil {
-		s.serveRelayPlaylist(w, r, ss)
-		return
-	}
-	s.ServeResource(w, r, id, "index.m3u8", u)
+	s.serveOwnedPlaylist(w, r, ss)
 }
 func withAuth(raw, grant string) string { return streamgrant.GrantURL(raw, grant) }
 
@@ -765,7 +757,7 @@ func (s *Service) startIPTVSource(ctx context.Context, ss *session) error {
 				}
 			}
 		}
-		ss.resources["index.m3u8"] = c.StreamURL
+		ss.owned = s.acquirePassthrough(ss)
 		s.sessionLog(ss).Info("live playback path selected", "path", "hls_passthrough", "analyzed", ss.info.MediaInfo != nil)
 		return nil
 	}
@@ -816,58 +808,99 @@ func (s *Service) takeEarlyProbe(ctx context.Context, ss *session, ch <-chan pro
 		return nil, ctx.Err()
 	}
 }
-func (s *Service) serveRelayPlaylist(w http.ResponseWriter, r *http.Request, ss *session) {
+
+// serveOwnedPlaylist writes a Direct session's owned live playlist. The
+// first request waits for the first segments (bounded), as players reject an
+// empty live playlist.
+func (s *Service) serveOwnedPlaylist(w http.ResponseWriter, r *http.Request, ss *session) {
 	ss.mu.Lock()
-	relay := ss.relay
+	lease := ss.owned
 	ss.mu.Unlock()
-	rec := httptest.NewRecorder()
-	relay.ServePlaylist(rec, r)
-	if rec.Code != 200 {
-		http.Error(w, "IPTV playout unavailable", rec.Code)
+	if lease == nil {
+		writeStreamError(w, core.ErrNotFound)
 		return
 	}
-	// An unknown-duration transcoder initially has no completed segments.
-	// Native players can reject that empty EVENT playlist immediately. Use
-	// the session's bounded segment wait before returning the first playlist.
-	if !relayPlaylistHasMedia(rec.Body.String()) {
-		ready := &relayReadinessWriter{header: make(http.Header)}
-		relay.ServeSegment(ready, r, 0)
-		if ready.status >= 400 {
-			http.Error(w, "IPTV playout unavailable", ready.status)
-			return
-		}
-		rec = httptest.NewRecorder()
-		relay.ServePlaylist(rec, r)
-		if rec.Code != 200 || !relayPlaylistHasMedia(rec.Body.String()) {
-			http.Error(w, "IPTV playout unavailable", http.StatusBadGateway)
-			return
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	err := lease.tl.waitStarted(ctx)
+	if errors.Is(err, errNeedsRelay) {
+		lease, err = s.passthroughToRelay(ctx, ss)
+		if err == nil {
+			err = lease.tl.waitStarted(ctx)
 		}
 	}
-	base, _ := url.Parse("http://relay.invalid/")
-	invalid := false
-	rewritten, err := rewriteHLS(rec.Body.Bytes(), base, func(raw string) string {
-		u, _ := url.Parse(raw)
-		name := path.Base(u.Path)
-		n, ok := transcode.ParseSegmentName(name)
-		if !ok {
-			invalid = true
-			return ""
+	if err != nil {
+		if r.Context().Err() == nil {
+			s.sessionLog(ss).Warn("owned live playlist unavailable", Diagnose("playlist", err).LogAttrs()...)
 		}
-		if n >= 0 {
-			name = fmt.Sprintf("%d%s", n, path.Ext(name))
-		}
-		return withAuth(fmt.Sprintf("/livetv/sessions/%s/0/relay/%s", ss.info.ID, name), ss.streamGrant)
+		http.Error(w, "IPTV playout unavailable", http.StatusBadGateway)
+		return
+	}
+	prefix := "/livetv/sessions/" + ss.info.ID + "/0/"
+	body := lease.tl.render(func(seq int64, ext string) string {
+		return withAuth(prefix+"relay/"+strconv.FormatInt(seq, 10)+"."+ext, ss.streamGrant)
+	}, func(name string) string {
+		return withAuth(prefix+"resource/"+name, ss.streamGrant)
 	})
-	if err != nil || invalid {
-		http.Error(w, "invalid relay segment", 502)
-		return
-	}
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-store")
-	if r.Method != "HEAD" {
-		w.Write(rewritten)
+	if r.Method != http.MethodHead {
+		w.Write(body)
 	}
 }
+
+// passthroughToRelay moves a passthrough session whose provider variants
+// cannot ride one owned timeline (demuxed audio renditions) onto the relay,
+// before its first playlist is served.
+func (s *Service) passthroughToRelay(ctx context.Context, ss *session) (*ownedLease, error) {
+	ss.prepareMu.Lock()
+	defer ss.prepareMu.Unlock()
+	ss.mu.Lock()
+	lease, info := ss.owned, ss.info.MediaInfo
+	ss.mu.Unlock()
+	if lease != nil && lease.relay != nil {
+		return lease, nil
+	}
+	if s.o.Transcoder == nil {
+		return nil, core.ErrNotAvailable
+	}
+	if info == nil {
+		probed, err := s.probeSessionInput(ctx, ss)
+		if err != nil {
+			return nil, err
+		}
+		if probed == nil || probed.Video() == nil {
+			return nil, &TuneError{Code: "no_video", Stage: "probe", cause: core.ErrNotAvailable}
+		}
+		copy := *probed
+		copy.Duration = 0
+		info = &copy
+	}
+	dec, cut, _ := s.relayPlan(ss, *info)
+	if err := s.reserveRelayGrant(ss, *info); err != nil {
+		return nil, err
+	}
+	next, err := s.startOwnedRelay(ctx, ss, *info, relayCaps(ss.caps), dec, cut)
+	if err != nil {
+		return nil, Diagnose("relay_start", err)
+	}
+	output := liveRelayInfo(*info, dec)
+	ss.mu.Lock()
+	if ss.closed {
+		ss.mu.Unlock()
+		next.close()
+		return nil, core.ErrNotFound
+	}
+	old := ss.owned
+	ss.owned, ss.relayInfo, ss.info.MediaInfo = next, &output, info
+	ss.mu.Unlock()
+	old.close()
+	s.sessionLog(ss).Info("live playback path selected", "path", "relay", "reason", "provider variants need remux")
+	return next, nil
+}
+
+// ServeRelaySegment serves segment n of the session's owned timeline (or of
+// its shared broadcast).
 func (s *Service) ServeRelaySegment(w http.ResponseWriter, r *http.Request, id string, n int, u *core.User) {
 	ss, err := s.getSession(r.Context(), id, u)
 	if err != nil {
@@ -876,7 +909,7 @@ func (s *Service) ServeRelaySegment(w http.ResponseWriter, r *http.Request, id s
 	}
 	ss.mu.Lock()
 	shared := ss.broadcast != nil
-	relay := ss.relay
+	lease := ss.owned
 	ss.mu.Unlock()
 	if shared {
 		if n < 0 {
@@ -886,14 +919,32 @@ func (s *Service) ServeRelaySegment(w http.ResponseWriter, r *http.Request, id s
 		s.serveBroadcastTS(w, r, ss, int64(n))
 		return
 	}
-	if relay == nil || n < transcode.InitSegment {
+	if lease == nil || n < 0 {
 		writeStreamError(w, core.ErrNotFound)
 		return
 	}
-	s.touchMedia(ss)
+	seg, err := lease.tl.segment(r.Context(), int64(n))
+	if err != nil {
+		writeStreamError(w, err)
+		return
+	}
+	if r.Method != http.MethodHead {
+		s.touchMedia(ss)
+	}
+	ctype := "video/mp2t"
+	if seg.ext == "m4s" {
+		ctype = "video/mp4"
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Length", strconv.Itoa(len(seg.data)))
+	w.Header().Set("Cache-Control", "private, max-age=60")
+	armWriteDeadline(w)
 	observed := s.observeMedia(w, ss)
 	defer observed.done()
-	relay.ServeSegment(observed, r, n)
+	observed.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		_, _ = observed.Write(seg.data)
+	}
 }
 
 // TranscodeFor is unused by shared broadcasts: decoder retries are owned by

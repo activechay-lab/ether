@@ -90,7 +90,7 @@ func TestPlaylistHeadersFollowMediaRedirectsOnly(t *testing.T) {
 					t.Fatal(manifest.Code)
 				}
 				out := httptest.NewRecorder()
-				s.ServeResource(out, httptest.NewRequest("GET", "/", nil), info.ID, stableID(edge.URL+"/hop"), u)
+				s.ServeRelaySegment(out, httptest.NewRequest("GET", "/", nil), info.ID, 0, u)
 				if out.Code != 200 || out.Body.Len() != 188 {
 					t.Fatalf("HLS media %d %d", out.Code, out.Body.Len())
 				}

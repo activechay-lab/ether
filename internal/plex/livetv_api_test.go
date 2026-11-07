@@ -207,7 +207,7 @@ func TestLiveTVDVRGuideProviderAndTuneShapes(t *testing.T) {
 		t.Fatalf("live start %d %s", start.Code, start.Body.String())
 	}
 	playlist := f.request(t, "GET", sessionPath+"/0/index.m3u8", nil)
-	if playlist.Code != 200 || !strings.Contains(playlist.Body.String(), "/resource/") {
+	if playlist.Code != 200 || !strings.Contains(playlist.Body.String(), "/relay/0.ts") {
 		t.Fatalf("playlist %d %s", playlist.Code, playlist.Body.String())
 	}
 	other := f.request(t, "GET", sessionPath+"/0/index.m3u8", map[string]string{"X-Plex-Token": friendToken})
