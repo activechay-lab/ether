@@ -233,6 +233,7 @@ type upstreamTap struct {
 	stalled    bool
 	failed     bool
 	failures   int // consecutive failed reconnects
+	refusals   int // consecutive refused reconnects (connection limit, auth, rate)
 	reconnects int
 	attempts   []time.Time // reconnect attempts in the burst window
 	bitrate    int64       // bits per second
@@ -469,7 +470,7 @@ func (t *upstreamTap) joinLocked(g *inputGrant, join string) int64 {
 			return t.keyBeforeLocked(off, 0)
 		}
 		if g.reserve > 0 {
-			return t.keyAtDepthLocked(g.reserve)
+			return t.keyAtDepthLocked(g.joinDepth())
 		}
 	}
 	return t.keyBeforeLocked(t.written, 2*time.Second)
@@ -595,7 +596,7 @@ func (t *upstreamTap) readAs(ctx context.Context, rd *tapReader, off int64, p []
 			g = rd.g
 		}
 		if t.ts != nil && g != nil && g.reserve > 0 {
-			off = t.keyAtDepthLocked(g.reserve)
+			off = t.keyAtDepthLocked(g.joinDepth())
 			rd.started = false
 		} else if t.ts != nil {
 			off = t.keyBeforeLocked(t.written, 2*time.Second)
@@ -1025,7 +1026,7 @@ func (t *upstreamTap) indexLocked(marks []tsMark) {
 func (t *upstreamTap) targetLocked() time.Duration {
 	var d time.Duration
 	for g := range t.refs {
-		d = max(d, g.reserve)
+		d = max(d, g.joinDepth())
 	}
 	return d
 }
@@ -1165,11 +1166,17 @@ func (s *Service) reconnectTap(t *upstreamTap, raw string, cause error) (io.Read
 			t.mu.Unlock()
 			return nil, errTapReconnectLimit
 		}
-		raise := t.failures >= tapFailAfter && !t.failed
+		raise := t.failures+t.refusals >= tapFailAfter && !t.failed
 		if raise {
 			t.failed = true
 		}
 		delay := tapReconnectDelays[min(t.failures, len(tapReconnectDelays)-1)]
+		if t.refusals > 0 {
+			// A refused open is retried at the grant's own refusal spacing
+			// (1 s, 28 attempts): the panel frees its slot on its own clock,
+			// and the stream should resume the moment it does.
+			delay = 0
+		}
 		var g *inputGrant
 		for ref := range t.refs {
 			if ref.ctx.Err() == nil {
@@ -1208,7 +1215,11 @@ func (s *Service) reconnectTap(t *upstreamTap, raw string, cause error) (io.Read
 		}
 		cause = err
 		t.mu.Lock()
-		t.failures++
+		if tapRefusal(err) {
+			t.refusals++
+		} else {
+			t.failures++
+		}
 		t.mu.Unlock()
 	}
 }
@@ -1278,9 +1289,25 @@ func (s *Service) reopenTap(ctx context.Context, t *upstreamTap, g *inputGrant, 
 	t.lastData, t.epochStart = time.Now(), time.Now()
 	t.epochClock = t.ts.clock
 	t.reconnects++
+	t.refusals = 0
 	t.ts.reconnect(t.minDepthLocked() >= tapDedupeDepth)
 	t.mu.Unlock()
 	return body, nil
+}
+
+// tapRefusal reports a provider refusing the open (connection limit,
+// authentication, rate) rather than failing: v0.3.5 paces those at one
+// second within the grant's 28-attempt ceiling.
+func tapRefusal(err error) bool {
+	var te *TuneError
+	if !errors.As(err, &te) {
+		return false
+	}
+	switch te.UpstreamStatus {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, 458, 509:
+		return true
+	}
+	return false
 }
 
 type closeFunc func() error

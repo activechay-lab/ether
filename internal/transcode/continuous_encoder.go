@@ -245,7 +245,14 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 		args = append(args, "-realtime", "1")
 	}
 	if enc == "libx264" {
-		args = append(args, "-x264-params", "vbv-init=0.1:rc-lookahead=20:sync-lookahead=0:aq-mode=2:aq-strength=0.8:psy-rd=1.0,0.15")
+		// A live provider output starts its client one short cushion behind
+		// the first picture; ten frames of lookahead keep mbtree while taking
+		// a third of a second off every segment's publish lag.
+		lookahead := 20
+		if r.LiveSource {
+			lookahead = 10
+		}
+		args = append(args, "-x264-params", fmt.Sprintf("vbv-init=0.1:rc-lookahead=%d:sync-lookahead=0:aq-mode=2:aq-strength=0.8:psy-rd=1.0,0.15", lookahead))
 	}
 	g := int((int64(r.SegmentDuration)*int64(f.FPSNum) + int64(time.Second*time.Duration(f.FPSDen))/2) / int64(time.Second*time.Duration(f.FPSDen)))
 	pix := "yuv420p"
@@ -255,7 +262,7 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 	if strings.HasSuffix(enc, "_qsv") || strings.HasSuffix(enc, "_videotoolbox") {
 		pix = "nv12"
 	}
-	args = append(args, "-pix_fmt", pix, "-bf", "0", "-g", strconv.Itoa(g), "-keyint_min", strconv.Itoa(g/4), "-sc_threshold", "0", "-force_key_frames", fmt.Sprintf("expr:if(lt(n,%d),eq(n,0)+eq(n,%d)+eq(n,%d),gte(n,(n_forced-2)*%d))", g, g/4, g/2, g), "-flags", "+global_header+cgop", "-c:a", "aac", "-b:a", fmt.Sprintf("%dk", max(r.Decision.AudioBitrateKbps, 128)), "-ar", "48000", "-ac", "2")
+	args = append(args, "-pix_fmt", pix, "-bf", "0", "-g", strconv.Itoa(g), "-keyint_min", strconv.Itoa(g/4), "-sc_threshold", "0", "-force_key_frames", continuousKeyframeExpr(f, r.SegmentDuration, r.LiveSource), "-flags", "+global_header+cgop", "-c:a", "aac", "-b:a", fmt.Sprintf("%dk", max(r.Decision.AudioBitrateKbps, 128)), "-ar", "48000", "-ac", "2")
 	// Tee encodes once and muxes the identical packets into all delivery forms.
 	duration := float64(g*f.FPSDen) / float64(f.FPSNum)
 	ds := strconv.FormatFloat(duration, 'f', 6, 64)

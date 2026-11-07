@@ -77,6 +77,11 @@ func TestHLSReserveWindow(t *testing.T) {
 	if !strings.Contains(string(next), "#EXT-X-MEDIA-SEQUENCE:103") || strings.Contains(string(next), "s102") {
 		t.Fatalf("window after serving 104:\n%s", next)
 	}
+	// A start window joins that much deeper; the target stays the reserve.
+	lead := &hlsInput{g: &inputGrant{reserve: 12 * time.Second, lead: 6 * time.Second}, lists: map[string]*hlsList{}, segs: map[string]int64{}, polling: map[string]bool{"x": true}}
+	if w, _ := lead.media("x", []byte(playlist), base); !strings.Contains(string(w), "#EXT-X-MEDIA-SEQUENCE:102") {
+		t.Fatalf("window with a 6 s start window:\n%s", w)
+	}
 	if d := h.health().ReserveDepth; d != 0 {
 		t.Fatalf("depth after the newest segment was served = %v", d)
 	}

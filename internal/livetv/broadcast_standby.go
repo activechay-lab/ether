@@ -10,11 +10,13 @@ import (
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
-// steadyStandby is a backup input decoding at its live edge while the
-// primary shows stress (TSDuck's delayed switch). It keeps only the newest
-// half second of pictures, so adopting it on failure splices current media
-// without a cold open. It holds its own provider connection, so it only
-// exists while the account's connection budget has room.
+// steadyStandby is a backup input opened at its live edge while the primary
+// shows stress (a delayed hot-standby switch). Its decoder is held by
+// backpressure once its first pictures are buffered, so adopting it on
+// failure splices media without a cold open, continuing exactly where it
+// paused: a playlist input keeps the rest of the segment it fetched instead
+// of waiting for the provider's next one. It holds its own provider
+// connection, so it only exists while the account's budget has room.
 type steadyStandby struct {
 	src      StreamSource
 	link     *steadyLink
@@ -23,7 +25,6 @@ type steadyStandby struct {
 	err      error
 	produced atomic.Bool
 	failed   atomic.Bool
-	adopted  atomic.Bool
 	done     chan struct{}
 	once     sync.Once
 }
@@ -43,32 +44,16 @@ func (sb *steadyStandby) run(ctx context.Context) {
 			return
 		}
 		sb.produced.Store(true)
-		if sb.adopted.Load() {
-			select {
-			case sb.frames <- frame:
-			case <-ctx.Done():
-				return
-			}
-			continue
-		}
-		for sent := false; !sent; {
-			select {
-			case sb.frames <- frame:
-				sent = true
-			default:
-				// Drop the oldest picture: a standby stays at its live edge.
-				select {
-				case <-sb.frames:
-				default:
-				}
-			}
+		select {
+		case sb.frames <- frame:
+		case <-ctx.Done():
+			return
 		}
 	}
 }
 
 // adopt hands the standby's decoder to the channel clock.
 func (sb *steadyStandby) adopt() transcode.Decoder {
-	sb.adopted.Store(true)
 	return &standbyDecoder{sb: sb}
 }
 
@@ -163,7 +148,7 @@ func (p *providerBroadcastPlanner) watchStandby(ctx context.Context) {
 		p.mu.Lock()
 		p.health, p.healthOK, p.healthFrom = h, healthy, a
 		p.mu.Unlock()
-		if healthy && (h.Stalled || h.Failed || h.DataAge > steadyStress) {
+		if healthy && (!h.Connected || h.Stalled || h.Failed || h.DataAge > steadyStress) {
 			stressed = true
 		}
 		// Switch on failure: once the primary stops delivering pictures (or

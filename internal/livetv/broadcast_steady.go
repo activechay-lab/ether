@@ -214,7 +214,8 @@ func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission,
 		return nil, "encode capacity in use (" + formatCores(load) + " of " + formatCores(budget) + " cores)"
 	}
 	var probed *steadyAdmission
-	for _, src := range s.orderedSourceCandidates(c) {
+	candidates := s.orderedSourceCandidates(c)
+	for i, src := range candidates {
 		if ctx.Err() != nil {
 			break
 		}
@@ -226,7 +227,12 @@ func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission,
 			s.recordSourceHealth(c.ID, src, err, false)
 			continue
 		}
-		attempt, cancel := context.WithTimeout(ctx, 6*time.Second)
+		// A hanging input leaves the tune's budget for the next one.
+		probeBudget := 6 * time.Second
+		if i < len(candidates)-1 {
+			probeBudget = 3 * time.Second
+		}
+		attempt, cancel := context.WithTimeout(ctx, probeBudget)
 		info, err := s.probeSessionInput(attempt, link.ss)
 		cancel()
 		if err == nil && info != nil && info.Video() == nil && len(info.Streams) > 0 {

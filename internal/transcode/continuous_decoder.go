@@ -98,7 +98,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		// Broadcast feeds are often interlaced and sometimes 4:3 or anamorphic.
 		// Deinterlace field by field (1080i50 airs as 50p), then fit the display
 		// aspect inside the working frame instead of stretching it.
-		videoFilter = liveVideoJumps(f) + fmt.Sprintf("bwdif=mode=send_field:deint=interlaced,scale=w='if(gte(dar,%[1]d/%[2]d),%[1]d,2*trunc(%[2]d*dar/2))':h='if(gte(dar,%[1]d/%[2]d),2*trunc(%[1]d/dar/2),%[2]d)',setsar=1,pad=%[1]d:%[2]d:(ow-iw)/2:(oh-ih)/2,fps=%[3]d/%[4]d,", f.Width, f.Height, f.FPSNum, f.FPSDen)
+		videoFilter = liveVideoJumps(f, liveForwardJump(r, u)) + fmt.Sprintf("bwdif=mode=send_field:deint=interlaced,scale=w='if(gte(dar,%[1]d/%[2]d),%[1]d,2*trunc(%[2]d*dar/2))':h='if(gte(dar,%[1]d/%[2]d),2*trunc(%[1]d/dar/2),%[2]d)',setsar=1,pad=%[1]d:%[2]d:(ow-iw)/2:(oh-ih)/2,fps=%[3]d/%[4]d,", f.Width, f.Height, f.FPSNum, f.FPSDen)
 	}
 	audioFilter := "aresample=48000:async=1:first_pts=0"
 	if r.Seeked && r.Offset > 0 {
@@ -111,7 +111,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	if r.Live {
 		args = append(args, "-loglevel", "info")
 		videoFilter += "showinfo=checksum=0,"
-		audioFilter = liveAudioJumps + audioFilter
+		audioFilter = liveAudioJumps(liveForwardJump(r, u)) + audioFilter
 	}
 	videoFilter += fmt.Sprintf("setpts=N*%d/(%d*TB)", f.FPSDen, f.FPSNum)
 	args = append(args, "-i", r.InputURL, "-map", "0:v:0", "-vf", videoFilter, "-pix_fmt", "yuv420p", "-c:v", "rawvideo", "-threads:v", "1", "-f", "rawvideo", sockets[0].url(), "-map", "0:a:0", "-af", audioFilter, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-f", "s16le", sockets[1].url())
@@ -261,10 +261,32 @@ func (d *continuousDecoder) receive(p *continuousProcess, ch, other chan []byte,
 // Each stream continues its own timeline across a backwards step or a forward
 // step over 10 s (ffmpeg's dts_delta_threshold); shorter forward gaps are
 // packet loss and stay, so fps and aresample keep pictures and sound in sync.
-const liveAudioJumps = "asetpts='if(eq(N,0),0,if(gt((PTS-PREV_INPTS)*TB,10)+lt((PTS-PREV_INPTS)*TB,-0.5),PREV_OUTPTS+NB_SAMPLES/(SR*TB),PREV_OUTPTS+PTS-PREV_INPTS))',"
+//
+// A playlist input loses whole segments instead: a 404/503 or slow segment
+// that ffmpeg skips leaves the same gap in sound and picture. With a reserve
+// ahead, the viewer keeps moving pictures (the content jumps forward, the
+// reserve shrinks) instead of a held picture and silence, so a playlist's
+// forward step over 1.5 s is closed too.
+func liveAudioJumps(forward float64) string {
+	return fmt.Sprintf("asetpts='if(eq(N,0),0,if(gt((PTS-PREV_INPTS)*TB,%g)+lt((PTS-PREV_INPTS)*TB,-0.5),PREV_OUTPTS+NB_SAMPLES/(SR*TB),PREV_OUTPTS+PTS-PREV_INPTS))',", forward)
+}
 
-func liveVideoJumps(f RawFormat) string {
-	return fmt.Sprintf("setpts='if(eq(N,0),PTS,if(gt((PTS-PREV_INPTS)*TB,10)+lt((PTS-PREV_INPTS)*TB,-0.5),PREV_OUTPTS+%d/(%d*TB),PREV_OUTPTS+PTS-PREV_INPTS))',", f.FPSDen, f.FPSNum)
+func liveVideoJumps(f RawFormat, forward float64) string {
+	return fmt.Sprintf("setpts='if(eq(N,0),PTS,if(gt((PTS-PREV_INPTS)*TB,%g)+lt((PTS-PREV_INPTS)*TB,-0.5),PREV_OUTPTS+%d/(%d*TB),PREV_OUTPTS+PTS-PREV_INPTS))',", forward, f.FPSDen, f.FPSNum)
+}
+
+// liveForwardJump is the forward timestamp step a live input closes rather
+// than fills: ffmpeg's dts_delta_threshold for a transport stream, a
+// missing segment for a playlist.
+func liveForwardJump(r DecoderRequest, u *url.URL) float64 {
+	if liveHLS(r, u) {
+		return 1.5
+	}
+	return 10
+}
+
+func liveHLS(r DecoderRequest, u *url.URL) bool {
+	return r.InputFormat == "hls" || (r.InputFormat == "" && strings.HasSuffix(strings.ToLower(u.Path), ".m3u8"))
 }
 
 // liveDecoderInputArgs are the input options of a live provider decoder.
@@ -281,7 +303,7 @@ func liveDecoderInputArgs(r DecoderRequest, u *url.URL) []string {
 		args = append(args, "-rw_timeout", "5000000", "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "2")
 	}
 	switch {
-	case r.InputFormat == "hls" || (r.InputFormat == "" && strings.HasSuffix(strings.ToLower(u.Path), ".m3u8")):
+	case liveHLS(r, u):
 		start := "-1"
 		if r.ReserveStart {
 			start = "0"

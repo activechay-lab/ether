@@ -97,7 +97,7 @@ func TestContinuousPlayout(t *testing.T) {
 		t.Fatalf("finished segments: %v", segments)
 	}
 	for i, seg := range segments {
-		start, frames := continuousSegmentFrames(format, 4*time.Second, int64(i))
+		start, frames := continuousSegmentFrames(format, 4*time.Second, false, int64(i))
 		if seg.Seq != int64(i) || seg.Duration != continuousFrameTime(format, frames) || !seg.Start.Equal(segments[0].Start.Add(continuousFrameTime(format, start))) {
 			t.Fatalf("segment clock: %v", segments)
 		}
@@ -161,7 +161,7 @@ func TestContinuousPlayout(t *testing.T) {
 				end = pts
 			}
 		}
-		_, frames := continuousSegmentFrames(format, 4*time.Second, int64(n))
+		_, frames := continuousSegmentFrames(format, 4*time.Second, false, int64(n))
 		if math.Abs(end-first+1.0/30-float64(frames)/30) > 0.001 {
 			t.Fatalf("segment duration %f", end-first+1.0/30)
 		}
@@ -208,7 +208,7 @@ func TestContinuousSegmentIndex(t *testing.T) {
 	start := time.Unix(1000, 0)
 	index.setStart(start)
 	for n := int64(0); n < 6; n++ {
-		first, count := continuousSegmentFrames(e.req.Source, e.req.SegmentDuration, n)
+		first, count := continuousSegmentFrames(e.req.Source, e.req.SegmentDuration, e.req.LiveSource, n)
 		for tick := first; tick < first+count; tick++ {
 			index.recordPolicy(tick, []any{"programme", n})
 		}

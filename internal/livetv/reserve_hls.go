@@ -298,7 +298,7 @@ func (h *hlsInput) media(raw string, body []byte, base *url.URL) ([]byte, []Upst
 	}
 	reserve := h.g.reserve
 	if reserve > 0 && !l.initialized {
-		l.floor = m.segs[m.startFor(reserve)].seq
+		l.floor = m.segs[m.startFor(h.g.joinDepth())].seq
 	}
 	if l.served >= 0 && l.served-1 > l.floor {
 		l.floor = l.served - 1
