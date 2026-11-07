@@ -191,6 +191,42 @@ func (s *Service) steadyCapacity(f transcode.RawFormat) (bool, float64, float64)
 	return load+steadyCost(f, hardware) <= budget, load, budget
 }
 
+// steadyStrainLag is the publication lag at which running outputs no longer
+// leave real-time headroom for another: a third of an Apple player's 3 s
+// stale-playlist budget at 2 s segments.
+const steadyStrainLag = time.Second
+
+// steadyStrained reports a running continuous output that is falling behind
+// real time: its encoder queue is repeating pictures, or a segment was
+// published late within the last minute. A new channel would only make every
+// running one worse, so it plays direct instead.
+func (r *broadcastRegistry) steadyStrained() bool {
+	r.mu.Lock()
+	outputs := make([]*broadcast, 0, len(r.outputs))
+	for _, b := range r.outputs {
+		outputs = append(outputs, b)
+	}
+	r.mu.Unlock()
+	for _, b := range outputs {
+		b.mu.Lock()
+		for _, rendition := range b.renditions {
+			rendition.queue.mu.Lock()
+			repeating := rendition.queue.repeating
+			rendition.queue.mu.Unlock()
+			lagging := false
+			if lag, ok := rendition.encoder.(interface{ RecentPublishLag() time.Duration }); ok {
+				lagging = lag.RecentPublishLag() > steadyStrainLag
+			}
+			if repeating || lagging {
+				b.mu.Unlock()
+				return true
+			}
+		}
+		b.mu.Unlock()
+	}
+	return false
+}
+
 // steadyAdmission is a probed first input for a new Steady output.
 type steadyAdmission struct {
 	shape steadyShape
@@ -205,6 +241,9 @@ type steadyAdmission struct {
 func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission, string) {
 	if _, ok := s.o.Transcoder.(continuousBudget); !ok {
 		return nil, "transcoder runs no continuous outputs"
+	}
+	if s.broadcasts.steadyStrained() {
+		return nil, "running channels are falling behind real time"
 	}
 	rockSolid := s.stabilityPreset(c) == stabilityRockSolid
 	// Refuse before touching the provider when not even the smallest
