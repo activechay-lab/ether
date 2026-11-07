@@ -52,6 +52,11 @@ type HLSRequest struct {
 	// LiveInput permits playlist demuxers for owner-configured live sources.
 	// Ordinary resolved media must leave this false, even if duration is unknown.
 	LiveInput bool
+	// LiveFromBacklog starts a live HLS input at the first segment its
+	// playlist lists (Live TV's relay trims that playlist to the channel's
+	// stability reserve), so the backlog primes the reserve instead of the
+	// demuxer's default three segments from the live edge.
+	LiveFromBacklog bool
 	// CopyTimestamps preserves source timestamps for HTTP Matroska output.
 	CopyTimestamps bool
 	// InputHeaders are optional HTTP headers ffmpeg must send when reading

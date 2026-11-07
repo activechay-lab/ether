@@ -116,9 +116,9 @@ func TestIPTVStagedPublishTransfersGrantAndStopRevokes(t *testing.T) {
 		t.Fatalf("transcoder input %q does not use the transferred grant URL %q", tc.requests[0].InputURL, input)
 	}
 	ss.mu.Lock()
-	relay := ss.relay
+	lease := ss.owned
 	ss.mu.Unlock()
-	if relay == nil || len(tc.hls) != 1 || relay != core.HLSSession(tc.hls[0]) {
+	if lease == nil || lease.relay == nil || len(tc.hls) != 1 || lease.relay.current() != core.HLSSession(tc.hls[0]) || lease.relay.sess.Load() != ss {
 		t.Fatal("staged relay was not published on the real session")
 	}
 

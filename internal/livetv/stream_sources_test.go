@@ -58,7 +58,7 @@ func TestChannelSourcesFallbackCooldownRecoveryAndViewerIsolation(t *testing.T) 
 		t.Fatal("primary was not tried exactly once")
 	}
 	ss, err := s.getSession(context.Background(), first.ID, u)
-	if err != nil || ss.resources["index.m3u8"] != c.StreamSources[1].URL {
+	if err != nil || ss.inputSource.ID != "backup" || ss.inputURL != c.StreamSources[1].URL || ss.owned == nil {
 		t.Fatal("session did not pin the selected backup")
 	}
 	if _, err := s.Session(context.Background(), first.ID, &core.User{ID: 8}); !errors.Is(err, core.ErrUnauthorized) {
@@ -190,13 +190,21 @@ func TestStreamSourcesRejectUnsafeAndAmbiguousInputs(t *testing.T) {
 	}
 }
 
-func TestFailedMediaCoolsOnlyItsPinnedSource(t *testing.T) {
+// A source whose media fails is left for a healthy backup inside the same
+// owned timeline: the viewer's playlist comes up on the backup, and only the
+// failed source cools.
+func TestFailedMediaFailsOverToHealthyBackup(t *testing.T) {
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/gone.ts" {
+		switch r.URL.Path {
+		case "/gone.ts":
 			http.NotFound(w, r)
-			return
+		case "/ok.ts":
+			fmt.Fprint(w, "OK")
+		case "/backup":
+			fmt.Fprint(w, "#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\nok.ts\n")
+		default:
+			fmt.Fprint(w, "#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\ngone.ts\n")
 		}
-		fmt.Fprint(w, "#EXTM3U\n#EXTINF:4,\ngone.ts\n")
 	}))
 	defer up.Close()
 	s := testService(t, Options{HTTPClient: up.Client()})
@@ -209,25 +217,23 @@ func TestFailedMediaCoolsOnlyItsPinnedSource(t *testing.T) {
 	}
 	u := &core.User{ID: 1}
 	first, err := s.Tune(context.Background(), u, c.ID, core.ClientCaps{})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || first.ActiveSourceID != "primary" {
+		t.Fatalf("tune: %+v %v", first, err)
 	}
+	defer s.Stop(context.Background(), first.ID, u)
 	r := httptest.NewRequest("GET", "/", nil)
 	playlist := httptest.NewRecorder()
 	s.ServePlaylist(playlist, r, first.ID, u)
+	if playlist.Code != 200 {
+		t.Fatalf("playlist: %d %s", playlist.Code, playlist.Body.String())
+	}
 	media := httptest.NewRecorder()
-	s.ServeResource(media, r, first.ID, stableID(up.URL+"/gone.ts"), u)
-	if media.Code != 404 {
-		t.Fatalf("missing media status=%d", media.Code)
+	s.ServeRelaySegment(media, r, first.ID, 0, u)
+	if media.Code != 200 || media.Body.String() != "OK" {
+		t.Fatalf("backup media: %d %q", media.Code, media.Body.String())
 	}
 	status, _ := s.StreamSourceStatuses(context.Background(), c.ID)
-	if status[0].State != "cooling_down" || status[1].State != "unchecked" {
+	if status[0].State != "cooling_down" || status[1].State == "cooling_down" {
 		t.Fatalf("failed media changed the wrong input's health: %+v", status)
 	}
-	s.Stop(context.Background(), first.ID, u)
-	second, err := s.Tune(context.Background(), u, c.ID, core.ClientCaps{})
-	if err != nil || second.ActiveSourceID != "backup" {
-		t.Fatalf("retune did not use backup: %+v err=%v", second, err)
-	}
-	s.Stop(context.Background(), second.ID, u)
 }

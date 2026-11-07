@@ -496,24 +496,20 @@ func TestIPTVRelativeManifestKeysRangesRetryAndReconnect(t *testing.T) {
 		s.ServeResource(rec, r, ss.ID, key, u)
 		return rec
 	}
-	master := request("index.m3u8", nil)
-	if master.Code != 200 || strings.Contains(master.Body.String(), upstream.URL) || strings.Contains(master.Body.String(), "X-Plex-Token=") || !strings.Contains(master.Body.String(), "X-Ether-Stream-Token=") {
-		t.Fatalf("master rewrite failed: %d %s", master.Code, master.Body.String())
+	// The client reads Ether's own media playlist: the variant is chosen
+	// server-side, provider URLs never appear, keys and init sections are
+	// owned resources, byte ranges are resolved and the implicit IV becomes
+	// explicit (Ether renumbers segments).
+	playlist := request("index.m3u8", nil)
+	b := playlist.Body.String()
+	if playlist.Code != 200 || strings.Contains(b, upstream.URL) || strings.Contains(b, "X-Plex-Token=") || !strings.Contains(b, "X-Ether-Stream-Token=") || strings.Contains(b, "STREAM-INF") {
+		t.Fatalf("owned playlist failed: %d %s", playlist.Code, b)
 	}
 	if attempts.Load() < 3 {
 		t.Fatal("upstream not retried")
 	}
-	var variantKey string
-	for _, line := range strings.Split(master.Body.String(), "\n") {
-		if line != "" && !strings.HasPrefix(line, "#") {
-			v, _ := url.Parse(line)
-			variantKey = path.Base(v.Path)
-		}
-	}
-	variant := request(variantKey, nil)
-	b := variant.Body.String()
-	if variant.Code != 200 || !strings.Contains(b, "#EXT-X-DISCONTINUITY") || !strings.Contains(b, "#EXT-X-BYTERANGE:4@0") {
-		t.Fatalf("media rewrite failed %d %s", variant.Code, b)
+	if !strings.Contains(b, "#EXT-X-MEDIA-SEQUENCE:0") || !strings.Contains(b, "#EXT-X-DISCONTINUITY-SEQUENCE:0") || strings.Contains(b, "BYTERANGE") || !strings.Contains(b, "IV=0x00000000000000000000000000000032") {
+		t.Fatalf("owned playlist numbering: %s", b)
 	}
 	uris := hlsURI.FindAllStringSubmatch(b, -1)
 	if len(uris) != 2 {
@@ -524,15 +520,9 @@ func TestIPTVRelativeManifestKeysRangesRetryAndReconnect(t *testing.T) {
 	if key.Code != 200 || key.Body.String() != "0123456789abcdef" || key.Header().Get("Content-Type") != "application/octet-stream" {
 		t.Fatalf("binary key not proxied: status=%d type=%q body=%s", key.Code, key.Header().Get("Content-Type"), key.Body.String())
 	}
-	var segmentKey string
-	for _, line := range strings.Split(b, "\n") {
-		if line != "" && !strings.HasPrefix(line, "#") {
-			v, _ := url.Parse(line)
-			segmentKey = path.Base(v.Path)
-		}
-	}
-	segment := request(segmentKey, map[string]string{"Range": "bytes=0-3"})
-	if segment.Code != 206 || segment.Body.String() != "DATA" || segment.Header().Get("Content-Range") == "" {
+	segment := httptest.NewRecorder()
+	s.ServeRelaySegment(segment, httptest.NewRequest("GET", "/", nil), ss.ID, 0, u)
+	if segment.Code != 200 || segment.Body.String() != "DATA" {
 		t.Fatalf("segment range failed %d %s", segment.Code, segment.Body.String())
 	}
 	unknown := request("arbitrary-upstream-url", nil)
