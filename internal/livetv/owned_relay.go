@@ -452,6 +452,12 @@ func (p *relayProducer) run(ctx context.Context) {
 			case p.tl.depth() >= td:
 				// The reserve still covers the client; ffmpeg's own input
 				// retries (and the tap's reconnects) get that long.
+			case healthy && h.Kind == "ts" && !h.Failed:
+				// The tap is reconnecting the same source underneath this
+				// ffmpeg and splices it back in (no EOF, continuous
+				// timestamps). Re-granting would close the tap mid-reconnect
+				// and throw its reserve away; slate covers the gap, and only
+				// InputFailed (or a backup above) moves on.
 			case since > limit+2*td:
 				// The tap reconnects the same source while slate covers;
 				// fall through when that takes too long.
