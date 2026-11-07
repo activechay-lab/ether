@@ -49,7 +49,11 @@ func TestReserveMeasure(t *testing.T) {
 		burst             time.Duration // provider keeps this much behind live and sends it at once
 		dropAt            time.Duration // provider closes the connection
 		stallAt, stallFor time.Duration // provider stops sending, connection open
-		run               time.Duration
+		// copy models a probe followed by a relay ffmpeg in copy mode: the
+		// probe reads 1 MiB and leaves, then the reader takes every byte it
+		// is released (Direct's owned relay on a real-time grant).
+		copy bool
+		run  time.Duration
 	}
 	scenarios := []scenario{
 		{name: "steady-no-burst", run: 20 * time.Second},
@@ -57,6 +61,7 @@ func TestReserveMeasure(t *testing.T) {
 		{name: "burst5-drop", burst: 5 * time.Second, dropAt: 12 * time.Second, run: 25 * time.Second},
 		{name: "burst8-stall6", burst: 8 * time.Second, stallAt: 12 * time.Second, stallFor: 6 * time.Second, run: 28 * time.Second},
 		{name: "no-burst-drop", dropAt: 12 * time.Second, run: 25 * time.Second},
+		{name: "copy-burst8-stall6", burst: 8 * time.Second, stallAt: 12 * time.Second, stallFor: 6 * time.Second, run: 28 * time.Second, copy: true},
 	}
 	if only := os.Getenv("ETHER_RESERVE_SCENARIO"); only != "" {
 		var keep []scenario
@@ -134,6 +139,15 @@ func TestReserveMeasure(t *testing.T) {
 				t.Fatal(err)
 			}
 			started := time.Now()
+			if sc.copy {
+				probe, err := http.Get(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				io.CopyN(io.Discard, probe.Body, 1<<20)
+				probe.Body.Close()
+				time.Sleep(50 * time.Millisecond)
+			}
 			res, err := http.Get(input)
 			if err != nil {
 				t.Fatal(err)
@@ -204,14 +218,14 @@ func TestReserveMeasure(t *testing.T) {
 							g.mu.Unlock()
 							tp.mu.Lock()
 							for rd := range tp.active {
-								t.Logf("rd off %d written %d head %d clockAt %d marks %d pace %v started %v", rd.off, tp.written, tp.headClockLocked(), tp.clockAtLocked(rd.off), len(tp.marks), rd.pace, rd.started)
+								t.Logf("rd off %d written %d head %d clockAt %d marks %d pace %v started %v", rd.off, tp.written, tp.headClockLocked(), tp.clockAtLocked(rd.off), len(tp.marks), rd.pace != nil, rd.pace != nil && rd.pace.anchored)
 							}
 							tp.mu.Unlock()
 							t.Logf("health %+v", h)
 						}
 					}
 				}
-				if ahead > time.Second {
+				if ahead > time.Second && !sc.copy {
 					time.Sleep(10 * time.Millisecond)
 					continue
 				}

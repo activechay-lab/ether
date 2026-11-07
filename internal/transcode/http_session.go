@@ -247,6 +247,7 @@ func (s *httpSession) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "transcode failed", http.StatusServiceUnavailable)
 			return
 		}
+		cmd.Background = !s.req.LiveInput
 		proc, err := s.m.runner.Start(cmd)
 		if err != nil {
 			s.mu.Unlock()

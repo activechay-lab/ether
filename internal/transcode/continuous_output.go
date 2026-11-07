@@ -98,6 +98,7 @@ func (r *continuousTSReader) Close() error {
 
 type continuousSegmentIndex struct {
 	kicks                    chan struct{}
+	lastReceived             time.Time
 	lag                      time.Duration // publication lag of the newest segment
 	maxLag                   time.Duration // worst lag since the last progress report
 	peakLag                  time.Duration // worst lag within the last minute
@@ -338,21 +339,27 @@ func (s *continuousSegmentIndex) ServeInit(w http.ResponseWriter, r *http.Reques
 }
 
 // Apple players stop a live item whose playlist gains no segment for 1.5
-// target durations. Publication lag is how long after its last picture's
-// output time a segment became servable; warn well before that limit.
+// target durations. Publication lag is how much later than its own duration
+// after the previous one a segment became servable: the gap a client sees
+// beyond the cadence. Warn once it uses half the client's margin.
 func (s *continuousSegmentIndex) noteLagLocked(seg Segment, received time.Time) {
-	lag := received.Sub(seg.Start.Add(seg.Duration))
-	if lag < 0 {
-		lag = 0
+	lag := time.Duration(0)
+	if !s.lastReceived.IsZero() {
+		lag = max(0, received.Sub(s.lastReceived)-seg.Duration)
 	}
+	s.lastReceived = received
 	s.lag = lag
 	s.maxLag = max(s.maxLag, lag)
 	if lag >= s.peakLag || time.Since(s.peakAt) > time.Minute {
 		s.peakLag, s.peakAt = lag, time.Now()
 	}
-	if limit := s.enc.req.SegmentDuration * 3 / 2; lag > limit/2 && time.Since(s.lagWarned) > time.Minute && s.enc.m != nil {
+	segment := s.enc.req.SegmentDuration
+	if segment <= 0 {
+		segment = 4 * time.Second
+	}
+	if margin := segment / 2; lag > margin/2 && time.Since(s.lagWarned) > time.Minute && s.enc.m != nil {
 		s.lagWarned = time.Now()
-		s.enc.m.log.Warn("continuous output published late", "session", s.enc.req.SessionID, "segment", seg.Seq, "lag", lag, "clientLimit", limit, "droppedHistoryWrites", s.enc.store.droppedWrites())
+		s.enc.m.log.Warn("continuous output published late", "session", s.enc.req.SessionID, "segment", seg.Seq, "late", lag, "clientMargin", margin, "droppedHistoryWrites", s.enc.store.droppedWrites())
 	}
 }
 
