@@ -37,6 +37,7 @@ type Indexer struct {
 	// usenetReady reports whether a Usenet provider is enabled; nil means
 	// unknown (no debrid-only source check).
 	usenetReady func() bool
+	packNamer   PackNamer
 }
 
 var _ core.Indexer = (*Indexer)(nil)
@@ -46,6 +47,11 @@ func NewIndexer(inner core.Indexer, svc *Service) *Indexer { return &Indexer{inn
 
 // SetUsenetReady wires the "is a Usenet provider enabled" check used by
 // MissingSources. Call before the indexer is used.
+// SetPackNamer sets what reads real file names out of an obfuscated Usenet
+// season pack (PAR2) so its wanted episode can be found. Without one, only
+// packs with readable file names resolve.
+func (x *Indexer) SetPackNamer(n PackNamer) { x.packNamer = n }
+
 func (x *Indexer) SetUsenetReady(fn func() bool) { x.usenetReady = fn }
 
 // sourceInventory is what MissingSources needs from the inner indexer
@@ -439,7 +445,12 @@ func (x *Indexer) FetchNZB(ctx context.Context, r core.Release) ([]byte, error) 
 		if x.usenetReady != nil && !x.usenetReady() {
 			return nil, fmt.Errorf("usenet release %q: %w", r.Name, core.ErrNotAvailable)
 		}
-		return x.inner.FetchNZB(ctx, r)
+		data, err := x.inner.FetchNZB(ctx, r)
+		if err != nil || !r.Info.FullSeason || r.Target == nil {
+			return data, err
+		}
+		// A Usenet season pack plays as its wanted episode's files only.
+		return x.episodeNZB(ctx, r, data)
 	}
 	if !x.svc.Enabled() {
 		return nil, fmt.Errorf("torrent release %q: %w", r.Name, ErrNoProvider)

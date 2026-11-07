@@ -103,6 +103,7 @@ func (a *App) buildSources(ctx context.Context, cfg config.Config) error {
 	a.media = debrid.NewEngine(a.debrid, debrid.EngineOptions{Inner: eng, Health: eng, Cache: a.cache, Logger: log.With("component", "debrid")})
 	a.closers = append(a.closers, func() { a.media.Close() })
 	a.sources = debrid.NewIndexer(&livetv.VODIndexer{Inner: ss, Service: func() *livetv.Service { return a.livetv }}, a.debrid)
+	a.sources.SetPackNamer(a.engine)
 	a.sources.SetUsenetReady(func() bool {
 		return usenetReady() || a.hasEnabledPluginSources()
 	})
