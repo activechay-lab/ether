@@ -59,6 +59,9 @@ type Identity struct {
 type Hooks struct {
 	// OnClientSeen receives the client identifier after authentication.
 	OnClientSeen func(clientID string)
+	// OnRemoteClientSeen records authenticated inbound connectivity. The
+	// address has passed the configured trusted-proxy rules; no token is sent.
+	OnRemoteClientSeen func(address string)
 	// OnTimeline is called for every timeline update (prefetch uses it).
 	OnTimeline func(user *core.User, key core.RatingKey, offset, duration time.Duration, state string)
 	// OnScrobble is called when a user marks an item watched.

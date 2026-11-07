@@ -78,10 +78,15 @@ type Status struct {
 	Presence PresenceStatus `json:"presence"`
 	// PlexReachable is plex.tv's last notifyConnectivity verdict for our
 	// published address (nil until one arrives).
-	PlexReachable   *bool     `json:"plexReachable,omitempty"`
-	Friends         int       `json:"friends"`
-	LastFriendSync  time.Time `json:"lastFriendSync,omitempty"`
-	FriendSyncError string    `json:"friendSyncError,omitempty"`
+	PlexReachable          *bool     `json:"plexReachable,omitempty"`
+	PlexReachableCheckedAt time.Time `json:"plexReachableCheckedAt,omitzero"`
+	// Recent authenticated inbound traffic is external evidence even when
+	// plex.tv's independent connectivity check fails. Never persist client IPs.
+	RemoteClientLastSeen  time.Time `json:"remoteClientLastSeen,omitzero"`
+	RemoteClientReachable bool      `json:"remoteClientReachable"`
+	Friends               int       `json:"friends"`
+	LastFriendSync        time.Time `json:"lastFriendSync,omitempty"`
+	FriendSyncError       string    `json:"friendSyncError,omitempty"`
 	// TokenRejected reports that plex.tv answered the server token with
 	// 401/403 (publishing or friend sync): typically the device record
 	// still belongs to an account the server was claimed by before.
@@ -441,6 +446,8 @@ func (r *Registrar) Status() Status {
 	r.mu.Lock()
 	st := r.st
 	r.mu.Unlock()
+	age := r.o.Now().Sub(st.RemoteClientLastSeen)
+	st.RemoteClientReachable = !st.RemoteClientLastSeen.IsZero() && age >= 0 && age < 5*time.Minute
 	st.LANAddresses = slices.Clone(st.LANAddresses)
 	st.Connections = slices.Clone(st.Connections)
 	st.PublishedURIs = slices.Clone(st.PublishedURIs)
@@ -452,6 +459,34 @@ func (r *Registrar) Status() Status {
 	}
 	st.Presence = r.presence.Status()
 	return st
+}
+
+// WANState never resurrects an older failed check after newer client evidence
+// expires. Without a fresh positive observation that state is unknown.
+func (st Status) WANState() string {
+	if st.RemoteClientReachable || (st.PlexReachable != nil && *st.PlexReachable) {
+		return "reachable"
+	}
+	if st.PlexReachable != nil && (st.RemoteClientLastSeen.IsZero() || !st.PlexReachableCheckedAt.Before(st.RemoteClientLastSeen)) {
+		return "unreachable"
+	}
+	return "unknown"
+}
+
+// ObserveRemoteClient is called only after Plex authentication. It performs
+// no database or network work. Exclude local/VPN peers and the server's own
+// public address, which may be a NAT loopback rather than an outside client.
+func (r *Registrar) ObserveRemoteClient(address string) {
+	ip := net.ParseIP(address)
+	if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || remote.IsCGNAT(ip) {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if own := net.ParseIP(r.st.PublicIP); own != nil && own.Equal(ip) {
+		return
+	}
+	r.st.RemoteClientLastSeen = r.o.Now()
 }
 
 func (r *Registrar) refreshConfigStatus(cfg config.Config) {
@@ -647,6 +682,7 @@ func (r *Registrar) refreshAddresses(ctx context.Context, cfg config.Config) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !slices.Equal(lan, r.lastLAN) || wan != r.lastWAN {
+		r.st.RemoteClientLastSeen = time.Time{}
 		if r.lastLAN != nil || r.lastWAN != "" {
 			r.log.Info("network addresses changed", "lan", lan, "wan", wan)
 		}
@@ -1435,6 +1471,7 @@ func (r *Registrar) onPubsub(m PubsubMessage) {
 		}
 		ok := m.Reachable()
 		r.st.PlexReachable = &ok
+		r.st.PlexReachableCheckedAt = r.o.Now()
 		r.asyncID = ""
 		r.mu.Unlock()
 		r.log.Info("plex.tv connectivity check", "reachable", ok)

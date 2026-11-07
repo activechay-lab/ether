@@ -468,7 +468,20 @@ export function remoteHealth(v: unknown): HealthItem {
   if (v.remoteAccess === true) {
     const upnp = isPlainObject(v.upnp) ? v.upnp : {};
     if (upnp.active === true) details.push(t("Port mapped with UPnP"));
-    if (v.plexReachable === false) {
+    if (v.remoteClientReachable === true) {
+      if (lastCheck) details.push(lastCheck);
+      return {
+        ...base,
+        level: "ok",
+        summary: t("Reachable away from home."),
+        details,
+        statusLabel: t("Reachable"),
+      };
+    }
+    const clientSeen = parseTime(v.remoteClientLastSeen);
+    const plexChecked = parseTime(v.plexReachableCheckedAt);
+    const superseded = clientSeen && (!plexChecked || clientSeen > plexChecked);
+    if (v.plexReachable === false && !superseded) {
       return {
         ...base,
         level: "warn",

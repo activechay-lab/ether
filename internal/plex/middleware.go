@@ -311,6 +311,9 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				if s.d.Hooks.OnClientSeen != nil {
 					s.d.Hooks.OnClientSeen(pr.ClientID)
 				}
+				if pr.Remote && s.d.Hooks.OnRemoteClientSeen != nil {
+					s.d.Hooks.OnRemoteClientSeen(pr.RemoteIP.String())
+				}
 				if s.d.Dashboard != nil {
 					s.d.Dashboard.SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform)
 				}

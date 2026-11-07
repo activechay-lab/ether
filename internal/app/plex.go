@@ -42,6 +42,11 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	}
 	hooks := plex.Hooks{
 		OnClientSeen: func(id string) { a.frontendClients.observe("plex", id) },
+		OnRemoteClientSeen: func(address string) {
+			if a.registrar != nil {
+				a.registrar.ObserveRemoteClient(address)
+			}
+		},
 	}
 
 	var deps plex.Deps

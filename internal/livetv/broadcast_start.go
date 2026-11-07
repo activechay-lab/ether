@@ -14,9 +14,13 @@ import (
 
 func (s *Service) screenDefaults(c Channel) config.LiveTVScreens {
 	defaults := config.LiveTVScreens{NoSignal: "error", OffAir: "card", ApplyTo: "converted"}
-	if c.Look != nil && c.Look.LookID != "" && s.o.StyleScreens != nil {
-		if v := s.o.StyleScreens(c.Look.LookID); v != nil {
-			defaults = *v
+	if c.Look != nil && c.Look.LookID != "" {
+		// Match StyleScreensEditor when the style has no explicit override.
+		defaults.NoSignal, defaults.StationID = "card", true
+		if s.o.StyleScreens != nil {
+			if v := s.o.StyleScreens(c.Look.LookID); v != nil {
+				defaults = *v
+			}
 		}
 	}
 	return defaults
@@ -53,8 +57,10 @@ func (s *Service) useBroadcast(c Channel) bool {
 func (s *Service) screenRequest(c Channel, reason string) core.ClipRequest {
 	offair := reason == offAirSlate
 	style := s.screenStyle(c, offair)
+	generic := "0"
 	if style == "error" {
 		style = "card"
+		generic = "1"
 	}
 	if reason != offAirSlate && reason != "busy" {
 		reason = "reconnecting"
@@ -77,7 +83,7 @@ func (s *Service) screenRequest(c Channel, reason string) core.ClipRequest {
 	if c.Look != nil && c.Look.LookID != "" {
 		lookID = c.Look.LookID
 	}
-	return core.ClipRequest{LookID: lookID, Moment: "screen." + style, ChannelID: c.ID, Bind: map[string]string{"screen.reason": reason, "screen.back": "", "channel.name": c.Name, "channel.number": c.Number, "screen.stationId": station}}
+	return core.ClipRequest{LookID: lookID, Moment: "screen." + style, ChannelID: c.ID, Bind: map[string]string{"screen.reason": reason, "screen.back": "", "channel.name": c.Name, "channel.number": c.Number, "screen.stationId": station, "screen.generic": generic}}
 }
 func (s *Service) openGraphicsDecoder(ctx context.Context, runner transcode.ContinuousRunner, request core.ClipRequest, format transcode.RawFormat, loop bool) (transcode.Decoder, func(), error) {
 	if s.o.Graphics == nil {

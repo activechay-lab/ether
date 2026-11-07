@@ -34,7 +34,9 @@ func (a *App) diagnosticsHandler() http.Handler {
 		add("Server discovery", st.Listed && st.LastPublishError == "", "Plex must list Ether and its connection addresses.", "Check the published address and refresh registration.")
 		add("Remote access enabled", cfg.Plex.RemoteAccess, "The configured public port must forward to Ether.", "Enable remote access and set the router port forward.")
 		add("Port mapping", st.UPnP.LastError == "" && st.UPnP.Active, "Automatic mapping is optional when a manual port forward exists.", "Use a manual forward if your router does not support UPnP/NAT-PMP.")
-		if st.PlexReachable == nil {
+		if st.RemoteClientReachable {
+			add("External reachability", true, "An authenticated Plex client connected from outside this network within the last five minutes.", "")
+		} else if st.WANState() == "unknown" {
 			steps = append(steps, diagnostic{"External reachability", "unknown", "Plex has not supplied an external connectivity result yet.", "Refresh registration and allow the connectivity check to complete."})
 		} else {
 			add("External reachability", *st.PlexReachable, "This result comes from plex.tv; local WAN loopback tests are not external proof.", "Check forwarding, double NAT/CGNAT, and the published public port.")

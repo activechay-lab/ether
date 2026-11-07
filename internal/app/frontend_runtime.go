@@ -462,7 +462,11 @@ func (r *frontendRuntime) plexStatus(ctx context.Context) frontend.Status {
 	cfg := r.app.cfg.Get()
 	st := frontend.Status{TargetVersion: plextv.PMSVersion(cfg), LAN: "unknown", WAN: "unknown", Conformance: "unknown", LiveStreamsKnown: true}
 	targets, machine := r.lanInputs()
-	if !lan.checked.IsZero() && lan.fingerprint == lanFingerprint(targets, machine) {
+	currentLAN := !lan.checked.IsZero() && lan.fingerprint == lanFingerprint(targets, machine)
+	if !currentLAN || time.Since(lan.checked) >= 5*time.Minute {
+		r.refreshLAN()
+	}
+	if currentLAN {
 		st.LAN = lan.state
 		st.LANReason = lan.reason
 		st.LANCheckedAt = lan.checked
@@ -476,16 +480,11 @@ func (r *frontendRuntime) plexStatus(ctx context.Context) frontend.Status {
 		st.ConnectURLs = connectionURLs(addr.String(), "", addresses)
 	}
 	if r.app.registrar != nil {
-		for _, connection := range r.app.registrar.Status().Connections {
+		remote := r.app.registrar.Status()
+		for _, connection := range remote.Connections {
 			st.ConnectURLs = append(st.ConnectURLs, connection.URI)
 		}
-		if reachable := r.app.registrar.Status().PlexReachable; reachable != nil {
-			if *reachable {
-				st.WAN = "reachable"
-			} else {
-				st.WAN = "unreachable"
-			}
-		}
+		st.WAN = remote.WANState()
 	}
 	if snapshot, ok := ctx.Value(frontendStreamCountsKey{}).(frontendStreamCounts); ok {
 		st.LiveStreams, st.LiveStreamsKnown = snapshot.counts["plex"], snapshot.known

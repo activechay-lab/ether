@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/transcode"
 	"html"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -19,6 +21,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/go-chi/chi/v5"
@@ -283,6 +286,41 @@ func (s *Server) handleLiveDevices(w http.ResponseWriter, r *http.Request) {
 func liveLogo(c livetv.Channel) string {
 	return "/livetv/channels/" + url.PathEscape(c.ID) + "/logo.png"
 }
+
+func (s *Server) liveGuideLogo(r *http.Request, c livetv.Channel) string {
+	path := liveLogo(c)
+	pr := FromContext(r.Context())
+	if pr == nil || !(strings.EqualFold(pr.Platform, "tvOS") || strings.EqualFold(pr.Product, "Plex for Apple TV")) || r.Host == "" {
+		return path
+	}
+	// Native tvOS treats EPG thumbnails as standalone URLs, like Plex's
+	// provider-static images, rather than library paths relative to this PMS.
+	// Its image loader also does not carry the guide request's auth headers.
+	scheme, host := "http", r.Host
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	peerHost, _, _ := net.SplitHostPort(r.RemoteAddr)
+	peer, _ := netip.ParseAddr(peerHost)
+	trusted := peer.IsLoopback()
+	for _, prefix := range identity.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs) {
+		trusted = trusted || prefix.Contains(peer.Unmap())
+	}
+	if trusted {
+		if proto := r.Header.Get("X-Forwarded-Proto"); proto == "http" || proto == "https" {
+			scheme = proto
+		}
+		if forwarded := r.Header.Get("X-Forwarded-Host"); forwarded != "" && !strings.ContainsAny(forwarded, "/@?#, ") {
+			host = forwarded
+		}
+	}
+	u := url.URL{Scheme: scheme, Host: host, Path: path}
+	q := url.Values{}
+	q.Set("X-Plex-Token", pr.Token)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 func (s *Server) handleLiveChannels(w http.ResponseWriter, r *http.Request) {
 	cs, err := s.d.LiveTV.AllowedChannels(r.Context(), FromContext(r.Context()).User)
 	if err != nil {
@@ -292,7 +330,7 @@ func (s *Server) handleLiveChannels(w http.ResponseWriter, r *http.Request) {
 	out := []liveChannel{}
 	maps := []liveMapping{}
 	for _, c := range cs {
-		out = append(out, liveChannel{ID: c.ID, GridKey: c.ID, VCN: c.Number, Thumb: liveLogo(c), Title: c.Name, CallSign: c.Name, Language: "eng"})
+		out = append(out, liveChannel{ID: c.ID, GridKey: c.ID, VCN: c.Number, Thumb: s.liveGuideLogo(r, c), Title: c.Name, CallSign: c.Name, Language: "eng"})
 		maps = append(maps, liveMapping{c.ID, c.Number, "1", c.GuideID})
 	}
 	s.write(w, r, &liveContainer{Size: len(out), Identifier: livetv.Provider, Channel: out, ChannelMapping: maps})

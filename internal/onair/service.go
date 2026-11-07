@@ -217,11 +217,33 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 	var d scene.Document
 	f := ""
 	if strings.HasPrefix(r.Moment, "screen.") {
-		f = "signal"
-		var err error
-		d, err = families.Get("signal", r.Moment)
-		if err != nil {
-			return renderJob{}, false
+		// The editor's Card and Be right back previews use the style's
+		// off-air and break scenes. Playout must select those same scenes,
+		// without depending on a rendered movie being ready.
+		role := ""
+		if r.Bind["screen.generic"] != "1" {
+			switch r.Moment {
+			case "screen.card":
+				role = "offair"
+			case "screen.brb":
+				role = "break"
+			}
+		}
+		styled := false
+		if ok && role != "" {
+			pick := r
+			pick.Moment = role
+			selected, styled = pickScene(l, pick)
+		}
+		if styled {
+			d = selected.Document
+		} else {
+			f = "signal"
+			var err error
+			d, err = families.Get("signal", r.Moment)
+			if err != nil {
+				return renderJob{}, false
+			}
 		}
 		ok = true
 	} else if isPlugin {
