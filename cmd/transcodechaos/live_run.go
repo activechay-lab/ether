@@ -318,10 +318,15 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 	var playerErr error
 	var pwg sync.WaitGroup
 	if player != "" {
+		playerURL := playlist
+		if tap, u, err := newPlayerTap(playlist, tuneStart); err == nil {
+			playerURL = u
+			defer tap.Close(filepath.Join(work, "player-http.log"))
+		}
 		pwg.Add(1)
 		go func() {
 			defer pwg.Done()
-			cmd := exec.CommandContext(ctx, player, playlist, fmt.Sprint(int(o.Observe/time.Second)))
+			cmd := exec.CommandContext(ctx, player, playerURL, fmt.Sprint(int(o.Observe/time.Second)))
 			playerOut, playerErr = cmd.Output()
 		}()
 	}
