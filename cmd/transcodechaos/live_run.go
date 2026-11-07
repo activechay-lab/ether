@@ -183,15 +183,18 @@ func runLive(o liveOptions) error {
 			return fmt.Errorf("baseline %s unreadable", o.Baseline)
 		}
 	}
-	passed, failed := 0, 0
+	passed, failed, invalid := 0, 0, 0
 	for _, r := range results {
-		if r.Verdict == "PASS" {
+		switch r.Verdict {
+		case "PASS":
 			passed++
-		} else {
+		case "INVALID":
+			invalid++
+		default:
 			failed++
 		}
 	}
-	fmt.Printf("live score: %d passed, %d failed of %d (%.0fs)\n", passed, failed, len(results), rep.Seconds)
+	fmt.Printf("live score: %d passed, %d failed, %d invalid (host stall, rerun) of %d (%.0fs)\n", passed, failed, invalid, len(results), rep.Seconds)
 	b, err := json.MarshalIndent(rep, "", "  ")
 	if err != nil {
 		return err
@@ -204,8 +207,8 @@ func runLive(o liveOptions) error {
 			return err
 		}
 	}
-	if failed > 0 {
-		return fmt.Errorf("%d live rows failed; report: %s", failed, o.Report)
+	if failed+invalid > 0 {
+		return fmt.Errorf("%d live rows failed, %d invalid; report: %s", failed, invalid, o.Report)
 	}
 	return nil
 }
@@ -312,6 +315,7 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 	segDir := filepath.Join(work, "segments")
 	_ = os.MkdirAll(segDir, 0o700)
 	judge := newProtocolJudge(ctx, o.FF, o.FP, playlist, segDir, tuneStart, ether.handledSeconds)
+	judge.sync = sc.Sync
 	observeCtx, stop := context.WithTimeout(ctx, o.Observe)
 	defer stop()
 	var playerOut []byte
@@ -361,6 +365,12 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 		res.Verdict = "FAIL"
 		res.Reasons = append(res.Reasons, res.Error)
 	}
+	if av != nil {
+		if n := probeStall(av); n >= 3 {
+			res.Verdict = "INVALID"
+			res.Reasons = append([]string{fmt.Sprintf("avprobe itself was not scheduled for %d s (host stall); the player verdict is void, rerun this row", n)}, res.Reasons...)
+		}
+	}
 	return
 }
 
@@ -405,6 +415,25 @@ type avResult struct {
 		At      float64 `json:"at"`
 	} `json:"errorLog"`
 	Stalls []float64 `json:"stallNotifications"`
+	// Control is the player's state sampled once per second; null where the
+	// probe's own timer did not run that second.
+	Control []*string `json:"controlPerSecond"`
+}
+
+// probeStall is the longest run of seconds in which avprobe's own timer did
+// not run (the process was not scheduled), after its first second. A player
+// that was not running cannot be judged: frames and requests stop with it.
+func probeStall(av *avResult) int {
+	longest, run := 0, 0
+	for i, c := range av.Control {
+		if i > 0 && c == nil {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	return longest
 }
 
 func summarise(p protocolReport, av *avResult, tune float64) viewerSummary {
@@ -499,6 +528,11 @@ func summarise(p protocolReport, av *avResult, tune float64) viewerSummary {
 	if td, first := p.TargetDuration, p.FirstPlaylistResponseS; td > 0 && first >= td/2 && first < td {
 		v.Warnings = append(v.Warnings, fmt.Sprintf("first playlist took %.1fs, over half TD %.0fs (AVFoundation hangs at 1x TD)", first, td))
 	}
+	if a := p.AVSync; a != nil {
+		for _, c := range a.Cuts {
+			v.Warnings = append(v.Warnings, "content time cut: "+c)
+		}
+	}
 	for k, n := range p.HTTPErrors {
 		v.ClientErrors = append(v.ClientErrors, fmt.Sprintf("http %s x%d", k, n))
 	}
@@ -538,6 +572,11 @@ func judgeRow(sc liveScenario, preset string, stuck float64, r liveResult) (stri
 	}
 	if td, first := p.TargetDuration, p.FirstPlaylistResponseS; td > 0 && first >= td {
 		why = append(why, fmt.Sprintf("first playlist took %.1fs >= TD %.0fs (AVFoundation never starts the item)", first, td))
+	}
+	if sc.Sync {
+		if why2 := syncVerdict(p.AVSync); why2 != "" {
+			why = append(why, why2)
+		}
 	}
 	if p.OverlongSegments > 0 {
 		why = append(why, fmt.Sprintf("%d segments exceed TD+0.5s (longest EXTINF %.1fs, media %.1fs)", p.OverlongSegments, p.MaxSegmentS, p.MaxMediaS))

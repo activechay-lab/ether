@@ -29,6 +29,10 @@ type liveVariant struct {
 	Seconds  int // loop period
 	SegFrame int // frames per segment
 	Audio    string
+	// Sync adds a lip-sync pulse every whole second of fixture time: a white
+	// flash in a black box in the bottom-right corner for 3 frames, and a
+	// 100 ms 3 kHz beep starting at the same instant over the 440 Hz tone.
+	Sync bool
 }
 
 const liveFPS = 30
@@ -38,6 +42,7 @@ var liveVariants = map[string]liveVariant{
 	"ac3":     {Name: "ac3", Size: "640x360", GOP: 60, Seconds: 64, SegFrame: 120, Audio: "ac3"},
 	"hd":      {Name: "hd", Size: "1280x720", GOP: 60, Seconds: 64, SegFrame: 120, Audio: "aac"},
 	"longgop": {Name: "longgop", Size: "640x360", GOP: 300, Seconds: 80, SegFrame: 300, Audio: "aac"},
+	"sync":    {Name: "sync", Size: "640x360", GOP: 60, Seconds: 64, SegFrame: 120, Audio: "aac", Sync: true},
 }
 
 type liveFixture struct {
@@ -62,9 +67,16 @@ func loadLiveFixture(ctx context.Context, ff, cacheDir string, v liveVariant) (*
 		audio = []string{"-c:a", "ac3", "-b:a", "192k"}
 	}
 	frames := v.Seconds * liveFPS
+	video := fmt.Sprintf("testsrc2=size=%s:rate=%d,drawbox=x=0:y=0:w=iw:h=ih/12:color=0x00FF00:t=fill", v.Size, liveFPS)
+	tone := "sine=frequency=440:sample_rate=48000"
+	if v.Sync {
+		box := "x=iw*7/8:y=ih*7/8:w=iw/8:h=ih/8"
+		video += fmt.Sprintf(",drawbox=%s:color=black:t=fill,drawbox=%s:color=white:t=fill:enable='lt(mod(n,%d),3)'", box, box, liveFPS)
+		tone = "aevalsrc=exprs='0.3*sin(2*PI*440*t)+if(lt(mod(t,1),0.1),0.5*sin(2*PI*3000*t),0)':s=48000"
+	}
 	args := []string{"-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", fmt.Sprintf("testsrc2=size=%s:rate=%d,drawbox=x=0:y=0:w=iw:h=ih/12:color=0x00FF00:t=fill", v.Size, liveFPS),
-		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+		"-f", "lavfi", "-i", video,
+		"-f", "lavfi", "-i", tone,
 		"-frames:v", fmt.Sprint(frames), "-t", fmt.Sprint(v.Seconds + 1),
 		"-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high", "-pix_fmt", "yuv420p", "-threads", "2",
 		"-g", fmt.Sprint(v.GOP), "-keyint_min", fmt.Sprint(v.GOP), "-sc_threshold", "0", "-b:v", "1200k", "-maxrate", "1500k", "-bufsize", "3000k",
