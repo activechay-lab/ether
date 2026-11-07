@@ -37,21 +37,7 @@ type providerBroadcastPlanner struct {
 	retryAt    time.Time
 	lastStress time.Time
 	retry      func() // asks the clock to replace the current input now
-	// health is the current attempt's upstream health, sampled off the frame
-	// clock by watchStandby: reading it takes relay and tap locks that
-	// upstream I/O can hold, and the clock must never wait on those.
-	health     UpstreamHealth
-	healthOK   bool
-	healthFrom *steadyAttempt
-	waiting    bool // failed() scheduled a later retry than now
-}
-
-// cachedHealth is the last health sample of attempt a.
-func (p *providerBroadcastPlanner) cachedHealthLocked(a *steadyAttempt) (UpstreamHealth, bool) {
-	if a == nil || p.healthFrom != a {
-		return UpstreamHealth{}, false
-	}
-	return p.health, p.healthOK
+	waiting    bool   // failed() scheduled a later retry than now
 }
 
 // steadyLink is one granted provider input: the relay grant (and with it the
@@ -195,8 +181,12 @@ func (p *providerBroadcastPlanner) keepStalled(stalledFor time.Duration) bool {
 		return false
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	h, ok := p.cachedHealthLocked(p.attempt)
+	a := p.attempt
+	p.mu.Unlock()
+	if a == nil {
+		return false
+	}
+	h, ok := p.s.inputHealth(a.link.ss)
 	return ok && !h.Failed
 }
 
@@ -222,7 +212,7 @@ func (p *providerBroadcastPlanner) failed(err error) time.Time {
 	// readers saw the end, so the ladder skips straight to the next source.
 	tapped := a.link.format == "mpegts"
 	failover := false
-	if h, ok := p.cachedHealthLocked(a); ok {
+	if h, ok := p.s.inputHealth(a.link.ss); ok {
 		tapped = h.Kind == "ts"
 		failover = h.Failed
 	}
@@ -280,16 +270,22 @@ func (p *providerBroadcastPlanner) open(ctx context.Context) (transcode.Decoder,
 				src = candidate
 			}
 		}
+		// Closing a link can close an upstream connection synchronously;
+		// never do that under p.mu, which the frame clock also takes.
+		var retired []*steadyLink
 		if sb := p.standby; sb != nil && sb.src.ID == id && sb.ready() {
 			p.standby = nil
 			if p.link != sb.link {
-				p.link.close(p.s)
+				retired = append(retired, p.link)
 			}
 			p.link = sb.link
 			p.ladder.opened(id, now)
 			decoder := p.wrap(ctx, src, nil, sb.adopt(), 0)
 			p.attempt = &steadyAttempt{src: src, link: sb.link, decoder: decoder}
 			p.mu.Unlock()
+			for _, l := range retired {
+				l.close(p.s)
+			}
 			p.logger().Info("live input switched to standby", "input", id)
 			return decoder, nil, nil
 		}
@@ -299,18 +295,21 @@ func (p *providerBroadcastPlanner) open(ctx context.Context) (transcode.Decoder,
 			if primed.src.ID == id && link == nil {
 				link = primed
 			} else {
-				primed.close(p.s)
+				retired = append(retired, primed)
 			}
 		}
 		if link != nil && (link.src.ID != id || link.src.URL != src.URL || link.uses >= steadyMaxLinkUses) {
 			// One provider connection per account while one is live: release
 			// the previous input before reserving another. A link used for every
 			// opening rung is re-resolved, refreshing expiring provider URLs.
-			link.close(p.s)
+			retired = append(retired, link)
 			link = nil
 		}
 		p.link = link
 		p.mu.Unlock()
+		for _, l := range retired {
+			l.close(p.s)
+		}
 		if link == nil {
 			var err error
 			link, err = p.s.linkSteadySource(ctx, c, src, "broadcast-"+c.ID, 0)
