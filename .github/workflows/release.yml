@@ -245,6 +245,10 @@ jobs:
       cancel-in-progress: false
     name: Signed update manifests + publish
     runs-on: ubuntu-latest
+    # The owner approves publication after testing the built release on a
+    # real device; until then the GitHub release stays a draft and no update
+    # channel moves. Approval: Actions run -> Review deployments.
+    environment: release-publish
     env:
       HAS_UPDATE_KEY: ${{ secrets.ETHER_UPDATE_PRIVATE_KEY != '' }}
     needs: [ci, certification, goreleaser, macos, windows]

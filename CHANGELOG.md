@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.5-rc.1 (release candidate)
+## 0.3.5 (2026-11-07)
 
 - **On Air:** virtual channels rebuilt as continuous channels, with styles and
   Style Studio, break reels, personal channels and plugin segments.
@@ -18,7 +18,7 @@
 - **Catalogue and console:** AI catalogue search, per-viewer catalogue rules,
   bulk Home row editing, poster badge fixes, database check, Cluster page.
 
-See the [RC1 notes](release-notes/v0.3.5-rc.1.md) for upgrade guidance and limits.
+See the [release notes](release-notes/v0.3.5.md) for upgrade guidance and limits.
 
 ## 0.3.1 (2026-11-01)
 
