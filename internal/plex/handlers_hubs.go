@@ -116,8 +116,18 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 		h.More = false
 		var selected []core.Title
 		selected, generation = s.shelfSnapshot(ctx, pr, h, hc, func() ([]core.Title, []model.Metadata) {
-			metadata := render()
-			return sourceItems, metadata
+			// A generation stores membership, not card presentation. Apply the
+			// same admission checks as renderTitles, but defer watch counts,
+			// artwork, GUIDs and episode-order decoration to the visible page.
+			// Rendering the whole 200-item window here discarded that work and
+			// then repeated it for the cards returned below.
+			sourceItems = build()
+			members := s.openableTitles(withStoredPolicy(ctx), pr.User, sourceItems, shelfContainsAll(ctx, sourceItems))
+			identities := make([]model.Metadata, 0, len(members))
+			for _, title := range members {
+				identities = append(identities, model.Metadata{RatingKey: title.Key.String()})
+			}
+			return sourceItems, identities
 		})
 		// Membership was already evaluated in the generation; refresh presentation
 		// (watch badges, artwork enrichment) without reapplying live availability.
