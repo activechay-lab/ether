@@ -200,28 +200,49 @@ func (s *Store) attachShared(ctx context.Context, b SharedBackend, o SharedOptio
 			}
 		}
 	}
-	if err == nil && found && doc.KeyFingerprint == s.KeyFingerprint() {
+	var next Config
+	for attempt := 1; err == nil && found; attempt++ {
+		// Validate the document before rewriting it, including its key.
+		next, err = s.mergeDoc(before, doc)
+		if err != nil {
+			break
+		}
 		var plain []byte
 		plain, _, err = openDocument([]byte(doc.Doc), s.credentialKey)
-		if err == nil {
-			var stored map[string]any
-			err = json.Unmarshal(plain, &stored)
-			if err == nil && stripRetiredLiveTV(stored) {
-				plain, err = json.Marshal(stored)
-				if err == nil {
-					doc.Doc, err = s.sealShared(plain)
-				}
-				if err == nil {
-					doc.Version, err = b.SaveShared(lctx, doc, doc.Version)
-				}
-			}
+		if err != nil {
+			break
 		}
+		var stored map[string]any
+		decoder := json.NewDecoder(bytes.NewReader(plain))
+		decoder.UseNumber()
+		if err = decoder.Decode(&stored); err != nil {
+			break
+		}
+		dropped := stripRetiredLiveTV(stored)
+		split := splitSharedProfileDocument(stored)
+		if !dropped && !split {
+			break
+		}
+		plain, err = json.Marshal(stored)
+		if err == nil {
+			doc.Doc, err = s.sealShared(plain)
+		}
+		if err == nil {
+			doc.Version, err = b.SaveShared(lctx, doc, doc.Version)
+		}
+		if errors.Is(err, ErrSharedConflict) && attempt < maxSharedAttempts {
+			doc, found, err = b.LoadShared(lctx)
+			if err == nil && !found {
+				err = ErrSharedMissing
+			}
+			continue
+		}
+		if err == nil {
+			next, err = s.mergeDoc(before, doc)
+		}
+		break
 	}
 	cancel()
-	var next Config
-	if err == nil {
-		next, err = s.mergeDoc(before, doc)
-	}
 	if err != nil {
 		s.writeMu.Unlock()
 		return err
