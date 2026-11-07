@@ -1,3 +1,0 @@
-testing: warning: no tests to run
-PASS
-ok  	github.com/braedonsaunders/ether/internal/usenet	0.287s [no tests to run]
