@@ -43,3 +43,35 @@ func TestHiddenTitlesAreMemoizedUntilAnObservation(t *testing.T) {
 		t.Fatalf("an observation did not recompute the hidden titles (%d reads)", recent.calls)
 	}
 }
+
+type gateCountingCatalog struct {
+	*fakeCatalog
+	changed int
+}
+
+func (c *gateCountingCatalog) ConsoleGateChanged() { c.changed++ }
+
+// Republishing the same hidden set must keep the catalogue's page cache:
+// a refresh on a large library otherwise made every browse a cache miss.
+// A new set or policy still invalidates it.
+func TestPublishHiddenInvalidatesOnlyOnChange(t *testing.T) {
+	x := setup(t)
+	cat := &gateCountingCatalog{fakeCatalog: x.cat}
+	x.s.d.Catalog = cat
+	publish := func(policy string, keys ...core.RatingKey) {
+		t.Helper()
+		if err := x.s.publishHidden(t.Context(), hiddenShows, policy, keys); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish("p", core.ShowKey(1))
+	publish("p", core.ShowKey(1))
+	if cat.changed != 1 {
+		t.Fatalf("an unchanged set invalidated the catalogue %d times", cat.changed)
+	}
+	publish("p", core.ShowKey(1), core.ShowKey(2))
+	publish("q", core.ShowKey(1), core.ShowKey(2))
+	if cat.changed != 3 {
+		t.Fatalf("a changed set or policy invalidated %d times, want 3", cat.changed)
+	}
+}

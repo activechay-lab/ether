@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -36,6 +37,16 @@ func (s *Service) publishHidden(ctx context.Context, kind, policy string, keys [
 	if err = store.LockKey(ctx, store.DialectOf(s.db), tx, "availability-hidden-"+kind); err != nil {
 		return err
 	}
+	// A refresh usually republishes the same set. Browse results read only
+	// the current generation and policy, so an unchanged pair keeps the
+	// catalogue's page cache: invalidating it on every refresh made each
+	// browse on a large library a cache miss.
+	var prevGen, prevPolicy string
+	err = tx.QueryRowContext(ctx, `SELECT generation,policy FROM availability_hidden_current WHERE kind=?`, kind).Scan(&prevGen, &prevPolicy)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	changed := prevGen != gen || prevPolicy != policy
 	now := time.Now().Unix()
 	for _, key := range sorted {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO availability_hidden(kind,generation,rating_key,created_at) VALUES(?,?,?,?) ON CONFLICT(kind,generation,rating_key) DO UPDATE SET created_at=excluded.created_at`, kind, gen, int64(key), now); err != nil {
@@ -51,7 +62,7 @@ func (s *Service) publishHidden(ctx context.Context, kind, policy string, keys [
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	if c, ok := s.d.Catalog.(interface{ ConsoleGateChanged() }); ok {
+	if c, ok := s.d.Catalog.(interface{ ConsoleGateChanged() }); ok && changed {
 		c.ConsoleGateChanged()
 	}
 	return nil
