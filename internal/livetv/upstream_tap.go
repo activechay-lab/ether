@@ -852,8 +852,7 @@ func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.He
 	}
 	// Three packets decide whether this is a transport stream the reserve
 	// can index and splice; anything else is relayed as before.
-	peek, _ := body.Peek(3*tsPacket + tsPacket)
-	ts := looksTS(peek)
+	ts := tsPrefix(body)
 	t.mu.Lock()
 	t.body = res.Body
 	t.lastData, t.epochStart = time.Now(), time.Now()
@@ -873,6 +872,18 @@ func (s *Service) openTap(t *upstreamTap, g *inputGrant, raw string, hdr http.He
 	idle.Stop()
 	go s.pumpTap(t, raw, body)
 	go t.watch()
+}
+
+// tsPrefix decides from the bytes already buffered, never waiting for
+// more: a slow provider's first packet must not hold up the tune. It needs
+// two sync bytes a packet apart; a body that cannot show them is relayed
+// as plain bytes, without a reserve, exactly as before.
+func tsPrefix(br *bufio.Reader) bool {
+	b, _ := br.Peek(br.Buffered())
+	if len(b) >= 3*tsPacket {
+		return looksTS(b)
+	}
+	return len(b) > tsPacket && b[0] == 0x47 && b[tsPacket] == 0x47
 }
 
 // tapRingSize rounds a ring to whole packets so every offset in it stays
@@ -1182,9 +1193,10 @@ func (s *Service) reopenTap(ctx context.Context, t *upstreamTap, g *inputGrant, 
 	// The first packets must arrive within the same budget.
 	timer := time.AfterFunc(time.Until(deadline), cancel)
 	body := bufio.NewReaderSize(res.Body, 32<<10)
-	peek, _ := body.Peek(4 * tsPacket)
+	// The tap is already a transport stream; the splicer resyncs on its own.
+	first, perr := body.Peek(1)
 	timer.Stop()
-	if !looksTS(peek) {
+	if perr != nil || first[0] != 0x47 && !tsPrefix(body) {
 		closer.Close()
 		return nil, errRelayUnsupported
 	}
