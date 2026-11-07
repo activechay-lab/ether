@@ -309,7 +309,7 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 	b.mu.Unlock()
 	lifetime, cancel := context.WithCancel(b.ctx)
 	stop := context.AfterFunc(ctx, cancel)
-	encoder, err := b.runner.StartEncoder(lifetime, transcode.EncoderRequest{SessionID: id, Source: b.format, Decision: decision, SegmentDuration: b.segment, DVRWindow: b.dvr})
+	encoder, err := b.runner.StartEncoder(lifetime, transcode.EncoderRequest{SessionID: id, Source: b.format, Decision: decision, SegmentDuration: b.segment, DVRWindow: b.dvr, LiveSource: b.burstNoWait})
 	stop()
 	if err != nil {
 		cancel()

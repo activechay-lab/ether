@@ -37,6 +37,21 @@ type providerBroadcastPlanner struct {
 	retryAt    time.Time
 	lastStress time.Time
 	retry      func() // asks the clock to replace the current input now
+	// health is the current attempt's upstream health, sampled off the frame
+	// clock by watchStandby: reading it takes relay and tap locks that
+	// upstream I/O can hold, and the clock must never wait on those.
+	health     UpstreamHealth
+	healthOK   bool
+	healthFrom *steadyAttempt
+	waiting    bool // failed() scheduled a later retry than now
+}
+
+// cachedHealth is the last health sample of attempt a.
+func (p *providerBroadcastPlanner) cachedHealthLocked(a *steadyAttempt) (UpstreamHealth, bool) {
+	if a == nil || p.healthFrom != a {
+		return UpstreamHealth{}, false
+	}
+	return p.health, p.healthOK
 }
 
 // steadyLink is one granted provider input: the relay grant (and with it the
@@ -121,7 +136,7 @@ func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 // this decoder starts from.
 //
 // Its startup burst only encodes pictures already decoded (the probe's
-// bytes, a tap or playlist backlog) up to two segments ahead, so the client
+// bytes, a tap or playlist backlog) a segment or two ahead, so the client
 // starts with a cushion; publishing never waits on the input, and the
 // rest of a reserve the decoder starts behind the live edge stays on the
 // server, where it hides upstream stalls.
@@ -131,8 +146,18 @@ func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 // later segment must be no longer than that lag or it stalls; two seconds
 // keeps a cold raw-TS tune under five seconds without a stall. The clock
 // never stops publishing, so the 3 s (1.5x target) client limit holds.
-func (p *providerBroadcastPlanner) coldWait() time.Duration        { return 4 * time.Second }
-func (p *providerBroadcastPlanner) startupLead() time.Duration     { return 2 * steadySegment }
+func (p *providerBroadcastPlanner) coldWait() time.Duration { return 4 * time.Second }
+func (p *providerBroadcastPlanner) startupLead() time.Duration {
+	// A transport-stream tap paces its Steady reader with a few seconds of
+	// allowance; that is the server reserve, so spend at most one segment of
+	// it on the client's cushion. A playlist reserve is deeper.
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.primed != nil && p.primed.format == "mpegts" {
+		return steadySegment
+	}
+	return 2 * steadySegment
+}
 func (p *providerBroadcastPlanner) segmentDuration() time.Duration { return steadySegment }
 
 const steadySegment = 2 * time.Second
@@ -166,12 +191,8 @@ func (p *providerBroadcastPlanner) keepStalled(stalledFor time.Duration) bool {
 		return false
 	}
 	p.mu.Lock()
-	a := p.attempt
-	p.mu.Unlock()
-	if a == nil {
-		return false
-	}
-	h, ok := p.s.inputHealth(a.link.ss)
+	defer p.mu.Unlock()
+	h, ok := p.cachedHealthLocked(p.attempt)
 	return ok && !h.Failed
 }
 
@@ -197,7 +218,7 @@ func (p *providerBroadcastPlanner) failed(err error) time.Time {
 	// readers saw the end, so the ladder skips straight to the next source.
 	tapped := a.link.format == "mpegts"
 	failover := false
-	if h, ok := p.s.inputHealth(a.link.ss); ok {
+	if h, ok := p.cachedHealthLocked(a); ok {
 		tapped = h.Kind == "ts"
 		failover = h.Failed
 	}
@@ -211,6 +232,7 @@ func (p *providerBroadcastPlanner) failed(err error) time.Time {
 		p.ladder.next, p.ladder.liveEdge = sb.src.ID, false
 		at = now
 	}
+	p.waiting = at.Sub(now) > 250*time.Millisecond
 	p.logger().Info("live input lost", "input", a.src.ID, "reason", err, "aired", aired, "failover", failover, "next", p.ladder.next, "retryIn", at.Sub(now))
 	return at
 }
@@ -223,6 +245,7 @@ func (p *providerBroadcastPlanner) open(ctx context.Context) (transcode.Decoder,
 	p.mu.Lock()
 	p.attempt = nil
 	p.retryAt = time.Time{}
+	p.waiting = false
 	p.mu.Unlock()
 	var last error = core.ErrNotAvailable
 	busy := map[string]bool{}

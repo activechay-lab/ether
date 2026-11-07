@@ -85,6 +85,10 @@ type EncoderRequest struct {
 	Decision        core.Decision // output codec, size, bitrate, audio; fixed for life; HW from HWAccel
 	SegmentDuration time.Duration // 4 s; keyframe exactly at every segment start
 	DVRWindow       time.Duration // segments kept on node-local disk for timeshift (30 min default; 0 = live window only)
+	// LiveSource marks a provider (IPTV) channel: rate control may use one
+	// segment of VBV buffer under the ceiling, so keyframes of moving
+	// pictures are not starved. Scheduled channels keep a one-second bound.
+	LiveSource bool
 }
 
 // ContinuousEncoder never restarts and never changes output parameters.
