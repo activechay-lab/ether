@@ -169,6 +169,9 @@ func (p *providerBroadcastPlanner) bindRetry(retry func()) {
 }
 
 func (p *providerBroadcastPlanner) logger() *slog.Logger {
+	if p.s == nil || p.s.o.Logger == nil {
+		return slog.New(slog.DiscardHandler)
+	}
 	return p.s.o.Logger.With("channel", p.channel.ID)
 }
 
