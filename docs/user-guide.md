@@ -654,15 +654,20 @@ it.
 
 ### Keep imported profiles in sync
 
-**Quality › Profiles › Keep imported profiles in sync** updates imported
-profiles on a cadence you choose (6 hours to 7 days). A sync re-fetches the
+**Quality › Profiles › Keep imported profiles in sync** updates profiles
+imported from TRaSH Guides or Profilarr. Turn it on with the switch in the
+card's header, then choose how often to **Check for changes** (6 hours to 7
+days). The card shows when the last sync ran. Until you import a profile, it
+only says that it applies once you do. A sync re-fetches the
 source profile and its default format groups and overwrites that profile's
 quality definition and custom format scores exactly, so formats the guide adds
 are added and formats it removes are removed. The shared custom format
 definitions for that profile are updated too; definitions the sync owns and no
 profile uses are removed, while formats you created by hand are left alone.
 Profiles that are not imported, or that could not be fetched completely, are
-not changed. **Sync now** runs the same update immediately.
+not changed. **Sync now** runs the same update immediately, even while the
+automatic sync is off, for owners who prefer to take guide changes when they
+choose.
 
 ## Rank releases by custom score
 

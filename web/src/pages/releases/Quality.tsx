@@ -893,7 +893,11 @@ function syncHours(raw: string | undefined): string {
   return hours > 0 ? String(hours) : "24";
 }
 
-/** Automatic update of imported profiles and their format definitions. */
+/**
+ * Automatic update of imported profiles and their format definitions. "Sync
+ * now" stays available while automatic sync is off: a manual pull is how an
+ * owner takes guide changes only when they choose to.
+ */
 function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Promise<void> }) {
   const sync = quality.sync;
   const hasRun = Boolean(sync?.lastRun) && !sync!.lastRun!.startsWith("0001-");
@@ -906,6 +910,7 @@ function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Pr
   const [error, setError] = useState<unknown>(null);
   const [report, setReport] = useState<QualitySyncReport | null>(null);
   if (!draft) return null;
+  const imported = (quality.profiles ?? []).some((p) => p.import);
   const hours = draft.hours;
   const options = SYNC_INTERVALS.some((o) => o.value === hours)
     ? SYNC_INTERVALS
@@ -944,63 +949,59 @@ function SyncSection({ quality, onSaved }: { quality: Quality; onSaved: () => Pr
     }
   }
 
+  const title = t("Keep imported profiles in sync");
+  if (!imported) {
+    return (
+      <Section title={title}>
+        <p className="text-sm text-fg-muted">
+          {t("Applies once you import a profile from TRaSH Guides or Profilarr.")}
+        </p>
+      </Section>
+    );
+  }
+
   return (
     <Section
-      title={t("Keep imported profiles in sync")}
-      description={t(
-        "Update profiles imported from a guide when its quality definition or custom format scores change.",
-      )}
+      title={title}
+      description={t("Only profiles imported from TRaSH Guides or Profilarr are updated.")}
       actions={
+        <Switch
+          aria-label={title}
+          checked={draft.enabled}
+          onChange={(e) => setDraft({ ...draft, enabled: e.currentTarget.checked })}
+        />
+      }
+    >
+      {draft.enabled ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="text-sm font-medium text-fg">{t("Check for changes")}</span>
+          <div className="w-52">
+            <SearchSelect
+              {...searchSelectLabels()}
+              ariaLabel={t("Check for changes")}
+              value={hours}
+              onChange={(value) => setDraft({ ...draft, hours: value })}
+              options={options}
+              searchable={false}
+            />
+          </div>
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-sm text-fg-muted">
+          {sync?.lastError ? (
+            <span className="text-danger">{sync.lastError}</span>
+          ) : hasRun ? (
+            t("Last synced {when}", { when: relativeTime(sync!.lastRun!) })
+          ) : (
+            t("Never synced")
+          )}
+        </span>
         <Button variant="outline" size="sm" disabled={syncing} onClick={() => void syncNow()}>
           <RefreshCw size={14} className={syncing ? "animate-spin" : undefined} />
           {syncing ? t("Syncing…") : t("Sync now")}
         </Button>
-      }
-    >
-      <SettingsSection>
-        <SettingsRow
-          title={t("Keep imported profiles in sync")}
-          description={t("Only profiles imported from TRaSH Guides or Profilarr are updated.")}
-          control={
-            <Switch
-              aria-label={t("Keep imported profiles in sync")}
-              checked={draft.enabled}
-              onChange={(e) => setDraft({ ...draft, enabled: e.currentTarget.checked })}
-            />
-          }
-        />
-        <SettingsRow
-          title={t("Check for changes")}
-          description={t("How often Ether fetches the guide's current profile and formats.")}
-          control={
-            <div className="w-52">
-              <SearchSelect
-                {...searchSelectLabels()}
-                ariaLabel={t("Check for changes")}
-                value={hours}
-                onChange={(value) => setDraft({ ...draft, hours: value })}
-                options={options}
-                searchable={false}
-              />
-            </div>
-          }
-        />
-        <SettingsRow
-          title={t("Last sync")}
-          description={
-            sync?.lastError ? (
-              <span className="text-danger">{sync.lastError}</span>
-            ) : (
-              t("The last time the guide sync ran.")
-            )
-          }
-          control={
-            <span className="text-sm text-fg">
-              {hasRun ? t("Ran {when}", { when: relativeTime(sync!.lastRun!) }) : t("Never run")}
-            </span>
-          }
-        />
-      </SettingsSection>
+      </div>
       {error ? <ErrorPanel error={error} /> : null}
       {report ? (
         <Alert variant="success" role="status">

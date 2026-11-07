@@ -65,9 +65,34 @@ it("switches profiles between movies and shows and badges each card", async () =
   expect(screen.getAllByText("Shows").length).toBeGreaterThan(1);
 });
 
+it("collapses guide sync to one line until a profile is imported", async () => {
+  renderApp("/quality/profiles");
+  expect(
+    await screen.findByText(
+      "Applies once you import a profile from TRaSH Guides or Profilarr.",
+      {},
+      { timeout: 10000 },
+    ),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("switch", { name: "Keep imported profiles in sync" }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument();
+});
+
 it("saves the automatic sync cadence as a patch and runs it", async () => {
-  const { fake } = renderApp("/quality/profiles");
+  const { fake } = renderApp("/quality/profiles", {}, (f) => {
+    f.state.config.quality.profiles![0]!.import = {
+      source: "trash",
+      app: "radarr",
+      profile: "UHD Bluray + WEB",
+    };
+  });
   await screen.findByRole("switch", { name: "Keep imported profiles in sync" }, { timeout: 10000 });
+  // The title appears once, in the card header with its switch.
+  expect(screen.getAllByText("Keep imported profiles in sync")).toHaveLength(1);
+  expect(screen.getByText("Never synced")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Check for changes" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("switch", { name: "Keep imported profiles in sync" }));
   fireEvent.click(screen.getByRole("button", { name: "Check for changes" }));
   fireEvent.click(await screen.findByRole("option", { name: "Every 3 days" }, { timeout: 4000 }));
