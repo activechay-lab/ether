@@ -80,6 +80,7 @@ func liveMarkdown(rep liveReport, base *liveReport, o liveOptions) string {
 		fmt.Fprintf(&b, "- `%s`: %s\n", r.ID, mdEscape(strings.Join(r.Viewer.Warnings, "; ")))
 	}
 	b.WriteString("\n## How each number is measured\n\n")
+	b.WriteString("- **A/V sync** (rows on the sync fixture): a corner flash and a 3 kHz beep start together every second of provider time; the judge finds both onsets on the published media's own timestamps and fails a row when any pulse has audio over 45 ms early or 125 ms late (ITU-R BT.1359 detectability). Flash intervals that are not whole seconds are reported as content time cuts.\n")
 	b.WriteString("- **First playlist**: Ether's time to answer the first playlist request that returned one. A whole target duration fails the row (AVFoundation then never starts the item: no error, no segment request); half of one is a warning.\n")
 	b.WriteString("- **Screen** = freeze + slate seconds after the first provider picture. Budgets per preset are in `cmd/transcodechaos/live_scenarios.go`.\n")
 	b.WriteString("- **Freeze**: with the AVFoundation judge, gaps of at least 0.5 s between frames AVPlayer delivered plus seconds of repeated (held) provider frames. Without it, a player buffer model over observed segment arrivals plus held provider frames in the published media (ffmpeg freezedetect).\n")

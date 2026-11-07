@@ -127,7 +127,10 @@ Judges:
   requests a segment; half of one warns), HTTP
   errors, decode errors, and per-segment content: the fixture has a green
   band on top, so frames without it are an Ether screen or black; held frames
-  (freezedetect) and silence (silencedetect).
+  (freezedetect) and silence (silencedetect). Rows on the sync fixture
+  (hls-video-drop) also measure lip sync: a corner flash and a 3 kHz beep
+  start together every second, and any pulse with audio over 45 ms early
+  or 125 ms late in the published media fails the row (ITU-R BT.1359).
 - AVFoundation (macOS, tools/avprobe, built on demand with swiftc): AVPlayer
   frame delivery, frames with/without the green band, repeated frames, item
   failures and CoreMedia error-log codes. Run the harness outside any sandbox
