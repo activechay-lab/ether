@@ -8,7 +8,7 @@ import (
 func liveMarkdown(rep liveReport, base *liveReport, o liveOptions) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Live acceptance: %s\n\n", rep.Label)
-	fmt.Fprintf(&b, "- Commit `%s`, subset `%s`, preset `%s`, judge `%s`\n", rep.Commit, rep.Subset, rep.Preset, rep.Player)
+	fmt.Fprintf(&b, "- Commit `%s`, subset `%s`, preset `%s`, client `%s`, judge `%s`\n", rep.Commit, rep.Subset, rep.Preset, rep.Client, rep.Player)
 	fmt.Fprintf(&b, "- Ether's ffmpeg: %s\n- Host: %s, %s, %.0f s wall clock\n\n", rep.FFmpeg, rep.Host, rep.StartedAt.Format("2006-01-02 15:04 UTC"), rep.Seconds)
 	pass := 0
 	for _, r := range rep.Results {
@@ -70,7 +70,7 @@ func liveMarkdown(rep liveReport, base *liveReport, o liveOptions) string {
 	b.WriteString("- **Slate**: the fixture carries a green band on top; frames without it are an Ether screen or black. Counted from AVPlayer's frames (or 10 Hz samples of the published segments without the player).\n")
 	b.WriteString("- Everything before the first provider picture is startup and is judged by **TTFF** (tune to first provider picture); an Ether card shown at tune counts against TTFF, not screen.\n")
 	b.WriteString("- **Silence**: ffmpeg silencedetect (-45 dB, 0.25 s) on the published segments. In-player audio is not measured: AVFoundation audio taps do not attach to HLS items.\n")
-	b.WriteString("- **Longest no-new-segment**: the protocol judge polls the client playlist every 0.5 s. Apple players stop with -12888 after 1.5x target duration without a new segment.\n")
+	b.WriteString("- **Longest no-new-segment**: the protocol judge polls the client playlist every 0.5 s. Apple players stop with -12888 after 1.5x target duration without a new segment; ExoPlayer (Fire TV) after 3.5x.\n")
 	b.WriteString("- **Client errors**: AVPlayer item failures and error-log codes, HTTP errors Ether returned to the client, and unmarked codec changes between consecutive segments (Apple -12971).\n")
 	b.WriteString("- **TTFF**: tune request to the first frame AVPlayer delivered (or the first downloaded segment without the player).\n")
 	return b.String()
