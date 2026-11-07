@@ -82,14 +82,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		args = append(args, "-hwaccel", "videotoolbox")
 	}
 	if r.Live {
-		args = append(args, "-copyts")
-		if strings.HasSuffix(strings.ToLower(u.Path), ".m3u8") {
-			back := "-1"
-			if r.PrimeLive {
-				back = "-4"
-			}
-			args = append(args, "-live_start_index", back)
-		}
+		args = append(args, liveDecoderInputArgs(r, u)...)
 	}
 	if !r.Live && !r.Seeked && r.Offset > 0 {
 		args = append(args, "-ss", strconv.FormatFloat(r.Offset.Seconds(), 'f', 6, 64))
@@ -101,6 +94,12 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		args = append(args, "-probesize", "262144", "-analyzeduration", "500000")
 	}
 	videoFilter := fmt.Sprintf("scale=%d:%d,fps=%d/%d,setsar=1,", f.Width, f.Height, f.FPSNum, f.FPSDen)
+	if r.Live {
+		// Broadcast feeds are often interlaced and sometimes 4:3 or anamorphic.
+		// Deinterlace field by field (1080i50 airs as 50p), then fit the display
+		// aspect inside the working frame instead of stretching it.
+		videoFilter = liveVideoJumps(f, liveForwardJump(r, u)) + fmt.Sprintf("bwdif=mode=send_field:deint=interlaced,scale=w='if(gte(dar,%[1]d/%[2]d),%[1]d,2*trunc(%[2]d*dar/2))':h='if(gte(dar,%[1]d/%[2]d),2*trunc(%[1]d/dar/2),%[2]d)',setsar=1,pad=%[1]d:%[2]d:(ow-iw)/2:(oh-ih)/2,fps=%[3]d/%[4]d,", f.Width, f.Height, f.FPSNum, f.FPSDen)
+	}
 	audioFilter := "aresample=48000:async=1:first_pts=0"
 	if r.Seeked && r.Offset > 0 {
 		trim := strconv.FormatFloat(r.Offset.Seconds(), 'f', 6, 64)
@@ -112,7 +111,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	if r.Live {
 		args = append(args, "-loglevel", "info")
 		videoFilter += "showinfo=checksum=0,"
-		audioFilter = "asetpts=PTS-STARTPTS," + audioFilter
+		audioFilter = liveAudioJumps(liveForwardJump(r, u)) + audioFilter
 	}
 	videoFilter += fmt.Sprintf("setpts=N*%d/(%d*TB)", f.FPSDen, f.FPSNum)
 	args = append(args, "-i", r.InputURL, "-map", "0:v:0", "-vf", videoFilter, "-pix_fmt", "yuv420p", "-c:v", "rawvideo", "-threads:v", "1", "-f", "rawvideo", sockets[0].url(), "-map", "0:a:0", "-af", audioFilter, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-f", "s16le", sockets[1].url())
@@ -175,17 +174,12 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		defer d.workers.Done()
 		defer close(d.readDone)
 		defer close(d.frames)
+		watch := r.Live
+		paired := false
 		for {
-			var v, a []byte
-			var open bool
-			select {
-			case v, open = <-vq:
-				if !open {
-					d.readErr = p.result()
-					return
-				}
-			case <-p.ctx.Done():
-				d.readErr = p.result()
+			v, err := d.receive(p, vq, aq, watch && paired, liveVideoStarved)
+			if err != nil {
+				d.readErr = err
 				return
 			}
 			stamp := time.Duration(0)
@@ -197,16 +191,12 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 					return
 				}
 			}
-			select {
-			case a, open = <-aq:
-				if !open {
-					d.readErr = p.result()
-					return
-				}
-			case <-p.ctx.Done():
-				d.readErr = p.result()
+			a, err := d.receive(p, aq, vq, watch && paired, liveAudioStarved)
+			if err != nil {
+				d.readErr = err
 				return
 			}
+			paired = true
 			select {
 			case d.frames <- RawFrame{Video: v, PCM: a, SourcePTS: stamp, SourcePTSValid: r.Live && stamp >= 0}:
 			case <-p.ctx.Done():
@@ -218,6 +208,117 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	ok = true
 	return d, nil
 }
+
+// A codec change on a live PID (AAC to AC3, or a new video codec) leaves the
+// decoder chosen at open feeding undecodable packets: the other elementary
+// stream keeps arriving while this one stops. ffmpeg neither exits nor
+// recovers, so the output would go silent (or frozen) for many seconds.
+// Waiting this long with the other queue this full means the input changed.
+const (
+	liveStarvedAfter = 600 * time.Millisecond
+	liveVideoStarved = 16 // audio ticks queued while no picture arrives (~0.5 s)
+	liveAudioStarved = 6  // pictures queued while no audio arrives
+)
+
+// receive takes the next buffer from ch. With watch set it reports
+// ErrInputChanged when ch stays empty while other holds at least starved
+// buffers for liveStarvedAfter.
+func (d *continuousDecoder) receive(p *continuousProcess, ch, other chan []byte, watch bool, starved int) ([]byte, error) {
+	var poll <-chan time.Time
+	if watch {
+		t := time.NewTicker(liveStarvedAfter / 6)
+		defer t.Stop()
+		poll = t.C
+	}
+	var since time.Time
+	for {
+		select {
+		case b, open := <-ch:
+			if !open {
+				return nil, p.result()
+			}
+			return b, nil
+		case <-p.ctx.Done():
+			return nil, p.result()
+		case now := <-poll:
+			if len(other) < starved {
+				since = time.Time{}
+				continue
+			}
+			if since.IsZero() {
+				since = now
+			} else if now.Sub(since) >= liveStarvedAfter {
+				return nil, ErrInputChanged
+			}
+		}
+	}
+}
+
+// Live inputs keep their source clock (-copyts) so a reopened input can
+// recognise media it already aired. A provider clock jump or reset must not
+// reach fps or aresample on that clock: they would fill a +5000 s jump with
+// hours of repeated pictures and silence, and drop everything after a reset.
+// Each stream continues its own timeline across a backwards step or a forward
+// step over 10 s (ffmpeg's dts_delta_threshold); shorter forward gaps are
+// packet loss and stay, so fps and aresample keep pictures and sound in sync.
+//
+// A playlist input loses whole segments instead: a 404/503 or slow segment
+// that ffmpeg skips leaves the same gap in sound and picture. With a reserve
+// ahead, the viewer keeps moving pictures (the content jumps forward, the
+// reserve shrinks) instead of a held picture and silence, so a playlist's
+// forward step over 1.5 s is closed too.
+func liveAudioJumps(forward float64) string {
+	return fmt.Sprintf("asetpts='if(eq(N,0),0,if(gt((PTS-PREV_INPTS)*TB,%g)+lt((PTS-PREV_INPTS)*TB,-0.5),PREV_OUTPTS+NB_SAMPLES/(SR*TB),PREV_OUTPTS+PTS-PREV_INPTS))',", forward)
+}
+
+func liveVideoJumps(f RawFormat, forward float64) string {
+	return fmt.Sprintf("setpts='if(eq(N,0),PTS,if(gt((PTS-PREV_INPTS)*TB,%g)+lt((PTS-PREV_INPTS)*TB,-0.5),PREV_OUTPTS+%d/(%d*TB),PREV_OUTPTS+PTS-PREV_INPTS))',", forward, f.FPSDen, f.FPSNum)
+}
+
+// liveForwardJump is the forward timestamp step a live input closes rather
+// than fills: ffmpeg's dts_delta_threshold for a transport stream, a
+// missing segment for a playlist.
+func liveForwardJump(r DecoderRequest, u *url.URL) float64 {
+	if liveHLS(r, u) {
+		return 1.5
+	}
+	return 10
+}
+
+func liveHLS(r DecoderRequest, u *url.URL) bool {
+	return r.InputFormat == "hls" || (r.InputFormat == "" && strings.HasSuffix(strings.ToLower(u.Path), ".m3u8"))
+}
+
+// liveDecoderInputArgs are the input options of a live provider decoder.
+// The loopback relay owns provider connections; ffmpeg resumes a dropped
+// relay read in-process and bounds a read that never returns. Damaged
+// pictures keep libavcodec's error concealment: dropping corrupt packets
+// measured no better and lost whole GOPs on packet loss.
+func liveDecoderInputArgs(r DecoderRequest, u *url.URL) []string {
+	// The tune's probe already analysed these bytes, and they are still in the
+	// relay's buffer: a live decoder must not wait out ffmpeg's default five
+	// seconds (or any long bound) of real-time media again before decoding.
+	args := []string{"-copyts", "-fflags", "+genpts", "-probesize", "5000000", "-analyzeduration", "1000000"}
+	if u.Scheme == "http" {
+		args = append(args, "-rw_timeout", "5000000", "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "2")
+	}
+	switch {
+	case liveHLS(r, u):
+		start := "-1"
+		if r.ReserveStart {
+			start = "0"
+		} else if r.PrimeLive {
+			start = "-4"
+		}
+		args = append(args, "-live_start_index", start)
+	case r.InputFormat == "mpegts":
+		// Keep stream identity across PMT version bumps that add or drop
+		// unrelated PIDs; a real codec change is caught by starvation.
+		args = append(args, "-merge_pmt_versions", "1")
+	}
+	return args
+}
+
 func (d *continuousDecoder) Next(ctx context.Context) (RawFrame, error) {
 	select {
 	case <-ctx.Done():

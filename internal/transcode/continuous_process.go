@@ -147,10 +147,22 @@ func validateRaw(f RawFormat) error {
 	if f.Width < 2 || f.Height < 2 || f.Width > 7680 || f.Height > 4320 || f.Width%2 != 0 || f.Height%2 != 0 || f.SampleRate != 48000 || f.Channels != 2 || f.PixelFormat != "yuv420p" {
 		return errors.New("transcode: invalid continuous raw format")
 	}
-	if !((f.FPSNum == 30 && f.FPSDen == 1) || (f.FPSNum == 25 && f.FPSDen == 1) || (f.FPSNum == 30000 && f.FPSDen == 1001)) {
+	if !ContinuousFrameRate(f.FPSNum, f.FPSDen) {
 		return errors.New("transcode: unsupported continuous frame rate")
 	}
 	return nil
+}
+
+// ContinuousFrameRate reports a broadcast frame rate a continuous output can
+// run at: 24, 25, 30, 50 and 60 frames per second and their NTSC forms.
+func ContinuousFrameRate(num, den int) bool {
+	switch den {
+	case 1:
+		return num == 24 || num == 25 || num == 30 || num == 50 || num == 60
+	case 1001:
+		return num == 24000 || num == 30000 || num == 60000
+	}
+	return false
 }
 func tickPCM(f RawFormat, n int64) int {
 	return int(((n+1)*int64(f.SampleRate*f.FPSDen)/int64(f.FPSNum) - n*int64(f.SampleRate*f.FPSDen)/int64(f.FPSNum)) * int64(f.Channels*2))
