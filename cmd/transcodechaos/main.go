@@ -56,7 +56,15 @@ func main() {
 	liveObserve := flag.Duration("live-observe", liveObserve, "how long each live row is watched after the tune")
 	liveClient := flag.String("live-client", "plex-appletv", "client identity to tune as: plex-appletv (AVPlayer judge) or plex-firetv (ExoPlayer stuck rule, protocol judge)")
 	liveRender := flag.Bool("live-render", false, "rewrite -live-markdown from the existing -report JSON (with -live-baseline) and exit")
+	liveRescore := flag.Bool("live-rescore", false, "re-judge the existing -report JSON with the current pass criteria, rewrite it (and -live-markdown) and exit")
 	flag.Parse()
+	if *liveRescore {
+		if err := rescoreLive(*report, *liveMarkdown, *liveBaseline); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *liveRender {
 		if err := renderLive(*report, *liveMarkdown, *liveBaseline); err != nil {
 			fmt.Fprintln(os.Stderr, err)

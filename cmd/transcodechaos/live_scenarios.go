@@ -28,6 +28,13 @@ type liveScenario struct {
 	// Sync rows use the lip-sync pulse fixture; the judge measures the
 	// audio/video offset of every pulse in the published media.
 	Sync bool `json:"sync,omitempty"`
+	// Outage is how long a raw TS provider delivers nothing. With
+	// OwnerNoSlowdown the row is judged by the owner's decision (2026-11-07:
+	// no playout slowdown, no startup wait), under which a raw TS reserve
+	// exists only as far as the provider bursts backlog on connect; Budget
+	// stays the ideal and is reported alongside. See ownerAllowance.
+	Outage          time.Duration `json:"outage,omitempty"`
+	OwnerNoSlowdown bool          `json:"ownerNoSlowdown,omitempty"`
 }
 
 // liveBudget is what a viewer may see. Screen is freeze + non-content
@@ -79,19 +86,19 @@ func liveMatrix() []liveScenario {
 		{Name: "healthy-ts", Summary: "Healthy raw TS control", Source: tsSource(), Modes: allTS, Budget: budget(0, 0, 0, 0), Recoverable: true},
 		{Name: "healthy-hls", Summary: "Healthy provider HLS control", Source: hlsSource(), Modes: allHLS, Budget: budget(0, 0, 0, 0), Recoverable: true},
 		{Name: "hls-playlist-stall-8s", Summary: "Provider playlist stops advancing for 8 s, then catches up", Source: hlsSource(at(faultPlaylistStall, 8*time.Second, 0)), Modes: allHLS, Quick: []string{"passthrough"}, Budget: blip, Recoverable: true},
-		{Name: "ts-stall-8s", Summary: "Raw TS body sends nothing for 8 s on an open connection", Source: tsSource(at(faultTSStall, 8*time.Second, 0)), Modes: allTS, Quick: []string{"steady"}, Budget: blip, Recoverable: true},
+		{Name: "ts-stall-8s", Summary: "Raw TS body sends nothing for 8 s on an open connection", Source: tsSource(at(faultTSStall, 8*time.Second, 0)), Modes: allTS, Quick: []string{"steady"}, Budget: blip, Recoverable: true, Outage: 8 * time.Second, OwnerNoSlowdown: true},
 		{Name: "hls-video-drop", Summary: "2.5 s of video missing inside one provider HLS segment, audio intact; A/V sync must hold", Source: providerConfig{Name: "primary", HLS: true, Backlog: 6, Fixture: "sync", Faults: []liveFault{at(faultVideoDrop, 4*time.Second, 0)}}, Modes: allHLS, Budget: map[string]liveBudget{"fastest": {ScreenS: 3.5}, "balanced": {ScreenS: 3.5}, "rocksolid": {ScreenS: 3.5}}, Recoverable: true, Sync: true},
 		{Name: "hls-segment-404", Summary: "One provider segment returns 404", Source: hlsSource(at(faultSegmentError, 4*time.Second, 404)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
 		{Name: "hls-segment-503", Summary: "Two provider segments return 503", Source: hlsSource(at(faultSegmentError, 8*time.Second, 503)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
 		{Name: "hls-segment-slow-8s", Summary: "Provider segment responses wait 8 s", Source: hlsSource(at(faultSegmentSlow, 8*time.Second, 0)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
 		{Name: "hls-rst", Summary: "Provider resets HLS requests for 3 s", Source: hlsSource(at(faultRST, 3*time.Second, 0)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
-		{Name: "ts-stall-8s-burst8", Summary: "8 s raw TS stall; the provider sends 8 s of backlog on every connect", Source: withBurst(tsSource(at(faultTSStall, 8*time.Second, 0)), 8*time.Second), Modes: []string{"relay-copy", "steady"}, Budget: blip, Recoverable: true},
+		{Name: "ts-stall-8s-burst8", Summary: "8 s raw TS stall; the provider sends 8 s of backlog on every connect", Source: withBurst(tsSource(at(faultTSStall, 8*time.Second, 0)), 8*time.Second), Modes: []string{"relay-copy", "steady"}, Budget: blip, Recoverable: true, Outage: 8 * time.Second, OwnerNoSlowdown: true},
 		{Name: "ts-rst-burst8", Summary: "Raw TS reset; the provider sends 8 s of backlog on every connect", Source: withBurst(tsSource(at(faultRST, 0, 0)), 8*time.Second), Modes: []string{"relay-copy", "steady"}, Budget: blip, Recoverable: true},
 		{Name: "ts-rst", Summary: "Raw TS connection reset mid-stream", Source: tsSource(at(faultRST, 0, 0)), Modes: allTS, Quick: []string{"relay-copy"}, Budget: blip, Recoverable: true},
 		{Name: "ts-eof", Summary: "Raw TS body ends cleanly mid-stream", Source: tsSource(at(faultEOF, 0, 0)), Modes: []string{"relay-copy", "steady"}, Budget: blip, Recoverable: true},
-		{Name: "ts-refuse-458", Summary: "Reset, then reconnects refused 458 for 10 s", Source: tsSource(at(faultRST, 0, 0), at(faultRefuse, 10*time.Second, 458)), Modes: []string{"relay-copy", "steady"}, Budget: budget(3, 0, 0, 0), Recoverable: true},
-		{Name: "ts-refuse-403", Summary: "Reset, then reconnects refused 403 for 10 s", Source: tsSource(at(faultRST, 0, 0), at(faultRefuse, 10*time.Second, 403)), Modes: []string{"relay-copy"}, Budget: budget(3, 0, 0, 0), Recoverable: true},
-		{Name: "ts-refuse-509", Summary: "Reset, then reconnects refused 509 for 10 s", Source: tsSource(at(faultRST, 0, 0), at(faultRefuse, 10*time.Second, 509)), Modes: []string{"relay-copy"}, Budget: budget(3, 0, 0, 0), Recoverable: true},
+		{Name: "ts-refuse-458", Summary: "Reset, then reconnects refused 458 for 10 s", Source: tsSource(at(faultRST, 0, 0), at(faultRefuse, 10*time.Second, 458)), Modes: []string{"relay-copy", "steady"}, Budget: budget(3, 0, 0, 0), Recoverable: true, Outage: 10 * time.Second, OwnerNoSlowdown: true},
+		{Name: "ts-refuse-403", Summary: "Reset, then reconnects refused 403 for 10 s", Source: tsSource(at(faultRST, 0, 0), at(faultRefuse, 10*time.Second, 403)), Modes: []string{"relay-copy"}, Budget: budget(3, 0, 0, 0), Recoverable: true, Outage: 10 * time.Second, OwnerNoSlowdown: true},
+		{Name: "ts-refuse-509", Summary: "Reset, then reconnects refused 509 for 10 s", Source: tsSource(at(faultRST, 0, 0), at(faultRefuse, 10*time.Second, 509)), Modes: []string{"relay-copy"}, Budget: budget(3, 0, 0, 0), Recoverable: true, Outage: 10 * time.Second, OwnerNoSlowdown: true},
 		{Name: "ts-conn-limit-1", Summary: "Account limit 1; reset mid-stream; reconnect must not overlap", Source: providerConfig{Name: "primary", ConnLimit: 1, LimitCode: 458, Faults: []liveFault{at(faultRST, 0, 0)}}, Modes: []string{"relay-copy", "steady"}, Budget: blip, Recoverable: true, MaxConcurrent: 1},
 		{Name: "primary-dies-backup-healthy", Summary: "Primary resets and stays down; healthy backup", Source: tsSource(at(faultDown, 0, 0)), Backup: &providerConfig{Name: "backup"}, Modes: []string{"relay-copy", "steady"}, Quick: []string{"steady"}, Budget: budget(3, 3, 3, 3), Recoverable: true},
 		{Name: "hls-primary-dies-backup-healthy", Summary: "HLS primary down for good; healthy HLS backup", Source: hlsSource(at(faultDown, 0, 0)), Backup: &providerConfig{Name: "backup", HLS: true, Backlog: 6}, Modes: []string{"passthrough", "steady"}, Budget: budget(3, 3, 3, 3), Recoverable: true},

@@ -147,6 +147,18 @@ no overlong segment, consistent sequences, first playlist answered within
 one target duration, TTFF <= 5 s) and the scenario's
 per-preset budget in live_scenarios.go all hold.
 
+Raw TS outage rows (ts-stall-8s, ts-stall-8s-burst8, ts-refuse-403/458/509)
+are judged by the owner's decision of 2026-11-07, no playout slowdown and no
+startup wait, so a raw TS reserve exists only as far as the provider bursts
+backlog on connect. Without a burst: slate <= outage + 2 s and freeze <=
+0.5 s. With one: screen <= max(0, outage - (burst - start window)) + 2 s,
+where the burst is measured by the fake provider on the first connect and
+the start window is the media in the first published playlist. Silence may
+run 0.5 s past the allowance. All common rules still apply. The original
+budget is still reported per row as "Ideal" (verdict marked *).
+-live-rescore re-judges an existing -report in place with the current
+criteria (and rewrites -live-markdown), without re-running.
+
 Not covered: the Jellyfin live path. Its stream URL comes from the app's
 session broker, capability builder and identity, which only internal/app
 assembles; driving it needs the full binary with a local viewer. Plex Web,
