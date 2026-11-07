@@ -351,6 +351,8 @@ jobs:
         working-directory: web
         run: pnpm build
       - name: Embedded UI is up to date
+        # Contributor PRs omit generated assets; the coordinator rebuilds them.
+        if: github.event_name != 'pull_request'
         run: |
           # internal/admin/dist is committed so `go build` works without Node;
           # it must match a fresh build of web/.
