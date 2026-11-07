@@ -10,6 +10,21 @@ import (
 func (s *Server) continueExperience(pr *Request) experience.Continue {
 	var memo showEpisodes
 	var states map[core.RatingKey]core.WatchStatus
+	// Selection needs numbering and watch state, not every episode's cast.
+	// Restore full metadata before any policy/availability check or rendering.
+	resolved := map[core.RatingKey]*core.Title{}
+	fullTitle := func(ctx context.Context, t *core.Title) *core.Title {
+		if t == nil {
+			return nil
+		}
+		if full, ok := resolved[t.Key]; ok {
+			return full
+		}
+		for _, full := range s.getTitles(withStoredPolicy(ctx), []core.RatingKey{t.Key}) {
+			resolved[full.Key] = &full
+		}
+		return resolved[t.Key]
+	}
 	c := experience.Continue{ShowOnDeck: func(ctx context.Context, show core.RatingKey) (*core.Title, map[core.RatingKey]core.WatchStatus) {
 		if list, ok := memo[show]; ok && states != nil {
 			// appendNext uses the most recent timestamp in this map. Keep it
@@ -20,9 +35,11 @@ func (s *Server) continueExperience(pr *Request) experience.Continue {
 					st[ep.Key] = value
 				}
 			}
-			return experience.ShowOnDeck(list.eps, st, func(t *core.Title) bool {
-				return s.sameDayUnavailable(ctx, pr, t)
-			}), st
+			selected := experience.ShowOnDeck(list.eps, st, func(t *core.Title) bool {
+				full := fullTitle(ctx, t)
+				return full == nil || s.sameDayUnavailable(ctx, pr, full)
+			})
+			return fullTitle(ctx, selected), st
 		}
 		return s.showOnDeck(ctx, pr, show, memo)
 	}, PrepareShowOnDeck: func(ctx context.Context, shows []core.RatingKey) {
@@ -30,7 +47,7 @@ func (s *Server) continueExperience(pr *Request) experience.Continue {
 		for _, show := range shows {
 			titles = append(titles, core.Title{Key: show, Type: core.TypeShow})
 		}
-		memo, states = s.prefetchListEpisodes(ctx, pr, titles)
+		memo, states = s.prefetchListEpisodesWith(ctx, pr, titles, !s.viewerRestricted(pr.User))
 		if s.d.EpisodeOrder != nil {
 			// Even an ungrouped show can hide or reorder Specials. Apply
 			// presentation to the batch itself: a concurrent catalogue write
@@ -43,6 +60,17 @@ func (s *Server) continueExperience(pr *Request) experience.Continue {
 				}
 				memo[show] = showEpisodeList{eps: eps}
 			}
+		}
+		// Most shows need just this first candidate; batch its full metadata.
+		// If availability excludes it, ShowOnDeck loads the next candidate.
+		var keys []core.RatingKey
+		for _, list := range memo {
+			if t := experience.ShowOnDeck(list.eps, states, func(*core.Title) bool { return false }); t != nil {
+				keys = append(keys, t.Key)
+			}
+		}
+		for _, t := range s.getTitles(withStoredPolicy(ctx), keys) {
+			resolved[t.Key] = &t
 		}
 	}, State: s.d.State, Now: s.now, FavoriteShows: s.d.FavoriteShows,
 		Grandchildren: func(ctx context.Context, k core.RatingKey) ([]core.Title, error) {

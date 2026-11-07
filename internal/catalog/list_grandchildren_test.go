@@ -57,9 +57,21 @@ func TestStoredGrandchildrenMatchesGrandchildren(t *testing.T) {
 	// Answered, empty: no listable season.
 	show(4, 1)
 
+	candidates, err := c.StoredEpisodeCandidates(ctx, []core.RatingKey{core.ShowKey(1), core.ShowKey(2), core.ShowKey(3), core.ShowKey(4), core.MovieKey(9)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, err := c.StoredGrandchildren(ctx, []core.RatingKey{core.ShowKey(1), core.ShowKey(2), core.ShowKey(3), core.ShowKey(4), core.MovieKey(9)})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(candidates) != len(got) {
+		t.Fatalf("candidate coverage %d != full %d", len(candidates), len(got))
+	}
+	for k, eps := range got {
+		if !reflect.DeepEqual(keysOfTitles(candidates[k]), keysOfTitles(eps)) {
+			t.Fatalf("candidate membership/order differs for %v", k)
+		}
 	}
 	if _, ok := got[core.ShowKey(2)]; ok {
 		t.Fatal("answered a show without details")

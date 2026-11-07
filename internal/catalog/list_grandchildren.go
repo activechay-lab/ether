@@ -17,6 +17,18 @@ import (
 // many shows' episodes reads them in a few batched statements instead of a
 // dozen per show.
 func (c *Catalog) StoredGrandchildren(ctx context.Context, shows []core.RatingKey) (map[core.RatingKey][]core.Title, error) {
+	return c.storedGrandchildrenBatch(ctx, shows, true)
+}
+
+// StoredEpisodeCandidates has the same episode membership and order as
+// StoredGrandchildren, but reads only keys, numbering, release dates and adult flags.
+// It is only for choosing a next episode. Callers must load the chosen title
+// fully before applying policies, availability filters or rendering it.
+func (c *Catalog) StoredEpisodeCandidates(ctx context.Context, shows []core.RatingKey) (map[core.RatingKey][]core.Title, error) {
+	return c.storedGrandchildrenBatch(ctx, shows, false)
+}
+
+func (c *Catalog) storedGrandchildrenBatch(ctx context.Context, shows []core.RatingKey, full bool) (map[core.RatingKey][]core.Title, error) {
 	out := map[core.RatingKey][]core.Title{}
 	var need []core.RatingKey
 	gen, minute := c.writeGen.Load(), c.minuteBucket()
@@ -37,14 +49,14 @@ func (c *Catalog) StoredGrandchildren(ctx context.Context, shows []core.RatingKe
 	}
 	c.cacheMu.RUnlock()
 	for start := 0; start < len(need); start += 200 {
-		if err := c.storedGrandchildren(ctx, need[start:min(start+200, len(need))], gen, minute, out); err != nil {
+		if err := c.storedGrandchildren(ctx, need[start:min(start+200, len(need))], gen, minute, out, full); err != nil {
 			return nil, err
 		}
 	}
 	return out, nil
 }
 
-func (c *Catalog) storedGrandchildren(ctx context.Context, shows []core.RatingKey, gen uint64, minute int64, out map[core.RatingKey][]core.Title) error {
+func (c *Catalog) storedGrandchildren(ctx context.Context, shows []core.RatingKey, gen uint64, minute int64, out map[core.RatingKey][]core.Title, full bool) error {
 	keys := make([]any, len(shows))
 	for i, k := range shows {
 		keys[i] = int64(k)
@@ -183,7 +195,12 @@ func (c *Catalog) storedGrandchildren(ctx context.Context, shows []core.RatingKe
 			ask = append(ask, int64(show))
 		}
 	}
-	eps, err := c.queryTitles(ctx, `SELECT `+titleCols+` FROM catalog_titles WHERE type='episode' AND show_key IN (`+placeholders(len(ask))+`) ORDER BY show_key ASC, season ASC, episode ASC`, ask...)
+	query, columns := c.queryTitles, titleCols
+	if !full {
+		query = c.queryEpisodeCandidates
+		columns = "key,show_key,season,episode,released_ts,adult"
+	}
+	eps, err := query(ctx, `SELECT `+columns+` FROM catalog_titles WHERE type='episode' AND show_key IN (`+placeholders(len(ask))+`) ORDER BY show_key ASC, season ASC, episode ASC`, ask...)
 	if err != nil {
 		return err
 	}
@@ -200,7 +217,7 @@ func (c *Catalog) storedGrandchildren(ctx context.Context, shows []core.RatingKe
 			out[e.ShowKey] = append(out[e.ShowKey], e)
 		}
 	}
-	if c.writeGen.Load() == gen {
+	if full && c.writeGen.Load() == gen {
 		c.cacheMu.Lock()
 		for show := range answer {
 			stored := make([]core.Title, len(out[show]))
@@ -215,4 +232,31 @@ func (c *Catalog) storedGrandchildren(ctx context.Context, shows []core.RatingKe
 		c.cacheMu.Unlock()
 	}
 	return nil
+}
+
+// queryEpisodeCandidates deliberately does not populate the full-title cache.
+// Episode release/adult guards match queryTitles; episodes have no home-release
+// date or hydrated season counts to resolve.
+func (c *Catalog) queryEpisodeCandidates(ctx context.Context, query string, args ...any) ([]core.Title, error) {
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []core.Title
+	now := c.now()
+	for rows.Next() {
+		t := core.Title{Type: core.TypeEpisode}
+		var released int64
+		if err := rows.Scan(&t.Key, &t.ShowKey, &t.Season, &t.Episode, &released, &t.Adult); err != nil {
+			return nil, err
+		}
+		if released != 0 {
+			t.Released = time.Unix(released, 0).UTC()
+		}
+		if !t.Adult && t.IsReleased(now) {
+			out = append(out, t)
+		}
+	}
+	return out, rows.Err()
 }

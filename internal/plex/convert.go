@@ -1571,6 +1571,10 @@ type listEpisodeStore interface {
 // (an episode group changes the episode set); the rest keep the per-show
 // path. states holds every prefetched episode's watch state.
 func (s *Server) prefetchListEpisodes(ctx context.Context, pr *Request, ts []core.Title) (showEpisodes, map[core.RatingKey]core.WatchStatus) {
+	return s.prefetchListEpisodesWith(ctx, pr, ts, false)
+}
+
+func (s *Server) prefetchListEpisodesWith(ctx context.Context, pr *Request, ts []core.Title, selectionOnly bool) (showEpisodes, map[core.RatingKey]core.WatchStatus) {
 	store, ok := s.d.Catalog.(listEpisodeStore)
 	if !ok || s.d.State == nil || pr.User == nil {
 		return nil, nil
@@ -1603,7 +1607,15 @@ func (s *Server) prefetchListEpisodes(ctx context.Context, pr *Request, ts []cor
 		}
 		shows = kept
 	}
-	found, err := store.StoredGrandchildren(ctx, shows)
+	load := store.StoredGrandchildren
+	if selectionOnly {
+		if candidates, ok := s.d.Catalog.(interface {
+			StoredEpisodeCandidates(context.Context, []core.RatingKey) (map[core.RatingKey][]core.Title, error)
+		}); ok {
+			load = candidates.StoredEpisodeCandidates
+		}
+	}
+	found, err := load(ctx, shows)
 	if err != nil || len(found) == 0 {
 		return nil, nil
 	}
