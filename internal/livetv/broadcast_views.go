@@ -15,6 +15,49 @@ import (
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
+// awaitBroadcastCushion holds a tune (never a playlist request) until its
+// output has published a first segment and, for a live provider output, one
+// whole target duration: a client then starts with a segment of cushion and
+// its first playlist answers at once.
+func awaitBroadcastCushion(ctx context.Context, lease *broadcastLease, provider bool) {
+	index, err := lease.output()
+	if err != nil {
+		return
+	}
+	segment := broadcastSegment(lease)
+	limit := 6 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		limit = min(limit, time.Until(deadline)-500*time.Millisecond)
+	}
+	if limit <= 0 {
+		return
+	}
+	wait, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	latest, ok := index.Latest()
+	if !ok {
+		if latest, err = index.Wait(wait, -1); err != nil {
+			return
+		}
+	}
+	// A live output's client starts 1.5 segments behind its first picture:
+	// its opening cuts are never longer than that lead (continuousLadder).
+	first := index.Since(-1, 1)
+	for provider && len(first) > 0 && latest.Start.Add(latest.Duration).Sub(first[0].Start) < segment*3/2 {
+		if latest, err = index.Wait(wait, latest.Seq); err != nil {
+			return
+		}
+	}
+}
+
+// broadcastSegment is the target duration of the output a lease reads.
+func broadcastSegment(l *broadcastLease) time.Duration {
+	if l == nil || l.broadcast == nil || l.broadcast.segment <= 0 {
+		return segmentDuration
+	}
+	return l.broadcast.segment
+}
+
 func (s *Service) broadcastSegments(ctx context.Context, ss *session) (transcode.SegmentIndex, error) {
 	ss.mu.Lock()
 	lease := ss.broadcast
@@ -29,15 +72,34 @@ func (s *Service) broadcastWindow(ctx context.Context, ss *session, r *http.Requ
 	if err != nil {
 		return nil, nil, err
 	}
+	// AVPlayer never starts an item whose first playlist response took a
+	// whole target duration, and fails it on a 503: never hold a playlist
+	// for more than half a target duration. The tune already waited for the
+	// output's first segment (awaitBroadcastCushion).
+	ss.mu.Lock()
+	provider := ss.info.Channel.Kind == "iptv"
+	segment := broadcastSegment(ss.broadcast)
+	ss.mu.Unlock()
+	wait, cancel := context.WithTimeout(ctx, segment/2)
+	defer cancel()
 	latest, ok := index.Latest()
 	if !ok {
-		wait, cancel := context.WithTimeout(ctx, 8*time.Second)
-		defer cancel()
 		latest, err = index.Wait(wait, -1)
 		if err != nil {
 			// No playlist exists yet, including when a cold encoder exits before
 			// publishing. Tell clients to retry rather than report a bad gateway.
 			return nil, nil, core.ErrNotAvailable
+		}
+	}
+	if provider {
+		if first := index.Since(-1, 1); len(first) > 0 {
+			for latest.Start.Add(latest.Duration).Sub(first[0].Start) < segment {
+				next, err := index.Wait(wait, latest.Seq)
+				if err != nil {
+					break
+				}
+				latest = next
+			}
 		}
 	}
 	end := latest.Start.Add(latest.Duration)
@@ -80,7 +142,9 @@ func (s *Service) serveBroadcastPlaylist(w http.ResponseWriter, r *http.Request,
 	}
 	// TARGETDURATION is a property of the rendition, including its short
 	// startup segments, and must not change as the window advances.
-	target := 4
+	ss.mu.Lock()
+	target := int(math.Ceil(broadcastSegment(ss.broadcast).Seconds()))
+	ss.mu.Unlock()
 	for _, seg := range segments {
 		target = max(target, int(math.Ceil(seg.Duration.Seconds())))
 	}

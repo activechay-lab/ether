@@ -321,7 +321,7 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	}
 	// A provider that allows N connections can carry N different channels;
 	// viewers of a channel already playing share its connection.
-	if c.Kind == "iptv" && c.SourceID != "" && !s.useBroadcast(c) {
+	if c.Kind == "iptv" && c.SourceID != "" {
 		if max := s.sourceConnectionLimit(c.SourceID); max > 0 {
 			playing := map[string]bool{}
 			for _, other := range s.sessions {
@@ -421,6 +421,9 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	// waiting behind up to ~10s of upstream work.
 	if s.useBroadcast(c) {
 		err = s.startBroadcast(ctx, ss)
+		if errors.Is(err, errSteadyRefused) {
+			err = s.startIPTVSession(ctx, ss)
+		}
 		if err != nil {
 			s.Stop(ctx, ss.info.ID, u)
 			return SessionInfo{}, err

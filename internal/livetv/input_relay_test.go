@@ -213,16 +213,35 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 	}
 	defer tc.Close()
 	s := testService(t, Options{Transcoder: tc, HTTPClient: up.Client()})
-	// The stub encoder never publishes a segment, so the tune ends at its
-	// deadline; the argv it was started with is what this test inspects.
+	// A Direct relay whose stub encoder never publishes a segment ends its
+	// tune at the deadline; the argv it was started with is what this test
+	// inspects.
 	tuneCtx, cancelTune := context.WithTimeout(context.Background(), 3*time.Second)
 	info, tuneErr := tuneRelayChannelCtx(t, tuneCtx, s, up.URL+"/live/xuser/xpass-S3CRET/1001.ts?token=QTOKEN-S3CRET")
 	cancelTune()
-
-	runner.mu.Lock()
-	calls := append([][]string(nil), runner.calls...)
-	bodies := append([]string(nil), runner.bodies...)
-	runner.mu.Unlock()
+	// A continuous output starts its input decoder after the tune returns,
+	// and reopens it while this fake ffmpeg keeps failing. Judge one snapshot
+	// in which every recorded relay read has its body.
+	var calls [][]string
+	var bodies []string
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		runner.mu.Lock()
+		calls = append([][]string(nil), runner.calls...)
+		bodies = append([]string(nil), runner.bodies...)
+		runner.mu.Unlock()
+		started, reads := false, 0
+		for _, args := range calls {
+			for i := 0; i+1 < len(args); i++ {
+				if args[i] == "-i" && strings.HasPrefix(args[i+1], "http") {
+					reads++
+					started = started || args[0] == "ffmpeg"
+				}
+			}
+		}
+		if started && reads == len(bodies) {
+			break
+		}
+	}
 	var inputs []string
 	var analysis, packetProbe, encoder bool
 	for _, args := range calls {
@@ -232,6 +251,10 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 		}
 		for i := 0; i+1 < len(args); i++ {
 			if args[i] == "-i" {
+				if strings.HasPrefix(args[i+1], "tcp://127.0.0.1:") {
+					// A continuous encoder's raw frames, never provider data.
+					continue
+				}
 				inputs = append(inputs, args[i+1])
 				if args[0] == "ffprobe" && contains(args, "-show_streams") {
 					analysis = true
@@ -270,6 +293,9 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// A continuous channel output keeps its input warm through the idle
+	// grace after its last viewer; ending the output must revoke the grant.
+	s.broadcasts.invalidate("", true)
 	if code, _, _ := relayGet(t, inputs[0], nil); code != http.StatusNotFound {
 		t.Fatalf("grant outlived its session: %d", code)
 	}

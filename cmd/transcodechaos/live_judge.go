@@ -61,12 +61,17 @@ type judgedSegment struct {
 }
 
 type protocolReport struct {
-	TargetDuration       float64 `json:"targetDuration"`
-	FirstPlaylistS       float64 `json:"firstPlaylistSeconds"`
-	FirstSegmentS        float64 `json:"firstSegmentSeconds"`
-	Segments             int     `json:"segments"`
-	LongestNoNewSegmentS float64 `json:"longestNoNewSegmentSeconds"`
-	LongestNoNewAt       float64 `json:"longestNoNewSegmentAt"`
+	TargetDuration float64 `json:"targetDuration"`
+	FirstPlaylistS float64 `json:"firstPlaylistSeconds"`
+	// FirstPlaylistResponseS is how long Ether took to answer the first
+	// playlist request that returned one (its own handling time when known).
+	// AVFoundation leaves an item stuck for good, with no error, when that
+	// response takes a whole target duration (measured on macOS 26).
+	FirstPlaylistResponseS float64 `json:"firstPlaylistResponseSeconds"`
+	FirstSegmentS          float64 `json:"firstSegmentSeconds"`
+	Segments               int     `json:"segments"`
+	LongestNoNewSegmentS   float64 `json:"longestNoNewSegmentSeconds"`
+	LongestNoNewAt         float64 `json:"longestNoNewSegmentAt"`
 	// Adj excludes time the judge itself was blocked (JudgeBlindS).
 	LongestNoNewSegmentAdjS float64 `json:"longestNoNewSegmentAdjustedSeconds"`
 	JudgeBlindS             float64 `json:"judgeBlindSeconds,omitempty"`
@@ -245,10 +250,14 @@ func (j *protocolJudge) poll(ctx context.Context) {
 	began := j.since()
 	j.polls++
 	id := strconv.Itoa(j.polls)
+	served, servedOK := 0.0, false
 	defer func() {
 		lat := j.since() - began
 		// Only the part Ether did not spend serving is the judge's blind time.
-		if served, ok := j.handled(id); ok {
+		if !servedOK {
+			served, servedOK = j.handled(id)
+		}
+		if servedOK {
 			lat -= served
 		}
 		j.mu.Lock()
@@ -279,10 +288,14 @@ func (j *protocolJudge) poll(ctx context.Context) {
 		return
 	}
 	now := j.since()
+	if served, servedOK = j.handled(id); !servedOK {
+		served = now - began
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.report.FirstPlaylistS == 0 {
 		j.report.FirstPlaylistS = now
+		j.report.FirstPlaylistResponseS = math.Round(served*1000) / 1000
 	}
 	if p.td > 0 {
 		j.report.TargetDuration = p.td

@@ -68,7 +68,19 @@ func liveMarkdown(rep liveReport, base *liveReport, o liveOptions) string {
 		}
 		fmt.Fprintf(&b, "- `%s` (%s): %s\n", r.ID, r.Summary, mdEscape(strings.Join(why, "; ")))
 	}
+	warned := false
+	for _, r := range rep.Results {
+		if len(r.Viewer.Warnings) == 0 {
+			continue
+		}
+		if !warned {
+			b.WriteString("\n## Warnings\n\n")
+			warned = true
+		}
+		fmt.Fprintf(&b, "- `%s`: %s\n", r.ID, mdEscape(strings.Join(r.Viewer.Warnings, "; ")))
+	}
 	b.WriteString("\n## How each number is measured\n\n")
+	b.WriteString("- **First playlist**: Ether's time to answer the first playlist request that returned one. A whole target duration fails the row (AVFoundation then never starts the item: no error, no segment request); half of one is a warning.\n")
 	b.WriteString("- **Screen** = freeze + slate seconds after the first provider picture. Budgets per preset are in `cmd/transcodechaos/live_scenarios.go`.\n")
 	b.WriteString("- **Freeze**: with the AVFoundation judge, gaps of at least 0.5 s between frames AVPlayer delivered plus seconds of repeated (held) provider frames. Without it, a player buffer model over observed segment arrivals plus held provider frames in the published media (ffmpeg freezedetect).\n")
 	b.WriteString("- **Slate**: the fixture carries a green band on top; frames without it are an Ether screen or black. Counted from AVPlayer's frames (or 10 Hz samples of the published segments without the player).\n")

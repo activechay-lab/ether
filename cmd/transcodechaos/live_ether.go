@@ -103,6 +103,8 @@ func startLiveEther(ctx context.Context, ff, fp, work string, setup channelSetup
 	ch := channels[0]
 	switch setup.Mode {
 	case "passthrough", "relay-copy":
+		// IPTV defaults to Steady; a channel without a no-signal screen plays direct.
+		ch.Screens = &livetv.ChannelScreens{NoSignal: "error"}
 	case "relay-transcode":
 		ch.Transcode = true
 		ch.Screens = &livetv.ChannelScreens{NoSignal: "error"}

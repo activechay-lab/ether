@@ -402,13 +402,6 @@ func (p *relayProducer) run(ctx context.Context) {
 	}
 }
 
-func later(a, b time.Time) time.Time {
-	if a.After(b) {
-		return a
-	}
-	return b
-}
-
 // reencodeDecision is the current source converted: video re-encoded (cut
 // on its own keyframes), in the producer's container.
 func (p *relayProducer) reencodeDecision() (core.Decision, bool) {

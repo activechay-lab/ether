@@ -27,10 +27,23 @@ type signalInputDecoder struct {
 	engine  *signal.Engine
 	overlay *videoOverlay
 	format  transcode.RawFormat
-	tick    int64
+	tick    int64 // 30 Hz signal tick of the next 30 fps frame
 	audio   []int16
 	closed  chan struct{}
 	once    sync.Once
+	// Other working rates map each output tick onto the 30 Hz signal clock.
+	// Static hiss keeps its own continuous 30 Hz sample clock in a FIFO.
+	static  bool
+	seed    int64
+	out     int64
+	audioAt int64
+	hiss    []int16
+	scratch []int16
+}
+
+func newSignalInputDecoder(engine *signal.Engine, overlay *videoOverlay, f transcode.RawFormat, now time.Time, static bool, seed int64) *signalInputDecoder {
+	tick := now.Unix() * 30
+	return &signalInputDecoder{engine: engine, overlay: overlay, format: f, tick: tick, audioAt: tick, audio: make([]int16, 3200), closed: make(chan struct{}), static: static, seed: seed}
 }
 
 func (d *signalInputDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
@@ -41,19 +54,43 @@ func (d *signalInputDecoder) Next(ctx context.Context) (transcode.RawFrame, erro
 		return transcode.RawFrame{}, context.Canceled
 	default:
 	}
-	frame := transcode.RawFrame{Video: make([]byte, d.format.Width*d.format.Height*3/2), PCM: make([]byte, 6400)}
-	d.engine.Render(frame.Video, d.audio, d.tick)
-	d.tick++
-	for i, v := range d.audio {
-		binary.LittleEndian.PutUint16(frame.PCM[i*2:], uint16(v))
+	f := d.format
+	frame := transcode.RawFrame{Video: make([]byte, f.Width*f.Height*3/2)}
+	if f.FPSNum == 30 && f.FPSDen == 1 {
+		frame.PCM = make([]byte, 6400)
+		d.engine.Render(frame.Video, d.audio, d.tick)
+		d.tick++
+		for i, v := range d.audio {
+			binary.LittleEndian.PutUint16(frame.PCM[i*2:], uint16(v))
+		}
+	} else {
+		at := d.tick + d.out*30*int64(f.FPSDen)/int64(f.FPSNum)
+		samples := tickSamples(f, d.out)
+		d.out++
+		d.engine.Render(frame.Video, d.audio, at)
+		frame.PCM = make([]byte, samples*4)
+		if d.static {
+			for len(d.hiss) < samples*2 {
+				if d.scratch == nil {
+					d.scratch = make([]int16, 3200)
+				}
+				signal.StaticAudio(d.scratch, d.audioAt, 1600, d.seed)
+				d.audioAt++
+				d.hiss = append(d.hiss, d.scratch...)
+			}
+			for i, v := range d.hiss[:samples*2] {
+				binary.LittleEndian.PutUint16(frame.PCM[i*2:], uint16(v))
+			}
+			d.hiss = append(d.hiss[:0], d.hiss[samples*2:]...)
+		}
 	}
-	d.overlay.blend(frame.Video, d.format, 255)
+	d.overlay.blend(frame.Video, f, 255)
 	return frame, nil
 }
 func (d *signalInputDecoder) Close() error { d.once.Do(func() { close(d.closed) }); return nil }
 func (s *Service) openSignalDecoder(ctx context.Context, request core.ClipRequest, f transcode.RawFormat) (transcode.Decoder, func(), error) {
-	if f.FPSNum != 30 || f.FPSDen != 1 {
-		return nil, nil, fmt.Errorf("live Signal requires the channel's 30 fps working clock")
+	if !transcode.ContinuousFrameRate(f.FPSNum, f.FPSDen) {
+		return nil, nil, fmt.Errorf("live Signal requires a broadcast frame rate")
 	}
 	style := strings.TrimPrefix(request.Moment, "screen.")
 	isStatic := style == "static"
@@ -110,7 +147,7 @@ func (s *Service) openSignalDecoder(ctx context.Context, request core.ClipReques
 		style = normalizePlateStyle(style)
 		engine = signal.NewPlate(f.Width, f.Height, style, plate, image.Image(nil), seed)
 	}
-	return &signalInputDecoder{engine: engine, overlay: overlay, format: f, tick: s.o.Now().Unix() * 30, audio: make([]int16, 3200), closed: make(chan struct{})}, nil, nil
+	return newSignalInputDecoder(engine, overlay, f, s.o.Now(), isStatic, seed), nil, nil
 }
 func normalizePlateStyle(style string) string {
 	switch style {
