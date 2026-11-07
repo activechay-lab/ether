@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,8 +39,10 @@ func TestShelfGenerationPagingInvariant(t *testing.T) {
 func shelfGenerationPagingInvariant(t *testing.T, collection, evidence bool) {
 	f := newFixture()
 	defer f.srv.Close()
-	now := fixedNow
-	f.srv.d.Now = func() time.Time { return now }
+	// Background palette jobs read the clock while the test advances it.
+	var now atomic.Int64
+	now.Store(fixedNow.UnixNano())
+	f.srv.d.Now = func() time.Time { return time.Unix(0, now.Load()).In(fixedNow.Location()) }
 	var mixed []core.Title
 	for i := 0; i < 140; i++ {
 		movie, show := fightClub, breakingBad
@@ -124,7 +127,7 @@ func shelfGenerationPagingInvariant(t *testing.T, collection, evidence bool) {
 			assembled := append([]string(nil), expected[:h.Size]...)
 			assembled = append(assembled, make([]string, len(expected)-h.Size)...)
 			for _, p := range pages {
-				now = now.Add(6 * time.Hour) // expires presentation/shelf caches AND crosses dayparts
+				now.Add(int64(6 * time.Hour)) // expires presentation/shelf caches AND crosses dayparts
 				// New evidence changes discovery eligibility while the old generation
 				// remains complete; section switching can publish the new answer.
 				if evidence {

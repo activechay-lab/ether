@@ -48,6 +48,11 @@ func TestSeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tv.Close()
+	// Guide snapshots are published by a background worker, so a read right
+	// after New races it. Publish synchronously before reading.
+	if err := tv.RefreshGuide(ctx); err != nil {
+		t.Fatal(err)
+	}
 	programs, err := tv.Guide(ctx, &core.User{ID: 1, IsOwner: true}, fixtureNow, fixtureNow.Add(time.Hour))
 	if err != nil || len(programs) == 0 {
 		t.Fatalf("live TV fixture guide empty: %v %v", programs, err)

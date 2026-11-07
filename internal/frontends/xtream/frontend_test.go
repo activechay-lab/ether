@@ -212,7 +212,9 @@ func TestLargeCatalogueExport(t *testing.T) {
 	if s.calls != 401 || w.bytes < 1000000 {
 		t.Fatalf("calls=%d bytes=%d", s.calls, w.bytes)
 	}
-	if elapsed > 30*time.Second {
+	// The budget measures the export, not the race detector's slowdown; the
+	// bounded-page invariants above hold in every build.
+	if !raceEnabled && elapsed > 30*time.Second {
 		t.Fatalf("export too slow %v", elapsed)
 	}
 	t.Logf("100001 titles: %v, %d bounded pages, %d bytes", elapsed, s.calls, w.bytes)

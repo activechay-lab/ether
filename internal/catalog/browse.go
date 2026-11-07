@@ -130,9 +130,15 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		return core.Page{Items: items, Total: total}, nil
 	}
 	pageWhere, pageArgs := where, args
+	keysetHint := ""
 	if q.Sort == core.SortKey && q.AfterKey > 0 {
 		pageWhere += " AND t.key>?"
 		pageArgs = append(append([]any{}, args...), q.AfterKey)
+		// Pin the seek: planner statistics must never turn a keyset page back
+		// into a sort of the type's whole browse set.
+		if q.Filter.Type != "" && store.DialectOf(c.db) != store.Postgres {
+			keysetHint = " INDEXED BY " + keysetIndex
+		}
 	}
 	if q.Sort == core.SortUpdated && q.Filter.UpdatedAfter == 0 {
 		pageWhere += " AND t.fetched_at>=?"
@@ -161,9 +167,9 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	// movies released by now, so browseOrder's t.released_ts gives the same
 	// order from the (type, browsable, released_ts) index instead of a
 	// computed expression sorted over the whole library.
-	query := `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t WHERE ` + pageWhere + ` ORDER BY ` + order + `, t.key ASC LIMIT ? OFFSET ?`
+	query := `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t` + keysetHint + ` WHERE ` + pageWhere + ` ORDER BY ` + order + `, t.key ASC LIMIT ? OFFSET ?`
 	if q.Filter.LocalOnly && q.NoTotal && !computedAdded && q.Filter.Type != "" {
-		hint := ""
+		hint := keysetHint
 		if store.DialectOf(c.db) != store.Postgres && !consolePositiveEvidence(q.Filter) && !consoleHasSparseCandidates(q.Filter) {
 			if len(q.Filter.Languages) == 1 && q.Filter.MinVotes > 0 {
 				hint = " INDEXED BY catalog_titles_console_language_votes_page"

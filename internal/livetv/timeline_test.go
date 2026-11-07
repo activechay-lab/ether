@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/braedonsaunders/ether/internal/core"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -156,7 +157,11 @@ func TestTimelineExtendedSnapshotIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	from, until := now.Add(20*24*time.Hour), now.Add(21*24*time.Hour)
-	cold := &Service{o: s.o, virtualGuide: virtualGuideCache{entries: s.virtualGuide.entries, epoch: s.virtualGuide.epoch, revision: s.virtualGuide.revision}}
+	// s's background loop keeps republishing entries, so the cold service gets
+	// its own copy of the published state taken under the cache lock.
+	s.virtualGuide.mu.RLock()
+	cold := &Service{o: s.o, virtualGuide: virtualGuideCache{entries: maps.Clone(s.virtualGuide.entries), epoch: s.virtualGuide.epoch, revision: s.virtualGuide.revision}}
+	s.virtualGuide.mu.RUnlock()
 	if _, err = cold.ProgrammesSnapshot(ctx, &core.User{IsOwner: true}, c.ID, from, until, SnapshotTimeline); !errors.Is(err, core.ErrNotAvailable) {
 		t.Fatalf("cold timeline: %v", err)
 	}
