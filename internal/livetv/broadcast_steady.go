@@ -357,3 +357,26 @@ func (s *Service) cachedInputFormat(ss *session) string {
 	}
 	return ""
 }
+
+// reserveDirectViewer moves a tune Steady refused from the channel output's
+// shared stream budget to its own viewer reservation, as any direct session.
+func (s *Service) reserveDirectViewer(u *core.User, caps core.ClientCaps, ss *session) error {
+	limiter, ok := s.o.Playback.(channelLimiter)
+	if !ok {
+		return nil
+	}
+	ss.mu.Lock()
+	reserved := ss.reserved
+	ss.mu.Unlock()
+	if !reserved {
+		return nil
+	}
+	limiter.EndChannel(ss.info.ID)
+	if err := limiter.BeginChannel(u, caps, ss.info.ID); err != nil {
+		ss.mu.Lock()
+		ss.reserved = false
+		ss.mu.Unlock()
+		return err
+	}
+	return nil
+}

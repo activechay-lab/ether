@@ -71,7 +71,9 @@ func newContinuousStore(dir string, keep int, notify func()) (*continuousStore, 
 		return nil, err
 	}
 	s := &continuousStore{dir: dir, token: hex.EncodeToString(b[:]), ln: ln, keep: max(keep, 4), notify: notify, files: map[string]*storeFile{}, queue: make(chan storeJob, storeQueue), done: make(chan struct{}), writeFile: os.WriteFile}
-	s.srv = &http.Server{Handler: http.HandlerFunc(s.serveHTTP), ReadHeaderTimeout: 10 * time.Second, ErrorLog: log.New(io.Discard, "", 0)}
+	// ffmpeg keeps its PUT connections open between segments; an idle
+	// close would make it reconnect on the publication path.
+	s.srv = &http.Server{Handler: http.HandlerFunc(s.serveHTTP), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 10 * time.Minute, ErrorLog: log.New(io.Discard, "", 0)}
 	go s.srv.Serve(ln)
 	go s.write()
 	return s, nil
