@@ -289,6 +289,7 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 	ss.broadcast = lease
 	ss.info.MediaInfo = &info
 	ss.mu.Unlock()
+	awaitBroadcastCushion(ctx, lease, c.Kind == "iptv")
 	return nil
 }
 

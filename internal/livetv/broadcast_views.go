@@ -15,6 +15,39 @@ import (
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
+// awaitBroadcastCushion holds a tune (never a playlist request) until its
+// output has published a first segment and, for a live provider output, one
+// whole target duration: a client then starts with a segment of cushion and
+// its first playlist answers at once.
+func awaitBroadcastCushion(ctx context.Context, lease *broadcastLease, provider bool) {
+	index, err := lease.output()
+	if err != nil {
+		return
+	}
+	segment := broadcastSegment(lease)
+	limit := 6 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		limit = min(limit, time.Until(deadline)-500*time.Millisecond)
+	}
+	if limit <= 0 {
+		return
+	}
+	wait, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	latest, ok := index.Latest()
+	if !ok {
+		if latest, err = index.Wait(wait, -1); err != nil {
+			return
+		}
+	}
+	first := index.Since(-1, 1)
+	for provider && len(first) > 0 && latest.Start.Add(latest.Duration).Sub(first[0].Start) < segment {
+		if latest, err = index.Wait(wait, latest.Seq); err != nil {
+			return
+		}
+	}
+}
+
 // broadcastSegment is the target duration of the output a lease reads.
 func broadcastSegment(l *broadcastLease) time.Duration {
 	if l == nil || l.broadcast == nil || l.broadcast.segment <= 0 {
@@ -37,7 +70,15 @@ func (s *Service) broadcastWindow(ctx context.Context, ss *session, r *http.Requ
 	if err != nil {
 		return nil, nil, err
 	}
-	wait, cancel := context.WithTimeout(ctx, 8*time.Second)
+	// AVPlayer never starts an item whose first playlist response took a
+	// whole target duration, and fails it on a 503: never hold a playlist
+	// for more than half a target duration. The tune already waited for the
+	// output's first segment (awaitBroadcastCushion).
+	ss.mu.Lock()
+	provider := ss.info.Channel.Kind == "iptv"
+	segment := broadcastSegment(ss.broadcast)
+	ss.mu.Unlock()
+	wait, cancel := context.WithTimeout(ctx, segment/2)
 	defer cancel()
 	latest, ok := index.Latest()
 	if !ok {
@@ -48,14 +89,6 @@ func (s *Service) broadcastWindow(ctx context.Context, ss *session, r *http.Requ
 			return nil, nil, core.ErrNotAvailable
 		}
 	}
-	// A live provider output publishes at real time from its first picture.
-	// Its first playlist waits until one target duration is published, so a
-	// client starts with a whole segment of cushion instead of stalling on
-	// one-second startup segments. A burst from a reserve is already there.
-	ss.mu.Lock()
-	provider := ss.info.Channel.Kind == "iptv"
-	segment := broadcastSegment(ss.broadcast)
-	ss.mu.Unlock()
 	if provider {
 		if first := index.Since(-1, 1); len(first) > 0 {
 			for latest.Start.Add(latest.Duration).Sub(first[0].Start) < segment {
