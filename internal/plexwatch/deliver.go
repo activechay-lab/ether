@@ -11,6 +11,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plexguid"
 	"github.com/braedonsaunders/ether/internal/state"
+	"github.com/braedonsaunders/ether/internal/store"
 )
 
 const missingGUIDLimit = 8
@@ -39,8 +40,9 @@ func (s *Service) deliverAvailable(ctx context.Context) {
 			s.log.Warn("plex watch journal compact", "err", err.Error())
 		}
 	}
+	pass := newSendPass()
 	for {
-		more, err := s.DeliverOnce(ctx)
+		more, err := s.deliverOne(ctx, pass)
 		if err != nil && ctx.Err() == nil {
 			s.log.Warn("plex watch delivery paused", "err", err.Error())
 		}
@@ -50,35 +52,52 @@ func (s *Service) deliverAvailable(ctx context.Context) {
 	}
 }
 
-// DeliverOnce handles at most one live intent. more is true when a row was
-// claimed, including rows put back for later.
+// DeliverOnce handles at most one live intent, as a pass of its own. more
+// is true when a row was claimed, including rows put back for later.
 func (s *Service) DeliverOnce(ctx context.Context) (bool, error) {
+	return s.deliverOne(ctx, newSendPass())
+}
+
+func (s *Service) deliverOne(ctx context.Context, pass *sendPass) (bool, error) {
 	now := s.now()
 	attempt := s.node + ":" + newID()
 	row, ok, err := s.state.ClaimSync(ctx, attempt, now, s.claimFor)
 	if err != nil || !ok {
 		return false, err
 	}
-	locked, err := s.state.LockSync(ctx, row.UserID, row.Key, row.Aspect, attempt, now, s.claimFor)
+	// A resume position shares the watch lock: it must not race a scrobble
+	// or unscrobble of the same title on another node.
+	lock := row.Aspect
+	if lock == state.SyncOffset {
+		lock = state.SyncWatch
+	}
+	locked, err := s.state.LockSync(ctx, row.UserID, row.Key, lock, attempt, now, s.claimFor)
 	if err != nil {
 		return true, err
 	}
 	if !locked {
 		return true, s.state.PauseSync(ctx, row.Seq, attempt, now.Add(time.Second), "contended")
 	}
-	defer s.state.UnlockSync(context.WithoutCancel(ctx), row.UserID, row.Key, row.Aspect, attempt)
-	return true, s.deliverClaim(ctx, row, attempt)
+	defer s.state.UnlockSync(context.WithoutCancel(ctx), row.UserID, row.Key, lock, attempt)
+	return true, s.deliverClaim(ctx, row, attempt, pass)
 }
 
 // wish is what one intent asks Plex to hold for a title.
 type wish struct {
-	hexKey  string
-	watch   bool // the watch aspect, else the rating aspect
-	watched bool
-	rating  int // Plex 1–10, 0 clears
+	hexKey     string
+	watch      bool // the watch aspect
+	watched    bool
+	rating     int  // the rating aspect: Plex 1–10, 0 clears
+	offset     bool // the resume aspect
+	offsetMS   int64
+	durationMS int64
 }
 
-func (s *Service) deliverClaim(ctx context.Context, row state.SyncRow, attempt string) error {
+// ownSlack is how far Plex's lastViewedAt may trail Ether's own write and
+// still be that write: timeline writes move lastViewedAt too.
+const ownSlack = 60
+
+func (s *Service) deliverClaim(ctx context.Context, row state.SyncRow, attempt string, pass *sendPass) error {
 	current, err := s.state.SyncCurrent(ctx, row.Seq, attempt)
 	if err != nil || !current {
 		return err
@@ -115,26 +134,63 @@ func (s *Service) deliverClaim(ctx context.Context, row state.SyncRow, attempt s
 		w.watch, w.watched = true, row.Kind == state.SyncComplete
 	case state.SyncRatingKind:
 		w.rating = plexRating(row.Rating)
+	case state.SyncOffsetKind:
+		w.offset = true
+		w.offsetMS, w.durationMS = row.Offset.Milliseconds(), row.Duration.Milliseconds()
+		if w.offsetMS > 0 && w.durationMS <= 0 {
+			// Plex's timeline needs the title's duration, which Ether has
+			// not learned yet; the next position with one is sent instead.
+			return s.state.DeadSync(ctx, row.Seq, attempt, "no_duration")
+		}
 	default:
 		return s.state.DeadSync(ctx, row.Seq, attempt, "rejected")
 	}
 
+	// Nothing is read or sent while the account's sync setting is off. The
+	// viewer's queue is held, not dropped, and flows once it is on again.
+	on, err := s.passConsent(ctx, pass, acct)
+	if err != nil {
+		return s.consentFailed(ctx, row, attempt, acct, err)
+	}
+	if !on {
+		until := s.now().Add(consentPark)
+		if err := s.state.ParkSync(ctx, row.UserID, until, consentParkReason); err != nil {
+			return err
+		}
+		return s.state.PauseSync(ctx, row.Seq, attempt, until, consentParkReason)
+	}
+
 	// A row that may already have reached Plex (never_sent=0) is read back
 	// first. Writes are idempotent, so the only reason not to send it again
-	// is a newer change made on Plex since.
+	// is a newer change made on Plex since. Clearing a resume position is
+	// always read first: Plex clears it only with an unscrobble, which must
+	// never unwatch a title Plex has as watched.
 	var neverSent int
 	if err := s.db.QueryRowContext(ctx, `SELECT never_sent FROM state_sync_journal WHERE seq=?`, row.Seq).Scan(&neverSent); err != nil {
 		return err
 	}
-	if neverSent == 0 {
+	clearing := w.offset && w.offsetMS == 0
+	if neverSent == 0 || clearing {
 		states, err := s.client.userStates(ctx, acct.token, []string{w.hexKey})
 		if err != nil {
 			return s.sendFailed(ctx, row, attempt, acct, err, false)
 		}
-		if remote, ok := states[w.hexKey]; ok {
-			switch reconcile(row, w, remote) {
+		remote, ok := states[w.hexKey]
+		switch {
+		case !ok && clearing:
+			// Plex holds no state for the title: nothing to clear.
+			return s.sendDone(ctx, row, attempt, w, nil)
+		case !ok:
+		default:
+			prev, seen, err := s.loadRemoteOne(ctx, row.UserID, row.Key)
+			if err != nil {
+				return err
+			}
+			own := seen && prev.ours && remote.ViewedAt <= prev.observedAt.Unix()+ownSlack
+			switch reconcile(row, w, remote, own) {
 			case remoteHas:
-				return s.sendDone(ctx, row, attempt, w)
+				watched := remote.Watched
+				return s.sendDone(ctx, row, attempt, w, &watched)
 			case remoteNewer:
 				// Plex changed this title after the intent; newest wins, and
 				// an import (if on) brings Plex's change into Ether.
@@ -160,15 +216,56 @@ func (s *Service) deliverClaim(ctx context.Context, row state.SyncRow, attempt s
 		}
 		return s.state.DeadSync(ctx, row.Seq, attempt, reason)
 	}
-	if w.watch {
+	var watched *bool
+	switch {
+	case w.watch:
 		err = s.client.scrobble(ctx, acct.token, w.hexKey, w.watched)
-	} else {
+	case w.offset && clearing:
+		// Read back above: Plex has the title unwatched, so the unscrobble
+		// only resets its resume position.
+		err = s.client.scrobble(ctx, acct.token, w.hexKey, false)
+		unwatched := false
+		watched = &unwatched
+	case w.offset:
+		var tl timelineResult
+		tl, err = s.client.timeline(ctx, acct.token, w.hexKey, w.offsetMS, w.durationMS)
+		if tl.ViewCountKnown {
+			v := tl.ViewCount > 0
+			watched = &v
+		}
+	default:
 		err = s.client.rate(ctx, acct.token, w.hexKey, w.rating)
 	}
 	if err != nil {
 		return s.sendFailed(ctx, row, attempt, acct, err, true)
 	}
-	return s.sendDone(ctx, row, attempt, w)
+	return s.sendDone(ctx, row, attempt, w, watched)
+}
+
+// consentFailed classifies a failed read of the account's sync setting.
+// 401/403 and 429 mean what they mean for any call; anything else (the
+// endpoint missing or unreachable) holds the viewer's sends for a while
+// without counting against the change.
+func (s *Service) consentFailed(ctx context.Context, row state.SyncRow, attempt string, acct accountRow, err error) error {
+	var st *StatusError
+	errors.As(err, &st)
+	if ctx.Err() != nil || errors.Is(err, ErrRevoked) || (st != nil && st.Status == http.StatusTooManyRequests) {
+		return s.sendFailed(ctx, row, attempt, acct, err, false)
+	}
+	delay := backoff(row.Attempts)
+	s.pauseAccount(ctx, row.UserID, acct.tokenGeneration, delay, "network")
+	s.log.Debug("plex watch-state setting could not be read", "user", row.UserID, "err", err.Error())
+	return s.state.PauseSync(ctx, row.Seq, attempt, s.now().Add(delay), "network")
+}
+
+// loadRemoteOne reads what Ether last read from or wrote to Plex for key.
+func (s *Service) loadRemoteOne(ctx context.Context, userID int64, key core.RatingKey) (remoteRow, bool, error) {
+	m, err := s.loadRemote(ctx, userID, map[string]core.RatingKey{"": key})
+	if err != nil {
+		return remoteRow{}, false, err
+	}
+	r, ok := m[key]
+	return r, ok, nil
 }
 
 // admit is the consent fence. Under the viewer's fence lock it confirms
@@ -236,9 +333,30 @@ const (
 // Plex holds now. Plex keeps lastViewedAt through an unscrobble, so a
 // scrobble Ether sent that was then undone on Plex leaves lastViewedAt at or
 // after the intent; a watch on Plex after Ether's unwatch moves it past.
-func reconcile(row state.SyncRow, w wish, remote userState) verdict {
+// Timeline writes move lastViewedAt too, so own (Plex's lastViewedAt is
+// Ether's own latest write) never counts as a newer Plex change.
+func reconcile(row state.SyncRow, w wish, remote userState, own bool) verdict {
 	at := row.At.Unix()
+	after := func(orAt bool) bool {
+		return !own && (remote.ViewedAt > at || (orAt && remote.ViewedAt == at))
+	}
 	switch {
+	case w.offset && w.offsetMS > 0:
+		if d := remote.Offset - w.offsetMS; d > -1000 && d < 1000 {
+			return remoteHas
+		}
+		if after(false) {
+			return remoteNewer
+		}
+	case w.offset:
+		if remote.Offset == 0 {
+			return remoteHas
+		}
+		// Plex clears a position only with an unscrobble, which would also
+		// unwatch the title: a watched title on Plex keeps its position.
+		if remote.Watched || after(false) {
+			return remoteNewer
+		}
 	case !w.watch:
 		if remote.Rating == w.rating {
 			return remoteHas
@@ -247,14 +365,14 @@ func reconcile(row state.SyncRow, w wish, remote userState) verdict {
 		if remote.Watched {
 			return remoteHas
 		}
-		if remote.ViewedAt >= at {
+		if after(true) {
 			return remoteNewer
 		}
 	default:
 		if !remote.Watched {
 			return remoteHas
 		}
-		if remote.ViewedAt > at {
+		if after(false) {
 			return remoteNewer
 		}
 	}
@@ -264,15 +382,17 @@ func reconcile(row state.SyncRow, w wish, remote userState) verdict {
 // sendDone acknowledges the intent and records what Plex now holds, marked
 // as Ether's own write so the next import does not read it back as a Plex
 // change. Plex's state is recorded even when a newer intent superseded this
-// one during the request: it is what Plex holds.
-func (s *Service) sendDone(ctx context.Context, row state.SyncRow, attempt string, w wish) error {
+// one during the request: it is what Plex holds. plexWatched is Plex's
+// watched flag when the answer told it (resume writes), nil otherwise.
+func (s *Service) sendDone(ctx context.Context, row state.SyncRow, attempt string, w wish, plexWatched *bool) error {
 	now := s.now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if w.watch {
+	switch {
+	case w.watch:
 		watched := 0
 		if w.watched {
 			watched = 1
@@ -280,7 +400,26 @@ func (s *Service) sendDone(ctx context.Context, row state.SyncRow, attempt strin
 		_, err = tx.ExecContext(ctx, `INSERT INTO plexwatch_remote(user_id, rating_key, watched, observed_at, ours) VALUES(?,?,?,?,1)
 			ON CONFLICT(user_id, rating_key) DO UPDATE SET watched=excluded.watched, observed_at=excluded.observed_at, ours=1`,
 			row.UserID, int64(row.Key), watched, now.UnixNano())
-	} else {
+	case w.offset:
+		// Without Plex's answer a new row takes Ether's own watched flag,
+		// which sync keeps in step, so the next import does not mistake
+		// the unknown flag for a Plex change.
+		known := plexWatched != nil
+		watched := 0
+		if known && *plexWatched {
+			watched = 1
+		}
+		if !known {
+			if err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT CASE WHEN view_count>0 THEN 1 ELSE 0 END FROM state_watch WHERE user_id=? AND rating_key=?), 0)`,
+				row.UserID, int64(row.Key)).Scan(&watched); err != nil {
+				return err
+			}
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO plexwatch_remote(user_id, rating_key, watched, view_offset, observed_at, ours) VALUES(?,?,?,?,?,1)
+			ON CONFLICT(user_id, rating_key) DO UPDATE SET view_offset=excluded.view_offset, observed_at=excluded.observed_at, ours=1,
+			  watched=CASE WHEN ?=1 THEN excluded.watched ELSE plexwatch_remote.watched END`,
+			row.UserID, int64(row.Key), watched, w.offsetMS, now.UnixNano(), store.BoolInt(known))
+	default:
 		_, err = tx.ExecContext(ctx, `INSERT INTO plexwatch_remote(user_id, rating_key, rating, observed_at, ours) VALUES(?,?,?,?,1)
 			ON CONFLICT(user_id, rating_key) DO UPDATE SET rating=excluded.rating, observed_at=excluded.observed_at, ours=1`,
 			row.UserID, int64(row.Key), w.rating, now.UnixNano())

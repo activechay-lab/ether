@@ -32,10 +32,14 @@ func (s *Service) RunImports(ctx context.Context) {
 	}
 }
 
+// importDue runs the scheduled passes that are due: an import for viewers
+// who read from Plex, and for viewers who only send while their account's
+// sync setting is off, a check of that setting so their held changes flow
+// as soon as it is turned on.
 func (s *Service) importDue(ctx context.Context) {
 	now := s.now().UnixNano()
 	rows, err := s.db.QueryContext(ctx, `SELECT user_id,plex_id FROM plexwatch_account
-		WHERE (direction & 2)<>0 AND revoked=0 AND token<>'' AND next_import<=? AND next_allowed<=? AND import_lease<=?
+		WHERE ((direction & 2)<>0 OR ((direction & 1)<>0 AND consent=0)) AND revoked=0 AND token<>'' AND next_import<=? AND next_allowed<=? AND import_lease<=?
 		ORDER BY next_import,user_id LIMIT 8`, now, now, now)
 	if err != nil {
 		return
@@ -53,7 +57,11 @@ func (s *Service) importDue(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		_, _ = s.ImportCurrent(ctx, v.user, v.plex)
+		acct, err := s.requireMatch(ctx, v.user, v.plex)
+		if err != nil {
+			continue
+		}
+		_, _ = s.schedulePass(ctx, acct)
 	}
 }
 
@@ -67,6 +75,14 @@ func (s *Service) ImportCurrent(ctx context.Context, userID, plexID int64) (Stat
 	if acct.direction&2 == 0 {
 		return Status{}, ErrReceivingOff
 	}
+	return s.schedulePass(ctx, acct)
+}
+
+// schedulePass is one pass for one viewer under the persisted lease. It
+// reads the account's sync setting first; the import runs only when the
+// setting is on and the viewer reads from Plex.
+func (s *Service) schedulePass(ctx context.Context, acct accountRow) (Status, error) {
+	userID, plexID := acct.userID, acct.plexID
 	now := s.now()
 	lease := now.Add(15 * time.Minute).UnixNano()
 	res, err := s.db.ExecContext(ctx, `UPDATE plexwatch_account SET import_lease=? WHERE user_id=? AND plex_id=? AND token_generation=? AND import_lease<=? AND next_allowed<=?`,
@@ -81,7 +97,12 @@ func (s *Service) ImportCurrent(ctx context.Context, userID, plexID int64) (Stat
 	}
 	importCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	finished, err := s.importPass(importCtx, acct)
+	finished, imported := true, false
+	on, err := s.readConsent(importCtx, acct)
+	if err == nil && on && acct.direction&2 != 0 {
+		finished, err = s.importPass(importCtx, acct)
+		imported = err == nil
+	}
 	if errors.Is(err, ErrRevoked) {
 		if rerr := s.revoke(importCtx, userID, acct.tokenGeneration); rerr != nil && !errors.Is(rerr, ErrRevoked) {
 			err = rerr
@@ -126,7 +147,9 @@ func (s *Service) ImportCurrent(ctx context.Context, userID, plexID int64) (Stat
 		s.log.Debug("plex watch import paused", "user", userID, "problem", problem)
 	} else {
 		failures = 0
-		last = now.Unix()
+		if imported {
+			last = now.Unix()
+		}
 	}
 	// Stable per-viewer jitter spreads work without changing the interval.
 	jitter := time.Duration(userID%61) * time.Second

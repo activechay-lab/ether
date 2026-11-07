@@ -120,6 +120,7 @@ type remoteTitle struct {
 	typ          string
 	viewCount    int
 	lastViewedAt int64
+	viewOffset   int64
 	rating       int
 	leaves       int
 }
@@ -140,10 +141,29 @@ type fakePlex struct {
 	writes        []string
 	reads         [][]string
 	tokens        map[string]bool
+	// consentOff is the account's "Sync My Watch State and Ratings" set
+	// off; consentReads counts reads of it.
+	consentOff   bool
+	consentReads int
 }
 
 func newFakePlex(account int64, clock func() time.Time) *fakePlex {
 	return &fakePlex{accountID: account, clock: clock, titles: map[string]*remoteTitle{}, tokens: map[string]bool{}}
+}
+
+// play records a stopped position as a Plex app would.
+func (f *fakePlex) play(key, typ string, offsetMS int64, at time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t := f.title(key, typ)
+	t.viewOffset = offsetMS
+	t.lastViewedAt = at.Unix()
+}
+
+func (f *fakePlex) setConsent(on bool) {
+	f.mu.Lock()
+	f.consentOff = !on
+	f.mu.Unlock()
 }
 
 func (f *fakePlex) title(key, typ string) *remoteTitle {
@@ -225,6 +245,27 @@ func (f *fakePlex) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && path == "/api/v2/user":
 		_, _ = w.Write([]byte(`{"id":` + strconv.FormatInt(f.accountID, 10) + `,"username":"viewer"}`))
+	case r.Method == http.MethodGet && path == "/api/v2/user/view_state_sync":
+		f.consentReads++
+		_, _ = w.Write([]byte(`{"consent":` + strconv.FormatBool(!f.consentOff) + `,"updatedAt":"2022-07-29T04:49:30Z","deletionRequestedAt":null}`))
+	case r.Method == http.MethodGet && path == "/timeline":
+		// Discover takes positions only as a GET; it never marks watched.
+		q := r.URL.Query()
+		key := q.Get("ratingKey")
+		ms, err1 := strconv.ParseInt(q.Get("time"), 10, 64)
+		dur, err2 := strconv.ParseInt(q.Get("duration"), 10, 64)
+		if key == "" || q.Get("key") != "/library/metadata/"+key || q.Get("state") != "stopped" || err1 != nil || err2 != nil || dur <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		f.writes = append(f.writes, "timeline "+key+" "+q.Get("time"))
+		t := f.title(key, "movie")
+		t.viewOffset = ms
+		t.lastViewedAt = f.clock().Unix()
+		_ = json.NewEncoder(w).Encode(map[string]any{"MediaContainer": map[string]any{
+			"playbackState": "progress", "viewCount": t.viewCount, "viewOffset": t.viewOffset}})
+	case r.Method != http.MethodGet && (path == "/timeline" || path == "/:/timeline"):
+		http.NotFound(w, r)
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/library/metadata/") && strings.HasSuffix(path, "/userState"):
 		keys := strings.Split(strings.TrimSuffix(strings.TrimPrefix(path, "/library/metadata/"), "/userState"), ",")
 		f.reads = append(f.reads, keys)
@@ -240,6 +281,9 @@ func (f *fakePlex) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if t.rating > 0 {
 				item["userRating"] = float64(t.rating)
+			}
+			if t.viewOffset > 0 {
+				item["viewOffset"] = t.viewOffset
 			}
 			if t.typ == "show" {
 				item["viewedLeafCount"] = t.leaves
@@ -280,6 +324,7 @@ func (f *fakePlex) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			t.lastViewedAt = f.clock().Unix()
 		case "unscrobble":
 			t.viewCount = 0
+			t.viewOffset = 0
 		case "rate":
 			n, _ := strconv.Atoi(q.Get("rating"))
 			if n < 0 {

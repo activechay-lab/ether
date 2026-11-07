@@ -182,8 +182,65 @@ type userState struct {
 	Type       string
 	Watched    bool
 	ViewedAt   int64 // lastViewedAt, unix seconds
+	Offset     int64 // viewOffset, milliseconds; 0 when not in progress
 	Rating     int   // 1–10, 0 when unrated
 	ViewedLeaf int   // shows only
+}
+
+// consent reads the account's "Sync My Watch State and Ratings" setting.
+// Plex does not enforce it on the Discover routes; Ether does.
+func (c *Client) consent(ctx context.Context, token string) (bool, error) {
+	var out struct {
+		Consent *bool `json:"consent"`
+	}
+	if err := c.call(ctx, http.MethodGet, c.plex, "/api/v2/user/view_state_sync", nil, token, &out, http.StatusOK); err != nil {
+		return false, err
+	}
+	if out.Consent == nil {
+		return false, errors.New("plexwatch: view_state_sync response without consent")
+	}
+	return *out.Consent, nil
+}
+
+// timelineResult is what Plex holds after a timeline write. ViewCountKnown
+// is false when the answer did not say.
+type timelineResult struct {
+	ViewCount      int
+	ViewCountKnown bool
+	Offset         int64
+}
+
+// timeline records a stopped playback position (milliseconds) for key.
+// Discover takes it only as a GET; Plex never marks a title watched from a
+// timeline, so completion is still sent as a scrobble.
+func (c *Client) timeline(ctx context.Context, token, key string, offsetMS, durationMS int64) (timelineResult, error) {
+	if !validHexKey(key) {
+		return timelineResult{}, errors.New("plexwatch: invalid plex metadata key")
+	}
+	if offsetMS <= 0 || durationMS <= 0 {
+		return timelineResult{}, errors.New("plexwatch: timeline needs a position and a duration")
+	}
+	q := url.Values{
+		"ratingKey": {key},
+		"key":       {"/library/metadata/" + key},
+		"state":     {"stopped"},
+		"time":      {strconv.FormatInt(offsetMS, 10)},
+		"duration":  {strconv.FormatInt(durationMS, 10)},
+	}
+	var out struct {
+		Container struct {
+			ViewCount  *int  `json:"viewCount"`
+			ViewOffset int64 `json:"viewOffset"`
+		} `json:"MediaContainer"`
+	}
+	if err := c.call(ctx, http.MethodGet, c.discover, "/timeline", q, token, &out, http.StatusOK); err != nil {
+		return timelineResult{}, err
+	}
+	res := timelineResult{Offset: out.Container.ViewOffset}
+	if out.Container.ViewCount != nil {
+		res.ViewCount, res.ViewCountKnown = *out.Container.ViewCount, true
+	}
+	return res, nil
 }
 
 // maxStateBatch caps the keys in one batched userState read.
@@ -217,6 +274,7 @@ func (c *Client) userStates(ctx context.Context, token string, keys []string) (m
 		RatingKey       string  `json:"ratingKey"`
 		Type            string  `json:"type"`
 		ViewCount       int     `json:"viewCount"`
+		ViewOffset      float64 `json:"viewOffset"`
 		LastViewedAt    int64   `json:"lastViewedAt"`
 		UserRating      float64 `json:"userRating"`
 		ViewedLeafCount int     `json:"viewedLeafCount"`
@@ -246,9 +304,13 @@ func (c *Client) userStates(ctx context.Context, token string, keys []string) (m
 			continue
 		}
 		rating, _ := plexRatingFromRemote(it.UserRating)
+		offset := int64(0)
+		if it.ViewOffset > 0 && it.ViewOffset < 1<<53 {
+			offset = int64(it.ViewOffset)
+		}
 		found[it.RatingKey] = userState{
 			Key: it.RatingKey, Type: it.Type, Watched: it.ViewCount > 0,
-			ViewedAt: it.LastViewedAt, Rating: rating, ViewedLeaf: it.ViewedLeafCount,
+			ViewedAt: it.LastViewedAt, Offset: offset, Rating: rating, ViewedLeaf: it.ViewedLeafCount,
 		}
 	}
 	return found, nil

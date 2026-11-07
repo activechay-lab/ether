@@ -119,6 +119,13 @@ UPDATE plexwatch_account SET import_cursor='', import_problem='', send_problem='
   import_failures=0, next_allowed=0, next_import=0, import_lease=0, eligibility='unchecked';
 DROP TABLE plexwatch_sent;
 DROP TABLE plexwatch_unmapped;`)
+	// consent is the account's "Sync My Watch State and Ratings" setting as
+	// last read (-1 not read yet, 0 off, 1 on) and consent_checked when.
+	// view_offset is the resume position (ms) last read or written per title.
+	store.Register("plexwatch", 7, `
+ALTER TABLE plexwatch_account ADD COLUMN consent INTEGER NOT NULL DEFAULT -1;
+ALTER TABLE plexwatch_account ADD COLUMN consent_checked INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE plexwatch_remote ADD COLUMN view_offset INTEGER NOT NULL DEFAULT 0;`)
 	// Applies after state_plexwatch; standalone state need not import account sync.
 	store.Register("watchsend", 1, `CREATE TABLE plexwatch_attempt (
   attempt_id TEXT PRIMARY KEY,
@@ -257,8 +264,9 @@ func (s *Service) Close() error {
 }
 
 // Status is the viewer-facing connection, with no token and no history.
-// Problem is "" or one of "token" (connect again), "rate_limited" or
-// "network".
+// Problem is "" or one of "token" (connect again), "consent" (the account's
+// "Sync My Watch State and Ratings" setting is off in Plex), "rate_limited"
+// or "network".
 type Status struct {
 	Connected      bool   `json:"connected"`
 	PlexID         int64  `json:"plexId,omitempty"`
@@ -294,6 +302,8 @@ type accountRow struct {
 	cursor          string
 	tokenGeneration int64
 	nextAllowed     int64
+	consent         int   // -1 not read yet, 0 off, 1 on
+	consentChecked  int64 // unix nanoseconds
 }
 
 func (s *Service) Status(ctx context.Context, userID, plexID int64) (Status, error) {
@@ -319,6 +329,9 @@ func (s *Service) Status(ctx context.Context, userID, plexID int64) (Status, err
 		st.Problem = importProblem
 		if st.Problem == "" {
 			st.Problem = sendProblem
+		}
+		if row.consent == 0 {
+			st.Problem = "consent"
 		}
 		if row.revoked {
 			st.Problem, st.NeedsReconnect = "token", true
@@ -431,7 +444,8 @@ func (s *Service) FinishPIN(ctx context.Context, userID, plexID int64) (Status, 
 			VALUES(?,?,?,?,0,?,0,?,?)
 			ON CONFLICT(user_id) DO UPDATE SET plex_id=excluded.plex_id, username=excluded.username, token=excluded.token,
 			  checked_at=excluded.checked_at, revoked=0, updated_at=excluded.updated_at, token_generation=excluded.token_generation,
-			  import_lease=0, next_allowed=0, next_import=0, import_problem='', send_problem='', problem_code=0, import_failures=0`,
+			  import_lease=0, next_allowed=0, next_import=0, import_problem='', send_problem='', problem_code=0, import_failures=0,
+			  consent=-1, consent_checked=0`,
 			userID, plexID, acct.Username, sealed, now, now, gen); err != nil {
 			return err
 		}
@@ -619,9 +633,9 @@ func (s *Service) loadAccount(ctx context.Context, userID int64) (accountRow, bo
 	var row accountRow
 	var revoked int
 	var sealed string
-	err := s.db.QueryRowContext(ctx, `SELECT plex_id, username, token, direction, revoked, import_cursor, token_generation, next_allowed
+	err := s.db.QueryRowContext(ctx, `SELECT plex_id, username, token, direction, revoked, import_cursor, token_generation, next_allowed, consent, consent_checked
 		FROM plexwatch_account WHERE user_id=?`, userID).
-		Scan(&row.plexID, &row.username, &sealed, &row.direction, &revoked, &row.cursor, &row.tokenGeneration, &row.nextAllowed)
+		Scan(&row.plexID, &row.username, &sealed, &row.direction, &revoked, &row.cursor, &row.tokenGeneration, &row.nextAllowed, &row.consent, &row.consentChecked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return accountRow{}, false, nil
 	}

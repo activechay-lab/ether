@@ -166,6 +166,7 @@ func (s *Service) expandStep(ctx context.Context, acct accountRow) (requested, m
 type remoteRow struct {
 	watched    bool
 	viewedAt   int64
+	offset     int64 // ms
 	rating     int
 	leaves     int
 	observedAt time.Time
@@ -256,7 +257,7 @@ func (s *Service) loadRemote(ctx context.Context, userID int64, byHex map[string
 		args = append(args, int64(k))
 		marks = append(marks, "?")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT rating_key, watched, viewed_at, rating, leaves, observed_at, ours FROM plexwatch_remote
+	rows, err := s.db.QueryContext(ctx, `SELECT rating_key, watched, viewed_at, view_offset, rating, leaves, observed_at, ours FROM plexwatch_remote
 		WHERE user_id=? AND rating_key IN (`+strings.Join(marks, ",")+`)`, args...)
 	if err != nil {
 		return nil, err
@@ -266,7 +267,7 @@ func (s *Service) loadRemote(ctx context.Context, userID int64, byHex map[string
 		var key, observed int64
 		var watched, ours int
 		var r remoteRow
-		if err := rows.Scan(&key, &watched, &r.viewedAt, &r.rating, &r.leaves, &observed, &ours); err != nil {
+		if err := rows.Scan(&key, &watched, &r.viewedAt, &r.offset, &r.rating, &r.leaves, &observed, &ours); err != nil {
 			return nil, err
 		}
 		r.watched, r.ours = watched != 0, ours != 0
@@ -306,7 +307,14 @@ func (s *Service) observeShow(ctx context.Context, userID int64, key core.Rating
 //   - unwatched or rating changed on Plex: Plex records no time for these,
 //     so the change happened after the previous read. A local change after
 //     that read wins; otherwise Plex's change applies now.
-//   - a value Ether wrote itself (ours) is adopted, not applied.
+//   - a resume position set on Plex: its lastViewedAt competes with the
+//     local watch clock in state.ApplyRemoteResume, so a stale position
+//     never resurrects a title finished or marked in Ether since. A watch
+//     change in the same read wins over the position. A position cleared
+//     on Plex follows the untimed rule above.
+//   - a value Ether wrote itself (ours) is adopted, not applied. Timeline
+//     writes move lastViewedAt, so a lastViewedAt within ownSlack of
+//     Ether's own write is that write.
 //
 // Imported changes are marked as account events, which the journal never
 // queues for sending, so nothing echoes back to Plex.
@@ -316,6 +324,9 @@ func (s *Service) applyRemote(ctx context.Context, userID int64, key core.Rating
 	if err != nil {
 		return err
 	}
+	// A view on Plex that leaves a new resume position is playback in
+	// progress (a rewatch), not another completion.
+	resumed := cur.Offset > 0 && cur.Offset != prev.offset
 	var watched *bool
 	var watchAt time.Time
 	on, off := true, false
@@ -325,7 +336,7 @@ func (s *Service) applyRemote(ctx context.Context, userID int64, key core.Rating
 			watched, watchAt = &on, unixOrZero(cur.ViewedAt)
 		}
 	case prev.ours && cur.Watched == prev.watched:
-	case cur.Watched && (!prev.watched || cur.ViewedAt > prev.viewedAt):
+	case cur.Watched && (!prev.watched || (cur.ViewedAt > prev.viewedAt && !resumed)):
 		watched, watchAt = &on, unixOrZero(cur.ViewedAt)
 	case !cur.Watched && prev.watched:
 		if local.exists && local.watched && !local.watchAt.After(prev.observedAt) {
@@ -347,29 +358,50 @@ func (s *Service) applyRemote(ctx context.Context, userID int64, key core.Rating
 			rating, ratingAt = &v, now
 		}
 	}
+	resume := int64(-1)
+	var resumeAt time.Time
+	ownEcho := seen && prev.ours && cur.ViewedAt <= prev.observedAt.Unix()+ownSlack
+	switch {
+	case watched != nil, cur.Offset == prev.offset, ownEcho:
+	case cur.Offset > 0:
+		if cur.ViewedAt > 0 {
+			resume, resumeAt = cur.Offset, unixOrZero(cur.ViewedAt)
+		}
+	default:
+		if local.offset > 0 && !local.watchAt.After(prev.observedAt) {
+			resume, resumeAt = 0, now
+		}
+	}
 	if watched != nil || rating != nil {
 		err := s.state.ApplyRemote(ctx, userID, key, watched, watchAt, rating, ratingAt)
 		if err != nil && !errors.Is(err, state.ErrLocalNewer) {
 			return err
 		}
 	}
-	if !seen && !cur.Watched && cur.ViewedAt == 0 && cur.Rating == 0 {
+	if resume >= 0 {
+		err := s.state.ApplyRemoteResume(ctx, userID, key, time.Duration(resume)*time.Millisecond, resumeAt)
+		if err != nil && !errors.Is(err, state.ErrLocalNewer) {
+			return err
+		}
+	}
+	if !seen && !cur.Watched && cur.ViewedAt == 0 && cur.Rating == 0 && cur.Offset == 0 {
 		return nil
 	}
 	w := 0
 	if cur.Watched {
 		w = 1
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO plexwatch_remote(user_id, rating_key, watched, viewed_at, rating, observed_at, ours) VALUES(?,?,?,?,?,?,0)
-		ON CONFLICT(user_id, rating_key) DO UPDATE SET watched=excluded.watched, viewed_at=excluded.viewed_at, rating=excluded.rating,
-		  observed_at=excluded.observed_at, ours=0`,
-		userID, int64(key), w, cur.ViewedAt, cur.Rating, now.UnixNano())
+	_, err = s.db.ExecContext(ctx, `INSERT INTO plexwatch_remote(user_id, rating_key, watched, viewed_at, view_offset, rating, observed_at, ours) VALUES(?,?,?,?,?,?,?,0)
+		ON CONFLICT(user_id, rating_key) DO UPDATE SET watched=excluded.watched, viewed_at=excluded.viewed_at, view_offset=excluded.view_offset,
+		  rating=excluded.rating, observed_at=excluded.observed_at, ours=0`,
+		userID, int64(key), w, cur.ViewedAt, cur.Offset, cur.Rating, now.UnixNano())
 	return err
 }
 
 type localState struct {
 	exists   bool
 	watched  bool
+	offset   time.Duration
 	rating   float64
 	watchAt  time.Time
 	ratingAt time.Time
@@ -377,17 +409,17 @@ type localState struct {
 
 func (s *Service) localWatch(ctx context.Context, userID int64, key core.RatingKey) (localState, error) {
 	var count int
-	var watchAt, ratingAt int64
+	var watchAt, ratingAt, offset int64
 	var out localState
-	err := s.db.QueryRowContext(ctx, `SELECT view_count, user_rating, watch_at, rating_at FROM state_watch WHERE user_id=? AND rating_key=?`, userID, int64(key)).
-		Scan(&count, &out.rating, &watchAt, &ratingAt)
+	err := s.db.QueryRowContext(ctx, `SELECT view_count, view_offset_ns, user_rating, watch_at, rating_at FROM state_watch WHERE user_id=? AND rating_key=?`, userID, int64(key)).
+		Scan(&count, &offset, &out.rating, &watchAt, &ratingAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return localState{}, nil
 	}
 	if err != nil {
 		return localState{}, err
 	}
-	out.exists, out.watched = true, count > 0
+	out.exists, out.watched, out.offset = true, count > 0, time.Duration(offset)
 	out.watchAt, out.ratingAt = unixNanoOrZero(watchAt), unixNanoOrZero(ratingAt)
 	return out, nil
 }
