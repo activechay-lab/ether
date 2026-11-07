@@ -306,7 +306,10 @@ func (t *ownedTimeline) tickLocked(now time.Time) {
 	}
 	for len(t.pending) > 0 {
 		head := t.pending[0]
-		due := t.lastAt.Add(t.lastDur)
+		// Real-time pacing, but the playlist advances at least once a
+		// target: a long segment (a copy cut late across a timestamp jump)
+		// must not hold the next one back for its whole length.
+		due := t.lastAt.Add(t.nextDueLocked())
 		excess := t.depthLocked()-head.dur >= t.reserve+t.target
 		if t.reserve > 0 && now.Before(due) && !excess {
 			break
@@ -332,21 +335,29 @@ func (t *ownedTimeline) tickLocked(now time.Time) {
 			// change, which is always after this publication.
 			wait = t.target + min(t.target*9/20, time.Second)
 		}
-		wait = max(wait, t.lastDur+500*time.Millisecond)
-		if t.slating > 0 || t.stalled != nil && !now.Before(t.lastAt.Add(t.lastDur)) && t.stalled() {
-			wait = t.lastDur
+		if t.slating > 0 || t.stalled != nil && !now.Before(t.lastAt.Add(t.nextDueLocked())) && t.stalled() {
+			wait = t.nextDueLocked()
 		}
 		for !now.Before(t.lastAt.Add(wait)) {
 			if !t.publishSlateLocked() {
 				break
 			}
 			changed = true
-			wait = t.lastDur
+			wait = t.nextDueLocked()
 		}
 	}
 	if changed {
 		t.wakeLocked()
 	}
+}
+
+// nextDueLocked is how long after the newest publication the next one is
+// due: that segment's length, but never more than the target.
+func (t *ownedTimeline) nextDueLocked() time.Duration {
+	if t.target > 0 {
+		return min(t.lastDur, t.target)
+	}
+	return t.lastDur
 }
 
 func (t *ownedTimeline) publishLocked(seg *ownedSegment, at time.Time) {
@@ -501,9 +512,9 @@ func (t *ownedTimeline) publishSlateLocked() bool {
 	t.slating++
 	t.slateSegments++
 	t.slateTime += clip.dur
-	at := t.lastAt.Add(t.lastDur)
-	if t.now().Sub(at) > time.Second {
-		at = t.now()
+	at := t.lastAt.Add(t.nextDueLocked())
+	if now := t.now(); at.After(now) || now.Sub(at) > time.Second {
+		at = now
 	}
 	t.appendLocked(seg, at)
 	return true
