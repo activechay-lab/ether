@@ -38,3 +38,23 @@ func TestNameFilesWritesPar2NamesOfObfuscatedPack(t *testing.T) {
 		t.Fatalf("names = %v", got)
 	}
 }
+
+func TestNameFilesIsMemoized(t *testing.T) {
+	f := newFakeFetcher()
+	ep := mkvBytes(53, 400_000)
+	idx := par2Index(16_384, par2test.File{Name: "Show.S01E01.1080p.mkv", Data: ep})
+	doc := post(t, f, 100_000,
+		postFile{name: obfName(1), data: ep},
+		postFile{name: "d41d8cd98f00b204e9800998ecf8427e.par2", data: idx},
+	)
+	e := newTestEngine(t, f, nil, Options{})
+	first, err := e.NameFiles(context.Background(), "pack", doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := f.totalCalls()
+	second, err := e.NameFiles(context.Background(), "pack", doc)
+	if err != nil || string(first) != string(second) || f.totalCalls() != calls {
+		t.Fatalf("second call refetched (%d -> %d calls) or differed: %v", calls, f.totalCalls(), err)
+	}
+}

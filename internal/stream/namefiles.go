@@ -18,7 +18,8 @@ const maxNamedFiles = 256
 // file. A season pack can only be narrowed to one episode by name, so
 // unlike Open (which only needs the main video) every unidentified file is
 // probed. The release's PAR2 load and article cache are shared with Open.
-// An NZB with nothing to name is returned unchanged.
+// An NZB with nothing to name is returned unchanged. The result is kept on
+// the release, so naming the same NZB again costs nothing.
 func (e *Engine) NameFiles(ctx context.Context, releaseID string, nzbData []byte) ([]byte, error) {
 	if err := e.ctx.Err(); err != nil {
 		return nil, ErrClosed
@@ -28,6 +29,11 @@ func (e *Engine) NameFiles(ctx context.Context, releaseID string, nzbData []byte
 		return nil, err
 	}
 	defer e.release(rel)
+	rel.namedMu.Lock()
+	defer rel.namedMu.Unlock()
+	if rel.named != nil {
+		return rel.named, nil
+	}
 	b := &builder{e: e, rel: rel, prio: core.PriorityLive, fo: fetchOpts{cacheID: releaseID}}
 	unknown := b.unknownFilesExcept(nil, maxNamedFiles)
 	if len(unknown) == 0 {
@@ -44,5 +50,6 @@ func (e *Engine) NameFiles(ctx context.Context, releaseID string, nzbData []byte
 	if !ok {
 		return nzbData, nil
 	}
+	rel.named = out
 	return out, nil
 }
