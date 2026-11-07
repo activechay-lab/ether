@@ -604,8 +604,11 @@ func TestStartupEncoderDipKeepsClockAndPCM(t *testing.T) {
 			t.Fatal(err)
 		}
 		encoder := runner.encoders[0]
+		// The rendition's segment watcher already polls Segments.
+		encoder.mu.Lock()
 		encoder.pause = 5 * time.Second
 		encoder.index = burstSampleIndex{encoder: encoder}
+		encoder.mu.Unlock()
 		b.start()
 		time.Sleep(3 * time.Second)
 		synctest.Wait()
