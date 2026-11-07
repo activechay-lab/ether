@@ -312,6 +312,7 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 	segDir := filepath.Join(work, "segments")
 	_ = os.MkdirAll(segDir, 0o700)
 	judge := newProtocolJudge(ctx, o.FF, o.FP, playlist, segDir, tuneStart, ether.handledSeconds)
+	judge.sync = sc.Sync
 	observeCtx, stop := context.WithTimeout(ctx, o.Observe)
 	defer stop()
 	var playerOut []byte
@@ -499,6 +500,11 @@ func summarise(p protocolReport, av *avResult, tune float64) viewerSummary {
 	if td, first := p.TargetDuration, p.FirstPlaylistResponseS; td > 0 && first >= td/2 && first < td {
 		v.Warnings = append(v.Warnings, fmt.Sprintf("first playlist took %.1fs, over half TD %.0fs (AVFoundation hangs at 1x TD)", first, td))
 	}
+	if a := p.AVSync; a != nil {
+		for _, c := range a.Cuts {
+			v.Warnings = append(v.Warnings, "content time cut: "+c)
+		}
+	}
 	for k, n := range p.HTTPErrors {
 		v.ClientErrors = append(v.ClientErrors, fmt.Sprintf("http %s x%d", k, n))
 	}
@@ -538,6 +544,11 @@ func judgeRow(sc liveScenario, preset string, stuck float64, r liveResult) (stri
 	}
 	if td, first := p.TargetDuration, p.FirstPlaylistResponseS; td > 0 && first >= td {
 		why = append(why, fmt.Sprintf("first playlist took %.1fs >= TD %.0fs (AVFoundation never starts the item)", first, td))
+	}
+	if sc.Sync {
+		if why2 := syncVerdict(p.AVSync); why2 != "" {
+			why = append(why, why2)
+		}
 	}
 	if p.OverlongSegments > 0 {
 		why = append(why, fmt.Sprintf("%d segments exceed TD+0.5s (longest EXTINF %.1fs, media %.1fs)", p.OverlongSegments, p.MaxSegmentS, p.MaxMediaS))

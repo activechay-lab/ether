@@ -38,6 +38,7 @@ const (
 	faultResolution    = "resolution"       // 640x360 -> 1280x720
 	faultClockJump     = "clock-jump"       // timestamps jump +5000 s
 	faultClockReset    = "clock-reset"      // timestamps restart near zero
+	faultVideoDrop     = "video-drop"       // HLS: video from 1.5 s into a segment to its end is missing; audio intact
 	faultKeyframeLoss  = "keyframe-loss"    // keyframe PES packets are dropped
 	faultCorrupt       = "corrupt"          // 1% of packets get payload garbage
 	faultPacketLoss    = "packet-loss"      // 2% of packets are dropped
@@ -267,11 +268,24 @@ func (p *liveProvider) produceLocked(n int64, cc ccCounter) []byte {
 	if _, ok := p.active(faultCodecAC3, at); ok {
 		bump = 1
 	}
+	_, videoDrop := p.active(faultVideoDrop, at)
+	videoFirst, droppingVideo := int64(-1), false
 	out := make([]byte, 0, len(src))
 	droppingKey := false
 	for i := 0; i < len(src); i += tsPacket {
 		pk := append([]byte(nil), src[i:i+tsPacket]...)
 		pid := tsPID(pk)
+		if videoDrop && pid == fx.VideoPID {
+			if pts, ok := packetPTS(pk); ok {
+				if videoFirst < 0 {
+					videoFirst = pts
+				}
+				droppingVideo = pts-videoFirst >= 135000 // from 1.5 s: 2.5 s of a 4 s segment
+			}
+			if droppingVideo {
+				continue
+			}
+		}
 		if kfLoss && pid == fx.VideoPID {
 			if tsPUSI(pk) {
 				droppingKey = tsRandomAccess(pk)

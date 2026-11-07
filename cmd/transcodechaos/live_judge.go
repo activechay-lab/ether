@@ -58,6 +58,8 @@ type judgedSegment struct {
 	SilenceS     float64 `json:"silenceSeconds"`
 	DecodeErrors int     `json:"decodeErrors"`
 	file         string
+	// Lip-sync pulse samples (sync fixture rows only).
+	syncVideo, syncAudio []syncSample
 }
 
 type protocolReport struct {
@@ -98,7 +100,9 @@ type protocolReport struct {
 	RunEndS              float64        `json:"runEndSeconds"`
 	// SlowPolls are playlist requests where the judge, not Ether, was
 	// blocked for over 0.5 s ([at, seconds]); a loaded host causes them.
-	SlowPolls       [][2]float64     `json:"slowPolls,omitempty"`
+	SlowPolls [][2]float64 `json:"slowPolls,omitempty"`
+	// AVSync is the lip-sync measurement on sync fixture rows.
+	AVSync          *avSyncReport    `json:"avSync,omitempty"`
 	MaxPollLatencyS float64          `json:"maxPollLatencySeconds"`
 	SegmentLog      []*judgedSegment `json:"segmentLog,omitempty"`
 }
@@ -190,6 +194,8 @@ type protocolJudge struct {
 	queue    chan *judgedSegment
 	wg       sync.WaitGroup
 	polls    int
+	// sync measures the fixture's lip-sync pulses in every segment.
+	sync bool
 	// handled reports Ether's own handling time for a tagged request.
 	handled func(string) (float64, bool)
 	// work bounds fetch and analysis; it outlives the polling window so
@@ -408,8 +414,13 @@ func (j *protocolJudge) fetch(ctx context.Context, seg *judgedSegment) {
 	}
 	probe := probeSegment(ctx, j.fp, file)
 	content, noncontent, frozen, silence, decodeErrs := analyseSegment(ctx, j.ff, file, seg.Duration)
+	var syncV, syncA []syncSample
+	if j.sync {
+		syncV, syncA = analyseSync(ctx, j.ff, file)
+	}
 	j.mu.Lock()
 	seg.Probe, seg.ContentS, seg.NonContentS, seg.FrozenS, seg.SilenceS, seg.DecodeErrors = probe, content, noncontent, frozen, silence, decodeErrs
+	seg.syncVideo, seg.syncAudio = syncV, syncA
 	seg.MediaS = math.Round((content+noncontent)*10) / 10
 	seg.file = file
 	j.mu.Unlock()
@@ -586,6 +597,9 @@ func (j *protocolJudge) Finish(runEnd float64) protocolReport {
 			prev = s
 		}
 		r.SegmentLog = append(r.SegmentLog, s)
+	}
+	if j.sync {
+		r.AVSync = avSync(j.order)
 	}
 	r.ModelStallS, r.ModelFatal = playerModel(j.order, r.TargetDuration, runEnd)
 	return r

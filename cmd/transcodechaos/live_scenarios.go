@@ -25,6 +25,9 @@ type liveScenario struct {
 	Recoverable bool `json:"recoverable"`
 	// MaxConcurrent bounds provider connections (account limit scenarios).
 	MaxConcurrent int `json:"maxConcurrent,omitempty"`
+	// Sync rows use the lip-sync pulse fixture; the judge measures the
+	// audio/video offset of every pulse in the published media.
+	Sync bool `json:"sync,omitempty"`
 }
 
 // liveBudget is what a viewer may see. Screen is freeze + non-content
@@ -77,6 +80,7 @@ func liveMatrix() []liveScenario {
 		{Name: "healthy-hls", Summary: "Healthy provider HLS control", Source: hlsSource(), Modes: allHLS, Budget: budget(0, 0, 0, 0), Recoverable: true},
 		{Name: "hls-playlist-stall-8s", Summary: "Provider playlist stops advancing for 8 s, then catches up", Source: hlsSource(at(faultPlaylistStall, 8*time.Second, 0)), Modes: allHLS, Quick: []string{"passthrough"}, Budget: blip, Recoverable: true},
 		{Name: "ts-stall-8s", Summary: "Raw TS body sends nothing for 8 s on an open connection", Source: tsSource(at(faultTSStall, 8*time.Second, 0)), Modes: allTS, Quick: []string{"steady"}, Budget: blip, Recoverable: true},
+		{Name: "hls-video-drop", Summary: "2.5 s of video missing inside one provider HLS segment, audio intact; A/V sync must hold", Source: providerConfig{Name: "primary", HLS: true, Backlog: 6, Fixture: "sync", Faults: []liveFault{at(faultVideoDrop, 4*time.Second, 0)}}, Modes: allHLS, Budget: map[string]liveBudget{"fastest": {ScreenS: 3.5}, "balanced": {ScreenS: 3.5}, "rocksolid": {ScreenS: 3.5}}, Recoverable: true, Sync: true},
 		{Name: "hls-segment-404", Summary: "One provider segment returns 404", Source: hlsSource(at(faultSegmentError, 4*time.Second, 404)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
 		{Name: "hls-segment-503", Summary: "Two provider segments return 503", Source: hlsSource(at(faultSegmentError, 8*time.Second, 503)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
 		{Name: "hls-segment-slow-8s", Summary: "Provider segment responses wait 8 s", Source: hlsSource(at(faultSegmentSlow, 8*time.Second, 0)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
