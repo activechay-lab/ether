@@ -79,9 +79,11 @@ type relayProducer struct {
 	// cut its first segment; whichever cuts first becomes the producer.
 	hedge *relayHedge
 	// starving is set while a running copy producer is past its next
-	// segment with input flowing; the timeline reads it without locks.
-	starving atomic.Bool
-	longAt   time.Time // the last overlong copy segment
+	// segment with input flowing; producing while input flows and nothing
+	// is starving. The timeline reads both without locks.
+	starving  atomic.Bool
+	producing atomic.Bool
+	longAt    time.Time // the last overlong copy segment
 	// reformat holds the source's new format when copy output stopped
 	// matching its own PMT; the producer reopens on the new format.
 	reformat  *mediaFormat
@@ -138,6 +140,7 @@ func (s *Service) newRelayProducer(ss *session, info core.MediaInfo, caps core.C
 	tl.startMedia = 2 * cut
 	p := &relayProducer{s: s, tl: tl, log: log, caps: caps, info: info, dec: dec, cut: cut}
 	p.bind(ss)
+	tl.producing = p.producing.Load
 	tl.stalled = func() bool {
 		if p.starving.Load() {
 			return true
@@ -292,7 +295,7 @@ func (p *relayProducer) run(ctx context.Context) {
 	warmed := false
 	failures := 0
 	var flowing time.Time // since when provider data has arrived without a pause
-	for sleepCtx(ctx, 250*time.Millisecond) {
+	for sleepCtx(ctx, 100*time.Millisecond) {
 		p.mu.Lock()
 		in := p.ingest
 		startedAt := p.startedAt
@@ -354,7 +357,9 @@ func (p *relayProducer) run(ctx context.Context) {
 			// The hedge normally settles a slow cold start first.
 			starveLimit = 6 * time.Second
 		}
-		p.starving.Store(copyMode && !cold && !escalated && starvedFor > lastDur+500*time.Millisecond)
+		starving := copyMode && !cold && !escalated && starvedFor > lastDur+500*time.Millisecond
+		p.starving.Store(starving)
+		p.producing.Store(!cold && !flowing.IsZero() && !starving)
 		if h := p.hedgeState(); h != nil {
 			switch {
 			case !cold || escalated:
@@ -366,7 +371,7 @@ func (p *relayProducer) run(ctx context.Context) {
 		} else if copyMode && cold && !escalated && !flowing.IsZero() && now.Sub(later(startedAt, flowing)) > 2*time.Second {
 			p.startHedge(ctx)
 		}
-		ended := errors.Is(err, errOriginEnded) || failures >= 6
+		ended := errors.Is(err, errOriginEnded) || failures >= 15
 		switch {
 		case reformat != nil && now.Sub(reopened) > 10*time.Second:
 			p.reopen(ctx, *reformat)

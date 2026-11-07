@@ -36,6 +36,10 @@ type ownedTimeline struct {
 	// (provider health): the next segment cannot arrive, so slate goes out
 	// when that segment is due instead of after the deadline's grace.
 	stalled func() bool
+	// producing, when set, reports a producer whose input is flowing and
+	// that is cutting on schedule: a late segment from it is jitter, so it
+	// gets the in-flight allowance before slate.
+	producing func() bool
 
 	mu          sync.Mutex
 	target      time.Duration // fixed at the first publication
@@ -323,8 +327,10 @@ func (t *ownedTimeline) tickLocked(now time.Time) {
 		// playlist never sits unchanged long enough for Apple's 1.5x-target
 		// rule to end playback.
 		wait := t.target + min(t.target/4, 500*time.Millisecond)
-		if t.inflight {
-			wait = t.target + min(t.target*2/5, 800*time.Millisecond)
+		if t.inflight || t.producing != nil && t.producing() {
+			// A player measures 1.5x target from when it saw the last
+			// change, which is always after this publication.
+			wait = t.target + min(t.target*9/20, time.Second)
 		}
 		wait = max(wait, t.lastDur+500*time.Millisecond)
 		if t.slating > 0 || t.stalled != nil && !now.Before(t.lastAt.Add(t.lastDur)) && t.stalled() {
