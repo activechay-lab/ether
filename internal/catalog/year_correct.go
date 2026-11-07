@@ -263,22 +263,49 @@ func movieYearMightDiffer(t core.Title) bool {
 
 // kickMovieYears starts a year refresh for movies on screen. It does not
 // wait, and it does not fetch a movie whose stored month cannot change the year.
+//
+// Almost every movie on screen was corrected long ago. One read for the
+// page finds those still unmarked; a fetch per candidate would start up to
+// yearFetchSlots goroutines on every page view, each holding a connection
+// for a point read, past the idle pool and so opening new connections.
 func (c *Catalog) kickMovieYears(items []core.Title) {
 	if c == nil {
 		return
 	}
+	var keys []any
 	for _, t := range items {
-		if !movieYearMightDiffer(t) {
-			continue
-		}
-		if c.yearAhead == nil || c.yearInflightN.Load() >= yearFetchSlots {
-			c.enqueueMovieYear(t.Key)
-			continue
-		}
-		if !c.startYearFetch(context.Background(), t.Key) {
-			c.enqueueMovieYear(t.Key)
+		if movieYearMightDiffer(t) {
+			keys = append(keys, int64(t.Key))
 		}
 	}
+	if len(keys) == 0 || c.yearPaused() {
+		// TMDB is unavailable or has no key: a fetch would fail at once.
+		// The correction loop resumes the backlog after the pause.
+		return
+	}
+	go func() {
+		rows, err := c.db.QueryContext(context.Background(), `SELECT key FROM catalog_titles WHERE key IN (`+placeholders(len(keys))+`) AND type='movie' AND year_source='' AND detail=1 AND released_ts<>0`, keys...)
+		if err != nil {
+			return
+		}
+		var pending []core.RatingKey
+		for rows.Next() {
+			var key int64
+			if rows.Scan(&key) == nil {
+				pending = append(pending, core.RatingKey(key))
+			}
+		}
+		rows.Close()
+		for _, key := range pending {
+			if c.yearAhead == nil || c.yearInflightN.Load() >= yearFetchSlots || !c.startYearFetch(context.Background(), key) {
+				c.enqueueMovieYear(key)
+			}
+		}
+	}()
+}
+
+func (c *Catalog) yearPaused() bool {
+	return c.yearPauseUntil.Load() > c.now().UnixNano()
 }
 
 func (c *Catalog) enqueueMovieYear(key core.RatingKey) {
