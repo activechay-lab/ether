@@ -22,8 +22,9 @@ func (c *Catalog) StoredGrandchildren(ctx context.Context, shows []core.RatingKe
 
 // StoredEpisodeCandidates has the same episode membership and order as
 // StoredGrandchildren, but reads only keys, numbering, release dates and adult flags.
-// It is only for choosing a next episode. Callers must load the chosen title
-// fully before applying policies, availability filters or rendering it.
+// It supports next-episode selection and counts for viewers with no title
+// restrictions. Callers must load a chosen title fully before availability
+// filters, restricted-viewer policies or rendering it.
 func (c *Catalog) StoredEpisodeCandidates(ctx context.Context, shows []core.RatingKey) (map[core.RatingKey][]core.Title, error) {
 	return c.storedGrandchildrenBatch(ctx, shows, false)
 }

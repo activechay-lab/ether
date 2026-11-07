@@ -1571,7 +1571,14 @@ type listEpisodeStore interface {
 // (an episode group changes the episode set); the rest keep the per-show
 // path. states holds every prefetched episode's watch state.
 func (s *Server) prefetchListEpisodes(ctx context.Context, pr *Request, ts []core.Title) (showEpisodes, map[core.RatingKey]core.WatchStatus) {
-	return s.prefetchListEpisodesWith(ctx, pr, ts, false)
+	// Leaf counts need only episode keys and numbering when no title policy
+	// can depend on hydrated fields. Unknown policies retain full metadata.
+	light := pr.User != nil && pr.User.MaxContentRating == "" && !s.viewerRestricted(pr.User)
+	if s.d.AccessPolicy != nil {
+		policy, known := s.d.AccessPolicy.(core.ArtworkAccessPolicy)
+		light = light && known && !policy.Restricted(pr.User)
+	}
+	return s.prefetchListEpisodesWith(ctx, pr, ts, light)
 }
 
 func (s *Server) prefetchListEpisodesWith(ctx context.Context, pr *Request, ts []core.Title, selectionOnly bool) (showEpisodes, map[core.RatingKey]core.WatchStatus) {
