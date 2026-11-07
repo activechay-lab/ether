@@ -5,6 +5,7 @@ package usenet
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"math/rand"
 	"testing"
 
@@ -64,10 +65,17 @@ func diffDecode(wire []byte, rapid bool, opt *yenc.DecodeOptions) (*yenc.Part, e
 // Differential: the RapidYenc path must never accept CRC-protected bytes that
 // differ from the original, must not panic, and must leave the connection at
 // the same place as the portable decoder.
-var testSeedOffset = 0
-
 func TestRapidDifferentialMutations(t *testing.T) {
-	rng := rand.New(rand.NewSource(7 + int64(testSeedOffset)))
+	for _, seed := range []int64{7, 107, 207, 307, 407, 507} {
+		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
+			testRapidDifferentialMutations(t, seed)
+		})
+	}
+}
+
+func testRapidDifferentialMutations(t *testing.T, seed int64) {
+	t.Helper()
+	rng := rand.New(rand.NewSource(seed))
 	var accepted, onlyRapid, rapidRejects int
 	for iter := range 30000 {
 		size := []int{300, 2000, 20000}[rng.Intn(3)]
@@ -102,4 +110,39 @@ func TestRapidDifferentialMutations(t *testing.T) {
 		}
 	}
 	t.Logf("accepted=%d acceptedOnlyByRapid=%d rapidRejectedPortableAccepted=%d", accepted, onlyRapid, rapidRejects)
+}
+
+// Exercise arbitrary wire mutations in addition to the reproducible seed matrix.
+// Inputs without a usable CRC can be accepted differently by the two parsers;
+// compare output only when both accept, as in the deterministic test above.
+func FuzzRapidDifferential(f *testing.F) {
+	for _, line := range []int{64, 128, 256} {
+		for _, multipart := range []bool{false, true} {
+			opts := yenc.EncodeOptions{Name: "fuzz.bin", LineLength: line}
+			if multipart {
+				opts.Part, opts.Total, opts.Begin, opts.FileSize = 2, 3, 1001, 4000
+			}
+			article, err := yenc.EncodeBytes(randData(95, 2000), opts)
+			if err != nil {
+				f.Fatal(err)
+			}
+			f.Add(article)
+		}
+	}
+	f.Add([]byte("=ybegin line=128 size=1 name=x\r\n=\r\n=yend size=1\r\n"))
+	f.Fuzz(func(t *testing.T, article []byte) {
+		if len(article) > 64<<10 {
+			t.Skip()
+		}
+		wire := append(append([]byte(nil), article...), []byte("\r\n.\r\n223 next\r\n")...)
+		opt := &yenc.DecodeOptions{MaxSize: 64 << 10}
+		rp, rerr, rnext := diffDecode(wire, true, opt)
+		sp, serr, snext := diffDecode(wire, false, opt)
+		if rnext != snext {
+			t.Fatalf("connection misaligned rapid=%q portable=%q (rerr=%v serr=%v)", rnext, snext, rerr, serr)
+		}
+		if rerr == nil && serr == nil && (!bytes.Equal(rp.Data, sp.Data) || rp.Header != sp.Header) {
+			t.Fatal("different result when both decoders accept")
+		}
+	})
 }
