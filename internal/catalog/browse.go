@@ -58,7 +58,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	}
 	gen := c.writeGen.Load()
 	minBucket := c.minuteBucket()
-	ckey := c.consoleAvailabilityCacheKey(q.Filter) + "|" + browseFilterKey(q.Filter) + fmt.Sprintf("|rules:%s:%#v:%s", q.Filter.RuleVisibility, q.Filter.PreviewRules, q.Filter.PreviewFallback)
+	ckey := c.consoleAvailabilityCacheKey(q.Filter) + "|" + browseFilterKey(c.policyKeyFilter(q.Filter)) + fmt.Sprintf("|rules:%s:%#v:%s", q.Filter.RuleVisibility, q.Filter.PreviewRules, q.Filter.PreviewFallback)
 	bkey := fmt.Sprintf("after:%d|", q.AfterKey) + fmt.Sprintf("%s|%s|%v|%v|%d|%d|%v", ckey, q.Sort, q.Desc, q.SecondarySorts, offset, limit, q.NoTotal)
 	cacheable := !groupHasState(q.Filter.Group)
 	c.cacheMu.RLock()
@@ -378,6 +378,24 @@ func (c *Catalog) LibraryPosters(ctx context.Context, typ core.MediaType, limit 
 		out = append(out, core.Title{Key: core.RatingKey(key), Type: typ, PosterPath: poster})
 	}
 	return out, rows.Err()
+}
+
+// policyKeyFilter drops the viewer from a cache key when the viewer browses
+// under the owner's rules: browseWhere reads the viewer only to pick those
+// rules, so every such viewer's identical filter shares one cached page and
+// total. A viewer with rules of their own keeps their id and revision.
+func (c *Catalog) policyKeyFilter(f core.Filter) core.Filter {
+	if f.CatalogViewerID == 0 {
+		return f
+	}
+	c.viewerRules.RLock()
+	v, ok := c.viewerRules.entries[f.CatalogViewerID]
+	c.viewerRules.RUnlock()
+	if ok && v.document.Mode != "inherit" && v.document.Mode != "" {
+		return f
+	}
+	f.CatalogViewerID, f.CatalogRuleRevision = 0, 0
+	return f
 }
 
 // browseFilterKey distinguishes a nil IncludeKeys (no restriction) from an
