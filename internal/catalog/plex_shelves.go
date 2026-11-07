@@ -82,7 +82,7 @@ func (c *Catalog) PlexOnDeckPage(ctx context.Context, uid int64, offset, limit i
 ), ranked AS (
  SELECT active.*,ROW_NUMBER() OVER(PARTITION BY entity ORDER BY CASE WHEN view_offset_ns>0 AND view_count=0 THEN 0 ELSE 1 END,last_viewed_at DESC,rating_key DESC) AS n
  FROM active
-), chosen AS (
+), chosen AS MATERIALIZED (
  SELECT CASE WHEN entity<2000000000000000 OR (view_offset_ns>0 AND view_count=0) THEN rating_key ELSE (
  SELECT e.key FROM catalog_titles e CROSS JOIN catalog_titles t WHERE t.key=e.show_key AND e.show_key=ranked.entity AND e.type='episode' AND e.season>0 AND e.episode>0 AND e.key>ranked.rating_key
  AND (e.released_ts=0 OR e.released_ts<=?)
