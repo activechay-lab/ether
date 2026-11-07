@@ -3,6 +3,7 @@ package clusterplayback
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"testing"
 	"time"
 )
@@ -36,5 +37,31 @@ func TestCopyRecoveryEligibility(t *testing.T) {
 		if encoderRecoverySupported(bad, "cpu") {
 			t.Fatal("unknown copy admitted")
 		}
+	}
+}
+
+// Frontends submit bounded copy before the copy grid is authored (no segment
+// duration, no ramp). Supports must judge the request StartPreparedHLS admits,
+// or the broker falls back to a server without an encoder.
+func TestSupportsUnauthoredBoundedCopy(t *testing.T) {
+	caps := remotetranscode.Supported()
+	caps.Keyframes, caps.CopyTimeline, caps.AuthoredRamp = true, true, true
+	raw := copyRecoveryRequest()
+	raw.SessionID, raw.SegmentDuration, raw.Ramp = "copy-session", 0, core.HLSRamp{}
+	if !(&Runtime{o: Options{RemoteCapabilities: caps}}).Supports(raw) {
+		t.Fatal("unauthored bounded copy rejected")
+	}
+	if raw.SegmentDuration != 0 || raw.Ramp != (core.HLSRamp{}) {
+		t.Fatal("support check mutated the caller's request")
+	}
+	noCopy := caps
+	noCopy.CopyTimeline = false
+	if (&Runtime{o: Options{RemoteCapabilities: noCopy}}).Supports(raw) {
+		t.Fatal("bounded copy admitted without worker copy timeline support")
+	}
+	other := raw
+	other.SegmentDuration = 4 * time.Second
+	if (&Runtime{o: Options{RemoteCapabilities: caps}}).Supports(other) {
+		t.Fatal("copy timeline facts admitted on a different segment grid")
 	}
 }

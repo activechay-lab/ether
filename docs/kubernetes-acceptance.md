@@ -325,42 +325,74 @@ leaves the required loss row PENDING, with the attempt and cleanup evidence
 separately indexed. Later attempts never erase the original report. A later
 normal zero-claim snapshot does not turn a cleanup-deadline FAIL into PASS.
 
-The canonical historical matrix is **20 PASS / 5 FAIL / 2 PENDING**, with exact
-runtime/profile attribution. The five strict 8cf failures are startup encoder
-pause cleanup in Plex/Jellyfin, steady Plex controller-pause controls, startup
-Plex delivery-delete playback (segment 8 HTTP 401 and a 48.04-second client
-stall), and startup Plex source-pause cleanup. Passing media, Stop and eventual
-release components stay visible beside those failures. The controller timeout
-occurred during the active pause, not at a client-window boundary. The delivery
-401 body and ingress replacement-pod trace are retained, but exact receiver
-identity/database protocol state at the denial were not captured; causal
-attribution remains incomplete.
+### v0.3.5 matrix (2026-11-07)
 
-Three repeated 8cf decision-B/start-A/Stop-B sessions verify request origins,
-media through ingress, 11 segments each, zero stalls, all eight media checks,
-capacity bounds, cancellation seal, zero claims and owned-process cleanup.
-Session 0 retains a final-window control exception; two have clean controls.
-A later targeted confirmation has 11 clean segments and three successful
-controls. It remains a separate confirmation, not a replacement for the original
-partial session or an extra loss-matrix row.
+All 25 software rows and all 5 mode gates pass. Every row ran on the two
+generated-media labs (lab1: three-host k3s, Plex; lab2: single-host k3s,
+Jellyfin/Emby) with all eight media checks, successful controls and Stop.
+Cleanup is the time from the later of the Stop response and fault restoration
+to the first sample showing the session retired with zero current claims, zero
+displaced claims and zero owned FFmpeg processes; the bound is 15 s. A
+negative value means that state was already reached before the paused
+controller was restored.
 
-Native048 reference capture, producer-window proofs and intended-loss aborts are
-separate evidence. The reference has 126 segments/zero stalls/six intrinsic
-checks; retained local restart windows 40/57 pass all eight against independent
-reference windows for High/BF3/24 fps/125 ms lead. The R4 client did not cross the
-second boundary. Intended native kill/CPU recovery remains unmeasured despite
-verified cleanup/window release. Physical-host loss is also unproven; pod or
-process faults cannot substitute for it.
+Runtimes: `7e4f8c2853`, `ec7100a30c`, `f5c8c9407e` (terminal coordination kept
+until displaced workers retire) and `9432615f08` (bounded copy admitted through
+the distributed start check). Neither later fix changes the path of a row that
+passed on an earlier runtime.
 
-Published recovery capabilities are listed in
-[automatic recovery admission](kubernetes.md#automatic-recovery-admission).
-Authored copied-audio ramps, the bounded CPU AC3-to-AAC path and verified remux
-need their own deployed qualification; the old copied-AAC constant-grid matrix
-does not cover them. Gate tests, a Git publication or a readiness fix do not
-supply runtime acceptance or erase old failures. On the new publication-receipt
-path, test both fresh-boot exclusion before successful heartbeat publication and
-subsequent real media/control behavior through Ingress. Do not weaken peer
-checks or retry an authorization denial to make acceptance green.
+| Row | Runtime | Segments | Stalls | Cleanup |
+| --- | --- | --- | --- | --- |
+| Plex source force-delete startup | 7e4f8c2853 | 29 | 0 | 4.2 s |
+| Plex source force-delete steady | 7e4f8c2853 | 29 | 0 | 4.4 s |
+| Plex source pause startup | 7e4f8c2853 | 29 | 0 | 4.4 s |
+| Plex source pause steady | 7e4f8c2853 | 29 | 0 | 3.6 s |
+| Plex transcode force-delete startup | 7e4f8c2853 | 28 | 0 | 4.5 s |
+| Plex transcode force-delete steady | 7e4f8c2853 | 29 | 0 | 4.5 s |
+| Plex transcode pause startup | f5c8c9407e | 25 | 0 | 2.6 s |
+| Plex transcode pause steady | f5c8c9407e | 29 | 0 | 2.2 s |
+| Plex delivery force-delete startup | f5c8c9407e | 29 | 0 | 3.1 s |
+| Plex delivery force-delete steady | 7e4f8c2853 | 29 | 0 | 5.0 s |
+| Plex delivery pause startup | 7e4f8c2853 | 28 | 0 | 1.9 s |
+| Plex delivery pause steady | ec7100a30c | 29 | 0 | 1.5 s |
+| Plex controller force-delete startup | ec7100a30c | 29 | 0 | 4.1 s |
+| Plex controller force-delete steady | ec7100a30c | 29 | 0 | 4.5 s |
+| Plex controller pause startup | ec7100a30c | 28 | 0 | 1.4 s |
+| Plex controller pause steady | 7e4f8c2853 | 29 | 0 | 0.5 s |
+| Jellyfin transcode force-delete startup | 7e4f8c2853 | 29 | 0 | 3.7 s |
+| Jellyfin transcode force-delete steady | 7e4f8c2853 | 30 | 0 | 3.8 s |
+| Jellyfin transcode pause startup | f5c8c9407e | 27 | 0 | 2.9 s |
+| Jellyfin transcode pause steady | f5c8c9407e | 30 | 0 | 2.4 s |
+| Jellyfin controller force-delete startup | ec7100a30c | 30 | 0 | 3.9 s |
+| Jellyfin controller force-delete steady | f5c8c9407e | 30 | 0 | 2.4 s |
+| Jellyfin controller pause startup | f5c8c9407e | 29 | 0 | -0.1 s |
+| Jellyfin controller pause steady | f5c8c9407e | 30 | 0 | -1.2 s |
+| Emby baseline (no fault) | f5c8c9407e | 30 | 0 | 2.8 s |
+
+| Mode gate | Runtime | Segments | Stalls | Cleanup | Recovery |
+| --- | --- | --- | --- | --- | --- |
+| Copied-AAC ramp, encoder deleted before segment 1 | f5c8c9407e | 25 | 0 | 2.9 s | resumed at 1 |
+| Copied-AAC ramp, encoder deleted before segment 2 | f5c8c9407e | 25 | 0 | 2.8 s | resumed at 2 |
+| Copied-AAC ramp, encoder deleted before segment 3 | f5c8c9407e | 25 | 0 | 2.8 s | resumed at 3 |
+| AC3 5.1 to AAC stereo, steady encoder deletion | f5c8c9407e | 24 | 0 | 3.2 s | cut at 14: no missing or overlapping PCM samples, SNR 38.5 dB, no click |
+| Bounded copy (video and audio copy), steady encoder deletion | 9432615f08 | 50 | 0 | 4.5 s | resumed at 27 on the 1.92 s source grid |
+
+For the ramp gates the client is held after segment N-1, the original encoder
+container is shown gone before N is released, and the replacement resumes at
+N. The bounded-copy fixture is a 96 s, 25 fps, 640x360 MPEG-TS source with an
+IDR every 1.92 s. It must be at least 5 MiB, the resolver's floor for any
+release, and small enough for the source owner's copy-timeline scan (32 MiB of
+packet output, about 8 MB of media for 96 s); the scan skips larger sources and
+ordinary copy is used instead.
+
+Two defects were found and fixed while measuring: the controller dropped the
+coordination lease once the current generation retired, so a displaced encoder
+paused through Stop could not be told to stop (fixed in `f5c8c9407e`), and every
+bounded-copy title answered `start.m3u8` with 404 because the distributed start
+was judged before its copy grid was authored (fixed in `9432615f08`).
+
+Not measured: native GPU encoder loss with CPU recovery, and physical host
+power loss. A paused or deleted pod is not a host power cut.
 
 The private index keeps Markdown and JSON loss matrices, per-component results,
 original and later report paths, SHA256s, raw-control exceptions, unknown timing

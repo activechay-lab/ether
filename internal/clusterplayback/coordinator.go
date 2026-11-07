@@ -835,8 +835,11 @@ func (r *Runtime) verifyRetired(ctx context.Context, f placement.Fence) error {
 	return nil
 }
 
+// Supports answers for the request StartPreparedHLS will actually admit. A
+// frontend submits the bounded-copy request before the copy grid is authored,
+// so judging the raw request rejects every valid bounded copy.
 func (r *Runtime) Supports(q core.HLSRequest) bool {
-	return supportedRequest(q, r.o.RemoteCapabilities)
+	return supportedRequest(transcode.AuthorCopyTimeline(q), r.o.RemoteCapabilities)
 }
 func (r *Runtime) Allocated(id string) bool {
 	r.mu.Lock()
