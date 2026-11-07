@@ -183,15 +183,18 @@ func runLive(o liveOptions) error {
 			return fmt.Errorf("baseline %s unreadable", o.Baseline)
 		}
 	}
-	passed, failed := 0, 0
+	passed, failed, invalid := 0, 0, 0
 	for _, r := range results {
-		if r.Verdict == "PASS" {
+		switch r.Verdict {
+		case "PASS":
 			passed++
-		} else {
+		case "INVALID":
+			invalid++
+		default:
 			failed++
 		}
 	}
-	fmt.Printf("live score: %d passed, %d failed of %d (%.0fs)\n", passed, failed, len(results), rep.Seconds)
+	fmt.Printf("live score: %d passed, %d failed, %d invalid (host stall, rerun) of %d (%.0fs)\n", passed, failed, invalid, len(results), rep.Seconds)
 	b, err := json.MarshalIndent(rep, "", "  ")
 	if err != nil {
 		return err
@@ -204,8 +207,8 @@ func runLive(o liveOptions) error {
 			return err
 		}
 	}
-	if failed > 0 {
-		return fmt.Errorf("%d live rows failed; report: %s", failed, o.Report)
+	if failed+invalid > 0 {
+		return fmt.Errorf("%d live rows failed, %d invalid; report: %s", failed, invalid, o.Report)
 	}
 	return nil
 }
@@ -362,6 +365,12 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 		res.Verdict = "FAIL"
 		res.Reasons = append(res.Reasons, res.Error)
 	}
+	if av != nil {
+		if n := probeStall(av); n >= 3 {
+			res.Verdict = "INVALID"
+			res.Reasons = append([]string{fmt.Sprintf("avprobe itself was not scheduled for %d s (host stall); the player verdict is void, rerun this row", n)}, res.Reasons...)
+		}
+	}
 	return
 }
 
@@ -406,6 +415,25 @@ type avResult struct {
 		At      float64 `json:"at"`
 	} `json:"errorLog"`
 	Stalls []float64 `json:"stallNotifications"`
+	// Control is the player's state sampled once per second; null where the
+	// probe's own timer did not run that second.
+	Control []*string `json:"controlPerSecond"`
+}
+
+// probeStall is the longest run of seconds in which avprobe's own timer did
+// not run (the process was not scheduled), after its first second. A player
+// that was not running cannot be judged: frames and requests stop with it.
+func probeStall(av *avResult) int {
+	longest, run := 0, 0
+	for i, c := range av.Control {
+		if i > 0 && c == nil {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	return longest
 }
 
 func summarise(p protocolReport, av *avResult, tune float64) viewerSummary {
