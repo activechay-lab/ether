@@ -13,19 +13,20 @@ import (
 )
 
 type candidate struct {
-	fallback   bool
-	pluginKeys map[string]int64
-	policy     releasepolicy.Result
-	rel        core.Release
-	trace      int
-	verified   bool
-	langOK     bool            // declares no audio, or an accepted audio language (acceptedAudio)
-	langWanted bool            // explicitly declares the viewer's wanted audio or MULTI on a foreign title
-	starved    bool            // below its resolution's bitrate floor (bitrateScore)
-	quality    qualityRank     // the profile's quality order, ahead of the score
-	bandwidth  int             // fits client cap (+1), unknown (0), or exceeds it (-1)
-	prepared   *candidateCheck // validation overlapped with descriptor discovery
-	graceStart time.Time       // discovery start, set only when preparation overran the grace
+	fallback    bool
+	pluginKeys  map[string]int64
+	policy      releasepolicy.Result
+	rel         core.Release
+	trace       int
+	verified    bool
+	langOK      bool            // declares no audio, or an accepted audio language (acceptedAudio)
+	langWanted  bool            // explicitly declares the viewer's wanted audio or MULTI on a foreign title
+	starved     bool            // below its resolution's bitrate floor (bitrateScore)
+	quality     qualityRank     // the profile's quality order, ahead of the score
+	bandwidth   int             // fits client cap (+1), unknown (0), or exceeds it (-1)
+	yearGuessed bool            // accepted despite a series year that differs from the show's
+	prepared    *candidateCheck // validation overlapped with descriptor discovery
+	graceStart  time.Time       // discovery start, set only when preparation overran the grace
 }
 type validation struct {
 	index                         int
