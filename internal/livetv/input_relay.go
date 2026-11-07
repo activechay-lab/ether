@@ -120,6 +120,19 @@ func tokenKey(token string) [sha256.Size]byte { return sha256.Sum256([]byte(toke
 // grantInput replaces the session's grant with one for src. The token is
 // the only credential; it reaches ffmpeg as a path component.
 func (s *Service) grantInput(ss *session, src StreamSource, headers http.Header) error {
+	return s.grantInputFor(ss, src, headers, false)
+}
+
+// grantSteadyInput is grantInput for a Steady (broadcast) decoder. Steady's
+// frame clock reads its input at real time, so a reader started behind the
+// live edge stays there: that distance is the channel's stability reserve.
+// A relay's ffmpeg reads as fast as bytes arrive, so for it a reserve would
+// only become a burst of segments; it uses grantInput.
+func (s *Service) grantSteadyInput(ss *session, src StreamSource, headers http.Header) error {
+	return s.grantInputFor(ss, src, headers, true)
+}
+
+func (s *Service) grantInputFor(ss *session, src StreamSource, headers http.Header, steady bool) error {
 	c := ss.info.Channel
 	source := src.AuthSourceID
 	if source == "" && c.SourceID != "" && (src.ID == stableID(c.ID, "playlist") || len(c.StreamSources) <= 1) {
@@ -134,7 +147,7 @@ func (s *Service) grantInput(ss *session, src StreamSource, headers http.Header)
 		return err
 	}
 	var reserve time.Duration
-	if steadyInput(ss) {
+	if steady {
 		reserve = s.stabilityReserve(c)
 	}
 	ctx, cancel := context.WithCancel(s.ctx)

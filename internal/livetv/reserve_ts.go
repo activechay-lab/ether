@@ -148,12 +148,7 @@ func (s *tsSplicer) feed(p []byte, out []byte, at int64) ([]byte, []tsMark) {
 		if !s.synced || data[0] != 0x47 {
 			i := syncAt(data)
 			if i < 0 {
-				// Keep a tail that may hold the start of the next sync.
-				keep := min(len(data), 2*tsPacket)
-				s.pend = append(s.pend[:0], data[len(data)-keep:]...)
-				if keep >= 2*tsPacket {
-					s.pend = s.pend[:0]
-				}
+				s.pend = s.pend[:0]
 				s.synced = false
 				return out, marks
 			}
@@ -230,6 +225,11 @@ func (s *tsSplicer) packet(in []byte, emit func([]byte, bool)) {
 		}
 	}
 	key := id == s.videoPID && pusi && s.isKey(pkt, pl)
+	if s.seeking && s.seekBytes > 2*tsSeekLimit {
+		// A connection without a usable program or keyframe: relay it as is
+		// rather than hold the reserve's refill hostage.
+		s.seeking, s.tsOff = false, 0
+	}
 	if s.seeking {
 		s.seekBytes += tsPacket
 		ready := s.pat != nil && s.pmt != nil && s.videoPID != tsNoPID
@@ -430,6 +430,11 @@ func (s *tsSplicer) splice(pkt []byte, pl int) bool {
 	for p, v := range s.lastDTS {
 		s.guard[p] = v
 	}
+	// PES already in progress when the connection started have no header
+	// here: drop their continuation packets until each PID's next start.
+	for p := range s.pesPIDs {
+		s.dropPES[p] = true
+	}
 	return true
 }
 
@@ -453,12 +458,13 @@ func (s *tsSplicer) shift(pkt []byte, pl int) {
 // monotonic drops PES that would step backwards on their PID right after a
 // splice (audio muxed ahead of the keyframe). It reports whether to keep pkt.
 func (s *tsSplicer) monotonic(pkt []byte, pl, id int, pusi bool) bool {
-	floor, guarded := s.guard[id]
-	if !guarded {
-		return true
-	}
 	if !pusi {
 		return !s.dropPES[id]
+	}
+	floor, guarded := s.guard[id]
+	if !guarded {
+		delete(s.dropPES, id)
+		return true
 	}
 	pts, dts := pesTimes(pkt, pl)
 	at := dts
