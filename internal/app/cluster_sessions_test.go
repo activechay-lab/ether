@@ -17,6 +17,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plextv"
+	"github.com/braedonsaunders/ether/internal/state"
 )
 
 // twoClusterApps boots two nodes of one cluster (the second joined with a
@@ -158,15 +159,15 @@ func TestClusterNodesShareAuthAndNotificationsPostgres(t *testing.T) {
 		}
 	}()
 	time.Sleep(200 * time.Millisecond) // let the subscription register
-	// ...receives a watched-state change made through node A.
-	r := httptest.NewRequest(http.MethodGet, "/:/scrobble?key="+core.MovieKey(603).String()+"&identifier=com.plexapp.plugins.library", nil)
-	r.RemoteAddr = "192.168.1.20:5000"
-	r.Header.Set("X-Plex-Token", "owner-tok")
-	r.Header.Set("X-Plex-Client-Identifier", "web-a")
-	w := httptest.NewRecorder()
-	a.handler.ServeHTTP(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("scrobble on A: %d %s", w.Code, w.Body.String())
+	// ...receives a watched-state change committed on node A. A Plex-origin
+	// scrobble sends no library timeline (PMS parity), so the change comes
+	// from another surface, which A's Plex front end announces.
+	owner, err := a.users.Owner(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.state.Scrobble(state.WithOrigin(ctx, state.Origin{Surface: "jellyfin", ClientID: "jf-a"}), owner.ID, core.MovieKey(603)); err != nil {
+		t.Fatalf("scrobble on A: %v", err)
 	}
 	select {
 	case <-got:
