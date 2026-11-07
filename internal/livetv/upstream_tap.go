@@ -124,7 +124,11 @@ var ErrProviderBusy = fmt.Errorf("every connection this IPTV provider allows is 
 // provider streams is spent.
 var ErrProviderPaced = fmt.Errorf("this IPTV source has started as many streams this hour as its owner allows: %w", core.ErrStreamLimit)
 
-var errTapReconnectLimit = errors.New("live provider reconnect limit reached")
+var (
+	errTapReconnectLimit = errors.New("live provider reconnect limit reached")
+	errTapSilent         = errors.New("live provider answered but sent no media")
+	errTapNotTS          = errors.New("live provider reconnect returned something other than the transport stream")
+)
 
 type tapRegistry struct {
 	external map[string]int
@@ -1190,15 +1194,26 @@ func (s *Service) reopenTap(ctx context.Context, t *upstreamTap, g *inputGrant, 
 		closer.Close()
 		return nil, providerResponseError(res.StatusCode)
 	}
-	// The first packets must arrive within the same budget.
-	timer := time.AfterFunc(time.Until(deadline), cancel)
+	// The first packets must arrive within the same budget. A provider-wide
+	// stall answers and then sends nothing; holding this connection open
+	// until the budget ends resumes the moment the provider does, with
+	// fewer opens than cutting it and dialling again.
+	var silent atomic.Bool
+	timer := time.AfterFunc(time.Until(deadline), func() { silent.Store(true); cancel() })
 	body := bufio.NewReaderSize(res.Body, 32<<10)
 	// The tap is already a transport stream; the splicer resyncs on its own.
 	first, perr := body.Peek(1)
 	timer.Stop()
-	if perr != nil || first[0] != 0x47 && !tsPrefix(body) {
+	if perr != nil {
 		closer.Close()
-		return nil, errRelayUnsupported
+		if silent.Load() {
+			return nil, errTapSilent
+		}
+		return nil, perr
+	}
+	if first[0] != 0x47 && !tsPrefix(body) {
+		closer.Close()
+		return nil, errTapNotTS
 	}
 	t.mu.Lock()
 	if t.closed {
