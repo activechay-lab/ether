@@ -204,6 +204,7 @@ func (a *App) experienceContinue(ctx context.Context, viewer *core.User, librari
 	if a.discoveryPersonal != nil {
 		c.Filter = a.discoveryPersonal.FilterContinue
 	}
+	c.Filter = experience.ContinueFilter(c.State, c.Filter)
 	items, _ := c.Row(ctx, viewer, "", limit)
 	return items, loadErr
 }
