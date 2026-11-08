@@ -49,9 +49,15 @@ func TestRoadmapOwnerAPIsAreWiredAndPrivate(t *testing.T) {
 		})
 	}
 	t.Run("passthrough IPTV status and owner termination", func(t *testing.T) {
+		// A live provider lists media: a Direct tune returns once its
+		// owned playlist has a first segment.
 		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, ".ts") {
+				io.WriteString(w, "segment")
+				return
+			}
 			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-			io.WriteString(w, "#EXTM3U\n#EXT-X-TARGETDURATION:4\n")
+			io.WriteString(w, "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nseg.ts\n")
 		}))
 		defer upstream.Close()
 		channel, err := a.livetv.SaveChannel(context.Background(), livetv.Channel{ID: "fixture-channel", Number: "1", Name: "Fixture channel", Kind: "iptv", StreamURL: upstream.URL + "/live.m3u8", Rating: "PG", Enabled: true})
