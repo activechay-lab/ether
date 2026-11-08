@@ -57,16 +57,18 @@ const (
 	tierMetaHints = "tier_migrate_unpinned"
 	// tierHintGrace lets queries that named a pinned index finish before
 	// the swap moves it.
-	tierHintGrace  = 2 * time.Second
-	tierCopyPage   = 2000
-	tierCopyStart  = 1000
-	tierDropChunk  = 5000
-	tierOrphanPage = 2000
+	tierHintGrace = 2 * time.Second
+	// tierTruncateWait bounds how long a TRUNCATE checkpoint waits for
+	// readers (writers wait behind it).
+	tierTruncateWait = 250 * time.Millisecond
+	tierCopyPage     = 2000
+	tierCopyStart    = 1000
+	tierOrphanPage   = 2000
 )
 
 // tierPinnedIndexes are the catalog_titles indexes queries name in INDEXED
-// BY: they must exist under their own name on whichever table is
-// catalog_titles at every moment, so the swap builds them itself.
+// BY (through c.indexedBy). Queries go unpinned from just before the swap
+// until cleanup has rebuilt these, first, under their own names.
 // TestTierPinnedIndexesCoverIndexedBy keeps this list complete.
 var tierPinnedIndexes = map[string]bool{
 	keysetIndex:                                  true,
@@ -188,7 +190,7 @@ func (c *Catalog) tierCopy(ctx context.Context, touched *tierTouched, p *TierMig
 		if !c.waitTierUnpaused(ctx, p) {
 			return ctx.Err()
 		}
-		if err := store.WaitWALBudget(ctx, c.db); err != nil {
+		if err := c.tierWALBudget(ctx); err != nil {
 			return err
 		}
 		began := time.Now()
@@ -529,7 +531,7 @@ func (c *Catalog) tierSwap(ctx context.Context, p *TierMigration) error {
 	if !c.waitTierUnpaused(ctx, p) {
 		return ctx.Err()
 	}
-	if err := store.WaitWALBudget(ctx, c.db); err != nil {
+	if err := c.tierWALBudget(ctx); err != nil {
 		return err
 	}
 	// The pinned indexes are rebuilt under their names after the swap;
@@ -699,7 +701,7 @@ func (c *Catalog) tierCleanup(ctx context.Context, p *TierMigration) error {
 		if !c.waitTierUnpaused(ctx, p) {
 			return ctx.Err()
 		}
-		if err := store.WaitWALBudget(ctx, c.db); err != nil {
+		if err := c.tierWALBudget(ctx); err != nil {
 			return err
 		}
 		temp := tierTempIndex + d.Name
@@ -734,32 +736,35 @@ func (c *Catalog) tierCleanup(ctx context.Context, p *TierMigration) error {
 	if _, err := c.db.ExecContext(ctx, `DROP TABLE IF EXISTS `+tierOldFTS); err != nil {
 		return err
 	}
-	// The old table has no index or trigger left: its rows go in key
-	// chunks, then the empty table.
-	for {
+	// The old table has no index or trigger left. Dropping it frees its
+	// pages (a few trunk pages of WAL) but reads every one under the
+	// writer lock, so it is read first, outside it, and the drop walks
+	// cached pages. Deleting its rows instead would write the whole table
+	// to the WAL.
+	for _, t := range []struct{ table, read string }{
+		{tierOldFTS, `SELECT COUNT(*), COALESCE(SUM(LENGTH(block)),0) FROM ` + tierOldFTS + `_data`},
+		{tierOldTable, `SELECT COUNT(*), COALESCE(SUM(LENGTH(summary)+LENGTH(title)),0) FROM ` + tierOldTable},
+	} {
 		if !c.waitTierUnpaused(ctx, p) {
 			return ctx.Err()
 		}
-		if err := store.WaitWALBudget(ctx, c.db); err != nil {
-			return err
-		}
 		var exists int
-		if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, tierOldTable).Scan(&exists); err != nil {
+		if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, t.table).Scan(&exists); err != nil {
 			return err
 		}
 		if exists == 0 {
-			break
+			continue
 		}
-		res, err := c.db.ExecContext(ctx, `DELETE FROM `+tierOldTable+` WHERE key IN (SELECT key FROM `+tierOldTable+` ORDER BY key LIMIT ?)`, tierDropChunk)
-		if err != nil {
+		var n, bytes int64
+		_ = c.db.QueryRowContext(ctx, t.read).Scan(&n, &bytes)
+		if err := c.tierWALBudget(ctx); err != nil {
 			return err
 		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			if _, err := c.db.ExecContext(ctx, `DROP TABLE `+tierOldTable); err != nil {
-				return err
-			}
-			break
+		began := time.Now()
+		if _, err := c.db.ExecContext(ctx, `DROP TABLE `+t.table); err != nil {
+			return fmt.Errorf("catalog: tier migration: drop %s: %w", t.table, err)
 		}
+		c.log.Info("catalog: tier migration dropped the old rows", "table", t.table, "rows", n, "hold", time.Since(began).Round(time.Millisecond))
 	}
 	if _, err := c.db.ExecContext(ctx, `PRAGMA analysis_limit=1000`); err == nil {
 		_, _ = c.db.ExecContext(ctx, `ANALYZE catalog_titles`)
@@ -783,7 +788,7 @@ func (c *Catalog) tierDeleteOrphans(ctx context.Context, p *TierMigration) error
 			if !c.waitTierUnpaused(ctx, p) {
 				return ctx.Err()
 			}
-			if err := store.WaitWALBudget(ctx, c.db); err != nil {
+			if err := c.tierWALBudget(ctx); err != nil {
 				return err
 			}
 			rows, err := c.db.QueryContext(ctx, `SELECT DISTINCT `+d.column+` FROM `+d.table+` WHERE `+d.column+`>? ORDER BY `+d.column+` LIMIT ?`, after, tierOrphanPage)
@@ -859,4 +864,15 @@ func (c *Catalog) setTierHintsOff(ctx context.Context, off bool) error {
 // loadTierHints restores the pin switch a tier migration left off.
 func (c *Catalog) loadTierHints(ctx context.Context) {
 	c.tier.hintsOff.Store(c.getMeta(ctx, tierMetaHints) != "")
+}
+
+// tierWALBudget is the job's back-pressure between batches: the shared WAL
+// budget, then a TRUNCATE checkpoint when the WAL file has grown past it
+// (steady readers keep it from restarting on its own).
+func (c *Catalog) tierWALBudget(ctx context.Context) error {
+	if err := store.WaitWALBudget(ctx, c.db); err != nil {
+		return err
+	}
+	_, err := store.TruncateWAL(ctx, c.db, tierTruncateWait)
+	return err
 }

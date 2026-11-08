@@ -81,6 +81,9 @@ func benchGenerate(t *testing.T, ctx context.Context, dir, pgURL string, log *sl
 		var div int
 		fmt.Sscan(n, &div)
 		o.Movies, o.Shows, o.DetailMovies, o.DetailShows = o.Movies/div, o.Shows/div, o.DetailMovies/div, o.DetailShows/div
+		if os.Getenv("ETHER_TIER_SAMPLE") != "" {
+			o.Stride = div
+		}
 	}
 	began := time.Now()
 	sum, err := perfharness.GenerateOffMirror(ctx, db, o)
@@ -353,7 +356,11 @@ func benchRun(t *testing.T, ctx context.Context, dir, pgURL string, log *slog.Lo
 			db.QueryRowContext(ctx, `SELECT v FROM catalog_meta WHERE k='tier_migrate_phase'`).Scan(&phase)
 			now := s.State + "/" + phase
 			if now != last {
-				phases[time.Since(began).Round(100*time.Millisecond).String()] = now
+				walNow := int64(0)
+				if st, err := os.Stat(filepath.Join(run, "ether.db-wal")); err == nil {
+					walNow = st.Size()
+				}
+				phases[time.Since(began).Round(100*time.Millisecond).String()] = fmt.Sprintf("%s (wal %d MB)", now, walNow>>20)
 				last = now
 			}
 		}

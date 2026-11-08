@@ -125,3 +125,38 @@ func walOverBudget(ctx context.Context, db *sql.DB, limit int64) (bool, int, err
 	pending := frames - copied
 	return int64(pending)*(pageSize+24) > limit, pending, nil
 }
+
+// TruncateWAL runs a TRUNCATE checkpoint when the WAL file is larger than
+// journalSizeLimit. Readers that never pause keep SQLite from restarting
+// the WAL, so its file grows by everything written; a bulk job calls this
+// between batches to bound it. It waits at most wait for readers on older
+// snapshots (writers wait behind it meanwhile) and reports whether the WAL
+// was truncated. PostgreSQL returns at once.
+func TruncateWAL(ctx context.Context, db *sql.DB, wait time.Duration) (bool, error) {
+	if db == nil || DialectOf(db) == Postgres {
+		return false, nil
+	}
+	var seq int
+	var name, path string
+	if err := db.QueryRowContext(ctx, `PRAGMA database_list`).Scan(&seq, &name, &path); err != nil || path == "" {
+		return false, err
+	}
+	st, err := os.Stat(path + "-wal")
+	if err != nil || st.Size() <= journalSizeLimit {
+		return false, nil
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA busy_timeout=%d`, wait.Milliseconds())); err != nil {
+		return false, err
+	}
+	defer conn.ExecContext(context.WithoutCancel(ctx), `PRAGMA busy_timeout=10000`)
+	busy, _, _, err := walCheckpoint(ctx, conn, "TRUNCATE")
+	if err != nil && strings.Contains(err.Error(), "SQLITE_BUSY") {
+		return false, nil
+	}
+	return err == nil && busy == 0, err
+}

@@ -41,7 +41,11 @@ type OffMirror struct {
 	// XtreamIDs assigns an Xtream compact id to every stored movie and
 	// series, as a client that loaded the VOD lists has.
 	XtreamIDs bool
-	Now       time.Time
+	// Stride keeps every Stride-th title of the popularity-ranked export
+	// (a smaller mirror with the same share of long tail); 0 or 1 keeps
+	// the first Movies and Shows.
+	Stride int
+	Now    time.Time
 }
 
 // OffMirror800k is the upgrade fixture: about 800k titles.
@@ -65,7 +69,7 @@ type exportTitle struct {
 	Video      bool    `json:"video"`
 }
 
-func readExport(path string, n int) ([]exportTitle, error) {
+func readExport(path string, n, stride int) ([]exportTitle, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -97,6 +101,13 @@ func readExport(path string, n int) ([]exportTitle, error) {
 		}
 		return out[i].ID < out[j].ID
 	})
+	if stride > 1 {
+		kept := out[:0]
+		for i := 0; i < len(out); i += stride {
+			kept = append(kept, out[i])
+		}
+		out = kept
+	}
 	return out[:min(n, len(out))], nil
 }
 
@@ -262,11 +273,11 @@ func (w *offWriter) fill(table string, set map[string]any) error {
 // 0.3.5 catalogue and household. The output is deterministic for o.
 func GenerateOffMirror(ctx context.Context, db *sql.DB, o OffMirror) (OffMirrorSummary, error) {
 	sum := OffMirrorSummary{}
-	movies, err := readExport(o.MovieExport, o.Movies)
+	movies, err := readExport(o.MovieExport, o.Movies, o.Stride)
 	if err != nil {
 		return sum, err
 	}
-	shows, err := readExport(o.TVExport, o.Shows)
+	shows, err := readExport(o.TVExport, o.Shows, o.Stride)
 	if err != nil {
 		return sum, err
 	}
@@ -366,12 +377,14 @@ func GenerateOffMirror(ctx context.Context, db *sql.DB, o OffMirror) (OffMirrorS
 		return nil
 	}
 	// Opened titles: the most popular, and a share of the long tail.
+	stride := max(o.Stride, 1)
+	movieTail, showTail := 100_000/stride, 30_000/stride
 	detailMovie := map[int]bool{}
 	for i := 0; i < o.DetailMovies; i++ {
 		if i < o.DetailMovies*5/6 {
 			detailMovie[i] = true
 		} else {
-			detailMovie[100_000+rng.IntN(max(1, len(movies)-100_000))] = true
+			detailMovie[movieTail+rng.IntN(max(1, len(movies)-movieTail))] = true
 		}
 	}
 	detailShow := map[int]bool{}
@@ -379,17 +392,17 @@ func GenerateOffMirror(ctx context.Context, db *sql.DB, o OffMirror) (OffMirrorS
 		if i < o.DetailShows*4/5 {
 			detailShow[i] = true
 		} else {
-			detailShow[30_000+rng.IntN(max(1, len(shows)-30_000))] = true
+			detailShow[showTail+rng.IntN(max(1, len(shows)-showTail))] = true
 		}
 	}
 	for i, e := range movies {
-		if err := write(core.TypeMovie, i, e, detailMovie[i]); err != nil {
+		if err := write(core.TypeMovie, i*stride, e, detailMovie[i]); err != nil {
 			return sum, err
 		}
 		sum.Movies++
 	}
 	for i, e := range shows {
-		if err := write(core.TypeShow, i, e, detailShow[i]); err != nil {
+		if err := write(core.TypeShow, i*stride, e, detailShow[i]); err != nil {
 			return sum, err
 		}
 		sum.Shows++

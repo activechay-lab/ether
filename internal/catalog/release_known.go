@@ -1,7 +1,6 @@
 package catalog
 
 import (
-
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
