@@ -308,6 +308,11 @@ const maxReadProducers = 128
 
 var readProducers = make(chan struct{}, maxReadProducers)
 
+// firstReadAlign bounds a response's first read: it ends at the next
+// multiple of the debrid engine's block (its cache and publish unit), so the
+// first bytes go out once one block has arrived rather than two or three.
+const firstReadAlign = 512 << 10
+
 // copyFrom copies up to length bytes of g's source starting at off into w,
 // reading ahead of the writer in ChunkSize pieces. It returns the bytes
 // written, the read error that stopped it (nil when length was copied) and
@@ -397,12 +402,21 @@ func (m *Manager) copyFrom(ctx context.Context, w io.Writer, g *generation, off,
 		}()
 		defer close(ch)
 		pos, rem := off, length
+		first := !background
 		for rem > 0 {
 			if ctx.Err() != nil {
 				return
 			}
 			bp := pool.Get().(*[]byte)
 			want := int64(len(*bp))
+			if first {
+				// The client is waiting for its first byte: read only up
+				// to the next firstReadAlign boundary (one debrid block)
+				// and write that at once instead of waiting for a whole
+				// chunk. Later reads start aligned and use full chunks.
+				first = false
+				want = min(want, firstReadAlign-pos%firstReadAlign)
+			}
 			if rem < want {
 				want = rem
 			}
@@ -481,6 +495,7 @@ func (m *Manager) copyFrom(ctx context.Context, w io.Writer, g *generation, off,
 			rem -= int64(n)
 		}
 	}()
+	flushFirst := !background
 	for c := range ch {
 		if c.n > 0 {
 			k, err := w.Write((*c.buf)[:c.n])
@@ -488,6 +503,12 @@ func (m *Manager) copyFrom(ctx context.Context, w io.Writer, g *generation, off,
 			onWrite(k)
 			if err == nil && k < c.n {
 				err = io.ErrShortWrite
+			}
+			if err == nil && flushFirst {
+				flushFirst = false
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				}
 			}
 			if err != nil {
 				pool.Put(c.buf)
