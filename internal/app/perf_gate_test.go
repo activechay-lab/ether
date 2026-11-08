@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -454,11 +455,17 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	a.Close()
 	if keep := os.Getenv("ETHER_PERF_GATE_KEEP"); keep != "" {
 		// Keep the trace and database for etherperf audit.
-		_ = os.MkdirAll(keep, 0o700)
-		_ = os.Rename(trace, filepath.Join(keep, name+"-trace.jsonl"))
+		if err := os.MkdirAll(keep, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := moveFile(trace, filepath.Join(keep, name+"-trace.jsonl")); err != nil {
+			t.Fatal(err)
+		}
 		trace = filepath.Join(keep, name+"-trace.jsonl")
 		for _, suffix := range []string{"", "-wal", "-shm"} {
-			_ = os.Rename(filepath.Join(dir, "ether.db"+suffix), filepath.Join(keep, name+".db"+suffix))
+			if err := moveFile(filepath.Join(dir, "ether.db"+suffix), filepath.Join(keep, name+".db"+suffix)); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
 		}
 	}
 	byTag, _, err := perfharness.ReadTrace(trace)
@@ -471,6 +478,31 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	}
 	t.Logf("%s: replayed in %s", name, time.Since(start).Round(time.Millisecond))
 	return rows
+}
+
+// moveFile renames src to dst, copying across filesystems (a temp dir on
+// / and a keep dir on /data).
+func moveFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil || os.IsNotExist(err) {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Remove(src)
 }
 
 // cloneFile copies src to dst, as an APFS clone where the system has one.
