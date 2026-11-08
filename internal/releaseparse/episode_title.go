@@ -172,33 +172,32 @@ func normalizeEpisodeTitle(title string) string {
 }
 
 // EpisodeSeriesYear reads only the series portion of a TV name. A year in
-// an episode title must not be mistaken for the show's premiere year.
+// an episode title or after a season/episode boundary must not be mistaken
+// for the show's premiere year.
 func EpisodeSeriesYear(name string, parsedYear int) int {
 	spaced := spacify(name)
-	loc := reSE.FindStringIndex(spaced)
-	if loc == nil {
-		loc = reSeasonAndEp.FindStringIndex(spaced)
+	cut := -1
+	consider := func(loc []int) {
+		if loc != nil && loc[0] > 0 && (cut < 0 || loc[0] < cut) {
+			cut = loc[0]
+		}
 	}
-	if loc == nil {
-		loc = reXEpisode.FindStringIndex(spaced)
-	}
-	if loc == nil {
-		loc = spanishEpisodeIndex(spaced)
-	}
-	if loc == nil {
-		loc = reSeasonOnly.FindStringIndex(spaced)
-	}
-	if loc == nil {
-		loc = reSeasonWord.FindStringIndex(spaced)
-	}
-	if loc == nil {
-		loc = reMiniseriesPart.FindStringIndex(spaced)
-	}
-	if loc == nil {
+	consider(reSE.FindStringIndex(spaced))
+	consider(reSeasonAndEp.FindStringIndex(spaced))
+	consider(reXEpisode.FindStringIndex(spaced))
+	consider(spanishEpisodeIndex(spaced))
+	consider(reSeasonOnly.FindStringIndex(spaced))
+	consider(reSeasonWord.FindStringIndex(spaced))
+	consider(reMiniseriesPart.FindStringIndex(spaced))
+	consider(reRussianSeason.FindStringIndex(spaced))
+	consider(reRussianSeasonSuffix.FindStringIndex(spaced))
+	consider(reRussianEpisode.FindStringIndex(spaced))
+	consider(reRussianEpisodeSuffix.FindStringIndex(spaced))
+	if cut < 0 {
 		return parsedYear
 	}
 	info := core.ReleaseInfo{}
-	return parseYear(spaced[:loc[0]], &info)
+	return parseYear(spaced[:cut], &info)
 }
 
 // Scene separators can split apostrophes ("I.ll"), while catalogue titles
