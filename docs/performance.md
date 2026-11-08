@@ -248,8 +248,40 @@ modernc's 16-bit atomic loads (which that lookup uses) take one global
 mutex, so a WAL the checkpointer cannot drain turns concurrent reads into a
 queue. The gate measured this: without a checkpointer its large replay took
 4 to 14 minutes, and with one about a minute. Long scans that pin an old
-snapshot (whole-catalogue counts, the collections index snapshot) keep a
-checkpoint from finishing, which is another reason they stay off requests.
+snapshot keep a checkpoint from finishing, which is another reason they
+stay off requests. Background readers of the whole catalogue (the
+collections index snapshot, the title search index) read 4000-key ranges in
+separate short statements instead. The integrity check and a backup's
+`VACUUM INTO` must read one snapshot, so they announce themselves
+(`store.BeginLongRead`), and bulk writers (the catalogue sync) call
+`store.WaitWALBudget` before each transaction: it waits, cancellably, for
+those reads to end and for the checkpoint to drain the WAL below
+`journal_size_limit`. Waiting is not a failure; only a wait longer than 15
+minutes returns `store.WALBlockedError`, which names the reader when it is
+ours.
+
+### The viewer-policy epoch
+
+`viewer_policy_epoch` fences authorization snapshots: a fence passes only
+if nothing that could turn an allow into a deny was written since the
+snapshot. It moves for exactly those writes (`internal/viewerpolicy`):
+
+- always: rating, adult, type, browse membership, release, episode
+  placement, collection and the Plex share label on `catalog_titles`; a
+  title or credit removed; home-release outcomes; viewer, policy and
+  membership tables;
+- only while a safety policy or library rule reads them
+  (`viewer_policy_inputs`): genres and keywords (per value, plus a title's
+  set becoming empty or non-empty), studios, countries, language, year,
+  runtime, rating, votes and popularity;
+- never: a new title or credit (they can only add), credit details,
+  alternative titles, collection artwork, raw home-release dates.
+
+PostgreSQL advances it at most once per transaction. On SQLite a trigger
+fires per changed row, but a transaction still writes the epoch page once.
+Because detail fills no longer move it, the epoch is a usable cache key:
+model builds share catalogue browse results between viewers who browse
+under the owner's rules with no rating cap, keyed by it.
 
 ### Search
 
@@ -336,9 +368,7 @@ catalogue's. Before, it refreshed every series' seasons on the request.
   revision, effective policy, the owner's settings and the Home layout are
   hard inputs: a change is rebuilt on the request. For a restricted viewer
   the epoch is hard too. For an unrestricted viewer the epoch, catalogue
-  writes, the daypart and age refresh the screen behind the response (the
-  epoch also moves on catalogue and guide writes, millions of times on a
-  production server). Home builds never wait on TMDB; what the mirror
+  writes, the daypart and age refresh the screen behind the response. Home builds never wait on TMDB; what the mirror
   lacks is fetched behind the build and the catalogue write refreshes the
   screen.
 - Work a read starts but does not wait for (refreshes behind the read,
