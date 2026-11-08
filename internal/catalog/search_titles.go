@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"math"
 	"math/bits"
 	"slices"
@@ -14,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // Title search answers from an in-memory index of every movie and show name
@@ -325,72 +328,101 @@ func (ix *titleIndex) name(n uint32) string { return ix.nameBlob[ix.nameOff[n]:i
 
 func (ix *titleIndex) join(e int) string { return ix.joinBlob[ix.joinOff[e]:ix.joinOff[e+1]] }
 
-// loadTitleIndex reads every movie and show name in two ordered passes.
+// loadTitleIndex reads every movie and show name. It reads key ranges in
+// short statements (mirrorSnapshotChunk), never one whole-catalogue
+// statement whose read snapshot would hold the WAL back, and orders the
+// titles by popularity in Go.
 func (c *Catalog) loadTitleIndex(ctx context.Context) (*titleIndex, error) {
-	rows, err := c.db.QueryContext(ctx, `SELECT key, type, title, original_title, popularity, vote_count, year FROM catalog_titles
-		WHERE type IN ('movie','show') AND adult=0 ORDER BY popularity DESC, key`)
-	if err != nil {
-		return nil, err
-	}
 	type entry struct {
+		key   int64
+		kind  uint8
+		pop   float64
+		votes int
+		year  int
 		names []string
 	}
-	ix := &titleIndex{}
-	var titles []entry
-	at := map[int64]uint32{}
-	for rows.Next() {
-		var key int64
-		var typ, title, original string
-		var pop float64
-		var votes, year int
-		if err := rows.Scan(&key, &typ, &title, &original, &pop, &votes, &year); err != nil {
-			rows.Close()
+	var titles []*entry
+	at := map[int64]*entry{}
+	for lo, done := int64(-1<<63), false; !done; {
+		var hi int64
+		err := c.db.QueryRowContext(ctx, `SELECT key FROM catalog_titles WHERE key>? ORDER BY key LIMIT 1 OFFSET ?`, lo, mirrorSnapshotChunk-1).Scan(&hi)
+		if errors.Is(err, sql.ErrNoRows) {
+			hi, done = 1<<63-1, true
+		} else if err != nil {
 			return nil, err
 		}
-		kind := titleKindMovie
-		if typ == string(core.TypeShow) {
-			kind = titleKindShow
+		rows, err := c.db.QueryContext(ctx, `SELECT key, type, title, original_title, popularity, vote_count, year FROM catalog_titles
+			WHERE type IN ('movie','show') AND adult=0 AND key>? AND key<=? ORDER BY key`, lo, hi)
+		if err != nil {
+			return nil, err
 		}
-		at[key] = uint32(len(ix.keys))
-		ix.keys = append(ix.keys, key)
-		ix.kinds = append(ix.kinds, kind)
-		ix.pops = append(ix.pops, float32(pop))
-		ix.votes = append(ix.votes, uint32(max(0, votes)))
-		ix.years = append(ix.years, uint16(max(0, min(year, math.MaxUint16))))
-		names := []string{title}
-		if original != "" && original != title {
-			names = append(names, original)
+		for rows.Next() {
+			e := &entry{}
+			var typ, title, original string
+			if err := rows.Scan(&e.key, &typ, &title, &original, &e.pop, &e.votes, &e.year); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if typ == string(core.TypeShow) {
+				e.kind = titleKindShow
+			}
+			e.names = []string{title}
+			if original != "" && original != title {
+				e.names = append(e.names, original)
+			}
+			at[e.key] = e
+			titles = append(titles, e)
 		}
-		titles = append(titles, entry{names: names})
-	}
-	if err := rows.Err(); err != nil {
+		err = rows.Err()
 		rows.Close()
-		return nil, err
-	}
-	rows.Close()
-	alts, err := c.db.QueryContext(ctx, `SELECT key, title FROM catalog_alt_titles`)
-	if err != nil {
-		return nil, err
-	}
-	for alts.Next() {
-		var key int64
-		var title string
-		if err := alts.Scan(&key, &title); err != nil {
-			alts.Close()
+		if err != nil {
 			return nil, err
 		}
-		if i, ok := at[key]; ok && len(titles[i].names) < searchMaxNames {
-			titles[i].names = append(titles[i].names, title)
+		// Names keep the order they were stored in (SQLite's rowid), as the
+		// whole-table scan read them: the per-title name cap keeps the first.
+		altOrder := ""
+		if store.DialectOf(c.db) != store.Postgres {
+			altOrder = " ORDER BY rowid"
 		}
-	}
-	if err := alts.Err(); err != nil {
+		alts, err := c.db.QueryContext(ctx, `SELECT key, title FROM catalog_alt_titles WHERE key>? AND key<=?`+altOrder, lo, hi)
+		if err != nil {
+			return nil, err
+		}
+		for alts.Next() {
+			var key int64
+			var title string
+			if err := alts.Scan(&key, &title); err != nil {
+				alts.Close()
+				return nil, err
+			}
+			if e, ok := at[key]; ok && len(e.names) < searchMaxNames {
+				e.names = append(e.names, title)
+			}
+		}
+		err = alts.Err()
 		alts.Close()
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
+		lo = hi
 	}
-	alts.Close()
+	sort.Slice(titles, func(i, j int) bool {
+		if titles[i].pop != titles[j].pop {
+			return titles[i].pop > titles[j].pop
+		}
+		return titles[i].key < titles[j].key
+	})
+	ix := &titleIndex{}
+	for _, e := range titles {
+		ix.keys = append(ix.keys, e.key)
+		ix.kinds = append(ix.kinds, e.kind)
+		ix.pops = append(ix.pops, float32(e.pop))
+		ix.votes = append(ix.votes, uint32(max(0, e.votes)))
+		ix.years = append(ix.years, uint16(max(0, min(e.year, math.MaxUint16))))
+	}
 	b := newTitleIndexBuilder()
-	for i := range titles {
-		b.add(titles[i].names)
+	for _, e := range titles {
+		b.add(e.names)
 	}
 	b.finish(ix)
 	return ix, nil
