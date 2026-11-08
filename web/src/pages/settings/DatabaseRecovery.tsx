@@ -1,8 +1,8 @@
-import { Alert, AlertDescription, Button } from "@braedonsaunders/appkit-ui";
+import { Alert, AlertDescription, Badge, Button } from "@braedonsaunders/appkit-ui";
+import { Check } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ErrorPanel, LoadingRows } from "../../components/feedback";
-import { Section } from "../../components/layout";
+import { ErrorPanel } from "../../components/feedback";
 import { t } from "../../i18n";
 import { apiFetch } from "../../lib/api";
 import { formatDateTime, isPlainObject } from "../../lib/format";
@@ -35,56 +35,75 @@ export function DatabaseRecovery() {
       setChecking(false);
     }
   };
+  const healthy = health?.level === "ok" && !status.error && !checkError;
+  const needsAttention = issue || health?.level === "error" || health?.level === "warn";
+  const label =
+    checking || status.loading
+      ? t("Checking…")
+      : status.error || checkError || needsAttention
+        ? t("Needs attention")
+        : healthy && db.clustered !== true
+          ? t("Healthy")
+          : (health?.summary ?? t("Not checked"));
+  const checkedTitle = integrity.checked
+    ? `${t("Checked")}: ${formatDateTime(integrity.checked)}`
+    : undefined;
+  const showDetails = status.error || checkError || needsAttention || db.clustered === true;
   return (
-    <Section
-      title={t("Database check")}
-      actions={
-        db.clustered === false ? (
-          <Button size="sm" variant="outline" disabled={checking} onClick={() => void check()}>
-            {checking ? t("Checking…") : t("Check again")}
-          </Button>
-        ) : undefined
-      }
+    <section
+      className="rounded-xl border border-border bg-surface"
+      aria-label={t("Database check")}
     >
-      {status.error ? (
-        <ErrorPanel error={status.error} onRetry={() => void status.reload()} />
-      ) : null}
-      {status.loading ? (
-        <LoadingRows rows={2} />
-      ) : (
-        <div className="space-y-3 text-sm">
-          <Alert variant={health?.level === "error" ? "warning" : "info"} role="status">
-            <AlertDescription>
-              <p className="font-medium">{health?.summary ?? t("Not checked")}</p>
-              {db.clustered === true ? (
-                <>
-                  {health?.details.map((line, i) => (
-                    <p className="break-words" key={i}>
-                      {line}
-                    </p>
-                  ))}
-                  <Link to="/cluster" className="underline">
-                    {t("Cluster")}
-                  </Link>
-                </>
-              ) : (
-                <>
-                  {integrity.checked ? (
-                    <p>
-                      {t("Checked")}: {formatDateTime(integrity.checked)}
-                    </p>
-                  ) : null}
-                  {integrity.checked ? (
-                    <p>
-                      {t(
-                        "This is the last reported result, not a live diagnosis. A check that could not run may leave an older result here.",
-                      )}
-                    </p>
-                  ) : null}
-                </>
-              )}
-            </AlertDescription>
-          </Alert>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+        <h3 className="text-sm font-semibold">{t("Database check")}</h3>
+        <div className="flex flex-wrap items-center gap-3">
+          <span role="status" title={checkedTitle}>
+            <Badge
+              variant={
+                checking || status.loading
+                  ? "secondary"
+                  : healthy
+                    ? "success"
+                    : needsAttention || status.error || checkError
+                      ? "warning"
+                      : "secondary"
+              }
+            >
+              {healthy && !checking ? <Check size={13} aria-hidden /> : null}
+              {label}
+            </Badge>
+          </span>
+          {db.clustered === false ? (
+            <Button size="sm" variant="ghost" disabled={checking} onClick={() => void check()}>
+              {checking ? t("Checking…") : t("Check again")}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      {showDetails ? (
+        <div className="space-y-3 border-t border-border p-5 text-sm">
+          {status.error ? (
+            <ErrorPanel error={status.error} onRetry={() => void status.reload()} />
+          ) : null}
+          {needsAttention ? (
+            <Alert variant="warning">
+              <AlertDescription>
+                <p className="font-medium">{health?.summary}</p>
+                {db.clustered === true
+                  ? health?.details.map((line, i) => (
+                      <p className="break-words" key={i}>
+                        {line}
+                      </p>
+                    ))
+                  : null}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {db.clustered === true ? (
+            <Link to="/cluster" className="underline">
+              {t("Cluster")}
+            </Link>
+          ) : null}
           {issue ? (
             <>
               <ul className="list-disc space-y-1 pl-5 break-words font-mono text-xs">
@@ -104,9 +123,9 @@ export function DatabaseRecovery() {
               </p>
             </>
           ) : null}
+          {checkError ? <ErrorPanel error={checkError} onRetry={() => void check()} /> : null}
         </div>
-      )}
-      {checkError ? <ErrorPanel error={checkError} onRetry={() => void check()} /> : null}
-    </Section>
+      ) : null}
+    </section>
   );
 }

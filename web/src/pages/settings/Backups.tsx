@@ -33,7 +33,6 @@ import {
 } from "../../lib/api";
 import { listPlexServers } from "../../lib/plex-servers";
 import { useAsync } from "../../lib/hooks";
-import { DatabaseCompact } from "./DatabaseCompact";
 import { DatabaseRecovery } from "./DatabaseRecovery";
 import { formatBytes } from "../../lib/format";
 import type { EtherUser } from "../../lib/types";
@@ -274,7 +273,6 @@ export function BackupsAndImport({ tab = "backups" }: { tab?: "backups" | "impor
     <>
       <div hidden={tab !== "backups"} className="space-y-6">
         <DatabaseRecovery />
-        <DatabaseCompact />
         {loadError && !data ? (
           <ErrorPanel error={loadError} onRetry={() => void load()} />
         ) : (
