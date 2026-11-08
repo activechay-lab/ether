@@ -6,14 +6,16 @@ budgets, certificate lifecycle and scheduling. No public Plex route changes.
 Construct NewVerifier, placement.New(db, options, verifier), NewRuntime(Options),
 then verifier.Bind(runtime), once before serving. Options requires live Guard,
 exact Self membership boot, trusted Endpoint, Eligible (new work, rejects drain),
-MemberRole (existing work, permits drain), explicit concurrent capacity and clock skew bound. HistoryCapacity (default4096)
-is an independent boot-retained tombstone quota, bounded by primitive authority
-limits. Capacity=1 does not limit a boot to one completed playback. SourceAccess
-must be constructed with matching history limits. History exhaustion fails closed;
-quiescent runtime rotation is still required after that explicit quota. No TTL
-eviction manufactures source or encoder retirement. Long-lived safe compaction
-requires extending nodeauthority/SourceAccess retirement-floor APIs and remains a
-production acceptance gate.
+MemberRole (existing work, permits drain), explicit concurrent capacity and clock skew bound. HistoryCapacity (default 4096)
+bounds live in-memory entries per boot (executions, owned sources, preparations,
+worker inputs, media replicas, frontend preparations, nodeauthority bindings and
+worker records), not every playback the boot has served. Tick forgets an entry once
+it is locally quiescent, its generation is durably terminal (ledger retired or
+superseded, nothing displaced) and it has stayed so for a two-minute grace; worker
+records wait MaxLease plus two minutes. A forgotten preparation stays sealed through
+its durable receipt; a forgotten execution reads as retired. Nothing is forgotten on
+time alone: no TTL eviction manufactures source or encoder retirement. SourceAccess
+must be constructed with matching limits.
 Source roles supply Manager, SourceAccess, ActiveViewer and SourcePolicy. The latter
 rechecks current title/parent/library/rating/release policy using local facts.
 Worker roles supply the real core.OwnedTranscoder (CPU or GPU manager). There is no

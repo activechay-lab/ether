@@ -45,6 +45,7 @@ type remotePreparation struct {
 	pins                         int
 	uses                         int
 	activityVersion              uint64
+	forgetAt                     time.Time // forgetRetired grace deadline
 }
 type remoteSource struct {
 	revision, release string
