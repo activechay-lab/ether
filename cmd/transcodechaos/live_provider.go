@@ -67,6 +67,9 @@ type providerConfig struct {
 	// real time follows, like panels that flush their recent buffer. Zero
 	// starts at the newest segment (0-4 s already published, sent at once).
 	Burst time.Duration `json:"burst,omitempty"`
+	// AC3 is the fixture the AAC->AC3 faults switch to (default "ac3",
+	// stereo; "ac3-51" is 5.1).
+	AC3 string `json:"ac3Fixture,omitempty"`
 }
 
 type providerStats struct {
@@ -98,6 +101,9 @@ func newLiveProvider(cfg providerConfig, fixtures map[string]*liveFixture, start
 	}
 	if cfg.Backlog <= 0 {
 		cfg.Backlog = 6
+	}
+	if cfg.AC3 == "" {
+		cfg.AC3 = "ac3"
 	}
 	if cfg.LimitCode == 0 {
 		cfg.LimitCode = 458
@@ -177,10 +183,10 @@ func (p *liveProvider) active(kind string, at time.Duration) (liveFault, bool) {
 func (p *liveProvider) variantFor(n int64) *liveFixture {
 	at := p.published(n)
 	if _, ok := p.active(faultCodecAC3, at); ok {
-		return p.fixtures["ac3"]
+		return p.fixtures[p.cfg.AC3]
 	}
 	if _, ok := p.active(faultCodecAC3Same, at); ok {
-		return p.fixtures["ac3"]
+		return p.fixtures[p.cfg.AC3]
 	}
 	if _, ok := p.active(faultResolution, at); ok {
 		return p.fixtures["hd"]

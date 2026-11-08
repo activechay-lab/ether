@@ -35,6 +35,13 @@ type UpstreamHealth struct {
 	Reconnects int
 	// Bitrate is the measured input bitrate in bits per second (TS only).
 	Bitrate int64
+	// FormatGeneration counts program changes (a PMT change: version, PIDs
+	// or stream types) seen at the input's live edge, starting at 1; 0 is
+	// unknown (not a transport stream, or no PMT yet). It is published the
+	// moment the tap parses the new PMT, ahead of any reader in the
+	// reserve, so a consumer can start a producer for the new format
+	// (relayInputFormat) before the old one reaches the change.
+	FormatGeneration uint64
 }
 
 // UpstreamEventKind names a change in an input's health.
