@@ -60,6 +60,17 @@ type PaletteCache struct {
 
 	mu    sync.Mutex
 	items *lru.Cache[core.RatingKey, *ultraBlurEntry]
+	// persist reports whether key's colours may be written; nil writes
+	// all. Titles with no stored row keep theirs in the memory cache only.
+	persist func(context.Context, core.RatingKey) bool
+}
+
+// PersistFor limits database writes to keys persist accepts. Call before
+// serving.
+func (c *PaletteCache) PersistFor(persist func(context.Context, core.RatingKey) bool) {
+	if c != nil {
+		c.persist = persist
+	}
 }
 
 func NewPaletteCache(db *sql.DB, submit func(string, func(context.Context)) bool, now func() time.Time, log *slog.Logger, compute func(context.Context, core.RatingKey, string) (Palette, error)) *PaletteCache {
@@ -110,7 +121,9 @@ func (c *PaletteCache) schedule(key core.RatingKey, path string) {
 			return
 		}
 		c.set(key, path, &colors)
-		c.save(ctx, key, path, colors)
+		if c.persist == nil || c.persist(ctx, key) {
+			c.save(ctx, key, path, colors)
+		}
 	})
 }
 

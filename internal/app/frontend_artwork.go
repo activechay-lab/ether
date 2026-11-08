@@ -66,11 +66,18 @@ func (a *App) newSharedArtwork(ctx context.Context) (*artworkservice.Source, fun
 	}
 	variants := artworkservice.NewVariantsQueue(ctx, a.tmdb.CachedArtworkVariants, a.tmdb.ArtworkVariants)
 	source.Variants = variants.Get
+	source.Generated = a.titlePosters()
+	source.Collages = &artworkservice.LibraryCollageCache{Dir: filepath.Join(a.opts.DataDir, "cache", "library-collages")}
+	// source.Read binds a copy of source: everything Read uses is set above.
 	metadata := artworkservice.NewMetadataQueue(ctx, a.db, a.users.ActiveUser, source.Read)
+	if a.spikeLibrary == nil {
+		// Search and list hits with no row keep their artwork facts in
+		// memory: a search page writes nothing.
+		metadata.PersistFor(a.catalog.PersistsArtwork)
+		palettes.PersistFor(a.catalog.PersistsArtwork)
+	}
 	source.Metadata = metadata.Get
 	source.BindMetadata(metadata)
-	source.Collages = &artworkservice.LibraryCollageCache{Dir: filepath.Join(a.opts.DataDir, "cache", "library-collages")}
-	source.Generated = a.titlePosters()
 	return source, func() { variants.Wait(); metadata.Wait(); workers.Wait() }
 }
 

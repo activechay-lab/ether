@@ -16,6 +16,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/lru"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -40,7 +41,29 @@ type MetadataQueue struct {
 	cache   map[string]artworkMetadata
 	pending map[string]bool
 	retry   map[string]time.Time
+	// persist reports whether an item's metadata may be written; nil
+	// writes everything. Titles with no stored row (search and list hits)
+	// keep theirs in memory only: a search page must not write rows.
+	persist func(context.Context, core.RatingKey) bool
+	memory  *lru.Cache[string, artworkMetadata] // unpersisted hashes, guarded by mu
 }
+
+// memoryMetadataEntries bounds the hashes kept for titles with no row
+// (about 200 bytes each).
+const memoryMetadataEntries = 16 << 10
+
+// PersistFor limits database writes to items persist accepts; the rest
+// keep their hashes in a bounded memory cache. Call before serving.
+func (q *MetadataQueue) PersistFor(persist func(context.Context, core.RatingKey) bool) {
+	if q != nil {
+		q.persist = persist
+	}
+}
+
+func (q *MetadataQueue) persistable(ctx context.Context, req frontend.ArtworkRequest) bool {
+	return q.persist == nil || req.Item == 0 || q.persist(ctx, req.Item)
+}
+
 type artworkMetadata struct {
 	width, height int
 	blurhash      string
@@ -53,7 +76,8 @@ type artworkMetadataJob struct {
 }
 
 func NewMetadataQueue(ctx context.Context, db *sql.DB, active func(context.Context, int64) (*core.User, error), read func(context.Context, frontend.ArtworkRequest, frontend.Image, frontend.ArtworkTransform) ([]byte, string, error)) *MetadataQueue {
-	q := &MetadataQueue{ctx: ctx, db: db, active: active, read: read, jobs: make(chan artworkMetadataJob, 128), cache: map[string]artworkMetadata{}, pending: map[string]bool{}, retry: map[string]time.Time{}}
+	q := &MetadataQueue{ctx: ctx, db: db, active: active, read: read, jobs: make(chan artworkMetadataJob, 128), cache: map[string]artworkMetadata{}, pending: map[string]bool{}, retry: map[string]time.Time{},
+		memory: lru.New(lru.Options[string, artworkMetadata]{MaxEntries: memoryMetadataEntries})}
 	for i := 0; i < 2; i++ {
 		q.workers.Add(1)
 		go q.run()
@@ -128,6 +152,10 @@ func (q *MetadataQueue) stored(key string) (artworkMetadata, bool) {
 	if cached, ok := q.cache[key]; ok && cached.thumbhash != "" {
 		q.mu.Unlock()
 		return cached, true
+	}
+	if held, ok := q.memory.Get(key); ok {
+		q.mu.Unlock()
+		return held, true
 	}
 	q.mu.Unlock()
 	// A free lookup is a cheap join. A locked database must not hold the page.
@@ -211,13 +239,24 @@ func (q *MetadataQueue) run() {
 			return
 		case job := <-q.jobs:
 			ctx, cancel := context.WithTimeout(q.ctx, 30*time.Second)
-			err := q.compute(ctx, job)
-			metadata, loadErr := q.load(ctx, job.key)
-			if err == nil {
-				err = loadErr
+			var metadata artworkMetadata
+			var err, loadErr error
+			persist := q.persistable(ctx, job.request)
+			if persist {
+				err = q.compute(ctx, job)
+				metadata, loadErr = q.load(ctx, job.key)
+				if err == nil {
+					err = loadErr
+				}
+			} else {
+				metadata, err = q.hash(ctx, job)
+				loadErr = err
 			}
 			cancel()
 			q.mu.Lock()
+			if loadErr == nil && !persist {
+				q.memory.Add(job.key, metadata)
+			}
 			delete(q.pending, job.key)
 			if err != nil && q.ctx.Err() == nil {
 				if len(q.retry) >= 1024 {
@@ -290,31 +329,50 @@ func (q *MetadataQueue) compute(ctx context.Context, job artworkMetadataJob) err
 	} else if err != nil && err != sql.ErrNoRows {
 		return err
 	}
-	data, _, err := q.read(ctx, job.request, job.image, frontend.ArtworkTransform{})
+	m, err := q.hashImage(ctx, job)
 	if err != nil {
 		return err
 	}
+	_, err = q.db.ExecContext(ctx, `INSERT INTO artwork_image_metadata(image_key,width,height,blurhash,thumbhash) VALUES(?,?,?,?,?) ON CONFLICT(image_key) DO UPDATE SET thumbhash=excluded.thumbhash WHERE artwork_image_metadata.thumbhash=''`, job.key, m.width, m.height, m.blurhash, m.thumbhash)
+	return err
+}
+
+// hash computes an unpersisted item's metadata: the same viewer check and
+// image read, no lease and no write.
+func (q *MetadataQueue) hash(ctx context.Context, job artworkMetadataJob) (artworkMetadata, error) {
+	viewer, err := q.active(ctx, job.request.Viewer.ID)
+	if err != nil || viewer == nil || viewer.ID != job.request.Viewer.ID {
+		return artworkMetadata{}, core.ErrUnauthorized
+	}
+	job.request.Viewer = viewer
+	return q.hashImage(ctx, job)
+}
+
+func (q *MetadataQueue) hashImage(ctx context.Context, job artworkMetadataJob) (artworkMetadata, error) {
+	data, _, err := q.read(ctx, job.request, job.image, frontend.ArtworkTransform{})
+	if err != nil {
+		return artworkMetadata{}, err
+	}
 	if len(data) == 0 || len(data) > 15<<20 {
-		return core.ErrNotAvailable
+		return artworkMetadata{}, core.ErrNotAvailable
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > 4000 || cfg.Height > 4000 || int64(cfg.Width)*int64(cfg.Height) > 16_000_000 {
-		return core.ErrNotAvailable
+		return artworkMetadata{}, core.ErrNotAvailable
 	}
 	decoded, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return err
+		return artworkMetadata{}, err
 	}
 	hash, err := artwork.BlurHash(decoded, 4, 3)
 	if err != nil {
-		return err
+		return artworkMetadata{}, err
 	}
 	thumb, err := artwork.ThumbHash(decoded)
 	if err != nil {
-		return err
+		return artworkMetadata{}, err
 	}
-	_, err = q.db.ExecContext(ctx, `INSERT INTO artwork_image_metadata(image_key,width,height,blurhash,thumbhash) VALUES(?,?,?,?,?) ON CONFLICT(image_key) DO UPDATE SET thumbhash=excluded.thumbhash WHERE artwork_image_metadata.thumbhash=''`, job.key, cfg.Width, cfg.Height, hash, base64.StdEncoding.EncodeToString(thumb))
-	return err
+	return artworkMetadata{width: cfg.Width, height: cfg.Height, blurhash: hash, thumbhash: base64.StdEncoding.EncodeToString(thumb)}, nil
 }
 
 // Wait joins workers after the owning context is cancelled.
