@@ -852,6 +852,39 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		return nil, errors.New("transcode: resume segment outside authored timeline")
 	}
 
+	// One bounded packet sample provides representative copy bandwidth
+	// and, for a seek, a proven encoded-ramp handover. It cannot establish
+	// the bitrate of future unseen scenes or change a published timeline.
+	if proto == core.ProtocolHLS && req.Resume == nil && req.Ramp.Version == 0 && !ValidCopyTimeline(req) && !req.LiveInput &&
+		d.VideoCopy && len(req.Info.Keyframes) == 0 && plan != nil {
+		sample := m.sampleCopyIndex(ctx, req, offset, life)
+		points := sample.points
+		nominal := time.Duration(adapt.RampSegs) * adapt.RampDur
+		if offset > 0 && d.Container == ContainerMPEGTS && adapt.FastStart && hasSampledRampBoundary(points, offset, nominal) {
+			req.Info.Keyframes = points
+			plan = buildTimeline(plan.span, segDur, timelineOptions{steadyMode: ModeCopy,
+				fastStart: true, rampSegs: adapt.RampSegs, rampDur: adapt.RampDur,
+				keyframes: points, base: base, snap: true})
+			total = plan.Total()
+		}
+		if len(rungs) > 0 {
+			slot := segDur
+			for _, duration := range plan.durs {
+				if duration > 0 && duration < slot {
+					slot = duration
+				}
+			}
+			slot = max(slot, plan.TargetDuration()/2)
+			peak := sampledCopyPeakKbps(sample.peakPoints, slot)
+			if a := findStream(req.Info, d.AudioStream, "audio"); a != nil && !d.AudioCopy {
+				peak += max(0, decisionAudioKbps(req.Info, d)-copiedAudioKbps(a))
+			}
+			rungs[0].peakKbps = max(rungs[0].peakKbps, peak)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()

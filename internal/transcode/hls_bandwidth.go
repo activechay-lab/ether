@@ -53,7 +53,7 @@ func indexedPeakKbps(info core.MediaInfo, window time.Duration) (int, bool) {
 	}
 	// The index must reach the title's last GOPs; a truncated one says
 	// nothing about the rest.
-	if info.Duration-kf[len(kf)-1].Time > max(2*window, 10*time.Second) {
+	if kf[0].Time > window || info.Duration-kf[len(kf)-1].Time > max(2*window, 10*time.Second) {
 		return 0, false
 	}
 	// Bytes after the last keyframe may hold an index (an MP4 moov at the
@@ -102,5 +102,5 @@ func encodedHLSPeakKbps(info core.MediaInfo, d core.Decision, rate rateControl, 
 		buffer = rate.BufsizeKbps
 	}
 	bits := float64(maxrate+decisionAudioKbps(info, d)) + float64(buffer)/duration.Seconds()
-	return int(math.Ceil(bits*1.1)) + 16
+	return int(math.Ceil(bits*11/10)) + 16
 }

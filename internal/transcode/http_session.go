@@ -258,7 +258,9 @@ func (s *httpSession) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "transcode failed", http.StatusServiceUnavailable)
 			return
 		}
-		cmd.Background = !s.req.LiveInput
+		// Progressive encodes run at normal priority; the output pipe
+		// naturally backpressures them when the client has enough media.
+		cmd.Background = !s.req.LiveInput && s.req.Decision.VideoCopy
 		proc, err := s.m.runner.Start(cmd)
 		if err != nil {
 			s.mu.Unlock()
