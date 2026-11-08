@@ -253,8 +253,15 @@ func releasesFailed(n int, lastErr error, allUncached bool) error {
 func (m *Manager) nextResolution(ctx context.Context, s *session, tried []string, alternates []core.Release) (*core.Resolution, error) {
 	ctx = core.WithIndexerPurpose(ctx, core.IndexerPurposePlayback)
 	if m.deps.FetchNZB != nil {
+		// An add-on that did not answer one on-demand link may still be
+		// preparing it; opening another would make it fetch a second
+		// release, and a fresh Resolve would reopen the same link.
+		var preparing error
 		for i, alt := range alternates {
 			if alt.ID == "" || m.titleReleaseRejected(ctx, s.ident.key, alt) || slices.Contains(tried, alt.ID) || !releaseMatchesTitle(alt, s.title) {
+				continue
+			}
+			if preparing != nil && alt.OpensOnDemand() {
 				continue
 			}
 			nzb, err := m.deps.FetchNZB(ctx, alt)
@@ -263,6 +270,9 @@ func (m *Manager) nextResolution(ctx context.Context, s *session, tried []string
 					return nil, ctx.Err()
 				}
 				m.log.Warn("alternate nzb fetch failed", "release", alt.Name, "err", err)
+				if alt.OpensOnDemand() && (errors.Is(err, core.ErrPrepareSlow) || errors.Is(err, context.DeadlineExceeded)) {
+					preparing = err
+				}
 				continue
 			}
 			return &core.Resolution{
@@ -272,6 +282,9 @@ func (m *Manager) nextResolution(ctx context.Context, s *session, tried []string
 				Alternates: slices.Clone(alternates[i+1:]),
 				ResolvedAt: m.now(),
 			}, nil
+		}
+		if preparing != nil {
+			return nil, preparing
 		}
 	}
 	u := s.user
