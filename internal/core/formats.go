@@ -1,7 +1,6 @@
 package core
 
 import (
-	"strconv"
 	"strings"
 )
 
@@ -27,21 +26,10 @@ const (
 // Built-in format families: at most one format of a family matches a
 // release (it has one release type, one video and one audio codec).
 const (
-	FamilySource     = "source"
-	FamilyCodec      = "codec"
-	FamilyAudio      = "audio"
-	FamilyResolution = "resolution"
+	FamilySource = "source"
+	FamilyCodec  = "codec"
+	FamilyAudio  = "audio"
 )
-
-// FormatHeights are the resolutions with a built-in format, highest first:
-// every height the release parser reads. A resolution format matches the
-// release's graded height (a starved encode or upscale one step down).
-var FormatHeights = []int{2160, 1080, 720, 576, 480, 360}
-
-// ResolutionFormat is the built-in format id of a resolution.
-func ResolutionFormat(height int) string {
-	return BuiltinFormatPrefix + "res-" + strconv.Itoa(height)
-}
 
 // Built-in format ids that are not per source or codec.
 const (
@@ -94,9 +82,6 @@ type BuiltinFormat struct {
 // BuiltinFormats lists every built-in format in console order.
 func BuiltinFormats() []BuiltinFormat {
 	var out []BuiltinFormat
-	for _, h := range FormatHeights {
-		out = append(out, BuiltinFormat{ID: ResolutionFormat(h), Kind: FormatKindRelease, Family: FamilyResolution})
-	}
 	for _, s := range FormatSources {
 		out = append(out, BuiltinFormat{ID: SourceFormat(s), Kind: FormatKindRelease, Family: FamilySource})
 	}

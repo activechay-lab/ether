@@ -2,7 +2,6 @@ package resolver
 
 import (
 	"slices"
-	"strconv"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/releaseparse"
@@ -36,9 +35,6 @@ var builtinFormatNames = map[string]string{
 }
 
 func init() {
-	for _, h := range core.FormatHeights {
-		builtinFormatNames[core.ResolutionFormat(h)] = strconv.Itoa(h) + "p"
-	}
 	for _, s := range core.FormatSources {
 		builtinFormatNames[core.SourceFormat(s)] = core.SourceLabel(s)
 	}
@@ -58,7 +54,6 @@ func BuiltinFormatName(id string) string { return builtinFormatNames[id] }
 // formatFacts is what the built-in formats read besides the release, the
 // profile and the client.
 type formatFacts struct {
-	height         int  // graded height: a starved encode or upscale one resolution down
 	starved        bool // below its bitrate floor or a presumed upscale: no HDR credit
 	lowBitrate     bool // below its bitrate floor
 	viewerLanguage bool // declares the viewer's language on a foreign title
@@ -72,9 +67,6 @@ func builtinFormatMatches(rel core.Release, profile core.QualityProfile, caps co
 	info := rel.Info
 	var out []string
 	add := func(id string) { out = append(out, id) }
-	if slices.Contains(core.FormatHeights, f.height) {
-		add(core.ResolutionFormat(f.height))
-	}
 	if slices.Contains(core.FormatSources, info.Source) {
 		add(core.SourceFormat(info.Source))
 	}

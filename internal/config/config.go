@@ -925,9 +925,8 @@ func decodeStartupConfig(defaults Config, b []byte) (Config, bool, error) {
 			dropped = true
 		}
 	}
-	if converted, notes := upgradeRankingDocument(file); converted {
+	if resetPreStandardQuality(file) {
 		dropped = true
-		logRankingNotes(notes)
 	}
 	doc := toDoc(defaults)
 	if av, ok := file["availability"].(map[string]any); ok {

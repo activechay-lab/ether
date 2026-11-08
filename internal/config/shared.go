@@ -220,17 +220,12 @@ func (s *Store) attachShared(ctx context.Context, b SharedBackend, o SharedOptio
 			break
 		}
 		dropped := stripRetiredLiveTV(stored)
-		// Convert profiles stored before the Radarr/Sonarr-standard model,
+		// Reset profiles stored before the Radarr/Sonarr-standard model,
 		// then settle the stored document itself (keeping fields this
 		// version does not know), so every node reads the same profiles.
-		// Converting first lets copies that differ only in how an older
-		// release spelled the same ranking settle as duplicates.
-		converted, notes := upgradeRankingDocument(stored)
-		if converted {
-			logRankingNotes(notes)
-		}
+		reset := resetPreStandardQuality(stored)
 		settled = normalizeSharedDocument(stored)
-		if !dropped && !converted && len(settled) == 0 {
+		if !dropped && !reset && len(settled) == 0 {
 			break
 		}
 		plain, err = json.Marshal(stored)

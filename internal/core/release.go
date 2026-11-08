@@ -245,17 +245,8 @@ type QualityProfile struct {
 	// release ranks by the first item listing its quality, qualities in one
 	// item (a group) rank equally, and a quality no item lists ranks below
 	// all of them. It is the first ranking key; custom format scores order
-	// releases of equal quality (docs/quality-ranking.md). It is always
-	// stored, empty included, so a saved empty order (every quality alike)
-	// is never mistaken for a profile from before quality orders.
-	QualityOrder []QualityItem `json:"qualityOrder"`
-	// ConvertedRanking marks a profile converted from an older ranking
-	// order that ranked something above resolution: its quality order is
-	// one group of every resolution, with resolution scored as formats
-	// below that step, so it ranks exactly as before. The console offers
-	// the standard one-group-per-resolution order until the owner edits
-	// the qualities.
-	ConvertedRanking bool `json:"convertedRanking,omitempty"`
+	// releases of equal quality (docs/quality-ranking.md).
+	QualityOrder []QualityItem `json:"qualityOrder,omitempty"`
 	// CustomFormatScores scores every format the profile uses, keyed by
 	// format id: the owner's and imported custom formats, Ether's built-in
 	// formats ("ether:…", BuiltinFormats) and Prefer rules ("rule:<id>").

@@ -101,12 +101,11 @@ func TestFilenamePreviewDoesNotInventUsenet(t *testing.T) {
 	}
 }
 
-// rulesFirst gives p the shape a converted profile has when its Prefer
-// rules ranked first: every quality in one group, and each Prefer rule a
-// score above everything after it.
+// rulesFirst ranks p's Prefer rules before resolution: every quality in
+// one group, and each Prefer rule a score above everything after it.
 func rulesFirst(p core.QualityProfile) core.QualityProfile {
 	item := core.QualityItem{Name: "Every quality"}
-	for _, h := range core.FormatHeights {
+	for _, h := range []int{2160, 1080, 720, 576, 480, 360} {
 		for _, s := range []string{"remux", "bluray", "webdl", "webrip", "hdtv", "dvd", "unknown"} {
 			item.Qualities = append(item.Qualities, fmt.Sprintf("%s-%d", s, h))
 		}
@@ -119,9 +118,6 @@ func rulesFirst(p core.QualityProfile) core.QualityProfile {
 			p.CustomFormatScores[core.RuleFormatPrefix+r.ID] = weight
 			weight /= 2
 		}
-	}
-	for i, h := range core.FormatHeights {
-		p.CustomFormatScores[core.ResolutionFormat(h)] = (len(core.FormatHeights) - i) * 20000
 	}
 	return p
 }

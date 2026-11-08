@@ -134,7 +134,7 @@ func newStreamTestEnv(t *testing.T) *streamTestEnv {
 					MinHeight:        720,
 					AllowHDR:         true,
 					AllowDolbyVision: true,
-					QualityOrder:     config.ResolutionGroups(2160, 720, false),
+					QualityOrder:     config.ResolutionGroups(2160, 720),
 				},
 			},
 		},

@@ -18,30 +18,17 @@ import (
 
 // The ranking corpus records which releases Ether picked, in order, for a
 // deterministic set of realistic release pools, profiles and devices. The
-// golden file was written by the ranking that profiles used before the
-// Radarr/Sonarr-standard model (docs/quality-ranking.md); the stored
-// profile fixtures below are in that older format and reach the ranker
-// through config.Open, so every run converts them exactly as an upgrading
-// install does. ETHER_WRITE_RANKING_GOLDEN=1 rewrites the golden file.
+// golden file was recorded by the ranking Ether used before the
+// Radarr/Sonarr-standard model (docs/quality-ranking.md); the shipped
+// profiles reach the ranker through config.Open, as on a fresh install.
 
 const rankingGoldenPath = "testdata/ranking_corpus_golden.json"
 
 // corpusNow is the fixed clock every corpus release is aged against.
 var corpusNow = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 
-// corpusProfiles are stored configs as installs hold them: the shipped
-// 4K/1080p/720p profiles plus the variants owners commonly made.
-var corpusProfiles = []struct{ name, doc string }{
-	{"4K", `{"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":null,"allowCam":false,"ranking":["language","connection","resolution","releaseType","hdr","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
-	{"1080p", `{"quality":{"default":"1080p","profiles":[{"name":"1080p","mediaType":"movie","maxHeight":1080,"minHeight":720,"allowHdr":false,"allowDolbyVision":false,"preferredSources":["webdl","bluray","webrip","hdtv"],"preferredCodecs":["h264","hevc"],"preferredAudio":["eac3","ac3","aac"],"minSizeMbPerMin":5,"maxSizeMbPerMin":150,"preferredLanguages":null,"allowCam":false,"ranking":["language","connection","resolution","releaseType","hdr","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
-	{"720p", `{"quality":{"default":"720p","profiles":[{"name":"720p","mediaType":"movie","maxHeight":720,"minHeight":480,"allowHdr":false,"allowDolbyVision":false,"preferredSources":["webdl","webrip","bluray","hdtv"],"preferredCodecs":["h264"],"preferredAudio":["aac","ac3","eac3"],"minSizeMbPerMin":2,"maxSizeMbPerMin":60,"preferredLanguages":null,"allowCam":false,"ranking":["language","connection","resolution","releaseType","hdr","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
-	{"4K-french", `{"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":["fr"],"allowCam":false,"ranking":["language","connection","resolution","releaseType","hdr","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
-	{"4K-source-first", `{"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":null,"allowCam":false,"ranking":["language","connection","releaseType","resolution","hdr","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
-	{"4K-codec-audio", `{"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":null,"allowCam":false,"ranking":["language","connection","resolution","releaseType","hdr","audioFormat","videoCodec","customScore","verified","size"]}]}}`},
-	{"4K-prefer-rule", `{"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":null,"allowCam":false,"releaseRules":[{"id":"trusted","name":"Trusted groups","action":"prefer","match":"any","conditions":[{"field":"group","operator":"equals","value":"FLUX"},{"field":"group","operator":"equals","value":"FraMeSToR"}]}],"ranking":["rule:trusted","language","connection","resolution","releaseType","hdr","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
-	{"4K-hdr-first", `{"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":null,"allowCam":false,"ranking":["language","connection","hdr","resolution","releaseType","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
-	{"4K-owner-formats", `{"resolver":{"customFormats":[{"trash_id":"good-groups","name":"Good groups","specifications":[{"name":"groups","implementation":"ReleaseGroupSpecification","fields":{"value":"^(FLUX|NTb|BYNDR|FraMeSToR)$"}}]},{"trash_id":"lq","name":"LQ","specifications":[{"name":"lq","implementation":"ReleaseGroupSpecification","fields":{"value":"^(YIFY|YTS|RARBG)$"}}]},{"trash_id":"x265-hd","name":"x265 (HD)","specifications":[{"name":"x265","implementation":"ReleaseTitleSpecification","fields":{"value":"[xh][ ._-]?265|HEVC"}},{"name":"not 2160","implementation":"ResolutionSpecification","negate":true,"required":true,"fields":{"value":2160}}]}],"customFormatScores":{"good-groups":40,"lq":-500}},"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":null,"allowCam":false,"customFormatScores":{"x265-hd":-30},"ranking":["language","connection","resolution","releaseType","hdr","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
-}
+// corpusProfiles are the shipped profiles the corpus ranks with.
+var corpusProfiles = []string{"4K", "1080p", "720p"}
 
 // corpusClients are the devices the corpus is ranked for.
 var corpusClients = []struct {
@@ -164,10 +151,11 @@ func corpusPools() map[string][]core.Release {
 	return out
 }
 
-// corpusConfig opens a stored config fixture the way an install starts.
-func corpusConfig(t *testing.T, doc string) config.Config {
+// corpusConfig opens a fresh install whose default is the named profile.
+func corpusConfig(t *testing.T, profile string) config.Config {
 	t.Helper()
 	dir := t.TempDir()
+	doc := fmt.Sprintf(`{"quality":{"default":%q}}`, profile)
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -180,14 +168,14 @@ func corpusConfig(t *testing.T, doc string) config.Config {
 
 // corpusPick is what the comparer saw of one ranked release.
 type corpusPick struct {
-	position, cf, height int
-	gates                [3]int // fallback tier, accepted language, connection fit
-	pack                 bool   // a season pack streamed for the episode
+	position, cf int
+	gates        [3]int // fallback tier, accepted language, connection fit
+	pack         bool   // a season pack streamed for the episode
 }
 
-// rankCorpus ranks every pool for every profile fixture and client: the
+// rankCorpus ranks every pool for every shipped profile and client: the
 // order per case, and each ranked release's quality position, custom
-// format score and height.
+// format score.
 func rankCorpus(t *testing.T) (map[string][]string, map[string]map[string]corpusPick) {
 	t.Helper()
 	pools := corpusPools()
@@ -197,8 +185,8 @@ func rankCorpus(t *testing.T) (map[string][]string, map[string]map[string]corpus
 	}
 	out := map[string][]string{}
 	picks := map[string]map[string]corpusPick{}
-	for _, pf := range corpusProfiles {
-		cfg := corpusConfig(t, pf.doc)
+	for _, name := range corpusProfiles {
+		cfg := corpusConfig(t, name)
 		cfg.Resolver.SearchCacheTTL = config.Duration(30 * time.Minute)
 		s := New(&fakeIndexer{}, fakeHealth{}, nil, cfg, Options{Now: func() time.Time { return corpusNow }})
 		for _, cl := range corpusClients {
@@ -208,16 +196,12 @@ func rankCorpus(t *testing.T) (map[string][]string, map[string]map[string]corpus
 				if title.Type == core.TypeEpisode {
 					media = core.MediaTV
 				}
-				q := cfg.Quality
-				for i := range q.Profiles {
-					q.Profiles[i].MediaType = media
-				}
-				profile := SelectProfileForMedia(q, cl.caps, nil, media)
+				profile := SelectProfileForMedia(cfg.Quality, cl.caps, nil, media)
 				cands, _, err := s.rankCandidates(context.Background(), core.ResolveRequest{Title: title, Client: cl.caps}, searchRequestFor(title), profile, append([]core.Release(nil), pool...), nil, "")
 				if err != nil {
 					t.Fatal(err)
 				}
-				name := pf.name + "|" + cl.name + "|" + key
+				name := name + "|" + cl.name + "|" + key
 				ids := make([]string, len(cands))
 				picks[name] = map[string]corpusPick{}
 				for i, c := range cands {
@@ -226,7 +210,7 @@ func rankCorpus(t *testing.T) (map[string][]string, map[string]map[string]corpus
 					if c.langOK {
 						lang = 1
 					}
-					picks[name][ids[i]] = corpusPick{position: c.keys.position, cf: c.cf, height: c.rel.Info.Height, gates: [3]int{-c.policy.Fallback, lang, c.bandwidth}, pack: c.keys.pack}
+					picks[name][ids[i]] = corpusPick{position: c.keys.position, cf: c.cf, gates: [3]int{-c.policy.Fallback, lang, c.bandwidth}, pack: c.keys.pack}
 				}
 				out[name] = ids
 			}
@@ -236,7 +220,7 @@ func rankCorpus(t *testing.T) (map[string][]string, map[string]map[string]corpus
 	return out, picks
 }
 
-// Why a converted profile's first pick can differ from the old ranking's.
+// Why a shipped profile's first pick can differ from the old ranking's.
 const (
 	// Both releases have the same quality and custom format score, and a
 	// later Radarr/Sonarr key (protocol, indexer, seeders or age, size)
@@ -250,14 +234,6 @@ const (
 	// now ranks before age, grabs and bitrate instead of being summed with
 	// them.
 	diffScoreBeforeSoftPoints = "same quality: the custom format score now outranks age, grabs and bitrate"
-	// One release names no resolution: it ranks below every listed
-	// quality, as it ranked below every known resolution before, but a
-	// release-type-first ladder used to rank it within its release type.
-	diffUnlabelledResolution = "a release names no resolution"
-	// The old pick fails a streaming gate (an accepted audio language, the
-	// connection) that the new pick passes: a Prefer rule used to rank above
-	// the gates; now the gates come first.
-	diffGateBeforeRule = "the streaming gates now rank before Prefer rules"
 )
 
 func TestRankingCorpusMatchesGolden(t *testing.T) {
@@ -305,15 +281,14 @@ func TestRankingCorpusMatchesGolden(t *testing.T) {
 		var why string
 		switch {
 		case old.gates != now.gates:
-			why = diffGateBeforeRule
+			t.Errorf("%s: first pick %s passes other streaming gates than golden %s (%v, %v)", k, g[0], w[0], now.gates, old.gates)
+			continue
 		case old.position == now.position && old.cf == now.cf && old.pack != now.pack:
 			why = diffPackSize
 		case old.position == now.position && old.cf == now.cf:
 			why = diffStandardTieBreak
 		case old.position == now.position && now.cf > old.cf:
 			why = diffScoreBeforeSoftPoints
-		case old.height == 0 || now.height == 0:
-			why = diffUnlabelledResolution
 		default:
 			t.Errorf("%s: unexplained first pick %s (%+v), golden %s (%+v)", k, g[0], now, w[0], old)
 			continue
@@ -333,9 +308,9 @@ func TestRankingCorpusMatchesGolden(t *testing.T) {
 		for why, n := range tl.why {
 			t.Logf("%22d × %s", n, why)
 		}
-		// The shipped profiles must keep at least 98% of their first picks;
-		// every difference above is one of the explained kinds.
-		if shipped := name == "4K" || name == "1080p" || name == "720p"; shipped && float64(tl.top) < 0.98*float64(tl.cases) {
+		// Each profile must keep at least 98% of its first picks; every
+		// difference above is one of the explained kinds.
+		if float64(tl.top) < 0.98*float64(tl.cases) {
 			t.Errorf("%s: only %d of %d first picks kept", name, tl.top, tl.cases)
 		}
 	}

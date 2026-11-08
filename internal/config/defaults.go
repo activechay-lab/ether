@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -145,7 +146,7 @@ func DefaultQuality() Quality {
 				AllowDolbyVision: true,
 				MinSizeMBPerMin:  15,
 				MaxSizeMBPerMin:  1000,
-				QualityOrder:     ResolutionGroups(2160, 720, false),
+				QualityOrder:     ResolutionGroups(2160, 720),
 				CustomFormatScores: etherScores(etherScoreSet{
 					viewerLanguage: 20000, yearDiffers: -10000,
 					sources: []core.Source{core.SourceRemux, core.SourceBluRay, core.SourceWEBDL, core.SourceWEBRip}, sourceStep: 2000,
@@ -160,7 +161,7 @@ func DefaultQuality() Quality {
 				MinHeight:       720,
 				MinSizeMBPerMin: 5,
 				MaxSizeMBPerMin: 150,
-				QualityOrder:    ResolutionGroups(1080, 720, false),
+				QualityOrder:    ResolutionGroups(1080, 720),
 				CustomFormatScores: etherScores(etherScoreSet{
 					viewerLanguage: 10000, yearDiffers: -5000,
 					sources: []core.Source{core.SourceWEBDL, core.SourceBluRay, core.SourceWEBRip, core.SourceHDTV}, sourceStep: 1000,
@@ -175,7 +176,7 @@ func DefaultQuality() Quality {
 				MinHeight:       480,
 				MinSizeMBPerMin: 2,
 				MaxSizeMBPerMin: 60,
-				QualityOrder:    ResolutionGroups(720, 480, false),
+				QualityOrder:    ResolutionGroups(720, 480),
 				CustomFormatScores: etherScores(etherScoreSet{
 					viewerLanguage: 10000, yearDiffers: -5000,
 					sources: []core.Source{core.SourceWEBDL, core.SourceWEBRip, core.SourceBluRay, core.SourceHDTV}, sourceStep: 1000,
@@ -197,6 +198,30 @@ func DefaultQuality() Quality {
 		}
 	}
 	return q
+}
+
+// qualityHeights are the resolutions qualities are named for, highest first.
+var qualityHeights = []int{2160, 1080, 720, 576, 480, 360}
+
+// qualitySources are the release types a resolution group lists.
+var qualitySources = []string{"remux", "bluray", "webdl", "webrip", "hdtv", "dvd", "unknown"}
+
+// ResolutionGroups is the quality order of Ether's own profiles: one group
+// per resolution from maxHeight down to minHeight (0 for no limit), every
+// release type in each.
+func ResolutionGroups(maxHeight, minHeight int) []core.QualityItem {
+	var out []core.QualityItem
+	for _, h := range qualityHeights {
+		if (maxHeight > 0 && h > maxHeight) || h < minHeight {
+			continue
+		}
+		item := core.QualityItem{Name: fmt.Sprintf("%dp", h)}
+		for _, s := range qualitySources {
+			item.Qualities = append(item.Qualities, fmt.Sprintf("%s-%d", s, h))
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 // etherScoreSet is one of Ether's own profiles' format scores: the level
