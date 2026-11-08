@@ -8,7 +8,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -81,97 +80,16 @@ func (s *Server) requireDownloads(w http.ResponseWriter, r *http.Request) bool {
 // ---------------------------------------------------------------------------
 // Store
 
-type downloadItem struct {
-	id      int64
-	queueID int64
-	key     core.RatingKey
-	title   string // display title, for the served filename
+type downloadItem = sessions.DownloadItem
+type downloadQueue = sessions.DownloadQueue
+type downloadStore = sessions.DownloadQueueStore
 
-	caps core.ClientCaps // as requested at add time (Download set at run)
-	user *core.User
-
-	status   string
-	errText  string
-	progress float64 // 0..1
-	started  bool
-	cancel   context.CancelFunc
-	// run numbers each start of the item, so a restarted job gets its own
-	// playback session instead of sharing (and later stopping) the
-	// previous run's.
-	run int64
-
-	path       string
-	size       int64
-	readyAt    time.Time
-	videoCodec string
-	audioCodec string
-	duration   time.Duration
-	bandwidth  int // requested maxVideoBitrate, kbps
-	burn       bool
-}
-
-type downloadQueue struct {
-	id       int64
-	userID   int64
-	clientID string
-	items    []*downloadItem
-}
-
-type downloadStore struct {
-	mu        sync.Mutex
-	queues    map[int64]*downloadQueue
-	byClient  map[string]int64 // "userID\x00clientID" -> queue id
-	nextQueue int64
-	nextItem  int64
-	nextRun   int64
-	wake      chan struct{}
-}
-
-func newDownloadStore() *downloadStore {
-	return &downloadStore{wake: make(chan struct{}, 1), queues: map[int64]*downloadQueue{}, byClient: map[string]int64{}}
-}
-
-func (st *downloadStore) queueFor(userID int64, clientID string, create bool) *downloadQueue {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	k := strconv.FormatInt(userID, 10) + "\x00" + clientID
-	if id, ok := st.byClient[k]; ok {
-		return st.queues[id]
-	}
-	if !create {
-		return nil
-	}
-	st.nextQueue++
-	q := &downloadQueue{id: st.nextQueue, userID: userID, clientID: clientID}
-	st.queues[q.id] = q
-	st.byClient[k] = q.id
-	return q
-}
-
-// queueByID returns the queue when it belongs to this user and client.
-func (st *downloadStore) queueByID(id, userID int64, clientID string) *downloadQueue {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	q := st.queues[id]
-	if q == nil || q.userID != userID || q.clientID != clientID {
-		return nil
-	}
-	return q
-}
-
-func (q *downloadQueue) item(id int64) *downloadItem {
-	for _, it := range q.items {
-		if it.id == id {
-			return it
-		}
-	}
-	return nil
-}
+func newDownloadStore() *downloadStore { return sessions.NewDownloadQueueStore() }
 
 func queueStatus(q *downloadQueue) string {
 	seen := map[string]bool{}
-	for _, it := range q.items {
-		seen[it.status] = true
+	for _, it := range q.Items {
+		seen[it.Status] = true
 	}
 	for _, st := range []string{downloadDeciding, downloadProcessing, downloadWaiting, downloadError} {
 		if seen[st] {
@@ -232,16 +150,16 @@ func keyPath(k core.RatingKey) string { return "/library/metadata/" + k.String()
 // itemModel renders one queue item. Downloads are converted or remuxed to MP4.
 func itemModel(it *downloadItem) downloadQueueItemModel {
 	m := downloadQueueItemModel{
-		ID: it.id, QueueID: it.queueID, Key: keyPath(it.key), Status: it.status, Error: it.errText,
+		ID: it.ID, QueueID: it.QueueID, Key: keyPath(it.Key), Status: it.Status, Error: it.Error,
 	}
-	dr := &decisionResultModel{AvailableBandwidth: it.bandwidth}
+	dr := &decisionResultModel{AvailableBandwidth: it.Bandwidth}
 	text := "Direct play not available; Conversion to MP4 OK."
-	switch it.status {
+	switch it.Status {
 	case downloadError:
-		dr.DirectPlayDecisionCode, dr.DirectPlayDecisionText = codeDirectPlayError, it.errText
-		dr.GeneralDecisionCode, dr.GeneralDecisionText = codeGeneralError, it.errText
-		dr.MDEDecisionCode, dr.MDEDecisionText = codeGeneralError, it.errText
-		dr.TranscodeDecisionCode, dr.TranscodeDecisionText = codeTranscodeError, it.errText
+		dr.DirectPlayDecisionCode, dr.DirectPlayDecisionText = codeDirectPlayError, it.Error
+		dr.GeneralDecisionCode, dr.GeneralDecisionText = codeGeneralError, it.Error
+		dr.MDEDecisionCode, dr.MDEDecisionText = codeGeneralError, it.Error
+		dr.TranscodeDecisionCode, dr.TranscodeDecisionText = codeTranscodeError, it.Error
 	case downloadDeciding:
 		dr.DirectPlayDecisionCode, dr.DirectPlayDecisionText = codeGeneralError, "Deciding."
 		dr.GeneralDecisionCode, dr.GeneralDecisionText = codeGeneralError, "Deciding."
@@ -254,21 +172,21 @@ func itemModel(it *downloadItem) downloadQueueItemModel {
 		dr.TranscodeDecisionCode, dr.TranscodeDecisionText = codeConversionOK, text
 	}
 	m.Decision = dr
-	if it.status != downloadDeciding {
+	if it.Status != downloadDeciding {
 		m.Session = &model.TranscodeSess{
-			Key:              fmt.Sprintf("/downloadQueue/%d/item/%d", it.queueID, it.id),
-			Complete:         it.status == downloadAvailable,
-			Progress:         it.progress * 100,
-			Duration:         ms(it.duration),
+			Key:              fmt.Sprintf("/downloadQueue/%d/item/%d", it.QueueID, it.ID),
+			Complete:         it.Status == downloadAvailable,
+			Progress:         it.Progress * 100,
+			Duration:         ms(it.Duration),
 			Context:          "static",
-			SourceVideoCodec: it.videoCodec,
-			SourceAudioCodec: it.audioCodec,
+			SourceVideoCodec: it.VideoCodec,
+			SourceAudioCodec: it.AudioCodec,
 			VideoDecision:    "copy",
 			AudioDecision:    "copy",
 			Protocol:         "http",
 			Container:        "mp4",
-			VideoCodec:       it.videoCodec,
-			AudioCodec:       it.audioCodec,
+			VideoCodec:       it.VideoCodec,
+			AudioCodec:       it.AudioCodec,
 		}
 	}
 	return m
@@ -285,7 +203,7 @@ func (s *Server) downloadQueueParam(w http.ResponseWriter, r *http.Request) *dow
 		writeHTTPError(w, http.StatusNotFound)
 		return nil
 	}
-	q := s.downloads.queueByID(id, pr.User.ID, pr.ClientID)
+	q := s.downloads.QueueByID(id, pr.User.ID, pr.ClientID)
 	if q == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return nil
@@ -294,9 +212,9 @@ func (s *Server) downloadQueueParam(w http.ResponseWriter, r *http.Request) *dow
 }
 
 func (s *Server) writeQueue(w http.ResponseWriter, r *http.Request, q *downloadQueue) {
-	s.downloads.mu.Lock()
-	m := downloadQueueModel{ID: q.id, ItemCount: len(q.items), Status: queueStatus(q)}
-	s.downloads.mu.Unlock()
+	s.downloads.Mu.Lock()
+	m := downloadQueueModel{ID: q.ID, ItemCount: len(q.Items), Status: queueStatus(q)}
+	s.downloads.Mu.Unlock()
 	s.write(w, r, &downloadContainer{Size: 1, Queue: []downloadQueueModel{m}})
 }
 
@@ -306,7 +224,7 @@ func (s *Server) handleDownloadQueueCreate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	pr := FromContext(r.Context())
-	q := s.downloads.queueFor(pr.User.ID, pr.ClientID, true)
+	q := s.downloads.QueueFor(pr.User.ID, pr.ClientID, true)
 	s.stageDownloads()
 	s.writeQueue(w, r, q)
 }
@@ -450,7 +368,7 @@ func (s *Server) handleDownloadQueueAdd(w http.ResponseWriter, r *http.Request) 
 		}
 		for _, t := range titles {
 			it := s.addDownloadItem(q, pr.User, t, caps, burn)
-			added = append(added, addedQueueItemModel{ID: it.id, Key: keyPath(t.Key)})
+			added = append(added, addedQueueItemModel{ID: it.ID, Key: keyPath(t.Key)})
 		}
 	}
 	s.scheduleDownloads()
@@ -460,23 +378,7 @@ func (s *Server) handleDownloadQueueAdd(w http.ResponseWriter, r *http.Request) 
 // addDownloadItem appends an item, or returns the existing one when the
 // same title is already queued with the same parameters (PMS dedupes).
 func (s *Server) addDownloadItem(q *downloadQueue, u *core.User, t core.Title, caps core.ClientCaps, burn bool) *downloadItem {
-	s.downloads.mu.Lock()
-	defer s.downloads.mu.Unlock()
-	for _, it := range q.items {
-		if it.key == t.Key && it.caps.MaxHeight == caps.MaxHeight &&
-			it.caps.MaxBitrateKbps == caps.MaxBitrateKbps && it.burn == burn &&
-			it.status != downloadError && it.status != downloadExpired {
-			return it
-		}
-	}
-	s.downloads.nextItem++
-	it := &downloadItem{
-		id: s.downloads.nextItem, queueID: q.id, key: t.Key, title: t.Title,
-		caps: caps, user: u, status: downloadDeciding, bandwidth: caps.MaxBitrateKbps,
-		burn: burn,
-	}
-	q.items = append(q.items, it)
-	return it
+	return s.downloads.Add(q, u, t, caps, burn)
 }
 
 // parseItemIDs parses "{item}" path params and ?ids= lists; PMS allows
@@ -496,15 +398,15 @@ func parseItemIDs(r *http.Request) []int64 {
 }
 
 func (s *Server) writeDownloadItems(w http.ResponseWriter, r *http.Request, q *downloadQueue, only map[int64]bool) {
-	s.downloads.mu.Lock()
+	s.downloads.Mu.Lock()
 	items := []downloadQueueItemModel{}
-	for _, it := range q.items {
-		if only != nil && !only[it.id] {
+	for _, it := range q.Items {
+		if only != nil && !only[it.ID] {
 			continue
 		}
 		items = append(items, itemModel(it))
 	}
-	s.downloads.mu.Unlock()
+	s.downloads.Mu.Unlock()
 	s.write(w, r, &downloadContainer{Size: len(items), Items: items})
 }
 
@@ -550,24 +452,7 @@ func (s *Server) handleDownloadQueueItemDelete(w http.ResponseWriter, r *http.Re
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	s.downloads.mu.Lock()
-	keep := q.items[:0]
-	var removed []*downloadItem
-	for _, it := range q.items {
-		drop := false
-		for _, id := range ids {
-			if it.id == id {
-				drop = true
-			}
-		}
-		if drop {
-			removed = append(removed, it)
-		} else {
-			keep = append(keep, it)
-		}
-	}
-	q.items = keep
-	s.downloads.mu.Unlock()
+	removed := s.downloads.Remove(q, ids)
 	for _, it := range removed {
 		s.cancelDownloadItem(it)
 	}
@@ -585,23 +470,7 @@ func (s *Server) handleDownloadQueueItemRestart(w http.ResponseWriter, r *http.R
 	if q == nil {
 		return
 	}
-	s.downloads.mu.Lock()
-	for _, id := range parseItemIDs(r) {
-		it := q.item(id)
-		if it == nil {
-			continue
-		}
-		if it.cancel != nil {
-			it.cancel()
-		}
-		if it.path != "" {
-			s.d.Downloads.ReleaseDownload(it.path)
-		}
-		it.path, it.size, it.readyAt = "", 0, time.Time{}
-		it.errText, it.progress, it.started = "", 0, false
-		it.status = downloadDeciding
-	}
-	s.downloads.mu.Unlock()
+	s.downloads.Restart(q, parseItemIDs(r), s.d.Downloads.ReleaseDownload)
 	s.scheduleDownloads()
 	w.WriteHeader(http.StatusOK)
 }
@@ -609,13 +478,7 @@ func (s *Server) handleDownloadQueueItemRestart(w http.ResponseWriter, r *http.R
 // cancelDownloadItem stops an item's remux (if running) and releases its
 // finished file (if any).
 func (s *Server) cancelDownloadItem(it *downloadItem) {
-	s.downloads.mu.Lock()
-	cancel, p := it.cancel, it.path
-	it.path = ""
-	s.downloads.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
+	p := s.downloads.CancelItem(it)
 	if p != "" && s.d.Downloads != nil {
 		s.d.Downloads.ReleaseDownload(p)
 	}
@@ -632,9 +495,9 @@ func (s *Server) downloadItemParam(w http.ResponseWriter, r *http.Request) (*dow
 		writeHTTPError(w, http.StatusBadRequest)
 		return nil, nil
 	}
-	s.downloads.mu.Lock()
-	it := q.item(ids[0])
-	s.downloads.mu.Unlock()
+	s.downloads.Mu.Lock()
+	it := q.Item(ids[0])
+	s.downloads.Mu.Unlock()
 	if it == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return nil, nil
@@ -655,7 +518,7 @@ func (s *Server) handleDownloadItemDecision(w http.ResponseWriter, r *http.Reque
 	}
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	t, err := s.d.Catalog.Get(ctx, it.key)
+	t, err := s.d.Catalog.Get(ctx, it.Key)
 	if err == nil && !s.visibleTitle(ctx, pr.User, t) {
 		err = core.ErrNotFound // restrictions can change after queueing
 	}
@@ -663,9 +526,9 @@ func (s *Server) handleDownloadItemDecision(w http.ResponseWriter, r *http.Reque
 		s.writeErr(w, r, err)
 		return
 	}
-	s.downloads.mu.Lock()
+	s.downloads.Mu.Lock()
 	m := itemModel(it)
-	s.downloads.mu.Unlock()
+	s.downloads.Mu.Unlock()
 	mc := s.itemContainer(t.Type)
 	md := s.metadata(ctx, pr, t, renderOpts{detail: true, media: true})
 	decisionItem(&md)
@@ -696,9 +559,9 @@ func (s *Server) handleDownloadItemMedia(w http.ResponseWriter, r *http.Request)
 	if it == nil {
 		return
 	}
-	s.downloads.mu.Lock()
-	status, p, readyAt, title, key := it.status, it.path, it.readyAt, it.title, it.key
-	s.downloads.mu.Unlock()
+	s.downloads.Mu.Lock()
+	status, p, readyAt, title, key := it.Status, it.Path, it.ReadyAt, it.Title, it.Key
+	s.downloads.Mu.Unlock()
 	// Restrictions can change after an item was queued: serve the cached
 	// file only while the viewer may still see the title.
 	if t, err := s.d.Catalog.Get(r.Context(), key); err != nil || !s.visibleTitle(r.Context(), FromContext(r.Context()).User, t) {
@@ -774,102 +637,35 @@ func pathEscape(s string) string {
 // remuxer enforces the server-wide cap.
 func (s *Server) scheduleDownloads() {
 	defer s.stageDownloads()
-	if s.ctx.Err() != nil {
-		return
-	}
-	perUser := s.cfg().Downloads.MaxConcurrentPerUser
-	if perUser <= 0 {
-		perUser = 1
-	}
-	type job struct {
-		it  *downloadItem
-		ctx context.Context
-		run int64
-	}
-	var jobs []job
-	s.downloads.mu.Lock()
-	active := map[int64]int{}
-	for _, q := range s.downloads.queues {
-		for _, it := range q.items {
-			if it.started && (it.status == downloadDeciding || it.status == downloadWaiting || it.status == downloadProcessing) {
-				active[it.user.ID]++
-			}
-		}
-	}
-	for _, q := range s.downloads.queues {
-		for _, it := range q.items {
-			if !s.downloadsAllowed(it.user) || it.started || (it.status != downloadDeciding && it.status != downloadWaiting) {
-				continue
-			}
-			if active[it.user.ID] >= perUser {
-				it.status = downloadWaiting
-				continue
-			}
-			ctx, cancel := context.WithCancel(s.ctx)
-			s.downloads.nextRun++
-			it.cancel = cancel
-			it.started = true
-			it.status = downloadDeciding
-			it.run = s.downloads.nextRun
-			active[it.user.ID]++
-			jobs = append(jobs, job{it, ctx, it.run})
-		}
-	}
-	s.downloads.mu.Unlock()
-	for _, j := range jobs {
+	jobs := s.downloads.StartReady(s.ctx, s.cfg().Downloads.MaxConcurrentPerUser, s.downloadsAllowed)
+	for _, job := range jobs {
 		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			s.processDownloadItem(j.ctx, j.it, j.run)
-		}()
+		go func() { defer s.wg.Done(); s.processDownloadItem(job.Context, job.Item, job.Run) }()
 	}
 }
 
 func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run int64) {
 	defer s.scheduleDownloads()
-	fail := func(msg string) {
-		s.downloads.mu.Lock()
-		if ctx.Err() == nil {
-			it.status = downloadError
-			it.errText = msg
-		}
-		s.downloads.mu.Unlock()
-	}
+	fail := func(msg string) { s.downloads.Fail(ctx, it, msg) }
 
 	noRelease := func(err error) bool {
 		return err != nil && errors.Is(err, core.ErrNotAvailable) && playbackMessage(err) == msgNotAvailable
 	}
 	job := sessions.DownloadJob{Playback: s.d.Playback, Remuxer: s.d.Downloads}
-	p, size, err := job.Run(ctx, sessions.DownloadRequest{Viewer: it.user, Item: it.key, Caps: it.caps, Run: run, NoRelease: noRelease,
+	p, size, err := job.Run(ctx, sessions.DownloadRequest{Viewer: it.User, Item: it.Key, Caps: it.Caps, Run: run, NoRelease: noRelease,
 		Prepared: func(ps *core.PlaySession) (core.DecideOptions, error) {
-			s.downloads.mu.Lock()
-			if ctx.Err() != nil {
-				// Deleted or restarted while preparing: the item belongs to the
-				// next run now.
-				s.downloads.mu.Unlock()
+			if !s.downloads.Prepared(ctx, it, ps.Info) {
 				return core.DecideOptions{}, ctx.Err()
 			}
-			it.status = downloadWaiting
-			it.duration = ps.Info.Duration
-			if v := ps.Info.Video(); v != nil {
-				it.videoCodec = v.Codec
-			}
-			for _, st := range ps.Info.Streams {
-				if st.Type == "audio" {
-					it.audioCodec = st.Codec
-					break
-				}
-			}
-			s.downloads.mu.Unlock()
 
 			var viewerID int64
-			if it.user != nil {
-				viewerID = it.user.ID
+			if it.User != nil {
+				viewerID = it.User.ID
 			}
 			subtitle := -1
-			sel := resolveSelection(s.selections.get(viewerID, int64(it.key)), ps.Info)
-			if title, err := s.d.Catalog.Get(ctx, it.key); err == nil && title != nil {
-				sel = s.preferredSelection(ctx, it.user, it.key, ps.Info, title.Language, sel)
+			sel := resolveSelection(s.selections.get(viewerID, int64(it.Key)), ps.Info)
+			if title, err := s.d.Catalog.Get(ctx, it.Key); err == nil && title != nil {
+				sel = s.preferredSelection(ctx, it.User, it.Key, ps.Info, title.Language, sel)
 			}
 			if sel.subtitleSet && sel.subtitle >= 0 && sel.subtitle < len(ps.Info.Streams) {
 				st := ps.Info.Streams[sel.subtitle]
@@ -879,20 +675,11 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 			}
 			return core.DecideOptions{
 				DirectPlay: false, DirectStream: true,
-				MaxBitrateKbps: it.bandwidth, MaxHeight: it.caps.MaxHeight, AudioStream: -1, SubtitleStream: subtitle,
-				BurnSubtitles: it.burn,
+				MaxBitrateKbps: it.Bandwidth, MaxHeight: it.Caps.MaxHeight, AudioStream: -1, SubtitleStream: subtitle,
+				BurnSubtitles: it.Burn,
 			}, nil
 		}, Progress: func(f float64) {
-			s.downloads.mu.Lock()
-			if ctx.Err() != nil {
-				s.downloads.mu.Unlock()
-				return
-			}
-			it.progress = f
-			if it.status == downloadWaiting {
-				it.status = downloadProcessing
-			}
-			s.downloads.mu.Unlock()
+			s.downloads.Progress(ctx, it, f)
 		}})
 
 	if err != nil {
@@ -901,7 +688,7 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 			if ctx.Err() != nil {
 				return
 			}
-			s.log.Warn("download preparation failed", "key", it.key, "err", err)
+			s.log.Warn("download preparation failed", "key", it.Key, "err", err)
 			if noRelease(err) {
 				fail("No release available for download at this quality.")
 			} else {
@@ -910,7 +697,7 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 			return
 		}
 		if ctx.Err() == nil {
-			s.log.Warn("download processing failed", "key", it.key, "err", err)
+			s.log.Warn("download processing failed", "key", it.Key, "err", err)
 		}
 		switch {
 		case ctx.Err() != nil:
@@ -924,17 +711,11 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 		}
 		return
 	}
-	s.downloads.mu.Lock()
-	if ctx.Err() != nil {
-		s.downloads.mu.Unlock()
+	if !s.downloads.Complete(ctx, it, p, size, s.now()) {
 		s.d.Downloads.ReleaseDownload(p)
 		return
 	}
-	it.path, it.size, it.readyAt = p, size, s.now()
-	it.progress = 1
-	it.status = downloadAvailable
-	s.downloads.mu.Unlock()
-	s.retainDownload(p, it.readyAt)
+	s.retainDownload(p, it.ReadyAt)
 }
 
 // expireDownloads frees finished downloads older than the configured
@@ -943,22 +724,7 @@ func (s *Server) expireDownloads(now time.Time) {
 	if s.downloads == nil {
 		return
 	}
-	expiry := s.cfg().Downloads.Expiry.D()
-	if expiry <= 0 {
-		expiry = 24 * time.Hour
-	}
-	var paths []string
-	s.downloads.mu.Lock()
-	for _, q := range s.downloads.queues {
-		for _, it := range q.items {
-			if it.status == downloadAvailable && it.path != "" && now.After(it.readyAt.Add(expiry)) {
-				paths = append(paths, it.path)
-				it.path, it.size = "", 0
-				it.status = downloadExpired
-			}
-		}
-	}
-	s.downloads.mu.Unlock()
+	paths := s.downloads.Expire(now, s.cfg().Downloads.Expiry.D())
 	if len(paths) > 0 {
 		s.stageDownloads()
 	}
@@ -976,11 +742,11 @@ func (s *Server) releaseAllDownloads() {
 		return
 	}
 	var items []*downloadItem
-	s.downloads.mu.Lock()
-	for _, q := range s.downloads.queues {
-		items = append(items, q.items...)
+	s.downloads.Mu.Lock()
+	for _, q := range s.downloads.Queues {
+		items = append(items, q.Items...)
 	}
-	s.downloads.mu.Unlock()
+	s.downloads.Mu.Unlock()
 	for _, it := range items {
 		s.cancelDownloadItem(it)
 	}
