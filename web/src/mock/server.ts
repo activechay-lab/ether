@@ -765,7 +765,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
   let seq = 1;
 
   // Seed collections from templates so the gallery isn't empty.
-  for (const id of ["mood-edge-of-seat", "trend-new-to-ether", "family-night", "short-weeknight"]) {
+  for (const id of ["mood-edge-of-your-seat", "recently-added", "family-night", "short-under-90"]) {
     const t = TEMPLATES.find((x) => x.id === id)!;
     const spec = normalizeSpec({
       ...t.spec,

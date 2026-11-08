@@ -1,0 +1,6563 @@
+{
+  "templates": [
+    {
+      "id": "star-wars",
+      "name": "Star Wars Saga",
+      "description": "Every Star Wars film, in release order.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Star Wars Saga",
+        "description": "Every Star Wars film, in release order.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 10,
+            "label": "Star Wars Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#d4a017"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "star-wars",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "middle-earth",
+      "name": "Middle-earth",
+      "description": "The Lord of the Rings and The Hobbit trilogies.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Middle-earth",
+        "description": "The Lord of the Rings and The Hobbit trilogies.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 119,
+            "label": "The Lord of the Rings Collection"
+          },
+          {
+            "kind": "tmdbCollection",
+            "id": 121938,
+            "label": "The Hobbit Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "middle-earth",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "wizarding-world",
+      "name": "The Wizarding World",
+      "description": "Harry Potter and Fantastic Beasts.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "The Wizarding World",
+        "description": "Harry Potter and Fantastic Beasts.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 1241,
+            "label": "Harry Potter Collection"
+          },
+          {
+            "kind": "tmdbCollection",
+            "id": 435259,
+            "label": "Fantastic Beasts Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "wizarding-world",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "marvel-cinematic-universe",
+      "name": "Marvel Cinematic Universe",
+      "description": "Every MCU film, from Iron Man on, in release order.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Marvel Cinematic Universe",
+        "description": "Every MCU film, from Iron Man on, in release order.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbKeyword",
+            "id": 180547,
+            "label": "marvel cinematic universe (mcu)"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#c8102e"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "marvel-cinematic-universe",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "james-bond",
+      "name": "James Bond 007",
+      "description": "Every official Bond film.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "James Bond 007",
+        "description": "Every official Bond film.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 645,
+            "label": "James Bond Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "james-bond",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "jurassic",
+      "name": "Jurassic Park \u0026 World",
+      "description": "Life finds a way.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Jurassic Park \u0026 World",
+        "description": "Life finds a way.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 328,
+            "label": "Jurassic Park Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "jurassic",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "fast-and-furious",
+      "name": "Fast \u0026 Furious",
+      "description": "Every film in the Fast \u0026 Furious saga, in release order.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Fast \u0026 Furious",
+        "description": "Every film in the Fast \u0026 Furious saga, in release order.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 9485,
+            "label": "The Fast and the Furious Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#ff5722"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "fast-and-furious",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "mission-impossible",
+      "name": "Mission: Impossible",
+      "description": "Ethan Hunt and the IMF across every Mission: Impossible film.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Mission: Impossible",
+        "description": "Ethan Hunt and the IMF across every Mission: Impossible film.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 87359,
+            "label": "Mission: Impossible Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#b71c1c"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "mission-impossible",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "pirates-of-the-caribbean",
+      "name": "Pirates of the Caribbean",
+      "description": "Captain Jack Sparrow's swashbuckling pirate saga.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Pirates of the Caribbean",
+        "description": "Captain Jack Sparrow's swashbuckling pirate saga.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 295,
+            "label": "Pirates of the Caribbean Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#6d4c41"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "pirates-of-the-caribbean",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "monsterverse",
+      "name": "MonsterVerse",
+      "description": "Godzilla and the Titans across Legendary's MonsterVerse.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "MonsterVerse",
+        "description": "Godzilla and the Titans across Legendary's MonsterVerse.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 535313,
+            "label": "Godzilla Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#00acc1"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "monsterverse",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "john-wick",
+      "name": "John Wick",
+      "description": "Every chapter in the John Wick action saga.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "John Wick",
+        "description": "Every chapter in the John Wick action saga.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 404609,
+            "label": "John Wick Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#263238"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "john-wick",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "the-matrix",
+      "name": "The Matrix",
+      "description": "Every film in The Matrix saga.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "The Matrix",
+        "description": "Every film in The Matrix saga.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 2344,
+            "label": "The Matrix Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#00c853"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "the-matrix",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "alien-saga",
+      "name": "Alien Saga",
+      "description": "In space no one can hear you scream.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Alien Saga",
+        "description": "In space no one can hear you scream.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 8091,
+            "label": "Alien Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#1b5e20"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "alien-saga",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "back-to-the-future",
+      "name": "Back to the Future",
+      "description": "The complete time-travelling DeLorean trilogy.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Back to the Future",
+        "description": "The complete time-travelling DeLorean trilogy.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 264,
+            "label": "Back to the Future Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#ff6f00"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "back-to-the-future",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "indiana-jones",
+      "name": "Indiana Jones",
+      "description": "Every adventure of Dr. Henry Walton Jones Jr.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Indiana Jones",
+        "description": "Every adventure of Dr. Henry Walton Jones Jr.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 84,
+            "label": "Indiana Jones Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#8d6e63"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "indiana-jones",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "spider-verse",
+      "name": "Spider-Verse",
+      "description": "Miles Morales across the animated Spider-Verse.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Spider-Verse",
+        "description": "Miles Morales across the animated Spider-Verse.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 573436,
+            "label": "Spider-Man: Spider-Verse Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#d50000"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "spider-verse",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "dune-saga",
+      "name": "Dune",
+      "description": "Denis Villeneuve's adaptation of Frank Herbert's Dune.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Dune",
+        "description": "Denis Villeneuve's adaptation of Frank Herbert's Dune.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCollection",
+            "id": 726871,
+            "label": "Dune Collection"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#c68400"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "dune-saga",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "pixar",
+      "name": "Pixar",
+      "description": "Every Pixar feature.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Pixar",
+        "description": "Every Pixar feature.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCompany",
+            "id": 3,
+            "label": "Pixar"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Animation"
+          },
+          {
+            "field": "runtime",
+            "op": "gte",
+            "value": 60
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 200
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "pixar",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "studio-ghibli",
+      "name": "Studio Ghibli",
+      "description": "Hand-drawn wonder from Studio Ghibli.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "Studio Ghibli",
+        "description": "Hand-drawn wonder from Studio Ghibli.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCompany",
+            "id": 10342,
+            "label": "Studio Ghibli"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Animation"
+          },
+          {
+            "field": "runtime",
+            "op": "gte",
+            "value": 60
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 100
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "studio-ghibli",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "a24",
+      "name": "A24",
+      "description": "Distinctive films from A24.",
+      "category": "Franchises \u0026 universes",
+      "spec": {
+        "name": "A24",
+        "description": "Distinctive films from A24.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbCompany",
+            "id": 41077,
+            "label": "A24"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.8
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "a24",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "director-christopher-nolan",
+      "name": "Christopher Nolan",
+      "description": "Every film directed by Christopher Nolan.",
+      "category": "Directors",
+      "spec": {
+        "name": "Directed by Christopher Nolan",
+        "description": "Every film directed by Christopher Nolan.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 525,
+            "label": "Christopher Nolan",
+            "role": "director"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 150
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "director-christopher-nolan",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "director-denis-villeneuve",
+      "name": "Denis Villeneuve",
+      "description": "Every film directed by Denis Villeneuve.",
+      "category": "Directors",
+      "spec": {
+        "name": "Directed by Denis Villeneuve",
+        "description": "Every film directed by Denis Villeneuve.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 137427,
+            "label": "Denis Villeneuve",
+            "role": "director"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 150
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "director-denis-villeneuve",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "director-quentin-tarantino",
+      "name": "Quentin Tarantino",
+      "description": "Every film directed by Quentin Tarantino.",
+      "category": "Directors",
+      "spec": {
+        "name": "Directed by Quentin Tarantino",
+        "description": "Every film directed by Quentin Tarantino.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 138,
+            "label": "Quentin Tarantino",
+            "role": "director"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 150
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "director-quentin-tarantino",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "director-steven-spielberg",
+      "name": "Steven Spielberg",
+      "description": "Blockbusters and classics from Steven Spielberg.",
+      "category": "Directors",
+      "spec": {
+        "name": "Directed by Steven Spielberg",
+        "description": "Blockbusters and classics from Steven Spielberg.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 488,
+            "label": "Steven Spielberg",
+            "role": "director"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 150
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "director-steven-spielberg",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "director-martin-scorsese",
+      "name": "Martin Scorsese",
+      "description": "Every film directed by Martin Scorsese.",
+      "category": "Directors",
+      "spec": {
+        "name": "Directed by Martin Scorsese",
+        "description": "Every film directed by Martin Scorsese.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 1032,
+            "label": "Martin Scorsese",
+            "role": "director"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 150
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "director-martin-scorsese",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "director-stanley-kubrick",
+      "name": "Stanley Kubrick",
+      "description": "The complete Kubrick.",
+      "category": "Directors",
+      "spec": {
+        "name": "Directed by Stanley Kubrick",
+        "description": "The complete Kubrick.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 240,
+            "label": "Stanley Kubrick",
+            "role": "director"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 150
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "director-stanley-kubrick",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "director-hayao-miyazaki",
+      "name": "Hayao Miyazaki",
+      "description": "Every feature by Hayao Miyazaki.",
+      "category": "Directors",
+      "spec": {
+        "name": "Directed by Hayao Miyazaki",
+        "description": "Every feature by Hayao Miyazaki.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 608,
+            "label": "Hayao Miyazaki",
+            "role": "director"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Animation"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 150
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "director-hayao-miyazaki",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "director-bong-joon-ho",
+      "name": "Bong Joon-ho",
+      "description": "From Memories of Murder to Parasite.",
+      "category": "Directors",
+      "spec": {
+        "name": "Directed by Bong Joon-ho",
+        "description": "From Memories of Murder to Parasite.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 21684,
+            "label": "Bong Joon-ho",
+            "role": "director"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 150
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "director-bong-joon-ho",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "director-wes-anderson",
+      "name": "Wes Anderson",
+      "description": "Symmetry, pastel and deadpan.",
+      "category": "Directors",
+      "spec": {
+        "name": "Directed by Wes Anderson",
+        "description": "Symmetry, pastel and deadpan.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 5655,
+            "label": "Wes Anderson",
+            "role": "director"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 150
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "director-wes-anderson",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "director-greta-gerwig",
+      "name": "Greta Gerwig",
+      "description": "Films directed by Greta Gerwig.",
+      "category": "Directors",
+      "spec": {
+        "name": "Directed by Greta Gerwig",
+        "description": "Films directed by Greta Gerwig.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 45400,
+            "label": "Greta Gerwig",
+            "role": "director"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 150
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "director-greta-gerwig",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "actor-tom-hanks",
+      "name": "Tom Hanks",
+      "description": "The best-loved films starring Tom Hanks.",
+      "category": "Actors",
+      "spec": {
+        "name": "Starring Tom Hanks",
+        "description": "The best-loved films starring Tom Hanks.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 31,
+            "label": "Tom Hanks",
+            "role": "cast"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 500
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 40,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "actor-tom-hanks",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "actor-meryl-streep",
+      "name": "Meryl Streep",
+      "description": "Films starring Meryl Streep.",
+      "category": "Actors",
+      "spec": {
+        "name": "Starring Meryl Streep",
+        "description": "Films starring Meryl Streep.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 5064,
+            "label": "Meryl Streep",
+            "role": "cast"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 40,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "actor-meryl-streep",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "actor-denzel-washington",
+      "name": "Denzel Washington",
+      "description": "Films starring Denzel Washington.",
+      "category": "Actors",
+      "spec": {
+        "name": "Starring Denzel Washington",
+        "description": "Films starring Denzel Washington.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 5292,
+            "label": "Denzel Washington",
+            "role": "cast"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 40,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "actor-denzel-washington",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "actor-keanu-reeves",
+      "name": "Keanu Reeves",
+      "description": "From Speed to John Wick.",
+      "category": "Actors",
+      "spec": {
+        "name": "Starring Keanu Reeves",
+        "description": "From Speed to John Wick.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 6384,
+            "label": "Keanu Reeves",
+            "role": "cast"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 40,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "actor-keanu-reeves",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "actor-leonardo-dicaprio",
+      "name": "Leonardo DiCaprio",
+      "description": "Films starring Leonardo DiCaprio.",
+      "category": "Actors",
+      "spec": {
+        "name": "Starring Leonardo DiCaprio",
+        "description": "Films starring Leonardo DiCaprio.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbPerson",
+            "id": 6193,
+            "label": "Leonardo DiCaprio",
+            "role": "cast"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 40,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "actor-leonardo-dicaprio",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "decade-1970s",
+      "name": "Best of the 70s",
+      "description": "Well-loved films from the 1970s.",
+      "category": "Decades",
+      "spec": {
+        "name": "Best of the 70s",
+        "description": "Well-loved films from the 1970s.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "decade",
+            "op": "is",
+            "value": 1970
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 500
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.8
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "decade-1970s",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "decade-1980s",
+      "name": "Best of the 80s",
+      "description": "Well-loved films from the 1980s.",
+      "category": "Decades",
+      "spec": {
+        "name": "Best of the 80s",
+        "description": "Well-loved films from the 1980s.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "decade",
+            "op": "is",
+            "value": 1980
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 800
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.8
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "decade-1980s",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "decade-1990s",
+      "name": "Best of the 90s",
+      "description": "Well-loved films from the 1990s.",
+      "category": "Decades",
+      "spec": {
+        "name": "Best of the 90s",
+        "description": "Well-loved films from the 1990s.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "decade",
+            "op": "is",
+            "value": 1990
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.8
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "decade-1990s",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "decade-2000s",
+      "name": "Best of the 2000s",
+      "description": "Well-loved films from the 2000s.",
+      "category": "Decades",
+      "spec": {
+        "name": "Best of the 2000s",
+        "description": "Well-loved films from the 2000s.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "decade",
+            "op": "is",
+            "value": 2000
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1500
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.8
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "decade-2000s",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "decade-2010s",
+      "name": "Best of the 2010s",
+      "description": "Well-loved films from the 2010s.",
+      "category": "Decades",
+      "spec": {
+        "name": "Best of the 2010s",
+        "description": "Well-loved films from the 2010s.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "decade",
+            "op": "is",
+            "value": 2010
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1500
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.8
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "decade-2010s",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "acclaimed-movies",
+      "name": "Critically Acclaimed",
+      "description": "Films with outstanding ratings from thousands of viewers.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Critically Acclaimed",
+        "description": "Films with outstanding ratings from thousands of viewers.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.8
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 3000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "acclaimed-movies",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "acclaimed-series",
+      "name": "Acclaimed Series",
+      "description": "The best-rated series.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Acclaimed Series",
+        "description": "The best-rated series.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 8
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1500
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Talk",
+              "News",
+              "Reality",
+              "Soap"
+            ]
+          }
+        ],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "acclaimed-series",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "top-100-series",
+      "name": "Top 100 Series",
+      "description": "The highest-rated series with a broad audience.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Top 100 Series",
+        "description": "The highest-rated series with a broad audience.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 2000
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.5
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Talk",
+              "News",
+              "Reality",
+              "Soap"
+            ]
+          }
+        ],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "top-100-series",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "top-250-movies",
+      "name": "Top 250 Movies",
+      "description": "The 250 highest-rated films with a broad audience.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Top 250 Movies",
+        "description": "The 250 highest-rated films with a broad audience.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 5000
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 250,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "top-250-movies",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "hidden-gems",
+      "name": "Hidden Gems",
+      "description": "Excellent films far fewer people have seen.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Hidden Gems",
+        "description": "Excellent films far fewer people have seen.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.3
+          },
+          {
+            "field": "votes",
+            "op": "between",
+            "value": [
+              150,
+              1500
+            ]
+          },
+          {
+            "field": "released",
+            "op": "lte",
+            "value": "-1y"
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Documentary",
+              "Music",
+              "TV Movie"
+            ]
+          }
+        ],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 60,
+        "refresh": "daily",
+        "rotate": {
+          "size": 20,
+          "every": "daily"
+        },
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "hidden-gems",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "modern-classics",
+      "name": "Modern Classics",
+      "description": "Acclaimed films from 2000 to 2015.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Modern Classics",
+        "description": "Acclaimed films from 2000 to 2015.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "year",
+            "op": "between",
+            "value": [
+              2000,
+              2015
+            ]
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.8
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 3000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "modern-classics",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "awards-oscar-winners",
+      "name": "Oscar Winners",
+      "description": "Academy Award winning films across categories, synced from MDBList.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Oscar Winners",
+        "description": "Academy Award winning films across categories, synced from MDBList.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/atalante421/oscar-winners/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#d4af37"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "awards-oscar-winners",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "awards-golden-globes-winners",
+      "name": "Golden Globes Winners",
+      "description": "Golden Globe winning films across categories, synced from MDBList.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Golden Globes Winners",
+        "description": "Golden Globe winning films across categories, synced from MDBList.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/atalante421/golden-globe-winners/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#c5a028"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "awards-golden-globes-winners",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "best-of-2023",
+      "name": "Best of 2023",
+      "description": "Top-rated 2023 releases from Rotten Tomatoes end-of-year picks.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Best of 2023",
+        "description": "Top-rated 2023 releases from Rotten Tomatoes end-of-year picks.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/siskourso/rotten-tomatoes-best-of-2023/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#fa320a"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "best-of-2023",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "best-of-2024",
+      "name": "Best of 2024",
+      "description": "Top-rated 2024 releases from Rotten Tomatoes end-of-year picks.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Best of 2024",
+        "description": "Top-rated 2024 releases from Rotten Tomatoes end-of-year picks.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/siskourso/rotten-tomatoes-best-of-2024-ed84tni24k/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#fa320a"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "best-of-2024",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "best-of-2025",
+      "name": "Best of 2025",
+      "description": "Top-rated 2025 releases from Rotten Tomatoes end-of-year picks.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Best of 2025",
+        "description": "Top-rated 2025 releases from Rotten Tomatoes end-of-year picks.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/siskourso/rotten-tomatoes-best-of-2025/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#fa320a"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "best-of-2025",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "criterion-collection",
+      "name": "The Criterion Collection",
+      "description": "Landmark cinema in The Criterion Collection, synced in full from MDBList.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "The Criterion Collection",
+        "description": "Landmark cinema in The Criterion Collection, synced in full from MDBList.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/reptauros/the-criterion-collection/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 0,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#1c1c1c"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "criterion-collection",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "ifc-films",
+      "name": "IFC Films",
+      "description": "Independent cinema distributed by IFC Films, synced from MDBList.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "IFC Films",
+        "description": "Independent cinema distributed by IFC Films, synced from MDBList.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/notamongo5/ifc/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#1565c0"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "ifc-films",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-top-rated-action",
+      "name": "Top Rated Action",
+      "description": "The highest-rated action films with a broad audience.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Top Rated Action",
+        "description": "The highest-rated action films with a broad audience.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Action"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.2
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-top-rated-action",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-top-rated-animation",
+      "name": "Top Rated Animation",
+      "description": "The highest-rated animated features.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Top Rated Animation",
+        "description": "The highest-rated animated features.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Animation"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.3
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-top-rated-animation",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-top-rated-comedy",
+      "name": "Top Rated Comedy",
+      "description": "The best-rated comedies with lasting appeal.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Top Rated Comedy",
+        "description": "The best-rated comedies with lasting appeal.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Comedy"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.2
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-top-rated-comedy",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-top-rated-crime",
+      "name": "Top Rated Crime",
+      "description": "The most acclaimed crime and heist films.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Top Rated Crime",
+        "description": "The most acclaimed crime and heist films.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Crime"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.3
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-top-rated-crime",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-top-rated-drama",
+      "name": "Top Rated Drama",
+      "description": "Character-led, story-first dramas with top viewer scores.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Top Rated Drama",
+        "description": "Character-led, story-first dramas with top viewer scores.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Drama"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.5
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-top-rated-drama",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-top-rated-horror",
+      "name": "Top Rated Horror",
+      "description": "The highest-rated horror films with a strong vote floor.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Top Rated Horror",
+        "description": "The highest-rated horror films with a strong vote floor.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Horror"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-top-rated-horror",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-top-rated-scifi",
+      "name": "Top Rated Science Fiction",
+      "description": "Science fiction films at the top of viewer ratings.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Top Rated Science Fiction",
+        "description": "Science fiction films at the top of viewer ratings.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Science Fiction"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.3
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-top-rated-scifi",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-top-rated-thriller",
+      "name": "Top Rated Thriller",
+      "description": "Suspense and thriller films with top audience ratings.",
+      "category": "Critically acclaimed",
+      "spec": {
+        "name": "Top Rated Thriller",
+        "description": "Suspense and thriller films with top audience ratings.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Thriller"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.3
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-top-rated-thriller",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "mood-cosy",
+      "name": "Cosy Nights In",
+      "description": "Warm, gentle comedies, romances and family films under two hours.",
+      "category": "Moods",
+      "spec": {
+        "name": "Cosy Nights In",
+        "description": "Warm, gentle comedies, romances and family films under two hours.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Comedy",
+              "Romance",
+              "Family",
+              "Animation"
+            ]
+          },
+          {
+            "field": "runtime",
+            "op": "lte",
+            "value": 115
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.8
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Horror",
+              "War",
+              "Crime",
+              "Thriller"
+            ]
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "rotate": {
+          "size": 30,
+          "every": "daily"
+        },
+        "artwork": {
+          "mode": "auto",
+          "accent": "#b5651d"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "mood-cosy",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "mood-mind-bending",
+      "name": "Mind-Bending",
+      "description": "Twists, loops and puzzles that reward a second watch.",
+      "category": "Moods",
+      "spec": {
+        "name": "Mind-Bending",
+        "description": "Twists, loops and puzzles that reward a second watch.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbKeyword",
+            "label": "plot twist"
+          },
+          {
+            "kind": "tmdbKeyword",
+            "label": "time loop"
+          },
+          {
+            "kind": "tmdbKeyword",
+            "label": "nonlinear timeline"
+          },
+          {
+            "kind": "tmdbKeyword",
+            "label": "alternate reality"
+          },
+          {
+            "kind": "tmdbKeyword",
+            "label": "dream"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 500
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#5b2a86"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "mood-mind-bending",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "mood-feel-good",
+      "name": "Feel-Good Favourites",
+      "description": "Guaranteed to leave you smiling.",
+      "category": "Moods",
+      "spec": {
+        "name": "Feel-Good Favourites",
+        "description": "Guaranteed to leave you smiling.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Comedy",
+              "Family",
+              "Music",
+              "Animation"
+            ]
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 500
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Horror",
+              "War",
+              "Crime",
+              "Thriller"
+            ]
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "rotate": {
+          "size": 30,
+          "every": "daily"
+        },
+        "artwork": {
+          "mode": "auto",
+          "accent": "#f2a900"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "mood-feel-good",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "mood-edge-of-your-seat",
+      "name": "Edge of Your Seat",
+      "description": "Taut thrillers that never let go.",
+      "category": "Moods",
+      "spec": {
+        "name": "Edge of Your Seat",
+        "description": "Taut thrillers that never let go.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Thriller"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Animation",
+              "Family"
+            ]
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#8b0000"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "mood-edge-of-your-seat",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "mood-tearjerkers",
+      "name": "Tearjerkers",
+      "description": "Keep the tissues close.",
+      "category": "Moods",
+      "spec": {
+        "name": "Tearjerkers",
+        "description": "Keep the tissues close.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbKeyword",
+            "label": "tearjerker"
+          },
+          {
+            "kind": "tmdbKeyword",
+            "label": "tragedy"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Drama"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#4a6fa5"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "mood-tearjerkers",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "mood-date-night",
+      "name": "Date Night",
+      "description": "Romantic comedies and love stories.",
+      "category": "Moods",
+      "spec": {
+        "name": "Date Night",
+        "description": "Romantic comedies and love stories.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Romance"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.8
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 500
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "rotate": {
+          "size": 30,
+          "every": "daily"
+        },
+        "artwork": {
+          "mode": "auto",
+          "accent": "#c2185b"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "mood-date-night",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "mood-epic-weekend",
+      "name": "Epic Weekend Watches",
+      "description": "Acclaimed films over two and a half hours, for when you have the time.",
+      "category": "Moods",
+      "spec": {
+        "name": "Epic Weekend Watches",
+        "description": "Acclaimed films over two and a half hours, for when you have the time.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "runtime",
+            "op": "gte",
+            "value": 150
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.5
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 2000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "mood-epic-weekend",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "mood-true-stories",
+      "name": "Based on a True Story",
+      "description": "Remarkable true stories.",
+      "category": "Moods",
+      "spec": {
+        "name": "Based on a True Story",
+        "description": "Remarkable true stories.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbKeyword",
+            "label": "based on true story"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 500
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "mood-true-stories",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "short-under-90",
+      "name": "Short on Time",
+      "description": "Well-reviewed films under 90 minutes.",
+      "category": "Moods",
+      "spec": {
+        "name": "Short on Time",
+        "description": "Well-reviewed films under 90 minutes.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "runtime",
+            "op": "lte",
+            "value": 90
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.5
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 500
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "rotate": {
+          "size": 30,
+          "every": "daily"
+        },
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "short-under-90",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-netflix",
+      "name": "What's on Netflix",
+      "description": "Popular titles streaming on Netflix in your region.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "What's on Netflix",
+        "description": "Popular titles streaming on Netflix in your region.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "watchProvider",
+            "id": 8,
+            "label": "Netflix"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 100
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Talk",
+              "News",
+              "Reality",
+              "Soap"
+            ]
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#e50914"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-netflix",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-disney-plus",
+      "name": "What's on Disney+",
+      "description": "Popular titles streaming on Disney+ in your region.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "What's on Disney+",
+        "description": "Popular titles streaming on Disney+ in your region.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "watchProvider",
+            "id": 337,
+            "label": "Disney Plus"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 100
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Talk",
+              "News",
+              "Reality",
+              "Soap"
+            ]
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#113ccf"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-disney-plus",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-prime-video",
+      "name": "What's on Prime Video",
+      "description": "Popular titles streaming on Prime Video in your region.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "What's on Prime Video",
+        "description": "Popular titles streaming on Prime Video in your region.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "watchProvider",
+            "id": 9,
+            "label": "Amazon Prime Video"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 100
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Talk",
+              "News",
+              "Reality",
+              "Soap"
+            ]
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#00a8e1"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-prime-video",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-max",
+      "name": "What's on HBO Max",
+      "description": "Popular titles streaming on HBO Max in your region.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "What's on HBO Max",
+        "description": "Popular titles streaming on HBO Max in your region.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "watchProvider",
+            "id": 1899,
+            "label": "HBO Max"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 100
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Talk",
+              "News",
+              "Reality",
+              "Soap"
+            ]
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#002be7"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-max",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-apple-tv",
+      "name": "What's on Apple TV",
+      "description": "Popular titles streaming on Apple TV (formerly Apple TV+) in your region.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "What's on Apple TV",
+        "description": "Popular titles streaming on Apple TV (formerly Apple TV+) in your region.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "watchProvider",
+            "id": 350,
+            "label": "Apple TV"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 100
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Talk",
+              "News",
+              "Reality",
+              "Soap"
+            ]
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#333333"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-apple-tv",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-hulu",
+      "name": "What's on Hulu",
+      "description": "Popular titles streaming on Hulu.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "What's on Hulu",
+        "description": "Popular titles streaming on Hulu.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "watchProvider",
+            "id": 15,
+            "label": "Hulu"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 100
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Talk",
+              "News",
+              "Reality",
+              "Soap"
+            ]
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#1ce783"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-hulu",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-paramount-plus",
+      "name": "What's on Paramount+",
+      "description": "Popular titles streaming on Paramount+.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "What's on Paramount+",
+        "description": "Popular titles streaming on Paramount+.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "watchProvider",
+            "id": 2303,
+            "label": "Paramount Plus Premium"
+          },
+          {
+            "kind": "watchProvider",
+            "id": 2616,
+            "label": "Paramount Plus Essential"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 100
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Talk",
+              "News",
+              "Reality",
+              "Soap"
+            ]
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#0064ff"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-paramount-plus",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-apple-tv-originals",
+      "name": "Apple TV+ Originals",
+      "description": "Apple TV+ original films and series, curated by the Kometa team on MDBList.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "Apple TV+ Originals",
+        "description": "Apple TV+ original films and series, curated by the Kometa team on MDBList.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/k0meta/appletv-originals/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#333333"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-apple-tv-originals",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-disney-plus-originals",
+      "name": "Disney+ Originals",
+      "description": "Disney+ original films and series, curated by the Kometa team on MDBList.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "Disney+ Originals",
+        "description": "Disney+ original films and series, curated by the Kometa team on MDBList.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/k0meta/disney-originals/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#113ccf"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-disney-plus-originals",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-max-originals",
+      "name": "HBO Max Originals",
+      "description": "HBO and Max original films and series, curated by the Kometa team on MDBList.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "HBO Max Originals",
+        "description": "HBO and Max original films and series, curated by the Kometa team on MDBList.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/k0meta/max-originals/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#002be7"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-max-originals",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-hulu-originals",
+      "name": "Hulu Originals",
+      "description": "Hulu original films and series, curated by the Kometa team on MDBList.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "Hulu Originals",
+        "description": "Hulu original films and series, curated by the Kometa team on MDBList.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/k0meta/hulu-originals/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#1ce783"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-hulu-originals",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-netflix-originals",
+      "name": "Netflix Originals",
+      "description": "Netflix-produced films and series, curated by the Kometa team on MDBList.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "Netflix Originals",
+        "description": "Netflix-produced films and series, curated by the Kometa team on MDBList.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/k0meta/netflix-originals/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#e50914"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-netflix-originals",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-peacock-originals",
+      "name": "Peacock Originals",
+      "description": "Peacock original films and series, curated by the Kometa team on MDBList.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "Peacock Originals",
+        "description": "Peacock original films and series, curated by the Kometa team on MDBList.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/k0meta/peacock-originals/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#ffb300"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-peacock-originals",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-prime-video-originals",
+      "name": "Prime Video Originals",
+      "description": "Amazon Prime Video original films and series, curated by the Kometa team on MDBList.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "Prime Video Originals",
+        "description": "Amazon Prime Video original films and series, curated by the Kometa team on MDBList.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/k0meta/amazon-originals/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#00a8e1"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-prime-video-originals",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "streaming-shudder",
+      "name": "Shudder Horror \u0026 Thrillers",
+      "description": "Recent horror and thriller titles streaming on Shudder, synced from MDBList.",
+      "category": "Streaming services",
+      "spec": {
+        "name": "Shudder Horror \u0026 Thrillers",
+        "description": "Recent horror and thriller titles streaming on Shudder, synced from MDBList.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/snoak/latest-shudder-movies/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#b71c1c"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "streaming-shudder",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "seasonal-halloween",
+      "name": "Halloween",
+      "description": "Spooky-season favourites.",
+      "category": "Seasonal",
+      "spec": {
+        "name": "Halloween",
+        "description": "Spooky-season favourites.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbKeyword",
+            "label": "halloween"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 200
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#ff6600"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "seasonal-halloween",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "seasonal-halloween-family",
+      "name": "Not-Too-Scary Halloween",
+      "description": "Halloween fun for the whole family.",
+      "category": "Seasonal",
+      "spec": {
+        "name": "Not-Too-Scary Halloween",
+        "description": "Halloween fun for the whole family.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbKeyword",
+            "label": "halloween"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Family",
+              "Animation",
+              "Comedy"
+            ]
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 100
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Horror"
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#ff8c00"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "seasonal-halloween-family",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "seasonal-christmas",
+      "name": "Christmas Movies",
+      "description": "Festive films for the holidays.",
+      "category": "Seasonal",
+      "spec": {
+        "name": "Christmas Movies",
+        "description": "Festive films for the holidays.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbKeyword",
+            "label": "christmas"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 200
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#b3000c"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "seasonal-christmas",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "seasonal-valentines",
+      "name": "Valentine's Day",
+      "description": "Love stories for February 14th.",
+      "category": "Seasonal",
+      "spec": {
+        "name": "Valentine's Day",
+        "description": "Love stories for February 14th.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbKeyword",
+            "label": "valentine's day"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 50
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#e91e63"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "seasonal-valentines",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "seasonal-easter",
+      "name": "Easter",
+      "description": "Easter-season family and reflective films, synced from MDBList.",
+      "category": "Seasonal",
+      "spec": {
+        "name": "Easter",
+        "description": "Easter-season family and reflective films, synced from MDBList.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/fuzi0n/easter-movies/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#ab47bc"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "seasonal-easter",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "seasonal-thanksgiving",
+      "name": "Thanksgiving",
+      "description": "Thanksgiving-themed films for the holiday weekend, synced from MDBList.",
+      "category": "Seasonal",
+      "spec": {
+        "name": "Thanksgiving",
+        "description": "Thanksgiving-themed films for the holiday weekend, synced from MDBList.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/fuzi0n/thanksgiving-movies/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#d84315"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "seasonal-thanksgiving",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "seasonal-new-year",
+      "name": "New Year's Eve",
+      "description": "Films set around New Year's Eve and the turn of the year.",
+      "category": "Seasonal",
+      "spec": {
+        "name": "New Year's Eve",
+        "description": "Films set around New Year's Eve and the turn of the year.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/fuzi0n/new-years-movies/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#ffd54f"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "seasonal-new-year",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "seasonal-aapi-heritage",
+      "name": "AAPI Heritage Month",
+      "description": "Films and series highlighting Asian American and Pacific Islander voices (Kometa MDBList).",
+      "category": "Seasonal",
+      "spec": {
+        "name": "AAPI Heritage Month",
+        "description": "Films and series highlighting Asian American and Pacific Islander voices (Kometa MDBList).",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/k0meta/asian-american-pacific-islander-heritage-month/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#ec407a"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "seasonal-aapi-heritage",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "seasonal-latinx-heritage",
+      "name": "Latinx Heritage Month",
+      "description": "Films and series celebrating Latinx storytellers and themes (Kometa MDBList).",
+      "category": "Seasonal",
+      "spec": {
+        "name": "Latinx Heritage Month",
+        "description": "Films and series celebrating Latinx storytellers and themes (Kometa MDBList).",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/k0meta/latinx-heritage-month/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#ff7043"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "seasonal-latinx-heritage",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "seasonal-pride-month",
+      "name": "Pride Month",
+      "description": "LGBTQ-led films and series curated for Pride Month.",
+      "category": "Seasonal",
+      "spec": {
+        "name": "Pride Month",
+        "description": "LGBTQ-led films and series curated for Pride Month.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/apollocat/new-in-lgbtq/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#7e57c2"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "seasonal-pride-month",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "top-trending",
+      "name": "Trending This Week",
+      "description": "What everyone is watching this week.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Trending This Week",
+        "description": "What everyone is watching this week.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "tmdbList",
+            "list": "trending_week"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 40,
+        "refresh": "hourly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "top-trending",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "top-trending-today",
+      "name": "Trending Today",
+      "description": "Movies and series trending across TMDB in the last 24 hours.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Trending Today",
+        "description": "Movies and series trending across TMDB in the last 24 hours.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "tmdbList",
+            "list": "trending_day"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 40,
+        "refresh": "hourly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "top-trending-today",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "top-trending-movies",
+      "name": "Trending Movies This Week",
+      "description": "Top trending movies on TMDB over the past seven days.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Trending Movies This Week",
+        "description": "Top trending movies on TMDB over the past seven days.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbList",
+            "list": "trending_week",
+            "mediaType": "movie"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 60,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "top-trending-movies",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "top-trending-shows",
+      "name": "Trending TV This Week",
+      "description": "Top trending TV shows on TMDB over the past seven days.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Trending TV This Week",
+        "description": "Top trending TV shows on TMDB over the past seven days.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "tmdbList",
+            "list": "trending_week",
+            "mediaType": "show"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 60,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "top-trending-shows",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "top-popular-movies",
+      "name": "Popular Right Now",
+      "description": "TMDB's most popular films today.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Right Now",
+        "description": "TMDB's most popular films today.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbList",
+            "list": "popular",
+            "mediaType": "movie"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 40,
+        "refresh": "hourly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "top-popular-movies",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "top-popular-shows",
+      "name": "Popular TV Right Now",
+      "description": "TMDB's most popular TV series today.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular TV Right Now",
+        "description": "TMDB's most popular TV series today.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "tmdbList",
+            "list": "popular",
+            "mediaType": "show"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 60,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "top-popular-shows",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "top-now-playing",
+      "name": "Now Playing in Theaters",
+      "description": "Movies currently in theatrical release.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Now Playing in Theaters",
+        "description": "Movies currently in theatrical release.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "tmdbList",
+            "list": "now_playing",
+            "mediaType": "movie"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 60,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "top-now-playing",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "top-airing-today",
+      "name": "Airing Today",
+      "description": "TV series broadcasting new episodes today.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Airing Today",
+        "description": "TV series broadcasting new episodes today.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "tmdbList",
+            "list": "airing_today",
+            "mediaType": "show"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 60,
+        "refresh": "hourly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "top-airing-today",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "top-on-the-air",
+      "name": "On the Air This Week",
+      "description": "TV series airing new episodes within the week.",
+      "category": "Top lists",
+      "spec": {
+        "name": "On the Air This Week",
+        "description": "TV series airing new episodes within the week.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "tmdbList",
+            "list": "on_the_air",
+            "mediaType": "show"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 60,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "top-on-the-air",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "imdb-top-250-movies",
+      "name": "IMDb Top 250 Movies",
+      "description": "The canonical IMDb Top 250 movies list, kept in sync from MDBList.",
+      "category": "Top lists",
+      "spec": {
+        "name": "IMDb Top 250 Movies",
+        "description": "The canonical IMDb Top 250 movies list, kept in sync from MDBList.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/snoak/imdb-top-250-movies/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 250,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#f5c518"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "imdb-top-250-movies",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "imdb-top-250-shows",
+      "name": "IMDb Top 250 Shows",
+      "description": "The canonical IMDb Top 250 TV shows list, kept in sync from MDBList.",
+      "category": "Top lists",
+      "spec": {
+        "name": "IMDb Top 250 Shows",
+        "description": "The canonical IMDb Top 250 TV shows list, kept in sync from MDBList.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/snoak/imdb-top-250-shows/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 250,
+        "refresh": "weekly",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#f5c518"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "imdb-top-250-shows",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "imdb-moviemeter-top-100",
+      "name": "IMDb MovieMeter Top 100",
+      "description": "IMDb MovieMeter's 100 most popular movies right now, synced from MDBList.",
+      "category": "Top lists",
+      "spec": {
+        "name": "IMDb MovieMeter Top 100",
+        "description": "IMDb MovieMeter's 100 most popular movies right now, synced from MDBList.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "mdblist",
+            "url": "https://mdblist.com/lists/linaspurinis/imdb-moviemeter-top-100/json"
+          }
+        ],
+        "match": "all",
+        "rules": [],
+        "exclude": [],
+        "sort": "source",
+        "sortDesc": false,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto",
+          "accent": "#e6b800"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "imdb-moviemeter-top-100",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-popular-action",
+      "name": "Popular Action",
+      "description": "Crowd-pleasing action films sorted by current popularity.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Action",
+        "description": "Crowd-pleasing action films sorted by current popularity.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Action"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-popular-action",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-popular-adventure",
+      "name": "Popular Adventure",
+      "description": "Trending adventure films driving the most attention right now.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Adventure",
+        "description": "Trending adventure films driving the most attention right now.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Adventure"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-popular-adventure",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-popular-animation",
+      "name": "Popular Animation",
+      "description": "Popular animated features across family and adult animation.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Animation",
+        "description": "Popular animated features across family and adult animation.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Animation"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-popular-animation",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-popular-comedy",
+      "name": "Popular Comedy",
+      "description": "Comedies pulling the biggest audience right now.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Comedy",
+        "description": "Comedies pulling the biggest audience right now.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Comedy"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-popular-comedy",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-popular-crime",
+      "name": "Popular Crime",
+      "description": "Heists, mobsters, and crime thrillers sorted by popularity.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Crime",
+        "description": "Heists, mobsters, and crime thrillers sorted by popularity.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Crime"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-popular-crime",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-popular-drama",
+      "name": "Popular Drama",
+      "description": "Drama films riding the top of popularity charts.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Drama",
+        "description": "Drama films riding the top of popularity charts.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Drama"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-popular-drama",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-popular-fantasy",
+      "name": "Popular Fantasy",
+      "description": "Magic, myths, and quests trending across fantasy cinema.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Fantasy",
+        "description": "Magic, myths, and quests trending across fantasy cinema.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Fantasy"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-popular-fantasy",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-popular-horror",
+      "name": "Popular Horror",
+      "description": "Horror films drawing the biggest crowds right now.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Horror",
+        "description": "Horror films drawing the biggest crowds right now.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Horror"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-popular-horror",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-popular-mystery",
+      "name": "Popular Mystery",
+      "description": "Whodunits and mysteries with the most active audience.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Mystery",
+        "description": "Whodunits and mysteries with the most active audience.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Mystery"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-popular-mystery",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-popular-romance",
+      "name": "Popular Romance",
+      "description": "Love stories pulling the most viewers right now.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Romance",
+        "description": "Love stories pulling the most viewers right now.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Romance"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-popular-romance",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-popular-scifi",
+      "name": "Popular Science Fiction",
+      "description": "Sci-fi blockbusters and cult favourites sorted by popularity.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Science Fiction",
+        "description": "Sci-fi blockbusters and cult favourites sorted by popularity.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Science Fiction"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-popular-scifi",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-popular-thriller",
+      "name": "Popular Thriller",
+      "description": "Tense, fast-moving thrillers ranked by current popularity.",
+      "category": "Top lists",
+      "spec": {
+        "name": "Popular Thriller",
+        "description": "Tense, fast-moving thrillers ranked by current popularity.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Thriller"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "genre-popular-thriller",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "world-korean",
+      "name": "Korean Cinema",
+      "description": "Acclaimed films from South Korea.",
+      "category": "World cinema",
+      "spec": {
+        "name": "Korean Cinema",
+        "description": "Acclaimed films from South Korea.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "language",
+            "op": "is",
+            "value": "ko"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.8
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 200
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "world-korean",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "world-japanese",
+      "name": "Japanese Cinema",
+      "description": "Live-action classics and modern hits from Japan.",
+      "category": "World cinema",
+      "spec": {
+        "name": "Japanese Cinema",
+        "description": "Live-action classics and modern hits from Japan.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "language",
+            "op": "is",
+            "value": "ja"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.8
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 200
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Animation"
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "world-japanese",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "world-anime-films",
+      "name": "Anime Films",
+      "description": "Feature-length anime.",
+      "category": "World cinema",
+      "spec": {
+        "name": "Anime Films",
+        "description": "Feature-length anime.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "language",
+            "op": "is",
+            "value": "ja"
+          },
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Animation"
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 200
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "world-anime-films",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "world-french",
+      "name": "French Cinema",
+      "description": "Films from France and the French-speaking world.",
+      "category": "World cinema",
+      "spec": {
+        "name": "French Cinema",
+        "description": "Films from France and the French-speaking world.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "language",
+            "op": "is",
+            "value": "fr"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.8
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 200
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "world-french",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "world-spanish",
+      "name": "Spanish-Language Cinema",
+      "description": "Films from Spain and Latin America.",
+      "category": "World cinema",
+      "spec": {
+        "name": "Spanish-Language Cinema",
+        "description": "Films from Spain and Latin America.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "language",
+            "op": "is",
+            "value": "es"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.8
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 200
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "world-spanish",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "world-bollywood",
+      "name": "Bollywood",
+      "description": "Hindi-language hits.",
+      "category": "World cinema",
+      "spec": {
+        "name": "Bollywood",
+        "description": "Hindi-language hits.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "language",
+            "op": "is",
+            "value": "hi"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.5
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 100
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "world-bollywood",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "world-nordic-noir",
+      "name": "Nordic Noir",
+      "description": "Dark crime from Scandinavia.",
+      "category": "World cinema",
+      "spec": {
+        "name": "Nordic Noir",
+        "description": "Dark crime from Scandinavia.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "language",
+            "op": "in",
+            "value": [
+              "sv",
+              "da",
+              "no",
+              "is",
+              "fi"
+            ]
+          },
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Crime",
+              "Thriller",
+              "Mystery"
+            ]
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 50
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "world-nordic-noir",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "world-k-drama",
+      "name": "K-Dramas",
+      "description": "Binge-worthy Korean series.",
+      "category": "World cinema",
+      "spec": {
+        "name": "K-Dramas",
+        "description": "Binge-worthy Korean series.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "language",
+            "op": "is",
+            "value": "ko"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.5
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 50
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "world-k-drama",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "family-night",
+      "name": "Family Movie Night",
+      "description": "Films everyone can watch together.",
+      "category": "Family",
+      "spec": {
+        "name": "Family Movie Night",
+        "description": "Films everyone can watch together.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Family"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 6.5
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 500
+          },
+          {
+            "field": "contentRating",
+            "op": "lte",
+            "value": "PG"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "rotate": {
+          "size": 30,
+          "every": "daily"
+        },
+        "artwork": {
+          "mode": "auto",
+          "accent": "#2e7d32"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "family-night",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "family-animated",
+      "name": "Animated Favourites",
+      "description": "The best-loved animated films.",
+      "category": "Family",
+      "spec": {
+        "name": "Animated Favourites",
+        "description": "The best-loved animated films.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": [
+              "Animation",
+              "Family"
+            ]
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "family-animated",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "tv-limited-series",
+      "name": "Binge-Worthy Limited Series",
+      "description": "Complete stories you can finish in a weekend.",
+      "category": "TV",
+      "spec": {
+        "name": "Binge-Worthy Limited Series",
+        "description": "Complete stories you can finish in a weekend.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "tmdbDiscover",
+            "params": {
+              "vote_count.gte": "300",
+              "with_type": "2"
+            }
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.3
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Talk",
+              "News",
+              "Reality",
+              "Soap"
+            ]
+          }
+        ],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "tv-limited-series",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "tv-sitcoms",
+      "name": "Comfort Sitcoms",
+      "description": "Feel-good comedy series to put on again and again.",
+      "category": "TV",
+      "spec": {
+        "name": "Comfort Sitcoms",
+        "description": "Feel-good comedy series to put on again and again.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Comedy"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.5
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 300
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Animation",
+              "Crime"
+            ]
+          }
+        ],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "tv-sitcoms",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "tv-prestige-drama",
+      "name": "Prestige Drama",
+      "description": "Landmark drama series.",
+      "category": "TV",
+      "spec": {
+        "name": "Prestige Drama",
+        "description": "Landmark drama series.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Drama"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 8
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          }
+        ],
+        "exclude": [],
+        "sort": "rating",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "tv-prestige-drama",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "tv-docuseries",
+      "name": "Docuseries",
+      "description": "Gripping documentary series.",
+      "category": "TV",
+      "spec": {
+        "name": "Docuseries",
+        "description": "Gripping documentary series.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Documentary"
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.5
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 50
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "tv-docuseries",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "new-releases",
+      "name": "New Releases",
+      "description": "Films released in the last three months.",
+      "category": "New releases",
+      "spec": {
+        "name": "New Releases",
+        "description": "Films released in the last three months.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "released",
+            "op": "within",
+            "value": "90d"
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "hourly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "new-releases",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "new-series",
+      "name": "New Series",
+      "description": "Shows that premiered in the last two months.",
+      "category": "New releases",
+      "spec": {
+        "name": "New Series",
+        "description": "Shows that premiered in the last two months.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "released",
+            "op": "within",
+            "value": "60d"
+          }
+        ],
+        "exclude": [],
+        "sort": "released",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "hourly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "new-series",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "recently-added",
+      "name": "Recently Added",
+      "description": "Movies and episodes from the last two weeks, and series or seasons with an episode that aired in that window.",
+      "category": "New releases",
+      "spec": {
+        "name": "Recently Added",
+        "description": "Movies and episodes from the last two weeks, and series or seasons with an episode that aired in that window.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "addedAt",
+            "op": "within",
+            "value": "14d"
+          }
+        ],
+        "exclude": [],
+        "sort": "added",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "hourly",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "recently-added",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "for-you-unseen-acclaimed",
+      "name": "Acclaimed and Unwatched",
+      "description": "Highly rated films each viewer hasn't seen, ordered by their taste.",
+      "category": "For each viewer",
+      "spec": {
+        "name": "Acclaimed Films You Haven't Seen",
+        "description": "Highly rated films each viewer hasn't seen, ordered by their taste.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.8
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 2000
+          },
+          {
+            "field": "watched",
+            "op": "is",
+            "value": false
+          }
+        ],
+        "exclude": [],
+        "sort": "personal",
+        "sortDesc": true,
+        "limit": 50,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": true,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "for-you-unseen-acclaimed",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "for-you-comfort-rewatches",
+      "name": "Comfort Rewatches",
+      "description": "Favourites each viewer has already loved, ready to watch again.",
+      "category": "For each viewer",
+      "spec": {
+        "name": "Comfort Rewatches",
+        "description": "Favourites each viewer has already loved, ready to watch again.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "watched",
+            "op": "is",
+            "value": true
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 200
+          }
+        ],
+        "exclude": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Talk",
+              "News",
+              "Reality",
+              "Soap"
+            ]
+          }
+        ],
+        "sort": "personal",
+        "sortDesc": true,
+        "limit": 40,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "for-you-comfort-rewatches",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "for-you-any-acclaimed-genre",
+      "name": "Crowd-Pleasers",
+      "description": "Big, broadly loved hits across action, comedy and adventure.",
+      "category": "For each viewer",
+      "spec": {
+        "name": "Crowd-Pleasers",
+        "description": "Big, broadly loved hits across action, comedy and adventure.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Action",
+              "Comedy",
+              "Adventure"
+            ]
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 5000
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7
+          }
+        ],
+        "exclude": [],
+        "sort": "personal",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "rotate": {
+          "size": 30,
+          "every": "daily"
+        },
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "for-you-any-acclaimed-genre",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "any-sci-fi-or-fantasy",
+      "name": "Other Worlds",
+      "description": "Science fiction or fantasy, critically loved.",
+      "category": "For each viewer",
+      "spec": {
+        "name": "Other Worlds",
+        "description": "Science fiction or fantasy, critically loved.",
+        "mediaType": "mixed",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "in",
+            "value": [
+              "Science Fiction",
+              "Fantasy",
+              "Sci-Fi \u0026 Fantasy"
+            ]
+          },
+          {
+            "field": "rating",
+            "op": "gte",
+            "value": 7.5
+          },
+          {
+            "field": "votes",
+            "op": "gte",
+            "value": 1000
+          }
+        ],
+        "exclude": [],
+        "sort": "personal",
+        "sortDesc": true,
+        "limit": 100,
+        "refresh": "daily",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "templateId": "any-sci-fi-or-fantasy",
+        "itemCount": 0
+      }
+    }
+  ],
+  "bundles": [
+    {
+      "id": "core-defaults",
+      "name": "Core Defaults",
+      "description": "Essential trending, popular, top-rated, IMDb Top 250, and new-release shelves across movies and series.",
+      "category": "Starter",
+      "templateIds": [
+        "top-trending",
+        "top-popular-movies",
+        "top-popular-shows",
+        "acclaimed-movies",
+        "acclaimed-series",
+        "top-250-movies",
+        "top-100-series",
+        "imdb-top-250-movies",
+        "imdb-top-250-shows",
+        "new-releases",
+        "new-series",
+        "recently-added"
+      ]
+    },
+    {
+      "id": "streaming-originals",
+      "name": "Streaming Originals",
+      "description": "Curated original films and series from Apple TV+, Disney+, HBO Max, Hulu, Netflix, Peacock, Prime Video, and Shudder.",
+      "category": "Streaming",
+      "templateIds": [
+        "streaming-apple-tv-originals",
+        "streaming-disney-plus-originals",
+        "streaming-max-originals",
+        "streaming-hulu-originals",
+        "streaming-netflix-originals",
+        "streaming-peacock-originals",
+        "streaming-prime-video-originals",
+        "streaming-shudder"
+      ]
+    },
+    {
+      "id": "awards-and-yearly",
+      "name": "Awards \u0026 Yearly Picks",
+      "description": "Academy Award and Golden Globe winners, Rotten Tomatoes yearly best-of lists, IMDb MovieMeter, Criterion, and A24.",
+      "category": "Editorial",
+      "templateIds": [
+        "awards-oscar-winners",
+        "awards-golden-globes-winners",
+        "best-of-2023",
+        "best-of-2024",
+        "best-of-2025",
+        "imdb-moviemeter-top-100",
+        "criterion-collection",
+        "a24",
+        "ifc-films"
+      ]
+    },
+    {
+      "id": "seasonal",
+      "name": "Seasonal \u0026 Holidays",
+      "description": "Holiday, observance, and heritage-month shelves for Halloween, Christmas, Valentine's Day, Thanksgiving, and New Year's Eve.",
+      "category": "Seasonal",
+      "templateIds": [
+        "seasonal-halloween",
+        "seasonal-halloween-family",
+        "seasonal-christmas",
+        "seasonal-valentines",
+        "seasonal-easter",
+        "seasonal-thanksgiving",
+        "seasonal-new-year",
+        "seasonal-aapi-heritage",
+        "seasonal-latinx-heritage",
+        "seasonal-pride-month"
+      ]
+    },
+    {
+      "id": "franchises",
+      "name": "Franchises \u0026 Universes",
+      "description": "Major movie sagas and studio universes in release order, from Star Wars and Middle-earth to the MCU, James Bond, and Dune.",
+      "category": "Franchises",
+      "templateIds": [
+        "star-wars",
+        "middle-earth",
+        "wizarding-world",
+        "marvel-cinematic-universe",
+        "james-bond",
+        "jurassic",
+        "fast-and-furious",
+        "mission-impossible",
+        "pirates-of-the-caribbean",
+        "monsterverse",
+        "john-wick",
+        "the-matrix",
+        "dune-saga",
+        "pixar",
+        "studio-ghibli"
+      ]
+    }
+  ]
+}
