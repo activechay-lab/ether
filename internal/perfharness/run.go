@@ -2,9 +2,11 @@ package perfharness
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -33,6 +35,19 @@ type Result struct {
 	Dur     time.Duration `json:"dur"`
 	Err     string        `json:"err,omitempty"`
 	Skipped string        `json:"skipped,omitempty"`
+	// Set when the runner measures (Measure): the bytes on the wire, the
+	// body's size gzipped at the default level, and the server's CPU time
+	// and block IO while it answered.
+	WireBytes  int           `json:"wireBytes,omitempty"`
+	GzipBytes  int           `json:"gzipBytes,omitempty"`
+	CPU        time.Duration `json:"cpu,omitempty"`
+	ReadBytes  int64         `json:"readBytes,omitempty"`
+	WriteBytes int64         `json:"writeBytes,omitempty"`
+	Probed     bool          `json:"probed,omitempty"`
+	// Items and TotalSize are a Plex MediaContainer's size and totalSize
+	// (measure mode), so an empty page is not mistaken for a fast one.
+	Items     int `json:"items,omitempty"`
+	TotalSize int `json:"totalSize,omitempty"`
 }
 
 // requestTimeout caps one replayed request; a path that scales with the
@@ -40,6 +55,7 @@ type Result struct {
 const requestTimeout = 60 * time.Second
 
 type Runner struct {
+	host     string
 	basePort int
 	// shared sends every protocol to the base port under its shared path
 	// prefix (/jellyfin, /emby, /silo) instead of its own port.
@@ -55,6 +71,24 @@ type Runner struct {
 	// bodies, when set, receives the last warm response body of each
 	// viewer, client and step (SaveBodies).
 	bodies string
+	// measure, when set, records wire and gzip sizes, and probe samples the
+	// server around each request (Measure).
+	measure bool
+	probe   Probe
+}
+
+// SetHost sends requests to host instead of 127.0.0.1, for a server in a
+// container or on another machine.
+func (r *Runner) SetHost(host string) { r.host = host }
+
+// Measure records each response's size on the wire and gzipped, and, when
+// probe is not nil, the server's CPU time and block IO during each request.
+// The probe's counters are server-wide, so it is meaningful only while one
+// request runs at a time (Sequential, ColdEach).
+func (r *Runner) Measure(probe Probe) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.measure, r.probe = true, probe
 }
 
 // SaveBodies writes the last warm response of each viewer, client and step
@@ -91,7 +125,7 @@ func (r *Runner) saveBody(res Result, body []byte) {
 // port; otherwise on basePort+1, +2 and +3.
 func NewRunner(basePort int, shared bool, viewers []Viewer) *Runner {
 	tr := &http.Transport{MaxIdleConnsPerHost: 64, MaxConnsPerHost: 0, IdleConnTimeout: 90 * time.Second}
-	return &Runner{basePort: basePort, shared: shared, viewers: viewers, owner: viewers[0], sessions: map[string]*session{},
+	return &Runner{host: "127.0.0.1", basePort: basePort, shared: shared, viewers: viewers, owner: viewers[0], sessions: map[string]*session{},
 		http: &http.Client{Transport: tr, Timeout: requestTimeout}}
 }
 
@@ -163,7 +197,7 @@ func (r *Runner) do(ctx context.Context, phase string, c Client, s *session, st 
 	if r.shared {
 		port, path = r.basePort, c.SharedPrefix+path
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://127.0.0.1:"+strconv.Itoa(port)+path, reader)
+	req, err := http.NewRequestWithContext(ctx, method, "http://"+r.host+":"+strconv.Itoa(port)+path, reader)
 	if err != nil {
 		res.Err = err.Error()
 		r.record(res)
@@ -171,6 +205,19 @@ func (r *Runner) do(ctx context.Context, phase string, c Client, s *session, st 
 	}
 	req.Header = c.Headers(&session{Viewer: s.Viewer, vars: vars})
 	req.Header.Set("X-Ether-Perf-Tag", tag)
+	r.mu.Lock()
+	measure, probe := r.measure, r.probe
+	r.mu.Unlock()
+	if measure {
+		// Asked for explicitly, so the transport leaves the body compressed
+		// and the wire size can be counted; real clients ask for gzip too.
+		req.Header.Set("Accept-Encoding", "gzip")
+	}
+	var before Usage
+	var probeErr error
+	if probe != nil {
+		before, probeErr = probe.Sample()
+	}
 	start := time.Now()
 	resp, err := r.http.Do(req)
 	if err != nil {
@@ -181,6 +228,30 @@ func (r *Runner) do(ctx context.Context, phase string, c Client, s *session, st 
 	buf, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	res.Dur = time.Since(start)
+	if probe != nil && probeErr == nil {
+		if after, err := probe.Sample(); err == nil {
+			d := after.Sub(before)
+			res.CPU, res.ReadBytes, res.WriteBytes, res.Probed = d.CPU, d.ReadBytes, d.WriteBytes, true
+		}
+	}
+	if measure && err == nil {
+		res.WireBytes = len(buf)
+		if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
+			if zr, zerr := gzip.NewReader(bytes.NewReader(buf)); zerr == nil {
+				buf, err = io.ReadAll(zr)
+			}
+		}
+		res.GzipBytes = gzipSize(buf)
+		var mc struct {
+			MediaContainer struct {
+				Size      int `json:"size"`
+				TotalSize int `json:"totalSize"`
+			} `json:"MediaContainer"`
+		}
+		if json.Unmarshal(buf, &mc) == nil {
+			res.Items, res.TotalSize = mc.MediaContainer.Size, mc.MediaContainer.TotalSize
+		}
+	}
 	res.Status, res.Bytes = resp.StatusCode, len(buf)
 	if err == nil {
 		res.BodySHA = fmt.Sprintf("%x", sha256.Sum256(buf))
@@ -198,6 +269,20 @@ func (r *Runner) do(ctx context.Context, phase string, c Client, s *session, st 
 	r.saveBody(res, buf)
 	r.record(res)
 }
+
+// gzipSize is the size of b gzipped at the default level, so two servers'
+// bodies compare the same whether or not they compress.
+func gzipSize(b []byte) int {
+	var n countWriter
+	zw := gzip.NewWriter(&n)
+	_, _ = zw.Write(b)
+	_ = zw.Close()
+	return int(n)
+}
+
+type countWriter int
+
+func (c *countWriter) Write(p []byte) (int, error) { *c += countWriter(len(p)); return len(p), nil }
 
 // SetTimeout caps each request (60 s by default).
 func (r *Runner) SetTimeout(d time.Duration) { r.http.Timeout = d }
@@ -222,6 +307,27 @@ func (r *Runner) Sequential(ctx context.Context, phase string, viewers []Viewer,
 			r.runClient(ctx, phase, c, v)
 		}
 	}
+}
+
+// ColdEach replays each client's steps for viewer v one at a time, calling
+// restart before every step, so each step's request is the first a freshly
+// started server answers. The steps' variables must already be discovered
+// (a prior pass under another phase); a step that discovers variables still
+// records them.
+func (r *Runner) ColdEach(ctx context.Context, phase string, v Viewer, cs []Client, restart func(ctx context.Context, c Client, st Step) error) error {
+	for _, c := range cs {
+		s := r.session(v, c)
+		for _, st := range c.Steps {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if err := restart(ctx, c, st); err != nil {
+				return fmt.Errorf("restart before %s %s: %w", c.Name, st.Name, err)
+			}
+			r.do(ctx, phase, c, s, st)
+		}
+	}
+	return nil
 }
 
 // concurrent runs n workers, each a viewer working through every client in

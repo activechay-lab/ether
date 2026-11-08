@@ -40,6 +40,14 @@ func main() {
 		code, err = runReal(ctx, os.Args[2:])
 	case "audit":
 		err = runAudit(ctx, os.Args[2:])
+	case "baseline":
+		err = runBaseline(ctx, os.Args[2:])
+	case "fixture":
+		err = runFixture(ctx, os.Args[2:])
+	case "compare":
+		err = runCompare(os.Args[2:])
+	case "dropcache":
+		err = runDropCache(os.Args[2:])
 	default:
 		usage()
 	}
@@ -52,6 +60,8 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: etherperf real -source DATA_DIR [flags] | etherperf audit -trace FILE (-db FILE | -pg URL)")
+	fmt.Fprintln(os.Stderr, "       etherperf baseline -url URL -container NAME -out DIR [flags] | etherperf fixture -scale small|large -out DIR")
+	fmt.Fprintln(os.Stderr, "       etherperf compare [-client NAME] baseline.json... | etherperf dropcache PATH...")
 	os.Exit(2)
 }
 

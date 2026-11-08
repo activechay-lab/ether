@@ -133,7 +133,11 @@ func plexDeviceHeaders(product, platform, device, suffix string) func(*session) 
 		h.Set("X-Plex-Device-Name", "etherperf")
 		h.Set("X-Plex-Client-Identifier", "etherperf-"+strings.ReplaceAll(strings.ToLower(product), " ", "-")+"-"+strconv.FormatInt(s.Viewer.ID, 10)+suffix)
 		h.Set("X-Plex-Provides", "player,controller")
-		h.Set("X-Plex-Token", s.Viewer.PlexToken)
+		// A server that trusts the replaying network (an unclaimed PMS
+		// with allowedNetworks) is driven without a token.
+		if s.Viewer.PlexToken != "" {
+			h.Set("X-Plex-Token", s.Viewer.PlexToken)
+		}
 		return h
 	}
 }
