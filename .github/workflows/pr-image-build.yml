@@ -1,5 +1,8 @@
 name: PR image build
 
+# Runs untrusted PR code: read-only token, uses no secrets and no registry
+# credentials. The only output is an OCI archive, which Publish PR image
+# treats as data.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -13,7 +16,9 @@ concurrency:
 
 jobs:
   build:
-    # The publisher only accepts these authors, so skip the build for everyone else.
+    name: Build PR preview image
+    # Saves runner time only; this file comes from the PR, so it is not a
+    # security check. The publisher re-checks the live PR and author.
     if: contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -34,6 +39,8 @@ jobs:
           docker buildx build --platform linux/amd64 \
             --build-arg "VERSION=pr-${PR_NUMBER}" --build-arg "COMMIT=${HEAD_SHA}" \
             --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.version=pr-${PR_NUMBER}" \
+            --label "org.opencontainers.image.description=Unreviewed preview of Ether PR #${PR_NUMBER}" \
             --output type=oci,dest=pr-image.tar .
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
