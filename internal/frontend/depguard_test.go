@@ -24,7 +24,6 @@ func TestPlexProductionImportsStayInsideRecordedBoundary(t *testing.T) {
 		"github.com/braedonsaunders/ether/internal/core":                   true,
 		"github.com/braedonsaunders/ether/internal/reqmemo":                true,
 		"github.com/braedonsaunders/ether/internal/contentrating":          true,
-		"github.com/braedonsaunders/ether/internal/diagnostics":            true,
 		"github.com/braedonsaunders/ether/internal/discovery":              true,
 		"github.com/braedonsaunders/ether/internal/experience":             true,
 		"github.com/braedonsaunders/ether/internal/extras":                 true,

@@ -145,7 +145,9 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	// The remuxer is built once in buildIntegrations and shared with every
 	// front end. Support is the device-scoped "Record a problem" recorder.
 	deps.Downloads = a.downloadRemuxer
-	deps.Support = a.support
+	if a.support != nil {
+		deps.Support = a.support
+	}
 	deps.Extras = a.extras
 	deps.Prerolls = a.prerollProvider()
 	deps.Trickplay = a.trickplay.Borrow()

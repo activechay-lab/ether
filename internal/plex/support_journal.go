@@ -5,11 +5,10 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"encoding/xml"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"io"
 	"strconv"
 	"strings"
-
-	"github.com/braedonsaunders/ether/internal/diagnostics"
 )
 
 func supportDocumentPath(path string) bool {
@@ -78,19 +77,19 @@ func journalTitles(a, b []journalItem) []string {
 	}
 	return out
 }
-func summarizePlexResponse(raw []byte, truncated bool, encoding string) *diagnostics.ResponseSummary {
+func summarizePlexResponse(raw []byte, truncated bool, encoding string) *frontend.DiagnosticResponseSummary {
 	if truncated {
-		return &diagnostics.ResponseSummary{Truncated: true}
+		return &frontend.DiagnosticResponseSummary{Truncated: true}
 	}
 	if strings.EqualFold(strings.TrimSpace(encoding), "gzip") {
 		gz, err := gzip.NewReader(bytes.NewReader(raw))
 		if err != nil {
-			return &diagnostics.ResponseSummary{Truncated: true}
+			return &frontend.DiagnosticResponseSummary{Truncated: true}
 		}
 		defer gz.Close()
 		decoded, err := io.ReadAll(io.LimitReader(gz, (1<<20)+1))
 		if err != nil || len(decoded) > 1<<20 {
-			return &diagnostics.ResponseSummary{Truncated: true}
+			return &frontend.DiagnosticResponseSummary{Truncated: true}
 		}
 		raw = decoded
 	}
@@ -105,7 +104,7 @@ func summarizePlexResponse(raw []byte, truncated bool, encoding string) *diagnos
 	}
 	c.Metadata = append(c.Metadata, c.Videos...)
 	c.Metadata = append(c.Metadata, c.Tracks...)
-	out := &diagnostics.ResponseSummary{Size: c.Size, TotalSize: c.TotalSize, ItemCount: len(c.Metadata) + len(c.Directory), Items: journalTitles(c.Metadata, c.Directory)}
+	out := &frontend.DiagnosticResponseSummary{Size: c.Size, TotalSize: c.TotalSize, ItemCount: len(c.Metadata) + len(c.Directory), Items: journalTitles(c.Metadata, c.Directory)}
 	if c.GeneralDecisionCode != nil {
 		code := *c.GeneralDecisionCode
 		switch {
@@ -122,7 +121,7 @@ func summarizePlexResponse(raw []byte, truncated bool, encoding string) *diagnos
 	for _, h := range c.Hubs {
 		h.Metadata = append(h.Metadata, h.Videos...)
 		h.Metadata = append(h.Metadata, h.Tracks...)
-		out.Hubs = append(out.Hubs, diagnostics.HubSummary{Identifier: h.Identifier, Title: h.Title, Style: h.Style, Type: h.Type, Size: h.Size, More: bool(h.More), ItemCount: len(h.Metadata) + len(h.Directory), Items: journalTitles(h.Metadata, h.Directory)})
+		out.Hubs = append(out.Hubs, frontend.DiagnosticHubSummary{Identifier: h.Identifier, Title: h.Title, Style: h.Style, Type: h.Type, Size: h.Size, More: bool(h.More), ItemCount: len(h.Metadata) + len(h.Directory), Items: journalTitles(h.Metadata, h.Directory)})
 	}
 	return out
 }

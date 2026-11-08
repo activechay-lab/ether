@@ -23,7 +23,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/diagnostics"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
@@ -179,7 +178,7 @@ type Deps struct {
 	// Resources is this node's host sample ring for /statistics/resources.
 	Resources frontend.ResourceStatistics
 	// Support records neutral request and playback facts. Nil leaves playback unchanged.
-	Support *diagnostics.Recorder
+	Support frontend.DiagnosticRecorder
 	// HomeCache serves Plex Home from memory (home_cache.go); nil builds
 	// every Home request.
 	HomeCache *HomeCacheSource
