@@ -94,8 +94,22 @@ func TestCachedPortraitTitlesWorkBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("exact-pair plan: %s", strings.Join(plan, "; "))
-	if store.DialectOf(db) == store.SQLite && (!strings.Contains(strings.Join(plan, " "), "catalog_credits_person") || strings.Contains(strings.Join(plan, " "), "SCAN cr")) {
-		t.Fatal("credit lookup lost its person/key index")
+	if store.DialectOf(db) == store.SQLite {
+		indexedPair := false
+		for _, detail := range plan {
+			if strings.Contains(detail, "SCAN cr") {
+				t.Fatal("credit lookup scans credits")
+			}
+			// Either the person/key index or the composite primary key can
+			// satisfy this exact pair. Require both equality constraints on
+			// the indexed SEARCH, independent of the planner's index choice.
+			if strings.Contains(detail, "SEARCH cr USING ") && strings.Contains(detail, "key=?") && strings.Contains(detail, "person_tmdb=?") {
+				indexedPair = true
+			}
+		}
+		if !indexedPair {
+			t.Fatal("credit lookup lost indexed exact-pair access")
+		}
 	}
 	// A full cached read above must not freeze the credit seen by this proof.
 	if _, err := db.ExecContext(ctx, `DELETE FROM catalog_credits WHERE key=?`, int64(key)); err != nil {
