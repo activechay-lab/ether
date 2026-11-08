@@ -194,6 +194,9 @@ func (s *Service) serveBroadcastDASH(w http.ResponseWriter, r *http.Request, ss 
 	}
 	codecs, width, height, bandwidth := index.Format()
 	first := segments[0]
+	if tracks, ok := index.(transcode.DASHSegmentIndex); ok {
+		return s.serveBroadcastTrackDASH(w, r, ss, tracks, segments)
+	}
 	ss.mu.Lock()
 	lease := ss.broadcast
 	ss.mu.Unlock()
@@ -220,17 +223,22 @@ func (s *Service) serveBroadcastDASH(w http.ResponseWriter, r *http.Request, ss 
 	return nil
 }
 func (s *Service) serveBroadcastDASHPart(w http.ResponseWriter, r *http.Request, ss *session, rep int, seq int64, init bool) {
-	if rep != 0 {
-		writeStreamError(w, core.ErrNotFound)
-		return
-	}
 	index, err := s.broadcastSegments(r.Context(), ss)
 	if err != nil {
 		writeStreamError(w, err)
 		return
 	}
+	tracks, separate := index.(transcode.DASHSegmentIndex)
+	if !separate && rep != 0 {
+		writeStreamError(w, core.ErrNotFound)
+		return
+	}
 	if init {
-		index.ServeInit(w, r)
+		if separate {
+			tracks.ServeDASHTrack(w, r, rep, seq, true)
+		} else {
+			index.ServeInit(w, r)
+		}
 		return
 	}
 	segments := index.Since(seq-1, 1)
@@ -245,5 +253,53 @@ func (s *Service) serveBroadcastDASHPart(w http.ResponseWriter, r *http.Request,
 	s.touchMedia(ss)
 	observed := s.observeMedia(w, ss)
 	defer observed.done()
-	index.ServeFMP4(observed, r, seq)
+	if separate {
+		tracks.ServeDASHTrack(observed, r, rep, seq, false)
+	} else {
+		index.ServeFMP4(observed, r, seq)
+	}
+}
+
+// Separate AdaptationSets give browser capability checks real audio parameters.
+// Older clients otherwise guess a 1 Hz sample rate for multiplexed video/audio.
+func (s *Service) serveBroadcastTrackDASH(w http.ResponseWriter, r *http.Request, ss *session, index transcode.DASHSegmentIndex, segments []transcode.Segment) error {
+	tracks, err := index.DASHTracks()
+	if err != nil {
+		return err
+	}
+	ss.mu.Lock()
+	lease := ss.broadcast
+	ss.mu.Unlock()
+	if lease == nil {
+		return core.ErrNotAvailable
+	}
+	origin, err := lease.timelineOrigin(r.Context())
+	if err != nil {
+		return err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `<?xml version="1.0" encoding="utf-8"?><MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="dynamic" profiles="urn:mpeg:dash:profile:isoff-live:2011" availabilityStartTime="%s" publishTime="%s" minimumUpdatePeriod="PT2S" minBufferTime="PT2S" timeShiftBufferDepth="PT1800S"><Period id="0" start="PT0S">`, origin.UTC().Format(time.RFC3339Nano), s.o.Now().UTC().Format(time.RFC3339Nano))
+	for rep, t := range tracks {
+		fmt.Fprintf(&b, `<AdaptationSet contentType="%s" mimeType="%s/mp4" segmentAlignment="true"><Representation id="%d" codecs="%s" bandwidth="%d"`, t.Kind, t.Kind, rep, html.EscapeString(t.Codec), t.Bandwidth)
+		if t.Kind == "audio" {
+			fmt.Fprintf(&b, ` audioSamplingRate="%d">`, t.SampleRate)
+			fmt.Fprintf(&b, `<AudioChannelConfiguration schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" value="%d"/>`, t.Channels)
+		} else {
+			fmt.Fprintf(&b, ` width="%d" height="%d">`, t.Width, t.Height)
+		}
+		init := withAuth(fmt.Sprintf("/livetv/sessions/%s/0/dash/%d/header", ss.info.ID, rep), ss.streamGrant)
+		media := withAuth(fmt.Sprintf("/livetv/sessions/%s/0/dash/%d/$Number$.m4s", ss.info.ID, rep), ss.streamGrant)
+		fmt.Fprintf(&b, `<SegmentTemplate timescale="1000000000" startNumber="%d" initialization="%s" media="%s"><SegmentTimeline>`, segments[0].Seq, html.EscapeString(init), html.EscapeString(media))
+		for _, seg := range segments {
+			fmt.Fprintf(&b, `<S t="%d" d="%d"/>`, seg.Start.Sub(origin).Nanoseconds(), seg.Duration.Nanoseconds())
+		}
+		b.WriteString(`</SegmentTimeline></SegmentTemplate></Representation></AdaptationSet>`)
+	}
+	b.WriteString(`</Period></MPD>`)
+	w.Header().Set("Content-Type", "application/dash+xml")
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method != http.MethodHead {
+		fmt.Fprint(w, b.String())
+	}
+	return nil
 }
