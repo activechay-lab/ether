@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/extend"
 	"github.com/braedonsaunders/ether/internal/releasepolicy"
 )
@@ -70,8 +69,9 @@ func TestBuiltinRankingDescriptorsMatchMockFixture(t *testing.T) {
 	}
 }
 
-// Every built-in step and field is registered, in today's order, and the
-// two required steps stay required and immovable.
+// Every built-in rule field is registered, in today's order. Ether
+// registers no ranking steps of its own: profiles rank with their quality
+// order and custom format scores, and only plugins contribute steps.
 func TestBuiltinRankingDescriptorCoverage(t *testing.T) {
 	served := servedRankingDescriptors(t)
 	var steps, fields []extend.Descriptor
@@ -83,28 +83,8 @@ func TestBuiltinRankingDescriptorCoverage(t *testing.T) {
 			fields = append(fields, d)
 		}
 	}
-	if len(steps) != len(core.DefaultRankingSteps) {
-		t.Fatalf("ranking steps = %d, want %d", len(steps), len(core.DefaultRankingSteps))
-	}
-	for i, id := range core.DefaultRankingSteps {
-		d := steps[i]
-		if d.ID != id || d.Order != i || d.Owner != extend.Builtin {
-			t.Fatalf("step %d = %+v, want builtin %q at order %d", i, d, id, i)
-		}
-		meta, err := extend.MetaOf[extend.RankingStepMeta](d)
-		if err != nil {
-			t.Fatalf("step %q meta: %v", id, err)
-		}
-		if meta.DefaultPosition != i {
-			t.Fatalf("step %q defaultPosition = %d, want %d", id, meta.DefaultPosition, i)
-		}
-		required := id == core.RankConnection || id == core.RankVerified
-		if meta.Required != required {
-			t.Fatalf("step %q required = %v, want %v", id, meta.Required, required)
-		}
-		if meta.CanMove == required {
-			t.Fatalf("step %q canMove = %v, want %v", id, meta.CanMove, !required)
-		}
+	if len(steps) != 0 {
+		t.Fatalf("built-in ranking steps registered: %+v", steps)
 	}
 	specs := releasepolicy.BuiltinFields()
 	if len(fields) != len(specs) {

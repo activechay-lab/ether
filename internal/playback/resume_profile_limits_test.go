@@ -16,7 +16,7 @@ func TestProfileLimitChangeForgetsRememberedRelease(t *testing.T) {
 	ctx := context.Background()
 	caps := defaultCaps("c1")
 
-	profile := core.QualityProfile{Name: "1080p", MaxHeight: 1080, MinHeight: 720, PreferredCodecs: []string{"h264"}}
+	profile := core.QualityProfile{Name: "1080p", MaxHeight: 1080, MinHeight: 720, CustomFormatScores: map[string]int{core.CodecFormat("h264"): 6}}
 	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User, string) core.QualityProfile { return profile }
 
 	if err := h.m.Remember(ctx, owner, movieKey, caps, &core.Resolution{Release: core.Release{ID: "A"}, NZB: []byte("nzb-A")}); err != nil {
@@ -63,7 +63,7 @@ func TestProfileLimitChangeForgetsRememberedRelease(t *testing.T) {
 func TestResumeReusedAcrossCapsWithSameConfiguredProfile(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("A", 10_000, time.Minute)}, []string{"A"})
 	ctx := context.Background()
-	configured := core.QualityProfile{Name: "Main", MaxHeight: 2160, MinHeight: 720, AllowHDR: true, AllowDolbyVision: true, PreferredCodecs: []string{"hevc", "h264"}}
+	configured := core.QualityProfile{Name: "Main", MaxHeight: 2160, MinHeight: 720, AllowHDR: true, AllowDolbyVision: true, CustomFormatScores: map[string]int{core.CodecFormat("hevc"): 12, core.CodecFormat("h264"): 6}}
 	key := configured.ComputeSelectionKey()
 	h.m.deps.SelectProfile = func(caps core.ClientCaps, _ *core.User, _ string) core.QualityProfile {
 		p := configured // clamped copy per caps, key untouched
@@ -74,7 +74,7 @@ func TestResumeReusedAcrossCapsWithSameConfiguredProfile(t *testing.T) {
 		p.AllowHDR = p.AllowHDR && caps.HDR10
 		p.AllowDolbyVision = p.AllowDolbyVision && caps.DolbyVision
 		if len(caps.VideoCodecs) > 0 && !caps.HDR10 {
-			p.PreferredCodecs = []string{"h264"}
+			p.CustomFormatScores = map[string]int{core.CodecFormat("h264"): 6}
 		}
 		return p
 	}
@@ -145,7 +145,7 @@ func TestPipeNameEditForgetsRememberedRelease(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("A", 10_000, time.Minute), mkv("B", 10_000, time.Minute)}, []string{"B", "A"})
 	ctx := context.Background()
 	caps := defaultCaps("c1")
-	profile := core.QualityProfile{Name: "Owner | 4K", MaxHeight: 1080, MinHeight: 720, PreferredCodecs: []string{"h264"}}
+	profile := core.QualityProfile{Name: "Owner | 4K", MaxHeight: 1080, MinHeight: 720, CustomFormatScores: map[string]int{core.CodecFormat("h264"): 6}}
 	h.m.deps.SelectProfile = func(core.ClientCaps, *core.User, string) core.QualityProfile { return profile }
 
 	if err := h.m.Remember(ctx, owner, movieKey, caps, &core.Resolution{Release: core.Release{ID: "A"}, NZB: []byte("nzb-A")}); err != nil {
@@ -252,7 +252,7 @@ func TestWarmCatalogueLanguageIsContextNotAProfileFact(t *testing.T) {
 func TestNonPlexResumeSkipsUnsupportedAV1Release(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("av1-rel", 10_000, time.Minute), mkv("hevc-rel", 10_000, time.Minute)}, []string{"hevc-rel", "av1-rel"})
 	ctx := context.Background()
-	configured := core.QualityProfile{Name: "Auto", MaxHeight: 2160, MinHeight: 720, PreferredCodecs: []string{"av1", "hevc", "h264"}}
+	configured := core.QualityProfile{Name: "Auto", MaxHeight: 2160, MinHeight: 720, CustomFormatScores: map[string]int{core.CodecFormat("av1"): 18, core.CodecFormat("hevc"): 12, core.CodecFormat("h264"): 6}}
 	key := configured.ComputeSelectionKey()
 	h.m.deps.SelectProfile = func(caps core.ClientCaps, _ *core.User, _ string) core.QualityProfile {
 		p := configured

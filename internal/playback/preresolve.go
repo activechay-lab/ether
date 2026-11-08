@@ -465,7 +465,7 @@ func warmAcceptable(e *warmEntry, profile core.QualityProfile, caps core.ClientC
 		return false
 	}
 	if !reflect.DeepEqual(e.profileObj.ReleaseRules, profile.ReleaseRules) ||
-		!reflect.DeepEqual(e.profileObj.EffectiveRanking(), profile.EffectiveRanking()) {
+		!reflect.DeepEqual(e.profileObj.PluginScores, profile.PluginScores) {
 		return false
 	}
 	if e.originalAudio && e.originalLanguage != strings.TrimSpace(originalLanguage) {

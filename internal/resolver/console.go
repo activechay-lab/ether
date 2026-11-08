@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/releasepolicy"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -270,13 +271,9 @@ func (s *Service) consoleProfileForMedia(name, media string) (core.QualityProfil
 }
 
 func copyProfile(p core.QualityProfile) core.QualityProfile {
-	p.PreferredSources = append([]core.Source(nil), p.PreferredSources...)
-	p.PreferredCodecs = append([]string(nil), p.PreferredCodecs...)
-	p.PreferredAudio = append([]string(nil), p.PreferredAudio...)
 	p.PreferredLanguages = append([]string(nil), p.PreferredLanguages...)
 	p.AllowedQualities = append([]string(nil), p.AllowedQualities...)
-	p.QualityOrder = cloneQualityOrder(p.QualityOrder)
-	p.Ranking = append([]string(nil), p.Ranking...)
+	p.QualityOrder = config.CloneQualityOrder(p.QualityOrder)
 	if p.CustomFormatScores != nil {
 		m := make(map[string]int, len(p.CustomFormatScores))
 		for k, v := range p.CustomFormatScores {
@@ -420,17 +417,20 @@ func (s *Service) SearchReleases(ctx context.Context, t *core.Title, opts Search
 	}
 	out.Routing = trace.Routing
 	// rankCandidates writes one trace row per result, in result order.
-	now := s.now()
 	for i, ct := range trace.Candidates {
 		rel := results[i]
 		cr := ConsoleRelease{Preferences: ct.Preferences, Release: browserRelease(rel), Score: ct.Score, CustomFormats: ct.CustomFormats,
 			Compatibility: ct.CompatibilityReason, Rejected: ct.Rejected, Reason: ct.Reason,
 			Rank: rank[rel.ID], Winner: rel.ID == out.Winner && !ct.Rejected, Pinned: ct.Pinned, Route: ct.Route}
 		// Rejected releases are scored too, so the owner can compare.
-		if sc, err := s.scoreRelease(rel, profile, caps, t, now); err == nil {
-			cr.FormatScore = sc.format
+		pol := releasepolicy.Result{}
+		if ct.Preferences != nil {
+			pol = *ct.Preferences
+		}
+		if sc, err := s.scoreRelease(rel, profile, caps, t, pol, formatFacts{}); err == nil {
+			cr.FormatScore = sc.counted
 			if ct.Rejected {
-				cr.Score, cr.CustomFormats = sc.total, sc.matches
+				cr.Score, cr.CustomFormats = float64(sc.total), sc.matches
 			}
 		}
 		cr.Release.Score = cr.Score

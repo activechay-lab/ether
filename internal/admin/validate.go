@@ -70,6 +70,41 @@ func (v *validator) clock(field, s string) {
 // fix in the UI. It is intentionally permissive about empty optional
 // sections (an unconfigured install must remain saveable mid-wizard) and
 // strict about structurally broken values.
+// qualityOrder sources: the release types plus "unknown" (a release that
+// names a resolution but no source).
+var qualitySources = map[string]bool{"remux": true, "bluray": true, "webdl": true, "webrip": true, "hdtv": true, "dvd": true, "unknown": true, "cam": true, "screener": true}
+
+// qualityOrderError checks a profile's quality order: at most 64 items of 1
+// to 64 "<source>-<height>" qualities, each quality in one item only. An
+// empty order ranks every quality alike.
+func qualityOrderError(order []core.QualityItem) string {
+	if len(order) > 64 {
+		return "at most 64 quality entries"
+	}
+	seen := map[string]bool{}
+	for i, item := range order {
+		if len(item.Qualities) == 0 || len(item.Qualities) > 64 {
+			return fmt.Sprintf("entry %d must list 1 to 64 qualities", i+1)
+		}
+		for _, q := range item.Qualities {
+			src, h, ok := strings.Cut(q, "-")
+			height := 0
+			if ok {
+				_, err := fmt.Sscanf(h, "%d", &height)
+				ok = err == nil && fmt.Sprint(height) == h && height > 0 && height <= 4320
+			}
+			if !ok || !qualitySources[src] {
+				return fmt.Sprintf("%q is not a quality", q)
+			}
+			if seen[q] {
+				return fmt.Sprintf("%q is listed twice", q)
+			}
+			seen[q] = true
+		}
+	}
+	return ""
+}
+
 func ValidateConfig(cfg config.Config) []FieldError {
 	v := &validator{}
 	ids := map[string]bool{}
@@ -398,24 +433,28 @@ func ValidateConfig(cfg config.Config) []FieldError {
 		} else if msg := releasepolicy.Conflict(p.ReleaseRules); msg != "" {
 			v.add(f+".releaseRules", "%s", msg)
 		}
-		if err := core.ValidateRanking(p.Ranking, p.ReleaseRules); err != nil {
-			v.add(f+".ranking", "%s", err)
+		if msg := qualityOrderError(p.QualityOrder); msg != "" {
+			v.add(f+".qualityOrder", "%s", msg)
 		}
-		switch p.EvaluationMode {
-		case "", core.EvaluationModeEther:
-		case core.EvaluationModeServarr:
-			if len(p.QualityOrder) == 0 {
-				v.add(f+".evaluationMode", "Radarr/Sonarr ranking needs a profile imported from Radarr or Sonarr")
+		prefer := map[string]bool{}
+		for _, r := range p.ReleaseRules {
+			if r.Action == "prefer" {
+				prefer[core.RuleFormatPrefix+r.ID] = true
 			}
-		default:
-			v.add(f+".evaluationMode", "must be %q or %q", core.EvaluationModeServarr, core.EvaluationModeEther)
 		}
-		if len(p.QualityOrder) > 64 {
-			v.add(f+".qualityOrder", "at most 64 quality entries")
+		for id, score := range p.CustomFormatScores {
+			switch {
+			case score < -1e9 || score > 1e9:
+				v.add(f+".customFormatScores", "%s: score must be between -1000000000 and 1000000000", id)
+			case strings.HasPrefix(id, core.BuiltinFormatPrefix) && !core.IsBuiltinFormat(id):
+				v.add(f+".customFormatScores", "%s is not one of Ether's formats", id)
+			case strings.HasPrefix(id, core.RuleFormatPrefix) && !prefer[id]:
+				v.add(f+".customFormatScores", "%s does not name a Prefer rule of this profile", id)
+			}
 		}
-		for gi, group := range p.QualityOrder {
-			if len(group) == 0 || len(group) > 64 {
-				v.add(f+".qualityOrder", "entry %d must list 1 to 64 qualities", gi+1)
+		for id := range p.PluginScores {
+			if !core.IsPluginRankingStep(id) {
+				v.add(f+".pluginScores", "%s is not a plugin ranking step", id)
 			}
 		}
 		if p.MinHeight < 0 || p.MaxHeight < 0 || (p.MaxHeight > 0 && p.MinHeight > p.MaxHeight) {

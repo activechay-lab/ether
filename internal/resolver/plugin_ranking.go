@@ -35,7 +35,7 @@ func (s *Service) rankingSession(ctx context.Context, caps core.ClientCaps) Rank
 	return h.NewResolve(ctx, caps)
 }
 func usesPluginRanking(p core.QualityProfile) bool {
-	for _, step := range p.EffectiveRanking() {
+	for step := range p.PluginScores {
 		if core.IsPluginRankingStep(step) {
 			return true
 		}

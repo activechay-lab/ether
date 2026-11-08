@@ -11,12 +11,12 @@ package resolver
 // of matched formats' profile scores.
 
 import (
+	"maps"
 	"testing"
-	"time"
 
-	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/releaseparse"
+	"github.com/braedonsaunders/ether/internal/releasepolicy"
 )
 
 func parityFormats(t *testing.T) []core.CustomFormat {
@@ -56,7 +56,7 @@ func parseRelease(name string, size int64) core.Release {
 }
 
 func TestParityGoldenReleaseScores(t *testing.T) {
-	s, err := NewFormatScorer(parityFormats(t), nil)
+	s, err := NewFormatScorer(parityFormats(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestParityRequiredNegateGrouping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, _ := NewFormatScorer(defs, map[string]int{"x": 7})
+	s, _ := NewFormatScorer(withDefaults(defs, map[string]int{"x": 7}))
 	for _, tt := range []struct {
 		name string
 		want int
@@ -134,7 +134,7 @@ func TestParityRequiredNegateGrouping(t *testing.T) {
 	// A format that matches twice via several specs still counts once.
 	defs2, _ := ImportCustomFormats([]byte(`{"trash_id":"y","name":"Y","specifications":[
  {"implementation":"ReleaseTitleSpecification","fields":{"value":"a"}},{"implementation":"ReleaseTitleSpecification","fields":{"value":"b"}}]}`))
-	s2, _ := NewFormatScorer(defs2, map[string]int{"y": 3})
+	s2, _ := NewFormatScorer(withDefaults(defs2, map[string]int{"y": 3}))
 	if got, _, _ := s2.Score(core.Release{Name: "ab"}); got != 3 {
 		t.Errorf("multi-match format scored %d, want 3", got)
 	}
@@ -147,7 +147,7 @@ func TestParitySonarrAndRadarrSourceEnums(t *testing.T) {
 			t.Fatal(err)
 		}
 		defs[0].App = app
-		s, err := NewFormatScorer(defs, map[string]int{"s": 1})
+		s, err := NewFormatScorer(withDefaults(defs, map[string]int{"s": 1}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -178,7 +178,7 @@ func TestParitySonarrAndRadarrSourceEnums(t *testing.T) {
 // treats max 0 as unbounded. Pins Ether's current behaviour.
 func TestParityDivergenceSizeBounds(t *testing.T) {
 	defs, _ := ImportCustomFormats([]byte(`{"trash_id":"z","name":"Z","specifications":[{"implementation":"SizeSpecification","fields":{"min":10,"max":20}}]}`))
-	s, _ := NewFormatScorer(defs, map[string]int{"z": 1})
+	s, _ := NewFormatScorer(withDefaults(defs, map[string]int{"z": 1}))
 	const gib = int64(1 << 30)
 	for _, tt := range []struct {
 		size       int64
@@ -192,34 +192,12 @@ func TestParityDivergenceSizeBounds(t *testing.T) {
 	}
 }
 
-// DIVERGENCE (high if hit): a format missing from the profile's score map
-// is scored by the global map / the TRaSH default in Ether, but contributes
-// 0 in Radarr (formats not in the profile are ignored). Import and sync
-// compensate by writing explicit 0 entries (qualitysync.go, qualityimport.go);
-// hand-edited or older profiles do not get that protection.
-func TestParityDivergenceUnlistedFormatInheritsDefault(t *testing.T) {
-	defs := parityFormats(t)
-	for i := range defs {
-		if defs[i].ID == "web-t1" {
-			defs[i].Scores = map[string]int{"default": 1700}
-		}
-	}
-	s, _ := NewFormatScorer(defs, nil)
-	rel := parseRelease("The.Matrix.1999.1080p.WEB-DL.DDP5.1.H.264-ABBiE", 0)
-	if got, _, _ := s.ScoreWithScores(rel, map[string]int{"web-t1": 0}); got != 0 {
-		t.Fatalf("explicit 0 must mask the guide default, got %d", got)
-	}
-	if got, _, _ := s.ScoreWithScores(rel, map[string]int{}); got != 1700 { // Radarr: 0
-		t.Fatalf("unlisted format: got %d, pinned 1700", got)
-	}
-}
-
 // 0-score formats: Servarr counts them as matched with +0, so they never
 // change a total or the min-score test. In Ether too (total is identical);
 // the only differences are that they appear in match lists/traces and that
 // an explicit 0 is what blocks inheritance (previous test).
 func TestParityZeroScoreFormatsDoNotMoveTotals(t *testing.T) {
-	s, _ := NewFormatScorer(parityFormats(t), nil)
+	s, _ := NewFormatScorer(parityFormats(t))
 	with, m1, _ := s.ScoreWithScores(parseRelease("The.Matrix.1999.1080p.AMZN.WEB-DL.DDP5.1.H.264-ABBiE", 0), parityScores)
 	without, m2, _ := s.ScoreWithScores(parseRelease("The.Matrix.1999.1080p.WEB-DL.DDP5.1.H.264-ABBiE", 0), parityScores)
 	if with != without || len(m1) != len(m2)+1 {
@@ -227,54 +205,44 @@ func TestParityZeroScoreFormatsDoNotMoveTotals(t *testing.T) {
 	}
 }
 
-func TestParityMinScoreResolution(t *testing.T) {
-	five, nine := 5, 9
-	if got := minFormatScore(config.Resolver{MinCustomFormatScore: &nine}, core.QualityProfile{MinCustomFormatScore: &five}); *got != 5 {
-		t.Fatalf("profile min must win, got %d", *got)
-	}
-	if got := minFormatScore(config.Resolver{MinCustomFormatScore: &nine}, core.QualityProfile{}); *got != 9 {
-		t.Fatalf("global fallback, got %d", *got)
-	}
-}
-
-// The built-in Proper/Repack bonus (+6) is skipped when the profile scores
-// a Repack/Proper custom format, so the boost equals the profile's score
-// (as in Servarr); without such a format the built-in bonus still applies.
+// Ether's built-in Repack/Proper format (+6) is skipped when the profile
+// scores its own Repack/Proper custom format, so the boost equals the
+// profile's score (as in Servarr); without such a format the built-in one
+// applies.
 func TestParityRevisionBonusNotDoubleCounted(t *testing.T) {
 	cfg := testCfg()
 	svc := New(&fakeIndexer{releases: movieReleases()}, nil, nil, cfg, Options{})
 	defer svc.Close()
-	s, _ := NewFormatScorer(parityFormats(t), nil)
+	s, _ := NewFormatScorer(parityFormats(t))
 	svc.scorer = s
 	title := matrixTitle()
-	now := time.Now()
 	proper := parseRelease("The.Matrix.1999.PROPER.1080p.BluRay.x264-NOGRP", 0)
 	plain := parseRelease("The.Matrix.1999.1080p.BluRay.x264-NOGRP", 0)
-	delta := func(scores map[string]int) float64 {
-		p := core.QualityProfile{Name: "p", MaxHeight: 1080, MinHeight: 720, CustomFormatScores: scores,
-			PreferredCodecs: []string{"h264", "hevc"}, PreferredSources: []core.Source{core.SourceBluRay}}
-		a, err := svc.scoreRelease(proper, p, appleTVCaps(), title, now)
+	delta := func(scores map[string]int) int {
+		scores = maps.Clone(scores)
+		scores[core.FormatRepackProper] = 6
+		p := core.QualityProfile{Name: "p", MaxHeight: 1080, MinHeight: 720, CustomFormatScores: scores}
+		a, err := svc.scoreRelease(proper, p, appleTVCaps(), title, releasepolicy.Result{}, formatFacts{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		b, err := svc.scoreRelease(plain, p, appleTVCaps(), title, now)
+		b, err := svc.scoreRelease(plain, p, appleTVCaps(), title, releasepolicy.Result{}, formatFacts{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return a.total - b.total
 	}
 	if d := delta(parityScores); d != 5 {
-		t.Fatalf("profile scoring Repack/Proper: delta %.1f, want 5", d)
+		t.Fatalf("profile scoring Repack/Proper: delta %d, want 5", d)
 	}
-	zero := map[string]int{"repack": 0}
-	if d := delta(zero); d != 6 {
-		t.Fatalf("Repack/Proper scored 0: built-in bonus should remain, delta %.1f want 6", d)
+	if d := delta(map[string]int{"repack": 0}); d != 6 {
+		t.Fatalf("Repack/Proper scored 0: built-in format should remain, delta %d want 6", d)
 	}
 	if d := delta(map[string]int{"repack": 5, "hd-t1": 0}); d != 5 {
-		t.Fatalf("delta %.1f want 5", d)
+		t.Fatalf("delta %d want 5", d)
 	}
-	// Unrelated formats do not suppress the bonus.
+	// Unrelated formats do not suppress the built-in one.
 	if d := delta(map[string]int{"hd-t1": 1800}); d != 6 {
-		t.Fatalf("no revision format scored: delta %.1f want 6", d)
+		t.Fatalf("no revision format scored: delta %d want 6", d)
 	}
 }

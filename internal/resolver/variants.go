@@ -366,7 +366,7 @@ func bestCompat(pool []candidate, caps core.ClientCaps, used map[string]bool) (c
 		if rel.Info.HDR10 || rel.Info.DolbyVision {
 			continue
 		}
-		sc := rel.Score / 10 // overall rank as tiebreak
+		sc := 0.0 // ties keep the pool's rank order
 		if rel.Info.Height == target {
 			sc += 100
 		} else if rel.Info.Height == 720 {

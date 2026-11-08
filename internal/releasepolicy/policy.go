@@ -297,27 +297,6 @@ func Better(a, b Result) bool {
 	return false
 }
 
-// BetterByRanking compares policy results using the rule:<id> order in ranking,
-// falling back to Better when ranking carries no rule entries.
-func BetterByRanking(a, b Result, ranking []string) bool {
-	if a.Fallback != b.Fallback {
-		return a.Fallback < b.Fallback
-	}
-	hasRules := false
-	for _, step := range ranking {
-		if id, ok := strings.CutPrefix(step, core.RankRulePrefix); ok && id != "" {
-			hasRules = true
-			if pa, pb := a.PreferRule(id), b.PreferRule(id); pa != pb {
-				return pa > pb
-			}
-		}
-	}
-	if !hasRules {
-		return Better(a, b)
-	}
-	return false
-}
-
 // Equivalent reports the same fallback tier and the same ordered
 // preference vector. Health racing may overtake only an equivalent
 // candidate; a fallback must not pass a still-valid primary.

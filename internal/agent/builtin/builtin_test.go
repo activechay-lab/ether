@@ -22,7 +22,7 @@ type fakeEnv struct {
 	pinned        []string
 	createdSpecs  []core.CollectionSpec
 	genCalls      int
-	rankings      map[string][]string
+	scores        map[string]map[string]int
 	rules         map[string][]core.ReleaseRule
 	stremioURLs   []string
 	m3uSources    []livetv.Source
@@ -33,7 +33,7 @@ type fakeEnv struct {
 
 func newFakeEnv() (*fakeEnv, builtin.Deps) {
 	f := &fakeEnv{
-		rankings:  map[string][]string{"Default": append([]string(nil), core.DefaultRankingSteps...)},
+		scores:    map[string]map[string]int{"Default": {"ether:remux": 8000}},
 		rules:     map[string][]core.ReleaseRule{"Default": {}},
 		frontends: map[string]bool{"plex": true, "jellyfin": false},
 		plugins:   map[string]bool{"subtitles-pro": true},
@@ -356,16 +356,18 @@ func (f *fakeEnv) Approval(ctx context.Context, id string) (builtin.ApprovalInfo
 func (f *fakeEnv) Profiles(ctx context.Context) ([]builtin.ProfileInfo, error) {
 	return []builtin.ProfileInfo{
 		{
-			Name:    "Default",
-			Ranking: f.rankings["Default"],
-			Rules:   f.rules["Default"],
+			Name:   "Default",
+			Scores: f.scores["Default"],
+			Rules:  f.rules["Default"],
 		},
 	}, nil
 }
 
-func (f *fakeEnv) SetRanking(ctx context.Context, profile, media string, ranking []string) error {
+func (f *fakeEnv) SetFormatScores(ctx context.Context, profile, media string, scores map[string]int) error {
 	f.writes++
-	f.rankings[profile] = append([]string(nil), ranking...)
+	for id, v := range scores {
+		f.scores[profile][id] = v
+	}
 	return nil
 }
 
@@ -424,7 +426,7 @@ func TestBuiltinCatalogueAndSchemaInvariants(t *testing.T) {
 	wantWrite := []string{
 		"livetv_guide_match",
 		"collection_create_from_prompt", "release_blocklist", "release_pin",
-		"ranking_reorder", "rule_add", "source_add_stremio", "source_add_m3u",
+		"format_scores_set", "rule_add", "source_add_stremio", "source_add_m3u",
 		"frontend_enable", "plugin_enable", "server_restart", "livetv_look_save", "livetv_channel_look",
 	}
 
@@ -572,9 +574,6 @@ func TestWriteToolsProposeBeforeMutating(t *testing.T) {
 	}
 	p := tools.Principal{ViewerID: 1, IsOwner: true, Surface: "console"}
 
-	reordered := append([]string(nil), core.DefaultRankingSteps...)
-	reordered[0], reordered[1] = reordered[1], reordered[0]
-
 	cases := []struct {
 		name  string
 		input map[string]any
@@ -608,11 +607,11 @@ func TestWriteToolsProposeBeforeMutating(t *testing.T) {
 			},
 		},
 		{
-			name:  "ranking_reorder",
-			input: map[string]any{"profile": "Default", "ranking": reordered},
+			name:  "format_scores_set",
+			input: map[string]any{"profile": "Default", "scores": map[string]any{"ether:remux": float64(9000)}},
 			check: func(t *testing.T) {
-				if f.rankings["Default"][0] != reordered[0] {
-					t.Fatalf("expected reordered ranking, got %v", f.rankings["Default"])
+				if f.scores["Default"]["ether:remux"] != 9000 {
+					t.Fatalf("expected the new score, got %v", f.scores["Default"])
 				}
 			},
 		},

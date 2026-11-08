@@ -24,9 +24,10 @@ func TestImportQualityProfileSkipsQualitiesEtherCannotMatch(t *testing.T) {
 	if !slices.Equal(p.AllowedQualities, want) {
 		t.Fatalf("qualities %v, want %v", p.AllowedQualities, want)
 	}
-	// Grouped qualities rank equally, so the group's sources follow Ether's order.
-	if got := p.PreferredSources; !slices.Equal(got, []core.Source{core.SourceRemux, core.SourceBluRay, core.SourceWEBDL, core.SourceWEBRip, core.SourceHDTV, core.SourceDVD}) {
-		t.Fatalf("sources %v", got)
+	// The quality order keeps the profile's items; grouped qualities rank
+	// equally.
+	if len(p.QualityOrder) != 3 || p.QualityOrder[1].Name != "Bluray|WEB 1080p" || !slices.Equal(p.QualityOrder[1].Qualities, []string{"webrip-1080", "bluray-1080", "webdl-1080", "hdtv-1080"}) {
+		t.Fatalf("quality order %+v", p.QualityOrder)
 	}
 	if p.MinHeight != 480 || p.MaxHeight != 1080 || p.AllowHDR || *p.MinCustomFormatScore != 100 || p.MaxSizeMBPerMin != 0 || p.MinSizeMBPerMin != 5 {
 		t.Fatalf("profile %+v", p)
@@ -68,7 +69,7 @@ func TestImportQualityProfileUHDAndLanguage(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := imp.Profile
-	if !p.AllowHDR || !p.AllowDolbyVision || p.PreferredCodecs[0] != "hevc" || p.MinHeight != 2160 {
+	if !p.AllowHDR || !p.AllowDolbyVision || p.MinHeight != 2160 {
 		t.Fatalf("UHD profile %+v", p)
 	}
 	if !slices.Equal(p.PreferredLanguages, []string{"french"}) || imp.ScoreSet != "french-multi-vf" {
@@ -170,9 +171,6 @@ func TestQualityImportApplyKeepsOtherProfilesRanking(t *testing.T) {
 	if added.Name != "SQP (3)" || added.CustomFormatScores["other"] != 0 || added.CustomFormatScores["new"] != 50 {
 		t.Fatalf("imported profile %+v", added)
 	}
-	if _, ok := added.CustomFormatScores["other"]; !ok {
-		t.Fatal("formats outside the profile must score 0 for it")
-	}
 	var ids []string
 	for _, f := range cfg.Resolver.CustomFormats {
 		ids = append(ids, f.ID)
@@ -180,14 +178,12 @@ func TestQualityImportApplyKeepsOtherProfilesRanking(t *testing.T) {
 	if !slices.Equal(ids, []string{"have", "other", "new", "plain"}) || cfg.Resolver.CustomFormats[0].Name != "Have (mine)" {
 		t.Fatalf("formats %v (existing must stay untouched)", cfg.Resolver.CustomFormats)
 	}
+	// Other profiles don't list the added formats, so they score 0 there.
 	mine := cfg.Quality.Profiles[2].CustomFormatScores
-	if mine["new"] != 3 || mine["plain"] != 0 || len(mine) != 2 {
-		t.Fatalf("other profile scores %v: added formats must score 0, own scores kept", mine)
+	if mine["new"] != 3 || mine["plain"] != 0 || len(mine) != 1 {
+		t.Fatalf("other profile scores %v: own scores kept, nothing added", mine)
 	}
-	if _, ok := cfg.Quality.Profiles[0].CustomFormatScores["plain"]; !ok {
-		t.Fatal("first profile missing a 0 score for an added format")
-	}
-	if _, err := NewFormatScorer(cfg.Resolver.CustomFormats, cfg.Resolver.CustomFormatScores); err != nil {
+	if _, err := NewFormatScorer(cfg.Resolver.CustomFormats); err != nil {
 		t.Fatalf("import broke scoring: %v", err)
 	}
 	if err := plan.Apply(&cfg, "Mine"); !errors.Is(err, ErrProfileExists) {
@@ -215,7 +211,7 @@ func TestSonarrSourceEnum(t *testing.T) {
 	radarr := format("r", "Radarr 7", map[string]int{"default": 1}, spec)
 	sonarr := format("s", "Sonarr 7", map[string]int{"default": 1}, spec)
 	sonarr.App = AppSonarr
-	s, err := NewFormatScorer([]core.CustomFormat{radarr, sonarr}, nil)
+	s, err := NewFormatScorer([]core.CustomFormat{radarr, sonarr})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +234,7 @@ func TestSonarrSourceEnum(t *testing.T) {
 	}
 	bluray := format("b", "Sonarr Bluray", nil, `[{"name":"s","implementation":"SourceSpecification","fields":{"value":6}}]`)
 	bluray.App = AppSonarr
-	s, _ = NewFormatScorer([]core.CustomFormat{bluray}, nil)
+	s, _ = NewFormatScorer([]core.CustomFormat{bluray})
 	if _, ms, _ := s.Score(core.Release{Info: core.ReleaseInfo{Source: core.SourceRemux}}); len(ms) != 0 {
 		t.Fatal("Sonarr's Bluray matched a remux")
 	}
@@ -250,7 +246,7 @@ func TestSonarrSourceEnum(t *testing.T) {
 		}(),
 		func() core.CustomFormat { f := format("y", "Y", nil, titleSpec); f.App = "lidarr"; return f }(),
 	} {
-		if _, err := NewFormatScorer([]core.CustomFormat{bad}, nil); err == nil {
+		if _, err := NewFormatScorer([]core.CustomFormat{bad}); err == nil {
 			t.Errorf("%s accepted", bad.Name)
 		}
 	}
@@ -287,36 +283,6 @@ func TestImportQualityProfileDetectsApp(t *testing.T) {
 		}
 		if imp.App != tc.want {
 			t.Errorf("%s: app %q, want %q", name, imp.App, tc.want)
-		}
-	}
-}
-
-func TestImportQualityProfileLosslessAudio(t *testing.T) {
-	lossless := []string{"truehd", "dtshd", "eac3", "ac3", "dts", "aac"}
-	for name, tc := range map[string]struct {
-		body string
-		want []string
-	}{
-		"1080p web": {
-			`{"name":"Web","items":[{"name":"WEBDL-1080p","allowed":true}]}`,
-			[]string{"eac3", "ac3", "aac"},
-		},
-		"2160p": {
-			`{"name":"UHD","items":[{"name":"WEBDL-2160p","allowed":true}]}`,
-			lossless,
-		},
-		"1080p remux": {
-			`{"name":"Remux","items":[{"name":"Bluray-1080p Remux","allowed":true}]}`,
-			lossless,
-		},
-	} {
-		imp, err := ImportQualityProfile([]byte(tc.body))
-		if err != nil {
-			t.Errorf("%s: %v", name, err)
-			continue
-		}
-		if !slices.Equal(imp.Profile.PreferredAudio, tc.want) {
-			t.Errorf("%s: audio %v, want %v", name, imp.Profile.PreferredAudio, tc.want)
 		}
 	}
 }

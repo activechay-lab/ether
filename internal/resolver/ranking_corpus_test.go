@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,8 @@ var corpusProfiles = []struct{ name, doc string }{
 	{"4K-french", `{"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":["fr"],"allowCam":false,"ranking":["language","connection","resolution","releaseType","hdr","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
 	{"4K-source-first", `{"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":null,"allowCam":false,"ranking":["language","connection","releaseType","resolution","hdr","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
 	{"4K-codec-audio", `{"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":null,"allowCam":false,"ranking":["language","connection","resolution","releaseType","hdr","audioFormat","videoCodec","customScore","verified","size"]}]}}`},
+	{"4K-prefer-rule", `{"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":null,"allowCam":false,"releaseRules":[{"id":"trusted","name":"Trusted groups","action":"prefer","match":"any","conditions":[{"field":"group","operator":"equals","value":"FLUX"},{"field":"group","operator":"equals","value":"FraMeSToR"}]}],"ranking":["rule:trusted","language","connection","resolution","releaseType","hdr","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
+	{"4K-hdr-first", `{"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":null,"allowCam":false,"ranking":["language","connection","hdr","resolution","releaseType","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
 	{"4K-owner-formats", `{"resolver":{"customFormats":[{"id":"good-groups","name":"Good groups","specifications":[{"name":"groups","implementation":"ReleaseGroupSpecification","fields":{"value":"^(FLUX|NTb|BYNDR|FraMeSToR)$"}}]},{"id":"lq","name":"LQ","specifications":[{"name":"lq","implementation":"ReleaseGroupSpecification","fields":{"value":"^(YIFY|YTS|RARBG)$"}}]},{"id":"x265-hd","name":"x265 (HD)","specifications":[{"name":"x265","implementation":"ReleaseTitleSpecification","fields":{"value":"[xh][ ._-]?265|HEVC"}},{"name":"not 2160","implementation":"ResolutionSpecification","negate":true,"required":true,"fields":{"value":2160}}]}],"customFormatScores":{"good-groups":40,"lq":-500}},"quality":{"default":"4K","profiles":[{"name":"4K","mediaType":"movie","maxHeight":2160,"minHeight":720,"allowHdr":true,"allowDolbyVision":true,"preferredSources":["remux","bluray","webdl","webrip"],"preferredCodecs":["hevc","av1","h264"],"preferredAudio":["truehd","eac3","dtshd","ac3","aac"],"minSizeMbPerMin":15,"maxSizeMbPerMin":1000,"preferredLanguages":null,"allowCam":false,"customFormatScores":{"x265-hd":-30},"ranking":["language","connection","resolution","releaseType","hdr","customScore","verified","videoCodec","audioFormat","size"]}]}}`},
 }
 
@@ -165,8 +168,16 @@ func corpusConfig(t *testing.T, doc string) config.Config {
 	return st.Get()
 }
 
-// rankCorpus ranks every pool for every profile fixture and client.
-func rankCorpus(t *testing.T) map[string][]string {
+// corpusPick is what the comparer saw of one ranked release.
+type corpusPick struct {
+	position, cf, height int
+	gates                [3]int // fallback tier, accepted language, connection fit
+}
+
+// rankCorpus ranks every pool for every profile fixture and client: the
+// order per case, and each ranked release's quality position, custom
+// format score and height.
+func rankCorpus(t *testing.T) (map[string][]string, map[string]map[string]corpusPick) {
 	t.Helper()
 	pools := corpusPools()
 	titles := map[string]*core.Title{}
@@ -174,6 +185,7 @@ func rankCorpus(t *testing.T) map[string][]string {
 		titles[ct.name] = ct.title
 	}
 	out := map[string][]string{}
+	picks := map[string]map[string]corpusPick{}
 	for _, pf := range corpusProfiles {
 		cfg := corpusConfig(t, pf.doc)
 		cfg.Resolver.SearchCacheTTL = config.Duration(30 * time.Minute)
@@ -194,31 +206,47 @@ func rankCorpus(t *testing.T) map[string][]string {
 				if err != nil {
 					t.Fatal(err)
 				}
+				name := pf.name + "|" + cl.name + "|" + key
 				ids := make([]string, len(cands))
+				picks[name] = map[string]corpusPick{}
 				for i, c := range cands {
 					ids[i] = strings.TrimPrefix(c.rel.ID, strings.Split(key, "/")[0]+"-")
+					lang := 0
+					if c.langOK {
+						lang = 1
+					}
+					picks[name][ids[i]] = corpusPick{position: c.keys.position, cf: c.cf, height: c.rel.Info.Height, gates: [3]int{-c.policy.Fallback, lang, c.bandwidth}}
 				}
-				out[pf.name+"|"+cl.name+"|"+key] = ids
+				out[name] = ids
 			}
 		}
 		s.Close()
 	}
-	return out
+	return out, picks
 }
 
+// Why a converted profile's first pick can differ from the old ranking's.
+const (
+	// Both releases have the same quality and custom format score, and a
+	// later Radarr/Sonarr key (protocol, indexer, seeders or age, size)
+	// decided where Ether's old soft points (age, grabs, bitrate) did.
+	diffStandardTieBreak = "same quality and score: Radarr's later keys decide"
+	// Same quality; the new pick has the higher custom format score, which
+	// now ranks before age, grabs and bitrate instead of being summed with
+	// them.
+	diffScoreBeforeSoftPoints = "same quality: the custom format score now outranks age, grabs and bitrate"
+	// One release names no resolution: it ranks below every listed
+	// quality, as it ranked below every known resolution before, but a
+	// release-type-first ladder used to rank it within its release type.
+	diffUnlabelledResolution = "a release names no resolution"
+	// The old pick fails a streaming gate (an accepted audio language, the
+	// connection) that the new pick passes: a Prefer rule used to rank above
+	// the gates; now the gates come first.
+	diffGateBeforeRule = "the streaming gates now rank before Prefer rules"
+)
+
 func TestRankingCorpusMatchesGolden(t *testing.T) {
-	got := rankCorpus(t)
-	if os.Getenv("ETHER_WRITE_RANKING_GOLDEN") == "1" {
-		b, err := json.MarshalIndent(got, "", " ")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(rankingGoldenPath, append(b, '\n'), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("wrote %d cases", len(got))
-		return
-	}
+	got, picks := rankCorpus(t)
 	b, err := os.ReadFile(rankingGoldenPath)
 	if err != nil {
 		t.Fatal(err)
@@ -227,38 +255,73 @@ func TestRankingCorpusMatchesGolden(t *testing.T) {
 	if err := json.Unmarshal(b, &want); err != nil {
 		t.Fatal(err)
 	}
-	compareCorpus(t, want, got)
-}
-
-// compareCorpus reports top-pick and full-order agreement per profile.
-func compareCorpus(t *testing.T, want, got map[string][]string) {
-	t.Helper()
-	type tally struct{ cases, top, full, accepted int }
+	type tally struct {
+		cases, top, full int
+		why              map[string]int
+	}
 	per := map[string]*tally{}
 	for k, w := range want {
 		g := got[k]
 		name := strings.Split(k, "|")[0]
 		if per[name] == nil {
-			per[name] = &tally{}
+			per[name] = &tally{why: map[string]int{}}
 		}
 		tl := per[name]
 		tl.cases++
-		if len(w) != len(g) {
-			t.Errorf("%s: accepted %d releases, golden %d (%v vs %v)", k, len(g), len(w), g, w)
+		if !sameSet(w, g) {
+			t.Errorf("%s: accepted %v, golden %v", k, g, w)
 			continue
-		}
-		tl.accepted++
-		if len(w) == 0 || w[0] == g[0] {
-			tl.top++
-		} else {
-			t.Logf("top pick differs %s: got %v golden %v", k, g, w)
 		}
 		if strings.Join(w, ",") == strings.Join(g, ",") {
 			tl.full++
 		}
+		if len(w) == 0 || w[0] == g[0] {
+			tl.top++
+			continue
+		}
+		old, now := picks[k][w[0]], picks[k][g[0]]
+		var why string
+		switch {
+		case old.gates != now.gates:
+			why = diffGateBeforeRule
+		case old.position == now.position && old.cf == now.cf:
+			why = diffStandardTieBreak
+		case old.position == now.position && now.cf > old.cf:
+			why = diffScoreBeforeSoftPoints
+		case old.height == 0 || now.height == 0:
+			why = diffUnlabelledResolution
+		default:
+			t.Errorf("%s: unexplained first pick %s (%+v), golden %s (%+v)", k, g[0], now, w[0], old)
+			continue
+		}
+		tl.why[why]++
+		t.Logf("%s: %s first, was %s: %s", k, g[0], w[0], why)
 	}
-	for name, tl := range per {
-		t.Logf("%-18s cases %4d  same accepted set %4d  same first pick %4d (%.1f%%)  same full order %4d (%.1f%%)",
-			name, tl.cases, tl.accepted, tl.top, 100*float64(tl.top)/float64(tl.cases), tl.full, 100*float64(tl.full)/float64(tl.cases))
+	names := make([]string, 0, len(per))
+	for n := range per {
+		names = append(names, n)
 	}
+	slices.Sort(names)
+	for _, name := range names {
+		tl := per[name]
+		t.Logf("%-17s %4d cases: same first pick %5.1f%%, same full order %5.1f%%", name, tl.cases, 100*float64(tl.top)/float64(tl.cases), 100*float64(tl.full)/float64(tl.cases))
+		for why, n := range tl.why {
+			t.Logf("%22d × %s", n, why)
+		}
+		// The shipped profiles must keep at least 98% of their first picks;
+		// every difference above is one of the explained kinds.
+		if shipped := name == "4K" || name == "1080p" || name == "720p"; shipped && float64(tl.top) < 0.98*float64(tl.cases) {
+			t.Errorf("%s: only %d of %d first picks kept", name, tl.top, tl.cases)
+		}
+	}
+}
+
+func sameSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	x, y := slices.Clone(a), slices.Clone(b)
+	slices.Sort(x)
+	slices.Sort(y)
+	return slices.Equal(x, y)
 }

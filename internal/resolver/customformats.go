@@ -39,7 +39,6 @@ type compiledFormat struct {
 }
 type FormatScorer struct {
 	formats []compiledFormat
-	scores  map[string]int
 }
 
 // maxFormatSpecs bounds one format's specifications.
@@ -47,20 +46,19 @@ const maxFormatSpecs = 500
 
 // NewFormatScorer validates every rule before publishing an immutable scorer.
 // .NET lookarounds used by TRaSH are supported; regex execution is time bounded.
-func NewFormatScorer(defs []core.CustomFormat, scores map[string]int) (*FormatScorer, error) {
+func NewFormatScorer(defs []core.CustomFormat) (*FormatScorer, error) {
 	if len(defs) > 1000 {
 		return nil, fmt.Errorf("custom formats: maximum 1000 definitions")
 	}
-	s := &FormatScorer{scores: map[string]int{}}
-	for k, v := range scores {
-		s.scores[k] = v
-	}
+	s := &FormatScorer{}
 	seen := map[string]bool{}
 	for _, d := range defs {
 		if d.ID == "" {
 			d.ID = d.Name
 		}
 		switch {
+		case strings.HasPrefix(d.ID, core.BuiltinFormatPrefix), strings.HasPrefix(d.ID, core.RuleFormatPrefix), core.IsPluginRankingStep(d.ID):
+			return nil, fmt.Errorf("custom format %q: id %q is reserved", d.Name, d.ID)
 		case d.Name == "":
 			return nil, fmt.Errorf("custom format %q: missing name", d.ID)
 		case seen[d.ID]:
@@ -253,69 +251,32 @@ func knownLanguageValue(v int) bool {
 	return ok || v == 0 || v == languageAny || v == languageOriginal
 }
 
-// Score mirrors Starr grouping: every specification type must match; within
-// a type all required rules and at least one rule must match.
-func (s *FormatScorer) Score(r core.Release) (int, []FormatMatch, error) {
-	return s.ScoreWithScores(r, nil)
-}
-
-func (s *FormatScorer) ScoreWithScores(r core.Release, overrides map[string]int) (int, []FormatMatch, error) {
-	return s.ScoreForTitle(r, overrides, "")
-}
-
-// ScoreForTitle scores r for a title whose original language is original
-// (a release-parser language name, "" when unknown), which "Original"
-// language specifications compare against.
-func (s *FormatScorer) ScoreForTitle(r core.Release, overrides map[string]int, original string) (int, []FormatMatch, error) {
-	return s.ScoreForProfile(r, overrides, original, false)
-}
-
-// ScoreForProfile is ScoreForTitle with Servarr's profile semantics when
-// strict: a format the profile does not list contributes 0 (Radarr/Sonarr's
-// QualityProfile.CalculateCustomFormatScore sums FormatItems only), instead of
-// inheriting the global or guide default score. Imported profiles are strict;
-// hand-made sparse maps keep inheriting.
-func (s *FormatScorer) ScoreForProfile(r core.Release, overrides map[string]int, original string, strict bool) (int, []FormatMatch, error) {
-	return s.scoreFormats(r, overrides, original, strict)
-}
-
-// scoreFor scores a release for a title in the profile's evaluation mode.
-// Ether mode keeps Ether's behaviour exactly (an untagged release is in the
-// title's original language, sparse profile maps inherit global scores, the
-// raw release name is matched). Servarr mode builds the language list like
-// AggregateLanguages, scores unlisted formats 0, and matches each app's own
-// release-title form.
-func (s *FormatScorer) scoreFor(rel core.Release, t *core.Title, overrides map[string]int, servarr bool) (int, []FormatMatch, error) {
-	if servarr {
-		rel.Info.Languages = formatLanguages(rel, t)
-	} else if len(rel.Info.Languages) == 0 {
-		rel.Info.Languages = []string{assumedLanguage(t)}
-	}
-	return s.scoreFormats(rel, overrides, originalLanguage(t), servarr)
-}
-
-// scoreFormats is the scoring loop; servarr selects Servarr's unlisted-format
-// and release-title rules.
-func (s *FormatScorer) scoreFormats(r core.Release, overrides map[string]int, original string, servarr bool) (int, []FormatMatch, error) {
+// ScoreForProfile scores r with a profile's scores for title t, as Radarr
+// and Sonarr do: a format matches when every specification type matches
+// (within a type all required rules and at least one rule), its score is
+// the profile's (a format the profile does not list scores 0), the
+// release's languages are built like Radarr's AggregateLanguages, and each
+// app's formats see that app's form of the release title.
+func (s *FormatScorer) ScoreForProfile(r core.Release, scores map[string]int, t *core.Title) (int, []FormatMatch, error) {
 	if s == nil {
 		return 0, nil, nil
 	}
+	r.Info.Languages = formatLanguages(r, t)
+	return s.scoreFormats(r, scores, originalLanguage(t))
+}
+
+// scoreFormats is the scoring loop.
+func (s *FormatScorer) scoreFormats(r core.Release, scores map[string]int, original string) (int, []FormatMatch, error) {
 	total := 0
 	var matches []FormatMatch
-	// Servarr mode matches each app's own release-title form, built once per
-	// app; Ether mode matches the release as it is.
-	var byApp map[string]*core.Release
-	if servarr {
-		byApp = map[string]*core.Release{}
-	}
+	// Each app's release-title form, built once per app.
+	byApp := map[string]*core.Release{}
 	for _, f := range s.formats {
-		in := &r
-		if servarr {
-			if in = byApp[f.def.App]; in == nil {
-				rel := titleInput(f.def.App, r)
-				in = &rel
-				byApp[f.def.App] = in
-			}
+		in := byApp[f.def.App]
+		if in == nil {
+			rel := titleInput(f.def.App, r)
+			in = &rel
+			byApp[f.def.App] = in
 		}
 		type group struct {
 			requiredOK bool
@@ -349,22 +310,31 @@ func (s *FormatScorer) scoreFormats(r core.Release, overrides map[string]int, or
 		if !ok {
 			continue
 		}
-		// Sparse owner maps inherit global scores for formats they do not override.
-		score := f.def.Scores["default"]
-		if v, ok := s.scores[f.def.ID]; ok {
-			score = v
-		}
-		if servarr {
-			// Radarr/Sonarr sum the profile's own FormatItems only.
-			score = 0
-		}
-		if v, ok := overrides[f.def.ID]; ok {
-			score = v
-		}
+		score := scores[f.def.ID]
 		total += score
 		matches = append(matches, FormatMatch{ID: f.def.ID, Name: f.def.Name, Score: score, revision: f.revision})
 	}
 	return total, matches, nil
+}
+
+// scoresRevision reports whether a profile scores a format that recognises
+// Repack/Proper titles (TRaSH's "Repack/Proper", Ether's built-in one). Such
+// a profile ranks revisions by that score alone, Radarr/Sonarr's "Do not
+// prefer"; any other ranks a revision above the original of its quality
+// ("Prefer and upgrade").
+func (s *FormatScorer) scoresRevision(scores map[string]int) bool {
+	if scores[core.FormatRepackProper] != 0 {
+		return true
+	}
+	if s == nil {
+		return false
+	}
+	for _, f := range s.formats {
+		if f.revision && scores[f.def.ID] != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // recognisesRevision reports whether a format has a non-negated release-title

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/langtag"
 	"github.com/braedonsaunders/ether/internal/plugins"
@@ -21,12 +22,12 @@ import (
 // RankingReplayReport summarizes the before/after impact of a plugin ranking
 // step or rule condition across recorded resolver_history traces.
 type RankingReplayReport struct {
-	Mode                string             `json:"mode"` // "ranking_step" or "rule_condition"
-	StepKey             string             `json:"stepKey,omitempty"`
-	ConditionKey        string             `json:"conditionKey,omitempty"`
-	Position            int                `json:"position"`
-	LadderBefore        []string           `json:"ladderBefore"`
-	LadderAfter         []string           `json:"ladderAfter"`
+	Mode         string `json:"mode"` // "ranking_step" or "rule_condition"
+	StepKey      string `json:"stepKey,omitempty"`
+	ConditionKey string `json:"conditionKey,omitempty"`
+	// PreferScore is the score a replayed Prefer rule condition gives a
+	// matching release (rule_condition mode).
+	PreferScore         int                `json:"preferScore,omitempty"`
 	TracesLoaded        int                `json:"tracesLoaded"`
 	TracesEvaluated     int                `json:"tracesEvaluated"`
 	CandidatesEvaluated int                `json:"candidatesEvaluated"`
@@ -117,14 +118,10 @@ func (r *Runner) replayRanking(ctx context.Context, target *resolvedTarget, para
 	}
 
 	stepKey := params.StepKey
-	defaultPos := 0
 	if target.manifest.Ether != nil {
 		for _, rs := range target.manifest.Ether.Contributes.RankingSteps {
 			if stepKey == "" || rs.Key == stepKey {
 				stepKey = rs.Key
-				if rs.DefaultPosition > 0 {
-					defaultPos = rs.DefaultPosition
-				}
 				break
 			}
 		}
@@ -143,13 +140,12 @@ func (r *Runner) replayRanking(ctx context.Context, target *resolvedTarget, para
 
 	pluginStepID := fmt.Sprintf("plugin:%s/%s", target.id, stepKey)
 	if isCondition {
-		pluginStepID = core.RankRulePrefix + fmt.Sprintf("plugin:%s/%s", target.id, condKey)
+		pluginStepID = core.RuleFormatPrefix + fmt.Sprintf("plugin:%s/%s", target.id, condKey)
 	}
-
-	baseProfile := r.resolveProfile(params.Profile, "")
-	baseLadder := baseProfile.EffectiveRanking()
-	pos := resolveLadderPosition(baseLadder, params.Position, params.AfterStep, defaultPos)
-	afterLadder := insertStepAt(baseLadder, pluginStepID, pos)
+	preferScore := defaultPreferScore
+	if params.Score != nil {
+		preferScore = *params.Score
+	}
 
 	mode := "ranking_step"
 	if isCondition {
@@ -161,15 +157,15 @@ func (r *Runner) replayRanking(ctx context.Context, target *resolvedTarget, para
 		Mode:         mode,
 		StepKey:      stepKey,
 		ConditionKey: condKey,
-		Position:     pos,
-		LadderBefore: baseLadder,
-		LadderAfter:  afterLadder,
 		TracesLoaded: len(rows),
 		Changed:      []ChangedPick{},
 		Budget: RankingBudgetStats{
 			PerCandidateLimitMS: float64(budgets.PerCandidate) / float64(time.Millisecond),
 			BatchLimitMS:        float64(budgets.PerBatch) / float64(time.Millisecond),
 		},
+	}
+	if isCondition {
+		report.PreferScore = preferScore
 	}
 
 	operator := params.Operator
@@ -249,7 +245,7 @@ func (r *Runner) replayRanking(ctx context.Context, target *resolvedTarget, para
 		} else {
 			cfgJSON := params.Config
 			if len(cfgJSON) == 0 {
-				cfgJSON = prof.RankingConfig[pluginStepID]
+				cfgJSON = prof.PluginScores[pluginStepID]
 			}
 			if len(cfgJSON) == 0 {
 				cfgJSON = json.RawMessage(`{}`)
@@ -274,12 +270,7 @@ func (r *Runner) replayRanking(ctx context.Context, target *resolvedTarget, para
 			eligible[i].condMatch = condMatched[i]
 		}
 
-		ladderBefore := prof.EffectiveRanking()
-		rowPos := resolveLadderPosition(ladderBefore, params.Position, params.AfterStep, defaultPos)
-		ladderAfter := insertStepAt(ladderBefore, pluginStepID, rowPos)
-
-		beforeCands := slices.Clone(eligible)
-		beforeCands = rankReplayCandidates(beforeCands, prof, ladderBefore, "")
+		beforeCands := rankReplayCandidates(slices.Clone(eligible), prof, "", 0, nil)
 
 		afterCands := slices.Clone(eligible)
 		if isCondition && (condAction == "require" || condAction == "avoid") {
@@ -293,10 +284,9 @@ func (r *Runner) replayRanking(ctx context.Context, target *resolvedTarget, para
 				}
 				filtered = append(filtered, c)
 			}
-			afterCands = filtered
-			afterCands = rankReplayCandidates(afterCands, prof, ladderBefore, "")
+			afterCands = rankReplayCandidates(filtered, prof, "", 0, nil)
 		} else {
-			afterCands = rankReplayCandidates(afterCands, prof, ladderAfter, pluginStepID)
+			afterCands = rankReplayCandidates(afterCands, prof, pluginStepID, preferScore, nil)
 		}
 
 		var beforeWinner, afterWinner replayCandidate
@@ -409,59 +399,7 @@ func (r *Runner) resolveProfile(override *core.QualityProfile, name string) core
 			return profiles[0]
 		}
 	}
-	return core.QualityProfile{
-		Name:             "default",
-		MaxHeight:        2160,
-		MinHeight:        480,
-		AllowHDR:         true,
-		AllowDolbyVision: true,
-		PreferredSources: []core.Source{core.SourceRemux, core.SourceBluRay, core.SourceWEBDL, core.SourceWEBRip, core.SourceHDTV},
-		PreferredCodecs:  []string{"av1", "hevc", "h264"},
-		PreferredAudio:   []string{"truehd", "dtshd", "eac3", "ac3", "aac"},
-		PreferLargest:    true,
-		Ranking:          core.DefaultRanking(nil),
-	}
-}
-
-func resolveLadderPosition(ladder []string, explicit *int, afterStep string, defaultPos int) int {
-	if explicit != nil {
-		pos := *explicit
-		if pos < 0 {
-			pos = 0
-		}
-		if pos > len(ladder) {
-			pos = len(ladder)
-		}
-		return pos
-	}
-	if afterStep != "" {
-		for i, s := range ladder {
-			if s == afterStep {
-				return i + 1
-			}
-		}
-	}
-	if defaultPos < 0 {
-		return 0
-	}
-	if defaultPos > len(ladder) {
-		return len(ladder)
-	}
-	return defaultPos
-}
-
-func insertStepAt(ladder []string, step string, pos int) []string {
-	if pos < 0 {
-		pos = 0
-	}
-	if pos > len(ladder) {
-		pos = len(ladder)
-	}
-	out := make([]string, 0, len(ladder)+1)
-	out = append(out, ladder[:pos]...)
-	out = append(out, step)
-	out = append(out, ladder[pos:]...)
-	return out
+	return config.DefaultQuality().Profiles[0]
 }
 
 type replayCandidate struct {
@@ -643,24 +581,37 @@ func replayMatchesAnyLang(have, want []string) bool {
 	return false
 }
 
-func rankReplayCandidates(cands []replayCandidate, profile core.QualityProfile, ladder []string, pluginStep string) []replayCandidate {
-	profile.Ranking = ladder
-	if strings.HasPrefix(pluginStep, core.RankRulePrefix) {
-		id := strings.TrimPrefix(pluginStep, core.RankRulePrefix)
-		profile.ReleaseRules = append(slices.Clone(profile.ReleaseRules), core.ReleaseRule{ID: id, Action: "prefer"})
-	}
+// rankReplayCandidates orders candidates as playback does. With a plugin
+// ranking step, each candidate's plugin points join its custom format
+// score; with a Prefer rule condition, a matching candidate gains
+// preferScore.
+func rankReplayCandidates(cands []replayCandidate, profile core.QualityProfile, pluginStep string, preferScore int, title *core.Title) []replayCandidate {
 	ranked := make([]resolver.RankingCandidate, len(cands))
 	for i, c := range cands {
-		policy := c.policy
-		if strings.HasPrefix(pluginStep, core.RankRulePrefix) && c.condMatch {
-			policy.Explanations = append(slices.Clone(policy.Explanations), releasepolicy.Explanation{ID: strings.TrimPrefix(pluginStep, core.RankRulePrefix), Action: "prefer", Outcome: "prefer"})
+		cf := c.formats
+		keys := map[string]int64{}
+		switch {
+		case strings.HasPrefix(pluginStep, core.RuleFormatPrefix):
+			if c.condMatch {
+				cf += preferScore
+			}
+		case pluginStep != "":
+			cf += int(max(min(c.pluginKey, maxPluginPoints), -maxPluginPoints))
+			keys[pluginStep] = c.pluginKey
 		}
-		ranked[i] = resolver.RankingCandidate{Index: i, Release: c.rel, Policy: policy, Verified: c.verified, LanguageOK: c.langOK, LanguageWanted: c.langWanted, Starved: c.starved, Bandwidth: c.bandwidth, CustomFormatScore: c.formats, PluginKeys: map[string]int64{pluginStep: c.pluginKey}}
+		ranked[i] = resolver.RankingCandidate{Index: i, Release: c.rel, Policy: c.policy, Verified: c.verified, LanguageOK: c.langOK, LanguageWanted: c.langWanted, Starved: c.starved, Bandwidth: c.bandwidth, CustomFormatScore: cf, PluginKeys: keys}
 	}
-	resolver.SortRankingCandidates(ranked, profile)
+	resolver.SortRankingCandidates(ranked, profile, title)
 	out := make([]replayCandidate, len(cands))
 	for i, c := range ranked {
 		out[i] = cands[c.Index]
 	}
 	return out
 }
+
+// maxPluginPoints matches what one plugin step may add during playback.
+const maxPluginPoints = 100000
+
+// defaultPreferScore is a replayed Prefer rule's score when the request sets
+// none: above every built-in level of Ether's own profiles.
+const defaultPreferScore = 50000
