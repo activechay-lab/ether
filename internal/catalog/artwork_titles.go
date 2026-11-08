@@ -39,15 +39,8 @@ func (c *Catalog) heldTitle(key core.RatingKey) (t core.Title, dateUnknown, ok b
 		return core.Title{}, false, false
 	}
 	if looked {
-		if t.PosterPath == "" {
-			t.PosterPath = info.Path
-		}
-		if t.Released.IsZero() && !info.title.Released.IsZero() {
-			t.Released, dateUnknown = info.title.Released, false
-			if t.Year == 0 {
-				t.Year = t.Released.Year()
-			}
-		}
+		info.applyTo(&t)
+		dateUnknown = dateUnknown && t.Released.IsZero()
 	}
 	return t, dateUnknown, true
 }

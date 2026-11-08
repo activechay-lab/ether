@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -122,7 +123,7 @@ func (c *Catalog) FillPosters(ctx context.Context, titles []core.Title, unknown 
 			continue
 		}
 		if info, ok := c.posters.get(t.Key, now); ok {
-			t.PosterPath = info.Path
+			info.applyTo(t)
 			continue
 		}
 		if unknown != nil && !unknown(t) {
@@ -137,7 +138,7 @@ func (c *Catalog) FillPosters(ctx context.Context, titles []core.Title, unknown 
 	}
 	type found struct {
 		i    int
-		path string
+		info posterInfo
 	}
 	// Every lookup starts, even with no time to wait for it (a prefetch):
 	// only the waiting is bounded. Late answers go to the buffered channel
@@ -153,7 +154,7 @@ func (c *Catalog) FillPosters(ctx context.Context, titles []core.Title, unknown 
 				results <- found{i: -1}
 				return
 			}
-			results <- found{i, info.Path}
+			results <- found{i, info}
 		}()
 	}
 	timer := time.NewTimer(wait)
@@ -161,14 +162,41 @@ func (c *Catalog) FillPosters(ctx context.Context, titles []core.Title, unknown 
 	for range pending {
 		select {
 		case f := <-results:
-			if f.i >= 0 && f.path != "" {
-				titles[f.i].PosterPath = f.path
+			if f.i >= 0 {
+				f.info.applyTo(&titles[f.i])
 			}
 		case <-timer.C:
 			return
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+// applyTo lays what a lookup learned over a summary: the poster, the date
+// when it had none, and the localised title when the summary has only the original name (a long-tail
+// hit the names file does not cover yet). The localised title is what the
+// names file would carry, and it is what Ether's generated poster draws
+// when the original name is in a script the bundled fonts cannot set (CJK,
+// Thai). Callers apply it after ranking.
+func (info posterInfo) applyTo(t *core.Title) {
+	if t.PosterPath == "" {
+		t.PosterPath = info.Path
+	}
+	if t.Key != info.title.Key {
+		return
+	}
+	if t.Released.IsZero() && !info.title.Released.IsZero() {
+		t.Released = info.title.Released
+		if t.Year == 0 {
+			t.Year = t.Released.Year()
+		}
+	}
+	if l := info.title.Title; l != "" && (t.Title == "" || t.Title == t.OriginalTitle) {
+		if t.OriginalTitle == "" {
+			t.OriginalTitle = t.Title
+		}
+		t.Title = l
 	}
 }
 
@@ -246,5 +274,7 @@ func (c *Catalog) tailPosterUnknown(ctx context.Context, t *core.Title) bool {
 // TMDB; the final page's FillPosters then mostly finds them cached. Hits
 // whose poster is already cached get it here.
 func (c *Catalog) prefetchTailPosters(ctx context.Context, hits []core.Title) {
-	c.FillPosters(ctx, hits, func(t *core.Title) bool { return c.tailPosterUnknown(ctx, t) }, 0)
+	// A copy: the hits are about to be merged and ranked, and what a
+	// lookup learned (a localised title) must not reach ranking.
+	c.FillPosters(ctx, slices.Clone(hits), func(t *core.Title) bool { return c.tailPosterUnknown(ctx, t) }, 0)
 }
