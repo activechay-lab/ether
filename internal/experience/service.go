@@ -119,7 +119,11 @@ type ServiceDeps struct {
 	// FavoriteTitleKeys lists up to n of a viewer's favorite titles and
 	// whether that is all of them, so a favorites filter seeks those titles
 	// instead of walking the library. Optional.
-	FavoriteTitleKeys       func(context.Context, *core.User, int) ([]core.RatingKey, bool, error)
+	FavoriteTitleKeys func(context.Context, *core.User, int) ([]core.RatingKey, bool, error)
+	// CountWatched counts the titles matching a filter that a viewer has
+	// played, from their watch rows. Optional; without it a played filter's
+	// total is counted over the whole type.
+	CountWatched            func(context.Context, core.Filter, int64) (int, error)
 	IsNotInterestedMany     func(context.Context, *core.User, []core.RatingKey) (map[core.RatingKey]bool, error)
 	IsWatchlistedMany       func(context.Context, int64, []core.RatingKey) (map[core.RatingKey]bool, error)
 	FavoriteMembership      func(context.Context, *core.User, core.RatingKey) (frontend.Membership, error)

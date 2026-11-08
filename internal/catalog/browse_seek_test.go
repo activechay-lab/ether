@@ -59,3 +59,30 @@ func TestSeekPageMatchesOffsetPage(t *testing.T) {
 		}
 	}
 }
+
+// The watch-row count equals the count of the played predicate it replaces.
+func TestCountWatchedMatchesStatePredicate(t *testing.T) {
+	c := largeCatalogue(t, 300)
+	for i := 1; i <= 300; i += 3 {
+		views := i % 2
+		if _, err := c.db.Exec(`INSERT INTO state_watch(user_id,rating_key,view_count) VALUES(7,?,?)`, int64(core.MovieKey(int64(i))), views); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	for _, f := range []core.Filter{{Type: core.TypeMovie}, {Type: core.TypeMovie, YearFrom: 2000, YearTo: 2000}, {Type: core.TypeMovie, ExcludeKeys: []core.RatingKey{core.MovieKey(1), core.MovieKey(7)}}} {
+		got, err := c.CountWatched(ctx, f, 7)
+		if err != nil {
+			t.Fatal(err)
+		}
+		played := f
+		played.Group = &core.FilterGroup{UserID: 7, Unwatched: new(bool)}
+		want, err := c.Browse(ctx, core.BrowseQuery{Filter: played, Limit: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want.Total || got == 0 {
+			t.Fatalf("%+v: watch-row count %d, predicate count %d", f, got, want.Total)
+		}
+	}
+}

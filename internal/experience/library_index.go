@@ -48,9 +48,21 @@ func (s *Service) indexedLibraryPage(ctx context.Context, v *core.User, library 
 		return core.Page{Items: []core.Title{}}, true, nil
 	}
 	bq := core.BrowseQuery{Filter: filter, Sort: q.Sort, Desc: q.Desc, Offset: max(q.Offset, 0), Limit: q.Limit, NoTotal: q.NoTotal}
+	countWatched := q.Watched != nil && !q.NoTotal && s.d.CountWatched != nil
+	if countWatched {
+		// A state predicate is not a cacheable count: counting it scanned
+		// the whole type on every page. The total comes from the viewer's
+		// watch rows instead (and the type's cached count for unplayed).
+		bq.NoTotal = true
+	}
 	page, err := s.browsePageEnd(ctx, v, bq)
 	if err != nil {
 		return core.Page{}, false, err
+	}
+	if countWatched {
+		if page.Total, err = s.watchedTotal(ctx, v, filter, *q.Watched); err != nil {
+			return core.Page{}, false, err
+		}
 	}
 	if !s.indexedPageHolds(ctx, v, page.Items, q, ex.AvailabilityInSQL) {
 		return core.Page{}, false, nil
@@ -103,14 +115,6 @@ func (s *Service) rememberPageEnd(key string, offset int, page core.Page) {
 // (included, or excluded for "not a favorite"). fits is false when the
 // favorites are too many for one predicate.
 func (s *Service) userStateFilter(ctx context.Context, v *core.User, filter core.Filter, q frontend.ItemQuery) (out core.Filter, fits, none bool, err error) {
-	if q.Watched != nil {
-		state := core.FilterGroup{UserID: v.ID, Unwatched: boolPtr(!*q.Watched)}
-		if filter.Group == nil {
-			filter.Group = &state
-		} else {
-			filter.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*filter.Group, state}}
-		}
-	}
 	if q.Favorite != nil {
 		if s.d.FavoriteTitleKeys == nil || filter.IncludeKeys != nil {
 			return filter, false, false, nil
@@ -128,10 +132,49 @@ func (s *Service) userStateFilter(ctx context.Context, v *core.User, filter core
 			filter.ExcludeKeys = append(filter.ExcludeKeys, keys...)
 		}
 	}
-	return filter, true, false, nil
+	return withWatched(filter, v, q.Watched), true, false, nil
+}
+
+// withWatched adds the played (or unplayed) predicate for v.
+func withWatched(filter core.Filter, v *core.User, watched *bool) core.Filter {
+	if watched == nil {
+		return filter
+	}
+	state := core.FilterGroup{UserID: v.ID, Unwatched: boolPtr(!*watched)}
+	if filter.Group == nil {
+		filter.Group = &state
+	} else {
+		filter.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*filter.Group, state}}
+	}
+	return filter
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// watchedTotal is a played or unplayed listing's total: the viewer's played
+// titles matching the filter, read from their watch rows, or the type's
+// (cached) count less those. filter carries the state predicate, which is
+// removed for both counts.
+func (s *Service) watchedTotal(ctx context.Context, v *core.User, filter core.Filter, watched bool) (int, error) {
+	plain := filter
+	if g := plain.Group; g != nil {
+		if g.Unwatched != nil && g.UserID == v.ID && g.Operator == "" {
+			plain.Group = nil
+		} else if g.Operator == "and" && len(g.Children) == 2 {
+			first := g.Children[0]
+			plain.Group = &first
+		}
+	}
+	played, err := s.d.CountWatched(ctx, plain, v.ID)
+	if err != nil || watched {
+		return played, err
+	}
+	all, err := s.d.Browse(ctx, core.BrowseQuery{Filter: plain, Limit: 1})
+	if err != nil {
+		return 0, err
+	}
+	return max(all.Total-played, 0), nil
+}
 
 // viewerBrowseFilter folds what the viewer may not see into filter for a
 // library of typ, so SQL pages and totals match the in-process checks:
@@ -280,8 +323,9 @@ func indexedBrowseQuery(library *Library, q frontend.ItemQuery) bool {
 		return false
 	}
 	// A movie's played state is its own watch row. A series' is derived
-	// from its episodes, which the predicate cannot see.
-	if (q.Watched != nil || q.Favorite != nil) && library.Type != core.TypeMovie {
+	// from its episodes, which the predicate cannot see. Favorites are the
+	// title's own either way.
+	if q.Watched != nil && library.Type != core.TypeMovie {
 		return false
 	}
 	for _, typ := range q.Types {

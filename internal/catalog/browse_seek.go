@@ -71,3 +71,17 @@ func (c *Catalog) seekPage(ctx context.Context, q core.BrowseQuery, where string
 	}
 	return items, nil
 }
+
+// CountWatched counts the titles matching f that userID has played (a watch
+// row with a view), driven from the viewer's watch rows: its cost follows
+// the viewer's history, not the library.
+func (c *Catalog) CountWatched(ctx context.Context, f core.Filter, userID int64) (int, error) {
+	f = c.viewerPaging(ctx, f)
+	where, args, err := c.browseWhere(f)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	err = c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM state_watch w CROSS JOIN catalog_titles t WHERE w.user_id=? AND w.view_count>0 AND t.key=w.rating_key AND `+where, append([]any{userID}, args...)...).Scan(&n)
+	return n, err
+}
