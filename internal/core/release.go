@@ -339,10 +339,10 @@ type ProfileImport struct {
 // QualityProfile is an owner-editable rule set ranking releases for a class
 // of client.
 type QualityProfile struct {
-	ReleaseRules         []ReleaseRule              `json:"releaseRules,omitempty"`
-	Ranking              []string                   `json:"ranking,omitempty"`
-	RankingConfig        map[string]json.RawMessage `json:"rankingConfig,omitempty"`
-	AllowedQualities     []string                   `json:"allowedQualities,omitempty"` // imported source-resolution gates
+	ReleaseRules     []ReleaseRule              `json:"releaseRules,omitempty"`
+	Ranking          []string                   `json:"ranking,omitempty"`
+	RankingConfig    map[string]json.RawMessage `json:"rankingConfig,omitempty"`
+	AllowedQualities []string                   `json:"allowedQualities,omitempty"` // imported source-resolution gates
 	// QualityOrder is an imported profile's quality ranking, best first, as
 	// Radarr/Sonarr rank it: each entry is one profile item (a quality or a
 	// quality group) listing its source-resolution gates. Qualities in one
@@ -351,16 +351,18 @@ type QualityProfile struct {
 	// EvaluationMode selects how a release is scored and ordered. "servarr"
 	// reproduces Radarr/Sonarr: Servarr language lists, unlisted formats
 	// scoring 0, the app's release-title input, a minimum score of 0, and
-	// DownloadDecisionComparer ordering. "ether" is Ether's own evaluation.
-	// "" means servarr for imported profiles that carry QualityOrder, else
-	// ether, so profiles saved before the setting existed are unchanged.
-	EvaluationMode       string                     `json:"evaluationMode,omitempty"`
-	CustomFormatScores   map[string]int             `json:"customFormatScores,omitempty"`
-	MinCustomFormatScore *int                       `json:"minCustomFormatScore,omitempty"`
-	Name                 string                     `json:"name"`
-	MediaType            string                     `json:"mediaType,omitempty"` // "movie" or "tv" (ProfileMediaTypes); empty only in configs saved before profiles were per media
-	Import               *ProfileImport             `json:"import,omitempty"`    // set on imported, syncable profiles
-	MaxHeight            int                        `json:"maxHeight"`           // cap, e.g. 1080
+	// DownloadDecisionComparer ordering; it needs QualityOrder, and without
+	// one the profile is evaluated by Ether. "ether" or "" is Ether's own
+	// evaluation. An import that carries a quality order sets "servarr"; a
+	// guide sync keeps the owner's choice, so profiles saved before the
+	// setting existed stay on Ether.
+	EvaluationMode       string         `json:"evaluationMode,omitempty"`
+	CustomFormatScores   map[string]int `json:"customFormatScores,omitempty"`
+	MinCustomFormatScore *int           `json:"minCustomFormatScore,omitempty"`
+	Name                 string         `json:"name"`
+	MediaType            string         `json:"mediaType,omitempty"` // "movie" or "tv" (ProfileMediaTypes); empty only in configs saved before profiles were per media
+	Import               *ProfileImport `json:"import,omitempty"`    // set on imported, syncable profiles
+	MaxHeight            int            `json:"maxHeight"`           // cap, e.g. 1080
 	// ConfiguredMaxHeight is MaxHeight as the owner configured it,
 	// before download reshaping or a client's caps clamped the
 	// effective MaxHeight. -1 means the owner set no ceiling ("Any");
@@ -493,12 +495,14 @@ func (p QualityProfile) SizeBoundsFor(t *Title) (minMBPerMin, maxMBPerMin float6
 // never enter it.
 func (p QualityProfile) ComputeSelectionKey() string {
 	p.SelectionKey = ""
-	// The effective mode is part of the definition even though the import
-	// (which can imply it) is not.
+	// Only the effective mode is part of the definition, and the quality
+	// order ranks nothing outside Servarr mode, so the sync that first
+	// records it leaves an Ether-mode profile's key unchanged.
 	if p.ServarrMode() {
 		p.EvaluationMode = EvaluationModeServarr
 	} else {
 		p.EvaluationMode = ""
+		p.QualityOrder = nil
 	}
 	// Provenance is not part of the ranking definition: a sync updating
 	// SyncedAt must not change the key that keys resumes and warm entries.
@@ -532,15 +536,10 @@ const (
 	EvaluationModeEther   = "ether"
 )
 
-// ServarrMode reports whether the profile is evaluated like Radarr/Sonarr.
+// ServarrMode reports whether the profile is evaluated like Radarr/Sonarr:
+// the owner chose it and the profile carries the quality order it ranks by.
 func (p QualityProfile) ServarrMode() bool {
-	switch p.EvaluationMode {
-	case EvaluationModeServarr:
-		return true
-	case EvaluationModeEther:
-		return false
-	}
-	return p.Import != nil && len(p.QualityOrder) > 0
+	return p.EvaluationMode == EvaluationModeServarr && len(p.QualityOrder) > 0
 }
 
 // ServarrApp names the Servarr app whose rules apply: the import's app, else

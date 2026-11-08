@@ -402,7 +402,11 @@ func ValidateConfig(cfg config.Config) []FieldError {
 			v.add(f+".ranking", "%s", err)
 		}
 		switch p.EvaluationMode {
-		case "", core.EvaluationModeServarr, core.EvaluationModeEther:
+		case "", core.EvaluationModeEther:
+		case core.EvaluationModeServarr:
+			if len(p.QualityOrder) == 0 {
+				v.add(f+".evaluationMode", "Radarr/Sonarr ranking needs a profile imported from Radarr or Sonarr")
+			}
 		default:
 			v.add(f+".evaluationMode", "must be %q or %q", core.EvaluationModeServarr, core.EvaluationModeEther)
 		}

@@ -25,10 +25,12 @@ func TestEvaluationModeDefaults(t *testing.T) {
 	}{
 		{"manual profile", core.QualityProfile{}, false},
 		{"manual, order only", core.QualityProfile{QualityOrder: order}, false},
-		{"imported with order", core.QualityProfile{Import: imported, QualityOrder: order}, true},
-		{"imported before the setting existed (no order)", core.QualityProfile{Import: imported}, false},
+		// A guide sync records the order on a profile saved before the
+		// setting existed; it stays on Ether until the owner switches.
+		{"synced, no mode", core.QualityProfile{Import: imported, QualityOrder: order}, false},
 		{"imported, owner chose ether", core.QualityProfile{Import: imported, QualityOrder: order, EvaluationMode: core.EvaluationModeEther}, false},
-		{"manual, owner chose servarr", core.QualityProfile{EvaluationMode: core.EvaluationModeServarr}, true},
+		{"imported, servarr", core.QualityProfile{Import: imported, QualityOrder: order, EvaluationMode: core.EvaluationModeServarr}, true},
+		{"servarr without an order", core.QualityProfile{EvaluationMode: core.EvaluationModeServarr}, false},
 	} {
 		if got := tt.p.ServarrMode(); got != tt.want {
 			t.Errorf("%s: ServarrMode %v want %v", tt.name, got, tt.want)
@@ -38,10 +40,11 @@ func TestEvaluationModeDefaults(t *testing.T) {
 	a := core.QualityProfile{Name: "p", MaxHeight: 1080}
 	b := a
 	b.EvaluationMode = core.EvaluationModeEther
+	b.QualityOrder = order
 	if a.ComputeSelectionKey() != b.ComputeSelectionKey() {
-		t.Error("explicit ether mode changed the selection key of an ether-mode profile")
+		t.Error("an ether-mode quality order changed the selection key")
 	}
-	c := a
+	c := b
 	c.EvaluationMode = core.EvaluationModeServarr
 	if a.ComputeSelectionKey() == c.ComputeSelectionKey() {
 		t.Error("servarr mode did not change the selection key")
@@ -65,9 +68,8 @@ func TestImportQualityProfileKeepsQualityOrder(t *testing.T) {
 			t.Fatalf("order %v want %v", imp.Profile.QualityOrder, want)
 		}
 	}
-	imp.Profile.Import = &core.ProfileImport{Source: "trash"}
 	if !imp.Profile.ServarrMode() {
-		t.Fatal("an imported profile with an order should default to servarr mode")
+		t.Fatal("a new import with an order should start in servarr mode")
 	}
 }
 
@@ -183,7 +185,7 @@ func TestEvaluationModeTitleInput(t *testing.T) {
 
 // G10: the minimum score.
 func TestEvaluationModeMinimumScore(t *testing.T) {
-	servarr := core.QualityProfile{EvaluationMode: core.EvaluationModeServarr}
+	servarr := core.QualityProfile{EvaluationMode: core.EvaluationModeServarr, QualityOrder: [][]string{{"bluray-1080"}}}
 	if m := minFormatScore(config.Resolver{}, servarr); m == nil || *m != 0 {
 		t.Fatalf("servarr mode default minimum: %v", m)
 	}

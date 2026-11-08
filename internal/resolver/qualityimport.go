@@ -201,6 +201,11 @@ func ImportQualityProfile(data []byte) (QualityImport, error) {
 		}
 		return QualityImport{}, fmt.Errorf("quality profile: no playable qualities enabled")
 	}
+	if len(p.QualityOrder) > 0 {
+		// A new import ranks the way its app does. A guide sync keeps the
+		// owner's current choice instead (QualitySyncer.apply).
+		p.EvaluationMode = core.EvaluationModeServarr
+	}
 	if p.MaxHeight >= 2160 || hasRemux {
 		// UHD discs and remuxes carry lossless audio; a profile built for
 		// them should not rank compressed tracks above it.
