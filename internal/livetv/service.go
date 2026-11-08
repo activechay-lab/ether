@@ -658,6 +658,11 @@ func blocksOverlap(a, b Block) bool {
 }
 
 func validateChannel(c *Channel) error {
+	apps, err := normalizeHiddenApps(c.HiddenApps)
+	if err != nil {
+		return err
+	}
+	c.HiddenApps = apps
 	if c.Look != nil {
 		if err := c.Look.Bug.Validate(); err != nil {
 			return err
@@ -1509,7 +1514,7 @@ func (s *Service) GuideForChannels(ctx context.Context, u *core.User, from, unti
 func channelFromSummary(c ChannelSummary) Channel {
 	return Channel{
 		ID: c.ID, Number: c.Number, Name: c.Name, Kind: c.Kind, sweepKey: c.sweepKey,
-		Private: c.Private, Enabled: c.Enabled, Favorite: c.Favorite,
+		Private: c.Private, Enabled: c.Enabled, Favorite: c.Favorite, HiddenApps: c.HiddenApps,
 		Rating: c.Rating, Logo: c.Logo, SourceID: c.SourceID,
 		GuideID: c.GuideID, GuideSourceID: c.GuideSourceID, Group: c.Group,
 	}
@@ -2010,7 +2015,7 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 					c.Number = previous.Number
 				}
 				c.Enabled = previous.Enabled
-				c.PlexHidden = previous.PlexHidden
+				c.HiddenApps = previous.HiddenApps
 				c.Favorite = previous.Favorite
 				c.Rating = previous.Rating
 				c.GuideID = previous.GuideID

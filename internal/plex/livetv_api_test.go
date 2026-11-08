@@ -329,7 +329,7 @@ func TestLiveTVProviderRequiresAccessibleEnabledChannel(t *testing.T) {
 	if !visible(ownerToken) {
 		t.Fatal("enabled channel did not advertise Live TV")
 	}
-	channel.PlexHidden = true
+	channel.HiddenApps = []string{"plex"}
 	if _, err := service.SaveChannel(ctx, channel); err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +343,7 @@ func TestLiveTVProviderRequiresAccessibleEnabledChannel(t *testing.T) {
 	if response.Code != http.StatusNotFound || strings.Contains(response.Body.String(), channel.Name) {
 		t.Fatalf("Plex-hidden channel in guide: %d %s", response.Code, response.Body.String())
 	}
-	channel.PlexHidden = false
+	channel.HiddenApps = nil
 	channel.Enabled = false
 	if _, err := service.SaveChannel(ctx, channel); err != nil {
 		t.Fatal(err)

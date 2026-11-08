@@ -64,11 +64,10 @@ func TestActivityRefreshAndPublication(t *testing.T) {
 	if err != nil || len(channels) != 2 {
 		t.Fatalf("channels: %v %v", channels, err)
 	}
-	hidden := true
-	if _, err := s.UpdateChannels(ctx, ChannelBatch{IDs: []string{channels[0].ID}, PlexHidden: &hidden}); err != nil {
+	if _, err := s.UpdateChannels(ctx, ChannelBatch{IDs: []string{channels[0].ID}, HideApps: []string{"plex"}}); err != nil {
 		t.Fatal(err)
 	}
-	plexCtx := WithPlexLineup(ctx)
+	plexCtx := core.WithLiveApp(ctx, "plex")
 	if got, err := s.AllowedChannels(plexCtx, owner); err != nil || len(got) != 1 || got[0].ID != channels[1].ID {
 		t.Fatalf("Plex subset: %v %v", got, err)
 	}
@@ -81,7 +80,7 @@ func TestActivityRefreshAndPublication(t *testing.T) {
 	if _, err := s.RefreshSource(ctx, src.ID); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := s.Channel(ctx, channels[0].ID); err != nil || !got.PlexHidden {
+	if got, err := s.Channel(ctx, channels[0].ID); err != nil || len(got.HiddenApps) != 1 || got.HiddenApps[0] != "plex" {
 		t.Fatalf("refresh lost publication choice: %v", err)
 	}
 

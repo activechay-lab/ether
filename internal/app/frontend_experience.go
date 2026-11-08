@@ -125,7 +125,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 	source := experience.CandidateRowSource{Kind: a.personalize.SemanticRowKind, Load: func(ctx context.Context, req frontend.RowRequest) ([]experience.RankedCandidate, error) {
 		return a.productionExperienceRows(ctx, req, libs, rowVis)
 	}, Additional: func(ctx context.Context, req frontend.RowRequest) ([]frontend.Row, error) {
-		return a.experienceAdditionalRows(ctx, req, a.playlists, rowVis)
+		return a.experienceAdditionalRows(core.WithLiveApp(ctx, string(protocol)), req, a.playlists, rowVis)
 	}}
 	entryPolicy := experience.RowEntryPolicy{Visibility: rowVis, Favorite: func(ctx context.Context, u *core.User, subject experience.FavoriteSubject) bool {
 		return a.favoriteAllowedStored(ctx, u, favorites.Subject{Kind: favorites.Kind(subject.Kind), ID: subject.ID}, rowVis)

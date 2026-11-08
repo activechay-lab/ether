@@ -202,7 +202,7 @@ type Channel struct {
 	Name          string         `json:"name"`
 	Kind          string         `json:"kind"` // virtual or iptv
 	Enabled       bool           `json:"enabled"`
-	PlexHidden    bool           `json:"plexHidden,omitempty"` // omitted from Plex; retained for other apps
+	HiddenApps    []string       `json:"hiddenApps,omitempty"` // apps (Apps) that omit this channel; every other app lists it
 	Favorite      bool           `json:"favorite"`
 	Logo          string         `json:"logo,omitempty"`
 	LogoMatched   bool           `json:"logoMatched,omitempty"`

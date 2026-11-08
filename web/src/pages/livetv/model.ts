@@ -97,7 +97,8 @@ export type Pin = {
   breaks?: ChannelLook;
 };
 export type Channel = {
-  plexHidden?: boolean;
+  /** Apps that leave this channel out of their lineup; every other app lists it. */
+  hiddenApps?: string[];
   pins?: Pin[];
   personal?: PersonalRecipe;
   look?: ChannelLook;
@@ -500,7 +501,13 @@ export const tv = {
   },
   updateChannels: (
     ids: string[],
-    patch: { enabled?: boolean; favorite?: boolean; group?: string; plexHidden?: boolean },
+    patch: {
+      enabled?: boolean;
+      favorite?: boolean;
+      group?: string;
+      showApps?: string[];
+      hideApps?: string[];
+    },
   ) => apiFetch<{ updated: number }>("/livetv/channels/bulk", json("PATCH", { ids, ...patch })),
   saveChannel: (c: Channel) =>
     apiFetch<Channel>(

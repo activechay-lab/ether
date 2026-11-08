@@ -30,6 +30,7 @@ import type { EtherUser } from "../../lib/types";
 import { localized, t, tn, tx } from "../../i18n";
 import { relativeTime } from "../../lib/format";
 import { useDebouncedValue } from "../../lib/hooks";
+import { ChannelApps } from "./ChannelApps";
 import { ChannelLogo } from "./ChannelLogo";
 import { MapGuideButton } from "./GuideData";
 import { LivePreview } from "./LivePreview";
@@ -407,17 +408,6 @@ export function ChannelStudio({
                 onChange={(e) => set({ enabled: e.currentTarget.checked })}
               />
             </label>
-            <label
-              className="flex items-center gap-2 rounded-full border border-border bg-surface py-1 pl-3 pr-1.5 text-sm font-medium"
-              title={t("Only affects Plex. Other apps keep this channel.")}
-            >
-              {t("Show in Plex")}
-              <Switch
-                aria-label={t("Show in Plex")}
-                checked={!c.plexHidden}
-                onChange={(e) => set({ plexHidden: !e.currentTarget.checked })}
-              />
-            </label>
           </div>
         </div>
         <div className="relative space-y-2 px-4 pb-4 sm:px-6">
@@ -602,6 +592,7 @@ export function ChannelStudio({
                 ))}
               </Select>
             </Field>
+            <ChannelApps hidden={c.hiddenApps} onChange={(hiddenApps) => set({ hiddenApps })} />
           </section>
         ) : null}
         {tab === "guide" && !virtual ? (
@@ -691,6 +682,9 @@ export function ChannelStudio({
                 />
               </div>
             </Field>
+            {virtual ? (
+              <ChannelApps hidden={c.hiddenApps} onChange={(hiddenApps) => set({ hiddenApps })} />
+            ) : null}
             {virtual ? (
               <details className="rounded-xl border border-border bg-surface p-4">
                 <summary className="cursor-pointer text-sm font-medium text-fg">

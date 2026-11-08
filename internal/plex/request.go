@@ -10,7 +10,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
-	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -80,7 +79,7 @@ func FromContext(ctx context.Context) *Request {
 }
 
 func withRequest(ctx context.Context, pr *Request) context.Context {
-	return context.WithValue(core.WithCatalogViewer(livetv.WithPlexLineup(ctx), pr.User), ctxKey{}, pr)
+	return context.WithValue(core.WithCatalogViewer(core.WithLiveApp(ctx, "plex"), pr.User), ctxKey{}, pr)
 }
 
 // plexParam reads an X-Plex-* value from the header or the query string.

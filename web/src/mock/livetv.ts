@@ -796,7 +796,8 @@ export function createLiveTVMock(titles: FakeTitle[], empty = false) {
         enabled?: boolean;
         favorite?: boolean;
         group?: string;
-        plexHidden?: boolean;
+        showApps?: string[];
+        hideApps?: string[];
       };
       const ids = new Set(change.ids);
       const selected = channels.filter((c) => ids.has(c.id));
@@ -806,7 +807,12 @@ export function createLiveTVMock(titles: FakeTitle[], empty = false) {
         if (change.enabled !== undefined) c.enabled = change.enabled;
         if (change.favorite !== undefined) c.favorite = change.favorite;
         if (change.group !== undefined) c.group = change.group;
-        if (change.plexHidden !== undefined) c.plexHidden = change.plexHidden;
+        if (change.showApps || change.hideApps) {
+          const hidden = new Set<string>((c.hiddenApps as string[] | undefined) ?? []);
+          for (const app of change.showApps ?? []) hidden.delete(app);
+          for (const app of change.hideApps ?? []) hidden.add(app);
+          c.hiddenApps = hidden.size ? [...hidden].sort() : undefined;
+        }
       }
       return { body: { updated: selected.length } };
     }

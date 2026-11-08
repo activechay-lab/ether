@@ -402,7 +402,7 @@ func (s *lazyStreams) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	viewer = fresh
 	req.Viewer = viewer
 	if req.Channel != "" {
-		if !strings.HasPrefix(tail, "live/") || s.broker.deps.Live == nil || s.broker.deps.Live.Allowed(ctx, viewer, req.Channel) != nil {
+		if !strings.HasPrefix(tail, "live/") || s.broker.deps.Live == nil || s.broker.deps.Live.Allowed(core.WithLiveApp(ctx, string(s.protocol)), viewer, req.Channel) != nil {
 			http.NotFound(w, r)
 			return
 		}
@@ -774,7 +774,7 @@ func (s *lazyStreams) heartbeatBinding(ctx context.Context, cancel context.Cance
 				return
 			}
 			if req.Channel != "" {
-				if s.broker.deps.Live == nil || s.broker.deps.Live.Allowed(ctx, viewer, req.Channel) != nil {
+				if s.broker.deps.Live == nil || s.broker.deps.Live.Allowed(core.WithLiveApp(ctx, string(s.protocol)), viewer, req.Channel) != nil {
 					cancel()
 					return
 				}

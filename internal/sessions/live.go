@@ -28,7 +28,7 @@ func (b *Broker) planLive(ctx context.Context, req frontend.PlanRequest, viewer 
 	if b.deps.Live == nil {
 		return frontend.PlayPlan{}, core.ErrNotAvailable
 	}
-	if err := b.deps.Live.Allowed(ctx, viewer, req.Channel); err != nil {
+	if err := b.deps.Live.Allowed(core.WithLiveApp(ctx, string(req.Protocol)), viewer, req.Channel); err != nil {
 		return frontend.PlayPlan{}, err
 	}
 	if req.Intent.AllowTranscoding != nil && !*req.Intent.AllowTranscoding {
@@ -57,6 +57,7 @@ func (b *Broker) openLive(ctx context.Context, req frontend.OpenRequest, p broke
 	if b.deps.Live == nil {
 		return frontend.Session{}, core.ErrNotAvailable
 	}
+	ctx = core.WithLiveApp(ctx, string(req.Protocol))
 	if err := b.deps.Live.Allowed(ctx, viewer, p.request.Channel); err != nil {
 		return frontend.Session{}, err
 	}

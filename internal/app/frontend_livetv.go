@@ -18,6 +18,7 @@ var errLiveQuery = errors.New("invalid live guide query")
 
 type surfaceLiveTV struct {
 	app            *App
+	surface        string // the app this lineup is for; the owner's per-app visibility applies
 	channelArtwork func(*core.Viewer, livetv.Channel) frontend.Image
 	artwork        frontend.Artwork
 }
@@ -42,6 +43,7 @@ func (s surfaceLiveTV) liveChannel(viewer *core.Viewer, c livetv.Channel) fronte
 	return result
 }
 func (s surfaceLiveTV) Channels(ctx context.Context, v *core.Viewer) ([]frontend.LiveChannel, error) {
+	ctx = core.WithLiveApp(ctx, s.surface)
 	viewer, err := s.viewer(ctx, v)
 	if err != nil {
 		return nil, err
@@ -63,6 +65,7 @@ func (s surfaceLiveTV) Channels(ctx context.Context, v *core.Viewer) ([]frontend
 	return out, nil
 }
 func (s surfaceLiveTV) Guide(ctx context.Context, v *core.Viewer, q frontend.LiveGuideQuery) ([]frontend.LiveProgramme, error) {
+	ctx = core.WithLiveApp(ctx, s.surface)
 	if !q.Until.After(q.From) || q.Until.Sub(q.From) > 7*24*time.Hour || q.Limit < 0 || q.Limit > maxLiveProgrammes {
 		return nil, errLiveQuery
 	}
@@ -150,6 +153,7 @@ func normalizeLiveGUID(raw string, kind ids.Kind) (string, error) {
 	return ids.GUID(kind, n)
 }
 func (s surfaceLiveTV) ResolveChannelGUID(ctx context.Context, v *core.Viewer, guid string) (frontend.LiveChannel, error) {
+	ctx = core.WithLiveApp(ctx, s.surface)
 	normalized, err := normalizeLiveGUID(guid, ids.Channel)
 	if err != nil {
 		return frontend.LiveChannel{}, err

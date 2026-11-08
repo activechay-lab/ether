@@ -891,9 +891,11 @@ wake the background refresh above, but does not wait for the provider; a later
 app refresh picks up the imported changes. This keeps app startup independent
 of provider latency and availability.
 
-Channel group exclusions apply to all apps. Use **Show in Plex** on a channel,
-or select matching channels and choose **Hide from Plex**, to make Plex's
-lineup smaller without removing those channels from external IPTV apps.
+Channel group exclusions apply to all apps. Every channel appears in every app
+(Plex, Jellyfin, Emby, Silo, Xtream IPTV apps, and M3U & XMLTV) until you turn
+an app off under **Show in apps** on the channel's **Stream** tab (**Details**
+for On Air channels). To change many channels at once, select them and choose
+**Show in apps…**; apps you leave unchanged keep each channel's own setting.
 Disabling a channel still removes it everywhere, and viewer access restrictions
 apply in every app. M3U and Xtream exports retain the imported channel groups.
 

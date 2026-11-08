@@ -288,9 +288,11 @@ func (s *Service) VisibleTo(ctx context.Context, u *core.User) bool {
 		trueValue = "'true'"
 	}
 	enabled := store.JSONText(d, "data", "enabled") + "=" + trueValue
-	if plex, _ := ctx.Value(plexLineupKey{}).(bool); plex {
-		hidden := store.JSONText(d, "data", "plexHidden")
-		enabled += " AND (" + hidden + " IS NULL OR " + hidden + "<>" + trueValue + ")"
+	if app := core.LiveApp(ctx); slices.Contains(Apps, app) {
+		// Apps are fixed identifiers, so the literal is safe; the stored list
+		// is a JSON array of them.
+		hidden := store.JSONText(d, "data", "hiddenApps")
+		enabled += " AND (" + hidden + " IS NULL OR " + hidden + ` NOT LIKE '%"` + app + `"%')`
 	}
 	exists := func(where string, args ...any) bool {
 		var one int
