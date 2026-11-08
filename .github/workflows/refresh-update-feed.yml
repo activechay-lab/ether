@@ -10,6 +10,9 @@ permissions:
 
 jobs:
   refresh:
+    # The update-signing key lives only in this environment, which accepts
+    # runs from protected main and v* tags; a branch cannot read it.
+    environment: update-signing
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:

@@ -62,6 +62,7 @@ type Service struct {
 	channelHealth      map[string]sweepResult
 	sourceMu           sync.Mutex
 	sourceHealth       map[string]streamSourceHealth
+	history            sourceHistoryStore // learned per-source evidence (source_history.go)
 	o                  Options
 	kinds              *KindRegistry
 	policyReads        atomic.Uint64
@@ -130,6 +131,7 @@ func New(o Options) (*Service, error) {
 	go s.maintain()
 	go s.refreshLoop()
 	go s.healthSweepLoop()
+	s.history.start(s)
 	return s, nil
 }
 
@@ -184,6 +186,7 @@ func (s *Service) Close() error {
 	for _, ss := range all {
 		ss.close(s)
 	}
+	s.history.close()
 	return nil
 }
 
