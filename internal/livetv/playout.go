@@ -849,6 +849,10 @@ func (s *Service) awaitOwnedStart(ctx context.Context, ss *session) error {
 	if err != nil && wait.Err() != nil && ctx.Err() == nil {
 		return nil // Silo: the playlist request waits for the rest
 	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		// The tune budget passed without one segment from the source.
+		return &TuneError{Code: "timeout", Stage: "owned_start", cause: err}
+	}
 	return err
 }
 
