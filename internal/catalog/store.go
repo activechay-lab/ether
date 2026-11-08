@@ -732,13 +732,22 @@ func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem, after ...
 			fresh = append(fresh, k)
 		}
 	}
-	fold := len(fresh) >= ftsFoldMin && c.ftsFold
-	if fold {
-		if err := beginFTSFold(ctx, tx); err != nil {
+	// A bulk transaction (two or more new titles, or credits) sets the
+	// marker the search-index triggers check, and folds instead.
+	anyCredits := false
+	for i := range titles {
+		anyCredits = anyCredits || hasCredits(&titles[i])
+	}
+	// The marker is a write, so it is set only when a fold will run: up
+	// front for new titles, and around the credit inserts themselves for
+	// person names (join_batch.go), so an unchanged refresh writes nothing.
+	bulk := c.ftsFold && len(fresh) >= ftsFoldMin
+	if bulk {
+		if err := beginBulk(ctx, tx); err != nil {
 			return err
 		}
 	}
-	joins := &joinBatch{}
+	joins := &joinBatch{personFold: c.personFold && anyCredits, bulk: bulk}
 	for _, it := range items {
 		o := it.o
 		o.region, o.ratingCuts, o.stored, o.joins = region, &cuts, stored, joins
@@ -749,8 +758,12 @@ func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem, after ...
 	if err := joins.flush(ctx, tx, now); err != nil {
 		return err
 	}
-	if fold {
-		if err := endFTSFold(ctx, tx, fresh); err != nil {
+	if bulk {
+		// With the marker set, the title trigger skipped every new row.
+		if err := foldTitleSearch(ctx, tx, fresh); err != nil {
+			return err
+		}
+		if err := endBulk(ctx, tx); err != nil {
 			return err
 		}
 	}

@@ -86,3 +86,76 @@ func TestFTSFoldMatchesTrigger(t *testing.T) {
 		t.Fatalf("a renamed title is not indexed under its new name: %v", got)
 	}
 }
+
+// Credits a bulk transaction inserts count into catalog_person_names, and
+// new people into its search index, exactly as the per-row triggers do: a
+// count per credit, the last non-empty credited name, a new person starting
+// with an empty name when no credit names them.
+func TestPersonNamesFoldMatchesTrigger(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	if store.DialectOf(db) == store.Postgres {
+		t.Skip("PostgreSQL keeps person names with its row trigger")
+	}
+	c, err := New(db, nil, config.Catalog{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.personFold {
+		t.Fatal("the person-name triggers do not honour the bulk marker")
+	}
+	// Person 1 is known before through the trigger path (a credit written
+	// outside the catalogue's bulk writes).
+	if _, err := db.ExecContext(ctx, `INSERT INTO catalog_credits(key,person_tmdb,name,role,kind,ord) VALUES(1,1,'Ann Old','r','cast',0)`); err != nil {
+		t.Fatal(err)
+	}
+	title := func(i int, cast ...core.Person) core.Title {
+		return core.Title{Key: core.MovieKey(int64(8000 + i)), Type: core.TypeMovie, IDs: core.IDs{TMDB: int64(8000 + i)}, Title: fmt.Sprint("Credited ", i),
+			Released: time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC), Cast: cast}
+	}
+	p := func(id int64, name, role string) core.Person { return core.Person{TMDB: id, Name: name, Role: role} }
+	batch := []core.Title{
+		title(1, p(1, "Ann New", "a"), p(2, "", "b"), p(3, "Cy", "c")),
+		title(2, p(2, "Bo", "d"), p(3, "Cy", "e"), p(4, "", "f")),
+		title(3, p(1, "", "g"), p(5, "Di", "h")),
+	}
+	if err := c.upsertMany(ctx, batch, upsertOpts{browsable: true, detail: true}); err != nil {
+		t.Fatal(err)
+	}
+	want := map[int64]struct {
+		name    string
+		credits int
+	}{1: {"Ann New", 3}, 2: {"Bo", 2}, 3: {"Cy", 2}, 4: {"", 1}, 5: {"Di", 1}}
+	rows, err := db.QueryContext(ctx, `SELECT person_tmdb, name, credits FROM catalog_person_names ORDER BY person_tmdb`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := 0
+	for rows.Next() {
+		var id int64
+		var name string
+		var n int
+		rows.Scan(&id, &name, &n)
+		got++
+		if w, ok := want[id]; !ok || w.name != name || w.credits != n {
+			t.Errorf("person %d: %q %d, want %+v", id, name, n, want[id])
+		}
+	}
+	rows.Close()
+	if got != len(want) {
+		t.Fatalf("%d people, want %d", got, len(want))
+	}
+	var counted int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_credits c JOIN catalog_person_names p ON p.person_tmdb=c.person_tmdb`).Scan(&counted); err != nil || counted != 9 {
+		t.Fatalf("credits joined to people: %d %v", counted, err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO catalog_person_names_fts(catalog_person_names_fts) VALUES('integrity-check')`); err != nil {
+		t.Fatalf("person search index differs from catalog_person_names: %v", err)
+	}
+	for _, q := range []string{"Bo", "Di", "Ann"} {
+		var n int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_person_names_fts WHERE catalog_person_names_fts MATCH ?`, q+"*").Scan(&n); err != nil || n != 1 {
+			t.Errorf("%s*: %d matches %v", q, n, err)
+		}
+	}
+}

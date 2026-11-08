@@ -20,6 +20,10 @@ import (
 type joinBatch struct {
 	titles []core.Title
 	keys   map[int64]bool
+	// personFold: the person-name triggers honour the bulk marker, so new
+	// credits are counted by foldPersonNames instead. bulk: the
+	// transaction already holds the marker (a title fold).
+	personFold, bulk bool
 }
 
 // orRows matches n rows by their full key: "(key=? AND col=?) OR ...". Each
@@ -88,7 +92,7 @@ func (b *joinBatch) flush(ctx context.Context, tx *sql.Tx, now int64) error {
 	if err := writeFacets(ctx, tx, titles, changed); err != nil {
 		return err
 	}
-	if err := writeCredits(ctx, tx, titles, changed); err != nil {
+	if err := writeCredits(ctx, tx, titles, changed, b.personFold, b.bulk); err != nil {
 		return err
 	}
 	var keys []any
@@ -222,7 +226,7 @@ func hasCredits(t *core.Title) bool {
 // writeCredits makes each title's stored credits exactly its cast and crew.
 // The first credit of a (person, kind, role) wins, as INSERT ... DO NOTHING
 // kept it.
-func writeCredits(ctx context.Context, tx *sql.Tx, titles []core.Title, changed map[int64]bool) error {
+func writeCredits(ctx context.Context, tx *sql.Tx, titles []core.Title, changed map[int64]bool, personFold, bulk bool) error {
 	type titleCredits struct {
 		key   int64
 		want  map[creditKey]*creditRow
@@ -317,10 +321,32 @@ func writeCredits(ctx context.Context, tx *sql.Tx, titles []core.Title, changed 
 			}
 		}
 	}
+	fold := personFold && len(added) > 0
+	if fold && !bulk {
+		if err := beginBulk(ctx, tx); err != nil {
+			return err
+		}
+	}
 	for start := 0; start < len(added); start += joinChunk * 8 {
 		part := added[start:min(start+joinChunk*8, len(added))]
 		if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_credits(key,person_tmdb,name,role,kind,ord,thumb,provider_id) VALUES `+valueRows(len(part)/8, 8)+` ON CONFLICT DO NOTHING`, part...); err != nil {
 			return err
+		}
+	}
+	if fold {
+		// Every added row was inserted: its key (title, person, kind, role)
+		// had no stored row and the batch holds it once.
+		credits := make([]personCredit, 0, len(added)/8)
+		for i := 0; i < len(added); i += 8 {
+			credits = append(credits, personCredit{person: added[i+1].(int64), name: added[i+2].(string)})
+		}
+		if err := foldPersonNames(ctx, tx, credits); err != nil {
+			return err
+		}
+		if !bulk {
+			if err := endBulk(ctx, tx); err != nil {
+				return err
+			}
 		}
 	}
 	// One upsert of the IMDb ids credited by titles whose credits changed;
