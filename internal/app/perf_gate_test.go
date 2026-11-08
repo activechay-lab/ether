@@ -185,7 +185,10 @@ func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateF
 				// response byte, so a page walk that stays flat per row
 				// passes and one that rescans per page does not.
 				f := float64(l.Bytes) / float64(s.Bytes)
-				s = &perfharness.Row{RowsMax: int64(float64(s.RowsMax) * f), QueriesMax: int64(float64(s.QueriesMax) * f), DBTime: time.Duration(float64(s.DBTime) * f), WarmP50: s.WarmP50}
+				scale := func(w perfharness.Work) perfharness.Work {
+					return perfharness.Work{Queries: int64(float64(w.Queries) * f), Rows: int64(float64(w.Rows) * f), DBTime: time.Duration(float64(w.DBTime) * f)}
+				}
+				s = &perfharness.Row{RowsMax: int64(float64(s.RowsMax) * f), QueriesMax: int64(float64(s.QueriesMax) * f), DBTime: time.Duration(float64(s.DBTime) * f), WarmP50: s.WarmP50, FirstWork: scale(s.FirstWork), ColdWork: scale(s.ColdWork)}
 			}
 			// A pass may or may not be answered by a cache (a generation or
 			// minute bucket can turn over between passes), so the large

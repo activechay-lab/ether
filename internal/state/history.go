@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"sort"
 	"strings"
 	"time"
 
@@ -80,6 +81,9 @@ func scanHistory(row interface{ Scan(...any) error }) (core.HistoryEntry, error)
 const historyColumns = `id,user_id,rating_key,viewed_at,completed,view_type,device_id,snapshot`
 
 func (s *State) QueryHistory(ctx context.Context, q core.HistoryQuery) ([]core.HistoryEntry, error) {
+	if q.UserID != 0 && q.ViewType < 0 && q.Kind == 0 && q.Key == 0 && q.DeviceID == nil && q.At == nil && !q.Asc {
+		return s.newestUserHistory(ctx, q)
+	}
 	where := []string{"1=1"}
 	args := []any{}
 	add := func(clause string, value any) { where = append(where, clause); args = append(args, value) }
@@ -132,6 +136,92 @@ func (s *State) QueryHistory(ctx context.Context, q core.HistoryQuery) ([]core.H
 	}
 	return out, rows.Err()
 }
+
+// newestUserHistory is one viewer's history, newest second first and in id
+// order within a second, as QueryHistory orders it. No index has that
+// order without a view type, so the SQL form read and sorted the viewer's
+// whole history; this reads the newest offset+limit rows by viewed_at on
+// state_history_user, plus the rest of the last row's second for its ties.
+func (s *State) newestUserHistory(ctx context.Context, q core.HistoryQuery) ([]core.HistoryEntry, error) {
+	if q.Limit <= 0 {
+		q.Limit = 100
+	}
+	q.Limit = min(q.Limit, 500)
+	offset := max(q.Offset, 0)
+	const second, maxSecond = int64(1_000_000_000), int64(9_223_372_035)
+	where, args := "user_id=?", []any{q.UserID}
+	if q.Since != nil {
+		if *q.Since > maxSecond {
+			return nil, nil
+		}
+		where += " AND viewed_at>=?"
+		args = append(args, max(*q.Since, 0)*second)
+	}
+	if q.Until != nil {
+		if *q.Until < 0 {
+			return nil, nil
+		}
+		if *q.Until < maxSecond {
+			where += " AND viewed_at<?"
+			args = append(args, (*q.Until+1)*second)
+		}
+	}
+	read := func(extra string, extraArgs []any, limit int) ([]core.HistoryEntry, error) {
+		query := "SELECT " + historyColumns + " FROM state_history WHERE " + where + extra + " ORDER BY viewed_at DESC"
+		all := append(append([]any{}, args...), extraArgs...)
+		if limit > 0 {
+			query += " LIMIT ?"
+			all = append(all, limit)
+		}
+		rows, err := s.db.QueryContext(ctx, query, all...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []core.HistoryEntry
+		for rows.Next() {
+			h, err := scanHistory(rows)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, h)
+		}
+		return out, rows.Err()
+	}
+	n := offset + q.Limit
+	out, err := read("", nil, n)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == n {
+		boundary := out[n-1].ViewedAt.UnixNano() / second
+		ties, err := read(" AND viewed_at>=? AND viewed_at<?", []any{boundary * second, (boundary + 1) * second}, 0)
+		if err != nil {
+			return nil, err
+		}
+		seen := make(map[int64]bool, len(out))
+		for _, h := range out {
+			seen[h.ID] = true
+		}
+		for _, h := range ties {
+			if !seen[h.ID] {
+				out = append(out, h)
+			}
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		si, sj := out[i].ViewedAt.UnixNano()/second, out[j].ViewedAt.UnixNano()/second
+		if si != sj {
+			return si > sj
+		}
+		return out[i].ID < out[j].ID
+	})
+	if offset >= len(out) {
+		return nil, nil
+	}
+	return out[offset:min(n, len(out))], nil
+}
+
 func (s *State) HistoryByID(ctx context.Context, userID, id int64) (core.HistoryEntry, error) {
 	return scanHistory(s.db.QueryRowContext(ctx, "SELECT "+historyColumns+" FROM state_history WHERE id=? AND (user_id=? OR ?=0)", id, userID, userID))
 }
