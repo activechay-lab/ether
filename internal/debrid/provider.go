@@ -765,46 +765,11 @@ func chosenFileMatchesTarget(filePath string, target *core.ReleaseTarget) bool {
 }
 
 var (
-	rePartEpisode    = regexp.MustCompile(`(?i)\b(?:Part|Pt)\.?\s*(\d{1,2})\b`)
-	reLeadingEpisode = regexp.MustCompile(`^\s*(\d{2,3})(?:\s*[-._]\s*|\s+)`)
+	rePartEpisode = regexp.MustCompile(`(?i)\b(?:Part|Pt)\.?\s*(\d{1,2})\b`)
 )
 
 func classicPackEpisodeMatches(filePath string, wantSeason, wantEp int) bool {
-	normPath := strings.ReplaceAll(filePath, "\\", "/")
-	dirInfo := releaseparse.Parse(strings.ReplaceAll(path.Dir(normPath), "/", " "))
-	if len(dirInfo.Seasons) > 0 {
-		seasonOK := false
-		for _, s := range dirInfo.Seasons {
-			if s == wantSeason {
-				seasonOK = true
-			}
-		}
-		if !seasonOK {
-			return false
-		}
-	}
-	base := path.Base(normPath)
-	if wantSeason == 1 {
-		if m := rePartEpisode.FindStringSubmatch(base); m != nil {
-			if ep, err := strconv.Atoi(m[1]); err == nil && ep == wantEp {
-				return true
-			}
-		}
-	}
-	if m := reLeadingEpisode.FindStringSubmatch(base); m != nil {
-		n, err := strconv.Atoi(m[1])
-		if err != nil {
-			return false
-		}
-		// Avoid mistaking 4-digit years or resolutions ("1080p") for episode numbers.
-		if n == wantEp && (len(dirInfo.Seasons) > 0 || wantSeason == 1) {
-			return true
-		}
-		if wantSeason > 0 && wantEp > 0 && wantEp < 100 && n == wantSeason*100+wantEp {
-			return true
-		}
-	}
-	return false
+	return releaseparse.ClassicPackEpisodeMatches(filePath, wantSeason, wantEp)
 }
 
 func namesOtherClassicEpisode(filePath string, wantSeason, wantEp int) bool {

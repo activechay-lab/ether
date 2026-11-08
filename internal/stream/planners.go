@@ -389,7 +389,8 @@ func (b *builder) chooseMember(members []archive.Member) *archive.Member {
 	for _, m := range members {
 		info := releaseparse.Parse(path.Base(strings.ReplaceAll(m.Name, `\`, "/")))
 		if releaseparse.EpisodeMatches(info, h.Season, h.Episode) ||
-			(h.Absolute > 0 && releaseparse.EpisodeMatchesAbsolute(info, h.Absolute)) {
+			(h.Absolute > 0 && releaseparse.EpisodeMatchesAbsolute(info, h.Absolute)) ||
+			(len(info.Episodes) == 0 && releaseparse.ClassicPackEpisodeMatches(m.Name, h.Season, h.Episode)) {
 			matching = append(matching, m)
 		}
 	}
