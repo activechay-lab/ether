@@ -63,7 +63,7 @@ func (b *Broker) Command(ctx context.Context, actor *core.Viewer, id string, cmd
 			return core.ErrUnauthorized
 		}
 		if cmd.Kind == frontend.CommandSetSubtitle || cmd.Kind == frontend.CommandSetAudio {
-			if err := b.RecordAuthorizedSubtitleIntent(ctx, target.ViewerID, target.Item, true); err != nil {
+			if err := b.recordTrackCommand(ctx, v, owner, target, cmd); err != nil {
 				return err
 			}
 		}

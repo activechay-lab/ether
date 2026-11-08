@@ -348,3 +348,10 @@ type PlaybackSourceHistory struct {
 type PlaybackSourceSnapshot interface {
 	CurrentSource(context.Context, string) (PlaybackSourceObservation, error)
 }
+
+// PlaybackSelectionFence validates an observed selection against the exact
+// current source. fn must be short and must not read media or call a provider.
+// The source fence is acquired before any manual-intent database writer in fn.
+type PlaybackSelectionFence interface {
+	WithSourceSelection(context.Context, string, string, func(MediaInfo) error) error
+}

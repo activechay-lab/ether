@@ -53,7 +53,26 @@ func TestSubtitleSourceLeaseRequiresPlayingAndFencesRetirement(t *testing.T) {
 		done()
 		done()
 	}
+
+	if err := h.m.WithSourceSelection(ctx, ps.ID, revision+"stale", func(core.MediaInfo) error { t.Fatal("stale selection admitted"); return nil }); !errors.Is(err, core.ErrSourceChanged) {
+		t.Fatal(err)
+	}
+	if err := h.m.WithSourceSelection(ctx, ps.ID, revision, func(info core.MediaInfo) error {
+		for _, st := range info.Streams {
+			if st.Index == attached.Index && st.ExternalURL == attached.ExternalURL {
+				return nil
+			}
+		}
+		t.Fatal("selection fence omitted attached track")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	h.m.Stop(ps.ID)
+	if err := h.m.WithSourceSelection(ctx, ps.ID, revision, func(core.MediaInfo) error { t.Fatal("stopped selection admitted"); return nil }); !errors.Is(err, core.ErrSourceChanged) {
+		t.Fatal(err)
+	}
+
 	if lease.Context.Err() == nil {
 		t.Fatal("retirement did not cancel")
 	}

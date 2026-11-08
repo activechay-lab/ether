@@ -29,6 +29,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/extras"
 	"github.com/braedonsaunders/ether/internal/favorites"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/handles/capability"
 	"github.com/braedonsaunders/ether/internal/hoststat"
 	"github.com/braedonsaunders/ether/internal/identity"
@@ -137,6 +138,9 @@ type Options struct {
 
 // App is a running Ether server.
 type App struct {
+	// Nil until a client path proves manual-intent and live selection support.
+	automaticSubtitleClientSupported func(frontend.SessionAccess) bool
+
 	deployment       *deploymentRuntime
 	brokerPlayback   core.Playback
 	brokerTranscoder core.Transcoder

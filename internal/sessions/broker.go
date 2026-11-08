@@ -97,6 +97,8 @@ type brokerPlan struct {
 	external bool
 }
 type brokerSession struct {
+	observedSourceRevision string
+
 	manualSubtitle        bool
 	autoSubtitleIdentity  *int
 	autoSubtitleQueued    bool
@@ -1176,6 +1178,10 @@ func (b *Broker) Report(ctx context.Context, a frontend.SessionAccess, id string
 			return b.stopLocked(ctx, s)
 		}
 		return nil
+	}
+	if err := b.observeSubtitleSelection(ctx, s, t); err != nil {
+		rollbackSequence()
+		return err
 	}
 	if t.Duration <= 0 {
 		if source, ok := b.deps.Playback.Session(s.playID); ok && source != nil && source.Info.Duration > 0 {

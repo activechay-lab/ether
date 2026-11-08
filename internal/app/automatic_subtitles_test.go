@@ -18,6 +18,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plextv"
+	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/subtitles"
 	"github.com/braedonsaunders/ether/internal/trackprefs"
 )
@@ -58,6 +59,8 @@ func TestAutomaticSubtitleBrokerFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
+	// Test only: exercise the backend foundation; this does not qualify a client.
+	a.automaticSubtitleClientSupported = func(frontend.SessionAccess) bool { return true }
 	var searches, downloads atomic.Int32
 	var provider *httptest.Server
 	provider = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -170,6 +173,82 @@ func TestAutomaticSubtitleBrokerFlow(t *testing.T) {
 	if searches.Load() != 1 || downloads.Load() != 1 || encoder.starts() != 0 {
 		t.Fatal("counts", searches.Load(), downloads.Load(), encoder.starts())
 	}
+	// Extend the composed lifecycle matrix with authenticated observed selection.
+	intents := sessions.NewSubtitleIntents(a.db)
+	before, err := intents.Snapshot(ctx, viewer.ID, title.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	off, invalid := -1, 9999
+	report := func(a frontend.SessionAccess, index *int) error {
+		return b.Report(ctx, a, session.ID, frontend.Timeline{State: "playing", Position: 3 * time.Second, Duration: time.Minute, SubtitleStreamIndex: index})
+	}
+	if err = report(access, nil); err != nil {
+		t.Fatal(err)
+	}
+	initial := live.Options.SubtitleStream
+	if err = report(access, &initial); err != nil {
+		t.Fatal(err)
+	}
+	unchanged, _ := intents.Snapshot(ctx, viewer.ID, title.Key)
+	if unchanged != before {
+		t.Fatal("routine echo marked manual", unchanged, before)
+	}
+	foreign := access
+	foreign.Device.ID = "foreign-device"
+	if err = report(foreign, &index); err == nil {
+		t.Fatal("foreign selection accepted")
+	}
+	if err = report(access, &invalid); err == nil {
+		t.Fatal("invalid selection accepted")
+	}
+	unchanged, _ = intents.Snapshot(ctx, viewer.ID, title.Key)
+	if unchanged != before {
+		t.Fatal("invalid selection wrote intent")
+	}
+	// A failed durable veto must leave the observation available to retry.
+	if _, err = a.db.ExecContext(ctx, `CREATE TRIGGER fixture_reject_intent BEFORE INSERT ON sessions_subtitle_intent BEGIN SELECT RAISE(ABORT, 'fixture failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err = report(access, &index); err == nil {
+		t.Fatal("DB failure hidden")
+	}
+	if _, err = a.db.ExecContext(ctx, `DROP TRIGGER fixture_reject_intent`); err != nil {
+		t.Fatal(err)
+	}
+	retry, _ := b.CurrentSubtitleSession(ctx, access, session.ID)
+	if retry.Options.SubtitleStream != live.Options.SubtitleStream || retry.ManualSubtitle {
+		t.Fatal("failed observation advanced", retry)
+	}
+	if err = report(access, &index); err != nil {
+		t.Fatal(err)
+	}
+	selected, _ := intents.Snapshot(ctx, viewer.ID, title.Key)
+	if !selected.Manual || selected.Revision <= before.Revision {
+		t.Fatal("changed selection missing durable veto", selected)
+	}
+	if err = report(access, &off); err != nil {
+		t.Fatal(err)
+	}
+	observed, _ := b.CurrentSubtitleSession(ctx, access, session.ID)
+	if observed.Options.SubtitleStream != -1 || !observed.ManualSubtitle {
+		t.Fatal("explicit off lost", observed)
+	}
+	// The existing command path is already explicit manual intent. Its echo
+	// must not become a second intent write. No automatic command exists yet.
+	if err = b.Command(ctx, viewer, session.ID, frontend.Command{Kind: frontend.CommandSetSubtitle, StreamIndex: index}); err != nil {
+		t.Fatal(err)
+	}
+	commanded, _ := intents.Snapshot(ctx, viewer.ID, title.Key)
+	if err = report(access, &index); err != nil {
+		t.Fatal(err)
+	}
+	echoed, _ := intents.Snapshot(ctx, viewer.ID, title.Key)
+	if echoed != commanded {
+		t.Fatal("manual command echo duplicated intent", commanded, echoed)
+	}
+	t.Logf("manual_revision=%d source_revision=%s off=observed absent=preserved invalid=denied foreign_device=denied db_retry=preserved command_echo=no_write auto_command=NOT_IMPLEMENTED", echoed.Revision, live.SourceRevision)
+
 	t.Logf("source=%s revision=%s stream=%d provider_searches=%d downloads=%d encoder_starts=%d cues=served selection=NOT_PROVEN", live.SourceID, live.SourceRevision, index, searches.Load(), downloads.Load(), encoder.starts())
 	if err = b.Stop(ctx, access, session.ID); err != nil {
 		t.Fatal(err)

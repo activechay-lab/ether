@@ -640,6 +640,10 @@ type SessionCapabilities struct {
 	IconURL                      string
 }
 type Timeline struct {
+	// Observed track indices are presence-aware client telemetry, not proof of
+	// manual intent. In particular Jellyfin Web emits ordinary timeupdate events.
+	AudioStreamIndex, SubtitleStreamIndex *int
+
 	// PlaybackID may be empty for clients that do not send one. The broker
 	// preserves its no-ID supersession semantics.
 	PlaybackID      string

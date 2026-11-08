@@ -794,6 +794,7 @@ func (i *instance) playbackRoutes() error {
 }
 
 type timelineRequest struct {
+	AudioStreamIndex, SubtitleStreamIndex              *int
 	PlaySessionId, LiveStreamId, ItemId, MediaSourceId string
 	PositionTicks, RunTimeTicks                        json.Number
 	IsPaused                                           bool
@@ -841,6 +842,10 @@ func (i *instance) timeline(w http.ResponseWriter, r *http.Request, stopped, sta
 		state = "stopped"
 	}
 	report := frontend.Timeline{PlaybackID: body.PlaySessionId, Position: time.Duration(ticks) * 100 * time.Nanosecond, Duration: time.Duration(runtime) * 100 * time.Nanosecond, State: state}
+	if !started && !stopped {
+		report.AudioStreamIndex = body.AudioStreamIndex
+		report.SubtitleStreamIndex = body.SubtitleStreamIndex
+	}
 	recorded := false
 	if body.PlaySessionId != "" {
 		err = i.host.Sessions.Report(r.Context(), access, body.PlaySessionId, report)

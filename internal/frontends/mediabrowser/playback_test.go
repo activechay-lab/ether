@@ -137,11 +137,13 @@ func TestPlaybackInfoExplicitEstimateOmitsSyntheticSourceFacts(t *testing.T) {
 func TestTimelineReportsAndStops(t *testing.T) {
 	viewer := &frontend.Viewer{ID: 1}
 	var states []string
+	var observations []frontend.Timeline
 	sessions := frontendtest.Sessions{ReportFunc: func(_ context.Context, a frontend.SessionAccess, id string, timeline frontend.Timeline) error {
 		if a.Viewer != viewer || id != "session" || timeline.Position.Milliseconds() != 1000 {
 			t.Fatal(a, id, timeline)
 		}
 		states = append(states, timeline.State)
+		observations = append(observations, timeline)
 		return nil
 	}, StopFunc: func(_ context.Context, _ frontend.SessionAccess, id string) error {
 		states = append(states, "stop")
@@ -170,6 +172,23 @@ func TestTimelineReportsAndStops(t *testing.T) {
 	if strings.Join(states, ",") != "playing,stopped,stop" {
 		t.Fatal(states)
 	}
+	for _, body := range []string{
+		`{"PlaySessionId":"session","PositionTicks":10000000,"EventName":"timeupdate"}`,
+		`{"PlaySessionId":"session","PositionTicks":10000000,"SubtitleStreamIndex":-1,"AudioStreamIndex":1,"EventName":"timeupdate"}`,
+	} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("POST", "/Sessions/Playing/Progress", strings.NewReader(body))
+		r.Header.Set("X-Emby-Token", "grant")
+		inst.Handler().ServeHTTP(w, r)
+		if w.Code != 204 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	absent, off := observations[len(observations)-2], observations[len(observations)-1]
+	if absent.SubtitleStreamIndex != nil || absent.AudioStreamIndex != nil || off.SubtitleStreamIndex == nil || *off.SubtitleStreamIndex != -1 || off.AudioStreamIndex == nil || *off.AudioStreamIndex != 1 {
+		t.Fatal("selection presence lost", absent, off)
+	}
+
 }
 
 func TestInfuseTimelineRecordsFileSourceWithoutBrokerSession(t *testing.T) {

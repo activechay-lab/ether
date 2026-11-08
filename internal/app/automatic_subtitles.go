@@ -16,6 +16,10 @@ func (a *App) automaticSubtitleWork(ctx context.Context, b *sessions.Broker, sta
 	if a.subtitles == nil || a.playback == nil || a.trackprefs == nil || a.db == nil || !a.cfg.Read().OpenSubtitles.AutomaticPreferred {
 		return
 	}
+	if a.automaticSubtitleClientSupported == nil || !a.automaticSubtitleClientSupported(start.Access) {
+		a.log.Info("automatic subtitles skipped", "reason", "client_selection_unverified", "protocol", start.Access.Protocol)
+		return
+	}
 	lease, err := a.playback.LeaseSubtitleSource(ctx, start.SourceID, start.SourceRevision)
 	if err != nil {
 		return
