@@ -498,29 +498,55 @@ func (c *Catalog) WarmDetails(ctx context.Context, limit int) (int, error) {
 	now := c.now()
 	recentCutoff := now.Add(-120 * 24 * time.Hour).Unix()
 	staleCutoff := now.Add(-c.staleAfter).Unix()
-	rows, err := c.db.QueryContext(ctx, `
-		SELECT key FROM catalog_titles
-		WHERE browsable=1 AND adult=0 AND type IN ('movie','show')
-		  AND release_known=1 AND released_ts<=?
-		  AND (detail=0 OR (type='show' AND status='Returning Series' AND detail_at>0 AND detail_at<?))
-		ORDER BY CASE WHEN detail=0 AND released_ts>=? THEN 0 WHEN detail=0 THEN 1 ELSE 2 END ASC,
-		         popularity DESC, vote_count DESC, key ASC
-		LIMIT ?`, now.Unix(), staleCutoff, recentCutoff, limit)
-	if err != nil {
-		return 0, err
-	}
+	// Three bounded reads, in priority order: undetailed recent releases
+	// (the last 120 days of the release index), undetailed titles by
+	// popularity (catalog_titles_browse_warm is in that order, ties by key),
+	// then stale returning series (catalog_titles_warm_stale holds returning
+	// series by detail time, so only the stale ones are read). One query
+	// ordering all three read every browsable title on every pass: 1.3M
+	// rows every 90 seconds on a full mirror.
+	const eligible = ` browsable=1 AND adult=0 AND type IN ('movie','show') AND release_known=1 AND released_ts<=?`
 	var keys []core.RatingKey
-	for rows.Next() {
-		var k int64
-		if err := rows.Scan(&k); err != nil {
-			rows.Close()
+	seen := map[core.RatingKey]bool{}
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`SELECT key FROM catalog_titles WHERE detail=0 AND` + eligible + ` AND released_ts>=?
+			ORDER BY popularity DESC, vote_count DESC, key ASC LIMIT ?`, []any{now.Unix(), recentCutoff}},
+		{`SELECT key FROM catalog_titles INDEXED BY catalog_titles_browse_warm WHERE detail=0 AND` + eligible + `
+			ORDER BY popularity DESC, vote_count DESC, key ASC LIMIT ?`, []any{now.Unix()}},
+		{`SELECT key FROM catalog_titles INDEXED BY catalog_titles_warm_stale WHERE type='show' AND status='Returning Series' AND detail=1 AND detail_at>0 AND detail_at<? AND` + eligible + `
+			ORDER BY popularity DESC, vote_count DESC, key ASC LIMIT ?`, []any{staleCutoff, now.Unix()}},
+	} {
+		if len(keys) >= limit {
+			break
+		}
+		stmt := q.sql
+		if store.DialectOf(c.db) == store.Postgres {
+			stmt = strings.NewReplacer(" INDEXED BY catalog_titles_browse_warm", "", " INDEXED BY catalog_titles_warm_stale", "").Replace(stmt)
+		}
+		// The full limit each time: the recent releases come round again
+		// in the popularity read.
+		rows, err := c.db.QueryContext(ctx, stmt, append(q.args, limit)...)
+		if err != nil {
 			return 0, err
 		}
-		keys = append(keys, core.RatingKey(k))
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
+		for rows.Next() {
+			var k int64
+			if err := rows.Scan(&k); err != nil {
+				rows.Close()
+				return 0, err
+			}
+			if key := core.RatingKey(k); !seen[key] && len(keys) < limit {
+				seen[key] = true
+				keys = append(keys, key)
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return 0, err
+		}
 	}
 	warmed := 0
 	for _, k := range keys {

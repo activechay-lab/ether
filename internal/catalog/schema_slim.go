@@ -112,6 +112,12 @@ END $$;
 	})
 }
 
+func init() {
+	// Returning series by when their details were fetched, so WarmDetails
+	// reads only the stale ones.
+	store.Register("catalog", 49, `CREATE INDEX IF NOT EXISTS catalog_titles_warm_stale ON catalog_titles(detail_at) WHERE type='show' AND status='Returning Series' AND detail=1 AND browsable=1 AND adult=0;`)
+}
+
 func slimCatalogSQLite(ctx context.Context, tx *sql.Tx) error {
 	drop := map[string]bool{}
 	for _, ix := range slimDroppedIndexes {
