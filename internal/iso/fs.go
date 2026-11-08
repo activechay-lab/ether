@@ -1,3 +1,7 @@
+// Adapted from AltMount (internal/importer/archive/iso/fs.go),
+// MIT License, Copyright (c) 2025 Javier Blanco.
+// https://github.com/javi11/altmount
+
 package iso
 
 import (
@@ -11,6 +15,58 @@ import (
 )
 
 const iso9660SectorSize = 2048
+
+// Bounds on reading a filesystem the image describes, which may be damaged
+// or hostile: no real disc comes near them, and each caps either memory or
+// the reads one analysis can issue.
+const (
+	maxWalkDepth    = 32       // directory nesting
+	maxWalkFiles    = 1 << 16  // files listed
+	maxWalkDirs     = 1 << 14  // directories read
+	maxDirBytes     = 8 << 20  // one directory's records (a Blu-ray STREAM/ is ~26 KiB)
+	maxFileExtents  = 1 << 16  // extents of one file
+	maxTotalExtents = 1 << 20  // extents of all files
+	maxVDSSectors   = 256      // Volume Descriptor Sequence (the spec's minimum is 16)
+	maxListBytes    = 64 << 20 // everything one listing reads (a Blu-ray needs a few MiB)
+)
+
+// budgetReader fails reads once a listing has read its budget, which bounds
+// descriptor chains that loop back on themselves however they are built.
+type budgetReader struct {
+	io.ReadSeeker
+	left int64
+}
+
+func (r *budgetReader) Read(p []byte) (int, error) {
+	if r.left -= int64(len(p)); r.left < 0 {
+		return 0, fmt.Errorf("iso: listing read more than %d bytes", maxListBytes)
+	}
+	return r.ReadSeeker.Read(p)
+}
+
+// walkState is the budget of one filesystem walk and the directories it has
+// read, so a directory that lists itself or an ancestor is read once.
+type walkState struct {
+	files, dirs, extents int
+	seen                 map[uint64]bool
+}
+
+func newWalkState() *walkState { return &walkState{seen: map[uint64]bool{}} }
+
+// enter reports whether the directory at loc may be read at depth.
+func (w *walkState) enter(loc uint64, depth int) error {
+	switch {
+	case depth > maxWalkDepth:
+		return fmt.Errorf("iso: directories nested deeper than %d", maxWalkDepth)
+	case w.seen[loc]:
+		return fmt.Errorf("iso: directory at %d is listed twice (a loop)", loc)
+	case w.dirs >= maxWalkDirs:
+		return fmt.Errorf("iso: more than %d directories", maxWalkDirs)
+	}
+	w.seen[loc] = true
+	w.dirs++
+	return nil
+}
 
 // isoFileEntry is one non-directory file returned by ListISOFiles. The
 // file's data on disc may be split across multiple contiguous extents
@@ -54,6 +110,9 @@ type iso9660DirEntry struct {
 
 // iso9660ListDir returns all non-dot entries in an ISO 9660 directory sector range.
 func iso9660ListDir(rs io.ReadSeeker, dirLBA uint32, dirSize uint64) ([]iso9660DirEntry, error) {
+	if dirSize > maxDirBytes {
+		return nil, fmt.Errorf("iso9660: directory of %d bytes exceeds %d", dirSize, maxDirBytes)
+	}
 	data := make([]byte, dirSize)
 	if _, err := rs.Seek(int64(dirLBA)*iso9660SectorSize, io.SeekStart); err != nil {
 		return nil, err
@@ -73,11 +132,11 @@ func iso9660ListDir(rs io.ReadSeeker, dirLBA uint32, dirSize uint64) ([]iso9660D
 			offset = next
 			continue
 		}
-		if offset+recLen > int(dirSize) {
-			break
+		if offset+recLen > int(dirSize) || recLen < 34 {
+			break // a record holds at least its 33-byte header and a name
 		}
 		nameLen := int(data[offset+32])
-		if nameLen == 0 || offset+33+nameLen > int(dirSize) {
+		if nameLen == 0 || 33+nameLen > recLen {
 			offset += recLen
 			continue
 		}
@@ -106,6 +165,13 @@ func iso9660ListDir(rs io.ReadSeeker, dirLBA uint32, dirSize uint64) ([]iso9660D
 // iso9660WalkAll recursively lists all non-directory files starting at dirLBA/dirSize.
 // prefix is prepended to each returned path (empty string for the root call).
 func iso9660WalkAll(rs io.ReadSeeker, dirLBA uint32, dirSize uint64, prefix string) ([]isoFileEntry, error) {
+	return iso9660Walk(rs, dirLBA, dirSize, prefix, 0, newWalkState())
+}
+
+func iso9660Walk(rs io.ReadSeeker, dirLBA uint32, dirSize uint64, prefix string, depth int, w *walkState) ([]isoFileEntry, error) {
+	if err := w.enter(uint64(dirLBA), depth); err != nil {
+		return nil, err
+	}
 	entries, err := iso9660ListDir(rs, dirLBA, dirSize)
 	if err != nil {
 		return nil, err
@@ -117,12 +183,16 @@ func iso9660WalkAll(rs io.ReadSeeker, dirLBA uint32, dirSize uint64, prefix stri
 			entryPath = prefix + "/" + e.name
 		}
 		if e.isDir {
-			sub, subErr := iso9660WalkAll(rs, e.lba, e.size, entryPath)
+			sub, subErr := iso9660Walk(rs, e.lba, e.size, entryPath, depth+1, w)
 			if subErr != nil {
 				continue // skip unreadable sub-directories
 			}
 			result = append(result, sub...)
 		} else {
+			if w.files >= maxWalkFiles {
+				return result, fmt.Errorf("iso9660: more than %d files", maxWalkFiles)
+			}
+			w.files++
 			// ISO 9660 stores file data in a single contiguous extent.
 			// (Interleave mode exists but is essentially never used.)
 			result = append(result, isoFileEntry{
@@ -241,6 +311,22 @@ func udfFollowIndirect(ctx context.Context, rs io.ReadSeeker, physSect uint32, m
 	return 0, udfTag{}, nil, fmt.Errorf("udf: indirect entry chain exceeds depth cap (%d)", udfMaxIndirectDepth)
 }
 
+// udfAllocDescs returns where a File Entry (261) or Extended File Entry
+// (266) sector keeps its allocation descriptors, clamped to the sector.
+func udfAllocDescs(tagID uint16, buf []byte) (off, n int) {
+	if tagID == 266 {
+		off = 216 + int(binary.LittleEndian.Uint32(buf[208:212]))
+		n = int(binary.LittleEndian.Uint32(buf[212:216]))
+	} else {
+		off = 176 + int(binary.LittleEndian.Uint32(buf[168:172]))
+		n = int(binary.LittleEndian.Uint32(buf[172:176]))
+	}
+	if off > len(buf) {
+		return len(buf), 0
+	}
+	return off, min(n, len(buf)-off)
+}
+
 // udfParseLongAD parses a long_ad from buf[off:].
 func udfParseLongAD(buf []byte, off int) udfLongAD {
 	length := binary.LittleEndian.Uint32(buf[off:])
@@ -284,6 +370,7 @@ func udfParseVDS(rs io.ReadSeeker, vdsExtent udfExtent) (partStart uint32, fsdAD
 	if sectors == 0 {
 		sectors = 16
 	}
+	sectors = min(sectors, maxVDSSectors)
 	for i := uint32(0); i < sectors; i++ {
 		tag, buf, rerr := udfReadTag(rs, vdsExtent.sector+i)
 		if rerr != nil {
@@ -299,7 +386,7 @@ func udfParseVDS(rs io.ReadSeeker, vdsExtent udfExtent) (partStart uint32, fsdAD
 			mapTableLen := binary.LittleEndian.Uint32(buf[264:268])
 			mapOff := 440
 			end := min(mapOff+int(mapTableLen), len(buf))
-			for mapOff < end {
+			for mapOff+2 <= end {
 				pmType := buf[mapOff]
 				pmLen := int(buf[mapOff+1])
 				if pmLen == 0 || mapOff+pmLen > end {
@@ -331,21 +418,7 @@ func udfBuildMetaMap(rs io.ReadSeeker, partStart, metaFileLoc uint32) ([]udfMeta
 	}
 
 	allocType := buf[34] & 0x07
-
-	var allocDescOff, allocDescLen int
-	if tag.id == 266 { // Extended File Entry
-		eaLen := int(binary.LittleEndian.Uint32(buf[208:212]))
-		allocDescLen = int(binary.LittleEndian.Uint32(buf[212:216]))
-		allocDescOff = 216 + eaLen
-	} else { // Plain File Entry (261)
-		eaLen := int(binary.LittleEndian.Uint32(buf[168:172]))
-		allocDescLen = int(binary.LittleEndian.Uint32(buf[172:176]))
-		allocDescOff = 176 + eaLen
-	}
-
-	if allocDescOff+allocDescLen > len(buf) {
-		allocDescLen = len(buf) - allocDescOff
-	}
+	allocDescOff, allocDescLen := udfAllocDescs(tag.id, buf)
 	var spans []udfMetaSpan
 	var metaBlock uint32
 	switch allocType {
@@ -467,20 +540,7 @@ func udfReadDirEntries(ctx context.Context, rs io.ReadSeeker, physSect uint32, m
 	}
 
 	allocType := buf[34] & 0x07
-
-	var allocDescOff, allocDescLen int
-	if tag.id == 266 {
-		eaLen := int(binary.LittleEndian.Uint32(buf[208:212]))
-		allocDescLen = int(binary.LittleEndian.Uint32(buf[212:216]))
-		allocDescOff = 216 + eaLen
-	} else {
-		eaLen := int(binary.LittleEndian.Uint32(buf[168:172]))
-		allocDescLen = int(binary.LittleEndian.Uint32(buf[172:176]))
-		allocDescOff = 176 + eaLen
-	}
-	if allocDescOff+allocDescLen > len(buf) {
-		allocDescLen = len(buf) - allocDescOff
-	}
+	allocDescOff, allocDescLen := udfAllocDescs(tag.id, buf)
 
 	var dirData []byte
 	switch allocType {
@@ -498,6 +558,9 @@ func udfReadDirEntries(ctx context.Context, rs io.ReadSeeker, physSect uint32, m
 			if ad.length == 0 {
 				break
 			}
+			if len(dirData)+int(ad.length) > maxDirBytes {
+				return nil, fmt.Errorf("udf: directory at sector %d exceeds %d bytes", physSect, maxDirBytes)
+			}
 			data, rerr := readMetaExtent(rs, ad.block, int(ad.length), metaMap, partStart)
 			if rerr != nil {
 				return nil, rerr
@@ -509,6 +572,9 @@ func udfReadDirEntries(ctx context.Context, rs io.ReadSeeker, physSect uint32, m
 			ad := udfParseLongAD(buf[allocDescOff:], off)
 			if ad.length == 0 {
 				break
+			}
+			if len(dirData)+int(ad.length) > maxDirBytes {
+				return nil, fmt.Errorf("udf: directory at sector %d exceeds %d bytes", physSect, maxDirBytes)
 			}
 			data, rerr := readICBExtent(rs, ad.loc, int(ad.length), metaMap, partStart)
 			if rerr != nil {
@@ -628,8 +694,15 @@ func udfSetup(rs io.ReadSeeker) (partStart uint32, metaMap []udfMetaSpan, rootIC
 
 // udfWalkAll recursively lists all non-directory files in a UDF filesystem.
 func udfWalkAll(ctx context.Context, rs io.ReadSeeker, dirICB udfLongAD, metaMap []udfMetaSpan, partStart uint32, prefix string) ([]isoFileEntry, error) {
+	return udfWalk(ctx, rs, dirICB, metaMap, partStart, prefix, 0, newWalkState())
+}
+
+func udfWalk(ctx context.Context, rs io.ReadSeeker, dirICB udfLongAD, metaMap []udfMetaSpan, partStart uint32, prefix string, depth int, w *walkState) ([]isoFileEntry, error) {
 	physSect, err := udfResolveICB(dirICB.loc, metaMap, partStart)
 	if err != nil {
+		return nil, err
+	}
+	if err := w.enter(uint64(physSect), depth); err != nil {
 		return nil, err
 	}
 	entries, err := udfReadDirEntries(ctx, rs, physSect, metaMap, partStart)
@@ -651,9 +724,12 @@ func udfWalkAll(ctx context.Context, rs io.ReadSeeker, dirICB udfLongAD, metaMap
 			entryPath = prefix + "/" + e.name
 		}
 		if e.isDir {
-			sub, _ := udfWalkAll(ctx, rs, e.icb, metaMap, partStart, entryPath)
+			sub, _ := udfWalk(ctx, rs, e.icb, metaMap, partStart, entryPath, depth+1, w)
 			result = append(result, sub...)
 			continue
+		}
+		if w.files >= maxWalkFiles || w.extents >= maxTotalExtents {
+			return result, fmt.Errorf("udf: more than %d files or %d extents", maxWalkFiles, maxTotalExtents)
 		}
 		fePhys, rerr := udfResolveICB(e.icb.loc, metaMap, partStart)
 		if rerr != nil {
@@ -678,20 +754,7 @@ func udfWalkAll(ctx context.Context, rs io.ReadSeeker, dirICB udfLongAD, metaMap
 		}
 		infoLen := binary.LittleEndian.Uint64(feBuf[56:64])
 		allocType := feBuf[34] & 0x07
-
-		var allocDescOff, allocDescLen int
-		if feTag.id == 266 {
-			eaLen := int(binary.LittleEndian.Uint32(feBuf[208:212]))
-			allocDescLen = int(binary.LittleEndian.Uint32(feBuf[212:216]))
-			allocDescOff = 216 + eaLen
-		} else {
-			eaLen := int(binary.LittleEndian.Uint32(feBuf[168:172]))
-			allocDescLen = int(binary.LittleEndian.Uint32(feBuf[172:176]))
-			allocDescOff = 176 + eaLen
-		}
-		if allocDescOff+allocDescLen > len(feBuf) {
-			allocDescLen = len(feBuf) - allocDescOff
-		}
+		allocDescOff, allocDescLen := udfAllocDescs(feTag.id, feBuf)
 
 		extents := collectFileExtents(ctx, rs, feBuf[allocDescOff:allocDescOff+allocDescLen], allocType, metaMap, partStart, infoLen, fePhys)
 		if len(extents) == 0 {
@@ -699,6 +762,8 @@ func udfWalkAll(ctx context.Context, rs io.ReadSeeker, dirICB udfLongAD, metaMap
 				"path", entryPath, "info_length", infoLen, "alloc_type", allocType)
 			continue
 		}
+		w.files++
+		w.extents += len(extents)
 		result = append(result, isoFileEntry{
 			path:    entryPath,
 			size:    infoLen,
@@ -816,6 +881,9 @@ func collectFileExtents(ctx context.Context, rs io.ReadSeeker, inlineADs []byte,
 				}
 				lba = resolved
 			}
+			if len(extents) >= maxFileExtents {
+				return nil // not a real disc's file; never play part of it
+			}
 			extents = append(extents, isoExtent{lba: lba, length: uint64(adLen)})
 		}
 		if chain == nil {
@@ -920,6 +988,7 @@ func ListISOFiles(ctx context.Context, rs io.ReadSeeker) ([]isoFileEntry, error)
 	// error message can point an operator at the actual cause (transient
 	// network read, malformed structure, unrecognised version, ...).
 	var udfErr, isoErr error
+	rs = &budgetReader{ReadSeeker: rs, left: maxListBytes}
 
 	// Try UDF first (handles Blu-ray and modern discs with correct 64-bit sizes).
 	if partStart, metaMap, rootICB, err := udfSetup(rs); err != nil {

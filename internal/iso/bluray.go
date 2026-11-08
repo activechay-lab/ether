@@ -1,3 +1,7 @@
+// Adapted from AltMount (internal/importer/archive/iso/bluray.go),
+// MIT License, Copyright (c) 2025 Javier Blanco.
+// https://github.com/javi11/altmount
+
 package iso
 
 import (
@@ -54,7 +58,11 @@ func ResolveMainFeature(ctx context.Context, rs io.ReadSeeker, files []isoFileEn
 		up := strings.ToUpper(f.path)
 		switch {
 		case strings.HasPrefix(up, "BDMV/PLAYLIST/") && strings.HasSuffix(up, ".MPLS"):
-			playlistEntries = append(playlistEntries, f)
+			// A playlist is a few KiB; one claiming more is damage, and
+			// reading it would cost memory and reads for nothing.
+			if f.size <= maxPlaylistBytes && len(playlistEntries) < maxPlaylists {
+				playlistEntries = append(playlistEntries, f)
+			}
 		case strings.HasPrefix(up, "BDMV/STREAM/SSIF/") && strings.HasSuffix(up, ".SSIF"):
 			base := up[len("BDMV/STREAM/SSIF/") : len(up)-len(".SSIF")]
 			ssifByClip[base] = f
@@ -222,6 +230,12 @@ const (
 	// run that would exceed this is split. No real PLAYLIST directory (a few
 	// MB of tiny files) approaches it.
 	playlistRunSizeCeiling = 64 << 20
+
+	// maxPlaylistBytes and maxPlaylists bound the playlists read: real ones
+	// are a few KiB, and even obfuscated discs carry a couple of thousand.
+	maxPlaylistBytes     = 1 << 20
+	maxPlaylists         = 4096
+	maxPlaylistReadBytes = 128 << 20 // all runs together
 )
 
 // byteRun is one contiguous span of disc bytes read in a single pass. buf is
@@ -265,8 +279,8 @@ func readPlaylistsCoalesced(rs io.ReadSeeker, entries []isoFileEntry) map[string
 	var exts []flatExtent
 	for _, e := range entries {
 		for _, x := range e.extents {
-			if x.length == 0 {
-				continue
+			if x.length == 0 || x.length > maxPlaylistBytes {
+				continue // an oversized extent leaves its entry unread
 			}
 			exts = append(exts, flatExtent{
 				offset: int64(x.lba) * iso9660SectorSize,
@@ -297,9 +311,14 @@ func readPlaylistsCoalesced(rs io.ReadSeeker, entries []isoFileEntry) map[string
 	}
 	runs = append(runs, cur)
 
-	// One Seek + one ReadFull per run. A failed run keeps buf == nil.
+	// One Seek + one ReadFull per run. A failed run keeps buf == nil, as does
+	// every run past the total budget.
+	var total int64
 	for i := range runs {
 		r := &runs[i]
+		if total += r.end - r.start; total > maxPlaylistReadBytes {
+			break
+		}
 		if _, err := rs.Seek(r.start, io.SeekStart); err != nil {
 			continue
 		}

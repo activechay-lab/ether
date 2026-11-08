@@ -157,7 +157,7 @@ func (b *builder) build(ctx context.Context) (*plan, error) {
 		if err == nil && isISOName(p.name) {
 			// A disc image, plain, split or inside an archive: play its
 			// main feature, not the image. Further discs of the release join it.
-			p, err = b.expandISO(ctx, p, b.isoSiblings(ctx, cands, i))
+			p, err = b.expandISO(ctx, p, b.isoSiblings(cands, i))
 		}
 		if err == nil {
 			b.e.log.Debug("stream plan", "kind", p.kind, "name", p.name, "size", p.size, "volumes", len(p.vols))

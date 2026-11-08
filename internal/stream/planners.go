@@ -41,7 +41,7 @@ func (b *builder) planPlain(ctx context.Context, pf *postedFile) (*plan, error) 
 	if (pf.file.Obfuscated || name == "" || nzb.IsObfuscated(name)) && seg.name != "" && !nzb.IsObfuscated(seg.name) {
 		name = path.Base(seg.name)
 	}
-	if !nzb.IsVideoExt(strings.TrimPrefix(path.Ext(name), ".")) {
+	if !nzb.IsVideoExt(strings.TrimPrefix(path.Ext(name), ".")) && !isISOName(name) {
 		ext := pf.file.Info.Ext
 		if ext == "" {
 			ext = sniffVideoExt(seg.data)
@@ -316,6 +316,9 @@ func (b *builder) rarFromVolumes(ctx context.Context, vols []*postedFile, parsed
 func (b *builder) stashDiscs(members []archive.Member, chosen *archive.Member, plan func(*archive.Member) (*plan, error)) {
 	for i := range members {
 		m := &members[i]
+		if len(b.memberISOs) >= maxDiscSiblings {
+			return
+		}
 		if m.Dir || m.Name == chosen.Name || nzb.Classify(m.Name).Kind != nzb.KindISO || m.Size <= 0 {
 			continue
 		}

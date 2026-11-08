@@ -3,7 +3,10 @@ package stream
 import (
 	"context"
 	"fmt"
+	"maps"
 	"path"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -47,10 +50,11 @@ type disc struct {
 }
 
 // maxDiscSiblings bounds how many further candidates are planned in search of
-// the other discs of a release.
+// the other discs of a release, and how many further discs are analysed.
 const maxDiscSiblings = 8
 
-// isoAnalyzeTimeout bounds reading one disc image's structure, so a degraded
+// isoAnalyzeTimeout bounds reading one disc image's structure, and separately
+// finding and reading all of the release's further discs, so a degraded
 // provider cannot stall starting playback for minutes.
 const isoAnalyzeTimeout = 90 * time.Second
 
@@ -89,14 +93,19 @@ func (b *builder) analyzeDisc(ctx context.Context, p *plan) (*disc, error) {
 // isoSiblings returns a function that plans the release's other disc images:
 // the other ISO members of the archive just planned, and the other candidates
 // that turn out to be disc images (DISC_1 and DISC_2 posted as separate sets).
-func (b *builder) isoSiblings(ctx context.Context, cands []candidate, self int) func() []*plan {
+func (b *builder) isoSiblings(cands []candidate, self int) func(context.Context) []*plan {
 	members := b.memberISOs
-	return func() []*plan {
+	return func(ctx context.Context) []*plan {
 		out := append([]*plan(nil), members...)
+		tried := 0
 		for j, c := range cands {
-			if j == self || len(out) >= maxDiscSiblings {
-				continue
+			if len(out) >= maxDiscSiblings || tried >= maxDiscSiblings || ctx.Err() != nil {
+				break
 			}
+			if j == self || c.kind == nzb.KindVideo {
+				continue // a plain video is never a further disc
+			}
+			tried++
 			b.memberISOs = nil
 			p, err := b.planFor(ctx, c)
 			if err != nil || !isISOName(p.name) {
@@ -106,7 +115,7 @@ func (b *builder) isoSiblings(ctx context.Context, cands []candidate, self int) 
 			out = append(out, b.memberISOs...)
 		}
 		b.memberISOs = nil
-		return out
+		return out[:min(len(out), maxDiscSiblings)]
 	}
 }
 
@@ -116,15 +125,19 @@ func (b *builder) isoSiblings(ctx context.Context, cands []candidate, self int) 
 // Their structure is read through their own plans, and the chosen files'
 // extents are remapped straight onto the archive volumes, so reads, readahead
 // and PAR2 checks work as for any other plan.
-func (b *builder) expandISO(ctx context.Context, first *plan, siblings func() []*plan) (*plan, error) {
+func (b *builder) expandISO(ctx context.Context, first *plan, siblings func(context.Context) []*plan) (*plan, error) {
 	d0, err := b.analyzeDisc(ctx, first)
 	if err != nil {
 		return nil, err
 	}
 	group := []*disc{d0}
 	if len(d0.an.MainFeature) > 0 && siblings != nil {
-		for _, sp := range siblings() {
-			ds, err := b.analyzeDisc(ctx, sp)
+		// One budget for finding and reading every further disc: past it,
+		// the discs read so far play.
+		sctx, cancel := context.WithTimeout(ctx, isoAnalyzeTimeout)
+		defer cancel()
+		for _, sp := range siblings(sctx) {
+			ds, err := b.analyzeDisc(sctx, sp)
 			if err != nil {
 				if ctx.Err() != nil {
 					return nil, ctx.Err()
@@ -189,6 +202,9 @@ func isoFeature(an *iso.Analysis, isoName string) ([]iso.File, string) {
 		}
 		return files, strings.TrimSuffix(isoName, path.Ext(isoName)) + ".m2ts"
 	}
+	if vobs := dvdFeature(an.Files); len(vobs) > 0 {
+		return vobs, strings.TrimSuffix(isoName, path.Ext(isoName)) + ".vob"
+	}
 	var best *iso.File
 	for i := range an.Files {
 		f := &an.Files[i]
@@ -204,6 +220,46 @@ func isoFeature(an *iso.Analysis, isoName string) ([]iso.File, string) {
 		return nil, ""
 	}
 	return []iso.File{*best}, best.Base()
+}
+
+// reDVDTitleVOB matches the feature parts of a DVD title set,
+// VIDEO_TS/VTS_nn_1.VOB to VTS_nn_9.VOB (VTS_nn_0.VOB is its menu).
+var reDVDTitleVOB = regexp.MustCompile(`(?i)(?:^|/)VIDEO_TS/VTS_(\d{2})_([1-9])\.VOB$`)
+
+// dvdFeature returns the VOBs of a DVD's largest title set in order. They are
+// one program stream cut into files of at most 1 GiB, so the feature is all
+// of them back to back; the largest single VOB would be a fragment of it.
+func dvdFeature(files []iso.File) []iso.File {
+	sets := map[string]map[int]iso.File{}
+	for _, f := range files {
+		m := reDVDTitleVOB.FindStringSubmatch(f.Path)
+		if m == nil || f.Size <= 0 {
+			continue
+		}
+		if sets[m[1]] == nil {
+			sets[m[1]] = map[int]iso.File{}
+		}
+		sets[m[1]][int(m[2][0]-'0')] = f
+	}
+	var best []iso.File
+	var bestBytes int64
+	for _, vts := range slices.Sorted(maps.Keys(sets)) {
+		parts := sets[vts]
+		var run []iso.File
+		var n int64
+		for k := 1; ; k++ { // parts 1, 2, ... without a gap
+			f, ok := parts[k]
+			if !ok {
+				break
+			}
+			run = append(run, f)
+			n += f.Size
+		}
+		if n > bestBytes {
+			best, bestBytes = run, n
+		}
+	}
+	return best
 }
 
 // isoPlan maps files (in order) onto the volumes that hold the group's

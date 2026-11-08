@@ -1,4 +1,10 @@
+// Adapted from AltMount (internal/nzbfilesystem/tsremux.go),
+// MIT License, Copyright (c) 2025 Javier Blanco.
+// https://github.com/javi11/altmount
+
 package stream
+
+import "sort"
 
 // Continuous-timeline remux core for Blu-ray main-feature virtual files.
 //
@@ -201,41 +207,73 @@ func clipSpans(clips []clipBoundary) []clipSpan {
 // 192-byte BDAV source packets, and every packet's PTS, DTS and PCR gets that
 // clip's delta. The transform preserves length, so offsets and the file size
 // are unchanged. read must fill dst with the file's bytes at [from, from+len(dst)).
+//
+// Only the packets cut by the ends of buf are read again (at most two of 192
+// bytes per clip), so a read costs no more I/O than without the remux. On an
+// error buf is partly rewritten and must not be served.
 func remux(spans []clipSpan, buf []byte, off int64, read func(dst []byte, from int64) (int, error)) error {
 	end := off + int64(len(buf))
-	for _, sp := range spans {
-		if sp.end < off || sp.start >= end || sp.delta == 0 {
+	i := sort.Search(len(spans), func(i int) bool { return spans[i].end >= off })
+	for ; i < len(spans) && spans[i].start < end; i++ {
+		sp := spans[i]
+		if sp.delta == 0 {
 			continue
 		}
-		lo, hi := max(off, sp.start), min(end, sp.end+1)
-		// Widen to whole packets of this clip's grid; the clip's own tail
-		// that is not a whole packet stays as it is.
-		wLo := sp.start + (lo-sp.start)/bdavPacketLen*bdavPacketLen
-		wHi := min(sp.end+1, sp.start+(hi-sp.start+bdavPacketLen-1)/bdavPacketLen*bdavPacketLen)
-		win := buf[lo-off : hi-off]
-		if wLo != lo || wHi != hi {
-			win = make([]byte, wHi-wLo)
-			if n, err := read(win, wLo); err != nil && n < len(win) {
+		lo, hi, clipEnd := max(off, sp.start), min(end, sp.end+1), sp.end+1
+		first := sp.start + (lo-sp.start)/bdavPacketLen*bdavPacketLen
+		// The packets cut by lo and hi, read whole; the clip's own tail that
+		// is not a whole packet stays as it is.
+		var head, tail []byte
+		var tailAt int64
+		if first < lo && first+bdavPacketLen <= clipEnd {
+			head = make([]byte, bdavPacketLen)
+			if n, err := read(head, first); err != nil && n < len(head) {
 				return err
 			}
 		}
-		// Every packet of a real transport stream starts with the sync byte;
-		// a window that does not is not one (wrong data, an unexpected
-		// container), and rewriting it would corrupt bytes.
-		isTS := len(win) >= bdavPacketLen
-		for i := 0; i+bdavPacketLen <= len(win); i += bdavPacketLen {
-			if win[i+4] != tsSync {
-				isTS = false
-				break
+		if last := sp.start + (hi-sp.start)/bdavPacketLen*bdavPacketLen; last < hi && (head == nil || last > first) && last+bdavPacketLen <= clipEnd {
+			tail, tailAt = make([]byte, bdavPacketLen), last
+			if n, err := read(tail, last); err != nil && n < len(tail) {
+				return err
 			}
 		}
-		if isTS {
-			for i := 0; i+bdavPacketLen <= len(win); i += bdavPacketLen {
-				rewritePacket(win[i:i+bdavPacketLen], bdavPacketLen, sp.delta)
+		packet := func(at int64) []byte {
+			switch {
+			case head != nil && at == first:
+				return head
+			case tail != nil && at == tailAt:
+				return tail
+			case at >= lo && at+bdavPacketLen <= hi:
+				return buf[at-off : at-off+bdavPacketLen]
+			}
+			return nil
+		}
+		// Real transport stream packets start with the sync byte. A stretch
+		// where most do not is not one (wrong data, an unexpected container)
+		// and is left alone; a damaged packet inside a real one is skipped
+		// by rewritePacket without holding back its neighbours.
+		var total, synced int
+		for at := first; at < hi && at+bdavPacketLen <= clipEnd; at += bdavPacketLen {
+			if pk := packet(at); pk != nil {
+				total++
+				if pk[4] == tsSync {
+					synced++
+				}
 			}
 		}
-		if wLo != lo || wHi != hi {
-			copy(buf[lo-off:hi-off], win[lo-wLo:])
+		if total == 0 || synced*2 <= total {
+			continue
+		}
+		for at := first; at < hi && at+bdavPacketLen <= clipEnd; at += bdavPacketLen {
+			if pk := packet(at); pk != nil {
+				rewritePacket(pk, bdavPacketLen, sp.delta)
+			}
+		}
+		if head != nil {
+			copy(buf[lo-off:min(first+bdavPacketLen, hi)-off], head[lo-first:])
+		}
+		if tail != nil {
+			copy(buf[tailAt-off:hi-off], tail)
 		}
 	}
 	return nil
