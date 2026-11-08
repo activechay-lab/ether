@@ -36,6 +36,12 @@ func (s *Service) indexedLibraryPage(ctx context.Context, v *core.User, library 
 	if none {
 		return core.Page{Items: []core.Title{}}, true, nil
 	}
+	filter, fits, none, err := s.userStateFilter(ctx, v, filter, q)
+	if err != nil || !fits {
+		return core.Page{}, false, err
+	} else if none {
+		return core.Page{Items: []core.Title{}}, true, nil
+	}
 	page, err := s.d.Browse(ctx, core.BrowseQuery{Filter: filter, Sort: q.Sort, Desc: q.Desc, Offset: max(q.Offset, 0), Limit: q.Limit, NoTotal: q.NoTotal})
 	if err != nil {
 		return core.Page{}, false, err
@@ -45,6 +51,41 @@ func (s *Service) indexedLibraryPage(ctx context.Context, v *core.User, library 
 	}
 	return page, true, nil
 }
+
+// userStateFilter folds a played or favorite filter into the SQL filter:
+// played is a watch-state predicate, favorites the viewer's favorite keys
+// (included, or excluded for "not a favorite"). fits is false when the
+// favorites are too many for one predicate.
+func (s *Service) userStateFilter(ctx context.Context, v *core.User, filter core.Filter, q frontend.ItemQuery) (out core.Filter, fits, none bool, err error) {
+	if q.Watched != nil {
+		state := core.FilterGroup{UserID: v.ID, Unwatched: boolPtr(!*q.Watched)}
+		if filter.Group == nil {
+			filter.Group = &state
+		} else {
+			filter.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*filter.Group, state}}
+		}
+	}
+	if q.Favorite != nil {
+		if s.d.FavoriteTitleKeys == nil || filter.IncludeKeys != nil {
+			return filter, false, false, nil
+		}
+		keys, all, err := s.d.FavoriteTitleKeys(ctx, v, maxIndexedExclusions)
+		if err != nil || !all || len(filter.ExcludeKeys)+len(keys) > maxIndexedExclusions {
+			return filter, false, false, err
+		}
+		if *q.Favorite {
+			if len(keys) == 0 {
+				return filter, true, true, nil
+			}
+			filter.IncludeKeys = keys
+		} else {
+			filter.ExcludeKeys = append(filter.ExcludeKeys, keys...)
+		}
+	}
+	return filter, true, false, nil
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 // viewerBrowseFilter folds what the viewer may not see into filter for a
 // library of typ, so SQL pages and totals match the in-process checks:
@@ -123,6 +164,11 @@ func (s *Service) indexedPageHolds(ctx context.Context, v *core.User, items []co
 	if len(items) == 0 {
 		return true
 	}
+	if !s.pageStateHolds(ctx, v, items, q) {
+		return false
+	}
+	// The played and favorite checks ran for the whole page above.
+	q.Watched, q.Favorite = nil, nil
 	kept := items
 	if !availabilityInSQL {
 		kept = s.d.Visibility.Available(ctx, v, items)
@@ -144,11 +190,52 @@ func (s *Service) indexedPageHolds(ctx context.Context, v *core.User, items []co
 	return true
 }
 
+// pageStateHolds checks a page's played and favorite filters in one read
+// each (the watch state includes writes not yet stored, so a page the SQL
+// predicate admitted can still fail and fall back to the scan).
+func (s *Service) pageStateHolds(ctx context.Context, v *core.User, items []core.Title, q frontend.ItemQuery) bool {
+	keys := make([]core.RatingKey, len(items))
+	for i := range items {
+		keys[i] = items[i].Key
+	}
+	if q.Watched != nil {
+		watched, err := s.d.State.GetMany(ctx, v.ID, keys)
+		if err != nil {
+			return false
+		}
+		for _, k := range keys {
+			if (watched[k].ViewCount > 0) != *q.Watched {
+				return false
+			}
+		}
+	}
+	if q.Favorite != nil {
+		if s.d.IsFavoriteMany == nil {
+			return false
+		}
+		favorites, err := s.d.IsFavoriteMany(ctx, v, keys)
+		if err != nil {
+			return false
+		}
+		for _, k := range keys {
+			if favorites[k] != *q.Favorite {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // indexedBrowseQuery is a single catalogue page. A recursive movie library is
 // still that page: movies have no children. A recursive show library is not,
 // once the request can include seasons or episodes.
 func indexedBrowseQuery(library *Library, q frontend.ItemQuery) bool {
-	if library == nil || q.Watched != nil || q.Favorite != nil || q.Season != nil || q.AdjacentTo != 0 || q.StartAt != 0 || q.Limit <= 0 {
+	if library == nil || q.Season != nil || q.AdjacentTo != 0 || q.StartAt != 0 || q.Limit <= 0 {
+		return false
+	}
+	// A movie's played state is its own watch row. A series' is derived
+	// from its episodes, which the predicate cannot see.
+	if (q.Watched != nil || q.Favorite != nil) && library.Type != core.TypeMovie {
 		return false
 	}
 	for _, typ := range q.Types {

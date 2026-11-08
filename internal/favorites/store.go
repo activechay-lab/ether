@@ -216,6 +216,37 @@ func (s *Service) Has(ctx context.Context, viewer *core.User, subject Subject) (
 	return err == nil, err
 }
 
+// TitleKeys returns up to limit of the viewer's favorite title keys from the
+// primary-key prefix, and whether that is all of them. It is a filter's
+// candidate set: callers still apply visibility to what it names.
+func (s *Service) TitleKeys(ctx context.Context, viewer *core.User, limit int) ([]core.RatingKey, bool, error) {
+	if viewer == nil || viewer.ID <= 0 || limit <= 0 {
+		return nil, false, ErrForbidden
+	}
+	rows, err := s.o.DB.QueryContext(ctx, `SELECT subject_id FROM favorites_items WHERE viewer_id=? AND kind=? LIMIT ?`, viewer.ID, string(KindTitle), limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	var out []core.RatingKey
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, false, err
+		}
+		if key, err := core.ParseRatingKey(id); err == nil {
+			out = append(out, key)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	if len(out) > limit {
+		return out[:limit], false, nil
+	}
+	return out, true, nil
+}
+
 // HasTitles checks title membership in bounded batches, revalidating every subject.
 func (s *Service) HasTitles(ctx context.Context, viewer *core.User, keys []core.RatingKey) (map[core.RatingKey]bool, error) {
 	out := make(map[core.RatingKey]bool, len(keys))
