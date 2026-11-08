@@ -185,8 +185,11 @@ type Deps struct {
 	ProvidersStatus StatusFunc // "providers" — Usenet provider health
 	IndexersStatus  StatusFunc // "indexers" — budgets remaining
 	CatalogStatus   StatusFunc // "catalog" — catalogue sync/stats
-	RemoteStatus    StatusFunc // "remote" — remote access
-	HWAccelStatus   StatusFunc // "hwaccel" — transcoding hardware
+	// PauseTierMigration pauses (true) or resumes the one-off library-tier
+	// migration shown in the catalogue status.
+	PauseTierMigration func(ctx context.Context, paused bool) error
+	RemoteStatus       StatusFunc // "remote" — remote access
+	HWAccelStatus      StatusFunc // "hwaccel" — transcoding hardware
 
 	// CacheRestartRequired reports whether the saved folder/storage differs
 	// from the running cache, including changes made during initial setup.

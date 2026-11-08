@@ -44,6 +44,7 @@ type Stats struct {
 	LastSync           time.Time         `json:"lastSync,omitempty"`
 	Sync               SyncProgress      `json:"sync"`
 	YearCorrection     MovieYearProgress `json:"yearCorrection"`
+	TierMigration      TierMigration     `json:"tierMigration,omitzero"`
 }
 
 func cloneStats(s Stats) Stats {
@@ -82,6 +83,7 @@ func (c *Catalog) finishStats(ctx context.Context, s Stats, yearPending int) Sta
 		s.Sync.LastError = c.getMeta(ctx, "sync_error")
 	}
 	s.YearCorrection = c.movieYearProgressFrom(yearPending)
+	s.TierMigration = c.TierMigrationStatus(ctx)
 	return s
 }
 
@@ -133,6 +135,7 @@ func (c *Catalog) Run(ctx context.Context) {
 	go c.foldLibraryTalliesLoop(ctx)
 	go c.correctMovieYears(ctx)
 	go c.fillLoop(ctx)
+	go c.runTierMigration(ctx)
 	full := schedule.New(c.now(), c.untilDue(ctx))
 	// Preserve the existing resume behavior while the gate is off. If the
 	// owner enables it during the wait, start background backfill promptly.

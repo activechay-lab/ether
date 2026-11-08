@@ -313,6 +313,9 @@ type Catalog struct {
 
 	// searchIx is the in-memory title search index (search_titles.go).
 	searchIx searchIndexState
+
+	// tier is the one-off library-tier migration (tier_migrate.go).
+	tier tierMigrationState
 }
 
 // SaferRatingSQL is the optional Plex overlay predicate for viewer limits.
