@@ -162,9 +162,9 @@ func (c *Catalog) RebuildRank(ctx context.Context) (RankRebuild, error) {
 	stmts := []string{`DROP TABLE IF EXISTS ` + t, strings.TrimSuffix(rankTableSQL(idle, bigint), ";"),
 		`INSERT INTO ` + t + `(` + rankColumns + `) ` + rankFill + ` ORDER BY key`}
 	stmts = append(stmts, strings.Split(strings.TrimSuffix(rankIndexSQL(idle), ";"), ";\n")...)
-	if pg {
-		stmts = append(stmts, `CREATE OR REPLACE VIEW catalog_rank AS SELECT `+rankColumns+` FROM `+t)
-	} else {
+	if !pg {
+		// One transaction: the write gate is held for the rebuild, and a
+		// reader's snapshot holds the old view or the new one.
 		stmts = append(stmts, `DROP VIEW IF EXISTS catalog_rank`, `CREATE VIEW catalog_rank AS SELECT `+rankColumns+` FROM `+t)
 	}
 	for _, s := range stmts {
@@ -176,14 +176,27 @@ func (c *Catalog) RebuildRank(ctx context.Context) (RankRebuild, error) {
 			out.Rows, _ = res.RowsAffected()
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_meta(k,v) VALUES('rank_side',?),('rank_built',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, idle, fmt.Sprint(start.Unix())); err != nil {
-		return out, err
+	if !pg {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_meta(k,v) VALUES('rank_side',?),('rank_built',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, idle, fmt.Sprint(start.Unix())); err != nil {
+			return out, err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `ANALYZE `+t); err != nil {
 		return out, err
 	}
 	if err := tx.Commit(); err != nil {
 		return out, err
+	}
+	if pg {
+		// The swap is its own short transaction: CREATE OR REPLACE VIEW
+		// takes an ACCESS EXCLUSIVE lock on the view, which waits for the
+		// rank's current readers and makes new ones queue behind it. A
+		// lock timeout keeps a long reader from building a queue; the copy
+		// is complete and current (both copies take every trigger write),
+		// so a later attempt swaps the same way.
+		if err := c.swapRankViewPG(ctx, t); err != nil {
+			return out, err
+		}
 	}
 	c.rankReady.Store(true)
 	c.writeGen.Add(1)
@@ -235,4 +248,36 @@ func (c *Catalog) loadRankReady(ctx context.Context) {
 	} else if err != sql.ErrNoRows {
 		c.log.Debug("catalog: read rank state", "err", err)
 	}
+}
+
+func (c *Catalog) swapRankViewPG(ctx context.Context, table string) error {
+	side := strings.TrimPrefix(table, "catalog_rank_")
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		err = func() error {
+			tx, err := c.db.BeginTx(ctx, nil)
+			if err != nil {
+				return err
+			}
+			defer tx.Rollback()
+			for _, s := range []string{`SET LOCAL lock_timeout = '2s'`, `CREATE OR REPLACE VIEW catalog_rank AS SELECT ` + rankColumns + ` FROM ` + table} {
+				if _, err := tx.ExecContext(ctx, s); err != nil {
+					return err
+				}
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_meta(k,v) VALUES('rank_side',?),('rank_built',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, side, fmt.Sprint(c.now().Unix())); err != nil {
+				return err
+			}
+			return tx.Commit()
+		}()
+		if err == nil || ctx.Err() != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * time.Second):
+		}
+	}
+	return fmt.Errorf("catalog: swap rank view: %w", err)
 }
