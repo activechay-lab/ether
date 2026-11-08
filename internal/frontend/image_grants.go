@@ -30,7 +30,8 @@ type ImageGrants interface {
 // ImageBatchRequest requests primary artwork for a page of items. At most 50
 // distinct keys and 256 input keys are accepted; duplicates are removed in
 // first-occurrence order. Empty Kinds selects poster. Person and channel
-// images are deliberately excluded and must use their scoped single grant.
+// images are deliberately excluded. Portraits use PersonImageGrantBatch or a
+// scoped single grant; channel images use a scoped single grant.
 type ImageBatchRequest struct {
 	Credential string
 	Device     core.Device

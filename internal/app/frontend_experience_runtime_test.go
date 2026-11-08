@@ -335,3 +335,113 @@ func TestSurfaceHomeRowsEnforceRestrictedCandidatePolicy(t *testing.T) {
 		t.Fatalf("authorized resume missing from Home: %+v", rows)
 	}
 }
+
+func TestPersonImageBatchStopsWhenViewerLosesTitleAccess(t *testing.T) {
+	a := setupTestApp(t, true)
+	ctx := context.Background()
+	if err := a.users.SyncFriends(ctx, []plextv.Friend{{PlexID: 333, Username: "viewer", AllLibs: true}}); err != nil {
+		t.Fatal(err)
+	}
+	users, err := a.users.Users(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var viewer *core.User
+	for i := range users {
+		if users[i].PlexID == 333 {
+			viewer = &users[i]
+			break
+		}
+	}
+	if viewer == nil {
+		t.Fatal("viewer missing")
+	}
+	viewer.MaxContentRating = "PG-13"
+	if err := a.users.UpdateUser(ctx, *viewer); err != nil {
+		t.Fatal(err)
+	}
+	title := core.Title{Key: core.MovieKey(999), Type: core.TypeMovie, IDs: core.IDs{TMDB: 999}, Title: "Restricted artwork", PosterPath: "/test.jpg", ContentRating: "PG-13", Released: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), Cast: []core.Person{{TMDB: 456, Name: "Credit", ThumbPath: "/person.jpg"}}}
+	if err := a.catalog.UpsertTitle(ctx, title, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.ExecContext(ctx, `UPDATE catalog_titles SET detail=1,detail_at=? WHERE key=?`, time.Now().Unix(), int64(title.Key)); err != nil {
+		t.Fatal(err)
+	}
+	source := *a.artwork
+	source.Variants = func(*core.Title, string) (*tmdb.Images, bool) { return &tmdb.Images{}, true }
+	source.Images = artworkservice.NewRemoteCache(1024, &http.Client{Transport: disabledArtworkTransport{}})
+	exp, err := a.newSurfaceExperience("silo", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grants, err := identity.NewGrants(a.db, a.users, time.Hour, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := grants.Issue(ctx, viewer.ID, nil, "silo", core.Device{ID: "tv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := identity.NewArtworkImageGrantService(a.db, "silo", grants, func() frontend.Experience { return exp }, source, time.Minute, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err := exp.Item(ctx, frontend.ItemRequest{Viewer: viewer, Device: core.Device{ID: "tv"}, Key: title.Key})
+	if err != nil || !detail.ImagesAuthoritative || len(detail.Images) == 0 {
+		t.Fatalf("visible artwork: %+v %v", detail, err)
+	}
+	secret, err := service.Issue(ctx, frontend.ImageGrantRequest{Credential: credential, Device: core.Device{ID: "tv"}, Item: title.Key, Image: detail.Images[0]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	relatedProvider, ok := exp.(frontend.RelatedArtworkProvider)
+	if !ok {
+		t.Fatal("related artwork unavailable")
+	}
+	related, err := relatedProvider.RelatedArtwork(ctx, viewer, core.Device{ID: "tv"}, title.Key)
+	if err != nil || !related.PeopleAuthoritative || len(related.People) != 1 || related.People[0].Subject != "tmdb:456" {
+		t.Fatalf("authorized credit portrait: %+v %v", related, err)
+	}
+	portrait, err := service.Issue(ctx, frontend.ImageGrantRequest{Credential: credential, Device: core.Device{ID: "tv"}, Item: title.Key, Image: related.People[0]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []frontend.PersonImageTarget{{Item: title.Key, Image: related.People[0]}}
+	batch, err := service.IssuePersonImages(ctx, credential, core.Device{ID: "tv"}, targets)
+	if err != nil || len(batch) != 1 || batch[0] == "" {
+		t.Fatalf("portrait batch: %v %v", batch, err)
+	}
+	batchPortrait := batch[0]
+	forged := targets[0]
+	forged.Image.Path = "/not-the-current-portrait.jpg"
+	denied, err := service.IssuePersonImages(ctx, credential, core.Device{ID: "tv"}, []frontend.PersonImageTarget{forged})
+	if err != nil || len(denied) != 1 || denied[0] != "" {
+		t.Fatalf("forged descriptor authorized: %v %v", denied, err)
+	}
+	viewer.MaxContentRating = "G"
+	if err := a.users.UpdateUser(ctx, *viewer); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	service.Serve(w, httptest.NewRequest("GET", "/", nil), secret)
+	if w.Code != 404 {
+		t.Fatalf("hidden title artwork remained accessible: %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	service.Serve(w, httptest.NewRequest("GET", "/", nil), portrait)
+	if w.Code != 404 {
+		t.Fatalf("credit portrait grant survived title revocation: %d", w.Code)
+	}
+	if _, err := service.Issue(ctx, frontend.ImageGrantRequest{Credential: credential, Device: core.Device{ID: "tv"}, Item: title.Key, Image: detail.Images[0]}); err == nil {
+		t.Fatal("issued artwork for a hidden title")
+	}
+	w = httptest.NewRecorder()
+	service.Serve(w, httptest.NewRequest("GET", "/", nil), batchPortrait)
+	if w.Code != 404 {
+		t.Fatalf("batched portrait survived title revocation: %d", w.Code)
+	}
+	batch, err = service.IssuePersonImages(ctx, credential, core.Device{ID: "tv"}, targets)
+	if err != nil || len(batch) != 1 || batch[0] != "" {
+		t.Fatalf("hidden portrait batch: %v %v", batch, err)
+	}
+}
