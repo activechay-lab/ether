@@ -82,10 +82,12 @@ func (d *FavoriteEpisodeDetector) Scan(ctx context.Context) error {
 		// starts a new baseline instead of sending historical episodes.
 		baseline := err == sql.ErrNoRows || generation != p.enabledAt || now.Unix()-previous > int64((30*time.Minute).Seconds()) || now.Unix() < previous
 		for _, episode := range episodes {
-			if episode.Type != core.TypeEpisode || episode.Key == 0 || episode.Released.IsZero() || episode.Released.After(now) {
+			// An episode released before the alert window never alerts, so
+			// it needs no seen row either (see PruneViewerAlerts).
+			if episode.Type != core.TypeEpisode || episode.Key == 0 || episode.Released.IsZero() || episode.Released.After(now) || episode.Released.Before(now.Add(-episodeAlertWindow)) {
 				continue
 			}
-			res, err := tx.ExecContext(ctx, `INSERT INTO viewer_episode_seen(viewer_id,episode_key) VALUES(?,?) ON CONFLICT(viewer_id,episode_key) DO NOTHING`, p.id, episode.Key.String())
+			res, err := tx.ExecContext(ctx, `INSERT INTO viewer_episode_seen(viewer_id,episode_key,seen_at) VALUES(?,?,?) ON CONFLICT(viewer_id,episode_key) DO NOTHING`, p.id, episode.Key.String(), now.Unix())
 			if err != nil {
 				tx.Rollback()
 				return err
@@ -95,7 +97,7 @@ func (d *FavoriteEpisodeDetector) Scan(ctx context.Context) error {
 				tx.Rollback()
 				return err
 			}
-			if baseline || added == 0 || episode.Released.Before(now.Add(-48*time.Hour)) {
+			if baseline || added == 0 {
 				continue
 			}
 			_, err = tx.ExecContext(ctx, `INSERT INTO viewer_episode_alerts(viewer_id,episode_key,show_title,episode_title,detected_at,preference_generation) SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM viewer_alert_preferences WHERE viewer_id=? AND enabled=1 AND enabled_at=?) ON CONFLICT(viewer_id,episode_key) DO NOTHING`, p.id, episode.Key.String(), episode.ShowTitle, episode.Title, now.Unix(), p.enabledAt, p.id, p.enabledAt)
