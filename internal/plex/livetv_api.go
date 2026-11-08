@@ -91,6 +91,9 @@ func (s *Server) liveTVProvider(ctx context.Context, u *core.User) *model.MediaP
 		{Type: "content", Key: liveProviderPath, Directory: []model.ProviderDirectory{{ID: "livetv", Key: liveProviderPath + "/lineups/dvr/channels", HubKey: liveProviderPath + "/hubs", Title: "Live TV", Type: "livetv"}}},
 		{Type: "universalsearch", Key: liveProviderPath + "/library/search"},
 		{Type: "grid", Key: liveProviderPath + "/grid"}, {Type: "metadata", Key: liveProviderPath + "/metadata"}, {Type: "livetv", Key: "/livetv/dvrs"},
+		// Native clients load a provider's artwork (guide channel logos,
+		// programme art) only through the image transcoder it advertises.
+		{Type: "imagetranscoder", Key: "/photo/:/transcode"},
 	}}
 }
 

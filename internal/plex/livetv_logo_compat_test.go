@@ -258,6 +258,18 @@ func TestAppleTVGuideGridChannelThumbIsStandalone(t *testing.T) {
 	if rec := f.get(t, logo.RequestURI()); rec.Code != http.StatusOK {
 		t.Fatalf("logo status: %d", rec.Code)
 	}
+	// Native clients load provider artwork through the provider's transcoder.
+	if body := f.get(t, "/media/providers", "Accept", "application/json").Body.String(); !strings.Contains(body, `"identifier":"`+livetv.Provider+`"`) || strings.Count(body, `"type":"imagetranscoder"`) < 2 {
+		t.Fatalf("EPG provider does not advertise an image transcoder: %s", body)
+	}
+	for _, src := range []string{got, liveLogo(channel)} {
+		rec := f.get(t, "/photo/:/transcode?width=160&height=90&url="+url.QueryEscape(src), "X-Plex-Token", ownerToken, "X-Plex-Product", "Plex for Apple TV", "X-Plex-Platform", "tvOS")
+		if _, err := png.Decode(bytes.NewReader(rec.Body.Bytes())); rec.Code != http.StatusOK || err != nil {
+			if !strings.HasPrefix(rec.Header().Get("Content-Type"), "image/") {
+				t.Fatalf("transcoded logo %s: %d %s", src, rec.Code, rec.Header().Get("Content-Type"))
+			}
+		}
+	}
 	if got := thumb("X-Plex-Product", "Plex for Windows", "X-Plex-Platform", "Windows"); got != liveLogo(channel) {
 		t.Fatalf("relative-path client changed: %q", got)
 	}
