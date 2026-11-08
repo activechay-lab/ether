@@ -3,10 +3,12 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // The rank copies must always hold exactly the stored movies and shows,
@@ -89,5 +91,64 @@ func TestRankTracksCatalogue(t *testing.T) {
 	}
 	if !c.rankReady.Load() {
 		t.Fatal("rank not marked ready")
+	}
+}
+
+// A popularity page read off the rank is the page the title indexes
+// give: same titles, same order, every page, both directions, with and
+// without a genre filter, ties included.
+func TestRankPagesMatchTitleOrder(t *testing.T) {
+	c := newChunkTestCatalog(t)
+	ctx := context.Background()
+	rel := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	var titles []core.Title
+	for i := int64(1); i <= 300; i++ {
+		g := []string{"Drama"}
+		if i%3 == 0 {
+			g = []string{"Comedy"}
+		}
+		titles = append(titles, core.Title{Key: core.MovieKey(i), Type: core.TypeMovie, Title: fmt.Sprint("M", i), Released: rel,
+			Popularity: float64((i * 7919) % 97), Genres: g, Language: "en"})
+	}
+	if err := c.upsertMany(ctx, titles, upsertOpts{browsable: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.RebuildRank(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, desc := range []bool{true, false} {
+		for _, genre := range []string{"", "Comedy"} {
+			for offset := 0; offset < 300; offset += 40 {
+				q := core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie}, Sort: core.SortPopularity, Desc: desc, Offset: offset, Limit: 40, NoTotal: true}
+				if genre != "" {
+					q.Filter.Genres = []string{genre}
+				}
+				pageKeys := func(rank bool) []core.RatingKey {
+					c.rankReady.Store(rank)
+					c.writeGen.Add(1) // no cached page
+					sctx, stats := store.WithQueryStats(ctx)
+					p, err := c.Browse(sctx, q)
+					if err != nil {
+						t.Fatal(err)
+					}
+					used := false
+					for _, st := range stats.Statements() {
+						used = used || strings.Contains(st.SQL, "catalog_rank")
+					}
+					if used != rank {
+						t.Fatalf("rank=%t but the page query used the rank: %t", rank, used)
+					}
+					keys := make([]core.RatingKey, len(p.Items))
+					for i, it := range p.Items {
+						keys[i] = it.Key
+					}
+					return keys
+				}
+				want, got := pageKeys(false), pageKeys(true)
+				if fmt.Sprint(want) != fmt.Sprint(got) {
+					t.Fatalf("desc=%t genre=%q offset=%d:\n titles %v\n rank   %v", desc, genre, offset, want, got)
+				}
+			}
+		}
 	}
 }

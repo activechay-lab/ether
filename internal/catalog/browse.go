@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/config"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -183,6 +184,9 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		// Sort/filter only narrow covering-index keys, then hydrate the page.
 		// This avoids reading large title payloads while rejecting candidates.
 		query = `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t JOIN (SELECT t.key AS page_key FROM catalog_titles t` + hint + ` WHERE ` + pageWhere + ` ORDER BY ` + order + `, t.key ASC LIMIT ? OFFSET ?) p ON t.key=p.page_key ORDER BY ` + order + `,t.key ASC`
+	}
+	if rq, ok := c.rankPageQuery(q, pageWhere); ok && !computedAdded {
+		query = rq
 	}
 	if computedAdded {
 		// The computed date added has no index, so the whole filtered set is
@@ -1277,4 +1281,62 @@ func (c *Catalog) titlesInKeyOrder(ctx context.Context, keys []core.RatingKey) (
 	}
 	slices.SortFunc(titles, func(a, b core.Title) int { return at[a.Key] - at[b.Key] })
 	return titles, nil
+}
+
+// rankPageQuery is a popularity-ordered page of one type read off the rank
+// (rank.go): a walk of catalog_rank's (type, browsable, adult, rk) index,
+// the title rows joined by key, then only the page's rows read in full.
+// The order is rk then key, most popular first, deterministic for paging.
+// Filters that make a rank walk long (people, keywords, collections and
+// the other sparse console candidates) keep the filter-driven plan.
+func (c *Catalog) rankPageQuery(q core.BrowseQuery, pageWhere string) (string, bool) {
+	if !c.rankReady.Load() || q.SortLastViewed || len(q.SecondarySorts) > 0 || q.AfterKey > 0 {
+		return "", false
+	}
+	if q.Sort != core.SortPopularity && q.Sort != "" {
+		return "", false
+	}
+	if q.Filter.Type != core.TypeMovie && q.Filter.Type != core.TypeShow {
+		return "", false
+	}
+	if cfg := c.config(); cfg.ShowUpcomingMovies && q.Filter.RuleVisibility == "" {
+		return "", false // upcoming movies are listed without being browsable
+	}
+	if consoleHasSparseCandidates(q.Filter) {
+		return "", false
+	}
+	dir := "ASC" // rk is the negated popularity: ascending is most popular first
+	if q.Sort == core.SortPopularity && !q.Desc {
+		dir = "DESC"
+	}
+	// Ties keep the catalogue's key order either way, as browseOrder's.
+	order := "r.rk " + dir + ", r.key ASC"
+	// When every column the filter reads is a rank column, the filter runs
+	// on the rank alone (no title row is read until the page's own).
+	if rankOnly(pageWhere) {
+		return `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t JOIN (SELECT t.key AS page_key, t.rk AS page_rk FROM catalog_rank t WHERE t.type='` + string(q.Filter.Type) + `' AND ` + pageWhere +
+			` ORDER BY t.rk ` + dir + `, t.key ASC LIMIT ? OFFSET ?) p ON t.key=p.page_key ORDER BY p.page_rk ` + dir + `, p.page_key ASC`, true
+	}
+	// CROSS JOIN keeps the rank as SQLite's outer loop; PostgreSQL's
+	// planner chooses from statistics.
+	join := "CROSS JOIN"
+	if store.DialectOf(c.db) == store.Postgres {
+		join = "JOIN"
+	}
+	return `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t JOIN (SELECT r.key AS page_key, r.rk AS page_rk FROM catalog_rank r ` + join + ` catalog_titles t ON t.key=r.key WHERE r.type='` + string(q.Filter.Type) + `' AND r.browsable=1 AND r.adult=0 AND ` + pageWhere +
+		` ORDER BY ` + order + ` LIMIT ? OFFSET ?) p ON t.key=p.page_key ORDER BY p.page_rk ` + dir + `, p.page_key ASC`, true
+}
+
+var rankRefs = regexp.MustCompile(`\bt\.([a-z_]+)`)
+
+// rankOnly reports whether where reads only columns the rank carries.
+func rankOnly(where string) bool {
+	for _, m := range rankRefs.FindAllStringSubmatch(where, -1) {
+		switch m[1] {
+		case "key", "type", "browsable", "adult", "release_known", "released_ts", "year", "language", "runtime_sec", "status":
+		default:
+			return false
+		}
+	}
+	return true
 }
