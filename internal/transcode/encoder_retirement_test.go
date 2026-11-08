@@ -545,3 +545,39 @@ func TestEncoderRetirementCapacityFollowsDecisionAcrossRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEncoderRetirementCancelsAndJoinsUnpublishedProbe(t *testing.T) {
+	fr := newFakeRunner()
+	entered, canceled := make(chan struct{}), make(chan struct{})
+	release, unblock := encoderLatch()
+	runner := retirementRunner{Runner: fr, run: func(ctx context.Context, c Command) error {
+		if c.Path != "owned-packet-sample" {
+			return fr.Run(ctx, c)
+		}
+		close(entered)
+		<-ctx.Done()
+		close(canceled)
+		<-release
+		return ctx.Err()
+	}}
+	m := newTestManager(t, fr, config.Transcode{}, WithRunner(runner))
+	joinEncoderResources(t, m, unblock)
+	life, err := m.reserveEncoder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		result <- m.runEncoderPreflight(context.Background(), life, Command{Path: "owned-packet-sample"})
+	}()
+	encoderSignal(t, entered)
+	life.finishWork() // the initial StartHLS work ticket is not our probe ticket
+	life.seal()
+	encoderSignal(t, canceled)
+	assertEncoderPending(t, life)
+	unblock()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("probe result %v", err)
+	}
+	encoderSignal(t, life.done)
+}

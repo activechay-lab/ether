@@ -41,13 +41,7 @@ func (m *Manager) copyDamage(ctx context.Context, req core.HLSRequest, d core.De
 		args = appendInputHeaders(args, spec.commandHeaders())
 		args = append(args, "-ss", secs(at), "-i", req.InputURL, "-map", fmt.Sprintf("0:%d", v.Index), "-an", "-sn", "-frames:v", "24", "-threads", "1", "-f", "null", "-")
 		evidence := &copyDamageEvidence{}
-		work, err := life.reserve(1)
-		if err != nil {
-			return false, false
-		}
-		life.markStarted()
-		err = m.runner.Run(ctx, Command{Path: m.ffmpeg, Args: args, Stderr: evidence, Stdout: io.Discard, Background: true})
-		work[0].finish()
+		err = m.runEncoderPreflight(ctx, life, Command{Path: m.ffmpeg, Args: args, Stderr: evidence, Stdout: io.Discard, Background: true})
 		// Failed opens/probes and aborted decodes never trigger conversion.
 		if err == nil && ctx.Err() == nil && (evidence.damaged() || (req.Info.Container == "mpegts" && evidence.clockJump())) {
 			return true, req.Info.Container == "mpegts" && evidence.clockJump()

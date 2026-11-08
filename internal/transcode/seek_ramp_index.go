@@ -32,8 +32,7 @@ func (m *Manager) sampleCopyIndex(ctx context.Context, req core.HLSRequest, at t
 	args = appendInputHeaders(args, spec.commandHeaders())
 	args = append(args, "-select_streams", strconv.Itoa(req.Info.Video().Index), "-read_intervals", "+"+secs(at)+"%+#1024", "-show_entries", "packet=pts_time,duration_time,size,pos,flags:format=start_time", "-of", "json=compact=1", "-i", spec.Input)
 	var out cappedProbeBuffer
-	life.markStarted()
-	if m.runner.Run(ctx, Command{Path: m.ffprobe, Args: args, Stdout: &out}) != nil || ctx.Err() != nil {
+	if m.runEncoderPreflight(ctx, life, Command{Path: m.ffprobe, Args: args, Stdout: &out}) != nil || ctx.Err() != nil {
 		return copyPacketSample{}
 	}
 	data := out.buf.Bytes()
