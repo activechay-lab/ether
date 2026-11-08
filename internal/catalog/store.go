@@ -720,10 +720,30 @@ func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem, after ...
 	if err != nil {
 		return err
 	}
+	// Fold the new rows into the title search index (fts_fold.go).
+	var fresh []int64
+	seen := map[int64]bool{}
+	for _, t := range titles {
+		if k := int64(t.Key); !stored[k] && !seen[k] {
+			seen[k] = true
+			fresh = append(fresh, k)
+		}
+	}
+	fold := len(fresh) >= ftsFoldMin && c.ftsFold
+	if fold {
+		if err := beginFTSFold(ctx, tx); err != nil {
+			return err
+		}
+	}
 	for _, it := range items {
 		o := it.o
 		o.region, o.ratingCuts, o.stored = region, &cuts, stored
 		if err := upsertOne(ctx, tx, it.t, o, now); err != nil {
+			return err
+		}
+	}
+	if fold {
+		if err := endFTSFold(ctx, tx, fresh); err != nil {
 			return err
 		}
 	}
