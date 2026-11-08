@@ -647,9 +647,21 @@ func (e *Engine) RecentActivity(ctx context.Context, userID int64, limit int) ([
 	if err != nil {
 		return nil, err
 	}
+	// One batched read for the page's titles; a title it lacks is read alone.
+	var batch map[core.RatingKey]core.Title
+	if many, ok := e.catalog.(interface {
+		CachedGetMany(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	}); ok {
+		batch, _ = many.CachedGetMany(ctx, order)
+	}
 	for _, k := range order {
-		t, err := e.catalog.Get(ctx, k)
-		if err != nil || t == nil {
+		var t *core.Title
+		if bt, ok := batch[k]; ok {
+			t = &bt
+		} else if t, err = e.catalog.Get(ctx, k); err != nil {
+			continue
+		}
+		if t == nil {
 			continue
 		}
 		en := byKey[k]

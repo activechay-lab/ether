@@ -31,9 +31,17 @@ func (i *instance) facets(kind string) http.HandlerFunc {
 			http.Error(w, "Unavailable", 503)
 			return
 		}
-		if terms := route.Query(r.URL.Query(), "SearchTerm"); kind == "person" && len(terms) == 1 && strings.TrimSpace(terms[0]) != "" {
-			i.searchPersons(w, r, v, terms[0])
-			return
+		if kind == "person" {
+			// Without a term this is the most credited visible people: the
+			// person facet walked every credited title in the library.
+			term := ""
+			if terms := route.Query(r.URL.Query(), "SearchTerm"); len(terms) == 1 {
+				term = strings.TrimSpace(terms[0])
+			}
+			if _, ok := i.host.Experience.(frontend.PeopleReader); ok {
+				i.searchPersons(w, r, v, term)
+				return
+			}
 		}
 		facets, err := i.host.Experience.Facets(r.Context(), v, device(r), facetView(r), kind)
 		if err != nil {

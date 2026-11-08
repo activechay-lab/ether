@@ -98,6 +98,15 @@ type catalogViewer struct {
 	restricted bool
 }
 
+// WithoutCatalogViewer drops the viewer from ctx, for reads that are the same
+// for every viewer (a facet name's identifier) and must share one cache entry.
+func WithoutCatalogViewer(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithValue(ctx, catalogViewerKey{}, catalogViewer{})
+}
+
 func CatalogViewerID(ctx context.Context) int64 {
 	if ctx == nil {
 		return 0

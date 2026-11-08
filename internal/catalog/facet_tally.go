@@ -125,9 +125,12 @@ var tallyFacets = map[string]struct {
 	join, titleValue    string // the unsettled titles' join and value expression
 	order               string
 }{
-	"genre":          {"catalog_browse_tally", "", "genre", "JOIN catalog_genres g ON g.key=t.key AND g.genre<>''", "g.genre", "ORDER BY 2 DESC, 1 ASC"},
-	"country":        {"catalog_facet_tally", "country", "value", "JOIN catalog_countries co ON co.key=t.key AND co.country<>''", "co.country", "ORDER BY 2 DESC, 1 ASC LIMIT 200"},
-	"studio":         {"catalog_facet_tally", "studio", "value", "JOIN catalog_studios st ON st.key=t.key AND st.studio<>''", "st.studio", "ORDER BY 2 DESC, 1 ASC LIMIT 200"},
+	"genre":   {"catalog_browse_tally", "", "genre", "JOIN catalog_genres g ON g.key=t.key AND g.genre<>''", "g.genre", "ORDER BY 2 DESC, 1 ASC"},
+	"country": {"catalog_facet_tally", "country", "value", "JOIN catalog_countries co ON co.key=t.key AND co.country<>''", "co.country", "ORDER BY 2 DESC, 1 ASC LIMIT 200"},
+	"studio":  {"catalog_facet_tally", "studio", "value", "JOIN catalog_studios st ON st.key=t.key AND st.studio<>''", "st.studio", "ORDER BY 2 DESC, 1 ASC LIMIT 200"},
+	// Every studio or country, by name: Jellyfin and Emby list and resolve them all.
+	"studioAll":      {"catalog_facet_tally", "studio", "value", "JOIN catalog_studios st ON st.key=t.key AND st.studio<>''", "st.studio", "ORDER BY 1 ASC"},
+	"countryAll":     {"catalog_facet_tally", "country", "value", "JOIN catalog_countries co ON co.key=t.key AND co.country<>''", "co.country", "ORDER BY 1 ASC"},
 	"year":           {"catalog_facet_tally", "year", "value", "", "CAST(t.year AS TEXT)", "ORDER BY CAST(value AS INTEGER) DESC"},
 	"decade":         {"catalog_facet_tally", "year", "CAST((CAST(value AS INTEGER)/10)*10 AS TEXT)", "", "CAST((t.year/10)*10 AS TEXT)", "ORDER BY CAST(value AS INTEGER) DESC"},
 	"firstCharacter": {"catalog_facet_tally", "first", "value", "", jumpBucketSQL("t."), "ORDER BY 1 ASC"},

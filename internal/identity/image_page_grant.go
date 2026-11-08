@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"net/http"
 	"strings"
 	"time"
@@ -113,13 +114,17 @@ func (s *ImageGrantService) SignPage(ctx context.Context, req frontend.ImagePage
 			return nil, frontend.ErrImageBatchLimit
 		}
 	}
-	viewer, err := s.grants.Resolve(ctx, string(s.surface), req.Credential)
-	if err != nil {
-		return nil, err
-	}
 	source, ok := grantHash(req.Credential)
 	if !ok {
 		return nil, core.ErrUnauthorized
+	}
+	// A listing signs its rows 50 at a time; within one read request the
+	// credential is resolved once (reqmemo's short window), not per batch.
+	viewer, err := reqmemo.Do(ctx, "image-page-grant:"+string(s.surface)+":"+source, func() (*core.Viewer, error) {
+		return s.grants.Resolve(ctx, string(s.surface), req.Credential)
+	})
+	if err != nil {
+		return nil, err
 	}
 	deviceJSON, err := json.Marshal(req.Device)
 	if err != nil || len(deviceJSON) > 4096 {

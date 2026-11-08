@@ -172,10 +172,14 @@ type PersonMatch struct {
 // split by the caller). The match is a candidate set: on PostgreSQL it is a
 // substring match, so callers recheck names with their own word rules.
 func (c *Catalog) MatchPeople(ctx context.Context, terms []string, limit int) ([]PersonMatch, error) {
-	if len(terms) == 0 || limit <= 0 {
+	if limit <= 0 {
 		return nil, nil
 	}
-	q, args := c.matchPeopleSQL(terms, limit)
+	// No name: the most credited people, from the credit-count order.
+	q, args := `SELECT person_tmdb, name, credits FROM catalog_person_names WHERE credits>0 ORDER BY credits DESC, person_tmdb LIMIT ?`, []any{limit}
+	if len(terms) > 0 {
+		q, args = c.matchPeopleSQL(terms, limit)
+	}
 	rows, err := c.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -217,6 +221,9 @@ func (c *Catalog) matchPeopleSQL(terms []string, limit int) (string, []any) {
 
 // SearchPeople returns up to limit credited people matching terms, most credited first.
 func (c *Catalog) SearchPeople(ctx context.Context, terms []string, limit int) ([]core.Person, error) {
+	if len(terms) == 0 {
+		return nil, nil
+	}
 	matches, err := c.MatchPeople(ctx, terms, limit)
 	if err != nil || len(matches) == 0 {
 		return nil, err

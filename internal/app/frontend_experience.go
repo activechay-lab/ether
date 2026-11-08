@@ -183,7 +183,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 			out = append(out, frontend.NotInterestedEntry{Key: entry.Key, AddedAt: entry.AddedAt})
 		}
 		return out, nil
-	}, ByExternalID: a.catalog.ByExternalID, Active: a.users.PolicyUser, Libraries: libs, LiveLibraries: a.configuredLibraries, Visibility: vis, State: a.state, Rows: rows, Protocol: protocol, Browse: a.catalog.Browse, PageExclusions: newLibraryPageExclusions(a), CountBrowsable: a.catalog.CountBrowsable, CreditItems: a.catalog.CachedCreditItems, PeopleIndex: a.peopleIndex, PersonCredits: a.catalog.PersonCreditKeys, PersonCreditsMany: a.catalog.PersonCreditsMany, AiredEpisodes: a.catalog.CachedAiredEpisodes, StoredEpisodes: experience.StoredEpisodeDeps{Page: a.catalog.StoredEpisodesByKey, Count: a.catalog.CountStoredEpisodes, Unranked: a.catalog.EpisodesUnranked, Customized: func(ctx context.Context, u *core.User) (bool, error) {
+	}, ByExternalID: a.catalog.ByExternalID, Active: a.users.PolicyUser, Libraries: libs, LiveLibraries: a.configuredLibraries, Visibility: vis, State: a.state, Rows: rows, Protocol: protocol, Browse: a.catalog.Browse, PageExclusions: newLibraryPageExclusions(a), FacetFilter: a.catalog.FacetFilter, CountWatched: a.catalog.CountWatched, CountBrowsable: a.catalog.CountBrowsable, CreditItems: a.catalog.CachedCreditItems, PeopleIndex: a.peopleIndex, PersonCredits: a.catalog.PersonCreditKeys, PersonCreditsMany: a.catalog.PersonCreditsMany, AiredEpisodes: a.catalog.CachedAiredEpisodes, StoredEpisodes: experience.StoredEpisodeDeps{Page: a.catalog.StoredEpisodesByKey, Count: a.catalog.CountStoredEpisodes, Unranked: a.catalog.EpisodesUnranked, Customized: func(ctx context.Context, u *core.User) (bool, error) {
 		if a.episodeorder == nil {
 			return false, nil
 		}
@@ -326,6 +326,8 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		return a.favorites.Has(ctx, u, favorites.Subject{Kind: favorites.KindTitle, ID: k.String()})
 	}, IsFavoriteMany: func(ctx context.Context, u *core.User, keys []core.RatingKey) (map[core.RatingKey]bool, error) {
 		return a.favorites.HasTitles(ctx, u, keys)
+	}, FavoriteTitleKeys: func(ctx context.Context, u *core.User, n int) ([]core.RatingKey, bool, error) {
+		return a.favorites.TitleKeys(ctx, u, n)
 	}, IsNotInterestedMany: func(ctx context.Context, u *core.User, keys []core.RatingKey) (map[core.RatingKey]bool, error) {
 		return a.notInterested.HasMany(ctx, u, keys)
 	}, IsWatchlistedMany: func(ctx context.Context, userID int64, keys []core.RatingKey) (map[core.RatingKey]bool, error) {

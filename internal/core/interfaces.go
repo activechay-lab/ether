@@ -173,9 +173,27 @@ type Filter struct {
 	ExcludeCollectionNames []string `json:"-"`
 }
 
+// BrowseSeekable reports whether Browse continues a page after AfterKey in
+// q's sort order: one media type and one sort over a stored column (or the
+// key order). Other queries ignore AfterKey.
+func BrowseSeekable(q BrowseQuery) bool {
+	if q.CursorPage || q.SortLastViewed || len(q.SecondarySorts) > 0 || (q.Filter.Type != TypeMovie && q.Filter.Type != TypeShow) {
+		return false
+	}
+	switch q.Sort {
+	case SortTitle, SortPopularity, SortRating, SortYear, SortReleased, SortDuration, SortAdded:
+		return true
+	}
+	return false
+}
+
 type BrowseQuery struct {
 	// CursorPage selects the console keyset path. AfterKey is also the exclusive
-	// keyset cursor for SortKey exports.
+	// keyset cursor for SortKey exports, and for a single-type page with one
+	// scalar sort (title, popularity, rating, year, released, duration, or
+	// added for movies and series) it continues after that title in the
+	// sort order, with Offset counted from it. A seek whose title no longer
+	// matches fails with ErrSeekUnavailable; the caller pages by offset.
 	CursorPage bool
 	AfterKey   RatingKey
 

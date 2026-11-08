@@ -393,7 +393,9 @@ func (s *Service) people(ctx context.Context, viewer *core.Viewer, device core.D
 	if len(terms) > 0 && s.d.PeopleIndex != nil && s.d.PersonCreditsMany != nil && s.d.peopleVisibleTitles != nil {
 		return s.pagedPeople(ctx, viewer, q, terms, exact)
 	}
-	if len(terms) > 0 && s.d.PeopleIndex != nil && s.d.PersonCredits != nil {
+	// A query with no name lists the most credited people the viewer can
+	// see, from the same index, instead of walking every credited title.
+	if (len(terms) > 0 || strings.TrimSpace(q.Query) == "") && s.d.PeopleIndex != nil && s.d.PersonCredits != nil {
 		return s.indexedPeople(ctx, viewer, q, terms, exact)
 	}
 	// Keep only the requested best people while scanning authorized credits.
@@ -453,6 +455,7 @@ type PersonCandidate struct {
 const (
 	peopleCandidateLimit = 500
 	personCreditLimit    = 12
+	listCreditLimit      = 3
 )
 
 // indexedPeople answers a people search from the name index: candidates in
@@ -491,37 +494,15 @@ func (s *Service) indexedPeople(ctx context.Context, viewer *core.Viewer, q fron
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		keys, err := s.d.PersonCredits(ctx, candidate.TMDB, types, personCreditLimit)
+		// A name search proves each match on its 12 most popular credits; a
+		// list of the most credited people proves each on its top three.
+		limit := personCreditLimit
+		if len(terms) == 0 {
+			limit = listCreditLimit
+		}
+		best, err := s.visibleCredit(ctx, v, types, candidate.TMDB, limit)
 		if err != nil {
 			return nil, err
-		}
-		if len(keys) == 0 {
-			continue
-		}
-		titles, err := s.d.CachedGetMany(ctx, keys)
-		if err != nil {
-			return nil, err
-		}
-		visibility, err := s.peopleVisibility(ctx, titles)
-		if err != nil {
-			return nil, err
-		}
-		var best visiblePerson
-		for _, key := range keys {
-			title, ok := titles[key]
-			if !ok || title.Key != key || !peopleTitleVisible(ctx, v, &title, visibility) {
-				continue
-			}
-			for _, group := range [][]core.Person{title.Cast, title.Directors, title.Writers, title.Crew} {
-				for _, person := range group {
-					if person.TMDB != candidate.TMDB || strings.TrimSpace(person.Name) == "" {
-						continue
-					}
-					if best, err = mergeVisiblePerson(best, person, title.Key); err != nil {
-						return nil, err
-					}
-				}
-			}
 		}
 		if best.detail.ID == "" {
 			continue
@@ -674,6 +655,41 @@ func (s *Service) pagedPeople(ctx context.Context, viewer *core.Viewer, q fronte
 	}
 	sort.Slice(result, func(a, b int) bool { return personBefore(result[a], result[b], exact) })
 	return result, nil
+}
+
+// visibleCredit is a person's credit on the most popular of their credited
+// titles the viewer may see, from the credit index; empty when none is.
+func (s *Service) visibleCredit(ctx context.Context, v *core.User, types []core.MediaType, tmdb int64, limit int) (visiblePerson, error) {
+	var best visiblePerson
+	keys, err := s.d.PersonCredits(ctx, tmdb, types, limit)
+	if err != nil || len(keys) == 0 {
+		return best, err
+	}
+	titles, err := s.d.CachedGetMany(ctx, keys)
+	if err != nil {
+		return best, err
+	}
+	visibility, err := s.peopleVisibility(ctx, titles)
+	if err != nil {
+		return best, err
+	}
+	for _, key := range keys {
+		title, ok := titles[key]
+		if !ok || title.Key != key || !peopleTitleVisible(ctx, v, &title, visibility) {
+			continue
+		}
+		for _, group := range [][]core.Person{title.Cast, title.Directors, title.Writers, title.Crew} {
+			for _, person := range group {
+				if person.TMDB != tmdb || strings.TrimSpace(person.Name) == "" {
+					continue
+				}
+				if best, err = mergeVisiblePerson(best, person, title.Key); err != nil {
+					return best, err
+				}
+			}
+		}
+	}
+	return best, nil
 }
 
 func (s *Service) person(ctx context.Context, viewer *core.Viewer, device core.Device, id string, _ frontend.PersonReadOptions) (frontend.PersonDetail, error) {

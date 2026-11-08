@@ -9,6 +9,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // result is one timed request.
@@ -109,6 +112,7 @@ func (r *Runner) session(v Viewer, c Client) *session {
 		s = &session{Viewer: v, vars: map[string]string{
 			"username": v.Username, "password": Password, "stremio": queryEscape(v.Stremio),
 			"ownerToken": r.owner.PlexToken, "viewerId": strconv.FormatInt(v.ID, 10),
+			"xtreamUser": frontend.XtreamUsername(v.Xtream), "xtreamPass": url.QueryEscape(v.Xtream), "mcp": v.MCP,
 		}}
 		r.sessions[key] = s
 	}
