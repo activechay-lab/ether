@@ -361,7 +361,7 @@ func (c *Catalog) syncPass(ctx context.Context, tv bool, pass string) (err error
 
 // syncSlice pages one discover slice. In probe mode it fetches only page 1 and
 // returns total_pages without storing anything.
-func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverParams, pass string, year int, probe bool) (int, error) {
+func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverParams, pass string, year int, probe bool) (_ int, err error) {
 	cfg := c.config()
 	r, _ := ctx.Value(syncResumeKey{}).(*syncResume)
 	sliceKey := fmt.Sprintf("%t/%s/%d", tv, pass, year)
@@ -369,6 +369,44 @@ func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverPa
 	if !probe && r != nil && r.Pages[sliceKey] > 0 {
 		first = r.Pages[sliceKey]
 	}
+	// Pages are stored syncWriteBatch titles at a time: every transaction
+	// rewrites the index leaves its titles land on, and a TMDB page (20
+	// titles) shares few of them, so one page per transaction wrote 20 WAL
+	// pages a title. The resume point moves only past stored pages.
+	var pending []core.Title
+	flush := func(next int) error {
+		if len(pending) > 0 {
+			// Back-pressure, not failure: wait for a long read to finish and
+			// the checkpoint to drain, then carry on from this page.
+			if err := store.WaitWALBudget(ctx, c.db); err != nil {
+				pending = pending[:0] // the retry fetches them again
+				return err
+			}
+			if err := c.upsertMany(ctx, pending, upsertOpts{browsable: true}); err != nil {
+				pending = pending[:0]
+				return fmt.Errorf("catalog: store tv=%t pass=%s year=%d before page=%d: %w", tv, pass, year, next, err)
+			}
+			added := len(pending)
+			pending = pending[:0]
+			c.setProgress(func(pr *SyncProgress) { pr.TitlesAdded += added })
+			c.clearSyncError(ctx)
+		}
+		if r != nil {
+			r.Pages[sliceKey] = next
+			return c.saveSyncResume(ctx)
+		}
+		return nil
+	}
+	// A failed fetch keeps the pages already read: they are stored and the
+	// resume point moves past them.
+	buffered := first
+	defer func() {
+		if err != nil && len(pending) > 0 && ctx.Err() == nil {
+			if ferr := flush(buffered); ferr != nil {
+				c.log.Warn("catalog: store synced pages", "err", ferr)
+			}
+		}
+	}()
 	for page := first; page <= 500; page++ {
 		if err := ctx.Err(); err != nil {
 			return 0, err
@@ -416,39 +454,29 @@ func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverPa
 				batch = append(batch, t)
 			}
 		}
-		if len(batch) > 0 {
-			// Back-pressure, not failure: wait for a long read to finish and
-			// the checkpoint to drain, then carry on from this page.
-			if err := store.WaitWALBudget(ctx, c.db); err != nil {
-				return totalPages, err
-			}
-			if err := c.upsertMany(ctx, batch, upsertOpts{browsable: true}); err != nil {
-				return totalPages, fmt.Errorf("catalog: store tv=%t pass=%s year=%d page=%d: %w", tv, pass, year, page, err)
-			}
-			c.clearSyncError(ctx)
-		}
-		added := len(batch)
+		pending = append(pending, batch...)
+		buffered = page + 1
 		c.setProgress(func(pr *SyncProgress) {
 			pr.PagesDone++
 			pr.TitlesSeen += len(titles)
-			pr.TitlesAdded += added
 		})
 		done := stop || page >= totalPages || len(titles) == 0
-		if r != nil {
-			r.Pages[sliceKey] = page + 1
-			if done {
-				r.Pages[sliceKey] = 501
-			}
-			if err := c.saveSyncResume(ctx); err != nil {
+		switch {
+		case done:
+			return totalPages, flush(501)
+		case len(pending) >= syncWriteBatch:
+			if err := flush(page + 1); err != nil {
 				return totalPages, err
 			}
 		}
-		if done {
-			return totalPages, nil
-		}
 	}
-	return 500, nil
+	return 500, flush(501)
 }
+
+// syncWriteBatch is how many synced titles one transaction stores. On the
+// lab catalogue: 20 a transaction wrote 20 WAL pages a title, 100 wrote 15,
+// 500 wrote 6.7.
+const syncWriteBatch = 250
 
 // qualifiesNewRelease admits a recently released title (last 45 days) that
 // already has real viewer traction even if its cumulative vote count is still
