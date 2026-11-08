@@ -408,9 +408,10 @@ func (a Source) List(ctx context.Context, req frontend.ArtworkRequest) ([]fronte
 		return nil, false, err
 	}
 	out := make([]frontend.Image, 0, len(entries))
+	withMetadata := frontend.ArtworkMetadataWanted(ctx)
 	for _, e := range entries {
 		img := e.image
-		if a.Metadata != nil {
+		if a.Metadata != nil && withMetadata {
 			img = a.Metadata(ctx, req, img)
 		}
 		out = append(out, img)

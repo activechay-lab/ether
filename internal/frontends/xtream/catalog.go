@@ -284,7 +284,8 @@ func (i *instance) pageImages(r *http.Request, l login, titles []frontend.Title)
 	base := i.base(r)
 	for start := 0; start < len(titles); start += 50 {
 		page := titles[start:min(start+50, len(titles))]
-		grants, err := signer.SignPage(r.Context(), frontend.ImagePageRequest{Credential: l.password, Device: l.device, Titles: page, Kinds: []string{frontend.ImagePoster}})
+		// Xtream rows carry a poster URL only, never its size or hashes.
+		grants, err := signer.SignPage(frontend.WithoutArtworkMetadata(r.Context()), frontend.ImagePageRequest{Credential: l.password, Device: l.device, Titles: page, Kinds: []string{frontend.ImagePoster}})
 		if err != nil {
 			return err
 		}
