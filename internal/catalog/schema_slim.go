@@ -89,17 +89,16 @@ END $$;
 	// FTS5 options: no statement ranks matches (bm25 needs the per-row
 	// sizes columnsize keeps), titles match per column (detail=column), and
 	// person names match word prefixes only (detail=none). On the lab
-	// catalogue the three indexes shrink from 45 MB to 26 MB with the same
-	// matches.
+	// catalogue the two indexes shrink from 35 MB to 18 MB with the same
+	// matches. The alternative-title index stays as it is: detail=column
+	// saved 1.4 MB there but its writes cost 14.7 WAL frames per detailed
+	// title instead of 5.6.
 	store.Register("catalog", 48, `SELECT 1;`)
 	store.RegisterSQLiteApply("catalog", 48, func(ctx context.Context, tx *sql.Tx) error {
 		for _, stmt := range []string{
 			`DROP TABLE IF EXISTS catalog_titles_fts`,
 			`CREATE VIRTUAL TABLE catalog_titles_fts USING fts5(title, original_title, content='catalog_titles', content_rowid='key', tokenize='trigram', detail=column, columnsize=0)`,
 			`INSERT INTO catalog_titles_fts(catalog_titles_fts) VALUES('rebuild')`,
-			`DROP TABLE IF EXISTS catalog_alt_titles_fts`,
-			`CREATE VIRTUAL TABLE catalog_alt_titles_fts USING fts5(title, content='catalog_alt_titles', tokenize='trigram', detail=column, columnsize=0)`,
-			`INSERT INTO catalog_alt_titles_fts(catalog_alt_titles_fts) VALUES('rebuild')`,
 			`DROP TABLE IF EXISTS catalog_person_names_fts`,
 			`CREATE VIRTUAL TABLE catalog_person_names_fts USING fts5(name, content='catalog_person_names', content_rowid='person_tmdb', tokenize='unicode61 remove_diacritics 0', prefix='1 2 3', detail=none, columnsize=0)`,
 			`INSERT INTO catalog_person_names_fts(catalog_person_names_fts) VALUES('rebuild')`,

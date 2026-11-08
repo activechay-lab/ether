@@ -607,7 +607,7 @@ func (c *Catalog) hydratePersonCredits(ctx context.Context, client TMDB, pc pers
 	}
 
 	var have int
-	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT key) FROM catalog_credits WHERE person_tmdb=?`, personID).Scan(&have); err == nil && have >= 8 {
+	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT DISTINCT key FROM catalog_credits WHERE person_tmdb=? LIMIT 8)`, personID).Scan(&have); err == nil && have >= 8 {
 		stampHydrated()
 		return
 	}
