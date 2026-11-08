@@ -67,7 +67,7 @@ func (s *Service) Supersede(ctx context.Context, failed Fence, request Request, 
 		if _, err = tx.ExecContext(ctx, `INSERT INTO placement_displaced_claims(session,generation,scope,units) SELECT session,?,scope,units FROM placement_claims WHERE session=?`, old.Generation, old.Session); err != nil {
 			return err
 		}
-		if err = retireRecord(ctx, tx, old); err != nil {
+		if err = s.retireRecord(ctx, tx, old); err != nil {
 			return err
 		} // moves accounting, NOT retirement evidence
 		if err = s.reserveInTx(ctx, tx, r, hash, &out); err != nil {
