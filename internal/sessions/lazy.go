@@ -73,6 +73,32 @@ func (s *lazyStreams) Issue(ctx context.Context, credential string, req frontend
 	return s.issue(ctx, credential, req, false)
 }
 
+// Warm implements frontend.LazyStreamWarmer with playback's detail warm-up:
+// the same viewer, device caps and title a GET of the issued URL plays, so
+// that Prepare joins or takes the warm resolution instead of resolving after
+// the pick. It rechecks the grant, policy and title like Issue.
+func (s *lazyStreams) Warm(ctx context.Context, credential string, req frontend.PlanRequest) {
+	if req.Protocol != s.protocol || req.Device.ID == "" || req.Viewer == nil || req.Item == 0 || req.Channel != "" || req.Intent.Plex != nil {
+		return
+	}
+	warm, ok := s.broker.deps.Playback.(core.Prewarmer)
+	if !ok || s.broker.deps.MediaLookup == nil {
+		return
+	}
+	_, viewer, err := s.grants.GrantReference(ctx, string(s.protocol), credential)
+	if err != nil || viewer == nil || viewer.ID != req.Viewer.ID {
+		return
+	}
+	if viewer, err = s.broker.confirm(ctx, viewer, req.Caps); err != nil {
+		return
+	}
+	title, err := s.broker.deps.MediaLookup(ctx, viewer, req.Device, req.Item)
+	if err != nil || title == nil || title.Key != req.Item || (!title.Released.IsZero() && title.Released.After(s.broker.deps.Now())) {
+		return
+	}
+	warm.Prewarm(context.WithoutCancel(ctx), viewer, req.Item, req.Caps, core.PrewarmOptions{Reason: core.PrewarmDetail})
+}
+
 func (s *lazyStreams) issue(ctx context.Context, credential string, req frontend.PlanRequest, stable bool) (string, error) {
 	return s.issueOutput(ctx, credential, req, stable, nil, false, false)
 }

@@ -12,6 +12,15 @@ type LazyStreams interface {
 	ServeHTTP(http.ResponseWriter, *http.Request)
 }
 
+// LazyStreamWarmer is optionally implemented by LazyStreams. Warm starts the
+// resolve and probe that a later GET of the URL Issue returned for the same
+// request joins, so a client that lists streams before the viewer picks one
+// does not pay for resolution after the pick. It is best effort, never
+// blocks on the resolve, and never opens a session or consumes a stream.
+type LazyStreamWarmer interface {
+	Warm(context.Context, string, PlanRequest)
+}
+
 // LazyHLSStreams issues an HLS master capability without opening a session.
 // All playlist and segment requests remain under that capability and are
 // reauthorized by the broker. IssueHLS alone is not an eligibility check;

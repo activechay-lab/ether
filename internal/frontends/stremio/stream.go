@@ -83,6 +83,12 @@ func (i *instance) stream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	// Stremio-style clients ask for streams when the viewer opens the
+	// stream list, before a pick: resolve and probe now, with the caps the
+	// lazy URL will play with, so the pick does not wait for them.
+	if warm, ok := i.host.LazyStreams.(frontend.LazyStreamWarmer); ok {
+		warm.Warm(ctx, credential, plan)
+	}
 	base.Path = strings.TrimSuffix(base.Path, "/image/") + lazy
 	stream := map[string]any{"name": "Ether", "url": base.String()}
 	if label := i.autoVersionName(r, viewer, device, key); label != "" {
