@@ -73,21 +73,43 @@ func (l *SubtitleSource) Hold() (io.ReaderAt, int64, func(), bool) {
 }
 
 // Attach publishes a real cached text sidecar without restarting an encoder or
-// changing a playback decision. The caller must hold its shared manual-choice
-// fence through this call and any selection publication. This source fence
-// makes that operation atomic relative to failover and teardown.
+// changing a playback decision. Automatic callers must instead use WithPublication
+// to acquire the source fence before their manual-intent database fence.
 func (l *SubtitleSource) Attach(ctx context.Context, stream core.StreamInfo) (core.StreamInfo, error) {
-	if l == nil || stream.Type != "subtitle" || !stream.External || !strings.HasPrefix(stream.ExternalURL, "ether-subtitle:") || (stream.Codec != "srt" && stream.Codec != "vtt" && stream.Codec != "subrip" && stream.Codec != "webvtt") {
-		return core.StreamInfo{}, core.ErrNotAvailable
+	var out core.StreamInfo
+	err := l.WithPublication(ctx, func(attach func(core.StreamInfo) (core.StreamInfo, error)) error {
+		var err error
+		out, err = attach(stream)
+		return err
+	})
+	return out, err
+}
+
+// WithPublication acquires the source/failover fence BEFORE a caller opens its
+// manual-intent database write fence. Lock order is source failSem -> intent DB
+// row -> short session/generation mutexes. The callback must not do provider I/O
+// or retain attach. This avoids holding SQLite's writer while awaiting failover.
+func (l *SubtitleSource) WithPublication(ctx context.Context, fn func(func(core.StreamInfo) (core.StreamInfo, error)) error) error {
+	if l == nil || fn == nil {
+		return core.ErrSourceChanged
 	}
 	s := l.session
 	if err := lock(ctx, s.failSem); err != nil {
-		return core.StreamInfo{}, err
+		return err
 	}
 	defer unlock(s.failSem)
 	if l.Context.Err() != nil || core.SourceRevision(s.snapshot(l.manager.now())) != l.revision {
-		return core.StreamInfo{}, core.ErrSourceChanged
+		return core.ErrSourceChanged
 	}
+	return fn(func(stream core.StreamInfo) (core.StreamInfo, error) { return l.attachLocked(ctx, stream) })
+}
+
+func (l *SubtitleSource) attachLocked(ctx context.Context, stream core.StreamInfo) (core.StreamInfo, error) {
+	if l == nil || stream.Type != "subtitle" || !stream.External || !strings.HasPrefix(stream.ExternalURL, "ether-subtitle:") || (stream.Codec != "srt" && stream.Codec != "vtt" && stream.Codec != "subrip" && stream.Codec != "webvtt") {
+		return core.StreamInfo{}, core.ErrNotAvailable
+	}
+
+	s := l.session
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.cur != l.generation {
@@ -112,4 +134,19 @@ func (l *SubtitleSource) Attach(ctx context.Context, stream core.StreamInfo) (co
 	stream.Index = next
 	g.info.Streams = append(g.info.Streams, stream)
 	return stream, nil
+}
+
+// SubtitleSourceEpoch is a cheap local enqueue key, not authorization or a
+// source identity. It changes on replacement without reading media or storage.
+func (m *Manager) SubtitleSourceEpoch(id string) uint64 {
+	s := m.lookup(id)
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.cur == nil {
+		return 0
+	}
+	return uint64(s.cur.n) + 1
 }

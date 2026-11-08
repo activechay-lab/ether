@@ -494,10 +494,12 @@ type Trakt struct {
 }
 
 type OpenSubtitles struct {
-	Enabled  bool   `json:"enabled"`
-	APIKey   string `json:"apiKey"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	// AutomaticPreferred is opt-in; only authenticated actual playing may fetch.
+	AutomaticPreferred bool   `json:"automaticPreferred"`
+	Enabled            bool   `json:"enabled"`
+	APIKey             string `json:"apiKey"`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
 }
 
 // Subtitle provider kinds (SubtitleProvider.Kind). An installed add-on's

@@ -32,7 +32,13 @@ func TestAutomaticEligibility(t *testing.T) {
 		{"understood", func(p *AutomaticPlayback) { p.Preferences.Mode = "foreign-only"; p.SelectedAudio = "de" }, ""},
 		{"unknown", func(p *AutomaticPlayback) { p.Preferences.Mode = "foreign-only"; p.SelectedAudio = "" }, ""},
 		{"no preferences", func(p *AutomaticPlayback) { p.Languages = nil }, ""},
-		{"covered", func(p *AutomaticPlayback) { p.Streams = []core.StreamInfo{{Type: "subtitle", Language: "de"}} }, "fr"},
+		{"covered", func(p *AutomaticPlayback) {
+			p.Streams = []core.StreamInfo{{Type: "subtitle", Codec: "srt", Language: "de"}}
+		}, ""},
+		{"bitmap does not cover", func(p *AutomaticPlayback) {
+			p.Streams = []core.StreamInfo{{Type: "subtitle", Codec: "hdmv_pgs_subtitle", Language: "de"}}
+		}, "de"},
+		{"unknown codec does not cover", func(p *AutomaticPlayback) { p.Streams = []core.StreamInfo{{Type: "subtitle", Language: "de"}} }, "de"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := base

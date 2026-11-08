@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/langtag"
@@ -26,7 +27,7 @@ type AutomaticPlayback struct {
 }
 
 // NeededAutomaticLanguage is conservative when playback or language evidence is
-// unknown. Only the first missing preference is considered; suitable embedded
+// unknown. Only the first valid preference is considered; suitable embedded
 // tracks cover their language without consuming quota.
 func NeededAutomaticLanguage(p AutomaticPlayback) string {
 	if !p.Playing || p.Manual || p.Title == nil || p.Viewer <= 0 || p.Release == "" || len(p.Languages) == 0 {
@@ -49,11 +50,29 @@ func NeededAutomaticLanguage(p AutomaticPlayback) string {
 	if p.Preferences.Style == "forced" {
 		return ""
 	}
-	missing := missingForPreferences(&core.User{SubtitleLanguages: p.Languages}, p.Streams, p.Preferences)
-	if len(missing) == 0 {
+	wanted := ""
+	for _, language := range p.Languages {
+		if wanted = langtag.Normalize(language); wanted != "" {
+			break
+		}
+	}
+	if wanted == "" {
 		return ""
 	}
-	return missing[0]
+	var text []core.StreamInfo
+	for _, stream := range p.Streams {
+		if stream.Type != "subtitle" {
+			continue
+		}
+		switch strings.ToLower(stream.Codec) {
+		case "subrip", "srt", "ass", "ssa", "webvtt", "vtt", "mov_text", "text", "microdvd", "subviewer", "jacosub", "sami", "realtext", "stl", "ttml":
+			text = append(text, stream)
+		}
+	}
+	if len(missingForPreferences(&core.User{SubtitleLanguages: []string{wanted}}, text, p.Preferences)) == 0 {
+		return ""
+	}
+	return wanted
 }
 
 // AutomaticTarget supplies the live session fence. Current must freshly check
@@ -93,6 +112,7 @@ func (s *Service) RunAutomatic(ctx context.Context, budget *AutomaticBudget, tar
 	}
 	attempt, ok, err := budget.Begin(ctx, p.Viewer, p.Title.Key, s.now())
 	if err != nil || !ok {
+		s.log.Info("automatic subtitle", "viewer", p.Viewer, "key", p.Title.Key, "status", "reservation_or_backoff")
 		return err
 	}
 	finish := func(status string) {

@@ -507,6 +507,7 @@ type PlayIntent struct {
 // PlexHints carries Plex-specific selections that cannot be represented by
 // neutral stream indexes. Only the Plex adapter should populate it.
 type PlexHints struct {
+	ManualSubtitle    bool // explicit request or stored manual choice, before preferences
 	Collection        string
 	MediaIndex        int
 	PartReleaseID     string

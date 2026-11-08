@@ -88,3 +88,14 @@ func (s *SubtitleIntents) Publish(ctx context.Context, viewer int64, key core.Ra
 	}
 	return tx.Commit()
 }
+
+// RecordAuthorizedSubtitleIntent is for an adapter that has already authorized
+// the viewer/title and validated the selector. This is deliberately not an HTTP
+// endpoint. Missing DB keeps legacy fixtures working; automation fails closed
+// without its store. Reset-default passes manual=false; explicit off passes true.
+func (b *Broker) RecordAuthorizedSubtitleIntent(ctx context.Context, viewer int64, key core.RatingKey, manual bool) error {
+	if b == nil || b.deps.DB == nil {
+		return nil
+	}
+	return NewSubtitleIntents(b.deps.DB).Record(ctx, viewer, key, manual)
+}

@@ -27,6 +27,8 @@ import (
 
 // BrokerDeps are the explicit dependencies shared by all protocol surfaces.
 type BrokerDeps struct {
+	// OnActualPlaying runs in a bounded worker after authenticated playing telemetry.
+	OnActualPlaying func(context.Context, *Broker, PlayingSubtitleSession)
 	// DistributedHLS is opt-in; unsupported plans stay local before reservation.
 	DistributedHLS DistributedHLS
 	Coordination   *Coordination
@@ -95,6 +97,11 @@ type brokerPlan struct {
 	external bool
 }
 type brokerSession struct {
+	manualSubtitle        bool
+	autoSubtitleIdentity  *int
+	autoSubtitleQueued    bool
+	autoSubtitleEpoch     uint64
+	autoSubtitleCancel    context.CancelFunc
 	distributed, restored bool
 	distributedSaved      time.Time
 	trickplay             *trickplay.Holder
@@ -146,6 +153,8 @@ type retiredSession struct {
 
 // Broker coordinates playback admission for every protocol, including Plex.
 type Broker struct {
+	autoSubtitleWG      sync.WaitGroup
+	autoSubtitleRunning int
 	sampleLimit         int
 	deps                BrokerDeps
 	startSlots          chan struct{}
@@ -695,6 +704,11 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 	}
 	id := rand.Text()
 	etag := sourceRevision(ps)
+	if req.Intent.SubtitleSet || (req.Intent.Plex != nil && req.Intent.Plex.ManualSubtitle) {
+		if err := b.RecordAuthorizedSubtitleIntent(ctx, v.ID, req.Item, true); err != nil {
+			return frontend.PlayPlan{}, err
+		}
+	}
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -877,7 +891,7 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 	if deliverySession == "" {
 		deliverySession = id
 	}
-	s := &brokerSession{public: copySession(session), grant: grant, playID: ps.ID, clientID: p.request.Caps.ClientID, playbackID: playbackID, caps: p.request.Caps, opts: p.request.Intent.Options, decision: p.decision, allowTranscoding: p.request.Intent.AllowTranscoding, versionHandle: p.versionHandle, exactRelease: p.exactRelease, sourcePinned: p.pinned, sourceETag: p.etag, deliverySession: deliverySession}
+	s := &brokerSession{autoSubtitleIdentity: new(int), manualSubtitle: p.request.Intent.SubtitleSet || (p.request.Intent.Plex != nil && p.request.Intent.Plex.ManualSubtitle), public: copySession(session), grant: grant, playID: ps.ID, clientID: p.request.Caps.ClientID, playbackID: playbackID, caps: p.request.Caps, opts: p.request.Intent.Options, decision: p.decision, allowTranscoding: p.request.Intent.AllowTranscoding, versionHandle: p.versionHandle, exactRelease: p.exactRelease, sourcePinned: p.pinned, sourceETag: p.etag, deliverySession: deliverySession}
 	barrier, barrierErr := b.admitSessionBarrier(ctx, v.ID, string(req.Protocol), p.request.Device.ID, p.request.Item, ps.ID, id)
 	if barrierErr != nil {
 		if errors.Is(barrierErr, errTransferCommitUnknown) {
@@ -1214,6 +1228,9 @@ func (b *Broker) Report(ctx context.Context, a frontend.SessionAccess, id string
 		return err
 	}
 	b.ensureTrickplay(ctx, s, t.Position)
+	if t.State == "playing" {
+		b.enqueueSubtitleWork(s)
+	}
 	return nil
 }
 
@@ -1375,6 +1392,9 @@ func (b *Broker) Stop(ctx context.Context, a frontend.SessionAccess, id string) 
 	return b.stopLocked(ctx, s)
 }
 func (b *Broker) stopLocked(ctx context.Context, s *brokerSession) error {
+	if s.autoSubtitleCancel != nil {
+		s.autoSubtitleCancel()
+	}
 	if s.distributed {
 		if storage, ok := b.deps.DistributedHLS.(neutralBindingStore); ok {
 			if err := storage.DeleteNeutralBinding(ctx, s.public.ID); err != nil {
@@ -1523,6 +1543,9 @@ func (b *Broker) Close(ctx context.Context) {
 	var ids, planIDs []string
 	seen := make(map[string]bool)
 	for _, s := range b.sessions {
+		if s.autoSubtitleCancel != nil {
+			s.autoSubtitleCancel()
+		}
 		if !seen[s.playID] {
 			ids = append(ids, s.playID)
 			seen[s.playID] = true
@@ -1535,6 +1558,7 @@ func (b *Broker) Close(ctx context.Context) {
 	for _, cancel := range transferCancels {
 		cancel()
 	}
+	b.autoSubtitleWG.Wait()
 	// Shutdown must still release sessions when its caller has already been
 	// canceled; bound the cleanup so an unresponsive gate cannot block forever.
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), b.shutdownTimeout)

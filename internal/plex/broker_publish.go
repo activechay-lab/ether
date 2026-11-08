@@ -30,7 +30,8 @@ func (s *Server) plexPlanRequest(pr *Request, p *playRequest) frontend.PlanReque
 		Intent: frontend.PlayIntent{
 			Options: p.opts, PreferRemux: p.mde, PlaybackID: pr.SessionID, ClientSessionID: p.sessionID,
 			Plex: &frontend.PlexHints{
-				Collection: p.collection, MediaIndex: p.mediaIndex, PartReleaseID: p.partReleaseID,
+				ManualSubtitle: p.manualSubtitle,
+				Collection:     p.collection, MediaIndex: p.mediaIndex, PartReleaseID: p.partReleaseID,
 				AudioSelection: p.audioSel, SubtitleSelection: p.subSel, SubtitleSet: p.subSet, SubtitleStream: p.subStream,
 			},
 		},
@@ -176,4 +177,11 @@ func (s *Server) adoptBrokerTimeline(ctx context.Context, pr *Request, key core.
 
 type plexProtocolStop interface {
 	StopProtocol(context.Context, frontend.Protocol) error
+}
+
+func (s *Server) recordManualSubtitle(ctx context.Context, viewer int64, key core.RatingKey, manual bool) error {
+	if b := sessions.UnderlyingBroker(s.playbackBroker); b != nil {
+		return b.RecordAuthorizedSubtitleIntent(ctx, viewer, key, manual)
+	}
+	return nil
 }

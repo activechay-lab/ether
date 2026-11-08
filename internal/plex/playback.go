@@ -195,6 +195,7 @@ func onlyNotCached(err error) bool {
 
 // playRequest is a parsed decision/start request.
 type playRequest struct {
+	manualSubtitle bool
 	key            core.RatingKey
 	collection     string
 	caps           core.ClientCaps
@@ -461,6 +462,7 @@ func (s *Server) parsePlayRequest(r *http.Request) (playRequest, error) {
 			}
 		}
 	}
+	p.manualSubtitle = p.subSet
 	p.sessionID = cmp.Or(q.Get("session"), q.Get("transcodeSessionId"), pr.SessionID)
 	if p.sessionID == "" {
 		p.sessionID = sanitizeSessionID(pr.ClientID + "-" + key.String())
@@ -2015,6 +2017,12 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 				}
 				sub = &binding
 			}
+		}
+	}
+	if q.Has("subtitleStreamID") {
+		if err := s.recordManualSubtitle(r.Context(), pr.User.ID, key, !subDefault); err != nil {
+			writeHTTPError(w, http.StatusServiceUnavailable)
+			return
 		}
 	}
 	s.selections.update(pr.User.ID, id, func(sel *selection) {
