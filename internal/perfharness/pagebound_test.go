@@ -77,7 +77,7 @@ func TestDetailCapsFactlessKindsAndInheritedRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows.Close()
-	result := Result{Client: "plex", Step: "mixed", Phase: "cold", Tag: "walk", Items: map[string]int{"season": 1, "episode": 1}}
+	result := Result{Client: "plex", Step: "mixed", Phase: "cold", Tag: "walk", RenderedItems: map[string]int{"season": 1, "episode": 1}}
 	row := &Row{Client: result.Client, Step: result.Step, Class: classBrowse}
 	ApplyPageBound([]*Row{row}, []Result{result}, map[string]TraceRecord{"walk": {Rows: stats.Rows()}}, caps)
 	if row.PageBound != 232 || row.PageItems != 2 {
