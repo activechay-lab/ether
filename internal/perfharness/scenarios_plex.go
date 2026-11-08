@@ -26,12 +26,12 @@ func plexLibrarySteps(page string) []Step {
 		// below follow, as a viewer tapping a cast member or a genre does.
 		{Name: "movies all popularity", Class: classBrowse, Path: "/library/sections/{movieSection}/all?type=1&sort=popularity:desc&X-Plex-Container-Start=0" + page, Discover: discoverPlexItem("popularMovieKey", "movie")},
 		{Name: "popular movie detail", Class: classDetail, QueriesBound: detailQueriesBound, Path: "/library/metadata/{popularMovieKey}?includeExtras=1&includeRelated=1&includeOnDeck=1&includeChapters=1&includeGuids=1&includeMarkers=1&includeConcerts=1&includePreferences=1&includeReviews=1&asyncAugmentMetadata=1", Discover: discoverPlexTags},
-		{Name: "movies filter genre", Class: classBrowse, Path: all + "&genre={genreId}"},
-		{Name: "movies filter genre deep", Class: classBrowse, Path: "/library/sections/{movieSection}/all?type=1&sort=titleSort&genre={genreId}&X-Plex-Container-Start=1200" + page},
-		{Name: "movies filter genre by rating", Class: classBrowse, Path: "/library/sections/{movieSection}/all?type=1&sort=audienceRating:desc&genre={genreId}&X-Plex-Container-Start=0" + page},
+		{Name: "movies filter genre", Class: classBrowse, Path: all + "&{genreFilter}"},
+		{Name: "movies filter genre deep", Class: classBrowse, Path: "/library/sections/{movieSection}/all?type=1&sort=titleSort&{genreFilter}&X-Plex-Container-Start=1200" + page},
+		{Name: "movies filter genre by rating", Class: classBrowse, Path: "/library/sections/{movieSection}/all?type=1&sort=audienceRating:desc&{genreFilter}&X-Plex-Container-Start=0" + page},
 		{Name: "movies filter year", Class: classBrowse, Path: all + "&year={year}"},
 		{Name: "movies filter decade", Class: classBrowse, Path: all + "&decade={decade}"},
-		{Name: "movies filter country", Class: classBrowse, Path: all + "&country={countryId}"},
+		{Name: "movies filter country", Class: classBrowse, Path: all + "&{countryFilter}"},
 		{Name: "movies filter studio", Class: classBrowse, Path: all + "&studio={studio}"},
 		{Name: "movies filter actor", Class: classBrowse, Path: all + "&actor={actorId}"},
 		{Name: "movies filter director", Class: classBrowse, Path: all + "&director={directorId}"},
@@ -123,6 +123,7 @@ func plexMetadata0(body []byte) map[string]json.RawMessage {
 
 type plexTagJSON struct {
 	ID     int64  `json:"id"`
+	Filter string `json:"filter"`
 	Tag    string `json:"tag"`
 	TagKey string `json:"tagKey"`
 }
@@ -148,11 +149,12 @@ func discoverPlexTags(vars map[string]string, body []byte) {
 	if t, ok := first("Director"); ok {
 		setOnce(vars, "directorId", strconv.FormatInt(t.ID, 10))
 	}
+	// Clients follow a tag's filter ("genre=Action"), as PMS sends it.
 	if t, ok := first("Genre"); ok {
-		setOnce(vars, "genreId", strconv.FormatInt(t.ID, 10))
+		setOnce(vars, "genreFilter", t.Filter)
 	}
 	if t, ok := first("Country"); ok {
-		setOnce(vars, "countryId", strconv.FormatInt(t.ID, 10))
+		setOnce(vars, "countryFilter", t.Filter)
 	}
 	if t, ok := first("Collection"); ok {
 		setOnce(vars, "collectionId", strconv.FormatInt(t.ID, 10))

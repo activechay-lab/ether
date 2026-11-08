@@ -238,17 +238,25 @@ func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateF
 			if l.WarmP50 > gateWallCeiling {
 				why = append(why, fmt.Sprintf("warm p50 %s over %s", l.WarmP50, gateWallCeiling))
 			}
-			// The second viewer's first pass, on its own.
-			sf, lf := s.FirstWork, l.FirstWork
-			if lf.Queries > 0 && sf.Queries > 0 {
-				if l.RowsBound == 0 && float64(lf.Rows) > gateRowsFactor*float64(sf.Rows)+gateRowsSlack {
-					why = append(why, fmt.Sprintf("a second viewer's first-pass rows grow with the library (%d → %d)", sf.Rows, lf.Rows))
+			// A warm pass may be answered by a cache that hides a walk;
+			// the owner's cold pass and a second viewer's first pass are
+			// compared on their own. In production the catalogue writes
+			// continuously, so a cache keyed on its generation misses often.
+			for _, pass := range []struct {
+				name string
+				s, l perfharness.Work
+			}{{"the owner's cold-pass", s.ColdWork, l.ColdWork}, {"a second viewer's first-pass", s.FirstWork, l.FirstWork}} {
+				if pass.l.Queries == 0 || pass.s.Queries == 0 {
+					continue
 				}
-				if float64(lf.Queries) > gateQueriesFactor*float64(sf.Queries)+gateQueriesSlack {
-					why = append(why, fmt.Sprintf("a second viewer's first-pass statements grow with the library (%d → %d)", sf.Queries, lf.Queries))
+				if l.RowsBound == 0 && float64(pass.l.Rows) > gateRowsFactor*float64(pass.s.Rows)+gateRowsSlack {
+					why = append(why, fmt.Sprintf("%s rows grow with the library (%d → %d)", pass.name, pass.s.Rows, pass.l.Rows))
 				}
-				if lf.DBTime > time.Duration(gateDBFactor*float64(sf.DBTime))+gateDBSlack {
-					why = append(why, fmt.Sprintf("a second viewer's first-pass database time grows with the library (%s → %s)", sf.DBTime, lf.DBTime))
+				if float64(pass.l.Queries) > gateQueriesFactor*float64(pass.s.Queries)+gateQueriesSlack {
+					why = append(why, fmt.Sprintf("%s statements grow with the library (%d → %d)", pass.name, pass.s.Queries, pass.l.Queries))
+				}
+				if pass.l.DBTime > time.Duration(gateDBFactor*float64(pass.s.DBTime))+gateDBSlack {
+					why = append(why, fmt.Sprintf("%s database time grows with the library (%s → %s)", pass.name, pass.s.DBTime, pass.l.DBTime))
 				}
 			}
 		}
