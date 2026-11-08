@@ -56,14 +56,18 @@ func TestRatingDriftKeepsThresholdsExact(t *testing.T) {
 	if _, _, r := stored(); r != 7.5 {
 		t.Fatalf("crossing a rule bound not written: %v", r)
 	}
-	sync(23, 100, 7.5) // popularity moved 15%
+	sync(20.9, 100, 7.5) // under 10% and under 0.5: not written
+	if p, _, _ := stored(); p != 20.5 {
+		t.Fatalf("a small popularity move was written: %v", p)
+	}
+	sync(23, 100, 7.5) // 12% and 2.5: written
 	if p, _, _ := stored(); p != 23 {
 		t.Fatalf("a material popularity change not written: %v", p)
 	}
-	sync(23.5, 101, 7.52)
+	sync(23.4, 101, 7.52)
 	now = on // the title's reconcile day writes the wobble exactly
-	sync(23.5, 101, 7.52)
-	if p, v, r := stored(); p != 23.5 || v != 101 || r != 7.52 {
+	sync(23.4, 101, 7.52)
+	if p, v, r := stored(); p != 23.4 || v != 101 || r != 7.52 {
 		t.Fatalf("reconcile did not write exactly: %v %v %v", p, v, r)
 	}
 }
