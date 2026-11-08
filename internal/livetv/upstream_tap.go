@@ -245,6 +245,7 @@ type upstreamTap struct {
 	paces      map[*inputGrant]*tapPace
 	lastData   time.Time
 	dataAt     atomic.Int64 // lastData for lock-free health (unix nanoseconds)
+	published  int          // format generation last published
 	epochStart time.Time
 	epochClock int64 // splicer clock when the current connection started
 	stalled    bool
@@ -1047,6 +1048,11 @@ func (t *upstreamTap) fillTS(body io.Reader) error {
 				t.indexLocked(marks)
 				t.cond.Broadcast()
 			}
+			if t.ts.format != t.published {
+				// A program change: tell consumers now, not at the next tick.
+				t.published = t.ts.format
+				t.publishLocked()
+			}
 			healthy := t.failures > 0 && time.Duration(t.ts.clock-t.epochClock)*time.Second/tsClockHz >= tapHealthy
 			if healthy {
 				t.failures, t.failed = 0, false
@@ -1425,6 +1431,9 @@ func (g *inputGrant) snapHealth() (UpstreamHealth, bool) {
 // healthForLocked reports the tap's health as seen by grant g's reader.
 func (t *upstreamTap) healthForLocked(g *inputGrant) UpstreamHealth {
 	h := UpstreamHealth{Stalled: t.stalled, Failed: t.failed, Reconnects: t.reconnects, Bitrate: t.bitrate}
+	if t.ts != nil && t.ts.pmtSig != "" {
+		h.FormatGeneration = uint64(t.ts.format) + 1
+	}
 	if t.ts != nil {
 		h.Kind = "ts"
 	}
