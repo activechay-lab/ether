@@ -41,8 +41,12 @@ func homeReleaseVisible(t *core.Title, now time.Time) bool {
 
 func (c *Catalog) homeVisible(t *core.Title) bool { return homeReleaseVisible(t, c.now()) }
 
+// homeReleaseSQL's EXISTS sit inside an OR; LIMIT 1 OFFSET 0 keeps each a
+// per-row key probe on PostgreSQL, which otherwise hashes it and reads the
+// whole of catalog_home_release per request. SQLite probes by key either
+// way and needs the LIMIT for the OFFSET.
 func homeReleaseSQL(alias string) string {
-	return "(" + alias + ".type<>'movie' OR (" + alias + ".release_known=1 AND " + alias + ".released_ts<? AND NOT EXISTS (SELECT 1 FROM catalog_home_release hk WHERE hk.key=" + alias + ".key AND hk.checked=1 AND hk.earliest_ts<>0)) OR EXISTS (SELECT 1 FROM catalog_home_release hr WHERE hr.key=" + alias + ".key AND hr.checked=1 AND hr.earliest_ts<>0 AND hr.earliest_ts<=?))"
+	return "(" + alias + ".type<>'movie' OR (" + alias + ".release_known=1 AND " + alias + ".released_ts<? AND NOT EXISTS (SELECT 1 FROM catalog_home_release hk WHERE hk.key=" + alias + ".key AND hk.checked=1 AND hk.earliest_ts<>0 LIMIT 1 OFFSET 0)) OR EXISTS (SELECT 1 FROM catalog_home_release hr WHERE hr.key=" + alias + ".key AND hr.checked=1 AND hr.earliest_ts<>0 AND hr.earliest_ts<=? LIMIT 1 OFFSET 0))"
 }
 
 func (c *Catalog) hydrateHomeRelease(ctx context.Context, items []core.Title) error {
