@@ -482,6 +482,10 @@ func (s *Server) handleSubtitlePick(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusServiceUnavailable)
 		return
 	}
+	if err := s.recordManualSubtitle(r.Context(), pr.User.ID, t.Key, true); err != nil {
+		writeHTTPError(w, http.StatusServiceUnavailable)
+		return
+	}
 	activity := rand.Text()
 	w.Header().Set("X-Plex-Activity", activity)
 	w.WriteHeader(http.StatusOK)
@@ -615,6 +619,10 @@ func (s *Server) handleSubtitleUpload(w http.ResponseWriter, r *http.Request) {
 			s.log.Warn("subtitle upload failed", "key", t.Key, "err", err)
 		}
 		writeHTTPError(w, http.StatusBadRequest)
+		return
+	}
+	if err := s.recordManualSubtitle(ctx, pr.User.ID, t.Key, true); err != nil {
+		writeHTTPError(w, http.StatusServiceUnavailable)
 		return
 	}
 	s.selections.update(pr.User.ID, int64(t.Key), func(sel *selection) {
