@@ -432,7 +432,7 @@ func startScorecard(ctx context.Context, dir, username, password string, items [
 				}
 				var item int64
 				var release string
-				err := a.db.QueryRowContext(r.Context(), `SELECT item_id,release_id FROM sessions_version_handles WHERE handle=? AND surface=?`, handle, string(p)).Scan(&item, &release)
+				err := a.db.QueryRowContext(r.Context(), `SELECT item_id,release_id FROM sessions_version_ids WHERE handle=? AND surface=?`, handle, string(p)).Scan(&item, &release)
 				if err != nil {
 					http.NotFound(w, r)
 					return

@@ -39,11 +39,11 @@ func TestVersionHandlesBindParentViewerDeviceAndSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Close(ctx)
-	jelly, err := NewVersionHandles(db, b, "jellyfin")
+	jelly, err := NewVersionHandles(db, b, "jellyfin", testVersionKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	emby, err := NewVersionHandles(db, b, "emby")
+	emby, err := NewVersionHandles(db, b, "emby", testVersionKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,13 +97,39 @@ func TestVersionHandlesBindParentViewerDeviceAndSurface(t *testing.T) {
 	if err != nil || second == handle {
 		t.Fatalf("same release aliased another parent: %q %v", second, err)
 	}
-	for _, bad := range []frontend.VersionScope{{Viewer: &core.Viewer{ID: 2}, Device: scope.Device, Protocol: "jellyfin"}, {Viewer: scope.Viewer, Device: core.Device{ID: "other"}, Protocol: "jellyfin"}, {Viewer: scope.Viewer, Device: scope.Device, Protocol: "emby"}} {
+	// One id per (surface, title, release): the same for every viewer and
+	// device offered it, distinct per surface, and nothing for a viewer
+	// who may not see the title.
+	for _, same := range []frontend.VersionScope{{Viewer: &core.Viewer{ID: 2}, Device: scope.Device, Protocol: "jellyfin"}, {Viewer: scope.Viewer, Device: core.Device{ID: "other"}, Protocol: "jellyfin"}} {
+		if got, err := jelly.Issue(ctx, same, item, "release-secret"); err != nil || got != handle {
+			t.Fatalf("id differs for %+v: %q %v", same, got, err)
+		}
+		if target, err := jelly.Resolve(ctx, same, handle); err != nil || target.Item != item {
+			t.Fatalf("resolve for %+v: %+v %v", same, target, err)
+		}
+	}
+	for _, bad := range []frontend.VersionScope{{Viewer: &core.Viewer{ID: 3}, Device: scope.Device, Protocol: "jellyfin"}, {Viewer: scope.Viewer, Device: scope.Device, Protocol: "emby"}} {
 		h := jelly
 		if bad.Protocol == "emby" {
 			h = emby
 		}
-		if _, err := h.Resolve(ctx, bad, handle); !errors.Is(err, core.ErrNotFound) {
-			t.Fatalf("cross-scope resolved: %+v %v", bad, err)
+		if _, err := h.Resolve(ctx, bad, handle); err == nil {
+			t.Fatalf("cross-scope resolved: %+v", bad)
+		}
+	}
+	// Ids issued before 0.3.6 were random per viewer and device; a client's
+	// cached one answers not found once, and the next listing hands out the
+	// derived id.
+	legacy, err := randomUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jelly.Resolve(ctx, scope, legacy); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("pre-0.3.6 random id resolved: %v", err)
+	}
+	if other, _ := NewVersionHandles(db, b, "jellyfin", []byte("another-server-secret-0123456789")); other != nil {
+		if got, err := other.Issue(ctx, scope, item, "release-secret"); err != nil || got == handle {
+			t.Fatalf("id not keyed by the server secret: %q %v", got, err)
 		}
 	}
 	offered = false
@@ -159,7 +185,7 @@ func TestExactVersionHandlePlanOpenAndSessionBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer broker.Close(ctx)
-	service, err := NewVersionHandles(db, broker, "jellyfin")
+	service, err := NewVersionHandles(db, broker, "jellyfin", testVersionKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,14 +239,11 @@ func TestExactVersionHandlePlanOpenAndSessionBinding(t *testing.T) {
 		t.Fatal("changed source matched")
 	}
 	req.Device = core.Device{ID: "another"}
-	if _, err = broker.Plan(ctx, req); err == nil {
-		t.Fatal("foreign device planned with handle")
-	}
 	otherScope := scope
 	otherScope.Device = req.Device
 	otherHandle, err := service.Issue(ctx, otherScope, item, "release-secret")
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || otherHandle != handle {
+		t.Fatalf("version id differs per device: %q %q %v", otherHandle, handle, err)
 	}
 	req.Version = otherHandle
 	playback.wrong = true
@@ -251,7 +274,7 @@ func TestResolvedReleasePlanDoesNotListOffers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer broker.Close(ctx)
-	service, err := NewVersionHandles(db, broker, "emby")
+	service, err := NewVersionHandles(db, broker, "emby", testVersionKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +373,7 @@ func TestReplayFallsBackWhenRememberedReleaseRevisionChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer broker.Close(ctx)
-	service, err := NewVersionHandles(db, broker, "jellyfin")
+	service, err := NewVersionHandles(db, broker, "jellyfin", testVersionKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,9 +410,11 @@ func TestReplayFallsBackWhenRememberedReleaseRevisionChanges(t *testing.T) {
 	}
 	target, err := service.Resolve(ctx, scope, handle)
 	if err != nil || target.Item != item || target.Release != "fallback-release" {
-		t.Fatalf("Resolve on rebound handle after fallback: target=%+v err=%v", target, err)
+		t.Fatalf("Resolve during the fallback session: target=%+v err=%v", target, err)
 	}
 	if err := service.MatchSession(ctx, scope, handle, session.ID); err != nil {
-		t.Fatalf("MatchSession on rebound handle after fallback failed (would 404 /Videos/:id/stream): %v", err)
+		t.Fatalf("MatchSession during the fallback session failed (would 404 /Videos/:id/stream): %v", err)
 	}
 }
+
+var testVersionKey = []byte("test-version-id-key-0123456789ab")

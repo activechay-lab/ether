@@ -480,7 +480,17 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 			return frontend.PlayPlan{}, core.ErrNotAvailable
 		}
 		h := &versionHandles{db: b.deps.DB, broker: b, protocol: req.Protocol}
-		item, release, err := h.resolveRecord(ctx, frontend.VersionScope{Viewer: v, Device: req.Device, Protocol: req.Protocol, Caps: req.Caps}, req.Version)
+		scope := frontend.VersionScope{Viewer: v, Device: req.Device, Protocol: req.Protocol, Caps: req.Caps}
+		item, release, err := h.resolveRecord(ctx, scope, req.Version)
+		if errors.Is(err, core.ErrNotFound) {
+			// An id names one release. When this viewer is no longer offered
+			// it (the release went away), the title still plays: the
+			// automatic pick, never the stale release itself.
+			if parent, _, lerr := h.lookupRow(ctx, scope, req.Version); lerr == nil && parent == req.Item {
+				item, release, err = parent, "", nil
+				req.Intent.ExactVersion = false
+			}
+		}
 		if err != nil {
 			return frontend.PlayPlan{}, err
 		}
@@ -583,9 +593,6 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 				if ps.Resolution != nil && ps.Resolution.Release.ID != "" {
 					req.Version = ps.Resolution.Release.ID
 					release = ps.Resolution.Release.ID
-					if versionHandle != "" {
-						b.rebindVersionHandle(ctx, v.ID, string(req.Protocol), req.Device.ID, req.Item, versionHandle, release)
-					}
 				}
 			}
 		}
