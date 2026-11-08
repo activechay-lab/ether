@@ -821,8 +821,30 @@ A channel can have several stream sources in priority order. Enable the inputs
 you want and put the preferred one first. If it fails during tuning, Ether tries
 a backup within the same startup budget. Failed inputs cool down briefly before
 being retried. The channel keeps its number, favourites, sharing and programme
-guide when its input changes. A running stream stays on its selected input;
-retuning after an interruption can select a healthy backup.
+guide when its input changes. During playback, Ether can reconnect to the current
+source or switch to an available backup while keeping the viewer's stream open.
+Recovery that outlasts the available buffer can show a reconnecting screen.
+
+**Stream stability** controls how much incoming media Ether keeps in reserve.
+Choose a server default in Live TV & IPTV, or override it in a channel's settings:
+
+- **Fastest** keeps the least delay from the live broadcast.
+- **Balanced**, the default, aims to keep about 12 seconds in reserve.
+- **Rock solid** aims for about 30 seconds and smooths channels when server
+  capacity allows, using more processing power.
+
+These are reserve targets, not guaranteed buffers. Ether uses the provider's
+existing HLS backlog or media delivered faster than real time; it does not slow
+playback or delay tuning to build a reserve. A source that supplies no backlog
+may therefore have little protection against an interruption. The reserve is
+shared by viewers of the same channel. Preset changes apply when the channel
+next starts.
+
+Where capacity permits, Ether decodes and re-encodes IPTV to smooth source
+damage and format changes. Sources above 1080p and HDR sources stay on a direct
+path to preserve their picture format. Source history survives restarts and
+helps allocate limited processing capacity to unreliable sources without
+pre-empting a running viewer.
 
 Who can watch a channel is set on the channel's **Viewers** tab. A viewer
 allowed on all channels also gets channels you add later. Switching them off for
