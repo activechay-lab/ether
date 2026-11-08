@@ -62,6 +62,9 @@ type perfObserver struct {
 	// hydration can retain request statistics after its handler stops waiting.
 	// Settle that work before freezing a tagged trace; production leaves nil.
 	settleTrace func(context.Context)
+	// asyncTrace is gate-only: settlement must not hold the HTTP response.
+	asyncTrace bool
+	pending    sync.WaitGroup
 }
 
 func newPerfObserver(log *slog.Logger) *perfObserver {
@@ -81,7 +84,10 @@ func newPerfObserver(log *slog.Logger) *perfObserver {
 	return p
 }
 
+func (p *perfObserver) waitTraces() { p.pending.Wait() }
+
 func (p *perfObserver) close() {
+	p.waitTraces()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.trace != nil {
@@ -137,6 +143,7 @@ func (p *perfObserver) wrap(surface string, next http.Handler) http.Handler {
 		p.mu.Lock()
 		tracing := p.encoder != nil
 		settleTrace := p.settleTrace
+		asyncTrace := p.asyncTrace
 		p.mu.Unlock()
 		if tracing {
 			recorder = middleware.NewWrapResponseWriter(w, r.ProtoMajor)
@@ -146,24 +153,48 @@ func (p *perfObserver) wrap(surface string, next http.Handler) http.Handler {
 		if tracing && p.alloc && r.Header.Get(PerfTagHeader) != "" {
 			runtime.ReadMemStats(&before)
 		}
+		deferred := tracing && settleTrace != nil && asyncTrace && r.Header.Get(PerfTagHeader) != ""
+		transferred := false
+		if deferred {
+			// Register before the handler can flush a complete response. The
+			// next sequential request may start before ServeHTTP returns.
+			p.pending.Add(1)
+			defer func() {
+				if !transferred {
+					p.pending.Done()
+				}
+			}()
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 		elapsed := time.Since(start)
-		if tracing && settleTrace != nil && r.Header.Get(PerfTagHeader) != "" {
-			settleTrace(ctx)
-		}
-		if tracing {
-			var after runtime.MemStats
-			if p.alloc && r.Header.Get(PerfTagHeader) != "" {
-				runtime.ReadMemStats(&after)
+		contentType := w.Header().Get("Content-Type")
+		finish := func() {
+			if tracing && settleTrace != nil && r.Header.Get(PerfTagHeader) != "" {
+				settleTrace(context.WithoutCancel(ctx))
 			}
-			p.writeTrace(PerfTraceRecord{
-				Tag: r.Header.Get(PerfTagHeader), Surface: surface, Method: r.Method, Path: r.URL.Path, Status: recorder.Status(), Bytes: recorder.BytesWritten(),
-				Start: start, Duration: elapsed, Queries: stats.Queries(), Writes: stats.Writes(), Rows: stats.Rows(), DBTime: stats.DBTime(), LockWait: stats.LockWait(),
-				Statements: stats.Statements(),
-				AllocBytes: after.TotalAlloc - before.TotalAlloc, Allocs: after.Mallocs - before.Mallocs,
-			})
+			if tracing {
+				var after runtime.MemStats
+				if p.alloc && r.Header.Get(PerfTagHeader) != "" {
+					runtime.ReadMemStats(&after)
+				}
+				p.writeTrace(PerfTraceRecord{
+					Tag: r.Header.Get(PerfTagHeader), Surface: surface, Method: r.Method, Path: r.URL.Path, Status: recorder.Status(), Bytes: recorder.BytesWritten(),
+					Start: start, Duration: elapsed, Queries: stats.Queries(), Writes: stats.Writes(), Rows: stats.Rows(), DBTime: stats.DBTime(), LockWait: stats.LockWait(),
+					Statements: stats.Statements(),
+					AllocBytes: after.TotalAlloc - before.TotalAlloc, Allocs: after.Mallocs - before.Mallocs,
+				})
+			}
+			p.budget(surface, r, contentType, elapsed, stats)
 		}
-		p.budget(surface, r, w.Header().Get("Content-Type"), elapsed, stats)
+		if deferred {
+			// The sequential gate joins this trace before
+			// its next request and before closing the App. Retain every query,
+			// but let net/http finish the response at the handler boundary.
+			transferred = true
+			go func() { defer p.pending.Done(); finish() }()
+		} else {
+			finish()
+		}
 	})
 }
 

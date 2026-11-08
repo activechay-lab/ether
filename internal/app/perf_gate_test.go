@@ -462,6 +462,7 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	// that work before the observer snapshots it, without changing the recorded
 	// response duration or discarding any attributed database work.
 	a.perf.mu.Lock()
+	a.perf.asyncTrace = true
 	a.perf.settleTrace = func(ctx context.Context) {
 		if !a.quiesce(ctx, 30*time.Second) {
 			t.Errorf("%s: invalid performance measurement: background work did not settle before its trace snapshot", name)
@@ -470,6 +471,7 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	a.perf.mu.Unlock()
 	quiesceMisses := 0
 	r.SetBefore(func(ctx context.Context) {
+		a.perf.waitTraces()
 		if !a.quiesce(ctx, 30*time.Second) {
 			quiesceMisses++
 		}
@@ -515,6 +517,7 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 			}
 		}
 	}
+	a.perf.waitTraces()
 	// A Home without the owner's personalized rows would pass the scale
 	// comparison without measuring the screen production serves.
 	if rows := ownerHomeRows(t, port, viewers[0].PlexToken); rows < 1 {
