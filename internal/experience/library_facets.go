@@ -79,3 +79,28 @@ func (s *Service) indexedFacets(ctx context.Context, viewer *core.Viewer, viewID
 	}
 	return out, true, nil
 }
+
+// resolveGlobalFacet finds id among a library's facet values counted over
+// every browsable title. ok is false when no value has that id.
+func (s *Service) resolveGlobalFacet(ctx context.Context, viewer *core.Viewer, viewID, kind, name, id string) (core.FacetValue, bool, error) {
+	v, err := s.viewer(ctx, viewer)
+	if err != nil {
+		return core.FacetValue{}, false, err
+	}
+	global := core.WithoutCatalogViewer(ctx)
+	for _, lib := range s.libraries() {
+		if (viewID != "" && strconv.Itoa(lib.ID) != viewID) || !SectionAllowed(v, lib.ID) {
+			continue
+		}
+		vals, err := s.d.FacetFilter(global, core.Filter{Type: lib.Type}, name)
+		if err != nil {
+			return core.FacetValue{}, false, err
+		}
+		for _, val := range vals {
+			if val.Key != "" && facetID(kind, val.Key) == id {
+				return core.FacetValue{ID: id, Key: val.Key, Title: val.Key, Count: val.Count}, true, nil
+			}
+		}
+	}
+	return core.FacetValue{}, false, nil
+}

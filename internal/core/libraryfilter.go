@@ -92,6 +92,15 @@ func WithCatalogViewer(ctx context.Context, u *User) context.Context {
 	}
 	return context.WithValue(ctx, catalogViewerKey{}, u.ID)
 }
+// WithoutCatalogViewer drops the viewer from ctx, for reads that are the same
+// for every viewer (a facet name's identifier) and must share one cache entry.
+func WithoutCatalogViewer(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithValue(ctx, catalogViewerKey{}, int64(0))
+}
+
 func CatalogViewerID(ctx context.Context) int64 {
 	if ctx == nil {
 		return 0

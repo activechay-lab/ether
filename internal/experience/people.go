@@ -448,6 +448,7 @@ type PersonCandidate struct {
 const (
 	peopleCandidateLimit = 500
 	personCreditLimit    = 12
+	listCreditLimit      = 3
 )
 
 // indexedPeople answers a people search from the name index: candidates in
@@ -486,7 +487,13 @@ func (s *Service) indexedPeople(ctx context.Context, viewer *core.Viewer, q fron
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		best, err := s.visibleCredit(ctx, v, types, candidate.TMDB)
+		// A name search proves each match on its 12 most popular credits; a
+		// list of the most credited people proves each on its top three.
+		limit := personCreditLimit
+		if len(terms) == 0 {
+			limit = listCreditLimit
+		}
+		best, err := s.visibleCredit(ctx, v, types, candidate.TMDB, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -507,9 +514,9 @@ func (s *Service) indexedPeople(ctx context.Context, viewer *core.Viewer, q fron
 
 // visibleCredit is a person's credit on the most popular of their credited
 // titles the viewer may see, from the credit index; empty when none is.
-func (s *Service) visibleCredit(ctx context.Context, v *core.User, types []core.MediaType, tmdb int64) (visiblePerson, error) {
+func (s *Service) visibleCredit(ctx context.Context, v *core.User, types []core.MediaType, tmdb int64, limit int) (visiblePerson, error) {
 	var best visiblePerson
-	keys, err := s.d.PersonCredits(ctx, tmdb, types, personCreditLimit)
+	keys, err := s.d.PersonCredits(ctx, tmdb, types, limit)
 	if err != nil || len(keys) == 0 {
 		return best, err
 	}
@@ -554,7 +561,7 @@ func (s *Service) visiblePerson(ctx context.Context, viewer *core.Viewer, tmdb i
 	if err != nil {
 		return frontend.PersonDetail{}, err
 	}
-	best, err := s.visibleCredit(ctx, v, types, tmdb)
+	best, err := s.visibleCredit(ctx, v, types, tmdb, personCreditLimit)
 	if err != nil {
 		return frontend.PersonDetail{}, err
 	}

@@ -2034,6 +2034,15 @@ func (p *personFacetMemo) tmdb(id string) (int64, bool) {
 // ResolveFacet only resolves identifiers among the viewer's current visible facets.
 func (s *Service) ResolveFacet(ctx context.Context, viewer *core.Viewer, device core.Device, viewID, kind, id string) (core.FacetValue, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
+	if name := sqlFacets[kind]; name != "" && s.d.FacetFilter != nil {
+		// A genre, studio or country id names a value; which titles the
+		// viewer may see under it is the filtered page's business. The id
+		// resolves against the library-wide values, one cached count for
+		// every viewer, not a count of this viewer's whole library.
+		if found, ok, err := s.resolveGlobalFacet(ctx, viewer, viewID, kind, name, id); err != nil || ok {
+			return found, err
+		}
+	}
 	if kind == "person" {
 		if tmdb, ok := personFacets.tmdb(id); ok {
 			var person frontend.PersonDetail
