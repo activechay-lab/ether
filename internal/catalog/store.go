@@ -627,6 +627,9 @@ type upsertOpts struct {
 	// earlier detail upsert marked (which otherwise keep their date).
 	airDates     bool
 	releaseDates *tmdb.ReleaseDates
+	// ratingCuts, set by upsertMany, limits rating, vote and popularity
+	// wobbles to the writes rating_drift.go keeps.
+	ratingCuts *ratingCuts
 	// region is the owner's catalogue region; upsertMany sets it. A TMDB
 	// rating from the region or the US outranks a provider rating.
 	region string
@@ -687,6 +690,8 @@ func (c *Catalog) upsertMany(ctx context.Context, titles []core.Title, o upsertO
 	defer tx.Rollback()
 	now := c.now().Unix()
 	o.region = c.config().Region
+	cuts := c.ratingCuts()
+	o.ratingCuts = &cuts
 	for _, t := range titles {
 		if err := upsertOne(ctx, tx, t, o, now); err != nil {
 			return err
@@ -851,8 +856,14 @@ ON CONFLICT(key) DO UPDATE SET
 	// index on a column an UPDATE assigns (37 on catalog_titles), which made
 	// a popularity-only refresh 33 WAL pages a title. After a full upsert
 	// the values match and this matches no row.
-	jitter, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET rating=?,vote_count=?,popularity=? WHERE key=? AND (rating<>? OR vote_count<>? OR popularity<>?) AND (detail=0 OR ?=1 OR ?=0)`,
-		t.Rating, t.VoteCount, t.Popularity, int64(t.Key), t.Rating, t.VoteCount, t.Popularity, detailInt, preserveInt)
+	// Small wobbles are written only per rating_drift.go.
+	drift, driftArgs := "", []any(nil)
+	if !o.detail && o.ratingCuts != nil && !ratingExact(t.Key, time.Unix(now, 0)) {
+		drift, driftArgs = ratingDriftSQL(*o.ratingCuts, t.Popularity, t.VoteCount, t.Rating)
+		drift = " AND " + drift
+	}
+	jitter, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET rating=?,vote_count=?,popularity=? WHERE key=? AND (rating<>? OR vote_count<>? OR popularity<>?) AND (detail=0 OR ?=1 OR ?=0)`+drift,
+		append([]any{t.Rating, t.VoteCount, t.Popularity, int64(t.Key), t.Rating, t.VoteCount, t.Popularity, detailInt, preserveInt}, driftArgs...)...)
 	if err != nil {
 		return fmt.Errorf("catalog: upsert %d ratings: %w", t.Key, err)
 	}
