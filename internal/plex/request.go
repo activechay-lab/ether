@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/identity"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -172,7 +172,7 @@ func ParseRequest(r *http.Request, trusted ...netip.Prefix) *Request {
 		pr.Format = model.JSON
 	}
 	var local bool
-	pr.RemoteIP, local = identity.ClientNet(r, trusted...)
+	pr.RemoteIP, local = clientnet.ClientNet(r, trusted...)
 	pr.Remote = !local
 	return pr
 }

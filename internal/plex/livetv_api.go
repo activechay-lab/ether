@@ -21,7 +21,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/identity"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/go-chi/chi/v5"
@@ -312,7 +312,7 @@ func (s *Server) liveGuideLogo(r *http.Request, c livetv.Channel) string {
 	peerHost, _, _ := net.SplitHostPort(r.RemoteAddr)
 	peer, _ := netip.ParseAddr(peerHost)
 	trusted := peer.IsLoopback()
-	for _, prefix := range identity.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs) {
+	for _, prefix := range clientnet.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs) {
 		trusted = trusted || prefix.Contains(peer.Unmap())
 	}
 	if trusted {

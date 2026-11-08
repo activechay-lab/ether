@@ -16,7 +16,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/auth"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/faillog"
-	"github.com/braedonsaunders/ether/internal/identity"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
@@ -229,7 +229,7 @@ func traceSecretQuery(k string) bool {
 // parse attaches the parsed request context.
 func (s *Server) parse(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		pr := ParseRequest(r, identity.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs)...)
+		pr := ParseRequest(r, clientnet.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs)...)
 		if pr.pagingInvalid {
 			writeHTTPError(w, http.StatusInternalServerError)
 			return
