@@ -43,6 +43,9 @@ type renderOpts struct {
 	// availabilityInSQL is set for a catalogue page that already applied
 	// the same availability snapshot before counting and pagination.
 	availabilityInSQL bool
+	// mediaExcluded: the client excluded Media, so list rows skip building
+	// it (and every read behind it). Set by renderTitles.
+	mediaExcluded bool
 }
 
 // metadataKey is the item's "key": children list for containers, the item
@@ -415,7 +418,18 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *core.Title, o ren
 		m.UltraBlurColors = s.ultraBlurFor(t.Key, t.BackdropPath)
 	}
 
-	if o.media && isPlayable(t.Type) {
+	withMedia := o.media
+	if o.mediaExcluded && isPlayable(t.Type) {
+		if t.Runtime > 0 {
+			// What building Media would leave behind once it is excluded.
+			if s.downloadsAllowed(pr.User) {
+				m.AllowSync = model.Ptr(true)
+			}
+		} else {
+			withMedia = true // the row's duration comes from its Media
+		}
+	}
+	if withMedia && isPlayable(t.Type) {
 		var editionTitle string
 		m.Media, editionTitle = s.mediaFor(ctx, pr, t, detail, o.detail, o.session)
 		applyEditionTitle(&m, editionTitle)
@@ -1370,6 +1384,13 @@ func languageTag(code string) string {
 // renderTitles renders a list, loading the user's watch state in one call.
 func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []core.Title, o renderOpts) []model.Metadata {
 	ctx = withStoredPolicy(ctx)
+	if o.media && pr.excludeMedia && listMediaSkip && !o.detail && !o.detailEpisodes && !o.session {
+		// The response drops Media (and mediaCount stands in for it), so
+		// light list rows need not build it, nor read what it is drawn
+		// from. Full rows keep it: their chapters, markers and probed
+		// duration are read alongside.
+		o.media, o.mediaExcluded = false, true
+	}
 	ts = s.openableTitles(ctx, pr.User, ts, o.availabilityInSQL || shelfContainsAll(ctx, ts))
 	if len(ts) == 0 {
 		return nil

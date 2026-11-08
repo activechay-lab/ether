@@ -42,9 +42,12 @@ type Request struct {
 	HasPage       bool
 	pagingInvalid bool
 
-	Format   model.Format
-	RemoteIP netip.Addr
-	Remote   bool // not on a private/loopback network
+	Format model.Format
+	// excludeMedia: the response leaves Media out (excludeElements=Media),
+	// so listing rows skip building it.
+	excludeMedia bool
+	RemoteIP     netip.Addr
+	Remote       bool // not on a private/loopback network
 
 	User *core.User
 
@@ -162,6 +165,7 @@ func ParseRequest(r *http.Request, trusted ...netip.Prefix) *Request {
 	}
 	pr.Platform = profileParam(r, "X-Plex-Platform")
 	pr.Device = profileParam(r, "X-Plex-Device")
+	pr.excludeMedia = excludesListMedia(r)
 	pr.Format = model.XML
 	if wantsJSON(r) {
 		pr.Format = model.JSON
