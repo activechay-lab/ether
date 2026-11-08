@@ -31,7 +31,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/langtag"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/subtitles"
-	"github.com/braedonsaunders/ether/internal/trackprefs"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -183,38 +182,6 @@ func (s *Server) burnOnlyShownSubtitle(pr *Request, p *playRequest, info core.Me
 	s.log.Info("subtitle not burned: the client was not shown it selected", "key", p.key, "client", pr.ClientID, "codec", st.Codec, "language", st.Language)
 	p.subSel, p.subSet, p.subStream = -1, true, nil
 	p.opts.SubtitleStream = -1
-}
-
-// textForImageSubtitle is a text track that can stand in for the image
-// subtitle at pos: same language, forced flag and hearing-impaired style,
-// embedded before external. An image track is burned into the video for
-// most clients, a full transcode; a text track rides beside a remux. -1
-// when there is none.
-func textForImageSubtitle(info core.MediaInfo, pos int) int {
-	if pos < 0 || pos >= len(info.Streams) {
-		return -1
-	}
-	img := info.Streams[pos]
-	if img.Type != "subtitle" || !transcode.IsImageSubtitle(img.Codec) || img.Language == "" {
-		return -1
-	}
-	best := -1
-	for i, st := range info.Streams {
-		if st.Type != "subtitle" || !transcode.IsTextSubtitle(st.Codec) || st.Forced != img.Forced ||
-			trackprefs.SDH(st) != trackprefs.SDH(img) || langtag.Normalize(st.Language) != langtag.Normalize(img.Language) {
-			continue
-		}
-		if st.External && st.ExternalURL == "" {
-			continue
-		}
-		if !st.External {
-			return i
-		}
-		if best < 0 {
-			best = i
-		}
-	}
-	return best
 }
 
 // resolvePlaySelection is resolveSelection for a play request.

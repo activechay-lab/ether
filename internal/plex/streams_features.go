@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/markers"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/reqmemo"
@@ -42,45 +43,25 @@ func (s *Server) trackScope(ctx context.Context, key core.RatingKey) trackprefs.
 	return scope
 }
 
+func (s *Server) trackPreferences() experience.TrackPreferences {
+	return experience.TrackPreferences{Source: s.d.TrackPreferences, GetTitle: func(ctx context.Context, key core.RatingKey) (*core.Title, error) {
+		if s.d.Catalog == nil {
+			return nil, core.ErrNotAvailable
+		}
+		return &core.Title{Key: key, Language: s.showLanguage(ctx, key)}, nil
+	}}
+}
 func (s *Server) preferredSelection(ctx context.Context, u *core.User, key core.RatingKey, info core.MediaInfo, original string, sel selection) selection {
 	if s.d.TrackPreferences == nil || u == nil {
 		return sel
 	}
-	if original == "" && key.Kind() == core.KindEpisode && s.d.Catalog != nil {
-		original = s.showLanguage(ctx, core.ShowKey(key.TMDB()))
-	}
-	var p trackprefs.Selection
-	var err error
-	applied := false
-	if scoped, ok := s.d.TrackPreferences.(interface {
-		SelectScoped(context.Context, int64, core.RatingKey, core.MediaInfo, string, trackprefs.Scope) (trackprefs.Selection, bool, error)
-	}); ok {
-		p, applied, err = scoped.SelectScoped(ctx, u.ID, key, info, original, s.trackScope(ctx, key))
-		if err != nil {
-			s.log.Warn("scoped stream preferences unavailable", "error", err)
-			applied, err = false, nil
-		}
-	}
-	if err == nil && !applied {
-		p, err = s.d.TrackPreferences.Select(ctx, u.ID, key, info, original)
-	}
+	selected, err := s.trackPreferences().SelectScoped(ctx, u, key, info, original, s.trackScope(ctx, key), experience.TrackSelection{Audio: sel.audio, AudioSet: sel.audioSet, Subtitle: sel.subtitle, SubtitleSet: sel.subtitleSet}, func(err error) { s.log.Warn("scoped stream preferences unavailable", "error", err) })
 	if err != nil {
 		s.log.Warn("stream preferences unavailable", "error", err)
 		return sel
 	}
-	if !sel.audioSet {
-		sel.audio, sel.audioSet = p.Audio, true
-	}
-	if !sel.subtitleSet {
-		// An automatic pick takes a text track over an image track of the
-		// same language and kind: metadata and playback both choose here,
-		// so the client is shown the track that plays (#313).
-		sub := p.Subtitle
-		if text := textForImageSubtitle(info, sub); text >= 0 {
-			sub = text
-		}
-		sel.subtitle, sel.subtitleSet = sub, true
-	}
+	sel.audio, sel.audioSet = selected.Audio, selected.AudioSet
+	sel.subtitle, sel.subtitleSet = selected.Subtitle, selected.SubtitleSet
 	return sel
 }
 func (s *Server) applyStreamPreferences(ctx context.Context, pr *Request, p *playRequest, t *core.Title, info core.MediaInfo) {
@@ -89,26 +70,16 @@ func (s *Server) applyStreamPreferences(ctx context.Context, pr *Request, p *pla
 	p.audioSel = sel.audio
 	p.subSel, p.subSet = sel.subtitle, sel.subtitleSet
 	if s.d.TrackPreferences != nil && pr.User != nil {
-		rules, err := s.d.TrackPreferences.GetRules(ctx, pr.User.ID)
-		if err == nil {
-			channels := 0
-			if p.audioSel >= 0 && p.audioSel < len(info.Streams) {
-				channels = info.Streams[p.audioSel].Channels
-			}
-			p.opts.AudioFilters = rules.AudioFilters(channels)
+		prefs := s.trackPreferences()
+		if filters, err := prefs.AudioFilters(ctx, pr.User, info, experience.TrackSelection{Audio: p.audioSel}); err == nil {
+			p.opts.AudioFilters = filters
 		}
-		if scoped, ok := s.d.TrackPreferences.(interface {
-			ScopedRules(context.Context, int64, trackprefs.Scope) (trackprefs.Rules, bool, error)
-		}); ok {
-			scope := s.trackScope(ctx, p.key)
-			if pr.ClientID != "" {
-				scope.Device = pr.ClientID
-			}
-			rules, _, err := scoped.ScopedRules(ctx, pr.User.ID, scope)
-			if err == nil {
-				p.opts.MaxBitrateKbps = trackprefs.LimitBitrate(p.opts.MaxBitrateKbps, rules.MaxBitrateKbps)
-				p.opts.MaxHeight = trackprefs.LimitBitrate(p.opts.MaxHeight, rules.MaxHeight)
-			}
+		scope := s.trackScope(ctx, p.key)
+		if pr.ClientID != "" {
+			scope.Device = pr.ClientID
+		}
+		if opts, err := prefs.ScopedLimits(ctx, pr.User, scope, p.opts); err == nil {
+			p.opts = opts
 		}
 	}
 }
