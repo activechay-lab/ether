@@ -474,6 +474,12 @@ func (s *Service) reserveBroadcastProvider(account, channel, id string, limit in
 			channels[ss.info.Channel.ID] = true
 		}
 	}
+	// A direct viewer of a channel that also has a Steady input (a hand-off
+	// in progress, or the viewer it was handed off from) shares its tap.
+	for _, ch := range active {
+		delete(channels, ch)
+	}
+	delete(channels, channel)
 	if _, exists := active[id]; exists {
 		return nil, ErrProviderBusy
 	}
@@ -655,6 +661,14 @@ func (p *providerBroadcastPlanner) closePlanner() {
 	p.guideCancel()
 	<-p.guideDone
 	p.mu.Lock()
+	if a := p.attempt; a != nil {
+		// Report how this output's input ended to the source history.
+		outcome := "ok"
+		if !a.decoder.delivered() {
+			outcome = "failed"
+		}
+		defer p.s.noteSourceMode(p.channel.ID, a.src, "steady", outcome)
+	}
 	link, primed, standby := p.link, p.primed, p.standby
 	p.link, p.primed, p.standby = nil, nil, nil
 	p.mu.Unlock()
