@@ -1311,6 +1311,7 @@
   "m_0553642f9a45aa": "Aldrig over plads",
   "m_0554ee071cc108": "Send den ugentlige rapport på e-mail",
   "m_055538c0f7d2c4": "Tilføj en definitionskilde under Flere valg for at søge på tracker-sider",
+  "m_0555a0f1209710": "nøglebilleder langt fra hinanden",
   "m_0555e8f56bb436": "TMDB API-nøgle",
   "m_05579bd20cb8e9": "Intet bliver importeret. Medtag mindst én gruppe.",
   "m_055a2ecff5a79a": "Forberedte installationen til din godkendelse",
@@ -3634,6 +3635,7 @@
   },
   "m_0ee883b536fd73": "Ingen grupper matcher.",
   "m_0ee88d90b1c907": "Tilføjet i seneste synkronisering",
+  "m_0ee993ff04e4e4": "starter konverteret for et rent billede",
   "m_0eefa80957450e": "Denne guidekanal har intet planlagt de næste {count} timer.",
   "m_0ef1993442fea0": "Forbedr kilder op til",
   "m_0ef1b410be60af": "Bitrategrænse",
@@ -4120,6 +4122,7 @@
   "m_10cf99d2baac75": "Browser-push kræver HTTPS (eller localhost), en understøttet browser og tilladelse til notifikationer. På iPhone eller iPad skal du installere Ether på din hjemmeskærm og åbne den derfra.",
   "m_10d1c3a6096e59": "Kunne ikke glemme serien",
   "m_10d1c4dca0d133": "Ikke tjekket endnu: fjernadgang er slået fra.",
+  "m_10d31415ce0d33": "billedfejl registreret",
   "m_10d3afaf9a99c4": "Programmer for {channel} kommer fra den guidekanal, du vælger.",
   "m_10d5152b10c948": "Lager: {size}",
   "m_10d709cc7b697b": "Tilføj server",
@@ -5788,6 +5791,10 @@
   },
   "m_178d316181b924": "Genstarter…",
   "m_178dc1fcbddc99": "Rækker, som Plex selv leverer",
+  "m_178e5f518f2efb": {
+    "one": "{count} formatskift",
+    "other": "{count} formatskift"
+  },
   "m_178e82b68358b3": "trin",
   "m_17907beac3a219": "Tilføj en debrid-konto",
   "m_1790f3628a5db7": "Seneste kald",
@@ -6614,6 +6621,10 @@
   "m_1ac946fceccf3d": "Streamstabilitet sat til {name}",
   "m_1ac96195e626ad": "Ether-design",
   "m_1acae0294a1669": "Træk regel {n}",
+  "m_1acbb68bd15774": {
+    "one": "{count} stop i timen",
+    "other": "{count} stop i timen"
+  },
   "m_1acca9e3e215d8": "Plakater fra en XRDB-server.",
   "m_1accac7df48579": "Opret derefter et join-token for at tilføje din næste maskine.",
   "m_1ace5c1441b2b7": "Serverens tilstand: {status}",

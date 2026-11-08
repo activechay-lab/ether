@@ -73,6 +73,7 @@ type ownedTimeline struct {
 
 	// Evidence, reported in logs and diagnostics.
 	slateSegments int
+	slateRuns     int // slate episodes (each starts with a discontinuity)
 	slateTime     time.Duration
 	codecSplices  int
 	spans         int
@@ -240,6 +241,28 @@ func (t *ownedTimeline) depthLocked() time.Duration {
 		d += s.dur
 	}
 	return d
+}
+
+// codecSpliceCount is how many unannounced format changes were marked.
+func (t *ownedTimeline) codecSpliceCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.codecSplices
+}
+
+// tsOnly reports a timeline of transport stream media (no init sections), so
+// a TS producer can follow it behind a discontinuity.
+func (t *ownedTimeline) tsOnly() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.mapRes == "" || strings.HasPrefix(t.mapRes, "slate-")
+}
+
+// slateRunCount is how many slate episodes the timeline has published.
+func (t *ownedTimeline) slateRunCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.slateRuns
 }
 
 // lastSegmentDuration is the duration of the newest published segment.
@@ -512,6 +535,7 @@ func (t *ownedTimeline) publishSlateLocked() bool {
 	if k == 0 {
 		seg.disc = true
 		t.spans++
+		t.slateRuns++
 		t.needDisc = true
 		t.log.Warn("owned live timeline publishing slate", "since_last_segment", t.now().Sub(t.lastAt), "target", t.target, "reserve_depth", t.depthLocked(),
 			"producing", t.producing != nil && t.producing(), "input_stalled", t.stalled != nil && t.stalled(), "fetch_in_flight", t.inflight)

@@ -1311,6 +1311,7 @@
   "m_0553642f9a45aa": "Ei koskaan paikan yläpuolella",
   "m_0554ee071cc108": "Lähetä viikkoraportti sähköpostilla",
   "m_055538c0f7d2c4": "Lisää määrityslähde kohdassa Lisäasetukset hakeaksesi tracker-sivustoilta",
+  "m_0555a0f1209710": "avainkuvat kaukana toisistaan",
   "m_0555e8f56bb436": "TMDB API -avain",
   "m_05579bd20cb8e9": "Mitään ei tuoda. Ota mukaan vähintään yksi ryhmä.",
   "m_055a2ecff5a79a": "Asennus valmisteltu hyväksyttäväksesi",
@@ -3634,6 +3635,7 @@
   },
   "m_0ee883b536fd73": "Ryhmiä ei löytynyt.",
   "m_0ee88d90b1c907": "Lisätty viime synkronoinnissa",
+  "m_0ee993ff04e4e4": "käynnistyy muunnettuna puhtaan kuvan vuoksi",
   "m_0eefa80957450e": "Tällä oppaan kanavalla ei ole mitään ohjelmoituna seuraavien {count} tunnin aikana.",
   "m_0ef1993442fea0": "Paranna lähteitä enintään",
   "m_0ef1b410be60af": "Bittinopeusraja",
@@ -4120,6 +4122,7 @@
   "m_10cf99d2baac75": "Selaimen push vaatii HTTPS:n (tai localhostin), tuetun selaimen ja ilmoitusluvan. iPhonella tai iPadilla lisää Ether Koti-valikkoon ja avaa se sieltä.",
   "m_10d1c3a6096e59": "Sarjan unohtaminen epäonnistui",
   "m_10d1c4dca0d133": "Ei vielä tarkistettu: etäkäyttö on pois päältä.",
+  "m_10d31415ce0d33": "kuvavirheitä havaittu",
   "m_10d3afaf9a99c4": "Kanavan {channel} ohjelmatiedot tulevat valitsemaltasi oppaan kanavalta.",
   "m_10d5152b10c948": "Tallennustila: {size}",
   "m_10d709cc7b697b": "Lisää palvelin",
@@ -5788,6 +5791,10 @@
   },
   "m_178d316181b924": "Käynnistetään uudelleen…",
   "m_178dc1fcbddc99": "Plexin itsensä tarjoamat rivit",
+  "m_178e5f518f2efb": {
+    "one": "{count} formaatin vaihdos",
+    "other": "{count} formaatin vaihdosta"
+  },
   "m_178e82b68358b3": "vaihetta",
   "m_17907beac3a219": "Lisää debrid-tili",
   "m_1790f3628a5db7": "Viimeisimmät kutsut",
@@ -6614,6 +6621,10 @@
   "m_1ac946fceccf3d": "Lähetyksen vakaudeksi asetettu {name}",
   "m_1ac96195e626ad": "Etherin suunnitelma",
   "m_1acae0294a1669": "Vedä sääntö {n}",
+  "m_1acbb68bd15774": {
+    "one": "{count} katkos tunnissa",
+    "other": "{count} katkosta tunnissa"
+  },
   "m_1acca9e3e215d8": "Julisteet XRDB-palvelimelta.",
   "m_1accac7df48579": "Luo sitten liittymistoken lisätäksesi seuraavan koneesi.",
   "m_1ace5c1441b2b7": "Palvelimen tila: {status}",

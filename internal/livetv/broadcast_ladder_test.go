@@ -164,3 +164,34 @@ func TestRefusedSteadyTuneHoldsADirectViewerReservation(t *testing.T) {
 		t.Fatal("stop leaked the direct reservation")
 	}
 }
+
+// Scarce Steady slots go to flaky and unknown sources first; a clean source
+// never takes the last one. Joining or keeping a running output is not an
+// allocation, so nothing here can pre-empt a viewer.
+func TestSteadyAllocationFavoursFlakySources(t *testing.T) {
+	flaky := classifySource(SourceHistory{Stalls: 1, MediaSeconds: 600, Sessions: 1}, true)
+	clean := classifySource(SourceHistory{MediaSeconds: 600, Sessions: 1}, true)
+	young := classifySource(SourceHistory{MediaSeconds: 10}, true)
+	if flaky != steadyClassFlaky || clean != steadyClassClean || young != steadyClassUnknown || classifySource(SourceHistory{}, false) != steadyClassUnknown {
+		t.Fatalf("classes %s %s %s", flaky, clean, young)
+	}
+	const cost, budget = 1.0, 1.5 // room for exactly one output
+	for _, tc := range []struct {
+		class string
+		load  float64
+		want  string
+	}{
+		{steadyClassFlaky, 0, ""},
+		{steadyClassUnknown, 0, ""},
+		{steadyClassClean, 0, steadyRefusedClean},
+		{steadyClassFlaky, 1, steadyRefusedCapacity},
+		{steadyClassClean, 1, steadyRefusedCapacity},
+	} {
+		if got := allocateSteady(tc.class, tc.load, cost, budget); got != tc.want {
+			t.Fatalf("%s at load %.0f: %q, want %q", tc.class, tc.load, got, tc.want)
+		}
+	}
+	if got := allocateSteady(steadyClassClean, 0, cost, 2.5); got != "" {
+		t.Fatalf("clean source refused with two free slots: %q", got)
+	}
+}

@@ -1311,6 +1311,7 @@
   "m_0553642f9a45aa": "Aldri over plass",
   "m_0554ee071cc108": "Send den ukentlige rapporten på e-post",
   "m_055538c0f7d2c4": "Legg til en definisjonskilde under Flere valg for å søke på sporersider",
+  "m_0555a0f1209710": "nøkkelbilder langt fra hverandre",
   "m_0555e8f56bb436": "TMDB API-nøkkel",
   "m_05579bd20cb8e9": "Ingenting blir importert. Ta med minst én gruppe.",
   "m_055a2ecff5a79a": "Forberedte installasjonen for din godkjenning",
@@ -3634,6 +3635,7 @@
   },
   "m_0ee883b536fd73": "Ingen grupper samsvarer.",
   "m_0ee88d90b1c907": "Lagt til i forrige synkronisering",
+  "m_0ee993ff04e4e4": "starter konvertert for et rent bilde",
   "m_0eefa80957450e": "Denne guidekanalen har ingenting planlagt de neste {count} timene.",
   "m_0ef1993442fea0": "Forbedre kilder opptil",
   "m_0ef1b410be60af": "Bitratebegrensning",
@@ -4120,6 +4122,7 @@
   "m_10cf99d2baac75": "Nettleserpush krever HTTPS (eller localhost), en støttet nettleser og varslingstillatelse. På iPhone eller iPad installerer du Ether på Hjem-skjermen og åpner den derfra.",
   "m_10d1c3a6096e59": "Kunne ikke glemme serien",
   "m_10d1c4dca0d133": "Ikke sjekket ennå: fjerntilgang er av.",
+  "m_10d31415ce0d33": "bildefeil oppdaget",
   "m_10d3afaf9a99c4": "Programoppføringer for {channel} kommer fra guidekanalen du velger.",
   "m_10d5152b10c948": "Lagring: {size}",
   "m_10d709cc7b697b": "Legg til server",
@@ -5788,6 +5791,10 @@
   },
   "m_178d316181b924": "Starter på nytt …",
   "m_178dc1fcbddc99": "Rader Plex selv leverer",
+  "m_178e5f518f2efb": {
+    "one": "{count} formatendring",
+    "other": "{count} formatendringer"
+  },
   "m_178e82b68358b3": "trinn",
   "m_17907beac3a219": "Legg til en debrid-konto",
   "m_1790f3628a5db7": "Siste kall",
@@ -6614,6 +6621,10 @@
   "m_1ac946fceccf3d": "Strømmestabilitet satt til {name}",
   "m_1ac96195e626ad": "Ether-design",
   "m_1acae0294a1669": "Dra regel {n}",
+  "m_1acbb68bd15774": {
+    "one": "{count} stopp i timen",
+    "other": "{count} stopp i timen"
+  },
   "m_1acca9e3e215d8": "Plakater fra en XRDB-tjener.",
   "m_1accac7df48579": "Opprett deretter et bli-med-token for å legge til neste maskin.",
   "m_1ace5c1441b2b7": "Serverstatus: {status}",

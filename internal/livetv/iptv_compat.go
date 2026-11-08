@@ -83,7 +83,14 @@ func (s *Service) startIPTVRelay(ctx context.Context, ss *session, info core.Med
 		return s.startBroadcast(ctx, ss)
 	}
 	started := time.Now()
-	s.sessionLog(ss).Info("live playback path selected", "path", string(dec.Kind), "video_copy", dec.VideoCopy, "audio_copy", dec.AudioCopy, "container", dec.Container, "video_codec", dec.VideoCodec, "audio_codec", dec.AudioCodec)
+	attrs := []any{}
+	if next, evidence := s.historyDecision(ss, info, dec); evidence != "" {
+		// The source's history says copy would hand damage or stalled
+		// cuts to the player: start re-encoded instead of copy-then-switch.
+		dec = next
+		attrs = append(attrs, "reason", "history", "evidence", evidence)
+	}
+	s.sessionLog(ss).Info("live playback path selected", append([]any{"path", string(dec.Kind), "video_copy", dec.VideoCopy, "audio_copy", dec.AudioCopy, "container", dec.Container, "video_codec", dec.VideoCodec, "audio_codec", dec.AudioCodec}, attrs...)...)
 	lease, err := s.startOwnedRelay(ctx, ss, info, relayCaps(ss.caps), dec, cut)
 	if err != nil {
 		return Diagnose("relay_start", err)

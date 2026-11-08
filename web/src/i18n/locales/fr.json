@@ -1345,6 +1345,7 @@
   "m_0553642f9a45aa": "Jamais au-dessus de la position",
   "m_0554ee071cc108": "Envoyer le rapport hebdomadaire par e-mail",
   "m_055538c0f7d2c4": "Ajoutez une source de définitions sous Plus d’options pour rechercher sur les sites de trackers",
+  "m_0555a0f1209710": "images clés très espacées",
   "m_0555e8f56bb436": "Clé API TMDB",
   "m_05579bd20cb8e9": "Rien ne sera importé. Incluez au moins un groupe.",
   "m_055a2ecff5a79a": "Installation préparée pour votre approbation",
@@ -3729,6 +3730,7 @@
   },
   "m_0ee883b536fd73": "Aucun groupe ne correspond.",
   "m_0ee88d90b1c907": "Ajoutés lors de la dernière synchronisation",
+  "m_0ee993ff04e4e4": "démarre converti pour une image nette",
   "m_0eefa80957450e": "Cette chaîne du guide n’a rien de prévu dans les {count} prochaines heures.",
   "m_0ef1993442fea0": "Améliorer les sources jusqu’à",
   "m_0ef1b410be60af": "Limite de débit",
@@ -4232,6 +4234,7 @@
   "m_10cf99d2baac75": "Les notifications push du navigateur nécessitent HTTPS (ou localhost), un navigateur pris en charge et l’autorisation de notification. Sur iPhone ou iPad, installez Ether sur votre écran d’accueil et ouvrez-le depuis là.",
   "m_10d1c3a6096e59": "Impossible d’oublier la série",
   "m_10d1c4dca0d133": "Pas encore vérifié : l'accès à distance est désactivé.",
+  "m_10d31415ce0d33": "image endommagée détectée",
   "m_10d3afaf9a99c4": "Les programmes de {channel} proviennent de la chaîne du guide que vous choisissez.",
   "m_10d5152b10c948": "Stockage : {size}",
   "m_10d709cc7b697b": "Ajouter un serveur",
@@ -5947,6 +5950,11 @@
   },
   "m_178d316181b924": "Redémarrage…",
   "m_178dc1fcbddc99": "Rangées fournies par Plex lui-même",
+  "m_178e5f518f2efb": {
+    "one": "{count} changement de format",
+    "many": "{count} changements de format",
+    "other": "{count} changements de format"
+  },
   "m_178e82b68358b3": "étapes",
   "m_17907beac3a219": "Ajouter un compte debrid",
   "m_1790f3628a5db7": "Appels récents",
@@ -6795,6 +6803,11 @@
   "m_1ac946fceccf3d": "Stabilité du flux réglée sur {name}",
   "m_1ac96195e626ad": "Création Ether",
   "m_1acae0294a1669": "Glisser la règle {n}",
+  "m_1acbb68bd15774": {
+    "one": "{count} interruption par heure",
+    "many": "{count} interruptions par heure",
+    "other": "{count} interruptions par heure"
+  },
   "m_1acca9e3e215d8": "Visuels depuis un serveur XRDB.",
   "m_1accac7df48579": "Créez ensuite un jeton d’adhésion pour ajouter votre prochaine machine.",
   "m_1ace5c1441b2b7": "État du serveur : {status}",

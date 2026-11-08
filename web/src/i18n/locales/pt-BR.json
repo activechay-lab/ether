@@ -1345,6 +1345,7 @@
   "m_0553642f9a45aa": "Nunca acima da posição",
   "m_0554ee071cc108": "Enviar o relatório semanal por e-mail",
   "m_055538c0f7d2c4": "Adicione uma fonte de definições em Mais opções para pesquisar sites de trackers",
+  "m_0555a0f1209710": "quadros-chave muito espaçados",
   "m_0555e8f56bb436": "Chave de API do TMDB",
   "m_05579bd20cb8e9": "Nada será importado. Inclua pelo menos um grupo.",
   "m_055a2ecff5a79a": "Instalação preparada para sua aprovação",
@@ -3729,6 +3730,7 @@
   },
   "m_0ee883b536fd73": "Nenhum grupo corresponde.",
   "m_0ee88d90b1c907": "Adicionados na última sincronização",
+  "m_0ee993ff04e4e4": "inicia convertido para uma imagem limpa",
   "m_0eefa80957450e": "Este canal de guia não tem nada agendado nas próximas {count} horas.",
   "m_0ef1993442fea0": "Aprimorar fontes de até",
   "m_0ef1b410be60af": "Limite de taxa de bits",
@@ -4232,6 +4234,7 @@
   "m_10cf99d2baac75": "O push do navegador precisa de HTTPS (ou localhost), um navegador compatível e permissão de notificação. No iPhone ou iPad, instale o Ether na Tela de Início e abra-o por lá.",
   "m_10d1c3a6096e59": "Não foi possível esquecer a série",
   "m_10d1c4dca0d133": "Ainda não verificado: o acesso remoto está desligado.",
+  "m_10d31415ce0d33": "danos na imagem detectados",
   "m_10d3afaf9a99c4": "A programação de {channel} vem do canal de guia que você escolher.",
   "m_10d5152b10c948": "Armazenamento: {size}",
   "m_10d709cc7b697b": "Adicionar servidor",
@@ -5947,6 +5950,11 @@
   },
   "m_178d316181b924": "Reiniciando…",
   "m_178dc1fcbddc99": "Linhas fornecidas pelo próprio Plex",
+  "m_178e5f518f2efb": {
+    "one": "{count} mudança de formato",
+    "many": "{count} mudanças de formato",
+    "other": "{count} mudanças de formato"
+  },
   "m_178e82b68358b3": "etapas",
   "m_17907beac3a219": "Adicionar uma conta debrid",
   "m_1790f3628a5db7": "Chamadas recentes",
@@ -6795,6 +6803,11 @@
   "m_1ac946fceccf3d": "Estabilidade da transmissão definida como {name}",
   "m_1ac96195e626ad": "Design do Ether",
   "m_1acae0294a1669": "Arrastar a regra {n}",
+  "m_1acbb68bd15774": {
+    "one": "{count} travamento por hora",
+    "many": "{count} travamentos por hora",
+    "other": "{count} travamentos por hora"
+  },
   "m_1acca9e3e215d8": "Pôsteres de um servidor XRDB.",
   "m_1accac7df48579": "Depois, crie um token de adesão para adicionar sua próxima máquina.",
   "m_1ace5c1441b2b7": "Integridade do servidor: {status}",
