@@ -177,15 +177,33 @@ func (s *Server) serveCollectionShelf(w http.ResponseWriter, r *http.Request) bo
 }
 
 // rebuildShelves republishes the viewer's per-library promoted rows (at most
-// every shelfRebuildEvery), refilling the shelf table after a restart.
+// every shelfRebuildEvery), refilling the shelf table after a restart. A
+// client loads all its shelves at once, so misses during a rebuild wait for
+// it rather than failing.
 func (s *Server) rebuildShelves(r *http.Request) bool {
 	s.shelfRefMu.Lock()
+	if running := s.shelfRebuild; running != nil {
+		s.shelfRefMu.Unlock()
+		select {
+		case <-running:
+			return true
+		case <-r.Context().Done():
+			return false
+		}
+	}
 	if time.Since(s.shelfRefRebuilt) < shelfRebuildEvery {
 		s.shelfRefMu.Unlock()
 		return false
 	}
-	s.shelfRefRebuilt = time.Now()
+	done := make(chan struct{})
+	s.shelfRefRebuilt, s.shelfRebuild = time.Now(), done
 	s.shelfRefMu.Unlock()
+	defer func() {
+		s.shelfRefMu.Lock()
+		s.shelfRebuild = nil
+		s.shelfRefMu.Unlock()
+		close(done)
+	}()
 	pr := FromContext(r.Context())
 	for _, sec := range s.userSections(pr.User) {
 		r2 := r.Clone(r.Context())

@@ -3,9 +3,11 @@ package plex
 import (
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
 type shelfRow struct {
@@ -81,5 +83,35 @@ func TestInfusePromotedRowsAreCollectionShelves(t *testing.T) {
 		if strings.HasPrefix(row.HubIdentifier, "custom.collection.") {
 			t.Fatalf("non-Infuse client got a collection shelf: %+v", row)
 		}
+	}
+}
+
+// After a restart Infuse loads every remembered shelf at once, before it
+// asks for the promoted rows again: each must still find its row.
+func TestInfuseCollectionShelvesAfterRestart(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	f.srv.d.Recommender = &fakeRecommender{home: []core.Hub{{ID: "home.trending", Title: "Trending Now", Promoted: true, Items: []core.Title{fightClub, alien}}}}
+	path := "/library/collections/" + collectionShelfNumber(model.Hub{HubIdentifier: "home.trending"}) + "/children"
+	hdr := map[string]string{"X-Plex-Product": "Infuse-Direct", "Accept": "application/json"}
+	codes := make(chan string, 6)
+	var wg sync.WaitGroup
+	for range 6 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec := f.request(t, "GET", path, hdr)
+			if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"ratingKey"`) {
+				codes <- rec.Body.String()
+			}
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	for body := range codes {
+		t.Fatalf("shelf not served after restart: %s", body)
+	}
+	if rec := f.get(t, path, jsonAccept...); rec.Code == 200 && strings.Contains(rec.Body.String(), `"ratingKey"`) {
+		t.Fatalf("shelf numbers are for collection-shelf clients only")
 	}
 }
