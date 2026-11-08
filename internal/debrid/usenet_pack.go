@@ -14,9 +14,10 @@ import (
 // packUnit is one episode-sized thing in a Usenet season pack: a plain
 // video file or one archive set. Names are what the episode is read from.
 type packUnit struct {
-	name  string
-	bytes int64
-	files map[*nzb.File]bool
+	name    string
+	bytes   int64
+	files   map[*nzb.File]bool
+	archive bool // an archive set, whose members' names the NZB does not show
 }
 
 // PackNamer writes real file names (read from PAR2 or the first articles)
@@ -67,11 +68,29 @@ func EpisodeNZB(data []byte, t *core.ReleaseTarget) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	chosen := pickPackUnit(packUnits(doc), t)
-	if chosen == nil {
+	units := packUnits(doc)
+	var chosen []packUnit
+	var extra map[string]string
+	if u := pickPackUnit(units, t); u != nil {
+		chosen = []packUnit{*u}
+	} else if opaque := opaqueArchives(units); len(opaque) > 0 {
+		// No file name carries the episode, but an archive set whose name
+		// says nothing may hold the season. Keep it whole and tell the stream
+		// engine which member to play; it rejects the release if none matches.
+		chosen = opaque
+		extra = map[string]string{nzb.MetaEpisode: nzb.EpisodeHint{Season: t.Season, Episode: t.Episode, Absolute: t.AbsoluteEpisode}.String()}
+	}
+	if len(chosen) == 0 {
 		return nil, fmt.Errorf("usenet season pack has no file for S%02dE%02d: %w", t.Season, t.Episode, core.ErrNotAvailable)
 	}
-	stem := strings.ToLower(chosen.name)
+	keep := map[*nzb.File]bool{}
+	var stems []string
+	for _, u := range chosen {
+		stems = append(stems, strings.ToLower(u.name))
+		for f := range u.files {
+			keep[f] = true
+		}
+	}
 	// PAR2 files named after the episode, and the pack's index when the
 	// episode has none of its own. The index also lists the other episodes;
 	// the engine's integrity check looks up the stream's file by name and
@@ -80,19 +99,37 @@ func EpisodeNZB(data []byte, t *core.ReleaseTarget) ([]byte, error) {
 	own := map[*nzb.File]bool{}
 	ownIndex := false
 	for _, f := range doc.Files {
-		if f.Info.Kind == nzb.KindPar2 && !nzb.IsPar2Volume(f.Name) && strings.HasPrefix(strings.ToLower(f.Name), stem) {
-			own[f] = true
-			ownIndex = true
+		if f.Info.Kind != nzb.KindPar2 || nzb.IsPar2Volume(f.Name) {
+			continue
+		}
+		for _, stem := range stems {
+			if strings.HasPrefix(strings.ToLower(f.Name), stem) {
+				own[f] = true
+				ownIndex = true
+			}
 		}
 	}
 	packIndex := nzb.Par2Index(doc.Files)
-	out, ok := doc.Subset(func(f *nzb.File) bool {
-		return chosen.files[f] || own[f] || (!ownIndex && f == packIndex)
-	})
+	out, ok := doc.SubsetMeta(func(f *nzb.File) bool {
+		return keep[f] || own[f] || (!ownIndex && f == packIndex)
+	}, extra)
 	if !ok {
 		return nil, fmt.Errorf("usenet season pack has no file for S%02dE%02d: %w", t.Season, t.Episode, core.ErrNotAvailable)
 	}
 	return out, nil
+}
+
+// opaqueArchives returns the archive sets whose names carry no episode (an
+// obfuscated base name), the ones that may hold a whole season.
+func opaqueArchives(units []packUnit) []packUnit {
+	var out []packUnit
+	for _, u := range units {
+		info := releaseparse.Parse(u.name)
+		if u.archive && len(info.Episodes) == 0 && len(info.AbsoluteEpisodes) == 0 {
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 func packUnits(doc *nzb.NZB) []packUnit {
@@ -111,7 +148,7 @@ func packUnits(doc *nzb.NZB) []packUnit {
 		if len(s.Volumes) == 0 || s.Volumes[0].Info.Sample {
 			continue
 		}
-		u := packUnit{name: s.Name, bytes: s.Bytes(), files: map[*nzb.File]bool{}}
+		u := packUnit{name: s.Name, bytes: s.Bytes(), files: map[*nzb.File]bool{}, archive: true}
 		for _, v := range s.Volumes {
 			u.files[v] = true
 		}

@@ -13,6 +13,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/archive"
 	"github.com/braedonsaunders/ether/internal/nzb"
 	"github.com/braedonsaunders/ether/internal/par2"
+	"github.com/braedonsaunders/ether/internal/releaseparse"
 )
 
 // planPlain maps a posted video file directly.
@@ -101,6 +102,12 @@ func (b *builder) planRAR(ctx context.Context, vols []*postedFile) (*plan, error
 		return nil, err
 	}
 	n := len(vols)
+	if _, ok := b.rel.doc.EpisodeHint(); ok && n > 1 {
+		// A season in one archive: the wanted episode is not the member that
+		// spans the set from volume 1, so the uniform-layout shortcut below
+		// does not apply. Read every volume's headers.
+		return b.rarFullScan(ctx, vols)
+	}
 	var v0 *archive.RARVolume
 	if n == 1 || vols[0].SizeKnown() {
 		if err := b.heads(ctx, vols[:1]); err != nil {
@@ -264,7 +271,7 @@ func (b *builder) rarFromVolumes(ctx context.Context, vols []*postedFile, parsed
 	if err != nil {
 		return nil, fmt.Errorf("stream: rar %s: %w", vols[0].Name(), err)
 	}
-	m := chooseMember(members)
+	m := b.chooseMember(members)
 	if m == nil {
 		return nil, fmt.Errorf("%w: rar %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}
@@ -368,7 +375,7 @@ func (b *builder) plan7z(ctx context.Context, vols []*postedFile) (*plan, error)
 	if err != nil {
 		return nil, fmt.Errorf("stream: 7z %s: %w", vols[0].Name(), err)
 	}
-	m := chooseMember(members)
+	m := b.chooseMember(members)
 	if m == nil {
 		return nil, fmt.Errorf("%w: 7z %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}
@@ -429,6 +436,25 @@ func (b *builder) planZIP(ctx context.Context, vols []*postedFile) (*plan, error
 	p := newPlan(b.rel, kindZIP, path.Base(m.Name), m.Size, vols, info, verified)
 	p.concatExt = m.Extents
 	return p, p.init()
+}
+
+// chooseMember is chooseMember restricted to the episode the NZB asks for
+// (nzb.MetaEpisode), when it names one. A member that is not that episode is
+// never played in its place.
+func (b *builder) chooseMember(members []archive.Member) *archive.Member {
+	h, ok := b.rel.doc.EpisodeHint()
+	if !ok {
+		return chooseMember(members)
+	}
+	var matching []archive.Member
+	for _, m := range members {
+		info := releaseparse.Parse(path.Base(strings.ReplaceAll(m.Name, `\`, "/")))
+		if releaseparse.EpisodeMatches(info, h.Season, h.Episode) ||
+			(h.Absolute > 0 && releaseparse.EpisodeMatchesAbsolute(info, h.Absolute)) {
+			matching = append(matching, m)
+		}
+	}
+	return chooseMember(matching)
 }
 
 // pickRARFile chooses the likely video among the file headers of a volume.

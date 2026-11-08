@@ -12,6 +12,12 @@ import (
 // file names, segments and repost alternates as the originals. ok is false
 // when no file is kept.
 func (n *NZB) Subset(keep func(*File) bool) (data []byte, ok bool) {
+	return n.SubsetMeta(keep, nil)
+}
+
+// SubsetMeta is Subset with extra <meta> values added (type -> value). The
+// extra values make the subset a different document, with its own digest.
+func (n *NZB) SubsetMeta(keep func(*File) bool, extra map[string]string) (data []byte, ok bool) {
 	var files []*File
 	for _, f := range n.Files {
 		if keep(f) {
@@ -23,12 +29,18 @@ func (n *NZB) Subset(keep func(*File) bool) (data []byte, ok bool) {
 	}
 	var b bytes.Buffer
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n")
-	if len(n.Meta) > 0 {
+	if len(n.Meta) > 0 || len(extra) > 0 {
 		b.WriteString("<head>\n")
 		for typ, vals := range n.Meta {
+			if _, replaced := extra[typ]; replaced {
+				continue
+			}
 			for _, v := range vals {
 				b.WriteString(`<meta type="` + escAttr(typ) + `">` + escText(v) + "</meta>\n")
 			}
+		}
+		for typ, v := range extra {
+			b.WriteString(`<meta type="` + escAttr(typ) + `">` + escText(v) + "</meta>\n")
 		}
 		b.WriteString("</head>\n")
 	}
