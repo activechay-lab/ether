@@ -285,6 +285,52 @@ type DatabaseObjectFact struct {
 	Bytes int64  `json:"bytes"`
 }
 
+// DatabaseTableFact is one table's allocation: its own pages and its
+// indexes' (FTS5 shadow tables count toward their virtual table). Rows is
+// the planner's estimate from the last ANALYZE or PRAGMA optimize, or an
+// exact count when RowsExact is set.
+type DatabaseTableFact struct {
+	Name       string `json:"name"`
+	TableBytes int64  `json:"tableBytes"`
+	IndexBytes int64  `json:"indexBytes"`
+	Indexes    int    `json:"indexes"`
+	Rows       int64  `json:"rows"`
+	RowsExact  bool   `json:"rowsExact,omitempty"`
+}
+
+// CatalogCountFact counts catalogue rows: by type and browsable state
+// (Detailed nil), and by browsable and detail state (Type empty). What the
+// mirror holds, never which titles.
+type CatalogCountFact struct {
+	Type      string `json:"type,omitempty"`
+	Browsable bool   `json:"browsable"`
+	Detailed  *bool  `json:"detailed,omitempty"`
+	Rows      int64  `json:"rows"`
+}
+
+// AssetKindFact totals stored On Air assets of one kind.
+type AssetKindFact struct {
+	Kind  string `json:"kind"`
+	Count int64  `json:"count"`
+	Bytes int64  `json:"bytes"`
+}
+
+// CatalogSettingsFact is the catalogue's browsable bar. HideObscure is the
+// console's "Hide obscure titles": either minimum set.
+type CatalogSettingsFact struct {
+	MinPopularity      float64 `json:"minPopularity"`
+	MinVotes           int     `json:"minVotes"`
+	HideObscure        bool    `json:"hideObscure"`
+	IncludeAdult       bool    `json:"includeAdult"`
+	ShowUpcomingMovies bool    `json:"showUpcomingMovies"`
+}
+
+// FileSetFact totals a set of files beside the database.
+type FileSetFact struct {
+	Files int   `json:"files"`
+	Bytes int64 `json:"bytes"`
+}
+
 type StorageFact struct {
 	DatabaseEngine           string               `json:"databaseEngine,omitempty"`
 	DatabaseAllocationStatus string               `json:"databaseAllocationStatus,omitempty"`
@@ -304,6 +350,21 @@ type StorageFact struct {
 	CacheFreeBytes           int64                `json:"cacheFreeBytes,omitempty"`
 	CacheFreeKnown           bool                 `json:"cacheFreeKnown"`
 	CacheFilesystem          string               `json:"cacheFilesystem,omitempty"`
+	// DatabaseAutoVacuum and DatabaseJournalMode are SQLite's settings.
+	DatabaseAutoVacuum  string `json:"databaseAutoVacuum,omitempty"`
+	DatabaseJournalMode string `json:"databaseJournalMode,omitempty"`
+	// DatabaseTables is every table measured, largest first. Status is
+	// complete, partial (the time budget ran out; the largest tables by
+	// row estimate are measured first) or unavailable.
+	DatabaseTablesStatus string               `json:"databaseTablesStatus,omitempty"`
+	DatabaseTables       []DatabaseTableFact  `json:"databaseTables,omitempty"`
+	DatabaseTablesMillis int64                `json:"databaseTablesMillis,omitempty"`
+	CatalogCountsStatus  string               `json:"catalogCountsStatus,omitempty"`
+	CatalogCounts        []CatalogCountFact   `json:"catalogCounts,omitempty"`
+	CatalogSettings      *CatalogSettingsFact `json:"catalogSettings,omitempty"`
+	OnAirAssets          []AssetKindFact      `json:"onairAssets,omitempty"`
+	PreMigrateSnapshots  FileSetFact          `json:"preMigrateSnapshots"`
+	Backups              FileSetFact          `json:"backups"`
 }
 
 // ConnectivityFact has no public host, custom URL, or certificate path.
