@@ -92,6 +92,7 @@ func (s *Session) serveSegment(w http.ResponseWriter, r *http.Request, t, n int)
 			s.pruneLocked()
 			s.mu.Unlock()
 			if s.serveFiles(w, r, paths, t, n) {
+				pw.delivered(paths)
 				return
 			}
 			s.mu.Lock()
@@ -207,7 +208,13 @@ func (s *Session) serveSegment(w http.ResponseWriter, r *http.Request, t, n int)
 			case <-dwellC:
 			case <-padC:
 				// Padding is not progress: keep waiting for the same change.
-				if pw.committed || time.Since(waitStart) >= segmentPadAfter {
+				waited := time.Since(waitStart)
+				if pw.committed && waited >= s.m.opts.segmentPadLimit {
+					stopTimer(dwell)
+					s.log.Warn("segment still not ready after padding; aborting the request", "segment", n, "waited", waited)
+					return // finish aborts the committed response
+				}
+				if pw.committed || waited >= segmentPadAfter {
 					pw.pad(s)
 				}
 				padded = true

@@ -3,6 +3,7 @@ package transcode
 import (
 	"encoding/binary"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -20,10 +21,14 @@ import (
 // bytes: MPEG-TS null packets (PID 0x1FFF), which demuxers discard, or
 // top-level ISO BMFF 'free' boxes before an fMP4 fragment. A response that
 // would have been an error after that point aborts the connection, so the
-// player sees a failed request (and retries) rather than a short segment.
+// player sees a failed request (and retries) rather than a short segment:
+// a committed response ends cleanly only once it has carried the segment's
+// every byte. Padding stops at segmentPadMax (the request aborts), well
+// inside the segment timeout.
 const (
 	segmentPadAfter = time.Second
 	segmentPadEvery = 400 * time.Millisecond
+	segmentPadMax   = 20 * time.Second
 )
 
 var (
@@ -65,6 +70,8 @@ type paddedSegmentWriter struct {
 	unit      []byte
 	committed bool
 	failed    bool
+	complete  bool  // the segment's bytes were all written
+	media     int64 // body bytes written after the padding
 	spare     http.Header
 }
 
@@ -92,7 +99,26 @@ func (p *paddedSegmentWriter) Write(b []byte) (int, error) {
 	if p.failed {
 		return len(b), nil
 	}
-	return p.ResponseWriter.Write(b)
+	n, err := p.ResponseWriter.Write(b)
+	p.media += int64(n)
+	return n, err
+}
+
+// delivered records that the segment files in paths were served: a
+// committed response is complete only if all their bytes went out.
+func (p *paddedSegmentWriter) delivered(paths []string) {
+	if p == nil || !p.committed || p.failed {
+		return
+	}
+	var size int64
+	for _, path := range paths {
+		st, err := os.Stat(path)
+		if err != nil {
+			return
+		}
+		size += st.Size()
+	}
+	p.complete = size > 0 && p.media == size
 }
 
 func (p *paddedSegmentWriter) Unwrap() http.ResponseWriter { return p.ResponseWriter }
@@ -109,6 +135,7 @@ func (p *paddedSegmentWriter) pad(s *Session) {
 		h.Set("Accept-Ranges", "none")
 		p.ResponseWriter.WriteHeader(http.StatusOK)
 		p.committed = true
+		p.media = 0
 	}
 	if _, err := p.ResponseWriter.Write(p.unit); err != nil {
 		p.failed = true
@@ -117,9 +144,11 @@ func (p *paddedSegmentWriter) pad(s *Session) {
 	_ = http.NewResponseController(p.ResponseWriter).Flush()
 }
 
-// finish aborts a committed response that failed after its padding.
+// finish aborts a committed response that did not carry its whole
+// segment: without the chunked terminator the player sees a failed request,
+// never a valid-looking empty or short segment.
 func (p *paddedSegmentWriter) finish() {
-	if p != nil && p.committed && p.failed {
+	if p != nil && p.committed && !p.complete {
 		panic(http.ErrAbortHandler)
 	}
 }
