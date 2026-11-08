@@ -378,7 +378,8 @@ func (p *relayProducer) run(ctx context.Context) {
 				p.formatGen = h.FormatGeneration
 			case h.FormatGeneration != p.formatGen:
 				p.formatGen = h.FormatGeneration
-				p.startOverlap(ctx)
+				// Off the loop: this producer keeps ingesting meanwhile.
+				go p.startOverlap(ctx)
 			}
 		}
 		p.expireOverlap()
@@ -504,6 +505,7 @@ type relayHedge struct {
 	hls    core.HLSSession
 	cancel context.CancelFunc
 	dec    core.Decision
+	info   core.MediaInfo
 	at     time.Time
 }
 
@@ -594,9 +596,10 @@ func (p *relayProducer) reopen(ctx context.Context, f mediaFormat) {
 	p.overlap = nil
 	p.mu.Unlock()
 	info, dec := p.reopenPlan(f)
-	p.log.Warn("owned relay reopening for the source's new format", "format", f.String(), "audio_copy", dec.AudioCopy, "audio_codec", dec.AudioCodec, "overlapped", overlap != nil && overlap.dec.VideoCopy == dec.VideoCopy && overlap.dec.AudioCopy == dec.AudioCopy)
+	match := overlap != nil && overlap.dec.VideoCopy == dec.VideoCopy && overlap.dec.AudioCopy == dec.AudioCopy && (dec.AudioCopy || overlap.dec.AudioCodec == dec.AudioCodec)
+	p.log.Warn("owned relay reopening for the source's new format", "format", f.String(), "audio_copy", dec.AudioCopy, "audio_codec", dec.AudioCodec, "overlapped", match)
 	if overlap != nil {
-		if overlap.dec.VideoCopy == dec.VideoCopy && overlap.dec.AudioCopy == dec.AudioCopy {
+		if match {
 			// Started when the program changed: its first segment is
 			// already cut, ready at the splice.
 			if err := p.adopt(overlap.id, overlap.hls, overlap.cancel, info, overlap.dec, cut); err != nil {
@@ -663,16 +666,23 @@ func (p *relayProducer) reopenPlan(f mediaFormat) (core.MediaInfo, core.Decision
 }
 
 // startOverlap starts a producer on the input's new program as soon as the
-// tap sees it change, with the current decision (copy stays codec-agnostic).
-// The old producer keeps publishing until its first mislabeled segment;
-// reopen then adopts this one if the new format keeps the same decision.
+// tap sees it change. It probes the new program first and decides as a
+// reopen would (a stereo source on a converting relay keeps AAC; copy and
+// a surround source the client plays keep the source audio), so when the old
+// producer's first mislabeled segment arrives, the replacement's first
+// segment is already cut.
 func (p *relayProducer) startOverlap(ctx context.Context) {
 	p.mu.Lock()
-	info, dec, cut, busy := p.info, p.dec, p.cut, p.overlap != nil || p.closed
+	cut, busy, began := p.cut, p.overlap != nil || p.closed, time.Now()
 	p.mu.Unlock()
 	if busy {
 		return
 	}
+	var f mediaFormat
+	if input, err := p.s.relayInputFormat(p.sess.Load()); err == nil {
+		f = sniffInputFormat(ctx, input)
+	}
+	info, dec := p.reopenPlan(f)
 	sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	id, hls, hcancel, err := p.launch(sctx, info, dec, cut, true)
@@ -681,15 +691,46 @@ func (p *relayProducer) startOverlap(ctx context.Context) {
 		return
 	}
 	p.mu.Lock()
-	if p.closed || p.overlap != nil {
+	if p.closed || p.overlap != nil || p.reopened.After(began) {
+		// Closed, raced, or the reopen already happened without it.
 		p.mu.Unlock()
 		hcancel()
 		hls.Close()
 		return
 	}
-	p.overlap = &relayHedge{id: id, hls: hls, cancel: hcancel, dec: dec, at: time.Now()}
+	p.overlap = &relayHedge{id: id, hls: hls, cancel: hcancel, dec: dec, info: info, at: time.Now()}
 	p.mu.Unlock()
-	p.log.Info("owned relay started a producer on the input's new program", "producer", id)
+	p.log.Info("owned relay started a producer on the input's new program", "producer", id, "format", f.String(), "audio_copy", dec.AudioCopy, "audio_codec", dec.AudioCodec)
+}
+
+// sniffInputFormat reads the start of the input's newest program (the tap
+// holds it from its first keyframe, so it arrives at once) and describes its
+// streams; an unknown format when that takes longer than a second.
+func sniffInputFormat(ctx context.Context, input string) mediaFormat {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, input, nil)
+	if err != nil {
+		return mediaFormat{}
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return mediaFormat{}
+	}
+	defer res.Body.Close()
+	buf := make([]byte, 0, 512<<10)
+	chunk := make([]byte, 64<<10)
+	for len(buf) < cap(buf) {
+		n, err := res.Body.Read(chunk)
+		buf = append(buf, chunk[:n]...)
+		if f := inspectTS(buf[:len(buf)/tsPacket*tsPacket]); f.known && len(f.audio) > 0 && f.audio[0].channels > 0 {
+			return f
+		}
+		if err != nil {
+			break
+		}
+	}
+	return inspectTS(buf[:len(buf)/tsPacket*tsPacket])
 }
 
 // expireOverlap retires an overlap that no codec change followed (a program
