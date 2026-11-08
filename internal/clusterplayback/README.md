@@ -8,8 +8,9 @@ then verifier.Bind(runtime), once before serving. Options requires live Guard,
 exact Self membership boot, trusted Endpoint, Eligible (new work, rejects drain),
 MemberRole (existing work, permits drain), explicit concurrent capacity and clock skew bound. HistoryCapacity (default 4096)
 bounds live in-memory entries per boot (executions, owned sources, preparations,
-worker inputs, media replicas, frontend preparations, nodeauthority bindings and
-worker records), not every playback the boot has served. Tick forgets an entry once
+worker inputs, media replicas, frontend preparations and restored protocol
+snapshots, reopen records and responsibilities, nodeauthority bindings and worker
+records), not every playback the boot has served. Tick forgets an entry once
 it is locally quiescent, its generation is durably terminal (ledger retired or
 superseded, nothing displaced) and it has stayed so for a two-minute grace; worker
 records wait MaxLease plus two minutes. A forgotten preparation stays sealed through

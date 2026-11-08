@@ -7,6 +7,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playbackcontinuity"
+	"time"
 )
 
 // ReopenRequest is an immutable same-owner operation. It grants no encoder start
@@ -31,6 +32,7 @@ type reopenRecord struct {
 	proof     string
 	busy      bool
 	nextFence placement.Fence
+	forgetAt  time.Time // forgetTerminal grace deadline
 }
 
 func (r *Runtime) ReopenSource(ctx context.Context, old playbackcontinuity.SourceBinding, operation string) (ReopenedSource, error) {

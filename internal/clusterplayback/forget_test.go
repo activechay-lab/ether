@@ -30,7 +30,9 @@ func TestForgetTerminalBoundsLifetimeSessions(t *testing.T) {
 	ledger := retentionLedger(t, db)
 	const capacity = 16
 	r := &Runtime{o: Options{DB: db, Placement: ledger, HistoryCapacity: capacity, Self: nodewire.Identity{Cluster: "cluster-a", NodeID: "c", Boot: "cb"}},
-		executions: map[string]*execution{}, sources: map[string]*ownedSource{}, preparations: map[string]*preparation{}, mediaSessions: map[string]*mediaReplica{}}
+		executions: map[string]*execution{}, sources: map[string]*ownedSource{}, preparations: map[string]*preparation{}, mediaSessions: map[string]*mediaReplica{},
+		reopens: map[string]*reopenRecord{}, reopenLives: map[string]*ReopenResponsibility{}}
+	r.remotePlayback = &RemotePlayback{r: r, observed: map[string]*observedSession{}, entries: map[string]*remotePreparation{}}
 	past := time.Now().Add(-time.Second) // grace already elapsed
 	track := func(rec placement.Record, retired bool) *execution {
 		r.mu.Lock()
@@ -44,12 +46,21 @@ func TestForgetTerminalBoundsLifetimeSessions(t *testing.T) {
 		r.sources[sourceKey(rec.Fence, 0)] = &ownedSource{route: route, playID: route.PlayID, life: doneLife{}, sealed: true, retiring: true, forgetAt: past}
 		r.preparations["peer/boot/"+rec.Session] = &preparation{receipt: true, life: doneLife{}, forgetAt: past}
 		r.mediaSessions[rec.Session] = &mediaReplica{route: route, forgetAt: past}
+		// A proven reopen whose own preparation (same peer and operation) is
+		// sealed, a retired reopen responsibility, and a restored snapshot.
+		r.reopens["peer/boot/"+rec.Session] = &reopenRecord{proof: "proof", request: ReopenRequest{Operation: rec.Session}, forgetAt: past}
+		r.reopenLives["owner/"+rec.Session] = &ReopenResponsibility{retired: retired, done: alreadyDone, forgetAt: past}
+		r.remotePlayback.observed["snapshot-"+rec.Session] = &observedSession{session: rec.Session, generation: rec.Generation, forgetAt: past}
 		return x
 	}
 	tracked := func() int {
 		r.mu.Lock()
 		defer r.mu.Unlock()
-		return len(r.executions) + len(r.sources) + len(r.preparations) + len(r.mediaSessions)
+		n := len(r.executions) + len(r.sources) + len(r.preparations) + len(r.mediaSessions) + len(r.reopens) + len(r.reopenLives)
+		r.remotePlayback.mu.Lock()
+		n += len(r.remotePlayback.observed)
+		r.remotePlayback.mu.Unlock()
+		return n
 	}
 	for i := 0; i < 10000; i++ {
 		rec := reserveFor(t, ledger, fmt.Sprintf("s%05d", i))
@@ -97,6 +108,13 @@ func TestForgetTerminalBoundsLifetimeSessions(t *testing.T) {
 			r.mu.Unlock()
 			t.Fatalf("%s forgotten", id)
 		}
+	}
+	r.remotePlayback.mu.Lock()
+	observedKept := r.remotePlayback.observed["snapshot-live"] != nil && r.remotePlayback.observed["snapshot-failover"] != nil
+	r.remotePlayback.mu.Unlock()
+	if !observedKept || r.reopenLives["owner/live"] == nil {
+		r.mu.Unlock()
+		t.Fatal("snapshot or reopen responsibility of a live or displaced session forgotten")
 	}
 	if r.mediaSessions["live"] == nil || r.mediaSessions["failover"] == nil {
 		r.mu.Unlock()

@@ -23,7 +23,7 @@ type RemotePlaybackOptions struct {
 	Now func() time.Time
 }
 type RemotePlayback struct {
-	observed map[string]*core.PlaySession
+	observed map[string]*observedSession
 	draining bool
 	r        *Runtime
 	o        RemotePlaybackOptions
@@ -83,7 +83,7 @@ func NewRemotePlayback(r *Runtime, o RemotePlaybackOptions) (*RemotePlayback, er
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	p := &RemotePlayback{observed: map[string]*core.PlaySession{}, r: r, o: o, entries: map[string]*remotePreparation{}}
+	p := &RemotePlayback{observed: map[string]*observedSession{}, r: r, o: o, entries: map[string]*remotePreparation{}}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.remotePlayback != nil || r.closed {
@@ -191,8 +191,10 @@ func (p *RemotePlayback) Session(id string) (*core.PlaySession, bool) {
 	defer p.mu.Unlock()
 	e := p.entries[id]
 	if e == nil || e.retired || e.retiring || e.snapshot == nil {
-		snapshot := p.observed[id]
-		return copyPlaySession(snapshot), snapshot != nil
+		if o := p.observed[id]; o != nil {
+			return copyPlaySession(o.snapshot), true
+		}
+		return nil, false
 	}
 	return copyPlaySession(e.snapshot), true
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
@@ -128,8 +129,9 @@ func (r *Runtime) forgetTerminal(ctx context.Context) {
 	type due struct {
 		session    string
 		generation int64
-		forget     func() bool // under r.mu: recheck identity and quiescence, delete
-		after      func()      // outside r.mu: release resources
+		terminal   func(context.Context) bool // overrides generationTerminal
+		forget     func() bool                // under r.mu: recheck identity and quiescence, delete
+		after      func()                     // outside r.mu: release resources
 		retry      *time.Time
 	}
 	var list []due
@@ -197,6 +199,38 @@ func (r *Runtime) forgetTerminal(ctx context.Context) {
 			delete(r.preparations, key)
 		}
 	}
+	// A reopen record is useful only until its own preparation (same peer and
+	// operation) is sealed: verification then fails on preparationCurrent
+	// anyway. An unproven, idle record carries nothing a retry cannot rebuild.
+	for key, e := range r.reopens {
+		if len(list) < forgetChecks && eligible(&e.forgetAt, !e.busy, now) {
+			key, e := key, e
+			proven := e.proof != ""
+			list = append(list, due{retry: &e.forgetAt, terminal: func(ctx context.Context) bool {
+				if !proven {
+					return true
+				}
+				r.mu.Lock()
+				p := r.preparations[key]
+				sealed := p != nil && p.receipt
+				r.mu.Unlock()
+				return sealed || p == nil && r.preparationSealed(ctx, e.peer, e.request.Operation)
+			}, forget: func() bool {
+				if r.reopens[key] != e || e.busy {
+					return false
+				}
+				delete(r.reopens, key)
+				return true
+			}})
+		}
+	}
+	// A reopen responsibility is retired only on the source's own receipt or
+	// retirement reply (tickReopenLives); holders keep their pointer.
+	for key, l := range r.reopenLives {
+		if eligible(&l.forgetAt, l.retired, now) {
+			delete(r.reopenLives, key)
+		}
+	}
 	remote := r.remotePlayback
 	r.mu.Unlock()
 	if remote != nil {
@@ -206,7 +240,11 @@ func (r *Runtime) forgetTerminal(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if !r.generationTerminal(ctx, d.session, d.generation) {
+		terminal := d.terminal
+		if terminal == nil {
+			terminal = func(ctx context.Context) bool { return r.generationTerminal(ctx, d.session, d.generation) }
+		}
+		if !terminal(ctx) {
 			r.mu.Lock()
 			*d.retry = time.Now().Add(forgetGrace)
 			r.mu.Unlock()
@@ -218,6 +256,9 @@ func (r *Runtime) forgetTerminal(ctx context.Context) {
 		if gone && d.after != nil {
 			d.after()
 		}
+	}
+	if remote != nil {
+		remote.forgetObserved(ctx, now, forgetChecks)
 	}
 	if r.authority != nil {
 		r.authority.Forget(ctx, forgetGrace, forgetChecks)
@@ -236,6 +277,44 @@ func (p *RemotePlayback) forgetRetired(now time.Time) {
 		if eligible(&e.forgetAt, e.retired && !e.preparing && e.uses == 0 && e.pins == 0, now) {
 			delete(p.entries, id)
 		}
+	}
+}
+
+// observedSession is a restored protocol snapshot for one cluster session.
+type observedSession struct {
+	session    string
+	generation int64
+	snapshot   *core.PlaySession
+	forgetAt   time.Time
+}
+
+// forgetObserved drops restored snapshots whose cluster session generation is
+// durably terminal. It uses its own mutex and never holds it across lookups.
+func (p *RemotePlayback) forgetObserved(ctx context.Context, now time.Time, limit int) {
+	type entry struct {
+		id string
+		o  *observedSession
+	}
+	var due []entry
+	p.mu.Lock()
+	for id, o := range p.observed {
+		if len(due) < limit && eligible(&o.forgetAt, true, now) {
+			due = append(due, entry{id, o})
+		}
+	}
+	p.mu.Unlock()
+	for _, d := range due {
+		if ctx.Err() != nil {
+			return
+		}
+		terminal := p.r.generationTerminal(ctx, d.o.session, d.o.generation)
+		p.mu.Lock()
+		if !terminal {
+			d.o.forgetAt = time.Now().Add(forgetGrace)
+		} else if p.observed[d.id] == d.o {
+			delete(p.observed, d.id)
+		}
+		p.mu.Unlock()
 	}
 }
 
