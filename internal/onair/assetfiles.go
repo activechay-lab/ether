@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -38,6 +39,10 @@ import (
 // 'file' (a node that joined later, or an older binary rejoining) is served
 // by a holder putting the bytes back ('file' -> 'db'); the shared database
 // is the only transport this needs, and it already authenticates every node.
+// Every member ever seen without file support is remembered as a holdout
+// (onair_asset_holdouts) until it is seen with it, so an older binary that
+// returns after its cluster row was pruned still finds the bytes; one never
+// seen by a newer node gets them written back the moment it heartbeats.
 //
 // A standalone server is its own only member: new uploads go straight to
 // files, and the move-out empties existing rows on the first pass.
@@ -48,7 +53,8 @@ func init() {
 	// The index keeps the move-out's scans off the table pages.
 	store.Register("onair", 5, `ALTER TABLE onair_assets ADD COLUMN stored TEXT NOT NULL DEFAULT 'db';
 CREATE INDEX onair_assets_stored ON onair_assets(stored,digest);
-CREATE TABLE onair_asset_replicas(digest TEXT NOT NULL,node_id TEXT NOT NULL,verified_at INTEGER NOT NULL,PRIMARY KEY(digest,node_id));`)
+CREATE TABLE onair_asset_replicas(digest TEXT NOT NULL,node_id TEXT NOT NULL,verified_at INTEGER NOT NULL,PRIMARY KEY(digest,node_id));
+CREATE TABLE onair_asset_holdouts(node_id TEXT PRIMARY KEY,seen_at INTEGER NOT NULL);`)
 }
 
 // AssetFilesVersion is advertised in a node's capabilities once it keeps
@@ -325,6 +331,51 @@ func (st *AssetPassStats) wrote(start time.Time) {
 	st.LongestWrite = max(st.LongestWrite, time.Since(start))
 }
 
+// trackHoldouts records every member ever seen without file support and
+// forgets one once it is seen with it. A holdout keeps every row's bytes in
+// the database even after it leaves the membership list (cluster rows are
+// pruned a day after a node stops): an older binary that returns after a
+// long absence must still find the bytes. It returns the holdouts.
+func (s *Service) trackHoldouts(ctx context.Context, ms []Member) ([]string, error) {
+	rows, e := s.db.QueryContext(ctx, "SELECT node_id FROM onair_asset_holdouts ORDER BY node_id")
+	if e != nil {
+		return nil, e
+	}
+	known := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if e = rows.Scan(&id); e != nil {
+			rows.Close()
+			return nil, e
+		}
+		known[id] = true
+	}
+	rows.Close()
+	if e = rows.Err(); e != nil {
+		return nil, e
+	}
+	for _, m := range ms {
+		switch {
+		case !m.Files && !known[m.ID]:
+			if _, e = s.db.ExecContext(ctx, "INSERT INTO onair_asset_holdouts(node_id,seen_at) VALUES(?,?) ON CONFLICT(node_id) DO NOTHING", m.ID, time.Now().Unix()); e != nil {
+				return nil, e
+			}
+			known[m.ID] = true
+		case m.Files && known[m.ID]:
+			if _, e = s.db.ExecContext(ctx, "DELETE FROM onair_asset_holdouts WHERE node_id=?", m.ID); e != nil {
+				return nil, e
+			}
+			delete(known, m.ID)
+		}
+	}
+	out := make([]string, 0, len(known))
+	for id := range known {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // moveAssets is one move-out pass: copy 'db' rows into this node's blob
 // store, empty each row as soon as every member holds it, and put back the
 // bytes of 'file' rows a member lacks. Every write is one short statement
@@ -336,7 +387,11 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 	if e != nil {
 		return st, e
 	}
-	allFiles, ids := true, make([]string, 0, len(ms))
+	holdouts, e := s.trackHoldouts(ctx, ms)
+	if e != nil {
+		return st, e
+	}
+	allFiles, ids := len(holdouts) == 0, make([]string, 0, len(ms))
 	for _, m := range ms {
 		allFiles = allFiles && m.Files
 		ids = append(ids, m.ID)
@@ -619,7 +674,13 @@ func (s *Service) sweepAssets(ctx context.Context) error {
 			return e
 		}
 	}
-	_, e = s.db.ExecContext(ctx, "DELETE FROM onair_asset_replicas WHERE NOT EXISTS(SELECT 1 FROM onair_assets WHERE onair_assets.digest=onair_asset_replicas.digest)")
+	if _, e = s.db.ExecContext(ctx, "DELETE FROM onair_asset_replicas WHERE NOT EXISTS(SELECT 1 FROM onair_assets WHERE onair_assets.digest=onair_asset_replicas.digest)"); e != nil {
+		return e
+	}
+	var holdouts int
+	if e = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM onair_asset_holdouts").Scan(&holdouts); e == nil && holdouts > 0 {
+		s.o.Logger.Info("onair: Live TV media stays in the database until every server that ran an older Ether version runs this one", "olderServers", holdouts)
+	}
 	return e
 }
 

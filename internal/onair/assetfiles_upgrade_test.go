@@ -114,16 +114,44 @@ func TestAssetMoveOutUpgrade(t *testing.T) {
 		if emptied() != 0 {
 			t.Fatal("emptied rows while an older node reads content")
 		}
-		// It upgrades (as b), but holds no copy yet.
+		// It stops for days and drops out of the membership list; b
+		// upgrades and copies everything. The older node may come back as
+		// it was, so nothing is emptied yet.
 		members = []Member{{ID: "a", Files: true}, {ID: "b", Files: true}}
 		pass(a)
-		if emptied() != 0 {
-			t.Fatal("emptied rows a member does not hold")
-		}
 		pass(b)
+		pass(a)
+		if emptied() != 0 {
+			t.Fatal("emptied rows while an absent older node may return")
+		}
+		// It returns upgraded and copies them: now every row empties.
+		members = append(members, Member{ID: "old", Files: true})
+		old := moveService(t, db, filepath.Join(dir, "old"), "old", list)
+		pass(old)
 		pass(a)
 		if emptied() != len(want) {
 			t.Fatalf("emptied %d of %d once every member held them", emptied(), len(want))
+		}
+		// An older node no newer node ever saw arrives: its heartbeat
+		// gets the bytes written back, and they stay after it leaves.
+		members = append(members, Member{ID: "ghost", Files: false})
+		pass(a)
+		var inDB int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM onair_assets WHERE stored='db' AND length(content)=size`).Scan(&inDB); err != nil || inDB != len(want) {
+			t.Fatalf("%d of %d rows written back for an older node (%v)", inDB, len(want), err)
+		}
+		members = members[:3]
+		pass(a)
+		pass(b)
+		if emptied() != 0 {
+			t.Fatal("emptied rows after an older node was seen")
+		}
+		members = append(members, Member{ID: "ghost", Files: true})
+		ghost := moveService(t, db, filepath.Join(dir, "ghost"), "ghost", list)
+		pass(ghost)
+		pass(a)
+		if emptied() != len(want) {
+			t.Fatalf("emptied %d of %d after the older node upgraded", emptied(), len(want))
 		}
 		// A node joins after the move: a holder puts the bytes back, it
 		// copies them, and the rows empty again.
