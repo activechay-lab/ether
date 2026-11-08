@@ -128,7 +128,8 @@ func rebuildBrowseTally(ctx context.Context, db execer) error {
 }
 
 // RebuildLibraryCounts recounts the trigger-kept library totals (the browse
-// tally and the series' episode rating histograms) from the stored titles,
+// and dashboard tallies and the series' episode rating histograms) from the
+// stored titles,
 // for a bulk load that set the catalogue's triggers aside (the performance
 // fixture).
 func RebuildLibraryCounts(ctx context.Context, db *sql.DB) error {
@@ -138,6 +139,9 @@ func RebuildLibraryCounts(ctx context.Context, db *sql.DB) error {
 	}
 	defer tx.Rollback()
 	if err := rebuildBrowseTally(ctx, tx); err != nil {
+		return err
+	}
+	if err := rebuildStatsTally(ctx, tx); err != nil {
 		return err
 	}
 	for _, q := range []string{`DELETE FROM catalog_show_episode_ratings`, showEpisodeRatingsBackfill} {
@@ -158,70 +162,87 @@ func pgDistinct(sqlite string) string {
 // lock for long after a bulk ingestion.
 const tallyFoldChunk = 20000
 
-// foldBrowseTally moves pending deltas into the tally, one bounded chunk per
-// transaction, and reports how many it moved. A concurrent read sees the
-// deltas before or after the fold, never both or neither.
-func (c *Catalog) foldBrowseTally(ctx context.Context) (int64, error) {
+// libraryTally is a trigger-kept count table folded by the background
+// loop: name holds the counts, name+"_delta" the pending signed deltas, and
+// dims is its key.
+type libraryTally struct{ name, dims string }
+
+var libraryTallies = []libraryTally{
+	{"catalog_browse_tally", "type,genre,rating_rank"},
+	{"catalog_stats_tally", "kind,browsable,home,year_pending"},
+}
+
+// foldLibraryTallies moves every tally's pending deltas into it, one
+// bounded chunk per transaction, and reports how many it moved. A
+// concurrent read sees the deltas before or after the fold, never both or
+// neither.
+func (c *Catalog) foldLibraryTallies(ctx context.Context) (int64, error) {
 	var moved int64
-	for ctx.Err() == nil {
-		var pending int
-		err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT 1 FROM catalog_browse_tally_delta LIMIT 1) p`).Scan(&pending)
-		if err != nil || pending == 0 {
-			return moved, err
-		}
-		n, err := c.foldTallyChunk(ctx)
-		if err != nil {
-			return moved, err
-		}
-		moved += n
-		if n < tallyFoldChunk {
-			return moved, nil
+	for _, tally := range libraryTallies {
+		for ctx.Err() == nil {
+			var pending int
+			err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT 1 FROM `+tally.name+`_delta LIMIT 1) p`).Scan(&pending)
+			if err != nil {
+				return moved, err
+			}
+			if pending == 0 {
+				break
+			}
+			n, err := c.foldTallyChunk(ctx, tally)
+			if err != nil {
+				return moved, err
+			}
+			moved += n
+			if n < tallyFoldChunk {
+				break
+			}
 		}
 	}
 	return moved, ctx.Err()
 }
 
-func (c *Catalog) foldTallyChunk(ctx context.Context) (int64, error) {
+func (c *Catalog) foldTallyChunk(ctx context.Context, tally libraryTally) (int64, error) {
 	d := store.DialectOf(c.db)
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
+	table, delta, dims := tally.name, tally.name+"_delta", tally.dims
 	var n int64
 	if d == store.Postgres {
 		// One statement deletes the deltas it adds, so a delta committed
 		// meanwhile is either moved whole or left for the next fold. The
 		// lock keeps two nodes' folds from crossing on the tally rows.
-		if err := store.LockKey(ctx, d, tx, "catalog-browse-tally-fold"); err != nil {
+		if err := store.LockKey(ctx, d, tx, strings.ReplaceAll(table, "_", "-")+"-fold"); err != nil {
 			return 0, err
 		}
-		if err := tx.QueryRowContext(ctx, `WITH moved AS (DELETE FROM catalog_browse_tally_delta WHERE id IN (SELECT id FROM catalog_browse_tally_delta ORDER BY id LIMIT ?) RETURNING type,genre,rating_rank,d),
-summed AS (INSERT INTO catalog_browse_tally(type,genre,rating_rank,n) SELECT type,genre,rating_rank,SUM(d) FROM moved GROUP BY type,genre,rating_rank ORDER BY type,genre,rating_rank
- ON CONFLICT(type,genre,rating_rank) DO UPDATE SET n=catalog_browse_tally.n+excluded.n)
+		if err := tx.QueryRowContext(ctx, `WITH moved AS (DELETE FROM `+delta+` WHERE id IN (SELECT id FROM `+delta+` ORDER BY id LIMIT ?) RETURNING `+dims+`,d),
+summed AS (INSERT INTO `+table+`(`+dims+`,n) SELECT `+dims+`,SUM(d) FROM moved GROUP BY `+dims+` ORDER BY `+dims+`
+ ON CONFLICT(`+dims+`) DO UPDATE SET n=`+table+`.n+excluded.n)
 SELECT COUNT(*) FROM moved`, tallyFoldChunk).Scan(&n); err != nil {
 			return 0, err
 		}
 	} else {
 		var hi int64
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(id),0) FROM (SELECT id FROM catalog_browse_tally_delta ORDER BY id LIMIT ?) p`, tallyFoldChunk).Scan(&hi); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(id),0) FROM (SELECT id FROM `+delta+` ORDER BY id LIMIT ?) p`, tallyFoldChunk).Scan(&hi); err != nil {
 			return 0, err
 		}
 		if hi == 0 {
 			return 0, nil
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_browse_tally(type,genre,rating_rank,n)
- SELECT type,genre,rating_rank,SUM(d) FROM catalog_browse_tally_delta WHERE id<=? GROUP BY type,genre,rating_rank
- ON CONFLICT(type,genre,rating_rank) DO UPDATE SET n=catalog_browse_tally.n+excluded.n`, hi); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO `+table+`(`+dims+`,n)
+ SELECT `+dims+`,SUM(d) FROM `+delta+` WHERE id<=? GROUP BY `+dims+`
+ ON CONFLICT(`+dims+`) DO UPDATE SET n=`+table+`.n+excluded.n`, hi); err != nil {
 			return 0, err
 		}
-		res, err := tx.ExecContext(ctx, `DELETE FROM catalog_browse_tally_delta WHERE id<=?`, hi)
+		res, err := tx.ExecContext(ctx, `DELETE FROM `+delta+` WHERE id<=?`, hi)
 		if err != nil {
 			return 0, err
 		}
 		n, _ = res.RowsAffected()
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_browse_tally WHERE n=0`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE n=0`); err != nil {
 		return 0, err
 	}
 	return n, tx.Commit()
@@ -232,11 +253,11 @@ SELECT COUNT(*) FROM moved`, tallyFoldChunk).Scan(&n); err != nil {
 // seconds.
 const tallyFoldEvery = 10 * time.Second
 
-func (c *Catalog) foldBrowseTallyLoop(ctx context.Context) {
+func (c *Catalog) foldLibraryTalliesLoop(ctx context.Context) {
 	ticker := time.NewTicker(tallyFoldEvery)
 	defer ticker.Stop()
 	for {
-		if _, err := c.foldBrowseTally(ctx); err != nil && ctx.Err() == nil {
+		if _, err := c.foldLibraryTallies(ctx); err != nil && ctx.Err() == nil {
 			c.log.Warn("catalog: fold library totals", "err", err)
 		}
 		select {
