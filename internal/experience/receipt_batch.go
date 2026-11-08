@@ -9,15 +9,16 @@ import (
 
 	"database/sql"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/handles/capability"
 	"github.com/braedonsaunders/ether/internal/store"
 	"github.com/braedonsaunders/ether/internal/viewerpolicy"
 )
 
-// IssueBatch atomically issues receipts and shared admission in input order.
 // receiptInsertRows bounds one receipt INSERT's rows (11 parameters each).
 const receiptInsertRows = 50
 
+// IssueBatch atomically issues receipts and shared admission in input order.
 func (s *Receipts) IssueBatch(ctx context.Context, viewer *core.User, device core.Device, protocol core.Protocol, subjects []ReceiptSubject) ([]string, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
 	return s.issueBatchChecked(ctx, viewer, device, protocol, subjects, nil, nil)
@@ -74,6 +75,31 @@ func (s *Receipts) issueBatchAttempt(ctx context.Context, viewer *core.User, dev
 	active, err := s.opts.Active(ctx, viewer.ID)
 	if err != nil || active == nil || active.ID != viewer.ID {
 		return nil, ErrReceipt
+	}
+	if s.opts.Prefetch != nil {
+		// The titles the subjects and their rows' entries name.
+		var keys []core.RatingKey
+		seen := map[string]bool{}
+		add := func(kind, id string) {
+			if kind != string(frontend.RowEntryTitle) || seen[id] {
+				return
+			}
+			seen[id] = true
+			if key, err := core.ParseRatingKey(id); err == nil {
+				keys = append(keys, key)
+			}
+		}
+		for _, subject := range subjects {
+			add(subject.Kind, subject.ID)
+			if imp := subject.Impression; imp != nil {
+				for _, e := range imp.Entries {
+					add(string(e.Kind), e.ID)
+				}
+			}
+		}
+		if len(keys) > 1 {
+			s.opts.Prefetch(ctx, keys)
+		}
 	}
 	for _, subject := range subjects {
 		if !s.opts.Allowed(ctx, active, device, protocol, subject) {

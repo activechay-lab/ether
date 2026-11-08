@@ -125,21 +125,29 @@ func (s *State) List(ctx context.Context, userID int64) ([]core.Playlist, error)
 }
 
 // ListHeaders returns the user's playlists without their items, in List's
-// order, for callers that pick playlists by title before reading them.
+// order, for callers that do not read the items (row cards, title search).
 func (s *State) ListHeaders(ctx context.Context, userID int64) ([]core.Playlist, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, title FROM state_playlists WHERE user_id=? ORDER BY updated_at DESC, id DESC`, userID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, title, smart, updated_at, smart_uri, guid, summary, added_at FROM state_playlists WHERE user_id=? ORDER BY updated_at DESC, id DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []core.Playlist
 	for rows.Next() {
-		var id int64
+		var id, upd, added int64
+		var smart int
 		var p core.Playlist
-		if err := rows.Scan(&id, &p.Title); err != nil {
+		if err := rows.Scan(&id, &p.Title, &smart, &upd, &p.SmartURI, &p.GUID, &p.Summary, &added); err != nil {
 			return nil, err
 		}
-		p.Key, p.UserID = core.PlaylistKey(id), userID
+		p.Key, p.UserID, p.Smart = core.PlaylistKey(id), userID, smart != 0
+		p.AddedAt = time.Unix(0, added).UTC()
+		if p.GUID == "" {
+			p.GUID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("ether:playlist:%d", id))).String()
+		}
+		if upd > 0 {
+			p.UpdatedAt = time.Unix(0, upd).UTC()
+		}
 		out = append(out, p)
 	}
 	return out, rows.Err()

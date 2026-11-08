@@ -71,15 +71,40 @@ func (p *Playlists) List(ctx context.Context, uid int64) ([]core.Playlist, error
 	}
 	return items, nil
 }
-// ListHeaders lists the viewer's playlists without their items (titles
-// and keys only); Get reads one with its items, projected as List does.
+
+// ListHeaders lists the viewer's playlists without their items, with the
+// favorites playlist's date as List projects it; Get reads one with its
+// items.
 func (p *Playlists) ListHeaders(ctx context.Context, uid int64) ([]core.Playlist, error) {
-	if base, ok := p.Base.(interface {
+	base, ok := p.Base.(interface {
 		ListHeaders(context.Context, int64) ([]core.Playlist, error)
-	}); ok {
-		return base.ListHeaders(ctx, uid)
+	})
+	if !ok {
+		return p.List(ctx, uid)
 	}
-	return p.List(ctx, uid)
+	items, err := base.ListHeaders(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	fav, err := p.favorite(ctx, uid)
+	if errors.Is(err, core.ErrNotFound) {
+		return items, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].Key == fav.Key {
+			updated, err := p.Favorites.UpdatedAt(ctx, uid)
+			if err != nil {
+				return nil, err
+			}
+			if updated.After(items[i].UpdatedAt) {
+				items[i].UpdatedAt = updated
+			}
+		}
+	}
+	return items, nil
 }
 func (p *Playlists) Get(ctx context.Context, uid int64, key core.RatingKey) (*core.Playlist, error) {
 	pl, err := p.Base.Get(ctx, uid, key)
