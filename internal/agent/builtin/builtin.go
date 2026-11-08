@@ -171,18 +171,21 @@ type PluginService interface {
 	SetPluginEnabled(ctx context.Context, id string, enabled bool) error
 }
 
-// ProfileInfo is one quality profile with its ranking and rules.
-// A profile serves one media; a movie and a TV profile may share a name.
+// ProfileInfo is one quality profile with its custom format scores and
+// rules. A profile serves one media; a movie and a TV profile may share a
+// name.
 type ProfileInfo struct {
-	Name    string
-	Media   string // core.MediaMovie or core.MediaTV
-	Ranking []string
-	Rules   []core.ReleaseRule
+	Name   string
+	Media  string         // core.MediaMovie or core.MediaTV
+	Scores map[string]int // custom format id → score
+	Rules  []core.ReleaseRule
 }
 
 type ProfileService interface {
 	Profiles(ctx context.Context) ([]ProfileInfo, error)
-	SetRanking(ctx context.Context, profile, media string, ranking []string) error
+	// SetFormatScores sets the given custom format scores on a profile; a
+	// score of 0 removes the format from the profile.
+	SetFormatScores(ctx context.Context, profile, media string, scores map[string]int) error
 	AddRule(ctx context.Context, profile, media string, rule core.ReleaseRule) error
 }
 

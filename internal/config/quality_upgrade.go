@@ -251,7 +251,7 @@ func docString(m map[string]any, key string) string {
 
 // cloneProfile deep-copies p field by field so the per-media copies share
 // no slices or maps. It does not go through JSON, whose decoding would fill
-// defaults (such as the ranking) the original left unset.
+// defaults the original left unset.
 func cloneProfile(p core.QualityProfile) core.QualityProfile {
 	c := p
 	c.ReleaseRules = nil
@@ -264,13 +264,13 @@ func cloneProfile(p core.QualityProfile) core.QualityProfile {
 	if p.ReleaseRules != nil && c.ReleaseRules == nil {
 		c.ReleaseRules = []core.ReleaseRule{}
 	}
-	c.Ranking = slices.Clone(p.Ranking)
-	if p.RankingConfig != nil {
-		c.RankingConfig = make(map[string]json.RawMessage, len(p.RankingConfig))
-		for k, v := range p.RankingConfig {
-			c.RankingConfig[k] = slices.Clone(v)
+	if p.PluginScores != nil {
+		c.PluginScores = make(map[string]json.RawMessage, len(p.PluginScores))
+		for k, v := range p.PluginScores {
+			c.PluginScores[k] = slices.Clone(v)
 		}
 	}
+	c.QualityOrder = CloneQualityOrder(p.QualityOrder)
 	c.AllowedQualities = slices.Clone(p.AllowedQualities)
 	c.CustomFormatScores = maps.Clone(p.CustomFormatScores)
 	if p.MinCustomFormatScore != nil {
@@ -282,9 +282,18 @@ func cloneProfile(p core.QualityProfile) core.QualityProfile {
 		imp.Groups = slices.Clone(p.Import.Groups)
 		c.Import = &imp
 	}
-	c.PreferredSources = slices.Clone(p.PreferredSources)
-	c.PreferredCodecs = slices.Clone(p.PreferredCodecs)
-	c.PreferredAudio = slices.Clone(p.PreferredAudio)
 	c.PreferredLanguages = slices.Clone(p.PreferredLanguages)
 	return c
+}
+
+// CloneQualityOrder deep-copies a quality order.
+func CloneQualityOrder(order []core.QualityItem) []core.QualityItem {
+	if order == nil {
+		return nil
+	}
+	out := make([]core.QualityItem, len(order))
+	for i, it := range order {
+		out[i] = core.QualityItem{Name: it.Name, Qualities: slices.Clone(it.Qualities)}
+	}
+	return out
 }

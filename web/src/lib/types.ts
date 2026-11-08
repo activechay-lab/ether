@@ -360,7 +360,6 @@ export interface EtherConfig {
     sourcePreference?: string;
     sourceAlwaysFirst?: boolean;
     customFormats?: CustomFormatDefinition[] | null;
-    customFormatScores?: Record<string, number>;
   };
   quality: {
     profiles: QualityProfile[] | null;
@@ -498,29 +497,45 @@ export interface QualityProfile {
   /** Set on imported profiles that automatic sync updates in place. */
   import?: ProfileImport;
   releaseRules?: ReleaseRule[] | null;
-  ranking?: string[] | null;
-  rankingConfig?: Record<string, Record<string, unknown>> | null;
+  /** Plugin ranking steps the profile uses, with their settings; each adds its points to the score. */
+  pluginScores?: Record<string, Record<string, unknown>> | null;
+  /** Qualities best first, as in Radarr/Sonarr; qualities in one item rank equally. */
+  qualityOrder?: QualityItem[] | null;
+  /**
+   * Converted from an older ranking order that ranked something above
+   * resolution: one group of every resolution, resolution scored as formats,
+   * ranking exactly as before. Cleared once the qualities are edited.
+   */
+  convertedRanking?: boolean;
   name: string;
   maxHeight: number;
   minHeight: number;
   fallbackBelowMin?: boolean;
   allowHdr: boolean;
   allowDolbyVision: boolean;
-  preferredSources: string[] | null;
-  preferredCodecs: string[] | null;
-  preferredAudio: string[] | null;
   minSizeMbPerMin: number;
   maxSizeMbPerMin: number;
   episodeMinSizeMbPerMin?: number;
   episodeMaxSizeMbPerMin?: number;
-  preferLargest?: boolean;
   preferredLanguages: string[] | null;
   allowCam: boolean;
   /** Imported profiles: the only source-resolution pairs allowed, e.g. "webdl-1080". */
   allowedQualities?: string[] | null;
-  /** Imported profiles: custom format scores by trash ID, overriding the defaults. */
+  /**
+   * Every format the profile scores: custom formats by trash ID or name,
+   * Ether's built-in formats ("ether:…") and Prefer rules ("rule:<id>").
+   * A format not listed scores 0.
+   */
   customFormatScores?: Record<string, number> | null;
+  /** Releases whose custom formats score lower aren't played; null sets none. */
   minCustomFormatScore?: number | null;
+}
+
+/** One entry of a quality order: a quality, or a named group ranking equally. */
+export interface QualityItem {
+  name?: string;
+  /** "<source>-<height>", e.g. "webdl-1080"; source "unknown" names no source. */
+  qualities: string[];
 }
 
 export interface QualityRule {

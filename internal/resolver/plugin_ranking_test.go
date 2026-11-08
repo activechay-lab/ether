@@ -32,7 +32,7 @@ func TestPluginRankingOnRealResolve(t *testing.T) {
 	dub.Name = strings.Replace(dub.Name, "1080p", "DUB.1080p", 1)
 	cfg := testCfg()
 	for i := range cfg.Quality.Profiles {
-		cfg.Quality.Profiles[i].Ranking = []string{"plugin:test.dub/dub"}
+		cfg.Quality.Profiles[i].PluginScores = map[string]json.RawMessage{"plugin:test.dub/dub": json.RawMessage(`{}`)}
 	}
 	s := New(&fakeIndexer{releases: []core.Release{plain, dub}}, fakeHealth{}, nil, cfg, Options{})
 	defer s.Close()

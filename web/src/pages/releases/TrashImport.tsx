@@ -24,13 +24,13 @@ import {
   mediaTypeForApp,
   qualityGateLabel,
   releaseConsole,
-  sourceLabel,
   type ImportFormat,
   type QualityImportPlan,
   type QualityImportSource,
   type ProfileMedia,
   type TrashProfileList,
 } from "../../lib/releases";
+import { itemName } from "../../lib/qualityRanking";
 import type { QualityProfile } from "../../lib/types";
 import { RecordDrawer, TextRow } from "../sources/form";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
@@ -63,14 +63,14 @@ function profileGroup(name: string, mode: ImportMode): string {
   return tag ? (tag.split(/\s+/)[0] ?? tag) : t("Standard");
 }
 
-function heightLabel(h: number): string {
+function resolutionLabel(h: number): string {
   return h >= 2160 ? "4K" : `${h}p`;
 }
 
 function resolution(p: QualityProfile): string {
   return p.minHeight === p.maxHeight
-    ? heightLabel(p.maxHeight)
-    : t("{min} to {max}", { min: heightLabel(p.minHeight), max: heightLabel(p.maxHeight) });
+    ? resolutionLabel(p.maxHeight)
+    : t("{min} to {max}", { min: resolutionLabel(p.minHeight), max: resolutionLabel(p.maxHeight) });
 }
 
 function signed(n: number): string {
@@ -483,11 +483,11 @@ function ImportPreview({
           control={<span className="text-sm text-fg">{resolution(p)}</span>}
         />
         <SettingsRow
-          title={t("Sources")}
-          description={t("In order of preference.")}
+          title={t("Quality order")}
+          description={t("Best first, as the profile ranks them.")}
           control={
             <span className="text-sm text-fg">
-              {(p.preferredSources ?? []).map(sourceLabel).join(" › ")}
+              {(p.qualityOrder ?? []).map(itemName).filter(Boolean).join(" › ")}
             </span>
           }
         />

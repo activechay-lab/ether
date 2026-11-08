@@ -28,7 +28,6 @@
           "key": "travel",
           "label": "$t:step",
           "hint": "$t:hint",
-          "defaultPosition": 10,
           "editor": {
             "kind": "choice",
             "options": [

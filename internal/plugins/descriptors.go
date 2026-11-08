@@ -57,7 +57,7 @@ func DescriptorsFor(man Manifest) []extend.Descriptor {
 	}
 	for _, rs := range c.RankingSteps {
 		add(extend.KindRankingStep, rs.Key, textOf(id, rs.Label), map[string]any{
-			"editor": rs.Editor, "defaultPosition": rs.DefaultPosition, "budget": rs.Budget, "hint": rs.Hint})
+			"editor": rs.Editor, "budget": rs.Budget, "hint": rs.Hint})
 	}
 	for _, rc := range c.RuleConditions {
 		add(extend.KindRuleField, rc.Key, textOf(id, rc.Label), map[string]any{

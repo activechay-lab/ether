@@ -142,7 +142,8 @@ func widthFor(h int) int {
 }
 
 // videoCodecFor picks HEVC for 4K when the client plays it (or declares
-// nothing), else H.264, else the first profile codec the client supports.
+// nothing), else H.264, else the codec the profile scores highest that the
+// client supports.
 func videoCodecFor(height int, caps core.ClientCaps, p core.QualityProfile) string {
 	ok := func(c string) bool { return len(caps.VideoCodecs) == 0 || caps.SupportsVideo(c) }
 	if height >= 2160 && ok("hevc") {
@@ -151,10 +152,14 @@ func videoCodecFor(height int, caps core.ClientCaps, p core.QualityProfile) stri
 	if ok("h264") {
 		return "h264"
 	}
-	for _, c := range p.PreferredCodecs {
-		if caps.SupportsVideo(c) {
-			return c
+	best, bestScore := "", 0
+	for _, c := range core.FormatCodecs {
+		if s := p.CustomFormatScores[core.CodecFormat(c)]; caps.SupportsVideo(c) && (best == "" || s > bestScore) {
+			best, bestScore = c, s
 		}
+	}
+	if best != "" {
+		return best
 	}
 	if len(caps.VideoCodecs) > 0 {
 		return caps.VideoCodecs[0]

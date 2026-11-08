@@ -4,8 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"slices"
 	"strings"
 	"time"
 )
@@ -25,124 +23,17 @@ const (
 	SourceRemux    Source = "remux"
 )
 
-// Ranking ladder step keys for QualityProfile.Ranking.
-const (
-	RankRulePrefix = "rule:"
-	// RankPluginPrefix namespaces plugin-contributed ranking steps:
-	// "plugin:<plugin id>/<key>". The resolver uses a neutral key when
-	// its hosted runtime is unavailable.
-	RankPluginPrefix = "plugin:"
-	RankLanguage     = "language"
-	RankConnection   = "connection"
-	RankResolution   = "resolution"
-	RankReleaseType  = "releaseType"
-	RankHDR          = "hdr"
-	// RankCustomScore orders by the release's total score: Ether's own
-	// quality points plus the owner's custom format scores (TRaSH,
-	// AIOStreams-style imports) plus client compatibility.
-	RankCustomScore = "customScore"
-	RankVerified    = "verified"
-	RankVideoCodec  = "videoCodec"
-	RankAudioFormat = "audioFormat"
-	RankSize        = "size"
-)
-
-// DefaultRankingSteps is the built-in ranking ladder order after any Prefer rules.
-var DefaultRankingSteps = []string{
-	RankLanguage,
-	RankConnection,
-	RankResolution,
-	RankReleaseType,
-	RankHDR,
-	RankCustomScore,
-	RankVerified,
-	RankVideoCodec,
-	RankAudioFormat,
-	RankSize,
-}
-
-func builtinRankingIndex(step string) int {
-	return slices.Index(DefaultRankingSteps, step)
-}
-
-func isBuiltinRankingStep(step string) bool {
-	return builtinRankingIndex(step) >= 0
-}
-
-// IsBuiltinRankingStep reports whether step is one of DefaultRankingSteps
-// (additive, WS1a).
-func IsBuiltinRankingStep(step string) bool { return isBuiltinRankingStep(step) }
+// RankPluginPrefix namespaces plugin-contributed ranking steps:
+// "plugin:<plugin id>/<key>". A profile lists the steps it uses in
+// QualityProfile.PluginScores; each adds the number its plugin returns for
+// a release to that release's custom format score.
+const RankPluginPrefix = "plugin:"
 
 // IsPluginRankingStep reports whether step is plugin-namespaced
-// ("plugin:<id>/<key>") (additive, WS1a).
+// ("plugin:<id>/<key>").
 func IsPluginRankingStep(step string) bool {
 	rest, ok := strings.CutPrefix(step, RankPluginPrefix)
 	return ok && strings.Contains(rest, "/")
-}
-
-// DefaultRanking returns today's default ladder order: each Prefer rule in
-// rules (in slice order), followed by DefaultRankingSteps.
-func DefaultRanking(rules []ReleaseRule) []string {
-	out := make([]string, 0, len(rules)+len(DefaultRankingSteps))
-	seen := map[string]bool{}
-	for _, r := range rules {
-		if r.Action == "prefer" && r.ID != "" && !seen[r.ID] {
-			seen[r.ID] = true
-			out = append(out, RankRulePrefix+r.ID)
-		}
-	}
-	out = append(out, DefaultRankingSteps...)
-	return out
-}
-
-// ValidateRanking checks an explicit ranking ladder against a profile's rules.
-// An empty ladder is valid and means DefaultRanking(rules). Plugin-namespaced
-// steps are accepted structurally: the config save path has no descriptor
-// registry, and a profile must stay saveable across a plugin's install life.
-// Callers that hold the registry use ValidateRankingWith to require that a
-// plugin step is actually registered.
-func ValidateRanking(ranking []string, rules []ReleaseRule) error {
-	return ValidateRankingWith(ranking, rules, nil)
-}
-
-// ValidateRankingWith is ValidateRanking with a caller-supplied test for
-// non-rule steps. A nil known accepts built-in steps and any
-// plugin-namespaced step (additive, WS1a).
-func ValidateRankingWith(ranking []string, rules []ReleaseRule, known func(step string) bool) error {
-	if known == nil {
-		known = func(step string) bool {
-			return isBuiltinRankingStep(step) || IsPluginRankingStep(step)
-		}
-	}
-	if len(ranking) == 0 {
-		return nil
-	}
-	validRules := map[string]bool{}
-	for _, r := range rules {
-		if r.Action == "prefer" && r.ID != "" {
-			validRules[RankRulePrefix+r.ID] = true
-		}
-	}
-	seen := map[string]bool{}
-	for _, step := range ranking {
-		if seen[step] {
-			return fmt.Errorf("duplicate ranking step %q", step)
-		}
-		seen[step] = true
-		if strings.HasPrefix(step, RankRulePrefix) {
-			if !validRules[step] {
-				return fmt.Errorf("ranking step %q does not name a prefer rule", step)
-			}
-			continue
-		}
-		if !known(step) {
-			return fmt.Errorf("unknown ranking step %q", step)
-		}
-	}
-	if !seen[RankConnection] || !seen[RankVerified] {
-		return fmt.Errorf("ranking must include %q and %q", RankConnection, RankVerified)
-	}
-	return nil
 }
 
 // ReleaseInfo is what can be parsed from a release name.
@@ -344,16 +235,40 @@ type ProfileImport struct {
 // QualityProfile is an owner-editable rule set ranking releases for a class
 // of client.
 type QualityProfile struct {
-	ReleaseRules         []ReleaseRule              `json:"releaseRules,omitempty"`
-	Ranking              []string                   `json:"ranking,omitempty"`
-	RankingConfig        map[string]json.RawMessage `json:"rankingConfig,omitempty"`
-	AllowedQualities     []string                   `json:"allowedQualities,omitempty"` // imported source-resolution gates
-	CustomFormatScores   map[string]int             `json:"customFormatScores,omitempty"`
-	MinCustomFormatScore *int                       `json:"minCustomFormatScore,omitempty"`
-	Name                 string                     `json:"name"`
-	MediaType            string                     `json:"mediaType,omitempty"` // "movie" or "tv" (ProfileMediaTypes); empty only in configs saved before profiles were per media
-	Import               *ProfileImport             `json:"import,omitempty"`    // set on imported, syncable profiles
-	MaxHeight            int                        `json:"maxHeight"`           // cap, e.g. 1080
+	ReleaseRules []ReleaseRule `json:"releaseRules,omitempty"`
+	// PluginScores lists the plugin ranking steps the profile uses, each
+	// with its settings ({} for none). A step adds the number its plugin
+	// returns for a release to the release's custom format score.
+	PluginScores     map[string]json.RawMessage `json:"pluginScores,omitempty"`
+	AllowedQualities []string                   `json:"allowedQualities,omitempty"` // imported source-resolution gates
+	// QualityOrder ranks qualities best first, as Radarr and Sonarr do: a
+	// release ranks by the first item listing its quality, qualities in one
+	// item (a group) rank equally, and a quality no item lists ranks below
+	// all of them. It is the first ranking key; custom format scores order
+	// releases of equal quality (docs/quality-ranking.md). It is always
+	// stored, empty included, so a saved empty order (every quality alike)
+	// is never mistaken for a profile from before quality orders.
+	QualityOrder []QualityItem `json:"qualityOrder"`
+	// ConvertedRanking marks a profile converted from an older ranking
+	// order that ranked something above resolution: its quality order is
+	// one group of every resolution, with resolution scored as formats
+	// below that step, so it ranks exactly as before. The console offers
+	// the standard one-group-per-resolution order until the owner edits
+	// the qualities.
+	ConvertedRanking bool `json:"convertedRanking,omitempty"`
+	// CustomFormatScores scores every format the profile uses, keyed by
+	// format id: the owner's and imported custom formats, Ether's built-in
+	// formats ("ether:…", BuiltinFormats) and Prefer rules ("rule:<id>").
+	// A format the map does not list scores 0, as in Radarr and Sonarr.
+	CustomFormatScores map[string]int `json:"customFormatScores,omitempty"`
+	// MinCustomFormatScore rejects a release whose custom formats (the
+	// owner's and imported ones, not Ether's built-ins, rules or plugins)
+	// score strictly lower. nil sets no minimum.
+	MinCustomFormatScore *int           `json:"minCustomFormatScore,omitempty"`
+	Name                 string         `json:"name"`
+	MediaType            string         `json:"mediaType,omitempty"` // "movie" or "tv" (ProfileMediaTypes); empty only in configs saved before profiles were per media
+	Import               *ProfileImport `json:"import,omitempty"`    // set on imported, syncable profiles
+	MaxHeight            int            `json:"maxHeight"`           // cap, e.g. 1080
 	// ConfiguredMaxHeight is MaxHeight as the owner configured it,
 	// before download reshaping or a client's caps clamped the
 	// effective MaxHeight. -1 means the owner set no ceiling ("Any");
@@ -365,14 +280,10 @@ type QualityProfile struct {
 	MinHeight              int      `json:"minHeight"` // floor, e.g. 720
 	AllowHDR               bool     `json:"allowHdr"`  // only applied when the client also supports it
 	AllowDolbyVision       bool     `json:"allowDolbyVision"`
-	PreferredSources       []Source `json:"preferredSources"` // best first
-	PreferredCodecs        []string `json:"preferredCodecs"`  // best first; codecs the client can't play are dropped anyway
-	PreferredAudio         []string `json:"preferredAudio"`
 	MinSizeMBPerMin        float64  `json:"minSizeMbPerMin"` // size sanity, per minute of runtime (movies, and fallback for TV)
 	MaxSizeMBPerMin        float64  `json:"maxSizeMbPerMin"`
 	EpisodeMinSizeMBPerMin float64  `json:"episodeMinSizeMbPerMin,omitempty"` // optional TV episode size bounds (0 uses MinSizeMBPerMin/MaxSizeMBPerMin)
 	EpisodeMaxSizeMBPerMin float64  `json:"episodeMaxSizeMbPerMin,omitempty"`
-	PreferLargest          bool     `json:"preferLargest,omitempty"` // prefer larger files among candidates matching the profile
 	PreferredLanguages     []string `json:"preferredLanguages"`
 	AllowCam               bool     `json:"allowCam"` // the only pre-release switch; CAM/TS/TC and screener/R5/workprint copies play only for profiles that allow them
 	// SelectionKey is the canonical hash of this profile's configured
@@ -382,76 +293,6 @@ type QualityProfile struct {
 	// original language is not: it is per-title evaluation context, not a
 	// profile fact. Runtime-only, never persisted with the profile.
 	SelectionKey string `json:"-"`
-}
-
-// EffectiveRanking returns the complete ranking ladder for p: DefaultRanking
-// when Ranking is empty, or p.Ranking with any unmentioned Prefer rules
-// prepended and any omitted built-in steps placed in their default relative
-// positions. An omitted custom score step goes directly before verified:
-// ladders saved before the step existed compared the score there, so they
-// keep ranking exactly as they did.
-func (p QualityProfile) EffectiveRanking() []string {
-	if len(p.Ranking) == 0 {
-		return DefaultRanking(p.ReleaseRules)
-	}
-	validRules := map[string]bool{}
-	var preferOrder []string
-	for _, r := range p.ReleaseRules {
-		if r.Action == "prefer" && r.ID != "" {
-			key := RankRulePrefix + r.ID
-			if !validRules[key] {
-				validRules[key] = true
-				preferOrder = append(preferOrder, key)
-			}
-		}
-	}
-	mentioned := map[string]bool{}
-	var filtered []string
-	for _, step := range p.Ranking {
-		if mentioned[step] {
-			continue
-		}
-		if strings.HasPrefix(step, RankRulePrefix) {
-			if !validRules[step] {
-				continue
-			}
-		} else if !isBuiltinRankingStep(step) && !IsPluginRankingStep(step) {
-			continue
-		}
-		mentioned[step] = true
-		filtered = append(filtered, step)
-	}
-	out := make([]string, 0, len(preferOrder)+len(DefaultRankingSteps))
-	for _, key := range preferOrder {
-		if !mentioned[key] {
-			mentioned[key] = true
-			out = append(out, key)
-		}
-	}
-	out = append(out, filtered...)
-	for bi, b := range DefaultRankingSteps {
-		if mentioned[b] {
-			continue
-		}
-		if b == RankCustomScore {
-			if i := slices.Index(out, RankVerified); i >= 0 {
-				out = slices.Insert(out, i, b)
-				continue
-			}
-		}
-		inserted := false
-		for i, step := range out {
-			if si := builtinRankingIndex(step); si > bi {
-				out = slices.Insert(out, i, b)
-				inserted = true
-				break
-			}
-		}
-		if !inserted {
-			out = append(out, b)
-		}
-	}
-	return out
 }
 
 // SizeBoundsForKey returns the configured (min, max) MB/min bounds for a rating key.
@@ -481,9 +322,8 @@ func (p QualityProfile) SizeBoundsFor(t *Title) (minMBPerMin, maxMBPerMin float6
 // ComputeSelectionKey returns the canonical key of the configured
 // definition in p: sha256 of its JSON (runtime-only fields tagged
 // json:"-" are excluded) truncated to 16 hex chars. Any selection-field
-// edit (heights, HDR/DV, codecs, sources, audio, languages, sizes,
-// qualities, scores, release rules, ranking) changes it; client caps
-// never enter it.
+// edit (heights, HDR/DV, sizes, qualities, scores, release rules, plugin
+// steps) changes it; client caps never enter it.
 func (p QualityProfile) ComputeSelectionKey() string {
 	p.SelectionKey = ""
 	// Provenance is not part of the ranking definition: a sync updating
@@ -492,22 +332,19 @@ func (p QualityProfile) ComputeSelectionKey() string {
 	// Neither is the media a profile serves: splitting a shared profile
 	// into its movie and TV copies keeps every remembered release valid.
 	p.MediaType = ""
-	eff := p.EffectiveRanking()
-	if slices.Equal(eff, DefaultRanking(p.ReleaseRules)) {
-		p.Ranking = nil
-	} else {
-		// The custom score directly before verified is where a ladder
-		// without the step ranks it, so both spell the same order and
-		// keep the key they had before the step existed.
-		if i := slices.Index(eff, RankCustomScore); i >= 0 && i+1 < len(eff) && eff[i+1] == RankVerified {
-			eff = slices.Delete(eff, i, i+1)
-		}
-		p.Ranking = eff
-	}
 	b, err := json.Marshal(p)
 	if err != nil {
 		return ""
 	}
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])[:16]
+}
+
+// QualityItem is one entry of a profile's quality order: a single quality
+// or a named group of qualities that rank equally. A quality is
+// "<source>-<height>" ("webdl-1080", "remux-2160"); source is a Source
+// value, or "unknown" for a release that names a resolution but no source.
+type QualityItem struct {
+	Name      string   `json:"name,omitempty"`
+	Qualities []string `json:"qualities"`
 }

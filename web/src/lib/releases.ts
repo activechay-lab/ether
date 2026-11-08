@@ -293,6 +293,15 @@ export interface QualitySyncReport {
   warnings?: string[] | null;
 }
 
+/** POST /releases/quality/order-preview: recent first picks a profile change would alter. */
+export interface OrderPreview {
+  /** Recent titles the profile played that were ranked both ways. */
+  titles: number;
+  /** How many of them would start a different release. */
+  changed: number;
+  changes: { titleKey: string; titleName: string; before: string; after: string }[] | null;
+}
+
 /** A TRaSH or Profilarr (Dictionarry) profile by id, or pasted profile JSON. */
 export type QualityImportSource = { app: StarrApp; source?: "trash" | "dictionarry" } & (
   { profile: string; json?: undefined } | { json: string; profile?: undefined }
@@ -383,6 +392,13 @@ export const releaseConsole = {
     post<{ name: string; formatsAdded: number }>("/quality-import", { ...source, name }),
   /** Run the automatic guide sync once and return what it changed. */
   syncQuality: () => post<QualitySyncReport>("/quality/sync", {}),
+  /** Rank recent plays with a profile and with a proposed change to it. */
+  previewOrder: (profile: QualityProfile, next: QualityProfile, signal?: AbortSignal) =>
+    apiFetch<OrderPreview>(`${base}/quality/order-preview`, {
+      method: "POST",
+      body: JSON.stringify({ profile, next }),
+      signal,
+    }),
 };
 
 /** "WEB-DL 1080p" for an imported quality gate such as "webdl-1080"; DVD has no resolution. */

@@ -5,7 +5,7 @@
  */
 import type { ImportFormat, QualityImportPlan, StarrApp, TrashProfile } from "../lib/releases";
 import { mediaTypeForApp } from "../lib/releases";
-import type { EtherConfig, QualityProfile } from "../lib/types";
+import type { EtherConfig, QualityItem, QualityProfile } from "../lib/types";
 
 type Reply = { status: number; body: unknown };
 
@@ -302,6 +302,7 @@ function plan(
   meta: { id?: string; source?: "trash" | "dictionarry" | "" } = {},
 ): QualityImportPlan | Reply {
   const allowed: string[] = [];
+  const qualityOrder: QualityItem[] = [];
   const sources: string[] = [];
   const skipped: string[] = [];
   let min = 0;
@@ -309,6 +310,7 @@ function plan(
   for (const item of native.items ?? []) {
     if (!item.allowed) continue;
     const group: string[] = [];
+    const order: string[] = [];
     for (const q of item.items?.length ? item.items : [item.name]) {
       const parsed = parseQuality(q);
       if (!parsed) {
@@ -317,11 +319,13 @@ function plan(
       }
       const [source, height] = parsed;
       allowed.push(`${source}-${height}`);
+      if (!order.includes(`${source}-${height}`)) order.push(`${source}-${height}`);
       if (!sources.includes(source) && !group.includes(source)) group.push(source);
       min = min ? Math.min(min, height) : height;
       max = Math.max(max, height);
     }
     sources.push(...group.sort((a, b) => SOURCE_ORDER.indexOf(a) - SOURCE_ORDER.indexOf(b)));
+    if (order.length) qualityOrder.push({ name: item.name, qualities: order });
   }
   if (!allowed.length)
     return fail(400, "invalid", "None of its enabled qualities can be streamed.");
@@ -347,14 +351,12 @@ function plan(
     minHeight: min,
     allowHdr: uhd,
     allowDolbyVision: uhd,
-    preferredSources: sources,
-    preferredCodecs: uhd ? ["hevc", "h264"] : ["h264", "hevc"],
-    preferredAudio: ["eac3", "ac3", "aac"],
     minSizeMbPerMin: 5,
     maxSizeMbPerMin: 0,
     preferredLanguages: null,
     allowCam: false,
     allowedQualities: allowed,
+    qualityOrder,
     minCustomFormatScore: native.minFormatScore ?? 0,
     customFormatScores: Object.fromEntries(
       formats
@@ -505,6 +507,9 @@ export function createTrashMock() {
         },
       ];
       return ok({ name, formatsAdded: added.length });
+    }
+    if (route === "POST /quality/order-preview") {
+      return ok({ titles: 0, changed: 0, changes: [] });
     }
     if (route === "POST /quality/sync") {
       const profiles = config.quality.profiles ?? [];

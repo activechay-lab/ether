@@ -17,17 +17,15 @@ func TestSelectProfileSelectionKeyIsPreClamp(t *testing.T) {
 		return config.Quality{
 			Default: "Main",
 			Profiles: []core.QualityProfile{{
-				Name:             "Main",
-				MaxHeight:        maxHeight,
-				MinHeight:        720,
-				AllowHDR:         true,
-				AllowDolbyVision: true,
-				PreferredSources: []core.Source{core.SourceWEBDL},
-				PreferredCodecs:  []string{"hevc", "h264"},
-				PreferredAudio:   []string{"eac3", "aac"},
-				MinSizeMBPerMin:  5,
-				MaxSizeMBPerMin:  150,
-				ReleaseRules:     rules,
+				Name:               "Main",
+				MaxHeight:          maxHeight,
+				MinHeight:          720,
+				AllowHDR:           true,
+				AllowDolbyVision:   true,
+				CustomFormatScores: map[string]int{core.AudioFormat("eac3"): 8, core.AudioFormat("aac"): 4},
+				MinSizeMBPerMin:    5,
+				MaxSizeMBPerMin:    150,
+				ReleaseRules:       rules,
 			}},
 		}
 	}
@@ -49,7 +47,7 @@ func TestSelectProfileSelectionKeyIsPreClamp(t *testing.T) {
 	}
 	// Editing any other selection field (audio here) also changes it.
 	q := mkQuality(2160, nil)
-	q.Profiles[0].PreferredAudio = []string{"aac"}
+	q.Profiles[0].CustomFormatScores = map[string]int{core.AudioFormat("aac"): 4}
 	if edited := SelectProfile(q, tv, nil); edited.SelectionKey == pTV.SelectionKey {
 		t.Fatalf("audio edit kept SelectionKey %q", edited.SelectionKey)
 	}

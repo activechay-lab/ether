@@ -4,7 +4,7 @@ import { useApp } from "../../app-context";
 import { t } from "../../i18n";
 import { api } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
-import type { CustomFormatDefinition, EtherConfig, QualityProfile } from "../../lib/types";
+import type { CustomFormatDefinition, EtherConfig } from "../../lib/types";
 
 export type ResolverPolicy = EtherConfig["resolver"];
 
@@ -26,38 +26,16 @@ export function useResolver() {
   return { config, resolver, save };
 }
 
-/** The two JSON editors, parsed. */
-export interface ParsedScoring {
-  customFormats: CustomFormatDefinition[];
-  customFormatScores: Record<string, number>;
-}
-
-/** Parse the two JSON editors; throws a readable error when either is invalid. */
-export function parseScoring(formats: string, scores: string): ParsedScoring {
+/** Parse the custom format definitions editor; throws a readable error when it is invalid. */
+export function parseFormats(formats: string): CustomFormatDefinition[] {
   let definitions: unknown;
-  let overrides: unknown;
   try {
     definitions = JSON.parse(formats);
   } catch {
     throw Error(t("Custom format definitions aren't valid JSON."));
   }
-  try {
-    overrides = JSON.parse(scores);
-  } catch {
-    throw Error(t("Score overrides aren't valid JSON."));
-  }
   if (!Array.isArray(definitions)) throw Error(t("Definitions must be a JSON array."));
-  if (
-    !overrides ||
-    Array.isArray(overrides) ||
-    typeof overrides !== "object" ||
-    Object.values(overrides).some((v) => typeof v !== "number" || !Number.isInteger(v))
-  )
-    throw Error(t("Scores must map format IDs to whole numbers."));
-  return {
-    customFormats: definitions as CustomFormatDefinition[],
-    customFormatScores: overrides as Record<string, number>,
-  };
+  return definitions as CustomFormatDefinition[];
 }
 
 /** The key a definition is matched by: trash_id, then id, then name. */
@@ -150,12 +128,7 @@ export function sameFormats(
   return JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
 }
 
-/** What the profile drawer shows: shared definitions, and this profile's scores. */
-export function scoringText(resolver: ResolverPolicy | null, profile: QualityProfile) {
-  const own = profile.customFormatScores;
-  const scores = own && Object.keys(own).length > 0 ? own : (resolver?.customFormatScores ?? {});
-  return {
-    formats: JSON.stringify(resolver?.customFormats ?? [], null, 2),
-    scores: JSON.stringify(scores, null, 2),
-  };
+/** The shared custom format definitions as the profile drawer's editor shows them. */
+export function formatsJSON(resolver: ResolverPolicy | null): string {
+  return JSON.stringify(resolver?.customFormats ?? [], null, 2);
 }
