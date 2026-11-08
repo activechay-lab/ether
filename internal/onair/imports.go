@@ -3,6 +3,7 @@ package onair
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/egress"
+	"github.com/braedonsaunders/ether/internal/extras"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -99,13 +101,21 @@ func (t importTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(r.WithContext(context.WithValue(r.Context(), importProxyKey{}, proxy != nil)))
 }
 func (t importTransport) CloseIdleConnections() { t.base.CloseIdleConnections() }
+
 func importGET(ctx context.Context, c *http.Client, raw string) (*http.Response, error) {
+	return importGETWithHeaders(ctx, c, raw, nil)
+}
+
+func importGETWithHeaders(ctx context.Context, c *http.Client, raw string, headers map[string]string) (*http.Response, error) {
 	if e := publicImportURL(ctx, raw); e != nil {
 		return nil, e
 	}
 	r, e := http.NewRequestWithContext(ctx, "GET", raw, nil)
 	if e != nil {
 		return nil, e
+	}
+	for k, v := range headers {
+		r.Header.Set(k, v)
 	}
 	resp, e := c.Do(r)
 	if e != nil {
@@ -217,6 +227,55 @@ func (s *Service) importAssets(ctx context.Context, out []Asset) ([]Asset, error
 	}
 	return out, e
 }
+
+func defaultImportName(u *url.URL) string {
+	if u == nil {
+		return "Imported clip"
+	}
+	base := strings.TrimSpace(path.Base(u.Path))
+	switch strings.ToLower(base) {
+	case "", ".", "/", "watch", "shorts", "live", "playlist", "embed":
+		if v := strings.TrimSpace(u.Query().Get("v")); v != "" {
+			return u.Hostname() + " · " + v
+		}
+		if u.Hostname() != "" {
+			return u.Hostname()
+		}
+		return "Imported clip"
+	default:
+		return base
+	}
+}
+
+func (s *Service) cancelImport(id string) {
+	s.mu.Lock()
+	cancel := s.importCancels[id]
+	delete(s.importCancels, id)
+	delete(s.pending, "import-"+id)
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (s *Service) cancelReelImports(ctx context.Context, reel string) {
+	rows, err := s.db.QueryContext(ctx, "SELECT id FROM onair_imports WHERE reel_id=?", reel)
+	if err != nil {
+		return
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil && id != "" {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for _, id := range ids {
+		s.cancelImport(id)
+	}
+}
+
 func (s *Service) Import(ctx context.Context, reel string, in ImportRequest) ([]ImportJob, error) {
 	urls := append([]string(nil), in.URLs...)
 	if in.URL != "" {
@@ -247,7 +306,7 @@ func (s *Service) Import(ctx context.Context, reel string, in ImportRequest) ([]
 		j := ImportJob{UseSourceTitle: in.Name == "", ID: newID(), Source: raw, Name: in.Name, Kind: in.Kind, Status: "queued"}
 		if j.Name == "" {
 			u, _ := url.Parse(raw)
-			j.Name = path.Base(u.Path)
+			j.Name = defaultImportName(u)
 		}
 		b, _ := json.Marshal(j)
 		if _, e := s.db.ExecContext(ctx, "INSERT INTO onair_imports(id,reel_id,data) VALUES(?,?,?)", j.ID, reel, string(b)); e != nil {
@@ -265,20 +324,53 @@ func (s *Service) Import(ctx context.Context, reel string, in ImportRequest) ([]
 }
 func (s *Service) runImport(ctx context.Context, reel string, j ImportJob) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	defer cancel()
+	s.mu.Lock()
+	if s.importCancels == nil {
+		s.importCancels = map[string]context.CancelFunc{}
+	}
+	s.importCancels[j.ID] = cancel
+	s.mu.Unlock()
 	defer func() {
-		if err != nil {
+		s.mu.Lock()
+		delete(s.importCancels, j.ID)
+		s.mu.Unlock()
+		cancel()
+	}()
+	defer func() {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			j.Status = "error"
 			j.Error = err.Error()
 			s.saveImport(context.WithoutCancel(ctx), reel, j)
 		}
 	}()
+	// Check that the job was not cancelled while waiting in the queue.
+	var exists int
+	if e := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM onair_imports WHERE id=?", j.ID).Scan(&exists); e != nil {
+		return e
+	}
+	if exists == 0 {
+		return nil
+	}
 	j.Status = "downloading"
 	s.saveImport(ctx, reel, j)
 	c := importClient()
 	defer c.CloseIdleConnections()
 	raw := j.Source
 	u, _ := url.Parse(raw)
+	if e := publicImportURL(ctx, raw); e != nil {
+		return e
+	}
+	kind := j.Kind
+	if reel != "" {
+		kind = "video"
+	}
+	limit := int64(assetLimit)
+	maxDur := 30 * time.Second
+	if reel != "" {
+		limit = 500 << 20
+		maxDur = 3 * time.Minute
+	}
+
 	if strings.EqualFold(u.Hostname(), "archive.org") && strings.HasPrefix(u.Path, "/details/") {
 		item := strings.Split(strings.TrimPrefix(u.Path, "/details/"), "/")[0]
 		var title string
@@ -286,10 +378,13 @@ func (s *Service) runImport(ctx context.Context, reel string, j ImportJob) (err 
 		if err != nil {
 			return err
 		}
-		if j.UseSourceTitle {
+		if j.UseSourceTitle && strings.TrimSpace(title) != "" {
 			j.Name = title
 		}
+	} else if (kind == "video" || kind == "audio") && extras.IsExtractorSiteURL(raw) {
+		return s.runExtractorImport(ctx, c, reel, j, raw, kind, limit, maxDur)
 	}
+
 	resp, e := importGET(ctx, c, raw)
 	if e != nil {
 		return e
@@ -299,16 +394,12 @@ func (s *Service) runImport(ctx context.Context, reel string, j ImportJob) (err 
 	if e != nil {
 		return fmt.Errorf("invalid media content type")
 	}
-	kind := j.Kind
-	if reel != "" {
-		kind = "video"
-	}
 	if !strings.HasPrefix(mt, kind+"/") && mt != "application/octet-stream" {
+		if (kind == "video" || kind == "audio") && (mt == "text/html" || mt == "application/xhtml+xml") && s.o.Downloader != nil {
+			_ = resp.Body.Close()
+			return s.runExtractorImport(ctx, c, reel, j, raw, kind, limit, maxDur)
+		}
 		return fmt.Errorf("link is not %s media", kind)
-	}
-	limit := int64(assetLimit)
-	if reel != "" {
-		limit = 500 << 20
 	}
 	if resp.ContentLength > limit {
 		return fmt.Errorf("media exceeds size cap")
@@ -329,15 +420,114 @@ func (s *Service) runImport(ctx context.Context, reel string, j ImportJob) (err 
 	if _, e = f.Seek(0, 0); e != nil {
 		return e
 	}
+	return s.commitImportedMedia(ctx, reel, j, f)
+}
+
+func (s *Service) runExtractorImport(ctx context.Context, c *http.Client, reel string, j ImportJob, raw, kind string, limit int64, maxDur time.Duration) error {
+	if s.o.Downloader == nil {
+		return fmt.Errorf("yt-dlp is required to import from video sites; click Install yt-dlp to set it up")
+	}
+	workDir, err := os.MkdirTemp(s.o.Dir, ".import-ytdlp-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(workDir)
+
+	res, err := s.o.Downloader.Download(ctx, extras.DownloadRequest{
+		URL:         raw,
+		Kind:        kind,
+		Reel:        reel != "",
+		MaxBytes:    limit,
+		MaxDuration: maxDur,
+		OutputDir:   workDir,
+		Progress: func(pct float64) {
+			j.Progress = pct
+			_ = s.saveImport(ctx, reel, j)
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(res.Title) != "" {
+		if j.UseSourceTitle {
+			j.Name = cleanTitle(res.Title)
+		}
+		if j.Attribution == "" {
+			if strings.TrimSpace(res.Attribution) != "" {
+				j.Attribution = cleanTitle(res.Title + " · " + res.Attribution)
+			} else {
+				j.Attribution = cleanTitle(res.Title)
+			}
+		}
+	} else if j.Attribution == "" && strings.TrimSpace(res.Attribution) != "" {
+		j.Attribution = cleanTitle(res.Attribution)
+	}
+	_ = s.saveImport(ctx, reel, j)
+
+	if res.Path != "" {
+		f, err := os.Open(res.Path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		return s.commitImportedMedia(ctx, reel, j, f)
+	}
+	if res.ResolvedURL != "" {
+		resp, err := importGETWithHeaders(ctx, c, res.ResolvedURL, res.Headers)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.ContentLength > limit {
+			return fmt.Errorf("media exceeds size cap")
+		}
+		f, err := os.CreateTemp(s.o.Dir, ".import-*")
+		if err != nil {
+			return err
+		}
+		defer os.Remove(f.Name())
+		defer f.Close()
+		n, err := copyImport(f, resp.Body, limit, resp.ContentLength, func(progress float64) {
+			j.Progress = progress
+			_ = s.saveImport(ctx, reel, j)
+		})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("empty media")
+		}
+		if _, err = f.Seek(0, 0); err != nil {
+			return err
+		}
+		return s.commitImportedMedia(ctx, reel, j, f)
+	}
+	return fmt.Errorf("could not download media from link")
+}
+
+func cleanTitle(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 255 {
+		s = strings.TrimSpace(s[:255])
+	}
+	return s
+}
+
+func (s *Service) commitImportedMedia(ctx context.Context, reel string, j ImportJob, f io.Reader) error {
 	var exists int
-	if e = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM onair_imports WHERE id=?", j.ID).Scan(&exists); e != nil {
+	if e := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM onair_imports WHERE id=?", j.ID).Scan(&exists); e != nil {
 		return e
 	}
 	if exists == 0 {
 		return nil
 	}
+	var e error
 	if reel != "" {
-		_, e = s.uploadClip(ctx, reel, j.Name, j.Source, j.Attribution, f, j.ID)
+		var c ReelClip
+		c, e = s.uploadClip(ctx, reel, j.Name, j.Source, j.Attribution, f, j.ID)
+		if e == nil && c.SourceDigest != "" {
+			_, _ = s.db.ExecContext(ctx, "UPDATE onair_assets SET source=?,attribution=? WHERE digest=?", j.Source, j.Attribution, c.SourceDigest)
+		}
 	} else {
 		var a Asset
 		a, e = s.UploadAsset(ctx, j.Name, j.Kind, j.Attribution, f)
@@ -351,6 +541,7 @@ func (s *Service) runImport(ctx context.Context, reel string, j ImportJob) (err 
 	_, e = s.db.ExecContext(ctx, "DELETE FROM onair_imports WHERE id=?", j.ID)
 	return e
 }
+
 func (s *Service) importHandler(reel bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in ImportRequest
@@ -422,6 +613,7 @@ func (s *Service) resumeImports() {
 	}
 	rows.Close()
 	for _, v := range jobs {
+		v := v
 		if !s.enqueue(renderJob{download: true, Hash: "import-" + v.j.ID, prepare: func(ctx context.Context) error { return s.runImport(ctx, v.reel, v.j) }}) {
 			v.j.Status = "error"
 			v.j.Error = "import queue full"

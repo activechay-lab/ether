@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/extras"
 	"github.com/go-chi/chi/v5"
 	"io"
 	"net/http"
@@ -23,6 +24,19 @@ import (
 func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 	r := chi.NewRouter()
 	s.StudioRoutes(r)
+	r.Get("/downloader", func(w http.ResponseWriter, r *http.Request) {
+		result(w, s.DownloaderStatus(), nil)
+	})
+	r.Post("/downloader/install", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Update bool `json:"update"`
+		}
+		if r.ContentLength > 0 && !body(w, r, &in) {
+			return
+		}
+		v, e := s.InstallDownloader(r.Context(), in.Update)
+		result(w, v, e)
+	})
 	r.Post("/assets/import", s.importHandler(false))
 	r.Post("/reels/{id}/clips/import", s.importHandler(true))
 	r.Get("/fonts/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -232,6 +246,23 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 	})
 	return r
 }
+
+// DownloaderStatus returns the active yt-dlp-compatible command status for link imports.
+func (s *Service) DownloaderStatus() extras.DownloaderStatus {
+	if s.o.Downloader == nil {
+		return extras.DownloaderStatus{Source: "none", PinnedVersion: extras.PinnedYTDLPVersion}
+	}
+	return s.o.Downloader.Status()
+}
+
+// InstallDownloader installs or updates the managed yt-dlp standalone release binary.
+func (s *Service) InstallDownloader(ctx context.Context, update bool) (extras.DownloaderStatus, error) {
+	if s.o.Downloader == nil {
+		return extras.DownloaderStatus{Source: "none", PinnedVersion: extras.PinnedYTDLPVersion}, fmt.Errorf("downloader is not configured")
+	}
+	return s.o.Downloader.Install(ctx, update)
+}
+
 func multipart(w http.ResponseWriter, r *http.Request, max int64) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, max+(1<<20))
 	if e := r.ParseMultipartForm(1 << 20); e != nil {

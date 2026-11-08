@@ -9,6 +9,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/cluster"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/extras"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/llm"
 	"github.com/braedonsaunders/ether/internal/onair"
@@ -76,6 +77,11 @@ func (a *App) buildOnAir() error {
 			return 1920, 1080
 		}
 	}
+	o.Downloader = extras.NewDownloader(extras.DownloaderOptions{
+		ToolsDir: filepath.Join(a.opts.DataDir, "tools"),
+		Config:   func() config.Extras { return a.cfg.Read().Extras },
+		FFmpeg:   o.FFmpeg,
+	})
 	o.AssetDir = filepath.Join(a.opts.DataDir, backup.OnAirAssetDir)
 	if a.cluster != nil {
 		o.NodeID = a.cluster.Self().ID

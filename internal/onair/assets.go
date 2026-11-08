@@ -230,6 +230,7 @@ func (s *Service) assetUsage(ctx context.Context, d string) ([]string, error) {
 	return out, rows.Err()
 }
 func (s *Service) DeleteAsset(ctx context.Context, d string) error {
+	s.cancelImport(d)
 	pending, e := s.db.ExecContext(ctx, "DELETE FROM onair_imports WHERE id=? AND reel_id=''", d)
 	if e != nil {
 		return e

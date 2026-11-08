@@ -3,7 +3,7 @@ import { libraryMock } from "./onair-library";
 import type { Programme } from "../pages/livetv/model";
 import clipPreview from "./clip-preview.mp4?url";
 import { referenceLooks, templates } from "../pages/livetv/onair/fixtures";
-import type { Look, Reel, OnAirAsset } from "../pages/livetv/onair/model";
+import type { Look, Reel, OnAirAsset, DownloaderStatus } from "../pages/livetv/onair/model";
 export function createOnAirMock(
   tv: {
     handle: (
@@ -17,6 +17,13 @@ export function createOnAirMock(
 ) {
   let looks = structuredClone(referenceLooks);
   let serial = 0;
+  let downloader: DownloaderStatus = {
+    available: false,
+    source: "none",
+    pinnedVersion: "2026.10.26",
+    canInstall: true,
+    canUpdate: false,
+  };
   let reels: Reel[] = [
     {
       id: "saturday",
@@ -122,6 +129,20 @@ export function createOnAirMock(
     ): { body: unknown; status?: number } | null {
       const library = libraryMock(method, seg, body);
       if (library) return library;
+      if (seg[0] === "onair" && seg[1] === "downloader") {
+        if (method === "GET") return { body: downloader };
+        if (method === "POST" && seg[2] === "install") {
+          downloader = {
+            available: true,
+            source: "managed",
+            version: "2026.10.26",
+            pinnedVersion: "2026.10.26",
+            canInstall: true,
+            canUpdate: true,
+          };
+          return { body: downloader };
+        }
+      }
       if (seg[0] === "onair" && seg[1] === "scenes" && seg[2] === "validate" && method === "POST") {
         const sc = body as import("../pages/livetv/onair/studio-model").StyleScene;
         const valid =
@@ -264,6 +285,30 @@ export function createOnAirMock(
       if (kind === "reels") {
         const reel = reels.find((r) => r.id === id);
         if (action === "clips" && reel) {
+          if (method === "POST" && clipId === "import") {
+            const req = body as { urls?: string[]; url?: string };
+            const urls = [...(req.urls ?? []), ...(req.url ? [req.url] : [])];
+            const jobs = urls.map((u) => {
+              const clip = {
+                id: "clip-" + ++serial,
+                name: u.includes("youtube.com") || u.includes("youtu.be")
+                  ? "1986 Retro Commercial Spot"
+                  : u.split("/").pop() || "Imported clip",
+                source: u,
+                attribution:
+                  u.includes("youtube.com") || u.includes("youtu.be")
+                    ? "1986 Retro Commercial Spot · Broadcast Vault"
+                    : undefined,
+                durationMs: 30000,
+                status: "downloading" as const,
+                progress: 35,
+              };
+              reel.clips.push(clip);
+              conversions.set(clip.id, Date.now());
+              return clip;
+            });
+            return { body: jobs, status: 202 };
+          }
           if (method === "POST") {
             const file = body instanceof FormData ? (body.get("file") as File) : null;
             const clip = {

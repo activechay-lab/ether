@@ -138,6 +138,14 @@ export type OnAirAsset = {
   usedBy: string[];
   url?: string;
 };
+export type DownloaderStatus = {
+  available: boolean;
+  source: "managed" | "path" | "configured" | "none";
+  version?: string;
+  pinnedVersion: string;
+  canInstall: boolean;
+  canUpdate: boolean;
+};
 const enc = encodeURIComponent;
 const write = <T>(path: string, method: string, body?: unknown) =>
   apiFetch<T>(path, { method, body: body instanceof FormData ? body : JSON.stringify(body) });
@@ -179,6 +187,9 @@ export const onair = {
     return write<OnAirAsset>("/onair/assets", "POST", data);
   },
   deleteAsset: (id: string) => write<void>(`/onair/assets/${enc(id)}`, "DELETE"),
+  downloaderStatus: () => apiFetch<DownloaderStatus>("/onair/downloader"),
+  installDownloader: (update = false) =>
+    write<DownloaderStatus>("/onair/downloader/install", "POST", { update }),
   rundown: (id: string, viewer?: string) =>
     apiFetch<{ id: string; title: string; start: string; end: string; reason: string }[]>(
       `/livetv/channels/${enc(id)}/rundown?viewer=${enc(viewer ?? "")}`,

@@ -12,6 +12,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/extras"
 	"github.com/braedonsaunders/ether/internal/onair/encode"
 	"github.com/braedonsaunders/ether/internal/onair/families"
 	"github.com/braedonsaunders/ether/internal/onair/fonts"
@@ -60,6 +61,9 @@ type Options struct {
 	Members func(context.Context) ([]Member, error)
 	// AssetsChanged asks every node to run an asset pass (PokeAssets).
 	AssetsChanged func(context.Context)
+	// Downloader resolves and downloads video/audio pages via yt-dlp or the
+	// owner's configured resolver command.
+	Downloader *extras.Downloader
 }
 type entry struct {
 	Ref  core.ClipRef
@@ -103,17 +107,18 @@ type Service struct {
 	pending        map[string]bool
 	// failed holds a retry time per content hash after a render error, so a
 	// boundary that re-requests every tick cannot spin a failing render.
-	failed      map[string]failure
-	renderTimes map[string]time.Duration
-	progress    map[string]*Progress
-	lookJobs    map[string][]string
-	jobs        chan renderJob
-	clipJobs    chan renderJob
-	importJobs  chan renderJob
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	startOnce   sync.Once
+	failed        map[string]failure
+	renderTimes   map[string]time.Duration
+	progress      map[string]*Progress
+	lookJobs      map[string][]string
+	importCancels map[string]context.CancelFunc
+	jobs          chan renderJob
+	clipJobs      chan renderJob
+	importJobs    chan renderJob
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	startOnce     sync.Once
 }
 
 var _ core.ChannelGraphics = (*Service)(nil)
@@ -137,8 +142,14 @@ func New(o Options) (*Service, error) {
 	if o.NodeID == "" {
 		o.NodeID = "local"
 	}
+	if o.Downloader == nil {
+		o.Downloader = extras.NewDownloader(extras.DownloaderOptions{
+			ToolsDir: filepath.Join(o.Dir, "tools"),
+			FFmpeg:   o.FFmpeg,
+		})
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{blobs: blobStore{dir: o.AssetDir}, nodeID: o.NodeID, assetPoke: make(chan struct{}, 1), fetching: map[string]chan struct{}{}, reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, liveReady: make(chan struct{}, 1), jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
+	s := &Service{blobs: blobStore{dir: o.AssetDir}, nodeID: o.NodeID, assetPoke: make(chan struct{}, 1), fetching: map[string]chan struct{}{}, reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, importCancels: map[string]context.CancelFunc{}, liveReady: make(chan struct{}, 1), jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
 
 	if e := s.seed(ctx); e != nil {
 		cancel()
@@ -174,6 +185,9 @@ func New(o Options) (*Service, error) {
 	}
 	return s, nil
 }
+
+// Downloader returns the yt-dlp downloader shared with this service.
+func (s *Service) Downloader() *extras.Downloader { return s.o.Downloader }
 
 // Start begins workers after application dependencies have been constructed.
 func (s *Service) Start() {
@@ -535,7 +549,7 @@ func (s *Service) queueLook(l Look, requests []core.ClipRequest) {
 	}
 	for channel, base := range channels {
 		for _, sc := range l.Scenes {
-			key := channel + "\x00" + sc.Role
+			key := channel + "\x00"+sc.Role
 			if sc.Enabled && !seen[key] {
 				r := base
 				r.Moment = sc.Role
@@ -766,7 +780,7 @@ func (s *Service) process(j renderJob) {
 	delete(s.pending, j.Hash)
 	s.refreshProgress(j.Look)
 	s.mu.Unlock()
-	if errors.Is(e, context.Canceled) && s.ctx.Err() == nil {
+	if errors.Is(e, context.Canceled) && s.ctx.Err() == nil && !j.download {
 		s.enqueue(j)
 	}
 	if e != nil && s.ctx.Err() == nil && !errors.Is(e, context.Canceled) && j.scene() {

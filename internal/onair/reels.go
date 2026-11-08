@@ -141,6 +141,7 @@ func (s *Service) DeleteReel(ctx context.Context, id string) error {
 	if e != nil {
 		return e
 	}
+	s.cancelReelImports(ctx, id)
 	// assetMu before the write transaction, the order DeleteAsset uses.
 	s.assetMu.Lock()
 	defer s.assetMu.Unlock()
@@ -441,6 +442,7 @@ func (s *Service) silenceEdges(ctx context.Context, path string, duration time.D
 }
 
 func (s *Service) DeleteClip(ctx context.Context, reel, id string) error {
+	s.cancelImport(id)
 	res, e := s.db.ExecContext(ctx, "DELETE FROM onair_imports WHERE id=? AND reel_id=?", id, reel)
 	if e != nil {
 		return e
